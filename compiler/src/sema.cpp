@@ -303,6 +303,12 @@ bool is_value_builtin(const std::string_view name) {
     return name == "SizeOf" || name == "TypeName" || name == "AddressOf";
 }
 
+/// Whether a name is Load<T>(value) or Save(x), which make a T from a std.core Value and a Value
+/// from an x, when the code doesn't declare one of its own.
+bool is_data_builtin(const std::string_view name) {
+    return name == "Load" || name == "Save";
+}
+
 /// Whether a member of a T[] is one of its sizes, Count or Capacity, which aren't Methods.
 bool is_array_size(const std::string_view name) {
     return name == "Count" || name == "Capacity";
@@ -378,12 +384,14 @@ public:
         }
 
         find_duration();
+        find_load_support();
 
         // Globals and Consts come first, so any declaration's types can use them.
         each_item([this](const stmt_id_t id) { declare_global_item(id); });
         each_item([this](const stmt_id_t id) { resolve_global_type(id); });
         each_item([this](const stmt_id_t id) { declare_item(id); });
         each_item([this](const stmt_id_t id) { resolve_alias(id); });
+        find_load_helpers();
         check_extern_symbols();
         check_from_names();
         check_overloads();
@@ -427,6 +435,7 @@ public:
         each_item([this](const stmt_id_t id) { check_signatures(id); });
         each_item([this](const stmt_id_t id) { check_attributes(id); });
         each_item([this](const stmt_id_t id) { check_debug_attributes(id); });
+        each_item([this](const stmt_id_t id) { check_loaded_type(id); });
         check_top_level();
         each_item([this](const stmt_id_t id) { check_function(id); });
         check_threads();
@@ -717,6 +726,8 @@ private:
     type_id_t m_range = type_id_t::INVALID;
     /// std.time's Duration, which Wait and RealWait take, from std/time/duration.fb.
     type_id_t m_duration = type_id_t::INVALID;
+    /// What a call of Load<T>(value) throws, as check_throwing_call() reads a function's.
+    std::optional<symbol_id_t> m_load;
 
     /// The type parameters that names in types can refer to here: a generic Struct's or Class's,
     /// then a generic Method's or Function's.
@@ -1299,6 +1310,63 @@ private:
         if (error != type_id_t::INVALID && is_class(error)) {
             m_analysis.error_class = error;
             m_analysis.nullable_error = m_analysis.types.nullable(error);
+        }
+    }
+
+    /// What Load<T>(value) and Save(x) use from std.core, and the symbol whose Throws says what
+    /// Load throws, a ParseError.
+    void find_load_support() {
+        load_support_t& loading = m_analysis.loading;
+        const auto find = [this](const std::string_view name, const bool attribute) {
+            const type_id_t found = std_type("std.core.load", name);
+            if (found == type_id_t::INVALID ||
+                (attribute ? !is_attribute_type(found) : !is_interface(found))) {
+                return type_id_t::INVALID;
+            }
+
+            return found;
+        };
+        const type_id_t value = std_type("std.core.value", "Value");
+        const type_id_t parse_error = std_type("std.core.error", "ParseError");
+        if (value == type_id_t::INVALID || !is_class(value) || parse_error == type_id_t::INVALID ||
+            !is_class(parse_error)) {
+            return;
+        }
+
+        loading = {
+            .value = value,
+            .parse_error = parse_error,
+            .map = m_map,
+            .rename = find("Rename", true),
+            .skip = find("Skip", true),
+            .optional = find("Optional", true),
+            .flatten = find("Flatten", true),
+            .renamed = find("Renamed", true),
+            .loadable = find("Loadable", false),
+            .saveable = find("Saveable", false),
+        };
+        m_load = add_symbol({
+            .kind = symbol_kind_t::BUILTIN_FUNCTION,
+            .name = "Load",
+            .type = type_id_t::INVALID,
+            .throws = { parse_error },
+        });
+    }
+
+    /// std/core/load.fb's Functions, which the code of Load and Save calls, once Functions are
+    /// declared.
+    void find_load_helpers() {
+        const std::vector<module_t>& modules = m_ast.modules().modules();
+        for (std::size_t i = 0; i < modules.size(); ++i) {
+            if (modules[i].name != "std.core.load") {
+                continue;
+            }
+
+            for (const auto& [name, symbols] : m_modules[i].names) {
+                if (symbols.size() == 1 && symbol(symbols.front()).kind == symbol_kind_t::FUNCTION) {
+                    m_analysis.loading.helpers[name] = symbols.front();
+                }
+            }
         }
     }
 
@@ -3259,6 +3327,11 @@ private:
             return false;
         }
 
+        if (name.text == "OnLoaded") {
+            error(name.span, "an Extend can't add an OnLoaded; Load<T> runs a type's own");
+            return false;
+        }
+
         if (function != nullptr && function->kind == function_kind_t::OPERATOR && !object) {
             error(name.span, "an Extend of {} can't add Operators; only a Struct's or Class's can",
                   shown_name(target));
@@ -3721,6 +3794,7 @@ private:
                   "fields");
         }
 
+        check_on_loaded(node, in_class);
         if (node.name.text != "Destroy" || node.kind == function_kind_t::CONSTRUCTOR) {
             return;
         }
@@ -3739,6 +3813,33 @@ private:
             error(*node.modifiers.visibility_span,
                   "Destroy runs by itself, so nothing calls it, and it takes no {}",
                   spelling(node.modifiers.visibility));
+        }
+    }
+
+    /// OnLoaded is what Load<T> runs on the T it made, once its Fields are filled, as Destroy runs
+    /// by itself: a Method that takes and gives nothing, ByRef in a Struct, so it can change what
+    /// was loaded. check_loaded_type() checks what it throws.
+    void check_on_loaded(const function_stmt_t& node, const bool in_class) {
+        if (node.name.text != "OnLoaded" || node.kind == function_kind_t::CONSTRUCTOR ||
+            node.kind == function_kind_t::OPERATOR) {
+            return;
+        }
+
+        if (!node.parameters.empty() || node.return_type) {
+            error(node.name.span, "OnLoaded takes no parameters and returns nothing; Load<T> runs "
+                                  "it");
+        } else if (!node.type_parameters.empty()) {
+            error(node.name.span, "OnLoaded can't be generic, since Load<T> runs it");
+        } else if (!node.constraints.empty()) {
+            error(node.name.span,
+                  "OnLoaded can't have a Where line, since Load<T> runs every T's");
+        } else if (node.modifiers.is_static) {
+            error(node.name.span, "OnLoaded can't be Static; it runs on what Load<T> makes");
+        } else if (node.modifiers.is_async) {
+            error(node.name.span, "OnLoaded can't be Async, since Load<T> runs it to its end");
+        } else if (!in_class && node.kind != function_kind_t::BYREF_METHOD) {
+            error(node.name.span,
+                  "a Struct's OnLoaded is a ByRef Method, so it can change what was loaded");
         }
     }
 
@@ -7059,6 +7160,7 @@ private:
         const std::optional<symbol_id_t> declared = m_analysis.stmts[index(id)].symbol;
         if (modifiers != nullptr && declared) {
             std::vector<attribute_value_t> values;
+            std::vector<span_t> spans;
             for (const attribute_t& attribute : modifiers->attributes) {
                 if (std::optional<attribute_value_t> value = check_attribute(attribute)) {
                     if (std::ranges::contains(values, value->type, &attribute_value_t::type)) {
@@ -7068,15 +7170,177 @@ private:
                     }
 
                     values.push_back(std::move(*value));
+                    spans.push_back(attribute.name.span);
                 }
             }
 
             symbol(*declared).attributes = std::move(values);
+            check_load_attributes(*declared, spans);
         }
 
         if (members != nullptr) {
             for (const stmt_id_t member : *members) {
                 check_attributes(member);
+            }
+        }
+    }
+
+    /// std.core's attributes for Load and Save, which go on a Struct's or Class's Field, each where
+    /// it means something: @Skip leaves its Field out, so no other goes with it, and a @Flatten
+    /// Field, a Struct or Class whose Fields go in the Object with the others, has no key of its
+    /// own to rename, or leave out. `spans` has where each attribute is written.
+    void check_load_attributes(const symbol_id_t id, const std::vector<span_t>& spans) {
+        const load_support_t& loading = m_analysis.loading;
+        const symbol_t& declared = symbol(id);
+        const std::array keyed{ loading.rename, loading.optional, loading.renamed };
+        std::optional<type_id_t> alone;
+        for (std::size_t i = 0; i < declared.attributes.size(); ++i) {
+            const type_id_t type = declared.attributes[i].type;
+            const bool own = std::ranges::contains(keyed, type) || type == loading.skip ||
+                             type == loading.flatten;
+            if (type == type_id_t::INVALID || !own) {
+                continue;
+            }
+
+            if (declared.kind != symbol_kind_t::FIELD) {
+                error(spans[i], "@{} goes on a Struct's or Class's Field, which Load and Save read",
+                      shown_name(type));
+                continue;
+            }
+
+            if (alone && (*alone == loading.skip || type == loading.skip)) {
+                error(spans[i], "@Skip leaves the Field out, so @{} doesn't go with it",
+                      shown_name(*alone == loading.skip ? type : *alone));
+                continue;
+            }
+
+            if (alone && (*alone == loading.flatten || type == loading.flatten)) {
+                error(spans[i],
+                      "a @Flatten Field's Fields go in the Object with the others, so it has no key "
+                      "for @{}",
+                      shown_name(*alone == loading.flatten ? type : *alone));
+                continue;
+            }
+
+            alone = alone.value_or(type);
+            // What Load leaves at its default needs one, which a type without a zero only has
+            // when the Field gives it.
+            std::vector<type_id_t> inside;
+            parameters_in(declared.type, inside);
+            if ((type == loading.optional || type == loading.skip) && !declared.value &&
+                !declared.empty_default && inside.empty() &&
+                !m_analysis.types.has_zero(declared.type) && declared.type != type_id_t::INVALID) {
+                error(spans[i], "@{} leaves '{}' at its default when Load makes {}, and {} has no "
+                                "zero, so it needs a default of its own",
+                      shown_name(type), declared.name, shown_name(declared.owner),
+                      shown_name(declared.type));
+            }
+
+            if (type == loading.flatten && !is_struct(declared.type) && !is_class(declared.type) &&
+                !is_parameter(declared.type) && declared.type != type_id_t::INVALID) {
+                error(spans[i],
+                      "@Flatten goes on a Struct's or Class's Field whose own type is a Struct or "
+                      "Class, whose Fields join the others; '{}' is {}",
+                      declared.name, shown_name(declared.type));
+            }
+        }
+    }
+
+    /// The key a Field has in a Value's Object, its name or its @Rename's, or nullopt for a @Skip
+    /// or @Flatten Field, which has none.
+    [[nodiscard]] std::optional<std::string> load_key(const symbol_id_t id) const {
+        const load_support_t& loading = m_analysis.loading;
+        if (has_attribute(id, loading.skip) || has_attribute(id, loading.flatten)) {
+            return std::nullopt;
+        }
+
+        return attribute_text(id, loading.rename).value_or(std::string(m_analysis.symbol(id).name));
+    }
+
+    /// Why Load can't tell a Struct's or Class's Fields apart in a Value's Object, or Save keep
+    /// them apart: two have one key, inherited ones too, which happens where a Private one of
+    /// another file's Class has a name of its own, or for Load, a @Renamed Field's old key is
+    /// another's key, or its own. nullopt when each Field has a key of its own.
+    [[nodiscard]] std::optional<std::string> clashing_keys(const type_id_t type,
+                                                           const bool saving) const {
+        const std::vector<field_t>& fields = m_analysis.types.get(type).fields;
+        std::vector<std::pair<std::string, symbol_id_t>> keys;
+        const auto key_of = [&keys](const std::string& key) {
+            return std::ranges::find(keys, key, &std::pair<std::string, symbol_id_t>::first);
+        };
+        for (std::uint32_t i = 0; i < fields.size(); ++i) {
+            const std::optional<symbol_id_t> field = field_symbol(type, i);
+            const std::optional<std::string> key = field ? load_key(*field) : std::nullopt;
+            if (!key) {
+                continue;
+            }
+
+            if (const auto taken = key_of(*key); taken != keys.end()) {
+                return std::format(", whose Fields '{}' and '{}' both have the key \"{}\"; "
+                                   "@Rename gives one another",
+                                   m_analysis.symbol(taken->second).name,
+                                   m_analysis.symbol(*field).name, *key);
+            }
+
+            keys.emplace_back(*key, *field);
+        }
+
+        for (const auto& [key, field] : keys) {
+            const std::optional<std::string> old =
+                saving ? std::nullopt : attribute_text(field, m_analysis.loading.renamed);
+            const auto other = old ? key_of(*old) : keys.end();
+            if (other != keys.end()) {
+                return std::format(", whose Field '{}' was \"{}\" before, which is {} now, so "
+                                   "Load can't tell the two apart",
+                                   m_analysis.symbol(field).name, *old,
+                                   other->second == field
+                                       ? std::string("its own key")
+                                       : std::format("the key of '{}'",
+                                                     m_analysis.symbol(other->second).name));
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    /// The first value of an attribute with a String, like @Rename's, on a declaration.
+    [[nodiscard]] std::optional<std::string> attribute_text(const symbol_id_t id,
+                                                            const type_id_t attribute) const {
+        for (const attribute_value_t& value : m_analysis.symbol(id).attributes) {
+            if (value.type == attribute && attribute != type_id_t::INVALID &&
+                !value.values.empty()) {
+                return std::get<std::string>(value.values.front().data);
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    /// A Struct's or Class's OnLoaded throws only ParseErrors, which Load<T>, which runs it,
+    /// throws.
+    void check_loaded_type(const stmt_id_t id) {
+        const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node);
+        const std::optional<symbol_id_t> owner = m_analysis.stmts[index(id)].symbol;
+        const load_support_t& loading = m_analysis.loading;
+        if (declared == nullptr || declared->is_attribute || !owner) {
+            return;
+        }
+
+        for (const symbol_id_t member : symbol(*owner).members) {
+            const symbol_t& method = symbol(member);
+            if (method.kind != symbol_kind_t::METHOD || method.name != "OnLoaded" ||
+                method.extended || loading.parse_error == type_id_t::INVALID) {
+                continue;
+            }
+
+            for (const type_id_t thrown : method.throws) {
+                if (thrown != type_id_t::INVALID &&
+                    !m_analysis.types.extends(thrown, loading.parse_error)) {
+                    error(method.span,
+                          "OnLoaded throws only ParseErrors, which Load<T>, which runs it, "
+                          "throws; {} isn't one",
+                          shown_name(thrown));
+                }
             }
         }
     }
@@ -17921,6 +18185,9 @@ private:
         } else if (is_value_builtin(name)) {
             error(span, "'{}' is called, as in {}", name,
                   name == "AddressOf" ? "AddressOf(x)" : std::format("{}<T>()", name));
+        } else if (is_data_builtin(name)) {
+            error(span, "'{}' is called, as in {}", name,
+                  name == "Load" ? "Load<T>(value)" : "Save(x)");
         } else if (!from_failed_import(name, span) && !m_misplaced_externs.contains(name)) {
             error(span, "'{}' isn't declared", name);
         }
@@ -20284,6 +20551,13 @@ private:
                                           : check_type_name(id, node, *name);
         }
 
+        if (const auto* name = std::get_if<name_expr_t>(&m_ast.get(node.callee).node);
+            name != nullptr && is_data_builtin(name->name) &&
+            !declared_here(name->name, span_of(node.callee))) {
+            return name->name == "Load" ? check_load(id, node, *name)
+                                        : check_save(id, node, *name);
+        }
+
         if (const std::optional<type_kind_t> kind = in_place_maker(node.callee)) {
             if (*kind == type_kind_t::SCHEDULER) {
                 return check_scheduler_made(id, node);
@@ -20684,6 +20958,210 @@ private:
                 fb::c_layout(m_analysis.types, type, build_c_integers()).size),
         };
         return type_id_t::INT64;
+    }
+
+    /// "Load<T>(value)": a T made from a std.core Value, without running its New, which throws a
+    /// ParseError that says where in the Value what it couldn't make a part of the T from is.
+    /// Lowering builds each type's Load.
+    type_id_t check_load(const expr_id_t id, const call_expr_t& node, const name_expr_t& name) {
+        const type_id_t value = m_analysis.loading.value;
+        // One that's wrong still throws, as far as a Try around it goes, which then says nothing.
+        const auto failed = [&] {
+            if (m_load && !untried()) {
+                check_throwing_call(id, *m_load);
+            }
+
+            return type_id_t::INVALID;
+        };
+        if (name.type_arguments.size() != 1 || node.arguments.size() != 1 ||
+            node.arguments.front().by_ref || node.arguments.front().name) {
+            error(span_of(id), "Load takes one type argument and a Value, like "
+                               "Load<Settings>(value)");
+            check_alone(node.arguments);
+            return failed();
+        }
+
+        if (value == type_id_t::INVALID || !m_load) {
+            error(span_of(id), "Load needs std.core's Value and ParseError");
+            check_alone(node.arguments);
+            return type_id_t::INVALID;
+        }
+
+        const type_expr_id_t written = name.type_arguments.front();
+        const type_id_t type = resolve_type(written);
+        const expr_id_t argument = node.arguments.front().value;
+        check(argument, value);
+        expect_type(argument, value);
+        if (type == type_id_t::INVALID || !check_converted(type, false, m_ast.get(written).span)) {
+            return failed();
+        }
+
+        info(id).loaded = type;
+        check_throwing_call(id, *m_load);
+        return type;
+    }
+
+    /// "Save(x)", or "Save<T>(x)" for an x that converts to a T: a new std.core Value of it,
+    /// which Load<T>(value) makes a T from again. Lowering builds each type's Save.
+    type_id_t check_save(const expr_id_t id, const call_expr_t& node, const name_expr_t& name) {
+        const type_id_t value = m_analysis.loading.value;
+        if (name.type_arguments.size() > 1 || node.arguments.size() != 1 ||
+            node.arguments.front().by_ref || node.arguments.front().name) {
+            error(span_of(id), "Save takes a value, and a type argument or none, like "
+                               "Save(settings)");
+            check_alone(node.arguments);
+            return value;
+        }
+
+        if (value == type_id_t::INVALID) {
+            error(span_of(id), "Save needs std.core's Value");
+            check_alone(node.arguments);
+            return type_id_t::INVALID;
+        }
+
+        const expr_id_t argument = node.arguments.front().value;
+        type_id_t type = type_id_t::INVALID;
+        span_t span = span_of(argument);
+        if (name.type_arguments.empty()) {
+            type = check(argument, type_id_t::NONE);
+        } else {
+            span = m_ast.get(name.type_arguments.front()).span;
+            type = resolve_type(name.type_arguments.front());
+            check(argument, type);
+            if (type != type_id_t::INVALID && !expect_type(argument, type)) {
+                type = type_id_t::INVALID;
+            }
+        }
+
+        if (type != type_id_t::INVALID && check_converted(type, true, span)) {
+            info(id).saved = type;
+        }
+
+        return value;
+    }
+
+    /// Whether Load<T>() can make a `type`, or Save() write one: what it's made of, through T?s,
+    /// arrays, Maps, and Fields, is numbers, Bools, Strings, Enums, and Values, or what converts
+    /// itself. Else the part it can't, and where that is in `type`, is reported at `span`. A part
+    /// with type parameters in it is checked in each instance, once lowering knows its type
+    /// arguments.
+    bool check_converted(const type_id_t type, const bool saving, const span_t span) {
+        const load_support_t& loading = m_analysis.loading;
+        const std::string_view verb = saving ? "Save can't write" : "Load can't make";
+        struct part_t {
+            type_id_t type;
+            std::string path;
+        };
+        std::vector<part_t> pending{ { .type = type, .path = {} } };
+        std::unordered_set<type_id_t> seen;
+        const auto report = [&](const part_t& part, const std::string_view why) {
+            const std::string where =
+                part.path.empty() ? std::string{}
+                                  : std::format(", in {}'s {}", shown_name(type), part.path);
+            error(span, "{} {}{}{}", verb, shown_name(part.type), where, why);
+            return false;
+        };
+        while (!pending.empty()) {
+            const part_t part = std::move(pending.back());
+            pending.pop_back();
+            std::vector<type_id_t> inside;
+            parameters_in(part.type, inside);
+            if (part.type == type_id_t::INVALID || !inside.empty() || is_parameter(part.type) ||
+                !seen.insert(part.type).second) {
+                continue;
+            }
+
+            const type_id_t own = saving ? loading.saveable : loading.loadable;
+            const type_t& info = m_analysis.types.get(part.type);
+            if ((own != type_id_t::INVALID && implements(part.type, own)) ||
+                part.type == loading.value || (is_numeric(part.type) && !is_c_integer(part.type)) ||
+                part.type == type_id_t::BOOL || part.type == type_id_t::STRING ||
+                info.kind == type_kind_t::ENUM) {
+                continue;
+            }
+
+            if (info.kind == type_kind_t::NULLABLE || info.kind == type_kind_t::ARRAY) {
+                const std::string step = info.kind == type_kind_t::ARRAY ? "[]" : "";
+                pending.push_back({ .type = info.inner, .path = part.path + step });
+                continue;
+            }
+
+            if (loading.map != type_id_t::INVALID && info.generic == loading.map) {
+                if (info.arguments.front() != type_id_t::STRING) {
+                    return report(part, "; a Map's keys are an Object's, which are Strings");
+                }
+
+                pending.push_back({ .type = info.arguments[1], .path = part.path + "[]" });
+                continue;
+            }
+
+            if ((info.kind != type_kind_t::STRUCT && info.kind != type_kind_t::CLASS) ||
+                info.made) {
+                return report(part, std::format("; it {} numbers, Bool, String, Enums, Value, "
+                                                "T?, T[], Map<String, V>, and Structs and "
+                                                "Classes of them, and what implements {}",
+                                                saving ? "writes" : "makes",
+                                                saving ? "Saveable" : "Loadable"));
+            }
+
+            if (!saving && symbol(m_declared_types.at(definition_of(part.type)))
+                               .modifiers.is_abstract) {
+                return report(part, ", which is Abstract, so there's no object of it to make");
+            }
+
+            if (const std::optional<std::string> clash = clashing_keys(part.type, saving)) {
+                return report(part, *clash);
+            }
+
+            for (std::uint32_t i = 0; i < info.fields.size(); ++i) {
+                const std::optional<symbol_id_t> field = field_symbol(part.type, i);
+                if (field && has_attribute(*field, loading.skip)) {
+                    continue;
+                }
+
+                const type_kind_t kind = m_analysis.types.get(info.fields[i].type).kind;
+                const std::string path = part.path.empty()
+                                             ? info.fields[i].name
+                                             : std::format("{}.{}", part.path, info.fields[i].name);
+                if (kind == type_kind_t::ATOMIC || kind == type_kind_t::MUTEX) {
+                    return report({ .type = info.fields[i].type, .path = path },
+                                  ", which can't be copied; @Skip leaves its Field out");
+                }
+
+                pending.push_back({ .type = info.fields[i].type, .path = path });
+            }
+        }
+
+        return true;
+    }
+
+    /// The symbol of a Struct's or Class's field, by its position, which may be in a Class it
+    /// extends.
+    [[nodiscard]] std::optional<symbol_id_t> field_symbol(const type_id_t type,
+                                                          const std::uint32_t index) const {
+        for (type_id_t at = type; at != type_id_t::INVALID;
+             at = m_analysis.types.get(definition_of(at)).base) {
+            const auto found = m_declared_types.find(definition_of(at));
+            if (found == m_declared_types.end()) {
+                return std::nullopt;
+            }
+
+            for (const symbol_id_t member : m_analysis.symbol(found->second).members) {
+                const symbol_t& field = m_analysis.symbol(member);
+                if (field.kind == symbol_kind_t::FIELD && field.field == index) {
+                    return member;
+                }
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    /// Whether a declaration has an attribute, like std.core's @Skip. Without the standard
+    /// library, its attribute is INVALID, which none has.
+    [[nodiscard]] bool has_attribute(const symbol_id_t id, const type_id_t attribute) const {
+        return attribute != type_id_t::INVALID &&
+               std::ranges::contains(m_analysis.symbol(id).attributes, attribute, &attribute_value_t::type);
     }
 
     /// A call of a Const Function whose arguments are all known runs in the compiler, and gives

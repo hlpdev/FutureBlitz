@@ -1,0 +1,2 @@
+"red"
+panic: a @Flatten Field's Tag is saved as an Object, and its ToValue gave "red" at std/core/load.fb:363:9

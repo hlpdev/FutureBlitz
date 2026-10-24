@@ -421,12 +421,19 @@ private:
         DEBUG,
         /// The debug form of an array of (key, value) tuples, as a Map's: {"a": 1}.
         DEBUG_ENTRIES,
+        /// Any type's, for Load<T>(value) and Save(x): makes one from a std.core Value, or a
+        /// Value from one.
+        LOAD,
+        SAVE,
     };
 
     struct generated_t {
         generated_kind_t kind;
         type_id_t type;
         function_id_t function;
+        /// For LOAD and SAVE: where the first code that needed it is, which an instance of a type
+        /// it can't convert is reported at.
+        span_t span;
     };
 
     /// The array functions the program uses, and each Task's and Thread's work, whose bodies are
@@ -6844,9 +6851,10 @@ private:
                             text, true);
     }
 
-    /// The function that compares, hashes, or gives the text of arrays of `type`, declared the
-    /// first time it's needed.
-    function_id_t generated(const generated_kind_t kind, const type_id_t type) {
+    /// The function that compares, hashes, or gives the text of arrays of `type`, or loads or
+    /// saves a `type`, declared the first time it's needed, there.
+    function_id_t generated(const generated_kind_t kind, const type_id_t type,
+                            const span_t span = {}) {
         const auto found = std::ranges::find_if(m_generated, [&](const generated_t& function) {
             return function.kind == kind && function.type == type;
         });
@@ -6869,6 +6877,12 @@ private:
             full = std::format("{}.{}(Int32)", name,
                                kind == generated_kind_t::DEBUG ? "Debug" : "DebugEntries");
             result = type_id_t::STRING;
+        } else if (kind == generated_kind_t::LOAD) {
+            full = std::format("{}.Load(Value, Int32)", name);
+            result = type;
+        } else if (kind == generated_kind_t::SAVE) {
+            full = std::format("{}.Save(Int32)", name);
+            result = m_analysis.loading.value;
         } else {
             full = std::format("{}.ToString()", name);
             result = type_id_t::STRING;
@@ -6876,7 +6890,7 @@ private:
 
         const auto id = static_cast<function_id_t>(m_module.functions.size());
         m_module.functions.push_back({ .name = std::move(full), .return_type = result });
-        m_generated.push_back({ .kind = kind, .type = type, .function = id });
+        m_generated.push_back({ .kind = kind, .type = type, .function = id, .span = span });
         // A Task's Class has its work first in its Method table, where the runtime finds it.
         if (kind == generated_kind_t::RUN) {
             add_runtime_class(type, { id });
@@ -6889,6 +6903,11 @@ private:
     /// equal to the other's; its Hash combines its count and its elements'; and its text is
     /// like "[1, 2, 3]".
     void lower_generated(const generated_t& generated) {
+        if (generated.kind == generated_kind_t::LOAD || generated.kind == generated_kind_t::SAVE) {
+            lower_conversion(generated);
+            return;
+        }
+
         begin_function(generated.function);
         const type_id_t type = generated.type;
         const type_id_t element = types().get(type).inner;
@@ -7005,7 +7024,796 @@ private:
             terminate(return_t{});
             break;
         }
+        case generated_kind_t::LOAD:
+        case generated_kind_t::SAVE:
+            break; // lower_conversion() lowers these
         }
+    }
+
+    /// "Load<T>(value)": T's Load, from its Value, at depth 0, which puts what it throws in the
+    /// call's error variable, a ParseError, whose Place is the call's.
+    operand_t lower_load(const expr_id_t id) {
+        const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
+        const type_id_t type = concrete(expect(m_analysis.expr(id).loaded));
+        const operand_t value = lower_value(node.arguments.front().value);
+        const local_id_t error = error_variable();
+        call_t call{
+            .function = generated(generated_kind_t::LOAD, type, span_of(id)),
+            .arguments = { { .value = value },
+                           { .value = zero(type_id_t::INT32) },
+                           { .value = place_t{ error }, .by_ref = true } },
+        };
+        const operand_t made = temporary(std::move(call), type);
+        check_load_error(error, span_of(id), [](const operand_t& /*thrown*/) {});
+        if (has_references(type)) {
+            m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(made).root));
+        }
+
+        return made;
+    }
+
+    /// "Save(x)": a new Value of x, from its type's Save, at depth 0.
+    operand_t lower_save(const expr_id_t id) {
+        const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
+        const type_id_t type = concrete(expect(m_analysis.expr(id).saved));
+        const operand_t value = lower_value(node.arguments.front().value);
+        call_t call{
+            .function = generated(generated_kind_t::SAVE, type, span_of(id)),
+            .arguments = { { .value = value }, { .value = zero(type_id_t::INT32) } },
+        };
+        return temporary(std::move(call), m_analysis.loading.value, true);
+    }
+
+    /// An error that a call of a Load, or of what it calls, put in `error` goes on out of the
+    /// code here, once `within` has put the step it was in before its path. The error of a call
+    /// of Load<T> itself is first given the call's Place.
+    template <typename Within>
+    void check_load_error(const local_id_t error, const span_t span, const Within& within) {
+        const block_id_t raised = new_block();
+        const block_id_t ok = new_block();
+        terminate(branch_t{
+            .condition = has_value(place_t{ error }, span),
+            .if_true = raised,
+            .if_false = ok,
+        });
+        start(raised);
+        within(unwrap(place_t{ error }));
+        if (span.end > span.begin) {
+            emit(evaluate_t{
+                .value = runtime_call_t{
+                    .function = runtime_function_t::ERROR_THROWN,
+                    .arguments = { unwrap(place_t{ error }) },
+                    .span = span,
+                },
+            });
+        }
+
+        raise(error, span);
+        start(ok);
+    }
+
+    /// A call of one of std/core/load.fb's Functions, by name, with the type arguments of a
+    /// generic one. One that can fail takes an error variable last, ByRef, as a Function that
+    /// throws does, and its error goes on out of the Load. nullopt for one that gives nothing.
+    std::optional<operand_t> load_helper(const std::string_view name,
+                                         std::vector<operand_t> arguments,
+                                         const std::vector<type_id_t>& type_arguments = {}) {
+        const symbol_id_t helper = m_analysis.loading.helpers.at(name);
+        const symbol_t& function = m_analysis.symbol(helper);
+        call_t call{ .function = function_of(helper, type_arguments) };
+        for (operand_t& argument : arguments) {
+            call.arguments.push_back({ .value = std::move(argument) });
+        }
+
+        std::optional<local_id_t> error;
+        if (function.parameters.size() > call.arguments.size()) {
+            error = error_variable();
+            call.arguments.push_back({ .value = place_t{ *error }, .by_ref = true });
+        }
+
+        // What one that fails gives is a value all the same, which the error's way out lets go
+        // of.
+        const type_id_t result =
+            types().substitute(function.type, type_parameters_of(function), type_arguments);
+        std::optional<operand_t> value;
+        if (result == type_id_t::NONE) {
+            emit(evaluate_t{ .value = std::move(call) });
+        } else {
+            value = temporary(std::move(call), result, has_references(result));
+        }
+
+        if (error) {
+            check_error(*error, {});
+        }
+
+        return value;
+    }
+
+    /// The Load or Save of a type: what converts it from a Value, or to one. Its code calls
+    /// std/core/load.fb's Functions, and the other types' Loads and Saves, one level deeper.
+    void lower_conversion(const generated_t& generated) {
+        begin_function(generated.function);
+        const bool saving = generated.kind == generated_kind_t::SAVE;
+        const type_id_t type = generated.type;
+        const local_id_t subject =
+            saving ? add_local(type, "x") : add_local(m_analysis.loading.value, "value");
+        const local_id_t depth = add_local(type_id_t::INT32, "depth");
+        if (!saving) {
+            m_error_slot = add_local(m_analysis.nullable_error, "error", true);
+        }
+
+        current().parameter_count = current().locals.size();
+        const conversion_t conversion{
+            .subject = place_t{ subject },
+            .depth = place_t{ depth },
+            .span = generated.span,
+        };
+        const std::optional<operand_t> made =
+            saving ? save_body(type, conversion) : load_body(type, conversion);
+        if (!made) {
+            terminate(unreachable_t{});
+            return;
+        }
+
+        take(*made);
+        finish_statement();
+        release_scopes(0);
+        terminate(return_t{ .value = *made });
+    }
+
+    /// What a Load's or Save's code works on: the Value it loads from, or the value it saves,
+    /// and how deep in the whole that is.
+    struct conversion_t {
+        place_t subject;
+        place_t depth;
+        span_t span;
+    };
+
+    /// How deep the next level in is: one deeper.
+    operand_t deeper(const conversion_t& conversion) {
+        return temporary(binary_t{
+                             .op = binary_op_t::ADD,
+                             .left = conversion.depth,
+                             .right = const_value_t{ .type = type_id_t::INT32,
+                                                     .data = std::int64_t{ 1 } },
+                             .span = {},
+                         },
+                         type_id_t::INT32);
+    }
+
+    /// Reports, once, a type that a Load or Save can't convert, which only an instance of generic
+    /// code can have: analysis checked the others.
+    std::nullopt_t cannot_convert(const type_id_t type, const bool saving, const span_t span) {
+        if (!m_module.error) {
+            m_module.error = mir_error_t{
+                .message = std::format("{} {} here; it {} numbers, Bool, String, Enums, Value, "
+                                       "T?, T[], Map<String, V>, and Structs and Classes of "
+                                       "them, and what implements {}",
+                                       saving ? "Save can't write" : "Load can't make",
+                                       types().name(type), saving ? "writes" : "makes",
+                                       saving ? "Saveable" : "Loadable"),
+                .span = span,
+            };
+        }
+
+        return std::nullopt;
+    }
+
+    /// What `type` implements std.core's Loadable's FromValue or Saveable's ToValue with, when it
+    /// converts itself.
+    std::optional<symbol_id_t> own_conversion(const type_id_t type, const bool saving) {
+        const type_id_t interface =
+            saving ? m_analysis.loading.saveable : m_analysis.loading.loadable;
+        if (interface == type_id_t::INVALID ||
+            !fb::implements(m_analysis, types(), type, interface)) {
+            return std::nullopt;
+        }
+
+        return implementation(type, builtin_member(interface, saving ? "ToValue" : "FromValue"));
+    }
+
+    /// The smallest and largest values of an integer type, as Int64s. A UInt64's largest is past
+    /// an Int64's, so its range is cut there.
+    [[nodiscard]] static std::pair<std::int64_t, std::int64_t> signed_range(const type_id_t type) {
+        switch (type) {
+        case type_id_t::INT8:
+            return { INT8_MIN, INT8_MAX };
+        case type_id_t::INT16:
+            return { INT16_MIN, INT16_MAX };
+        case type_id_t::INT32:
+            return { INT32_MIN, INT32_MAX };
+        case type_id_t::UINT8:
+            return { 0, UINT8_MAX };
+        case type_id_t::UINT16:
+            return { 0, UINT16_MAX };
+        case type_id_t::UINT32:
+            return { 0, UINT32_MAX };
+        default:
+            return { is_signed(type) ? INT64_MIN : 0, INT64_MAX };
+        }
+    }
+
+    /// A Load's code for `type`: the T it makes from the Value, with its own reference, or
+    /// nullopt for a type it can't make.
+    std::optional<operand_t> load_body(const type_id_t type, const conversion_t& conversion) {
+        const load_support_t& loading = m_analysis.loading;
+        const operand_t value = conversion.subject;
+        const operand_t name = make_string(std::string(types().name(type)));
+        if (const std::optional<symbol_id_t> own = own_conversion(type, false)) {
+            call_t call{
+                .function = function_of(*own, implementation_arguments(type, *own)),
+                .arguments = { { .value = value } },
+            };
+            const local_id_t error = error_variable();
+            call.arguments.push_back({ .value = place_t{ error }, .by_ref = true });
+            const operand_t made = temporary(std::move(call), type);
+            check_load_error(error, {}, [](const operand_t& /*thrown*/) {});
+            if (has_references(type)) {
+                m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(made).root));
+            }
+
+            return made;
+        }
+
+        if (type == loading.value) {
+            return load_helper("LoadValue", { value });
+        }
+
+        if (type == type_id_t::BOOL) {
+            return load_helper("LoadBool", { value });
+        }
+
+        if (type == type_id_t::STRING) {
+            return load_helper("LoadString", { value });
+        }
+
+        if (is_integer(type) && !is_c_integer(type)) {
+            const auto [least, most] = signed_range(type);
+            const operand_t whole =
+                type == type_id_t::UINT64
+                    ? expect(load_helper("LoadUnsigned", { value, name }))
+                    : expect(load_helper("LoadSigned",
+                                         { value,
+                                           const_value_t{ .type = type_id_t::INT64,
+                                                          .data = least },
+                                           const_value_t{ .type = type_id_t::INT64,
+                                                          .data = most },
+                                           name }));
+            return type_of(whole) == type ? whole : cast(whole, type, {});
+        }
+
+        if (is_float(type)) {
+            const operand_t real = expect(
+                load_helper("LoadDouble", { value, make_bool(type == type_id_t::FLOAT32) }));
+            return type == type_id_t::FLOAT64 ? real : cast(real, type, {});
+        }
+
+        if (is_enum(type)) {
+            const type_t& info = types().get(type);
+            const auto [least, most] = signed_range(info.inner);
+            array_t names{ .type = types().array(type_id_t::STRING) };
+            array_t values{ .type = types().array(type_id_t::UINT64) };
+            for (const enum_value_t& member : info.values) {
+                names.elements.emplace_back(make_string(member.name));
+                values.elements.emplace_back(
+                    const_value_t{ .type = type_id_t::UINT64, .data = member.bits });
+            }
+
+            const operand_t listed = temporary(std::move(names), types().array(type_id_t::STRING),
+                                               true);
+            const operand_t bits = temporary(std::move(values), types().array(type_id_t::UINT64),
+                                             true);
+            const operand_t read = expect(load_helper(
+                "LoadEnum", { value, listed, bits, make_bool(info.flags),
+                              const_value_t{ .type = type_id_t::INT64, .data = least },
+                              const_value_t{ .type = type_id_t::INT64, .data = most }, name }));
+            return cast(read, type, {});
+        }
+
+        if (is_nullable(type)) {
+            return load_nullable(type, conversion);
+        }
+
+        if (type == types().array(type_id_t::UINT8)) {
+            return load_helper("LoadBytes", { value });
+        }
+
+        if (is_array(type)) {
+            return load_array(type, conversion, name);
+        }
+
+        if (loading.map != type_id_t::INVALID && types().get(type).generic == loading.map &&
+            types().get(type).arguments.front() == type_id_t::STRING) {
+            return load_map(type, conversion, name);
+        }
+
+        if ((is_struct(type) || is_class(type)) && !types().get(type).made &&
+            !(is_class(type) &&
+              m_analysis.symbol(m_declared_types.at(definition_of(type))).modifiers.is_abstract)) {
+            return load_fields(type, conversion, name);
+        }
+
+        return cannot_convert(type, false, conversion.span);
+    }
+
+    /// A T?'s Load: Null for a NULL, and else what T's makes.
+    std::optional<operand_t> load_nullable(const type_id_t type, const conversion_t& conversion) {
+        const local_id_t made = add_local(type);
+        const operand_t null = expect(load_helper("LoadNull", { conversion.subject }));
+        const block_id_t empty = new_block();
+        const block_id_t full = new_block();
+        const block_id_t done = new_block();
+        terminate(branch_t{ .condition = null, .if_true = empty, .if_false = full });
+        start(empty);
+        emit(assign_t{ .target = made, .value = use_t{ .value = null_of(type) } });
+        jump(done);
+        start(full);
+        const type_id_t inner = types().get(type).inner;
+        const local_id_t error = error_variable();
+        const operand_t loaded = temporary(
+            call_t{
+                .function = generated(generated_kind_t::LOAD, inner, conversion.span),
+                .arguments = { { .value = conversion.subject },
+                               { .value = conversion.depth },
+                               { .value = place_t{ error }, .by_ref = true } },
+            },
+            inner);
+        check_load_error(error, {}, [](const operand_t& /*thrown*/) {});
+        if (has_references(inner)) {
+            m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(loaded).root));
+        }
+
+        initialize(made, convert(loaded, type, {}));
+        finish_statement();
+        jump(done);
+        start(done);
+        m_scopes.back().emplace_back(made);
+        return place_t{ made };
+    }
+
+    /// Loads an element's or entry's Value as a `type`, one level deeper, and gives it, which the
+    /// statement holds. An error in it goes on out, after `within` puts its step before its path.
+    template <typename Within>
+    operand_t load_part(const type_id_t type, const operand_t& value,
+                        const conversion_t& conversion, const Within& within) {
+        const local_id_t error = error_variable();
+        const operand_t loaded = temporary(
+            call_t{
+                .function = generated(generated_kind_t::LOAD, type, conversion.span),
+                .arguments = { { .value = value },
+                               { .value = deeper(conversion) },
+                               { .value = place_t{ error }, .by_ref = true } },
+            },
+            type);
+        check_load_error(error, {}, within);
+        if (has_references(type)) {
+            m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(loaded).root));
+        }
+
+        return loaded;
+    }
+
+    /// A T[]'s Load: its T for each of an Array's elements, in order.
+    std::optional<operand_t> load_array(const type_id_t type, const conversion_t& conversion,
+                                        const operand_t& name) {
+        const type_id_t value_array = types().array(m_analysis.loading.value);
+        const local_id_t elements = add_local(value_array);
+        initialize(elements,
+                   expect(load_helper("LoadElements",
+                                      { conversion.subject, conversion.depth, name })));
+        m_scopes.back().emplace_back(elements);
+        const local_id_t made = add_local(type);
+        initialize(made, temporary(array_t{ .type = type }, type, true));
+        m_scopes.back().emplace_back(made);
+        finish_statement();
+        emit(evaluate_t{
+            .value = runtime_call_t{
+                .function = runtime_function_t::ARRAY_RESERVE,
+                .arguments = { place_t{ made }, count_of(place_t{ elements }) },
+            },
+        });
+        const type_id_t inner = types().get(type).inner;
+        each_element(elements, value_array, [&](const place_t& item, const local_id_t counter) {
+            const operand_t loaded =
+                load_part(inner, item, conversion, [&](const operand_t& thrown) {
+                    load_helper("LoadWithinIndex", { thrown, place_t{ counter } });
+                });
+            take(loaded);
+            emit(evaluate_t{
+                .value = runtime_call_t{
+                    .function = runtime_function_t::ARRAY_ADD,
+                    .arguments = { place_t{ made }, loaded },
+                },
+            });
+            finish_statement();
+        });
+        return place_t{ made };
+    }
+
+    /// A Map<String, V>'s Load: a V for each of an Object's entries, by its key, in order.
+    std::optional<operand_t> load_map(const type_id_t type, const conversion_t& conversion,
+                                      const operand_t& name) {
+        const type_id_t strings = types().array(type_id_t::STRING);
+        const type_id_t inner = types().get(type).arguments[1];
+        const local_id_t keys = add_local(strings);
+        initialize(keys, expect(load_helper("LoadKeys",
+                                            { conversion.subject, conversion.depth, name })));
+        m_scopes.back().emplace_back(keys);
+        const local_id_t made = add_local(type);
+        initialize(made, expect(load_helper("LoadMap", { count_of(place_t{ keys }) }, { inner })));
+        m_scopes.back().emplace_back(made);
+        finish_statement();
+        each_element(keys, strings, [&](const place_t& key, local_id_t /*counter*/) {
+            const operand_t entry = expect(load_helper("LoadEntry", { conversion.subject, key }));
+            const operand_t loaded =
+                load_part(inner, unwrap(entry), conversion, [&](const operand_t& thrown) {
+                    load_helper("LoadWithinKey", { thrown, key });
+                });
+            load_helper("LoadPut", { place_t{ made }, key, loaded }, { inner });
+            finish_statement();
+        });
+        return place_t{ made };
+    }
+
+    /// The key a Field has in a Value's Object: its @Rename's name, or its own. Its @Renamed's
+    /// is the key it had before, which a Load reads when the Object doesn't have its own.
+    [[nodiscard]] std::optional<std::string> attribute_text(const symbol_id_t field,
+                                                            const type_id_t attribute) const {
+        for (const attribute_value_t& value : m_analysis.symbol(field).attributes) {
+            if (value.type == attribute && attribute != type_id_t::INVALID &&
+                !value.values.empty()) {
+                return std::get<std::string>(value.values.front().data);
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    [[nodiscard]] bool has_attribute(const symbol_id_t field, const type_id_t attribute) const {
+        return attribute != type_id_t::INVALID &&
+               std::ranges::contains(m_analysis.symbol(field).attributes, attribute,
+                                     &attribute_value_t::type);
+    }
+
+    /// A Struct's or Class's Load: one made without its New, its Fields at their defaults, then
+    /// each from the Object's entry for its key, one level deeper, and a @Flatten one from the
+    /// Object itself. A Field without an entry keeps its default when it's @Optional or a T?, and
+    /// is missing otherwise. Then its OnLoaded runs.
+    std::optional<operand_t> load_fields(const type_id_t type, const conversion_t& conversion,
+                                         const operand_t& name) {
+        const load_support_t& loading = m_analysis.loading;
+        load_helper("LoadObject", { conversion.subject, conversion.depth, name });
+        const local_id_t made = add_local(type);
+        initialize(made, is_class(type)
+                             ? new_object(type)
+                             : temporary(defaults_of(type), type, has_references(type)));
+        m_scopes.back().emplace_back(made);
+        finish_statement();
+        const std::vector<field_t> fields = types().get(type).fields;
+        for (std::uint32_t i = 0; i < fields.size(); ++i) {
+            const symbol_id_t field = expect(field_symbol(type, i));
+            if (has_attribute(field, loading.skip)) {
+                continue;
+            }
+
+            place_t target{ made };
+            target.steps.push_back({ .field = i });
+            if (has_attribute(field, loading.flatten)) {
+                const operand_t loaded = load_part(fields[i].type, conversion.subject, conversion,
+                                                   [](const operand_t& /*thrown*/) {});
+                store(target, loaded);
+                finish_statement();
+                continue;
+            }
+
+            load_field(target, field, fields[i], type, conversion);
+        }
+
+        call_on_loaded(place_t{ made }, type);
+        return place_t{ made };
+    }
+
+    /// Loads one Field from the Object's entry for its key, or for the key it had before.
+    void load_field(const place_t& target, const symbol_id_t field, const field_t& declared,
+                    const type_id_t type, const conversion_t& conversion) {
+        const load_support_t& loading = m_analysis.loading;
+        const std::string key = attribute_text(field, loading.rename).value_or(declared.name);
+        const std::optional<std::string> old = attribute_text(field, loading.renamed);
+        const type_id_t entries = types().nullable(loading.value);
+        const local_id_t entry = add_local(entries);
+        initialize(entry,
+                   expect(load_helper("LoadEntry", { conversion.subject, make_string(key) })));
+        m_scopes.back().emplace_back(entry);
+        const local_id_t step = add_local(type_id_t::STRING);
+        initialize(step, make_string(key));
+        finish_statement();
+        if (old) {
+            const block_id_t fallback = new_block();
+            const block_id_t found = new_block();
+            terminate(branch_t{
+                .condition = has_value(place_t{ entry }, {}),
+                .if_true = found,
+                .if_false = fallback,
+            });
+            start(fallback);
+            store(place_t{ entry },
+                  expect(load_helper("LoadEntry", { conversion.subject, make_string(*old) })));
+            emit(assign_t{ .target = step, .value = use_t{ .value = make_string(*old) } });
+            finish_statement();
+            jump(found);
+            start(found);
+        }
+
+        const block_id_t present = new_block();
+        const block_id_t absent = new_block();
+        const block_id_t done = new_block();
+        terminate(branch_t{
+            .condition = has_value(place_t{ entry }, {}),
+            .if_true = present,
+            .if_false = absent,
+        });
+        start(present);
+        const auto within = [&](const operand_t& thrown) {
+            load_helper("LoadWithinKey", { thrown, place_t{ step } });
+        };
+        store(target, load_part(declared.type, unwrap(place_t{ entry }), conversion, within));
+        finish_statement();
+        jump(done);
+        start(absent);
+        // One without a default or a zero to keep is missing, @Optional or not, as only an
+        // instance's can be: analysis reports the others.
+        const symbol_t& written = m_analysis.symbol(field);
+        const bool keeps = written.value || written.empty_default || types().has_zero(declared.type);
+        if (!(has_attribute(field, loading.optional) && keeps) && !is_nullable(declared.type)) {
+            const symbol_id_t missing = loading.helpers.at("LoadMissing");
+            const local_id_t error = error_variable();
+            emit(evaluate_t{
+                .value = call_t{
+                    .function = function_of(missing),
+                    .arguments = { { .value = make_string(std::string(types().name(type))) },
+                                   { .value = make_string(declared.name) },
+                                   { .value = place_t{ error }, .by_ref = true } },
+                },
+            });
+            check_load_error(error, {}, within);
+        }
+
+        jump(done);
+        start(done);
+    }
+
+    /// Runs the OnLoaded of what a Load made, if its type has one, through its Class's table for
+    /// a Class, and ByRef on a Struct. What it throws goes on out of the Load.
+    void call_on_loaded(const place_t& made, const type_id_t type) {
+        std::optional<symbol_id_t> hook;
+        for (type_id_t at = type; at != type_id_t::INVALID && !hook;
+             at = types().get(definition_of(at)).base) {
+            const auto found = m_declared_types.find(definition_of(at));
+            if (found == m_declared_types.end()) {
+                break;
+            }
+
+            for (const symbol_id_t member : m_analysis.symbol(found->second).members) {
+                const symbol_t& method = m_analysis.symbol(member);
+                if (method.kind == symbol_kind_t::METHOD && method.name == "OnLoaded" &&
+                    !method.modifiers.is_static && method.parameters.empty() &&
+                    !method.extended) {
+                    hook = member;
+                }
+            }
+        }
+
+        if (!hook) {
+            return;
+        }
+
+        const symbol_t& method = m_analysis.symbol(*hook);
+        call_t call{
+            .function = function_of(*hook, implementation_arguments(type, *hook)),
+            .arguments = { { .value = made, .by_ref = method.by_ref } },
+        };
+        if (is_virtual(method)) {
+            call.slot = slot_of(*hook);
+        }
+
+        std::optional<local_id_t> error;
+        if (takes_error(*hook)) {
+            error = error_variable();
+            call.arguments.push_back({ .value = place_t{ *error }, .by_ref = true });
+        }
+
+        emit(evaluate_t{ .value = std::move(call) });
+        if (error) {
+            check_error(*error, {});
+        }
+    }
+
+    /// A Save's code for `type`: a new Value of the value, or nullopt for a type it can't write.
+    std::optional<operand_t> save_body(const type_id_t type, const conversion_t& conversion) {
+        const load_support_t& loading = m_analysis.loading;
+        const operand_t x = conversion.subject;
+        if (const std::optional<symbol_id_t> own = own_conversion(type, true)) {
+            call_t call{
+                .function = function_of(*own, implementation_arguments(type, *own)),
+                .arguments = { { .value = x } },
+            };
+            if (is_virtual(m_analysis.symbol(*own))) {
+                call.slot = slot_of(*own);
+            }
+
+            give_error_variable(call, *own);
+            return temporary(std::move(call), loading.value, true);
+        }
+
+        if (type == loading.value) {
+            return load_helper("SaveValue", { x });
+        }
+
+        if (type == type_id_t::BOOL) {
+            return load_helper("SaveBool", { x });
+        }
+
+        if (type == type_id_t::STRING) {
+            return load_helper("SaveString", { x });
+        }
+
+        if (is_integer(type) && !is_c_integer(type)) {
+            const bool wide = type == type_id_t::UINT64;
+            const type_id_t to = wide ? type_id_t::UINT64 : type_id_t::INT64;
+            return load_helper(wide ? "SaveUnsigned" : "SaveSigned",
+                               { type == to ? x : cast(x, to, {}) });
+        }
+
+        if (is_float(type)) {
+            return load_helper(type == type_id_t::FLOAT32 ? "SaveFloat" : "SaveDouble", { x });
+        }
+
+        if (is_enum(type)) {
+            const operand_t text = temporary(
+                call_t{ .function = text_function(type), .arguments = { { .value = x } } },
+                type_id_t::STRING, true);
+            return load_helper("SaveString", { text });
+        }
+
+        if (is_nullable(type)) {
+            return save_nullable(type, conversion);
+        }
+
+        if (type == types().array(type_id_t::UINT8)) {
+            return load_helper("SaveBytes", { x });
+        }
+
+        if (is_array(type)) {
+            return save_array(type, conversion);
+        }
+
+        if (loading.map != type_id_t::INVALID && types().get(type).generic == loading.map &&
+            types().get(type).arguments.front() == type_id_t::STRING) {
+            return save_map(type, conversion);
+        }
+
+        if ((is_struct(type) || is_class(type)) && !types().get(type).made) {
+            return save_fields(type, conversion);
+        }
+
+        return cannot_convert(type, true, conversion.span);
+    }
+
+    /// A Value of a part of the value, from its type's Save, one level deeper, with its own
+    /// reference.
+    operand_t save_part(const type_id_t type, const operand_t& part,
+                        const conversion_t& conversion) {
+        return temporary(
+            call_t{
+                .function = generated(generated_kind_t::SAVE, type, conversion.span),
+                .arguments = { { .value = part }, { .value = deeper(conversion) } },
+            },
+            m_analysis.loading.value, true);
+    }
+
+    /// A T?'s Save: a NULL for Null, and else what T's gives.
+    std::optional<operand_t> save_nullable(const type_id_t type, const conversion_t& conversion) {
+        const type_id_t value = m_analysis.loading.value;
+        const local_id_t made = add_local(value);
+        const block_id_t empty = new_block();
+        const block_id_t full = new_block();
+        const block_id_t done = new_block();
+        terminate(branch_t{
+            .condition = has_value(conversion.subject, {}),
+            .if_true = full,
+            .if_false = empty,
+        });
+        start(empty);
+        initialize(made, expect(load_helper("SaveNull", {})));
+        finish_statement();
+        jump(done);
+        start(full);
+        const type_id_t inner = types().get(type).inner;
+        initialize(made, temporary(
+                             call_t{
+                                 .function = generated(generated_kind_t::SAVE, inner,
+                                                       conversion.span),
+                                 .arguments = { { .value = unwrap(conversion.subject) },
+                                                { .value = conversion.depth } },
+                             },
+                             value, true));
+        finish_statement();
+        jump(done);
+        start(done);
+        m_scopes.back().emplace_back(made);
+        return place_t{ made };
+    }
+
+    /// A T[]'s Save: an Array of a Value for each element, in order.
+    std::optional<operand_t> save_array(const type_id_t type, const conversion_t& conversion) {
+        const local_id_t made = add_local(m_analysis.loading.value);
+        initialize(made, expect(load_helper("SaveArray", { conversion.depth })));
+        m_scopes.back().emplace_back(made);
+        finish_statement();
+        const local_id_t elements = std::get<local_id_t>(conversion.subject.root);
+        const type_id_t inner = types().get(type).inner;
+        each_element(elements, type, [&](const place_t& item, local_id_t /*counter*/) {
+            load_helper("SaveElement", { place_t{ made }, save_part(inner, item, conversion) });
+            finish_statement();
+        });
+        return place_t{ made };
+    }
+
+    /// A Map<String, V>'s Save: an Object of a Value for each entry, by its key, in order.
+    std::optional<operand_t> save_map(const type_id_t type, const conversion_t& conversion) {
+        const type_id_t inner = types().get(type).arguments[1];
+        const local_id_t made = add_local(m_analysis.loading.value);
+        initialize(made, expect(load_helper("SaveObject", { conversion.depth })));
+        m_scopes.back().emplace_back(made);
+        const local_id_t keys = add_local(types().array(type_id_t::STRING));
+        initialize(keys, expect(load_helper("SaveKeys", { conversion.subject }, { inner })));
+        m_scopes.back().emplace_back(keys);
+        const local_id_t values = add_local(types().array(inner));
+        initialize(values, expect(load_helper("SaveValues", { conversion.subject }, { inner })));
+        m_scopes.back().emplace_back(values);
+        finish_statement();
+        each_element(keys, types().array(type_id_t::STRING),
+                     [&](const place_t& key, const local_id_t counter) {
+                         place_t item{ values };
+                         item.steps.push_back({ .indices = { counter }, .span = {} });
+                         load_helper("SaveEntry", { place_t{ made }, key,
+                                                    save_part(inner, item, conversion) });
+                         finish_statement();
+                     });
+        return place_t{ made };
+    }
+
+    /// A Struct's or Class's Save: an Object of a Value for each Field by its key, but a @Skip
+    /// one, and a @Flatten one's entries among them.
+    std::optional<operand_t> save_fields(const type_id_t type, const conversion_t& conversion) {
+        const load_support_t& loading = m_analysis.loading;
+        const local_id_t made = add_local(loading.value);
+        initialize(made, expect(load_helper("SaveObject", { conversion.depth })));
+        m_scopes.back().emplace_back(made);
+        finish_statement();
+        const std::vector<field_t> fields = types().get(type).fields;
+        for (std::uint32_t i = 0; i < fields.size(); ++i) {
+            const symbol_id_t field = expect(field_symbol(type, i));
+            if (has_attribute(field, loading.skip)) {
+                continue;
+            }
+
+            place_t part = conversion.subject;
+            part.steps.push_back({ .field = i });
+            const operand_t saved = save_part(fields[i].type, part, conversion);
+            if (has_attribute(field, loading.flatten)) {
+                load_helper("SaveFlattened",
+                            { place_t{ made }, saved,
+                              make_string(std::string(types().name(fields[i].type))) });
+            } else {
+                const std::string key = attribute_text(field, loading.rename).value_or(fields[i].name);
+                load_helper("SaveEntry", { place_t{ made }, make_string(key), saved });
+            }
+
+            finish_statement();
+        }
+
+        return place_t{ made };
     }
 
     /// Returns False from the function unless `condition` holds, and goes on where it does.
@@ -8061,6 +8869,14 @@ private:
         if (m_analysis.expr(id).address_of) {
             return temporary(address_of_t{ .place = lower_place(node.arguments.front().value) },
                              concrete(expr_type(id)));
+        }
+
+        if (m_analysis.expr(id).loaded) {
+            return lower_load(id);
+        }
+
+        if (m_analysis.expr(id).saved) {
+            return lower_save(id);
         }
 
         // A CString's ToString copies its text, and its NULL has none.

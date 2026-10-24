@@ -1,0 +1,166 @@
+// Load<T>'s ParseErrors: each kind, with its Path in the Value, which its Message starts with,
+// and its Place where Load<T> is called; an error that a type's own code throws, with the path
+// to where it was thrown; and none leaks what Load made before it.
+
+Import std.core
+Import std.collections
+
+Enum Color
+    RED, GREEN, BLUE
+End Enum
+
+@Flags Enum Layer
+    WORLD, PLAYER
+End Enum
+
+Struct Size
+    Field Width: Int8
+    Field Height: Int8
+End Struct
+
+Struct Grade Implements Loadable
+    Field Mark: Int
+
+    Static Method FromValue(value: Value): Grade Throws ParseError
+        Local mark = Try Load<Int>(value)
+        If mark > 10 Then Throw ParseError(ParseErrorKind.OUT_OF_RANGE, "a Grade is up to 10")
+        Return Grade(mark)
+    End Method
+End Struct
+
+Class Checked
+    Field Count: Int
+
+    Method OnLoaded() Throws ParseError
+        If Count < 0 Then Throw ParseError(ParseErrorKind.OUT_OF_RANGE, "Count is below 0")
+    End Method
+End Class
+
+Class Options
+    Field Name: String
+    @Rename("dims") Field Sizes: Size[] = []
+    Field Color: Color
+    @Optional Field Layer: Layer
+    @Optional Field Grade: Grade
+    @Optional Field Extra: Map<String, Checked>?
+    @Optional Field Bytes: UInt8[] = []
+    @Optional Field Big: UInt64
+    @Optional Field Ratio: Float
+End Class
+
+Function Good(): Value
+    Local value = Value.Object()
+    value["Name"] = Value("box")
+    value["dims"] = Value([Value({"Width": Value(1), "Height": Value(2)}),
+                           Value({"Width": Value(3), "Height": Value(4)})])
+    value["Color"] = Value("RED")
+    Return value
+End Function
+
+Function Tried(value: Value)
+    Try
+        Local options = Load<Options>(value)
+        Print("loaded", options.Name)
+    Catch e As ParseError
+        Print("{e.Kind} [{e.Path ?? "Null"}] {e.Message} ({e.Place.Line})")
+    End Try
+End Function
+
+Tried(Good())
+
+// A Value of another kind, at each depth.
+Tried(Value(5))
+Local changed = Good()
+changed["Name"] = Value(5)
+Tried(changed)
+changed = Good()
+changed["dims"] = Value({"Width": Value(1)})
+Tried(changed)
+changed = Good()
+changed["dims"].Expect("dims")[1].Expect("dims[1]")["Height"] = Value("tall")
+Tried(changed)
+changed = Good()
+changed["dims"].Expect("dims")[0] = Value("wide")
+Tried(changed)
+changed = Good()
+changed["Bytes"] = Value("ab")
+Tried(changed)
+
+// A number past its type's range.
+changed = Good()
+changed["dims"].Expect("dims")[0].Expect("dims[0]")["Width"] = Value(128)
+Tried(changed)
+changed = Good()
+changed["dims"].Expect("dims")[0].Expect("dims[0]")["Width"] = Value(1.5)
+Tried(changed)
+changed = Good()
+changed["Big"] = Value(-1)
+Tried(changed)
+changed = Good()
+changed["Ratio"] = Value(1.0e39)
+Tried(changed)
+changed = Good()
+changed["Bytes"] = Value([Value(1), Value(256)])
+Tried(changed)
+
+// Enum names that aren't its members'.
+changed = Good()
+changed["Color"] = Value("PINK")
+Tried(changed)
+changed = Good()
+changed["Layer"] = Value("WORLD | SKY")
+Tried(changed)
+changed = Good()
+changed["Color"] = Value(2147483648 As Int64)
+Tried(changed)
+
+// A Field the Object has no key for, by the key it's missing.
+changed = Good()
+changed.Remove("dims")
+Tried(changed)
+changed = Good()
+changed["dims"].Expect("dims")[1].Expect("dims[1]").Remove("Width")
+Tried(changed)
+
+// What a type's own FromValue and OnLoaded throw, at where in the Value it was loading, and a
+// Map's keys, quoted where a path couldn't tell them apart.
+changed = Good()
+changed["Grade"] = Value(11)
+Tried(changed)
+changed = Good()
+changed["Grade"] = Value("x")
+Tried(changed)
+changed = Good()
+changed["Extra"] = Value({"plain": Value({"Count": Value(1)}), "a.b": Value({"Count": Value(-1)})})
+Tried(changed)
+changed = Good()
+changed["Extra"] = Value({"": Value({"Count": Value("x")})})
+Tried(changed)
+changed = Good()
+changed["Extra"] = Value({"[0]": Value()})
+Tried(changed)
+Print((Try? Load<Checked>(Value({"Count": Value(-2)}))) == Null)
+
+// A Value nested deeper than Load goes into a type's Fields, which a Value Field holds whole.
+Local deep = Value(1)
+For i = 0 Until 300
+    deep = Value([deep])
+End For
+
+Local nested = Try Load<Value>(deep)
+Print("a Value is copied, however deep", nested == deep, RefEquals(nested, deep))
+
+Class Link
+    Field Next: Link?
+End Class
+
+Local chain = Value.Object()
+For i = 0 Until 300
+    chain = Value({"Next": chain})
+End For
+
+Try
+    Local link = Load<Link>(chain)
+Catch e As ParseError
+    Print(e.Kind, e.Message.Bytes.Count, (e.Path ?? "").Bytes.Count)
+End Try

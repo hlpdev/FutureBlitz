@@ -578,6 +578,20 @@ fb_string_t* fb_value_joined(const fb_array_t* parts);
 /// String[], and -1 to `indices`, an Int64[], or "" and an index. 1 for a path, and 0 for text
 /// that isn't one, like an empty key or an index that isn't digits.
 std::int32_t fb_value_path(const fb_string_t* path, fb_array_t* keys, fb_array_t* indices);
+/// What Load<T> reads `text` as where it wants a Bool or a number, as a command line's and an
+/// environment's values are: 1 for "true" or "false" in any case, with `bits` 1 or 0; 2 for an
+/// integer that fits an Int64, and 3 for one that only fits a UInt64, in `bits`; 4 for another
+/// number, in `real`; and 0 for text that's none of these.
+std::int32_t fb_value_scalar(const fb_string_t* text, std::uint64_t* bits, double* real);
+/// What Load<T> reads `text` as where it wants an Enum: the member of `names`, a String[], whose
+/// name it is, as it is or in another case, with `values`, a UInt64[], its bits. With `flags`,
+/// for a @Flags Enum, names joined by '|', whose bits it combines. 1, with the bits in `bits`,
+/// or 0 for text that names no member.
+std::int32_t fb_value_enum(const fb_string_t* text, const fb_array_t* names,
+                           const fb_array_t* values, std::int32_t flags, std::uint64_t* bits);
+/// The Double that a Float32's shortest text reads as, which Save writes for it: 0.1 for the
+/// Float32 0.1, not 0.10000000149011612.
+double fb_value_float(float value);
 
 // The fb_io_ functions go through the I/O thread, which runs libuv's loop. It starts with the
 // first, and stops as the program ends. A program links libuv only when it calls one.

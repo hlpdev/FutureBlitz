@@ -1,0 +1,15 @@
+// A ParseError that Load<T> lets out of top-level code shows its path, and its Place is the call.
+Import std.core
+
+Struct Size
+    Field Width: Int
+End Struct
+
+Class Settings
+    Field Sizes: Size[] = []
+End Class
+
+Local value = Value.Object()
+value["Sizes"] = Value([Value({"Width": Value(1)}), Value({"Width": Value("wide")})])
+Local settings = Try Load<Settings>(value)
+Print(settings.Sizes.Count)

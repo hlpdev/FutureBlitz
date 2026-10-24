@@ -67,24 +67,47 @@ Public Class IOError Extends Error
 End Class
 
 // What kind of ParseError: text that isn't the format, text that ends too soon, a value of
-// another type than the one asked for, or a number too big for its type.
+// another type than the one asked for, a number too big for its type, or a value that Load<T>
+// needs for a Field and doesn't have.
 Public Enum ParseErrorKind
-    SYNTAX, UNEXPECTED_END, WRONG_TYPE, OUT_OF_RANGE, OTHER
+    SYNTAX, UNEXPECTED_END, WRONG_TYPE, OUT_OF_RANGE, MISSING, OTHER
 End Enum
 
-// Text that doesn't read as its format, at Line and Column, from 1, or 0 when it isn't known.
+// Text that doesn't read as its format, at Line and Column, from 1, or 0 when it isn't known, or
+// a Value that Load<T> can't make a T from, at Path.
 Public Class ParseError Extends Error
     Public ReadOnly Field Kind: ParseErrorKind
     Public ReadOnly Field Line: Int
     Public ReadOnly Field Column: Int
+    // Load's path, from the Value's top, which it works out on the error's way out.
+    Package Field At: String?
+    // The Message, without the path that Load puts before it.
+    Package Field Plain: String = ""
 
     Public New(kind: ParseErrorKind, message: String, line: Int = 0, column: Int = 0,
-               cause: Error? = Null)
+               cause: Error? = Null, path: String? = Null)
         Super.New(message, cause)
         Kind = kind
         Line = line
         Column = column
+        At = path
     End New
+
+    // For Load<T>'s: where in the Value it's from, the Field's path, like "options.sizes[2]", or
+    // "" for the Value itself. Null for another error.
+    Public Property Path: String?
+        Get => At
+    End Property
+
+    // Puts a step before Load's path, a key or an index in brackets, on the error's way out of
+    // what that step went into, and the path before the Message, like "sizes[2]: ...".
+    Package Method Within(step: String)
+        Local at = At ?? ""
+        If at == "" Then Plain = Message
+        Local path = at == "" || at.Chars[0] == '[' ? step + at : step + "." + at
+        At = path
+        Message = "{path}: {Plain}"
+    End Method
 End Class
 
 // What kind of FormatError: a template that isn't one, one that names a value it isn't given,

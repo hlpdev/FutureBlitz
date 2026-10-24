@@ -2721,6 +2721,59 @@ TEST_CASE("functions and Globals that come out with one name are numbered", "[mi
     CHECK(mir.contains("global x.y.count#2: Int32 = 1\n"));
 }
 
+TEST_CASE("each type's Load and Save is a function of its own, which calls its parts'",
+          "[mir]") {
+    const fb::compilation_t compilation =
+        fb::compile("test.fb", "Import std.core\n"
+                               "Struct Size\n    Field Width: Int\n    Field Tags: String[]\nEnd Struct\n"
+                               "Local value = Save(Size(1, []))\n"
+                               "Local size = Try Load<Size>(value)\n"
+                               "Local again = Try Load<Size>(Save(size))");
+    REQUIRE(compilation.diagnostics.diagnostics().empty());
+    const std::string mir = fb::dump(fb::lower(compilation.ast, compilation.analysis));
+    INFO(mir);
+    for (const std::string_view function :
+         { "function Size.Load(Value, Int32) ->", "function Int32.Load(Value, Int32) ->",
+           "function String[].Load(Value, Int32) ->", "function String.Load(Value, Int32) ->",
+           "function Size.Save(Int32) ->", "function Int32.Save(Int32) ->",
+           "function String[].Save(Int32) ->", "function String.Save(Int32) ->" }) {
+        CHECK(mir.contains(function));
+        // Each is made once, however many calls need it.
+        CHECK(mir.find(function) == mir.rfind(function));
+    }
+}
+
+TEST_CASE("lowering reports an instance's type that Load<T> or Save can't convert", "[mir]") {
+    const auto stopped = [](const std::string_view text) {
+        const fb::compilation_t compilation = fb::compile("test.fb", std::string(text));
+        REQUIRE(compilation.diagnostics.diagnostics().empty());
+        const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+        REQUIRE(module.error);
+        return std::string(
+                   compilation.sources.get(module.error->span.file).slice(module.error->span)) +
+               ": " + module.error->message;
+    };
+    const std::string makes = "; it makes numbers, Bool, String, Enums, Value, T?, T[], "
+                              "Map<String, V>, and Structs and Classes of them, and what "
+                              "implements Loadable";
+    const std::string writes = "; it writes numbers, Bool, String, Enums, Value, T?, T[], "
+                               "Map<String, V>, and Structs and Classes of them, and what "
+                               "implements Saveable";
+    const std::string box = "Import std.core\n"
+                            "Class Box<T>\n    Field Items: T[] = []\nEnd Class\n";
+    CHECK(stopped(box + "Function Loaded<T>(value: Value): T Throws ParseError => "
+                        "Try Load<T>(value)\n"
+                        "Local f = Try Loaded<Func(): Int>(Value())") ==
+          "Load<T>(value): Load can't make Func(): Int32 here" + makes);
+    CHECK(stopped(box + "Function Loaded<T>(value: Value): Box<T> Throws ParseError => "
+                        "Try Load<Box<T>>(value)\n"
+                        "Local b = Try Loaded<(Int, Int)>(Value())") ==
+          "Load<Box<T>>(value): Load can't make (Int32, Int32) here" + makes);
+    CHECK(stopped(box + "Function Saved<T>(x: Box<T>): Value => Save(x)\n"
+                        "Local v = Saved(Box<Weak<Box<Int>>>())") ==
+          "Save(x): Save can't write Weak<Box<Int32>> here" + writes);
+}
+
 TEST_CASE("lowering stops where code needs a larger instance each time, which analysis missed",
           "[mir]") {
     // A Holder of the Interface's Self, which runs the default again: through a Static default,

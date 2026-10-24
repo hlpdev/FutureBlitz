@@ -1,0 +1,27 @@
+-128 32767 -2147483648 -9223372036854775808 255 65535 4294967295 18446744073709551615 0.1 1e+300
+{"A": -128, "B": 32767, "C": -2147483648, "D": -9223372036854775808, "E": 255, "F": 65535, "G": 4294967295, "H": 18446744073709551615, "I": 0.1, "J": 1e+300}
+True
+{"A": 7, "B": 7, "C": 12, "D": 9, "E": 7, "F": 7, "G": 7, "H": 18446744073709551615, "I": 2.5, "J": 3.0}
+True False True -1000 inf -4
+GREEN BLUE RED GREEN
+WORLD | ENEMY WORLD | PLAYER PLAYER | ENEMY 0
+"BLUE" "WORLD | ENEMY" "0"
+0 PLAYER
+text Null set [1, 2]
+[1, null] [[a], []]
+[1, 2, 255] [4, 5]
+<0102> [1, 2] ["a", "b"] null 4
+{"ann": [1, 2], "bo": []}
+True
+{"list": [true, "x"]} {"list": [true, "x", 3]} True
+ann 30 1.5 0 0 99 RED PLAYER Null [] 5 [1]
+{"Name": "ann", "hp": 30, "Speed": 1.5, "Size": {"Width": 0, "Height": 0}, "Color": "RED", "Layers": "PLAYER", "Nick": null, "Tags": [], "Bag": {"gold": 5}, "Save": [1]}
+ann 30 99 RED Null [] True
+m 1 2 8 9 {"Label": "m", "X": 1, "Y": 2, "Width": 8, "Height": 9}
+one v1.2 [v0.9] {"Name": "one", "Version": [1, 2], "Older": [[0, 9]]}
+6 20 26
+p [1] {"First": "p", "Second": [1]}
+1 s [RED] 2.5
+3 2.0
+{"Name": "root", "Kids": [{"Name": "leaf", "Kids": []}, {"Name": "leaf", "Kids": []}]}
+2 False leaf

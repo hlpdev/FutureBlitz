@@ -1,0 +1,25 @@
+loaded box
+WRONG_TYPE [] expected an Object, for Options, found 5 (62)
+WRONG_TYPE [Name] Name: expected String, found 5 (62)
+MISSING [dims[0].Height] dims[0].Height: missing, and Size's Field Height isn't @Optional (62)
+WRONG_TYPE [dims[1].Height] dims[1].Height: expected Int8, found "tall" (62)
+WRONG_TYPE [dims[0]] dims[0]: expected an Object, for Size, found "wide" (62)
+WRONG_TYPE [Bytes[0]] Bytes[0]: expected UInt8, found "ab" (62)
+OUT_OF_RANGE [dims[0].Width] dims[0].Width: expected Int8, from -128 to 127, found 128 (62)
+WRONG_TYPE [dims[0].Width] dims[0].Width: expected Int8, found 1.5 (62)
+OUT_OF_RANGE [Big] Big: expected UInt64, from 0 to 18446744073709551615, found -1 (62)
+OUT_OF_RANGE [Ratio] Ratio: expected Float32, from -3.4028235e+38 to 3.4028235e+38, found 1e+39 (62)
+OUT_OF_RANGE [Bytes[1]] Bytes[1]: expected UInt8, from 0 to 255, found 256 (62)
+WRONG_TYPE [Color] Color: expected Color, one of RED, GREEN, or BLUE, found "PINK" (62)
+WRONG_TYPE [Layer] Layer: expected Layer, its flags, WORLD, or PLAYER, joined by |, found "WORLD | SKY" (62)
+OUT_OF_RANGE [Color] Color: expected Color, from -2147483648 to 2147483647, found 2147483648 (62)
+MISSING [dims] dims: missing, and Options's Field Sizes isn't @Optional (62)
+MISSING [dims[1].Width] dims[1].Width: missing, and Size's Field Width isn't @Optional (62)
+OUT_OF_RANGE [Grade] Grade: a Grade is up to 10 (26)
+WRONG_TYPE [Grade] Grade: expected Int32, found "x" (25)
+OUT_OF_RANGE [Extra["a.b"]] Extra["a.b"]: Count is below 0 (35)
+WRONG_TYPE [Extra[""].Count] Extra[""].Count: expected Int32, found "x" (62)
+WRONG_TYPE [Extra["[0]"]] Extra["[0]"]: expected an Object, for Checked, found Null (62)
+True
+a Value is copied, however deep True False
+OUT_OF_RANGE 1330 1279

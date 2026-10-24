@@ -262,6 +262,10 @@ struct expr_info_t {
     /// For "SizeOf<T>()" where T has type parameters in it, which CData keeps to C's: the type
     /// whose size, with the instance's type arguments, the call gives.
     std::optional<type_id_t> size_of;
+    /// For "Load<T>(value)": T, which the call makes from its Value, and for "Save(x)": x's
+    /// type, which it makes a Value of. Either can have type parameters in it.
+    std::optional<type_id_t> loaded;
+    std::optional<type_id_t> saved;
     /// For a Function's name or a lambda where a Callback is expected: a C function pointer to
     /// its code, the Function `symbol` names or the lambda's `closure`.
     bool callback = false;
@@ -371,6 +375,25 @@ struct builtin_interfaces_t {
     type_id_t any_error = type_id_t::INVALID;
 };
 
+/// What Load<T>(value) and Save(x) use from std.core: its Value, which they convert from and to,
+/// ParseError, which Load throws, the attributes on Fields and the Interfaces they honor, from
+/// std/core/load.fb, and that file's Package Functions, which their code calls, by name. Each is
+/// INVALID, or missing, without the standard library.
+struct load_support_t {
+    type_id_t value = type_id_t::INVALID;
+    type_id_t parse_error = type_id_t::INVALID;
+    /// std.collections.map's Map, whose Map<String, V> is an Object.
+    type_id_t map = type_id_t::INVALID;
+    type_id_t rename = type_id_t::INVALID;
+    type_id_t skip = type_id_t::INVALID;
+    type_id_t optional = type_id_t::INVALID;
+    type_id_t flatten = type_id_t::INVALID;
+    type_id_t renamed = type_id_t::INVALID;
+    type_id_t loadable = type_id_t::INVALID;
+    type_id_t saveable = type_id_t::INVALID;
+    std::unordered_map<std::string_view, symbol_id_t> helpers;
+};
+
 /// Everything analysis found out about a file, for lowering and tools. `exprs` and `stmts` have
 /// one entry per AST node, indexed by its id; nodes in code with errors may keep the defaults.
 /// Making its deque can allocate, which clang-tidy reports as an exception escaping.
@@ -408,6 +431,7 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     /// A CString's ToString, which copies its text into a String in Unsafe code, once a program
     /// uses it.
     std::optional<symbol_id_t> cstring_text;
+    load_support_t loading;
     /// The function values the program makes. The expression that makes each one, a lambda or
     /// a Function's name, has its index.
     std::vector<closure_t> closures;
