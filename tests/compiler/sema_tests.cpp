@@ -926,6 +926,12 @@ TEST_CASE("a String converts to std.io's Path where one is expected", "[sema]") 
           errors_t{ "\"a\": expected Path, found String" });
 }
 
+TEST_CASE("std.io's FolderSource is Final so its Async reads are its reads", "[sema]") {
+    // A source that changes what a folder's files read as wraps one instead.
+    CHECK(errors_of("Import std.io\nClass Scrambled Extends FolderSource\nEnd Class") ==
+          errors_t{ "FolderSource: FolderSource is Final, so it can't be extended" });
+}
+
 TEST_CASE("conditions must be Bool", "[sema]") {
     CHECK(errors_of("If 1\nEnd If") == errors_t{ "1: expected Bool, found Int32" });
     CHECK(errors_of("Local n = 1\nWhile n\nEnd While") ==
