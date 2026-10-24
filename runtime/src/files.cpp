@@ -557,13 +557,22 @@ std::int64_t list_folder(const std::string& path, std::vector<entry_t>& entries)
     return 0;
 }
 
+/// The text of a call that gives a path, with '/' between names on every OS.
+std::string with_slashes(std::string path) {
+#ifdef _WIN32
+    std::ranges::replace(path, '\\', '/');
+#endif
+    return path;
+}
+
 /// Adds the entries of the folder at `folder`, by their paths from the folder first listed
 /// (`prefix` is this one's), each before what's in it, to `depth` more folders down, or all of
 /// them below 1.
 std::int64_t walk(const std::string& folder, const std::string& prefix, const std::int64_t depth,
-                  std::vector<entry_t>& into) {
+                  std::vector<entry_t>& into, std::string& failed) {
     std::vector<entry_t> entries;
     if (const std::int64_t listed = list_folder(folder, entries); listed < 0) {
+        failed = with_slashes(folder);
         return listed;
     }
 
@@ -575,7 +584,8 @@ std::int64_t walk(const std::string& folder, const std::string& prefix, const st
             inside.append("/").append(name);
             std::string from = prefix;
             from.append(name).append("/");
-            const std::int64_t walked = walk(inside, from, depth < 1 ? depth : depth - 1, into);
+            const std::int64_t walked =
+                walk(inside, from, depth < 1 ? depth : depth - 1, into, failed);
             if (walked < 0) {
                 return walked;
             }
@@ -601,7 +611,8 @@ std::int64_t entries_request(request_t& request) {
         return UV_ENOTDIR;
     }
 
-    const std::int64_t walked = walk(folder, "", request.number, request.entries);
+    request.other.clear();
+    const std::int64_t walked = walk(folder, "", request.number, request.entries, request.other);
     return walked < 0 ? walked : static_cast<std::int64_t>(request.entries.size());
 }
 
@@ -652,14 +663,6 @@ std::int64_t remove_request(const request_t& request) {
 
     const std::int64_t removed = request.flag != 0 ? remove_all(path) : remove_folder(path);
     return removed < 0 ? removed : 1;
-}
-
-/// The text of a call that gives a path, with '/' between names on every OS.
-std::string with_slashes(std::string path) {
-#ifdef _WIN32
-    std::ranges::replace(path, '\\', '/');
-#endif
-    return path;
 }
 
 /// What a call of libuv's that fills a buffer with a path gives, or nothing.
@@ -907,6 +910,10 @@ void fb_io_request_stat(const void* request, fb_array_t* output) {
     fb_array_reserve(output, sizeof(std::int64_t), count, nullptr);
     output->count = count;
     std::memcpy(output->data, values.data(), sizeof values);
+}
+
+fb_string_t* fb_io_request_failed(const void* request) {
+    return string_of(static_cast<const request_t*>(request)->other);
 }
 
 fb_string_t* fb_io_request_path(const void* request) {

@@ -48,6 +48,8 @@ void fb_io_request_stat(const void* request, fb_array_t* output);
 /// The path a temporary file or folder was made at, or a lock's, which fb_io_lock_release
 /// gives back.
 fb_string_t* fb_io_request_path(const void* request);
+/// The folder a listing couldn't list, with '/' between names, or "" when there's none.
+fb_string_t* fb_io_request_failed(const void* request);
 void* fb_io_request_lock(void* request);
 
 /// What std.io's IOErrorKind an error is: 0 OTHER, 1 NOT_FOUND, 2 PERMISSION_DENIED,
