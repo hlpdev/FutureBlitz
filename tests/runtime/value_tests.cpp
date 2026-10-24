@@ -176,8 +176,8 @@ TEST_CASE("Load<T> reads a String as a Bool or a number, as a command line's are
     CHECK(read("1e-999").kind == 4);
     CHECK(read("1e-999").real == 0.0);
     CHECK(read("inf").kind == 4);
-    for (const std::string_view wrong : { "", "yes", " 1", "1 ", "1x", "0x10", "++1", "+-1", "-",
-                                          "+", "1..2", "true1" }) {
+    for (const std::string_view wrong :
+         { "", "yes", " 1", "1 ", "1x", "0x10", "++1", "+-1", "-", "+", "1..2", "true1" }) {
         INFO(wrong);
         CHECK(read(wrong).kind == 0);
     }
@@ -219,8 +219,8 @@ TEST_CASE("Load<T> reads an Enum's member by its name, in any case, and flags jo
     CHECK(read("WORLD | ENEMY", true) == 5);
     CHECK(read("world|player", true) == 3);
     CHECK(read("ENEMY", true) == 4);
-    for (const std::string_view wrong : { "", "SKY", "WORLD |", "| WORLD", "WORLD || ENEMY",
-                                          "WORLD, ENEMY" }) {
+    for (const std::string_view wrong :
+         { "", "SKY", "WORLD |", "| WORLD", "WORLD || ENEMY", "WORLD, ENEMY" }) {
         INFO(wrong);
         CHECK(read(wrong, true) == -1);
         CHECK(read(wrong, false) == -1);

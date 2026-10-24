@@ -7384,21 +7384,22 @@ TEST_CASE("Load<T> makes a T from a Value, and Save a Value of anything Load mak
     CHECK(probe("Import std.core\nLocal x = Try? Load<String?>(Value())") == "String?");
     CHECK(probe("Import std.core\nLocal x = Save(5)") == "Value");
     CHECK(probe("Import std.core\nLocal x = Save<Int64?>(5)") == "Value");
-    CHECK(errors_of("Import std.core\n"
-                    "Import std.collections\n"
-                    "Enum Kind\n    A, B\nEnd Enum\n"
-                    "Struct Point\n    Field X: Float\n    Field Y: Double\nEnd Struct\n"
-                    "Class Node\n    Field Name: String\n    Field Kids: Node[] = []\n"
-                    "    Field Up: Node?\n    Field Data: Value?\n    Field Bytes: UInt8[] = []\n"
-                    "    Field Kind: Kind\n    Field At: Map<String, Point?>?\n"
-                    "    Field Small: Int8\n    Field Big: UInt64\n    Field Flag: Bool\nEnd Class\n"
-                    "Function Get<T>(value: Value): T Throws ParseError => Try Load<T>(value)\n"
-                    "Local value = Value()\n"
-                    "Local node = Try Load<Node>(value)\n"
-                    "Local saved = Save(node)\n"
-                    "Local again = Try Get<Node>(saved)\n"
-                    "Try\n    Local p = Load<Point>(value)\nCatch e As ParseError\nEnd Try")
-              .empty());
+    CHECK(
+        errors_of("Import std.core\n"
+                  "Import std.collections\n"
+                  "Enum Kind\n    A, B\nEnd Enum\n"
+                  "Struct Point\n    Field X: Float\n    Field Y: Double\nEnd Struct\n"
+                  "Class Node\n    Field Name: String\n    Field Kids: Node[] = []\n"
+                  "    Field Up: Node?\n    Field Data: Value?\n    Field Bytes: UInt8[] = []\n"
+                  "    Field Kind: Kind\n    Field At: Map<String, Point?>?\n"
+                  "    Field Small: Int8\n    Field Big: UInt64\n    Field Flag: Bool\nEnd Class\n"
+                  "Function Get<T>(value: Value): T Throws ParseError => Try Load<T>(value)\n"
+                  "Local value = Value()\n"
+                  "Local node = Try Load<Node>(value)\n"
+                  "Local saved = Save(node)\n"
+                  "Local again = Try Get<Node>(saved)\n"
+                  "Try\n    Local p = Load<Point>(value)\nCatch e As ParseError\nEnd Try")
+            .empty());
 
     // A program's own Load or Save takes the built-in's place.
     CHECK(probe("Function Load(x: Int): Int => x\nLocal x = Load(3)") == "Int32");
@@ -7406,8 +7407,10 @@ TEST_CASE("Load<T> makes a T from a Value, and Save a Value of anything Load mak
 }
 
 TEST_CASE("Load<T> and Save say what's wrong with a call", "[sema]") {
-    const std::string load = ": Load takes one type argument and a Value, like Load<Settings>(value)";
-    const std::string save = ": Save takes a value, and a type argument or none, like Save(settings)";
+    const std::string load =
+        ": Load takes one type argument and a Value, like Load<Settings>(value)";
+    const std::string save =
+        ": Save takes a value, and a type argument or none, like Save(settings)";
     CHECK(errors_of("Import std.core\n"
                     "Local v = Value()\n"
                     "Local a = Try Load(v)\n"
@@ -7533,23 +7536,24 @@ TEST_CASE("std.core's attributes for Load and Save go on Fields, each where it m
 
     // Each Field has a key of its own, inherited ones too, and an old key is no other's, which a
     // type that's never loaded or saved needn't have.
-    CHECK(errors_of("Import std.core\n"
-                    "Class Base\n    Field Name: String\nEnd Class\n"
-                    "Class Titled Extends Base\n    @Rename(\"Name\") Field Title: String\nEnd Class\n"
-                    "Class Twice\n    @Rename(\"a\") Field B: Int\n    @Rename(\"a\") Field C: Int\n"
-                    "End Class\n"
-                    "Class Old\n    @Rename(\"a\") Field B: Int\n    @Renamed(\"a\") Field D: Int\n"
-                    "End Class\n"
-                    "Class Own\n    @Renamed(\"E\") Field E: Int\nEnd Class\n"
-                    "Class Skipped\n    @Skip Field F: Int\n    @Rename(\"F\") Field G: Int\nEnd Class\n"
-                    "Local v = Value()\n"
-                    "Local a = Try Load<Titled>(v)\n"
-                    "Local b = Save(Titled())\n"
-                    "Local c = Try Load<Twice>(v)\n"
-                    "Local d = Try Load<Old>(v)\n"
-                    "Local e = Save(Old())\n"
-                    "Local f = Try Load<Own>(v)\n"
-                    "Local g = Try Load<Skipped>(v)") ==
+    CHECK(errors_of(
+              "Import std.core\n"
+              "Class Base\n    Field Name: String\nEnd Class\n"
+              "Class Titled Extends Base\n    @Rename(\"Name\") Field Title: String\nEnd Class\n"
+              "Class Twice\n    @Rename(\"a\") Field B: Int\n    @Rename(\"a\") Field C: Int\n"
+              "End Class\n"
+              "Class Old\n    @Rename(\"a\") Field B: Int\n    @Renamed(\"a\") Field D: Int\n"
+              "End Class\n"
+              "Class Own\n    @Renamed(\"E\") Field E: Int\nEnd Class\n"
+              "Class Skipped\n    @Skip Field F: Int\n    @Rename(\"F\") Field G: Int\nEnd Class\n"
+              "Local v = Value()\n"
+              "Local a = Try Load<Titled>(v)\n"
+              "Local b = Save(Titled())\n"
+              "Local c = Try Load<Twice>(v)\n"
+              "Local d = Try Load<Old>(v)\n"
+              "Local e = Save(Old())\n"
+              "Local f = Try Load<Own>(v)\n"
+              "Local g = Try Load<Skipped>(v)") ==
           errors_t{
               "Titled: Load can't make Titled, whose Fields 'Name' and 'Title' both have the key "
               "\"Name\"; @Rename gives one another",

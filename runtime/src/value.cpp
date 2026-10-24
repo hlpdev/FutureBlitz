@@ -219,9 +219,8 @@ std::int32_t fb_value_scalar(const fb_string_t* text, std::uint64_t* bits, doubl
     const char* end = number.data() + number.size();
     const bool negative = number.starts_with('-');
     const std::string_view digits = negative ? number.substr(1) : number;
-    if (!digits.empty() && std::ranges::all_of(digits, [](const char c) {
-            return c >= '0' && c <= '9';
-        })) {
+    if (!digits.empty() &&
+        std::ranges::all_of(digits, [](const char c) { return c >= '0' && c <= '9'; })) {
         if (std::int64_t signed_value = 0;
             std::from_chars(number.data(), end, signed_value).ec == std::errc()) {
             *bits = static_cast<std::uint64_t>(signed_value);

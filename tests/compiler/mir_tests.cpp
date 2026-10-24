@@ -2774,14 +2774,13 @@ TEST_CASE("functions and Globals that come out with one name are numbered", "[mi
     CHECK(mir.contains("global x.y.count#2: Int32 = 1\n"));
 }
 
-TEST_CASE("each type's Load and Save is a function of its own, which calls its parts'",
-          "[mir]") {
-    const fb::compilation_t compilation =
-        fb::compile("test.fb", "Import std.core\n"
-                               "Struct Size\n    Field Width: Int\n    Field Tags: String[]\nEnd Struct\n"
-                               "Local value = Save(Size(1, []))\n"
-                               "Local size = Try Load<Size>(value)\n"
-                               "Local again = Try Load<Size>(Save(size))");
+TEST_CASE("each type's Load and Save is a function of its own, which calls its parts'", "[mir]") {
+    const fb::compilation_t compilation = fb::compile(
+        "test.fb", "Import std.core\n"
+                   "Struct Size\n    Field Width: Int\n    Field Tags: String[]\nEnd Struct\n"
+                   "Local value = Save(Size(1, []))\n"
+                   "Local size = Try Load<Size>(value)\n"
+                   "Local again = Try Load<Size>(Save(size))");
     REQUIRE(compilation.diagnostics.diagnostics().empty());
     const std::string mir = fb::dump(fb::lower(compilation.ast, compilation.analysis));
     INFO(mir);
