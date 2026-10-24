@@ -251,16 +251,17 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
     End Method
 
     // Puts the pairs in the order of their names, by UTF-16 code units, as the standard says,
-    // keeping the order of one name's values.
+    // keeping the order of one name's values: a merge sort, by each name's order worked out once.
     Public Method Sort()
-        For i = 1 Until Pairs.Count
-            Local pair = Pairs[i]
-            Local j = i
-            While j > 0 && Utf16Before(pair.0, Pairs[j - 1].0)
-                Pairs[j] = Pairs[j - 1]
-                j -= 1
-            End While
-            Pairs[j] = pair
+        Local entries: (Int[], (String, String))[] = []
+        For pair In Pairs
+            entries.Add((Utf16Order(pair.0), pair))
+        End For
+        entries.Sort(Function(a: (Int[], (String, String)), b: (Int[], (String, String))) =>
+                         OrderBefore(a.0, b.0))
+        Pairs = []
+        For entry In entries
+            Pairs.Add(entry.1)
         End For
     End Method
 
@@ -446,27 +447,23 @@ Function FormEncode(bytes: UInt8[], text: String)
     End For
 End Function
 
-// Whether a comes before b by their UTF-16 code units.
-Function Utf16Before(a: String, b: String): Bool
-    Local left = Utf16(a)
-    Local right = Utf16(b)
-    For i = 0 Until Min(left.Count, right.Count)
-        If left[i] != right[i] Then Return left[i] < right[i]
+// The text's code points, each as a number that orders them as their UTF-16 code units do:
+// those from U+E000 to U+FFFF come after the ones past U+FFFF, whose units start with a
+// surrogate, so they're moved above U+10FFFF.
+Function Utf16Order(text: String): Int[]
+    Local order: Int[] = []
+    For c In text.Chars
+        order.Add(c >= 0xE000 && c < 0x10000 ? c + 0x110000 : c)
     End For
-    Return left.Count < right.Count
+    Return order
 End Function
 
-Function Utf16(text: String): Int[]
-    Local units: Int[] = []
-    For c In text.Chars
-        If c < 0x10000
-            units.Add(c)
-        Else
-            units.Add(0xD800 + ((c - 0x10000) >> 10))
-            units.Add(0xDC00 + ((c - 0x10000) & 0x3FF))
-        End If
+// Whether a comes before b, each a text's Utf16Order.
+Function OrderBefore(a: Int[], b: Int[]): Bool
+    For i = 0 Until Min(a.Count, b.Count)
+        If a[i] != b[i] Then Return a[i] < b[i]
     End For
-    Return units
+    Return a.Count < b.Count
 End Function
 
 // text's code points without the C0 controls and spaces it starts and ends with, or the tabs
