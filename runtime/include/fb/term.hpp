@@ -3,6 +3,8 @@
 #include "fb/runtime.hpp"
 
 #include <cstdint>
+#include <span>
+#include <string>
 
 // std.term's functions in the runtime: what the console's streams are, its size and colors, and
 // its input read a key at a time, over the OS's own calls: the console API with virtual terminal
@@ -50,5 +52,36 @@ namespace fb::term {
 /// basic 16 otherwise. Any of the texts can be null, for a variable that isn't set.
 [[nodiscard]] int color_level(bool terminal, const char* no_color, const char* term,
                               const char* color_term, bool windows);
+
+#ifdef _WIN32
+/// One of Windows' console's key records, as fb_term_read() gets them: its virtual key, its UTF-16
+/// code unit, or 0, the control keys' state, how many times it repeats, and whether it went down.
+struct key_record_t {
+    std::uint16_t key;
+    char16_t unit;
+    std::uint32_t state;
+    std::uint16_t repeat;
+    bool down;
+};
+
+/// One of its mouse records: the buttons down, its event flags, where it is, and the control
+/// keys' state.
+struct mouse_record_t {
+    std::uint32_t buttons;
+    std::uint32_t flags;
+    std::int16_t column;
+    std::int16_t row;
+    std::uint32_t state;
+};
+
+/// What fb_term_read() gives for the key records, in order, as a terminal would send them: where
+/// `vt` says the console writes that itself, their characters; otherwise, xterm's sequences for
+/// the keys without one, and Alt and Shift+Tab as xterm sends them.
+[[nodiscard]] std::string key_bytes(std::span<const key_record_t> records, bool vt);
+
+/// What fb_term_read() gives for the mouse records, in order, as SGR's reports, from the
+/// console window's top.
+[[nodiscard]] std::string mouse_bytes(std::span<const mouse_record_t> records);
+#endif
 
 } // namespace fb::term
