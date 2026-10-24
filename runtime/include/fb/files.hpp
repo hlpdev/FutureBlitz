@@ -122,6 +122,10 @@ std::int64_t fb_io_temp_new(void* request, const fb_string_t* prefix, std::int32
 /// The current folder, and the OS's temporary folder, or null when the OS doesn't say.
 fb_string_t* fb_io_dir_current();
 fb_string_t* fb_io_dir_temp();
+/// The folder the OS keeps each user's programs' settings in, with '/' between names: Windows'
+/// %APPDATA%, macOS's ~/Library/Application Support, and elsewhere $XDG_CONFIG_HOME when it's a
+/// path from the root, or else ~/.config. Null when the OS doesn't say.
+fb_string_t* fb_io_dir_config();
 /// Makes `path` the current folder.
 std::int64_t fb_io_dir_set_current(void* request, const fb_string_t* path);
 
