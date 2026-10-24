@@ -149,8 +149,9 @@ Public Struct Hdr
         Return decoded
     End Method
 
-    // The image in Radiance's RGBE, run-length encoded, without its alpha. Panics when it has no
-    // pixels.
+    // The image in Radiance's RGBE, run-length encoded, without its alpha: a channel that's
+    // negative or NaN is 0, and one past the most RGBE holds, 255 times 2^119, about 1.69e38, is
+    // that most. Panics when it has no pixels.
     @PanicsAtCaller
     Public Static Method Encode(image: HdrImage): UInt8[]
         CheckEncodable(image.Width, image.Height, 2147483647, "an HDR image")

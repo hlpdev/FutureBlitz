@@ -5,6 +5,8 @@
 #include "fb/runtime.hpp"
 #include "image_internal.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -145,9 +147,18 @@ void fb_stb_encode(const fb_array_t* pixels, const std::int64_t width, const std
 
 void fb_stb_encode_hdr(const fb_array_t* pixels, const std::int64_t width,
                        const std::int64_t height, fb_array_t* output) {
+    // stb_image_write's RGBE takes channels from 0 to the most it holds, 255 times 2^119, and
+    // what's outside that would be converted to a byte it can't be, which C leaves undefined; so
+    // what's negative or NaN is 0, and what's past the most, the most.
+    constexpr float most = 0x1.FEp126F;
+    std::vector<float> values(floats_of(pixels).begin(), floats_of(pixels).end());
+    for (float& value : values) {
+        value = std::isnan(value) ? 0 : std::clamp(value, 0.0F, most);
+    }
+
     std::vector<std::uint8_t> out;
     if (stbi_write_hdr_to_func(append, &out, static_cast<int>(width), static_cast<int>(height), 4,
-                               static_cast<const float*>(pixels->data)) == 0) {
+                               values.data()) == 0) {
         fb_panic("std.image's HDR encoding failed", nullptr);
     }
     set_elements<std::uint8_t>(output, out);
