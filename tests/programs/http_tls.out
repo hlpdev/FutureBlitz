@@ -13,5 +13,7 @@ Bearer secret
 (none)
 secret=1
 secret=1; mine=1
+custom.example
+False
 NetError TLS
 NetError TLS
