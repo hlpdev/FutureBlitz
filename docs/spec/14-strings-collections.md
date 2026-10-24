@@ -29,9 +29,9 @@ print in the shortest form that reads back as the same value (`0.1`, not `0.1000
 on every platform: an exponent as `1e21` or `1.5e-7`, and `NaN`, `Inf`, and `-Inf`. A `Bool`
 prints as `True` or `False`. A tuple prints as `(1, a)`, and an array as `[1, 2, 3]`. A Struct,
 Class, or Interface's object that implements `Printable` prints what its `ToString` gives. A
-Task, Thread, Channel, Scheduler, Atomic, or Mutex has no text, so it can't be shown, though its
-debug form can; a Task's result can, through Await or `Wait()`. In a single-line string, an
-interpolation must end on the same line.
+Task, Thread, Channel, Scheduler, Atomic, or Mutex has no text, so it can't be shown, though the
+debug form of what holds it can; a Task's result can, through Await or `Wait()`. In a
+single-line string, an interpolation must end on the same line.
 
 ### Format specs
 
@@ -59,9 +59,13 @@ Print("{ratio:.1%} {big:e} {tiny:.3e}")   // 45.0% 6.02e23 1.500e-7
 | kind | integers: `d` (the default), `x`, `X` (upper digits), `o`, `b`; Floats: `f`, `e`, `E`, `%`; any value: `?` |
 
 - `.2` alone is `f` with 2 decimals. `f`, `e`, `E`, and `%` without a precision write the
-  shortest digits that read back. `%` is the value times 100, then `%`.
+  shortest digits that read back, and `f` and `%` write them without an exponent, so a Float of
+  1e23 is `100000000000000000000000`. So does a spec with `,` or `0` and no kind or precision.
+  `%` is the value times 100, which moves the point two digits, exactly, then `%`, and `Inf%`
+  and `NaN%` keep it.
 - A Bool, Enum, String, Printable value, tuple, or array takes a fill, an alignment, and a width,
   and a String a precision too.
+- An empty spec, as in `"{x:}"`, is none.
 - The compiler checks the spec against its value's type: one that doesn't fit is an error at the
   spec ("Int32 doesn't take a precision in its format spec"). In generic code, a T takes what
   its constraints say it does, any spec for a Formattable T, and each instance whose type doesn't
@@ -103,8 +107,10 @@ Local line = Try Format(r"{} scored {1:>6.1} ({0})", name, score)
 - `Format(template: String, values: Formattable...): String Throws FormatError` (std.core) fills
   a template the program has only when it runs. `{}` is the value after the last `{}`'s, `{0}`
   the first value, and either can take a spec after a `:`; `{{` and `}}` are braces. A field
-  without a spec shows its value as `"{x}"` does. In source, a template is a raw string, whose
-  braces aren't interpolations.
+  without a spec, or with an empty one, shows its value as `"{x}"` does. A field that asks for
+  the debug form gets what the value's own Format gives for that spec, as the built-in types'
+  do, padded as they pad, or else the value's debug form as an interpolation writes it, padded.
+  In source, a template is a raw string, whose braces aren't interpolations.
 - It throws a FormatError: `BAD_TEMPLATE` for a template that isn't one, `MISSING_VALUE` for a
   field whose value isn't given, and `BAD_VALUE` for a spec its value doesn't take.
 
@@ -119,6 +125,7 @@ Local on = Bool.Parse("True")
 
 - Each integer type's `Parse(text, base = 10)`, each Float type's `Parse(text)`, and
   `Bool.Parse(text)` give a `T?`: Null for text that isn't one, or a number its type can't hold.
+  A Float too small for its type reads as the nearest one, 0, and `-0` as an unsigned 0.
 - An integer is a sign, then digits of the base, which `0x`, `0o`, or `0b` can start for bases
   16, 8, and 2; a base outside 2 to 36 panics. A Float reads what interpolation writes, `NaN`,
   `Inf`, and `-Inf` too, so every Float64's text reads back as itself. A Bool is `True` or
@@ -133,17 +140,22 @@ Print(Dump(save))   // the same, with each part on a line of its own
 
 - `"{x:?}"` shows any value as code would write it, from reflection, the same on every
   platform: a number as its shortest text, a String in quotes with escapes, an Enum as its
-  member, a `T?` as its value or `Null`, a tuple as `(1, "a")`, an array as `[1, 2]`, and a
-  Struct or object as `Point { X: 1, Y: 2 }`, with every Field, by its object's own Class. A
-  Weak<T> shows what reading it gives, and a function value, Task, Thread, Channel, Atomic, or
-  Mutex its type's name.
-- An object that's already being shown, in a cycle, shows as `Node { … }`.
+  member, a @Flags value's bits that no member has after its members' in hex, as `World | 0x8`,
+  a `T?` as its value or `Null`, a tuple as `(1, "a")`, an array as `[1, 2]`, a fixed array of
+  several dimensions as one list, and a Struct or object as `Point { X: 1, Y: 2 }`, with every
+  Field, by its object's own Class. A Weak<T> shows what reading it gives, and a function value,
+  Task, Thread, Channel, Scheduler, CString, or `Ptr<T>` its type's name, and so does an Atomic
+  or Mutex inside what holds it, which is the only place it's shown. A value in std's box for a
+  `values: Formattable...` parameter shows as itself.
+- An object that's already being shown, in a cycle, shows as `Node { … }`, and an array as
+  `[ … ]`, as a graph of Structs through their arrays can be.
 - `"{x:#?}"` writes each part on a line of its own, indented four spaces, with a comma after it,
   and `Dump(x)` (std.core) gives that text. Both take a fill, an alignment, and a width.
 - std's collections show their elements, as `Stack<Int32> [1, 2]`, and a Map its entries, as
   `Map<String, Int32> {"a": 1}`. That's std.core's `@DebugElements`, on a Struct or Class that
   implements `Iterable<T>`, and `@DebugEntries`, on one whose T is a (key, value) tuple, which a
-  type of the program's own can have too.
+  type of the program's own can have too. A Grid and a Grid3 show their Fields, their cells
+  and their sizes, which their elements alone would leave out.
 
 ### Multi-line strings
 
