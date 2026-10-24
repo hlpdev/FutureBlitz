@@ -774,7 +774,7 @@ Skeptic: confirmed=True, low. Reproduced. From PowerShell: `cmd /c "chcp 437 >nu
 
 ## A-new-4 (low): The Ctrl+C CLI test fails now and then under load, when fb run's folder outlives its one remove_all
 
-Status: fixed in 9cad5a51 (fb run tries removing its folder again while the program's files are let go, and the ctrl+c test's program is named for its process, so copies of it can run at once), with a driver test: remove_temporary() removes a folder once another holder lets go of a file in it
+Status: fixed in ee0ce395 (fb run tries removing its folder again while the program's files are let go, and the ctrl+c test's program is named for its process, so copies of it can run at once), with a driver test: remove_temporary() removes a folder once another holder lets go of a file in it
 
 Where: cli/src/commands.cpp, run(), and tests/cli/cli_tests.cpp, "Ctrl+C during fb run ends the program, and fb cleans up and gives its exit code"
 

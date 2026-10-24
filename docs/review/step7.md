@@ -4,7 +4,7 @@
 
 ## S7-tools-1 (high): Diff.Merge turns an identical deletion on both sides into an empty conflict
 
-Status: fixed in 87cce01 (a merge where both sides delete the same lines takes the deletion, as git's does), with text_diff_git.fb's four merges where both sides delete a line, a run, and the whole text, against git merge-file -p; two sides that made the same of their lines have them as lines both have, as git has no change for them, so they keep no conflicts apart that git joins
+Status: fixed in a0e5364 (a merge where both sides delete the same lines takes the deletion, as git's does), with text_diff_git.fb's four merges where both sides delete a line, a run, and the whole text, against git merge-file -p; two sides that made the same of their lines have them as lines both have, as git has no change for them, so they keep no conflicts apart that git joins
 
 Where: std/text/diff.fb:428
 
@@ -38,7 +38,7 @@ Skeptic: I ran the program in verify-tools/t1.fb. Debug and release both print a
 
 ## S7-compiler-1 (medium): A literal pattern in a Global or Static Field initializer isn't checked when the flags are left to their default
 
-Status: fixed in c277e53 (a literal pattern in a global or static field's value is checked with regex's default flags too), with a sema test of a Global's Regex, a Static Field's, and a Global's Regex.Parse, each with the flags left out: the check makes sure Regex's defaults are checked before it reads them, as run_at_compile_time does
+Status: fixed in a4304e7 (a literal pattern in a global or static field's value is checked with regex's default flags too), with a sema test of a Global's Regex, a Static Field's, and a Global's Regex.Parse, each with the flags left out: the check makes sure Regex's defaults are checked before it reads them, as run_at_compile_time does
 
 Where: compiler/src/sema.cpp:19763
 
@@ -71,7 +71,7 @@ Skeptic: Ran f1.fb from the finding. Debug says "Finished debug build", then the
 
 ## S7-compiler-2 (medium): An untyped lambda counts as fitting an overload even when its body doesn't check as that Func, so valid calls are reported as ambiguous
 
-Status: fixed in ab7b013 (an untyped lambda fits the overload whose func it checks as without errors over one it checks as with them), with sema tests of lambdas whose bodies check only as one overload's Func, by what they give and by what their parameter has, one with errors as both, which is still ambiguous, and one with only the one overload, whose body's error is reported: such a lambda fits a Func it has errors as ANY, below every other fit
+Status: fixed in 09e2fe6 (an untyped lambda fits the overload whose func it checks as without errors over one it checks as with them), with sema tests of lambdas whose bodies check only as one overload's Func, by what they give and by what their parameter has, one with errors as both, which is still ambiguous, and one with only the one overload, whose body's error is reported: such a lambda fits a Func it has errors as ANY, below every other fit
 
 Where: compiler/src/sema.cpp:21166
 
@@ -96,7 +96,7 @@ Skeptic: l3.fb, H(Function(x) => "a") with H(Func(Int): Int) and H(Func(Int): St
 
 ## S7-regex-1 (medium): MatchLimit bounds each start position's try, not the search, so a classic quadratic ReDoS hangs instead of throwing
 
-Status: fixed in 9f26723 (a regex's matchlimit counts a search's steps over every place it tries, so a quadratic search throws instead of running on), with text_regex.fb's \s+$ over 3000 spaces and an x under a MatchLimit of 100000: a callout before each of the pattern's items (PCRE2_AUTO_CALLOUT) counts a search's steps over every place it tries, since PCRE2's own count starts again at each place, and PCRE2's own limit stays for each place; the compiler's check compiles with the same options. In an -O2 PCRE2, a search that tries many places runs about 1.5 to 2 times slower for it, and one PCRE2 skips through as before
+Status: fixed in 9735615 (a regex's matchlimit counts a search's steps over every place it tries, so a quadratic search throws instead of running on), with text_regex.fb's \s+$ over 3000 spaces and an x under a MatchLimit of 100000: a callout before each of the pattern's items (PCRE2_AUTO_CALLOUT) counts a search's steps over every place it tries, since PCRE2's own count starts again at each place, and PCRE2's own limit stays for each place; the compiler's check compiles with the same options. In an -O2 PCRE2, a search that tries many places runs about 1.5 to 2 times slower for it, and one PCRE2 skips through as before
 
 Where: runtime/src/regex.cpp:197
 
@@ -127,7 +127,7 @@ Skeptic: Ran r1.fb, the finding's program: `fb run --release` printed False afte
 
 ## S7-regex-2 (medium): After an empty match at the \r of \r\n, FindAll/Replace/Split skip the \n even when the pattern matches \n itself, losing or shortening matches
 
-Status: fixed in 02be88e (after an empty match at a \r\n, a pattern with a \r or \n of its own looks again from the \n, as pcre2 and python do), with text_regex.fb's \n* over "a\r\n\nb", \n? replacing and splitting around "\r\n", and $ and x* over "\r\n", which still step over the whole of it: a Regex keeps PCRE2_INFO_HASCRORLF, from fb_regex_has_cr_or_lf
+Status: fixed in 2edb369 (after an empty match at a \r\n, a pattern with a \r or \n of its own looks again from the \n, as pcre2 and python do), with text_regex.fb's \n* over "a\r\n\nb", \n? replacing and splitting around "\r\n", and $ and x* over "\r\n", which still step over the whole of it: a Regex keeps PCRE2_INFO_HASCRORLF, from fb_regex_has_cr_or_lf
 
 Where: std/text/regex.fb:529
 
@@ -170,7 +170,7 @@ Skeptic: Ran r2.fb, the finding's program. It printed 0 0 / 1 1 / 3 4 / 4 4 / 5 
 
 ## S7-tools-2 (medium): Merge misses joining two conflicts when the lines between them span two SAME chunks
 
-Status: fixed in 3e834f1 (a merge's kept lines next to each other are one run, so the conflicts around them join as git's do), with text_diff_git.fb's two merges with two runs of kept lines between their conflicts, against git merge-file -p
+Status: fixed in cabd213 (a merge's kept lines next to each other are one run, so the conflicts around them join as git's do), with text_diff_git.fb's two merges with two runs of kept lines between their conflicts, against git merge-file -p
 
 Where: std/text/diff.fb:459
 
@@ -231,7 +231,7 @@ Skeptic: t2.fb prints two conflicts, A/B and D/E with "c\n4\n" between them, and
 
 ## S7-tools-3 (medium): Myers' raw path isn't compacted, so Unified and Merge differ from diff -u, git diff, and git merge-file, with spurious conflicts
 
-Status: fixed in ededd79 (diff searches in linear space as git's xdiff does, and slides each run of changes as git does, so its diffs and merges are git's), with text_diff_git.fb's unified diffs and a merge past repeated and blank lines, against git, and text_diff.fb's Myers example, which is git's and diff -u's now. Script goes as git's xdiff does: past the lines both start and end with, a line with no equal in the other text is changed without a search, xdl_split's linear-space Myers marks the rest, and xdl_change_compact, without the indent heuristic, slides each run of changes. 2800 random small diffs and merges, against git diff --no-indent-heuristic and git merge-file, gave git's result in each
+Status: fixed in 4fe9978 (diff searches in linear space as git's xdiff does, and slides each run of changes as git does, so its diffs and merges are git's), with text_diff_git.fb's unified diffs and a merge past repeated and blank lines, against git, and text_diff.fb's Myers example, which is git's and diff -u's now. Script goes as git's xdiff does: past the lines both start and end with, a line with no equal in the other text is changed without a search, xdl_split's linear-space Myers marks the rest, and xdl_change_compact, without the indent heuristic, slides each run of changes. 2800 random small diffs and merges, against git diff --no-indent-heuristic and git merge-file, gave git's result in each
 
 Where: std/text/diff.fb:225
 
@@ -303,7 +303,7 @@ Skeptic: t3.fb reproduces all three outputs exactly. Merge gives a conflict (emp
 
 ## S7-tools-4 (medium): Humanize.Plural lowercases a word with capitals inside it
 
-Status: fixed in 22bd1c5 (a plural keeps its word's capitals, as gameobjects does, and one in capitals has its ending in them), with text_humanize.fb's iPhone, GameObject, McDonald, "enemy SpaceShip", CITY, City, BoundingBox, Fish, and ChILD: the rules read the word lowercased and build on the word as given; an irregular plural keeps a first capital or all of them, as before
+Status: fixed in fccf92e (a plural keeps its word's capitals, as gameobjects does, and one in capitals has its ending in them), with text_humanize.fb's iPhone, GameObject, McDonald, "enemy SpaceShip", CITY, City, BoundingBox, Fish, and ChILD: the rules read the word lowercased and build on the word as given; an irregular plural keeps a first capital or all of them, as before
 
 Where: std/text/humanize.fb:19
 
@@ -327,7 +327,7 @@ Skeptic: t4.fb prints "iphones Gameobjects 3 Playstations Mcdonalds enemy Spaces
 
 ## S7-tools-5 (medium): Diff.Unified overflows Int on a large context: a panic inside std in debug, wrong hunks in release
 
-Status: fixed in 7db1b92 (a unified diff takes any context up to the most an int holds, as diff -u and git diff do), with text_diff_git.fb's contexts of 1000000, 2^30, and Int's most, against git diff -U, in debug and release
+Status: fixed in b30bd52 (a unified diff takes any context up to the most an int holds, as diff -u and git diff do), with text_diff_git.fb's contexts of 1000000, 2^30, and Int's most, against git diff -U, in debug and release
 
 Where: std/text/diff.fb:87
 
@@ -357,7 +357,7 @@ Skeptic: t5.fb: in debug, the first hunk is right, then 'panic: integer overflow
 
 ## S7-tools-6 (medium): Diff's Myers keeps every round's diagonals: memory grows with the square of the edits
 
-Status: fixed in ededd79 (diff searches in linear space as git's xdiff does, and slides each run of changes as git does, so its diffs and merges are git's), with text_diff.fb's two texts of 50000 lines alike only in every 100th, which the old Script didn't finish: Myers' search keeps a row of diagonals each way, as xdl_split does, and a line with no equal in the other text isn't searched at all
+Status: fixed in 4fe9978 (diff searches in linear space as git's xdiff does, and slides each run of changes as git does, so its diffs and merges are git's), with text_diff.fb's two texts of 50000 lines alike only in every 100th, which the old Script didn't finish: Myers' search keeps a row of diagonals each way, as xdl_split does, and a line with no equal in the other text isn't searched at all
 
 Where: std/text/diff.fb:232
 
@@ -391,7 +391,7 @@ Skeptic: I built the N-line no-common-lines program in release (t6_N.fb) and sam
 
 ## S7-tools-7 (medium): Diff.Merge writes \n conflict markers into \r\n text
 
-Status: fixed in b00d1c1 (a merge's conflict markers end in \r\n where the texts' lines do, as git's do), with text_diff_git.fb's five merges of "\r\n" text, against git merge-file -p: the markers' break is is_cr_needed's, and a side without a last line break gets that one
+Status: fixed in a5bc5bf (a merge's conflict markers end in \r\n where the texts' lines do, as git's do), with text_diff_git.fb's five merges of "\r\n" text, against git merge-file -p: the markers' break is is_cr_needed's, and a side without a last line break gets that one
 
 Where: std/text/diff.fb:189
 
@@ -422,7 +422,7 @@ Skeptic: t7.fb shows a CRLF merge with bare \n after each marker line, and Ended
 
 ## S7-tools-9 (medium): WordWrap breaks at a no-break space and replaces it with an ASCII space
 
-Status: fixed in db172b9 (wordwrap doesn't break at a no-break space, and keeps the spaces between words that stay on a line), with text_layout.fb's U+00A0, U+202F, and U+2007 cases, and spaces between words that stay on a line, and the ones at a break, which go
+Status: fixed in 3b3db47 (wordwrap doesn't break at a no-break space, and keeps the spaces between words that stay on a line), with text_layout.fb's U+00A0, U+202F, and U+2007 cases, and spaces between words that stay on a line, and the ones at a break, which go
 
 Where: std/text/layout.fb:34
 
@@ -453,7 +453,7 @@ Skeptic: t9.fb: "100\u{A0}km away".WordWrap(80) == original is False, and "go 10
 
 ## S7-compiler-4 (low): A lambda without a return type doesn't fit an overload whose Func returns another type, though a single function takes it
 
-Status: fixed in 3a42f73 (a lambda without a return type fits an overload whose func gives the type it would take, as one function's does), with sema tests of Function() => 1 and Function(n: Int) => 1 passed to overloads of a Func that gives a Double and a String, and of a lambda whose own type, Func(Int): Int, fits better than a Func(Int): Int64 it can be
+Status: fixed in 0f5e887 (a lambda without a return type fits an overload whose func gives the type it would take, as one function's does), with sema tests of Function() => 1 and Function(n: Int) => 1 passed to overloads of a Func that gives a Double and a String, and of a lambda whose own type, Func(Int): Int, fits better than a Func(Int): Int64 it can be
 
 Where: compiler/src/sema.cpp:21180
 
@@ -482,7 +482,7 @@ Skeptic: l5.fb: One(Function() => 1), not overloaded, prints 1. Two(Function() =
 
 ## S7-compiler-5 (low): The pattern check also runs on a literal the lexer already rejected, adding a misleading second error
 
-Status: fixed in 3da42cb (a literal pattern the lexer reported isn't checked as a pattern too), with a sema test of "\Qa(\E" and of a literal without its closing quote, and pattern_tests' cases of literal_is_whole, which tells them
+Status: fixed in c5b6c4a (a literal pattern the lexer reported isn't checked as a pattern too), with a sema test of "\Qa(\E" and of a literal without its closing quote, and pattern_tests' cases of literal_is_whole, which tells them
 
 Where: compiler/src/sema.cpp:19793
 
@@ -506,7 +506,7 @@ Skeptic: a4.fb, Local a = Regex("\Qa(\E") with single backslashes, gives three e
 
 ## S7-regex-3 (low): Regex.Escape leaves PCRE2's non-ASCII pattern whitespace bare, so under EXTENDED its pattern doesn't match the text
 
-Status: fixed in 163f343 (escape puts a backslash before the whitespace beyond ascii that extended skips too), with text_regex.fb's EXTENDED Regex of the Escape of U+0085, U+200E, U+200F, U+2028, U+2029, U+00A0, a space, and a #; its comment says text
+Status: fixed in 8f89249 (escape puts a backslash before the whitespace beyond ascii that extended skips too), with text_regex.fb's EXTENDED Regex of the Escape of U+0085, U+200E, U+200F, U+2028, U+2029, U+00A0, a space, and a #; its comment says text
 
 Where: std/text/regex.fb:227
 
@@ -541,7 +541,7 @@ Skeptic: Ran r3.fb. Regex(Regex.Escape(text), RegexFlags.EXTENDED).IsMatch(text)
 
 ## S7-regex-4 (low): A pattern's own (*LIMIT_MATCH/DEPTH/HEAP=n) throws with a message that says the Regex's limits (10 million steps, 64 MiB) were passed
 
-Status: fixed in c7e580f (a search past a pattern's own (*limit_...) says so, and a depth limit isn't one of memory), with text_regex.fb's (*LIMIT_MATCH=10), (*LIMIT_DEPTH=5), and (*LIMIT_HEAP=1): fb_regex_match tells a pattern's own lower limit, from PCRE2_INFO_MATCHLIMIT, DEPTHLIMIT, and HEAPLIMIT, from the Regex's, and the Regex's own depth limit, which is its MatchLimit, is a MATCH_LIMIT
+Status: fixed in 5157b57 (a search past a pattern's own (*limit_...) says so, and a depth limit isn't one of memory), with text_regex.fb's (*LIMIT_MATCH=10), (*LIMIT_DEPTH=5), and (*LIMIT_HEAP=1): fb_regex_match tells a pattern's own lower limit, from PCRE2_INFO_MATCHLIMIT, DEPTHLIMIT, and HEAPLIMIT, from the Regex's, and the Regex's own depth limit, which is its MatchLimit, is a MATCH_LIMIT
 
 Where: std/text/regex.fb:348
 
@@ -577,7 +577,7 @@ Skeptic: Ran r4.fb, the finding's program. It printed 'MATCH_LIMIT the match too
 
 ## S7-regex-5 (low): docs/stdlib.md says FindAll's empty matches work 'as Python and Rust do', but Rust's differ, and FindAll follows Python's
 
-Status: fixed in 74e63b8 (stdlib.md: findall's empty matches are python's, which rust's aren't), docs only
+Status: fixed in f58456e (stdlib.md: findall's empty matches are python's, which rust's aren't), docs only
 
 Where: docs/stdlib.md:297
 
@@ -608,7 +608,7 @@ Skeptic: Ran r5.fb. FindAll of x* over "axxb" gives 0 0, 1 3, 3 3, 4 4, and Repl
 
 ## S7-regex-6 (low): No test covers MemoryLimit's 1 MiB panic or the runtime's rejection of \C
 
-Status: fixed in 36f17d7 (tests for memorylimit's least and the runtime's refusal of \c), tests only: tests/programs/panic_regex_memory.fb, and text_regex.fb's Regex.Parse of r"a\Cb" when the program runs
+Status: fixed in 0e3a009 (tests for memorylimit's least and the runtime's refusal of \c), tests only: tests/programs/panic_regex_memory.fb, and text_regex.fb's Regex.Parse of r"a\Cb" when the program runs
 
 Where: tests/programs/panic_regex_limit.fb:8
 
@@ -644,7 +644,7 @@ Skeptic: Searched tests/ for MemoryLimit, NEVER_BACKSLASH_C, and \C. MemoryLimit
 
 ## S7-tools-10 (low): WordWrap counts a tab as 0 columns, so tab-indented lines run past the width
 
-Status: fixed in eaee8a9 (wordwrap counts a tab to the next multiple of 8 columns, as a terminal shows it), with text_layout.fb's tab before a line's words and between them: a tab goes on to the next multiple of 8 columns from where it is
+Status: fixed in 48150a6 (wordwrap counts a tab to the next multiple of 8 columns, as a terminal shows it), with text_layout.fb's tab before a line's words and between them: a tab goes on to the next multiple of 8 columns from where it is
 
 Where: std/text/layout.fb:26
 
@@ -675,7 +675,7 @@ Skeptic: t10.fb gives "[\tone two] 15" and "[\tthree four] 18" with width 10. Wo
 
 ## S7-tools-11 (low): Case styles drop combining marks and split words at them
 
-Status: fixed in d14e1f5 (a case style keeps a word's combining marks in it), with text_humanize.fb's decomposed "café au lait", "naïve set", "caféBar", and "ÉCOLEName", and a mark first
+Status: fixed in 1c606c0 (a case style keeps a word's combining marks in it), with text_humanize.fb's decomposed "café au lait", "naïve set", "caféBar", and "ÉCOLEName", and a mark first
 
 Where: std/text/humanize.fb:177
 
@@ -703,7 +703,7 @@ Skeptic: t11.fb prints 'cafe_au_lait café_au_lait' and 'NaiVeSet NaïveSet'. Wo
 
 ## S7-tools-12 (low): Glob's "**/" matches no folder even when the ** isn't a whole folder, so "a**/b" matches "ab"
 
-Status: fixed in f81f215 (a glob's **/ can be no folder only where it's a whole one, as in bash's globstar), with text_glob.fb's a**/b, src**/main.fb, src/**/x, and **/x
+Status: fixed in d984e03 (a glob's **/ can be no folder only where it's a whole one, as in bash's globstar), with text_glob.fb's a**/b, src**/main.fb, src/**/x, and **/x
 
 Where: std/text/glob.fb:173
 
@@ -729,7 +729,7 @@ Skeptic: t12.fb prints 'True True True', so "a**/b" matches "ab" and "src**/main
 
 ## S7-tools-14 (low): Merge's "no letter or digit" rule is Unicode's, but git merge-file's is ASCII's
 
-Status: fixed in 6619a4c (a merge's letters and digits that keep conflicts apart are ascii's, as git's are), with text_diff_git.fb's four lines of "ä" between two conflicts, against git merge-file -p; stdlib.md says ASCII
+Status: fixed in 00fe334 (a merge's letters and digits that keep conflicts apart are ascii's, as git's are), with text_diff_git.fb's four lines of "ä" between two conflicts, against git merge-file -p; stdlib.md says ASCII
 
 Where: std/text/diff.fb:481
 
@@ -790,7 +790,7 @@ Skeptic: t14.fb gives two conflicts (Conflicts 2). git merge-file -p on the same
 
 ## S7-tools-15 (low): Fuzzy.Match's score for a one-character pattern isn't fzf's own, as docs/stdlib.md says
 
-Status: fixed in ebddc33 (a one-character fuzzy pattern takes its first place at a word's start, as fzf's does), with text_fuzzy.fb's "a" in "1.A aB", 32 at byte 2, as fzf gives, and three more one-character patterns
+Status: fixed in b00352a (a one-character fuzzy pattern takes its first place at a word's start, as fzf's does), with text_fuzzy.fb's "a" in "1.A aB", 32 at byte 2, as fzf gives, and three more one-character patterns
 
 Where: std/text/fuzzy.fb:162
 
@@ -817,7 +817,7 @@ Skeptic: t15.fb prints '36 [4]' in debug and release. I fetched fzf's src/algo/a
 
 ## S7-tools-16 (low): docs/stdlib.md's "So far, std/ holds" table leaves out step 7's std/text files
 
-Status: fixed in 9e5f5ca (stdlib.md's table has step 7's std/text files), docs only
+Status: fixed in ac66a67 (stdlib.md's table has step 7's std/text files), docs only
 
 Where: docs/stdlib.md:41
 
@@ -846,7 +846,7 @@ Skeptic: t16.fb runs and prints 'True 1 36 1st 1'. docs/stdlib.md's 'So far, std
 
 ## S7-tools-8 (low): Glob with ignoreCase fails text it matches case-sensitively when case folding changes a character count
 
-Status: fixed in c6985bc (a glob that ignores case folds each character to one, so a ?, a set, or a range still takes what it takes without), with text_glob.fb's ?, sets, and ranges against ß, ẞ, İ, ς, and capitals: each character folds to one, its case folding where that's one character, or else its lowercase, and a set, negated too, has a letter in any case. A folding of two characters isn't two of the pattern's, so "STRASSE" no longer matches "straße", as the folding of whole strings had it
+Status: fixed in 4de69b6 (a glob that ignores case folds each character to one, so a ?, a set, or a range still takes what it takes without), with text_glob.fb's ?, sets, and ranges against ß, ẞ, İ, ς, and capitals: each character folds to one, its case folding where that's one character, or else its lowercase, and a set, negated too, has a letter in any case. A folding of two characters isn't two of the pattern's, so "STRASSE" no longer matches "straße", as the folding of whole strings had it
 
 Where: std/text/glob.fb:41
 
