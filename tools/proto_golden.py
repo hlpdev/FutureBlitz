@@ -80,8 +80,8 @@ def function_name(path: Path) -> str:
 
 def golden(protoc: str, folder: Path) -> str:
     lines = [
-        f"// Made by tools/proto_golden.py with protoc 36.2 from the .txtpb and .merge files beside",
-        f"// it: each Function gives the bytes protoc wrote for one. Make it again with that script.",
+        "// Made by tools/proto_golden.py with protoc 36.2 from the .txtpb and .merge files beside",
+        "// it: each Function gives the bytes protoc wrote for one. Make it again with that script.",
     ]
     for path in sorted([*folder.glob("*.txtpb"), *folder.glob("*.merge")]):
         data, proto, message = encoded(protoc, path)

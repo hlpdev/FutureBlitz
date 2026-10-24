@@ -161,9 +161,11 @@ private:
                 ++m_at;
             }
 
-            return { .kind = lexeme_t::IDENTIFIER,
-                     .text = slice(begin),
-                     .span = span(begin, m_at) };
+            return {
+                .kind = lexeme_t::IDENTIFIER,
+                .text = slice(begin),
+                .span = span(begin, m_at),
+            };
         }
 
         if (is_digit(c) || (c == '.' && is_digit(at(1)))) {
@@ -176,7 +178,7 @@ private:
 
         // A character that's no token, as part of a UTF-8 one too.
         if (static_cast<unsigned char>(c) >= 0x80 ||
-            std::string_view("{}[]()<>;=,.-+:/").find(c) == std::string_view::npos) {
+            !std::string_view("{}[]()<>;=,.-+:/").contains(c)) {
             const std::size_t length = static_cast<unsigned char>(c) >= 0x80
                                            ? std::max<std::size_t>(utf8_sequence_length(c), 1)
                                            : 1;
@@ -224,8 +226,8 @@ private:
             bool overflow = false;
             const std::size_t digits = m_at;
             while (is_hex_digit(at())) {
-                overflow = overflow || value > (std::numeric_limits<std::uint64_t>::max() >> 4);
-                value = (value << 4) | static_cast<std::uint64_t>(hex_value(at()));
+                overflow = overflow || value > (std::numeric_limits<std::uint64_t>::max() >> 4U);
+                value = (value << 4U) | static_cast<std::uint64_t>(hex_value(at()));
                 ++m_at;
             }
 
@@ -307,7 +309,7 @@ private:
             const auto amount = static_cast<std::uint64_t>(digit - '0');
             overflow =
                 overflow || value > (std::numeric_limits<std::uint64_t>::max() - amount) / base;
-            value = value * base + amount;
+            value = (value * base) + amount;
         }
 
         return finish_integer(begin, value, overflow);
@@ -418,7 +420,7 @@ private:
             int byte = 0;
             int digits = 0;
             while (digits < 2 && is_hex_digit(at())) {
-                byte = byte * 16 + hex_value(at());
+                byte = (byte * 16) + hex_value(at());
                 ++m_at;
                 ++digits;
             }
@@ -441,7 +443,7 @@ private:
                     return;
                 }
 
-                point = point * 16 + static_cast<std::uint32_t>(hex_value(at()));
+                point = (point * 16) + static_cast<std::uint32_t>(hex_value(at()));
                 ++m_at;
             }
 
@@ -461,7 +463,7 @@ private:
         if (c >= '0' && c <= '7') {
             int byte = c - '0';
             for (int digits = 1; digits < 3 && at() >= '0' && at() <= '7'; ++digits) {
-                byte = byte * 8 + (at() - '0');
+                byte = (byte * 8) + (at() - '0');
                 ++m_at;
             }
 
@@ -482,7 +484,7 @@ private:
 
 /// The scalar type a name is, if it's one.
 std::optional<proto_kind_t> scalar_kind(const std::string_view name) {
-    static constexpr std::array<std::pair<std::string_view, proto_kind_t>, 15> scalars{ {
+    static constexpr auto scalars = std::to_array<std::pair<std::string_view, proto_kind_t>>({
         { "double", proto_kind_t::DOUBLE },
         { "float", proto_kind_t::FLOAT },
         { "int32", proto_kind_t::INT32 },
@@ -498,7 +500,7 @@ std::optional<proto_kind_t> scalar_kind(const std::string_view name) {
         { "bool", proto_kind_t::BOOL },
         { "string", proto_kind_t::STRING },
         { "bytes", proto_kind_t::BYTES },
-    } };
+    });
     for (const auto& [written, kind] : scalars) {
         if (written == name) {
             return kind;
@@ -767,7 +769,7 @@ private:
     }
 
     /// What a message says the token is: "'x'", "the number 5", or "the end of the file".
-    [[nodiscard]] std::string describe(const proto_token_t& token) const {
+    [[nodiscard]] static std::string describe(const proto_token_t& token) {
         switch (token.kind) {
         case lexeme_t::END:
             return "the end of the file";
@@ -846,7 +848,7 @@ private:
         }
 
         if (peek().kind != lexeme_t::STRING) {
-            expected("\"proto2\" or \"proto3\"");
+            expected(R"("proto2" or "proto3")");
             skip_statement();
             return;
         }
@@ -857,7 +859,7 @@ private:
         } else if (written.value == "proto2") {
             m_file.syntax = proto_syntax_t::PROTO2;
         } else {
-            error(written.span, "the syntax is \"proto2\" or \"proto3\", not {}", written.text);
+            error(written.span, R"(the syntax is "proto2" or "proto3", not {})", written.text);
         }
 
         if (!expect_symbol(';')) {
@@ -2203,7 +2205,7 @@ private:
             }
 
             package = joined(package, std::string_view(part.begin(), part.end()));
-            add(package, { .kind = symbol_kind_t::PACKAGE, .file = &file }, {}, false);
+            add(package, { .kind = symbol_kind_t::PACKAGE, .file = &file }, span_t(), false);
         }
 
         for (std::size_t i = 0; i < file.messages.size(); ++i) {
@@ -2275,11 +2277,10 @@ private:
 /// The names FutureBlitz reserves that a .proto's names can be: keywords, contextual ones, and
 /// the built-in types'.
 bool is_reserved(const std::string_view name) {
-    static constexpr std::array<std::string_view, 8> others{
-        "Void", "Get", "Set", "Step", "Lib", "From", "Weak", "Attribute",
-    };
+    // Void, which only a Ptr names, and the contextual keywords, each between spaces.
+    constexpr std::string_view others = " Void Get Set Step Lib From Weak Attribute ";
     return keyword_kind(name).has_value() || builtin_type(name).has_value() ||
-           std::ranges::contains(others, name);
+           others.contains(std::format(" {} ", name));
 }
 
 /// A name as FutureBlitz takes it: with a '_' after one it reserves, or that's in `taken`.
@@ -2556,8 +2557,9 @@ private:
         std::uint64_t limit = wide ? std::numeric_limits<std::uint64_t>::max()
                                    : std::numeric_limits<std::uint32_t>::max();
         if (is_signed) {
-            limit = wide ? (value.negative ? 1ULL << 63 : (1ULL << 63) - 1)
-                         : (value.negative ? 1ULL << 31 : (1ULL << 31) - 1);
+            // A negative number reaches one further than a positive one.
+            const unsigned bits = wide ? 63U : 31U;
+            limit = (1ULL << bits) - (value.negative ? 0 : 1);
         } else if (value.negative && value.integer != 0) {
             m_diagnostics.error(value.span, "{} is {}, which has no negative numbers", field.name,
                                 scalar_name(field.type.kind));
@@ -2693,7 +2695,7 @@ constexpr std::uint32_t wire_group_end = 4;
 constexpr std::uint32_t wire_fixed32 = 5;
 
 std::uint32_t tag_of(const std::int32_t number, const std::uint32_t wire) {
-    return (static_cast<std::uint32_t>(number) << 3) | wire;
+    return (static_cast<std::uint32_t>(number) << 3U) | wire;
 }
 
 /// The wire type a value of this kind takes, alone.
@@ -3041,9 +3043,9 @@ private:
     /// A message's or enum's FutureBlitz type, after its module's alias when it's another
     /// file's.
     [[nodiscard]] std::string named_type(const proto_type_t& type) const {
-        const std::string name = type.kind == proto_kind_t::MESSAGE
-                                     ? proto_message_name(*type.file, type.index)
-                                     : proto_enum_name(*type.file, type.index);
+        std::string name = type.kind == proto_kind_t::MESSAGE
+                               ? proto_message_name(*type.file, type.index)
+                               : proto_enum_name(*type.file, type.index);
         if (type.file == &m_file) {
             return name;
         }
@@ -3295,8 +3297,8 @@ private:
         return !m_storage[index].empty();
     }
 
-    /// What reads a field's value in the Struct's code: its storage, for a oneof's field that
-    /// isn't boxed, or else the field.
+    /// What reads and sets a field's value in the Struct's code: its Field, or the Property over
+    /// a oneof's or a boxed field's storage.
     [[nodiscard]] std::string read_field(const std::size_t index) const {
         return std::format("Self.{}", m_names.fields[index]);
     }
@@ -3378,8 +3380,12 @@ private:
             parameters += (parameters.empty() ? "" : ", ") + parameter;
         }
 
-        const bool oneofs = !message.oneofs.empty();
-        if (oneofs) {
+        // New panics when it's given two of a oneof's fields.
+        const bool counted = std::ranges::any_of(message.oneofs, [&](const proto_oneof_t& oneof) {
+            const auto at = static_cast<std::size_t>(&oneof - message.oneofs.data());
+            return std::ranges::count(message.fields, std::optional(at), &proto_field_t::oneof) > 1;
+        });
+        if (counted) {
             m_out.line("@PanicsAtCaller");
         }
 
@@ -3395,7 +3401,7 @@ private:
         }
 
         m_out.line("Self.{} = []", m_unknown);
-        if (!message.oneofs.empty()) {
+        if (counted) {
             m_out.line("Local {} = 0", local("given_"));
         }
 
@@ -3510,16 +3516,17 @@ private:
         }
 
         for (std::size_t i = 0; i < message.fields.size(); ++i) {
-            if (m_names.defaults[i].empty()) {
+            const proto_field_t& field = message.fields[i];
+            if (!field.default_value) {
                 continue;
             }
 
-            const proto_field_t& field = message.fields[i];
             m_out.line();
             m_out.line("// {}'s value, or its default when it has none.", m_names.fields[i]);
             m_out.line("Public Property {}: {}", m_names.defaults[i], value_type(field.type));
             m_out.indent();
-            m_out.line("Get => Self.{} ?? {}", m_names.fields[i], default_value(field));
+            m_out.line("Get => Self.{} ?? {}", m_names.fields[i],
+                       default_value(field, *field.default_value));
             m_out.dedent();
             m_out.line("End Property");
         }
@@ -3529,9 +3536,9 @@ private:
         return static_cast<std::size_t>(&message - m_file.messages.data());
     }
 
-    /// A field's [default = ...] as FutureBlitz writes its value.
-    [[nodiscard]] std::string default_value(const proto_field_t& field) const {
-        const proto_constant_t& value = *field.default_value;
+    /// A field's [default = ...], `value`, as FutureBlitz writes it.
+    [[nodiscard]] std::string default_value(const proto_field_t& field,
+                                            const proto_constant_t& value) const {
         switch (field.type.kind) {
         case proto_kind_t::BOOL:
             return value.text == "true" ? "True" : "False";
@@ -3888,7 +3895,7 @@ private:
     void read_field_cases(const proto_field_t& field, const std::size_t index) {
         const std::string& reader = local("reader_");
         if (field.key) {
-            read_map(field, index);
+            read_map(field, *field.key, index);
             return;
         }
 
@@ -3964,9 +3971,8 @@ private:
     /// A map's entry: a message of the key, field 1, and the value, field 2, either of which can
     /// be left out for its zero. A closed enum's value it doesn't name keeps the whole entry as
     /// an unknown field.
-    void read_map(const proto_field_t& field, const std::size_t index) {
+    void read_map(const proto_field_t& field, const proto_type_t& key, const std::size_t index) {
         const std::string& reader = local("reader_");
-        const proto_type_t& key = *field.key;
         const proto_type_t& value = field.type;
         const bool closed = value.kind == proto_kind_t::ENUM && !is_open(value);
         m_out.line("Case {}", tag_of(field.number, wire_length));
