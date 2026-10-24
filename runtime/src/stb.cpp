@@ -61,10 +61,11 @@ image_t* decode(const fb_array_t* data, const std::int32_t format, const std::in
         return failed(RESULT_INVALID, std::string("it isn't ") + name_of(format));
     }
 
-    // stb_image reads no BMP that's run-length encoded, and says it doesn't know the format.
+    // stb_image reads no BMP that's run-length encoded, and says it doesn't know the format. The
+    // compression is in every header but OS/2's first, of 12 bytes, whose palette is there.
     const std::span<const std::uint8_t> all = bytes_of(data);
-    if (format == FORMAT_BMP && all.size() >= 34 && (all[30] == 1 || all[30] == 2) &&
-        all[31] == 0 && all[32] == 0 && all[33] == 0) {
+    if (format == FORMAT_BMP && all.size() >= 34 && little16_at(all, 14) != 12 &&
+        (all[30] == 1 || all[30] == 2) && all[31] == 0 && all[32] == 0 && all[33] == 0) {
         return failed(RESULT_UNSUPPORTED, "it's run-length encoded, which stb_image doesn't read");
     }
 

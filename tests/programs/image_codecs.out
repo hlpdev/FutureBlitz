@@ -18,6 +18,7 @@ BMP True
 TGA True
 QOI True
 WEBP True
+OS/2 BMP: 2 1 (48, 32, 16, 255) (0, 1, 64, 255)
 JPEG at 50: within 12 True
 JPEG at 90: within 12 True
 JPEG at 100: within 12 True
