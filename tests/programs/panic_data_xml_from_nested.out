@@ -1,0 +1,2 @@
+<a><items>1</items></a>
+panic: an Array's items are each an element, not an Array at panic_data_xml_from_nested.fb:11:7

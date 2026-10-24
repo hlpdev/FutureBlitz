@@ -1,0 +1,2 @@
+<a id="1"/>
+panic: an attribute's value or an element's text is a String, a number, a Bool, or Null, not OBJECT at panic_data_xml_from_attribute.fb:10:7

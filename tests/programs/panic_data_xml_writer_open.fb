@@ -1,0 +1,10 @@
+// Finish gives a whole document, and panics while an element is open.
+Import std.core
+Import std.data.value
+Import std.data.xml
+
+Local writer = XmlWriter()
+writer.StartElement("a")
+writer.StartElement("b")
+writer.EndElement()
+Print(writer.Finish())

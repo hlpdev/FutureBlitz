@@ -1,0 +1,98 @@
+library 9 3 3
+id=[b1] tags=[xml data] lang=[en] | XML & You | XML & You29.99O'Reilly & Co
+id=[b2] lang=[fr] note=[tab	and line
+] | <raw> &  | <raw> & 9.5paper
+id=[b3] lang=[en] | Third | Third15
+O'Reilly & Co
+<library>
+  <book id="b1" tags="xml data" lang="en"><title>XML &amp; You</title><price>29.99</price><by>O'Reilly &amp; Co</by><signed by="O'Reilly &amp; Co"/></book>
+  <book id="b2" lang="fr" note="tab&#9;and line&#10;"><title><![CDATA[<raw> & ]]></title><price>9.5</price><kind>paper</kind></book>
+  <?render fast?>
+  <book id="b3" lang="en"><title>Third</title><price>15</price></book>
+</library>
+START a [] x=1
+TEXT  [one <two> ] 
+START b [] 
+END b [] 
+TEXT  [three] 
+COMMENT  [c] 
+CDATA  [d] 
+INSTRUCTION p [q] 
+END a [] 
+SYNTAX 1 11 </a> doesn't end <b> at line 1, column 11
+UNEXPECTED_END 2 6 the element <b> has no end tag at line 2, column 6
+SYNTAX 1 15 the attribute x is written twice at line 1, column 15
+SYNTAX 1 16 the entity &undeclared; isn't declared at line 1, column 16
+SYNTAX 1 8 the character reference isn't a character XML has at line 1, column 8
+SYNTAX 1 7 an attribute's value can't hold '<' at line 1, column 7
+SYNTAX 1 5 a document holds one root element at line 1, column 5
+SYNTAX 1 1 text can't come before the root element at line 1, column 1
+SYNTAX 1 4 ']]>' ends a CDATA section, not text at line 1, column 4
+SYNTAX 1 8 a comment can't hold '--' at line 1, column 8
+SYNTAX 1 27 a processing instruction can't be named xml, but the declaration at the start at line 1, column 27
+SYNTAX 1 9 a processing instruction can't be named xml, but the declaration at the start at line 1, column 9
+SYNTAX 1 39 the entity e refers to itself at line 1, column 39
+SYNTAX 1 39 the entity e ends inside an element it starts at line 1, column 39
+SYNTAX 1 38 the text is UTF-8, which isn't UTF-16 at line 1, column 38
+SYNTAX 1 9 a start tag's attributes have spaces before them at line 1, column 9
+SYNTAX 1 2 a name starts with a letter, '_', or ':' at line 1, column 2
+SYNTAX 1 4 the text holds a character XML hasn't got at line 1, column 4
+UNEXPECTED_END 1 1 the document has no element at line 1, column 1
+<?xml version="1.0" encoding="UTF-8"?>
+<menu date="2026-10-23 &quot;today&quot; &amp; &lt;tomorrow>">
+  <item price="3">Tea &amp; cake &lt;with&gt; "cream"&#13;</item>
+  <note>mixed <b>bold</b> text</note>
+  <!-- fresh -->
+  <?print twice?>
+  <empty/>
+  <data><![CDATA[a ]]]]><![CDATA[]> b]]></data>
+</menu>
+<menu date="2026-10-23 &quot;today&quot; &amp; &lt;tomorrow>"><item price="3">Tea &amp; cake &lt;with&gt; "cream"&#13;</item><note>mixed <b>bold</b> text</note><!-- fresh --><?print twice?><empty/><data><![CDATA[a ]]]]><![CDATA[]> b]]></data></menu>
+True
+<?xml version="1.0" encoding="UTF-8"?>
+<!--made by a writer-->
+<list count="2">
+    <entry n="1">entry 1</entry>
+    <entry n="2">entry 2</entry>
+    <blank/>
+</list>
+<?done?>
+/library/book/title => <title> <title> <title>
+book[2]/title/text() => CDATA[<raw> & ]
+//title[. = 'Third']/../@id => @id=b3
+book[price > 10 and @lang = 'en']/@id => @id=b1 @id=b3
+book[last()]/price | book[1]/price => <price> <price>
+//book[contains(title, 'XML')]/by => <by>
+//book[starts-with(@id, 'b') and not(@note)][position() < 3]/@id => @id=b1 @id=b3
+book[count(kind) = 1]/kind => <kind>
+book/title/following-sibling::*[1] => <price> <price> <price>
+book[3]/preceding-sibling::book/@id => @id=b1 @id=b2
+//kind/ancestor::* => <library> <book>
+book[@id='b1']/descendant::node() => <title> TEXT[XML & You] <price> TEXT[29.99] <by> TEXT[O'Reilly & Co] <signed>
+child::book[attribute::lang='fr']/self::book/@* => @id=b2 @lang=fr @note=tab	and line
+
+//comment() | //processing-instruction('render') => INSTRUCTION[fast]
+book[name() = 'book'][string(title) = 'Third']/@id => @id=b3
+/ => 
+missing/thing => 
+29.99 True book
+{"book": [{"@id": "b1", "@tags": "xml data", "@lang": "en", "title": "XML & You", "price": "29.99", "by": "O'Reilly & Co", "signed": {"@by": "O'Reilly & Co"}}, {"@id": "b2", "@lang": "fr", "@note": "tab\tand line\n", "title": "<raw> & ", "price": "9.5", "kind": "paper"}, {"@id": "b3", "@lang": "en", "title": "Third", "price": "15"}]}
+<library>
+  <book id="b1" tags="xml data" lang="en">
+    <title>XML &amp; You</title>
+    <price>29.99</price>
+    <by>O'Reilly &amp; Co</by>
+    <signed by="O'Reilly &amp; Co"/>
+  </book>
+  <book id="b2" lang="fr" note="tab&#9;and line&#10;">
+    <title>&lt;raw&gt; &amp; </title>
+    <price>9.5</price>
+    <kind>paper</kind>
+  </book>
+  <book id="b3" lang="en">
+    <title>Third</title>
+    <price>15</price>
+  </book>
+</library>
+True
+<person id="7"><name>Ada</name><age>36</age><tags>a</tags><tags>b</tags><none/>true</person>

@@ -1,0 +1,10 @@
+// A CDATA section goes in an element, and CData panics outside one.
+Import std.core
+Import std.data.value
+Import std.data.xml
+
+Local writer = XmlWriter()
+writer.StartElement("a")
+writer.CData("in")
+writer.EndElement()
+writer.CData("out")

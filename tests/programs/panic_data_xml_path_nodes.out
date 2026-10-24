@@ -1,0 +1,2 @@
+0
+panic: the XPath "count(b)" selects no nodes at panic_data_xml_path_nodes.fb:8:7

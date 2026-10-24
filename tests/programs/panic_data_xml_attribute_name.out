@@ -1,0 +1,2 @@
+<a b="1"/>
+panic: "c d" isn't an XML name at panic_data_xml_attribute_name.fb:9:1

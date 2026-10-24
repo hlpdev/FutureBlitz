@@ -1,0 +1,8 @@
+// A path selects nodes, and Query panics where it gives a number.
+Import std.core
+Import std.data.value
+Import std.data.xml
+
+Local root = XmlNode("a")
+Print(root.Query("b | c").Count)
+Print(root.Query("count(b)").Count)

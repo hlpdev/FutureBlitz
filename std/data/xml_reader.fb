@@ -1,0 +1,1121 @@
+// XmlReader: XML 1.0's documents read as a stream of events, a start and an end for each element
+// and one for each run of text, CDATA section, comment, and processing instruction in them, as a
+// non-validating processor reads them. Line ends are LFs, entity and character references are
+// replaced by their text, attributes are normalized, and the document type's internal subset is
+// read for its entities and its attributes' defaults and types. The document type's external
+// subset, and external entities, aren't read; a reference to an undeclared entity is an error,
+// but in a document whose external subset or external parameter entities could declare it, where
+// it's left out. Names keep their namespaces' prefixes, which aren't resolved.
+
+Import std.core
+Import std.collections
+Import std.data.text
+
+// What an XmlEvent is.
+Public Enum XmlEventKind
+    START, END, TEXT, CDATA, COMMENT, INSTRUCTION
+End Enum
+
+// One part of a document, from an XmlReader.
+Public Class XmlEvent
+    Public ReadOnly Field Kind: XmlEventKind
+    // A START's or END's element name, or an INSTRUCTION's target.
+    Public ReadOnly Field Name: String
+    // A TEXT's, CDATA's, COMMENT's, or INSTRUCTION's text.
+    Public ReadOnly Field Text: String
+    // A START's attributes, by name, in the order they're written, then their defaults'.
+    Public ReadOnly Field Attributes: Map<String, String>
+
+    New(kind: XmlEventKind, name: String, text: String, attributes: Map<String, String>)
+        Kind = kind
+        Name = name
+        Text = text
+        Attributes = attributes
+    End New
+End Class
+
+Public Class XmlReader
+    Field Sources: XmlSource[] = []
+    // The open elements' names, the innermost last.
+    Field Open: String[] = []
+    // 0 before the root element, 1 in it, 2 after it.
+    Field State: Int
+    Field Pending: XmlEvent?
+    Field General: Map<String, XmlEntity>
+    Field Parameter: Map<String, XmlEntity>
+    // Each element's declared attributes, by name.
+    Field Lists: Map<String, Map<String, XmlAttribute>>
+    // Whether declarations past what was read could declare an entity: an external subset, or an
+    // external parameter entity's reference, in a document that isn't standalone.
+    Field Unread: Bool
+    // Whether a parameter entity wasn't read, after which declarations aren't taken.
+    Field Stopped: Bool
+    Field Standalone: Bool
+    Field Typed: Bool
+    // Whether the text starts with a byte order mark, which says it's UTF-8.
+    Field Marked: Bool
+
+    // A reader of text's document, its line ends LFs, and past a byte order mark at its start.
+    Public New(text: String)
+        Local bytes = text.Bytes
+        Local normal: UInt8[] = []
+        normal.Reserve(bytes.Count)
+        Local start = 0
+        If bytes.Count >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF
+            start = 3
+            Marked = True
+        End If
+
+        For i = start Until bytes.Count
+            If bytes[i] == 13
+                normal.Add(10)
+            ElseIf bytes[i] != 10 || i == start || bytes[i - 1] != 13
+                normal.Add(bytes[i])
+            End If
+        End For
+        Sources.Add(XmlSource(normal, "", 0))
+        General = {}
+        Parameter = {}
+        Lists = {}
+    End New
+
+    // The next event, or Null at the document's end. Throws a ParseError, with its line and
+    // column, of UNEXPECTED_END for a document that ends inside an element or markup, and of
+    // SYNTAX for the rest that isn't well-formed XML 1.0.
+    Public Method Next(): XmlEvent? Throws ParseError
+        If Pending != Null
+            Local ended = Pending
+            Pending = Null
+            Close()
+            Return ended
+        End If
+
+        If Sources[0].At == 0 && State == 0 Then Try Declaration()
+        Loop
+            Local source = Current()
+            If source.At >= source.Bytes.Count
+                If Sources.Count > 1
+                    Try LeaveEntity()
+                    Continue
+                End If
+
+                If State == 1
+                    Throw Ended("the element <{Open[Open.Count - 1]}> has no end tag")
+                End If
+
+                If State == 0 Then Throw Ended("the document has no element")
+                Return Null
+            End If
+
+            Local event: XmlEvent? = Null
+            If State == 1
+                event = Try Content()
+            Else
+                event = Try Misc()
+            End If
+
+            If event != Null Then Return event
+        End Loop
+    End Method
+
+    // Content's next event, or Null when what was read gives none.
+    Method Content(): XmlEvent? Throws ParseError
+        Local source = Current()
+        If source.Bytes[source.At] != 60 Then Return Try Text()
+        If Starts("</") Then Return Try EndTag()
+        If Starts("<!--") Then Return Try Comment()
+        If Starts("<![CDATA[") Then Return Try CData()
+        If Starts("<?") Then Return Try Instruction()
+        If Starts("<!") Then Throw Fail("'<!' starts a comment or a CDATA section here")
+        Return Try StartTag()
+    End Method
+
+    // What's before or after the root element: spaces, comments, processing instructions, and
+    // before it the document type.
+    Method Misc(): XmlEvent? Throws ParseError
+        If SkipSpace() Then Return Null
+        If Starts("<?") Then Return Try Instruction()
+        If Starts("<!--") Then Return Try Comment()
+        If Starts("<!DOCTYPE")
+            If State != 0 || Typed Then Throw Fail("the document type comes once, before the root element")
+            Typed = True
+            Try DocumentType()
+            Return Null
+        End If
+
+        If Starts("<") && State == 0 Then Return Try StartTag()
+        If Starts("<") Then Throw Fail("a document holds one root element")
+        Throw Fail(State == 0 ? "text can't come before the root element" :
+                   "text can't come after the root element")
+    End Method
+
+    // The XML declaration at the document's start, if it has one.
+    Method Declaration() Throws ParseError
+        If !Starts("<?xml") Then Return
+        Local after = ByteAt(5)
+        If !IsSpace(after) && !(after == 63 && ByteAt(6) == 62) Then Return
+        Advance(5)
+        Try Pseudo("version", True)
+        Try Pseudo("encoding", False)
+        Try Pseudo("standalone", False)
+        SkipSpace()
+        If !Starts("?>") Then Throw Fail("the XML declaration ends with '?>'")
+        Advance(2)
+    End Method
+
+    // A pseudo-attribute of the XML declaration, `name="value"`, giving whether it's there.
+    Method Pseudo(name: String, required: Bool): Bool Throws ParseError
+        Local source = Current()
+        Local start = source.At
+        If !SkipSpace() || !Starts(name)
+            source.At = start
+            If required Then Throw Fail("the XML declaration has its {name}")
+            Return False
+        End If
+
+        Advance(name.Bytes.Count)
+        SkipSpace()
+        If !Starts("=") Then Throw Fail("the declaration's {name} is followed by '='")
+        Advance(1)
+        SkipSpace()
+        Local value = Try Literal()
+        Local bytes = value.Bytes
+        If name == "version"
+            Local good = bytes.Count >= 3 && bytes[0] == 49 && bytes[1] == 46
+            For i = 2 Until bytes.Count
+                If !IsDigitByte(bytes[i]) Then good = False
+            End For
+            If !good Then Throw Fail("the XML declaration's version is 1. and digits")
+        ElseIf name == "encoding"
+            Local good = bytes.Count > 0 && IsLetterByte(bytes[0])
+            For b In bytes
+                If !(IsLetterByte(b) || IsDigitByte(b) || b == 46 || b == 95 || b == 45) Then good = False
+            End For
+            If !good Then Throw Fail("the XML declaration's encoding isn't an encoding's name")
+            // The text is a String's, UTF-8, which an encoding of 2 or 4 bytes a character isn't.
+            Local lower = Lowered(value)
+            For wide In ["utf-16", "utf-16le", "utf-16be", "utf-32", "utf-32le", "utf-32be", "ucs-2",
+                         "ucs-4", "iso-10646-ucs-2", "iso-10646-ucs-4"]
+                If lower == wide Then Throw Fail("the text is UTF-8, which isn't {value}")
+            End For
+            If Marked && lower != "utf-8"
+                Throw Fail("the text starts with UTF-8's byte order mark, so it isn't {value}")
+            End If
+        Else
+            If value != "yes" && value != "no" Then Throw Fail("standalone is yes or no")
+            Standalone = value == "yes"
+        End If
+
+        Return True
+    End Method
+
+    Method StartTag(): XmlEvent Throws ParseError
+        Advance(1)
+        Local name = Try Name()
+        Local attributes = Map<String, String>()
+        Local closed = False
+        Loop
+            Local spaced = SkipSpace()
+            If Starts("/>")
+                Advance(2)
+                closed = True
+                Break
+            End If
+
+            If Starts(">")
+                Advance(1)
+                Break
+            End If
+
+            If AtEnd() Then Throw Ended("the start tag <{name}> doesn't end")
+            If !spaced Then Throw Fail("a start tag's attributes have spaces before them")
+            Local attribute = Try Name()
+            SkipSpace()
+            If !Starts("=") Then Throw Fail("an attribute's name is followed by '='")
+            Advance(1)
+            SkipSpace()
+            Local value = Try AttributeValue()
+            If attributes.Get(attribute) != Null
+                Throw Fail("the attribute {attribute} is written twice")
+            End If
+
+            attributes[attribute] = Normalized(name, attribute, value)
+        End Loop
+
+        Local declared = Lists.Get(name)
+        If declared != Null
+            For key, attribute In declared
+                Local fallback = attribute.Fallback
+                If attributes.Get(key) == Null && fallback != Null Then attributes[key] = fallback
+            End For
+        End If
+
+        State = 1
+        Open.Add(name)
+        If closed Then Pending = XmlEvent(XmlEventKind.END, name, "", {})
+        Return XmlEvent(XmlEventKind.START, name, "", attributes)
+    End Method
+
+    Method EndTag(): XmlEvent Throws ParseError
+        Advance(2)
+        Local name = Try Name()
+        SkipSpace()
+        If !Starts(">") Then Throw Fail("an end tag ends with '>' after its name")
+        Advance(1)
+        Local open = Open[Open.Count - 1]
+        If name != open Then Throw Fail("</{name}> doesn't end <{open}>")
+        If Sources.Count > 1 && Open.Count <= Current().Depth
+            Throw Fail("</{name}> is in an entity, and <{name}> isn't")
+        End If
+
+        Close()
+        Return XmlEvent(XmlEventKind.END, name, "", {})
+    End Method
+
+    // Closes the innermost element.
+    Method Close()
+        Open.RemoveLast()
+        If Open.Count == 0 Then State = 2
+    End Method
+
+    // A run of text, through references and the entities they name, or Null when there's none.
+    Method Text(): XmlEvent? Throws ParseError
+        Local out: UInt8[] = []
+        Loop
+            Local source = Current()
+            If source.At >= source.Bytes.Count
+                If Sources.Count == 1 Then Break
+                Try LeaveEntity()
+                Continue
+            End If
+
+            Local b = source.Bytes[source.At]
+            If b == 60 Then Break
+            If b == 38
+                Try ContentReference(out)
+                Continue
+            End If
+
+            If b == 93 && Starts("]]>") Then Throw Fail("']]>' ends a CDATA section, not text")
+            Try TakeChar(out)
+        End Loop
+        If out.Count == 0 Then Return Null
+        Return XmlEvent(XmlEventKind.TEXT, "", TextOf(out), {})
+    End Method
+
+    // A reference in content: its character added to out, or its entity's text read next.
+    Method ContentReference(out: UInt8[]) Throws ParseError
+        If Starts("&#")
+            Try CharReference(out)
+            Return
+        End If
+
+        Advance(1)
+        Local name = Try Name()
+        If !Starts(";") Then Throw Fail("an entity's reference ends with ';'")
+        Advance(1)
+        Local predefined = PredefinedOf(name)
+        If predefined >= 0
+            out.Add(predefined As UInt8)
+            Return
+        End If
+
+        Local entity = General.Get(name)
+        If entity == Null
+            If Unread && !Standalone Then Return
+            Throw Fail("the entity &{name}; isn't declared")
+        End If
+
+        If entity.Unparsed Then Throw Fail("the entity &{name}; is unparsed, a NOTATION's")
+        If entity.External Then Return
+        Try Enter(entity, Open.Count)
+    End Method
+
+    // Starts reading entity's text, and panics past this much nesting.
+    Method Enter(entity: XmlEntity, depth: Int) Throws ParseError
+        For source In Sources
+            If source.Entity == entity.Name Then Throw Fail("the entity {entity.Name} refers to itself")
+        End For
+        If Sources.Count > 64 Then Throw Fail("entities are nested more than 64 deep")
+        Sources.Add(XmlSource(entity.Text, entity.Name, depth))
+    End Method
+
+    // The end of an entity's text, which ends what it starts.
+    Method LeaveEntity() Throws ParseError
+        Local source = Current()
+        If Open.Count != source.Depth
+            Throw Fail("the entity {source.Entity} ends inside an element it starts")
+        End If
+
+        Sources.RemoveLast()
+    End Method
+
+    // A character reference, `&#N;` or `&#xH;`, its character added to out.
+    Method CharReference(out: UInt8[]) Throws ParseError
+        Advance(2)
+        Local hex = Starts("x")
+        If hex Then Advance(1)
+        Local value: Int64 = 0
+        Local digits = 0
+        Loop
+            Local b = ByteAt(0)
+            Local digit: Int64 = -1
+            If IsDigitByte(b)
+                digit = (b As Int64) - 48
+            ElseIf hex && b >= 97 && b <= 102
+                digit = (b As Int64) - 87
+            ElseIf hex && b >= 65 && b <= 70
+                digit = (b As Int64) - 55
+            End If
+
+            If digit < 0 Then Break
+            value = Min(value * (hex ? 16 : 10) + digit, 0x110000 As Int64)
+            digits += 1
+            Advance(1)
+        End Loop
+        If digits == 0 || !Starts(";") Then Throw Fail("a character reference is &#digits; or &#xhex;")
+        Advance(1)
+        If !IsXmlChar(value) Then Throw Fail("the character reference isn't a character XML has")
+        AddChar(out, value As Int)
+    End Method
+
+    // Adds the character at the current place to out, checking that XML has it.
+    Method TakeChar(out: UInt8[]) Throws ParseError
+        Local source = Current()
+        Local code = CodeAt(source.Bytes, source.At)
+        If !IsXmlChar(code.0) Then Throw Fail("the text holds a character XML hasn't got")
+        For i = 0 Until code.1
+            out.Add(source.Bytes[source.At + i])
+        End For
+        source.At += code.1
+    End Method
+
+    // An attribute's value in quotes, its references replaced and its spaces normalized.
+    Method AttributeValue(): String Throws ParseError
+        Local quote = ByteAt(0)
+        If quote != 34 && quote != 39 Then Throw Fail("an attribute's value is in quotes")
+        Advance(1)
+        Local out: UInt8[] = []
+        Loop
+            If AtEnd() Then Throw Ended("the attribute's value has no closing quote")
+            Local b = ByteAt(0)
+            If b == quote
+                Advance(1)
+                Return TextOf(out)
+            End If
+
+            Try AttributeChar(out, [])
+        End Loop
+    End Method
+
+    // Adds the attribute value's character or reference at the current place to out, reading the
+    // text of an entity a reference names in turn; entities holds those being read.
+    Method AttributeChar(out: UInt8[], entities: String[]) Throws ParseError
+        Local b = ByteAt(0)
+        If b == 60 Then Throw Fail("an attribute's value can't hold '<'")
+        If b == 9 || b == 10 || b == 13
+            out.Add(32)
+            Advance(1)
+            Return
+        End If
+
+        If b != 38
+            Try TakeChar(out)
+            Return
+        End If
+
+        If Starts("&#")
+            Try CharReference(out)
+            Return
+        End If
+
+        Advance(1)
+        Local name = Try Name()
+        If !Starts(";") Then Throw Fail("an entity's reference ends with ';'")
+        Advance(1)
+        Local predefined = PredefinedOf(name)
+        If predefined >= 0
+            out.Add(predefined As UInt8)
+            Return
+        End If
+
+        Local entity = General.Get(name)
+        If entity == Null
+            If Unread && !Standalone Then Return
+            Throw Fail("the entity &{name}; isn't declared")
+        End If
+
+        If entity.External || entity.Unparsed
+            Throw Fail("an attribute's value can't refer to the external entity &{name};")
+        End If
+
+        If entities.IndexOf(name) != Null Then Throw Fail("the entity {name} refers to itself")
+        Local inner = entities.Clone()
+        inner.Add(name)
+        Sources.Add(XmlSource(entity.Text, name, Open.Count))
+        While !AtEnd()
+            Try AttributeChar(out, inner)
+        End While
+        Sources.RemoveLast()
+    End Method
+
+    // An attribute's value as its declared type has it: a type other than CDATA's has its
+    // spaces trimmed, and each run of them made one.
+    Method Normalized(element: String, name: String, value: String): String
+        Local declared = Lists.Get(element)
+        If declared == Null Then Return value
+        Local attribute = declared.Get(name)
+        If attribute == Null || attribute.Type == "CDATA" Then Return value
+        Return Collapsed(value)
+    End Method
+
+    Method Comment(): XmlEvent Throws ParseError
+        Advance(4)
+        Local out: UInt8[] = []
+        Loop
+            If AtEnd() Then Throw Ended("the comment has no '-->'")
+            If Starts("--")
+                If !Starts("-->") Then Throw Fail("a comment can't hold '--'")
+                Advance(3)
+                Return XmlEvent(XmlEventKind.COMMENT, "", TextOf(out), {})
+            End If
+
+            Try TakeChar(out)
+        End Loop
+    End Method
+
+    Method CData(): XmlEvent Throws ParseError
+        Advance(9)
+        Local out: UInt8[] = []
+        Loop
+            If AtEnd() Then Throw Ended("the CDATA section has no ']]>'")
+            If Starts("]]>")
+                Advance(3)
+                Return XmlEvent(XmlEventKind.CDATA, "", TextOf(out), {})
+            End If
+
+            Try TakeChar(out)
+        End Loop
+    End Method
+
+    Method Instruction(): XmlEvent Throws ParseError
+        Advance(2)
+        Local target = Try Name()
+        Local lower = target.Bytes
+        If lower.Count == 3 && (lower[0] | 32) == 120 && (lower[1] | 32) == 109 && (lower[2] | 32) == 108
+            Throw Fail("a processing instruction can't be named xml, but the declaration at the start")
+        End If
+
+        Local out: UInt8[] = []
+        If !Starts("?>")
+            If !SkipSpace() Then Throw Fail("a processing instruction's target is followed by a space")
+            Loop
+                If AtEnd() Then Throw Ended("the processing instruction has no '?>'")
+                If Starts("?>") Then Break
+                Try TakeChar(out)
+            End Loop
+        End If
+
+        Advance(2)
+        Return XmlEvent(XmlEventKind.INSTRUCTION, target, TextOf(out), {})
+    End Method
+
+    // The document type: its name, its external ID, and its internal subset's declarations.
+    Method DocumentType() Throws ParseError
+        Advance(9)
+        If !SkipSpace() Then Throw Fail("DOCTYPE is followed by a space and the root's name")
+        Try Name()
+        Local spaced = SkipSpace()
+        If Starts("SYSTEM") || Starts("PUBLIC")
+            If !spaced Then Throw Fail("a document type's name is followed by a space")
+            Try ExternalId(False)
+            Unread = True
+            SkipSpace()
+        End If
+
+        If Starts("[")
+            Advance(1)
+            Try Subset()
+            SkipSpace()
+        End If
+
+        If !Starts(">") Then Throw Fail("the document type ends with '>'")
+        Advance(1)
+    End Method
+
+    // The internal subset's declarations, up to its ']'.
+    Method Subset() Throws ParseError
+        Loop
+            If SkipSpace() Then Continue
+            If AtEnd()
+                If Sources.Count > 1
+                    Sources.RemoveLast()
+                    Continue
+                End If
+
+                Throw Ended("the document type's internal subset has no ']'")
+            End If
+
+            If Starts("]")
+                If Sources.Count > 1 Then Throw Fail("a parameter entity's text holds whole declarations")
+                Advance(1)
+                Return
+            End If
+
+            If Starts("%")
+                Try SubsetReference()
+            ElseIf Starts("<!ENTITY")
+                Try EntityDeclaration()
+            ElseIf Starts("<!ATTLIST")
+                Try ListDeclaration()
+            ElseIf Starts("<!ELEMENT")
+                Try ElementDeclaration()
+            ElseIf Starts("<!NOTATION")
+                Try NotationDeclaration()
+            ElseIf Starts("<!--")
+                Try Comment()
+            ElseIf Starts("<?")
+                Try Instruction()
+            Else
+                Throw Fail("the internal subset holds declarations, comments, and processing " +
+                           "instructions")
+            End If
+        End Loop
+    End Method
+
+    // A parameter entity's reference between declarations, whose text is read as declarations. In
+    // a document that isn't standalone, a reference to an undeclared entity is then left out.
+    Method SubsetReference() Throws ParseError
+        Unread = True
+        Advance(1)
+        Local name = Try Name()
+        If !Starts(";") Then Throw Fail("a parameter entity's reference ends with ';'")
+        Advance(1)
+        Local entity = Parameter.Get(name)
+        If entity == Null
+            If Unread && !Standalone Then Return
+            Throw Fail("the parameter entity %{name}; isn't declared")
+        End If
+
+        If entity.External
+            Unread = True
+            Stopped = True
+            Return
+        End If
+
+        For source In Sources
+            If source.Entity == "%" + name Then Throw Fail("the entity %{name}; refers to itself")
+        End For
+        Sources.Add(XmlSource(entity.Text, "%" + name, 0))
+    End Method
+
+    Method EntityDeclaration() Throws ParseError
+        Advance(8)
+        If !SkipSpace() Then Throw Fail("ENTITY is followed by a space")
+        Local parameter = False
+        If Starts("%")
+            Advance(1)
+            If !SkipSpace() Then Throw Fail("a parameter entity's '%' is followed by a space")
+            parameter = True
+        End If
+
+        Local name = Try Name()
+        If !SkipSpace() Then Throw Fail("an entity's name is followed by a space")
+        Local entity = XmlEntity(name)
+        If Starts("\"") || Starts("'")
+            entity.Text = Try EntityValue()
+        Else
+            Try ExternalId(False)
+            entity.External = True
+            Local spaced = SkipSpace()
+            If Starts("NDATA")
+                If parameter || !spaced Then Throw Fail("NDATA follows a general entity's ID and a space")
+                Advance(5)
+                If !SkipSpace() Then Throw Fail("NDATA is followed by a space")
+                Try Name()
+                entity.Unparsed = True
+            End If
+        End If
+
+        SkipSpace()
+        If !Starts(">") Then Throw Fail("an entity's declaration ends with '>'")
+        Advance(1)
+        If Stopped Then Return
+        Local table = parameter ? Parameter : General
+        If table.Get(name) == Null Then table[name] = entity
+    End Method
+
+    // An entity's value in quotes: its character references replaced, and its general entity
+    // references kept for where it's used.
+    Method EntityValue(): UInt8[] Throws ParseError
+        Local quote = ByteAt(0)
+        Advance(1)
+        Local out: UInt8[] = []
+        Loop
+            If AtEnd() Then Throw Ended("the entity's value has no closing quote")
+            Local b = ByteAt(0)
+            If b == quote
+                Advance(1)
+                Return out
+            End If
+
+            If b == 37 Then Throw Fail("the internal subset's entity values can't refer to parameter entities")
+            If b == 38
+                If Starts("&#")
+                    Try CharReference(out)
+                Else
+                    Local start = Current().At
+                    Advance(1)
+                    Try Name()
+                    If !Starts(";") Then Throw Fail("an entity's reference ends with ';'")
+                    Advance(1)
+                    out.AddAll(Current().Bytes[start..Current().At])
+                End If
+
+                Continue
+            End If
+
+            Try TakeChar(out)
+        End Loop
+    End Method
+
+    // `SYSTEM "literal"` or `PUBLIC "id" "literal"`, or with public, PUBLIC's id alone.
+    Method ExternalId(alone: Bool) Throws ParseError
+        If Starts("SYSTEM")
+            Advance(6)
+            If !SkipSpace() Then Throw Fail("SYSTEM is followed by a space")
+            Try Literal()
+            Return
+        End If
+
+        If !Starts("PUBLIC") Then Throw Fail("an external ID starts with SYSTEM or PUBLIC")
+        Advance(6)
+        If !SkipSpace() Then Throw Fail("PUBLIC is followed by a space")
+        Local id = Try Literal()
+        For b In id.Bytes
+            If !IsPublicByte(b) Then Throw Fail("a public ID holds letters, digits, and some punctuation")
+        End For
+        Local source = Current()
+        Local start = source.At
+        Local spaced = SkipSpace()
+        If alone && (!spaced || !(Starts("\"") || Starts("'")))
+            source.At = start
+            Return
+        End If
+
+        If !spaced Then Throw Fail("a public ID is followed by a space and a system literal")
+        Try Literal()
+    End Method
+
+    Method ListDeclaration() Throws ParseError
+        Advance(9)
+        If !SkipSpace() Then Throw Fail("ATTLIST is followed by a space")
+        Local element = Try Name()
+        Local declared = Lists.Get(element)
+        If declared == Null
+            declared = {}
+            If !Stopped Then Lists[element] = declared
+        End If
+
+        Loop
+            Local spaced = SkipSpace()
+            If Starts(">")
+                Advance(1)
+                Return
+            End If
+
+            If !spaced Then Throw Fail("an attribute's declaration has a space before it")
+            Local name = Try Name()
+            If !SkipSpace() Then Throw Fail("an attribute's name is followed by a space")
+            Local kind = Try AttributeType()
+            If !SkipSpace() Then Throw Fail("an attribute's type is followed by a space")
+            Local attribute = XmlAttribute(kind)
+            If Starts("#REQUIRED")
+                Advance(9)
+            ElseIf Starts("#IMPLIED")
+                Advance(8)
+            Else
+                If Starts("#FIXED")
+                    Advance(6)
+                    If !SkipSpace() Then Throw Fail("#FIXED is followed by a space")
+                End If
+
+                Local value = Try AttributeValue()
+                attribute.Fallback = kind == "CDATA" ? value : Collapsed(value)
+            End If
+
+            If declared.Get(name) == Null Then declared[name] = attribute
+        End Loop
+    End Method
+
+    // An attribute's declared type: CDATA, a tokenized type, NOTATION's names, or an
+    // enumeration of name tokens.
+    Method AttributeType(): String Throws ParseError
+        For kind In ["CDATA", "IDREFS", "IDREF", "ID", "ENTITIES", "ENTITY", "NMTOKENS", "NMTOKEN"]
+            If Starts(kind)
+                Advance(kind.Bytes.Count)
+                Return kind
+            End If
+        End For
+
+        Local notation = Starts("NOTATION")
+        If notation
+            Advance(8)
+            If !SkipSpace() Then Throw Fail("NOTATION is followed by a space")
+        End If
+
+        If !Starts("(") Then Throw Fail("an attribute's type is CDATA, a tokenized type, or a list")
+        Advance(1)
+        Loop
+            SkipSpace()
+            If notation
+                Try Name()
+            Else
+                Try Token()
+            End If
+
+            SkipSpace()
+            If Starts(")")
+                Advance(1)
+                Return notation ? "NOTATION" : "ENUMERATION"
+            End If
+
+            If !Starts("|") Then Throw Fail("a list of an attribute's values has '|' between them")
+            Advance(1)
+        End Loop
+    End Method
+
+    Method ElementDeclaration() Throws ParseError
+        Advance(9)
+        If !SkipSpace() Then Throw Fail("ELEMENT is followed by a space")
+        Try Name()
+        If !SkipSpace() Then Throw Fail("an element's name is followed by a space")
+        If Starts("EMPTY")
+            Advance(5)
+        ElseIf Starts("ANY")
+            Advance(3)
+        ElseIf Starts("(")
+            Local start = Current().At
+            Advance(1)
+            SkipSpace()
+            If Starts("#PCDATA")
+                Try Mixed()
+            Else
+                Current().At = start
+                Try Particle()
+            End If
+        Else
+            Throw Fail("an element's content is EMPTY, ANY, mixed, or a model")
+        End If
+
+        SkipSpace()
+        If !Starts(">") Then Throw Fail("an element's declaration ends with '>'")
+        Advance(1)
+    End Method
+
+    // Mixed content, after `(` and #PCDATA: `)`, or `|` and names and `)*`.
+    Method Mixed() Throws ParseError
+        Advance(7)
+        Local names = False
+        Loop
+            SkipSpace()
+            If Starts(")")
+                Advance(1)
+                If Starts("*")
+                    Advance(1)
+                ElseIf names
+                    Throw Fail("mixed content with names ends with ')*'")
+                End If
+
+                Return
+            End If
+
+            If !Starts("|") Then Throw Fail("mixed content's names have '|' between them")
+            Advance(1)
+            SkipSpace()
+            Try Name()
+            names = True
+        End Loop
+    End Method
+
+    // A content model's particle: a name, or a choice or sequence in parentheses, and maybe '?',
+    // '*', or '+'.
+    Method Particle() Throws ParseError
+        If Starts("(")
+            Advance(1)
+            SkipSpace()
+            Try Particle()
+            Local separator: UInt8 = 0
+            Loop
+                SkipSpace()
+                If Starts(")")
+                    Advance(1)
+                    Break
+                End If
+
+                Local b = ByteAt(0)
+                If b != 124 && b != 44 Then Throw Fail("a content model's particles have '|' or ',' between them")
+                If separator != 0 && b != separator
+                    Throw Fail("a content model's group has '|' or ',' between its particles, not both")
+                End If
+
+                separator = b
+                Advance(1)
+                SkipSpace()
+                Try Particle()
+            End Loop
+        Else
+            Try Name()
+        End If
+
+        Local b = ByteAt(0)
+        If b == 63 || b == 42 || b == 43 Then Advance(1)
+    End Method
+
+    Method NotationDeclaration() Throws ParseError
+        Advance(10)
+        If !SkipSpace() Then Throw Fail("NOTATION is followed by a space")
+        Try Name()
+        If !SkipSpace() Then Throw Fail("a notation's name is followed by a space")
+        Try ExternalId(True)
+        SkipSpace()
+        If !Starts(">") Then Throw Fail("a notation's declaration ends with '>'")
+        Advance(1)
+    End Method
+
+    // A literal in quotes, as it's written.
+    Method Literal(): String Throws ParseError
+        Local quote = ByteAt(0)
+        If quote != 34 && quote != 39 Then Throw Fail("a literal is in quotes")
+        Advance(1)
+        Local out: UInt8[] = []
+        Loop
+            If AtEnd() Then Throw Ended("the literal has no closing quote")
+            If ByteAt(0) == quote
+                Advance(1)
+                Return TextOf(out)
+            End If
+
+            Try TakeChar(out)
+        End Loop
+    End Method
+
+    // An XML name.
+    Method Name(): String Throws ParseError
+        Local source = Current()
+        Local start = source.At
+        If AtEnd() Then Throw Ended("a name is missing")
+        Local first = CodeAt(source.Bytes, source.At)
+        If !IsNameStart(first.0) Then Throw Fail("a name starts with a letter, '_', or ':'")
+        source.At += first.1
+        While !AtEnd()
+            Local code = CodeAt(source.Bytes, source.At)
+            If !IsNameChar(code.0) Then Break
+            source.At += code.1
+        End While
+        Return TextOf(source.Bytes, start, source.At)
+    End Method
+
+    // A name token: name characters, of which there's at least one.
+    Method Token() Throws ParseError
+        Local source = Current()
+        Local start = source.At
+        While !AtEnd()
+            Local code = CodeAt(source.Bytes, source.At)
+            If !IsNameChar(code.0) Then Break
+            source.At += code.1
+        End While
+        If source.At == start Then Throw Fail("a name token holds name characters")
+    End Method
+
+    // Past spaces, giving whether there were any.
+    Method SkipSpace(): Bool
+        Local source = Current()
+        Local start = source.At
+        While source.At < source.Bytes.Count && IsSpace(source.Bytes[source.At])
+            source.At += 1
+        End While
+        Return source.At > start
+    End Method
+
+    Method Current(): XmlSource => Sources[Sources.Count - 1]
+
+    Method AtEnd(): Bool
+        Local source = Current()
+        Return source.At >= source.Bytes.Count
+    End Method
+
+    Method Advance(count: Int)
+        Current().At += count
+    End Method
+
+    // The byte `ahead` past the current place, or 0 past the end.
+    Method ByteAt(ahead: Int): UInt8
+        Local source = Current()
+        Local at = source.At + ahead
+        Return at < source.Bytes.Count ? source.Bytes[at] : 0
+    End Method
+
+    // Whether text's ASCII bytes are at the current place.
+    Method Starts(text: String): Bool
+        Local source = Current()
+        Local bytes = text.Bytes
+        If source.At + bytes.Count > source.Bytes.Count Then Return False
+        For i = 0 Until bytes.Count
+            If source.Bytes[source.At + i] != bytes[i] Then Return False
+        End For
+        Return True
+    End Method
+
+    // A ParseError at the document's place, the reference's when the reader is in an entity.
+    Method Fail(message: String): ParseError
+        Return ErrorAt(Sources[0].Bytes, Sources[0].At, ParseErrorKind.SYNTAX, message)
+    End Method
+
+    Method Ended(message: String): ParseError
+        Return ErrorAt(Sources[0].Bytes, Sources[0].At, ParseErrorKind.UNEXPECTED_END, message)
+    End Method
+End Class
+
+// Text being read: the document's, or an entity's.
+Class XmlSource
+    Field Bytes: UInt8[]
+    Field At: Int
+    // The entity it's the text of, "%" and its name for a parameter entity, or "" for the
+    // document.
+    Field Entity: String
+    // How many elements were open where it started.
+    Field Depth: Int
+
+    New(bytes: UInt8[], entity: String, depth: Int)
+        Bytes = bytes
+        Entity = entity
+        Depth = depth
+    End New
+End Class
+
+// An entity the document type declares.
+Class XmlEntity
+    Field Name: String
+    // Its replacement text, for an internal entity.
+    Field Text: UInt8[] = []
+    Field External: Bool
+    // Whether it's an unparsed entity, a NOTATION's, which only an ENTITY attribute names.
+    Field Unparsed: Bool
+
+    New(name: String)
+        Name = name
+    End New
+End Class
+
+// An attribute an ATTLIST declares: its type, and its default value, if it has one.
+Class XmlAttribute
+    Field Type: String
+    Field Fallback: String?
+
+    New(type: String)
+        Type = type
+    End New
+End Class
+
+// The code point at `at` in bytes, which hold UTF-8, and how many bytes it takes.
+Function CodeAt(bytes: UInt8[], at: Int): (Int64, Int)
+    Local b = bytes[at] As Int64
+    If b < 0x80 Then Return (b, 1)
+    If b < 0xE0 Then Return (((b & 0x1F) << 6) | ((bytes[at + 1] As Int64) & 0x3F), 2)
+    If b < 0xF0
+        Return (((b & 0x0F) << 12) | (((bytes[at + 1] As Int64) & 0x3F) << 6) |
+                ((bytes[at + 2] As Int64) & 0x3F), 3)
+    End If
+
+    Return (((b & 0x07) << 18) | (((bytes[at + 1] As Int64) & 0x3F) << 12) |
+            (((bytes[at + 2] As Int64) & 0x3F) << 6) | ((bytes[at + 3] As Int64) & 0x3F), 4)
+End Function
+
+// Whether XML 1.0 has character c.
+Package Function IsXmlChar(c: Int64): Bool
+    Return c == 9 || c == 10 || c == 13 || (c >= 0x20 && c <= 0xD7FF) ||
+           (c >= 0xE000 && c <= 0xFFFD) || (c >= 0x10000 && c <= 0x10FFFF)
+End Function
+
+// Whether c starts an XML name.
+Package Function IsNameStart(c: Int64): Bool
+    Return c == 58 || (c >= 65 && c <= 90) || c == 95 || (c >= 97 && c <= 122) ||
+           (c >= 0xC0 && c <= 0xD6) || (c >= 0xD8 && c <= 0xF6) || (c >= 0xF8 && c <= 0x2FF) ||
+           (c >= 0x370 && c <= 0x37D) || (c >= 0x37F && c <= 0x1FFF) ||
+           (c >= 0x200C && c <= 0x200D) || (c >= 0x2070 && c <= 0x218F) ||
+           (c >= 0x2C00 && c <= 0x2FEF) || (c >= 0x3001 && c <= 0xD7FF) ||
+           (c >= 0xF900 && c <= 0xFDCF) || (c >= 0xFDF0 && c <= 0xFFFD) ||
+           (c >= 0x10000 && c <= 0xEFFFF)
+End Function
+
+// Whether c goes in an XML name after its first character.
+Package Function IsNameChar(c: Int64): Bool
+    Return IsNameStart(c) || c == 45 || c == 46 || (c >= 48 && c <= 57) || c == 0xB7 ||
+           (c >= 0x300 && c <= 0x36F) || (c >= 0x203F && c <= 0x2040)
+End Function
+
+// Whether text is an XML name.
+Package Function IsXmlName(text: String): Bool
+    Local bytes = text.Bytes
+    If bytes.Count == 0 Then Return False
+    Local at = 0
+    While at < bytes.Count
+        Local code = CodeAt(bytes, at)
+        If !(at == 0 ? IsNameStart(code.0) : IsNameChar(code.0)) Then Return False
+        at += code.1
+    End While
+    Return True
+End Function
+
+// XML's spaces: a space, a tab, and the line ends.
+Package Function IsSpace(b: UInt8): Bool => b == 32 || b == 9 || b == 10 || b == 13
+
+Package Function IsDigitByte(b: UInt8): Bool => b >= 48 && b <= 57
+
+Package Function IsLetterByte(b: UInt8): Bool => (b >= 65 && b <= 90) || (b >= 97 && b <= 122)
+
+// Whether b goes in a public ID.
+Function IsPublicByte(b: UInt8): Bool
+    If IsLetterByte(b) || IsDigitByte(b) || b == 32 || b == 10 || b == 13 Then Return True
+    For c In "-'()+,./:=?;!*#@$_%".Bytes
+        If b == c Then Return True
+    End For
+    Return False
+End Function
+
+// The character a predefined entity stands for, or -1 for another name.
+Function PredefinedOf(name: String): Int
+    If name == "lt" Then Return 60
+    If name == "gt" Then Return 62
+    If name == "amp" Then Return 38
+    If name == "apos" Then Return 39
+    If name == "quot" Then Return 34
+    Return -1
+End Function
+
+// text with its ASCII letters lowercase.
+Function Lowered(text: String): String
+    Local out: UInt8[] = []
+    For b In text.Bytes
+        out.Add(b >= 65 && b <= 90 ? b + 32 : b)
+    End For
+    Return TextOf(out)
+End Function
+
+// value with its spaces trimmed, and each run of them made one.
+Function Collapsed(value: String): String
+    Local bytes = value.Bytes
+    Local out: UInt8[] = []
+    Local space = False
+    For b In bytes
+        If b == 32
+            space = out.Count > 0
+        Else
+            If space Then out.Add(32)
+            space = False
+            out.Add(b)
+        End If
+    End For
+    Return TextOf(out)
+End Function

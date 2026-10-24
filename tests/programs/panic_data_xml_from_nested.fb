@@ -1,0 +1,11 @@
+// An Array's items are each an element, and FromValue panics at an Array in an Array.
+Import std.core
+Import std.data.value
+Import std.data.xml
+
+Local value = Value.NewObject()
+value["items"] = Value.NewArray()
+value["items"].Add(Value(1 As Int64))
+Print(Xml.FromValue("a", value))
+value["items"].Add(Value.NewArray())
+Print(Xml.FromValue("a", value))

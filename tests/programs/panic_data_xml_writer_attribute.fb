@@ -1,0 +1,10 @@
+// An attribute comes right after its element's start, and Attribute panics after its content.
+Import std.core
+Import std.data.value
+Import std.data.xml
+
+Local writer = XmlWriter()
+writer.StartElement("a")
+writer.Attribute("x", "1")
+writer.Text("t")
+writer.Attribute("y", "2")
