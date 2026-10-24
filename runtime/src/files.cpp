@@ -829,7 +829,12 @@ std::int64_t acquire_lock(request_t& request) {
         return UV_EISDIR;
     }
 
-    const std::int64_t opened = open_file(request.path, UV_FS_O_RDWR | UV_FS_O_CREAT, 0666);
+    // A lock needs no writing, so a file that's there but read-only is opened to read.
+    std::int64_t opened = open_file(request.path, UV_FS_O_RDWR | UV_FS_O_CREAT, 0666);
+    if (opened == UV_EACCES || opened == UV_EPERM) {
+        opened = open_file(request.path, UV_FS_O_RDONLY, 0);
+    }
+
     if (opened < 0) {
         return opened;
     }
