@@ -1,0 +1,21 @@
+2026-10-24T00:00:00.123Z INFO  net.http: connected host=example.com port=443 note="two words" empty="" eq="a=b" quote="say \"hi\""
+INFO  net.http: connected host=example.com port=443 note="two words" empty="" eq="a=b" quote="say \"hi\""
+{"time":"2026-10-24T00:00:00.123Z","level":"info","module":"net.http","message":"connected","host":"example.com","port":443,"note":"two words","empty":"","eq":"a=b","quote":"say \"hi\""}
+ERROR app: line one\nline two	tabbed \ \u0001
+{"time":"2026-10-24T00:00:00.123Z","level":"error","module":"app","message":"line one\nline two\ttabbed \\ \u0001"}
+[33mWARN[0m  app: colored
+False True app 1
+INFO  app: started
+json
+DEBUG db: query table=users
+json
+WARN  db: slow table=users rows=3 big=9000000000 ratio=0.25 ok=true
+json
+DEBUG db.cache: from db's level
+json
+{"time":"2026-10-24T00:00:00.123Z","level":"info","module":"m","message":"odd","inf":"inf","nan":"nan","n":-2.5}
+ERROR app: after the change
+json
+error
+rounds wrong: 0
+INFO  main: hello user="ada lovelace"

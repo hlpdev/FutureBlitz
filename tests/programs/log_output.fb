@@ -1,0 +1,137 @@
+// A Logger writes lines with its fields to its output's sinks, in the order they were added, when
+// the output's filter writes the line's level for its module: as a console line, with its fields
+// quoted where they'd read wrong, and as a JSON line. Lines from many threads at once all arrive,
+// each thread's in its order.
+
+Import std.core
+Import std.collections
+Import std.time
+Import std.concurrent
+Import std.log
+
+// A record at a time of its own, so its text is the same each run.
+Const at = Timestamp.FromUnixMilliseconds(1792800000123)
+Local fields = ImmutableArray<LogField>().Add(LogField("host", "example.com"))
+fields = fields.Add(LogField("port", "443", False)).Add(LogField("note", "two words"))
+fields = fields.Add(LogField("empty", "")).Add(LogField("eq", "a=b"))
+fields = fields.Add(LogField("quote", "say \"hi\""))
+Local record = LogRecord(at, LogLevel.INFO, "net.http", "connected", fields)
+Print(LogLine(record))
+Print(LogLine(record, False))
+Print(JsonLine(record))
+Local bare = LogRecord(at, LogLevel.ERROR, "app", "line one\nline two\ttabbed \\ \u{1}")
+Print(LogLine(bare, False))
+Print(JsonLine(bare))
+Print(LogLine(LogRecord(at, LogLevel.WARN, "app", "colored"), False, True))
+
+// Lines through Loggers, kept by a sink of the test's own.
+Const lines = ConcurrentQueue<String>()
+Const filter = LogFilter.Parse("info,db=debug,db.pool=off") ?? LogFilter.At(LogLevel.TRACE)
+Const output = LogOutput(filter)
+output.Add(Function(line: LogRecord) => lines.Enqueue(LogLine(line, False)))
+// The JSON lines' sink comes second, and says only that it was called.
+output.Add(JsonLinesSink(Function(line: String) => lines.Enqueue("json")))
+
+Function Show()
+    Loop
+        Local line = lines.TryDequeue()
+        If line == Null Then Return
+        Print(line)
+    End Loop
+End Function
+
+Const app = Logger("app", output)
+Const db = Logger("db", output).With("table", "users")
+app.Trace("hidden")
+app.Debug("hidden")
+app.Info("started")
+db.Debug("query")
+Local big: Int64 = 9000000000
+db.With("rows", 3).With("big", big).With("ratio", 0.25).With("ok", True).Warn("slow")
+Logger("db.pool", output).Error("hidden")
+Logger("db.cache", output).Debug("from db's level")
+Print(app.IsEnabled(LogLevel.DEBUG), db.IsEnabled(LogLevel.DEBUG), app.Module, db.Fields.Count)
+Show()
+
+// A Double that isn't finite is text to JSON, which has no number for it.
+Local zero = 0.0
+Local odd = Logger("m", output).With("inf", 1 / zero).With("nan", zero / zero).With("n", -2.5)
+Print(JsonLine(LogRecord(at, LogLevel.INFO, "m", "odd", odd.Fields)))
+
+// A new filter goes for the lines after it, and Clear leaves the lines going nowhere.
+output.Filter = LogFilter.At(LogLevel.ERROR)
+app.Warn("hidden")
+app.Error("after the change")
+Show()
+output.Clear()
+app.Error("hidden")
+Show()
+Print(output.Filter)
+
+// Eight threads log 200 lines each at once: every line comes, each thread's in its order.
+// The messages a sink has been given, in the order it was.
+Shared Class Kept
+    Field Messages: Mutex<ImmutableArray<String>>
+
+    Method Keep(message: String)
+        Lock Messages As messages
+            messages = messages.Add(message)
+        End Lock
+    End Method
+
+    Method All(): ImmutableArray<String>
+        Lock Messages As messages
+            Return messages
+        End Lock
+    End Method
+End Class
+
+Function Crowd(): Bool
+    Const seen = Kept()
+    Const crowd = LogOutput(LogFilter.At(LogLevel.INFO))
+    crowd.Add(Function(line: LogRecord) => seen.Keep(line.Message))
+    Local tasks: Task[] = []
+    For t = 0 Until 8
+        tasks.Add(Spawn(Function()
+            Const log = Logger("crowd", crowd).With("thread", t)
+            For i = 0 Until 200
+                log.Info("{t} {i}")
+                log.Debug("hidden")
+            End For
+        End Function))
+    End For
+    For task In tasks
+        task.Wait()
+    End For
+
+    Local next: Int[] = [0, 0, 0, 0, 0, 0, 0, 0]
+    Local count = 0
+    For message In seen.All()
+        // "t i": the thread's digit, a space, and the line's number.
+        Local bytes = message.Bytes
+        Local thread = (bytes[0] - 48) As Int
+        Local index = 0
+        For at = 2 Until bytes.Count
+            index = index * 10 + (bytes[at] - 48) As Int
+        End For
+        If index != next[thread] Then Return False
+        next[thread] += 1
+        count += 1
+    End For
+    Return count == 1600
+End Function
+
+Local wrong = 0
+For round = 1 To 20
+    If !Crowd() Then wrong += 1
+End For
+Print("rounds wrong:", wrong)
+
+// The default output, with the console's sink in place of its own, so its lines are the same
+// each run, on stderr.
+Const fallback = DefaultLogOutput()
+fallback.Clear()
+fallback.Add(ConsoleSink(False, False))
+fallback.Filter = LogFilter.At(LogLevel.INFO)
+Logger("main").With("user", "ada lovelace").Info("hello")
+Logger("main").Debug("hidden")
