@@ -1,7 +1,7 @@
 // A font's metrics are at a size that's finite and not negative, and asking for one at another
 // panics where it's asked.
 Import std.core
-Import "./image_text/font"
+Import "./panic_image_font_size/font"
 Import std.image
 
 Local font = Try Font.Parse(FontBytes())
