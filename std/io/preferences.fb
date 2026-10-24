@@ -161,12 +161,13 @@ Function CheckApp(app: String)
     If !fits Then Panic("Preferences takes an app's name that can be a file's on every OS, not '{app}'")
 End Function
 
-// The settings in the file, or none when it isn't there.
+// The settings in the file, or none when it isn't there, as it can't be when a file is where its
+// folder goes.
 Function Loaded(file: Path): Map<String, String> Throws IOError
     Try
         Return ValuesOf(File.ReadLines(file))
     Catch e As IOError
-        If e.Kind == IOErrorKind.NOT_FOUND Then Return Map<String, String>()
+        If NoFile(e) Then Return Map<String, String>()
         Throw e
     End Try
 End Function
@@ -175,9 +176,15 @@ Async Function LoadedAsync(file: Path): Map<String, String> Throws IOError
     Try
         Return ValuesOf(Await File.ReadLinesAsync(file))
     Catch e As IOError
-        If e.Kind == IOErrorKind.NOT_FOUND Then Return Map<String, String>()
+        If NoFile(e) Then Return Map<String, String>()
         Throw e
     End Try
+End Function
+
+// Whether a read's IOError says there's no file: Windows says NOT_FOUND where a file is in the
+// way of its folder, and POSIX NOT_A_DIRECTORY.
+Function NoFile(e: IOError): Bool
+    Return e.Kind == IOErrorKind.NOT_FOUND || e.Kind == IOErrorKind.NOT_A_DIRECTORY
 End Function
 
 // The settings a file's lines hold.

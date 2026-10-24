@@ -81,8 +81,10 @@ Local raced = Try Preferences("Racing", root)
 Print("{racing.Get("late") ?? "none"} {(raced.Get("late") == Null) == racing.IsChanged()}")
 
 Print("errors")
+// A file where the app's folder goes holds no settings, on every OS, though a save throws.
 Try File.WriteText(root / "Blocked", "a file where the app's folder goes")
 Local blocked = Try Preferences("Blocked", root)
+Print("{blocked.Count()} {(Try Await Preferences.OpenAsync("Blocked", root)).Count()}")
 blocked.Set("a", "b")
 Try
     blocked.Save()
