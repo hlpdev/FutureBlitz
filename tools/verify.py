@@ -215,6 +215,13 @@ def main() -> int:
     build = options.build.resolve()
     fb = executable(build / "cli" / "fb")
 
+    # A base git doesn't know would give an empty diff, which lint would pass.
+    if (not options.no_format or not options.no_tidy) and \
+            run(["git", "rev-parse", "--verify", "--quiet", f"{options.base}^{{commit}}"],
+                cwd=ROOT).returncode != 0:
+        print(f"FAIL the base, {options.base}, isn't a commit git knows")
+        return 1
+
     if not options.no_build:
         step("build")
         if run(["cmake", "--build", str(build)]).returncode != 0:
