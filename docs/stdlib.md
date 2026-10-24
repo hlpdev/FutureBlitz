@@ -160,6 +160,8 @@ So far, std/ holds:
 | std/text/diff.fb | std.text.diff: `Diff`'s `Lines`, `Chars`, `Unified`, and `Merge`, and `DiffKind`, `DiffRun`, and `Merged` |
 | std/text/markdown.fb | `MarkdownToHtml` and `ParseMarkdown`, over md4c through `fb_markdown_`, with `MarkdownExtensions`, `MarkdownNode`, `MarkdownKind`, and `MarkdownAlignment` |
 | std/text/template.fb | `Template` and `Templates` |
+| std/data/protobuf.fb | `ProtoWriter` and `ProtoReader`, Protocol Buffers' wire format, `ProtoText`, its text format on one line, `ProtoBox<T>`, and `ProtoTag`, `ProtoIsZero`, `ProtoKeepEnum`, and `ProtoPanic`, which the modules fb makes from .proto files go through |
+| std/data/proto/google/protobuf/ | protobuf's well-known types, as protoc 36.2 has them, under protobuf's BSD-3-Clause license, in its LICENSE: any, api, descriptor, duration, empty, field_mask, source_context, struct, timestamp, type, and wrappers.proto, which a .proto or a program imports as `"google/protobuf/timestamp.proto"` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -773,8 +775,40 @@ Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std
   reader and writer, and XPath-lite), YAML (1.2's core schema, no arbitrary tags), and
   MessagePack. A save can carry a version, and `@Since(2)` and `@Renamed("old")` keep old saves
   loading after a game changes.
-- Protocol Buffers: fb reads `.proto` files at compile time and generates the types and their
-  binary encoding.
+- Protocol Buffers: `Import "game.proto"` reads a .proto file, proto2 or proto3, as the program
+  builds, into a module of its types (see spec 11), which read and write protobuf's wire format
+  through std/data/protobuf.fb.
+  - A message is a Struct, a nested one named after the messages it's in, like `Outer_Inner`,
+    with a Field for each of its fields, named as the .proto names it: a proto3 field without a
+    label is its value, which isn't written while it's its zero; one with presence, optional,
+    proto2's required, or a message, is a `T?`; a repeated one a `T[]`; and `map<K, V>` a
+    `Map<K, V>`. A oneof's fields are Properties, and setting one to a value takes the others'
+    away; the oneof's name is a Property of an Enum of which one holds a value, or NONE. A
+    message that holds its own type, through messages it holds one at a time, keeps it in a
+    `ProtoBox` behind a Property, since a Struct can't hold itself. A proto2 default is
+    `xOrDefault`'s value while x is Null. A name FutureBlitz reserves takes a '_', and so does a
+    field named like a member the Struct has or a type of the module.
+  - Each message has a New of its fields by name, with their zeros, `Encode()`,
+    `Decode(bytes)`, `Merge(bytes)` and `MergeFrom(other)`, which merge as protobuf does,
+    `Clone()`, `IsInitialized`, `==`, and `ToString()`, protobuf's text format on one line, as
+    `name: "Ada" phones { number: "555" }`, and `WriteTo`, `ReadFrom`, `WriteText`, and
+    `FindMissing`, which the modules' code calls for a message inside another. Decode throws a ParseError for bytes that stop
+    inside a field (UNEXPECTED_END), that aren't the wire format, or a string that isn't UTF-8
+    (SYNTAX), past protobuf's limits of 100 messages or groups deep and a length an array holds
+    (OUT_OF_RANGE), or without a required field (OTHER). Encode panics where it's called for a
+    required field without a value. The fields a message doesn't know, and one of a wire type
+    its type doesn't have, it keeps as they were written and writes back after its own, which
+    it writes by number, proto3's repeated numbers packed. The last value read of a field that
+    holds one wins, a message's merges, and a repeated field reads packed or not.
+  - An enum is an Enum of Int32: proto3's are `@Open`, keeping the numbers they don't name,
+    while proto2's are closed, and a number one doesn't name goes to the message's unknown
+    fields, with a whole map entry for a map's value. An alias is a Static Property, and a
+    closed enum's `FromNumber(n)` gives its value or Null.
+  - A service is an Interface of an Async Method for each rpc, which takes its request and
+    gives its response, and can throw any Error, as a transport would; a stream's side is an
+    array. No transport is std's yet.
+  - An extension's fields are read as fields the message doesn't know, and kept; editions and
+    message sets aren't read.
 
 Step 20 built TOML, CSV, INI, XML, and YAML, each read into std.core's `Value`s and written from
 them, so `Load<T>` and `Save<T>` go through them too. `Import std.data` brings in all of
