@@ -1,0 +1,2 @@
+2.5
+panic: JSON can't hold nan: it has no NaN or infinity at panic_json_write_nan.fb:11:14
