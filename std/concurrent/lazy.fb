@@ -1,0 +1,43 @@
+// Lazy<T>: a value made the first time a thread asks for it, by the Sendable Func it was given,
+// once however many threads ask at once: the others wait while it's made, and each gets the same
+// value. It's a Shared Class, so a Const or a parameter shares one with the work that Spawn and
+// Thread.Start run.
+
+Import std.core
+
+Public Shared Class Lazy<T: Sendable>
+    ReadOnly Field Maker: Sendable Func(): T
+    // The value, once it's made, behind the lock its maker runs in.
+    Field Made: Mutex<T?>
+    Field Done: Atomic<Bool>
+
+    // A Lazy whose value maker makes, the first time Value is read.
+    Public New(maker: Sendable Func(): T)
+        Maker = maker
+    End New
+
+    // The value, which the first read makes, on the thread that reads it, while the reads on other
+    // threads wait for it. Panics when the maker reads its own Lazy's Value, which would wait for
+    // itself forever.
+    @PanicsAtCaller
+    Public Property Value: T
+        Get
+            Lock Made As made
+                Local value = made
+                If value == Null
+                    value = Maker()
+                    made = value
+                    Done.Store(True)
+                End If
+
+                Return value
+            End Lock
+        End Get
+    End Property
+
+    // Whether the value is made, which a thread that reads it while it's being made doesn't wait
+    // for.
+    Public Property IsMade: Bool
+        Get => Done.Load()
+    End Property
+End Class
