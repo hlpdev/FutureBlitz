@@ -684,6 +684,15 @@ TEST_CASE("a bundled C library's notices have the texts of every license it name
         return std::pair{ std::string(library->license), text };
     };
 
+    // libcurl's curlx/inet_ntop.c and inet_pton.c are ISC's.
+    const auto [curl_license, curl] = notices("libcurl");
+    CHECK(curl_license == "the curl and ISC licenses");
+    CHECK(curl.contains("COPYRIGHT AND PERMISSION NOTICE"));
+    CHECK(curl.contains("lib/curlx/inet_ntop.c:\n\n/*\n * Copyright (C) 1996-2022  Internet "
+                        "Software Consortium."));
+    CHECK(curl.contains("lib/curlx/inet_pton.c:\n\n/* This is from the BIND 4.9.4 release"));
+    CHECK(curl.contains(" * SPDX-License-Identifier: ISC\n */\n\nlib/curlx/inet_pton.c"));
+    CHECK(!curl.contains("#include"));
     // nghttp2's own, then those of the code others have copyrights in.
     const auto [nghttp2_license, nghttp2] = notices("nghttp2");
     CHECK(nghttp2_license == "the MIT license");

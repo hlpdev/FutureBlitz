@@ -849,7 +849,15 @@ FetchContent_Declare(
 )
 fb_make_available(curl)
 set(FB_CURL_VERSION ${FB_CURL_VERSION} PARENT_SCOPE)
+# Its notices: its COPYING, then the comments before the code of curlx's inet_ntop.c and
+# inet_pton.c, which are ISC's.
 file(READ "${curl_SOURCE_DIR}/COPYING" notices)
+foreach(part lib/curlx/inet_ntop.c lib/curlx/inet_pton.c)
+  file(READ "${curl_SOURCE_DIR}/${part}" text)
+  string(FIND "${text}" "\n#include" end)
+  string(SUBSTRING "${text}" 0 ${end} license)
+  string(APPEND notices "\n${part}:\n\n${license}\n")
+endforeach()
 fb_notice(curl "${notices}")
 set(FB_CURL_NOTICE "${FB_CURL_NOTICE}" PARENT_SCOPE)
-set(FB_CURL_LICENSES "the curl license" PARENT_SCOPE)
+set(FB_CURL_LICENSES "the curl and ISC licenses" PARENT_SCOPE)
