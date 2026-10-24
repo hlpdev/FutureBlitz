@@ -863,12 +863,13 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   without alpha; `Bmp.Encode`, 32 bits a pixel, and `Tga.Encode`, run-length encoded, with alpha;
   `Qoi.Encode`; `Gif.Encode`; `WebP.Encode(image, quality)`, 0 to 100 and 75, lossy, its alpha
   lossless, and `WebP.EncodeLossless(image, effort)`, 0 to 9 and 6, which keeps the colors of
-  transparent pixels too; and `Hdr.Encode`, Radiance's RGBE, run-length encoded, without alpha. A
-  level or quality out of range, or an image a format can't hold, with no pixels or a side longer
-  than 65535 for JPEG, TGA, or GIF, or 16383 for WebP, panics at the caller. `Image.Decode(data,
-  limit)` reads any of them but HDR by how its bytes start, and `Image.FormatOf(data)` gives the
-  `ImageFormat` they start as, or Null; a TGA has no signature, so it's what starts as a TGA's
-  header does once no other format matches.
+  transparent pixels too; and `Hdr.Encode`, Radiance's RGBE, run-length encoded, without alpha,
+  a channel that's negative or NaN as 0, and one past RGBE's most, 255 times 2^119, as that
+  most. A level or quality out of range, or an image a format can't hold, with no pixels or a
+  side longer than 65535 for JPEG, TGA, or GIF, or 16383 for WebP, panics at the caller.
+  `Image.Decode(data, limit)` reads any of them but HDR by how its bytes start, and
+  `Image.FormatOf(data)` gives the `ImageFormat` they start as, or Null; a TGA has no signature,
+  so it's what starts as a TGA's header does once no other format matches.
 - stb_image reads PNG, of every color type and bit depth, interlaced or not, 16 bits a channel
   kept to their top 8, JPEG, baseline and progressive, but not 12-bit or arithmetic, BMP, of 1 to
   32 bits a pixel, but not run-length encoded, TGA, and HDR; libwebp reads still WebPs, lossy and

@@ -5,6 +5,7 @@
 Import std.core
 Import std.collections
 Import std.math.color
+Import std.math.constants
 Import std.image
 
 // A pattern of `width` by `height`, no two neighbors alike, its alpha falling to the bottom right
@@ -286,6 +287,14 @@ For width In [9, 7]
     Print("HDR {width} wide: near {near}, {back[0, 0]}, {back[0, 2]}")
 End For
 Local hdrCopy = HdrImage.FromFloats(1, 1, [0.5, 1.5, 2.5, 1])
+// RGBE has no light below 0 or past 255 times 2^119, so Encode writes what's negative or NaN as
+// 0, and what's past that, infinity too, as that most.
+Local outside = HdrImage(3, 1)
+outside[0, 0] = Color(2, -0.5, 0.5, 1)
+outside[1, 0] = Color(Inf, 0, NaN, 1)
+outside[2, 0] = Color(3e38, -Inf, 1, 1)
+Local inside = Try Hdr.Decode(Hdr.Encode(outside))
+Print("HDR outside RGBE:", inside[0, 0], inside[1, 0], inside[2, 0])
 Print(hdrCopy[0, 0], hdrCopy.Clone().ToFloats(), HdrImage(2, 1).ToFloats())
 
 // SVG: shapes drawn at a scale, or fit to a size, inside solid and outside transparent.
