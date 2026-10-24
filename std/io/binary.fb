@@ -15,7 +15,8 @@ Public Enum ByteOrder
 End Enum
 
 // Reads numbers, Bools, bytes, and text from another Reader. Each read throws an IOError of
-// UNEXPECTED_END when the stream ends before what it reads.
+// UNEXPECTED_END when the stream ends before what it reads, and ReadBytes and ReadText one of
+// OTHER for a count past the 2147483647 bytes an array holds.
 Public Class BinaryReader
     Field Inner: Reader
     Field Order: ByteOrder
@@ -51,9 +52,14 @@ Public Class BinaryReader
     @PanicsAtCaller
     Public Method ReadBytes(count: Int64): UInt8[] Throws IOError
         If count < 0 Then Panic("ReadBytes reads a count of bytes that isn't negative, not {count}")
+        Return Try BytesOf(count, "ReadBytes")
+    End Method
+
+    // The next `count` bytes, for the Method of `name`.
+    Method BytesOf(count: Int64, name: String): UInt8[] Throws IOError
         If count > 2147483647
-            Throw IOError(IOErrorKind.OTHER, "ReadBytes reads up to the 2147483647 bytes an " +
-                                             "array holds, not {count}")
+            Throw IOError(IOErrorKind.OTHER, "{name} reads up to the 2147483647 bytes an array " +
+                                             "holds, not {count}")
         End If
 
         Local bytes: UInt8[] = []
@@ -74,7 +80,7 @@ Public Class BinaryReader
     @PanicsAtCaller
     Public Method ReadText(count: Int64): String Throws IOError
         If count < 0 Then Panic("ReadText reads a count of bytes that isn't negative, not {count}")
-        Return TextOf(Buffer<UInt8>.From(Try ReadBytes(count)))
+        Return TextOf(Buffer<UInt8>.From(Try BytesOf(count, "ReadText")))
     End Method
 
     // The next `size` bytes, as an integer of their bits in Order.

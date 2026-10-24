@@ -246,6 +246,19 @@ Catch e As IOError
     Print("{e.Kind}: {e.Message}")
 End Try
 
+// One past what an array holds throws before it reads, naming the Method it was.
+Try
+    Try broken.ReadText(3000000000)
+Catch e As IOError
+    Print("{e.Kind}: {e.Message}")
+End Try
+
+Try
+    Try broken.ReadBytes(2147483648)
+Catch e As IOError
+    Print("{e.Kind}: {e.Message}")
+End Try
+
 // Copy, ReadAll, and ReadExact, which throws when the stream ends first.
 Local source = StringReader("copied text")
 Local sink = StringWriter()

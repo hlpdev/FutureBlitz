@@ -1,0 +1,10 @@
+// ReadText reads a count of bytes that isn't negative, so a negative one panics where it's
+// called, naming ReadText.
+Import std.core
+Import std.io
+
+Try
+    Print(BinaryReader(StringReader("abc")).ReadText(-2))
+Catch e As IOError
+    Print("failed: {e.Message}")
+End Try
