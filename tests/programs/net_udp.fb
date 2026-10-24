@@ -64,6 +64,10 @@ Try
         Print(e.Kind)
     End Try
 
+    Local shared = UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0), True)
+    Local sharing = UdpSocket.Bind(shared.LocalAddress, True)
+    Print(sharing.LocalAddress == shared.LocalAddress)
+
     // A closed socket says so.
     a.Close()
     Print(a.IsClosed)

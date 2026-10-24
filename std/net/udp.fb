@@ -138,6 +138,14 @@ Public Class UdpSocket
         Try Set(MULTICAST_TTL, hops, "setting the multicast TTL to {hops}")
     End Method
 
+    // Multicasts from here on through the interface whose address is `on`, rather than the one the
+    // OS picks.
+    Public Method SetMulticastInterface(on: IpAddress) Throws NetError
+        Try Open()
+        Local code = fb_io_net_multicast_interface(Handle, on.ToString())
+        If code != 0 Then Throw NetErrorOf(code, "multicasting through {on}", Address)
+    End Method
+
     // Receives what's multicast to `group` from here on, on the interface whose address is `on`,
     // or the one the OS picks.
     Public Method JoinMulticast(group: IpAddress, on: IpAddress? = Null) Throws NetError

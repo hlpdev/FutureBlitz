@@ -40,6 +40,9 @@ Package Extern "runtime"
     Function fb_io_net_set(socket: Ptr<Void>, option: Int32, value: Int32): Int32
     Function fb_io_net_membership(socket: Ptr<Void>, group: String, on: String,
                                   join: Int32): Int32
+    Function fb_io_net_multicast_interface(socket: Ptr<Void>, on: String): Int32
+    Function fb_io_net_interfaces(output: UInt8[]): Int32
+    Function fb_io_net_host_name(): String
     Function fb_io_net_address(socket: Ptr<Void>, remote: Int32, output: UInt8[]): Int32
     Function fb_io_net_error_kind(code: Int32): Int32
     Function fb_io_error_text(code: Int32): String
