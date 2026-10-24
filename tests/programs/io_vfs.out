@@ -41,6 +41,9 @@ errors
   IS_A_DIRECTORY can't read a/b/c/levels: it's a folder
   INVALID_PATH can't read ../escape.txt: it goes above the Vfs's root
   INVALID_PATH can't read ../mod/levels/two.txt: it goes above the Vfs's root
+  NOT_FOUND False True
+  NOT_FOUND
+  NOT_FOUND
   NOT_A_DIRECTORY
 async
   [level one] [the game]
