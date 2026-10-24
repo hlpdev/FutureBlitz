@@ -496,9 +496,6 @@ def main():
         [("zeros.bin", True, True, False, 0x20)] +
         [(f"link{i}", True, True, False, link_mode) for i in range(40)])
 
-    start, chunk, end = solid_past_2gib()
-    made["solidstart.7z"], made["solidchunk.7z"], made["solidend.7z"] = start, chunk, end
-
     # PPMd, which liblzma doesn't have: the archive opens, and reading its file fails.
     made["ppmd.7z"] = archive(
         [([coder(PPMD, b"\x06\x00\x00\x10\x00")], [], b"not really PPMd", [len(one)], [one])],
@@ -529,12 +526,24 @@ def main():
     made.update(tars())
     made.update(zips())
     made["greedy.xz"] = greedy_xz(one)
+    write(HERE, made, "make_archives.py")
+
+    # compress_7z_solid's parts, in a folder of its own, as a program's test reads only its own.
+    start, chunk, end = solid_past_2gib()
+    write(HERE.parent / "compress_7z_solid",
+          {"solidstart.7z": start, "solidchunk.7z": chunk, "solidend.7z": end},
+          "compress_archives' make_archives.py")
+
+
+def write(folder, made, maker):
+    """Writes each archive in folder, and data.fb, of their bytes."""
+    folder.mkdir(exist_ok=True)
     for name, data in made.items():
-        (HERE / name).write_bytes(data)
+        (folder / name).write_bytes(data)
 
     lines = [
-        "// The bytes of the archives in this folder, which make_archives.py made, as array",
-        "// literals, since a program can't read a file until std.io's files.",
+        f"// The bytes of the archives in this folder, which {maker} made,",
+        "// as array literals, since a program can't read a file until std.io's files.",
         "",
         "Import std.core",
         "",
@@ -551,7 +560,7 @@ def main():
         lines.append("    ]")
         lines.append("End Function")
         lines.append("")
-    (HERE / "data.fb").write_text("\n".join(lines), encoding="utf-8", newline="\n")
+    (folder / "data.fb").write_text("\n".join(lines), encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

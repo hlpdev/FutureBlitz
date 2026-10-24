@@ -5,7 +5,7 @@
 Import std.core
 Import std.collections
 Import std.compress
-Import "./compress_archives/data"
+Import "./compress_7z_solid/data"
 
 Local archive = Solidstart7z()
 Local chunk = Solidchunk7z()
