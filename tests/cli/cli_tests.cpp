@@ -7,6 +7,7 @@
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -16,8 +17,10 @@
 #include <fstream>
 #include <ios>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -995,6 +998,147 @@ TEST_CASE("a program fb starts gets SIGPIPE at its default, though fb ignores it
     CHECK(piped->exit_code == 128 + SIGPIPE);
     CHECK_FALSE(piped->output.contains("survived"));
 #endif
+}
+
+TEST_CASE("OnInterrupt and OnTerminate handle a program's signals until its code is done",
+          "[cli]") {
+    // Each handler sends what it saw to the program's code, which prints it, asks for the next,
+    // and ends, with the threads the handlers wait on.
+    const std::filesystem::path source = write_source(
+        "signals/handled.fb",
+        "Import std.core\nImport std.os\nConst seen = Channel<String>(4)\n"
+        "Process.OnInterrupt(Function()\n    seen.Send(\"interrupted\")\nEnd Function)\n"
+        "Process.OnTerminate(Function()\n    seen.Send(\"terminated\")\nEnd Function)\n"
+        "PrintError(\"started\")\nPrint(seen.Receive() ?? \"closed\")\nPrintError(\"again\")\n"
+        "Print(seen.Receive() ?? \"closed\")\n");
+    std::filesystem::path executable = source.parent_path() / "handled";
+    executable += fb::executable_extension;
+    std::filesystem::remove(executable);
+    const fb::process_result_t built =
+        fb_run({ "build", fb::to_utf8(source), "-o", fb::to_utf8(executable) });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+
+    // A program that never ends is ended after a minute, which fails the test.
+    std::mutex mutex;
+    std::condition_variable ended;
+    bool done = false;
+    bool stuck = false;
+    const auto watch = [&](const auto& end) {
+        return std::thread([&, end] {
+            std::unique_lock lock(mutex);
+            if (!ended.wait_for(lock, std::chrono::minutes(1), [&] { return done; })) {
+                stuck = true;
+                end();
+            }
+        });
+    };
+    // Once the output has ended, so has the program, or the watcher has ended it.
+    const auto stop = [&](std::thread& watcher) {
+        {
+            const std::scoped_lock lock(mutex);
+            done = true;
+        }
+
+        ended.notify_all();
+        watcher.join();
+    };
+    std::string output;
+#ifdef _WIN32
+    // Ctrl+Break, the Ctrl+C that a process group can be sent, twice: Windows has no SIGTERM to
+    // send.
+    if (GetConsoleCP() == 0) {
+        SKIP("this process has no console to send Ctrl+Break through");
+    }
+
+    SECURITY_ATTRIBUTES security{
+        .nLength = sizeof(SECURITY_ATTRIBUTES),
+        .lpSecurityDescriptor = nullptr,
+        .bInheritHandle = TRUE,
+    };
+    HANDLE read_end = nullptr;
+    HANDLE write_end = nullptr;
+    REQUIRE(CreatePipe(&read_end, &write_end, &security, 0) != 0);
+    SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput = write_end;
+    startup.hStdError = write_end;
+    std::wstring command = std::format(L"\"{}\"", executable.wstring());
+    PROCESS_INFORMATION process{};
+    REQUIRE(CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE,
+                           CREATE_NEW_PROCESS_GROUP, nullptr, nullptr, &startup, &process) != 0);
+    CloseHandle(write_end);
+    std::thread watcher = watch([&process] { TerminateProcess(process.hProcess, 1); });
+    const auto read_until = [&](const std::string_view text) {
+        std::array<char, 4096> buffer{};
+        DWORD count = 0;
+        while (!output.contains(text) &&
+               ReadFile(read_end, buffer.data(), static_cast<DWORD>(buffer.size()), &count,
+                        nullptr) != 0 &&
+               count > 0) {
+            output.append(buffer.data(), count);
+        }
+    };
+    read_until("started");
+    const bool interrupted = GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, process.dwProcessId) != 0;
+    read_until("again");
+    const bool again = GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, process.dwProcessId) != 0;
+    read_until("the end it never prints");
+    stop(watcher);
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exit_code = 0;
+    GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hProcess);
+    CloseHandle(process.hThread);
+    CloseHandle(read_end);
+    const std::string_view second = "interrupted\n";
+#else
+    std::array<int, 2> ends{};
+    REQUIRE(pipe(ends.data()) == 0);
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, ends[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, ends[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, ends[0]);
+    posix_spawn_file_actions_addclose(&actions, ends[1]);
+    std::string path = executable.string();
+    std::array<char*, 2> argv{ path.data(), nullptr };
+    pid_t pid = 0;
+    const int spawned = posix_spawn(&pid, path.c_str(), &actions, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    close(ends[1]);
+    REQUIRE(spawned == 0);
+    std::thread watcher = watch([pid] { kill(pid, SIGKILL); });
+    const auto read_until = [&](const std::string_view text) {
+        std::array<char, 4096> buffer{};
+        ssize_t count = 0;
+        while (!output.contains(text) &&
+               (count = read(ends[0], buffer.data(), buffer.size())) > 0) {
+            output.append(buffer.data(), static_cast<std::size_t>(count));
+        }
+    };
+    read_until("started");
+    const bool interrupted = kill(pid, SIGINT) == 0;
+    read_until("again");
+    const bool again = kill(pid, SIGTERM) == 0;
+    read_until("the end it never prints");
+    stop(watcher);
+    close(ends[0]);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    const int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    const std::string_view second = "terminated\n";
+#endif
+    INFO(output);
+    REQUIRE(interrupted);
+    REQUIRE(again);
+    CHECK_FALSE(stuck);
+    CHECK(exit_code == 0);
+    CHECK(output.contains("interrupted\n"));
+    CHECK(output.contains(second));
 }
 
 TEST_CASE("fb check --release checks the release build's code", "[cli]") {
