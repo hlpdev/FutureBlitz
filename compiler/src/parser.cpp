@@ -1137,10 +1137,13 @@ private:
             return after >= m_tokens.size() || m_tokens[after].kind == token_kind_t::NEWLINE ||
                    m_tokens[after].kind == token_kind_t::END_OF_FILE;
         }
-        // "Async Method" is a member, and "Async Function" in a body starts a lambda.
+        // "Async Method" is a member, after other modifiers in any order too, and so is "Async
+        // ByRef Method", which analysis refuses, while "Async Function" in a body starts a lambda.
         case token_kind_t::KW_ASYNC: {
             const auto after = static_cast<std::size_t>(&next - m_tokens.data()) + 1;
-            return after >= m_tokens.size() || m_tokens[after].kind != token_kind_t::KW_METHOD;
+            return after >= m_tokens.size() ||
+                   (!modifiers_lead_to(after, token_kind_t::KW_METHOD) &&
+                    !modifiers_lead_to(after, token_kind_t::KW_BYREF));
         }
         default:
             return true;

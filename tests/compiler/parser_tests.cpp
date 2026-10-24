@@ -1060,6 +1060,21 @@ TEST_CASE("Interfaces", "[parser]") {
               .dump == "(interface Loader (block (method Size -> Int) (method Async Load -> Int) "
                        "(method Later (block (function Async Inner (block (return (int 1))))))))");
 
+    // Modifiers go in any order, after Async too, and "Async ByRef Method" is a member for
+    // analysis to refuse.
+    CHECK(parse_text("Interface Maker\n"
+                     "    Method Size(): Int\n"
+                     "    Async Static Method MakeAsync(): Int\n"
+                     "    Method Twice(): Int\n"
+                     "    Async Final Method TwiceAsync(): Int => 2\n"
+                     "    Method Last()\n"
+                     "    Async ByRef Method Grow()\n"
+                     "End Interface")
+              .dump == "(interface Maker (block (method Size -> Int) "
+                       "(method Static Async MakeAsync -> Int) (method Twice -> Int) "
+                       "(method Final Async TwiceAsync -> Int (block (return (int 2)))) "
+                       "(method Last) (byref-method Async Grow)))");
+
     // An Abstract Property is its first line too.
     CHECK(parse_text("Abstract Property Area: Float").dump == "(property Abstract Area: Float)");
     CHECK(parse_text("Interface I Implements J\nEnd Interface").errors ==

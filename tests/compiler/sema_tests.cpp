@@ -10024,6 +10024,11 @@ TEST_CASE("a Method can be Async, and its overrides are too", "[sema]") {
                     "End Struct") ==
           errors_t{ "M: a ByRef Method can't be Async, since it can go on after its caller's "
                     "variable is gone" });
+    // An Interface's says so too, after a required Method, whose body it isn't.
+    CHECK(errors_of("Interface Grower\n    Method Size(): Int\n    Async ByRef Method Grow()\n"
+                    "End Interface") ==
+          errors_t{ "Grow: a ByRef Method can't be Async, since it can go on after its caller's "
+                    "variable is gone" });
     CHECK(errors_of("Class C\n    Async Method Destroy()\n    End Method\nEnd Class") ==
           errors_t{ "Destroy: Destroy can't be Async, since it runs when the last reference "
                     "goes" });
