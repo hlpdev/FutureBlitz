@@ -815,6 +815,188 @@ arguments, and qualified names; a bad Throws is reported once; Spawn of a T? of 
 it may be Null, and a lambda capturing Self kept in a Lock of Self's Mutex warns of the cycle.
 Tests: class_constraint_modules.fb, throws_generic_members.fb, and sema tests for each diagnostic.
 
+std.debug (lane 9): fb/debug.hpp and runtime/src/debug.cpp in fb_runtime: fb_debug_attached()
+(Windows' IsDebuggerPresent, macOS's sysctl P_TRACED, Linux's /proc/self/status TracerPid, else 0)
+and fb_debug_break() (DebugBreak, or raise(SIGTRAP) with an empty handler in place, only with a
+debugger attached). std/debug/debugger.fb: `IsDebuggerAttached` and `Breakpoint`. Tests:
+debug_debugger, and debug_tests, which traces a child on Linux and macOS (a tracer that swallows
+traps and one that hands them back) and debugs one on Windows. The review's two fixes are in
+docs/review/debug.md.
+
+Step 11 (lane 5's part): Const type arguments of any value of their type, computed with +, -, *, /,
+and % (toward 0), -N, and parentheses, with a size below 1, a division by 0, or an Int64 overflow an
+error where the instance is made; Operators with type parameters of their own, inferred from their
+operands; `Alias`, a transparent name for a type, which calls and Statics go through; and std.math's
+typed units, `Quantity<L, M, T>` with generic * and /, 14 unit Aliases from Meters to
+KilogramsPerCubicMeter, and the units made from others, so Meters / Seconds is MetersPerSecond and
+Meters + Seconds is a compile error.
+
+Step 5, formatting, parsing, and the debug form: runtime/include/fb/text_format.hpp, a header-only
+formatter that the compiler (const_value.cpp's formatted(), the evaluator) and the runtime
+(runtime/src/format.cpp) both build, so folding and running agree: `format_spec_t` (fill,
+`format_align_t`, `format_sign_t`, alternate, zero, width, grouping, precision, kind),
+parse_format_spec() and its `format_spec_error_t`, format_spec_misfit() for a `format_subject_t`
+(INTEGER, FLOAT, STRING, TEXT, DEBUG), shortest_text(), which writes floats invariantly (`1e21`,
+`1.5e-7`, `NaN`, `Inf`, `-Inf`, for fb_string_from_float32/64 too), debug_text(), format_text(),
+format_integer(), format_signed(), and format_float(); fb_compiler gets runtime/include, and
+fb_runtime links fast_float. The lexer's FORMAT_SPEC token: in an interpolation, a `:` outside
+brackets (`string_state_t::nesting`) with no space after it starts lex_format_spec(), raw text to
+the `}`; ast.hpp's `format_t` and `interpolation_t`, so a string part is a
+`std::variant<std::string, interpolation_t>`; the parser's errors for a spaced spec and for a
+ternary's `:` without a space; dump.cpp's `(format value ".2")`. Sema's check_format() and
+format_subject() check a spec at the spec, a Formattable type of the program's own and a Formattable
+T skip it, and a T takes what its constraints give. std/core/interfaces.fb's Formattable (Extends
+Printable, `Format(spec): String?`), which the numbers, Bool, String, and Enums implement
+(builtin_format(), over the runtime's spec parsing); lowering's add_formatted() and own_format(),
+which panics at the spec on Null, and an instance's misfit spec panics there too; runtime calls
+FORMAT_INT, FORMAT_UINT, FORMAT_FLOAT, and FORMAT_TEXT (fb_format_int, _uint, _float, _text).
+std/core/format.fb's Format(template, values: Formattable...) Throws FormatError, over
+fb_format_split; a `values: Formattable...` parameter (`symbol_t::formats`) takes objects as they
+are and boxes the rest in std's `Formatted<T>` (`analysis_t::formatted_box`). std/core/parse.fb's
+Parse, a Static Method in an Extend of each integer type (base 2 to 36, SignedIn() and
+UnsignedIn()), Float32, Float64, and Bool, over fb_parse_int, fb_parse_uint, and fb_parse_float
+(fast_float), each giving a T?. check_defaults() walks an Extend's members, so its Methods keep
+their defaults. The debug form: `generated_kind_t` DEBUG and DEBUG_ENTRIES, `(value, Int32 indent)`
+functions that debug_of() calls and debug_body() fills, laid out by debug_layout()'s child, first,
+next, and last; runtime calls DEBUG_STRING, DEBUG_OBJECT, and DEBUG_INDENT (fb_string_debug,
+fb_debug_object, which dispatches through fb_class_t's new `debug` slot and keeps a thread_local
+list of the objects being shown, for cycles, and fb_debug_indent); `mir_class_t::debug`, which
+lower_library() fills for each Class, and each array type with tables, once `m_debug_used`; a Weak
+shows what reading it gives. std/core/format.fb's Dump, DebugElements and DebugEntries
+(`analysis_t:: debug_elements`, `debug_entries`), and ElementsOf (`elements_of`, found by
+std_function()), with `builtin_interfaces_t::iterable`; sema's check_debug_attributes(); std's
+collections but Grid, Grid3, and Range have one or the other. Tests:
+tests/compiler/text_format_tests.cpp, lexer, parser, sema, mir, and driver cases, format_specs,
+panic_format_generic, panic_format_own, format_template, parse, debug_form, and a case in extend.
+
+Step 5's review (24 findings, docs/review/step5.md): sema's m_copied_parameters and copy_defaults()
+give an Interface's default Methods' and inherited News' copied parameters their originals'
+defaults. debug_of() sends a T[] through fb_debug_object, whose cycle marker for an array is "[ …
+]", with mir_module_t's array_debugs naming each array Class's generated debug function for
+codegen's array_class(); holds_fixed_array() makes a debug function take a fixed array, or what
+holds one, ByRef. text_format.hpp's float_chars() has a 1400-byte buffer and checks to_chars;
+shortest_fixed() writes the shortest digits in fixed form, for 'f' and '%' without a precision and
+for ',' and '0'; hundred_times() moves '%''s point; Inf% and NaN% keep their '%'. formatted_number()
+pads a number's debug form as a number; std's Formatted<T> box shows as its value; flags_debug()
+shows a @Flags value's other bits as "| 0x8". Format's '?' fields fall back to the debug form
+through fb_format_debug and fb_format_text when the value's Format gives Null. note_formatted() and
+note_debugged() count what a spec runs for the main-thread checks. Parse reads an underflow as 0
+(read_whole()) and "-0" as an unsigned 0; an empty spec is none. Spec 05, spec 14, and stdlib.md say
+the rest.
+
+Step 6 added text. `Char` is a built-in type, a Unicode scalar value of 32 bits, which a character
+literal like `'a'` or `'\u{1F600}'` now makes, never a number; `s.Chars` gives a `Char[]`. A Char
+compares by its code, is Equatable, Hashable, Comparable, Printable, and Defaultable (its zero is
+U+0000), can be a Const, a Const Function's value, an Attribute's parameter, and a Select's subject
+with `Case 'a' To 'z'` ranges, and `As` turns it into an integer, its code, while an integer that
+isn't a scalar value `As Char` is an error at compile time and a panic at run time. A String holds
+at most 2147483647 bytes, as an array does elements. std.text gives a String its Methods by byte
+position, over the runtime's new `fb_text_` functions: `Length`, `CharCount`, `GraphemeCount`,
+`Find`, `FindLast`, `FindAll`, `Count`, `Slice` (which panics inside a character), `Before`,
+`After`, `SplitOnce`, `Split`, `SplitN`, `SplitLines`, `SplitWhitespace`, `Join`, `Replace`,
+`ReplaceFirst`, the Trims, `ToUpper` and `ToLower` by Unicode's full case mapping ("straße" is
+"STRASSE", and a word's last capital sigma lowers to the final one), `Repeated`, the Pads,
+`Compare`, `EqualsIgnoreCase`, `NaturalCompare`, `Lines`, `Graphemes`, and `String.FromUtf8`; a Char
+its categories and own case; `StringBuilder`; and `Scanner`, with its Line and Column.
+std.text.unicode has `Category`, `Normalize` (NFC, NFD, NFKC, NFKD), `CaseFold`, and `DisplayWidth`,
+over utf8proc 2.12.0 (Unicode 18), bundled as step 1 bundled libuv: a runtime archive of its own,
+`fb_runtime_unicode`, whose `fb_unicode_` functions a program links, with utf8proc and its notice,
+only when it calls them. std.text.encoding has UTF-16 and UTF-32 (each LE and BE), ASCII, Latin-1,
+and Windows-1252 (WHATWG's, so every byte round-trips), BOM detection, Base64 (standard and
+URL-safe), Hex, Base32, percent-encoding, HTML escaping, and C-style `Escape` and `Unescape`. A std
+Property on a built-in type, like String's `Length`, now says which module it's in, as a Method
+does.
+
+Step 6's review (23 findings, 2 high) fixed, each with a test that fails without it;
+docs/review/step6.md has their Status lines.
+
+Phase 1's review of the front end and runtime found ten problems, which lane 3 fixed with A-new-4.
+fb bindgen keeps the files libclang reads for a header, and an `-o`, or the module path it would
+pick, that names one of them is a usage error, so it no longer overwrites a header the named one
+includes. The parser stops a line's continuation only after a missing expression, so `x = 1e999 +`
+then `2.0` gives one error, not one for each line. Blitz's `New Foo` without parentheses parses as
+the call it means, with no second error, and the error names the type as it's written
+(`shapes.Circle()`, `Stack<Int>()`). `--show ast` and `--show types` write an @Deprecated message as
+source writes it. On Windows, a program fb builds that Ctrl+C, Ctrl+Break, or closing the console
+ends runs its end first, through a console control handler, and gives back the code page and modes.
+On Linux and macOS it does the same through SIGINT, SIGTERM, and SIGHUP handlers, which then raise
+the signal again, so stdin's flags come back. fb reads both streams' console modes before it changes
+either, since they can be one screen buffer. The leak report's overflow line says "and 1 more
+cycle". A full array's panic gives its place, from Add (`fb_array_push` takes a location now) and
+from Insert. Every Status line in docs/review/ names a commit on master. A7-2's line and 62 others
+had named the copies lanes' branches held before a rebase. fb run tries removing its temp folder
+again for up to two seconds, through the driver's `remove_temporary()`, since Windows or a scanner
+can still hold the program's executable just after it ends, and the Ctrl+C test's program is named
+for its process, so copies of the test can run at once.
+
+Step 7 added the rest of text's everyday tools. std.text.regex runs PCRE2 10.49, bundled as utf8proc
+was: an archive of its own, `fb_runtime_regex`, whose `fb_regex_` functions a program links, with
+PCRE2 and its notice, only when it calls them. Its 8-bit library is built without its JIT. A `Regex`
+reads its pattern as UTF-8, with Unicode's `\w`, `\d`, `\s`, and `\b`, and `RegexFlags`
+(`IGNORE_CASE`, `MULTILINE`, `DOT_ALL`, `EXTENDED`). It has `IsMatch`, `Find` from a position,
+`FindAll`, `Replace` and `ReplaceFirst` with `$1`, `${name}`, and `$$`, or a Function, `Split`,
+`Escape`, `GroupCount`, and `GroupNames`, and a `Match` has groups by number and name. Each match
+stops at its Regex's `MatchLimit` (10 million steps) or `MemoryLimit` (64 MiB) and throws a
+`RegexError`, so a pattern that backtracks without end throws within its limit. A pattern that isn't
+valid panics where its Regex is made, and `Regex.Parse` throws instead, for one from elsewhere.
+String's `Matches`, `ReplaceAll`, and `SplitBy` share each thread's last 16 compiled patterns. The
+compiler links PCRE2 too: a pattern it knows at compile time, a literal's or a Const's, passed to
+Regex, `Parse`, or a shortcut, is an error unless PCRE2 compiles it, with the flags given when
+they're known. The error points at the character PCRE2 stopped at, mapped through a regular
+literal's escapes. std.text.glob matches a shell's wildcards (`*`, `**`, `?`, sets, braces), and
+std.text.layout gives a String `WordWrap` in a terminal's columns, `Dedent`, and `Indent`, and the
+Function `Levenshtein`. std.text.fuzzy scores matches as fzf does, and its test is fzf's own.
+std.text.humanize has plurals, relative times, ordinals, numbers in words, and case styles.
+std.text.diff has Myers' line and character diffs, unified diffs, and a three-way merge, whose test
+is what git diff and git merge-file give for the same texts. In the language, a lambda whose
+parameters have no types now takes them from the one overload whose parameter is a Func it can be,
+and a Try around a call with an error no longer also warns that it isn't needed.
+
+Step 7's review: 25 confirmed findings (1 high, 11 medium, 13 low; 3 refuted), all fixed with a test
+each. std.text.diff goes as git's xdiff does: a line with no equal in the other text is changed
+without a search, xdl_split's linear-space Myers marks the rest (memory linear, not the square of
+the edits), and xdl_change_compact slides each run of changes, so Unified and Merge give git's
+results, 2800 random cases checked; a merge takes a deletion both sides made (the high), joins
+conflicts across runs of kept lines, writes "\r\n" markers where the texts' lines end so, counts
+only ASCII letters and digits between conflicts, and Unified takes any context. Regex's MatchLimit
+counts a search's steps over every place it tries, through a callout before each item, so a
+quadratic search throws; after an empty match at "\r\n" a pattern with its own CR or LF looks from
+the "\n"; Escape covers EXTENDED's non-ASCII whitespace; and a pattern's own (*LIMIT_...) says so.
+The compiler checks literal patterns in Globals and Static Fields, skips one the lexer reported, and
+ranks an untyped lambda by whether its body checks as each overload's Func and a lambda without a
+return type by the Func's. Plural keeps a word's capitals, case styles keep combining marks,
+WordWrap keeps no-break spaces and counts tabs to the next 8 columns, a glob's **/ is no folder only
+as a whole one and ignoreCase folds each character to one, and a one-character fuzzy pattern takes
+fzf's first word-start place. Tests: text_diff_git.fb's new git cases, text_diff.fb's 50000-line
+case, text_regex, text_layout, text_humanize, text_glob, text_fuzzy additions,
+panic_regex_memory.fb, and sema and pattern_tests cases.
+
+Steps 6 and 7 on master (lane 3): s.Chars gives Chars, so master's std/time/format.fb and
+duration.fb, std/math/big/rational.fb, and std/net/url.fb take Char[] (url.fb's PointsOf gives code
+points as Int[] where the URL Standard counts them), sema_tests' CWChar case is `Local w: CWChar =
+65` and c_integers.fb writes `'h' As CWChar`, and fb_array_push's callers in the runtime and its
+tests pass a location (nullptr).
+
+Step 13, std.io's streams: Async Methods in Interfaces, required, defaults (Final too), and Static:
+the parser's next_line_is_body() takes `Async Method` as the next member; sema's
+check_async_function() lets an Interface's Method be Async, check_implementation() matches
+Async-ness both ways, and matches_required() doesn't box an Async Method's Struct result into an
+Iterator<T>; lowering's call_interface_member() starts one through the table or the type's own
+Method (start_async_member(), the Task after Self). std/io/streams.fb's `Reader` (Read into a
+Buffer<UInt8>, ReadAsync), `Writer` (Write, Flush, WriteAsync, FlushAsync, the Final WriteBytes and
+WriteText), and `Seeker` (Seek, the Final Position), `SeekOrigin`, and Copy, ReadAll, ReadAllText,
+ReadExact, CopyAsync, ReadAllAsync, and ReadExactAsync, over the runtime's fb_string_from_bytes for
+text; std/io/memory.fb's `MemoryStream`, `StringReader`, and `StringWriter`; std/io/buffered.fb's
+`BufferedReader` (ReadByte, ReadLine, ReadLineAsync) and `BufferedWriter`, whose Async twins go
+through what they wrap and whose Destroy writes what's kept; std/io/binary.fb's `BinaryReader` and
+`BinaryWriter` in a `ByteOrder`; std.ffi's `Buffer<T>.From`. Tests:
+tests/programs/async_interfaces.fb, io_streams.fb, io_async.fb, and panic_buffered_size.fb,
+parser_tests' Async member, and sema_tests' Async implementations.
+
+Step 13's review (13 findings, 3 medium) fixed, each with a test, but the doc-only ones;
+docs/review/step13.md has their Status lines. When steps 5, 6, 7, and 13 landed together,
+io_streams.out's Doubles became step 5's text (1e300), and math_units.out's infinity step 5's Inf.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
