@@ -91,6 +91,15 @@ For entry In Try deep.Glob("a", "**/*.txt")
 End For
 
 Print("  {globbed}")
+// A pattern takes '\' between names too, as every Vfs path does.
+For pattern In ["b\\c\\levels\\*.txt", "**\\*.ogg"]
+    Local matched: String[] = []
+    For entry In Try deep.Glob("a", pattern)
+        matched.Add(entry.Relative.Text)
+    End For
+
+    Print("  {matched}")
+End For
 
 // A mount is a folder, though its folder isn't there yet, like a mods folder no one's made, or
 // is a file.
