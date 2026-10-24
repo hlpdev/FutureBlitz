@@ -10,9 +10,9 @@
 /* What stb_image allocates starts zeroed: a JPEG whose markers break after its frame header
  * decodes without an error as far as it got, and what it didn't get to would otherwise be what
  * the memory held before, which can be another part of the program's. */
-#define STBI_MALLOC(size) calloc(1, size)
+#define STBI_MALLOC(size)           calloc(1, size)
 #define STBI_REALLOC(pointer, size) realloc(pointer, size)
-#define STBI_FREE(pointer) free(pointer)
+#define STBI_FREE(pointer)          free(pointer)
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_STDIO
