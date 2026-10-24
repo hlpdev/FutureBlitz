@@ -233,7 +233,9 @@ Public Class File
 
     // Writes the bytes to a new temporary file in the file's folder, onto the disk, then renames
     // it over the file, so the file holds either all of them or what it held before, even if the
-    // program or the machine stops partway. On POSIX it keeps the permissions the file had.
+    // program or the machine stops partway. On POSIX it keeps the permissions the file had. For
+    // a link, the file it leads to is replaced, as a plain write writes through it, and the link
+    // stays.
     Public Static Method WriteBytesAtomic(path: Path, bytes: UInt8[]) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_write(request.Native, path.Text, bytes, ATOMIC), "write", path)

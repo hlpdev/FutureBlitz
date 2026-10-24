@@ -13,6 +13,22 @@ Extern "C"
     Function chmod(path: CString, mode: Int32): Int32
 End Extern
 
+// Makes a link at `link` to `target`, which Windows makes only with Developer Mode on or for an
+// administrator.
+#If PLATFORM_WINDOWS
+Extern "C"
+    Function CreateSymbolicLinkA(link: CString, target: CString, flags: UInt32): UInt8
+End Extern
+
+Function MadeLink(link: Path, target: String): Bool => CreateSymbolicLinkA(link.Text, target, 2) != 0
+#Else
+Extern "C"
+    Function symlink(target: CString, link: CString): Int32
+End Extern
+
+Function MadeLink(link: Path, target: String): Bool => symlink(target, link.Text) == 0
+#End If
+
 Local temp = Try TempDir("fb-files-")
 Local root = temp.Path
 Print("made {Dir.Exists(root)} {(Try Dir.Entries(root)).Count}")
@@ -108,6 +124,24 @@ Print("[{Try File.ReadText(save)}]")
 Try File.WriteBytesAtomic(root / "new.bin", [7, 8, 9])
 Print("{Try File.ReadBytes(root / "new.bin")}")
 Try Tree(root)
+
+// An atomic write through a link replaces the file it leads to, as a plain write writes through
+// it, one that isn't there yet included, and the link stays. Where links can't be made, it prints
+// the same.
+Try File.WriteText(root / "target.txt", "target")
+If MadeLink(root / "link.txt", "target.txt") && MadeLink(root / "dangling.txt", "made.txt")
+    Try File.WriteTextAtomic(root / "link.txt", "atomic")
+    Try File.WriteTextAtomic(root / "dangling.txt", "made")
+    Print("[{Try File.ReadText(root / "target.txt")}] {(Try File.Metadata(root / "link.txt", False)).Kind}")
+    Print("[{Try File.ReadText(root / "made.txt")}] {(Try File.Metadata(root / "dangling.txt", False)).Kind}")
+Else
+    Print("[atomic] LINK")
+    Print("[made] LINK")
+End If
+
+For name In ["link.txt", "dangling.txt", "target.txt", "made.txt"]
+    Try File.Delete(root / name)
+End For
 
 Print("rename, copy, delete")
 Local renamed = root / "セーブ.dat"
