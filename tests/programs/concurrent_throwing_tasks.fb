@@ -55,7 +55,8 @@ End Function
 Const finished = ThrowingTaskSource<Int, FileError>()
 Local before = finished.Task
 Print(finished.IsDone, before.IsDone())
-Print(finished.TryFinish(7), finished.IsDone, finished.TryFinish(8), finished.TryFail(FileError("late")))
+Print(finished.TryFinish(7), finished.IsDone, finished.TryFinish(8),
+      finished.TryFail(FileError("late")))
 Local later = finished.Task
 Print(later.IsDone(), Outcome(before), Outcome(later))
 

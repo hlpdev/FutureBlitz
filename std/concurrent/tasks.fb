@@ -144,7 +144,8 @@ Public Class ThrowingTaskSource<T, E: Error>
 End Class
 
 // A ThrowingTaskSource's Task: its result or error, at once when it's settled, or once it is.
-Async Function Settles<T, E: Error>(source: ThrowingTaskSource<T, E>, settled: Task<Bool>): T Throws E
+Async Function Settles<T, E: Error>(source: ThrowingTaskSource<T, E>,
+                                    settled: Task<Bool>): T Throws E
     If !settled.IsDone() Then Await settled
     Return Try source.Given()
 End Function
