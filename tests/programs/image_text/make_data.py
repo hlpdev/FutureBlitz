@@ -167,6 +167,14 @@ def main():
         if file is not None:
             (HERE / file).write_bytes(data)
     (HERE / "font.fb").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    # The panic programs that need a font each have the TrueType one in a folder of their own,
+    # as a program builds with only its own folder's modules.
+    for program in ("panic_image_text_size", "panic_image_font_size"):
+        folder = HERE.parent / program
+        folder.mkdir(exist_ok=True)
+        own = ["// font.py's font, as TrueType, from image_text/make_data.py.", ""]
+        own += literal("FontBytes", fonts[0][3])
+        (folder / "font.fb").write_text("\n".join(own) + "\n", encoding="utf-8", newline="\n")
 
     lines = ["// What image_text.fb's text gives, from make_data.py, which works it out from",
              "// font.py's and cff_font.py's glyphs apart from the runtime. Each is an image's",

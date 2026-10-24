@@ -2,7 +2,7 @@
 Import std.core
 Import std.math.color
 Import std.math.vector
-Import "./image_text/font"
+Import "./panic_image_text_size/font"
 Import std.image
 
 Local font = Try Font.Parse(FontBytes())
