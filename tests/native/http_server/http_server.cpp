@@ -3,9 +3,10 @@
 // through nghttp2 where TLS's ALPN agrees on it, and bodies compressed by zlib-ng and zstd. It
 // listens on 127.0.0.1 for HTTP, for HTTPS, and for HTTPS that offers only HTTP/1.1, keeps a
 // fourth port bound but not listening, which refuses connections, and runs the program it's
-// given. The program's input is the HTTP, HTTPS, and refused URLs, a line each, then the HTTPS
-// URL that offers only HTTP/1.1, then the test CA's PEM, then what this server's own input was.
-// It exits as the program does, with its exit code; the program's output is its own.
+// given, with an environment that names no proxy. The program's input is the HTTP, HTTPS, and
+// refused URLs, a line each, then the HTTPS URL that offers only HTTP/1.1, then the test CA's
+// PEM, then what this server's own input was. It exits as the program does, with its exit code;
+// the program's output is its own.
 //
 //     fb_http_test_server <program>
 //
@@ -21,6 +22,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cwchar>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -967,10 +969,40 @@ void set_up_tls(tls_config_t& tls, const bool http2) {
     }
 }
 
-/// Runs `program` with `input` as its stdin and this process's stdout and stderr, and gives its
-/// exit code: 128 plus the signal's number for one a signal ended.
+/// Whether an environment's entry, as "NAME=value", names a proxy, which the program's requests
+/// to this server would go to: http_proxy, https_proxy, or all_proxy, of either case.
+template <typename Char>
+bool names_proxy(const Char* entry) {
+    const std::basic_string_view<Char> text(entry);
+    for (const std::string_view name : { "http_proxy=", "https_proxy=", "all_proxy=" }) {
+        if (std::ranges::equal(text.substr(0, name.size()), name, [](const Char a, const char b) {
+                return (a >= 'A' && a <= 'Z' ? a - 'A' + 'a' : a) == b;
+            })) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/// Runs `program` with `input` as its stdin, this process's stdout and stderr, and its
+/// environment but the proxies, and gives its exit code: 128 plus the signal's number for one a
+/// signal ended.
 int run(const char* program, const std::string& input) {
 #ifdef _WIN32
+    std::wstring environment;
+    wchar_t* block = GetEnvironmentStringsW();
+    for (const wchar_t* entry = block; *entry != L'\0'; entry += std::wcslen(entry) + 1) {
+        if (!names_proxy(entry)) {
+            environment += entry;
+            environment += L'\0';
+        }
+    }
+
+    FreeEnvironmentStringsW(block);
+    // A block ends with an empty entry, and an empty block is one empty entry and that.
+    environment.append(environment.empty() ? 2 : 1, L'\0');
+
     SECURITY_ATTRIBUTES security{
         .nLength = sizeof(SECURITY_ATTRIBUTES),
         .lpSecurityDescriptor = nullptr,
@@ -995,8 +1027,8 @@ int run(const char* program, const std::string& input) {
     startup.hStdError = error;
     PROCESS_INFORMATION process{};
     std::string command = "\"" + std::string(program) + "\"";
-    if (CreateProcessA(program, command.data(), nullptr, nullptr, TRUE, 0, nullptr, nullptr,
-                       &startup, &process) == 0) {
+    if (CreateProcessA(program, command.data(), nullptr, nullptr, TRUE, CREATE_UNICODE_ENVIRONMENT,
+                       environment.data(), nullptr, &startup, &process) == 0) {
         fail("can't start the program");
     }
 
@@ -1025,8 +1057,17 @@ int run(const char* program, const std::string& input) {
     posix_spawn_file_actions_addclose(&actions, ends[0]);
     posix_spawn_file_actions_addclose(&actions, ends[1]);
     std::array<char*, 2> arguments{ const_cast<char*>(program), nullptr };
+    std::vector<char*> environment;
+    for (char** entry = environ; *entry != nullptr; ++entry) {
+        if (!names_proxy(*entry)) {
+            environment.push_back(*entry);
+        }
+    }
+
+    environment.push_back(nullptr);
     pid_t child = 0;
-    if (posix_spawn(&child, program, &actions, nullptr, arguments.data(), environ) != 0) {
+    if (posix_spawn(&child, program, &actions, nullptr, arguments.data(), environment.data()) !=
+        0) {
         fail("can't start the program");
     }
 
