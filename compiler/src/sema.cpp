@@ -16921,27 +16921,40 @@ private:
         return !found.empty() && is_function(symbol(found.front()));
     }
 
-    /// Whether `id` names a generic Function without its type arguments, which only the Func
-    /// type expected where it's used says, as each overload's parameter does in a call.
-    [[nodiscard]] bool names_generic_function(const expr_id_t id) {
+    /// The Functions that `id` names by itself, without a call or type arguments, as the Twice in
+    /// Apply(Twice) does: a module's, or top-level ones that no name of the code's own hides.
+    [[nodiscard]] std::vector<symbol_id_t> named_functions(const expr_id_t id) {
         return quietly([&] {
             std::vector<symbol_id_t> found;
             if (const std::optional<qualified_t> qualified = qualified_name(id)) {
-                if (!qualified->member->type_arguments.empty()) {
-                    return false;
+                if (qualified->member->type_arguments.empty()) {
+                    found =
+                        in_module(qualified->module, qualified->member->member.text, span_of(id));
                 }
-
-                found = in_module(qualified->module, qualified->member->member.text, span_of(id));
             } else if (const auto* name = std::get_if<name_expr_t>(&m_ast.get(id).node);
                        name != nullptr && name->type_arguments.empty() && !find_local(name->name) &&
                        own_members(name->name).empty()) {
                 found = top_level(name->name, span_of(id));
             }
 
-            return std::ranges::any_of(found, [&](const symbol_id_t function) {
-                return is_function(symbol(function)) && !symbol(function).type_parameters.empty();
-            });
+            std::erase_if(found,
+                          [&](const symbol_id_t named) { return !is_function(symbol(named)); });
+            return found;
         });
+    }
+
+    /// Whether `id` names a generic Function without its type arguments, which only the Func
+    /// type expected where it's used says, as each overload's parameter does in a call.
+    [[nodiscard]] bool names_generic_function(const expr_id_t id) {
+        return std::ranges::any_of(named_functions(id), [&](const symbol_id_t function) {
+            return !symbol(function).type_parameters.empty();
+        });
+    }
+
+    /// Whether `id` names overloaded Functions, of which the Func that a parameter expects picks
+    /// one, so it has no type of its own.
+    [[nodiscard]] bool names_overloads(const expr_id_t id) {
+        return named_functions(id).size() > 1;
     }
 
     type_id_t check_expr(const expr_id_t id, const name_expr_t& node, const type_id_t hint) {
@@ -21694,7 +21707,8 @@ private:
         for (const argument_t& argument : node.arguments) {
             const type_id_t type = quietly([&] { return check(argument.value, type_id_t::NONE); });
             if (type == type_id_t::INVALID && !is_flexible(argument.value) &&
-                !is_null(argument.value) && !names_generic_function(argument.value)) {
+                !is_null(argument.value) && !names_generic_function(argument.value) &&
+                !names_overloads(argument.value)) {
                 check_alone(node.arguments); // report the argument's own errors instead
                 return std::nullopt;
             }
@@ -21933,8 +21947,10 @@ private:
                                                                       : match_t::NONE;
         }
 
-        // A generic Function's name fits a Func its type arguments can make.
-        if (!argument.by_ref && names_generic_function(argument.value)) {
+        // A generic Function's name fits a Func its type arguments can make, and an overloaded
+        // one's the Func of one of its overloads.
+        if (!argument.by_ref &&
+            (names_generic_function(argument.value) || names_overloads(argument.value))) {
             const type_id_t made = check(argument.value, type);
             if (made == type) {
                 return match_t::EXACT;
