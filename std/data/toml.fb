@@ -1,8 +1,10 @@
 // Toml: TOML 1.0's documents, read into an Object Value and written from one. A table is an
 // Object, an array an Array, a string a String, an integer an INT, a float a DOUBLE, inf and nan
 // too, and a boolean a Bool. A date, a time, or both, with an offset or local, is a String of its
-// RFC 3339 text, with 'T' between the date and the time, and 'Z' for UTC, as it's written
-// otherwise. Which tables a document may define, and where, follows TOML 1.0 as tomli reads it.
+// RFC 3339 text, with 'T' between the date and the time, 'Z' for UTC, and its fraction of a second
+// without the 0s at its end, as it's written otherwise. Which tables a document may define, and
+// where, follows TOML 1.0 as tomli reads it. Arrays and inline tables nest 256 deep at most, which
+// is a ParseError past that when read, and a panic when written.
 
 Import std.core
 Import std.collections
@@ -16,7 +18,7 @@ Public Struct Toml
     // The document text holds, as an Object. Throws a ParseError, with its line and column, of
     // UNEXPECTED_END for text that ends inside a string, an array, or an inline table, of
     // OUT_OF_RANGE for an integer an Int64 doesn't hold, and of SYNTAX for the rest that isn't
-    // TOML 1.0.
+    // TOML 1.0, and for arrays and inline tables nested more than 256 deep.
     Public Static Method Read(text: String): Value Throws ParseError
         Return Try TomlReader(text).Document()
     End Method
@@ -24,47 +26,55 @@ Public Struct Toml
     // value, an Object, as a TOML document: each table's keys and values, then its tables, each
     // under its header, an Array of Objects as an array of tables, and an Object in an Array as
     // an inline table. TOML has no null, so an Object's Null is left out. Panics when value isn't
-    // an Object, an Array holds a Null, or it holds bytes or an integer past an Int64.
+    // an Object, an Array holds a Null, it holds bytes or an integer past an Int64, or its arrays
+    // and inline tables nest more than 256 deep.
     @PanicsAtCaller
     Public Static Method Write(value: Value): String
         If value.Kind != ValueKind.OBJECT Then Panic("a TOML document is an Object, not {value.Kind}")
         Local out: UInt8[] = []
-        WriteTable(out, [], value)
+        // The tables to write, each under its header, in the order they're written: a stack, the
+        // next last, so tables nested however deep are written without recursing.
+        Local tables: (String[], Value, Bool)[] = [([], value, False)]
+        While tables.Count > 0
+            Local path, table, listed = tables.RemoveLast()
+            If path.Count > 0
+                If out.Count > 0 Then out.Add(10)
+                Local header = path.Join(".")
+                AddText(out, listed ? "[[" + header + "]]\n" : "[" + header + "]\n")
+            End If
+
+            For key In table.Keys()
+                Local entry = EntryOf(table, key)
+                If entry.IsNull || entry.Kind == ValueKind.OBJECT || IsTableArray(entry) Then Continue
+                AddText(out, KeyText(key) + " = ")
+                WriteInline(out, entry, 0)
+                out.Add(10)
+            End For
+
+            Local inner: (String[], Value, Bool)[] = []
+            For key In table.Keys()
+                Local entry = EntryOf(table, key)
+                Local nested = path.Clone()
+                nested.Add(KeyText(key))
+                If entry.Kind == ValueKind.OBJECT
+                    inner.Add((nested, entry, False))
+                ElseIf IsTableArray(entry)
+                    For item In ElementsOf(entry)
+                        inner.Add((nested, item, True))
+                    End For
+                End If
+            End For
+            For i = inner.Count - 1 To 0 Step -1
+                tables.Add(inner[i])
+            End For
+        End While
         Return TextOf(out)
     End Method
 
-    // Writes table's entries that aren't tables, then its tables, each under its header.
+    // Writes value on the line it's on: an Array in brackets, and an Object as an inline table,
+    // depth of them around it. Panics past 256 of them, which Read wouldn't read.
     @PanicsAtCaller
-    Static Method WriteTable(out: UInt8[], path: String[], table: Value)
-        For key In table.Keys()
-            Local value = EntryOf(table, key)
-            If value.IsNull || value.Kind == ValueKind.OBJECT || IsTableArray(value) Then Continue
-            AddText(out, KeyText(key) + " = ")
-            WriteInline(out, value)
-            out.Add(10)
-        End For
-
-        For key In table.Keys()
-            Local value = EntryOf(table, key)
-            Local inner = path.Clone()
-            inner.Add(KeyText(key))
-            If value.Kind == ValueKind.OBJECT
-                If out.Count > 0 Then out.Add(10)
-                AddText(out, "[" + inner.Join(".") + "]\n")
-                WriteTable(out, inner, value)
-            ElseIf IsTableArray(value)
-                For item In ElementsOf(value)
-                    If out.Count > 0 Then out.Add(10)
-                    AddText(out, "[[" + inner.Join(".") + "]]\n")
-                    WriteTable(out, inner, item)
-                End For
-            End If
-        End For
-    End Method
-
-    // Writes value on the line it's on: an Array in brackets, and an Object as an inline table.
-    @PanicsAtCaller
-    Static Method WriteInline(out: UInt8[], value: Value)
+    Static Method WriteInline(out: UInt8[], value: Value, depth: Int)
         Select value.Kind
             Case ValueKind.NULL
                 Panic("TOML has no null, so an Array can't hold one")
@@ -81,15 +91,17 @@ Public Struct Toml
             Case ValueKind.BYTES
                 Panic("TOML has no bytes")
             Case ValueKind.ARRAY
+                If depth == MOST_NESTED Then TooDeep()
                 out.Add(91)
                 Local first = True
                 For item In ElementsOf(value)
                     If !first Then AddText(out, ", ")
                     first = False
-                    WriteInline(out, item)
+                    WriteInline(out, item, depth + 1)
                 End For
                 out.Add(93)
             Default
+                If depth == MOST_NESTED Then TooDeep()
                 out.Add(123)
                 Local first = True
                 For key In value.Keys()
@@ -98,7 +110,7 @@ Public Struct Toml
                     AddText(out, first ? " " : ", ")
                     first = False
                     AddText(out, KeyText(key) + " = ")
-                    WriteInline(out, item)
+                    WriteInline(out, item, depth + 1)
                 End For
                 AddText(out, first ? "}}" : " }}")
         End Select
@@ -150,6 +162,14 @@ Public Struct Toml
         out.Add(34)
     End Method
 End Struct
+
+// How deep arrays and inline tables nest, at most, as TOML is read and written.
+Const MOST_NESTED = 256
+
+@PanicsAtCaller
+Function TooDeep()
+    Panic("TOML's arrays and inline tables nest {MOST_NESTED} deep at most")
+End Function
 
 // Whether b goes in a bare key: a letter, a digit, '_', or '-'.
 Function IsBare(b: UInt8): Bool
@@ -252,6 +272,10 @@ Class TomlReader
     Field Flags: TomlFlags
     // The keys dotted keys made in the section being read, which no later section can add to.
     Field Pending: String[][] = []
+    // How many strings, arrays, and inline tables the reader is in, where text that ends is an
+    // UNEXPECTED_END, and how many arrays and inline tables.
+    Field Inside: Int
+    Field Nested: Int
 
     // A reader of text, with its CRLFs as LFs, and past a byte order mark at its start.
     New(text: String)
@@ -417,9 +441,8 @@ Class TomlReader
             Local next = at[key] ?? Value.Object()
             If !at.Contains(key) Then at[key] = next
             If lists && next.Kind == ValueKind.ARRAY
-                Local items = ElementsOf(next)
-                If items.Count == 0 Then Return Null
-                next = items[items.Count - 1]
+                If next.Count == 0 Then Return Null
+                next = next[next.Count - 1] ?? Value()
             End If
 
             If next.Kind != ValueKind.OBJECT Then Return Null
@@ -484,6 +507,7 @@ Class TomlReader
 
     Method ArrayValue(): Value Throws ParseError
         Local start = At
+        Try Nest(start)
         At += 1
         Local array = Value.Array()
         Loop
@@ -491,6 +515,7 @@ Class TomlReader
             If At >= Bytes.Count Then Throw Ended(start, "the array has no ']'")
             If Bytes[At] == 93
                 At += 1
+                Unnest()
                 Return array
             End If
 
@@ -499,6 +524,7 @@ Class TomlReader
             If At >= Bytes.Count Then Throw Ended(start, "the array has no ']'")
             If Bytes[At] == 93
                 At += 1
+                Unnest()
                 Return array
             End If
 
@@ -509,12 +535,14 @@ Class TomlReader
 
     Method InlineTable(): Value Throws ParseError
         Local start = At
+        Try Nest(start)
         At += 1
         Local table = Value.Object()
         Local flags = TomlFlags()
         SkipSpaces()
         If At < Bytes.Count && Bytes[At] == 125
             At += 1
+            Unnest()
             Return table
         End If
 
@@ -527,9 +555,10 @@ Class TomlReader
             At += 1
             SkipSpaces()
             Local value = Try ReadValue()
-            If flags.IsFrozen(key)
-                Throw Fail(keyAt, "{Joined(key[0..key.Count - 1])} is an inline table or an " +
-                           "array, which can't be added to")
+            Local above = key[0..key.Count - 1]
+            If flags.IsFrozen(above)
+                Throw Fail(keyAt, "{Joined(above)} is an inline table or an array, which can't be " +
+                           "added to")
             End If
 
             Local parent = NestOf(table, key[0..key.Count - 1], False)
@@ -541,6 +570,7 @@ Class TomlReader
             If At >= Bytes.Count Then Throw Ended(start, "the inline table has no '}}'")
             If Bytes[At] == 125
                 At += 1
+                Unnest()
                 Return table
             End If
 
@@ -561,12 +591,14 @@ Class TomlReader
     Method BasicString(): String Throws ParseError
         Local start = At
         At += 1
+        Inside += 1
         Local out: UInt8[] = []
         Loop
             If At >= Bytes.Count Then Throw Ended(start, "the string has no closing '\"'")
             Local b = Bytes[At]
             If b == 34
                 At += 1
+                Inside -= 1
                 Return TextOf(out)
             End If
 
@@ -587,6 +619,7 @@ Class TomlReader
     Method MultilineBasicString(): String Throws ParseError
         Local start = At
         At += 3
+        Inside += 1
         If At < Bytes.Count && Bytes[At] == 10 Then At += 1
         Local out: UInt8[] = []
         Loop
@@ -594,6 +627,7 @@ Class TomlReader
             Local b = Bytes[At]
             If b == 34 && Tripled(34)
                 Try Closing(out, 34)
+                Inside -= 1
                 Return TextOf(out)
             End If
 
@@ -922,7 +956,16 @@ Class TomlReader
             End While
         End If
 
-        out.AddAll(Bytes[start..At])
+        // The fraction without its 0s at the end, nor its '.' when they're all it has.
+        Local finish = At
+        If finish > start + 8
+            While Bytes[finish - 1] == 48
+                finish -= 1
+            End While
+            If Bytes[finish - 1] == 46 Then finish -= 1
+        End If
+
+        out.AddAll(Bytes[start..finish])
     End Method
 
     // A number of exactly digits digits, from least to most.
@@ -1001,7 +1044,25 @@ Class TomlReader
         End Loop
     End Method
 
+    // One more array or inline table, which starts at start. Throws past MOST_NESTED.
+    Method Nest(start: Int) Throws ParseError
+        Inside += 1
+        Nested += 1
+        If Nested > MOST_NESTED
+            Throw Fail(start, "arrays and inline tables nest {MOST_NESTED} deep at most")
+        End If
+    End Method
+
+    // The end of an array or an inline table.
+    Method Unnest()
+        Inside -= 1
+        Nested -= 1
+    End Method
+
+    // A ParseError of SYNTAX at at, or of UNEXPECTED_END where the text ends inside a string, an
+    // array, or an inline table.
     Method Fail(at: Int, message: String): ParseError
+        If At >= Bytes.Count && Inside > 0 Then Return Ended(at, message)
         Return ErrorAt(Bytes, at, ParseErrorKind.SYNTAX, message)
     End Method
 

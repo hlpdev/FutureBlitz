@@ -7,7 +7,7 @@ floats = [1.5, -0.0, 6.02e+23, 1e-07, 3141.5926, inf, -inf, nan, inf, -0.0]
 flags = [true, false]
 quoted key = 1
 dotted = {"inner": {"key": "x"}}
-times = ["1979-05-27T07:32:00Z", "1979-05-27T07:32:00.500Z", "1979-05-27T07:32:00.120-07:00", "1979-05-27T07:32:00", "1979-05-27", "07:32:00.000", "00:00:00.5"]
+times = ["1979-05-27T07:32:00Z", "1979-05-27T07:32:00.5Z", "1979-05-27T07:32:00.12-07:00", "1979-05-27T07:32:00", "1979-05-27", "07:32:00", "00:00:00.5"]
 server = {"point": {"x": 1, "y": {"z": [2, {"w": 3}]}}, "alpha": {"ip": "10.0.0.1"}}
 fruit = [{"name": "apple", "physical": {"color": "red"}}, {"name": "banana"}]
 SYNTAX 3 1 a is defined already at line 3, column 1
@@ -35,6 +35,23 @@ SYNTAX 1 2 a key is followed by '=' at line 1, column 2
 SYNTAX 1 14 a multi-line string ends with at most 5 quotes at line 1, column 14
 SYNTAX 2 1 a TOML line holds a key and its value, a table's header, or a comment at line 2, column 1
 0
+UNEXPECTED_END 1 11 a key's value is missing at line 1, column 11
+UNEXPECTED_END 1 9 a key is letters, digits, '_', and '-', or a quoted string at line 1, column 9
+UNEXPECTED_END 1 6 the escape has 4 hex digits at line 1, column 6
+UNEXPECTED_END 1 9 the escape has 8 hex digits at line 1, column 9
+UNEXPECTED_END 1 9 the value isn't one TOML has at line 1, column 9
+UNEXPECTED_END 1 9 the integer has digits after its base at line 1, column 9
+UNEXPECTED_END 1 14 the date or time has 2 digits here at line 1, column 14
+SYNTAX 1 5 a key's value is missing at line 1, column 5
+SYNTAX 1 16 a is defined already at line 1, column 16
+SYNTAX 1 22 a is defined already at line 1, column 22
+SYNTAX 1 18 a.b is defined already at line 1, column 18
+SYNTAX 1 16 a is an inline table or an array, which can't be added to at line 1, column 16
+517 True
+SYNTAX 1 261 arrays and inline tables nest 256 deep at most at line 1, column 261
+SYNTAX 1 1541 arrays and inline tables nest 256 deep at most at line 1, column 1541
+SYNTAX 1 261 arrays and inline tables nest 256 deep at most at line 1, column 261
+True 1004005
 name = "Tom \"T\" é\n\u0001\u007f"
 "odd key" = 1
 "" = true

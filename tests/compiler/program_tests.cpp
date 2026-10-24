@@ -738,3 +738,35 @@ TEST_CASE("a 7z's links in one solid folder take one decoding of it", "[programs
     CHECK(result->exit_code == 0);
     CHECK(took < std::chrono::seconds(15));
 }
+
+TEST_CASE("TOML's array of tables reads in time in proportion to its length", "[programs]") {
+    // Each key under an [[array]] went into its last table through a copy of the whole array, so
+    // 20000 tables of four keys took about 6 seconds in release; going into it in place, they
+    // take well under one.
+    const fb::compilation_t compilation = fb::compile(
+        "main.fb",
+        "Import std.core\n"
+        "Import std.collections\n"
+        "Import std.data.toml\n"
+        "Local parts: String[] = []\n"
+        "For i = 1 To 20000\n"
+        "    parts.Add(\"[[package]]\\nname = \\\"p{i}\\\"\\nversion = \\\"1.0.{i}\\\"\\n\")\n"
+        "    parts.Add(\"source = \\\"registry\\\"\\nchecksum = \\\"abc\\\"\\n\")\n"
+        "End For\n"
+        "Local read = Try Toml.Read(parts.Join(\"\"))\n"
+        "Print((read[\"package\"] ?? Value()).Count)\n",
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{}));
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / "toml_array_tables";
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(fb::build_program(module, compilation, program, fb::build_mode_t::DEBUG));
+
+    const auto start = std::chrono::steady_clock::now();
+    const std::expected<fb::process_result_t, std::string> result = fb::run_process(program, {});
+    const std::chrono::steady_clock::duration took = std::chrono::steady_clock::now() - start;
+    REQUIRE(result);
+    CHECK(result->output == "20000\n");
+    CHECK(result->exit_code == 0);
+    CHECK(took < std::chrono::seconds(10));
+}
