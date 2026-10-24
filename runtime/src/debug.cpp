@@ -17,14 +17,27 @@
 #include <array>
 #include <csignal>
 #include <cstddef>
+#include <mutex>
+#include <signal.h>
 #include <sys/sysctl.h>
 #include <sys/types.h>
 #include <unistd.h>
 #elifdef __linux__
 #include <csignal>
 #include <fstream>
+#include <mutex>
+#include <signal.h>
 #include <string>
 #include <string_view>
+#endif
+
+#if defined(__APPLE__) || defined(__linux__)
+namespace {
+
+/// What a breakpoint's trap does once a tracer hands it back: nothing.
+void on_trap(int /*signal*/) {}
+
+} // namespace
 #endif
 
 extern "C" {
@@ -68,7 +81,17 @@ void fb_debug_break() {
 #ifdef _WIN32
     DebugBreak();
 #elif defined(__APPLE__) || defined(__linux__)
+    // The tracer stops at the trap first. One that hands it back, as strace does, would have its
+    // default action end the program, so an empty handler takes it while it's raised.
+    static std::mutex raising;
+    const std::scoped_lock lock(raising);
+    struct sigaction ignoring{};
+    ignoring.sa_handler = on_trap;
+    sigemptyset(&ignoring.sa_mask);
+    struct sigaction before{};
+    sigaction(SIGTRAP, &ignoring, &before);
     std::raise(SIGTRAP);
+    sigaction(SIGTRAP, &before, nullptr);
 #endif
 }
 }

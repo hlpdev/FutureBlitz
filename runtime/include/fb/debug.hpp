@@ -10,6 +10,7 @@ extern "C" {
 /// macOS's P_TRACED, and Linux's TracerPid. 0 on an OS it can't ask.
 std::int32_t fb_debug_attached();
 /// Stops in the debugger that's attached, as a breakpoint there would, and does nothing when
-/// none is, since the trap would end the program.
+/// none is, since the trap would end the program. On Linux and macOS, a tracer that hands the
+/// trap back, as strace does, doesn't end it either.
 void fb_debug_break();
 }
