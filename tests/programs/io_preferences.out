@@ -28,6 +28,7 @@ async
 yes 0
 yes True
 errors
+0 0
 NOT_A_DIRECTORY
 1 True
 IS_A_DIRECTORY
