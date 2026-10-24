@@ -1,0 +1,31 @@
+tree: name: "root" left { name: "l" left { name: "ll" } } right { name: "r" } children { name: "c1" } children { name: "c2" children { name: "c2a" } } named { key: "first" value { name: "n1" right { name: "n1r" } } } leaf { back { name: "back" leaf { weight: 8 } } weight: 7 }
+tree writes the same bytes: True
+ll 8 c2a
+encoded tree.txtpb [10, 4, 114, 111, 111, 116, 18, 9, 10, 1, 108, 18, 4, 10, 2, 108, 108, 26, 3, 10, 1, 114, 34, 4, 10, 2, 99, 49, 34, 11, 10, 2, 99, 50, 34, 5, 10, 3, 99, 50, 97, 42, 20, 10, 5, 102, 105, 114, 115, 116, 18, 11, 10, 2, 110, 49, 26, 5, 10, 3, 110, 49, 114, 50, 14, 10, 10, 10, 4, 98, 97, 99, 107, 50, 2, 16, 8, 16, 7]
+made like tree: True
+copy: changed c1 n1
+trees: name: "renamed" left { name: "l" left { name: "ll" } right { name: "lr" } } right { name: "r" } children { name: "c1" } children { name: "c2" children { name: "c2a" } } children { name: "c3" } named { key: "first" value { name: "replaced" } } named { key: "second" value { name: "n2" } } leaf { back { name: "back" leaf { weight: 8 } } weight: 7 }
+trees as protoc merges: True
+mergefrom: True
+old: name: "root" 2: "\n\001l\022\004\n\002ll" 3: "\n\001r" 4: "\n\002c1" 4: "\n\002c2\"\005\n\003c2a" 5: "\n\005first\022\013\n\002n1\032\005\n\003n1r" 6: "\n\n\n\004back2\002\020\010\020\007"
+old writes the same bytes: True
+number: number: 0 flag: false after: 3 number flag 0 -
+number writes the same bytes: True
+node: node { name: "chosen" } nested { mood: SAD nested { ratio: 2.5 } } node 2.5
+node writes the same bytes: True
+choices: node { name: "chosen" } nested { mood: SAD nested { ratio: 2.5 } } after: 3
+choices as protoc merges: True
+last: blob: "\001\002" nested { mood: SAD nested { ratio: 2.5 } } blob
+last as protoc merges: True
+text -1 words
+text words
+NONE after: 1
+encoded choice_node.txtpb [26, 8, 10, 6, 99, 104, 111, 115, 101, 110, 66, 13, 32, 2, 66, 9, 49, 0, 0, 0, 0, 0, 0, 4, 64]
+maps: int32_string { key: -1 value: "minus one" } int64_int32 { key: 9223372036854775807 value: -5 } uint32_uint64 { key: 4294967295 value: 18446744073709551615 } uint64_bool { key: 18446744073709551615 value: true } sint32_double { key: -2147483648 value: -0.5 } sint64_float { key: -9223372036854775808 value: 0.25 } fixed32_bytes { key: 7 value: "\377" } fixed64_mood { key: 8 value: SAD } sfixed32_leaf { key: -9 value { back { name: "in a map" } weight: 4 } } sfixed64_sint64 { key: -10 value: -11 } bool_string { key: false value: "no" } string_string { key: "" value: "" }
+maps writes the same bytes: True
+encoded maps.txtpb [10, 22, 8, 255, 255, 255, 255, 255, 255, 255, 255, 255, 1, 18, 9, 109, 105, 110, 117, 115, 32, 111, 110, 101, 18, 21, 8, 255, 255, 255, 255, 255, 255, 255, 255, 127, 16, 251, 255, 255, 255, 255, 255, 255, 255, 255, 1, 26, 17, 8, 255, 255, 255, 255, 15, 16, 255, 255, 255, 255, 255, 255, 255, 255, 255, 1, 34, 13, 8, 255, 255, 255, 255, 255, 255, 255, 255, 255, 1, 16, 1, 42, 15, 8, 255, 255, 255, 255, 15, 17, 0, 0, 0, 0, 0, 0, 224, 191, 50, 16, 8, 255, 255, 255, 255, 255, 255, 255, 255, 255, 1, 21, 0, 0, 128, 62, 58, 8, 13, 7, 0, 0, 0, 18, 1, 255, 66, 11, 9, 8, 0, 0, 0, 0, 0, 0, 0, 16, 2, 74, 21, 13, 247, 255, 255, 255, 18, 14, 10, 10, 10, 8, 105, 110, 32, 97, 32, 109, 97, 112, 16, 4, 82, 11, 9, 246, 255, 255, 255, 255, 255, 255, 255, 16, 21, 90, 6, 8, 0, 18, 2, 110, 111, 98, 4, 10, 0, 18, 0]
+made like maps: True
+moods: one: 7 many: HAPPY many: 9 many: SAD many: -3 named { key: "x" value: 42 } maybe: MOOD_UNKNOWN loose: 5 loose: HAPPY
+moods writes the same bytes: True
+a mood this program doesn't know, 7; happy; True MOOD_UNKNOWN
+encoded moods.txtpb [8, 7, 18, 13, 1, 9, 2, 253, 255, 255, 255, 255, 255, 255, 255, 255, 1, 26, 5, 10, 1, 120, 16, 42, 32, 0, 40, 5, 40, 1]

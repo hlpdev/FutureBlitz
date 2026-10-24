@@ -1,0 +1,9 @@
+# proto-file: open.proto
+# proto-message: test.open.Settings
+# Numbers Color doesn't name, in a field, a packed list, a list, and a map.
+id: 1
+color: 99
+colors: [1, 99, 2]
+loose: [98, 2]
+by_number { key: 1 value: 97 }
+by_number { key: 2 value: 1 }

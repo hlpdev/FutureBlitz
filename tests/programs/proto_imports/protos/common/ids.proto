@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package common;
+
+message PlayerId {
+  string value = 1;
+}
+
+enum Team {
+  TEAM_NONE = 0;
+  RED = 1;
+  BLUE = 2;
+}

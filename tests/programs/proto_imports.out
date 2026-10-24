@@ -1,0 +1,10 @@
+match: players { value: "ada" } players { value: "alan" } teams { key: "ada" value: RED } rules { rounds: 3 ranked: true } started { seconds: 1700000000 nanos: 5 } length { seconds: 90 } bonus { } motto { value: "go" } extra { type_url: "type.googleapis.com/common.PlayerId" value: "\n\001x" } meta { fields { key: "tags" value { list_value { values { string_value: "a" } values { bool_value: true } values { null_value: NULL_VALUE } } } } } nothing { } changed { paths: "players" paths: "rules.rounds" } anything { struct_value { fields { key: "k" value { number_value: 2.5 } } } }
+match writes the same bytes: True
+alan RED 3 1700000000
+type.googleapis.com/common.PlayerId holds x
+3 a True null_value
+encoded match.txtpb [10, 5, 10, 3, 97, 100, 97, 10, 6, 10, 4, 97, 108, 97, 110, 18, 7, 10, 3, 97, 100, 97, 16, 1, 26, 4, 8, 3, 16, 1, 34, 8, 8, 128, 226, 207, 170, 6, 16, 5, 42, 2, 8, 90, 50, 0, 58, 4, 10, 2, 103, 111, 66, 42, 10, 35, 116, 121, 112, 101, 46, 103, 111, 111, 103, 108, 101, 97, 112, 105, 115, 46, 99, 111, 109, 47, 99, 111, 109, 109, 111, 110, 46, 80, 108, 97, 121, 101, 114, 73, 100, 18, 3, 10, 1, 120, 74, 25, 10, 23, 10, 4, 116, 97, 103, 115, 18, 15, 50, 13, 10, 3, 26, 1, 97, 10, 2, 32, 1, 10, 2, 8, 0, 82, 0, 90, 23, 10, 7, 112, 108, 97, 121, 101, 114, 115, 10, 12, 114, 117, 108, 101, 115, 46, 114, 111, 117, 110, 100, 115, 98, 18, 42, 16, 10, 14, 10, 1, 107, 18, 9, 17, 0, 0, 0, 0, 0, 0, 4, 64]
+made like match: True
+lobby: matches { players { value: "grace" } rules { rounds: 1 } } default_rules { ranked: true }
+lobby writes the same bytes: True
+encoded lobby.txtpb [10, 13, 10, 7, 10, 5, 103, 114, 97, 99, 101, 26, 2, 8, 1, 18, 2, 16, 1]

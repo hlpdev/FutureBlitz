@@ -1,0 +1,10 @@
+// A oneof.
+syntax = "proto3";
+
+message Shape {
+  oneof kind {
+    double radius = 1;
+    double side = 2;
+    string name = 3;
+  }
+}

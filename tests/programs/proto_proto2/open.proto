@@ -1,0 +1,12 @@
+// Settings' fields with numbers for its enums, so protoc writes numbers Color doesn't name.
+syntax = "proto3";
+
+package test.open;
+
+message Settings {
+  int32 id = 1;
+  int32 color = 5;
+  repeated int32 colors = 10;
+  repeated int32 loose = 11 [packed = false];
+  map<int32, int32> by_number = 20;
+}

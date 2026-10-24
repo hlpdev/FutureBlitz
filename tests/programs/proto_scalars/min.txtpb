@@ -1,0 +1,11 @@
+# proto-file: scalars.proto
+# proto-message: test.scalars.Scalars
+# The lowest value of each type, and a negative zero, which proto3 writes: its bits aren't 0.
+f_double: -2.2250738585072014e-308
+f_float: -0
+f_int32: -2147483648
+f_int64: -9223372036854775808
+f_sint32: -2147483648
+f_sint64: -9223372036854775808
+f_sfixed32: -2147483648
+f_sfixed64: -9223372036854775808

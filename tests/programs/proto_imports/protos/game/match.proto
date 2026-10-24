@@ -1,0 +1,30 @@
+// Imports as protoc finds them with -I protos: common/ids.proto from the folder above this one,
+// game/rules.proto from there too, publicly, and protobuf's well-known types.
+syntax = "proto3";
+
+package game;
+
+import "common/ids.proto";
+import public "game/rules.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+message Match {
+  repeated common.PlayerId players = 1;
+  map<string, common.Team> teams = 2;
+  Rules rules = 3;
+  google.protobuf.Timestamp started = 4;
+  google.protobuf.Duration length = 5;
+  google.protobuf.Int32Value bonus = 6;
+  google.protobuf.StringValue motto = 7;
+  google.protobuf.Any extra = 8;
+  google.protobuf.Struct meta = 9;
+  google.protobuf.Empty nothing = 10;
+  google.protobuf.FieldMask changed = 11;
+  google.protobuf.Value anything = 12;
+}

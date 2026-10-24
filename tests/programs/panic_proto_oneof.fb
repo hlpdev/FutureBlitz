@@ -1,0 +1,8 @@
+// A New given two of a oneof's fields panics where it is called: the oneof holds one.
+Import std.core
+Import "panic_proto_oneof/shape.proto"
+
+Local circle = Shape(radius: 1.5)
+Print("{circle} {circle.kind}")
+Local both = Shape(side: 2.0, name: "square")
+Print("unreachable {both}")

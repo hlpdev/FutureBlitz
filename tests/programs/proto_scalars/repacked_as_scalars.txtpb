@@ -1,0 +1,9 @@
+# proto-file: scalars.proto
+# proto-message: test.scalars.Scalars
+# repacked.txtpb's values, as Scalars writes them.
+r_int32: [0, -1, 300]
+r_sint64: [-9223372036854775808, 9223372036854775807]
+u_int32: [1, -2, 3]
+u_sint64: [-5, 6]
+u_double: [0.5, -0.5]
+u_fixed32: [7, 8]

@@ -1,0 +1,8 @@
+// A Login without its required user is a bug in the program, so Encode panics where it is called.
+Import std.core
+Import "panic_proto_required/login.proto"
+
+Local login = Login(note: "hi")
+Print("{login.IsInitialized}")
+Local bytes = login.Encode()
+Print("unreachable {bytes}")

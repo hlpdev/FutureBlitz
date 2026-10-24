@@ -1,0 +1,17 @@
+// Messages for bytes that don't read.
+syntax = "proto3";
+
+package test.errors;
+
+message Fields {
+  string text = 1;
+  int32 number = 2;
+  repeated fixed32 fixed = 3;
+  bytes data = 4;
+  repeated int64 longs = 5;
+}
+
+message Chain {
+  Chain next = 1;
+  int32 depth = 2;
+}

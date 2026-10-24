@@ -1,0 +1,22 @@
+# proto-file: messages.proto
+# proto-message: test.messages.Node
+# A tree: Nodes in Nodes, in a list and a map, and a Leaf that holds a Node again.
+name: "root"
+left {
+  name: "l"
+  left { name: "ll" }
+}
+right { name: "r" }
+children { name: "c1" }
+children {
+  name: "c2"
+  children { name: "c2a" }
+}
+named {
+  key: "first"
+  value { name: "n1" right { name: "n1r" } }
+}
+leaf {
+  weight: 7
+  back { name: "back" leaf { weight: 8 } }
+}

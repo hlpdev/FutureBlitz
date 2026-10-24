@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package game;
+
+message Rules {
+  int32 rounds = 1;
+  bool ranked = 2;
+}

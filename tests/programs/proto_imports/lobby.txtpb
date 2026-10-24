@@ -1,0 +1,8 @@
+# proto-file: lobby.proto
+# proto-message: lobby.Lobby
+# proto-include: protos
+matches {
+  rules { rounds: 1 }
+  players { value: "grace" }
+}
+default_rules { ranked: true }

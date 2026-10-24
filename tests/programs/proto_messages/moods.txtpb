@@ -1,0 +1,8 @@
+# proto-file: messages.proto
+# proto-message: test.messages.Moods
+# Numbers a proto3 enum doesn't name, which a newer program could write, stay in the field.
+one: 7
+many: [1, 9, 2, -3]
+named { key: "x" value: 42 }
+maybe: MOOD_UNKNOWN
+loose: [5, 1]
