@@ -14738,3 +14738,54 @@ TEST_CASE("a pattern known at compile time that PCRE2 can't compile is an error 
                     "Local m = Regex(\"(\")")
               .empty());
 }
+
+TEST_CASE("overloads: an array, tuple, or Map literal fits a parameter it checks as", "[sema]") {
+    // Each overload returns a different type, so the result shows which one was picked.
+    constexpr std::string_view take =
+        "Import std.core\n"
+        "Import std.collections\n"
+        "Function Take(): Bool => True\n"
+        "Function Take(bytes: UInt8[]): String => \"\"\n"
+        "Function Take(pair: (UInt8, String)): Int64 => 0\n"
+        "Function Take(rows: UInt8[][], n: Int): Double => 0.5\n"
+        "Function Take(names: Map<String, UInt8>, n: Int): Int8 => 0\n"
+        "Function Take(steps: (Func(Int): Int)[], n: Int, m: Int): UInt8 => 0\n";
+    const auto call = [&](const std::string_view text) {
+        return std::format("{}Local x = {}", take, text);
+    };
+
+    CHECK(probe(call("Take([1, 2, 3])")) == "String");
+    CHECK(probe(call("Take([])")) == "String");
+    CHECK(probe(call("Take((1, \"x\"))")) == "Int64");
+    CHECK(probe(call("Take([[1], [2, 3]], 0)")) == "Float64");
+    CHECK(probe(call("Take({\"a\": 1}, 0)")) == "Int8");
+    // A type it converts to fits it too, like an Iterable<Int>.
+    CHECK(probe(std::format("{}Function Each(values: Iterable<Int>): Bool => True\n"
+                            "Function Each(text: String): Int8 => 0\n"
+                            "Local x = Each([1, 70])",
+                            take)) == "Bool");
+    // An untyped Function in one takes its parameter's type from the overload's.
+    CHECK(probe(call("Take([Function(x) => x + 1], 0, 0)")) == "UInt8");
+    // An element that doesn't fit leaves the overload out, and a literal that fits none, with
+    // no type of its own, reports its own errors.
+    CHECK(errors_of(call("Take([1, 300])")) ==
+          errors_t{ "Take: no overload of 'Take' takes (Int32[])" });
+    CHECK(errors_of(call("Take((nope, 1), 0, 0)")) == errors_t{ "nope: 'nope' isn't declared" });
+    CHECK(errors_of(call("Take([1, \"x\"], 0, 0)")) ==
+          errors_t{ "1: the elements of an array have different types, String and Int32" });
+    CHECK(errors_of(call("Take({}, 0, 0)")) ==
+          errors_t{ "{}: an empty Map needs a type from where it's used, like 'Local m: "
+                    "Map<String, Int> = {}'" });
+
+    // An array literal of its own type is exact, and one that two overloads take by conversion is
+    // ambiguous, as an Int literal is.
+    constexpr std::string_view sum = "Function Sum(xs: Int[]): Bool => True\n"
+                                     "Function Sum(xs: Int64[]): String => \"\"\n"
+                                     "Function Wide(xs: UInt8[]): Bool => True\n"
+                                     "Function Wide(xs: Int64[]): String => \"\"\n";
+    CHECK(probe(std::format("{}Local x = Sum([1, 2])", sum)) == "Bool");
+    CHECK(errors_of(std::format("{}Local x = Wide([1, 2])", sum)) ==
+          errors_t{ "Wide: the call to 'Wide' is ambiguous" });
+    CHECK(errors_of(std::format("{}Local x = Sum([])", sum)) ==
+          errors_t{ "Sum: the call to 'Sum' is ambiguous" });
+}
