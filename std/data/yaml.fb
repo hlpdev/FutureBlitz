@@ -1,0 +1,765 @@
+// Yaml: YAML 1.2's documents, read into Values by its core schema and written from them. A
+// mapping is an Object, a sequence an Array, and a scalar Null, a Bool, an Int, a Float, or a
+// String as the core schema resolves its plain text, and a String in quotes or a block. A key is
+// its scalar's text, and the keys of a mapping are each its own. An alias is the node its anchor
+// names. Tags are the core schema's: `!!str`, `!!int`, `!!float`, `!!bool`, `!!null`, `!!seq`,
+// `!!map`, and `!`, under any handle a %TAG directive gives them; a document with another tag
+// isn't read.
+
+Import std.core
+Import std.collections
+Import std.data.text
+Import std.data.value
+Import std.data.yaml_scanner
+
+Public Struct Yaml
+    // Yaml isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The document text holds, or Null for a text of none. An integer past what an Int64 holds is
+    // a Float. Throws a ParseError, with its line and column, of UNEXPECTED_END for text that
+    // ends inside a quoted scalar, of OTHER for a tag that isn't the core schema's, a key that's
+    // a mapping or a sequence, or a text of more than one document, which ReadAll reads, and of
+    // SYNTAX for the rest that isn't YAML 1.2.
+    Public Static Method Read(text: String): Value Throws ParseError
+        Local documents = Try ReadAll(text)
+        If documents.Count == 0 Then Return Value()
+        If documents.Count > 1
+            Throw ParseError(ParseErrorKind.OTHER, "the text holds {documents.Count} documents, which " +
+                             "ReadAll reads", 1, 1)
+        End If
+
+        Return documents[0]
+    End Method
+
+    // Each document text holds, in order. Throws a ParseError as Read does, but for more than
+    // one document.
+    Public Static Method ReadAll(text: String): Value[] Throws ParseError
+        Return Try YamlParser(text.Bytes).Documents()
+    End Method
+
+    // value as a document: an Object as a block mapping, an Array as a block sequence, an empty
+    // one as {} or [], and a String plain where the core schema reads it back as that String,
+    // else in double quotes.
+    Public Static Method Write(value: Value): String
+        Local out: UInt8[] = []
+        WriteNode(out, value, 0, False)
+        If out.Count == 0 || out[out.Count - 1] != 10 Then out.Add(10)
+        Return TextOf(out)
+    End Method
+
+    // values as documents, each after a "---".
+    Public Static Method WriteAll(values: Value[]): String
+        Local out: UInt8[] = []
+        For value In values
+            AddText(out, "---")
+            Local body = Write(value)
+            Local bytes = body.Bytes
+            Local block = bytes.Count > 0 && (value.Kind == ValueKind.OBJECT || value.Kind == ValueKind.ARRAY) &&
+                          value.Count > 0
+            out.Add(block ? 10 : 32)
+            out.AddAll(bytes)
+        End For
+        Return TextOf(out)
+    End Method
+
+    // Writes value at depth's indent, on the line it's on when inline says so.
+    Static Method WriteNode(out: UInt8[], value: Value, depth: Int, inline: Bool)
+        If value.Kind == ValueKind.OBJECT && value.Count > 0
+            Local first = True
+            For key In value.Keys()
+                If !first || !inline Then AddIndent(out, depth)
+                first = False
+                AddScalarText(out, key)
+                Local item = value[key]
+                out.Add(58)
+                If IsBlock(item)
+                    out.Add(10)
+                    WriteNode(out, item, item.Kind == ValueKind.ARRAY ? depth : depth + 1, False)
+                Else
+                    out.Add(32)
+                    WriteScalar(out, item)
+                    out.Add(10)
+                End If
+            End For
+        ElseIf value.Kind == ValueKind.ARRAY && value.Count > 0
+            Local first = True
+            For item In value.Values()
+                If !first || !inline Then AddIndent(out, depth)
+                first = False
+                out.Add(45)
+                If IsBlock(item)
+                    out.Add(32)
+                    WriteNode(out, item, depth + 1, True)
+                Else
+                    out.Add(32)
+                    WriteScalar(out, item)
+                    out.Add(10)
+                End If
+            End For
+        Else
+            WriteScalar(out, value)
+        End If
+    End Method
+
+    // Whether value is written as a block: an Object or an Array that isn't empty.
+    Static Method IsBlock(value: Value): Bool
+        Return (value.Kind == ValueKind.OBJECT || value.Kind == ValueKind.ARRAY) && value.Count > 0
+    End Method
+
+    Static Method AddIndent(out: UInt8[], depth: Int)
+        For i = 1 To depth * 2
+            out.Add(32)
+        End For
+    End Method
+
+    Static Method WriteScalar(out: UInt8[], value: Value)
+        Select value.Kind
+            Case ValueKind.NULL
+                AddText(out, "null")
+            Case ValueKind.BOOL
+                AddText(out, value.AsBool() ? "true" : "false")
+            Case ValueKind.INT
+                AddText(out, "{value.AsInt()}")
+            Case ValueKind.FLOAT
+                AddText(out, FloatText(value.AsFloat(), ".inf", ".nan"))
+            Case ValueKind.STRING
+                AddScalarText(out, value.AsString())
+            Case ValueKind.ARRAY
+                AddText(out, "[]")
+            Default
+                AddText(out, "{{}}")
+        End Select
+    End Method
+
+    // Adds text, plain where the core schema reads it back as the same String, else in double
+    // quotes with escapes.
+    Static Method AddScalarText(out: UInt8[], text: String)
+        If IsPlainText(text)
+            AddText(out, text)
+            Return
+        End If
+
+        out.Add(34)
+        For point In text.Chars
+            Local c = point As Int
+            If c == 34
+                AddText(out, "\\\"")
+            ElseIf c == 92
+                AddText(out, "\\\\")
+            ElseIf c == 10
+                AddText(out, "\\n")
+            ElseIf c == 9
+                AddText(out, "\\t")
+            ElseIf c == 13
+                AddText(out, "\\r")
+            ElseIf c < 32 || c == 127 || c == 0x85 || c == 0xFEFF || (c >= 0x80 && c < 0xA0) ||
+                   c == 0x2028 || c == 0x2029 || (c >= 0xFFFE && c <= 0xFFFF)
+                AddText(out, "\\u" + HexOf(c, 4))
+            Else
+                AddChar(out, c)
+            End If
+        End For
+        out.Add(34)
+    End Method
+
+    // Whether text can be written plain and read back as the same String.
+    Static Method IsPlainText(text: String): Bool
+        Local bytes = text.Bytes
+        If bytes.Count == 0 Then Return False
+        Local first = bytes[0]
+        If first == 32 || bytes[bytes.Count - 1] == 32 || first == 9 || bytes[bytes.Count - 1] == 9 Then Return False
+        If (first == 45 || first == 63 || first == 58) && bytes.Count == 1 Then Return False
+        If (first == 45 || first == 63 || first == 58) && (bytes[1] == 32 || bytes[1] == 9) Then Return False
+        If first != 45 && first != 63 && first != 58 && IsIndicatorText(first) Then Return False
+        For i = 0 Until bytes.Count
+            Local b = bytes[i]
+            If b < 32 || b == 127 || b >= 128 && !IsPrintableFrom(bytes, i) Then Return False
+            If b == 58 && (i + 1 == bytes.Count || bytes[i + 1] == 32 || IsFlowByte(bytes[i + 1])) Then Return False
+            If b == 35 && i > 0 && bytes[i - 1] == 32 Then Return False
+            If IsFlowByte(b) Then Return False
+        End For
+        If bytes.Count >= 3 && bytes[0] == bytes[1] && bytes[1] == bytes[2] && (bytes[0] == 45 || bytes[0] == 46)
+            Return False
+        End If
+
+        Return CoreValue(text).Kind == ValueKind.STRING
+    End Method
+
+    Static Method IsIndicatorText(b: UInt8): Bool
+        For c In "-?:,[]{{}}#&*!|>'\"%@`".Bytes
+            If b == c Then Return True
+        End For
+        Return False
+    End Method
+
+    Static Method IsFlowByte(b: UInt8): Bool => b == 44 || b == 91 || b == 93 || b == 123 || b == 125
+
+    // Whether the character of more than one byte at `at` is one a plain scalar can hold.
+    Static Method IsPrintableFrom(bytes: UInt8[], at: Int): Bool
+        If (bytes[at] & 0xC0) == 0x80 Then Return True
+        Local c = CodeOf(bytes, at).0
+        Return c != 0xFEFF && c != 0x85 && c != 0x2028 && c != 0x2029 && c >= 0xA0 && !(c >= 0xFFFE && c <= 0xFFFF)
+    End Method
+
+    // What the core schema resolves a plain scalar's text to.
+    Package Static Method CoreValue(text: String): Value
+        If text == "" || text == "~" || text == "null" || text == "Null" || text == "NULL" Then Return Value()
+        If text == "true" || text == "True" || text == "TRUE" Then Return Value(True)
+        If text == "false" || text == "False" || text == "FALSE" Then Return Value(False)
+        Local number = NumberOf(text)
+        Return number ?? Value(text)
+    End Method
+
+    // The Int or Float the core schema reads text as, or Null when it's neither. An integer an
+    // Int64 doesn't hold is a Float.
+    Static Method NumberOf(text: String): Value?
+        Local bytes = text.Bytes
+        Local start = 0
+        Local negative = False
+        If bytes.Count > 0 && (bytes[0] == 43 || bytes[0] == 45)
+            negative = bytes[0] == 45
+            start = 1
+        End If
+
+        Local body = TextOf(bytes, start, bytes.Count)
+        If body == ".inf" || body == ".Inf" || body == ".INF"
+            Return Value(negative ? -Infinite() : Infinite())
+        End If
+
+        If start == 0 && (text == ".nan" || text == ".NaN" || text == ".NAN")
+            Return Value(NotANumber())
+        End If
+
+        // 0o and 0x integers have no sign.
+        If start == 0 && bytes.Count > 2 && bytes[0] == 48 && (bytes[1] == 111 || bytes[1] == 120)
+            Local base: Int64 = bytes[1] == 111 ? 8 : 16
+            Local value: Int64 = 0
+            For i = 2 Until bytes.Count
+                Local digit = DigitOf(bytes[i])
+                If digit < 0 || digit >= base Then Return Null
+                If value > (MOST_INT64 - digit) / base Then Return Null
+                value = value * base + digit
+            End For
+            Return Value(value)
+        End If
+
+        // A decimal integer, or a float: digits, a '.', digits, and an exponent.
+        Local digits = 0
+        Local at = start
+        While at < bytes.Count && bytes[at] >= 48 && bytes[at] <= 57
+            at += 1
+            digits += 1
+        End While
+        If at == bytes.Count && digits > 0
+            Local value: Int64 = 0
+            For i = start Until bytes.Count
+                Local digit = (bytes[i] As Int64) - 48
+                If value > (MOST_INT64 - digit) / 10
+                    Return Value(FloatOf(bytes, start, bytes.Count) ?? 0.0)
+                End If
+
+                value = value * 10 + digit
+            End For
+            Return Value(negative ? -value : value)
+        End If
+
+        Local fraction = 0
+        If at < bytes.Count && bytes[at] == 46
+            at += 1
+            While at < bytes.Count && bytes[at] >= 48 && bytes[at] <= 57
+                at += 1
+                fraction += 1
+            End While
+        End If
+
+        If digits == 0 && fraction == 0 Then Return Null
+        If at < bytes.Count && (bytes[at] == 101 || bytes[at] == 69)
+            at += 1
+            If at < bytes.Count && (bytes[at] == 43 || bytes[at] == 45) Then at += 1
+            Local exponent = 0
+            While at < bytes.Count && bytes[at] >= 48 && bytes[at] <= 57
+                at += 1
+                exponent += 1
+            End While
+            If exponent == 0 Then Return Null
+        End If
+
+        If at != bytes.Count Then Return Null
+        // from_chars reads neither '+' nor a '.' without digits after it.
+        Local plain: UInt8[] = []
+        If negative Then plain.Add(45)
+        For i = start Until bytes.Count
+            plain.Add(bytes[i])
+            If bytes[i] == 46 && (i + 1 == bytes.Count || bytes[i + 1] < 48 || bytes[i + 1] > 57)
+                plain.Add(48)
+            End If
+        End For
+        Local value = FloatOf(plain, 0, plain.Count)
+        If value == Null Then Return Null
+        Return Value(value)
+    End Method
+
+    Static Method DigitOf(b: UInt8): Int64
+        If b >= 48 && b <= 57 Then Return (b As Int64) - 48
+        If b >= 97 && b <= 102 Then Return (b As Int64) - 87
+        If b >= 65 && b <= 70 Then Return (b As Int64) - 55
+        Return -1
+    End Method
+End Struct
+
+// A node's properties: its anchor and its tag, each Null when it hasn't got one.
+Class YamlProperties
+    Field Anchor: String?
+    Field Tag: String?
+    Field At: Int
+End Class
+
+Class YamlParser
+    Field Scanner: YamlScanner
+    Field Bytes: UInt8[]
+    // Each anchor's node, and its text when it's a scalar, for a key.
+    Field Anchors: Map<String, Value>
+    Field AnchorTexts: Map<String, String>
+    // The %TAG directives' prefixes, by handle.
+    Field Handles: Map<String, String>
+    // The text of the last scalar read, for a key.
+    Field KeyText: String = ""
+
+    New(bytes: UInt8[])
+        Bytes = bytes
+        Scanner = YamlScanner(bytes)
+        Anchors = {}
+        AnchorTexts = {}
+        Handles = {}
+    End New
+
+    Method Documents(): Value[] Throws ParseError
+        Try Expect(YamlTokenKind.STREAM_START, "a stream")
+        Local documents: Value[] = []
+        // Whether the document before ended with "...", after which directives can come.
+        Local ended = True
+        Loop
+            Local token = Try Scanner.Peek()
+            If token.Kind == YamlTokenKind.STREAM_END Then Break
+            If token.Kind == YamlTokenKind.DOCUMENT_END
+                Try Scanner.Take()
+                ended = True
+                Continue
+            End If
+
+            Handles = {}
+            Handles["!"] = "!"
+            Handles["!!"] = "tag:yaml.org,2002:"
+            Local version = ""
+            Local directed = False
+            While token.Kind == YamlTokenKind.VERSION || token.Kind == YamlTokenKind.TAG_DIRECTIVE
+                If !ended Then Throw Fail(token, "a document's directives come after the one before ends with '...'")
+                Try Scanner.Take()
+                directed = True
+                If token.Kind == YamlTokenKind.VERSION
+                    If version != "" Then Throw Fail(token, "%YAML comes once in a document")
+                    version = token.Text
+                    Local digits = version.Bytes
+                    If digits.Count < 2 || digits[0] != 49 || digits[1] != 46
+                        Throw Fail(token, "the YAML is version {version}, which isn't 1's")
+                    End If
+                Else
+                    If token.Text != "!" && token.Text != "!!" && Handles.Get(token.Text) != Null
+                        Throw Fail(token, "%TAG gives the handle {token.Text} twice")
+                    End If
+
+                    Handles[token.Text] = token.Suffix
+                End If
+
+                token = Try Scanner.Peek()
+            End While
+
+            Local explicit = token.Kind == YamlTokenKind.DOCUMENT_START
+            If directed && !explicit Then Throw Fail(token, "a document's directives come before its '---'")
+            If explicit Then Try Scanner.Take()
+            Anchors = {}
+            AnchorTexts = {}
+            token = Try Scanner.Peek()
+            Local empty = token.Kind == YamlTokenKind.DOCUMENT_START || token.Kind == YamlTokenKind.DOCUMENT_END ||
+                          token.Kind == YamlTokenKind.STREAM_END || token.Kind == YamlTokenKind.VERSION ||
+                          token.Kind == YamlTokenKind.TAG_DIRECTIVE
+            If empty
+                documents.Add(Value())
+            Else
+                documents.Add(Try BlockNode(False))
+            End If
+
+            token = Try Scanner.Peek()
+            If token.Kind != YamlTokenKind.DOCUMENT_START && token.Kind != YamlTokenKind.DOCUMENT_END &&
+               token.Kind != YamlTokenKind.STREAM_END
+                Throw Fail(token, "a document holds one node, and this is past it")
+            End If
+
+            ended = False
+        End Loop
+        Return documents
+    End Method
+
+    // A node in the block context: an alias, or a node and its properties, which a block
+    // mapping's values can make an indentless sequence when indentless says so.
+    Method BlockNode(indentless: Bool): Value Throws ParseError
+        Local token = Try Scanner.Peek()
+        If token.Kind == YamlTokenKind.ALIAS Then Return Try AliasNode()
+        Local properties = Try Properties()
+        token = Try Scanner.Peek()
+        Local value: Value? = Null
+        If indentless && token.Kind == YamlTokenKind.BLOCK_ENTRY
+            value = Try IndentlessSequence()
+        ElseIf token.Kind == YamlTokenKind.BLOCK_SEQUENCE
+            value = Try BlockSequence()
+        ElseIf token.Kind == YamlTokenKind.BLOCK_MAPPING
+            value = Try BlockMapping()
+        Else
+            Return Try FlowNodeAfter(properties)
+        End If
+
+        Return Try Finish(value.Expect("a block collection was read"), properties, token)
+    End Method
+
+    // A node in the flow context.
+    Method FlowNode(): Value Throws ParseError
+        Local token = Try Scanner.Peek()
+        If token.Kind == YamlTokenKind.ALIAS Then Return Try AliasNode()
+        Return Try FlowNodeAfter(Try Properties())
+    End Method
+
+    // A scalar or a flow collection, after its properties; or, with properties, an empty scalar.
+    Method FlowNodeAfter(properties: YamlProperties): Value Throws ParseError
+        Local token = Try Scanner.Peek()
+        If token.Kind == YamlTokenKind.SCALAR
+            Try Scanner.Take()
+            Return Try Finish(Try Resolve(token.Text, token.Style == PLAIN, properties.Tag, token), properties, token)
+        End If
+
+        If token.Kind == YamlTokenKind.FLOW_SEQUENCE
+            Return Try Finish(Try FlowSequence(), properties, token)
+        End If
+
+        If token.Kind == YamlTokenKind.FLOW_MAPPING Then Return Try Finish(Try FlowMapping(), properties, token)
+        If properties.Anchor == Null && properties.Tag == Null Then Throw Fail(token, "a node is missing here")
+        Return Try Finish(Try Resolve("", True, properties.Tag, token), properties, token)
+    End Method
+
+    // The node an alias names.
+    Method AliasNode(): Value Throws ParseError
+        Local token = Try Scanner.Take()
+        Local value = Anchors.Get(token.Text)
+        If value == Null Then Throw Fail(token, "the alias *{token.Text} names no anchor before it")
+        KeyText = AnchorTexts.Get(token.Text) ?? ""
+        Return value
+    End Method
+
+    // A node's anchor and tag, in either order.
+    Method Properties(): YamlProperties Throws ParseError
+        Local properties = YamlProperties()
+        Loop
+            Local token = Try Scanner.Peek()
+            If token.Kind == YamlTokenKind.ANCHOR && properties.Anchor == Null
+                Try Scanner.Take()
+                properties.Anchor = token.Text
+            ElseIf token.Kind == YamlTokenKind.TAG && properties.Tag == Null
+                Try Scanner.Take()
+                properties.Tag = Try TagOf(token)
+            Else
+                Return properties
+            End If
+        End Loop
+    End Method
+
+    // A tag's full name, its handle's prefix and its suffix, or "!" for the non-specific tag.
+    Method TagOf(token: YamlToken): String Throws ParseError
+        If token.Text == "" Then Return token.Suffix
+        If token.Text == "!" && token.Suffix == "" Then Return "!"
+        Local prefix = Handles.Get(token.Text)
+        If prefix == Null Then Throw Fail(token, "the tag handle {token.Text} has no %TAG")
+        Return prefix + Decoded(token.Suffix)
+    End Method
+
+    // A tag's suffix with its %-escapes replaced.
+    Method Decoded(suffix: String): String
+        Local bytes = suffix.Bytes
+        Local out: UInt8[] = []
+        Local i = 0
+        While i < bytes.Count
+            If bytes[i] == 37 && i + 2 < bytes.Count
+                Local high = Yaml.DigitOf(bytes[i + 1])
+                Local low = Yaml.DigitOf(bytes[i + 2])
+                If high >= 0 && low >= 0
+                    out.Add((high * 16 + low) As UInt8)
+                    i += 3
+                    Continue
+                End If
+            End If
+
+            out.Add(bytes[i])
+            i += 1
+        End While
+        Return TextOf(out)
+    End Method
+
+    // value with its properties: its tag checked against its kind, and its anchor named.
+    Method Finish(value: Value, properties: YamlProperties, token: YamlToken): Value Throws ParseError
+        Local tag = properties.Tag
+        If tag != Null && tag != "!"
+            If value.Kind == ValueKind.ARRAY && tag != "tag:yaml.org,2002:seq"
+                Throw Fail(token, "a sequence's tag is !!seq, not {tag}")
+            End If
+
+            If value.Kind == ValueKind.OBJECT && tag != "tag:yaml.org,2002:map"
+                Throw Fail(token, "a mapping's tag is !!map, not {tag}")
+            End If
+        End If
+
+        Local anchor = properties.Anchor
+        If anchor != Null
+            Anchors[anchor] = value
+            AnchorTexts[anchor] = KeyText
+        End If
+
+        Return value
+    End Method
+
+    // A scalar's Value: by its tag, or for a plain scalar without one, as the core schema has
+    // it, and else a String.
+    Method Resolve(text: String, plain: Bool, tag: String?, token: YamlToken): Value Throws ParseError
+        KeyText = text
+        If tag == Null Then Return plain ? Yaml.CoreValue(text) : Value(text)
+        If tag == "!" || tag == "tag:yaml.org,2002:str" Then Return Value(text)
+        Local resolved = Yaml.CoreValue(text)
+        If tag == "tag:yaml.org,2002:null"
+            If resolved.Kind != ValueKind.NULL Then Throw Fail(token, "!!null tags a null, and \"{text}\" isn't one")
+        ElseIf tag == "tag:yaml.org,2002:bool"
+            If resolved.Kind != ValueKind.BOOL Then Throw Fail(token, "!!bool tags a Bool, and \"{text}\" isn't one")
+        ElseIf tag == "tag:yaml.org,2002:int"
+            If resolved.Kind != ValueKind.INT Then Throw Fail(token, "!!int tags an integer, and \"{text}\" isn't one")
+        ElseIf tag == "tag:yaml.org,2002:float"
+            If resolved.Kind == ValueKind.INT Then Return Value(resolved.AsFloat())
+            If resolved.Kind != ValueKind.FLOAT Then Throw Fail(token, "!!float tags a float, and \"{text}\" isn't one")
+        ElseIf tag == "tag:yaml.org,2002:seq" || tag == "tag:yaml.org,2002:map"
+            Throw Fail(token, "a scalar's tag isn't {tag}")
+        Else
+            Throw ErrorAt(Bytes, token.At, ParseErrorKind.OTHER, "the tag {tag} isn't the core schema's")
+        End If
+
+        Return resolved
+    End Method
+
+    Method BlockSequence(): Value Throws ParseError
+        Try Scanner.Take()
+        Local sequence = Value.NewArray()
+        Loop
+            Local token = Try Scanner.Peek()
+            If token.Kind == YamlTokenKind.BLOCK_END
+                Try Scanner.Take()
+                Return sequence
+            End If
+
+            If token.Kind != YamlTokenKind.BLOCK_ENTRY Then Throw Fail(token, "a sequence's entries start with '-'")
+            Try Scanner.Take()
+            Local next = Try Scanner.Peek()
+            If next.Kind == YamlTokenKind.BLOCK_ENTRY || next.Kind == YamlTokenKind.BLOCK_END
+                sequence.Add(Value())
+            Else
+                sequence.Add(Try BlockNode(False))
+            End If
+        End Loop
+    End Method
+
+    // A sequence whose '-'s are as indented as the mapping's keys it's a value of.
+    Method IndentlessSequence(): Value Throws ParseError
+        Local sequence = Value.NewArray()
+        Loop
+            Local token = Try Scanner.Peek()
+            If token.Kind != YamlTokenKind.BLOCK_ENTRY Then Return sequence
+            Try Scanner.Take()
+            Local next = Try Scanner.Peek()
+            If next.Kind == YamlTokenKind.BLOCK_ENTRY || next.Kind == YamlTokenKind.KEY ||
+               next.Kind == YamlTokenKind.VALUE || next.Kind == YamlTokenKind.BLOCK_END
+                sequence.Add(Value())
+            Else
+                sequence.Add(Try BlockNode(False))
+            End If
+        End Loop
+    End Method
+
+    Method BlockMapping(): Value Throws ParseError
+        Try Scanner.Take()
+        Local mapping = Value.NewObject()
+        Loop
+            Local token = Try Scanner.Peek()
+            If token.Kind == YamlTokenKind.BLOCK_END
+                Try Scanner.Take()
+                Return mapping
+            End If
+
+            Local key = Value()
+            KeyText = ""
+            If token.Kind == YamlTokenKind.KEY
+                Try Scanner.Take()
+                Local next = Try Scanner.Peek()
+                If next.Kind != YamlTokenKind.KEY && next.Kind != YamlTokenKind.VALUE &&
+                   next.Kind != YamlTokenKind.BLOCK_END
+                    key = Try BlockNode(True)
+                End If
+            ElseIf token.Kind != YamlTokenKind.VALUE
+                Throw Fail(token, "a mapping's key or value is expected here")
+            End If
+
+            Local text = KeyText
+            Local value = Value()
+            Local next = Try Scanner.Peek()
+            If next.Kind == YamlTokenKind.VALUE
+                Try Scanner.Take()
+                Local after = Try Scanner.Peek()
+                If after.Kind != YamlTokenKind.KEY && after.Kind != YamlTokenKind.VALUE &&
+                   after.Kind != YamlTokenKind.BLOCK_END
+                    value = Try BlockNode(True)
+                End If
+            End If
+
+            Try AddEntry(mapping, key, text, value, token)
+        End Loop
+    End Method
+
+    Method FlowSequence(): Value Throws ParseError
+        Try Scanner.Take()
+        Local sequence = Value.NewArray()
+        Local first = True
+        Loop
+            Local token = Try Scanner.Peek()
+            If token.Kind == YamlTokenKind.FLOW_SEQUENCE_END
+                Try Scanner.Take()
+                Return sequence
+            End If
+
+            If !first
+                If token.Kind != YamlTokenKind.FLOW_ENTRY Then Throw Fail(token, "a flow sequence's entries have ',' between them")
+                Try Scanner.Take()
+                token = Try Scanner.Peek()
+                If token.Kind == YamlTokenKind.FLOW_SEQUENCE_END
+                    Try Scanner.Take()
+                    Return sequence
+                End If
+            End If
+
+            first = False
+            If token.Kind == YamlTokenKind.FLOW_ENTRY Then Throw Fail(token, "a flow sequence's entry is missing")
+            If token.Kind == YamlTokenKind.KEY || token.Kind == YamlTokenKind.VALUE
+                // A single pair, `? key : value` or `key: value`.
+                Local pair = Value.NewObject()
+                Local key = Value()
+                KeyText = ""
+                If token.Kind == YamlTokenKind.KEY
+                    Try Scanner.Take()
+                    key = Try FlowEntryNode(YamlTokenKind.FLOW_SEQUENCE_END, True)
+                End If
+
+                Local text = KeyText
+                Local value = Value()
+                If (Try Scanner.Peek()).Kind == YamlTokenKind.VALUE
+                    Try Scanner.Take()
+                    value = Try FlowEntryNode(YamlTokenKind.FLOW_SEQUENCE_END, False)
+                End If
+
+                Try AddEntry(pair, key, text, value, token)
+                sequence.Add(pair)
+            Else
+                sequence.Add(Try FlowCheckedNode())
+            End If
+        End Loop
+    End Method
+
+    Method FlowMapping(): Value Throws ParseError
+        Try Scanner.Take()
+        Local mapping = Value.NewObject()
+        Local first = True
+        Loop
+            Local token = Try Scanner.Peek()
+            If token.Kind == YamlTokenKind.FLOW_MAPPING_END
+                Try Scanner.Take()
+                Return mapping
+            End If
+
+            If !first
+                If token.Kind != YamlTokenKind.FLOW_ENTRY Then Throw Fail(token, "a flow mapping's entries have ',' between them")
+                Try Scanner.Take()
+                token = Try Scanner.Peek()
+                If token.Kind == YamlTokenKind.FLOW_MAPPING_END
+                    Try Scanner.Take()
+                    Return mapping
+                End If
+            End If
+
+            first = False
+            If token.Kind == YamlTokenKind.FLOW_ENTRY Then Throw Fail(token, "a flow mapping's entry is missing")
+            Local key = Value()
+            KeyText = ""
+            If token.Kind == YamlTokenKind.KEY
+                Try Scanner.Take()
+                key = Try FlowEntryNode(YamlTokenKind.FLOW_MAPPING_END, True)
+            ElseIf token.Kind != YamlTokenKind.VALUE
+                key = Try FlowCheckedNode()
+            End If
+
+            Local text = KeyText
+            Local value = Value()
+            If (Try Scanner.Peek()).Kind == YamlTokenKind.VALUE
+                Try Scanner.Take()
+                value = Try FlowEntryNode(YamlTokenKind.FLOW_MAPPING_END, False)
+            End If
+
+            Try AddEntry(mapping, key, text, value, token)
+        End Loop
+    End Method
+
+    // A flow collection's key's or value's node, or Null when it's empty, before a ',', the
+    // collection's end, or for a key, its ':'.
+    Method FlowEntryNode(end: YamlTokenKind, key: Bool): Value Throws ParseError
+        Local token = Try Scanner.Peek()
+        If token.Kind == YamlTokenKind.FLOW_ENTRY || token.Kind == end ||
+           (key && token.Kind == YamlTokenKind.VALUE)
+            Return Value()
+        End If
+
+        Return Try FlowCheckedNode()
+    End Method
+
+    // A flow node, where a block's tokens can't be.
+    Method FlowCheckedNode(): Value Throws ParseError
+        Local token = Try Scanner.Peek()
+        If token.Kind == YamlTokenKind.BLOCK_ENTRY || token.Kind == YamlTokenKind.BLOCK_MAPPING ||
+           token.Kind == YamlTokenKind.BLOCK_SEQUENCE || token.Kind == YamlTokenKind.BLOCK_END ||
+           token.Kind == YamlTokenKind.DOCUMENT_START || token.Kind == YamlTokenKind.DOCUMENT_END ||
+           token.Kind == YamlTokenKind.STREAM_END
+            Throw Fail(token, "a flow collection holds flow nodes, and isn't ended")
+        End If
+
+        Return Try FlowNode()
+    End Method
+
+    // Adds key's entry: its scalar's text, which no entry before has.
+    Method AddEntry(mapping: Value, key: Value, text: String, value: Value, token: YamlToken) Throws ParseError
+        If key.Kind == ValueKind.ARRAY || key.Kind == ValueKind.OBJECT
+            Throw ErrorAt(Bytes, token.At, ParseErrorKind.OTHER, "a mapping's key is a scalar here, not a {key.Kind}")
+        End If
+
+        If mapping.Contains(text) Then Throw Fail(token, "the mapping has the key \"{text}\" twice")
+        mapping[text] = value
+    End Method
+
+    Method Expect(kind: YamlTokenKind, what: String) Throws ParseError
+        Local token = Try Scanner.Take()
+        If token.Kind != kind Then Throw Fail(token, "{what} is expected here")
+    End Method
+
+    Method Fail(token: YamlToken, message: String): ParseError
+        Return ErrorAt(Bytes, token.At, ParseErrorKind.SYNTAX, message)
+    End Method
+End Class

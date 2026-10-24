@@ -1,0 +1,102 @@
+[~] NULL null
+[null] NULL null
+[Null] NULL null
+[NULL] NULL null
+[] NULL null
+[true] BOOL true
+[True] BOOL true
+[FALSE] BOOL false
+[yes] STRING "yes"
+[42] INT 42
+[-17] INT -17
+[+5] INT 5
+[0o17] INT 15
+[0x1F] INT 31
+[0x] STRING "0x"
+[1.5] FLOAT 1.5
+[-0.5] FLOAT -0.5
+[.5] FLOAT 0.5
+[1.] FLOAT 1
+[1e3] FLOAT 1000
+[-1.5E-3] FLOAT -0.0015
+[.inf] FLOAT inf
+[-.Inf] FLOAT -inf
+[+.INF] FLOAT inf
+[.nan] FLOAT nan
+[.NaN] FLOAT nan
+[0.1.2] STRING "0.1.2"
+[12:30] STRING "12:30"
+[9223372036854775807] INT 9223372036854775807
+[9223372036854775808] FLOAT 9223372036854775808
+[text] STRING "text"
+[two words] STRING "two words"
+single = "it's 'quoted' # not a comment"
+double = "tab\tnewline\nunicode é 😀 A escaped line"
+folded lines = "one two\nthree"
+literal = "line one\n  indented\nline three\n"
+folded = "folded lines\nparagraph\n"
+strip = "no break"
+keep = "kept\n\n"
+indicated = " one more space"
+{"base": {"name": "base", "list": [1, 2, {"three": 3}]}, "copy": {"name": "base", "list": [1, 2, {"three": 3}]}, "nested": ["a", ["b", "c"], {"key": "value", "other": ["x", "y"]}, null], "empty map": {}, "empty list": [], "quoted key": 1, "explicit key": "explicit value", "1": "integer key"}
+3
+{"a": "42", "b": 7, "c": 1, "d": true, "e": null, "f": "12", "g": "3", "h": [1], "i": {"k": "v"}}
+4 "a" "b" ["c"] null
+0 0 null
+SYNTAX 2 1 the mapping has the key "a" twice at line 2, column 1
+OTHER 1 1 a mapping's key is a scalar here, not a ARRAY at line 1, column 1
+OTHER 1 11 the tag !local isn't the core schema's at line 1, column 11
+OTHER 1 13 the tag tag:yaml.org,2002:binary isn't the core schema's at line 1, column 13
+SYNTAX 1 10 !!int tags an integer, and "abc" isn't one at line 1, column 10
+OTHER 1 1 the text holds 3 documents, which ReadAll reads
+UNEXPECTED_END 1 6 the quoted scalar has no closing quote at line 1, column 6
+SYNTAX 1 9 a flow sequence's entries have ',' between them at line 1, column 9
+SYNTAX 2 2 a block sequence's entry can't come after a tab at line 2, column 2
+SYNTAX 1 4 the alias *missing names no anchor before it at line 1, column 4
+SYNTAX 1 5 a mapping's value can't start here at line 1, column 5
+SYNTAX 2 1 a sequence's entries start with '-' at line 2, column 1
+SYNTAX 1 7 '\q' isn't one of YAML's escapes at line 1, column 7
+SYNTAX 1 7 a comment has a space before its '#' at line 1, column 7
+SYNTAX 1 1 the YAML is version 2.0, which isn't 1's at line 1, column 1
+SYNTAX 2 1 %YAML comes once in a document at line 2, column 1
+SYNTAX 1 4 YAML can't hold the control character U+0001 at line 1, column 4
+name: Ada
+number like: "42"
+bool like: "true"
+null like: "~"
+empty: ""
+spaces: " padded "
+quote: "say \"hi\"\n\ttab é \u0007"
+colon: "a: b"
+hash: "a #b"
+dash: "- item"
+marker: "---"
+int: 42
+float: 2.0
+big: 1e+300
+nothing: null
+flag: false
+list:
+- 1
+- k: v
+  l:
+  - x
+- - y
+- {}
+map:
+  a:
+  - z
+
+True
+top
+ []
+ --- 1
+---
+- 1
+- k: v
+  l:
+  - x
+- - y
+- {}
+
+2
