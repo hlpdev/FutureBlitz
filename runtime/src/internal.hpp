@@ -56,6 +56,14 @@ void at_end(void (*restore)());
 /// a signal ends the program.
 void run_end();
 
+/// Has `leave` run just before a panic's or an uncaught error's message shows, after what the
+/// program printed, as std.term puts the terminal back, so the message shows on the screen the
+/// program started on. It calls only what a signal handler can. At most one.
+void before_report(void (*leave)());
+
+/// Runs what before_report() was given, if anything.
+void run_before_report();
+
 /// How a message that names `type` among `others` shows it: by its name, or by its full name
 /// when it's alike one of the others, as sema decides alike types.
 [[nodiscard]] const char* shown_class_name(const fb_class_t* type,
