@@ -1,8 +1,8 @@
 // The HTTP server std.net.http's program tests run against, with no internet: plain sockets,
 // HTTP/1.1 with keep-alive, TLS through mbedTLS with the test certificates beside it, HTTP/2
 // through nghttp2 where TLS's ALPN agrees on it, and bodies compressed by zlib-ng and zstd. It
-// listens on 127.0.0.1 for HTTP, for HTTPS, and for HTTPS that offers only HTTP/1.1, keeps a
-// fourth port bound but not listening, which refuses connections, and runs the program it's
+// listens on 127.0.0.1 for HTTP, for HTTPS, and for HTTPS that offers only HTTP/1.1, has a
+// fourth port it bound and let go of, which refuses connections, and runs the program it's
 // given, with an environment that names no proxy. The program's input is the HTTP, HTTPS, and
 // refused URLs, a line each, then the HTTPS URL that offers only HTTP/1.1, then the test CA's
 // PEM, then what this server's own input was. It exits as the program does, with its exit code;
@@ -1121,8 +1121,11 @@ int main(const int count, char** arguments) {
     std::uint16_t tls1_port = 0;
     const socket_t plain = bound(true, plain_port);
     const socket_t secure = bound(true, tls_port);
-    const socket_t refusing = bound(false, refused_port);
     const socket_t secure1 = bound(true, tls1_port);
+    // A port with no socket, which every OS refuses a connection to: one bound and let go of. A
+    // socket bound but not listening refuses on Linux and Windows, but macOS's TCP drops what
+    // comes to it without a reset, as BSD's does, so connecting waits out its timeout there.
+    close_socket(bound(false, refused_port));
     std::thread(accept_all, plain, nullptr).detach();
     std::thread(accept_all, secure, &tls).detach();
     std::thread(accept_all, secure1, &tls1).detach();
@@ -1140,7 +1143,6 @@ int main(const int count, char** arguments) {
     }
 
     const int code = run(arguments[1], input);
-    close_socket(refusing);
     // The threads still serving go with the process.
     std::fflush(nullptr);
     std::_Exit(code);
