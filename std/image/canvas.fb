@@ -1,9 +1,9 @@
 // Canvas: drawing on an Image, through the runtime's fb_image_ functions. A pixel is the square
 // from its (x, y) to (x + 1, y + 1), so the line along y = 5.5 from x = 0 covers row 5's pixels
-// to their middles both ways. Each Fill fills a region by the nonzero rule, and each Stroke what
-// its line covers, LineWidth wide, with its Join at each corner and its Cap at each end, all
-// drawn over the image by their color's alpha: by the exact part of each pixel the region
-// covers, antialiased, or wholly where it holds the pixel's center.
+// to their middles both ways. Each Fill fills a region by the nonzero rule, FillText a font's
+// glyphs, and each Stroke what its line covers, LineWidth wide, with its Join at each corner and
+// its Cap at each end, all drawn over the image by their color's alpha: by the exact part of
+// each pixel the region covers, antialiased, or wholly where it holds the pixel's center.
 
 Import std.core
 Import std.math.color
@@ -11,6 +11,7 @@ Import std.math.geometry
 Import std.math.scalar
 Import std.math.vector
 Import std.image.codec
+Import std.image.font
 Import std.image.image
 
 Package Extern "runtime"
@@ -25,6 +26,9 @@ Package Extern "runtime"
     Function fb_image_stroke_ellipse(pixels: UInt8[], width: Int64, height: Int64, x: Float64,
                                      y: Float64, rx: Float64, ry: Float64, lineWidth: Float64,
                                      rgba: UInt32, antialias: Int32)
+    Function fb_image_fill_text(pixels: UInt8[], width: Int64, height: Int64, font: Ptr<Void>,
+                                text: String, size: Float64, x: Float64, y: Float64, rgba: UInt32,
+                                antialias: Int32)
 End Extern
 
 // How a stroke's open ends end: where the line does, BUTT; in a half circle, ROUND; or half the
@@ -185,6 +189,22 @@ Public Class Canvas
         CheckEllipse(center, radii)
         fb_image_stroke_ellipse(Target.Pixels, Target.Width, Target.Height, center.x, center.y,
                                 radii.x, radii.y, Width, RgbaOf(color), Smooth ? 1 : 0)
+    End Method
+
+    // Fills the text in the font at `size` pixels an em, its first line's baseline from
+    // `position`, as one region: each glyph after the last's advance and the kerning between
+    // them, unrounded, each line feed a line's height down, and a code point the font has no
+    // glyph for its .notdef. Panics when the size isn't finite or is negative, or the position
+    // isn't finite.
+    @PanicsAtCaller
+    Public Method FillText(text: String, font: Font, size: Float, position: Vec2, color: Color32)
+        CheckSize(size)
+        If !IsFinite(position.x) || !IsFinite(position.y)
+            Panic("text is drawn from a finite position, not {position}")
+        End If
+
+        fb_image_fill_text(Target.Pixels, Target.Width, Target.Height, font.State, text, size,
+                           position.x, position.y, RgbaOf(color), Smooth ? 1 : 0)
     End Method
 
     @PanicsAtCaller

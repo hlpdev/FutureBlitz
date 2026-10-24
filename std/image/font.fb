@@ -1,0 +1,108 @@
+// Font: a TrueType or OpenType font, read by the runtime itself, which checks each offset in it
+// before it follows it, so a broken font or one made to mislead is an IOError, or draws boxes,
+// but never reads past its bytes: its glyphs' outlines, TrueType's, simple and composite, or
+// CFF's, cmap's formats 4 and 12, and kern's kerning. Its sizes are in pixels an em; a Canvas's
+// FillText draws its text.
+
+Import std.core
+Import std.math.scalar
+Import std.image.codec
+
+Package Extern "runtime"
+    Function fb_font_parse(data: UInt8[]): Ptr<Void>
+    Function fb_font_error(font: Ptr<Void>): String
+    Function fb_font_unsupported(font: Ptr<Void>): Int32
+    Function fb_font_units(font: Ptr<Void>): Int32
+    Function fb_font_ascent(font: Ptr<Void>): Int32
+    Function fb_font_descent(font: Ptr<Void>): Int32
+    Function fb_font_line_gap(font: Ptr<Void>): Int32
+    Function fb_font_has(font: Ptr<Void>, codePoint: UInt32): Int32
+    Function fb_font_free(font: Ptr<Void>)
+    Function fb_font_width(font: Ptr<Void>, text: String, size: Float64): Float64
+End Extern
+
+Public Class Font
+    Package Field State: Ptr<Void>
+
+    New(state: Ptr<Void>)
+        State = state
+    End New
+
+    // The font in data, a font file or a collection's first font. Throws an IOError of
+    // INVALID_DATA when it isn't one, or is broken, and of OTHER when it's a kind std.image
+    // doesn't read, like one of CFF2's outlines.
+    Public Static Method Parse(data: UInt8[]): Font Throws IOError
+        Local state = fb_font_parse(data)
+        Local error = fb_font_error(state)
+        If error != ""
+            Local unsupported = fb_font_unsupported(state) != 0
+            fb_font_free(state)
+            If unsupported
+                Throw IOError(IOErrorKind.OTHER, "the font isn't one std.image reads: {error}")
+            End If
+            Throw IOError(IOErrorKind.INVALID_DATA, "the font isn't valid: {error}")
+        End If
+
+        Return Font(state)
+    End Method
+
+    // The units its glyphs are in, an em of them.
+    Public Property UnitsPerEm: Int
+        Get => fb_font_units(State)
+    End Property
+
+    // How far its glyphs go above the baseline, at `size` pixels an em.
+    Public Method Ascent(size: Float): Float
+        Return Scaled(fb_font_ascent(State), size)
+    End Method
+
+    // How far its glyphs go below the baseline, at `size` pixels an em, above 0.
+    Public Method Descent(size: Float): Float
+        Return Scaled(-fb_font_descent(State), size)
+    End Method
+
+    // The gap between one line's descent and the next one's ascent, at `size` pixels an em.
+    Public Method LineGap(size: Float): Float
+        Return Scaled(fb_font_line_gap(State), size)
+    End Method
+
+    // How far apart its lines' baselines are, at `size` pixels an em: its ascent, descent, and
+    // line gap.
+    Public Method LineHeight(size: Float): Float
+        Return Scaled(fb_font_ascent(State) - fb_font_descent(State) + fb_font_line_gap(State),
+                      size)
+    End Method
+
+    // How wide the text is at `size` pixels an em, its widest line's, as FillText lays it out:
+    // each glyph's advance and the kerning between them. Panics when the size isn't finite or is
+    // negative.
+    @PanicsAtCaller
+    Public Method Width(text: String, size: Float): Float
+        CheckSize(size)
+        Return fb_font_width(State, text, size) As Float
+    End Method
+
+    // Whether it has a glyph for the code point, rather than its .notdef, which draws in its
+    // place.
+    Public Method HasGlyph(codePoint: Int): Bool
+        If codePoint < 0 Then Return False
+        Return fb_font_has(State, codePoint As UInt32) != 0
+    End Method
+
+    // Font units at `size` pixels an em.
+    Method Scaled(units: Int32, size: Float): Float
+        Return ((units As Double) * (size As Double) / (fb_font_units(State) As Double)) As Float
+    End Method
+
+    Method Destroy()
+        fb_font_free(State)
+    End Method
+End Class
+
+// Panics when a size of text isn't finite, or is negative.
+@PanicsAtCaller
+Package Function CheckSize(size: Float)
+    If !IsFinite(size) || size < 0
+        Panic("a font's size is finite and not negative, not {size}")
+    End If
+End Function
