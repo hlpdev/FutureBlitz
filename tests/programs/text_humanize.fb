@@ -5,7 +5,9 @@ Import std.core
 Import std.text.humanize
 
 For word In ["enemy", "day", "box", "church", "dish", "bus", "quiz", "child", "Person", "SHEEP",
-             "leaf", "potato", "photo", "fish", "enemy ship", "Mouse", "BOX", "", "café", "jóy"]
+             "leaf", "potato", "photo", "fish", "enemy ship", "Mouse", "BOX", "", "café", "jóy",
+             "iPhone", "GameObject", "McDonald", "enemy SpaceShip", "CITY", "City", "BoundingBox",
+             "Fish", "ChILD"]
     Print(word, Humanize.Plural(word))
 End For
 Print(Humanize.Plural(3, "enemy"), Humanize.Plural(1, "enemy"), Humanize.Plural(0, "enemy"),
