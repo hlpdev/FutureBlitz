@@ -1,0 +1,687 @@
+// Protocol Buffers' wire format, which the types fb makes from a .proto file read and write:
+// ProtoWriter and ProtoReader, with varints, zigzag, fixed32 and fixed64 values, and
+// length-delimited fields, ProtoText for a message's ToString, in protobuf's text format, and
+// ProtoBox, which holds a message a message of its own type has. A program uses them through its
+// .proto's types; code that reads or writes the wire format itself can use them too.
+//
+// A reader keeps protobuf's own limits: a message nests at most 100 deep, and a length is at most
+// what an array holds, 2147483647 bytes. What doesn't read is a ParseError at its byte: of
+// UNEXPECTED_END when the bytes stop inside a field, SYNTAX when they aren't the wire format, and
+// OUT_OF_RANGE past a limit.
+
+Import std.core
+Import std.collections
+Import std.math.numbers
+
+Extern "runtime"
+    Function fb_string_from_bytes(text: Ptr<UInt8>, length: Int64): String
+End Extern
+
+// A field's wire type, the low 3 bits of its tag: a varint, 8 bytes, a length and its bytes, a
+// group's start and end, and 4 bytes.
+Public Const WIRE_VARINT: UInt32 = 0
+Public Const WIRE_FIXED64: UInt32 = 1
+Public Const WIRE_LENGTH: UInt32 = 2
+Public Const WIRE_GROUP_START: UInt32 = 3
+Public Const WIRE_GROUP_END: UInt32 = 4
+Public Const WIRE_FIXED32: UInt32 = 5
+
+// How deep messages and groups nest inside each other before a reader stops, as protobuf's own
+// readers do.
+Public Const PROTO_DEPTH_LIMIT = 100
+
+// The highest field number: a tag keeps 3 bits for the wire type.
+Public Const PROTO_FIELD_LIMIT = 536870911
+
+// The tag of field `number` with `wire` type.
+Public Function ProtoTag(number: Int, wire: UInt32): UInt32 => ((number As UInt32) << 3) | wire
+
+// Whether a float is 0 as proto3 leaves out a field's zero: by its bits, so -0.0 isn't.
+Public Function ProtoIsZero(value: Float32): Bool => value.ToBits() == 0
+
+Public Function ProtoIsZero(value: Float64): Bool => value.ToBits() == 0
+
+// Keeps a closed enum's number that isn't one of its values in `unknown`, as field `tag`'s, as
+// protobuf's readers keep one: a packed field's go one at a time.
+Public Function ProtoKeepEnum(unknown: UInt8[], tag: UInt32, number: Int32)
+    Local writer = ProtoWriter()
+    writer.WriteTag(tag)
+    writer.WriteInt32(number)
+    unknown.AddAll(writer.Finish())
+End Function
+
+// Panics with `message` where the program calls what the module of a .proto gives, like a New
+// given two of a oneof's fields.
+@PanicsAtCaller
+Public Function ProtoPanic(message: String)
+    Panic(message)
+End Function
+
+// Writes protobuf's wire format: each field's tag, then its value. A message inside another
+// goes between BeginLength and EndLength, which put its length before it.
+Public Class ProtoWriter
+    Field Bytes: UInt8[] = []
+
+    Public New()
+    End New
+
+    // How many bytes it has written.
+    Public Property Count: Int
+        Get => Bytes.Count
+    End Property
+
+    Public Method WriteTag(tag: UInt32)
+        WriteVarint(tag As UInt64)
+    End Method
+
+    // An unsigned varint: 7 bits a byte, the lowest first, with the top bit set on every byte
+    // but the last.
+    Public Method WriteVarint(value: UInt64)
+        Local rest = value
+        While rest >= 0x80
+            Bytes.Add(((rest & 0x7F) | 0x80) As UInt8)
+            rest = rest >> 7
+        End While
+        Bytes.Add(rest As UInt8)
+    End Method
+
+    // An int32 as protobuf writes one: a negative one as its 64-bit value, in 10 bytes.
+    Public Method WriteInt32(value: Int32)
+        WriteVarint((value As Int64) As UInt64)
+    End Method
+
+    Public Method WriteInt64(value: Int64)
+        WriteVarint(value As UInt64)
+    End Method
+
+    Public Method WriteUInt32(value: UInt32)
+        WriteVarint(value As UInt64)
+    End Method
+
+    Public Method WriteUInt64(value: UInt64)
+        WriteVarint(value)
+    End Method
+
+    // A sint32, zigzagged, so a small negative number takes as few bytes as a small positive
+    // one: 0, -1, 1, -2 are 0, 1, 2, 3.
+    Public Method WriteSInt32(value: Int32)
+        Local bits = ((value As UInt32) << 1) ^ ((value >> 31) As UInt32)
+        WriteVarint(bits As UInt64)
+    End Method
+
+    Public Method WriteSInt64(value: Int64)
+        Local bits = ((value As UInt64) << 1) ^ ((value >> 63) As UInt64)
+        WriteVarint(bits)
+    End Method
+
+    Public Method WriteBool(value: Bool)
+        Bytes.Add(value ? 1 : 0)
+    End Method
+
+    // 4 bytes, the lowest first.
+    Public Method WriteFixed32(value: UInt32)
+        For shift = 0 Until 32 Step 8
+            Bytes.Add(((value >> shift) & 0xFF) As UInt8)
+        End For
+    End Method
+
+    // 8 bytes, the lowest first.
+    Public Method WriteFixed64(value: UInt64)
+        For shift = 0 Until 64 Step 8
+            Bytes.Add(((value >> shift) & 0xFF) As UInt8)
+        End For
+    End Method
+
+    Public Method WriteSFixed32(value: Int32)
+        WriteFixed32(value As UInt32)
+    End Method
+
+    Public Method WriteSFixed64(value: Int64)
+        WriteFixed64(value As UInt64)
+    End Method
+
+    // A float's IEEE 754 bits, in 4 bytes.
+    Public Method WriteFloat(value: Float32)
+        WriteFixed32(value.ToBits())
+    End Method
+
+    // A double's IEEE 754 bits, in 8 bytes.
+    Public Method WriteDouble(value: Float64)
+        WriteFixed64(value.ToBits())
+    End Method
+
+    // Its length, then its bytes.
+    Public Method WriteBytes(value: UInt8[])
+        WriteVarint(value.Count As UInt64)
+        Bytes.AddAll(value)
+    End Method
+
+    // Its UTF-8's length, then its UTF-8.
+    Public Method WriteString(value: String)
+        WriteBytes(value.Bytes)
+    End Method
+
+    // Bytes as they are, like the fields a message didn't know, which it keeps.
+    Public Method WriteRaw(value: UInt8[])
+        Bytes.AddAll(value)
+    End Method
+
+    // Starts what a length goes before, like a message inside another or a packed field's
+    // values, and gives where, for EndLength.
+    Public Method BeginLength(): Int
+        Bytes.Add(0)
+        Return Bytes.Count - 1
+    End Method
+
+    // Puts the length of what was written since BeginLength gave `start` before it.
+    Public Method EndLength(start: Int)
+        Local length = (Bytes.Count - start - 1) As UInt64
+        If length < 0x80
+            Bytes[start] = length As UInt8
+            Return
+        End If
+
+        Local varint: UInt8[] = []
+        Local rest = length
+        While rest >= 0x80
+            varint.Add(((rest & 0x7F) | 0x80) As UInt8)
+            rest = rest >> 7
+        End While
+        varint.Add(rest As UInt8)
+        Bytes[start] = varint[0]
+        Bytes.InsertAll(start + 1, varint[1..])
+    End Method
+
+    // What it has written, after which it starts again, empty.
+    Public Method Finish(): UInt8[]
+        Local written = Bytes
+        Bytes = []
+        Return written
+    End Method
+End Class
+
+// Reads protobuf's wire format from bytes, a field at a time: ReadTag, then the value its field
+// has. A message inside another is read between BeginMessage and EndMessage, and a packed
+// field's values between BeginPacked and EndPacked, which keep the reader inside them.
+Public Class ProtoReader
+    Field Bytes: UInt8[]
+    Field At: Int
+    // Where what's being read ends: the bytes', or the message's or packed field's inside them.
+    Field Limit: Int
+    Field Depth: Int
+    // Where the last tag read starts, so Skip can keep the field as it was written.
+    Field TagAt: Int
+
+    Public New(bytes: UInt8[])
+        Self.Bytes = bytes
+        Limit = bytes.Count
+    End New
+
+    // Whether what's being read has no more bytes: the bytes, or the message or packed field it's
+    // inside.
+    Public Property AtEnd: Bool
+        Get => At >= Limit
+    End Property
+
+    // Where it's reading, from the first byte, 0.
+    Public Property Position: Int
+        Get => At
+    End Property
+
+    // Where the last tag read starts, for KeepFrom.
+    Public Property TagStart: Int
+        Get => TagAt
+    End Property
+
+    // Whether there's another field to read before the end of what's being read, or in a group,
+    // whose end tag `ending` is, before that tag, which has to come first. `ending` is 0 outside
+    // a group.
+    Public Method More(ending: UInt32): Bool Throws ParseError
+        If At < Limit Then Return True
+        If ending != 0 Then Throw Ended(At, "a group of field {ending >> 3}")
+        Return False
+    End Method
+
+    // A field's tag: its number and wire type. Throws a ParseError for field 0, a number past
+    // PROTO_FIELD_LIMIT, or wire type 6 or 7, which aren't protobuf's.
+    Public Method ReadTag(): UInt32 Throws ParseError
+        TagAt = At
+        Local tag = Try ReadVarint()
+        If tag > 0xFFFFFFFF Then Throw Malformed(TagAt, "a tag past field {PROTO_FIELD_LIMIT}")
+        Local wire = (tag & 7) As UInt32
+        If (tag >> 3) == 0 Then Throw Malformed(TagAt, "a tag of field 0")
+        If wire > WIRE_FIXED32 Then Throw Malformed(TagAt, "a tag of wire type {wire}")
+        Return tag As UInt32
+    End Method
+
+    // An unsigned varint, of up to 10 bytes. Bits past 64 are dropped, as protobuf's readers
+    // drop them.
+    Public Method ReadVarint(): UInt64 Throws ParseError
+        Local start = At
+        Local value: UInt64 = 0
+        For i = 0 Until 10
+            If At >= Limit Then Throw Ended(start, "a varint")
+            Local byte = Bytes[At] As UInt64
+            At += 1
+            If i < 9
+                value = value | ((byte & 0x7F) << (7 * i))
+            Else
+                value = value | ((byte & 1) << 63)
+            End If
+
+            If byte < 0x80 Then Return value
+        End For
+        Throw Malformed(start, "a varint of more than 10 bytes")
+    End Method
+
+    // An int32, from a varint's low 32 bits.
+    Public Method ReadInt32(): Int32 Throws ParseError => (Try ReadVarint()) As Int32
+
+    Public Method ReadInt64(): Int64 Throws ParseError => (Try ReadVarint()) As Int64
+
+    Public Method ReadUInt32(): UInt32 Throws ParseError => (Try ReadVarint()) As UInt32
+
+    Public Method ReadUInt64(): UInt64 Throws ParseError => Try ReadVarint()
+
+    // A zigzagged sint32, from a varint's low 32 bits.
+    Public Method ReadSInt32(): Int32 Throws ParseError
+        Local bits = (Try ReadVarint()) As UInt32
+        Local sign: UInt32 = (bits & 1) == 0 ? 0 : 0xFFFFFFFF
+        Return ((bits >> 1) ^ sign) As Int32
+    End Method
+
+    Public Method ReadSInt64(): Int64 Throws ParseError
+        Local bits = Try ReadVarint()
+        Local sign: UInt64 = (bits & 1) == 0 ? 0 : 0xFFFFFFFFFFFFFFFF
+        Return ((bits >> 1) ^ sign) As Int64
+    End Method
+
+    // A bool: any varint but 0 is True.
+    Public Method ReadBool(): Bool Throws ParseError => (Try ReadVarint()) != 0
+
+    Public Method ReadFixed32(): UInt32 Throws ParseError
+        If Limit - At < 4 Then Throw Ended(At, "a 4-byte value")
+        Local value: UInt32 = 0
+        For i = 0 Until 4
+            value = value | ((Bytes[At + i] As UInt32) << (8 * i))
+        End For
+        At += 4
+        Return value
+    End Method
+
+    Public Method ReadFixed64(): UInt64 Throws ParseError
+        If Limit - At < 8 Then Throw Ended(At, "an 8-byte value")
+        Local value: UInt64 = 0
+        For i = 0 Until 8
+            value = value | ((Bytes[At + i] As UInt64) << (8 * i))
+        End For
+        At += 8
+        Return value
+    End Method
+
+    Public Method ReadSFixed32(): Int32 Throws ParseError => (Try ReadFixed32()) As Int32
+
+    Public Method ReadSFixed64(): Int64 Throws ParseError => (Try ReadFixed64()) As Int64
+
+    Public Method ReadFloat(): Float32 Throws ParseError => Float32.FromBits(Try ReadFixed32())
+
+    Public Method ReadDouble(): Float64 Throws ParseError => Float64.FromBits(Try ReadFixed64())
+
+    // A length-delimited field's length, which its bytes have to fit in.
+    Public Method ReadLength(): Int Throws ParseError
+        Local start = At
+        Local length = Try ReadVarint()
+        If length > 2147483647
+            Throw ParseError(ParseErrorKind.OUT_OF_RANGE,
+                             "a length of {length} bytes at byte {start}, more than an array holds")
+        End If
+
+        If (length As Int) > Limit - At Then Throw Ended(start, "a field of {length} bytes")
+        Return length As Int
+    End Method
+
+    // A length and the bytes after it, in a new array.
+    Public Method ReadBytes(): UInt8[] Throws ParseError
+        Local length = Try ReadLength()
+        Local value = Bytes[At..At + length]
+        At += length
+        Return value
+    End Method
+
+    // A length and the UTF-8 after it. Throws a ParseError when it isn't UTF-8, which every
+    // String is.
+    Public Method ReadString(): String Throws ParseError
+        Local start = At
+        Local length = Try ReadLength()
+        Local begin = At
+        At += length
+        If !IsUtf8(Bytes, begin, At) Then Throw Malformed(start, "a string that isn't UTF-8")
+        Return Utf8Text(Bytes, begin, At)
+    End Method
+
+    // Starts reading a message inside another, after its tag, and gives where the one around it
+    // ends, for EndMessage. Throws a ParseError when it's nested more than PROTO_DEPTH_LIMIT deep,
+    // or doesn't fit.
+    Public Method BeginMessage(): Int Throws ParseError
+        If Depth >= PROTO_DEPTH_LIMIT
+            Throw ParseError(ParseErrorKind.OUT_OF_RANGE,
+                             "a message at byte {TagAt} nested more than {PROTO_DEPTH_LIMIT} deep")
+        End If
+
+        Local length = Try ReadLength()
+        Local outer = Limit
+        Limit = At + length
+        Depth += 1
+        Return outer
+    End Method
+
+    // Goes on with the message around one BeginMessage started, which gave `outer`.
+    Public Method EndMessage(outer: Int)
+        Limit = outer
+        Depth -= 1
+    End Method
+
+    // Starts reading a group, after its start tag, which it ends at its own end tag. Throws a
+    // ParseError when it's nested more than PROTO_DEPTH_LIMIT deep.
+    Public Method BeginGroup() Throws ParseError
+        If Depth >= PROTO_DEPTH_LIMIT
+            Throw ParseError(ParseErrorKind.OUT_OF_RANGE,
+                             "a group at byte {TagAt} nested more than {PROTO_DEPTH_LIMIT} deep")
+        End If
+
+        Depth += 1
+    End Method
+
+    // Goes on with the message around a group BeginGroup started.
+    Public Method EndGroup()
+        Depth -= 1
+    End Method
+
+    // Starts reading a packed field's values, after its tag, and gives where what's around it
+    // ends, for EndPacked. `size` is each value's, 4 or 8, or 0 for varints, whose bytes vary.
+    Public Method BeginPacked(size: Int): Int Throws ParseError
+        Local start = At
+        Local length = Try ReadLength()
+        If size > 0 && length % size != 0
+            Throw Malformed(start, "a packed field of {size}-byte values that's {length} bytes")
+        End If
+
+        Local outer = Limit
+        Limit = At + length
+        Return outer
+    End Method
+
+    // Goes on with the message around a packed field BeginPacked started, which gave `outer`.
+    Public Method EndPacked(outer: Int)
+        Limit = outer
+    End Method
+
+    // Reads past the value of a field the message doesn't know, whose tag was just read, and
+    // keeps the field, its tag too, in `unknown`, as it was written. A group's fields go along
+    // with it. Throws a ParseError for an end tag without its group.
+    Public Method Skip(tag: UInt32, unknown: UInt8[]) Throws ParseError
+        Local start = TagAt
+        Try SkipValue(tag)
+        TagAt = start
+        Keep(unknown)
+    End Method
+
+    // Keeps the field just read, its tag too, in `unknown`, as it was written: one whose value
+    // the message has no place for, like a number that isn't one of a closed enum's values.
+    Public Method Keep(unknown: UInt8[])
+        KeepFrom(TagAt, unknown)
+    End Method
+
+    // Keeps the bytes from `start`, where TagStart said a field's tag was, up to where it's
+    // reading, in `unknown`: a map's entry whose value is a closed enum's number it doesn't name.
+    Public Method KeepFrom(start: Int, unknown: UInt8[])
+        For i = start Until At
+            unknown.Add(Bytes[i])
+        End For
+    End Method
+
+    // Reads past a value of the wire type `tag` has, and a group's fields up to its end.
+    Method SkipValue(tag: UInt32) Throws ParseError
+        Select tag & 7
+            Case WIRE_VARINT
+                Try ReadVarint()
+            Case WIRE_FIXED64
+                Try ReadFixed64()
+            Case WIRE_LENGTH
+                Local length = Try ReadLength()
+                At += length
+            Case WIRE_FIXED32
+                Try ReadFixed32()
+            Case WIRE_GROUP_START
+                Try BeginGroup()
+                Local ending = (tag & 0xFFFFFFF8) | WIRE_GROUP_END
+                Loop
+                    If At >= Limit Then Throw Ended(At, "a group of field {tag >> 3}")
+                    Local inner = Try ReadTag()
+                    If inner == ending Then Break
+                    Try SkipValue(inner)
+                End Loop
+                EndGroup()
+            Default
+                Throw Malformed(TagAt, "the end of a group of field {tag >> 3} that isn't open")
+        End Select
+    End Method
+
+    // "the bytes end inside a varint at byte 7".
+    Method Ended(start: Int, what: String): ParseError
+        Return ParseError(ParseErrorKind.UNEXPECTED_END, "the bytes end inside {what} at byte {start}")
+    End Method
+
+    // "the bytes aren't protobuf's wire format: a tag of field 0 at byte 3".
+    Method Malformed(start: Int, what: String): ParseError
+        Return ParseError(ParseErrorKind.SYNTAX,
+                          "the bytes aren't protobuf's wire format: {what} at byte {start}")
+    End Method
+End Class
+
+// Whether bytes from start up to finish are well-formed UTF-8: no byte that doesn't start or
+// continue a character, no overlong form, surrogate, or code point past U+10FFFF.
+Function IsUtf8(bytes: UInt8[], start: Int, finish: Int): Bool
+    Local i = start
+    While i < finish
+        Local lead = bytes[i] As Int
+        If lead < 0x80
+            i += 1
+            Continue
+        End If
+
+        Local count = 0
+        Local low = 0x80
+        Local high = 0xBF
+        If lead >= 0xC2 && lead <= 0xDF
+            count = 1
+        ElseIf lead >= 0xE0 && lead <= 0xEF
+            count = 2
+            If lead == 0xE0 Then low = 0xA0
+            If lead == 0xED Then high = 0x9F
+        ElseIf lead >= 0xF0 && lead <= 0xF4
+            count = 3
+            If lead == 0xF0 Then low = 0x90
+            If lead == 0xF4 Then high = 0x8F
+        Else
+            Return False
+        End If
+
+        If finish - i <= count Then Return False
+        For k = 1 To count
+            Local next = bytes[i + k] As Int
+            If next < (k == 1 ? low : 0x80) || next > (k == 1 ? high : 0xBF) Then Return False
+        End For
+        i += count + 1
+    End While
+    Return True
+End Function
+
+// A String of UTF-8 bytes from start up to finish, which IsUtf8 has checked.
+Function Utf8Text(bytes: UInt8[], start: Int, finish: Int): String
+    If start == finish Then Return ""
+    Unsafe
+        Return fb_string_from_bytes(AddressOf(bytes[start]), (finish - start) As Int64)
+    End Unsafe
+End Function
+
+// Writes a message as protobuf's text format, on one line, as a message's ToString gives it:
+// `name: "Ada" id: 7 phone { number: "555" }`. Each field goes in with its name, a message's
+// between BeginMessage and EndMessage.
+Public Class ProtoText
+    Field Parts: String[] = []
+
+    Public New()
+    End New
+
+    // `name: value`, for a value that's text already, like a number or an enum's name.
+    Public Method Write(name: String, value: String)
+        Parts.Add("{name}: {value}")
+    End Method
+
+    Public Method WriteBool(name: String, value: Bool)
+        Write(name, value ? "true" : "false")
+    End Method
+
+    // A float as text format has it: its shortest form, or inf, -inf, or nan.
+    Public Method WriteFloat(name: String, value: Float32)
+        Write(name, FloatText(value As Float64, "{value}"))
+    End Method
+
+    Public Method WriteDouble(name: String, value: Float64)
+        Write(name, FloatText(value, "{value}"))
+    End Method
+
+    // A string in quotes, with C's escapes for quotes, backslashes, and control characters; the
+    // rest of its UTF-8 stays as it is.
+    Public Method WriteString(name: String, value: String)
+        Write(name, Quoted(value.Bytes, True))
+    End Method
+
+    // Bytes in quotes, with C's escapes, and each byte that isn't printable ASCII in octal.
+    Public Method WriteBytes(name: String, value: UInt8[])
+        Write(name, Quoted(value, False))
+    End Method
+
+    // Starts a message's fields: `name {`.
+    Public Method BeginMessage(name: String)
+        Parts.Add("{name} {{")
+    End Method
+
+    // Ends the message BeginMessage started: `}`.
+    Public Method EndMessage()
+        Parts.Add("}}")
+    End Method
+
+    // The fields a message didn't know, by their numbers, as text format shows them: a varint as
+    // its number, a 4-byte or 8-byte value in hex, a length-delimited one as bytes in quotes,
+    // and a group between braces.
+    Public Method WriteUnknown(unknown: UInt8[])
+        If unknown.Count == 0 Then Return
+        Try
+            Unknown(ProtoReader(unknown), 0)
+        Catch e As ParseError
+            // Skip kept the fields as it read them, so they read again.
+            Unreachable()
+        End Try
+    End Method
+
+    // What was written, after which it starts again, empty.
+    Public Method Finish(): String
+        Local text = Parts.Join(" ")
+        Parts = []
+        Return text
+    End Method
+
+    // Each field up to the end, or the end tag `ending` of a group.
+    Method Unknown(reader: ProtoReader, ending: UInt32) Throws ParseError
+        While !reader.AtEnd
+            Local tag = Try reader.ReadTag()
+            If tag == ending Then Return
+            Local number = "{tag >> 3}"
+            Select tag & 7
+                Case WIRE_VARINT
+                    Local value = Try reader.ReadVarint()
+                    Write(number, "{value}")
+                Case WIRE_FIXED64
+                    Local value = Try reader.ReadFixed64()
+                    Write(number, "0x" + Hex(value, 16))
+                Case WIRE_LENGTH
+                    Local value = Try reader.ReadBytes()
+                    WriteBytes(number, value)
+                Case WIRE_FIXED32
+                    Local value = Try reader.ReadFixed32()
+                    Write(number, "0x" + Hex(value As UInt64, 8))
+                Case WIRE_GROUP_START
+                    BeginMessage(number)
+                    Try Unknown(reader, (tag & 0xFFFFFFF8) | WIRE_GROUP_END)
+                    EndMessage()
+                Default
+                    Return
+            End Select
+        End While
+    End Method
+End Class
+
+// value's text, `shown` as a string shows it, with inf, -inf, and nan as text format writes
+// them.
+Function FloatText(value: Float64, shown: String): String
+    If value != value Then Return "nan"
+    If value > 1.7976931348623157e308 Then Return "inf"
+    If value < -1.7976931348623157e308 Then Return "-inf"
+    Return shown
+End Function
+
+// value in `digits` hex digits, with leading zeros.
+Function Hex(value: UInt64, digits: Int): String
+    Local letters = "0123456789abcdef".Bytes
+    Local hex: UInt8[] = []
+    For i = digits - 1 To 0 Step -1
+        hex.Add(letters[((value >> (4 * i)) & 0xF) As Int])
+    End For
+    Return Utf8Text(hex, 0, hex.Count)
+End Function
+
+// bytes in double quotes, with C's escapes. With `utf8`, bytes from 0x80 up stay as they are,
+// as a string's UTF-8; without, they're octal, as a byte that isn't printable ASCII is.
+Function Quoted(bytes: UInt8[], utf8: Bool): String
+    Local quoted: UInt8[] = [34]
+    For byte In bytes
+        Local escaped: UInt8[] = []
+        Select byte
+            Case 10
+                escaped = [92, 110]
+            Case 13
+                escaped = [92, 114]
+            Case 9
+                escaped = [92, 116]
+            Case 34, 39, 92
+                escaped = [92, byte]
+            Default
+                If (byte >= 32 && byte < 127) || (utf8 && byte >= 128)
+                    escaped = [byte]
+                Else
+                    escaped = [92, 48 + (byte >> 6), 48 + ((byte >> 3) & 7), 48 + (byte & 7)]
+                End If
+        End Select
+        quoted.AddAll(escaped)
+    End For
+    quoted.Add(34)
+    Return Utf8Text(quoted, 0, quoted.Count)
+End Function
+
+// A message held inside another of its own type, which a Struct can't hold itself: it's a
+// reference, made once and never changed, so copies of the message that share it still don't
+// share changes.
+Public Class ProtoBox<T>
+    Public ReadOnly Field Value: T
+
+    Public New(value: T)
+        Value = value
+    End New
+
+    Operator ==(a: ProtoBox<T>, b: ProtoBox<T>): Bool
+        Where T: Equatable
+        Return a.Value == b.Value
+    End Operator
+End Class
