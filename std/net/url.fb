@@ -1165,8 +1165,9 @@ Function PunycodeDecode(input: Int[]): Int[]?
             If at >= input.Count Then Return Null
             Local c = input[at]
             at += 1
-            Local digit = c >= 48 && c <= 57 ? c - 22 : Lower(c) - 97
-            If digit < 0 || digit >= BASE Then Return Null
+            // Its digits are a to z, in either case, then 0 to 9.
+            Local digit = IsDigit(c) ? c - 22 : (IsAlpha(c) ? Lower(c) - 97 : -1)
+            If digit < 0 Then Return Null
             i += digit * w
             If i > 0x7FFFFFFF Then Return Null
             Local t = Threshold(k, bias)

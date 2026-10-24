@@ -64,3 +64,8 @@ For text In ["http://\u{FFFD}.com/", "http://xn--zn7c.com/", "http://\u{FDD0}x.c
              "http://xn--ab-5da.com/", "http://xn--x-qc4g.com/"]
     Print("{text}: {Url.Parse(text)?.ToString() ?? "not a URL"}")
 End For
+// Punycode's digits are a to z and 0 to 9, and nothing past them.
+For text In ["http://xn--mnchen-~ya.example/", "http://xn--mnchen-}}ya.example/",
+             "http://xn--mnchen-{{ya.example/"]
+    Print("{text}: {Url.Parse(text)?.ToString() ?? "not a URL"}")
+End For
