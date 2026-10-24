@@ -18,5 +18,9 @@ fb FOO_BAR 55 [0, 4]
 zz abc none
 ba ab none
  x 0 []
+a 1.A aB 32 [2]
+a baca 16 [1]
+a b a a 36 [2]
+b ab_b 32 [3]
 [mf, m_f, my_file.txt, main.fb, MakeFile]
 -1 78

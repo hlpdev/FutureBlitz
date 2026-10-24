@@ -114,6 +114,23 @@ Function Best(wanted: Char[], folded: Char[], chars: Char[], firsts: Int[]): Fuz
         previous = kind
     End For
 
+    // A one-character pattern takes, as fzf's does, the first place it matches with a word's
+    // start's bonus or more, or else its best place.
+    If last == 0
+        Local top = 0
+        Local place = firsts[0]
+        For t = firsts[0] Until count
+            Local score = SCORE_MATCH + bonuses[t] * FIRST_MULTIPLIER
+            If folded[t] == wanted[0] && score > top
+                top = score
+                place = t
+                If bonuses[t] >= BONUS_BOUNDARY Then Break
+            End If
+        End For
+
+        Return FuzzyMatch(top, BytesOf([place], chars))
+    End If
+
     Local scores: Int[][] = []
     Local runs: Int[][] = []
     Local best = 0
@@ -193,11 +210,16 @@ Function Best(wanted: Char[], folded: Char[], chars: Char[], firsts: Int[]): Fuz
         t -= 1
     End While
 
-    // From characters to bytes, in order.
+    Return FuzzyMatch(best, BytesOf(found, chars))
+End Function
+
+// The byte positions, in order, of chars' characters at found's places, which go from the last
+// back.
+Function BytesOf(found: Int[], chars: Char[]): Int[]
     Local positions: Int[] = []
     Local bytes = 0
     Local next = found.Count - 1
-    For index = 0 Until count
+    For index = 0 Until chars.Count
         If next >= 0 && found[next] == index
             positions.Add(bytes)
             next -= 1
@@ -206,7 +228,7 @@ Function Best(wanted: Char[], folded: Char[], chars: Char[], firsts: Int[]): Fuz
         bytes += chars[index].Utf8Length
     End For
 
-    Return FuzzyMatch(best, positions)
+    Return positions
 End Function
 
 Function ClassOf(c: Char): CharClass

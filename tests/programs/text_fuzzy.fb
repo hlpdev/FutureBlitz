@@ -46,8 +46,11 @@ End For
 
 // Positions are bytes; a pattern with a capital matches case, and one without doesn't; and a
 // pattern whose characters aren't all there in order doesn't match.
+// A one-character pattern takes, as fzf's does, its first place with a word's start's bonus or
+// more, or else its best, the first of those that score the same.
 For check In [("é", "café"), ("ca", "😀cat"), ("FB", "foo_bar"), ("FB", "Foo_Bar"),
-              ("fb", "FOO_BAR"), ("zz", "abc"), ("ba", "ab"), ("", "x")]
+              ("fb", "FOO_BAR"), ("zz", "abc"), ("ba", "ab"), ("", "x"), ("a", "1.A aB"),
+              ("a", "baca"), ("a", "b a a"), ("b", "ab_b")]
     Local found = Fuzzy.Match(check.0, check.1)
     If found == Null
         Print(check.0, check.1, "none")
