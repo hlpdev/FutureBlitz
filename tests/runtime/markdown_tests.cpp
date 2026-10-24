@@ -197,7 +197,8 @@ private:
 /// what they stand for, but <, >, &, and ", which stay escaped. It's stricter than Python's
 /// HTMLParser in places, never laxer: U+00A0 isn't whitespace, an attribute's named references
 /// stay, and a <style>'s text is text, so it gives the Python one's result for 1280 of the 1304
-/// HTMLs the examples have, and tells apart all that one does.
+/// HTMLs the examples have, and tells apart all that one does. It's a port of normalize.py,
+/// whose notices, its own and CommonMark's test software's, are in data/commonmark/NOTICE.md.
 class html_normalizer_t {
 public:
     std::string normalize(const std::string_view html) {
