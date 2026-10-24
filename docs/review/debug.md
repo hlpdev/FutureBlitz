@@ -4,7 +4,7 @@
 
 ## debug-1 (medium): On Linux, Breakpoint ends a program run under strace or ltrace
 
-Status: fixed in f15a47b5: on Linux and macOS, fb_debug_break puts an empty SIGTRAP handler in place around the raise and the old one back after, under a lock, so the tracer still stops at the trap and one that hands it back, as strace does, runs the empty handler; debug_tests traces a child that calls two breakpoints, under a tracer that swallows each trap and under one that hands it back, and checks two stops and an exit of 0 (run in WSL; without the fix the second child dies of SIGTRAP)
+Status: fixed in a6e033f5: on Linux and macOS, fb_debug_break puts an empty SIGTRAP handler in place around the raise and the old one back after, under a lock, so the tracer still stops at the trap and one that hands it back, as strace does, runs the empty handler; debug_tests traces a child that calls two breakpoints, under a tracer that swallows each trap and under one that hands it back, and checks two stops and an exit of 0 (run in WSL; without the fix the second child dies of SIGTRAP)
 
 Where: runtime/src/debug.cpp:71
 
@@ -34,7 +34,7 @@ Skeptic: I copied rev-5's runtime/src/debug.cpp and fb/debug.hpp unchanged to rv
 
 ## debug-2 (low): No test covers a debugger being attached, so the OS checks are never exercised
 
-Status: fixed in f15a47b5 and 6e3db80b: the traced child on Linux and macOS checks fb_debug_attached is 1 before its breakpoints, and on Windows a test runs the test program again under DEBUG_ONLY_THIS_PROCESS, as a hidden test that checks it's attached and calls two breakpoints, and checks the debugger saw the loader's breakpoint and the program's two, and an exit of 0
+Status: fixed in a6e033f5 and 1d22b34f: the traced child on Linux and macOS checks fb_debug_attached is 1 before its breakpoints, and on Windows a test runs the test program again under DEBUG_ONLY_THIS_PROCESS, as a hidden test that checks it's attached and calls two breakpoints, and checks the debugger saw the loader's breakpoint and the program's two, and an exit of 0
 
 Where: tests/runtime/debug_tests.cpp:5
 
