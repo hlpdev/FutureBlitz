@@ -242,11 +242,13 @@ Public Class ProtoReader
         Return False
     End Method
 
-    // A field's tag: its number and wire type. Throws a ParseError for field 0, a number past
-    // PROTO_FIELD_LIMIT, or wire type 6 or 7, which aren't protobuf's.
+    // A field's tag: its number and wire type, in up to 5 bytes, as protobuf's readers take one.
+    // Throws a ParseError for field 0, a number past PROTO_FIELD_LIMIT, or wire type 6 or 7,
+    // which aren't protobuf's.
     Public Method ReadTag(): UInt32 Throws ParseError
         TagAt = At
         Local tag = Try ReadVarint()
+        If At - TagAt > 5 Then Throw Malformed(TagAt, "a tag of more than 5 bytes")
         If tag > 0xFFFFFFFF Then Throw Malformed(TagAt, "a tag past field {PROTO_FIELD_LIMIT}")
         Local wire = (tag & 7) As UInt32
         If (tag >> 3) == 0 Then Throw Malformed(TagAt, "a tag of field 0")
@@ -327,10 +329,11 @@ Public Class ProtoReader
 
     Public Method ReadDouble(): Float64 Throws ParseError => Float64.FromBits(Try ReadFixed64())
 
-    // A length-delimited field's length, which its bytes have to fit in.
+    // A length-delimited field's length, in up to 5 bytes, which its bytes have to fit in.
     Public Method ReadLength(): Int Throws ParseError
         Local start = At
         Local length = Try ReadVarint()
+        If At - start > 5 Then Throw Malformed(start, "a length of more than 5 bytes")
         If length > 2147483647
             Throw ParseError(ParseErrorKind.OUT_OF_RANGE,
                              "a length of {length} bytes at byte {start}, more than an array holds")
