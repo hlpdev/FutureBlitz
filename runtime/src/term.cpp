@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -79,10 +80,18 @@ std::atomic<int>& current_mode() {
     return mode;
 }
 
-/// Writes all of `text` to stdout, as a signal handler can.
+/// The stream the screen was changed on, stdout's 1 or stderr's 2, which what puts it back goes
+/// to as well.
+std::atomic<std::int32_t>& screen_stream() {
+    static std::atomic<std::int32_t> stream = 1;
+    return stream;
+}
+
+/// Writes all of `text` to the stream the screen was changed on, as a signal handler can.
 void write_out(std::string_view text) {
+    const bool error = screen_stream().load() == 2;
 #ifdef _WIN32
-    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE output = GetStdHandle(error ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
     while (!text.empty()) {
         DWORD written = 0;
         if (WriteFile(output, text.data(), static_cast<DWORD>(text.size()), &written, nullptr) ==
@@ -94,8 +103,9 @@ void write_out(std::string_view text) {
         text.remove_prefix(written);
     }
 #else
+    const int output = error ? STDERR_FILENO : STDOUT_FILENO;
     while (!text.empty()) {
-        const ssize_t written = write(STDOUT_FILENO, text.data(), text.size());
+        const ssize_t written = write(output, text.data(), text.size());
         if (written < 0 && errno == EINTR) {
             continue;
         }
@@ -149,6 +159,35 @@ HANDLE handle_of(const std::int32_t stream) {
         return GetStdHandle(STD_ERROR_HANDLE);
     }
 }
+
+/// The console's window, in its screen buffer's rows, as stdout's or stderr's buffer has it, or,
+/// where only stdin is the console's, as the console's own, CONOUT$, does. False for none.
+bool console_window(SMALL_RECT& window) {
+    CONSOLE_SCREEN_BUFFER_INFO info{};
+    for (const std::int32_t stream : { 1, 2 }) {
+        if (GetConsoleScreenBufferInfo(handle_of(stream), &info) != 0) {
+            window = info.srWindow;
+            return true;
+        }
+    }
+
+    DWORD mode = 0;
+    if (GetConsoleMode(handle_of(0), &mode) == 0) {
+        return false;
+    }
+
+    HANDLE console =
+        CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    nullptr, OPEN_EXISTING, 0, nullptr);
+    if (console == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    const bool known = GetConsoleScreenBufferInfo(console, &info) != 0;
+    CloseHandle(console);
+    window = info.srWindow;
+    return known;
+}
 #else
 /// stdin's termios before the program changed it, once it has.
 struct modes_t {
@@ -169,16 +208,7 @@ constexpr tcflag_t bit(const Flag flag) {
 
 /// Sets stdin's termios for `mode`, from what it was before.
 void apply_mode(const int mode) {
-    termios raw = modes().input;
-    raw.c_lflag &= ~(bit(ECHO) | bit(ICANON) | bit(IEXTEN));
-    if ((static_cast<std::uint32_t>(mode) & 2U) != 0) {
-        raw.c_lflag &= ~bit(ISIG);
-    }
-
-    // Enter comes as "\r", and Ctrl+S and Ctrl+Q are keys.
-    raw.c_iflag &= ~(bit(IXON) | bit(ICRNL) | bit(INLCR) | bit(ISTRIP) | bit(INPCK) | bit(BRKINT));
-    raw.c_cc[VMIN] = 1;
-    raw.c_cc[VTIME] = 0;
+    const termios raw = fb::term::raw_mode(modes().input, mode);
     tcsetattr(STDIN_FILENO, TCSANOW, &raw);
 }
 
@@ -474,8 +504,9 @@ void translate_key(console_input_t& input, const KEY_EVENT_RECORD& key, const bo
 
 /// What the mouse did, as a terminal reports it with SGR's numbers: a button, 0 to 2, plus 32 for
 /// a move, 64 and up for a wheel, and 4, 8, and 16 for Shift, Alt, and Ctrl, then the column and
-/// row from 1, and "M" for a press, or "m" for a release.
-void translate_mouse(console_input_t& input, const MOUSE_EVENT_RECORD& mouse) {
+/// row from 1, the row from `top`, the window's top row in the console's buffer, and "M" for a
+/// press, or "m" for a release.
+void translate_mouse(console_input_t& input, const MOUSE_EVENT_RECORD& mouse, const SHORT top) {
     int code = 0;
     bool released = false;
     const DWORD buttons = mouse.dwButtonState & 0xFFFFU;
@@ -535,13 +566,6 @@ void translate_mouse(console_input_t& input, const MOUSE_EVENT_RECORD& mouse) {
         code += 16;
     }
 
-    // The console counts rows in its buffer, from the window's top.
-    SHORT top = 0;
-    CONSOLE_SCREEN_BUFFER_INFO info{};
-    if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info) != 0) {
-        top = info.srWindow.Top;
-    }
-
     input.bytes += std::format("\x1b[<{};{};{}{}", code, mouse.dwMousePosition.X + 1,
                                mouse.dwMousePosition.Y - top + 1, released ? 'm' : 'M');
 }
@@ -572,7 +596,10 @@ std::int64_t read_console(HANDLE handle, char* into, const std::int64_t room,
     const std::scoped_lock lock(input.lock);
     for (;;) {
         // The records in order, as many as have come: bytes before a resize go first, and a
-        // resize before the bytes after it.
+        // resize before the bytes after it. The console counts the mouse's rows in its buffer,
+        // from the window's top.
+        SMALL_RECT window{};
+        const SHORT top = console_window(window) ? window.Top : SHORT{ 0 };
         while (!input.records.empty()) {
             const INPUT_RECORD record = input.records.front();
             if (record.EventType == WINDOW_BUFFER_SIZE_EVENT) {
@@ -588,7 +615,7 @@ std::int64_t read_console(HANDLE handle, char* into, const std::int64_t room,
             if (record.EventType == KEY_EVENT) {
                 translate_key(input, record.Event.KeyEvent, vt_input().load());
             } else if (record.EventType == MOUSE_EVENT) {
-                translate_mouse(input, record.Event.MouseEvent);
+                translate_mouse(input, record.Event.MouseEvent, top);
             }
         }
 
@@ -651,6 +678,40 @@ std::int64_t read_other(HANDLE handle, char* into, const std::int64_t room,
 
 } // namespace
 
+#ifndef _WIN32
+termios fb::term::raw_mode(const termios& before, const int mode) {
+    termios raw = before;
+    raw.c_lflag &= ~(bit(ECHO) | bit(ICANON) | bit(IEXTEN));
+    if ((static_cast<std::uint32_t>(mode) & 2U) != 0) {
+        raw.c_lflag &= ~bit(ISIG);
+    }
+
+    // Enter comes as "\r", and Ctrl+S and Ctrl+Q are keys.
+    raw.c_iflag &= ~(bit(IXON) | bit(ICRNL) | bit(INLCR) | bit(ISTRIP) | bit(INPCK) | bit(BRKINT));
+    // So is Ctrl+\, as on Windows, rather than SIGQUIT, which would end the program without the
+    // terminal put back.
+    raw.c_cc[VQUIT] = _POSIX_VDISABLE;
+    raw.c_cc[VMIN] = 1;
+    raw.c_cc[VTIME] = 0;
+    return raw;
+}
+#endif
+
+std::optional<std::chrono::steady_clock::time_point>
+fb::term::deadline_of(const std::chrono::steady_clock::time_point now, const std::int64_t timeout) {
+    using steady_t = std::chrono::steady_clock;
+    if (timeout < 0) {
+        return std::nullopt;
+    }
+
+    const auto span = std::chrono::ceil<steady_t::duration>(std::chrono::nanoseconds(timeout));
+    if (span > steady_t::time_point::max() - now) {
+        return std::nullopt;
+    }
+
+    return now + span;
+}
+
 #ifdef _WIN32
 std::string fb::term::key_bytes(const std::span<const key_record_t> records, const bool vt) {
     console_input_t input;
@@ -675,7 +736,7 @@ std::string fb::term::mouse_bytes(const std::span<const mouse_record_t> records)
         mouse.dwEventFlags = record.flags;
         mouse.dwMousePosition = { .X = record.column, .Y = record.row };
         mouse.dwControlKeyState = record.state;
-        translate_mouse(input, mouse);
+        translate_mouse(input, mouse, 0);
     }
 
     return input.bytes;
@@ -716,13 +777,11 @@ std::int32_t fb_term_is_terminal(const std::int32_t stream) {
 
 std::int32_t fb_term_size(std::int32_t* columns, std::int32_t* rows) {
 #ifdef _WIN32
-    for (const std::int32_t stream : { 1, 2 }) {
-        CONSOLE_SCREEN_BUFFER_INFO info{};
-        if (GetConsoleScreenBufferInfo(handle_of(stream), &info) != 0) {
-            *columns = info.srWindow.Right - info.srWindow.Left + 1;
-            *rows = info.srWindow.Bottom - info.srWindow.Top + 1;
-            return 1;
-        }
+    SMALL_RECT window{};
+    if (console_window(window)) {
+        *columns = window.Right - window.Left + 1;
+        *rows = window.Bottom - window.Top + 1;
+        return 1;
     }
 #else
     for (const int stream : { STDOUT_FILENO, STDERR_FILENO, STDIN_FILENO }) {
@@ -745,7 +804,9 @@ std::int32_t fb_term_start(const std::int32_t stream) {
         return 0;
     }
 
-    if ((mode & bit(ENABLE_VIRTUAL_TERMINAL_PROCESSING)) != 0) {
+    // stdin's console takes no output's modes, whose flags mean other things on input, as echo
+    // does what virtual terminal processing would.
+    if (stream == 0 || (mode & bit(ENABLE_VIRTUAL_TERMINAL_PROCESSING)) != 0) {
         return 1;
     }
 
@@ -854,11 +915,10 @@ std::int32_t fb_term_set_mode(const std::int32_t mode) {
 std::int64_t fb_term_read(const fb_array_t* into, const std::int64_t timeout) {
     auto* bytes = static_cast<char*>(into->data);
     const std::int64_t room = into->count;
-    const bool forever = timeout < 0;
-    const auto deadline = forever ? std::chrono::steady_clock::time_point::max()
-                                  : std::chrono::steady_clock::now() +
-                                        std::chrono::ceil<std::chrono::steady_clock::duration>(
-                                            std::chrono::nanoseconds(timeout));
+    const std::optional<std::chrono::steady_clock::time_point> until =
+        fb::term::deadline_of(std::chrono::steady_clock::now(), timeout);
+    const bool forever = !until.has_value();
+    const auto deadline = until.value_or(std::chrono::steady_clock::time_point::max());
     if (room <= 0) {
         return 0;
     }
@@ -947,8 +1007,10 @@ std::int64_t fb_term_read(const fb_array_t* into, const std::int64_t timeout) {
 #endif
 }
 
-void fb_term_set_screen(const fb_string_t* enter, const fb_string_t* leave) {
+void fb_term_set_screen(const fb_string_t* enter, const fb_string_t* leave,
+                        const std::int32_t stream) {
     restore_at_end();
+    screen_stream().store(stream == 2 ? 2 : 1);
     entered().set(fb::runtime::text_of(enter));
     left().set(fb::runtime::text_of(leave));
 }

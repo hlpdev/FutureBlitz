@@ -1,0 +1,11 @@
+[?1049h[?25l[?2004h[?1000h[?1002h[?1006hdrawn
+[0m[?1006l[?1002l[?1000l[?2004l[?25h[?1049lleak: 1 InputParser object was never released
+leak: 1 TerminalInput object was never released
+leak: 1 ConsoleTerminal object was never released
+leak: 2 Canvas objects were never released
+leak: 1 Screen object was never released
+leak: 1 App object was never released
+leak: 1 Node object was never released
+leak: 2 Cell[] objects were never released
+leak: 2 UInt8[] objects were never released
+leak: a cycle of 2 objects: App.Child -> Node.Owner -> the first App

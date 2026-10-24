@@ -3,7 +3,10 @@
 // reports, prints "ready <columns>x<rows>", then a line for each read, "bytes" and the bytes in
 // hex, or "resize <columns>x<rows>", until a "q" comes or the input ends, and prints "done" once
 // stdin is back as it was, with whether it echoes and reads lines, "echo=1 lines=1". "panic"
-// keeps "LEAVE" for the console to write if the program ends, prints "before", and panics.
+// keeps "LEAVE" for the console to write to stdout if the program ends, prints "before", and
+// panics, and "panic on stderr" does the same with "LEAVE" for stderr. "streams" prints
+// "streams", whether there's a terminal's size and what it is while stdout and stderr go
+// nowhere, "1 80x24", and "input", with fb_term_start(0) before raw mode and in it, "1 1".
 
 #include "fb/runtime.hpp"
 #include "fb/term.hpp"
@@ -25,6 +28,7 @@
 #endif
 #include <windows.h>
 #else
+#include <fcntl.h>
 #include <termios.h>
 #include <unistd.h>
 #endif
@@ -114,12 +118,52 @@ int keys() {
     return 0;
 }
 
-[[noreturn]] void panic() {
+[[noreturn]] void panic(const std::int32_t stream) {
     const literal_t enter = literal("");
     const literal_t leave = literal("LEAVE");
-    fb_term_set_screen(&enter.header, &leave.header);
+    fb_term_set_screen(&enter.header, &leave.header, stream);
     std::fputs("before\n", stdout);
     fb_panic("boom", nullptr);
+}
+
+/// What the console's streams say: the terminal's size while stdout and stderr go nowhere, and
+/// whether stdin's a terminal, before raw mode and in it.
+int streams() {
+    std::fflush(stdout);
+#ifdef _WIN32
+    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE error = GetStdHandle(STD_ERROR_HANDLE);
+    HANDLE nothing = CreateFileA("NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                 OPEN_EXISTING, 0, nullptr);
+    SetStdHandle(STD_OUTPUT_HANDLE, nothing);
+    SetStdHandle(STD_ERROR_HANDLE, nothing);
+#else
+    const int output = dup(STDOUT_FILENO);
+    const int error = dup(STDERR_FILENO);
+    const int nothing = open("/dev/null", O_WRONLY);
+    dup2(nothing, STDOUT_FILENO);
+    dup2(nothing, STDERR_FILENO);
+#endif
+    std::int32_t columns = 0;
+    std::int32_t rows = 0;
+    const std::int32_t found = fb_term_size(&columns, &rows);
+#ifdef _WIN32
+    SetStdHandle(STD_OUTPUT_HANDLE, output);
+    SetStdHandle(STD_ERROR_HANDLE, error);
+    CloseHandle(nothing);
+#else
+    dup2(output, STDOUT_FILENO);
+    dup2(error, STDERR_FILENO);
+    close(output);
+    close(error);
+    close(nothing);
+#endif
+    const std::int32_t before = fb_term_start(0);
+    fb_term_set_mode(raw_keys);
+    const std::int32_t raw = fb_term_start(0);
+    fb_term_set_mode(0);
+    say(std::format("streams {} {}x{} input {} {}", found, columns, rows, before, raw));
+    return 0;
 }
 
 } // namespace
@@ -134,10 +178,18 @@ int main() {
         }
 
         if (given == "panic") {
-            panic();
+            panic(1);
         }
 
-        std::fputs("FB_TERM_PROBE is keys or panic\n", stderr);
+        if (given == "panic on stderr") {
+            panic(2);
+        }
+
+        if (given == "streams") {
+            return streams();
+        }
+
+        std::fputs("FB_TERM_PROBE is keys, panic, panic on stderr, or streams\n", stderr);
         return 2;
     } catch (...) {
         std::fputs("the term probe failed\n", stderr);

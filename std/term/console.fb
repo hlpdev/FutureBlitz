@@ -15,7 +15,7 @@ Package Extern "runtime"
     Function fb_term_colors(stream: Int32): Int32
     Function fb_term_set_mode(mode: Int32): Int32
     Function fb_term_read(into: UInt8[], timeout: Int64): Int64
-    Function fb_term_set_screen(enter: String, leave: String)
+    Function fb_term_set_screen(enter: String, leave: String, stream: Int32)
 End Extern
 
 // The console's streams: what the program reads, stdin, and writes, stdout, and its errors,

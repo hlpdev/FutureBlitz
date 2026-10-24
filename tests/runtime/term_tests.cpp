@@ -14,9 +14,12 @@
 #include <cstdio>
 #include <functional>
 #include <initializer_list>
+#include <limits>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -27,7 +30,6 @@
 #endif
 #include <condition_variable>
 #include <mutex>
-#include <thread>
 #include <vector>
 #include <windows.h>
 #else
@@ -122,11 +124,17 @@ void probe_as(const std::string& mode) {
 #endif
 }
 
-/// Runs the probe as `mode` says, its stderr going where its stdout does, and gives what it
-/// printed and its exit code.
-std::pair<std::string, int> run_probe(const std::string& mode) {
+/// Runs the probe as `mode` says, its stderr going where its stdout does, or, with `only_errors`,
+/// its stdout going nowhere, and gives what it printed and its exit code.
+std::pair<std::string, int> run_probe(const std::string& mode, const bool only_errors = false) {
     probe_as(mode);
-    const std::string command = std::string("\"") + FB_TEST_TERM_PROBE + "\" 2>&1";
+#ifdef _WIN32
+    const char* nowhere = " 1>NUL";
+#else
+    const char* nowhere = " 1>/dev/null";
+#endif
+    const std::string command =
+        std::string("\"") + FB_TEST_TERM_PROBE + "\" 2>&1" + (only_errors ? nowhere : "");
 #ifdef _WIN32
     std::FILE* pipe = _popen(command.c_str(), "rb"); // NOLINT(bugprone-command-processor)
 #else
@@ -149,11 +157,11 @@ std::pair<std::string, int> run_probe(const std::string& mode) {
 }
 
 #ifdef _WIN32
-/// The term probe in a pseudoconsole of its own, as a terminal runs it: what's written to it is
-/// typed, and what it prints is read as it comes.
+/// The term probe in a pseudoconsole of its own, as a terminal runs it, as `mode` says: what's
+/// written to it is typed, and what it prints is read as it comes.
 class terminal_t {
 public:
-    terminal_t(const SHORT columns, const SHORT rows) {
+    terminal_t(const SHORT columns, const SHORT rows, const std::string& mode = "keys") {
         HANDLE input_read = nullptr;
         HANDLE output_write = nullptr;
         REQUIRE(CreatePipe(&input_read, &m_input, nullptr, 0) != 0);
@@ -177,7 +185,7 @@ public:
         // No std handles of this process's, which ctest has in pipes, so the probe's stdin and
         // stdout are the pseudoconsole's.
         startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-        probe_as("keys");
+        probe_as(mode);
         std::string command = std::string("\"") + FB_TEST_TERM_PROBE + "\"";
         REQUIRE(CreateProcessA(nullptr, command.data(), nullptr, nullptr, FALSE,
                                EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr, &startup.StartupInfo,
@@ -251,15 +259,16 @@ private:
     }
 };
 #else
-/// The term probe in a pty of its own, as a terminal runs it: what's written to it is typed, and
-/// what it prints is read as it comes.
+/// The term probe in a pty of its own, as a terminal runs it, as `mode` says: what's written to
+/// it is typed, and what it prints is read as it comes.
 class terminal_t {
 public:
-    terminal_t(const unsigned short columns, const unsigned short rows) {
+    terminal_t(const unsigned short columns, const unsigned short rows,
+               const std::string& mode = "keys") {
         winsize size{};
         size.ws_col = columns;
         size.ws_row = rows;
-        probe_as("keys");
+        probe_as(mode);
         m_child = forkpty(&m_terminal, nullptr, nullptr, &size);
         REQUIRE(m_child >= 0);
         if (m_child == 0) {
@@ -366,10 +375,12 @@ TEST_CASE("stdin that's a pipe gives what's come, waits as long as it's told, an
     REQUIRE(CreatePipe(&read_end, &write_end, nullptr, 0) != 0);
     HANDLE before = GetStdHandle(STD_INPUT_HANDLE);
     SetStdHandle(STD_INPUT_HANDLE, read_end);
-    const auto send = [&](const std::string_view text) {
+    // Whether all of text went in, which another thread can ask without Catch's macros.
+    const auto sent = [&](const std::string_view text) {
         DWORD written = 0;
-        REQUIRE(WriteFile(write_end, text.data(), static_cast<DWORD>(text.size()), &written,
-                          nullptr) != 0);
+        return WriteFile(write_end, text.data(), static_cast<DWORD>(text.size()), &written,
+                         nullptr) != 0 &&
+               written == text.size();
     };
     const auto end = [&] { CloseHandle(write_end); };
 #else
@@ -377,11 +388,12 @@ TEST_CASE("stdin that's a pipe gives what's come, waits as long as it's told, an
     REQUIRE(pipe(ends.data()) == 0);
     const int before = dup(STDIN_FILENO);
     dup2(ends[0], STDIN_FILENO);
-    const auto send = [&](const std::string_view text) {
-        REQUIRE(write(ends[1], text.data(), text.size()) == static_cast<ssize_t>(text.size()));
+    const auto sent = [&](const std::string_view text) {
+        return write(ends[1], text.data(), text.size()) == static_cast<ssize_t>(text.size());
     };
     const auto end = [&] { close(ends[1]); };
 #endif
+    const auto send = [&](const std::string_view text) { REQUIRE(sent(text)); };
 
     // A pipe isn't a terminal, so it has no raw mode.
     CHECK(fb_term_is_terminal(0) == 0);
@@ -398,6 +410,17 @@ TEST_CASE("stdin that's a pipe gives what's come, waits as long as it's told, an
     CHECK(text_of(into, 8) == "01234567");
     REQUIRE(fb_term_read(into, 0) == 2);
     CHECK(text_of(into, 2) == "89");
+    // A timeout too long for the clock to reach waits as long as it takes.
+    bool late_sent = false;
+    std::thread late([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        late_sent = sent("z");
+    });
+    const std::int64_t late_count = fb_term_read(into, std::numeric_limits<std::int64_t>::max());
+    late.join();
+    CHECK(late_sent);
+    REQUIRE(late_count == 1);
+    CHECK(text_of(into, 1) == "z");
     end();
     CHECK(fb_term_read(into, -1) == -1);
     CHECK(fb_term_read(into, 0) == -1);
@@ -413,10 +436,60 @@ TEST_CASE("stdin that's a pipe gives what's come, waits as long as it's told, an
     fb_array_free(into);
 }
 
+TEST_CASE("a read's deadline is its timeout from now, or none for one too long for the clock",
+          "[term]") {
+    const auto now = std::chrono::steady_clock::now();
+    CHECK_FALSE(fb::term::deadline_of(now, -1).has_value());
+    CHECK_FALSE(fb::term::deadline_of(now, std::numeric_limits<std::int64_t>::max()).has_value());
+    const std::optional<std::chrono::steady_clock::time_point> soon =
+        fb::term::deadline_of(now, 1'000'000);
+    CHECK(soon.has_value());
+    CHECK(std::chrono::duration_cast<std::chrono::nanoseconds>(soon.value_or(now) - now).count() ==
+          1'000'000);
+    const std::optional<std::chrono::steady_clock::time_point> at_once =
+        fb::term::deadline_of(now, 0);
+    CHECK(at_once.has_value());
+    CHECK(at_once.value_or(now + std::chrono::seconds(1)) == now);
+}
+
+#ifndef _WIN32
+TEST_CASE("raw mode reads each key as it's typed, Ctrl+\\ too, and Ctrl+C with 2", "[term]") {
+    const auto flag = [](const auto value) { return static_cast<tcflag_t>(value); };
+    termios before{};
+    before.c_lflag = flag(ECHO) | flag(ICANON) | flag(IEXTEN) | flag(ISIG);
+    before.c_iflag = flag(ICRNL) | flag(IXON);
+    before.c_cc[VQUIT] = 0x1c;
+    const termios raw = fb::term::raw_mode(before, 1);
+    CHECK((raw.c_lflag & (flag(ECHO) | flag(ICANON) | flag(IEXTEN))) == 0);
+    CHECK((raw.c_lflag & flag(ISIG)) != 0);
+    CHECK((raw.c_iflag & (flag(ICRNL) | flag(IXON))) == 0);
+    // Ctrl+\ is a key, not SIGQUIT, which would end the program with the terminal left raw.
+    CHECK(raw.c_cc[VQUIT] == static_cast<cc_t>(_POSIX_VDISABLE));
+    CHECK(raw.c_cc[VMIN] == 1);
+    CHECK((fb::term::raw_mode(before, 3).c_lflag & flag(ISIG)) == 0);
+}
+#endif
+
 TEST_CASE("a panic's message shows once the screen is put back, which is put back once", "[term]") {
     const auto [output, code] = run_probe("panic");
     CHECK(output == "before\nLEAVEpanic: boom\n");
     CHECK(code == 101);
+}
+
+TEST_CASE("what puts the screen back goes to the stream it was changed on", "[term]") {
+    const auto [output, code] = run_probe("panic on stderr", true);
+    CHECK(output == "LEAVEpanic: boom\n");
+    CHECK(code == 101);
+}
+
+TEST_CASE("the terminal's size is the console's, wherever stdout and stderr go, and stdin's "
+          "raw mode is its own",
+          "[term]") {
+    terminal_t terminal(80, 24, "streams");
+    const bool shown = terminal.shows(
+        [](const std::string& seen) { return seen.contains("streams 1 80x24 input 1 1\n"); });
+    INFO(terminal.seen());
+    CHECK(shown);
 }
 
 TEST_CASE("a terminal's keys come in raw mode as it sends them, and so does a resize", "[term]") {
@@ -449,6 +522,10 @@ TEST_CASE("a terminal's keys come in raw mode as it sends them, and so does a re
     terminal.type("b");
     expect(typing("41 62"));
 #endif
+    // Ctrl+\ is a key, as Windows' console gives it, not SIGQUIT, which would end the program
+    // with the terminal left raw.
+    terminal.type("\x1c");
+    expect(typing("1c"));
     terminal.type("q");
     expect(typing("71"));
     expect(has("done echo=1 lines=1\n"));
