@@ -21859,9 +21859,6 @@ private:
         return found;
     }
 
-    /// Of a type's News, the ones code at `span` can use to make a `made`. When it can use none
-    /// of them, that's reported, and they're all kept, so the call is still checked. A message
-    /// about one it can't names `shown`, the instance the code makes, or else `made`.
     /// The News of the Struct or Class an Alias names, which make the instance it names, with
     /// its type arguments, which the call doesn't infer again: "Meters(5)".
     std::vector<symbol_id_t> alias_constructors(const expr_id_t callee, const symbol_id_t alias,
@@ -21890,6 +21887,9 @@ private:
         return usable_constructors(std::move(constructors), span, definition_of(type), type);
     }
 
+    /// Of a type's News, the ones code at `span` can use to make a `made`. When it can use none
+    /// of them, that's reported, and they're all kept, so the call is still checked. A message
+    /// about one it can't names `shown`, the instance the code makes, or else `made`.
     std::vector<symbol_id_t> usable_constructors(std::vector<symbol_id_t> constructors,
                                                  const span_t span, const type_id_t made,
                                                  const type_id_t shown = type_id_t::INVALID) {

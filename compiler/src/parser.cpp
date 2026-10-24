@@ -717,9 +717,6 @@ private:
                                                        });
     }
 
-    /// "@Flags Enum ...". On anything else, @Flags is an error, and the statement still parses.
-    /// "Enum Name: Type", its members, then "End Enum". Members are separated by commas, which
-    /// can end a line, or by lines.
     /// "Alias MetersPerSecond = Quantity<1, 0, -1>", after its visibility, if it has one.
     stmt_id_t parse_alias(const modifiers_t& modifiers) {
         const std::size_t start = m_pos;
@@ -732,6 +729,9 @@ private:
                         alias_stmt_t{ .name = name, .type = type, .modifiers = modifiers });
     }
 
+    /// "@Flags Enum ...". On anything else, @Flags is an error, and the statement still parses.
+    /// "Enum Name: Type", its members, then "End Enum". Members are separated by commas, which
+    /// can end a line, or by lines.
     stmt_id_t parse_enum(const bool flags, const std::uint32_t begin, modifiers_t modifiers = {}) {
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
