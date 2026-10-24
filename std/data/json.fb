@@ -1,5 +1,6 @@
-// JSON, as RFC 8259 has it: JsonReader reads a document's tokens one at a time, in order, and
-// JsonWriter writes a document a token at a time, so neither holds more than the text. Integers
+// JSON, as RFC 8259 has it: Json.Parse reads a document into a Value, and Json.Write writes a
+// Value as one; JsonReader reads a document's tokens one at a time, in order, and JsonWriter
+// writes a document a token at a time, so neither holds more than the text. Integers
 // stay exact, as Int64s, or UInt64s past them; other numbers are Doubles. The runtime reads the
 // text, over fast_float for its Doubles.
 
@@ -21,6 +22,7 @@ Extern "runtime"
     Function fb_json_error(reader: Ptr<Void>): String
     Function fb_json_quote(text: String): String
     Function fb_json_number(value: Double): String?
+    Function fb_data_base64(bytes: UInt8[]): String
 End Extern
 
 // How deep a JsonReader reads arrays and objects nested in each other unless it's told.
@@ -252,7 +254,7 @@ Public Class JsonWriter Implements Printable
     Public Method WriteDouble(value: Double)
         Local text = fb_json_number(value)
         If text == Null
-            Panic("JsonWriter.WriteDouble can't write {value}: JSON has no NaN or infinity")
+            Panic("JSON can't hold {value}: it has no NaN or infinity")
         End If
 
         Scalar("WriteDouble", text)
@@ -345,4 +347,171 @@ End Class
 @PanicsAtCaller
 Function CheckDepth(depth: Int)
     If depth < 1 Then Panic("a JsonReader's depth is 1 or more, not {depth}")
+End Function
+
+// A document's Value, and a Value's document.
+Public Struct Json
+    // Json isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The Value of text's JSON: an object as an OBJECT, its keys in order, the last of a key that
+    // repeats where its first was, and an integer that fits an Int64 as an INT, one past an
+    // Int64's largest that fits a UInt64 as a UINT, and any other number as a DOUBLE. Throws a
+    // ParseError as JsonReader's Next does, and for arrays and objects nested past depth. Panics
+    // unless depth is 1 or more.
+    @PanicsAtCaller
+    Public Static Method Parse(text: String, depth: Int = DEPTH): Value Throws ParseError
+        Return Try ValueOf(JsonReader(text, depth))
+    End Method
+
+    // The Value of UTF-8 bytes' JSON, as Parse of text gives it.
+    @PanicsAtCaller
+    Public Static Method Parse(bytes: UInt8[], depth: Int = DEPTH): Value Throws ParseError
+        Return Try ValueOf(JsonReader(bytes, depth))
+    End Method
+
+    // value as JSON, as JsonWriter writes it with indent: a DOUBLE with a point or an exponent,
+    // so it reads back as one, and BYTES, which JSON has no kind for, as a string of their
+    // base64 (RFC 4648's, with '=' padding). Panics for a DOUBLE that's NaN or an infinity,
+    // which JSON doesn't have, or an indent below 0.
+    @PanicsAtCaller
+    Public Static Method Write(value: Value, indent: Int = 0): String
+        Local writer = JsonWriter(indent)
+        WriteValue(writer, value)
+        Return writer.ToString()
+    End Method
+End Struct
+
+// Reads a document's tokens into its Value, holding the arrays and objects open as it goes, so
+// none takes a call of its own.
+Function ValueOf(reader: JsonReader): Value Throws ParseError
+    Local open: Value[] = []
+    // The key waiting for its value in each object open.
+    Local keys: String[] = []
+    Local document = Value()
+    Loop
+        Local token = Try reader.Next()
+        Local read: Value? = Null
+        Select token
+            Case JsonToken.END
+                Return document
+            Case JsonToken.KEY
+                keys[keys.Count - 1] = reader.GetString()
+            Case JsonToken.END_OBJECT, JsonToken.END_ARRAY
+                open.RemoveLast()
+                keys.RemoveLast()
+            Case JsonToken.BEGIN_OBJECT
+                read = Value.Object()
+            Case JsonToken.BEGIN_ARRAY
+                read = Value.Array()
+            Case JsonToken.STRING
+                read = Value(reader.GetString())
+            Case JsonToken.INT
+                read = Value(reader.GetInt64())
+            Case JsonToken.UINT
+                read = Value(reader.GetUInt64())
+            Case JsonToken.DOUBLE
+                read = Value(reader.GetDouble())
+            Case JsonToken.BOOL
+                read = Value(reader.GetBool())
+            Case JsonToken.NULL
+                read = Value()
+        End Select
+
+        If read != Null
+            // A value goes in what holds it: the open array, the open object's key, or the
+            // document.
+            If open.Count == 0
+                document = read
+            ElseIf open[open.Count - 1].IsObject
+                open[open.Count - 1][keys[keys.Count - 1]] = read
+            Else
+                open[open.Count - 1].Add(read)
+            End If
+
+            If read.IsObject || read.IsArray
+                open.Add(read)
+                keys.Add("")
+            End If
+        End If
+    End Loop
+End Function
+
+// An array or object Json.Write is in, with the keys of an object, and how far it's written.
+Class Writing
+    Public Field Item: Value
+    Public Field Keys: String[]
+    Public Field Index: Int
+
+    New(item: Value)
+        Item = item
+        Keys = item.Keys()
+    End New
+End Class
+
+// Writes value, holding the arrays and objects it's in as it goes, so none takes a call of its
+// own.
+@PanicsAtCaller
+Function WriteValue(writer: JsonWriter, value: Value)
+    Local open: Writing[] = []
+    Local next: Value? = value
+    Loop
+        Local current = next
+        If current != Null
+            Select current.Kind
+                Case ValueKind.ARRAY
+                    writer.BeginArray()
+                    open.Add(Writing(current))
+                Case ValueKind.OBJECT
+                    writer.BeginObject()
+                    open.Add(Writing(current))
+                Default
+                    WriteScalar(writer, current)
+            End Select
+        End If
+
+        // The next value of the array or object open last, or its end, and so on out.
+        next = Null
+        While next == Null && open.Count > 0
+            Local writing = open[open.Count - 1]
+            Local item = writing.Item
+            If item.IsArray && writing.Index < item.Count
+                next = item[writing.Index]
+                writing.Index += 1
+            ElseIf item.IsObject && writing.Index < writing.Keys.Count
+                Local key = writing.Keys[writing.Index]
+                writer.Key(key)
+                next = item[key]
+                writing.Index += 1
+            Else
+                If item.IsArray Then writer.EndArray() Else writer.EndObject()
+                open.RemoveLast()
+            End If
+        End While
+
+        If next == Null Then Return
+    End Loop
+End Function
+
+@PanicsAtCaller
+Function WriteScalar(writer: JsonWriter, value: Value)
+    Select value.Kind
+        Case ValueKind.NULL
+            writer.WriteNull()
+        Case ValueKind.BOOL
+            writer.WriteBool(value.AsBool() ?? False)
+        Case ValueKind.INT
+            writer.WriteInt(value.AsInt64() ?? 0)
+        Case ValueKind.UINT
+            writer.WriteUInt(value.AsUInt64() ?? 0)
+        Case ValueKind.DOUBLE
+            writer.WriteDouble(value.AsDouble() ?? 0.0)
+        Case ValueKind.STRING
+            writer.WriteString(value.AsString() ?? "")
+        Case ValueKind.BYTES
+            writer.WriteString(fb_data_base64(value.AsBytes() ?? []))
+        Default
+            Unreachable()
+    End Select
 End Function
