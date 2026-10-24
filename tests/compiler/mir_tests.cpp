@@ -203,6 +203,40 @@ TEST_CASE("a For loop checks the distance left before stepping", "[mir]") {
     }
 }
 
+TEST_CASE("For ... In over a range written there counts as a For loop does, making no Range",
+          "[mir]") {
+    // The same code as "For i = 0 Until 3": no Range, and no call of its Next.
+    CHECK(lower_text("For i In 0 Until 3\n"
+                     "End For") == "function main\n"
+                                   "    _0 i: Int32\n"
+                                   "    _1: Bool\n"
+                                   "    _2: Int32\n"
+                                   "    _3: UInt32\n"
+                                   "    _4: UInt32\n"
+                                   "    _5: Bool\n"
+                                   "    _6: Int32\n"
+                                   "bb0:\n"
+                                   "    _0 = 0\n"
+                                   "    goto bb1\n"
+                                   "bb1:\n"
+                                   "    _1 = _0 < 3\n"
+                                   "    branch _1, bb2, bb5\n"
+                                   "bb2:\n"
+                                   "    goto bb3\n"
+                                   "bb3:\n"
+                                   "    _2 = wrapping(3 - _0)\n"
+                                   "    _3 = _2 As UInt32\n"
+                                   "    _4 = 1 As UInt32\n"
+                                   "    _5 = _3 <= _4\n"
+                                   "    _6 = wrapping(_0 + 1)\n"
+                                   "    branch _5, bb5, bb4\n"
+                                   "bb4:\n"
+                                   "    _0 = _6\n"
+                                   "    goto bb2\n"
+                                   "bb5:\n"
+                                   "    return\n");
+}
+
 TEST_CASE("&& only evaluates its right side when it decides the result", "[mir]") {
     // _1 holds the result. bb1 sets it to False when the left side is False, bb2 evaluates the
     // right side, and bb3 joins them.

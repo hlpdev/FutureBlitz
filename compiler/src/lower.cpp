@@ -3515,11 +3515,26 @@ private:
         const type_id_t type = m_analysis.symbol(symbol_id).type;
         const local_id_t variable = add_local(type, node.variable.text);
         m_locals[symbol_id] = variable;
+        const range_expr_t bounds{
+            .start = node.start,
+            .end = node.end,
+            .inclusive = node.inclusive,
+            .step = node.step,
+        };
+        lower_counting(span, variable, type, bounds,
+                       [&] { return lower_loop_body(id, node.body); });
+    }
 
+    /// The counting of "For i = start To end Step step", which "For x In start To end Step step"
+    /// shares: `counter`, a Local of `type`, takes each value in turn, and `pass` lowers the
+    /// loop's body, once, giving its loop_t.
+    template <typename Pass>
+    void lower_counting(const span_t span, const local_id_t counter, const type_id_t type,
+                        const range_expr_t& bounds, const Pass& pass) {
         // The start, end, and step are evaluated once, in that order.
-        initialize(variable, lower_value(node.start));
-        const operand_t end = stable(lower_value(node.end));
-        const operand_t step = node.step ? stable(lower_value(*node.step)) : one(type);
+        initialize(counter, lower_value(bounds.start));
+        const operand_t end = stable(lower_value(bounds.end));
+        const operand_t step = bounds.step ? stable(lower_value(*bounds.step)) : one(type);
         finish_statement();
 
         // The step's sign picks the direction. A Step only known at run time is checked there:
@@ -3529,7 +3544,7 @@ private:
         if (const auto* constant = std::get_if<const_value_t>(&step)) {
             up = !is_negative(*constant);
         } else {
-            const span_t step_span = m_ast.get(expect(node.step)).span;
+            const span_t step_span = m_ast.get(expect(bounds.step)).span;
             const operand_t is_zero = compare(binary_op_t::EQUAL, step, zero(type), span);
             const block_id_t fail = new_block();
             const block_id_t ok = new_block();
@@ -3556,39 +3571,40 @@ private:
             return choose(up_at_run_time, if_up, if_down, span);
         };
 
-        // Before each pass: is the variable still in range?
+        // Before each pass: is the counter still in range?
         const block_id_t check = new_block();
         jump(check);
         start(check);
         const operand_t in_range = by_direction([&](const bool going_up) {
-            binary_op_t op = node.inclusive ? binary_op_t::LESS_EQUAL : binary_op_t::LESS;
+            binary_op_t op = bounds.inclusive ? binary_op_t::LESS_EQUAL : binary_op_t::LESS;
             if (!going_up) {
-                op = node.inclusive ? binary_op_t::GREATER_EQUAL : binary_op_t::GREATER;
+                op = bounds.inclusive ? binary_op_t::GREATER_EQUAL : binary_op_t::GREATER;
             }
 
-            return compare(op, variable, end, span);
+            return compare(op, counter, end, span);
         });
         const block_id_t test = here();
         m_block.reset();
 
         const block_id_t body = new_block();
         start(body);
-        loop_t loop = lower_loop_body(id, node.body);
+        loop_t loop = pass();
         leave(loop.continues);
         join(loop.continues);
 
         // After each pass: would another step pass the end? Integers check the distance left
-        // first, so the variable never overflows.
-        operand_t next = place_t{ variable };
+        // first, so the counter never overflows.
+        operand_t next = place_t{ counter };
         operand_t done;
         if (is_float(type)) {
             next = temporary(
-                binary_t{ .op = binary_op_t::ADD, .left = variable, .right = step, .span = span },
+                binary_t{ .op = binary_op_t::ADD, .left = counter, .right = step, .span = span },
                 type);
             done = by_direction([&](const bool going_up) {
-                binary_op_t op = node.inclusive ? binary_op_t::GREATER : binary_op_t::GREATER_EQUAL;
+                binary_op_t op =
+                    bounds.inclusive ? binary_op_t::GREATER : binary_op_t::GREATER_EQUAL;
                 if (!going_up) {
-                    op = node.inclusive ? binary_op_t::LESS : binary_op_t::LESS_EQUAL;
+                    op = bounds.inclusive ? binary_op_t::LESS : binary_op_t::LESS_EQUAL;
                 }
 
                 return compare(op, next, end, span);
@@ -3597,23 +3613,23 @@ private:
             done = by_direction([&](const bool going_up) {
                 const type_id_t distance_type = unsigned_of(type);
                 const operand_t remaining =
-                    going_up ? wrapping(binary_op_t::SUBTRACT, end, variable, span)
-                             : wrapping(binary_op_t::SUBTRACT, variable, end, span);
+                    going_up ? wrapping(binary_op_t::SUBTRACT, end, counter, span)
+                             : wrapping(binary_op_t::SUBTRACT, counter, end, span);
                 const operand_t size =
                     going_up ? step : wrapping(binary_op_t::SUBTRACT, zero(type), step, span);
                 const operand_t remaining_distance = cast(remaining, distance_type, span);
                 const operand_t step_distance = cast(size, distance_type, span);
-                return compare(node.inclusive ? binary_op_t::LESS : binary_op_t::LESS_EQUAL,
+                return compare(bounds.inclusive ? binary_op_t::LESS : binary_op_t::LESS_EQUAL,
                                remaining_distance, step_distance, span);
             });
-            next = wrapping(binary_op_t::ADD, variable, step, span);
+            next = wrapping(binary_op_t::ADD, counter, step, span);
         }
 
         const block_id_t latch = here();
         m_block.reset();
         const block_id_t advance = new_block();
         start(advance);
-        emit(assign_t{ .target = variable, .value = use_t{ .value = next } });
+        emit(assign_t{ .target = counter, .value = use_t{ .value = next } });
         jump(body);
 
         const block_id_t exit = join(loop.breaks);
@@ -3629,6 +3645,11 @@ private:
     /// to the element's.
     void lower_stmt(const stmt_id_t id, const span_t span, const for_in_stmt_t& node) {
         const stmt_info_t& info = m_analysis.stmt(id);
+        if (const auto* range = std::get_if<range_expr_t>(&m_ast.get(node.sequence).node)) {
+            lower_range_iteration(id, span, node, *range);
+            return;
+        }
+
         if (info.next) {
             lower_iteration(id, span, node);
             return;
@@ -3964,6 +3985,17 @@ private:
         }
 
         return members;
+    }
+
+    /// "For x In start To end Step step" counts the range's values as the For loop with those
+    /// bounds does, x being its variable, without making a Range.
+    void lower_range_iteration(const stmt_id_t id, const span_t span, const for_in_stmt_t& node,
+                               const range_expr_t& range) {
+        const symbol_id_t symbol_id = expect(m_analysis.stmt(id).symbol);
+        const type_id_t type = concrete(m_analysis.symbol(symbol_id).type);
+        const local_id_t variable = add_local(type, node.value.text);
+        m_locals[symbol_id] = variable;
+        lower_counting(span, variable, type, range, [&] { return lower_loop_body(id, node.body); });
     }
 
     /// "For x In items" over an Iterator, or the one an Iterate Method gives: it's held for the
