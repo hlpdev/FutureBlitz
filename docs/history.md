@@ -617,6 +617,92 @@ iterators in immutable and concurrent_map, concurrent_tasks' Task read after Fin
 tie, events' self-cancelling Widget, std_tests' parts, and program_tests' Clear of 100000 handlers;
 concurrent_map's race waits at a Barrier between its adds and removes.
 
+Step 11 (std.math.big; typed units wait for the compiler lane's computed Const type arguments):
+BigInt over libtommath, Decimal over mpdecimal, Rational, and Complex, in std/math/big/, each
+library bundled statically through third_party/ with a runtime archive of its own
+(fb_runtime_bigint, fb_runtime_decimal). BigInt's operators are an Int's without overflow, with
+Parse and ToString in radixes 2 to 36, bytes, Int64 and Double conversions rounded to nearest, and
+number theory (ModPow, ModInverse, Gcd, Lcm, Sqrt, and a deterministic Baillie-PSW test). Decimal
+works in Python's default context, 28 digits half to even, and holds what it's made from exactly;
+Rational is exact, in lowest terms; Complex follows CPython's arithmetic and cmath. The tests check
+7926 values Python's int, decimal, fractions, and cmath gave, and 30 panics at the caller. A literal
+beside a Struct's or Class's operand now takes the type of the Operator's parameter even when it
+doesn't fit an Int, as spec 06 says.
+
+Step 11's review: 15 findings fixed. A BigInt holds up to 2147483640 bits and a result past them
+panics at the caller; Decimal.FromDouble gives the shortest digits and Round keeps its exponents in
+range as quantize does; Complex's Sqrt, Exp, Log, and FromPolar scale and take special values as
+cmath and C99 do, and its parts are ReadOnly; Rational.FromDecimal reads a Decimal's digits and
+exponent, and ** takes the lowest Int64; BigInt's gcd and lcm take a step of Euclid's first; a
+literal expression only an Int64 holds, beside a Struct, takes the Operator's Int64; Decimal reads
+Doubles through fast_float, which macOS needs.
+
+Step 16, std.time (lane 4): `2.Seconds` lexes as an integer and a member, and a literal before a
+member keeps its default type or takes the first wider one that has the member, Float then Double,
+Int then Int64 then UInt64 (sema's object_hint, holds, and has_member_as; spec 01). Wait and
+RealWait take a Duration, replacing Seconds and RealSeconds (sema's find_duration and
+check_wait_call; lowering's WAIT_TIME, fb_wait_time). std/time: Duration and the units of an Int64
+and a Double; Instant, Stopwatch, Measure, Sleep; Timestamp; Date, TimeOfDay, LocalDateTime,
+Weekday; TimeZone over the IANA tz database 2026e, compiled by its zic at build time and embedded in
+fb_tzdata beside fb_runtime_tz, and the OS's zone; ZonedDateTime and Disambiguation; ISO 8601, RFC
+2822, and Java-style patterns; Timer on the I/O thread's libuv timers, Deadline, FixedStep,
+RateLimiter, Debounce. DST tests in twelve zones match Python's zoneinfo; Sleep and the timers never
+wake early.
+
+Step 16's review fixes (lane 4): VV reads a fixed zone's name back; std's Extends' Properties give
+the Import hint; Sleep saturates at the monotonic clock's latest time (fb::time::sleep_end);
+FixedStep keeps a step's part past MaxSteps and takes any MaxSteps; RateLimiter saturates;
+calendar.fb's Combined() for the Unix and difference sums; RFC 2822's offsets under a day, DD's two
+or three digits, RFC 3339's leap second and long fractions; Duration's exact Double scaling (Scaled,
+AddPart, Nearest), its narrow-integer operators, and NaN's message; a Scheduler's timers in Int64
+nanoseconds (later_by, real_nanoseconds); and Timer's comment.
+
+Step 12, std.ffi's additions: `Extern "stdcall"` goes (parse_extern() says the block is "C";
+convention_t::STDCALL went). Built-in `CLong`, `CULong`, and `CWChar` (type_id_t CLONG, CULONG,
+CWCHAR after UINT64, is_c_integer()), C's long, unsigned long, and wchar_t: `c_integers_t`,
+every_c_integers() (Windows', LP64's, AArch64 Linux's, Cygwin's) and on_target();
+converts_losslessly() and make_number() hold for every target's, supports() doesn't negate a CWChar,
+and an Enum's type isn't one; c_abi's c_layout() takes a target's integers, c_integers_of(triple),
+and build_c_integers(), the build's target, which SizeOf and const_value's folding
+(on_build_target(), as_c_integer()) use; codegen's `m_integers` sizes them by its triple
+(llvm_type(), and on_target() in c_extension(), check_index(), to_int64(), value(binary_t),
+convert(), hash(), and to_text()); sema's on_windows() says what a literal has to fit. fb-bindgen
+writes them from the written type (c_integer() through peeled() typedefs, stopping at
+sized_by_name() ones like int64_t and size_t; written_as(), map_pointee(), and map_parameter() keep
+the written types), and a number macro of one where every target's holds it (fits_everywhere()).
+std/ffi/cdata.fb's `CData` (builtin_interfaces_t::c_data), a constraint sema decides
+(why_not_c_data(), said_c_data(), check_listed_c_data(), conformance_query_t::c_data(),
+type_t::c_layout and set_c_layout()), so not_c_data() takes a type parameter that has it: a Ptr's T
+(`pending_pointer_t` keeps its bounds), AddressOf's, and SizeOf's, which lowering measures per
+instance (expr_info_t::size_of, size_of()), and check_pointer_arithmetic() steps and counts by it.
+Mem's AllocUninitialized, AllocAligned, and FreeAligned over the runtime's
+fb_mem_alloc_uninitialized, fb_mem_alloc_aligned, and fb_mem_free_aligned. std/ffi/buffer.fb's
+`Buffer<T: CData>`: native memory with checked `[]` and `[]=`, Count, Slice views that keep it alive
+(`Viewed`), CopyTo, ToArray, Iterate (BufferIterator<T>), the Unsafe Pointer(), and the Unsafe
+Buffer<T>.View over C's memory. Tests: c_abi_tests' c_integers_of() per triple and the IR of a
+binding using CLong, CULong, and CWChar on four targets; type_tests' and sema_tests' conversions,
+literals, Consts, and CData; bindgen_tests' long, typedefs, and macros on three targets;
+tests/programs/c_integers.fb, cdata.fb, buffer.fb, panic_buffer_index.fb, and
+panic_mem_alignment.fb, unsafe.fb's aligned memory, runtime_tests' fb_mem_alloc_aligned, and vmath's
+Buffered() through vecmath's vm_fill and vm_sum.
+
+Its review's fixes: lowering's unsettable() keeps f.Set to what the loop's code could assign by name
+(Private in its file, Package in its package, Protected in its file and the Classes extending it;
+spec 13), and Buffer's Fields are ReadOnly; unsigned_of() takes a CLong's distance as a CULong and a
+CWChar's as a UInt32; sema's takes_no_bytes() counts Ptrs at a generic Struct of a CData T, and
+lowering's check_steps() refuses stepping a Ptr at an instance's T of more bytes than an Int64
+counts; fb-bindgen's map_parameter() binds a function-typed parameter as a Callback, problem_of()
+checks a field's written type, wide_character() makes L'x' a CWChar, is_target_wchar() keeps a
+header's own wchar_t by size elsewhere, and map_array() parenthesizes a Callback that gives
+something; Buffer's View bounds its count by SizeOf<T>() as New does, and its messages say "1 value
+of a type"; vmath's Buffered fills a view from index 3; a panic program for each of Buffer's panics;
+Mem's Resize and Free name AllocUninitialized; cdata.fb's example compiles.
+
+S18-new-1, found while fixing S18-collections-4: SortedMap's and SortedSet's, Trie's, and
+IntervalTree's iterators kept their stacks in arrays, so a copy moved the original (Next, then Count
+twice, gave 49 0); each keeps its node and place in the Struct and the nodes above in a list of
+nodes a step never changes (SortedPath, TriePath, IntervalPath), so a copy keeps its place.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished

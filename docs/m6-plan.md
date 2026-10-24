@@ -139,8 +139,9 @@ compiler step or two ahead of the std lanes that wait on one.
    is the program's real output, read and checked by hand, never pasted blind; an async one runs
    20 times each way first.
 4. **Commit and push.** As hlpdev <hunterpollock2006@gmail.com>, short lowercase messages, small
-   commits, no Claude attribution, no "wip" left in a message. Push the branch, which runs CI.
-5. **Report** to the coordinator: the branch, the commits, CI's result, the decisions taken, the
+   commits, no Claude attribution, no "wip" left in a message. Push the branch. CI runs only on
+   master and the coordinator's landing branch, m6-land, so verify.py is the lane's own check.
+5. **Report** to the coordinator: the branch, the commits, verify.py's result, the decisions taken, the
    findings dropped and why, and the paragraph docs/history.md should get, in CLAUDE.md's old
    style.
 
