@@ -178,11 +178,11 @@ Public Struct Path Implements Comparable, Hashable, Printable
     Public Method Parent(): Path
         Local windows = Style == PathStyle.WINDOWS
         Local bytes = Text.Bytes
-        Local _, anchor = AnchorOf(bytes, windows)
+        Local prefix, anchor = AnchorOf(bytes, windows)
         Local names = NamesOf(bytes, anchor, windows)
-        Local start = AnchorText(bytes, anchor)
+        Local start = AnchorText(bytes, prefix, anchor)
         If names.Count == 0 Then Return Path(start == "" ? "." : start, Style)
-        Local text = Rebuilt(start, names, names.Count - 1)
+        Local text = Rebuilt(start, prefix > 2, names, names.Count - 1)
         Return Path(text == "" ? "." : text, Style)
     End Method
 
@@ -198,15 +198,16 @@ Public Struct Path Implements Comparable, Hashable, Printable
 
     // The same place in the fewest names: '/' between them, no "." or empty ones, and each ".."
     // taking out the name before it, which is only text, so a link's ".." isn't followed. One
-    // with no names left is "." or its root. On Windows, a drive or share keeps its case.
+    // with no names left is "." or its root. On Windows, a drive or share keeps its case, and a
+    // share is written without a separator after it, which "//server/share/" has.
     Public Method Normalize(): Path
         Local windows = Style == PathStyle.WINDOWS
         Local bytes = Text.Bytes
         Local prefix, anchor = AnchorOf(bytes, windows)
-        Local start = AnchorText(bytes, anchor)
+        Local start = AnchorText(bytes, prefix, anchor)
         // A drive's ".." can go above the current folder on it, but a root's and a share's can't.
         Local names = Resolved(NamesOf(bytes, anchor, windows), anchor > prefix || prefix > 2)
-        Local text = Rebuilt(start, names, names.Count)
+        Local text = Rebuilt(start, prefix > 2, names, names.Count)
         Return Path(text == "" ? "." : text, Style)
     End Method
 
@@ -219,9 +220,12 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Local windows = Style == PathStyle.WINDOWS
         Local bytes = Normalize().Text.Bytes
         Local from = base.Normalize().Text.Bytes
-        Local anchor = AnchorOf(bytes, windows).1
-        Local fromAnchor = AnchorOf(from, windows).1
-        If anchor != fromAnchor || !SameAnchor(bytes, from, anchor, windows) Then Return Null
+        Local prefix, anchor = AnchorOf(bytes, windows)
+        Local fromPrefix, fromAnchor = AnchorOf(from, windows)
+        If !SameName(AnchorText(bytes, prefix, anchor), AnchorText(from, fromPrefix, fromAnchor), windows)
+            Return Null
+        End If
+
         Local names = NamesOf(bytes, anchor, windows)
         Local fromNames = NamesOf(from, fromAnchor, windows)
         Local shared = 0
@@ -240,7 +244,7 @@ Public Struct Path Implements Comparable, Hashable, Printable
             parts.Add(names[i])
         End For
 
-        Local text = Rebuilt("", parts, parts.Count)
+        Local text = Rebuilt("", False, parts, parts.Count)
         Return Path(text == "" ? "." : text, Style)
     End Method
 
@@ -317,9 +321,10 @@ Function AnchorOf(bytes: UInt8[], windows: Bool): (Int, Int)
     Return (0, count > 0 && IsSeparator(bytes[0], True) ? 1 : 0)
 End Function
 
-// The anchor's text, with '/' for each separator.
-Function AnchorText(bytes: UInt8[], anchor: Int): String
-    Local start = bytes[0..anchor]
+// The anchor's text, with '/' for each separator. A share's is the share, without the separator
+// after it, which it's rooted at with or without.
+Function AnchorText(bytes: UInt8[], prefix: Int, anchor: Int): String
+    Local start = bytes[0..(prefix > 2 ? prefix : anchor)]
     For i = 0 Until start.Count
         If start[i] == BACKSLASH Then start[i] = SLASH
     End For
@@ -364,11 +369,11 @@ Function Resolved(names: String[], rooted: Bool): String[]
     Return kept
 End Function
 
-// The anchor's text, then the first `count` names, with '/' between them.
-Function Rebuilt(start: String, names: String[], count: Int): String
+// The anchor's text, then the first `count` names, with '/' between them, and after a share.
+Function Rebuilt(start: String, share: Bool, names: String[], count: Int): String
     Local text = start
     For i = 0 Until count
-        text = i == 0 ? text + names[i] : text + "/" + names[i]
+        text = i == 0 && !share ? text + names[i] : text + "/" + names[i]
     End For
 
     Return text
@@ -392,16 +397,6 @@ Function SameName(a: String, b: String, windows: Bool): Bool
     If aBytes.Count != bBytes.Count Then Return False
     For i = 0 Until aBytes.Count
         If Folded(aBytes[i]) != Folded(bBytes[i]) Then Return False
-    End For
-
-    Return True
-End Function
-
-// Whether two normalized paths' anchors of `anchor` bytes are the same, a drive's letter in
-// either case on Windows.
-Function SameAnchor(a: UInt8[], b: UInt8[], anchor: Int, windows: Bool): Bool
-    For i = 0 Until anchor
-        If (windows ? Folded(a[i]) : a[i]) != (windows ? Folded(b[i]) : b[i]) Then Return False
     End For
 
     Return True

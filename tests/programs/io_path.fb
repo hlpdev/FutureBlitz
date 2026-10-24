@@ -59,6 +59,13 @@ Print(Relative(Windows("C:\\Games\\save.dat"), Windows("c:/games")))
 Print(Relative(Windows("C:\\games\\save.dat"), Windows("c:/games")))
 Print(Relative(Windows("C:\\a"), Windows("D:\\a")))
 
+// A share is rooted with or without a separator after it.
+Print(Relative(Windows("//server/share/x"), Windows("//server/share")))
+Print(Relative(Windows("//server/share"), Windows("//server/share/")))
+Print(Relative(Windows("\\\\Server\\Share\\a"), Windows("//server/share/b")))
+Print("{Windows("//server/share").Normalize() == Windows("//server/share/").Normalize()} {Windows("//server/share/x").Parent() == Windows("//server/share")}")
+Print("{Windows("//server/share/").Normalize()} {Windows("//server/share/x/..").Normalize()} {Windows("//server/share/").Parent()}")
+
 Print("WithExtension")
 Print("{Posix("save.dat").WithExtension(".bak")} {Posix("a/save").WithExtension("txt")} {Posix("a/b.tar.gz").WithExtension("")}")
 Print("{Posix("a/save.dat/").WithExtension(".bak")} {Windows("C:\\x\\größe.dat").WithExtension(".bin")}")
