@@ -128,6 +128,14 @@ For data In [Png.Encode(pattern), Bmp.Encode(pattern), Tga.Encode(pattern), Qoi.
     Print(Image.FormatOf(data) ?? ImageFormat.HDR, Same(Try Image.Decode(data), pattern))
 End For
 
+// An OS/2 BMP's header of 12 bytes has no compression, so what's where others have it is the
+// pixels: here, a 24-bit one of 2 by 1, whose second pixel's green is 1 and red 0, then 0s to
+// pad its row.
+Local os2: UInt8[] = [0x42, 0x4D, 34, 0, 0, 0, 0, 0, 0, 0, 26, 0, 0, 0, 12, 0, 0, 0, 2, 0, 1, 0,
+                      1, 0, 24, 0, 0x10, 0x20, 0x30, 0x40, 1, 0, 0, 0]
+Local fromOs2 = Try Bmp.Decode(os2)
+Print("OS/2 BMP:", fromOs2.Width, fromOs2.Height, fromOs2[0, 0], fromOs2[1, 0])
+
 // The lossy formats keep smooth colors within a little, and a JPEG has no alpha.
 Local smooth = Smooth(48, 32)
 For quality In [50, 90, 100]
