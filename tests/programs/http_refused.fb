@@ -1,6 +1,7 @@
 // What a request can't send is a NetError of OTHER, blocking and awaited, with nothing sent:
 // text libcurl can't take, a URL, Proxy, User-Agent, or Cookie with a NUL, which C's strings end
-// at, or longer than libcurl's 8,000,000 bytes.
+// at, or longer than libcurl's 8,000,000 bytes, and a redirect to a URL that isn't HTTP's or
+// HTTPS's, which its message names.
 Import std.core
 Import std.collections
 Import std.net.http
@@ -63,6 +64,14 @@ cookie.Add("Cookie", "big={huge}")
 Print(Await Tried(client, "{base}/hello",
                   "the request's Cookie header is longer than the 8000000 bytes libcurl takes",
                   cookie))
+
+Print("== redirects")
+Local away = "{base}/redirect-to?url=ftp://127.0.0.1/file"
+Print(Await Tried(client, away,
+                  "{away} was sent on to ftp://127.0.0.1/file, which isn't an HTTP or HTTPS URL"))
+Local twice = "{base}/redirect-to?url=/redirect-to?url=ftp://127.0.0.1/file"
+Print(Await Tried(client, twice,
+                  "{twice} was sent on to ftp://127.0.0.1/file, which isn't an HTTP or HTTPS URL"))
 
 Print("== after")
 Print(Await Tried(client, "{base}/hello", ""))

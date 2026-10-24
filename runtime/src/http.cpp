@@ -50,6 +50,7 @@ enum outcome_t : std::int8_t {
     OUTCOME_BAD_URL = 9,
     OUTCOME_REDIRECTS = 10,
     OUTCOME_ENDED = 11,
+    OUTCOME_BAD_REDIRECT = 12,
 };
 
 /// Sets up libcurl, once, before its first handle.
@@ -139,6 +140,8 @@ struct transfer_t {
     /// The most redirects it follows, or -1 to follow none, and how many it followed.
     std::int32_t redirects = -1;
     std::int32_t followed = 0;
+    /// Where the last redirect it followed sent it.
+    std::string target;
     std::string user_agent;
     std::string proxy;
     /// The response's body, as it comes.
@@ -508,6 +511,7 @@ next_t redirect(transfer_t& transfer) {
         transfer.expected = -1;
     }
 
+    transfer.target = target;
     std::optional<std::string> refused =
         set_text(transfer.easy, CURLOPT_URL, target, "the URL it was sent on to");
     if (!refused) {
@@ -528,7 +532,15 @@ template <typename GoOn>
 std::optional<std::int32_t> outcome_after(transfer_t& transfer, const CURLcode result,
                                           const GoOn& go_on) {
     if (result != CURLE_OK) {
-        return outcome_of(transfer.easy, result);
+        const outcome_t outcome = outcome_of(transfer.easy, result);
+        // A URL a redirect gave that isn't HTTP's or HTTPS's is the redirect's, not the request's.
+        if (outcome == OUTCOME_BAD_URL && transfer.followed > 0) {
+            transfer.message =
+                std::format("was sent on to {}, which isn't an HTTP or HTTPS URL", transfer.target);
+            return OUTCOME_BAD_REDIRECT;
+        }
+
+        return outcome;
     }
 
     switch (redirect(transfer)) {

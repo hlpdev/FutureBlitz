@@ -49,6 +49,7 @@ Const CLOSED = 5
 Const TLS = 6
 Const TIMED_OUT = 7
 Const BAD_URL = 9
+Const BAD_REDIRECT = 12
 
 // The methods a request can have.
 Public Enum HttpMethod
@@ -441,6 +442,8 @@ Class Transfer
             Case BAD_URL
                 Throw NetError(NetErrorKind.OTHER, "{Url} isn't an HTTP or HTTPS URL: {message}",
                                Url)
+            Case BAD_REDIRECT
+                Throw NetError(NetErrorKind.OTHER, "{Url} {message}", Url)
             Case NO_HOST
                 Throw NetError(NetErrorKind.HOST_NOT_FOUND, message, Url)
             Case REFUSED
