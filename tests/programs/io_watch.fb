@@ -69,6 +69,20 @@ folder.Close()
 folder.Close()
 Print("closed {folder.Next() == Null} {folder.TryNext() == Null} {(Await folder.NextAsync()) == Null}")
 
+// A rename that only changes a name's case is the old spelling's REMOVED and the new one's
+// CREATED, on disks that ignore case too.
+Try Dir.Create(root / "cases")
+Try File.WriteText(root / "cases" / "save.txt", "one")
+Local cases = Try FileWatcher(root / "cases")
+Try File.Move(root / "cases" / "save.txt", root / "cases" / "SAVE.txt")
+Print("case renamed {Await Saw(cases, [(FileEventKind.REMOVED, "save.txt"), (FileEventKind.CREATED, "SAVE.txt")])}")
+Drain(cases)
+Try File.Delete(root / "cases" / "SAVE.txt")
+Print("case removed {Await Saw(cases, [(FileEventKind.REMOVED, "SAVE.txt")])}")
+Try File.WriteText(root / "cases" / "save.txt", "two")
+Print("case made again {Await Saw(cases, [(FileEventKind.CREATED, "save.txt")])}")
+cases.Close()
+
 // A file's own changes.
 Local watched = root / "watched.dat"
 Try File.WriteText(watched, "a")
