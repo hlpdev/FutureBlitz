@@ -81,9 +81,9 @@ Public Struct Body
     // JSON's text, as application/json.
     Public Static Method Json(json: String): Body => Body(json.Bytes, "application/json")
 
-    // A form's fields, in their order, as a browser sends them: each name and value with each
-    // byte but the letters, digits, '-', '.', '_', and '~' as %XX, each pair as name=value, and
-    // '&' between them, as application/x-www-form-urlencoded.
+    // A form's fields, in their order, as application/x-www-form-urlencoded: each name and value
+    // with each byte but the letters, digits, '-', '.', '_', and '~' as %XX, which servers read
+    // as they read a browser's '+' for a space, each pair as name=value, and '&' between them.
     Public Static Method Form(fields: Map<String, String>): Body
         Local pairs: String[] = []
         For name, value In fields
