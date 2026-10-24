@@ -5,6 +5,7 @@
 
 #include "fb/runtime.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -247,6 +248,26 @@ int leave_span(const MD_SPANTYPE type, void* /*detail*/, void* userdata) {
     return leave(state_of(userdata), static_cast<std::int32_t>(kind_t::FIRST_SPAN) + type);
 }
 
+/// Whether a table's cell is among the blocks open.
+bool in_cell(const parse_t& state) {
+    return std::ranges::any_of(state.open, [&state](const std::size_t at) {
+        const std::int32_t kind = state.events[at].kind;
+        return kind == MD_BLOCK_TH || kind == MD_BLOCK_TD;
+    });
+}
+
+/// A code span's text in a table cell, with each "\|" as a '|', as GitHub's tables have it, where
+/// md4c keeps the backslash.
+void append_cell_code(std::string& out, std::string_view part) {
+    for (std::size_t at = part.find("\\|"); at != std::string_view::npos; at = part.find("\\|")) {
+        out += part.substr(0, at);
+        out += '|';
+        part.remove_prefix(at + 2);
+    }
+
+    out += part;
+}
+
 /// Whether raw HTML's text goes on the Html before it, a tag or comment that md4c gives a line at
 /// a time: its blanks and line break at a line's end, then the next line's part.
 bool continues_html(const parse_t& state, const std::string_view part) {
@@ -266,6 +287,11 @@ int text(const MD_TEXTTYPE type, const MD_CHAR* text, const MD_SIZE size, void* 
     // A code block's, a code span's, or an HTML block's text is its own.
     if (!state.open.empty()) {
         event_t& inside = state.events[state.open.back()];
+        if (inside.kind == static_cast<std::int32_t>(kind_t::CODE) && in_cell(state)) {
+            append_cell_code(inside.texts[0], part);
+            return 0;
+        }
+
         if (inside.kind == static_cast<std::int32_t>(kind_t::CODE_BLOCK) ||
             inside.kind == static_cast<std::int32_t>(kind_t::HTML_BLOCK) ||
             inside.kind == static_cast<std::int32_t>(kind_t::CODE)) {

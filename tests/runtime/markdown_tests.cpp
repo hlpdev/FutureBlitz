@@ -616,10 +616,10 @@ struct event_t {
     std::array<std::string, 5> texts;
 };
 
-std::vector<event_t> events_of(const std::string_view markdown) {
+std::vector<event_t> events_of(const std::string_view markdown, const std::int32_t extensions = 0) {
     fb_string_t* text =
         fb_string_from_bytes(markdown.data(), static_cast<std::int64_t>(markdown.size()));
-    void* events = fb_markdown_parse(text, 0);
+    void* events = fb_markdown_parse(text, extensions);
     fb_string_release(text);
     std::vector<event_t> out;
     for (std::int64_t i = 0; i < fb_markdown_count(events); ++i) {
@@ -773,4 +773,26 @@ TEST_CASE("a raw HTML tag or comment that goes on to other lines is one Html", "
     const std::vector<event_t> apart = events_of("a <i>\n</i><b>");
     REQUIRE(of_kind(apart, html_kind).size() == 3);
     CHECK(of_kind(apart, soft_break_kind).size() == 1);
+}
+
+TEST_CASE("a code span in a table's cell takes \\| as a |, in HTML and in a tree", "[runtime]") {
+    // GitHub's tables, example 200.
+    const std::string_view table = "| f\\|oo  |\n| ------ |\n| b `\\|` az |\n| b **\\|** im |";
+    const std::string html = html_of(table, 1);
+    CHECK(html.contains("<th>f|oo</th>"));
+    CHECK(html.contains("<td>b <code>|</code> az</td>"));
+    CHECK(html.contains("<td>b <strong>|</strong> im</td>"));
+    const std::vector<event_t> code = of_kind(events_of(table, 1), code_kind);
+    REQUIRE(code.size() == 1);
+    CHECK(code[0].texts[0] == "|");
+
+    // One outside a table keeps its backslash, as CommonMark has it, and "\\|" is a "\|".
+    CHECK(html_of("`a \\| b`") == "<p><code>a \\| b</code></p>\n");
+    CHECK(html_of("| a |\n|---|\n| `\\\\|` |", 1).contains("<td><code>\\|</code></td>"));
+}
+
+TEST_CASE("a numeric reference to a surrogate is U+FFFD in HTML, as in a tree", "[runtime]") {
+    CHECK(html_of("&#xD800; [a](/&#55296; \"&#xDFFF;\")") ==
+          "<p>\xEF\xBF\xBD <a href=\"/%EF%BF%BD\" title=\"\xEF\xBF\xBD\">a</a></p>\n");
+    CHECK(html_of("&#xD7FF; &#xE000;") == "<p>\xED\x9F\xBF \xEE\x80\x80</p>\n");
 }
