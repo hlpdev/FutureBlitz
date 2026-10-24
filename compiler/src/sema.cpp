@@ -631,6 +631,14 @@ private:
     std::unordered_map<symbol_id_t, std::vector<symbol_id_t>> m_reaches;
     /// The lambdas' symbols, which an error's path leaves out, as part of the code around them.
     std::unordered_set<symbol_id_t> m_lambda_code;
+    /// What each trial that's running added to m_reaches, m_main_only, and m_lambda_code, the
+    /// innermost last, which on_trial() takes back.
+    struct trial_t {
+        std::vector<symbol_id_t> reaches;
+        std::vector<symbol_id_t> main_only;
+        std::vector<symbol_id_t> lambda_code;
+    };
+    std::vector<trial_t> m_trials;
     /// The functions whose parameters' defaults are checked: all of them before any code, and a
     /// Const Function's earlier, when a Const or a type runs it without an argument.
     std::unordered_set<symbol_id_t> m_defaults_checked;
@@ -953,6 +961,53 @@ private:
         m_handlers = saved_handlers;
         m_workers.resize(saved_workers);
         return result;
+    }
+
+    /// Like quietly(), for a try that's checked again once it's settled, as an overload's is: what
+    /// it notes for the thread rules goes too, the code each code reaches and what has to run on
+    /// the main thread, so an overload that isn't chosen leaves nothing of what its types made of
+    /// the arguments.
+    template <typename Function>
+    auto on_trial(Function&& function) {
+        m_trials.emplace_back();
+        auto result = quietly(std::forward<Function>(function));
+        const trial_t trial = std::move(m_trials.back());
+        m_trials.pop_back();
+        for (const symbol_id_t code : std::views::reverse(trial.reaches)) {
+            m_reaches[code].pop_back();
+        }
+
+        for (const symbol_id_t code : trial.main_only) {
+            m_main_only.erase(code);
+        }
+
+        for (const symbol_id_t lambda : trial.lambda_code) {
+            m_lambda_code.erase(lambda);
+        }
+
+        return result;
+    }
+
+    /// Notes that `code` can run `reached`, for the thread rules.
+    void add_reach(const symbol_id_t code, const symbol_id_t reached) {
+        m_reaches[code].push_back(reached);
+        if (!m_trials.empty()) {
+            m_trials.back().reaches.push_back(code);
+        }
+    }
+
+    /// Notes why `code` has to run on the main thread, unless it has a reason already.
+    void add_main_only(const symbol_id_t code, const main_only_t& why) {
+        if (m_main_only.try_emplace(code, why).second && !m_trials.empty()) {
+            m_trials.back().main_only.push_back(code);
+        }
+    }
+
+    /// Notes a lambda's symbol, as part of the code around it.
+    void add_lambda_code(const symbol_id_t lambda) {
+        if (m_lambda_code.insert(lambda).second && !m_trials.empty()) {
+            m_trials.back().lambda_code.push_back(lambda);
+        }
     }
 
     /// Like quietly(), for a try whose result is used without resolving its names again: a name
@@ -10215,12 +10270,12 @@ private:
         const symbol_t& used = symbol(id);
         const auto main_only = [&](std::string what, const type_id_t type = type_id_t::INVALID,
                                    std::string rest = {}) {
-            m_main_only.try_emplace(*code, main_only_t{
-                                               .what = std::move(what),
-                                               .span = span,
-                                               .type = type,
-                                               .rest = std::move(rest),
-                                           });
+            add_main_only(*code, main_only_t{
+                                     .what = std::move(what),
+                                     .span = span,
+                                     .type = type,
+                                     .rest = std::move(rest),
+                                 });
         };
 
         // "uses the Static Field 'Enemy.count', which ...", with its type apart.
@@ -10259,7 +10314,7 @@ private:
         case symbol_kind_t::FUNCTION:
         case symbol_kind_t::METHOD:
         case symbol_kind_t::CONSTRUCTOR:
-            m_reaches[*code].push_back(id);
+            add_reach(*code, id);
             if (used.modifiers.is_main_thread) {
                 names("calls", "which is @MainThread");
             } else if (used.modifiers.is_async) {
@@ -10270,7 +10325,7 @@ private:
         case symbol_kind_t::PROPERTY:
             for (const std::optional<symbol_id_t> accessor : { used.getter, used.setter }) {
                 if (accessor) {
-                    m_reaches[*code].push_back(*accessor);
+                    add_reach(*code, *accessor);
                 }
             }
 
@@ -15194,10 +15249,10 @@ private:
         m_flow.reachable = true;
         m_handlers.push_back({ .kind = handler_kind_t::SEALED, .what = "a Parallel For's body" });
         if (const std::optional<symbol_id_t> code = current_code()) {
-            m_reaches[*code].push_back(function);
+            add_reach(*code, function);
         }
 
-        m_lambda_code.insert(function);
+        add_lambda_code(function);
         m_lambdas.push_back({
             .function = function,
             .boundary = m_scopes.size(),
@@ -20154,12 +20209,11 @@ private:
         }
 
         if (const std::optional<symbol_id_t> code = current_code()) {
-            m_main_only.try_emplace(*code,
-                                    main_only_t{
-                                        .what = "makes a Scheduler, whose coroutines run on the "
-                                                "main thread",
-                                        .span = span_of(node.callee),
-                                    });
+            add_main_only(*code, main_only_t{
+                                     .what = "makes a Scheduler, whose coroutines run on the main "
+                                             "thread",
+                                     .span = span_of(node.callee),
+                                 });
         }
 
         return m_analysis.types.scheduler();
@@ -22495,7 +22549,7 @@ private:
         // default type may still fit a parameter, so only other invalid arguments stop here.
         std::vector<type_id_t> types;
         for (const argument_t& argument : node.arguments) {
-            const type_id_t type = quietly([&] { return check(argument.value, type_id_t::NONE); });
+            const type_id_t type = on_trial([&] { return check(argument.value, type_id_t::NONE); });
             if (type == type_id_t::INVALID && !is_flexible(argument.value) &&
                 !is_null(argument.value) && !names_generic_function(argument.value) &&
                 !takes_func_type(argument.value) && !names_overloads(argument.value) &&
@@ -22511,7 +22565,7 @@ private:
         std::vector<symbol_id_t> convertible;
         std::vector<symbol_id_t> any;
         for (const symbol_id_t candidate : candidates) {
-            const match_t match = quietly([&] { return rank(candidate, node); });
+            const match_t match = on_trial([&] { return rank(candidate, node); });
             if (match == match_t::EXACT) {
                 exact.push_back(candidate);
             } else if (match == match_t::CONVERTIBLE) {
@@ -22550,7 +22604,7 @@ private:
             std::vector<symbol_id_t> kept;
             for (const symbol_id_t candidate : tied) {
                 const std::optional<binding_t> bound =
-                    quietly([&] { return bind(candidate, node, span_of(node.callee)); });
+                    on_trial([&] { return bind(candidate, node, span_of(node.callee)); });
                 const std::vector<symbol_id_t>& parameters = symbol(candidate).parameters;
                 const bool packs = bound && !parameters.empty() &&
                                    symbol(parameters.back()).variadic && !bound->slots.back();
@@ -22604,7 +22658,7 @@ private:
             // says which type doesn't meet them.
             std::vector<symbol_id_t> unmet;
             for (const symbol_id_t candidate : candidates) {
-                if (quietly([&] { return rank(candidate, node, false); }) != match_t::NONE) {
+                if (on_trial([&] { return rank(candidate, node, false); }) != match_t::NONE) {
                     unmet.push_back(candidate);
                 }
             }
@@ -23556,12 +23610,11 @@ private:
         });
         // An Async lambda's code runs on the main thread, as an Async Function's does.
         if (const std::optional<symbol_id_t> code = current_code(); code && node.is_async) {
-            m_main_only.try_emplace(*code,
-                                    main_only_t{
-                                        .what = "makes an Async lambda, whose code runs on the "
-                                                "main thread",
-                                        .span = span,
-                                    });
+            add_main_only(*code, main_only_t{
+                                     .what = "makes an Async lambda, whose code runs on the main "
+                                             "thread",
+                                     .span = span,
+                                 });
         }
 
         lambda_context_t lambda = check_lambda_body(node, function, weak, result);
@@ -23709,10 +23762,10 @@ private:
         m_flow.reachable = true;
         m_handlers.push_back({ .kind = handler_kind_t::SEALED, .what = "a lambda" });
         if (const std::optional<symbol_id_t> code = current_code()) {
-            m_reaches[*code].push_back(function);
+            add_reach(*code, function);
         }
 
-        m_lambda_code.insert(function);
+        add_lambda_code(function);
         // Its code runs when it's called, not in the Lock blocks around it.
         const std::size_t locks = std::exchange(m_locks, 0);
 
