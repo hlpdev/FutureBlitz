@@ -9181,6 +9181,24 @@ TEST_CASE("a Sendable Func is a lambda or a Function's name that other threads c
     CHECK(probe(std::format("{}Local f: (Sendable Func(Int): Int)? = Twice\n"
                             "Local g = Send(f)",
                             twice)) == "Sendable Func(Int32): Int32");
+    // An overloaded function or New takes one too.
+    CHECK(with_twice("Shared Class Lazy<T: Sendable>\n"
+                     "    ReadOnly Field Maker: Sendable Func(): T\n"
+                     "    New(maker: Sendable Func(): T)\n"
+                     "        Maker = maker\n"
+                     "    End New\n"
+                     "    New(maker: Sendable Func(): T, label: String)\n"
+                     "        Maker = maker\n"
+                     "    End New\n"
+                     "End Class\n"
+                     "Function Answer(): Int => 42\n"
+                     "Function Inc(x: Int): Int => x + 1\n"
+                     "Function Run(f: Sendable Func(Int): Int): Int => f(1)\n"
+                     "Function Run(f: (Sendable Func(Int): Int)?, n: Int): Int => n\n"
+                     "Local a = Lazy<Int>(Answer)\n"
+                     "Local b = Lazy<String>(Function(): String => \"x\", \"label\")\n"
+                     "Local c = Run(Inc) + Run(Function(x: Int) => x + 1, 5) + Run(Inc, 2)")
+              .empty());
     CHECK(with_twice("Local f: Func(Int): Int = Twice\n"
                      "Local g: Sendable Func(Int): Int = f") ==
           errors_t{ "f: expected Sendable Func(Int32): Int32, found Func(Int32): Int32, which "

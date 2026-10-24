@@ -21764,6 +21764,17 @@ private:
             return check(argument.value, type) == type ? match_t::EXACT : match_t::NONE;
         }
 
+        // And a Sendable Func only where one is expected, maybe as a T?.
+        if (is_sendable_func(non_null(type)) && !argument.by_ref && is_code(argument.value)) {
+            const type_id_t made = check(argument.value, type);
+            if (made == type) {
+                return match_t::EXACT;
+            }
+
+            return made != type_id_t::INVALID && converts(made, type) ? match_t::CONVERTIBLE
+                                                                      : match_t::NONE;
+        }
+
         // A generic Function's name fits a Func its type arguments can make.
         if (!argument.by_ref && names_generic_function(argument.value)) {
             const type_id_t made = check(argument.value, type);
