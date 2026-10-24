@@ -6,6 +6,8 @@ field 0: SYNTAX: the bytes aren't protobuf's wire format: a tag of field 0 at by
 wire type 6: SYNTAX: the bytes aren't protobuf's wire format: a tag of wire type 6 at byte 0
 wire type 7: SYNTAX: the bytes aren't protobuf's wire format: a tag of wire type 7 at byte 0
 a tag past field 536870911: SYNTAX: the bytes aren't protobuf's wire format: a tag past field 536870911 at byte 0
+a tag of 6 bytes: SYNTAX: the bytes aren't protobuf's wire format: a tag of more than 5 bytes at byte 0
+a length of 6 bytes: SYNTAX: the bytes aren't protobuf's wire format: a length of more than 5 bytes at byte 1
 a group's end without its start: SYNTAX: the bytes aren't protobuf's wire format: the end of a group of field 1 that isn't open at byte 0
 a group without its end: UNEXPECTED_END: the bytes end inside a group of field 1 at byte 3
 a group that ends with another's end: SYNTAX: the bytes aren't protobuf's wire format: the end of a group of field 2 that isn't open at byte 1
