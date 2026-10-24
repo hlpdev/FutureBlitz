@@ -82,6 +82,41 @@ Public Class HdrImage
     // A new image of the same pixels.
     Public Method Clone(): HdrImage => HdrImage(Columns, Rows, Pixels.Clone())
 
+    // An image's pixels in linear light, through sRGB's gamma, as Color32's ToColor gives them.
+    Public Static Method FromImage(image: Image): HdrImage
+        Local linear: Color[] = []
+        For byte = 0 To 255
+            linear.Add(Color32(byte As UInt8, 0, 0, byte As UInt8).ToColor())
+        End For
+
+        Local bytes = image.Pixels
+        Local values: Float32[] = []
+        values.Reserve(bytes.Count)
+        For at = 0 Until bytes.Count Step 4
+            values.Add(linear[bytes[at] As Int].r)
+            values.Add(linear[bytes[at + 1] As Int].r)
+            values.Add(linear[bytes[at + 2] As Int].r)
+            values.Add(linear[bytes[at + 3] As Int].a)
+        End For
+        Return HdrImage(image.Width, image.Height, values)
+    End Method
+
+    // Its pixels in sRGB bytes, through sRGB's gamma, as Color's ToColor32 gives them: each kept
+    // from 0 to 255, so what's brighter than white is white, and NaN taken as 0.
+    Public Method ToImage(): Image
+        Local bytes: UInt8[] = []
+        bytes.Reserve(Pixels.Count)
+        For at = 0 Until Pixels.Count Step 4
+            Local color = Color(Pixels[at], Pixels[at + 1], Pixels[at + 2], Pixels[at + 3])
+            Local srgb = color.ToColor32()
+            bytes.Add(srgb.r)
+            bytes.Add(srgb.g)
+            bytes.Add(srgb.b)
+            bytes.Add(srgb.a)
+        End For
+        Return Image.Of(Columns, Rows, bytes)
+    End Method
+
     // Where the pixel's Floats start in Pixels. Panics when it's outside the image.
     @PanicsAtCaller
     Method FloatOf(x: Int, y: Int): Int

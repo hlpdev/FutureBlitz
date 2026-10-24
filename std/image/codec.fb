@@ -26,6 +26,16 @@ Package Extern "runtime"
     Function fb_image_gif_encoder_add(encoder: Ptr<Void>, pixels: UInt8[], delay: Int32)
     Function fb_image_gif_encoder_finish(encoder: Ptr<Void>, output: UInt8[])
     Function fb_image_gif_encoder_free(encoder: Ptr<Void>)
+    Function fb_image_resize(pixels: UInt8[], width: Int64, height: Int64, newWidth: Int64,
+                             newHeight: Int64, filter: Int32, output: UInt8[])
+    Function fb_image_crop(pixels: UInt8[], width: Int64, x: Int64, y: Int64, cropWidth: Int64,
+                           cropHeight: Int64, output: UInt8[])
+    Function fb_image_orient(pixels: UInt8[], width: Int64, height: Int64, how: Int32,
+                             output: UInt8[])
+    Function fb_image_blit(target: UInt8[], width: Int64, height: Int64, source: UInt8[],
+                           sourceWidth: Int64, sourceHeight: Int64, x: Int64, y: Int64,
+                           blend: Int32)
+    Function fb_image_fill(target: UInt8[], rgba: UInt32)
     Function fb_stb_decode(data: UInt8[], format: Int32, limit: Int64): Ptr<Void>
     Function fb_stb_decode_apng(data: UInt8[], limit: Int64): Ptr<Void>
     Function fb_stb_encode(pixels: UInt8[], width: Int64, height: Int64, format: Int32,

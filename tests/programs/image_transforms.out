@@ -1,0 +1,39 @@
+NEAREST to 9 by 7 colors: 0 alpha: 0 True
+NEAREST to 37 by 26 colors: 0 alpha: 0 True
+NEAREST to 40 by 5 colors: 0 alpha: 0 True
+BOX to 9 by 7 colors: 1 alpha: 1 True
+BOX to 37 by 26 colors: 0 alpha: 0 True
+BOX to 40 by 5 colors: 0 alpha: 0 True
+BILINEAR to 9 by 7 colors: 1 alpha: 1 True
+BILINEAR to 37 by 26 colors: 1 alpha: 1 True
+BILINEAR to 40 by 5 colors: 1 alpha: 1 True
+BICUBIC to 9 by 7 colors: 1 alpha: 1 True
+BICUBIC to 37 by 26 colors: 1 alpha: 1 True
+BICUBIC to 40 by 5 colors: 1 alpha: 1 True
+LANCZOS to 9 by 7 colors: 1 alpha: 1 True
+LANCZOS to 37 by 26 colors: 1 alpha: 1 True
+LANCZOS to 40 by 5 colors: 1 alpha: 1 True
+BOX (0, 0, 255, 128) True
+BILINEAR (0, 0, 255, 128) True
+BICUBIC (0, 0, 255, 128) True
+LANCZOS (0, 0, 255, 128) True
+0 5 0
+0 0
+numbered: 3x2 123/456
+flipped across: 3x2 321/654
+flipped down: 3x2 456/123
+turned clockwise: 2x3 41/52/63
+turned counterclockwise: 2x3 36/25/14
+turned a half: 3x2 654/321
+and a half more: 3x2 123/456
+cropped: 2x2 23/56
+cropped again: 1x1 6
+cropped to nothing: 0 0
+drawn: (0, 0, 255, 255) (0, 0, 255, 255) (128, 0, 127, 255) (0, 0, 255, 255)
+pasted: (255, 0, 0, 128) (9, 9, 9, 0)
+over a translucent pixel: (146, 109, 0, 112) (0, 255, 0, 64)
+pasted on itself: 3x2 112/445
+drawn on itself: 3x2 452/445
+16 16 (0.002428216, 0.9301109, 0.001214108, 0.03137255) (1, 0, 0.21223076, 1)
+True
+(255, 188, 0, 255) (0, 255, 128, 128)

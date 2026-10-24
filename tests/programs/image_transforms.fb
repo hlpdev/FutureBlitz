@@ -1,0 +1,174 @@
+// std.image's transforms: Resize gives what Pillow does, within a little, by each filter, its
+// alpha too, and a transparent pixel's color counts for nothing; Crop, the flips and turns, Draw,
+// Paste, and Fill give known pixels, and an Image converts to an HdrImage and back.
+// image_transforms/make_data.py says how Pillow's were made.
+
+Import std.core
+Import std.collections
+Import std.math.color
+Import std.image
+Import "./image_transforms/data"
+
+// The most two arrays' bytes differ by, one from the other, or 256 when their counts differ.
+Function Farthest(a: UInt8[], b: UInt8[]): Int
+    If a.Count != b.Count Then Return 256
+    Local most = 0
+    For i = 0 Until a.Count
+        Local difference = (a[i] As Int) - (b[i] As Int)
+        most = Max(most, difference < 0 ? -difference : difference)
+    End For
+    Return most
+End Function
+
+// White, with Mask's alpha.
+Function Masked(): Image
+    Local bytes: UInt8[] = []
+    For value In Mask()
+        bytes.AddAll([255, 255, 255, value])
+    End For
+    Return Image.FromBytes(23, 17, bytes)
+End Function
+
+// The image's alphas, as an L image's bytes, and whether every pixel that isn't transparent is
+// still white.
+Function AlphaOf(image: Image): (UInt8[], Bool)
+    Local bytes = image.ToBytes()
+    Local alpha: UInt8[] = []
+    Local white = True
+    For i = 0 Until bytes.Count Step 4
+        alpha.Add(bytes[i + 3])
+        If bytes[i + 3] != 0
+            white = white && bytes[i] == 255 && bytes[i + 1] == 255 && bytes[i + 2] == 255
+        End If
+    End For
+    Return (alpha, white)
+End Function
+
+Function Resized(filter: ResizeFilter, width: Int, height: Int, expected: UInt8[],
+                 mask: UInt8[])
+    Local image = Image.FromBytes(23, 17, Source())
+    image.Resize(width, height, filter)
+    Local masked = Masked()
+    masked.Resize(width, height, filter)
+    Local alpha = AlphaOf(masked)
+    Print(filter, "to", image.Width, "by", image.Height, "colors:",
+          Farthest(image.ToBytes(), expected), "alpha:", Farthest(alpha.0, mask), alpha.1)
+End Function
+
+Resized(ResizeFilter.NEAREST, 9, 7, Nearest9x7(), Nearest9x7Mask())
+Resized(ResizeFilter.NEAREST, 37, 26, Nearest37x26(), Nearest37x26Mask())
+Resized(ResizeFilter.NEAREST, 40, 5, Nearest40x5(), Nearest40x5Mask())
+Resized(ResizeFilter.BOX, 9, 7, Box9x7(), Box9x7Mask())
+Resized(ResizeFilter.BOX, 37, 26, Box37x26(), Box37x26Mask())
+Resized(ResizeFilter.BOX, 40, 5, Box40x5(), Box40x5Mask())
+Resized(ResizeFilter.BILINEAR, 9, 7, Bilinear9x7(), Bilinear9x7Mask())
+Resized(ResizeFilter.BILINEAR, 37, 26, Bilinear37x26(), Bilinear37x26Mask())
+Resized(ResizeFilter.BILINEAR, 40, 5, Bilinear40x5(), Bilinear40x5Mask())
+Resized(ResizeFilter.BICUBIC, 9, 7, Bicubic9x7(), Bicubic9x7Mask())
+Resized(ResizeFilter.BICUBIC, 37, 26, Bicubic37x26(), Bicubic37x26Mask())
+Resized(ResizeFilter.BICUBIC, 40, 5, Bicubic40x5(), Bicubic40x5Mask())
+Resized(ResizeFilter.LANCZOS, 9, 7, Lanczos9x7(), Lanczos9x7Mask())
+Resized(ResizeFilter.LANCZOS, 37, 26, Lanczos37x26(), Lanczos37x26Mask())
+Resized(ResizeFilter.LANCZOS, 40, 5, Lanczos40x5(), Lanczos40x5Mask())
+
+// A transparent red beside an opaque blue makes no purple, by any filter but the nearest; a
+// filter at the image's own size changes nothing; and an image resizes to nothing and back.
+For filter In [ResizeFilter.BOX, ResizeFilter.BILINEAR, ResizeFilter.BICUBIC,
+               ResizeFilter.LANCZOS]
+    Local pair = Image.FromBytes(2, 1, [255, 0, 0, 0, 0, 0, 255, 255])
+    pair.Resize(1, 1, filter)
+    Local same = Image.FromBytes(23, 17, Source())
+    same.Resize(23, 17, filter)
+    Print(filter, pair[0, 0], same.ToBytes() == Source())
+End For
+Local nothing = Image(3, 2)
+nothing.Resize(0, 5)
+Print(nothing.Width, nothing.Height, nothing.ToBytes().Count)
+nothing.Resize(0, 0)
+Print(nothing.Width, nothing.Height)
+
+// An image of 3 by 2 whose pixels are numbered in their reds, from the top left across.
+Function Numbered(): Image
+    Local image = Image(3, 2)
+    For y = 0 Until 2
+        For x = 0 Until 3
+            image[x, y] = Color32((y * 3 + x + 1) As UInt8, 0, 0, 255)
+        End For
+    End For
+    Return image
+End Function
+
+// Its pixels' reds, by rows.
+Function Reds(image: Image): String
+    Local rows: String[] = []
+    For y = 0 Until image.Height
+        Local row = ""
+        For x = 0 Until image.Width
+            row = row + "{image[x, y].r}"
+        End For
+        rows.Add(row)
+    End For
+    Return "{image.Width}x{image.Height} " + rows.Join("/")
+End Function
+
+Print("numbered:", Reds(Numbered()))
+Local flipped = Numbered()
+flipped.FlipHorizontal()
+Print("flipped across:", Reds(flipped))
+flipped = Numbered()
+flipped.FlipVertical()
+Print("flipped down:", Reds(flipped))
+Local turned = Numbered()
+turned.RotateClockwise()
+Print("turned clockwise:", Reds(turned))
+turned = Numbered()
+turned.RotateCounterclockwise()
+Print("turned counterclockwise:", Reds(turned))
+turned = Numbered()
+turned.Rotate180()
+Print("turned a half:", Reds(turned))
+turned.RotateClockwise()
+turned.RotateClockwise()
+Print("and a half more:", Reds(turned))
+Local cropped = Numbered()
+cropped.Crop(1, 0, 2, 2)
+Print("cropped:", Reds(cropped))
+cropped.Crop(1, 1, 1, 1)
+Print("cropped again:", Reds(cropped))
+cropped.Crop(1, 1, 0, 0)
+Print("cropped to nothing:", cropped.Width, cropped.Height)
+
+// Half red drawn over blue, a transparent pixel drawn over nothing, and what falls outside left
+// out; Paste replaces alpha too; an image drawn on itself is drawn as it was.
+Local canvas = Image(3, 2)
+canvas.Fill(Color32(0, 0, 255, 255))
+Local stamp = Image.FromBytes(2, 1, [255, 0, 0, 128, 9, 9, 9, 0])
+canvas.Draw(stamp, -1, 0)
+canvas.Draw(stamp, 2, 1)
+Print("drawn:", canvas[0, 0], canvas[1, 0], canvas[2, 1], canvas[1, 1])
+canvas.Paste(stamp, 1, 0)
+Print("pasted:", canvas[1, 0], canvas[2, 0])
+Local over = Image(2, 2)
+over.Fill(Color32(0, 255, 0, 64))
+over.Draw(Image.FromBytes(1, 1, [255, 0, 0, 64]), 0, 0)
+Print("over a translucent pixel:", over[0, 0], over[1, 1])
+Local itself = Numbered()
+itself.Paste(itself, 1, 0)
+Print("pasted on itself:", Reds(itself))
+itself.Draw(itself, -1, -1)
+Print("drawn on itself:", Reds(itself))
+
+// An image's pixels in linear light and back are the same bytes, every byte of them.
+Local bytes: UInt8[] = []
+For value = 0 To 255
+    bytes.AddAll([value As UInt8, (255 - value) As UInt8, (value / 2) As UInt8, value As UInt8])
+End For
+Local everyByte = Image.FromBytes(16, 16, bytes)
+Local linear = HdrImage.FromImage(everyByte)
+Print(linear.Width, linear.Height, linear[8, 0], linear[15, 15])
+Print(linear.ToImage().ToBytes() == bytes)
+Local bright = HdrImage(2, 1)
+bright[0, 0] = Color(4, 0.5, -1, 1)
+bright[1, 0] = Color(0, 1, 0.2158605, 0.5)
+Local shown = bright.ToImage()
+Print(shown[0, 0], shown[1, 0])
