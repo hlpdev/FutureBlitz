@@ -1,2 +1,2 @@
-True
+True 0
 panic: CSV's records are an Array, not OBJECT at panic_data_csv_records.fb:6:7

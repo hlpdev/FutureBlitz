@@ -2,5 +2,5 @@
 Import std.core
 Import std.data.csv
 
-Print(Csv.WriteRecords(Value.Array()) == "\n")
+Print(Csv.WriteRecords(Value.Array()) == "", (Try Csv.ReadRecords("")).Count)
 Print(Csv.WriteRecords(Value.Object()))
