@@ -1,0 +1,147 @@
+// A Vfs reads the same files from a folder and from files in memory, as EmbedFolder gives them,
+// through one tree: a later mount over a place comes first, a folder lists what every mount has
+// in it, and a mount is a folder of the ones it's in. Everything on the disk is in a temporary
+// folder of the program's own.
+Import std.collections
+Import std.core
+Import std.io
+
+Local temp = Try TempDir("fb-vfs-")
+Local root = temp.Path
+
+// The files in memory, by their paths, as EmbedFolder gives a folder's.
+Local embedded: Map<String, UInt8[]> = {
+    "levels/one.txt": "level one".Bytes,
+    "levels/two.txt": "level two\r\nwith a second line".Bytes,
+    "music/größe.ogg": [0, 1, 2, 255],
+    "readme.txt": "the game".Bytes,
+}
+
+// The same files on the disk.
+For path, bytes In embedded
+    Try Dir.CreateAll((root / "game" / path).Parent())
+    Try File.WriteBytes(root / "game" / path, bytes)
+End For
+
+Print("the same file from a folder and from memory")
+Local fromFolder = Vfs()
+fromFolder.MountFolder("", root / "game")
+Local fromMemory = Vfs()
+fromMemory.MountEmbedded("", embedded)
+For path, bytes In embedded
+    Local a = Try fromFolder.ReadBytes(path)
+    Local b = Try fromMemory.ReadBytes(path)
+    Print("  {path} {a == bytes && b == bytes}")
+End For
+
+Print("[{Try fromFolder.ReadText("levels/one.txt")}] {Try fromMemory.ReadLines("levels/two.txt")}")
+Print("{Try fromFolder.ReadLines("levels/two.txt")}")
+
+Print("the trees")
+For vfs In [fromFolder, fromMemory]
+    Local listed: String[] = []
+    For entry In Try vfs.Walk()
+        listed.Add("{entry.Path}:{entry.Kind}")
+    End For
+
+    Print("  {listed}")
+End For
+
+Print("mounts over mounts")
+// A mod's folder over the game's files in memory: its files come first, the rest are the game's.
+Try Dir.CreateAll(root / "mod" / "levels")
+Try File.WriteText(root / "mod" / "levels" / "two.txt", "the mod's level two")
+Try File.WriteText(root / "mod" / "levels" / "three.txt", "the mod's level three")
+Local game = Vfs()
+game.MountEmbedded("data", embedded)
+game.MountFolder("data", root / "mod")
+For path In ["data/levels/one.txt", "data/levels/two.txt", "data/levels/three.txt", "data/readme.txt"]
+    Print("  {path}: {Try game.ReadText(path)}")
+End For
+
+For entry In Try game.Entries("data/levels")
+    Print("  {entry.Name()} {entry.Path} {entry.Kind}")
+End For
+
+// The folder is read as it's asked, so it sees what changes in it.
+Try File.WriteText(root / "mod" / "readme.txt", "the mod's readme")
+Print("  {Try game.ReadText("data/readme.txt")}")
+Try File.Delete(root / "mod" / "readme.txt")
+Print("  {Try game.ReadText("data/readme.txt")}")
+Print("  {game.Unmount("data")} {Try game.ReadLines("data/levels/two.txt")} {game.Exists("data/levels/three.txt")}")
+Print("  {game.Unmount("data")} {game.Unmount("data")} {game.Exists("data/readme.txt")}")
+
+Print("places")
+Local deep = Vfs()
+deep.MountEmbedded("a/b/c", embedded)
+deep.MountEmbedded("a/x", {"y.txt": "y".Bytes})
+For path In ["", "/", "a", "a/b", "a/b/c", "a/b/c/levels", "a/b/c/readme.txt", "a/x/y.txt", "a/./b/../x",
+             "a/missing", "a\\b\\c\\readme.txt", "../a"]
+    Local kind = Try deep.KindOf(path)
+    Print("  [{path}] {kind == Null ? "none" : "{kind}"} {deep.Exists(path)} {deep.DirExists(path)}")
+End For
+
+For entry In Try deep.Entries("a")
+    Print("  a has {entry.Name()} {entry.Kind}")
+End For
+
+Local globbed: String[] = []
+For entry In Try deep.Glob("a", "**/*.txt")
+    globbed.Add(entry.Relative.Text)
+End For
+
+Print("  {globbed}")
+
+Print("errors")
+Function Failure(vfs: Vfs, path: Path): String
+    Try
+        vfs.ReadBytes(path)
+    Catch e As IOError
+        Return "{e.Kind} {e.Message}"
+    End Try
+
+    Return "fine"
+End Function
+
+Print("  {Failure(deep, "a/b/c/missing.txt")}")
+Print("  {Failure(deep, "a/b/c/levels")}")
+Print("  {Failure(deep, "../escape.txt")}")
+Print("  {Failure(fromFolder, "../mod/levels/two.txt")}")
+Try
+    deep.Entries("a/b/c/readme.txt")
+Catch e As IOError
+    Print("  {e.Kind}")
+End Try
+
+Print("async")
+Print("  [{Try Await fromFolder.ReadTextAsync("levels/one.txt")}] [{Try Await fromMemory.ReadTextAsync("readme.txt")}]")
+Print("  {Try Await fromFolder.ReadLinesAsync("levels/two.txt")}")
+Try
+    Await fromFolder.ReadBytesAsync("missing.txt")
+Catch e As IOError
+    Print("  {e.Kind}")
+End Try
+
+// A source of the program's own: what it makes as it's asked.
+Class Numbers Implements VfsSource
+    Method Read(path: String): UInt8[]? Throws IOError
+        If path == "" Then Return Null
+        Return "number {path}".Bytes
+    End Method
+
+    Method KindAt(path: String): FileKind? Throws IOError => path == "" ? FileKind.DIRECTORY : FileKind.FILE
+    Method List(path: String): (String, FileKind)[]? Throws IOError => path == "" ? [("1", FileKind.FILE)] : Null
+End Class
+
+Print("a source of its own")
+Local numbers = Vfs()
+numbers.Mount("n", Numbers())
+Print("  [{Try numbers.ReadText("n/42")}] {(Try numbers.Entries("n")).Count}")
+
+// A read gives a copy, so changing it changes no later read.
+Local copy = Try fromMemory.ReadBytes("readme.txt")
+copy[0] = 84
+Print("  [{Try fromMemory.ReadText("readme.txt")}]")
+
+Try temp.Close()
+Print("left {Dir.Exists(root)}")
