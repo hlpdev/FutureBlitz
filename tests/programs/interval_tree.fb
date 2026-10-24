@@ -100,3 +100,18 @@ Print(a.Contains(1, 3, "y"), a.Contains(1, 3, "z"), a.Contains(1, 4, "x"), a == 
 b.Remove(1, 3, "x")
 b.Add(1, 3, "x")
 Print(a == b, b.ToArray())
+
+// A consumer or a For ... In goes over a copy of an Iterator, so one partly used doesn't move.
+Local fifty = IntervalTree<Int, Int>()
+For i = 0 Until 50
+    fifty.Add(i, i + 1, i)
+End For
+
+Local intervals = fifty.Iterate()
+intervals.Next()
+Print(intervals.Count(), intervals.Count(), intervals.Next() ?? (-1, -1, -1))
+Local looped = 0
+For interval In intervals
+    looped += 1
+End For
+Print(looped, intervals.Count())

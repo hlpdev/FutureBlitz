@@ -130,7 +130,7 @@ Public Class IntervalTree<K, V> Implements Iterable<(K, K, V)>, Cloneable, Defau
     // Each interval's low and high with each of its values, as a tuple, by low and then by high.
     // Adding or removing a value while going over them panics.
     Public Method Iterate(): IntervalTreeIterator<K, V>
-        Local iterator = IntervalTreeIterator<K, V>(Self, [], Null, 0, Changes)
+        Local iterator = IntervalTreeIterator<K, V>(Self, Null, Null, 0, Changes)
         iterator.Descend(Root)
         Return iterator
     End Method
@@ -272,13 +272,25 @@ Public Class IntervalTree<K, V> Implements Iterable<(K, K, V)>, Cloneable, Defau
     End Method
 End Class
 
+// The nodes on the way down to an IntervalTreeIterator's next one, the lowest first. A step makes
+// new ones rather than changing these, so a copy of the iterator keeps its place.
+Class IntervalPath<K, V>
+    ReadOnly Field Node: IntervalNode<K, V>
+    ReadOnly Field Up: IntervalPath<K, V>?
+
+    New(node: IntervalNode<K, V>, up: IntervalPath<K, V>?)
+        Node = node
+        Up = up
+    End New
+End Class
+
 // The intervals in order: the nodes on the way down to the next one, the node it's at, and which
 // of its values comes next.
 Public Struct IntervalTreeIterator<K, V> Implements Iterator<(K, K, V)>
     Where K: Comparable
 
     Field Owner: IntervalTree<K, V>
-    Field Nodes: IntervalNode<K, V>[]
+    Field Path: IntervalPath<K, V>?
     Field Node: IntervalNode<K, V>?
     Field Index: Int
     Field Changes: Int64
@@ -296,11 +308,12 @@ Public Struct IntervalTreeIterator<K, V> Implements Iterator<(K, K, V)>
                 Return (node.Low, node.High, node.Values[Index - 1])
             End If
 
-            If Nodes.Count == 0 Then Return Null
-            Local next = Nodes.RemoveLast()
-            Node = next
+            Local path = Path
+            If path == Null Then Return Null
+            Path = path.Up
+            Node = path.Node
             Index = 0
-            Descend(next.Right)
+            Descend(path.Node.Right)
         End Loop
     End Method
 
@@ -308,7 +321,7 @@ Public Struct IntervalTreeIterator<K, V> Implements Iterator<(K, K, V)>
     ByRef Method Descend(node: IntervalNode<K, V>?)
         Local at = node
         While at != Null
-            Nodes.Add(at)
+            Path = IntervalPath<K, V>(at, Path)
             at = at.Left
         End While
     End Method
