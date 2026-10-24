@@ -456,7 +456,7 @@ private:
             --start;
         }
 
-        return before.substr(start).find('=') == std::string_view::npos;
+        return !before.substr(start).contains('=');
     }
 
     /// "<a href="x" title='y'>" or "<br />": its name and sorted attributes, values decoded and
