@@ -1,0 +1,18 @@
+// TOML's Write panics at arrays and inline tables nested deeper than Read reads them.
+Import std.core
+Import std.data.toml
+
+Function Nested(depth: Int): Value
+    Local root = Value.Object()
+    Local at = Value.Array()
+    root["a"] = at
+    For i = 2 To depth
+        Local inner = Value.Array()
+        at.Add(inner)
+        at = inner
+    End For
+    Return root
+End Function
+
+Print(Toml.Write(Nested(256)).Bytes.Count)
+Print(Toml.Write(Nested(257)).Bytes.Count)

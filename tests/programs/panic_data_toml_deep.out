@@ -1,0 +1,2 @@
+517
+panic: TOML's arrays and inline tables nest 256 deep at most at panic_data_toml_deep.fb:18:7

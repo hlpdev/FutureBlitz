@@ -3,6 +3,7 @@
 // the same Value.
 
 Import std.core
+Import std.collections
 Import std.data.toml
 
 // A document of every kind of value, raw but for its multi-line basic string.
@@ -79,6 +80,49 @@ Failure("a\r= 1")
 Failure("a = '''x''''''")
 Failure("x = 1\nä = ")
 Print((Try Toml.Read("")).Count)
+
+// Text that ends inside an inline table, a string, or an array is UNEXPECTED_END, wherever in it
+// it ends; outside them, it's SYNTAX.
+Failure("a = {{ b = ")
+Failure("a = {{ b.")
+Failure("a = \"\\u12")
+Failure("a = \"\"\"x\\U0001")
+Failure("a = [1, -")
+Failure("a = [1, 0x")
+Failure("a = [1, 1979-")
+Failure("a = ")
+
+// A key an inline table has already is named in its error, the first time an array or an inline
+// table too.
+Failure("x = {{ a = [1], a = 2 }}")
+Failure("x = {{ a = {{ b = 1 }}, a = 2 }}")
+Failure("x = {{ a.b = [1], a.b = 2 }}")
+Failure("x = {{ a = [1], a.b = 2 }}")
+
+// Arrays and inline tables nest 256 deep at most, read and written; tables nest however deep.
+Function Nested(depth: Int, open: String, close: String): String
+    Local parts: String[] = ["a = "]
+    For i = 1 To depth
+        parts.Add(open)
+    End For
+    For i = 1 To depth
+        parts.Add(close)
+    End For
+    Return parts.Join("")
+End Function
+
+Local deepest = Try Toml.Read(Nested(256, "[", "]"))
+Print(Toml.Write(deepest).Bytes.Count, (Try Toml.Read(Toml.Write(deepest))) == deepest)
+Failure(Nested(257, "[", "]"))
+Failure(Nested(300, "{{ b = ", " }}"))
+Failure(Nested(5000, "[", "]"))
+Local headers: String[] = []
+For i = 1 To 1000
+    headers.Add("t")
+End For
+Local tables = Try Toml.Read("[" + headers.Join(".") + "]\nx = 1")
+Local back = Try Toml.Read(Toml.Write(tables))
+Print(back == tables, Toml.Write(tables).Bytes.Count)
 
 // Write: a table's keys and values, then its tables; an Array of Objects is an array of tables,
 // and an Object in an Array an inline table; and keys are quoted when they must be. What it
