@@ -190,8 +190,9 @@ std::array<std::atomic<void (*)()>, 8>& restorers() {
     std::_Exit(code);
 }
 
-/// Panics are colored when stderr is a terminal that shows colors, unless NO_COLOR is set.
-bool color_panics() {
+} // namespace
+
+bool fb::runtime::stderr_colors() {
     const char* no_color = std::getenv("NO_COLOR");
     if (no_color != nullptr && *no_color != '\0') {
         return false;
@@ -206,6 +207,8 @@ bool color_panics() {
 #endif
 }
 
+namespace {
+
 /// Ends the program with "panic: <message> at <file>:<line>:<column>" on stderr, the message
 /// whole, NULs too.
 [[noreturn]] void panic_with(const std::string_view message, const fb_location_t* location) {
@@ -214,7 +217,7 @@ bool color_panics() {
     // Whatever the program printed shows up before the panic, without a line cut in half.
     output().lock();
     std::fflush(stdout);
-    const char* label = color_panics() ? "\x1b[1;31mpanic\x1b[0m" : "panic";
+    const char* label = fb::runtime::stderr_colors() ? "\x1b[1;31mpanic\x1b[0m" : "panic";
     std::fprintf(stderr, "%s: ", label);
     std::fwrite(message.data(), 1, message.size(), stderr);
     if (location != nullptr) {
@@ -430,7 +433,7 @@ void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location) 
     ending().lock();
     output().lock();
     std::fflush(stdout);
-    const char* label = color_panics() ? "\x1b[1;31muncaught\x1b[0m" : "uncaught";
+    const char* label = fb::runtime::stderr_colors() ? "\x1b[1;31muncaught\x1b[0m" : "uncaught";
     // The Classes shown, so each is named apart from one alike it, as the leak report does.
     std::vector<const fb_class_t*> types;
     for (const fb_object_t* at = error; at != nullptr && types.size() <= max_causes;

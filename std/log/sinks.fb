@@ -1,0 +1,124 @@
+// The sinks std.log has: the console's, which writes readable lines to stderr, colored on a
+// terminal that shows colors, and JSON lines, one object a line, to what the program gives. A
+// sink is a Sendable Func(LogRecord), so a program's own is a lambda. Files and rotating files
+// wait for std.io's.
+
+Import std.core
+Import std.time.timestamp
+Import std.log.level
+Import std.log.output
+
+Extern "runtime"
+    Function fb_log_colors(): Int32
+    Function fb_string_from_array(bytes: UInt8[]): String
+End Extern
+
+// A sink that writes each line to stderr as LogLine has it, with its time, colored when stderr is
+// a terminal that shows colors and NO_COLOR isn't set. Lines from threads at once don't mix.
+Public Function ConsoleSink(): Sendable Func(LogRecord) => ConsoleSink(fb_log_colors() != 0, True)
+
+// A sink that writes each line to stderr, with its level colored or not, and its time or not.
+Public Function ConsoleSink(colors: Bool, times: Bool): Sendable Func(LogRecord)
+    Return Function(record: LogRecord) => PrintError(LogLine(record, times, colors))
+End Function
+
+// A sink that gives write each line as JSON, an object without line breaks, as JsonLine has it.
+Public Function JsonLinesSink(write: Sendable Func(String)): Sendable Func(LogRecord)
+    Return Function(record: LogRecord) => write(JsonLine(record))
+End Function
+
+// The line as the console's sink writes it: its time in UTC, to the millisecond, its level, its
+// module, its message, and its fields, as name=value, where a value with a space, a quote, an
+// '=', or a control character, or none, is quoted, as JSON quotes it:
+// "2026-10-24T04:12:00.123Z INFO  net.http: connected host=example.com port=443". The message's
+// control characters but a tab are escaped as JSON escapes them, so a line stays one line.
+Public Function LogLine(record: LogRecord, times: Bool = True, colors: Bool = False): String
+    Local line = ""
+    If times Then line = record.Time.Format("yyyy-MM-dd'T'HH:mm:ss.SSSX") + " "
+    Local level = "{record.Level}"
+    Local padding = level.Bytes.Count < 5 ? " " : ""
+    If colors
+        line += "{ColorOf(record.Level)}{level}\x1b[0m{padding}"
+    Else
+        line += level + padding
+    End If
+
+    line += " {Escaped(record.Module, False)}: {Escaped(record.Message, False)}"
+    For field In record.Fields
+        Local value = field.Text
+        If NeedsQuotes(value) Then value = Escaped(value, True)
+        line += " {field.Name}={value}"
+    End For
+    Return line
+End Function
+
+// The line as JSON lines have it: an object of its "time", "level", "module", and "message", and
+// then its fields, a number's or a Bool's as it is, each in the order it has them:
+// {"time":"2026-10-24T04:12:00.123Z","level":"info","module":"net","message":"up","port":443}.
+Public Function JsonLine(record: LogRecord): String
+    Local time = record.Time.Format("yyyy-MM-dd'T'HH:mm:ss.SSSX")
+    Local level = Escaped(LogLevelName(record.Level), True)
+    Local module = Escaped(record.Module, True)
+    Local message = Escaped(record.Message, True)
+    Local line = "{{\"time\":{Escaped(time, True)},\"level\":{level},\"module\":{module}," +
+                 "\"message\":{message}"
+    For field In record.Fields
+        Local value = field.IsText ? Escaped(field.Text, True) : field.Text
+        line += ",{Escaped(field.Name, True)}:{value}"
+    End For
+    Return line + "}}"
+End Function
+
+// The color a level's name has on a terminal.
+Function ColorOf(level: LogLevel): String
+    If level == LogLevel.TRACE Then Return "\x1b[2m"
+    If level == LogLevel.DEBUG Then Return "\x1b[34m"
+    If level == LogLevel.INFO Then Return "\x1b[32m"
+    If level == LogLevel.WARN Then Return "\x1b[33m"
+    Return "\x1b[31m"
+End Function
+
+// Whether a field's value needs quotes to read back as one value: when it's empty, or has a
+// space, a quote, an '=', or a control character.
+Function NeedsQuotes(text: String): Bool
+    Local bytes = text.Bytes
+    If bytes.Count == 0 Then Return True
+    For b In bytes
+        If b <= 32 || b == 34 || b == 61 || b == 127 Then Return True
+    End For
+    Return False
+End Function
+
+// The text as a JSON string, in quotes, with a quote, a backslash, and the control characters
+// escaped; or, without quotes, as it is but for the control characters other than a tab.
+Function Escaped(text: String, quotes: Bool): String
+    Local out: UInt8[] = []
+    If quotes Then out.Add(34)
+    For b In text.Bytes
+        If (b == 34 || b == 92) && quotes
+            out.Add(92)
+            out.Add(b)
+        ElseIf b == 10
+            out.Add(92)
+            out.Add(110)
+        ElseIf b == 13
+            out.Add(92)
+            out.Add(114)
+        ElseIf b == 9 && quotes
+            out.Add(92)
+            out.Add(116)
+        ElseIf (b < 32 && b != 9) || b == 127
+            For escape In "\\u00".Bytes
+                out.Add(escape)
+            End For
+            out.Add(HexDigit(b >> 4))
+            out.Add(HexDigit(b & 15))
+        Else
+            out.Add(b)
+        End If
+    End For
+    If quotes Then out.Add(34)
+    Return fb_string_from_array(out)
+End Function
+
+Function HexDigit(digit: UInt8): UInt8 => digit < 10 ? 48 + digit : 87 + digit
