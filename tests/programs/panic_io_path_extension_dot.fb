@@ -1,0 +1,7 @@
+// WithExtension panics at the program's line for an extension that ends with a dot, which a
+// name's extension can't.
+Import std.core
+Import std.io
+
+Print(Path("save.dat").WithExtension(".bak"))
+Print(Path("save.dat").WithExtension("."))

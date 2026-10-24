@@ -69,6 +69,8 @@ Print("{Windows("//server/share/").Normalize()} {Windows("//server/share/x/..").
 Print("WithExtension")
 Print("{Posix("save.dat").WithExtension(".bak")} {Posix("a/save").WithExtension("txt")} {Posix("a/b.tar.gz").WithExtension("")}")
 Print("{Posix("a/save.dat/").WithExtension(".bak")} {Windows("C:\\x\\größe.dat").WithExtension(".bin")}")
+Print("{Posix("a/b/.").WithExtension(".txt")} {Posix("a/./").WithExtension("txt")} {Windows("C:\\x\\.").WithExtension(".bin")} {Posix("a/b/.").FileName()}")
+Print("{Posix("save.dat").WithExtension(".tar.gz")} {Posix("save.dat").WithExtension(".tar.gz").Extension()}")
 
 Print("Compare")
 Print("{Posix("a") == Posix("a")} {Posix("a") == Posix("a/")} {Posix("a") == Windows("a")} {Posix("a") < Posix("b")}")

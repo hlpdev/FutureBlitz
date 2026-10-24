@@ -1,0 +1,7 @@
+// WithExtension panics at the program's line for a path with no file name to give one, as a
+// ".." has none.
+Import std.core
+Import std.io
+
+Print(Path("saves/./").WithExtension(".bak"))
+Print(Path("saves/..").WithExtension(".bak"))

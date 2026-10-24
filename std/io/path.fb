@@ -139,9 +139,10 @@ Public Struct Path Implements Comparable, Hashable, Printable
     End Method
 
     // The path with its file name's extension `extension`, which a dot is put before when it
-    // has none, or without one when it's "": "save.bak" for "save.dat" and ".bak". Panics when
-    // the path has no file name to give one, as a root or ".." doesn't, or the extension has a
-    // separator in it.
+    // has none, or without one when it's "": "save.bak" for "save.dat" and ".bak". The name is
+    // FileName's, so "a/b/." and "a/b/" give "a/b.bak", without what follows the name. Panics
+    // when the path has no file name to give one, as a root or ".." doesn't, or for an extension
+    // with a separator in it, or that ends with a dot, which a name can't end its extension with.
     @PanicsAtCaller
     Public Method WithExtension(extension: String): Path
         Local windows = Style == PathStyle.WINDOWS
@@ -149,17 +150,29 @@ Public Struct Path Implements Comparable, Hashable, Printable
             If IsSeparator(byte, windows) Then Panic("WithExtension takes an extension without a separator, not '{extension}'")
         End For
 
-        Local bytes = Text.Bytes
-        Local finish = bytes.Count
-        Local anchor = AnchorOf(bytes, windows).1
-        While finish > anchor && IsSeparator(bytes[finish - 1], windows)
-            finish -= 1
-        End While
+        Local added = extension == "" || extension.Bytes[0] == DOT ? extension : "." + extension
+        If added != "" && added.Bytes[added.Bytes.Count - 1] == DOT
+            Panic("WithExtension takes an extension that doesn't end with a dot, not '{extension}'")
+        End If
 
+        // The last name, past separators and "." names after it, as FileName finds it.
+        Local bytes = Text.Bytes
+        Local anchor = AnchorOf(bytes, windows).1
+        Local finish = bytes.Count
         Local start = finish
-        While start > anchor && !IsSeparator(bytes[start - 1], windows)
-            start -= 1
-        End While
+        Loop
+            While finish > anchor && IsSeparator(bytes[finish - 1], windows)
+                finish -= 1
+            End While
+
+            start = finish
+            While start > anchor && !IsSeparator(bytes[start - 1], windows)
+                start -= 1
+            End While
+
+            If finish - start != 1 || bytes[start] != DOT Then Break
+            finish = start
+        End Loop
 
         Local name = bytes[start..finish]
         If name.Count == 0 || IsDots(name)
@@ -167,9 +180,7 @@ Public Struct Path Implements Comparable, Hashable, Printable
         End If
 
         Local dot = ExtensionAt(name)
-        Local stem = TextOfBytes(bytes[0..(dot < 0 ? finish : start + dot)])
-        Local added = extension == "" || extension.Bytes[0] == DOT ? extension : "." + extension
-        Return Path(stem + added + TextOfBytes(bytes[finish..bytes.Count]), Style)
+        Return Path(TextOfBytes(bytes[0..(dot < 0 ? finish : start + dot)]) + added, Style)
     End Method
 
     // The folder the path's in: "games" for "games/save.dat", "." for "save.dat", and the root for
