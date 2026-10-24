@@ -2550,6 +2550,21 @@ TEST_CASE("a Select on an Enum covers every value, or has a Default", "[sema]") 
           errors_t{ "State.Idle To State.Dead: 'To' ranges only work on integers" });
 }
 
+TEST_CASE("an Extend's Static Property is reached through its Enum, as a value is", "[sema]") {
+    constexpr std::string_view color = "Enum Color\n"
+                                       "    Red, Green\n"
+                                       "End Enum\n"
+                                       "Extend Color\n"
+                                       "    Static Property Crimson: Color\n"
+                                       "        Get => Color.Red\n"
+                                       "    End Property\n"
+                                       "End Extend\n";
+    CHECK(probe(std::format("{}Local x = Color.Crimson", color)) == "Color");
+    CHECK(probe(std::format("{}Local x = Color.Green", color)) == "Color 1");
+    CHECK(errors_of(std::format("{}Local x = Color.Blue", color)) ==
+          errors_t{ "Blue: Color has no member named 'Blue'" });
+}
+
 TEST_CASE("an Enum's zero is its first value, or no flags", "[sema]") {
     CHECK(errors_of("Enum State\n"
                     "    Idle, Walk\n"
