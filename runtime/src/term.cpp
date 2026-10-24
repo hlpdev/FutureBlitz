@@ -414,8 +414,9 @@ std::string key_sequence(const WORD key, const DWORD state) {
     }
 }
 
-/// What a key that went down gives, as a terminal sends it.
-void translate_key(console_input_t& input, const KEY_EVENT_RECORD& key) {
+/// What a key that went down gives, as a terminal sends it, where `vt` says the console already
+/// writes what a terminal would, or else as this writes it.
+void translate_key(console_input_t& input, const KEY_EVENT_RECORD& key, const bool vt) {
     if (key.bKeyDown == 0) {
         return;
     }
@@ -442,7 +443,7 @@ void translate_key(console_input_t& input, const KEY_EVENT_RECORD& key) {
     input.high = 0;
     if (unit != 0) {
         // A console that doesn't send what a terminal would writes Alt and Shift+Tab itself.
-        if (!vt_input().load()) {
+        if (!vt) {
             if (unit == L'\t' && (state & bit(SHIFT_PRESSED)) != 0) {
                 input.bytes += "\x1b[Z";
                 return;
@@ -463,8 +464,11 @@ void translate_key(console_input_t& input, const KEY_EVENT_RECORD& key) {
         return;
     }
 
-    if (!vt_input().load()) {
-        input.bytes += key_sequence(key.wVirtualKeyCode, state);
+    if (!vt) {
+        const std::string sequence = key_sequence(key.wVirtualKeyCode, state);
+        for (WORD i = 0; i < std::max<WORD>(key.wRepeatCount, 1); ++i) {
+            input.bytes += sequence;
+        }
     }
 }
 
@@ -496,6 +500,13 @@ void translate_mouse(console_input_t& input, const MOUSE_EVENT_RECORD& mouse) {
             return (bits & bit(RIGHTMOST_BUTTON_PRESSED)) != 0 ? 2 : 3;
         };
         if ((mouse.dwEventFlags & bit(MOUSE_MOVED)) != 0) {
+            // A move with no button down is reported only where every move is asked for, which
+            // std.term doesn't ask.
+            if (button_of(buttons) == 3) {
+                input.buttons = buttons;
+                return;
+            }
+
             code = button_of(buttons) + 32;
         } else if ((buttons & ~input.buttons) != 0) {
             code = button_of(buttons & ~input.buttons);
@@ -505,8 +516,8 @@ void translate_mouse(console_input_t& input, const MOUSE_EVENT_RECORD& mouse) {
         }
 
         input.buttons = buttons;
-        // A move with no button down is reported only where all moves are, as 35.
-        if (code == 3 && !released) {
+        // What changes no button, as a double click's second press can, is nothing.
+        if (code == 3) {
             return;
         }
     }
@@ -575,7 +586,7 @@ std::int64_t read_console(HANDLE handle, char* into, const std::int64_t room,
 
             input.records.pop_front();
             if (record.EventType == KEY_EVENT) {
-                translate_key(input, record.Event.KeyEvent);
+                translate_key(input, record.Event.KeyEvent, vt_input().load());
             } else if (record.EventType == MOUSE_EVENT) {
                 translate_mouse(input, record.Event.MouseEvent);
             }
@@ -639,6 +650,37 @@ std::int64_t read_other(HANDLE handle, char* into, const std::int64_t room,
 #endif
 
 } // namespace
+
+#ifdef _WIN32
+std::string fb::term::key_bytes(const std::span<const key_record_t> records, const bool vt) {
+    console_input_t input;
+    for (const key_record_t& record : records) {
+        KEY_EVENT_RECORD key{};
+        key.bKeyDown = record.down ? TRUE : FALSE;
+        key.wRepeatCount = record.repeat;
+        key.wVirtualKeyCode = record.key;
+        key.uChar.UnicodeChar = static_cast<wchar_t>(record.unit);
+        key.dwControlKeyState = record.state;
+        translate_key(input, key, vt);
+    }
+
+    return input.bytes;
+}
+
+std::string fb::term::mouse_bytes(const std::span<const mouse_record_t> records) {
+    console_input_t input;
+    for (const mouse_record_t& record : records) {
+        MOUSE_EVENT_RECORD mouse{};
+        mouse.dwButtonState = record.buttons;
+        mouse.dwEventFlags = record.flags;
+        mouse.dwMousePosition = { .X = record.column, .Y = record.row };
+        mouse.dwControlKeyState = record.state;
+        translate_mouse(input, mouse);
+    }
+
+    return input.bytes;
+}
+#endif
 
 int fb::term::color_level(const bool terminal, const char* no_color, const char* term,
                           const char* color_term, const bool windows) {

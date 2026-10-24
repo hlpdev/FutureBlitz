@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <functional>
+#include <initializer_list>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -451,3 +453,101 @@ TEST_CASE("a terminal's keys come in raw mode as it sends them, and so does a re
     expect(typing("71"));
     expect(has("done echo=1 lines=1\n"));
 }
+
+#ifdef _WIN32
+namespace {
+
+/// A key record that went down, as the console gives it.
+fb::term::key_record_t key(const WORD virtual_key, const wchar_t unit, const DWORD state = 0,
+                           const WORD repeat = 1, const bool down = true) {
+    return {
+        .key = virtual_key,
+        .unit = static_cast<char16_t>(unit),
+        .state = state,
+        .repeat = repeat,
+        .down = down,
+    };
+}
+
+/// What the console gives for keys, with virtual terminal input on, or without it.
+std::string keys(const std::initializer_list<fb::term::key_record_t> records,
+                 const bool vt = false) {
+    return fb::term::key_bytes(std::span(records.begin(), records.size()), vt);
+}
+
+/// A mouse record of the buttons down, its flags, where it is, and the control keys.
+fb::term::mouse_record_t mouse(const DWORD buttons, const DWORD flags, const SHORT column,
+                               const SHORT row, const DWORD state = 0) {
+    return { .buttons = buttons, .flags = flags, .column = column, .row = row, .state = state };
+}
+
+std::string mice(const std::initializer_list<fb::term::mouse_record_t> records) {
+    return fb::term::mouse_bytes(std::span(records.begin(), records.size()));
+}
+
+/// The wheel's turn in a mouse record's buttons, its high word.
+DWORD wheel(const int turned) {
+    return static_cast<DWORD>(static_cast<WORD>(static_cast<std::int16_t>(turned))) << 16U;
+}
+
+} // namespace
+
+TEST_CASE("Windows' console's key and mouse records come as a terminal sends them", "[term]") {
+    constexpr DWORD shift = SHIFT_PRESSED;
+    constexpr DWORD alt = LEFT_ALT_PRESSED;
+    constexpr DWORD control = LEFT_CTRL_PRESSED;
+    // Where the console writes what a terminal sends, its characters are what come, and a key
+    // without one, Shift alone too, gives nothing.
+    CHECK(keys({ key(0, 0x1b), key(0, L'['), key(0, L'A'), key(VK_UP, 0), key(VK_SHIFT, 0, shift),
+                 key(0, L'a', alt) },
+               true) == "\x1b[Aa");
+    // Otherwise, xterm's sequences, with the modifiers between.
+    CHECK(keys({ key(VK_UP, 0), key(VK_DOWN, 0), key(VK_RIGHT, 0), key(VK_LEFT, 0) }) ==
+          "\x1b[A\x1b[B\x1b[C\x1b[D");
+    CHECK(keys({ key(VK_HOME, 0), key(VK_END, 0), key(VK_INSERT, 0), key(VK_DELETE, 0),
+                 key(VK_PRIOR, 0), key(VK_NEXT, 0) }) ==
+          "\x1b[H\x1b[F\x1b[2~\x1b[3~\x1b[5~\x1b[6~");
+    CHECK(keys({ key(VK_F1, 0), key(VK_F4, 0), key(VK_F5, 0), key(VK_F6, 0), key(VK_F10, 0),
+                 key(VK_F11, 0), key(VK_F12, 0) }) ==
+          "\x1bOP\x1bOS\x1b[15~\x1b[17~\x1b[21~\x1b[23~\x1b[24~");
+    CHECK(keys({ key(VK_LEFT, 0, control), key(VK_F1, 0, shift), key(VK_DELETE, 0, control | alt),
+                 key(VK_UP, 0, shift | alt | control) }) == "\x1b[1;5D\x1b[1;2P\x1b[3;7~\x1b[1;8A");
+    CHECK(keys({ key(VK_SHIFT, 0, shift), key(VK_CAPITAL, 0) }).empty());
+    // A held key's repeats each come, and a key going up gives nothing.
+    CHECK(keys({ key(VK_DOWN, 0, 0, 3), key(0, L'x', 0, 2), key(0, L'y', 0, 1, false) }) ==
+          "\x1b[B\x1b[B\x1b[Bxx");
+    // Alt before a character is an escape, but not AltGr, which is Ctrl and Alt; Shift+Tab is
+    // xterm's.
+    CHECK(keys({ key(0, L'a', alt), key(0, L'@', RIGHT_ALT_PRESSED | control),
+                 key(VK_TAB, L'\t', shift), key(VK_TAB, L'\t') }) == "\x1b"
+                                                                     "a@\x1b[Z\t");
+    // A character past U+FFFF comes in two records, and a second half alone is nothing.
+    CHECK(keys({ key(0, 0xD83D), key(0, 0xDE00), key(0, 0xDE00), key(0, L'\x4e2d') }) ==
+          "\xf0\x9f\x98\x80\xe4\xb8\xad");
+    // Ctrl+Space is NUL, which the console gives as no character.
+    CHECK(keys({ key(VK_SPACE, 0, control) }) == std::string(1, '\0'));
+
+    // The mouse, as SGR reports it: a press, a drag, and a release, with the buttons as the
+    // records before them had them.
+    CHECK(mice({ mouse(FROM_LEFT_1ST_BUTTON_PRESSED, 0, 4, 2),
+                 mouse(FROM_LEFT_1ST_BUTTON_PRESSED, MOUSE_MOVED, 5, 2), mouse(0, 0, 5, 2) }) ==
+          "\x1b[<0;5;3M\x1b[<32;6;3M\x1b[<0;6;3m");
+    // A move with no button down isn't reported, nor what changes no button.
+    CHECK(mice({ mouse(0, MOUSE_MOVED, 1, 1), mouse(0, 0, 1, 1) }).empty());
+    CHECK(mice({ mouse(RIGHTMOST_BUTTON_PRESSED, 0, 0, 0),
+                 mouse(RIGHTMOST_BUTTON_PRESSED | FROM_LEFT_2ND_BUTTON_PRESSED, 0, 0, 0),
+                 mouse(FROM_LEFT_2ND_BUTTON_PRESSED, 0, 0, 0), mouse(0, 0, 0, 0) }) ==
+          "\x1b[<2;1;1M\x1b[<1;1;1M\x1b[<2;1;1m\x1b[<1;1;1m");
+    // A double click's second press is a press.
+    CHECK(mice({ mouse(FROM_LEFT_1ST_BUTTON_PRESSED, 0, 2, 2), mouse(0, 0, 2, 2),
+                 mouse(FROM_LEFT_1ST_BUTTON_PRESSED, DOUBLE_CLICK, 2, 2) }) ==
+          "\x1b[<0;3;3M\x1b[<0;3;3m\x1b[<0;3;3M");
+    // The wheel's turns, up, down, right, and left, and the control keys held.
+    CHECK(mice({ mouse(wheel(120), MOUSE_WHEELED, 0, 0), mouse(wheel(-120), MOUSE_WHEELED, 0, 0),
+                 mouse(wheel(120), MOUSE_HWHEELED, 0, 0),
+                 mouse(wheel(-120), MOUSE_HWHEELED, 0, 0) }) ==
+          "\x1b[<64;1;1M\x1b[<65;1;1M\x1b[<67;1;1M\x1b[<66;1;1M");
+    CHECK(mice({ mouse(FROM_LEFT_1ST_BUTTON_PRESSED, 0, 9, 9, shift | control),
+                 mouse(0, 0, 9, 9, alt) }) == "\x1b[<20;10;10M\x1b[<8;10;10m");
+}
+#endif
