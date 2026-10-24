@@ -3684,6 +3684,24 @@ TEST_CASE("a Function's name alone is a function value", "[sema]") {
                     "Local f = P") ==
           errors_t{ "P: 'P' has overloads, so a Func or Callback type has to say which one is "
                     "meant" });
+
+    // An overloaded callee's Func parameters pick the overload too, each the one of its type.
+    const std::string_view overloads =
+        "Function Twice(x: Int): Int => x * 2\nFunction Twice(x: String): String => x + x\n"
+        "Function Apply(f: Func(Int): Int, x: Int): Int => f(x)\n"
+        "Function Apply(f: Func(String): String, x: String): String => f(x)\n";
+    CHECK(probe(std::format("{}Local n = Apply(Twice, 21)", overloads)) == "Int32");
+    CHECK(probe(std::format("{}Local s = Apply(Twice, \"ab\")", overloads)) == "String");
+    CHECK(errors_of(std::format("{}Local d = Apply(Twice, True)", overloads)) ==
+          errors_t{ "Apply: no overload of 'Apply' takes (Twice, Bool)" });
+    // Where each overload's Func is one of the name's, the call doesn't say which.
+    const errors_t ambiguous = errors_of("Function Twice(x: Int): Int => x * 2\n"
+                                         "Function Twice(x: String): String => x + x\n"
+                                         "Function Run(f: Func(Int): Int)\nEnd Function\n"
+                                         "Function Run(f: Func(String): String)\nEnd Function\n"
+                                         "Run(Twice)");
+    REQUIRE(ambiguous.size() == 1);
+    CHECK(ambiguous.front() == "Run: the call to 'Run' is ambiguous");
     CHECK(errors_of("Import std.core\n"
                     "Class Oops Extends Error\nEnd Class\nFunction F() Throws Oops\n"
                     "End Function\nLocal f = F") ==

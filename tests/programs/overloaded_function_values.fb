@@ -1,0 +1,18 @@
+// An overloaded Function's name given to an overloaded callee: each overload's Func parameter
+// picks the overload of its type, as a call to one callee does.
+Import std.core
+
+Function Twice(x: Int): Int => x * 2
+Function Twice(x: String): String => x + x
+
+Function Apply(f: Func(Int): Int, x: Int): Int => f(x)
+Function Apply(f: Func(String): String, x: String): String => f(x)
+
+Class Calculator
+    Method Apply(f: Func(Int): Int, x: Int): Int => f(f(x))
+    Method Apply(f: Func(String): String, x: String): String => f(f(x))
+End Class
+
+Print(Apply(Twice, 21), Apply(Twice, "ab"))
+Local calculator = Calculator()
+Print(calculator.Apply(Twice, 5), calculator.Apply(Twice, "c"))
