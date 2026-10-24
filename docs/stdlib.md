@@ -729,11 +729,12 @@ Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std
 
 Step 20 built TOML, CSV, INI, XML, and YAML, each read into std.core's `Value`s and written from
 them, so `Load<T>` and `Save<T>` go through them too. `Import std.data` brings in all of
-std/data/. Each reader throws a ParseError with the Line and Column it's at: UNEXPECTED_END for
-text that ends inside something, OUT_OF_RANGE for a number its type doesn't hold, and SYNTAX for
-the rest that isn't its format. None of the five has bytes: TOML's and YAML's Write panic at a
-BYTES Value, and CSV's, INI's, and XML's take only a String, a number, a Bool, or Null where
-their text goes.
+std/data/. Each reader throws a ParseError with the Line and Column it's at, and says them, where a
+line ends with LF, CRLF, or a CR alone, and a byte order mark at the start isn't a column:
+UNEXPECTED_END for text that ends inside something, OUT_OF_RANGE for a number its type doesn't
+hold, and SYNTAX for the rest that isn't its format. None of the five has bytes: TOML's and
+YAML's Write panic at a BYTES Value, and CSV's, INI's, and XML's take only a String, a number, a
+Bool, or Null where their text goes.
 
 - `Toml.Read(text)` reads TOML 1.0 into an Object: a table is an Object, an array an Array, an
   integer an INT, which an Int64 holds, a float a DOUBLE, inf and nan too, and a date, a time, or
@@ -743,37 +744,50 @@ their text goes.
   and values, then its tables under their headers, an Array of Objects as an array of tables and
   an Object in an Array as an inline table, a key quoted where it must be; TOML has no null, so
   it leaves out an Object's Nulls, and panics at a Null in an Array, and at a UINT, past TOML's
-  integers.
+  integers. Arrays and inline tables nest 256 deep at most, a ParseError past that when read and
+  a panic when written; tables nest however deep.
 - `Csv.Read(text, separator)` reads RFC 4180's rows, each a `String[]` of its fields, quoted or
-  not, over LF or CRLF lines, and `ReadRecords` an Array of Objects by the first row's names,
-  each field a String, which throws for a row of more or fewer fields. `Write(rows, separator)`
-  and `WriteRecords(records, separator)` write them, LF after each row, and quote a field that
-  holds the separator, a '"', or a line break, or starts or ends with a space.
+  not, over LF, CRLF, or CR lines, and `ReadRecords` an Array of Objects by the first row's names,
+  each field a String, which throws for a name given twice, and for a row of more or fewer fields.
+  `Write(rows, separator)` and `WriteRecords(records, separator)` write them, LF after each row,
+  and quote a field that holds the separator, a '"', or a line break, starts or ends with a space,
+  or starts with a byte order mark. CSV can't hold a row of no fields, which reads as one empty
+  field, so Write panics at one, and WriteRecords at records with no keys; no records are no
+  text.
 - `Ini.Read(text)` reads `[section]` headers, `key = value` and `key: value` lines, and `;` and
   `#` comments into an Object: the keys before any section are its own, and each section is an
   Object, every value a String, its spaces trimmed but in '"'s. A key given again takes its new
   value, and a section named again goes on adding to the first. `Ini.Write(value)` writes them
-  back, and panics at what INI can't hold: an Array, an Object in a section, or a line break.
+  back, and panics at what INI can't hold, or wouldn't read back as the same: an Array, an Object
+  in a section, a line break, or a key or a section's name with a space or a tab at its end, or a
+  key that starts with a byte order mark.
 - XML 1.0. `XmlReader(text)`'s `Next()` gives a document's `XmlEvent`s, START, END, TEXT, CDATA,
   COMMENT, and INSTRUCTION, as a non-validating processor reads them: line ends as LFs,
   references replaced, attributes normalized, and the internal subset's entities, attribute
   defaults, and attribute types used. The external subset and external entities aren't read, and
-  names keep their prefixes, unresolved. It passes the W3C XML conformance suite's 1627 cases
+  names keep their prefixes, unresolved. Entities nest 64 deep at most, in attributes as in text,
+  and the text they expand to comes to ten times the document's size and a MiB at most, as expat
+  and libxml2 cap it, each a ParseError past that. It passes the W3C XML conformance suite's 1627
+  cases
   for XML 1.0's fifth edition that need no external entity and are UTF-8, which is run outside
   the repo, as the suite's terms don't let it be copied in parts. `Xml.Read(text)` builds a tree
   of `XmlNode`s over it: elements, with `Name`, `Attributes`, and `Children`, and text, CDATA,
-  comments, and processing instructions, with `Content`; a node's `Text` is XPath's string of it.
-  An element has `Attribute`, `SetAttribute`, `Element`, `Elements`, `Add`, `AddElement`,
-  `AddText`, `Query(path)`, and `QueryFirst(path)`. `Xml.Write(root, indent, declaration)` and an
-  `XmlWriter`, element by element, write XML, indented but in an element that holds text, and
-  panic at what XML can't hold.
+  comments, and processing instructions, with `Content`; a node's `Text` is XPath's string of it,
+  and it prints as XML of its kind. An element has `Attribute`, `SetAttribute`, `Element`,
+  `Elements`, `Add`, `AddElement`, `AddText`, `Query(path)`, and `QueryFirst(path)`.
+  `Xml.Write(root, indent, declaration)` writes XML indented but for what's in an element that
+  holds text, so it reads back as the same tree, and an `XmlWriter`, element by element, the same
+  but from an element's first text on; both panic at what XML can't hold, an attribute given twice
+  too. A tree however deep is read, written, queried, and made a Value without recursing.
 - `XmlPath(path)` is XPath-lite: location paths on the child, descendant, descendant-or-self,
   parent, ancestor, ancestor-or-self, following-sibling, preceding-sibling, self, and attribute
   axes, abbreviated or not; tests of a name, `*`, `text()`, `node()`, `comment()`, and
   `processing-instruction()`; predicates of positions, paths, strings, and numbers, compared with
   `=`, `!=`, `<`, `<=`, `>`, and `>=` and joined with `and` and `or`, and the functions `last`,
   `position`, `count`, `not`, `contains`, `starts-with`, `string`, `name`, `true`, and `false`;
-  and paths joined with `|`. A path that isn't one panics at Query's caller.
+  and paths joined with `|`, which binds tighter than the comparisons, as in XPath. A run of text
+  and CDATA next to each other is one text node, as XPath's data model has no CDATA, and
+  `string()` writes a number without an exponent. A path that isn't one panics at Query's caller.
 - `Xml.ToValue(element)` and `Xml.FromValue(name, value)` convert as xmltodict does: an
   element's attributes are keys with '@' before their names, its children keys of their names,
   an Array for a name that comes more than once, and its text the key "#text", or the element's
@@ -784,9 +798,12 @@ their text goes.
   scalar in quotes or a block a String. Anchors and aliases, the core schema's tags under any handle a %TAG gives them, and
   documents with their directives and markers are read. A key is its scalar's text, and each key
   of a mapping is its own; a key that's a mapping or a sequence, or a tag that isn't the core
-  schema's, is a ParseError of OTHER. It passes yaml-test-suite's 367 cases for the core schema.
-  `Yaml.Write(value)` and `WriteAll(values)` write block mappings and sequences, a scalar plain
-  where the core schema reads it back as the same, else in double quotes.
+  schema's, on a scalar or a collection, is a ParseError of OTHER, and an `!!int` past a UInt64
+  OUT_OF_RANGE. A byte order mark can start any document's prefix, and a quoted scalar holds any
+  character but a C0 control other than a tab, as JSON's strings do. It passes yaml-test-suite's
+  367 cases for the core schema. `Yaml.Write(value)` and `WriteAll(values)` write block mappings
+  and sequences, a scalar plain where the core schema reads it back as the same, else in double
+  quotes, and a key of more than 1024 characters explicitly, after '?'.
 - Planned: each format's round trip of a Struct through `Load<T>` and `Save<T>`, which step 17
   adds.
 
