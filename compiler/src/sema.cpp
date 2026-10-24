@@ -800,6 +800,9 @@ private:
     type_id_t m_array_element = type_id_t::INVALID;
     /// Declaring an Extend's members, whose modifiers declare_extension_member() checks.
     bool m_extending = false;
+    /// While a Property's Get or Set is declared: the Property's type, which the Get gives and
+    /// the Set takes, and what declare_property() resolved it to, so its errors show once.
+    std::optional<std::pair<type_expr_id_t, type_id_t>> m_property_type;
     /// A call of a Const Function that couldn't run, because types were being declared.
     bool m_run_refused = false;
     /// Whether what check() just read used a Const its own error left without a value.
@@ -3890,7 +3893,9 @@ private:
             }
 
             const auto& function = std::get<function_stmt_t>(m_ast.get(*part).node);
+            const auto outer = std::exchange(m_property_type, std::pair(node.type, type));
             const symbol_id_t declared = declare_function(*part, function, owner);
+            m_property_type = outer;
             symbol(declared).modifiers = {
                 .visibility = modifiers.visibility,
                 .is_final = modifiers.is_final,
@@ -7452,7 +7457,7 @@ private:
             // arguments.
             const bool variadic = parameter.variadic &&
                                   check_variadic(parameter, &parameter == &node.parameters.back());
-            type_id_t type = resolve_type(parameter.type);
+            type_id_t type = resolve_type_once(parameter.type);
             if (!parameter.by_ref) {
                 type = keep_in_place(type, m_ast.get(parameter.type).span,
                                      "a parameter can't hold one; make it ByRef");
@@ -7495,10 +7500,11 @@ private:
                                   !is_array(owner);
         const bool by_ref = node.kind == function_kind_t::BYREF_METHOD || sets_element;
         // The parser already reported a return type on New.
-        type_id_t return_type = node.return_type ? keep_in_place(resolve_type(*node.return_type),
-                                                                 m_ast.get(*node.return_type).span,
-                                                                 "a function can't give one back")
-                                                 : type_id_t::NONE;
+        type_id_t return_type =
+            node.return_type
+                ? keep_in_place(resolve_type_once(*node.return_type),
+                                m_ast.get(*node.return_type).span, "a function can't give one back")
+                : type_id_t::NONE;
         if (constructor) {
             return_type = owner;
         }
@@ -12286,6 +12292,16 @@ private:
         const_value_t converted = *fold_cast({ .type = from, .data = value.data }, to);
         converted.type = type;
         return converted;
+    }
+
+    /// What resolve_type() gives for `id`, but for the Property's type that a Get or Set being
+    /// declared shares, which declare_property() resolved and reported once already.
+    type_id_t resolve_type_once(const type_expr_id_t id) {
+        if (m_property_type && m_property_type->first == id) {
+            return m_property_type->second;
+        }
+
+        return resolve_type(id);
     }
 
     /// The type an annotation names: a built-in, a Struct, a Class, or a T?, T[], or fixed
