@@ -703,6 +703,118 @@ IntervalTree's iterators kept their stacks in arrays, so a copy moved the origin
 twice, gave 49 0); each keeps its node and place in the Struct and the nodes above in a list of
 nodes a step never changes (SortedPath, TriePath, IntervalPath), so a copy keeps its place.
 
+Step 22's codecs over bytes (lane 6): third_party/ fetches zlib-ng 2.3.3 (ZLIB_COMPAT, no gzFile,
+HAVE_UNISTD_H off on Windows), zstd 1.5.7 and LZ4 1.10.0 from their library C files
+(ZSTD_DISABLE_ASM, ZSTD_LEGACY_SUPPORT=0; XXH_NAMESPACE=LZ4_), liblzma from XZ Utils 5.8.4 (no
+threads, NLS, docs, or tools; lzma.h's folder given to its users), and minizip-ng 4.2.2 from its C
+files (memory streams, HAVE_ZLIB, HAVE_LZMA, HAVE_ZSTD, MZ_ZIP_NO_CRYPTO, a written mz_config.h),
+each static, with notices (minizip-ng's with its files' authors and the three libraries it links),
+and BUILD_SHARED_LIBS and BUILD_TESTING off. The runtime's fb/compress.hpp and compress_internal.hpp
+(result_t, entry_kind_t, output_t, failure_t, utf8_length, is_utf8, utf8_or_replaced, append_utf8),
+and parts fb_runtime_zlib (zlib.cpp: fb_zlib_ encoders and decoders of raw Deflate, Zlib, and Gzip
+members one after another, a plain gz_header), fb_runtime_zstd, fb_runtime_lz4, and fb_runtime_xz
+(each an encoder and a decoder with a limit; liblzma's memlimit, zstd's windowTooLarge as
+unsupported), seven_zip.cpp in fb_runtime_xz (fb_xz_7z_: signature and encoded headers, streams,
+folders by bind pairs through lzma_raw_decoder with lzma_properties_decode and
+lzma_raw_decoder_memusage, substreams and CRCs, files with empty streams, anti-items, attributes and
+Unix links, UTF-16 names, the last folder kept), fb_runtime_zip (zip.cpp: fb_zip_ over minizip-ng's
+mz_zip and mz_stream_mem, CP437 names, no data descriptors, a 1980 date, and mz_os_is_dir_separator
+and mz_os_rand), and tar.cpp in fb_runtime (fb_tar_: ustar, pax, GNU long names and base-256, old
+tars, sparse as unsupported; pax for long or non-ASCII names). bundled_library_t entries for the
+five. std/core/error.fb's IOErrorKind.INVALID_DATA. std/compress/: codec.fb (MOST_BYTES, CheckLevel,
+CheckLimit, Failed), deflate.fb (Deflate, Zlib, Gzip, and their Compressors and Decompressors),
+zstd.fb, lz4.fb, xz.fb (Zstd, Lz4, XZ, and theirs), archive.fb (ArchiveEntry, ArchiveEntryKind,
+LastNamed, CheckName, CheckFileName), zip.fb (Zip, ZipReader, ZipWriter, ZipMethod), tar.fb (Tar,
+TarReader, TarWriter, Unwrapped), seven_zip.fb (SevenZip, SevenZipReader). Tests: compress_codecs,
+compress_tools (with files/ and make_data.py), compress_archives (with make_archives.py), 21
+panic_compress_ programs, and driver_tests' bundled libraries case.
+
+Step 22's review (25 findings: 3 high, 11 medium, 11 low) was fixed on its branch before it landed:
+Zstd and Lz4 decode output that fills their 64 KiB chunks exactly, and ZstdCompressor takes empty
+parts; a 7z's LZMA coder is liblzma's LZMA1EXT with its size, so LZMA:BCJ without an end marker
+reads; ZipWriter writes over a std::vector stream of its own, linear rather than quadratic; a 7z's
+bind pairs are checked, a folder of links is decoded once, and a file of a solid folder past 2 GiB
+reads; a zip's entries are checked against their CRC-32, LZMA and XZ entries are decoded over
+liblzma within an array's memory, only Unix-like hosts' modes make links, names with '\' panic, LZMA
+and XZ levels go from 1 to 9, and local headers take Zip64 only where needed; a tar takes POSIX's
+unknown types as files, GNU's 'D' folders, pax sparse files and old sparse extension blocks, and old
+tars' folders; Tar.Read skips skippable frames; archive writers' Finish panics at its caller past a
+UInt8[]'s bytes; preset dictionaries are unsupported, not invalid; spec 09 lists INVALID_DATA; and
+compress_tools reads the lz4 tool's, git's, and raw Deflate data.
+
+Std.core's Value (lane 4, step 17's first unit): std/core/value.fb's `Value`, a Class of data of any
+shape, and `ValueKind` (NULL, BOOL, INT, UINT, DOUBLE, STRING, BYTES, ARRAY, OBJECT), with a New per
+type, `Array()` and `Object()`, the Is Properties and `Count`, the As getters, `[]` and `[]=` by key
+and index, `Path`, `Add`, `Insert`, `RemoveAt`, `Remove`, `Keys`, `Contains`, a deep `==`, `Hash`,
+and `Clone`, JSON text, and no Value holding itself (`Holds`, `CheckHeld`); the runtime's
+`fb_value_quoted`, `fb_value_hex`, and `fb_value_path`.
+
+Value's review fixes (8): ToString, Clone, Hash, ==, and Holds walk with stacks of their own, so a
+Value 100000 deep works in debug and release (Hash through a Step Struct of each Array's or Object's
+place and running hash, ToString through parts the runtime's new `fb_value_joined` joins); Holds
+marks what it looks through with its walk's own object (a private `Walk` Class in a `Walked` Field),
+so a part held in several places is looked through once; the docs say a Value holds no cycle but can
+sit in several places, which ToString, ==, Hash, and Clone go through once for each, that AsArray's
+elements are the Value's own, and name Keys, Contains, and bytes' `<hex>` text. Tests:
+core_value_deep and panic_value_holds_itself_shared.
+
+Step 28's first half, std.net without streams: std/net/address.fb's `IpFamily`, `IpAddress` (a
+family and 128 bits, High and Low; `V4`, `V6`, `FromBytes`, which panics at the caller for a count
+but 4 or 16, and `Parse`, strict: RFC 4291's text, no leading zeros in IPv4, no zones; `ToString` as
+RFC 5952 has it, and `Text(dotted)` for a URL's host; `IsLoopback`, `IsUnspecified`, `IsPrivate`,
+`IsLinkLocal`, `IsMulticast`, `IsBroadcast`, `IsDocumentation` with RFC 9637's 3fff::/20; `ToV4`,
+`ToV6`; `Loopback`, `Any`, and the rest), and `SocketAddress` (`Address`, `Port`, `ScopeId`, which
+panics at the caller on IPv4; `Parse` and `ToString` of `127.0.0.1:80`, `[::1]:80`, and
+`[fe80::1%3]:80`). std/net/url.fb's `Url`, an immutable Struct from the WHATWG URL Standard's basic
+URL parser (`Parser` and its 20 `State`s, the percent-encode sets as `PercentSet`, host parsing with
+IPv6, WHATWG's IPv4 numbers, opaque hosts, and domain to ASCII, which maps what UTS #46 needs that
+the test data has, without its tables, and encodes Punycode as RFC 3492 has it): `Parse(text)`,
+`Parse(text, base)` with a Url or a String, `Resolve`, its parts, `PortOrDefault`, `HasOpaquePath`,
+`Origin`, `Params`, `Encode`, `Decode`, and the serializer; and `QueryParams`, a Class as
+URLSearchParams has it (`Sort` by UTF-16 code units). std/net/dns.fb's `Dns.Resolve` and
+`ResolveAsync`, over runtime/src/dns.cpp's `fb_io_resolve`, `fb_io_resolve_async`, and
+`fb_io_error_text` in fb_runtime_io: libuv's getaddrinfo, started on the I/O thread through io.cpp's
+job queue (`fb::runtime::on_io_thread` in io_internal.hpp), as 17-byte records, each address once; a
+NetError of HOST_NOT_FOUND or OTHER. The runtime's `fb_string_from_array`, for std's text made a
+byte at a time. tests/data holds web-platform-tests' urltestdata.json (c48d587) and its license,
+which url_tests.cpp runs as one program: every case but 732 (mathematical bold letters, which need
+UTS #46's NFKC) passes. Programs: net_addresses, net_url (RFC 3986 §5.4's examples too), net_query,
+net_dns ("localhost" and literals only), panic_net_address_bytes, and panic_net_address_scope.
+
+Step 18's language part (lane 8): `Where T: Class`: parse_constraint_part() (the keyword as a named
+type "Class"), `builtin_interfaces_t::any_class` (declare_any_class(), a constraint-only Interface
+extending Equatable), constraint_interface(), is_any_class() and class_hint(), so Weak<T>, [Weak x],
+RefEquals, 'Is', and Case As take a class-bound T, and a Weak<T> of a Class & Sendable T is
+Sendable. `Sendable Func(A): R`: `function_type_t::sendable`, `type_t::sendable`
+(type_table_t::function(..., sendable)), is_sendable_func(), func_like(); a lambda or Function's
+name where one is expected is one (check_sendable_captures(), shared with check_spawn(); a worker "a
+Sendable Func can run on any thread"), its closure Class set_shared() (function_class(function,
+sendable), "as a Sendable value"; lowering's closure_copy() keeps it), Sendable, converting to a
+Func; Spawn and Thread.Start take one; the MIR dump's ", Shared". `Task<T> Throws E` as a type:
+`named_type_t::throws` (parse_named_type(throws), parse_task_throws(), `m_function_result`),
+written_task() and check_task_throws() (`m_pending_throws` until check_throws()); `E: Error`
+(`builtin_interfaces_t::any_error`, declare_any_error()), is_error() and throws_as() for an
+error-bound type parameter, check_throwing_call() and Async calls with substituted Throws,
+type_table_t::substitute() of a Task's throws, unify() of them, a Task converting to one whose
+Throws covers its own, and lowering's Task local with the instance's Throws. Tests: sema's "Where T:
+Class says...", "a Weak<T> of a Class that's Sendable...", "a Sendable Func is a lambda or a
+Function's name...", "Task<T> Throws E is a type...", "a Task's Throws lists errors..."; mir's "a
+Sendable Func's closure counts its owners atomically" and "a generic Async Function's Task has its
+instance's errors"; parser's; programs class_constraint, class_owner_events, sendable_func,
+sendable_lazy, sendable_parallel_map, async_throws_generic.
+
+Step 18's language review fixes (24, one high): the Class and Error constraints are Public, so any
+module's Public generic code has them; match() checks a lambda or a Function's name against a
+Sendable Func parameter with that type; member_throws() and implemented_throws() map Throws E to the
+instance's E for Overrides, a generic Interface's Methods and defaults, News from a generic base,
+and For ... In's Iterate; a Func that's a function's result leaves the Throws after it to the
+function, and in a Func type's or lambda's parameters a ',' ends a Task's Throws; unify() takes a
+Weak<T>'s T from a T or T?; a Task's Throws checks covered and repeated type parameters and infers E
+in any order; type_table_t::listed() puts a throwing Task in parentheses in tuples, parameters, type
+arguments, and qualified names; a bad Throws is reported once; Spawn of a T? of a Sendable Func says
+it may be Null, and a lambda capturing Self kept in a Lock of Self's Mutex warns of the cycle.
+Tests: class_constraint_modules.fb, throws_generic_members.fb, and sema tests for each diagnostic.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished

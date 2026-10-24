@@ -51,5 +51,7 @@ docs/history.md; a landed step's notes go there, newest milestone first.
   Callback, and bindgen.
 - M6 so far: step 0 (CI on Windows, Linux, and macOS), 1 (std's foundation), 2 (indexing,
   iteration, and ranges), 3 (collections I), 4 (collections II), 9 (math I), 10 (math II,
-  ThreadLocal Global), 12 (ffi: CData and Buffer), 16 (time), 21 (crypto), 23 (uuid and SQLite),
-  27 (algo), step 11's big math, and every one of the whole-codebase review's fixes.
+  ThreadLocal Global), 12 (ffi: CData and Buffer), 16 (time), 21 (crypto), 22 (compression),
+  23 (uuid and SQLite), 27 (algo); parts of 11 (big math), 17 (Value), 18 (concurrency, events,
+  Sendable Func, Where T: Class, Task<T> Throws E), and 28 (addresses, URLs, DNS); and every one
+  of the whole-codebase review's fixes.

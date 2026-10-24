@@ -141,9 +141,9 @@ compiler step or two ahead of the std lanes that wait on one.
 4. **Commit and push.** As hlpdev <hunterpollock2006@gmail.com>, short lowercase messages, small
    commits, no Claude attribution, no "wip" left in a message. Push the branch. CI runs only on
    master and the coordinator's landing branch, m6-land, so verify.py is the lane's own check.
-5. **Report** to the coordinator: the branch, the commits, verify.py's result, the decisions taken, the
-   findings dropped and why, and the paragraph docs/history.md should get, in CLAUDE.md's old
-   style.
+5. **Report** to the coordinator: the branch, the commits, verify.py's result, the decisions
+   taken, the findings dropped and why, and the paragraph docs/history.md should get, in
+   CLAUDE.md's old style.
 
 Gotchas: bash heredocs mangle backslash escapes, so edit C++ through the Write and Edit tools or
 a script the Write tool wrote; clang-tidy's trailing-comma check misfires on an empty `{}`
