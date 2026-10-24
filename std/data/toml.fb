@@ -1,0 +1,1014 @@
+// Toml: TOML 1.0's documents, read into an Object Value and written from one. A table is an
+// Object, an array an Array, a string a String, an integer an Int, a float a Float, inf and nan
+// too, and a boolean a Bool. A date, a time, or both, with an offset or local, is a String of its
+// RFC 3339 text, with 'T' between the date and the time, and 'Z' for UTC, as it's written
+// otherwise. Which tables a document may define, and where, follows TOML 1.0 as tomli reads it.
+
+Import std.core
+Import std.collections
+Import std.data.text
+Import std.data.value
+
+Public Struct Toml
+    // Toml isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The document text holds, as an Object. Throws a ParseError, with its line and column, of
+    // UNEXPECTED_END for text that ends inside a string, an array, or an inline table, of
+    // OUT_OF_RANGE for an integer an Int64 doesn't hold, and of SYNTAX for the rest that isn't
+    // TOML 1.0.
+    Public Static Method Read(text: String): Value Throws ParseError
+        Return Try TomlReader(text).Document()
+    End Method
+
+    // value, an Object, as a TOML document: each table's keys and values, then its tables, each
+    // under its header, an Array of Objects as an array of tables, and an Object in an Array as
+    // an inline table. TOML has no null, so an Object's Null is left out. Panics when value isn't
+    // an Object, or an Array holds a Null.
+    @PanicsAtCaller
+    Public Static Method Write(value: Value): String
+        If value.Kind != ValueKind.OBJECT Then Panic("a TOML document is an Object, not {value.Kind}")
+        Local out: UInt8[] = []
+        WriteTable(out, [], value)
+        Return TextOf(out)
+    End Method
+
+    // Writes table's entries that aren't tables, then its tables, each under its header.
+    @PanicsAtCaller
+    Static Method WriteTable(out: UInt8[], path: String[], table: Value)
+        For key In table.Keys()
+            Local value = table[key]
+            If value.IsNull || value.Kind == ValueKind.OBJECT || IsTableArray(value) Then Continue
+            AddText(out, KeyText(key) + " = ")
+            WriteInline(out, value)
+            out.Add(10)
+        End For
+
+        For key In table.Keys()
+            Local value = table[key]
+            Local inner = path.Clone()
+            inner.Add(KeyText(key))
+            If value.Kind == ValueKind.OBJECT
+                If out.Count > 0 Then out.Add(10)
+                AddText(out, "[" + inner.Join(".") + "]\n")
+                WriteTable(out, inner, value)
+            ElseIf IsTableArray(value)
+                For item In value.Values()
+                    If out.Count > 0 Then out.Add(10)
+                    AddText(out, "[[" + inner.Join(".") + "]]\n")
+                    WriteTable(out, inner, item)
+                End For
+            End If
+        End For
+    End Method
+
+    // Writes value on the line it's on: an Array in brackets, and an Object as an inline table.
+    @PanicsAtCaller
+    Static Method WriteInline(out: UInt8[], value: Value)
+        Select value.Kind
+            Case ValueKind.NULL
+                Panic("TOML has no null, so an Array can't hold one")
+            Case ValueKind.BOOL
+                AddText(out, value.AsBool() ? "true" : "false")
+            Case ValueKind.INT
+                AddText(out, "{value.AsInt()}")
+            Case ValueKind.FLOAT
+                AddText(out, FloatText(value.AsFloat(), "inf", "nan"))
+            Case ValueKind.STRING
+                AddQuoted(out, value.AsString())
+            Case ValueKind.ARRAY
+                out.Add(91)
+                Local first = True
+                For item In value.Values()
+                    If !first Then AddText(out, ", ")
+                    first = False
+                    WriteInline(out, item)
+                End For
+                out.Add(93)
+            Default
+                out.Add(123)
+                Local first = True
+                For key In value.Keys()
+                    Local item = value[key]
+                    If item.IsNull Then Continue
+                    AddText(out, first ? " " : ", ")
+                    first = False
+                    AddText(out, KeyText(key) + " = ")
+                    WriteInline(out, item)
+                End For
+                AddText(out, first ? "}}" : " }}")
+        End Select
+    End Method
+
+    // Whether value is an Array of Objects, which is written as an array of tables.
+    Static Method IsTableArray(value: Value): Bool
+        If value.Kind != ValueKind.ARRAY || value.Count == 0 Then Return False
+        For item In value.Values()
+            If item.Kind != ValueKind.OBJECT Then Return False
+        End For
+        Return True
+    End Method
+
+    // key as TOML writes it: bare when it's letters, digits, '_', and '-', else quoted.
+    Static Method KeyText(key: String): String
+        Local bytes = key.Bytes
+        If bytes.Count == 0 Then Return "\"\""
+        For b In bytes
+            If !IsBare(b)
+                Local out: UInt8[] = []
+                AddQuoted(out, key)
+                Return TextOf(out)
+            End If
+        End For
+        Return key
+    End Method
+
+    // Adds text as a basic string, with escapes for '"', '\', and control characters.
+    Static Method AddQuoted(out: UInt8[], text: String)
+        out.Add(34)
+        For b In text.Bytes
+            If b == 34
+                AddText(out, "\\\"")
+            ElseIf b == 92
+                AddText(out, "\\\\")
+            ElseIf b == 10
+                AddText(out, "\\n")
+            ElseIf b == 9
+                AddText(out, "\\t")
+            ElseIf b == 13
+                AddText(out, "\\r")
+            ElseIf b < 32 || b == 127
+                AddText(out, "\\u" + HexOf(b As Int, 4))
+            Else
+                out.Add(b)
+            End If
+        End For
+        out.Add(34)
+    End Method
+End Struct
+
+// Whether b goes in a bare key: a letter, a digit, '_', or '-'.
+Function IsBare(b: UInt8): Bool
+    Return (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || (b >= 48 && b <= 57) || b == 95 ||
+           b == 45
+End Function
+
+Function IsDigit(b: UInt8): Bool => b >= 48 && b <= 57
+
+Function IsHex(b: UInt8): Bool => IsDigit(b) || (b >= 65 && b <= 70) || (b >= 97 && b <= 102)
+
+// A hex digit's value.
+Function HexValue(b: UInt8): Int
+    If IsDigit(b) Then Return (b As Int) - 48
+    If b >= 97 Then Return (b As Int) - 87
+    Return (b As Int) - 55
+End Function
+
+// Whether b is a control character TOML's strings and comments can't hold: below a space but a
+// tab, or DEL.
+Function IsControl(b: UInt8): Bool => (b < 32 && b != 9) || b == 127
+
+// How many days month has in year, by the Gregorian calendar.
+Function DaysIn(year: Int, month: Int): Int
+    If month == 2
+        Local leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+        Return leap ? 29 : 28
+    End If
+
+    If month == 4 || month == 6 || month == 9 || month == 11 Then Return 30
+    Return 31
+End Function
+
+// What's known of a key of the document as it's read: whether a header named it, or dotted keys
+// in a section before made it, so no other header or dotted key can, and whether it's an inline
+// table or an array, which nothing can add to, and so neither can anything under it.
+Class TomlFlags
+    Field Explicit: Bool
+    Field Frozen: Bool
+    Field Nested: Map<String, TomlFlags>
+
+    New()
+        Nested = {}
+    End New
+
+    // The flags of path, made where they're missing.
+    Method Of(path: String[]): TomlFlags
+        Local node = Self
+        For key In path
+            Local next = node.Nested.Get(key)
+            If next == Null
+                next = TomlFlags()
+                node.Nested[key] = next
+            End If
+
+            node = next
+        End For
+        Return node
+    End Method
+
+    Method IsExplicit(path: String[]): Bool
+        If path.Count == 0 Then Return False
+        Local node = Self
+        For key In path
+            Local next = node.Nested.Get(key)
+            If next == Null Then Return False
+            node = next
+        End For
+        Return node.Explicit
+    End Method
+
+    // Whether path or a key it's under is frozen.
+    Method IsFrozen(path: String[]): Bool
+        Local node = Self
+        For key In path
+            Local next = node.Nested.Get(key)
+            If next == Null Then Return False
+            If next.Frozen Then Return True
+            node = next
+        End For
+        Return False
+    End Method
+
+    // Forgets path's flags, and those of the keys under it.
+    Method Clear(path: String[])
+        Local node = Self
+        For i = 0 Until path.Count - 1
+            Local next = node.Nested.Get(path[i])
+            If next == Null Then Return
+            node = next
+        End For
+        node.Nested.Remove(path[path.Count - 1])
+    End Method
+End Class
+
+Class TomlReader
+    Field Bytes: UInt8[]
+    Field At: Int
+    Field Root: Value
+    Field Flags: TomlFlags
+    // The keys dotted keys made in the section being read, which no later section can add to.
+    Field Pending: String[][] = []
+
+    // A reader of text, with its CRLFs as LFs, and past a byte order mark at its start.
+    New(text: String)
+        Local bytes = text.Bytes
+        Bytes = []
+        Bytes.Reserve(bytes.Count)
+        Local start = 0
+        If bytes.Count >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF Then start = 3
+        For i = start Until bytes.Count
+            If bytes[i] == 13 && i + 1 < bytes.Count && bytes[i + 1] == 10 Then Continue
+            Bytes.Add(bytes[i])
+        End For
+        Root = Value.NewObject()
+        Flags = TomlFlags()
+    End New
+
+    Method Document(): Value Throws ParseError
+        Local header: String[] = []
+        Loop
+            SkipSpaces()
+            If At >= Bytes.Count Then Break
+            Local b = Bytes[At]
+            If b == 10
+                At += 1
+                Continue
+            End If
+
+            If IsBare(b) || b == 34 || b == 39
+                Try KeyValue(header)
+                SkipSpaces()
+            ElseIf b == 91
+                FinishSection()
+                If At + 1 < Bytes.Count && Bytes[At + 1] == 91
+                    header = Try ArrayTable()
+                Else
+                    header = Try Table()
+                End If
+
+                SkipSpaces()
+            ElseIf b != 35
+                Throw Fail(At, "a TOML line holds a key and its value, a table's header, or a " +
+                           "comment")
+            End If
+
+            Try SkipComment()
+            If At >= Bytes.Count Then Break
+            If Bytes[At] != 10 Then Throw Fail(At, "a line ends after its key and value or header")
+            At += 1
+        End Loop
+        Return Root
+    End Method
+
+    // Reads `key = value` into the table header names.
+    Method KeyValue(header: String[]) Throws ParseError
+        Local start = At
+        Local key = Try Key()
+        If At >= Bytes.Count || Bytes[At] != 61 Then Throw Fail(At, "a key is followed by '='")
+        At += 1
+        SkipSpaces()
+        Local value = Try ReadValue()
+
+        // Each table a dotted key goes through is the section's own: no later one adds to it.
+        Local whole = header.Clone()
+        whole.AddAll(key)
+        For i = header.Count + 1 Until whole.Count
+            Local table = whole[0..i]
+            If Flags.IsExplicit(table)
+                Throw Fail(start, "a dotted key can't add to [{Joined(table)}], a table defined " +
+                           "before")
+            End If
+
+            Pending.Add(table)
+        End For
+
+        Local parent = whole[0..whole.Count - 1]
+        If Flags.IsFrozen(parent)
+            Throw Fail(start, "{Joined(parent)} is an inline table or an array, which can't be " +
+                       "added to")
+        End If
+
+        Local table = NestOf(Root, parent, True)
+        If table == Null Then Throw Fail(start, "{Joined(parent)} already has a value that isn't a table")
+        Local stem = key[key.Count - 1]
+        If table.Contains(stem) Then Throw Fail(start, "{Joined(whole)} is defined already")
+        If value.Kind == ValueKind.ARRAY || value.Kind == ValueKind.OBJECT
+            Flags.Of(whole).Frozen = True
+        End If
+
+        table[stem] = value
+    End Method
+
+    // Reads `[key]`, giving its key.
+    Method Table(): String[] Throws ParseError
+        Local start = At
+        At += 1
+        SkipSpaces()
+        Local key = Try Key()
+        If At >= Bytes.Count || Bytes[At] != 93 Then Throw Fail(At, "a table's header ends with ']'")
+        At += 1
+        If Flags.IsExplicit(key) || Flags.IsFrozen(key)
+            Throw Fail(start, "the table [{Joined(key)}] is defined already")
+        End If
+
+        Flags.Of(key).Explicit = True
+        If NestOf(Root, key, True) == Null
+            Throw Fail(start, "[{Joined(key)}] names a value that isn't a table")
+        End If
+
+        Return key
+    End Method
+
+    // Reads `[[key]]`, adding a table to its array, and gives its key.
+    Method ArrayTable(): String[] Throws ParseError
+        Local start = At
+        At += 2
+        SkipSpaces()
+        Local key = Try Key()
+        If At + 1 >= Bytes.Count || Bytes[At] != 93 || Bytes[At + 1] != 93
+            Throw Fail(At, "an array of tables' header ends with ']]'")
+        End If
+
+        At += 2
+        If Flags.IsFrozen(key)
+            Throw Fail(start, "{Joined(key)} is an inline table or an array, which can't be added to")
+        End If
+
+        // The new table's keys are its own, but this key still can't be a table's header.
+        Flags.Clear(key)
+        Flags.Of(key).Explicit = True
+        Local parent = NestOf(Root, key[0..key.Count - 1], True)
+        Local stem = key[key.Count - 1]
+        If parent != Null
+            Local array = parent.Get(stem)
+            If array == Null
+                Local made = Value.NewArray()
+                made.Add(Value.NewObject())
+                parent[stem] = made
+                Return key
+            End If
+
+            If array.Kind == ValueKind.ARRAY
+                array.Add(Value.NewObject())
+                Return key
+            End If
+        End If
+
+        Throw Fail(start, "[[{Joined(key)}]] names a value that isn't an array of tables")
+    End Method
+
+    // The keys dotted keys made in the section just read can't be added to after it.
+    Method FinishSection()
+        For path In Pending
+            Flags.Of(path).Explicit = True
+        End For
+        Pending.Clear()
+    End Method
+
+    // The table at path from table, made where it's missing, going into an array's last table
+    // when lists says to, or Null when a value that isn't a table is in the way.
+    Static Method NestOf(table: Value, path: String[], lists: Bool): Value?
+        Local at = table
+        For key In path
+            Local next = at.Get(key)
+            If next == Null
+                next = Value.NewObject()
+                at[key] = next
+            End If
+
+            If lists && next.Kind == ValueKind.ARRAY
+                If next.Count == 0 Then Return Null
+                next = next[next.Count - 1]
+            End If
+
+            If next.Kind != ValueKind.OBJECT Then Return Null
+            at = next
+        End For
+        Return at
+    End Method
+
+    // A key, of one part or more, and the spaces after it.
+    Method Key(): String[] Throws ParseError
+        Local key: String[] = [Try SimpleKey()]
+        Loop
+            SkipSpaces()
+            If At >= Bytes.Count || Bytes[At] != 46 Then Return key
+            At += 1
+            SkipSpaces()
+            key.Add(Try SimpleKey())
+        End Loop
+    End Method
+
+    Method SimpleKey(): String Throws ParseError
+        If At < Bytes.Count && Bytes[At] == 34 Then Return Try BasicString()
+        If At < Bytes.Count && Bytes[At] == 39 Then Return Try LiteralString()
+        Local start = At
+        While At < Bytes.Count && IsBare(Bytes[At])
+            At += 1
+        End While
+        If At == start
+            Throw Fail(At, "a key is letters, digits, '_', and '-', or a quoted string")
+        End If
+
+        Return TextOf(Bytes, start, At)
+    End Method
+
+    Method ReadValue(): Value Throws ParseError
+        If At >= Bytes.Count Then Throw Fail(At, "a key's value is missing")
+        Local b = Bytes[At]
+        If b == 34
+            If Tripled(34) Then Return Value(Try MultilineBasicString())
+            Return Value(Try BasicString())
+        End If
+
+        If b == 39
+            If Tripled(39) Then Return Value(Try MultilineLiteralString())
+            Return Value(Try LiteralString())
+        End If
+
+        If b == 91 Then Return Try ArrayValue()
+        If b == 123 Then Return Try InlineTable()
+        If Word(At, "true")
+            At += 4
+            Return Value(True)
+        End If
+
+        If Word(At, "false")
+            At += 5
+            Return Value(False)
+        End If
+
+        Return Try Scalar()
+    End Method
+
+    Method ArrayValue(): Value Throws ParseError
+        Local start = At
+        At += 1
+        Local array = Value.NewArray()
+        Loop
+            Try SkipBlank()
+            If At >= Bytes.Count Then Throw Ended(start, "the array has no ']'")
+            If Bytes[At] == 93
+                At += 1
+                Return array
+            End If
+
+            array.Add(Try ReadValue())
+            Try SkipBlank()
+            If At >= Bytes.Count Then Throw Ended(start, "the array has no ']'")
+            If Bytes[At] == 93
+                At += 1
+                Return array
+            End If
+
+            If Bytes[At] != 44 Then Throw Fail(At, "an array's values have ',' between them")
+            At += 1
+        End Loop
+    End Method
+
+    Method InlineTable(): Value Throws ParseError
+        Local start = At
+        At += 1
+        Local table = Value.NewObject()
+        Local flags = TomlFlags()
+        SkipSpaces()
+        If At < Bytes.Count && Bytes[At] == 125
+            At += 1
+            Return table
+        End If
+
+        Loop
+            If At >= Bytes.Count Then Throw Ended(start, "the inline table has no '}}'")
+            Local keyAt = At
+            Local key = Try Key()
+            If At >= Bytes.Count Then Throw Ended(start, "the inline table has no '}}'")
+            If Bytes[At] != 61 Then Throw Fail(At, "a key is followed by '='")
+            At += 1
+            SkipSpaces()
+            Local value = Try ReadValue()
+            If flags.IsFrozen(key)
+                Throw Fail(keyAt, "{Joined(key[0..key.Count - 1])} is an inline table or an " +
+                           "array, which can't be added to")
+            End If
+
+            Local parent = NestOf(table, key[0..key.Count - 1], False)
+            If parent == Null Then Throw Fail(keyAt, "the key {Joined(key)} goes under a value")
+            Local stem = key[key.Count - 1]
+            If parent.Contains(stem) Then Throw Fail(keyAt, "{Joined(key)} is defined already")
+            parent[stem] = value
+            SkipSpaces()
+            If At >= Bytes.Count Then Throw Ended(start, "the inline table has no '}}'")
+            If Bytes[At] == 125
+                At += 1
+                Return table
+            End If
+
+            If Bytes[At] != 44
+                Throw Fail(At, "an inline table's entries have ',' between them, on one line")
+            End If
+
+            If value.Kind == ValueKind.ARRAY || value.Kind == ValueKind.OBJECT
+                flags.Of(key).Frozen = True
+            End If
+
+            At += 1
+            SkipSpaces()
+        End Loop
+    End Method
+
+    // A string in '"'s, on one line, with escapes.
+    Method BasicString(): String Throws ParseError
+        Local start = At
+        At += 1
+        Local out: UInt8[] = []
+        Loop
+            If At >= Bytes.Count Then Throw Ended(start, "the string has no closing '\"'")
+            Local b = Bytes[At]
+            If b == 34
+                At += 1
+                Return TextOf(out)
+            End If
+
+            If b == 92
+                Try Escape(out, False)
+                Continue
+            End If
+
+            If b == 10 Then Throw Fail(At, "a string in '\"' ends on its line; '\"\"\"' starts one of lines")
+            If IsControl(b) Then Throw Fail(At, "a string can't hold a control character")
+            out.Add(b)
+            At += 1
+        End Loop
+    End Method
+
+    // A string in '"""'s, of lines, with escapes; a newline right after the first '"""' isn't in
+    // it, and a '\' at a line's end takes out the spaces and newlines after it.
+    Method MultilineBasicString(): String Throws ParseError
+        Local start = At
+        At += 3
+        If At < Bytes.Count && Bytes[At] == 10 Then At += 1
+        Local out: UInt8[] = []
+        Loop
+            If At >= Bytes.Count Then Throw Ended(start, "the string has no closing '\"\"\"'")
+            Local b = Bytes[At]
+            If b == 34 && Tripled(34)
+                Try Closing(out, 34)
+                Return TextOf(out)
+            End If
+
+            If b == 92
+                Try Escape(out, True)
+                Continue
+            End If
+
+            If b != 10 && IsControl(b) Then Throw Fail(At, "a string can't hold a control character")
+            out.Add(b)
+            At += 1
+        End Loop
+    End Method
+
+    // A string in "'"s, on one line, as it's written.
+    Method LiteralString(): String Throws ParseError
+        Local start = At
+        At += 1
+        Loop
+            If At >= Bytes.Count Then Throw Ended(start, "the string has no closing \"'\"")
+            Local b = Bytes[At]
+            If b == 39
+                At += 1
+                Return TextOf(Bytes, start + 1, At - 1)
+            End If
+
+            If b == 10 Then Throw Fail(At, "a string in \"'\" ends on its line; \"'''\" starts one of lines")
+            If IsControl(b) Then Throw Fail(At, "a string can't hold a control character")
+            At += 1
+        End Loop
+    End Method
+
+    // A string in "'''"s, of lines, as it's written; a newline right after the first "'''" isn't
+    // in it.
+    Method MultilineLiteralString(): String Throws ParseError
+        Local start = At
+        At += 3
+        If At < Bytes.Count && Bytes[At] == 10 Then At += 1
+        Local out: UInt8[] = []
+        Loop
+            If At >= Bytes.Count Then Throw Ended(start, "the string has no closing \"'''\"")
+            Local b = Bytes[At]
+            If b == 39 && Tripled(39)
+                Try Closing(out, 39)
+                Return TextOf(out)
+            End If
+
+            If b != 10 && IsControl(b) Then Throw Fail(At, "a string can't hold a control character")
+            out.Add(b)
+            At += 1
+        End Loop
+    End Method
+
+    // Past a multi-line string's closing quotes, the 1 or 2 before them going in the string.
+    Method Closing(out: UInt8[], quote: UInt8) Throws ParseError
+        At += 3
+        For i = 1 To 2
+            If At >= Bytes.Count || Bytes[At] != quote Then Return
+            out.Add(quote)
+            At += 1
+        End For
+        If At < Bytes.Count && Bytes[At] == quote
+            Throw Fail(At, "a multi-line string ends with at most 5 quotes")
+        End If
+    End Method
+
+    // Reads an escape at the '\', adding what it stands for to out.
+    Method Escape(out: UInt8[], lines: Bool) Throws ParseError
+        Local start = At
+        At += 1
+        If At >= Bytes.Count Then Throw Ended(start, "the string ends at a '\\'")
+        Local b = Bytes[At]
+        At += 1
+        Select b
+            Case 98
+                out.Add(8)
+            Case 116
+                out.Add(9)
+            Case 110
+                out.Add(10)
+            Case 102
+                out.Add(12)
+            Case 114
+                out.Add(13)
+            Case 34
+                out.Add(34)
+            Case 92
+                out.Add(92)
+            Case 117
+                AddChar(out, Try CodePoint(start, 4))
+            Case 85
+                AddChar(out, Try CodePoint(start, 8))
+            Default
+                If lines && (b == 32 || b == 9 || b == 10)
+                    // A '\' at a line's end, with only spaces after it.
+                    At -= 1
+                    SkipSpaces()
+                    If At < Bytes.Count && Bytes[At] != 10
+                        Throw Fail(start, "a '\\' in a string starts an escape, or ends a line")
+                    End If
+
+                    While At < Bytes.Count && (Bytes[At] == 32 || Bytes[At] == 9 || Bytes[At] == 10)
+                        At += 1
+                    End While
+                Else
+                    Throw Fail(start, "'\\' starts an escape TOML doesn't have")
+                End If
+        End Select
+    End Method
+
+    // The code point of an escape's digits hex digits.
+    Method CodePoint(start: Int, digits: Int): Int Throws ParseError
+        Local value: Int64 = 0
+        For i = 1 To digits
+            If At >= Bytes.Count || !IsHex(Bytes[At])
+                Throw Fail(start, "the escape has {digits} hex digits")
+            End If
+
+            value = value * 16 + (HexValue(Bytes[At]) As Int64)
+            At += 1
+        End For
+        If !IsScalar(value) Then Throw Fail(start, "the escape isn't a Unicode scalar value")
+        Return value As Int
+    End Method
+
+    // A number, a date, a time, or both.
+    Method Scalar(): Value Throws ParseError
+        Local start = At
+        Local b = Bytes[At]
+        If DigitsAt(At, 4) && ByteAt(At + 4) == 45 Then Return Try DateTime()
+        If DigitsAt(At, 2) && ByteAt(At + 2) == 58
+            Local out: UInt8[] = []
+            Try Time(out)
+            Return Value(TextOf(out))
+        End If
+
+        Local signed = b == 43 || b == 45
+        Local body = signed ? At + 1 : At
+        If Word(body, "inf")
+            At = body + 3
+            Local infinity = Infinite()
+            Return Value(b == 45 ? -infinity : infinity)
+        End If
+
+        If Word(body, "nan")
+            At = body + 3
+            Return Value(Infinite() - Infinite())
+        End If
+
+        If !signed && b == 48 && At + 1 < Bytes.Count
+            Local base = Bytes[At + 1]
+            If base == 120 Then Return Try Based(16)
+            If base == 111 Then Return Try Based(8)
+            If base == 98 Then Return Try Based(2)
+        End If
+
+        // A decimal: its integer part, then a fraction, an exponent, or both, for a float.
+        At = body
+        If At >= Bytes.Count || !IsDigit(Bytes[At]) Then Throw Fail(start, "the value isn't one TOML has")
+        Local digits: UInt8[] = []
+        If b == 45 Then digits.Add(45)
+        If Bytes[At] == 48
+            digits.Add(48)
+            At += 1
+            If At < Bytes.Count && (IsDigit(Bytes[At]) || Bytes[At] == 95)
+                Throw Fail(start, "a decimal number doesn't start with 0")
+            End If
+        Else
+            Try Digits(digits, start)
+        End If
+
+        Local float = False
+        If At < Bytes.Count && Bytes[At] == 46
+            float = True
+            digits.Add(46)
+            At += 1
+            If At >= Bytes.Count || !IsDigit(Bytes[At])
+                Throw Fail(start, "a float's '.' has digits after it")
+            End If
+
+            Try Digits(digits, start)
+        End If
+
+        If At < Bytes.Count && (Bytes[At] == 101 || Bytes[At] == 69)
+            float = True
+            digits.Add(101)
+            At += 1
+            If At < Bytes.Count && (Bytes[At] == 43 || Bytes[At] == 45)
+                digits.Add(Bytes[At])
+                At += 1
+            End If
+
+            If At >= Bytes.Count || !IsDigit(Bytes[At])
+                Throw Fail(start, "a float's exponent has digits")
+            End If
+
+            Try Digits(digits, start)
+        End If
+
+        If float
+            Local value = FloatOf(digits, 0, digits.Count)
+            If value == Null Then Throw Fail(start, "the float isn't one TOML has")
+            Return Value(value)
+        End If
+
+        // An integer, made negative as it goes, so the most negative one fits.
+        Local whole: Int64 = 0
+        For d In digits
+            If d == 45 Then Continue
+            Local digit = (d As Int64) - 48
+            If whole < (LEAST_INT64 + digit) / 10
+                Throw ErrorAt(Bytes, start, ParseErrorKind.OUT_OF_RANGE,
+                              "the integer is past what an Int64 holds")
+            End If
+
+            whole = whole * 10 - digit
+        End For
+        If b == 45 Then Return Value(whole)
+        If whole == LEAST_INT64
+            Throw ErrorAt(Bytes, start, ParseErrorKind.OUT_OF_RANGE,
+                          "the integer is past what an Int64 holds")
+        End If
+
+        Return Value(-whole)
+    End Method
+
+    // Adds the decimal digits at At to out, with a '_' only between two of them.
+    Method Digits(out: UInt8[], start: Int) Throws ParseError
+        Loop
+            out.Add(Bytes[At])
+            At += 1
+            If At >= Bytes.Count Then Return
+            If Bytes[At] == 95
+                If At + 1 >= Bytes.Count || !IsDigit(Bytes[At + 1])
+                    Throw Fail(At, "a number's '_' goes between two digits")
+                End If
+
+                At += 1
+            ElseIf !IsDigit(Bytes[At])
+                Return
+            End If
+        End Loop
+    End Method
+
+    // An integer in hex, octal, or binary, after its "0x", "0o", or "0b".
+    Method Based(base: Int): Value Throws ParseError
+        Local start = At
+        At += 2
+        Local value: Int64 = 0
+        Local any = False
+        Loop
+            If At >= Bytes.Count Then Break
+            Local b = Bytes[At]
+            If b == 95
+                If !any || At + 1 >= Bytes.Count || !IsHex(Bytes[At + 1])
+                    Throw Fail(At, "a number's '_' goes between two digits")
+                End If
+
+                At += 1
+                Continue
+            End If
+
+            If !IsHex(b) Then Break
+            Local digit = HexValue(b) As Int64
+            If digit >= base Then Break
+            If value > (MOST_INT64 - digit) / base
+                Throw ErrorAt(Bytes, start, ParseErrorKind.OUT_OF_RANGE,
+                              "the integer is past what an Int64 holds")
+            End If
+
+            value = value * (base As Int64) + digit
+            any = True
+            At += 1
+        End Loop
+        If !any Then Throw Fail(start, "the integer has digits after its base")
+        Return Value(value)
+    End Method
+
+    // A date, and maybe a time after it and an offset after that.
+    Method DateTime(): Value Throws ParseError
+        Local start = At
+        Local year = Try Number(4, 0, 9999)
+        Try Expect(45)
+        Local month = Try Number(2, 1, 12)
+        Try Expect(45)
+        Local day = Try Number(2, 1, 31)
+        If day > DaysIn(year, month) Then Throw Fail(start, "the date has no such day in its month")
+        Local out = Bytes[start..At]
+        If At < Bytes.Count
+            Local b = Bytes[At]
+            Local spaced = b == 32 && DigitsAt(At + 1, 2) && ByteAt(At + 3) == 58
+            If b == 84 || b == 116 || spaced
+                At += 1
+                out.Add(84)
+                Try Time(out)
+                If At < Bytes.Count && (Bytes[At] == 90 || Bytes[At] == 122)
+                    out.Add(90)
+                    At += 1
+                ElseIf At < Bytes.Count && (Bytes[At] == 43 || Bytes[At] == 45)
+                    Local offset = At
+                    At += 1
+                    Try Number(2, 0, 23)
+                    Try Expect(58)
+                    Try Number(2, 0, 59)
+                    out.AddAll(Bytes[offset..At])
+                End If
+            End If
+        End If
+
+        Return Value(TextOf(out))
+    End Method
+
+    // Adds a time, hours, minutes, seconds, and maybe a fraction of one, to out.
+    Method Time(out: UInt8[]) Throws ParseError
+        Local start = At
+        Try Number(2, 0, 23)
+        Try Expect(58)
+        Try Number(2, 0, 59)
+        Try Expect(58)
+        Try Number(2, 0, 59)
+        If At < Bytes.Count && Bytes[At] == 46
+            At += 1
+            If !DigitsAt(At, 1) Then Throw Fail(At, "a time's '.' has digits after it")
+            While DigitsAt(At, 1)
+                At += 1
+            End While
+        End If
+
+        out.AddAll(Bytes[start..At])
+    End Method
+
+    // A number of exactly digits digits, from least to most.
+    Method Number(digits: Int, least: Int, most: Int): Int Throws ParseError
+        If !DigitsAt(At, digits) Then Throw Fail(At, "the date or time has {digits} digits here")
+        Local value = 0
+        For i = 1 To digits
+            value = value * 10 + (Bytes[At] As Int) - 48
+            At += 1
+        End For
+        If value < least || value > most Then Throw Fail(At - digits, "the date or time is out of range")
+        Return value
+    End Method
+
+    Method Expect(b: UInt8) Throws ParseError
+        If ByteAt(At) != b Then Throw Fail(At, "the date or time has '{CharText(b As Int)}' here")
+        At += 1
+    End Method
+
+    // Whether count digits are at `at`.
+    Method DigitsAt(at: Int, count: Int): Bool
+        If at + count > Bytes.Count Then Return False
+        For i = at Until at + count
+            If !IsDigit(Bytes[i]) Then Return False
+        End For
+        Return True
+    End Method
+
+    // The byte at `at`, or 0 past the end.
+    Method ByteAt(at: Int): UInt8 => at < Bytes.Count ? Bytes[at] : 0
+
+    // Whether the word's ASCII bytes are at `at`.
+    Method Word(at: Int, word: String): Bool
+        Local bytes = word.Bytes
+        If at + bytes.Count > Bytes.Count Then Return False
+        For i = 0 Until bytes.Count
+            If Bytes[at + i] != bytes[i] Then Return False
+        End For
+        Return True
+    End Method
+
+    // Whether three of quote start at At.
+    Method Tripled(quote: UInt8): Bool
+        Return At + 2 < Bytes.Count && Bytes[At] == quote && Bytes[At + 1] == quote &&
+               Bytes[At + 2] == quote
+    End Method
+
+    // Past spaces and tabs.
+    Method SkipSpaces()
+        While At < Bytes.Count && (Bytes[At] == 32 || Bytes[At] == 9)
+            At += 1
+        End While
+    End Method
+
+    // Past a comment, up to its line's end.
+    Method SkipComment() Throws ParseError
+        If At >= Bytes.Count || Bytes[At] != 35 Then Return
+        While At < Bytes.Count && Bytes[At] != 10
+            If IsControl(Bytes[At]) Then Throw Fail(At, "a comment can't hold a control character")
+            At += 1
+        End While
+    End Method
+
+    // Past spaces, newlines, and comments, in an array.
+    Method SkipBlank() Throws ParseError
+        Loop
+            SkipSpaces()
+            If At >= Bytes.Count Then Return
+            If Bytes[At] == 10
+                At += 1
+            ElseIf Bytes[At] == 35
+                Try SkipComment()
+            Else
+                Return
+            End If
+        End Loop
+    End Method
+
+    Method Fail(at: Int, message: String): ParseError
+        Return ErrorAt(Bytes, at, ParseErrorKind.SYNTAX, message)
+    End Method
+
+    Method Ended(at: Int, message: String): ParseError
+        Return ErrorAt(Bytes, at, ParseErrorKind.UNEXPECTED_END, message)
+    End Method
+
+    // A dotted key as it's shown in a message.
+    Static Method Joined(key: String[]): String => key.Join(".")
+End Class

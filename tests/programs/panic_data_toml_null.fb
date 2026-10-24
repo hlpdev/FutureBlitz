@@ -1,0 +1,11 @@
+// TOML has no null, so Write panics where it's given an Array that holds one.
+Import std.core
+Import std.data.value
+Import std.data.toml
+
+Local document = Value.NewObject()
+document["list"] = Value.NewArray()
+document["list"].Add(Value(1 As Int64))
+Print(Toml.Write(document))
+document["list"].Add(Value())
+Print(Toml.Write(document))

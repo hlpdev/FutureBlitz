@@ -1,0 +1,72 @@
+title = "TOML é\t\"quoted\" 😀"
+literal = "C:\\no\\escapes"
+lines = "first second\nthird \""
+raw = "'one'\ntwo''"
+integers = [0, -17, 42, 1000, 3735928559, 493, 13, 9223372036854775807, -9223372036854775808]
+floats = [1.5, -0, 6.02e+23, 1e-07, 3141.5926, inf, -inf, -nan, inf, -0]
+flags = [true, false]
+quoted key = 1
+dotted = {"inner": {"key": "x"}}
+times = ["1979-05-27T07:32:00Z", "1979-05-27T07:32:00.500Z", "1979-05-27T07:32:00.120-07:00", "1979-05-27T07:32:00", "1979-05-27", "07:32:00.000", "00:00:00.5"]
+server = {"point": {"x": 1, "y": {"z": [2, {"w": 3}]}}, "alpha": {"ip": "10.0.0.1"}}
+fruit = [{"name": "apple", "physical": {"color": "red"}}, {"name": "banana"}]
+SYNTAX 3 1 a is defined already at line 3, column 1
+SYNTAX 3 1 the table [t] is defined already at line 3, column 1
+UNEXPECTED_END 1 5 the string has no closing '"' at line 1, column 5
+UNEXPECTED_END 1 5 the array has no ']' at line 1, column 5
+UNEXPECTED_END 1 5 the inline table has no '}' at line 1, column 5
+OUT_OF_RANGE 1 5 the integer is past what an Int64 holds at line 1, column 5
+OUT_OF_RANGE 1 5 the integer is past what an Int64 holds at line 1, column 5
+OUT_OF_RANGE 1 5 the integer is past what an Int64 holds at line 1, column 5
+SYNTAX 1 5 the date has no such day in its month at line 1, column 5
+SYNTAX 1 16 the date or time is out of range at line 1, column 16
+SYNTAX 1 5 a decimal number doesn't start with 0 at line 1, column 5
+SYNTAX 1 6 a number's '_' goes between two digits at line 1, column 6
+SYNTAX 1 6 '\' starts an escape TOML doesn't have at line 1, column 6
+SYNTAX 1 6 the escape isn't a Unicode scalar value at line 1, column 6
+SYNTAX 2 1 t is an inline table or an array, which can't be added to at line 2, column 1
+SYNTAX 2 1 a is an inline table or an array, which can't be added to at line 2, column 1
+SYNTAX 3 1 a dotted key can't add to [a.b], a table defined before at line 3, column 1
+SYNTAX 1 1 a TOML line holds a key and its value, a table's header, or a comment at line 1, column 1
+SYNTAX 1 7 a line ends after its key and value or header at line 1, column 7
+SYNTAX 1 9 a string in '"' ends on its line; '"""' starts one of lines at line 1, column 9
+SYNTAX 1 14 a comment can't hold a control character at line 1, column 14
+SYNTAX 1 2 a key is followed by '=' at line 1, column 2
+SYNTAX 1 14 a multi-line string ends with at most 5 quotes at line 1, column 14
+SYNTAX 2 1 a TOML line holds a key and its value, a table's header, or a comment at line 2, column 1
+0
+name = "Tom \"T\" é\n\u0001\u007f"
+"odd key" = 1
+"" = true
+ratio = 2.0
+big = 1e+300
+small = -1.5e-07
+edges = [inf, -inf]
+mixed = [1, { "a b" = "b" }, {}]
+empty = []
+
+[owner]
+dob = "1979-05-27T07:32:00Z"
+
+[owner.deeper]
+k = 1
+
+[owner.blank]
+
+[[items]]
+n = 1
+
+[items.detail]
+twice = 2
+
+[[items]]
+n = 2
+
+[items.detail]
+twice = 4
+
+True
+True
+kept = 1
+list = [{}, 2]
+

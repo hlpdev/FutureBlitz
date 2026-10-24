@@ -1,0 +1,3 @@
+list = [1]
+
+panic: TOML has no null, so an Array can't hold one at panic_data_toml_null.fb:11:7
