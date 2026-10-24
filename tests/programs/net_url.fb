@@ -69,3 +69,7 @@ For text In ["http://xn--mnchen-~ya.example/", "http://xn--mnchen-}}ya.example/"
              "http://xn--mnchen-{{ya.example/"]
     Print("{text}: {Url.Parse(text)?.ToString() ?? "not a URL"}")
 End For
+// Only Punycode's ASCII starts with xn--.
+For text In ["http://xn--\u{FC}.com/", "http://XN--\u{FC}.com/"]
+    Print("{text}: {Url.Parse(text)?.ToString() ?? "not a URL"}")
+End For

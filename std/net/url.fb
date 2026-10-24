@@ -1060,6 +1060,8 @@ Function DomainToAscii(domain: Int[]): String?
                 ascii.Add(c As UInt8)
             End For
         Else
+            // Only Punycode's ASCII starts with xn--.
+            If IsAce(label) Then Return Null
             For c In "xn--".Bytes
                 ascii.Add(c)
             End For
