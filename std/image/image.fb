@@ -1,6 +1,7 @@
 // Image: a picture's pixels, in rows from the top, each RGBA, 8 bits a channel, its alpha
 // straight, which the formats' Decodes give and their Encodes take. Image.Decode reads any
-// format std.image knows, by how its bytes start, but HDR's, whose pixels are an HdrImage's.
+// format std.image knows, by how its bytes start, but HDR's, whose pixels are an HdrImage's. Its
+// transforms, Resize, Crop, the flips and turns, Draw, Paste, and Fill, change it in place.
 
 Import std.core
 Import std.math.color
