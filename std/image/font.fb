@@ -51,23 +51,28 @@ Public Class Font
         Get => fb_font_units(State)
     End Property
 
-    // How far its glyphs go above the baseline, at `size` pixels an em.
+    // How far its glyphs go above the baseline, at `size` pixels an em. Panics when the size
+    // isn't finite or is negative, as each of its metrics does.
+    @PanicsAtCaller
     Public Method Ascent(size: Float): Float
         Return Scaled(fb_font_ascent(State), size)
     End Method
 
     // How far its glyphs go below the baseline, at `size` pixels an em, above 0.
+    @PanicsAtCaller
     Public Method Descent(size: Float): Float
         Return Scaled(-fb_font_descent(State), size)
     End Method
 
     // The gap between one line's descent and the next one's ascent, at `size` pixels an em.
+    @PanicsAtCaller
     Public Method LineGap(size: Float): Float
         Return Scaled(fb_font_line_gap(State), size)
     End Method
 
     // How far apart its lines' baselines are, at `size` pixels an em: its ascent, descent, and
     // line gap.
+    @PanicsAtCaller
     Public Method LineHeight(size: Float): Float
         Return Scaled(fb_font_ascent(State) - fb_font_descent(State) + fb_font_line_gap(State),
                       size)
@@ -89,8 +94,10 @@ Public Class Font
         Return fb_font_has(State, codePoint As UInt32) != 0
     End Method
 
-    // Font units at `size` pixels an em.
+    // Font units at `size` pixels an em. Panics when the size isn't finite or is negative.
+    @PanicsAtCaller
     Method Scaled(units: Int32, size: Float): Float
+        CheckSize(size)
         Return ((units As Double) * (size As Double) / (fb_font_units(State) As Double)) As Float
     End Method
 
