@@ -685,14 +685,18 @@ set(FB_STB_NOTICE "${FB_STB_NOTICE}" PARENT_SCOPE)
 set(FB_STB_LICENSES "the MIT license" PARENT_SCOPE)
 
 # libwebp: std.image's WebP, lossy and lossless, through its own CMake, with sharpyuv, which its
-# encoder uses, and without threads of its own or its tools. Its SIMD code is picked at run time,
-# and gives what its plain C gives.
+# encoder uses, and without its tools. Its SIMD code is picked at run time, and gives what its
+# plain C gives. std.image asks for none of its threads, but it's built with them: a thread that
+# first decodes or encodes sets up the SIMD code's function pointers, and with them, as libwebp
+# has it, another thread waits on a lock until they're set rather than reading them half set, on
+# every target but Windows, where libwebp has no lock.
 set(FB_LIBWEBP_VERSION 1.6.0)
 foreach(option WEBP_BUILD_ANIM_UTILS WEBP_BUILD_CWEBP WEBP_BUILD_DWEBP WEBP_BUILD_GIF2WEBP
                WEBP_BUILD_IMG2WEBP WEBP_BUILD_VWEBP WEBP_BUILD_WEBPINFO WEBP_BUILD_LIBWEBPMUX
-               WEBP_BUILD_WEBPMUX WEBP_BUILD_EXTRAS WEBP_USE_THREAD)
+               WEBP_BUILD_WEBPMUX WEBP_BUILD_EXTRAS)
   set(${option} OFF CACHE BOOL "" FORCE)
 endforeach()
+set(WEBP_USE_THREAD ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
   libwebp
   URL https://github.com/webmproject/libwebp/archive/refs/tags/v${FB_LIBWEBP_VERSION}.tar.gz

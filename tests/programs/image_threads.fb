@@ -1,0 +1,78 @@
+// std.image's formats on several threads at once: each worker makes its own images and encodes
+// and decodes them, the program's first WebPs among them, which set libwebp up as they go, and
+// each one's errors say what its own data was.
+Import std.core
+Import std.math.color
+Import std.image
+
+// A pattern of its own for each seed, no two neighbors alike, its alpha falling to the bottom
+// right.
+Function Pattern(seed: Int): Image
+    Local image = Image(24, 16)
+    For y = 0 Until 16
+        For x = 0 Until 24
+            image[x, y] = Color32(((x * 37 + seed * 11) % 256) As UInt8,
+                                  ((y * 53 + seed * 7) % 256) As UInt8,
+                                  ((x * y + seed) % 256) As UInt8, (255 - x - y) As UInt8)
+        End For
+    End For
+    Return image
+End Function
+
+Function Same(a: Image, b: Image): Bool => a.Width == b.Width && a.ToBytes() == b.ToBytes()
+
+// What a format's Decode throws for data that's broken past its header, which stb_image says
+// for that format.
+Function Thrown(format: String, data: UInt8[]): String
+    Try
+        If format == "PNG" Then Png.Decode(data)
+        If format == "JPEG" Then Jpeg.Decode(data)
+        Return "no error"
+    Catch e As IOError
+        Return e.Message
+    End Try
+End Function
+
+// The worker's image as a PNG whose compressed pixels start wrong, for an even seed, or else as a
+// JPEG whose scan says it has 5 components.
+Function Broken(seed: Int, image: Image): UInt8[]
+    If seed % 2 == 0
+        Local png = Png.Encode(image)
+        // The signature and the IHDR chunk are 33 bytes, then the IDAT's size and type.
+        png[41] = 0
+        Return png
+    End If
+
+    Local jpeg = Jpeg.Encode(image)
+    For i = 0 Until jpeg.Count - 4
+        If jpeg[i] == 0xFF && jpeg[i + 1] == 0xDA
+            jpeg[i + 4] = 5
+            Break
+        End If
+    End For
+    Return jpeg
+End Function
+
+// Whether each format gives the worker's image back, as near as a lossy one does, and what a
+// broken PNG or JPEG throws.
+Function Work(seed: Int): String
+    Local image = Pattern(seed)
+    Try
+        Local lossless = Same(Try WebP.Decode(WebP.EncodeLossless(image)), image)
+        Local lossy = Try WebP.Decode(WebP.Encode(image, 90))
+        Local png = Same(Try Png.Decode(Png.Encode(image)), image)
+        Local qoi = Same(Try Qoi.Decode(Qoi.Encode(image)), image)
+        Local jpeg = Try Jpeg.Decode(Jpeg.Encode(image))
+        Local thrown = Thrown(seed % 2 == 0 ? "PNG" : "JPEG", Broken(seed, image))
+        Return "{lossless} {lossy.Width}x{lossy.Height} {png} {qoi} {jpeg[0, 0].a} {thrown}"
+    Catch e As IOError
+        Return "failed: {e.Message}"
+    End Try
+End Function
+
+Local tasks = [Spawn(Function() => Work(0)), Spawn(Function() => Work(1)),
+               Spawn(Function() => Work(2)), Spawn(Function() => Work(3)),
+               Spawn(Function() => Work(4)), Spawn(Function() => Work(5))]
+For task In tasks
+    Print(task.Wait())
+End For
