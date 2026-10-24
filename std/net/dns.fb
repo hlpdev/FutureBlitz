@@ -6,7 +6,7 @@ Import std.net.address
 
 Extern "runtime"
     Function fb_io_resolve(host: String, output: UInt8[]): Int32
-    Function fb_io_resolve_async(host: String, output: UInt8[]): Task<Int32>
+    Function fb_io_resolve_async(host: String, like: UInt8[]): Task<UInt8[]>
     Function fb_io_error_text(code: Int32): String
 End Extern
 
@@ -29,16 +29,19 @@ Public Struct Dns
         Try Named(host)
         Local output: UInt8[] = []
         Try Check(host, fb_io_resolve(host, output))
-        Return Addresses(output)
+        Return Addresses(output, 0)
     End Method
 
     // Resolve's Async twin: a Task of host's addresses, which the I/O thread finishes while the
-    // main thread goes on.
+    // main thread goes on, with an array of its own, the code then the addresses.
     Public Static Async Method ResolveAsync(host: String): IpAddress[] Throws NetError
         Try Named(host)
-        Local output: UInt8[] = []
-        Try Check(host, Await fb_io_resolve_async(host, output))
-        Return Addresses(output)
+        Local like: UInt8[] = []
+        Local answer = Await fb_io_resolve_async(host, like)
+        Local code = (answer[0] As Int32) | ((answer[1] As Int32) << 8) |
+                     ((answer[2] As Int32) << 16) | ((answer[3] As Int32) << 24)
+        Try Check(host, code)
+        Return Addresses(answer, 4)
     End Method
 End Struct
 
@@ -61,10 +64,10 @@ Function Check(host: String, code: Int32) Throws NetError
     Throw NetError(NetErrorKind.OTHER, "looking up {host} failed: {fb_io_error_text(code)}", host)
 End Function
 
-// The addresses a lookup put in output, 17 bytes each.
-Function Addresses(output: UInt8[]): IpAddress[]
+// The addresses a lookup put in output from `start` on, 17 bytes each.
+Function Addresses(output: UInt8[], start: Int): IpAddress[]
     Local addresses: IpAddress[] = []
-    For at = 0 Until output.Count Step 17
+    For at = start Until output.Count Step 17
         Local size = output[at] == 4 ? 4 : 16
         addresses.Add(IpAddress.FromBytes(output[at + 1..at + 1 + size]))
     End For

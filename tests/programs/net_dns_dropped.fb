@@ -1,0 +1,32 @@
+// A Scheduler that goes while one of its coroutines awaits Dns.ResolveAsync takes the coroutine
+// with it, and what it held; the lookup goes on, and finishes into nothing of the coroutine's.
+Import std.core
+Import std.net
+
+Async Function Look(): Int Throws NetError
+    Local found = Try Await Dns.ResolveAsync("localhost")
+    Return found.Count
+End Function
+
+Function Drop()
+    Local paused = Scheduler()
+    paused.Run(Look())
+End Function
+
+Drop()
+// What the coroutine let go of is the new arrays' memory, if any of them.
+Local others: UInt8[][] = []
+For i = 1 To 1000
+    others.Add([])
+End For
+
+// Lookups after it finish after it.
+For i = 1 To 5
+    Try? Dns.Resolve("localhost")
+End For
+
+Local total = 0
+For o In others
+    total += o.Count
+End For
+Print("bytes in 1000 new empty arrays: {total}")
