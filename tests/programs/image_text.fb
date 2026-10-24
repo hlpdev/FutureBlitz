@@ -1,0 +1,136 @@
+// std.image's Font and a Canvas's FillText draw what image_text/make_data.py works out from
+// font.py's and cff_font.py's glyphs apart from the runtime, pixel for pixel: kerning, a glyph
+// with a hole, one of only points off its curve, one on and off, a composite, a code point past
+// the BMP, one with no glyph, lines, text not antialiased, translucent colors, and CFF's
+// outlines, plain and CID-keyed. A font's metrics, its errors, and fonts broken at random, which
+// draw what they can but never read past their bytes.
+
+Import std.core
+Import std.collections
+Import std.math.color
+Import std.math.random
+Import std.math.vector
+Import "./image_text/data"
+Import "./image_text/font"
+
+Import std.image
+
+// How many of two images' bytes differ, and by how much at most, or that they're the same.
+Function Compared(image: Image, expected: UInt8[]): String
+    Local bytes = image.ToBytes()
+    Local differing = 0
+    Local most = 0
+    For i = 0 Until bytes.Count
+        Local difference = (bytes[i] As Int) - (expected[i] As Int)
+        If difference != 0
+            differing += 1
+            most = Max(most, difference < 0 ? -difference : difference)
+        End If
+    End For
+    Return differing == 0 ? "same" : "{differing} bytes differ, by {most} at most"
+End Function
+
+Local font = Try Font.Parse(FontBytes())
+
+Function Drawn(width: Int, height: Int, font: Font, text: String, size: Float, at: Vec2,
+               antialias: Bool = True): Canvas
+    Local canvas = Canvas(Image(width, height))
+    canvas.Antialias = antialias
+    canvas.FillText(text, font, size, at, Color32.Black)
+    Return canvas
+End Function
+
+Print("kerned:", Compared(Drawn(96, 32, font, "AVTo", 24, Vec2(2, 24)).Image, Kerned()))
+Print("between pixels:", Compared(Drawn(80, 28, font, "iD.\u{F6}", 21.3, Vec2(1.25, 21.7)).Image,
+                                  Between()))
+Local missing = Drawn(40, 24, font, "x\u{1F642}", 16, Vec2(1, 18))
+Print("missing and past the BMP:", Compared(missing.Image, Missing()))
+Print("lines:", Compared(Drawn(48, 40, font, "To\nAV", 14, Vec2(2, 13)).Image, Lines()))
+Print("not antialiased:", Compared(Drawn(56, 24, font, "AVo", 18, Vec2(1.5, 18.5), False).Image,
+                                   Aliased()))
+Local colored = Canvas(Image(64, 28))
+colored.FillText("AoV", font, 22, Vec2(3, 21), Color32(200, 40, 10))
+colored.FillText("iT", font, 26, Vec2(20, 24), Color32(20, 60, 220, 140))
+Print("colored:", Compared(colored.Image, Colored()))
+
+// CFF's outlines, of each of Type 2's operators, in a font of one Font DICT, with a charset of
+// each of CFF's forms for its accented character, and in a CID font of two, drawn the same.
+Local cff = Try Font.Parse(CffBytes())
+Local cid = Try Font.Parse(CidBytes())
+Local cffText = "LOcf~HZN\u{D6}"
+Print("cff:", Compared(Drawn(120, 26, cff, cffText, 20, Vec2(2, 20)).Image, Cff()))
+Print("cff, charset of ranges:",
+      Compared(Drawn(120, 26, Try Font.Parse(CffRangesBytes()), cffText, 20, Vec2(2, 20)).Image,
+               Cff()))
+Print("cff, charset of wide ranges:",
+      Compared(Drawn(120, 26, Try Font.Parse(CffWideRangesBytes()), cffText, 20,
+                     Vec2(2, 20)).Image, Cff()))
+Print("cid:", Compared(Drawn(120, 26, cid, cffText, 20, Vec2(2, 20)).Image, Cff()))
+Print("cff missing, not antialiased:",
+      Compared(Drawn(64, 24, cff, "Hx Z", 16.6, Vec2(1.5, 18.5), False).Image, CffMissing()))
+Print("cid missing, not antialiased:",
+      Compared(Drawn(64, 24, cid, "Hx Z", 16.6, Vec2(1.5, 18.5), False).Image, CffMissing()))
+// A glyph whose arithmetic puts a point past what a glyph's may be draws nothing, however large,
+// as does one whose subroutine's number is past any there is.
+Local blank = Image(16, 16).ToBytes()
+Print("too far:", Compared(Drawn(16, 16, cff, "|", 1e30, Vec2(0, 8)).Image, blank),
+      Compared(Drawn(16, 16, cid, "|", 1e30, Vec2(0, 8)).Image, blank),
+      Compared(Drawn(16, 16, cff, "?", 12, Vec2(2, 12)).Image, blank),
+      Compared(Drawn(16, 16, cid, "?", 12, Vec2(2, 12)).Image, blank))
+
+// Its metrics, at 10 pixels an em, and its text's width, its widest line's, kerned.
+Print(font.UnitsPerEm, font.Ascent(10), font.Descent(10), font.LineGap(10), font.LineHeight(10))
+Print(font.Width("AV", 10), font.Width("A", 10) + font.Width("V", 10), font.Width("To\nAV", 10),
+      font.Width("", 10))
+Print(font.HasGlyph(65), font.HasGlyph(120), font.HasGlyph(0x1F642), font.HasGlyph(-1))
+Print(cff.UnitsPerEm, cff.Width("LO", 10), cid.Width("LOcf~HZ", 10), cff.HasGlyph(0x5A),
+      cid.HasGlyph(0x41))
+
+// What isn't a font std.image reads is an IOError.
+Function Failure(data: UInt8[]): String
+    Try
+        Font.Parse(data)
+        Return "no error"
+    Catch e As IOError
+        Return "{e.Kind} {e.Message}"
+    End Try
+End Function
+
+Local bytes = FontBytes()
+Local start: UInt8[] = []
+For i = 0 Until 100
+    start.Add(bytes[i])
+End For
+Print(Failure([1, 2, 3]))
+Print(Failure([0x4F, 0x54, 0x54, 0x4F, 0, 0, 0, 0, 0, 0, 0, 0]))
+Print(Failure(start))
+Print(Failure([0x74, 0x74, 0x63, 0x66, 0, 1, 0, 0, 0, 0, 0, 0]))
+// The CFF font, its first table's tag, 'CFF ', made 'CFF2'.
+Local cff2 = CffBytes()
+cff2[15] = 0x32
+Print(Failure(cff2))
+
+// A font with bytes changed at random parses or not, and draws what it can, but never reads past
+// its bytes.
+Local random = Random(25)
+Function Broken(bytes: UInt8[], rounds: Int, random: Random): Int
+    Local parsed = 0
+    For round = 0 Until rounds
+        Local broken = bytes.Clone()
+        For change = 0 Until random.Int(1, 8)
+            broken[random.Int(broken.Count)] = random.Int(256) As UInt8
+        End For
+
+        Local maybe = Try? Font.Parse(broken)
+        If maybe != Null
+            parsed += 1
+            Local canvas = Canvas(Image(40, 20))
+            canvas.FillText("AVTo.iD\u{F6}LOcf~HZN\u{D6}x\u{1F642}", maybe, 12, Vec2(1, 15),
+                            Color32.Black)
+            Local width = maybe.Width("AVToLOcf", 12)
+        End If
+    End For
+    Return parsed
+End Function
+Print("broken fonts that parse:", Broken(bytes, 2000, random) > 0,
+      Broken(CffBytes(), 1000, random) > 0, Broken(CidBytes(), 1000, random) > 0)

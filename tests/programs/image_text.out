@@ -1,0 +1,23 @@
+kerned: same
+between pixels: same
+missing and past the BMP: same
+lines: same
+not antialiased: same
+colored: same
+cff: same
+cff, charset of ranges: same
+cff, charset of wide ranges: same
+cid: same
+cff missing, not antialiased: same
+cid missing, not antialiased: same
+too far: same same same same
+1000 8 2 0.9 10.9
+13.2 14 13.2 0
+True False True False
+1000 12.2 44.2 True False
+INVALID_DATA the font isn't valid: it ends before its first table
+INVALID_DATA the font isn't valid: it lacks a table every font has
+INVALID_DATA the font isn't valid: its table directory ends too soon
+INVALID_DATA the font isn't valid: it's a collection of no fonts
+OTHER the font isn't one std.image reads: its outlines are CFF2's, which std.image doesn't read
+broken fonts that parse: True True True

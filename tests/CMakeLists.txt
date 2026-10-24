@@ -82,5 +82,7 @@ endif()
 file(GLOB_RECURSE FB_RUNTIME_TEST_SOURCES CONFIGURE_DEPENDS runtime/*.cpp)
 add_executable(fb_runtime_tests ${FB_RUNTIME_TEST_SOURCES})
 target_link_libraries(fb_runtime_tests PRIVATE fb_runtime fb_runtime_tz fb_tzdata Catch2::Catch2WithMain)
+target_compile_definitions(fb_runtime_tests PRIVATE
+  FB_TEST_FONTS="${CMAKE_CURRENT_SOURCE_DIR}/programs/image_text")
 fb_set_warnings(fb_runtime_tests)
 catch_discover_tests(fb_runtime_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})

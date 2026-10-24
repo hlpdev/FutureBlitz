@@ -1,0 +1,12 @@
+// Text's size is finite and not negative, and drawing it at another panics where it's drawn.
+Import std.core
+Import std.math.color
+Import std.math.vector
+Import "./image_text/font"
+Import std.image
+
+Local font = Try Font.Parse(FontBytes())
+Local canvas = Canvas(Image(8, 8))
+canvas.FillText("A", font, 0, Vec2(1, 7), Color32.Black)
+Print(font.Width("AV", 0), canvas.Image[3, 3].a)
+canvas.FillText("A", font, -2, Vec2(1, 7), Color32.Black)
