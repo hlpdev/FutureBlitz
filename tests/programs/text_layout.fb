@@ -24,6 +24,10 @@ Print("[" + "go 100\u{A0}km".WordWrap(7).Replace("\u{A0}", "<nbsp>") + "]")
 Print("[" + "a  b   c d".WordWrap(80) + "]", "[" + "a  b   c d".WordWrap(5) + "]")
 Print("[" + "\u{202F}x  y\u{2007}z".WordWrap(3).Replace("\u{202F}", "_").Replace("\u{2007}", "_") +
       "]", "[" + "  a   b  ".WordWrap(80) + "]")
+// A tab goes on to the next multiple of 8 columns, in a line's indentation or between words.
+Print("[" + "\tone two three four".WordWrap(20).Replace("\t", "\\t") + "]",
+      "[" + "a\tb c".WordWrap(10).Replace("\t", "\\t") + "]",
+      "[" + "ab\tc".WordWrap(9).Replace("\t", "\\t") + "]")
 Print("--")
 Local code = "    def f():\n        return 1\n\n    x = 2\n"
 Print("[" + code.Dedent() + "]")

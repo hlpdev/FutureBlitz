@@ -30,6 +30,9 @@ True
 c d]
 [_x
 y_z] [  a   b]
+[\tone two
+\tthree four] [a\tb
+c] [ab\tc]
 --
 [def f():
     return 1

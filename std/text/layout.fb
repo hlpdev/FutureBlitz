@@ -13,7 +13,8 @@ End Extern
 
 Extend String
     // Its lines filled with words up to width columns each, as a terminal shows them, with
-    // DisplayWidth: each line breaks before the word that would go past it, at the spaces before
+    // DisplayWidth and a tab going on to the next multiple of 8 columns: each line breaks before
+    // the word that would go past it, at the spaces before
     // that word, which go, while the spaces between words that stay on a line stay as they are.
     // A no-break space, U+00A0, U+2007, or U+202F, is part of its word, not a place to break. A
     // line's leading whitespace starts each line it becomes, and a word wider than the rest of
@@ -25,27 +26,28 @@ Extend String
         For line In LinesOf(Self)
             Local words = WordsOf(Self.Slice(line.0, line.1))
             Local indent = words.Count > 0 ? words[0].0 : ""
-            Local room = width - DisplayWidth(indent)
+            Local room = width - Advanced(0, indent)
             If room < 1
                 indent = ""
                 room = width
             End If
 
+            // The column the line so far reaches, -1 before its first word.
+            Local start = Advanced(0, indent)
             Local filled = ""
-            Local used = 0
+            Local at = -1
             For i = 0 Until words.Count
                 // The spaces before the word, which a line's first word has none of here.
                 Local spaces = i == 0 ? "" : words[i].0
                 For part In Pieces(words[i].1, room)
                     Local columns = DisplayWidth(part)
-                    Local spacing = DisplayWidth(spaces)
-                    If used > 0 && used + spacing + columns <= room
+                    If at >= 0 && Advanced(at, spaces) + columns <= width
                         filled += spaces + part
-                        used += spacing + columns
+                        at = Advanced(at, spaces) + columns
                     Else
-                        If used > 0 Then filled += "\n"
+                        If at >= 0 Then filled += "\n"
                         filled += indent + part
-                        used = columns
+                        at = start + columns
                     End If
 
                     spaces = ""
@@ -164,6 +166,21 @@ Function WordsOf(line: String): (String, String)[]
 
     If word >= 0 Then words.Add((line.Slice(spaces, word), line.Slice(word, at)))
     Return words
+End Function
+
+// The column after text, written from the column at, as a terminal shows it: a tab goes on to
+// the next multiple of 8, and the rest take DisplayWidth's columns.
+Function Advanced(at: Int, text: String): Int
+    Local column = at
+    For c In text.Chars
+        If c == '\t'
+            column = (column / 8 + 1) * 8
+        Else
+            column += DisplayWidth("{c}")
+        End If
+    End For
+
+    Return column
 End Function
 
 // Whether a line can break at c: whitespace, but not a no-break space.
