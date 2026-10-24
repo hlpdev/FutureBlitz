@@ -142,6 +142,30 @@ For quality In [50, 90, 100]
     Local jpeg = Try Jpeg.Decode(Jpeg.Encode(smooth, quality))
     Print("JPEG at {quality}: within 12 {Farthest(jpeg, smooth) <= 12}")
 End For
+// A JPEG whose Huffman table is of a class JPEG doesn't have, after its frame header, decodes
+// as far as stb_image gets, none of its scan here: its pixels are what decoding nothing gives,
+// the same each time, rather than what memory let go of before held.
+Local gray = Image(64, 64)
+gray.Fill(Color32(128, 128, 128))
+Local broken = Jpeg.Encode(gray)
+For i = 0 Until broken.Count - 4
+    If broken[i] == 0xFF && broken[i + 1] == 0xC4
+        broken[i + 4] = 0x55
+        Break
+    End If
+End For
+For round = 0 Until 3
+    Local filler = Image(256, 256)
+    filler.Fill(Color32(0xAB, 0x12, 0xCD, 0xEF))
+End For
+Local undecoded = Try Jpeg.Decode(broken)
+Local unlike = 0
+For y = 0 Until 64
+    For x = 0 Until 64
+        If undecoded[x, y] != undecoded[0, 0] Then unlike += 1
+    End For
+End For
+Print("JPEG without its scan:", undecoded[0, 0], unlike)
 Local fromAlpha = Try Jpeg.Decode(Jpeg.Encode(pattern))
 Print("JPEG of alpha:", fromAlpha[0, 0].a, fromAlpha[12, 8].a,
       Image.FormatOf(Jpeg.Encode(pattern)) ?? ImageFormat.HDR)
