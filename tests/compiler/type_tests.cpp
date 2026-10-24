@@ -385,7 +385,7 @@ TEST_CASE("values computed alike are one value", "[types]") {
     CHECK(types.name(types.value_expression(MULTIPLY, split, known(0))) == "10 / L * 0");
     CHECK(types.name(types.value_expression(SUBTRACT, split, split)) == "10 / L - 10 / L");
     CHECK(types.name(types.value_expression(ADD, split, split)) == "10 / L * 2");
-    const fb::type_id_t big = types.value_expression(MULTIPLY, l, known(std::int64_t{ 1 } << 62));
+    const fb::type_id_t big = types.value_expression(MULTIPLY, l, known(4611686018427387904));
     CHECK(types.name(types.value_expression(MULTIPLY, big, known(4))) ==
           "L * 4611686018427387904 * 4");
     CHECK(types.name(types.value_expression(MULTIPLY, l, l)) == "L * L");

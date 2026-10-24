@@ -1955,8 +1955,10 @@ private:
                 .kind = token_kind_t::LESS,
                 .span = { .file = whole.file, .begin = middle, .end = whole.end },
             };
-            return { .text = "<",
-                     .span = { .file = whole.file, .begin = whole.begin, .end = middle } };
+            return {
+                .text = "<",
+                .span = { .file = whole.file, .begin = whole.begin, .end = middle },
+            };
         }
         case token_kind_t::GREATER: {
             // ">=" and ">>" are a '>' and what touches it.
