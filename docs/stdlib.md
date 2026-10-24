@@ -364,10 +364,12 @@ file or URL in the default app.
   from a Map, a Struct (by reflection), or a JSON Value.
 - std.text.markdown (md4c): CommonMark with tables and task lists, to HTML, and a document tree
   to walk.
-- std.text.diff: line and character diffs (Myers), unified-diff text, and a three-way merge.
-  `Diff.Lines` and `Diff.Chars` give `DiffRun`s, `Diff.Unified` what `diff -u` and `git diff`
-  write, and `Diff.Merge` what `git merge-file` makes: a conflict holds only the lines that
-  differ, and two with at most 3 lines between them, or lines without a letter or digit, are one.
+- std.text.diff: line and character diffs (Myers, in linear space, as git's xdiff searches and
+  slides its changes), unified-diff text, and a three-way merge. `Diff.Lines` and `Diff.Chars`
+  give `DiffRun`s, `Diff.Unified` what `diff -u` and `git diff` write, and `Diff.Merge` what
+  `git merge-file` makes: a conflict holds only the lines that differ, two with at most 3 lines
+  between them, or lines without an ASCII letter or digit, are one, and its markers end in
+  "\r\n" where the texts' lines do.
 - Fuzzy matching (scores and matched positions, like fzf), and `Humanize`: plurals ("3
   enemies"), relative time ("3 minutes ago"), ordinals, number words, and case styles
   (snake_case, camelCase, PascalCase, kebab-case).
