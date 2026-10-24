@@ -9,6 +9,7 @@ HTTP/2 200 POST
 /echo
 text/plain; charset=utf-8
 over h2
+HTTP/2 200 0
 HTTP/2 200 redirected
 HTTP/2 200 GET
 /echo

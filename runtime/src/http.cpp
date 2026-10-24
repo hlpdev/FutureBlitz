@@ -375,8 +375,8 @@ std::optional<std::string> set_request(transfer_t& transfer) {
     const std::string& method = transfer.method;
     if (method == "HEAD") {
         curl_easy_setopt(easy, CURLOPT_NOBODY, 1L);
-    } else if (transfer.body || method == "POST") {
-        // A POST without a body sends an empty one.
+    } else if (transfer.body || method == "POST" || method == "PUT" || method == "PATCH") {
+        // A POST, PUT, or PATCH without a body sends an empty one, whose Content-Length says so.
         static const char nothing = 0;
         const std::vector<std::uint8_t>* body = transfer.body ? &*transfer.body : nullptr;
         curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE_LARGE,
