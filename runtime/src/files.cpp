@@ -1,0 +1,1200 @@
+// std.io's files, over libuv: whole-file reads and writes, atomic ones too, what's at a path,
+// copying, moving, and removing, folders and their listings, temporary files and folders, and
+// locks. Each call runs libuv's synchronous file functions on the calling thread, or, for an Async
+// twin, on libuv's thread pool, from the I/O thread's loop, which finishes the call's Task.
+
+#include "fb/files.hpp"
+
+#include "fb/runtime.hpp"
+#include "internal.hpp"
+#include "io_internal.hpp"
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <sys/stat.h>
+#include <utility>
+#include <uv.h>
+#include <vector>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <cerrno>
+#include <sys/file.h>
+#endif
+
+namespace {
+
+/// What a folder's entry is, as std.io numbers its kinds.
+enum kind_t : std::int32_t {
+    KIND_FILE = 0,
+    KIND_DIRECTORY = 1,
+    KIND_LINK = 2,
+    KIND_OTHER = 3,
+};
+
+/// An entry of a folder's listing: its path from the folder listed, and its kind.
+struct entry_t {
+    std::string path;
+    std::int32_t kind;
+};
+
+/// A held lock: the file it's on, open.
+struct lock_t {
+    uv_file file;
+};
+
+struct request_t;
+
+/// What a call does, given its request, on whichever thread it runs.
+using work_t = std::int64_t (*)(request_t& request);
+
+/// One call's arguments and what it gives, which the caller and, for an Async twin, the I/O
+/// thread both hold until they're done with it.
+struct request_t {
+    std::atomic<std::int32_t> owners = 1;
+    /// What the call is given: a path, a second one for a copy or a move, the bytes a write
+    /// writes, and a number, like a write's how or a listing's depth.
+    std::string path;
+    std::string other;
+    /// What a write writes: the caller's own bytes for a call that's done before it returns, or
+    /// `owned`, a copy, for an Async twin's.
+    std::string_view input;
+    std::string owned;
+    std::int64_t number = 0;
+    std::int32_t flag = 0;
+    /// What it gives.
+    std::string bytes;
+    std::vector<entry_t> entries;
+    uv_stat_t stat{};
+    lock_t* lock = nullptr;
+    /// An Async twin's work, Task, and libuv request.
+    work_t work = nullptr;
+    std::int64_t result = 0;
+    fb_task_t* task = nullptr;
+    uv_work_t queued{};
+};
+
+void release(request_t* request) {
+    if (request->owners.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        if (request->lock != nullptr) {
+            fb_io_lock_release(request->lock);
+        }
+
+        delete request;
+    }
+}
+
+std::string_view view_of(const fb_string_t* text) {
+    return { reinterpret_cast<const char*>(text + 1), static_cast<std::size_t>(text->length) };
+}
+
+/// A path as the request keeps it, given or made, which libuv reads up to its NUL: so one that
+/// holds a NUL would be another path, and is refused.
+bool has_nul(const std::string& path) {
+    return path.find('\0') != std::string::npos;
+}
+
+/// libuv's request for one synchronous file call, cleaned up after it.
+class fs_t {
+public:
+    fs_t() = default;
+    fs_t(const fs_t&) = delete;
+    fs_t& operator=(const fs_t&) = delete;
+    fs_t(fs_t&&) = delete;
+    fs_t& operator=(fs_t&&) = delete;
+
+    ~fs_t() {
+        uv_fs_req_cleanup(&m_request);
+    }
+
+    uv_fs_t* get() {
+        return &m_request;
+    }
+
+private:
+    uv_fs_t m_request{};
+};
+
+std::int64_t open_file(const std::string& path, const int flags, const int mode) {
+    fs_t call;
+    return uv_fs_open(nullptr, call.get(), path.c_str(), flags, mode, nullptr);
+}
+
+void close_file(const uv_file file) {
+    fs_t call;
+    uv_fs_close(nullptr, call.get(), file, nullptr);
+}
+
+/// What's at `path`, into `stat`, through a link unless `follow` is false.
+std::int64_t stat_path(const std::string& path, const bool follow, uv_stat_t& stat) {
+    fs_t call;
+    const int result = follow ? uv_fs_stat(nullptr, call.get(), path.c_str(), nullptr)
+                              : uv_fs_lstat(nullptr, call.get(), path.c_str(), nullptr);
+    if (result == 0) {
+        stat = call.get()->statbuf;
+    }
+
+    return result;
+}
+
+std::int64_t stat_file(const uv_file file, uv_stat_t& stat) {
+    fs_t call;
+    const int result = uv_fs_fstat(nullptr, call.get(), file, nullptr);
+    if (result == 0) {
+        stat = call.get()->statbuf;
+    }
+
+    return result;
+}
+
+bool is_directory(const uv_stat_t& stat) {
+    return (stat.st_mode & S_IFMT) == S_IFDIR;
+}
+
+std::int32_t kind_of(const uv_stat_t& stat) {
+    switch (stat.st_mode & S_IFMT) {
+    case S_IFREG:
+        return KIND_FILE;
+    case S_IFDIR:
+        return KIND_DIRECTORY;
+    case S_IFLNK:
+        return KIND_LINK;
+    default:
+        return KIND_OTHER;
+    }
+}
+
+/// Writes all of `bytes` to `file`, from where it is.
+std::int64_t write_all(const uv_file file, std::string_view bytes) {
+    while (!bytes.empty()) {
+        // libuv takes a buffer's size as an unsigned int.
+        const std::size_t size = std::min<std::size_t>(bytes.size(), 1U << 30U);
+        const uv_buf_t buffer =
+            uv_buf_init(const_cast<char*>(bytes.data()), static_cast<unsigned int>(size));
+        fs_t call;
+        const int written = uv_fs_write(nullptr, call.get(), file, &buffer, 1, -1, nullptr);
+        if (written < 0) {
+            return written;
+        }
+
+        bytes.remove_prefix(static_cast<std::size_t>(written));
+    }
+
+    return 0;
+}
+
+std::int64_t read_file(request_t& request) {
+    if (has_nul(request.path)) {
+        return UV_EINVAL;
+    }
+
+    const std::int64_t opened = open_file(request.path, UV_FS_O_RDONLY, 0);
+    if (opened < 0) {
+        return opened;
+    }
+
+    const auto file = static_cast<uv_file>(opened);
+    uv_stat_t stat{};
+    std::int64_t result = stat_file(file, stat);
+    if (result == 0 && is_directory(stat)) {
+        result = UV_EISDIR;
+    }
+
+    // What fstat says is only where to start: a file can grow while it's read, or say 0, as
+    // Linux's /proc files do. A read past the end, which gives 0, ends it.
+    std::string& bytes = request.bytes;
+    bytes.clear();
+    std::size_t filled = 0;
+    if (result == 0) {
+        bytes.resize(static_cast<std::size_t>(stat.st_size) + 1);
+    }
+
+    while (result == 0) {
+        if (filled == bytes.size()) {
+            bytes.resize(filled + std::max<std::size_t>(filled / 2, 65536));
+        }
+
+        // libuv takes a buffer's size as an unsigned int.
+        const std::size_t room = std::min<std::size_t>(bytes.size() - filled, 1U << 30U);
+        const uv_buf_t buffer = uv_buf_init(bytes.data() + filled, static_cast<unsigned int>(room));
+        fs_t call;
+        const int count = uv_fs_read(nullptr, call.get(), file, &buffer, 1, -1, nullptr);
+        if (count < 0) {
+            result = count;
+        } else if (count == 0) {
+            break;
+        } else {
+            filled += static_cast<std::size_t>(count);
+        }
+    }
+
+    bytes.resize(filled);
+    close_file(file);
+    return result < 0 ? result : static_cast<std::int64_t>(filled);
+}
+
+/// The folder `path` is in, and its last name, by the target's separators.
+std::pair<std::string, std::string> split_path(const std::string& path) {
+#ifdef _WIN32
+    const std::size_t at = path.find_last_of("/\\:");
+#else
+    const std::size_t at = path.find_last_of('/');
+#endif
+    if (at == std::string::npos) {
+        return { ".", path };
+    }
+
+    return { path.substr(0, at + 1), path.substr(at + 1) };
+}
+
+/// A name for a temporary file beside `path`'s, which no other call makes.
+std::string temporary_beside(const std::string& path) {
+    static std::atomic<std::uint64_t> made = 0;
+    auto [folder, name] = split_path(path);
+    if (folder == ".") {
+        folder.clear();
+    }
+
+    return folder + "." + name + "." + std::to_string(uv_os_getpid()) + "-" +
+           std::to_string(made.fetch_add(1, std::memory_order_relaxed)) + "-" +
+           std::to_string(uv_hrtime() % 1000000) + ".tmp";
+}
+
+/// Writes `bytes` to a new temporary file beside `path`, onto the disk, and renames it over
+/// `path`. On POSIX it takes the permissions of the file it replaces.
+std::int64_t write_atomic(const std::string& path, const std::string_view bytes) {
+    std::string temporary;
+    std::int64_t opened = UV_EEXIST;
+    for (int tries = 0; opened == UV_EEXIST && tries < 100; ++tries) {
+        temporary = temporary_beside(path);
+        opened = open_file(temporary, UV_FS_O_WRONLY | UV_FS_O_CREAT | UV_FS_O_EXCL, 0666);
+    }
+
+    if (opened < 0) {
+        return opened;
+    }
+
+    const auto file = static_cast<uv_file>(opened);
+    std::int64_t result = write_all(file, bytes);
+#ifndef _WIN32
+    if (uv_stat_t replaced{}; result == 0 && stat_path(path, true, replaced) == 0) {
+        fs_t call;
+        uv_fs_fchmod(nullptr, call.get(), file, static_cast<int>(replaced.st_mode & 07777U),
+                     nullptr);
+    }
+#endif
+    if (result == 0) {
+        fs_t call;
+        result = uv_fs_fsync(nullptr, call.get(), file, nullptr);
+    }
+
+    close_file(file);
+    if (result == 0) {
+        fs_t call;
+        result = uv_fs_rename(nullptr, call.get(), temporary.c_str(), path.c_str(), nullptr);
+    }
+
+    if (result < 0) {
+        fs_t call;
+        uv_fs_unlink(nullptr, call.get(), temporary.c_str(), nullptr);
+    }
+
+    return result;
+}
+
+/// Writes the request's input to its path, as its number says: replacing, adding to the end, or
+/// atomically.
+std::int64_t write_file(request_t& request) {
+    if (has_nul(request.path)) {
+        return UV_EINVAL;
+    }
+
+    if (request.number == 2) {
+        return write_atomic(request.path, request.input);
+    }
+
+    const int flags =
+        UV_FS_O_WRONLY | UV_FS_O_CREAT | (request.number == 1 ? UV_FS_O_APPEND : UV_FS_O_TRUNC);
+    const std::int64_t opened = open_file(request.path, flags, 0666);
+    if (opened < 0) {
+        return opened;
+    }
+
+    const auto file = static_cast<uv_file>(opened);
+    const std::int64_t result = write_all(file, request.input);
+    close_file(file);
+    return result;
+}
+
+std::int64_t stat_request(request_t& request) {
+    if (has_nul(request.path)) {
+        return UV_EINVAL;
+    }
+
+    return stat_path(request.path, request.flag != 0, request.stat);
+}
+
+std::int64_t copy_file(const std::string& from, const std::string& to) {
+    fs_t call;
+    return uv_fs_copyfile(nullptr, call.get(), from.c_str(), to.c_str(), 0, nullptr);
+}
+
+std::int64_t copy_request(request_t& request) {
+    if (has_nul(request.path) || has_nul(request.other)) {
+        return UV_EINVAL;
+    }
+
+    uv_stat_t stat{};
+    if (const std::int64_t found = stat_path(request.path, true, stat); found < 0) {
+        return found;
+    }
+
+    if (is_directory(stat)) {
+        return UV_EISDIR;
+    }
+
+    return copy_file(request.path, request.other);
+}
+
+std::int64_t remove_file(const std::string& path) {
+    fs_t call;
+    return uv_fs_unlink(nullptr, call.get(), path.c_str(), nullptr);
+}
+
+std::int64_t move_request(request_t& request) {
+    if (has_nul(request.path) || has_nul(request.other)) {
+        return UV_EINVAL;
+    }
+
+    std::int64_t result = 0;
+    {
+        fs_t call;
+        result =
+            uv_fs_rename(nullptr, call.get(), request.path.c_str(), request.other.c_str(), nullptr);
+    }
+
+    // Another disk can't take a rename, so a file goes as a copy instead.
+    uv_stat_t stat{};
+    if (result == UV_EXDEV && stat_path(request.path, false, stat) == 0 && !is_directory(stat)) {
+        result = copy_file(request.path, request.other);
+        if (result == 0) {
+            result = remove_file(request.path);
+        }
+    }
+
+    return result;
+}
+
+std::int64_t delete_request(request_t& request) {
+    if (has_nul(request.path)) {
+        return UV_EINVAL;
+    }
+
+    uv_stat_t stat{};
+    if (const std::int64_t found = stat_path(request.path, false, stat); found < 0) {
+        return found == UV_ENOENT ? 0 : found;
+    }
+
+    if (is_directory(stat)) {
+        return UV_EISDIR;
+    }
+
+    const std::int64_t removed = remove_file(request.path);
+    return removed < 0 ? removed : 1;
+}
+
+std::int64_t set_read_only(request_t& request) {
+    if (has_nul(request.path)) {
+        return UV_EINVAL;
+    }
+
+    uv_stat_t stat{};
+    if (const std::int64_t found = stat_path(request.path, true, stat); found < 0) {
+        return found;
+    }
+
+    // On Windows, libuv sets the read-only attribute when the mode has no write bit for the
+    // owner.
+    const std::uint64_t mode = request.flag != 0 ? stat.st_mode & ~0222U : stat.st_mode | 0200U;
+    fs_t call;
+    return uv_fs_chmod(nullptr, call.get(), request.path.c_str(), static_cast<int>(mode & 07777U),
+                       nullptr);
+}
+
+std::int64_t make_folder(const std::string& path) {
+    fs_t call;
+    return uv_fs_mkdir(nullptr, call.get(), path.c_str(), 0777, nullptr);
+}
+
+/// `path` without the separators at its end, but for a root's.
+std::string trimmed(std::string path) {
+#ifdef _WIN32
+    constexpr std::string_view separators = "/\\";
+#else
+    constexpr std::string_view separators = "/";
+#endif
+    while (path.size() > 1 && separators.contains(path.back())) {
+#ifdef _WIN32
+        if (path.size() == 3 && path[1] == ':') {
+            break;
+        }
+#endif
+        path.pop_back();
+    }
+
+    return path;
+}
+
+/// Makes the folder at `path`, and the ones it's in: 1, or 0 when it was there.
+std::int64_t make_folders(const std::string& path) {
+    const std::int64_t made = make_folder(path);
+    if (made == 0) {
+        return 1;
+    }
+
+    uv_stat_t stat{};
+    if (made == UV_EEXIST || made == UV_EPERM || made == UV_EACCES) {
+        // A root, or a folder made meanwhile, is there, and a file isn't a folder.
+        if (stat_path(path, true, stat) == 0) {
+            return is_directory(stat) ? 0 : UV_ENOTDIR;
+        }
+
+        return made;
+    }
+
+    if (made != UV_ENOENT) {
+        return made;
+    }
+
+    const std::string folder = trimmed(split_path(trimmed(path)).first);
+    if (folder == "." || folder == path || folder.size() >= trimmed(path).size()) {
+        return made;
+    }
+
+    if (const std::int64_t above = make_folders(folder); above < 0) {
+        return above;
+    }
+
+    const std::int64_t again = make_folder(path);
+    if (again == UV_EEXIST && stat_path(path, true, stat) == 0 && is_directory(stat)) {
+        return 0;
+    }
+
+    return again < 0 ? again : 1;
+}
+
+std::int64_t create_request(request_t& request) {
+    if (has_nul(request.path)) {
+        return UV_EINVAL;
+    }
+
+    if (request.flag != 0) {
+        return make_folders(trimmed(request.path));
+    }
+
+    const std::int64_t made = make_folder(request.path);
+    return made < 0 ? made : 1;
+}
+
+/// The entries of the folder at `path`, each's name and kind, in the order of their names'
+/// bytes, from libuv's or, where it doesn't say, the OS's.
+std::int64_t list_folder(const std::string& path, std::vector<entry_t>& entries) {
+    fs_t call;
+    const int count = uv_fs_scandir(nullptr, call.get(), path.c_str(), 0, nullptr);
+    if (count < 0) {
+        return count;
+    }
+
+    uv_dirent_t entry{};
+    while (uv_fs_scandir_next(call.get(), &entry) != UV_EOF) {
+        std::int32_t kind = KIND_OTHER;
+        switch (entry.type) {
+        case UV_DIRENT_FILE:
+            kind = KIND_FILE;
+            break;
+        case UV_DIRENT_DIR:
+            kind = KIND_DIRECTORY;
+            break;
+        case UV_DIRENT_LINK:
+            kind = KIND_LINK;
+            break;
+        case UV_DIRENT_UNKNOWN: {
+            uv_stat_t stat{};
+            if (stat_path(path + "/" + entry.name, false, stat) == 0) {
+                kind = kind_of(stat);
+            }
+
+            break;
+        }
+        default:
+            break;
+        }
+
+        entries.push_back({ .path = entry.name, .kind = kind });
+    }
+
+    std::ranges::sort(entries, {}, &entry_t::path);
+    return 0;
+}
+
+/// Adds the entries of the folder at `folder`, by their paths from the folder first listed
+/// (`prefix` is this one's), each before what's in it, to `depth` more folders down, or all of
+/// them below 1.
+std::int64_t walk(const std::string& folder, const std::string& prefix, const std::int64_t depth,
+                  std::vector<entry_t>& into) {
+    std::vector<entry_t> entries;
+    if (const std::int64_t listed = list_folder(folder, entries); listed < 0) {
+        return listed;
+    }
+
+    for (entry_t& entry : entries) {
+        const std::string name = std::move(entry.path);
+        into.push_back({ .path = prefix + name, .kind = entry.kind });
+        if (entry.kind == KIND_DIRECTORY && depth != 1) {
+            const std::int64_t walked =
+                walk(folder + "/" + name, prefix + name + "/", depth < 1 ? depth : depth - 1, into);
+            if (walked < 0) {
+                return walked;
+            }
+        }
+    }
+
+    return 0;
+}
+
+std::int64_t entries_request(request_t& request) {
+    if (has_nul(request.path)) {
+        return UV_EINVAL;
+    }
+
+    request.entries.clear();
+    const std::string folder = trimmed(request.path);
+    uv_stat_t stat{};
+    if (const std::int64_t found = stat_path(folder, true, stat); found < 0) {
+        return found;
+    }
+
+    if (!is_directory(stat)) {
+        return UV_ENOTDIR;
+    }
+
+    const std::int64_t walked = walk(folder, "", request.number, request.entries);
+    return walked < 0 ? walked : static_cast<std::int64_t>(request.entries.size());
+}
+
+std::int64_t remove_folder(const std::string& path) {
+    fs_t call;
+    return uv_fs_rmdir(nullptr, call.get(), path.c_str(), nullptr);
+}
+
+/// Removes what's at `path`, and what's in it, without following links.
+std::int64_t remove_all(const std::string& path) {
+    uv_stat_t stat{};
+    if (const std::int64_t found = stat_path(path, false, stat); found < 0) {
+        return found;
+    }
+
+    if (!is_directory(stat)) {
+        return remove_file(path);
+    }
+
+    std::vector<entry_t> entries;
+    if (const std::int64_t listed = list_folder(path, entries); listed < 0) {
+        return listed;
+    }
+
+    for (const entry_t& entry : entries) {
+        if (const std::int64_t removed = remove_all(path + "/" + entry.path); removed < 0) {
+            return removed;
+        }
+    }
+
+    return remove_folder(path);
+}
+
+std::int64_t remove_request(request_t& request) {
+    if (has_nul(request.path)) {
+        return UV_EINVAL;
+    }
+
+    const std::string path = trimmed(request.path);
+    uv_stat_t stat{};
+    if (const std::int64_t found = stat_path(path, false, stat); found < 0) {
+        return found == UV_ENOENT ? 0 : found;
+    }
+
+    if (!is_directory(stat)) {
+        return UV_ENOTDIR;
+    }
+
+    const std::int64_t removed = request.flag != 0 ? remove_all(path) : remove_folder(path);
+    return removed < 0 ? removed : 1;
+}
+
+/// The text of a call that gives a path, with '/' between names on every OS.
+std::string with_slashes(std::string path) {
+#ifdef _WIN32
+    std::ranges::replace(path, '\\', '/');
+#endif
+    return path;
+}
+
+/// What a call of libuv's that fills a buffer with a path gives, or nothing.
+template <typename Call>
+std::optional<std::string> path_from(Call call) {
+    std::array<char, 4096> buffer{};
+    std::size_t size = buffer.size();
+    int result = call(buffer.data(), &size);
+    if (result == UV_ENOBUFS) {
+        std::string bigger(size, '\0');
+        result = call(bigger.data(), &size);
+        if (result == 0) {
+            bigger.resize(size);
+            return with_slashes(std::move(bigger));
+        }
+    }
+
+    if (result != 0) {
+        return std::nullopt;
+    }
+
+    return with_slashes(std::string(buffer.data(), size));
+}
+
+fb_string_t* string_of(const std::string_view text) {
+    return fb_string_from_bytes(text.data(), static_cast<std::int64_t>(text.size()));
+}
+
+#ifdef _WIN32
+/// Where a lock is: a byte so far past where files end that locking it never keeps anyone from
+/// reading or writing the file, which Windows' locks would.
+constexpr DWORD lock_offset_high = 0x7FFFFFFF;
+constexpr DWORD lock_offset_low = 0xFFFFFFFE;
+#endif
+
+std::int64_t acquire_lock(request_t& request) {
+    if (has_nul(request.path)) {
+        return UV_EINVAL;
+    }
+
+    const std::int64_t opened = open_file(request.path, UV_FS_O_RDWR | UV_FS_O_CREAT, 0666);
+    if (opened < 0) {
+        return opened;
+    }
+
+    const auto file = static_cast<uv_file>(opened);
+    const bool shared = request.flag != 0;
+    const bool wait = request.number != 0;
+#ifdef _WIN32
+    OVERLAPPED overlapped{};
+    overlapped.Offset = lock_offset_low;
+    overlapped.OffsetHigh = lock_offset_high;
+    const DWORD flags =
+        (shared ? 0 : LOCKFILE_EXCLUSIVE_LOCK) | (wait ? 0 : LOCKFILE_FAIL_IMMEDIATELY);
+    if (LockFileEx(uv_get_osfhandle(file), flags, 0, 1, 0, &overlapped) == 0) {
+        const DWORD error = GetLastError();
+        close_file(file);
+        return error == ERROR_LOCK_VIOLATION || error == ERROR_IO_PENDING
+                   ? 0
+                   : uv_translate_sys_error(static_cast<int>(error));
+    }
+#else
+    int locked = 0;
+    do {
+        locked = flock(file, (shared ? LOCK_SH : LOCK_EX) | (wait ? 0 : LOCK_NB));
+    } while (locked != 0 && errno == EINTR);
+
+    if (locked != 0) {
+        const int error = errno;
+        close_file(file);
+        return error == EWOULDBLOCK ? 0 : uv_translate_sys_error(error);
+    }
+#endif
+
+    request.lock = new lock_t{ .file = file };
+    return 1;
+}
+
+/// Runs a request's work on the calling thread.
+std::int64_t run(request_t& request, const work_t work) {
+    request.result = work(request);
+    return request.result;
+}
+
+/// The I/O thread's end of an Async twin: the Task is done, with what the work gave.
+void finish(request_t* request) {
+    fb_task_t* task = request->task;
+    // The Task's result, an Int64, is right after its fb_task_t, and it's done once that's set.
+    *reinterpret_cast<std::int64_t*>(task + 1) = request->result;
+    fb_task_finish(task);
+    fb::runtime::finish_request(task);
+    fb_object_release(&task->header);
+    release(request);
+}
+
+void start_queued(uv_loop_t* loop, request_t* request) {
+    request->queued.data = request;
+    const int queued = uv_queue_work(
+        loop, &request->queued,
+        [](uv_work_t* work) {
+            auto& self = *static_cast<request_t*>(work->data);
+            self.result = self.work(self);
+        },
+        [](uv_work_t* work, const int status) {
+            auto* self = static_cast<request_t*>(work->data);
+            if (status != 0) {
+                self->result = status;
+            }
+
+            finish(self);
+        });
+    if (queued != 0) {
+        request->result = queued;
+        finish(request);
+    }
+}
+
+/// Has libuv's thread pool run a request's work, then finish `task` with what it gives. Once
+/// the program is ending, the work runs here instead.
+void run_async(fb_task_t* task, void* request, const work_t work) {
+    auto* self = static_cast<request_t*>(request);
+    self->work = work;
+    self->task = task;
+    // The I/O thread holds the request and the Task until it's done.
+    self->owners.fetch_add(1, std::memory_order_relaxed);
+    fb_object_retain(&task->header);
+    fb::runtime::start_request(task);
+    fb::runtime::on_io_thread([self](uv_loop_t* loop) {
+        if (loop != nullptr) {
+            start_queued(loop, self);
+            return;
+        }
+
+        self->result = self->work(*self);
+        finish(self);
+    });
+}
+
+request_t& request_of(void* request) {
+    return *static_cast<request_t*>(request);
+}
+
+/// Keeps the caller's bytes for a write, as a copy for an Async twin.
+void keep_input(request_t& request, const std::string_view bytes, const bool copy) {
+    if (copy) {
+        request.owned.assign(bytes);
+        request.input = request.owned;
+    } else {
+        request.input = bytes;
+    }
+}
+
+std::string_view bytes_of(const fb_array_t* array) {
+    return { static_cast<const char*>(array->data), static_cast<std::size_t>(array->count) };
+}
+
+/// `lines`, a String[], each with its line break after it.
+std::string joined(const fb_array_t* lines, const bool crlf) {
+    const std::string_view ending = crlf ? "\r\n" : "\n";
+    const auto* const* texts = static_cast<const fb_string_t* const*>(lines->data);
+    std::string text;
+    for (std::int64_t index = 0; index < lines->count; ++index) {
+        text += view_of(texts[index]);
+        text += ending;
+    }
+
+    return text;
+}
+
+} // namespace
+
+extern "C" {
+
+void* fb_io_request_new() {
+    return new request_t;
+}
+
+void fb_io_request_free(void* request) {
+    release(static_cast<request_t*>(request));
+}
+
+void fb_io_request_bytes(const void* request, fb_array_t* output) {
+    const std::string& bytes = static_cast<const request_t*>(request)->bytes;
+    fb_array_reserve(output, 1, static_cast<std::int64_t>(bytes.size()), nullptr);
+    output->count = static_cast<std::int64_t>(bytes.size());
+    if (!bytes.empty()) {
+        std::memcpy(output->data, bytes.data(), bytes.size());
+    }
+}
+
+fb_string_t* fb_io_request_text(const void* request) {
+    return string_of(static_cast<const request_t*>(request)->bytes);
+}
+
+void fb_io_request_lines(const void* request, fb_array_t* output) {
+    std::string_view rest = static_cast<const request_t*>(request)->bytes;
+    while (!rest.empty()) {
+        const std::size_t end = rest.find('\n');
+        std::string_view line = rest.substr(0, end);
+        rest.remove_prefix(end == std::string_view::npos ? rest.size() : end + 1);
+        if (end != std::string_view::npos && line.ends_with('\r')) {
+            line.remove_suffix(1);
+        }
+
+        *static_cast<fb_string_t**>(fb_array_push(output, sizeof(fb_string_t*), nullptr)) =
+            string_of(line);
+    }
+}
+
+std::int64_t fb_io_request_count(const void* request) {
+    return static_cast<std::int64_t>(static_cast<const request_t*>(request)->entries.size());
+}
+
+fb_string_t* fb_io_request_entry_path(const void* request, const std::int64_t index) {
+    return string_of(
+        static_cast<const request_t*>(request)->entries[static_cast<std::size_t>(index)].path);
+}
+
+std::int32_t fb_io_request_entry_kind(const void* request, const std::int64_t index) {
+    return static_cast<const request_t*>(request)->entries[static_cast<std::size_t>(index)].kind;
+}
+
+void fb_io_request_stat(const void* request, fb_array_t* output) {
+    const uv_stat_t& stat = static_cast<const request_t*>(request)->stat;
+    const auto nanoseconds = [](const uv_timespec_t& time) {
+        return (static_cast<std::int64_t>(time.tv_sec) * 1'000'000'000) +
+               static_cast<std::int64_t>(time.tv_nsec);
+    };
+    const std::array<std::int64_t, 6> values{
+        kind_of(stat),
+        static_cast<std::int64_t>(stat.st_size),
+        nanoseconds(stat.st_mtim),
+        nanoseconds(stat.st_atim),
+        nanoseconds(stat.st_birthtim),
+        (stat.st_mode & 0200U) == 0 ? 1 : 0,
+    };
+    constexpr auto count = static_cast<std::int64_t>(values.size());
+    fb_array_reserve(output, sizeof(std::int64_t), count, nullptr);
+    output->count = count;
+    std::memcpy(output->data, values.data(), sizeof values);
+}
+
+fb_string_t* fb_io_request_path(const void* request) {
+    return string_of(static_cast<const request_t*>(request)->path);
+}
+
+void* fb_io_request_lock(void* request) {
+    return std::exchange(request_of(request).lock, nullptr);
+}
+
+std::int32_t fb_io_error_kind(const std::int64_t error) {
+    switch (error) {
+    case UV_ENOENT:
+        return 1;
+    case UV_EACCES:
+    case UV_EPERM:
+    case UV_EROFS:
+        return 2;
+    case UV_EEXIST:
+        return 3;
+    case UV_EINTR:
+        return 4;
+    case UV_ENOTDIR:
+        return 5;
+    case UV_EISDIR:
+        return 6;
+    case UV_ENOTEMPTY:
+        return 7;
+    case UV_EBUSY:
+    case UV_ETXTBSY:
+        return 8;
+    case UV_ENOSPC:
+    case UV_EFBIG:
+        return 9;
+    case UV_EINVAL:
+    case UV_ENAMETOOLONG:
+        return 10;
+    default:
+        return 0;
+    }
+}
+
+fb_string_t* fb_io_error_message(const std::int64_t error) {
+    return string_of(uv_strerror(static_cast<int>(error)));
+}
+
+std::int64_t fb_io_file_read(void* request, const fb_string_t* path) {
+    request_of(request).path = view_of(path);
+    return run(request_of(request), read_file);
+}
+
+void fb_io_file_read_async(fb_task_t* task, void* request, const fb_string_t* path) {
+    request_of(request).path = view_of(path);
+    run_async(task, request, read_file);
+}
+
+std::int64_t fb_io_file_write(void* request, const fb_string_t* path, const fb_array_t* data,
+                              const std::int32_t how) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.number = how;
+    keep_input(self, bytes_of(data), false);
+    return run(self, write_file);
+}
+
+void fb_io_file_write_async(fb_task_t* task, void* request, const fb_string_t* path,
+                            const fb_array_t* data, const std::int32_t how) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.number = how;
+    keep_input(self, bytes_of(data), true);
+    run_async(task, request, write_file);
+}
+
+std::int64_t fb_io_file_write_text(void* request, const fb_string_t* path, const fb_string_t* text,
+                                   const std::int32_t how) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.number = how;
+    keep_input(self, view_of(text), false);
+    return run(self, write_file);
+}
+
+void fb_io_file_write_text_async(fb_task_t* task, void* request, const fb_string_t* path,
+                                 const fb_string_t* text, const std::int32_t how) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.number = how;
+    keep_input(self, view_of(text), true);
+    run_async(task, request, write_file);
+}
+
+std::int64_t fb_io_file_write_lines(void* request, const fb_string_t* path, const fb_array_t* lines,
+                                    const std::int32_t crlf, const std::int32_t how) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.number = how;
+    self.owned = joined(lines, crlf != 0);
+    self.input = self.owned;
+    return run(self, write_file);
+}
+
+void fb_io_file_write_lines_async(fb_task_t* task, void* request, const fb_string_t* path,
+                                  const fb_array_t* lines, const std::int32_t crlf,
+                                  const std::int32_t how) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.number = how;
+    self.owned = joined(lines, crlf != 0);
+    self.input = self.owned;
+    run_async(task, request, write_file);
+}
+
+std::int64_t fb_io_file_stat(void* request, const fb_string_t* path, const std::int32_t follow) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.flag = follow;
+    return run(self, stat_request);
+}
+
+void fb_io_file_stat_async(fb_task_t* task, void* request, const fb_string_t* path,
+                           const std::int32_t follow) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.flag = follow;
+    run_async(task, request, stat_request);
+}
+
+std::int64_t fb_io_file_copy(void* request, const fb_string_t* from, const fb_string_t* to) {
+    request_t& self = request_of(request);
+    self.path = view_of(from);
+    self.other = view_of(to);
+    return run(self, copy_request);
+}
+
+void fb_io_file_copy_async(fb_task_t* task, void* request, const fb_string_t* from,
+                           const fb_string_t* to) {
+    request_t& self = request_of(request);
+    self.path = view_of(from);
+    self.other = view_of(to);
+    run_async(task, request, copy_request);
+}
+
+std::int64_t fb_io_file_move(void* request, const fb_string_t* from, const fb_string_t* to) {
+    request_t& self = request_of(request);
+    self.path = view_of(from);
+    self.other = view_of(to);
+    return run(self, move_request);
+}
+
+void fb_io_file_move_async(fb_task_t* task, void* request, const fb_string_t* from,
+                           const fb_string_t* to) {
+    request_t& self = request_of(request);
+    self.path = view_of(from);
+    self.other = view_of(to);
+    run_async(task, request, move_request);
+}
+
+std::int64_t fb_io_file_delete(void* request, const fb_string_t* path) {
+    request_of(request).path = view_of(path);
+    return run(request_of(request), delete_request);
+}
+
+void fb_io_file_delete_async(fb_task_t* task, void* request, const fb_string_t* path) {
+    request_of(request).path = view_of(path);
+    run_async(task, request, delete_request);
+}
+
+std::int64_t fb_io_file_set_read_only(void* request, const fb_string_t* path,
+                                      const std::int32_t read_only) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.flag = read_only;
+    return run(self, set_read_only);
+}
+
+void fb_io_file_set_read_only_async(fb_task_t* task, void* request, const fb_string_t* path,
+                                    const std::int32_t read_only) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.flag = read_only;
+    run_async(task, request, set_read_only);
+}
+
+std::int64_t fb_io_dir_create(void* request, const fb_string_t* path, const std::int32_t all) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.flag = all;
+    return run(self, create_request);
+}
+
+void fb_io_dir_create_async(fb_task_t* task, void* request, const fb_string_t* path,
+                            const std::int32_t all) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.flag = all;
+    run_async(task, request, create_request);
+}
+
+std::int64_t fb_io_dir_remove(void* request, const fb_string_t* path, const std::int32_t all) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.flag = all;
+    return run(self, remove_request);
+}
+
+void fb_io_dir_remove_async(fb_task_t* task, void* request, const fb_string_t* path,
+                            const std::int32_t all) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.flag = all;
+    run_async(task, request, remove_request);
+}
+
+std::int64_t fb_io_dir_entries(void* request, const fb_string_t* path, const std::int64_t depth) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.number = depth;
+    return run(self, entries_request);
+}
+
+void fb_io_dir_entries_async(fb_task_t* task, void* request, const fb_string_t* path,
+                             const std::int64_t depth) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.number = depth;
+    run_async(task, request, entries_request);
+}
+
+std::int64_t fb_io_temp_new(void* request, const fb_string_t* prefix, const std::int32_t folder) {
+    request_t& self = request_of(request);
+    const std::optional<std::string> temporary =
+        path_from([](char* buffer, std::size_t* size) { return uv_os_tmpdir(buffer, size); });
+    if (!temporary) {
+        return UV_ENOENT;
+    }
+
+    const std::string pattern = trimmed(*temporary) + "/" + std::string(view_of(prefix)) + "XXXXXX";
+    if (has_nul(pattern)) {
+        return UV_EINVAL;
+    }
+
+    fs_t call;
+    const int made = folder != 0 ? uv_fs_mkdtemp(nullptr, call.get(), pattern.c_str(), nullptr)
+                                 : uv_fs_mkstemp(nullptr, call.get(), pattern.c_str(), nullptr);
+    if (made < 0) {
+        return made;
+    }
+
+    if (folder == 0) {
+        close_file(made);
+    }
+
+    self.path = with_slashes(call.get()->path);
+    return 0;
+}
+
+fb_string_t* fb_io_dir_current() {
+    const std::optional<std::string> current =
+        path_from([](char* buffer, std::size_t* size) { return uv_cwd(buffer, size); });
+    return current ? string_of(*current) : nullptr;
+}
+
+fb_string_t* fb_io_dir_temp() {
+    const std::optional<std::string> temporary =
+        path_from([](char* buffer, std::size_t* size) { return uv_os_tmpdir(buffer, size); });
+    return temporary ? string_of(trimmed(*temporary)) : nullptr;
+}
+
+std::int64_t fb_io_dir_set_current(void* request, const fb_string_t* path) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    return has_nul(self.path) ? UV_EINVAL : uv_chdir(self.path.c_str());
+}
+
+std::int64_t fb_io_lock_acquire(void* request, const fb_string_t* path, const std::int32_t shared,
+                                const std::int32_t wait) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.flag = shared;
+    self.number = wait;
+    return run(self, acquire_lock);
+}
+
+void fb_io_lock_acquire_async(fb_task_t* task, void* request, const fb_string_t* path,
+                              const std::int32_t shared, const std::int32_t wait) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.flag = shared;
+    self.number = wait;
+    run_async(task, request, acquire_lock);
+}
+
+void fb_io_lock_release(void* lock) {
+    auto* held = static_cast<lock_t*>(lock);
+#ifdef _WIN32
+    OVERLAPPED overlapped{};
+    overlapped.Offset = lock_offset_low;
+    overlapped.OffsetHigh = lock_offset_high;
+    UnlockFileEx(uv_get_osfhandle(held->file), 0, 1, 0, &overlapped);
+#else
+    flock(held->file, LOCK_UN);
+#endif
+    close_file(held->file);
+    delete held;
+}
+}
