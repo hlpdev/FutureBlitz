@@ -4,7 +4,7 @@
 
 ## prefs-1 (medium): A setting changed while SaveAsync is writing isn't saved, yet IsChanged says False
 
-Status: open
+Status: fixed in 5a5a8dbd
 
 Where: std/io/preferences.fb:128
 
@@ -45,7 +45,7 @@ Skeptic: I ran the finding's program as written (rv-step15/prefs-refute/p1.fb). 
 
 ## prefs-2 (medium): On Linux and macOS, a file where the app's folder goes makes Preferences/OpenAsync throw, so io_preferences.fb fails there
 
-Status: open
+Status: fixed in c9480a12 (its test fails without it on Linux and macOS; Windows says NOT_FOUND there anyway)
 
 Where: std/io/preferences.fb:159
 
@@ -86,7 +86,7 @@ Skeptic: On Windows the program (p2.fb) printed "read 0 / read 0", and a direct 
 
 ## vfs-1 (medium): On Windows, a Vfs path whose first name below a folder mount is a drive ("C:") reads outside the mounted folder
 
-Status: open
+Status: fixed in acfb735d
 
 Where: std/io/vfs.fb:38
 
@@ -132,7 +132,7 @@ Skeptic: Ran refute/v1.fb in debug and release. With a mount at data, the path d
 
 ## vfs-2 (medium): ReadBytesAsync panics with an index out of range when mounts are taken out while it waits on a folder's read
 
-Status: open
+Status: fixed in c64ded69
 
 Where: std/io/vfs.fb:191
 
@@ -179,7 +179,7 @@ Skeptic: Ran refute/v2.fb. Debug and release both printed 'unmounted True True' 
 
 ## vfs-3 (medium): The Async twins skip an Override of FolderSource.Read, so ReadTextAsync and ReadText return different bytes
 
-Status: open
+Status: fixed in 0421f8e4
 
 Where: std/io/vfs.fb:193
 
@@ -232,7 +232,7 @@ Skeptic: Ran refute/v3.fb in debug and release. It printed 'ReadText [Hello]' th
 
 ## vfs-4 (medium): A folder mount over a missing folder is listed as a folder, but KindOf says nothing is there and Walk and Glob of the whole Vfs throw NOT_FOUND
 
-Status: open
+Status: fixed in bc7e81b7
 
 Where: std/io/vfs.fb:320
 
@@ -290,7 +290,7 @@ Skeptic: Ran refute/v4.fb in debug and release. Entries() listed 'mods DIRECTORY
 
 ## prefs-3 (low): CheckApp lets through app names Windows can't use: a trailing '.' or ' ', NUL and the other device names, and names over 255
 
-Status: open
+Status: fixed in 1b0ebeaf
 
 Where: std/io/preferences.fb:141
 
@@ -333,7 +333,7 @@ Skeptic: I ran p3.fb on Windows 11. Preferences("Game.") saved, and Preferences(
 
 ## prefs-4 (low): On Windows, File.Metadata's times after 2038-01-19 wrap to 1901-1970
 
-Status: open
+Status: fixed in 1ab2cba0
 
 Where: runtime/src/files.cpp:889
 
@@ -377,7 +377,7 @@ Skeptic: I ran p4.fb (sets mtime with _utime64) in debug and release. Both print
 
 ## prefs-5 (low): A preferences file saved with a UTF-8 BOM loses its first setting
 
-Status: open
+Status: fixed in 5385e2ac
 
 Where: std/io/preferences.fb:174
 
@@ -411,7 +411,7 @@ Skeptic: I ran p5.fb (EF BB BF, then volume=0.8 and name=x), extended to Set vol
 
 ## prefs-6 (low): Keys' comment says 'in the order they were first set', but a removed key set again goes last
 
-Status: open
+Status: fixed in aba2d8e7
 
 Where: std/io/preferences.fb:102
 
@@ -442,7 +442,7 @@ Skeptic: I ran p6.fb (Set a, Set b, Remove a, Set a), which printed "[b, a]". Ke
 
 ## vfs-10 (low): EmbeddedSource.New's comment says any key with ".." panics, but such keys are normalized
 
-Status: open
+Status: fixed in f1d308e0
 
 Where: std/io/vfs.fb:77
 
@@ -468,7 +468,7 @@ Skeptic: Ran refute/v10.fb. It printed 'FILE OTHER': 'levels/../one.txt' is acce
 
 ## vfs-11 (low): A FolderSource whose folder is a file makes its mount point a file: Exists is True but ReadBytes throws NOT_FOUND
 
-Status: open
+Status: fixed in bc7e81b7, with vfs-4
 
 Where: std/io/vfs.fb:47
 
@@ -509,7 +509,7 @@ Skeptic: Ran refute/v11.fb in debug and release. It printed 'KindOf FILE, Exists
 
 ## vfs-12 (low): FolderSource throws INVALID_PATH for a name the disk can't have, which hides the file a lower mount has
 
-Status: open
+Status: fixed in d61e8a40
 
 Where: std/io/vfs.fb:370
 
@@ -550,7 +550,7 @@ Skeptic: Ran refute/v12.fb in debug and release. It printed 'listed 1, Exists Fa
 
 ## vfs-13 (low): Entries, Walk, and Glob say "can't read" for a path above the root, and their comments don't mention INVALID_PATH
 
-Status: open
+Status: fixed in 45db44f0
 
 Where: std/io/vfs.fb:363
 
@@ -597,7 +597,7 @@ Skeptic: Ran refute/v13.fb. It printed 'Entries: INVALID_PATH can't read ..: it 
 
 ## vfs-5 (low): KindOf and Entries give different kinds for a later mount's file at a place where an earlier mount point makes a folder
 
-Status: open
+Status: fixed in 158937e3
 
 Where: std/io/vfs.fb:231
 
@@ -643,7 +643,7 @@ Skeptic: Ran refute/v5.fb in debug and release. It printed 'root has a FILE', 'K
 
 ## vfs-6 (low): Vfs.Glob doesn't accept '\' between a pattern's names, though every Vfs path does
 
-Status: open
+Status: fixed in 4f9d1a08
 
 Where: std/io/vfs.fb:290
 
@@ -685,7 +685,7 @@ Skeptic: Ran refute/v6.fb in debug and release. ReadText("levels\\one.txt") read
 
 ## vfs-8 (low): EmbeddedSource accepts keys that make one path both a file and a folder, then gives contradictory answers instead of panicking
 
-Status: open
+Status: fixed in f1d308e0
 
 Where: std/io/vfs.fb:93
 
