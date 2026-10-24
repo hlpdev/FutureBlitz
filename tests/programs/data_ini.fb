@@ -1,0 +1,45 @@
+// std.data's INI: sections of keys and values, comments, quoted values, keys before any section,
+// sections named again; where a ParseError says it is; and what Write writes, which reads back
+// as the same.
+
+Import std.core
+Import std.data.value
+Import std.data.ini
+
+Local text = "\u{FEFF}; a comment\nname = top\n\n[server]\nhost = example.com\nport: 8080\r\n" +
+             "  padded   =   with spaces   \nquoted = \"  kept  \"\nempty =\n# another\n" +
+             "[ client ]\nretries = 3\n[server]\nport = 9090\nurl = http://x/?a=b\n"
+Print(Try Ini.Read(text))
+Print((Try Ini.Read("")).Count)
+
+Function Failure(text: String)
+    Try
+        Ini.Read(text)
+        Print("reads:", text)
+    Catch e As ParseError
+        Print(e.Kind, e.Line, e.Message)
+    End Try
+End Function
+
+Failure("[open\nkey = 1")
+Failure("[s]\njust a line")
+Failure("[s]\n = 1")
+Failure("a = 1\n[a]")
+
+Local document = Value.NewObject()
+document["title"] = Value("top")
+document["count"] = Value(3 As Int64)
+Local server = Value.NewObject()
+server["host"] = Value("example.com")
+server["spaced"] = Value(" a b ")
+server["quote"] = Value("\"q\"")
+server["ratio"] = Value(0.5)
+server["on"] = Value(True)
+server["none"] = Value()
+document["server"] = server
+document["empty"] = Value.NewObject()
+Local written = Ini.Write(document)
+Print(written)
+Local again = Try Ini.Read(written)
+Print(again)
+Print(again["server"]["spaced"].AsString() == " a b ", again["server"]["quote"].AsString() == "\"q\"")

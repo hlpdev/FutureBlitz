@@ -1,0 +1,21 @@
+{"name": "top", "server": {"host": "example.com", "port": "9090", "padded": "with spaces", "quoted": "  kept  ", "empty": "", "url": "http://x/?a=b"}, "client": {"retries": "3"}}
+0
+SYNTAX 1 a section's header ends with ']', at line 1
+SYNTAX 2 a line is a [section], a key = value, or a comment, at line 2
+SYNTAX 2 a key is missing before its '=', at line 2
+SYNTAX 2 the section [a] is named as a key before it, at line 2
+title = top
+count = 3
+
+[server]
+host = example.com
+spaced = " a b "
+quote = ""q""
+ratio = 0.5
+on = true
+none =
+
+[empty]
+
+{"title": "top", "count": "3", "server": {"host": "example.com", "spaced": " a b ", "quote": "\"q\"", "ratio": "0.5", "on": "true", "none": ""}, "empty": {}}
+True True

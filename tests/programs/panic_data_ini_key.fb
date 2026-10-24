@@ -1,0 +1,10 @@
+// An INI key can't hold '=', and Write panics where one does.
+Import std.core
+Import std.data.value
+Import std.data.ini
+
+Local document = Value.NewObject()
+document["a-b"] = Value("1")
+Print(Ini.Write(document))
+document["a=b"] = Value("2")
+Print(Ini.Write(document))

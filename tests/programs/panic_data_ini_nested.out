@@ -1,0 +1,4 @@
+[section]
+key = value
+
+panic: an INI section holds keys and their values, not the Object inner at panic_data_ini_nested.fb:12:7

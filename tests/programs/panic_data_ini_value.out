@@ -1,0 +1,3 @@
+n = 1
+
+panic: an INI value is a String, a number, a Bool, or Null, not ARRAY at panic_data_ini_value.fb:10:7
