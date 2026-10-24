@@ -1,0 +1,55 @@
+// An Alias is the type it names, everywhere: an Enum's values through it, an Extend of it, and a
+// Class that extends it.
+Import std.core
+Import std.math
+
+Enum Color
+    Red
+    Green
+End Enum
+
+Alias Hue = Color
+
+Local h: Hue = Hue.Green
+Print(h, h == Color.Green, Hue.Red)
+
+Struct Box<T>
+    Field Item: T
+End Struct
+
+Alias IntBox = Box<Int>
+
+Extend IntBox
+    Method Twice(): Int => Item * 2
+End Extend
+
+// Extending a unit adds to its Quantity.
+Extend Meters
+    Method Doubled(): Meters => Meters(Value * 2)
+End Extend
+
+Print(Box<Int>(4).Twice(), IntBox(5).Twice(), Meters(3).Doubled(), Quantity<1, 0, 0>(1).Doubled())
+
+Class Animal
+    Method Sound(): String => "..."
+End Class
+
+Alias Base = Animal
+
+Class Dog Extends Base
+    Override Method Sound(): String => "woof"
+End Class
+
+Class Holder<T>
+    Field Item: T?
+    Method Has(): Bool => Item != Null
+End Class
+
+Alias StringHolder = Holder<String>
+
+Class Named Extends StringHolder
+End Class
+
+Local a: Animal = Dog()
+Local held: Holder<String> = Named()
+Print(a.Sound(), held.Has())

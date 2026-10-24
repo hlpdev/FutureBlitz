@@ -8361,6 +8361,38 @@ TEST_CASE("an Alias is the type it names, everywhere", "[sema]") {
     CHECK(errors_of("Alias D = Int\nLocal y = D") == errors_t{ "D: 'D' is a type, not a value" });
     CHECK(errors_of("Alias D = Int[]\nLocal y = D()") ==
           errors_t{ "D: 'D' names Int32[], which isn't made with a call" });
+
+    // An Enum's values through it, an Extend of it, and a Class that extends it.
+    CHECK(probe("Enum Color\n    Red\n    Green\nEnd Enum\nAlias Hue = Color\n"
+                "Local x: Hue = Hue.Green") == "Color 1");
+    CHECK(probe("Struct Box<T>\n    Field Item: T\nEnd Struct\nAlias IntBox = Box<Int>\n"
+                "Extend IntBox\n    Method Twice(): Int => Item * 2\nEnd Extend\n"
+                "Local x = Box<Int>(4).Twice()") == "Int32");
+    CHECK(probe("Import std.math\n"
+                "Extend Meters\n    Method Doubled(): Meters => Meters(Value * 2)\nEnd Extend\n"
+                "Local x = Quantity<1, 0, 0>(1).Doubled()") == "Quantity<1, 0, 0>");
+    CHECK(errors_of("Alias Ints = Int[]\nExtend Ints\nEnd Extend") ==
+          errors_t{ "Ints: Extend adds to a Struct, Class, Enum, built-in type, or T[], not "
+                    "Int32[]" });
+    CHECK(
+        errors_of("Interface Shape\nEnd Interface\nAlias Form = Shape\nExtend Form\nEnd Extend") ==
+        errors_t{ "Form: an Interface can't be extended; its defaults go in the Interface" });
+    CHECK(errors_of("Class Animal\n    Method Sound(): String => \"...\"\nEnd Class\n"
+                    "Alias Base = Animal\n"
+                    "Class Dog Extends Base\n"
+                    "    Override Method Sound(): String => \"woof\"\n"
+                    "End Class\n"
+                    "Local a: Animal = Dog()\n"
+                    "Class Holder<T>\nEnd Class\nAlias Ints = Holder<Int>\n"
+                    "Class Named Extends Ints\nEnd Class\n"
+                    "Local h: Holder<Int> = Named()")
+              .empty());
+    CHECK(
+        errors_of("Struct Point\nEnd Struct\nAlias P = Point\nClass C Extends P\nEnd Class\n"
+                  "Interface Shape\nEnd Interface\nAlias S = Shape\nClass D Extends S\nEnd Class\n"
+                  "Final Class F\nEnd Class\nAlias G = F\nClass H Extends G\nEnd Class") ==
+        errors_t{ "P: 'P' isn't a Class", "S: 'S' is an Interface, so it goes after Implements",
+                  "G: F is Final, so it can't be extended" });
     CHECK(errors_of("Function F()\n    Alias E = Int\nEnd Function") ==
           errors_t{ "E: Aliases can only be declared at the top level" });
     CHECK(errors_of("Alias Int = Double") == errors_t{ "Int: 'Int' is a built-in type" });

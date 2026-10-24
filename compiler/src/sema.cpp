@@ -2996,6 +2996,10 @@ private:
             return type_id_t::INVALID;
         }
 
+        if (!found.empty() && symbol(found.front()).kind == symbol_kind_t::ALIAS) {
+            return extended_alias(found.front(), *named, written.span);
+        }
+
         if (found.empty() || symbol(found.front()).kind != symbol_kind_t::TYPE) {
             if (const std::optional<hint_t> hint =
                     found.empty() ? import_hint(named->name, written.span) : std::nullopt) {
@@ -3044,6 +3048,34 @@ private:
         }
 
         parameters = own;
+        return type;
+    }
+
+    /// What an Extend of an Alias adds to: the type it names, a Struct, Class, Enum, one
+    /// instance, or a built-in type.
+    type_id_t extended_alias(const symbol_id_t alias, const named_type_t& named,
+                             const span_t span) {
+        if (!named.arguments.empty()) {
+            error(span, "'{}' is an Alias, so it takes no type arguments", named.name);
+        }
+
+        const type_id_t type = alias_type(alias);
+        if (type == type_id_t::INVALID) {
+            return type_id_t::INVALID;
+        }
+
+        if (is_interface(type)) {
+            error(span, "an Interface can't be extended; its defaults go in the Interface");
+            return type_id_t::INVALID;
+        }
+
+        const bool builtin = type > type_id_t::NONE && type < type_id_t::BUILTIN_COUNT;
+        if (!is_struct(type) && !is_class(type) && !is_enum(type) && !builtin) {
+            error(span, "Extend adds to a Struct, Class, Enum, built-in type, or T[], not {}",
+                  shown_name(type));
+            return type_id_t::INVALID;
+        }
+
         return type;
     }
 
@@ -3455,6 +3487,11 @@ private:
             return;
         }
 
+        if (!found.empty() && symbol(found.front()).kind == symbol_kind_t::ALIAS) {
+            declare_aliased_base(type, found.front(), name, arguments);
+            return;
+        }
+
         if (!found.empty() && symbol(found.front()).kind == symbol_kind_t::TYPE &&
             is_interface(symbol(found.front()).type)) {
             error(name.span, "'{}' is an Interface, so it goes after Implements", name.text);
@@ -3477,14 +3514,40 @@ private:
         };
         const type_id_t extended =
             instance_of(base.type, named_type_t{ .name = name.text, .arguments = arguments }, span);
+        if (extended != type_id_t::INVALID) {
+            set_base(type, extended, base, name.span);
+        }
+    }
+
+    /// An Alias after Extends, of a Class or one instance, which the Class extends then.
+    void declare_aliased_base(const type_id_t type, const symbol_id_t alias, const name_t& name,
+                              const std::vector<type_expr_id_t>& arguments) {
+        if (!arguments.empty()) {
+            error(name.span, "'{}' is an Alias, so it takes no type arguments", name.text);
+        }
+
+        const type_id_t extended = alias_type(alias);
         if (extended == type_id_t::INVALID) {
             return;
         }
 
+        if (is_interface(extended)) {
+            error(name.span, "'{}' is an Interface, so it goes after Implements", name.text);
+        } else if (!is_class(extended)) {
+            error(name.span, "'{}' isn't a Class", name.text);
+        } else {
+            set_base(type, extended, symbol(m_declared_types.at(definition_of(extended))),
+                     name.span);
+        }
+    }
+
+    /// Makes `extended` the Class `type` extends, unless it's Final or extends `type`.
+    void set_base(const type_id_t type, const type_id_t extended, const symbol_t& base,
+                  const span_t span) {
         if (base.modifiers.is_final) {
-            error(name.span, "{} is Final, so it can't be extended", base.name);
+            error(span, "{} is Final, so it can't be extended", base.name);
         } else if (reaches_class(extended, type)) {
-            error(name.span, "{} can't extend itself, directly or through other Classes",
+            error(span, "{} can't extend itself, directly or through other Classes",
                   shown_name(type));
         } else {
             m_analysis.types.set_base(type, extended);
@@ -22521,6 +22584,12 @@ private:
         const std::vector<symbol_id_t>& found = name->symbols;
 
         const symbol_t& declared = symbol(found.front());
+        // An Alias of an Enum names its values too.
+        if (declared.kind == symbol_kind_t::ALIAS) {
+            const type_id_t type = alias_type(found.front());
+            return is_enum(type) ? std::optional(type) : std::nullopt;
+        }
+
         if (declared.kind != symbol_kind_t::TYPE || !is_enum(declared.type)) {
             return std::nullopt;
         }
