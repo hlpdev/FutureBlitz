@@ -195,6 +195,25 @@ For i = 0 Until source.Count
     total += difference < 0 ? -difference : difference
 End For
 Print("GIF of 4096 colors: opaque {many[5, 5].a == 255}, near {total / source.Count <= 12}")
+// Dithering keeps the colors' average: what a pixel's error takes from its neighbors is rounded
+// the same way below 0 as above, so each channel's average moves by less than a tenth of a byte.
+Local gradient = Image(128, 128)
+For y = 0 Until 128
+    For x = 0 Until 128
+        gradient[x, y] = Color32((x * 255 / 127) As UInt8, (y * 255 / 127) As UInt8,
+                                 ((x + y) * 127 / 256) As UInt8)
+    End For
+End For
+Local before = gradient.ToBytes()
+Local after = (Try Gif.Decode(Gif.Encode(gradient))).ToBytes()
+Local shifts = [0, 0, 0]
+For i = 0 Until before.Count Step 4
+    For c = 0 Until 3
+        shifts[c] += (after[i + c] As Int) - (before[i + c] As Int)
+    End For
+End For
+Print("GIF's dithering keeps the average:", shifts[0] * 10 / (128 * 128),
+      shifts[1] * 10 / (128 * 128), shifts[2] * 10 / (128 * 128))
 Local seeThrough = Try Gif.Decode(Gif.Encode(pattern))
 Print("GIF of alpha:", seeThrough[0, 0].a, seeThrough[12, 8], seeThrough[12, 8].a == 0)
 
