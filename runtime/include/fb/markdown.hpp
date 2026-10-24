@@ -5,7 +5,16 @@
 
 #include "fb/runtime.hpp"
 
+#include <cstddef>
 #include <cstdint>
+
+namespace fb {
+
+/// Whether md4c reads Markdown of this many bytes, which it counts in 32 bits: less than 4 GiB.
+/// The fb_markdown_ functions panic at more.
+[[nodiscard]] bool markdown_fits(std::size_t bytes);
+
+} // namespace fb
 
 extern "C" {
 

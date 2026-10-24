@@ -358,8 +358,7 @@ std::string markdown_of(const fb_string_t* text) {
         }
     }
 
-    // md4c counts its text's bytes in 32 bits.
-    if (markdown.size() > std::numeric_limits<MD_SIZE>::max()) {
+    if (!fb::markdown_fits(markdown.size())) {
         fb_panic("std.text.markdown reads less than 4 GiB of Markdown", nullptr);
     }
 
@@ -367,6 +366,10 @@ std::string markdown_of(const fb_string_t* text) {
 }
 
 } // namespace
+
+bool fb::markdown_fits(const std::size_t bytes) {
+    return bytes <= std::numeric_limits<MD_SIZE>::max();
+}
 
 extern "C" {
 
