@@ -13,8 +13,8 @@ Extern "runtime"
     Function fb_io_request_text(request: Ptr<Void>): String
     Function fb_io_request_lines(request: Ptr<Void>, output: String[])
     Function fb_io_request_stat(request: Ptr<Void>, output: Int64[])
-    Function fb_io_file_read(request: Ptr<Void>, path: String): Int64
-    Function fb_io_file_read_async(request: Ptr<Void>, path: String): Task<Int64>
+    Function fb_io_file_read(request: Ptr<Void>, path: String, most: Int64): Int64
+    Function fb_io_file_read_async(request: Ptr<Void>, path: String, most: Int64): Task<Int64>
     Function fb_io_file_write(request: Ptr<Void>, path: String, data: UInt8[], how: Int32): Int64
     Function fb_io_file_write_async(request: Ptr<Void>, path: String, data: UInt8[],
                                     how: Int32): Task<Int64>
@@ -92,47 +92,63 @@ Public Class File
     New()
     End New
 
-    // The file's bytes. One of more than an array holds, 2^31 - 1 bytes, throws an IOError of
-    // OTHER.
-    Public Static Method ReadBytes(path: Path): UInt8[] Throws IOError
+    // The file's bytes. One that holds more than `most` bytes, which an array's most is the
+    // default for, throws an IOError of OTHER, found before reading them where the OS knows a
+    // file's size, and so does one that memory can't hold. Panics for a most below 0 or above an
+    // array's, 2^31 - 1.
+    @PanicsAtCaller
+    Public Static Method ReadBytes(path: Path, most: Int64 = 2147483647): UInt8[] Throws IOError
+        CheckMost(most, 2147483647)
         Local request = Request()
-        Return Try BytesOf(request, Try Checked(fb_io_file_read(request.Native, path.Text), "read", path),
-                           path)
+        Try Checked(fb_io_file_read(request.Native, path.Text, most), "read", path)
+        Return BytesOf(request)
     End Method
 
-    Public Static Async Method ReadBytesAsync(path: Path): UInt8[] Throws IOError
+    @PanicsAtCaller
+    Public Static Async Method ReadBytesAsync(path: Path, most: Int64 = 2147483647): UInt8[] Throws IOError
+        CheckMost(most, 2147483647)
         Local request = Request()
-        Local count = Try Checked(Await fb_io_file_read_async(request.Native, path.Text), "read", path)
-        Return Try BytesOf(request, count, path)
+        Try Checked(Await fb_io_file_read_async(request.Native, path.Text, most), "read", path)
+        Return BytesOf(request)
     End Method
 
     // The file's bytes as text, with U+FFFD for each one that doesn't start well-formed UTF-8.
-    // Its line breaks stay as they are, and so does a byte order mark.
-    Public Static Method ReadText(path: Path): String Throws IOError
+    // Its line breaks stay as they are, and so does a byte order mark. One that holds more than
+    // `most` bytes, or more than memory does, throws an IOError of OTHER, as ReadBytes does.
+    @PanicsAtCaller
+    Public Static Method ReadText(path: Path, most: Int64 = 9223372036854775807): String Throws IOError
+        CheckMost(most, 9223372036854775807)
         Local request = Request()
-        Try Checked(fb_io_file_read(request.Native, path.Text), "read", path)
+        Try Checked(fb_io_file_read(request.Native, path.Text, most), "read", path)
         Return fb_io_request_text(request.Native)
     End Method
 
-    Public Static Async Method ReadTextAsync(path: Path): String Throws IOError
+    @PanicsAtCaller
+    Public Static Async Method ReadTextAsync(path: Path, most: Int64 = 9223372036854775807): String Throws IOError
+        CheckMost(most, 9223372036854775807)
         Local request = Request()
-        Try Checked(Await fb_io_file_read_async(request.Native, path.Text), "read", path)
+        Try Checked(Await fb_io_file_read_async(request.Native, path.Text, most), "read", path)
         Return fb_io_request_text(request.Native)
     End Method
 
     // The file's text in lines, split at "\n" and at "\r\n", without them. A last line with no
-    // line break after it is one too, and an empty file has none.
-    Public Static Method ReadLines(path: Path): String[] Throws IOError
+    // line break after it is one too, and an empty file has none. One that holds more than `most`
+    // bytes throws as ReadText does.
+    @PanicsAtCaller
+    Public Static Method ReadLines(path: Path, most: Int64 = 9223372036854775807): String[] Throws IOError
+        CheckMost(most, 9223372036854775807)
         Local request = Request()
-        Try Checked(fb_io_file_read(request.Native, path.Text), "read", path)
+        Try Checked(fb_io_file_read(request.Native, path.Text, most), "read", path)
         Local lines: String[] = []
         fb_io_request_lines(request.Native, lines)
         Return lines
     End Method
 
-    Public Static Async Method ReadLinesAsync(path: Path): String[] Throws IOError
+    @PanicsAtCaller
+    Public Static Async Method ReadLinesAsync(path: Path, most: Int64 = 9223372036854775807): String[] Throws IOError
+        CheckMost(most, 9223372036854775807)
         Local request = Request()
-        Try Checked(Await fb_io_file_read_async(request.Native, path.Text), "read", path)
+        Try Checked(Await fb_io_file_read_async(request.Native, path.Text, most), "read", path)
         Local lines: String[] = []
         fb_io_request_lines(request.Native, lines)
         Return lines
@@ -334,16 +350,17 @@ End Class
 
 Function CrlfOf(ending: LineEnding): Int32 => ending == LineEnding.CRLF ? 1 : 0
 
-// The `count` bytes a request read, unless they're more than an array holds.
-Function BytesOf(request: Request, count: Int64, path: Path): UInt8[] Throws IOError
-    If count > 2147483647
-        Throw IOError(IOErrorKind.OTHER, "can't read {path}: it has more bytes than an array holds",
-                      path.Text)
-    End If
-
+// The bytes a request read.
+Function BytesOf(request: Request): UInt8[]
     Local bytes: UInt8[] = []
     fb_io_request_bytes(request.Native, bytes)
     Return bytes
+End Function
+
+// Panics unless a read's most is from 0 to `limit`.
+@PanicsAtCaller
+Function CheckMost(most: Int64, limit: Int64)
+    If most < 0 || most > limit Then Panic("a read takes a most from 0 to {limit} bytes, not {most}")
 End Function
 
 // What a request found at a path.

@@ -1,0 +1,5 @@
+// A read's most below 0 panics at the program's line, before the read looks at the disk.
+Import std.core
+Import std.io
+
+Try? File.ReadBytes("never-read.bin", -1)

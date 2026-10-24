@@ -14,7 +14,9 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -58,6 +60,73 @@ struct lock_t {
     bool held = true;
 };
 
+/// A read that would hold more bytes than its most, which fb_io_error_message tells of.
+constexpr std::int64_t too_big = -5000;
+
+/// The bytes a read gives, in memory C's malloc gives, which says when there isn't enough
+/// instead of throwing, as nothing in the runtime can, so a file too big for memory is an error
+/// and not the program's end.
+class buffer_t {
+public:
+    /// Room for `capacity` bytes in all: false when there isn't that much memory.
+    [[nodiscard]] bool reserve(const std::size_t capacity) {
+        if (capacity <= m_capacity) {
+            return true;
+        }
+
+        auto* grown = static_cast<char*>(std::malloc(capacity));
+        if (grown == nullptr) {
+            return false;
+        }
+
+        if (m_size > 0) {
+            std::memcpy(grown, m_data.get(), m_size);
+        }
+
+        m_data.reset(grown);
+        m_capacity = capacity;
+        return true;
+    }
+
+    void clear() {
+        m_data.reset();
+        m_size = 0;
+        m_capacity = 0;
+    }
+
+    /// Where the next bytes go, and how many more fit.
+    [[nodiscard]] char* end() {
+        return m_data.get() + m_size;
+    }
+
+    [[nodiscard]] std::size_t room() const {
+        return m_capacity - m_size;
+    }
+
+    void add(const std::size_t count) {
+        m_size += count;
+    }
+
+    [[nodiscard]] std::size_t size() const {
+        return m_size;
+    }
+
+    [[nodiscard]] std::string_view view() const {
+        return { m_data.get(), m_size };
+    }
+
+private:
+    struct free_t {
+        void operator()(char* data) const {
+            std::free(data);
+        }
+    };
+
+    std::unique_ptr<char, free_t> m_data;
+    std::size_t m_size = 0;
+    std::size_t m_capacity = 0;
+};
+
 struct request_t;
 
 /// What a call does, given its request, on whichever thread it runs.
@@ -78,7 +147,7 @@ struct request_t {
     std::int64_t number = 0;
     std::int32_t flag = 0;
     /// What it gives.
-    std::string bytes;
+    buffer_t bytes;
     std::vector<entry_t> entries;
     uv_stat_t stat{};
     lock_t* lock = nullptr;
@@ -215,23 +284,38 @@ std::int64_t read_file(request_t& request) {
         result = UV_EISDIR;
     }
 
+    // The most the read may hold is the request's number; one more byte than that, which a
+    // file that says it's smaller can still give, is too many.
+    const auto most = static_cast<std::uint64_t>(request.number);
+    if (result == 0 && stat.st_size > most) {
+        result = too_big;
+    }
+
     // What fstat says is only where to start: a file can grow while it's read, or say 0, as
     // Linux's /proc files do. A read past the end, which gives 0, ends it.
-    std::string& bytes = request.bytes;
+    buffer_t& bytes = request.bytes;
     bytes.clear();
-    std::size_t filled = 0;
-    if (result == 0) {
-        bytes.resize(static_cast<std::size_t>(stat.st_size) + 1);
+    if (result == 0 && !bytes.reserve(static_cast<std::size_t>(stat.st_size) + 1)) {
+        result = UV_ENOMEM;
     }
 
     while (result == 0) {
-        if (filled == bytes.size()) {
-            bytes.resize(filled + std::max<std::size_t>(filled / 2, 65536));
+        if (bytes.size() > most) {
+            result = too_big;
+            break;
+        }
+
+        if (bytes.room() == 0) {
+            const std::size_t grown = bytes.size() + std::max<std::size_t>(bytes.size() / 2, 65536);
+            if (!bytes.reserve(std::min<std::uint64_t>(grown, most + 1))) {
+                result = UV_ENOMEM;
+                break;
+            }
         }
 
         // libuv takes a buffer's size as an unsigned int.
-        const std::size_t room = std::min<std::size_t>(bytes.size() - filled, 1U << 30U);
-        const uv_buf_t buffer = uv_buf_init(bytes.data() + filled, static_cast<unsigned int>(room));
+        const std::size_t room = std::min<std::size_t>(bytes.room(), 1U << 30U);
+        const uv_buf_t buffer = uv_buf_init(bytes.end(), static_cast<unsigned int>(room));
         fs_t call;
         const int count = uv_fs_read(nullptr, call.get(), file, &buffer, 1, -1, nullptr);
         if (count < 0) {
@@ -239,13 +323,17 @@ std::int64_t read_file(request_t& request) {
         } else if (count == 0) {
             break;
         } else {
-            filled += static_cast<std::size_t>(count);
+            bytes.add(static_cast<std::size_t>(count));
         }
     }
 
-    bytes.resize(filled);
     close_file(file);
-    return result < 0 ? result : static_cast<std::int64_t>(filled);
+    if (result < 0) {
+        bytes.clear();
+        return result;
+    }
+
+    return static_cast<std::int64_t>(bytes.size());
 }
 
 /// The folder `path` is in, and its last name, by the target's separators.
@@ -852,7 +940,7 @@ void fb_io_request_free(void* request) {
 }
 
 void fb_io_request_bytes(const void* request, fb_array_t* output) {
-    const std::string& bytes = static_cast<const request_t*>(request)->bytes;
+    const std::string_view bytes = static_cast<const request_t*>(request)->bytes.view();
     fb_array_reserve(output, 1, static_cast<std::int64_t>(bytes.size()), nullptr);
     output->count = static_cast<std::int64_t>(bytes.size());
     if (!bytes.empty()) {
@@ -861,11 +949,11 @@ void fb_io_request_bytes(const void* request, fb_array_t* output) {
 }
 
 fb_string_t* fb_io_request_text(const void* request) {
-    return string_of(static_cast<const request_t*>(request)->bytes);
+    return string_of(static_cast<const request_t*>(request)->bytes.view());
 }
 
 void fb_io_request_lines(const void* request, fb_array_t* output) {
-    std::string_view rest = static_cast<const request_t*>(request)->bytes;
+    std::string_view rest = static_cast<const request_t*>(request)->bytes.view();
     while (!rest.empty()) {
         const std::size_t end = rest.find('\n');
         std::string_view line = rest.substr(0, end);
@@ -957,16 +1045,25 @@ std::int32_t fb_io_error_kind(const std::int64_t error) {
 }
 
 fb_string_t* fb_io_error_message(const std::int64_t error) {
+    if (error == too_big) {
+        return string_of("it holds more bytes than the read takes");
+    }
+
     return string_of(uv_strerror(static_cast<int>(error)));
 }
 
-std::int64_t fb_io_file_read(void* request, const fb_string_t* path) {
-    request_of(request).path = view_of(path);
-    return run(request_of(request), read_file);
+std::int64_t fb_io_file_read(void* request, const fb_string_t* path, const std::int64_t most) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.number = most;
+    return run(self, read_file);
 }
 
-void fb_io_file_read_async(fb_task_t* task, void* request, const fb_string_t* path) {
-    request_of(request).path = view_of(path);
+void fb_io_file_read_async(fb_task_t* task, void* request, const fb_string_t* path,
+                           const std::int64_t most) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.number = most;
     run_async(task, request, read_file);
 }
 
