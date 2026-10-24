@@ -771,3 +771,11 @@ Code path: fb_start → SetConsoleOutputCP(CP_UTF8) (line 217) and SetConsoleMod
 Suggested fix: Save GetConsoleOutputCP() and the original mode in fb_start, and put them back at the end, in fb_finish and in end_program before _Exit. Or write to the console with WriteConsoleW and leave the code page alone.
 
 Skeptic: confirmed=True, low. Reproduced. From PowerShell: `cmd /c "chcp 437 >nul & cpq.exe & hi.exe & cpq.exe"`, where cpq.exe is a probe that prints GetConsoleOutputCP(). Before hi.exe it gives out_cp=437; after a FutureBlitz hello-world it gives out_cp=65001 in the same console. fb_start (runtime.cpp:217, 226) calls SetConsoleOutputCP(CP_UTF8) and SetConsoleMode(stderr, mode | VT). Nothing saves or restores either value, not in fb_finish nor in end_program. Neither docs/decisions.md nor the Deferred work table covers it.
+
+## A-new-6 (medium): Overload resolution doesn't let an array literal fit an overload's array parameter
+
+Status: fixed in 6184ddb (an array, tuple, or map literal fits an overload's parameter as it fits a lone function's), with a sema test: each overload checks an array, tuple, or Map literal as its parameter's type, as a lone Function does, so `[1, 2, 3]` and `[]` fit a UInt8[], and one it then converts to, like an Iterable<Int>, a literal of its own type is exact, two overloads that convert it are ambiguous, an untyped Function in one takes its parameter's type, and one with no type of its own that fits no overload, like `(nope, 1)`, reports its own errors
+
+Where: compiler/src/sema.cpp:21323
+
+Found by lane 7 in step 13: with `Function F()` and `Function F(bytes: UInt8[])`, `F([1, 2, 3])` is "no overload of 'F' takes (Int32[])", though one Function alone takes it, and `F([])` is "an empty array needs a type from where it's used". match() compared the literal's own type, Int32[], with each parameter's, and Int32[] doesn't convert to UInt8[], though the literal's elements fit it. A tuple or Map literal, or an array of untyped Functions (step 7's review, under S7-compiler-3), failed the same way. MemoryStream has one New with a `[]` default because of it.
