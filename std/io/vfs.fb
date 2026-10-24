@@ -363,7 +363,8 @@ Public Class Vfs
             // A mount below the folder is a folder in it.
             If at.Count > names.Count && Starts(at, names)
                 found = True
-                If !listed.Contains(at[names.Count]) Then listed[at[names.Count]] = FileKind.DIRECTORY
+                Local name = at[names.Count]
+                If !listed.Contains(name) Then listed[name] = FileKind.DIRECTORY
                 Continue
             End If
 
@@ -385,10 +386,12 @@ Public Class Vfs
     // The IOError for a read of a path no mount has a file at: a folder's, or a missing one's.
     Method Unread(path: Path): IOError Throws IOError
         If (Try KindOf(path)) == FileKind.DIRECTORY
-            Return IOError(IOErrorKind.IS_A_DIRECTORY, "can't read {path}: it's a folder", path.Text)
+            Return IOError(IOErrorKind.IS_A_DIRECTORY, "can't read {path}: it's a folder",
+                           path.Text)
         End If
 
-        Return IOError(IOErrorKind.NOT_FOUND, "can't read {path}: no mount of the Vfs has it", path.Text)
+        Return IOError(IOErrorKind.NOT_FOUND, "can't read {path}: no mount of the Vfs has it",
+                       path.Text)
     End Method
 
     // Whether a mount is below the folder at `names`, which makes it a folder.
@@ -407,8 +410,8 @@ End Class
 Function Checked(path: Path, doing: String): String[] Throws IOError
     Local names = NamesOf(path.Text)
     If names == Null
-        Throw IOError(IOErrorKind.INVALID_PATH, "can't {doing} {path}: it goes above the Vfs's root",
-                      path.Text)
+        Throw IOError(IOErrorKind.INVALID_PATH,
+                      "can't {doing} {path}: it goes above the Vfs's root", path.Text)
     End If
 
     Return names
