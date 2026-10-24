@@ -1,0 +1,9 @@
+// A font's metrics are at a size that's finite and not negative, and asking for one at another
+// panics where it's asked.
+Import std.core
+Import "./image_text/font"
+Import std.image
+
+Local font = Try Font.Parse(FontBytes())
+Print(font.Ascent(0), font.Descent(10), font.LineGap(10), font.LineHeight(10))
+Print(font.Descent(-1))
