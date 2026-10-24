@@ -53,6 +53,7 @@ Print(Await Fetched("{secure1}/hello"))
 
 Print("== over HTTP/2")
 Print(Sent(HttpMethod.POST, "{secure}/echo", Body.Text("over h2")))
+Print(Sent(HttpMethod.PUT, "{secure}/header/content-length"))
 Print(Sent(HttpMethod.GET, "{secure}/redirect/2"))
 Print(Sent(HttpMethod.POST, "{secure}/moved/303", Body.Text("dropped")))
 Print(Sent(HttpMethod.GET, "{secure}/status/404"))

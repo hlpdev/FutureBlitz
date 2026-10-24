@@ -69,6 +69,10 @@ Print(Sent(client, HttpMethod.OPTIONS, "/echo"))
 Print(Sent(client, HttpMethod.POST, "/echo"))
 Print(Sent(client, HttpMethod.POST, "/echo", Body.Form({"name": "Ada L", "sum": "1+1=2&x"})))
 Print(Sent(client, HttpMethod.POST, "/echo", Body([104, 105] As UInt8[], Null)))
+// A POST, PUT, or PATCH without a body says it has none.
+For method In [HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH, HttpMethod.DELETE]
+    Print("{method} {Sent(client, method, "/header/content-length")}")
+End For
 
 Print("== headers")
 Print(Fetched(client, "{base}/header/user-agent"))
