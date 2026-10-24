@@ -918,8 +918,8 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   `HdrImage.FromImage(image)` and `ToImage()` convert through sRGB's gamma, as Color32's
   `ToColor` and Color's `ToColor32` do, ToImage keeping each channel from 0 to 255.
 - Planned: an Image over a Buffer; reading and writing image files, on step 14's; and in step 25
-  software drawing of lines, shapes, and fills, and text with TrueType fonts. The engine's 2D (M10) shares
-  the image and font code.
+  software drawing of lines, shapes, and fills, and text with TrueType fonts. The engine's 2D
+  (M10) shares the image and font code.
 
 #### std.term
 
