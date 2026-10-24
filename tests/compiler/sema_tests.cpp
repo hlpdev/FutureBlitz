@@ -13731,6 +13731,24 @@ TEST_CASE("an Interface's member like one it extends gives what that one does", 
                     "Local n = Box().Both().Count") ==
           errors_t{ "Both: 'Both' takes Source<U[]>'s parameters, so it gives what that one does, "
                     "U[][], not U[]" });
+    // And it's Async when that one is, and only then, or nothing could implement both.
+    CHECK(errors_of("Interface Loader\n"
+                    "    Async Method LoadAsync(): Int\n"
+                    "    Method Size(): Int\n"
+                    "End Interface\n"
+                    "Interface Fast Extends Loader\n"
+                    "    Method LoadAsync(): Int => 1\n"
+                    "    Async Method Size(): Int => 2\n"
+                    "End Interface\n"
+                    "Class Quick Implements Fast\n"
+                    "    Async Method LoadAsync(): Int => 3\n"
+                    "    Method Size(): Int => 4\n"
+                    "End Class") ==
+          errors_t{
+              "LoadAsync: 'LoadAsync' redeclares Loader's, which is Async, so it has to be Async "
+              "too",
+              "Size: 'Size' is Async, so it can't redeclare Loader's, which isn't",
+          });
 }
 
 TEST_CASE("a default seen less far can't take the place of one a type gives everyone", "[sema]") {
