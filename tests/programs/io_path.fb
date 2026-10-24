@@ -71,6 +71,16 @@ seen.Add(Posix("a//b").Normalize())
 seen.Add(Windows("a/b"))
 Print("{seen.Count}")
 
+// A Path's zero, a Struct's Field's before it's given one, is by the target's rules, as a Path
+// made from text is, and is equal to one.
+Struct Save
+    Field Spot: Path
+End Struct
+
+Local unset = Save()
+Print("{unset.Spot.Style == Path.NativeStyle()} {unset.Spot == Path("")} {unset.Spot.Hash() == Path("").Hash()}")
+Print("{(unset.Spot / "games" / "save.dat").FileName()} {Path("x") == Path("x", Path.NativeStyle())}")
+
 Print("From Strings")
 Function Named(p: Path): String => "{p.FileName()} in {p.Parent()}"
 Local saves = "saves"

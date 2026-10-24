@@ -26,23 +26,33 @@ Const COLON: UInt8 = 58
 Const DOT: UInt8 = 46
 
 // Where a file or folder is. Paths are equal when their texts and styles are, so "a/b" and
-// "a//b" aren't until Normalize makes them so, and they sort by their texts' bytes. A Path's
-// zero, as a Struct's Field starts with, is "" by POSIX's rules.
+// "a//b" aren't until Normalize makes them so, and they sort by their styles, POSIX's first, then
+// by their texts' bytes. A Path's zero, as a Struct's Field starts with, is "" by the target's
+// rules, as Path("") is.
 Public Struct Path Implements Comparable, Hashable, Printable
     Public ReadOnly Field Text: String
-    Public ReadOnly Field Style: PathStyle
+    // Whose rules it reads its text by: 0 for the target's, as a Path's zero is, 1 for POSIX's,
+    // and 2 for Windows'.
+    ReadOnly Field Rules: Int8
 
     // A path by the target's rules.
     Public New(text: String)
         Text = text
-        Style = NativeStyle()
     End New
 
     // A path by `style`'s rules, whatever the target's are.
     Public New(text: String, style: PathStyle)
         Text = text
-        Style = style
+        Rules = style == PathStyle.POSIX ? 1 : 2
     End New
+
+    // Whose rules it reads its text by.
+    Public Property Style: PathStyle
+        Get
+            If Rules == 0 Then Return NativeStyle()
+            Return Rules == 1 ? PathStyle.POSIX : PathStyle.WINDOWS
+        End Get
+    End Property
 
     // The target's style: WINDOWS on Windows, and POSIX everywhere else.
     Public Static Method NativeStyle(): PathStyle
@@ -56,6 +66,10 @@ Public Struct Path Implements Comparable, Hashable, Printable
         If a.Style != b.Style Then Return (a.Style As Int) < (b.Style As Int)
         Return a.Text < b.Text
     End Operator
+
+    Operator ==(a: Path, b: Path): Bool => a.Text == b.Text && a.Style == b.Style
+
+    Public Method Hash(): UInt64 => HashCombine(Text.Hash(), (Style As Int).Hash())
 
     Public Method ToString(): String => Text
 
