@@ -108,6 +108,7 @@ can't read missing.txt: no such file or directory [missing.txt]
 can't read ten.txt: it holds more bytes than the read takes [ten.txt]
 can't copy missing.txt to other.txt: no such file or directory [missing.txt]
 [yes] 8
+long [atomic] 9
 locks
 True False True
 True True
