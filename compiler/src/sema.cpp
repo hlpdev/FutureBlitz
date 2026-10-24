@@ -22384,6 +22384,13 @@ private:
                });
     }
 
+    /// A lambda that takes a type from the Func expected: a parameter's, for one it gives none,
+    /// or its result's, when it says none.
+    [[nodiscard]] bool takes_func_type(const expr_id_t id) const {
+        const auto* lambda = std::get_if<lambda_expr_t>(&m_ast.get(id).node);
+        return lambda != nullptr && (!lambda->return_type || is_untyped_lambda(id));
+    }
+
     /// An overload whose arguments all match exactly beats one that needs conversions. More than
     /// one at the same level is ambiguous. Candidates are tried quietly; only the outcome is
     /// reported.
@@ -22396,7 +22403,7 @@ private:
             const type_id_t type = quietly([&] { return check(argument.value, type_id_t::NONE); });
             if (type == type_id_t::INVALID && !is_flexible(argument.value) &&
                 !is_null(argument.value) && !names_generic_function(argument.value) &&
-                !is_untyped_lambda(argument.value)) {
+                !takes_func_type(argument.value)) {
                 check_alone(node.arguments); // report the argument's own errors instead
                 return std::nullopt;
             }
@@ -22648,10 +22655,12 @@ private:
                                                                       : match_t::NONE;
         }
 
-        // A lambda whose parameters take their types from the Func expected fits only a Func it
-        // checks as, or a nullable one by conversion. One whose body has errors as that Func
-        // fits it worst, so the Func it checks as without them is the one meant.
-        if (is_untyped_lambda(argument.value)) {
+        // A lambda whose parameters, or result, take their types from the Func expected fits only
+        // a Func it checks as, or a nullable one by conversion; one that only takes its result's
+        // fits by conversion too, unless that's the type it has of its own. One whose body has
+        // errors as that Func fits it worst, so the Func it checks as without them is the one
+        // meant.
+        if (takes_func_type(argument.value)) {
             const std::size_t errors = m_diagnostics->error_count();
             const type_id_t made =
                 argument.by_ref ? type_id_t::INVALID : check(argument.value, type);
@@ -22663,11 +22672,13 @@ private:
                 return match_t::ANY;
             }
 
-            if (made == type) {
-                return match_t::EXACT;
+            if (made != type && made != non_null(type)) {
+                return match_t::NONE;
             }
 
-            return made == non_null(type) ? match_t::CONVERTIBLE : match_t::NONE;
+            const bool own =
+                is_untyped_lambda(argument.value) || check(argument.value, type_id_t::NONE) == made;
+            return made == type && own ? match_t::EXACT : match_t::CONVERTIBLE;
         }
 
         const type_id_t natural = check(argument.value, type_id_t::NONE);

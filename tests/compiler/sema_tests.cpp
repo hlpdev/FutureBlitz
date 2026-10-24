@@ -14492,6 +14492,19 @@ TEST_CASE("a lambda without its parameters' types takes them from the overload w
                     "Function One(f: String)\nEnd Function\n"
                     "One(Function(x) => \"a\")") ==
           errors_t{ "\"a\": expected Int32, found String" });
+
+    // A lambda without a return type takes the Func's, as with one Function, by conversion, so
+    // a Func of its own type fits it better.
+    const std::string two = "Function Two(f: Func(): Double): Bool => True\n"
+                            "Function Two(f: String): Int8 => 0\n"
+                            "Function Three(f: Func(Int): Double): Bool => True\n"
+                            "Function Three(f: String): Int8 => 0\n"
+                            "Function Own(f: Func(Int): Int): Bool => True\n"
+                            "Function Own(f: Func(Int): Int64): Int8 => 0\n";
+    CHECK(probe(two + "Local x = Two(Function() => 1)") == "Bool");
+    CHECK(probe(two + "Local x = Three(Function(n: Int) => 1)") == "Bool");
+    CHECK(probe(two + "Local x = Own(Function(n: Int) => n)") == "Bool");
+    CHECK(probe(two + "Local x = Own(Function(n: Int): Int64 => n)") == "Int8");
 }
 
 TEST_CASE("a call with an error doesn't also warn that its Try isn't needed", "[sema]") {
