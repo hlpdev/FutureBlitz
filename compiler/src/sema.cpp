@@ -21683,6 +21683,15 @@ private:
         return std::nullopt;
     }
 
+    /// An array, tuple, or Map literal, whose type comes from where it goes, as its elements' do:
+    /// "[]" has none of its own.
+    [[nodiscard]] bool is_shaped_literal(const expr_id_t id) const {
+        const expr_node_t& node = m_ast.get(id).node;
+        return std::holds_alternative<array_expr_t>(node) ||
+               std::holds_alternative<tuple_expr_t>(node) ||
+               std::holds_alternative<map_expr_t>(node);
+    }
+
     /// An overload whose arguments all match exactly beats one that needs conversions. More than
     /// one at the same level is ambiguous. Candidates are tried quietly; only the outcome is
     /// reported.
@@ -21694,7 +21703,8 @@ private:
         for (const argument_t& argument : node.arguments) {
             const type_id_t type = quietly([&] { return check(argument.value, type_id_t::NONE); });
             if (type == type_id_t::INVALID && !is_flexible(argument.value) &&
-                !is_null(argument.value) && !names_generic_function(argument.value)) {
+                !is_null(argument.value) && !names_generic_function(argument.value) &&
+                !is_shaped_literal(argument.value)) {
                 check_alone(node.arguments); // report the argument's own errors instead
                 return std::nullopt;
             }
@@ -21806,6 +21816,15 @@ private:
 
             if (unmet.size() == 1) {
                 return unmet.front();
+            }
+
+            // A literal with no type of its own that no parameter gave one, like (nope, 1),
+            // reports its own errors, as it would with only one overload.
+            for (std::size_t i = 0; i < types.size(); ++i) {
+                if (types[i] == type_id_t::INVALID && is_shaped_literal(node.arguments[i].value)) {
+                    check_alone(node.arguments);
+                    return std::nullopt;
+                }
             }
 
             std::string list;
@@ -21956,6 +21975,16 @@ private:
         if (is_flexible(argument.value)) {
             return check(argument.value, type) == non_null(type) ? match_t::CONVERTIBLE
                                                                  : match_t::NONE;
+        }
+
+        // An array, tuple, or Map literal is checked as the parameter's type, its elements
+        // taking theirs, as they would with only this overload, like [1, 2] for a UInt8[], and
+        // it fits a type it then converts to, like an Iterable<Int>.
+        if (is_shaped_literal(argument.value)) {
+            const type_id_t made = check(argument.value, type);
+            return made != type_id_t::INVALID && (made == type || converts(made, type))
+                       ? match_t::CONVERTIBLE
+                       : match_t::NONE;
         }
 
         return converts(natural, type) ? match_t::CONVERTIBLE : match_t::NONE;
