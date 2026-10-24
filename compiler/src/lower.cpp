@@ -984,19 +984,11 @@ private:
         }
     }
 
-    /// Reports a known value that doesn't fit its type, or one of two known values that couldn't
-    /// be worked out, since it divides by 0 or passes what an Int64 holds.
+    /// Reports a value computed from two known ones that couldn't be worked out, since it
+    /// divides by 0 or passes what an Int64 holds. Whether one fits its parameter's type is
+    /// check_arguments()'s.
     void check_value(const type_t& info) {
         if (info.operation == value_op_t::NONE) {
-            if (!fits(info.number, info.inner)) {
-                m_module.error = mir_error_t{
-                    .message = std::format(
-                        "a Const type argument comes out as {} here, which doesn't fit in {}",
-                        info.number, types().name(info.inner)),
-                    .span = m_span.value_or(span_t{}),
-                };
-            }
-
             return;
         }
 
@@ -5017,7 +5009,8 @@ private:
         if (const type_id_t parameter = m_analysis.expr(id).parameter;
             parameter != type_id_t::INVALID) {
             const type_t& value = types().get(concrete(parameter));
-            return *fold_cast({ .type = type_id_t::INT64, .data = value.number }, value.inner);
+            return *fold_cast({ .type = type_id_t::INT64, .data = value.number },
+                              types().get(parameter).inner);
         }
 
         if (const std::optional<std::size_t> closure = m_analysis.expr(id).closure) {

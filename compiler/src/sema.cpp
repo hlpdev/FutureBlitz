@@ -12759,8 +12759,7 @@ private:
 
         if (const auto* binary = std::get_if<binary_expr_t>(&node)) {
             if (const std::optional<value_op_t> op = value_op_of(binary->op)) {
-                return m_analysis.types.value_expression(type, *op,
-                                                         computed_value(binary->left, type),
+                return m_analysis.types.value_expression(*op, computed_value(binary->left, type),
                                                          computed_value(binary->right, type));
             }
         }
@@ -12768,8 +12767,8 @@ private:
         if (const auto* unary = std::get_if<unary_expr_t>(&node);
             unary != nullptr && unary->op == unary_op_t::NEGATE &&
             mentions_value_parameter(unary->operand)) {
-            return m_analysis.types.value_expression(type, value_op_t::SUBTRACT,
-                                                     m_analysis.types.value(type, 0),
+            return m_analysis.types.value_expression(value_op_t::SUBTRACT,
+                                                     m_analysis.types.value(0),
                                                      computed_value(unary->operand, type));
         }
 
@@ -12777,7 +12776,7 @@ private:
             check(id, type);
             const std::optional<std::int64_t> known = integer_value(id);
             if (known && expect_type(id, type)) {
-                return m_analysis.types.value(type, *known);
+                return m_analysis.types.value(*known);
             }
         }
 
@@ -12828,8 +12827,8 @@ private:
             return type_id_t::INVALID;
         }
 
-        return m_analysis.types.value(type, number != nullptr ? *number
-                                                              : static_cast<std::int64_t>(value));
+        return m_analysis.types.value(number != nullptr ? *number
+                                                        : static_cast<std::int64_t>(value));
     }
 
     /// "T[N]" or "T[W, H]". Each size is a positive integer known at compile time, and the
@@ -21218,9 +21217,7 @@ private:
             for (std::size_t i = 0; i < want.parameters.size() && i < have.sizes.size(); ++i) {
                 const type_id_t dimension = want.parameters[i];
                 if (dimension != type_id_t::INVALID && is_value_parameter(dimension)) {
-                    unify(dimension,
-                          m_types->value(m_analysis.types.get(dimension).inner, have.sizes[i]),
-                          parameters, arguments);
+                    unify(dimension, m_types->value(have.sizes[i]), parameters, arguments);
                 }
             }
 

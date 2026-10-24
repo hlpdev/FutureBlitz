@@ -34,3 +34,41 @@ End Function
 Local a: Int[4] = [10, 20, 30, 40]
 Local trimmed = Trimmed(a)
 Print(trimmed.Count, trimmed[0], trimmed[2], Trimmed(trimmed).Count, Halves(a))
+
+// A value is the same argument whatever its parameter's type, so it's one instance, with one
+// Static, however code reaches it, and a size computed as an argument is computed is one type.
+Struct Counter<Const M: Int>
+    Static Field Made: Int = 0
+End Struct
+
+Function Bump<Const M: Int>(): Int
+    Counter<M>.Made += 1
+    Return Counter<M>.Made
+End Function
+
+Function Via<Const N: Int8>(): Int => Bump<N>()
+
+Struct Small<Const S: Int8>
+End Struct
+
+Function Of<Const N: Int>(s: Small<N>): Int => Bump<N>()
+
+Struct Box<Const M: Int>
+    Field Items: Int[M]
+End Struct
+
+Struct Box8<Const M: Int8>
+End Struct
+
+Function Make<Const N: Int>(): Box8<N> => Box8<N>()
+
+Function Sized<Const N: Int>(a: Int[N]): Int => N
+
+Function Inner<Const N: Int>(): Int
+    Local b = Box<N - 1>()
+    Local t: Int[N - 1] = b.Items
+    Return t.Count + Sized<N - 1>(t)
+End Function
+
+Local made: Box8<5> = Make<5>()
+Print(Bump<5>(), Via<5>(), Of(Small<5>()), Bump<5>(), Inner<5>())

@@ -194,8 +194,9 @@ struct type_t {
     /// "std.collections.map", which its qualified name starts with. Empty for the main module's,
     /// and for the other kinds. An instance has its generic type's.
     std::string module;
-    /// NULLABLE, ARRAY, FIXED_ARRAY, and WEAK: the type inside. ENUM: its integer type. VALUE,
-    /// and a PARAMETER that's Const: the type of its value.
+    /// NULLABLE, ARRAY, FIXED_ARRAY, and WEAK: the type inside. ENUM: its integer type. A
+    /// PARAMETER that's Const: the type of its value. VALUE: Int64, whatever its parameter's
+    /// type, since each instance works it out in one and checks it fits.
     /// FUNCTION: the type it returns, NONE when it returns nothing. INTERFACE: Self, the type
     /// parameter that stands for the type implementing it, which a generic one's instances share.
     type_id_t inner = type_id_t::INVALID;
@@ -321,10 +322,9 @@ public:
     [[nodiscard]] type_id_t fixed_array(type_id_t element, const std::vector<std::uint32_t>& sizes,
                                         const std::vector<type_id_t>& dimensions = {});
 
-    /// "N * 2": a value of `type` computed from two others, each a VALUE or a Const type
-    /// parameter. Two known values give the value they compute, where there is one.
-    [[nodiscard]] type_id_t value_expression(type_id_t type, value_op_t op, type_id_t left,
-                                             type_id_t right);
+    /// "N * 2": a value computed from two others, each a VALUE or a Const type parameter. Two
+    /// known values give the value they compute, where there is one.
+    [[nodiscard]] type_id_t value_expression(value_op_t op, type_id_t left, type_id_t right);
 
     /// "(A, B)", of two or more elements. With an INVALID element, it's INVALID.
     [[nodiscard]] type_id_t tuple(const std::vector<type_id_t>& elements);
@@ -343,8 +343,9 @@ public:
     /// A new Const type parameter, like the W in "Grid<T, Const W: Int>", with its value's type.
     [[nodiscard]] type_id_t add_value_parameter(std::string name, type_id_t type);
 
-    /// A Const type parameter's argument, like the 64 in "Grid<Float32, 64, 64>".
-    [[nodiscard]] type_id_t value(type_id_t type, std::int64_t number);
+    /// A Const type parameter's argument, like the 64 in "Grid<Float32, 64, 64>": the same type
+    /// for the same number, whatever the parameter's type.
+    [[nodiscard]] type_id_t value(std::int64_t number);
 
     /// Makes a Struct, Class, or Interface generic, with these type parameters.
     void set_parameters(type_id_t type, std::vector<type_id_t> parameters);

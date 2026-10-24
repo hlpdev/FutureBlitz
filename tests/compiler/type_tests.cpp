@@ -330,9 +330,11 @@ TEST_CASE("a Const type parameter's arguments are values, which fixed arrays tak
     fb::type_table_t types;
     const fb::type_id_t w = types.add_value_parameter("W", fb::type_id_t::INT32);
     CHECK(types.get(w).inner == fb::type_id_t::INT32);
-    const fb::type_id_t four = types.value(fb::type_id_t::INT32, 4);
+    // A value is an Int64's, the same type for the same number whatever its parameter's type.
+    const fb::type_id_t four = types.value(4);
     CHECK(types.name(four) == "4");
-    CHECK(types.value(fb::type_id_t::INT32, 4) == four);
+    CHECK(types.value(4) == four);
+    CHECK(types.get(four).inner == fb::type_id_t::INT64);
 
     const fb::type_id_t cells = types.fixed_array(fb::type_id_t::FLOAT32, { 0, 2 }, { w });
     CHECK(types.name(cells) == "Float32[W, 2]");

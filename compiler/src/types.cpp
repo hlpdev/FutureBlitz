@@ -571,10 +571,9 @@ type_id_t type_table_t::add_value_parameter(std::string name, const type_id_t ty
     return add({ .kind = type_kind_t::PARAMETER, .name = std::move(name), .inner = type });
 }
 
-type_id_t type_table_t::value(const type_id_t type, const std::int64_t number) {
+type_id_t type_table_t::value(const std::int64_t number) {
     for (const type_id_t made : m_values) {
-        if (get(made).inner == type && get(made).number == number &&
-            get(made).operation == value_op_t::NONE) {
+        if (get(made).number == number && get(made).operation == value_op_t::NONE) {
             return made;
         }
     }
@@ -582,15 +581,15 @@ type_id_t type_table_t::value(const type_id_t type, const std::int64_t number) {
     const type_id_t id = add({
         .kind = type_kind_t::VALUE,
         .name = std::to_string(number),
-        .inner = type,
+        .inner = type_id_t::INT64,
         .number = number,
     });
     m_values.push_back(id);
     return id;
 }
 
-type_id_t type_table_t::value_expression(const type_id_t type, const value_op_t op,
-                                         const type_id_t left, const type_id_t right) {
+type_id_t type_table_t::value_expression(const value_op_t op, const type_id_t left,
+                                         const type_id_t right) {
     if (left == type_id_t::INVALID || right == type_id_t::INVALID) {
         return type_id_t::INVALID;
     }
@@ -600,13 +599,12 @@ type_id_t type_table_t::value_expression(const type_id_t type, const value_op_t 
     if (a.kind == type_kind_t::VALUE && a.operation == value_op_t::NONE &&
         b.kind == type_kind_t::VALUE && b.operation == value_op_t::NONE) {
         if (const std::optional<std::int64_t> number = worked_out(op, a.number, b.number)) {
-            return value(type, *number);
+            return value(*number);
         }
     }
 
     for (const type_id_t made : m_values) {
-        if (get(made).inner == type && get(made).operation == op &&
-            get(made).parameters == std::vector{ left, right }) {
+        if (get(made).operation == op && get(made).parameters == std::vector{ left, right }) {
             return made;
         }
     }
@@ -628,7 +626,7 @@ type_id_t type_table_t::value_expression(const type_id_t type, const value_op_t 
         .kind = type_kind_t::VALUE,
         .name = std::format("{} {} {}", part(left, false),
                             value_symbols[static_cast<std::size_t>(op)], part(right, true)),
-        .inner = type,
+        .inner = type_id_t::INT64,
         .operation = op,
         .parameters = { left, right },
     });
@@ -846,7 +844,7 @@ type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_
             return type;
         }
 
-        return value_expression(info.inner, info.operation,
+        return value_expression(info.operation,
                                 substitute(info.parameters[0], parameters, arguments),
                                 substitute(info.parameters[1], parameters, arguments));
     case type_kind_t::TUPLE: {

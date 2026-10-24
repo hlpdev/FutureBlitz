@@ -8600,6 +8600,20 @@ TEST_CASE("a Const type argument or size can be computed from Const type paramet
     CHECK(errors_of("Function F<Const N: Int>(a: Int[N ** 2])\nEnd Function") ==
           errors_t{ "N ** 2: a value computed from Const type parameters uses integers known at "
                     "compile time, with +, -, *, /, and %, like N * 2" });
+
+    // A value is one type whatever its parameter's type, and a size computed as an argument is
+    // computed is that type too.
+    CHECK(errors_of("Struct Box8<Const M: Int8>\nEnd Struct\n"
+                    "Function Make<Const N: Int>(): Box8<N> => Box8<N>()\n"
+                    "Local a: Box8<5> = Make<5>()")
+              .empty());
+    CHECK(errors_of("Struct Box<Const M: Int>\n    Field Items: Int[M]\nEnd Struct\n"
+                    "Function F<Const N: Int>(): Int\n"
+                    "    Local b = Box<N - 1>()\n"
+                    "    Local t: Int[N - 1] = b.Items\n"
+                    "    Return t.Count\n"
+                    "End Function")
+              .empty());
 }
 
 TEST_CASE("a loop can go over a type's own type parameter, or Self", "[sema]") {
