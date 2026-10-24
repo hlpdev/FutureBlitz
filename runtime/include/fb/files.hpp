@@ -129,4 +129,23 @@ void fb_io_lock_acquire_async(fb_task_t* task, void* request, const fb_string_t*
                               std::int32_t shared, std::int32_t wait);
 /// Unlocks a lock and gives it back.
 void fb_io_lock_release(void* lock);
+
+/// A watcher of the file or folder at `path`, which the I/O thread has started, and which
+/// fb_io_watcher_free gives back. fb_io_watcher_error gives 0, or the error it couldn't start
+/// with. An event is 0 created, 1 changed, or 2 removed, at a path: a folder's events are about
+/// what's in it, and a file's about the file.
+void* fb_io_watcher_new(const fb_string_t* path);
+std::int64_t fb_io_watcher_error(void* watcher);
+/// Takes the next event: 1, or 0 when there's none, which, unless `wait` is 0, is once it's
+/// closed, after waiting for one until then.
+std::int32_t fb_io_watcher_next(void* watcher, std::int32_t wait);
+/// Finishes `task`, a new Task<Int64>, once there's an event to take, with 1, or once the
+/// watcher's closed, with 0.
+void fb_io_watcher_wait_async(fb_task_t* task, void* watcher);
+/// The event taken last: its kind, and its path.
+std::int32_t fb_io_watcher_kind(void* watcher);
+fb_string_t* fb_io_watcher_path(void* watcher);
+/// Stops watching, dropping the events not taken yet, which ends what waits for one.
+void fb_io_watcher_close(void* watcher);
+void fb_io_watcher_free(void* watcher);
 }
