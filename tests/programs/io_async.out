@@ -7,4 +7,7 @@ copiedabcdefg 9
 UNEXPECTED_END: the stream ended after 3 of 5 bytes
 3 3 []
 hi
+120 121 True
+1 97 1 98
+97 98 99 100 (INTERRUPTED) 101 102 [x] (INTERRUPTED) [abcd] 
 done

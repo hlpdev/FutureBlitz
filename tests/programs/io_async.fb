@@ -48,6 +48,28 @@ Class Slow Implements Writer
     End Method
 End Class
 
+// Gives each of its parts in turn, and throws an INTERRUPTED IOError for an empty one; its
+// ReadAsync is Reader's, which reads.
+Class Flaky Implements Reader
+    Field Parts: String[]
+    Field At: Int
+
+    Public New(parts: String[])
+        Parts = parts
+    End New
+
+    Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+        If At == Parts.Count Then Return 0
+        Local part = Parts[At].Bytes
+        At += 1
+        If part.Count == 0 Then Throw IOError(IOErrorKind.INTERRUPTED, "interrupted")
+        For i = 0 Until part.Count
+            into[i] = part[i]
+        End For
+        Return part.Count
+    End Method
+End Class
+
 // Counts the frames that go by while `waiting` says the reads go on.
 Global frames = 0
 Global waiting = True
@@ -106,6 +128,43 @@ Local sink: Writer = StringWriter()
 Try Await sink.WriteAsync(Buffer<UInt8>.From([104, 105]))
 Try Await sink.FlushAsync()
 Print((sink As StringWriter).ToString())
+
+// A BufferedReader's ReadByteAsync and ReadAsync, through a Reader value too, wait for what it
+// wraps, and a ReadAsync of a whole buffer or more goes straight to that.
+Local bytewise = BufferedReader(Trickle("xy"), 2)
+Print("{Try Await bytewise.ReadByteAsync() ?? 0} {Try Await bytewise.ReadByteAsync() ?? 0} " +
+      "{Try Await bytewise.ReadByteAsync() == Null}")
+Local wrapped: Reader = BufferedReader(Trickle("abc"), 2)
+Local small = Buffer<UInt8>(1)
+Local large = Buffer<UInt8>(2)
+Print("{Try Await wrapped.ReadAsync(small)} {small[0]} {Try Await wrapped.ReadAsync(large)} " +
+      "{large[0]}")
+
+// When what it wraps throws, it has nothing left over, so a retry reads on, a line it had begun
+// too.
+Local retried = BufferedReader(Flaky(["abcd", "", "ef"]), 4)
+Local got = ""
+Loop
+    Try
+        Local byte = Try Await retried.ReadByteAsync()
+        If byte == Null Then Break
+        got += "{byte} "
+    Catch e As IOError
+        got += "({e.Kind}) "
+    End Try
+End Loop
+
+Local lines = BufferedReader(Flaky(["x\nab", "", "cd\n"]), 4)
+Loop
+    Try
+        Local line = Try Await lines.ReadLineAsync()
+        If line == Null Then Break
+        got += "[{line}] "
+    Catch e As IOError
+        got += "({e.Kind}) "
+    End Try
+End Loop
+Print(got)
 
 waiting = False
 Await counting

@@ -39,6 +39,69 @@ Function Lines(text: String, size: Int64): String Throws IOError
     End Loop
 End Function
 
+// Gives each of its parts in turn, and throws an INTERRUPTED IOError for an empty one.
+Class Flaky Implements Reader
+    Field Parts: String[]
+    Field At: Int
+
+    Public New(parts: String[])
+        Parts = parts
+    End New
+
+    Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+        If At == Parts.Count Then Return 0
+        Local part = Parts[At].Bytes
+        At += 1
+        If part.Count == 0 Then Throw IOError(IOErrorKind.INTERRUPTED, "interrupted")
+        For i = 0 Until part.Count
+            into[i] = part[i]
+        End For
+        Return part.Count
+    End Method
+End Class
+
+// What a BufferedReader of 4 bytes over Flaky's parts gives, a byte or a line at a time, each
+// error's kind in parentheses, reading on after it.
+Function Retried(parts: String[], lines: Bool): String Throws IOError
+    Local reader = BufferedReader(Flaky(parts), 4)
+    Local got = ""
+    Loop
+        Try
+            If lines
+                Local line = Try reader.ReadLine()
+                If line == Null Then Return got
+                got += "[{line}] "
+            Else
+                Local byte = Try reader.ReadByte()
+                If byte == Null Then Return got
+                got += "{byte} "
+            End If
+        Catch e As IOError
+            got += "({e.Kind}) "
+        End Try
+    End Loop
+End Function
+
+// Keeps the sizes of the writes it's given.
+Class Counted Implements Writer
+    Field Sizes: Int64[]
+
+    Public New()
+        Sizes = []
+    End New
+
+    Method Write(from: Buffer<UInt8>) Throws IOError
+        Sizes.Add(from.Count)
+    End Method
+End Class
+
+// Throws for each write.
+Class Broken Implements Writer
+    Method Write(from: Buffer<UInt8>) Throws IOError
+        Throw IOError(IOErrorKind.OTHER, "broken")
+    End Method
+End Class
+
 // Memory: written, moved around in, and read back; writing past the end fills it with 0s.
 Local memory = MemoryStream()
 Try memory.WriteText("hello")
@@ -85,6 +148,22 @@ End For
 Print("{Try Lines("", 4)} {Try Lines("\n", 4)} {(Try Lines("a\rb\nlast\r", 2)).Bytes}")
 Local bytes = BufferedReader(StringReader("xy"), 1)
 Print("{Try bytes.ReadByte() ?? 0} {Try bytes.ReadByte() ?? 0} {Try bytes.ReadByte() == Null}")
+
+// When the other Reader throws, a BufferedReader has nothing left over, so a retry reads on from
+// where it was, a line it had begun too.
+Print(Try Retried(["abcd", "", "efgh"], False))
+Print(Try Retried(["x\nab", "", "cd\n"], True))
+Local partly = BufferedReader(Flaky(["ab", "", "cd"]), 4)
+Local one = Buffer<UInt8>(1)
+Local reads = ""
+For i = 1 To 6
+    Try
+        reads += "{Try partly.Read(one)}:{one[0]} "
+    Catch e As IOError
+        reads += "({e.Kind}) "
+    End Try
+End For
+Print(reads)
 
 // A BufferedWriter keeps what's written until its buffer fills, or Flush, and sends what it
 // still keeps as it goes.

@@ -102,7 +102,7 @@ So far, std/ holds:
 | std/ffi/buffer.fb | `Buffer<T>`, native memory that C fills through its `Pointer()` and safe code reads with `[]`, with `Slice` views that keep it alive, `CopyTo`, `ToArray`, `Buffer<T>.From` an array, and `Buffer<T>.View` of C's memory; `BufferIterator<T>` |
 | std/io/streams.fb | std.io's `Reader`, `Writer`, and `Seeker`, with the Async twins `ReadAsync`, `WriteAsync`, and `FlushAsync`, Writer's `WriteBytes` and `WriteText`, and Seeker's `Position`; `SeekOrigin`; `Copy`, `ReadAll`, `ReadAllText`, and `ReadExact`, and `CopyAsync`, `ReadAllAsync`, and `ReadExactAsync` |
 | std/io/memory.fb | `MemoryStream`, `StringReader`, and `StringWriter` |
-| std/io/buffered.fb | `BufferedReader`, with `ReadByte`, `ReadLine`, and `ReadLineAsync`, and `BufferedWriter` |
+| std/io/buffered.fb | `BufferedReader`, with `ReadByte`, `ReadLine`, and their Async twins, and `BufferedWriter` |
 | std/io/binary.fb | `BinaryReader` and `BinaryWriter`, each number's bytes in a `ByteOrder` |
 | std/crypto/hashes.fb | `Hasher`, and `Md5`, `Sha1`, `Sha256`, and `Sha512`, over mbedTLS through the runtime's `fb_crypto_` functions |
 | std/crypto/derive.fb | `Hmac` and `Pbkdf2`, each by SHA-1, SHA-256, or SHA-512, and `Hkdf`, by SHA-256 or SHA-512 |
