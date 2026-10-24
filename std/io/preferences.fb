@@ -1,0 +1,269 @@
+// std.io's preferences: a program's settings, kept between its runs in the folder each OS keeps
+// its users' programs' settings in, in a file of the program's own, which a save replaces whole.
+
+Import std.collections.array
+Import std.collections.map
+Import std.core
+Import std.io.dir
+Import std.io.file
+Import std.io.path
+
+Extern "runtime"
+    Function fb_io_dir_config(): String?
+End Extern
+
+Const BACKSLASH: UInt8 = 92
+Const EQUALS: UInt8 = 61
+Const HASH: UInt8 = 35
+
+// A program's settings, by name, kept in <folder>/<app>/preferences.txt, where the folder is the
+// OS's for its users' settings (Windows' %APPDATA%, macOS's ~/Library/Application Support, and
+// elsewhere $XDG_CONFIG_HOME or ~/.config) unless one's given. Nothing is written until Save,
+// which writes them atomically; IsChanged says whether there's something to save. The file is
+// UTF-8 text a person can read and change: a "key=value" line for each setting, with "\\", "\n",
+// and "\r" for a backslash, a line break, and a carriage return in both, "\=" for an '=' in a
+// key and "\#" for a '#' at its start; a line that starts with '#', or has no '=', is skipped.
+Public Class Preferences
+    Public ReadOnly Field App: String
+    // The file they're kept in.
+    Public ReadOnly Field Location: Path
+    Field Values: Map<String, String>
+    Field Changed: Bool
+
+    // The program `app`'s preferences, read from the OS's folder for them, or none when there's
+    // no file yet. Panics for an app's name that can't be a file's, and throws an IOError when the
+    // OS doesn't say where its folder is, or the file can't be read.
+    @PanicsAtCaller
+    Public New(app: String) Throws IOError
+        CheckApp(app)
+        App = app
+        Location = (Try ConfigFolder()) / app / "preferences.txt"
+        Values = Try Loaded(Location)
+    End New
+
+    // The preferences of `app` kept in `folder` in place of the OS's folder, as tests keep theirs
+    // in a temporary folder.
+    @PanicsAtCaller
+    Public New(app: String, folder: Path) Throws IOError
+        CheckApp(app)
+        App = app
+        Location = folder / app / "preferences.txt"
+        Values = Try Loaded(Location)
+    End New
+
+    New(app: String, file: Path, values: Map<String, String>)
+        App = app
+        Location = file
+        Values = values
+    End New
+
+    // New's Async twin, which reads the file without blocking the main thread.
+    @PanicsAtCaller
+    Public Static Async Method OpenAsync(app: String): Preferences Throws IOError
+        CheckApp(app)
+        Local file = (Try ConfigFolder()) / app / "preferences.txt"
+        Return Preferences(app, file, Try Await LoadedAsync(file))
+    End Method
+
+    @PanicsAtCaller
+    Public Static Async Method OpenAsync(app: String, folder: Path): Preferences Throws IOError
+        CheckApp(app)
+        Local file = folder / app / "preferences.txt"
+        Return Preferences(app, file, Try Await LoadedAsync(file))
+    End Method
+
+    // The setting `key`, or Null when there's none.
+    Public Method Get(key: String): String? => Values.Get(key)
+
+    // The setting `key`, or `fallback` when there's none.
+    Public Method Get(key: String, fallback: String): String => Values.Get(key, fallback)
+
+    // Sets `key` to `value`, which Save keeps.
+    Public Method Set(key: String, value: String)
+        If Values.Get(key) == value Then Return
+        Values[key] = value
+        Changed = True
+    End Method
+
+    // Takes out the setting `key`, and gives whether there was one.
+    Public Method Remove(key: String): Bool
+        If !Values.Remove(key) Then Return False
+        Changed = True
+        Return True
+    End Method
+
+    Public Method Contains(key: String): Bool => Values.Contains(key)
+
+    // The settings' names, in the order they were first set.
+    Public Method Keys(): String[] => Values.Keys()
+
+    Public Method Count(): Int => Values.Count
+
+    // Whether they've changed since they were read or saved.
+    Public Method IsChanged(): Bool => Changed
+
+    // Takes out every setting.
+    Public Method Clear()
+        If Values.Count == 0 Then Return
+        Values.Clear()
+        Changed = True
+    End Method
+
+    // Writes the settings to their file, making its folder when it isn't there, atomically, so it
+    // holds either all of them or what it held before.
+    Public Method Save() Throws IOError
+        Try Dir.CreateAll(Location.Parent())
+        Try File.WriteTextAtomic(Location, TextOf(App, Values))
+        Changed = False
+    End Method
+
+    Public Async Method SaveAsync() Throws IOError
+        Try Await Dir.CreateAllAsync(Location.Parent())
+        Try Await File.WriteTextAtomicAsync(Location, TextOf(App, Values))
+        Changed = False
+    End Method
+End Class
+
+// The OS's folder for its users' programs' settings.
+Function ConfigFolder(): Path Throws IOError
+    Local folder = fb_io_dir_config()
+    If folder == Null Then Throw IOError(IOErrorKind.OTHER, "the OS doesn't say where programs keep their settings")
+    Return Path(folder)
+End Function
+
+// Panics unless `app` can be a file's name on every OS.
+@PanicsAtCaller
+Function CheckApp(app: String)
+    Local fits = app != "" && app != "." && app != ".."
+    For byte In app.Bytes
+        // Separators, a NUL, and what Windows doesn't take in a name.
+        If byte < 32 || byte == 47 || byte == BACKSLASH || byte == 58 || byte == 42 || byte == 63 ||
+           byte == 34 || byte == 60 || byte == 62 || byte == 124
+            fits = False
+        End If
+    End For
+
+    If !fits Then Panic("Preferences takes an app's name that can be a file's on every OS, not '{app}'")
+End Function
+
+// The settings in the file, or none when it isn't there.
+Function Loaded(file: Path): Map<String, String> Throws IOError
+    Try
+        Return ValuesOf(File.ReadLines(file))
+    Catch e As IOError
+        If e.Kind == IOErrorKind.NOT_FOUND Then Return Map<String, String>()
+        Throw e
+    End Try
+End Function
+
+Async Function LoadedAsync(file: Path): Map<String, String> Throws IOError
+    Try
+        Return ValuesOf(Await File.ReadLinesAsync(file))
+    Catch e As IOError
+        If e.Kind == IOErrorKind.NOT_FOUND Then Return Map<String, String>()
+        Throw e
+    End Try
+End Function
+
+// The settings a file's lines hold.
+Function ValuesOf(lines: String[]): Map<String, String>
+    Local values = Map<String, String>()
+    For line In lines
+        Local bytes = line.Bytes
+        If bytes.Count == 0 || bytes[0] == HASH Then Continue
+        Local split = -1
+        Local at = 0
+        While at < bytes.Count
+            If bytes[at] == BACKSLASH
+                at += 2
+                Continue
+            End If
+
+            If bytes[at] == EQUALS
+                split = at
+                Break
+            End If
+
+            at += 1
+        End While
+
+        If split < 0 Then Continue
+        values[Unescaped(bytes[0..split])] = Unescaped(bytes[split + 1..bytes.Count])
+    End For
+
+    Return values
+End Function
+
+// The text that keeps `app`'s settings.
+Function TextOf(app: String, values: Map<String, String>): String
+    Local lines: String[] = ["# {Escaped(app, False)}'s preferences, which std.io's Preferences keeps"]
+    For key, value In values
+        lines.Add(Escaped(key, True) + "=" + Escaped(value, False))
+    End For
+
+    // Joined in pairs, then pairs of those, so the time grows with the text's length times its
+    // logarithm.
+    Local joined = lines
+    While joined.Count > 1
+        Local pairs: String[] = []
+        For i = 0 Until joined.Count Step 2
+            pairs.Add(i + 1 < joined.Count ? joined[i] + "\n" + joined[i + 1] : joined[i])
+        End For
+
+        joined = pairs
+    End While
+
+    Return joined[0] + "\n"
+End Function
+
+// `text` with its backslashes, line breaks, and carriage returns escaped, and a key's '='s and
+// '#' at its start.
+Function Escaped(text: String, key: Bool): String
+    Local bytes: UInt8[] = []
+    Local first = True
+    For byte In text.Bytes
+        If byte == BACKSLASH
+            bytes.AddAll([BACKSLASH, BACKSLASH])
+        ElseIf byte == 10
+            bytes.AddAll([BACKSLASH, 110])
+        ElseIf byte == 13
+            bytes.AddAll([BACKSLASH, 114])
+        ElseIf key && (byte == EQUALS || (first && byte == HASH))
+            bytes.AddAll([BACKSLASH, byte])
+        Else
+            bytes.Add(byte)
+        End If
+
+        first = False
+    End For
+
+    Return TextOfBytes(bytes)
+End Function
+
+// Escaped's text back as it was. A backslash before anything else stays as it is.
+Function Unescaped(bytes: UInt8[]): String
+    Local text: UInt8[] = []
+    Local at = 0
+    While at < bytes.Count
+        If bytes[at] != BACKSLASH || at + 1 == bytes.Count
+            text.Add(bytes[at])
+            at += 1
+            Continue
+        End If
+
+        Local next = bytes[at + 1]
+        If next == 110
+            text.Add(10)
+        ElseIf next == 114
+            text.Add(13)
+        ElseIf next == BACKSLASH || next == EQUALS || next == HASH
+            text.Add(next)
+        Else
+            text.AddAll([BACKSLASH, next])
+        End If
+
+        at += 2
+    End While
+
+    Return TextOfBytes(text)
+End Function

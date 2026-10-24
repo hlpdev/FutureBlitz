@@ -1,0 +1,33 @@
+a first run
+0 none 1.0 False
+preferences.txt Größe Game Größe Game
+True False
+False True
+  # Größe Game's preferences, which std.io's Preferences keeps
+  volume=0.8
+  name=line one\nline=two \\ back\r
+  \=odd#key=#value
+  \#hash=
+  セーブ=スロット 1
+a second run
+[volume, name, =odd#key, #hash, セーブ] True []
+#value スロット 1 True
+True False 4 True
+0.5 False
+what isn't saved is gone
+False
+0.5
+a file a person changed
+  [spaced ] [ value ]
+  [x] [1=2]
+  [tail] [\]
+  [odd] [\q]
+0 [# Edited's preferences, which std.io's Preferences keeps]
+async
+0.5
+yes 0
+errors
+NOT_A_DIRECTORY
+1 True
+IS_A_DIRECTORY
+left False

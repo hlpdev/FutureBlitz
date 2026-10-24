@@ -1,0 +1,85 @@
+// Preferences survive their objects, as they would a run: what one saves the next one for the app
+// reads back, values with line breaks, '='s, and names beyond ASCII too, and what one doesn't
+// save is gone. They're kept in a temporary folder of the program's
+// own, in place of the OS's folder for settings.
+Import std.core
+Import std.io
+
+Local temp = Try TempDir("fb-preferences-")
+Local root = temp.Path
+
+Print("a first run")
+Local first = Try Preferences("Größe Game", root)
+Print("{first.Count()} {first.Get("volume") ?? "none"} {first.Get("volume", "1.0")} {File.Exists(first.Location)}")
+Print("{first.Location.FileName()} {first.Location.Parent().FileName()} {first.App}")
+first.Set("volume", "0.8")
+first.Set("name", "line one\nline=two \\ back\r")
+first.Set("=odd#key", "#value")
+first.Set("#hash", "")
+first.Set("セーブ", "スロット 1")
+Print("{first.IsChanged()} {File.Exists(first.Location)}")
+Try first.Save()
+Print("{first.IsChanged()} {File.Exists(first.Location)}")
+For line In Try File.ReadLines(first.Location)
+    Print("  {line}")
+End For
+
+Print("a second run")
+Local second = Try Preferences("Größe Game", root)
+Print("{second.Keys()} {second.Get("name") == first.Get("name")} [{second.Get("#hash") ?? "none"}]")
+Print("{second.Get("=odd#key") ?? "none"} {second.Get("セーブ") ?? "none"} {second.Contains("volume")}")
+second.Set("volume", "0.5")
+Print("{second.Remove("name")} {second.Remove("name")} {second.Count()} {second.IsChanged()}")
+Try second.Save()
+Local third = Try Preferences("Größe Game", root)
+Print("{third.Get("volume") ?? "none"} {third.Contains("name")}")
+
+Print("what isn't saved is gone")
+// Setting what's there already changes nothing.
+third.Set("volume", "0.5")
+Print("{third.IsChanged()}")
+third.Set("volume", "0.1")
+third = Try Preferences("Größe Game", root)
+Print("{third.Get("volume") ?? "none"}")
+
+Print("a file a person changed")
+Try Dir.CreateAll(root / "Edited")
+Try File.WriteLines(root / "Edited" / "preferences.txt",
+                    ["# a comment", "", "no equals here", "spaced = value ", "x=1=2", "tail=\\", "odd=\\q"],
+                    LineEnding.CRLF)
+Local edited = Try Preferences("Edited", root)
+For key In edited.Keys()
+    Print("  [{key}] [{edited.Get(key) ?? ""}]")
+End For
+
+edited.Clear()
+Try edited.Save()
+Print("{(Try Preferences("Edited", root)).Count()} {Try File.ReadLines(edited.Location)}")
+
+Print("async")
+Local opened = Try Await Preferences.OpenAsync("Größe Game", root)
+Print("{opened.Get("volume") ?? "none"}")
+opened.Set("async", "yes")
+Try Await opened.SaveAsync()
+Print("{(Try Preferences("Größe Game", root)).Get("async") ?? "none"} {(Try Await Preferences.OpenAsync("New Game", root)).Count()}")
+
+Print("errors")
+Try File.WriteText(root / "Blocked", "a file where the app's folder goes")
+Local blocked = Try Preferences("Blocked", root)
+blocked.Set("a", "b")
+Try
+    blocked.Save()
+Catch e As IOError
+    Print("{e.Kind}")
+End Try
+
+Print("{blocked.Count()} {blocked.IsChanged()}")
+Try Dir.CreateAll(root / "Folder" / "preferences.txt")
+Try
+    Preferences("Folder", root)
+Catch e As IOError
+    Print("{e.Kind}")
+End Try
+
+Try temp.Close()
+Print("left {Dir.Exists(root)}")
