@@ -126,12 +126,11 @@ End Class
 // each request, before the request's own, which replace those of their names. It follows up to
 // MaxRedirects redirects, as a browser does: a POST changes to a GET after a 301, 302, or 303,
 // and any request but a HEAD after a 303, and a redirect to another origin takes no
-// Authorization, Cookie, or Host of the request's own. It asks for the compressions it decodes,
-// and decompresses what comes so. It goes through Proxy, or else the proxy the environment
-// names, as http_proxy, https_proxy, and no_proxy do. A failure throws: a NetError for the
-// network's or the server's, or for a URL that isn't HTTP's or HTTPS's, and a TimeoutError for a
-// request that took longer than its Timeout, or connecting that took longer than its
-// ConnectTimeout.
+// Authorization, Cookie, or Host of the request's own. It asks for gzip, deflate, and zstd, and
+// decompresses what comes so. It goes through Proxy, or else the proxy the environment names, as
+// http_proxy, https_proxy, and no_proxy do. A failure throws: a NetError for the network's or the
+// server's, or for a URL that isn't HTTP's or HTTPS's, and a TimeoutError for a request that took
+// longer than its Timeout, or connecting that took longer than its ConnectTimeout.
 Public Class HttpClient
     Field State: Ptr<Void>
     // The headers each request sends, before its own.
