@@ -106,6 +106,8 @@ public:
         }
 
         signal();
+        // One idle worker for the job, which looks at every queue.
+        m_idle.notify_one();
     }
 
     /// Runs `job` on a thread of its own, which counts as a job the pool has started, so
@@ -262,6 +264,7 @@ public:
         }
 
         m_wake.notify_all();
+        m_idle.notify_all();
         for (std::thread& worker : workers) {
             worker.join();
         }
@@ -296,7 +299,7 @@ private:
             }
 
             std::unique_lock lock(m_mutex);
-            m_wake.wait(lock, [&] {
+            m_idle.wait(lock, [&] {
                 return m_stopping || m_generation.load(std::memory_order_acquire) != seen;
             });
             if (m_stopping) {
@@ -385,7 +388,11 @@ private:
     std::vector<std::unique_ptr<queue_t>> m_queues;
     /// Guards the workers and stopping, and changes to the generation.
     std::mutex m_mutex;
+    /// What waits for a change wakes at each, and an idle worker at a job to run, or the pool's
+    /// stop: a Channel's change, which signal() gives, wakes the threads waiting on Channels, not
+    /// every idle worker.
     std::condition_variable m_wake;
+    std::condition_variable m_idle;
     std::vector<std::thread> m_workers;
     /// The threads started for jobs of their own, until finish() or the next start_thread()
     /// joins them, and the ones of those that are done.
