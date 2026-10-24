@@ -121,6 +121,15 @@ End For
 Print("  walked {(Try? mods.Walk())?.Count ?? -1} {Failure(mods, "notes")}")
 Try File.Delete(root / "notes.txt")
 
+// A name no disk can have, as one with a NUL in it, isn't in a folder, so a mount below has it.
+Local odd = Vfs()
+odd.MountEmbedded("", {"a\u{0}b.txt": "in memory".Bytes})
+odd.MountFolder("", root / "game")
+Local oddName = "a\u{0}b.txt"
+Local oddRead = (Try? odd.ReadText(oddName)) ?? "none"
+Local oddAsync = (Try? Await odd.ReadTextAsync(oddName)) ?? "none"
+Print("  {odd.Exists(oddName)} [{oddRead}] [{oddAsync}]")
+
 // A later mount's file where an earlier mount makes a folder is a file, everywhere.
 Local shadowed = Vfs()
 shadowed.MountEmbedded("a/x", {"y.txt": "y".Bytes})

@@ -410,10 +410,11 @@ Function Checked(path: Path): String[] Throws IOError
     Return names
 End Function
 
-// Whether an IOError is for something that isn't there, or isn't what was asked for.
+// Whether a folder's IOError is for something that isn't there, or isn't what was asked for, or
+// has a name no file on the disk can have.
 Function Missing(e: IOError): Bool
     Return e.Kind == IOErrorKind.NOT_FOUND || e.Kind == IOErrorKind.IS_A_DIRECTORY ||
-           e.Kind == IOErrorKind.NOT_A_DIRECTORY
+           e.Kind == IOErrorKind.NOT_A_DIRECTORY || e.Kind == IOErrorKind.INVALID_PATH
 End Function
 
 // A Vfs path's names, split at '/' and '\', without empty ones or ".", each ".." taking out the

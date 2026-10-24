@@ -44,6 +44,7 @@ places
   mods: DIRECTORY True False 0
   notes: DIRECTORY True False 0
   walked 3 IS_A_DIRECTORY can't read notes: it's a folder
+  True [in memory] [in memory]
   FILE True False [a:FILE]
   NOT_A_DIRECTORY
 errors
