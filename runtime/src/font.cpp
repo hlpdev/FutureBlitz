@@ -1,7 +1,7 @@
-// std.image's TrueType fonts, read by the runtime itself: the tables drawing text needs, head,
-// hhea, maxp, hmtx, cmap's formats 4 and 12, loca and glyf, simple and composite glyphs, and
-// kern's format 0, of a font file or a collection's first font. Every offset is checked against
-// the bytes before it's followed.
+// std.image's TrueType and OpenType fonts, read by the runtime itself: the tables drawing text
+// needs, head, hhea, maxp, hmtx, cmap's formats 4 and 12, loca and glyf, simple and composite
+// glyphs, or 'CFF ', which cff.cpp reads, and kern's format 0, of a font file or a collection's
+// first font. Every offset is checked against the bytes before it's followed.
 
 #include "fb/image.hpp"
 #include "fb/runtime.hpp"
@@ -193,6 +193,7 @@ bool font_t::find_tables(const std::size_t start) {
     table_t cmap;
     table_t kern;
     table_t cff;
+    table_t cff2;
     for (std::size_t i = 0; i < count; ++i) {
         const std::size_t record = start + 12 + (i * 16);
         const table_t table{ .at = u32(record + 8), .size = u32(record + 12), .found = true };
@@ -212,6 +213,7 @@ bool font_t::find_tables(const std::size_t start) {
                  std::pair{ tag("cmap"), &cmap },
                  std::pair{ tag("kern"), &kern },
                  std::pair{ tag("CFF "), &cff },
+                 std::pair{ tag("CFF2"), &cff2 },
              }) {
             if (name == wanted) {
                 *slot = table;
@@ -224,11 +226,12 @@ bool font_t::find_tables(const std::size_t start) {
         return false;
     }
 
-    // Its outlines, TrueType's, in glyf.
-    if (!loca.found || !glyf.found) {
+    // Its outlines: TrueType's, in glyf, or CFF's.
+    const bool true_type = loca.found && glyf.found;
+    if (!true_type && !cff.found) {
         unsupported = true;
-        error = cff.found ? "its outlines are CFF's, which std.image doesn't read"
-                          : "it has no outlines";
+        error = cff2.found ? "its outlines are CFF2's, which std.image doesn't read"
+                           : "it has no outlines";
         return false;
     }
 
@@ -244,8 +247,8 @@ bool font_t::find_tables(const std::size_t start) {
     m_line_gap = s16(hhea.at + 8);
     m_metrics = u16(hhea.at + 34);
     m_glyphs = u16(maxp.at + 4);
-    if (m_units < 16 || m_units > 16384 || (loca_format != 0 && loca_format != 1)) {
-        error = "its head table's units per em or glyph offsets aren't TrueType's";
+    if (m_units < 16 || m_units > 16384 || (true_type && loca_format != 0 && loca_format != 1)) {
+        error = "its head table's units per em or glyph offsets aren't a font's";
         return false;
     }
 
@@ -256,7 +259,7 @@ bool font_t::find_tables(const std::size_t start) {
     }
 
     m_long_loca = loca_format == 1;
-    if (loca.size < (std::size_t{ m_glyphs } + 1) * (m_long_loca ? 4 : 2)) {
+    if (true_type && loca.size < (std::size_t{ m_glyphs } + 1) * (m_long_loca ? 4 : 2)) {
         error = "its loca table is too short for its glyphs";
         return false;
     }
@@ -331,7 +334,7 @@ bool font_t::find_tables(const std::size_t start) {
             at += length;
         }
     }
-    return true;
+    return true_type || read_cff(cff.at, cff.size);
 }
 
 std::uint32_t font_t::glyph_of(const std::uint32_t code_point) const {
@@ -442,6 +445,11 @@ bool font_t::glyph_range(const std::uint32_t glyph, std::size_t& at, std::size_t
 
 font_path_t font_t::outline(const std::uint32_t glyph) const {
     font_path_t path;
+    if (m_cff) {
+        cff_outline(glyph, path);
+        return path;
+    }
+
     std::size_t visits = 0;
     add_outline(glyph, { 1, 0, 0, 1, 0, 0 }, 0, path, visits);
     return path;
