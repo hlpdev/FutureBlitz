@@ -414,9 +414,9 @@ enum class next_t : std::uint8_t { END, REDIRECT, TOO_MANY };
 
 /// After a response, sends the transfer on where a redirect says, as the fetch standard has it:
 /// a 301 or a 302 changes a POST to a GET, and a 303 any method but HEAD, without the body and
-/// the headers that say what it is, and a redirect to another origin sends no Authorization or
-/// Cookie of the request's own. libcurl sends the cookies it keeps for each URL. Its handle is
-/// out of any multi handle.
+/// the headers that say what it is, and a redirect to another origin sends no Authorization,
+/// Cookie, or Host of the request's own. libcurl sends the cookies it keeps for each URL. Its
+/// handle is out of any multi handle.
 next_t redirect(transfer_t& transfer) {
     long status = 0;
     curl_easy_getinfo(transfer.easy, CURLINFO_RESPONSE_CODE, &status);
@@ -452,7 +452,7 @@ next_t redirect(transfer_t& transfer) {
     }
 
     if (origin_of(current) != origin_of(target.c_str())) {
-        drop({ "Authorization", "Cookie" });
+        drop({ "Authorization", "Cookie", "Host" });
     }
 
     ++transfer.followed;
