@@ -1,0 +1,707 @@
+// std.text.template: Mustache-style templates, which a Value or a Map fills. A template is text
+// with tags in "{{ }}", each filled in when it's rendered: {{name}} gives a value, the blocks
+// {{#each name}}, {{#if name}}, and {{#unless name}} go over or test one, with an {{else}} for
+// when there's nothing, {{> name}} renders another template there, and {{! }} is a comment. A
+// block's tag alone on its line takes the line with it. A template for HTML escapes its values.
+
+Import std.core
+Import std.collections
+
+Extern "runtime"
+    Function fb_string_from_array(bytes: UInt8[]): String
+End Extern
+
+// A template, read once, which Render fills from what it's given each time.
+Public Class Template
+    Field Parts: Part[] = []
+    Field Html: Bool
+
+    // The template that `text` is, which escapes its values for HTML with `html`. Throws a
+    // FormatError of BAD_TEMPLATE where the text isn't one, which says the line and column.
+    Public New(text: String, html: Bool = False) Throws FormatError
+        Parts = Try Parsed(text, "")
+        Html = html
+    End New
+
+    // The template, filled from a Value, whose Object's keys are the names the tags give.
+    // Throws a FormatError of MISSING_VALUE at a partial, which only Templates have.
+    Public Method Render(data: Value): String Throws FormatError
+        Return Try Rendered(Parts, data, Html, Null)
+    End Method
+
+    // The template, filled from a Map's keys and values.
+    Public Method Render(data: Map<String, Value>): String Throws FormatError
+        Return Try Render(Value(data))
+    End Method
+
+    Public Method Render(data: Map<String, String>): String Throws FormatError
+        Return Try Render(Texts(data))
+    End Method
+End Class
+
+// Templates by name, which render each other as partials: {{> header}} is the template named
+// "header". One whose name ends with ".html" or ".htm" escapes its values for HTML, and so do
+// the partials it renders, whatever their names.
+Public Class Templates
+    Field Sources: Map<String, String>
+    // Each template read, by its name, and a partial indented on its line by its name, a newline,
+    // and the indentation.
+    Field Read: Map<String, Part[]>
+
+    Public New()
+        Sources = Map<String, String>()
+        Read = Map<String, Part[]>()
+    End New
+
+    // Adds the template that `text` is as `name`, in place of one that has the name already.
+    // Throws a FormatError of BAD_TEMPLATE where the text isn't one, which says the template's
+    // name, the line, and the column.
+    Public Method Add(name: String, text: String) Throws FormatError
+        Local parts = Try Parsed(text, name)
+        Sources[name] = text
+        // An indented partial is read again from the new text.
+        Read.Clear()
+        Read[name] = parts
+    End Method
+
+    // Whether it has a template of the name.
+    Public Method Contains(name: String): Bool => Sources.Contains(name)
+
+    // The template of the name, filled from a Value, whose Object's keys are the names the tags
+    // give. Throws a FormatError of MISSING_VALUE where it has no template of the name, or of a
+    // partial's, and of OTHER for partials more than 1000 deep inside each other.
+    Public Method Render(name: String, data: Value): String Throws FormatError
+        Return Try Rendered(Try PartsOf(name, ""), data, IsHtml(name), Self)
+    End Method
+
+    // The template of the name, filled from a Map's keys and values.
+    Public Method Render(name: String, data: Map<String, Value>): String Throws FormatError
+        Return Try Render(name, Value(data))
+    End Method
+
+    Public Method Render(name: String, data: Map<String, String>): String Throws FormatError
+        Return Try Render(name, Texts(data))
+    End Method
+
+    // A template's parts, as a partial indented on its line by `indent` has them, with each of
+    // its lines indented, read the first time they're needed.
+    Method PartsOf(name: String, indent: String): Part[] Throws FormatError
+        Local source = Sources.Get(name)
+        If source == Null
+            Throw FormatError(FormatErrorKind.MISSING_VALUE, "there's no template named \"{name}\"")
+        End If
+
+        Local key = indent == "" ? name : "{name}\n{indent}"
+        Local found = Read.Get(key)
+        If found != Null Then Return found
+        Local parts = Try Parsed(Indented(source, indent), name)
+        Read[key] = parts
+        Return parts
+    End Method
+End Class
+
+// How deep partials go inside each other, past which Render throws, as for one that renders
+// itself without end.
+Const MostPartials = 1000
+
+// The bytes the tags are made of, and the blanks around them.
+Const OpenBrace: UInt8 = 123
+Const CloseBrace: UInt8 = 125
+Const Backslash: UInt8 = 92
+Const LineFeed: UInt8 = 10
+Const CarriageReturn: UInt8 = 13
+Const Space: UInt8 = 32
+Const Tab: UInt8 = 9
+Const Dot: UInt8 = 46
+Const Colon: UInt8 = 58
+
+Enum PartKind
+    TEXT, VALUE, EACH, IF, UNLESS, PARTIAL
+End Enum
+
+// A part of a template: text, a value, a block with the parts it holds, or a partial.
+Class Part
+    Field Kind: PartKind
+    // A TEXT's text, a PARTIAL's name, and the word a block was opened with.
+    Field Text = ""
+    // A VALUE's or a block's name, as its steps, like ["user", "name"], or none for this.
+    Field Path: String[] = []
+    // A VALUE that's never escaped, as {{{name}}} and {{& name}} are.
+    Field Raw: Bool
+    // A block's parts, and those after its {{else}}.
+    Field Body: Part[] = []
+    Field Otherwise: Part[] = []
+    // A PARTIAL's indentation, when it's alone on its line, which each of its lines takes.
+    Field Indent = ""
+    // While the template's read, whether a block's {{else}} has come, and where the block opens.
+    Field InElse: Bool
+    Field Opens: Int
+
+    New(kind: PartKind)
+        Kind = kind
+    End New
+End Class
+
+// The parts that a template's text is. The blocks it's inside are a stack, not calls, so one
+// nested however deep is read. `name` is the template's, for messages, or "" for one alone.
+Function Parsed(text: String, name: String): Part[] Throws FormatError
+    Local bytes = text.Bytes
+    Local root = Part(PartKind.TEXT)
+    // The blocks open, innermost last, after the template itself.
+    Local open: Part[] = [root]
+    // Where the text that's no part yet starts, and where the next tag is looked for from.
+    Local start = 0
+    Local at = 0
+    Loop
+        Local tag = OpeningAt(bytes, at)
+        If tag < 0 Then Break
+        // A backslash before "{{" makes it text.
+        If tag > 0 && bytes[tag - 1] == Backslash
+            AddText(open, bytes, start, tag - 1)
+            start = tag
+            at = tag + 2
+            Continue
+        End If
+
+        Local triple = tag + 2 < bytes.Count && bytes[tag + 2] == OpenBrace
+        Local inside = tag + (triple ? 3 : 2)
+        Local close = ClosingAt(bytes, inside, triple ? 3 : 2)
+        If close < 0
+            Throw Bad(name, bytes, tag, triple ? r"this {{{ has no }}} after it" :
+                                                  r"this {{ has no }} after it")
+        End If
+
+        Local after = close + (triple ? 3 : 2)
+        Local content = Trimmed(bytes, inside, close)
+        Local first = content.Count > 0 ? content[0] : (0 As UInt8)
+        // A block's tag, a comment, or a partial alone on its line takes the line, and a
+        // partial's indentation is each of its lines'.
+        Local takesLine = !triple && (first == 35 || first == 47 || first == 33 || first == 62 ||
+                                      Text(content) == "else")
+        Local before = tag
+        While before > 0 && (bytes[before - 1] == Space || bytes[before - 1] == Tab)
+            before -= 1
+        End While
+
+        Local past = after
+        While past < bytes.Count && (bytes[past] == Space || bytes[past] == Tab)
+            past += 1
+        End While
+
+        Local lineEnd = past == bytes.Count || bytes[past] == LineFeed ||
+                        (bytes[past] == CarriageReturn && past + 1 < bytes.Count &&
+                         bytes[past + 1] == LineFeed)
+        Local indent = ""
+        If takesLine && (before == 0 || bytes[before - 1] == LineFeed) && lineEnd
+            AddText(open, bytes, start, before)
+            indent = fb_string_from_array(bytes[before..tag])
+            start = past == bytes.Count ? past : past + (bytes[past] == CarriageReturn ? 2 : 1)
+        Else
+            AddText(open, bytes, start, tag)
+            start = after
+        End If
+
+        at = start
+        Try Tag(open, triple, content, indent, name, bytes, tag)
+    End Loop
+
+    AddText(open, bytes, start, bytes.Count)
+    If open.Count > 1
+        Local block = open[open.Count - 1]
+        Throw Bad(name, bytes, block.Opens, r"this {{#" + block.Text + r"}} has no {{/" +
+                                            block.Text + r"}} after it")
+    End If
+
+    Return root.Body
+End Function
+
+// Adds what a tag is, whose `content` is what's between its braces, trimmed, to the innermost
+// block open, or opens or closes a block.
+Function Tag(open: Part[], triple: Bool, content: UInt8[], indent: String, name: String,
+             bytes: UInt8[], at: Int) Throws FormatError
+    Local block = open[open.Count - 1]
+    Local text = Text(content)
+    If triple
+        Local value = Part(PartKind.VALUE)
+        value.Path = Try PathOf(content, 0, name, bytes, at)
+        value.Raw = True
+        Into(block).Add(value)
+        Return
+    End If
+
+    If content.Count == 0 Then Throw Bad(name, bytes, at, r"this {{}} has no name in it")
+    Local first = content[0]
+    // A comment.
+    If first == 33 Then Return
+    If text == "else"
+        If open.Count == 1 || block.InElse
+            Throw Bad(name, bytes, at, r"this {{else}} isn't in a block, or is its second")
+        End If
+
+        block.InElse = True
+        Return
+    End If
+
+    // {{& name}}, never escaped.
+    If first == 38
+        Local value = Part(PartKind.VALUE)
+        value.Path = Try PathOf(Trimmed(content, 1, content.Count), 0, name, bytes, at)
+        value.Raw = True
+        Into(block).Add(value)
+        Return
+    End If
+
+    // {{> name}}, a partial.
+    If first == 62
+        Local partial = Part(PartKind.PARTIAL)
+        partial.Text = Text(Trimmed(content, 1, content.Count))
+        partial.Indent = indent
+        If partial.Text == "" Then Throw Bad(name, bytes, at, r"this {{>}} names no template")
+        Into(block).Add(partial)
+        Return
+    End If
+
+    // {{/each}}, {{/if}}, or {{/unless}}, closing the innermost block.
+    If first == 47
+        Local word = Text(Trimmed(content, 1, content.Count))
+        If open.Count == 1 || word != block.Text
+            Local opened = open.Count == 1 ? "no block" : r"{{#" + block.Text + r"}}"
+            Throw Bad(name, bytes, at, r"this {{/" + word + r"}} closes " + opened)
+        End If
+
+        open.RemoveLast()
+        Return
+    End If
+
+    // {{#each name}}, {{#if name}}, or {{#unless name}}, opening a block.
+    If first == 35
+        Local space = 1
+        While space < content.Count && content[space] != Space && content[space] != Tab
+            space += 1
+        End While
+
+        Local word = Text(content[1..space])
+        Local kind = PartKind.EACH
+        If word == "if"
+            kind = PartKind.IF
+        ElseIf word == "unless"
+            kind = PartKind.UNLESS
+        ElseIf word != "each"
+            Throw Bad(name, bytes, at,
+                      r"{{#" + word + r"}} isn't a block; they're {{#each}}, {{#if}}, and " +
+                      r"{{#unless}}")
+        End If
+
+        Local opened = Part(kind)
+        opened.Text = word
+        opened.Opens = at
+        opened.Path = Try PathOf(Trimmed(content, space, content.Count), 0, name, bytes, at)
+        Into(block).Add(opened)
+        open.Add(opened)
+        Return
+    End If
+
+    Local value = Part(PartKind.VALUE)
+    value.Path = Try PathOf(content, 0, name, bytes, at)
+    Into(block).Add(value)
+End Function
+
+// A name's steps, from `from` in `name`'s bytes: "user.name" is ["user", "name"], and "this" or
+// "." is none, the scope itself. @index, @key, @first, and @last are an {{#each}}'s.
+Function PathOf(written: UInt8[], from: Int, name: String, bytes: UInt8[],
+                at: Int): String[] Throws FormatError
+    Local whole = Text(written[from..written.Count])
+    If whole == "" Then Throw Bad(name, bytes, at, "a tag needs a name, like \"title\" or \"this\"")
+    If whole == "this" || whole == "." Then Return []
+    Local steps: String[] = []
+    Local step = from
+    For i = from To written.Count
+        If i < written.Count && written[i] != Dot
+            Local c = written[i]
+            If c == Space || c == Tab || c == LineFeed || c == CarriageReturn || c == OpenBrace ||
+               c == CloseBrace
+                Throw Bad(name, bytes, at,
+                          "\"{whole}\" isn't a name, which has no spaces or braces")
+            End If
+
+            If c == Colon
+                Throw Bad(name, bytes, at,
+                          r"a value's format, like {{price:.2}}, isn't supported yet")
+            End If
+
+            Continue
+        End If
+
+        If i == step Then Throw Bad(name, bytes, at, "\"{whole}\" has a step with no name")
+        steps.Add(Text(written[step..i]))
+        step = i + 1
+    End For
+
+    For each In steps
+        Local special = each == "@index" || each == "@key" || each == "@first" || each == "@last"
+        If (each.Bytes[0] == 64 && !special) || (special && steps.Count > 1)
+            Throw Bad(name, bytes, at, "\"{whole}\" isn't a name; an " + r"{{#each}}" +
+                                       "'s are @index, @key, @first, and @last, alone")
+        End If
+    End For
+
+    Return steps
+End Function
+
+// Where the next "{{" is, from `at`, or -1.
+Function OpeningAt(bytes: UInt8[], at: Int): Int
+    For i = at Until bytes.Count - 1
+        If bytes[i] == OpenBrace && bytes[i + 1] == OpenBrace Then Return i
+    End For
+
+    Return -1
+End Function
+
+// Where the "}}", or for {{{ the "}}}", that closes a tag is, from `at`, or -1.
+Function ClosingAt(bytes: UInt8[], at: Int, braces: Int): Int
+    For i = at To bytes.Count - braces
+        Local closes = True
+        For k = 0 Until braces
+            If bytes[i + k] != CloseBrace Then closes = False
+        End For
+
+        If closes Then Return i
+    End For
+
+    Return -1
+End Function
+
+// The bytes from `from` to `to`, without the blanks at either end.
+Function Trimmed(bytes: UInt8[], from: Int, to: Int): UInt8[]
+    Local first = from
+    Local last = to
+    While first < last && IsBlank(bytes[first])
+        first += 1
+    End While
+
+    While last > first && IsBlank(bytes[last - 1])
+        last -= 1
+    End While
+
+    Return bytes[first..last]
+End Function
+
+Function IsBlank(c: UInt8): Bool => c == Space || c == Tab || c == LineFeed || c == CarriageReturn
+
+Function Text(bytes: UInt8[]): String => fb_string_from_array(bytes)
+
+// The parts a block adds to: its body, or after its {{else}}, what's in that.
+Function Into(block: Part): Part[] => block.InElse ? block.Otherwise : block.Body
+
+// Adds the text from `from` to `to`, if there's any, to the innermost block open.
+Function AddText(open: Part[], bytes: UInt8[], from: Int, to: Int)
+    If to <= from Then Return
+    Local text = Part(PartKind.TEXT)
+    text.Text = fb_string_from_array(bytes[from..to])
+    Into(open[open.Count - 1]).Add(text)
+End Function
+
+// A FormatError of BAD_TEMPLATE, which says the template's name, when it has one, and the line
+// and column `at` is on, from 1.
+Function Bad(name: String, bytes: UInt8[], at: Int, message: String): FormatError
+    Local line = 1
+    Local column = 1
+    For i = 0 Until at
+        If bytes[i] == LineFeed
+            line += 1
+            column = 1
+        ElseIf bytes[i] < 128 || bytes[i] >= 192
+            column += 1
+        End If
+    End For
+
+    Local where = name == "" ? "" : "{name}, "
+    Return FormatError(FormatErrorKind.BAD_TEMPLATE,
+                       "{where}line {line}, column {column}: {message}")
+End Function
+
+// A partial's text with each of its lines indented: after each line break, but the one that ends
+// it.
+Function Indented(text: String, indent: String): String
+    If indent == "" Then Return text
+    Local bytes = text.Bytes
+    Local out = indent.Bytes
+    Local added = indent.Bytes
+    For i, b In bytes
+        out.Add(b)
+        If b == LineFeed && i + 1 < bytes.Count Then out.AddAll(added)
+    End For
+
+    Return fb_string_from_array(out)
+End Function
+
+// Whether a template's name is an HTML file's, which ends with ".html" or ".htm".
+Function IsHtml(name: String): Bool
+    Local bytes = name.Bytes
+    Return EndsWith(bytes, ".html") || EndsWith(bytes, ".htm")
+End Function
+
+// Whether the bytes end with the ASCII suffix, in any case.
+Function EndsWith(bytes: UInt8[], suffix: String): Bool
+    Local ending = suffix.Bytes
+    If bytes.Count < ending.Count Then Return False
+    For i, c In ending
+        Local b = bytes[bytes.Count - ending.Count + i]
+        Local lower = b >= 65 && b <= 90 ? b + 32 : b
+        If lower != c Then Return False
+    End For
+
+    Return True
+End Function
+
+// A Value of a Map's keys and its values as Strings.
+Function Texts(data: Map<String, String>): Value
+    Local made = Value.Object()
+    For key, text In data
+        made[key] = Value(text)
+    End For
+
+    Return made
+End Function
+
+// A scope names are looked up in: a Value, and for an {{#each}}'s item, where it is in what the
+// each goes over.
+Class Scope
+    Field Data: Value
+    Field Each: Bool
+    Field Index: Int
+    // An Object's key, or Null for an Array's item.
+    Field Key: Value
+    Field Last: Bool
+
+    New(data: Value)
+        Data = data
+        Key = Value()
+    End New
+End Class
+
+// Parts being rendered, and which comes next. An {{#each}}'s are its body, which it renders for
+// each of the items it goes over in turn.
+Class Frame
+    Field Parts: Part[]
+    Field Next: Int
+    Field Each: Bool
+    Field Items: Value[] = []
+    Field Keys: String[] = []
+    Field Item = -1
+    Field Partial: Bool
+
+    New(parts: Part[])
+        Parts = parts
+    End New
+End Class
+
+// The parts rendered from data. What's being rendered is a stack, not calls, so a template or
+// data nested however deep renders. `templates` has the partials, or is Null for a Template.
+Function Rendered(parts: Part[], data: Value, html: Bool,
+                  templates: Templates?): String Throws FormatError
+    Local out: String[] = []
+    Local scopes = [Scope(data)]
+    Local frames = [Frame(parts)]
+    Local partials = 0
+    While frames.Count > 0
+        Local frame = frames[frames.Count - 1]
+        If frame.Next < frame.Parts.Count
+            Local part = frame.Parts[frame.Next]
+            frame.Next += 1
+            Select part.Kind
+            Case PartKind.TEXT
+                out.Add(part.Text)
+            Case PartKind.VALUE
+                Local text = TextOf(Lookup(scopes, part.Path))
+                out.Add(html && !part.Raw ? Escaped(text) : text)
+            Case PartKind.IF, PartKind.UNLESS
+                Local holds = Holds(Lookup(scopes, part.Path)) != (part.Kind == PartKind.UNLESS)
+                Local chosen = holds ? part.Body : part.Otherwise
+                If chosen.Count > 0 Then frames.Add(Frame(chosen))
+            Case PartKind.EACH
+                Local each = Each(part, Lookup(scopes, part.Path))
+                If each.Items.Count > 0
+                    frames.Add(each)
+                ElseIf part.Otherwise.Count > 0
+                    frames.Add(Frame(part.Otherwise))
+                End If
+            Case PartKind.PARTIAL
+                Local set = templates
+                If set == Null
+                    Throw FormatError(FormatErrorKind.MISSING_VALUE,
+                                      r"a Template has no partials, like {{> " + part.Text +
+                                      r"}}; Templates have them")
+                End If
+
+                If partials == MostPartials
+                    Throw FormatError(FormatErrorKind.OTHER,
+                                      "partials go more than {MostPartials} deep inside each " +
+                                      "other, at \"{part.Text}\"")
+                End If
+
+                Local inner = Frame(Try set.PartsOf(part.Text, part.Indent))
+                inner.Partial = True
+                partials += 1
+                frames.Add(inner)
+            End Select
+
+            Continue
+        End If
+
+        // An {{#each}} goes on to its next item, in a scope of its own.
+        If frame.Each
+            If frame.Item >= 0 Then scopes.RemoveLast()
+            If frame.Item + 1 < frame.Items.Count
+                frame.Item += 1
+                Local scope = Scope(frame.Items[frame.Item])
+                scope.Each = True
+                scope.Index = frame.Item
+                scope.Key = frame.Keys.Count > 0 ? Value(frame.Keys[frame.Item]) : Value()
+                scope.Last = frame.Item == frame.Items.Count - 1
+                scopes.Add(scope)
+                frame.Next = 0
+                Continue
+            End If
+        End If
+
+        If frame.Partial Then partials -= 1
+        frames.RemoveLast()
+    End While
+
+    Return out.Join("")
+End Function
+
+// An {{#each}}'s frame, over an Array's elements or an Object's values, or nothing for anything
+// else. It starts done, so its first item comes first.
+Function Each(part: Part, value: Value): Frame
+    Local frame = Frame(part.Body)
+    frame.Each = True
+    frame.Next = part.Body.Count
+    If value.IsArray
+        frame.Items = value.AsArray() ?? []
+    ElseIf value.IsObject
+        frame.Keys = value.Keys()
+        For key In frame.Keys
+            frame.Items.Add(value[key] ?? Value())
+        End For
+    End If
+
+    Return frame
+End Function
+
+// What a name gives: the first of its steps from the innermost scope that has it, then each step
+// from what the last gave, or Null where nothing has it. An {{#each}}'s @ names are its
+// innermost item's.
+Function Lookup(scopes: Scope[], path: String[]): Value
+    Local innermost = scopes[scopes.Count - 1]
+    If path.Count == 0 Then Return innermost.Data
+    Local first = path[0]
+    If first.Bytes[0] == 64
+        Local i = scopes.Count - 1
+        While i >= 0 && !scopes[i].Each
+            i -= 1
+        End While
+
+        If i < 0 Then Return Value()
+        Local scope = scopes[i]
+        If first == "@index" Then Return Value(scope.Index)
+        If first == "@key" Then Return scope.Key
+        If first == "@first" Then Return Value(scope.Index == 0)
+        Return Value(scope.Last)
+    End If
+
+    Local i = scopes.Count - 1
+    While i >= 0
+        Local data = scopes[i].Data
+        If data.Contains(first)
+            Local at = data[first]
+            For k = 1 Until path.Count
+                Local here = at
+                If here == Null Then Return Value()
+                at = here[path[k]]
+            End For
+
+            Return at ?? Value()
+        End If
+
+        i -= 1
+    End While
+
+    Return Value()
+End Function
+
+// A value's text in the template: a String's own, a number or Bool as Print shows it, nothing for
+// Null, and the rest as their ToString gives them.
+Function TextOf(value: Value): String
+    Select value.Kind
+    Case ValueKind.NULL
+        Return ""
+    Case ValueKind.STRING
+        Return value.AsString() ?? ""
+    Case ValueKind.BOOL
+        Return "{value.AsBool() ?? False}"
+    Case ValueKind.INT
+        Return "{value.AsInt64() ?? 0}"
+    Case ValueKind.UINT
+        Return "{value.AsUInt64() ?? 0}"
+    Case ValueKind.DOUBLE
+        Return "{value.AsDouble() ?? 0.0}"
+    Default
+        Return value.ToString()
+    End Select
+End Function
+
+// Whether a value makes an {{#if}} true: anything but Null, False, 0, NaN, "", and an empty Array,
+// Object, or bytes.
+Function Holds(value: Value): Bool
+    Select value.Kind
+    Case ValueKind.NULL
+        Return False
+    Case ValueKind.BOOL
+        Return value.AsBool() ?? False
+    Case ValueKind.INT
+        Return (value.AsInt64() ?? 0) != 0
+    Case ValueKind.UINT
+        Return True
+    Case ValueKind.DOUBLE
+        Local number = value.AsDouble() ?? 0.0
+        Return number != 0 && number == number
+    Case ValueKind.STRING
+        Return (value.AsString() ?? "") != ""
+    Default
+        Return value.Count > 0
+    End Select
+End Function
+
+// Text with &, <, >, ", and ' escaped for HTML.
+Function Escaped(text: String): String
+    Local bytes = text.Bytes
+    Local parts: String[] = []
+    Local start = 0
+    For i, b In bytes
+        Local escape = ""
+        Select b
+        Case 38
+            escape = "&amp;"
+        Case 60
+            escape = "&lt;"
+        Case 62
+            escape = "&gt;"
+        Case 34
+            escape = "&quot;"
+        Case 39
+            escape = "&#39;"
+        Default
+            Continue
+        End Select
+
+        parts.Add(fb_string_from_array(bytes[start..i]))
+        parts.Add(escape)
+        start = i + 1
+    End For
+
+    If start == 0 Then Return text
+    parts.Add(fb_string_from_array(bytes[start..bytes.Count]))
+    Return parts.Join("")
+End Function
