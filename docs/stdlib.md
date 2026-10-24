@@ -42,7 +42,7 @@ So far, std/ holds:
 
 | File | Contents |
 |---|---|
-| std/core/error.fb | `Error`, the Class every error extends, with its `Cause` and `Place`; `Place`; and each area's Error and its Kind: `ArgumentError`, `IOError`, `ParseError`, `FormatError`, `TimeoutError`, `NetError`, `DatabaseError` |
+| std/core/error.fb | `Error`, the Class every error extends, with its `Cause` and `Place`; `Place`; and each area's Error and its Kind: `ArgumentError`, `IOError`, `ParseError`, `FormatError`, `TimeoutError`, `CancelledError`, `NetError`, `DatabaseError` |
 | std/core/assert.fb | `AssertEqual`, an Assert that says what it compared |
 | std/core/interfaces.fb | `Equatable`, `Comparable`, `Hashable`, `Printable`, and `Numeric`, which `==`, `<`, strings, and generic code go through; `Formattable`, which takes format specs; `Cloneable` and `Defaultable`; and `Sendable`, which the compiler decides |
 | std/core/iterator.fb | `Iterator<T>`, which `For ... In` goes over, with its lazy adapters and its consumers as Final defaults; `Iterable<T>`, which std's collections are; `Repeated` and `Empty` |
@@ -121,7 +121,13 @@ So far, std/ holds:
 | std/concurrent/tasks.fb | `TaskSource<T>`, over the runtime's signals through `fb_signal_`, `ThrowingTaskSource<T, E>`, `WhenAll`, and `WhenAny` |
 | std/concurrent/lazy.fb | `Lazy<T>` |
 | std/concurrent/parallel.fb | `ParallelForEach`, `ParallelMap`, `ParallelReduce`, and `ParallelSort`, each a Parallel For |
+| std/concurrent/cancellation.fb | `Cancellation`, over the runtime's flag through `fb_cancel_`, and `Sleep(time, cancel)` |
+| std/concurrent/channels.fb | `Receive(channel, cancel)`, `Send(channel, value, cancel)`, and `Selector`, over the job pool's generation through `fb_pool_` |
 | std/events/event.fb | `Event<T>` and `Subscription` |
+| std/log/level.fb | `LogLevel`, `ParseLogLevel`, and `LogFilter` |
+| std/log/output.fb | `LogField`, `LogRecord`, and `LogOutput` |
+| std/log/sinks.fb | `ConsoleSink`, `JsonLinesSink`, `LogLine`, and `JsonLine`, with the runtime's `fb_log_colors` |
+| std/log/logger.fb | `Logger` and `DefaultLogOutput`, which reads FB_LOG through `fb_log_setting` |
 | std/time/duration.fb | `Duration`, and the numbers' `Nanoseconds` to `Days`, as in `2.Seconds` |
 | std/time/clock.fb | `Instant`, `Stopwatch`, `Measure`, and `Sleep`, on the monotonic clock |
 | std/time/timestamp.fb | `Timestamp`, a point in time in UTC |
@@ -249,8 +255,8 @@ file or URL in the default app.
   (`NOT_FOUND`, `PERMISSION_DENIED`, `ALREADY_EXISTS`, `UNEXPECTED_END`, `INVALID_DATA`,
   `INTERRUPTED`, `OTHER`, and `Path: String?`), `ParseError` (`SYNTAX`, `UNEXPECTED_END`,
   `WRONG_TYPE`, `OUT_OF_RANGE`, `OTHER`, and `Line`, `Column`), `FormatError` (`BAD_TEMPLATE`,
-  `MISSING_VALUE`, `BAD_VALUE`, `OTHER`), `TimeoutError` (one kind), `NetError` (`REFUSED`,
-  `RESET`, `UNREACHABLE`, `HOST_NOT_FOUND`, `CLOSED`, `TLS`, `OTHER`, and
+  `MISSING_VALUE`, `BAD_VALUE`, `OTHER`), `TimeoutError` and `CancelledError` (one kind each),
+  `NetError` (`REFUSED`, `RESET`, `UNREACHABLE`, `HOST_NOT_FOUND`, `CLOSED`, `TLS`, `OTHER`, and
   `Address: String?`), `DatabaseError` (`CONSTRAINT`, `BUSY`, `QUERY`, `CORRUPT`, `OTHER`).
   Each Kind is an Enum named for its Error, like `IOErrorKind`, and a later step can add to
   its area's.
@@ -634,7 +640,8 @@ the rest is planned.
 #### std.concurrent (beside the built-ins, which stay built in)
 
 Step 18 built the locks, `ConcurrentMap`, `ConcurrentQueue`, `TaskSource`, `ThrowingTaskSource`,
-`WhenAll`, `WhenAny`, `Lazy`, and the parallel algorithms; the rest is planned. `Import std.concurrent` brings in all of std/concurrent/.
+`WhenAll`, `WhenAny`, `Lazy`, the parallel algorithms, `Cancellation`, the Channels' waits that
+take one, and `Selector`. `Import std.concurrent` brings in all of std/concurrent/.
 
 - The locks are Shared Classes over the runtime's, so a Const or a parameter shares one with the
   work Spawn and Thread.Start run. What waits blocks its thread and runs nothing else meanwhile, as
@@ -693,14 +700,45 @@ Step 18 built the locks, `ConcurrentMap`, `ConcurrentQueue`, `TaskSource`, `Thro
   grouped, though its values needn't swap places; and ParallelSort's order, stable as Sort's is, by
   parts sorted at once and merged in pairs, each round's merges at once, below 4096 items Sort's on
   the calling thread. ParallelForEach's calls are in no order.
-- Planned: `Cancellation`, a token blocking calls and Tasks take; `Select` over several Channels and
-  a timeout.
+- `Cancellation()`, a Shared Class, is a flag that `Cancel()` sets, on any thread, for good:
+  `IsCancelled`, `Check()`, which throws a `CancelledError` once it's set, and `Task`, done once
+  it's set, for Async code to await beside its work's, as with WhenAny. The waits that take one
+  stop once it's set, before or while they wait, with a CancelledError, and take nothing: a
+  Semaphore's `Acquire(cancel)`, a WaitGroup's `Wait(cancel)`, `Sleep(time, cancel)`,
+  `Receive(channel, cancel)`, which gives Null once the Channel is closed and empty, and
+  `Send(channel, value, cancel)`, which panics at a closed one, as the Channel's own do.
+- `Selector()`, a builder, since `Select` is a keyword, waits on several Channels at once:
+  `On(channel, handler)` for each, `Timeout(time, handler)`, and `Wait()` (or `Wait(cancel)`),
+  which takes a value from the first Channel, in On's order, that has one and gives it to its
+  handler, or runs the timeout's once its time passes with none, and gives True; or gives False
+  once every Channel is closed and empty. A Channel's `IsClosed()` and `TryReceive()`, which gives
+  a T?, are built in for it.
 
 #### std.log
 
-- `Logger` with levels, sinks (console, file, rotating file, JSON lines), and structured fields.
-  The default logger prints readable, timestamped lines to stderr, colored only on a terminal,
-  and `FB_LOG=debug` or module filters (`FB_LOG=debug,net=trace`) set levels at run time.
+Step 18 built `Logger`, its levels, filters, outputs, and sinks, in std/log/; `Import std.log`.
+
+- `Logger(module)` or `Logger(module, output)`, a Shared Class, writes lines for a module, a name
+  like "net.http" whose dots say what it's in, at `LogLevel`s, `TRACE`, `DEBUG`, `INFO`, `WARN`,
+  and `ERROR`: `Trace(message)` to `Error(message)`, `Log(level, message)`, and `IsEnabled(level)`.
+  `With(name, value)`, of a String, an integer, a Double, or a Bool, gives a Logger whose lines
+  have that field too, after its others, so threads never change one another's.
+- A `LogOutput(filter)`, a Shared Class, gives each `LogRecord` (`Time`, `Level`, `Module`,
+  `Message`, and `Fields`, `LogField`s) its `LogFilter` writes to its sinks, in the order `Add`
+  gave them; `Clear()`, and `Filter`, which a program can replace as it runs. A sink is a
+  `Sendable Func(LogRecord)`, so a program's own is a lambda: `ConsoleSink()` writes `LogLine`s
+  to stderr, colored when it's a terminal that shows colors and NO_COLOR isn't set, and
+  `ConsoleSink(colors, times)` as it says; `JsonLinesSink(write)` gives write each `JsonLine`.
+  Lines from threads at once don't mix. Files and rotating files wait for std.io's.
+- `LogFilter.Parse(text)` reads FB_LOG's text: parts between commas, each a level for every
+  module, or `module=level`, like "info,net=trace,net.http=off", a later part winning, every
+  module at INFO unless a part says otherwise; Null for anything else. A module gets its own
+  level, or the nearest module's it's in, or the filter's. `LogFilter.At(level)`, `With`,
+  `LevelOf`, `Allows`, and `ToString()`, as FB_LOG has it. `ParseLogLevel(text)` reads a level's
+  name in any letter case.
+- `DefaultLogOutput()`, which `Logger(module)` writes to, is made the first time it's used: the
+  console's sink, at the levels FB_LOG sets, or at INFO, an FB_LOG that isn't a filter said once
+  on stderr and left out.
 
 #### std.events
 
