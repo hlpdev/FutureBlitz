@@ -203,6 +203,8 @@ So far, std/ holds:
 | std/io/mapped.fb | `MappedFile` |
 | std/io/watcher.fb | `FileWatcher`, `FileEvent`, and `FileEventKind` |
 | std/io/request.fb | the runtime's requests, std's own |
+| std/io/vfs.fb | `Vfs`, `VfsSource`, `FolderSource`, and `EmbeddedSource` |
+| std/io/preferences.fb | `Preferences` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -741,12 +743,29 @@ console come with step 13, and the virtual file system, the Embeds, and `Prefere
   names it knows are there, since OSes call those differently, so a rename is the old name's
   REMOVED and the new name's CREATED, and a file renamed over another is the other's CHANGED.
   `Close` drops what it hasn't given.
-- A virtual file system: mount folders, zips, and embedded folders under one tree, read through
-  the same API as files; the engine's pak files build on it.
+- A virtual file system: a `Vfs` mounts sources at points in a tree of its own (`Mount`,
+  `MountFolder`, `MountEmbedded`, `Unmount`) and reads them as files are read (`ReadBytes`,
+  `ReadText`, `ReadLines`, each with an Async twin, `KindOf`, `Exists`, `DirExists`, `Entries`,
+  `Walk`, `Glob`). Its paths have `/` (or `\`) between names on every OS, and none goes above its
+  root. A later mount over a place comes first, so a mod's folder can stand in for some of a
+  game's embedded files: a file is the last mount's that has it, and a folder lists what every
+  mount has in it, and the mounts under it, by their names' bytes. A `VfsSource` gives a file's
+  bytes, what's at a path, and a folder's names: `FolderSource` reads a folder on the disk as it's
+  asked, `EmbeddedSource` the `Map<String, UInt8[]>` EmbedFolder gives, a copy at each read, and a
+  program can write its own; zips will mount through std.compress's `Zip.Read` once it's on
+  master. The engine's pak files build on it.
 - `Embed("path")`, `EmbedText("path")`, and `EmbedFolder("path")`: built-ins, checked at compile
   time, that put a file's bytes or text, or a read-only folder, in the program.
-- `Preferences("MyGame")`: a per-app key-value store in the OS's config folder, saved
-  atomically.
+- `Preferences("MyGame")`: a program's settings, kept between runs in
+  `<folder>/MyGame/preferences.txt`, where the folder is the OS's for its users' programs' settings
+  (`Preferences.Folder()`: Windows' %APPDATA%, macOS's ~/Library/Application Support, and elsewhere
+  $XDG_CONFIG_HOME or ~/.config), or one given (`Preferences(app, folder)`, as tests keep theirs in
+  a temporary folder). `Get`, `Set`, `Remove`, `Contains`, `Keys`, `Count`, `Clear`, `IsChanged`;
+  nothing is written until `Save` (or `SaveAsync`), which replaces the file atomically;
+  `OpenAsync` reads it without blocking. The file is text a person can read and change, a
+  `key=value` line for each setting with `\\`, `\n`, and `\r` escaped, and `\=` and a leading `\#` in a
+  key. An app's name that can't be a file's on every OS panics. Values are Strings until step 5's
+  Parse is on master, and then the numbers and Bools get their own Get and Set.
 - The console's `ReadKey`, `ReadPassword`, `IsTerminal`, `TerminalSize`, and styled output that
   turns itself off when it isn't a terminal or `NO_COLOR` is set are std.term's (see below), with
   what else reads keys and draws on a terminal. (`Input` is std.core's.)
