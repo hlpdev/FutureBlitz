@@ -355,8 +355,8 @@ file or URL in the default app.
     `FindAll`, `Replace`, `ReplaceFirst`, `Split`, and the shortcuts are `Throws RegexError`.
   - A `Match` has `Value`, `Start`, `Finish`, `GroupCount`, `[]` by number or name, giving a
     `String?` for a group that took no part, and `StartOf` and `FinishOf`. `FindAll` finds an
-    empty match once at each place, as Python and Rust do. A replacement's `$1`, `${1}`,
-    `${name}`, and `$$` panic on a group the pattern doesn't have.
+    empty match once at each place, one right after another match too, as Python does. A
+    replacement's `$1`, `${1}`, `${name}`, and `$$` panic on a group the pattern doesn't have.
   - Each thread keeps the last 16 patterns it compiled, which a Regex of one shares, so the
     shortcuts compile a pattern once.
 - std.text.template: Mustache-style `{{name}}`, `{{#each items}}`, `{{#if x}}`/`{{else}}`,
