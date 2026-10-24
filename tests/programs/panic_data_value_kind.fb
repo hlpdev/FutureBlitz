@@ -1,0 +1,7 @@
+// A Value's accessor gives what it holds, and panics where it holds another kind.
+Import std.core
+Import std.data.value
+
+Local number = Value(5 As Int64)
+Print(number.AsInt(), number.AsFloat())
+Print(number.AsString())

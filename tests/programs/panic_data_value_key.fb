@@ -1,0 +1,8 @@
+// An Object's [] gives a key's value, and panics at a key it hasn't got.
+Import std.core
+Import std.data.value
+
+Local object = Value.NewObject()
+object["here"] = Value(True)
+Print(object["here"], object.Get("gone") == Null)
+Print(object["gone"])
