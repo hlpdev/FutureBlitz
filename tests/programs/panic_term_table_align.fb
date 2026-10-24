@@ -1,0 +1,10 @@
+// A table's columns are from 0, so aligning one below that panics where it's called; one past
+// its last, however far, is kept for nothing.
+Import std.core
+Import std.term
+
+Local table = Table("a", "b")
+table.Align(5, Alignment.RIGHT)
+table.Align(2147483647, Alignment.CENTER)
+Print(table.Render())
+table.Align(-1, Alignment.RIGHT)

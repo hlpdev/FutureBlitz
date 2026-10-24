@@ -1,0 +1,4 @@
+╭───┬───╮
+│ a │ b │
+╰───┴───╯
+panic: a table's columns are from 0, not -1 at panic_term_table_align.fb:10:1
