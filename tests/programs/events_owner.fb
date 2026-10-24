@@ -18,6 +18,10 @@ Class Widget
     End Method
 End Class
 
+Function Hear(widget: Widget, n: Int)
+    Print("{widget.Name} hears {n}")
+End Function
+
 Const clicks = Event<Int>()
 Local a = Widget("a")
 Local b = Widget("b")
@@ -26,9 +30,10 @@ Local first = clicks.Subscribe(a, Function(widget: Widget, n: Int)
     widget.Heard += n
     Print("{widget.Name} hears {n}")
 End Function)
-Local second = clicks.Subscribe(b, Function(widget: Widget, n: Int) => Print("{widget.Name} hears {n}"))
+// Subscribe is overloaded, so its lambdas' parameters need their types.
+Local second = clicks.Subscribe(b, Function(widget: Widget, n: Int) => Hear(widget, n))
 clicks.Subscribe(Function(n: Int) => Print("plain hears {n}"))
-Local third = clicks.Subscribe(c, Function(widget: Widget, n: Int) => Print("{widget.Name} hears {n}"))
+Local third = clicks.Subscribe(c, Function(widget: Widget, n: Int) => Hear(widget, n))
 clicks.Emit(1)
 Print("handlers:", clicks.Count, second.IsActive)
 
@@ -50,10 +55,6 @@ Global held: Widget? = Null
 Function LetGo(widget: Widget, n: Int)
     Print("{widget.Name} lets go at {n}")
     held = Null
-End Function
-
-Function Hear(widget: Widget, n: Int)
-    Print("{widget.Name} hears {n}")
 End Function
 
 Local e = Widget("e")

@@ -42,7 +42,8 @@ For number In numbers
     squares.Add(number * number)
 End For
 Print(ParallelMap(numbers, Square) == squares, Scaler(3).Scale([1, 2, 3]))
-Print(ParallelMap(["fire", "ice"], Function(word) => "{word}!"), ParallelMap(numbers[0..0], Square).Count)
+Print(ParallelMap(["fire", "ice"], Function(word) => "{word}!"),
+      ParallelMap(numbers[0..0], Square).Count)
 
 // ParallelForEach calls the action once for each item.
 ParallelForEach(numbers, Function(x: Int)
