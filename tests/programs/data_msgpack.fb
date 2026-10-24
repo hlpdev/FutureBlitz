@@ -1,0 +1,151 @@
+// MessagePack.Write gives each kind of Value in the fewest bytes its spec has, at each size's
+// edges, and MessagePack.Read reads those back, the forms Write doesn't make too, and refuses
+// what isn't MessagePack.
+Import std.core
+Import std.collections
+Import std.data
+
+// The first count bytes of bytes, and how many there are.
+Function Head(bytes: UInt8[], count: Int = 12): String
+    Local shown: UInt8[] = []
+    For i = 0 Until Min(count, bytes.Count)
+        shown.Add(bytes[i])
+    End For
+    Local more = bytes.Count > count ? " ..." : ""
+    Return "{shown}{more} ({bytes.Count})"
+End Function
+
+// What Read gives for bytes: the Value, or the ParseError.
+Function Read(bytes: UInt8[], depth: Int = 1000): String
+    Try
+        Local value = MessagePack.Read(bytes, depth)
+        Return "{value.Kind} {value}"
+    Catch e As ParseError
+        Return "ParseError {e.Kind}: {e.Message}"
+    End Try
+End Function
+
+// value's bytes, and whether they read back as value.
+Function Written(value: Value): String
+    Local bytes = MessagePack.Write(value)
+    Local again = Try? MessagePack.Read(bytes)
+    Local same = again != Null && again == value
+    Return "{Head(bytes)} {same}"
+End Function
+
+// text of count a's.
+Function Letters(count: Int): String
+    Local text = ""
+    For i = 1 To count
+        text = text + "a"
+    End For
+    Return text
+End Function
+
+// An array of count NULLs, or an object of count keys.
+Function Many(count: Int, object: Bool): Value
+    Local made = object ? Value.Object() : Value.Array()
+    For i = 0 Until count
+        If object
+            made["{i}"] = Value()
+        Else
+            made.Add(Value())
+        End If
+    End For
+    Return made
+End Function
+
+Print("== scalars")
+Print(Written(Value()))
+Print(Written(Value(False)))
+Print(Written(Value(True)))
+Print(Written(Value(1.5)))
+Print(Written(Value(-0.0)))
+
+Print("== positive integers")
+For number In [0, 127, 128, 255, 256, 65535, 65536, 4294967295, 4294967296,
+               9223372036854775807] As Int64[]
+    Print("{number}: {Written(Value(number))}")
+End For
+Print("18446744073709551615: {Written(Value(18446744073709551615 As UInt64))}")
+
+Print("== negative integers")
+For number In [-1, -32, -33, -128, -129, -32768, -32769, -2147483648, -2147483649,
+               -9223372036854775808] As Int64[]
+    Print("{number}: {Written(Value(number))}")
+End For
+
+Print("== strings")
+For count In [0, 1, 31, 32, 255, 256, 65535, 65536]
+    Print("{count}: {Written(Value(Letters(count)))}")
+End For
+Print("é😀: {Written(Value("é😀"))}")
+
+Print("== bytes")
+For count In [0, 3, 255, 256, 65535, 65536]
+    Local bytes: UInt8[] = []
+    For i = 0 Until count
+        bytes.Add((i % 256) As UInt8)
+    End For
+    Print("{count}: {Written(Value(bytes))}")
+End For
+
+Print("== arrays and maps")
+For count In [0, 1, 15, 16, 65535, 65536]
+    Print("array {count}: {Written(Many(count, False))}")
+    Print("map {count}: {Written(Many(count, True))}")
+End For
+
+Local nested = Value.Object()
+nested["name"] = Value("Ada")
+nested["list"] = Value.Array()
+Local inner = Value.Object()
+inner["x"] = Value(-1)
+inner["y"] = Value.Array()
+Local list = nested["list"] ?? Value()
+list.Add(inner)
+list.Add(Value(2.5))
+list.Add(Value([1, 2] As UInt8[]))
+nested["empty"] = Value.Object()
+Print(Written(nested))
+Print(Read(MessagePack.Write(nested)))
+
+Print("== forms Write doesn't make")
+Print(Read([202, 63, 192, 0, 0] As UInt8[]))
+Print(Read([204, 5] As UInt8[]))
+Print(Read([205, 0, 5] As UInt8[]))
+Print(Read([207, 0, 0, 0, 0, 0, 0, 0, 5] As UInt8[]))
+Print(Read([208, 5] As UInt8[]))
+Print(Read([211, 0, 0, 0, 0, 0, 0, 0, 5] As UInt8[]))
+Print(Read([217, 1, 97] As UInt8[]))
+Print(Read([219, 0, 0, 0, 1, 98] As UInt8[]))
+Print(Read([198, 0, 0, 0, 2, 7, 8] As UInt8[]))
+Print(Read([221, 0, 0, 0, 1, 192] As UInt8[]))
+Print(Read([222, 0, 1, 161, 107, 195] As UInt8[]))
+Print(Read([130, 161, 107, 1, 161, 107, 2] As UInt8[]))
+
+Print("== refused")
+Print(Read([] As UInt8[]))
+Print(Read([193] As UInt8[]))
+Print(Read([145] As UInt8[]))
+Print(Read([146, 1] As UInt8[]))
+Print(Read([162, 97] As UInt8[]))
+Print(Read([161, 255] As UInt8[]))
+Print(Read([129, 1, 2] As UInt8[]))
+Print(Read([129, 192, 2] As UInt8[]))
+Print(Read([212, 0, 0] As UInt8[]))
+Print(Read([199, 1, 0, 0] As UInt8[]))
+Print(Read([1, 2] As UInt8[]))
+Print(Read([205, 1] As UInt8[]))
+Print(Read([221, 255, 255, 255, 255] As UInt8[]))
+Print(Read([223, 255, 255, 255, 255] As UInt8[]))
+Print(Read([198, 255, 255, 255, 255] As UInt8[]))
+Print(Read([145, 145, 145, 192] As UInt8[], 2))
+Print(Read([145, 145, 145, 192] As UInt8[], 3))
+Local deep: UInt8[] = []
+For i = 1 To 1001
+    deep.Add(145)
+End For
+deep.Add(192)
+Print(Read(deep))
+Print(Read(deep, 1001).Bytes.Count)

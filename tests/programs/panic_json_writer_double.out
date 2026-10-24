@@ -1,1 +1,1 @@
-panic: JsonWriter.WriteDouble can't write Inf: JSON has no NaN or infinity at panic_json_writer_double.fb:8:1
+panic: JSON can't hold Inf: it has no NaN or infinity at panic_json_writer_double.fb:8:1

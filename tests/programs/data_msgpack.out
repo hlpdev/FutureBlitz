@@ -1,0 +1,94 @@
+== scalars
+[192] (1) True
+[194] (1) True
+[195] (1) True
+[203, 63, 248, 0, 0, 0, 0, 0, 0] (9) True
+[203, 128, 0, 0, 0, 0, 0, 0, 0] (9) True
+== positive integers
+0: [0] (1) True
+127: [127] (1) True
+128: [204, 128] (2) True
+255: [204, 255] (2) True
+256: [205, 1, 0] (3) True
+65535: [205, 255, 255] (3) True
+65536: [206, 0, 1, 0, 0] (5) True
+4294967295: [206, 255, 255, 255, 255] (5) True
+4294967296: [207, 0, 0, 0, 1, 0, 0, 0, 0] (9) True
+9223372036854775807: [207, 127, 255, 255, 255, 255, 255, 255, 255] (9) True
+18446744073709551615: [207, 255, 255, 255, 255, 255, 255, 255, 255] (9) True
+== negative integers
+-1: [255] (1) True
+-32: [224] (1) True
+-33: [208, 223] (2) True
+-128: [208, 128] (2) True
+-129: [209, 255, 127] (3) True
+-32768: [209, 128, 0] (3) True
+-32769: [210, 255, 255, 127, 255] (5) True
+-2147483648: [210, 128, 0, 0, 0] (5) True
+-2147483649: [211, 255, 255, 255, 255, 127, 255, 255, 255] (9) True
+-9223372036854775808: [211, 128, 0, 0, 0, 0, 0, 0, 0] (9) True
+== strings
+0: [160] (1) True
+1: [161, 97] (2) True
+31: [191, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97] ... (32) True
+32: [217, 32, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97] ... (34) True
+255: [217, 255, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97] ... (257) True
+256: [218, 1, 0, 97, 97, 97, 97, 97, 97, 97, 97, 97] ... (259) True
+65535: [218, 255, 255, 97, 97, 97, 97, 97, 97, 97, 97, 97] ... (65538) True
+65536: [219, 0, 1, 0, 0, 97, 97, 97, 97, 97, 97, 97] ... (65541) True
+é😀: [166, 195, 169, 240, 159, 152, 128] (7) True
+== bytes
+0: [196, 0] (2) True
+3: [196, 3, 0, 1, 2] (5) True
+255: [196, 255, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9] ... (257) True
+256: [197, 1, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8] ... (259) True
+65535: [197, 255, 255, 0, 1, 2, 3, 4, 5, 6, 7, 8] ... (65538) True
+65536: [198, 0, 1, 0, 0, 0, 1, 2, 3, 4, 5, 6] ... (65541) True
+== arrays and maps
+array 0: [144] (1) True
+map 0: [128] (1) True
+array 1: [145, 192] (2) True
+map 1: [129, 161, 48, 192] (4) True
+array 15: [159, 192, 192, 192, 192, 192, 192, 192, 192, 192, 192, 192] ... (16) True
+map 15: [143, 161, 48, 192, 161, 49, 192, 161, 50, 192, 161, 51] ... (51) True
+array 16: [220, 0, 16, 192, 192, 192, 192, 192, 192, 192, 192, 192] ... (19) True
+map 16: [222, 0, 16, 161, 48, 192, 161, 49, 192, 161, 50, 192] ... (57) True
+array 65535: [220, 255, 255, 192, 192, 192, 192, 192, 192, 192, 192, 192] ... (65538) True
+map 65535: [222, 255, 255, 161, 48, 192, 161, 49, 192, 161, 50, 192] ... (447638) True
+array 65536: [221, 0, 1, 0, 0, 192, 192, 192, 192, 192, 192, 192] ... (65541) True
+map 65536: [223, 0, 1, 0, 0, 161, 48, 192, 161, 49, 192, 161] ... (447647) True
+[131, 164, 110, 97, 109, 101, 163, 65, 100, 97, 164, 108] ... (43) True
+OBJECT {"name": "Ada", "list": [{"x": -1, "y": []}, 2.5, <0102>], "empty": {}}
+== forms Write doesn't make
+DOUBLE 1.5
+INT 5
+INT 5
+INT 5
+INT 5
+INT 5
+STRING "a"
+STRING "b"
+BYTES <0708>
+ARRAY [null]
+OBJECT {"k": true}
+OBJECT {"k": 2}
+== refused
+ParseError UNEXPECTED_END: the data isn't MessagePack: the data ends too soon, at byte 0
+ParseError SYNTAX: the data isn't MessagePack: the byte 0xC1 starts no value, at byte 0
+ParseError UNEXPECTED_END: the data isn't MessagePack: the data ends before the 1 it says come, at byte 0
+ParseError UNEXPECTED_END: the data isn't MessagePack: the data ends before the 2 it says come, at byte 0
+ParseError UNEXPECTED_END: the data isn't MessagePack: the data ends before the 2 it says come, at byte 0
+ParseError SYNTAX: the data isn't MessagePack: a str isn't UTF-8, at byte 0
+ParseError WRONG_TYPE: the data isn't MessagePack: a map's key is INT, not a str, at byte 1
+ParseError WRONG_TYPE: the data isn't MessagePack: a map's key is NULL, not a str, at byte 1
+ParseError WRONG_TYPE: the data isn't MessagePack: an ext has no kind of Value, at byte 0
+ParseError WRONG_TYPE: the data isn't MessagePack: an ext has no kind of Value, at byte 0
+ParseError SYNTAX: the data isn't MessagePack: there are bytes after it, at byte 1
+ParseError UNEXPECTED_END: the data isn't MessagePack: the data ends too soon, at byte 1
+ParseError UNEXPECTED_END: the data isn't MessagePack: the data ends before the 4294967295 it says come, at byte 0
+ParseError UNEXPECTED_END: the data isn't MessagePack: the data ends before the 4294967295 it says come, at byte 0
+ParseError UNEXPECTED_END: the data isn't MessagePack: the data ends before the 4294967295 it says come, at byte 0
+ParseError OUT_OF_RANGE: the data isn't MessagePack: arrays and maps are nested too deep, at byte 2
+ARRAY [[[null]]]
+ParseError OUT_OF_RANGE: the data isn't MessagePack: arrays and maps are nested too deep, at byte 1000
+2012

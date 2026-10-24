@@ -1,0 +1,11 @@
+// Json.Write panics for a DOUBLE that's NaN or an infinity, which JSON doesn't have, where
+// it's called.
+Import std.core
+Import std.data
+Import std.math
+
+Local list = Value.Array()
+list.Add(Value(1.5))
+list.Add(Value(NaN As Double))
+Print(Json.Write(Value(2.5)))
+Local text = Json.Write(list)

@@ -1,0 +1,60 @@
+== parse
+OBJECT {"name": "Ada", "age": 36, "langs": ["en", "fr"], "ok": true, "none": null, "pi": 3.25}
+ARRAY []
+OBJECT {}
+INT -12
+INT 9223372036854775807
+UINT 9223372036854775808
+UINT 18446744073709551615
+DOUBLE 18446744073709551616.0
+DOUBLE -9223372036854775808.0
+DOUBLE 1.0
+DOUBLE 100.0
+STRING "text"
+BOOL false
+NULL null
+OBJECT {"k": 3, "j": 2}
+ARRAY [[[[["deep"]]]], {"a": {"b": {"c": []}}}]
+ParseError UNEXPECTED_END at 1:6
+ParseError SYNTAX at 1:6
+== exact integers
+INT 9007199254740993 9007199254740993
+INT -9007199254740993 0
+UINT 0 18446744073709551614
+== path
+"fr"
+36
+3.25
+== bytes
+{"a": 1}
+ParseError SYNTAX at 1:3
+== write
+{"name":"Ada \"the first\"\n","age":36,"big":18446744073709551615,"ratio":0.5,"whole":2.0,"ok":true,"none":null,"bytes":"AAEC+vv8/Q==","list":[1,[],{},{"x":-1}]}
+{
+  "name": "Ada \"the first\"\n",
+  "age": 36,
+  "big": 18446744073709551615,
+  "ratio": 0.5,
+  "whole": 2.0,
+  "ok": true,
+  "none": null,
+  "bytes": "AAEC+vv8/Q==",
+  "list": [
+    1,
+    [],
+    {},
+    {
+      "x": -1
+    }
+  ]
+}
+1.5
+"lone"
+[]
+== round trips
+12 round trips
+"AAEC+vv8/Q=="
+== deep
+True
+ParseError OUT_OF_RANGE at 1:1001
+2002

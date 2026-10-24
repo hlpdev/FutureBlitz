@@ -1,0 +1,4 @@
+// MessagePack.Read reads to a depth of 1 or more: 0 panics where it's called.
+Import std.data
+
+Local value = Try? MessagePack.Read([192] As UInt8[], 0)
