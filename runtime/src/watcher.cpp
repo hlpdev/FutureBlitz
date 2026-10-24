@@ -39,9 +39,12 @@ struct event_t {
 struct watcher_t {
     /// Set once the I/O thread has tried to start: 0, or libuv's error.
     std::int64_t error = 0;
-    /// The names the I/O thread knows are there, a folder's entries' and "" for itself, which only
-    /// that thread touches.
+    /// The names the I/O thread knows are there, a folder's entries' and "" for itself, and the
+    /// last listing of the folder, and the loop's time it was taken at, which only that thread
+    /// touches.
     std::set<std::string, std::less<>> known;
+    std::set<std::string, std::less<>> listing;
+    std::uint64_t listed_at = 0;
     /// The Tasks of the Awaits for the next event.
     std::vector<fb_task_t*> waiting;
     std::string path;
@@ -207,11 +210,23 @@ std::vector<event_t> rescanned(watcher_t& watcher) {
     return events;
 }
 
+/// Whether a folder watcher's folder holds `name`, spelled as it is, by a listing taken at most
+/// once each turn of the loop, as libuv gives a batch of events in one.
+bool listed(watcher_t& watcher, uv_loop_t* loop, const std::string_view name) {
+    const std::uint64_t now = uv_now(loop) + 1;
+    if (watcher.listed_at != now) {
+        watcher.listing = names_in(watcher.path);
+        watcher.listed_at = now;
+    }
+
+    return watcher.listing.contains(name);
+}
+
 /// What happened to a name libuv tells of, which OSes tell apart differently, as macOS calls a
 /// new file that's written a change: one that's there now and wasn't came, one that was and isn't
 /// went, and one that was and is changed. One that came and went before this is nothing. A
 /// folder's event without a name is libuv's word that it lost some, which a new listing finds.
-void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int /*events*/,
+void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int events,
                          const int status) {
     auto& watcher = *static_cast<watcher_t*>(handle->data);
     if (status < 0) {
@@ -225,8 +240,15 @@ void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int /*ev
 
     const std::string_view key = watcher.folder ? name : "";
     event_t event{ .path = watcher.folder ? path_in(watcher, key) : watcher.path };
-    const bool there = exists(event.path);
+    bool there = exists(event.path);
     const auto known = watcher.known.find(key);
+    // A disk that ignores case, as Windows' and macOS's usually do, finds a name by another
+    // spelling too, as a rename that changed its case leaves it, so a name that would come, or a
+    // known one libuv says was renamed, is looked for as it's spelled.
+    if (there && watcher.folder && (known == watcher.known.end() || (events & UV_RENAME) != 0)) {
+        there = listed(watcher, handle->loop, key);
+    }
+
     if (there && known == watcher.known.end()) {
         event.kind = EVENT_CREATED;
         watcher.known.emplace(key);
@@ -237,9 +259,9 @@ void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int /*ev
         return;
     }
 
-    std::vector<event_t> events;
-    events.push_back(std::move(event));
-    queue(watcher, std::move(events));
+    std::vector<event_t> found;
+    found.push_back(std::move(event));
+    queue(watcher, std::move(found));
 }
 
 void start_watching(uv_loop_t* loop, void* context) {

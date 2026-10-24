@@ -6,6 +6,9 @@ removed True
 next async True
 next True
 closed True True True
+case renamed True
+case removed True
+case made again True
 file changed True
 waiting True
 NOT_FOUND
