@@ -544,6 +544,77 @@ void fb_io_resolve_async(fb_task_t* task, const fb_string_t* host, const fb_arra
 /// What libuv's error `code` means.
 fb_string_t* fb_io_error_text(std::int32_t code);
 
+// std.net's sockets, over libuv's handles on the I/O thread: a socket is the runtime's, which
+// its fb object holds from fb_io_net_new to fb_io_net_release. A function that blocks gives 0 or a
+// count, or libuv's error, and an Async one finishes `task`, a new Task<Int32>, with 0 or the
+// error, after which the fb code takes what came without waiting. A timeout is in nanoseconds:
+// -1 waits as long as it takes, and 0 doesn't wait, giving UV_ETIMEDOUT when there's nothing.
+// An address is a UInt8[] of 23 bytes: 4 or 6 for its family, its 16 bytes, an IPv4 address's 4
+// first, its port, the most significant byte first, and an IPv6 address's scope, the least
+// significant first. Blocking runs nothing else on the caller's thread meanwhile.
+
+/// A new socket of `kind`: 0 a TCP stream, 1 an IPC stream, 2 a TCP listener, 3 an IPC
+/// listener, or 4 a UDP socket, whose handle opens with its first connect, listen, or bind.
+void* fb_io_net_new(std::int32_t kind);
+/// The fb object lets go of the socket: it closes, and goes once libuv closed it.
+void fb_io_net_release(void* handle);
+/// Closes the socket, finishing what waits for it with UV_ECANCELED, as the program's end does,
+/// and returns once libuv closed it, so its port or name is free.
+void fb_io_net_close(void* handle);
+/// Connects a TCP stream to `address`, or an IPC stream to the listener of `name`.
+std::int32_t fb_io_net_connect(void* handle, const fb_array_t* address, std::int64_t timeout);
+void fb_io_net_connect_async(fb_task_t* task, void* handle, const fb_array_t* address,
+                             std::int64_t timeout);
+std::int32_t fb_io_net_connect_pipe(void* handle, const fb_string_t* name, std::int64_t timeout);
+void fb_io_net_connect_pipe_async(fb_task_t* task, void* handle, const fb_string_t* name,
+                                  std::int64_t timeout);
+/// Has a TCP listener listen at `address`, or an IPC one at `name`, keeping up to `backlog`
+/// connections that the I/O thread hasn't accepted yet.
+std::int32_t fb_io_net_listen(void* handle, const fb_array_t* address, std::int32_t backlog);
+std::int32_t fb_io_net_listen_pipe(void* handle, const fb_string_t* name, std::int32_t backlog);
+/// Waits for a listener to have a connection, which fb_io_net_accepted takes.
+std::int32_t fb_io_net_accept(void* handle, std::int64_t timeout);
+void fb_io_net_accept_async(fb_task_t* task, void* handle, std::int64_t timeout);
+/// A listener's next connection, as a new socket that the caller holds, or null for none.
+void* fb_io_net_accepted(void* handle);
+/// Reads up to `count` bytes of a stream into `into`, at least 1: gives how many, 0 at its end,
+/// or the error.
+std::int64_t fb_io_net_read(void* handle, std::uint8_t* into, std::int64_t count,
+                            std::int64_t timeout);
+/// Waits for a stream to have bytes, its end, or an error, which fb_io_net_read then gives.
+void fb_io_net_read_async(fb_task_t* task, void* handle, std::int64_t timeout);
+/// Writes `count` bytes to a stream, waiting until they're written, or the Async one with a copy.
+std::int32_t fb_io_net_write(void* handle, const std::uint8_t* from, std::int64_t count);
+void fb_io_net_write_async(fb_task_t* task, void* handle, const std::uint8_t* from,
+                           std::int64_t count);
+/// Ends what a stream writes, once what's written is, so the other side reads its end.
+std::int32_t fb_io_net_shutdown(void* handle);
+void fb_io_net_shutdown_async(fb_task_t* task, void* handle);
+/// Binds a UDP socket to `address`, with SO_REUSEADDR when `reuse` isn't 0, which lets other
+/// sockets bind it too, as LAN discovery's do.
+std::int32_t fb_io_net_bind(void* handle, const fb_array_t* address, std::int32_t reuse);
+/// Sends `count` bytes to `address` as one datagram, or the Async one with a copy.
+std::int32_t fb_io_net_send(void* handle, const std::uint8_t* from, std::int64_t count,
+                            const fb_array_t* address);
+void fb_io_net_send_async(fb_task_t* task, void* handle, const std::uint8_t* from,
+                          std::int64_t count, const fb_array_t* address);
+/// Waits for a UDP socket to have a datagram, which fb_io_net_received takes.
+std::int32_t fb_io_net_receive(void* handle, std::int64_t timeout);
+void fb_io_net_receive_async(fb_task_t* task, void* handle, std::int64_t timeout);
+/// Takes a UDP socket's next datagram into `bytes`, a UInt8[], and where it came from into
+/// `from`: gives 1, or 0 when there's none.
+std::int32_t fb_io_net_received(void* handle, fb_array_t* bytes, fb_array_t* from);
+/// Sets a UDP socket's `option` to `value`: 0 broadcast, 1 multicast loopback, 2 multicast TTL.
+std::int32_t fb_io_net_set(void* handle, std::int32_t option, std::int32_t value);
+/// Joins a UDP socket to the multicast `group`, an address's text, on the interface whose
+/// address `on` is, or the OS's when it's empty, or leaves it when `join` is 0.
+std::int32_t fb_io_net_membership(void* handle, const fb_string_t* group, const fb_string_t* on,
+                                  std::int32_t join);
+/// Puts a socket's address into `output`, its remote one when `remote` isn't 0.
+std::int32_t fb_io_net_address(void* handle, std::int32_t remote, fb_array_t* output);
+/// What libuv's error `code` means to std.net: a NetErrorKind's ordinal, or 7 for a timeout.
+std::int32_t fb_io_net_error_kind(std::int32_t code);
+
 /// Prints "panic: <message> at <file>:<line>:<column>" to stderr and exits with code 101.
 /// Compiled code calls it when a run-time check fails. `location` can be null, which leaves out
 /// the " at ..." part. On any thread, it ends the whole program, at once: a second thread that
