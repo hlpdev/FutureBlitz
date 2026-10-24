@@ -19,11 +19,11 @@
 [1.] DOUBLE 1.0
 [1e3] DOUBLE 1000.0
 [-1.5E-3] DOUBLE -0.0015
-[.inf] DOUBLE inf
-[-.Inf] DOUBLE -inf
-[+.INF] DOUBLE inf
-[.nan] DOUBLE nan
-[.NaN] DOUBLE nan
+[.inf] DOUBLE Inf
+[-.Inf] DOUBLE -Inf
+[+.INF] DOUBLE Inf
+[.nan] DOUBLE NaN
+[.NaN] DOUBLE NaN
 [0.1.2] STRING "0.1.2"
 [12:30] STRING "12:30"
 [9223372036854775807] INT 9223372036854775807
@@ -78,7 +78,7 @@ dash: "- item"
 marker: "---"
 int: 42
 float: 2.0
-big: 1e+300
+big: 1e300
 nothing: null
 flag: false
 list:
