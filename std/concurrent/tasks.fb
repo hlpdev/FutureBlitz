@@ -1,6 +1,7 @@
 // Tasks made of other Tasks, and a Task finished by hand: WhenAll waits for each of its tasks,
-// WhenAny for the first, and a TaskSource's Task is done once a thread has given it its result.
-// They give Tasks of Async Functions, so they're the main thread's, as Async code is.
+// WhenAny for the first, and a TaskSource's Task is done once a thread has given it its result,
+// and a ThrowingTaskSource's once the main thread has given it its result or its error. They give
+// Tasks of Async Functions, so they're the main thread's, as Async code is.
 
 Import std.core
 
@@ -77,6 +78,77 @@ Async Function Finished<T: Sendable>(source: TaskSource<T>, given: Task): T
     Return source.Given()
 End Function
 
+// A Task finished by hand that can throw: Finish gives its Task the result, and Fail the error,
+// which a Wait or an Await on the Task then gives or throws. An error isn't Sendable, so it's a
+// Class, which stays on the main thread, as its Tasks do; work on other threads finishes a
+// TaskSource instead. One that's never finished leaves its Task never done.
+Public Class ThrowingTaskSource<T, E: Error>
+    Field Settled: TaskSource<Bool>
+    Field Result: T?
+    Field Failure: E?
+
+    Public New()
+        Settled = TaskSource<Bool>()
+    End New
+
+    // A Task of the result, or of the error: done at once when Finish or Fail has given it, and
+    // otherwise at the main thread's first tick after it does. Each one it gives is a new Task of
+    // the same result.
+    Public Property Task: (Task<T> Throws E)
+        Get => Settles(Self, Settled.Task)
+    End Property
+
+    // Whether Finish or Fail has given its Task what it gives.
+    Public Property IsDone: Bool
+        Get => Settled.IsDone
+    End Property
+
+    // Gives the Task its result, which wakes what waits for it. Panics when it has a result or an
+    // error already.
+    @PanicsAtCaller
+    Public Method Finish(value: T)
+        If !TryFinish(value) Then Panic("the ThrowingTaskSource is finished already")
+    End Method
+
+    // Gives the Task its error, which a Wait or an Await on it throws. Panics when it has a result
+    // or an error already.
+    @PanicsAtCaller
+    Public Method Fail(error: E)
+        If !TryFail(error) Then Panic("the ThrowingTaskSource is finished already")
+    End Method
+
+    // Gives the Task its result unless it has a result or an error already, and tells whether it
+    // didn't.
+    Public Method TryFinish(value: T): Bool
+        If IsDone Then Return False
+        Result = value
+        Settled.Finish(True)
+        Return True
+    End Method
+
+    // Gives the Task its error unless it has a result or an error already, and tells whether it
+    // didn't.
+    Public Method TryFail(error: E): Bool
+        If IsDone Then Return False
+        Failure = error
+        Settled.Finish(False)
+        Return True
+    End Method
+
+    // What the Task gives, or throws, once it's settled.
+    Method Given(): T Throws E
+        Local failure = Failure
+        If failure != Null Then Throw failure
+        Return Result.Expect("a ThrowingTaskSource has its result once it's finished")
+    End Method
+End Class
+
+// A ThrowingTaskSource's Task: its result or error, at once when it's settled, or once it is.
+Async Function Settles<T, E: Error>(source: ThrowingTaskSource<T, E>, settled: Task<Bool>): T Throws E
+    If !settled.IsDone() Then Await settled
+    Return Try source.Given()
+End Function
+
 // A Task of each task's result, in their order, done once they all are.
 Public Function WhenAll<T>(tasks: Task<T>[]): Task<T[]> => AllOf(tasks.Clone())
 
@@ -96,6 +168,47 @@ Async Function AllOf(tasks: Task[])
     For task In tasks
         Await task
     End For
+End Function
+
+// A Task of each task's result, in their order, done once they all are; when any throws, it waits
+// for the rest and then throws the error of the first of them, in their order, that threw.
+Public Function WhenAll<T, E: Error>(tasks: (Task<T> Throws E)[]): (Task<T[]> Throws E)
+    Return AllOf(tasks.Clone())
+End Function
+
+// A Task that's done once each of the tasks is, which throws the first's error, in their order,
+// when any throw.
+Public Function WhenAll<E: Error>(tasks: (Task Throws E)[]): (Task Throws E) => AllOf(tasks.Clone())
+
+Async Function AllOf<T, E: Error>(tasks: (Task<T> Throws E)[]): T[] Throws E
+    Local results: T[] = []
+    results.Reserve(tasks.Count)
+    Local failure: E? = Null
+    For task In tasks
+        Try
+            results.Add(Try Await task)
+        Catch error As E
+            If failure == Null Then failure = error
+        End Try
+    End For
+
+    Local first = failure
+    If first != Null Then Throw first
+    Return results
+End Function
+
+Async Function AllOf<E: Error>(tasks: (Task Throws E)[]) Throws E
+    Local failure: E? = Null
+    For task In tasks
+        Try
+            Try Await task
+        Catch error As E
+            If failure == Null Then failure = error
+        End Try
+    End For
+
+    Local first = failure
+    If first != Null Then Throw first
 End Function
 
 // A Task of the index of the first of the tasks found done, whose result a Wait or an Await then
@@ -125,6 +238,32 @@ Public Function WhenAny(tasks: Task[]): Task<Int>
     Return first.Task
 End Function
 
+// A Task of the index of the first of the tasks found done, as for tasks that don't throw: one
+// that threw is done, and its Wait or Await then throws its error. Panics when there are none.
+@PanicsAtCaller
+Public Function WhenAny<T, E: Error>(tasks: (Task<T> Throws E)[]): Task<Int>
+    If tasks.Count == 0 Then Panic("WhenAny waits for the first of its tasks, so it needs one")
+    Const first = TaskSource<Int>()
+    For i = 0 Until tasks.Count
+        FirstOf(tasks[i], i, first)
+    End For
+
+    Return first.Task
+End Function
+
+// A Task of the index of the first of the tasks to be done, or to throw. Panics when there are
+// none.
+@PanicsAtCaller
+Public Function WhenAny<E: Error>(tasks: (Task Throws E)[]): Task<Int>
+    If tasks.Count == 0 Then Panic("WhenAny waits for the first of its tasks, so it needs one")
+    Const first = TaskSource<Int>()
+    For i = 0 Until tasks.Count
+        FirstOf(tasks[i], i, first)
+    End For
+
+    Return first.Task
+End Function
+
 // Gives `first` the index once the task is done, unless another task's came before. WhenAny's
 // waiters are in the scheduler's order as they were made, so it looks at them in that order.
 Async Function FirstOf<T>(task: Task<T>, index: Int, first: TaskSource<Int>)
@@ -134,5 +273,15 @@ End Function
 
 Async Function FirstOf(task: Task, index: Int, first: TaskSource<Int>)
     Await task
+    first.TryFinish(index)
+End Function
+
+Async Function FirstOf<T, E: Error>(task: Task<T> Throws E, index: Int, first: TaskSource<Int>)
+    Try? Await task
+    first.TryFinish(index)
+End Function
+
+Async Function FirstOf<E: Error>(task: Task Throws E, index: Int, first: TaskSource<Int>)
+    Try? Await task
     first.TryFinish(index)
 End Function
