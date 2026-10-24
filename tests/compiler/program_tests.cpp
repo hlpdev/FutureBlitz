@@ -613,6 +613,40 @@ TEST_CASE("a request nothing waits for doesn't keep a stuck coroutine's program 
     CHECK(took < std::chrono::seconds(10));
 }
 
+TEST_CASE("QueryParams' Sort is a merge sort, which a query of many pairs doesn't slow",
+          "[programs]") {
+    // An insertion sort of 20000 pairs in reverse order, comparing two names' UTF-16 units each
+    // time, takes minutes; a merge sort of the names' order, worked out once, well under a
+    // second.
+    const fb::compilation_t compilation =
+        fb::compile("main.fb",
+                    "Import std.core\n"
+                    "Import std.net\n"
+                    "Local params = QueryParams()\n"
+                    "For i = 0 Until 20000\n"
+                    "    params.Add(\"k{39999 - i}\", \"v\")\n"
+                    "End For\n"
+                    "params.Sort()\n"
+                    "For pair In params\n"
+                    "    Print(params.Count, pair.0)\n"
+                    "    Break\n"
+                    "End For\n",
+                    fb::standard_library().value_or(std::vector<fb::library_file_t>{}));
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / "query_sort";
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(fb::build_program(module, compilation, program, fb::build_mode_t::DEBUG));
+
+    const auto start = std::chrono::steady_clock::now();
+    const std::expected<fb::process_result_t, std::string> result = fb::run_process(program, {});
+    const std::chrono::steady_clock::duration took = std::chrono::steady_clock::now() - start;
+    REQUIRE(result);
+    CHECK(result->output == "20000 k20000\n");
+    CHECK(result->exit_code == 0);
+    CHECK(took < std::chrono::seconds(10));
+}
+
 TEST_CASE("an Event's Clear takes out all its handlers at once", "[programs]") {
     // Taking each of 100000 handlers out on its own goes over the rest each time, for minutes;
     // taking them all out at the end, as an Emit does, takes well under a second.
