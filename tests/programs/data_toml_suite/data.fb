@@ -1,0 +1,2286 @@
+// toml-test's cases for TOML 1.0, which make_data.py wrote from toml-test/: each valid
+// case's name, document, and what it holds, as data_toml_suite.fb's Canonical writes it,
+// and each invalid case's name and document. Left out, as a String can't hold their
+// bytes:
+// - invalid/encoding/bad-codepoint
+// - invalid/encoding/bad-utf8-at-end
+// - invalid/encoding/bad-utf8-in-array
+// - invalid/encoding/bad-utf8-in-comment
+// - invalid/encoding/bad-utf8-in-multiline-literal
+// - invalid/encoding/bad-utf8-in-multiline
+// - invalid/encoding/bad-utf8-in-string-literal
+// - invalid/encoding/bad-utf8-in-string
+// - invalid/encoding/utf16-bom
+
+Import std.core
+
+Public Function ValidCases(): (String, String, String)[]
+    Return [
+        ("array/array-subtables",
+            "[[arr]]\n[arr.subtab]\nval=1\n\n[[arr]]\n[arr.subtab]\nval=2\n",
+            "{{\"arr\": [{{\"subtab\": {{\"val\": 1}}}}, {{\"subtab\": {{\"val\": 2}}}}]}}"),
+        ("array/array",
+            "ints = [1, 2, 3, ]\nfloats = [1.1, 2.1, 3.1]\nstrings = [\"a\", " +
+            "\"b\", \"c\"]\ndates = [\n\t1987-07-05T17:45:00Z,\n\t1979-05-27T07:32" +
+            ":00,\n\t2006-06-01,\n\t11:00:00,\n]\ncomments = [\n         1,\n    " +
+            "     2, #this is ok\n]\n",
+            "{{\"comments\": [1, 2], \"dates\": [\"1987-07-05T17:45:00Z\", \"1979" +
+            "-05-27T07:32:00\", \"2006-06-01\", \"11:00:00\"], \"floats\": [4607" +
+            "632778762754458, 4611911198408756429, 4614162998222441677], " +
+            "\"ints\": [1, 2, 3], \"strings\": [\"a\", \"b\", \"c\"]}}"),
+        ("array/bool",
+            "a = [true, false]\n",
+            "{{\"a\": [true, false]}}"),
+        ("array/empty",
+            "thevoid = [[[[[]]]]]\n",
+            "{{\"thevoid\": [[[[[]]]]]}}"),
+        ("array/hetergeneous",
+            "mixed = [[1, 2], [\"a\", \"b\"], [1.1, 2.1]]\n",
+            "{{\"mixed\": [[1, 2], [\"a\", \"b\"], [4607632778762754458, 4611911" +
+            "198408756429]]}}"),
+        ("array/mixed-int-array",
+            "arrays-and-ints =  [1, [\"Arrays are not integers.\"]]\n",
+            "{{\"arrays-and-ints\": [1, [\"Arrays are not integers.\"]]}}"),
+        ("array/mixed-int-float",
+            "ints-and-floats = [1, 1.1]\n",
+            "{{\"ints-and-floats\": [1, 4607632778762754458]}}"),
+        ("array/mixed-int-string",
+            "strings-and-ints = [\"hi\", 42]\n",
+            "{{\"strings-and-ints\": [\"hi\", 42]}}"),
+        ("array/mixed-string-table",
+            "contributors = [\n  \"Foo Bar <foo@example.com>\",\n  {{ name = \"" +
+            "Baz Qux\", email = \"bazqux@example.com\", url = \"https://examp" +
+            "le.com/bazqux\" }}\n]\n\n# Start with a table as the first elemen" +
+            "t. This tests a case that some libraries\n# might have where " +
+            "they will check if the first entry is a table/map/hash/assoc" +
+            "\n# array and then encode it as a table array. This was a rea" +
+            "sonable thing to do\n# before TOML 1.0 since arrays could onl" +
+            "y contain one type, but now it's no\n# longer.\nmixed = [{{k=\"a" +
+            "\"}}, \"b\", 1]\n",
+            "{{\"contributors\": [\"Foo Bar <foo@example.com>\", {{\"email\": \"ba" +
+            "zqux@example.com\", \"name\": \"Baz Qux\", \"url\": \"https://exampl" +
+            "e.com/bazqux\"}}], \"mixed\": [{{\"k\": \"a\"}}, \"b\", 1]}}"),
+        ("array/nested-double",
+            "nest = [\n\t[\n\t\t[\"a\"],\n\t\t[1, 2, [3]]\n\t]\n]\n",
+            "{{\"nest\": [[[\"a\"], [1, 2, [3]]]]}}"),
+        ("array/nested-inline-table",
+            "a = [ {{ b = {{}} }} ]\n",
+            "{{\"a\": [{{\"b\": {{}}}}]}}"),
+        ("array/nested",
+            "nest = [[\"a\"], [\"b\"]]\n",
+            "{{\"nest\": [[\"a\"], [\"b\"]]}}"),
+        ("array/nospaces",
+            "ints = [1,2,3]\n",
+            "{{\"ints\": [1, 2, 3]}}"),
+        ("array/open-parent-table",
+            "[[parent-table.arr]]\n[[parent-table.arr]]\n[parent-table]\nnot" +
+            "-arr = 1\n",
+            "{{\"parent-table\": {{\"arr\": [{{}}, {{}}], \"not-arr\": 1}}}}"),
+        ("array/string-quote-comma-01",
+            "title = [\n\"Client: \\\"XXXX\\\", Job: XXXX\",\n\"Code: XXXX\"\n]\n",
+            "{{\"title\": [\"Client: \\\"XXXX\\\", Job: XXXX\", \"Code: XXXX\"]}}"),
+        ("array/string-quote-comma-02",
+            "title = [ \" \\\", \",]\n",
+            "{{\"title\": [\" \\\", \"]}}"),
+        ("array/string-with-comma-01",
+            "title = [\n\"Client: XXXX, Job: XXXX\",\n\"Code: XXXX\"\n]\n",
+            "{{\"title\": [\"Client: XXXX, Job: XXXX\", \"Code: XXXX\"]}}"),
+        ("array/string-with-comma-02",
+            "title = [\n\"\"\"Client: XXXX,\nJob: XXXX\"\"\",\n\"Code: XXXX\"\n]\n",
+            "{{\"title\": [\"Client: XXXX,\\u000aJob: XXXX\", \"Code: XXXX\"]}}"),
+        ("array/strings",
+            "string_array = [ \"all\", 'strings', \"\"\"are the same\"\"\", '''ty" +
+            "pe''']\n",
+            "{{\"string_array\": [\"all\", \"strings\", \"are the same\", \"type\"]}}"),
+        ("array/table-array-string-backslash",
+            "foo = [ {{ bar=\"\\\"{{{{baz}}}}\\\"\"}} ]\n",
+            "{{\"foo\": [{{\"bar\": \"\\\"{{{{baz}}}}\\\"\"}}]}}"),
+        ("array/trailing-comma",
+            "arr-1 = [1,]\n\narr-2 = [2,3,]\n\narr-3 = [4,\n]\n\narr-4 = [\n\t5,\n\t" +
+            "6,\n]\n",
+            "{{\"arr-1\": [1], \"arr-2\": [2, 3], \"arr-3\": [4], \"arr-4\": [5, 6" +
+            "]}}"),
+        ("bool/bool",
+            "t = true\nf = false\n",
+            "{{\"f\": false, \"t\": true}}"),
+        ("comment/after-literal-no-ws",
+            "inf=inf#infinity\nnan=nan#not a number\ntrue=true#true\nfalse=f" +
+            "alse#false\n",
+            "{{\"false\": false, \"inf\": 9218868437227405312, \"nan\": nan, \"tr" +
+            "ue\": true}}"),
+        ("comment/at-eof",
+            "# This is a full-line comment\nkey = \"value\" # This is a comm" +
+            "ent at the end of a line\n",
+            "{{\"key\": \"value\"}}"),
+        ("comment/at-eof2",
+            "# This is a full-line comment\nkey = \"value\" # This is a comm" +
+            "ent at the end of a line\n",
+            "{{\"key\": \"value\"}}"),
+        ("comment/everywhere",
+            "# Top comment.\n  # Top comment.\n# Top comment.\n\n# [no-extran" +
+            "eous-groups-please]\n\n[group] # Comment\nanswer = 42 # Comment" +
+            "\n# no-extraneous-keys-please = 999\n# Inbetween comment.\nmore" +
+            " = [ # Comment\n  # What about multiple # comments?\n  # Can y" +
+            "ou handle it?\n  #\n          # Evil.\n# Evil.\n  42, 42, # Comm" +
+            "ents within arrays are fun.\n  # What about multiple # commen" +
+            "ts?\n  # Can you handle it?\n  #\n          # Evil.\n# Evil.\n# ]" +
+            " Did I fool you?\n] # Hopefully not.\n\n# Make sure the space b" +
+            "etween the datetime and \"#\" isn't lexed.\ndt = 1979-05-27T07:" +
+            "32:12-07:00  # c\nd = 1979-05-27 # Comment\n\n[[aot]] # Comment" +
+            "\nk = 98 # Comment\n[[aot]]# Comment\nk = 99# Comment\n",
+            "{{\"aot\": [{{\"k\": 98}}, {{\"k\": 99}}], \"group\": {{\"answer\": 42, \"d\":" +
+            " \"1979-05-27\", \"dt\": \"1979-05-27T07:32:12-07:00\", \"more\": [4" +
+            "2, 42]}}}}"),
+        ("comment/noeol",
+            "# single comment without any eol characters",
+            "{{}}"),
+        ("comment/nonascii",
+            "# ~ \u{80} ÿ ퟿  ￿ 𐀀 􏿿\n",
+            "{{}}"),
+        ("comment/tricky",
+            "[section]#attached comment\n#[notsection]\none = \"11\"#cmt\ntwo " +
+            "= \"22#\"\nthree = '#'\n\nfour = \"\"\"# no comment\n# nor this\n#also" +
+            " not comment\"\"\"#is_comment\n\nfive = 5.5#66\nsix = 6#7\n8 = \"eig" +
+            "ht\"\n#nine = 99\nten = 10e2#1\neleven = 1.11e1#23\n\n[\"hash#tag\"]" +
+            "\n\"#!\" = \"hash bang\"\narr3 = [ \"#\", '#', \"\"\"###\"\"\" ]\narr4 = [ " +
+            "1,# 9, 9,\n2#,9\n,#9\n3#]\n,4]\narr5 = [[[[#[\"#\"],\n[\"#\"]]]]#]\n]\nt" +
+            "bl1 = {{ \"#\" = '}}#'}}#}}}}\n\n\n",
+            "{{\"hash#tag\": {{\"#!\": \"hash bang\", \"arr3\": [\"#\", \"#\", \"###\"], " +
+            "\"arr4\": [1, 2, 3, 4], \"arr5\": [[[[[\"#\"]]]]], \"tbl1\": {{\"#\": \"" +
+            "}}#\"}}}}, \"section\": {{\"8\": \"eight\", \"eleven\": 46224383625377349" +
+            "63, \"five\": 4617878467915022336, \"four\": \"# no comment\\u000a" +
+            "# nor this\\u000a#also not comment\", \"one\": \"11\", \"six\": 6, \"" +
+            "ten\": 4652007308841189376, \"three\": \"#\", \"two\": \"22#\"}}}}"),
+        ("datetime/datetime",
+            "space = 1987-07-05 17:45:00Z\n\n# ABNF is case-insensitive, bo" +
+            "th \"Z\" and \"z\" must be supported.\nlower = 1987-07-05t17:45:0" +
+            "0z\n",
+            "{{\"lower\": \"1987-07-05T17:45:00Z\", \"space\": \"1987-07-05T17:45" +
+            ":00Z\"}}"),
+        ("datetime/edge",
+            "first-offset = 0001-01-01 00:00:00Z\nfirst-local  = 0001-01-0" +
+            "1 00:00:00\nfirst-date   = 0001-01-01\n\nlast-offset = 9999-12-" +
+            "31 23:59:59Z\nlast-local  = 9999-12-31 23:59:59\nlast-date   =" +
+            " 9999-12-31\n",
+            "{{\"first-date\": \"0001-01-01\", \"first-local\": \"0001-01-01T00:0" +
+            "0:00\", \"first-offset\": \"0001-01-01T00:00:00Z\", \"last-date\": " +
+            "\"9999-12-31\", \"last-local\": \"9999-12-31T23:59:59\", \"last-off" +
+            "set\": \"9999-12-31T23:59:59Z\"}}"),
+        ("datetime/invalid-date-in-string",
+            "s = '2020-01-01x'\n",
+            "{{\"s\": \"2020-01-01x\"}}"),
+        ("datetime/leap-year",
+            "2000-datetime       = 2000-02-29 15:15:15Z\n2000-datetime-loc" +
+            "al = 2000-02-29 15:15:15\n2000-date           = 2000-02-29\n\n2" +
+            "024-datetime       = 2024-02-29 15:15:15Z\n2024-datetime-loca" +
+            "l = 2024-02-29 15:15:15\n2024-date           = 2024-02-29\n",
+            "{{\"2000-date\": \"2000-02-29\", \"2000-datetime\": \"2000-02-29T15:" +
+            "15:15Z\", \"2000-datetime-local\": \"2000-02-29T15:15:15\", \"2024" +
+            "-date\": \"2024-02-29\", \"2024-datetime\": \"2024-02-29T15:15:15Z" +
+            "\", \"2024-datetime-local\": \"2024-02-29T15:15:15\"}}"),
+        ("datetime/local-date",
+            "bestdayever = 1987-07-05\n",
+            "{{\"bestdayever\": \"1987-07-05\"}}"),
+        ("datetime/local-time",
+            "besttimeever = 17:45:00\nmilliseconds = 10:32:00.555\n",
+            "{{\"besttimeever\": \"17:45:00\", \"milliseconds\": \"10:32:00.555\"}}"),
+        ("datetime/local",
+            "local = 1987-07-05T17:45:00\nmilli = 1977-12-21T10:32:00.555\n" +
+            "space = 1987-07-05 17:45:00\n",
+            "{{\"local\": \"1987-07-05T17:45:00\", \"milli\": \"1977-12-21T10:32:" +
+            "00.555\", \"space\": \"1987-07-05T17:45:00\"}}"),
+        ("datetime/milliseconds",
+            "utc1  = 1987-07-05T17:45:56.123Z\nutc2  = 1987-07-05T17:45:56" +
+            ".6Z\nwita1 = 1987-07-05T17:45:56.123+08:00\nwita2 = 1987-07-05" +
+            "T17:45:56.6+08:00\n",
+            "{{\"utc1\": \"1987-07-05T17:45:56.123Z\", \"utc2\": \"1987-07-05T17:" +
+            "45:56.6Z\", \"wita1\": \"1987-07-05T17:45:56.123+08:00\", \"wita2\"" +
+            ": \"1987-07-05T17:45:56.6+08:00\"}}"),
+        ("datetime/timezone",
+            "utc  = 1987-07-05T17:45:56Z\npdt  = 1987-07-05T17:45:56-05:00" +
+            "\nnzst = 1987-07-05T17:45:56+12:00\nnzdt = 1987-07-05T17:45:56" +
+            "+13:00  # DST\n",
+            "{{\"nzdt\": \"1987-07-05T17:45:56+13:00\", \"nzst\": \"1987-07-05T17" +
+            ":45:56+12:00\", \"pdt\": \"1987-07-05T17:45:56-05:00\", \"utc\": \"1" +
+            "987-07-05T17:45:56Z\"}}"),
+        ("empty-crlf",
+            "\r\n",
+            "{{}}"),
+        ("empty-lf",
+            "\n",
+            "{{}}"),
+        ("empty-nothing",
+            "",
+            "{{}}"),
+        ("empty-space",
+            " ",
+            "{{}}"),
+        ("empty-tab",
+            "\t",
+            "{{}}"),
+        ("example",
+            "best-day-ever = 1987-07-05T17:45:00Z\n\n[numtheory]\nboring = f" +
+            "alse\nperfection = [6, 28, 496]\n",
+            "{{\"best-day-ever\": \"1987-07-05T17:45:00Z\", \"numtheory\": {{\"bor" +
+            "ing\": false, \"perfection\": [6, 28, 496]}}}}"),
+        ("float/exponent-upper",
+            "# Both upper- and lower-case \"e\" is valid, so repeat the exp" +
+            "onent.toml test with\n# upper-case.\nexp        = 3E2\npos-exp " +
+            "   = 3E+2\nneg-exp    = 3E-2\nzero-exp   = 3E0\nfrac       = 3." +
+            "1E2\nneg        = -1E-1\nzero       = 0E2\nzero-plus = +0E2\n",
+            "{{\"exp\": 4643985272004935680, \"frac\": 4644161193865379840, \"n" +
+            "eg\": 13815242216921733530, \"neg-exp\": 4584304132692975288, \"" +
+            "pos-exp\": 4643985272004935680, \"zero\": 0, \"zero-exp\": 461393" +
+            "7818241073152, \"zero-plus\": 0}}"),
+        ("float/exponent",
+            "# Please keep exponent-upper.toml in sync with this.\n\nexp   " +
+            "    = 3e2\npos-exp   = 3e+2\nneg-exp   = 3e-2\nzero-exp  = 3e0\n" +
+            "frac      = 3.1e2\nneg       = -1e-1\nzero      = 0e2\nzero-plu" +
+            "s = +0e2\n",
+            "{{\"exp\": 4643985272004935680, \"frac\": 4644161193865379840, \"n" +
+            "eg\": 13815242216921733530, \"neg-exp\": 4584304132692975288, \"" +
+            "pos-exp\": 4643985272004935680, \"zero\": 0, \"zero-exp\": 461393" +
+            "7818241073152, \"zero-plus\": 0}}"),
+        ("float/float",
+            "pi = 3.14\npospi = +3.14\nnegpi = -3.14\nzero-intpart = 0.123\nl" +
+            "eading-zero-fractional = 0.0123\n",
+            "{{\"leading-zero-fractional\": 4578244089034385549, \"negpi\": 13" +
+            "837625107069764895, \"pi\": 4614253070214989087, \"pospi\": 4614" +
+            "253070214989087, \"zero-intpart\": 4593527504729830064}}"),
+        ("float/inf-and-nan",
+            "# We don't encode +nan and -nan back with the signs; many la" +
+            "nguages don't\n# support a sign on NaN (it doesn't really mak" +
+            "e much sense).\nnan = nan\nnan_neg = -nan\nnan_plus = +nan\ninfi" +
+            "nity = inf\ninfinity_neg = -inf\ninfinity_plus = +inf\n",
+            "{{\"infinity\": 9218868437227405312, \"infinity_neg\": 1844224047" +
+            "4082181120, \"infinity_plus\": 9218868437227405312, \"nan\": nan" +
+            ", \"nan_neg\": nan, \"nan_plus\": nan}}"),
+        ("float/long",
+            "longpi = 3.141592653589793\nneglongpi = -3.141592653589793\n",
+            "{{\"longpi\": 4614256656552045848, \"neglongpi\": 138376286934068" +
+            "21656}}"),
+        ("float/max-int",
+            "# Maximum and minimum safe natural numbers.\nmax_float =  9_0" +
+            "07_199_254_740_991.0\nmin_float = -9_007_199_254_740_991.0\n",
+            "{{\"max_float\": 4845873199050653695, \"min_float\": 140692452359" +
+            "05429503}}"),
+        ("float/underscore",
+            "before = 3_141.5927\nafter = 3141.592_7\nexponent = 3e1_4\n",
+            "{{\"after\": 4659126850480494766, \"before\": 4659126850480494766" +
+            ", \"exponent\": 4823651601286430720}}"),
+        ("float/zero",
+            "zero = 0.0\nsigned-pos = +0.0\nsigned-neg = -0.0\nexponent = 0e" +
+            "0\nexponent-two-0 = 0e00\nexponent-signed-pos = +0e0\nexponent-" +
+            "signed-neg = -0e0\n",
+            "{{\"exponent\": 0, \"exponent-signed-neg\": 9223372036854775808, " +
+            "\"exponent-signed-pos\": 0, \"exponent-two-0\": 0, \"signed-neg\":" +
+            " 9223372036854775808, \"signed-pos\": 0, \"zero\": 0}}"),
+        ("implicit-and-explicit-after",
+            "[a.b.c]\nanswer = 42\n\n[a]\nbetter = 43\n",
+            "{{\"a\": {{\"b\": {{\"c\": {{\"answer\": 42}}}}, \"better\": 43}}}}"),
+        ("implicit-and-explicit-before",
+            "[a]\nbetter = 43\n\n[a.b.c]\nanswer = 42\n",
+            "{{\"a\": {{\"b\": {{\"c\": {{\"answer\": 42}}}}, \"better\": 43}}}}"),
+        ("implicit-groups",
+            "[a.b.c]\nanswer = 42\n",
+            "{{\"a\": {{\"b\": {{\"c\": {{\"answer\": 42}}}}}}}}"),
+        ("inline-table/array-01",
+            "arr = [ {{'a'= 1}}, {{'a'= 2}} ]\n\npeople = [{{first_name = \"Bruce" +
+            "\", last_name = \"Springsteen\"}},\n          {{first_name = \"Eric" +
+            "\", last_name = \"Clapton\"}},\n          {{first_name = \"Bob\", la" +
+            "st_name = \"Seger\"}}]\n",
+            "{{\"arr\": [{{\"a\": 1}}, {{\"a\": 2}}], \"people\": [{{\"first_name\": \"Bru" +
+            "ce\", \"last_name\": \"Springsteen\"}}, {{\"first_name\": \"Eric\", \"la" +
+            "st_name\": \"Clapton\"}}, {{\"first_name\": \"Bob\", \"last_name\": \"Se" +
+            "ger\"}}]}}"),
+        ("inline-table/array-02",
+            "# \"No newlines are allowed between the curly braces unless t" +
+            "hey are valid within\n# a value\"\n\na = {{ a = [\n]}}\n",
+            "{{\"a\": {{\"a\": []}}}}"),
+        ("inline-table/array-03",
+            "b = {{ a = [\n\t\t1,\n\t\t2,\n\t], b = [\n\t\t3,\n\t\t4,\n\t]}}\n",
+            "{{\"b\": {{\"a\": [1, 2], \"b\": [3, 4]}}}}"),
+        ("inline-table/bool",
+            "a = {{a = true, b = false}}\n",
+            "{{\"a\": {{\"a\": true, \"b\": false}}}}"),
+        ("inline-table/empty",
+            "empty1 = {{}}\nempty2 = {{ }}\nempty_in_array = [ {{ not_empty = 1 " +
+            "}}, {{}} ]\nempty_in_array2 = [{{}},{{not_empty=1}}]\nmany_empty = [{{" +
+            "}},{{}},{{}}]\nnested_empty = {{\"empty\"={{}}}}\nwith_cmt ={{            " +
+            "}}#nothing here\n",
+            "{{\"empty1\": {{}}, \"empty2\": {{}}, \"empty_in_array\": [{{\"not_empty\"" +
+            ": 1}}, {{}}], \"empty_in_array2\": [{{}}, {{\"not_empty\": 1}}], \"many_" +
+            "empty\": [{{}}, {{}}, {{}}], \"nested_empty\": {{\"empty\": {{}}}}, \"with_c" +
+            "mt\": {{}}}}"),
+        ("inline-table/end-in-bool",
+            "black = {{ python=\">3.6\", version=\">=18.9b0\", allow_prereleas" +
+            "es=true }}\n",
+            "{{\"black\": {{\"allow_prereleases\": true, \"python\": \">3.6\", \"ver" +
+            "sion\": \">=18.9b0\"}}}}"),
+        ("inline-table/inline-table",
+            "name        = {{ first = \"Tom\", last = \"Preston-Werner\" }}\npoi" +
+            "nt       = {{ x = 1, y = 2 }}\nsimple      = {{ a = 1 }}\nstr-key " +
+            "    = {{ \"a\" = 1 }}\ntable-array = [{{ \"a\" = 1 }}, {{ \"b\" = 2 }}]\n",
+            "{{\"name\": {{\"first\": \"Tom\", \"last\": \"Preston-Werner\"}}, \"point\"" +
+            ": {{\"x\": 1, \"y\": 2}}, \"simple\": {{\"a\": 1}}, \"str-key\": {{\"a\": 1}}," +
+            " \"table-array\": [{{\"a\": 1}}, {{\"b\": 2}}]}}"),
+        ("inline-table/key-dotted-01",
+            "a = {{   a.b  =  1   }}\nb = {{   \"a\".\"b\"  =  1   }}\nc = {{   a   " +
+            ".   b  =  1   }}\nd = {{   'a'   .   \"b\"  =  1   }}\ne = {{a.b=1}}\n",
+            "{{\"a\": {{\"a\": {{\"b\": 1}}}}, \"b\": {{\"a\": {{\"b\": 1}}}}, \"c\": {{\"a\": {{\"b\"" +
+            ": 1}}}}, \"d\": {{\"a\": {{\"b\": 1}}}}, \"e\": {{\"a\": {{\"b\": 1}}}}}}"),
+        ("inline-table/key-dotted-02",
+            "many.dots.here.dot.dot.dot = {{a.b.c = 1, a.b.d = 2}}\n",
+            "{{\"many\": {{\"dots\": {{\"here\": {{\"dot\": {{\"dot\": {{\"dot\": {{\"a\": {{\"b" +
+            "\": {{\"c\": 1, \"d\": 2}}}}}}}}}}}}}}}}}}"),
+        ("inline-table/key-dotted-03",
+            "[tbl]\na.b.c = {{d.e=1}}\n\n[tbl.x]\na.b.c = {{d.e=1}}\n",
+            "{{\"tbl\": {{\"a\": {{\"b\": {{\"c\": {{\"d\": {{\"e\": 1}}}}}}}}, \"x\": {{\"a\": {{\"b\"" +
+            ": {{\"c\": {{\"d\": {{\"e\": 1}}}}}}}}}}}}}}"),
+        ("inline-table/key-dotted-04",
+            "[[arr]]\nt = {{a.b=1}}\nT = {{a.b=1}}\n\n[[arr]]\nt = {{a.b=2}}\nT = {{a." +
+            "b=2}}\n",
+            "{{\"arr\": [{{\"T\": {{\"a\": {{\"b\": 1}}}}, \"t\": {{\"a\": {{\"b\": 1}}}}}}, {{\"T\":" +
+            " {{\"a\": {{\"b\": 2}}}}, \"t\": {{\"a\": {{\"b\": 2}}}}}}]}}"),
+        ("inline-table/key-dotted-05",
+            "arr-1 = [{{a.b = 1}}]\narr-2 = [\"str\", {{a.b = 1}}]\n\narr-3 = [{{a." +
+            "b = 1}}, {{a.b = 2}}]\narr-4 = [\"str\", {{a.b = 1}}, {{a.b = 2}}]\n",
+            "{{\"arr-1\": [{{\"a\": {{\"b\": 1}}}}], \"arr-2\": [\"str\", {{\"a\": {{\"b\": 1}}" +
+            "}}], \"arr-3\": [{{\"a\": {{\"b\": 1}}}}, {{\"a\": {{\"b\": 2}}}}], \"arr-4\": [\"" +
+            "str\", {{\"a\": {{\"b\": 1}}}}, {{\"a\": {{\"b\": 2}}}}]}}"),
+        ("inline-table/key-dotted-06",
+            "top.dot.dot = [\n\t{{dot.dot.dot = 1}},\n\t{{dot.dot.dot = 2}},\n]\n",
+            "{{\"top\": {{\"dot\": {{\"dot\": [{{\"dot\": {{\"dot\": {{\"dot\": 1}}}}}}, {{\"dot" +
+            "\": {{\"dot\": {{\"dot\": 2}}}}}}]}}}}}}"),
+        ("inline-table/key-dotted-07",
+            "arr = [\n\t{{a.b = [{{c.d = 1}}]}}\n]\n",
+            "{{\"arr\": [{{\"a\": {{\"b\": [{{\"c\": {{\"d\": 1}}}}]}}}}]}}"),
+        ("inline-table/multiline",
+            "tbl_multiline = {{ a = 1, b = \"\"\"\nmultiline\n\"\"\", c = \"\"\"and y" +
+            "et\nanother line\"\"\", d = 4 }}\n",
+            "{{\"tbl_multiline\": {{\"a\": 1, \"b\": \"multiline\\u000a\", \"c\": \"and" +
+            " yet\\u000aanother line\", \"d\": 4}}}}"),
+        ("inline-table/nest",
+            "tbl_tbl_empty = {{ tbl_0 = {{}} }}\ntbl_tbl_val   = {{ tbl_1 = {{ o" +
+            "ne = 1 }} }}\ntbl_arr_tbl   = {{ arr_tbl = [ {{ one = 1 }} ] }}\narr" +
+            "_tbl_tbl   = [ {{ tbl = {{ one = 1 }} }} ]\n\n# Array-of-array-of-" +
+            "table is interesting because it can only\n# be represented in" +
+            " inline form.\narr_arr_tbl_empty = [ [ {{}} ] ]\narr_arr_tbl_val" +
+            " = [ [ {{ one = 1 }} ] ]\narr_arr_tbls  = [ [ {{ one = 1 }}, {{ tw" +
+            "o = 2 }} ] ]\n",
+            "{{\"arr_arr_tbl_empty\": [[{{}}]], \"arr_arr_tbl_val\": [[{{\"one\": 1" +
+            "}}]], \"arr_arr_tbls\": [[{{\"one\": 1}}, {{\"two\": 2}}]], \"arr_tbl_tb" +
+            "l\": [{{\"tbl\": {{\"one\": 1}}}}], \"tbl_arr_tbl\": {{\"arr_tbl\": [{{\"one" +
+            "\": 1}}]}}, \"tbl_tbl_empty\": {{\"tbl_0\": {{}}}}, \"tbl_tbl_val\": {{\"tb" +
+            "l_1\": {{\"one\": 1}}}}}}"),
+        ("inline-table/spaces",
+            "# https://github.com/toml-lang/toml-test/issues/146\nclap-1 =" +
+            " {{ version = \"4\"  , features = [\"derive\", \"cargo\"] }}\n\n# Cont" +
+            "ains some literal tabs!\nclap-2 = {{ version = \"4\"\t   \t,\t  \tfe" +
+            "atures = [   \"derive\" \t  ,  \t  \"cargo\"   ]   , nest   =   {{ " +
+            " \t  \"a\"   =   'x'  , \t  'b'   = [ 1.5    ,   9.0  ]  }}  }}\n",
+            "{{\"clap-1\": {{\"features\": [\"derive\", \"cargo\"], \"version\": \"4\"}}" +
+            ", \"clap-2\": {{\"features\": [\"derive\", \"cargo\"], \"nest\": {{\"a\": " +
+            "\"x\", \"b\": [4609434218613702656, 4621256167635550208]}}, \"vers" +
+            "ion\": \"4\"}}}}"),
+        ("integer/float64-max",
+            "# Maximum and minimum safe float64 natural numbers. Mainly h" +
+            "ere for\n# -int-as-float.\nmax_int =  9_007_199_254_740_991\nmi" +
+            "n_int = -9_007_199_254_740_991\n",
+            "{{\"max_int\": 9007199254740991, \"min_int\": -9007199254740991}}"),
+        ("integer/integer",
+            "answer = 42\nposanswer = +42\nneganswer = -42\nzero = 0\n",
+            "{{\"answer\": 42, \"neganswer\": -42, \"posanswer\": 42, \"zero\": 0}}"),
+        ("integer/literals",
+            "bin1 = 0b11010110\nbin2 = 0b1_0_1\n\noct1 = 0o01234567\noct2 = 0" +
+            "o755\noct3 = 0o7_6_5\n\nhex1 = 0xDEADBEEF\nhex2 = 0xdeadbeef\nhex" +
+            "3 = 0xdead_beef\nhex4 = 0x00987\n",
+            "{{\"bin1\": 214, \"bin2\": 5, \"hex1\": 3735928559, \"hex2\": 3735928" +
+            "559, \"hex3\": 3735928559, \"hex4\": 2439, \"oct1\": 342391, \"oct2" +
+            "\": 493, \"oct3\": 501}}"),
+        ("integer/long",
+            "# int64 \"should\" be supported, but is not mandatory. It's fi" +
+            "ne to skip this\n# test.\nint64-max     = 9223372036854775807\n" +
+            "int64-max-neg = -9223372036854775808\n",
+            "{{\"int64-max\": 9223372036854775807, \"int64-max-neg\": -9223372" +
+            "036854775808}}"),
+        ("integer/underscore",
+            "kilo = 1_000\nx = 1_1_1_1\n",
+            "{{\"kilo\": 1000, \"x\": 1111}}"),
+        ("integer/zero",
+            "d1 = 0\nd2 = +0\nd3 = -0\n\nh1 = 0x0\nh2 = 0x00\nh3 = 0x00000\n\no1 " +
+            "= 0o0\na2 = 0o00\na3 = 0o00000\n\nb1 = 0b0\nb2 = 0b00\nb3 = 0b0000" +
+            "0\n",
+            "{{\"a2\": 0, \"a3\": 0, \"b1\": 0, \"b2\": 0, \"b3\": 0, \"d1\": 0, \"d2\":" +
+            " 0, \"d3\": 0, \"h1\": 0, \"h2\": 0, \"h3\": 0, \"o1\": 0}}"),
+        ("key/alphanum",
+            "alpha = \"a\"\n123 = \"num\"\n000111 = \"leading\"\n10e3 = \"false flo" +
+            "at\"\none1two2 = \"mixed\"\nwith-dash = \"dashed\"\nunder_score = \"_" +
+            "__\"\n34-11 = 23\n\n[2018_10]\n001 = 1\n\n[a-a-a]\n_ = false\n",
+            "{{\"000111\": \"leading\", \"10e3\": \"false float\", \"123\": \"num\", \"" +
+            "2018_10\": {{\"001\": 1}}, \"34-11\": 23, \"a-a-a\": {{\"_\": false}}, \"a" +
+            "lpha\": \"a\", \"one1two2\": \"mixed\", \"under_score\": \"___\", \"with" +
+            "-dash\": \"dashed\"}}"),
+        ("key/case-sensitive",
+            "sectioN = \"NN\"\n\n[section]\nname = \"lower\"\nNAME = \"upper\"\nName" +
+            " = \"capitalized\"\n\n[Section]\nname = \"different section!!\"\n\"μ\"" +
+            " = \"greek small letter mu\"\n\"Μ\" = \"greek capital letter MU\"\nM" +
+            " = \"latin letter M\"\n\n",
+            "{{\"Section\": {{\"M\": \"latin letter M\", \"name\": \"different secti" +
+            "on!!\", \"Μ\": \"greek capital letter MU\", \"μ\": \"greek small let" +
+            "ter mu\"}}, \"sectioN\": \"NN\", \"section\": {{\"NAME\": \"upper\", \"Nam" +
+            "e\": \"capitalized\", \"name\": \"lower\"}}}}"),
+        ("key/dotted-01",
+            "name.first = \"Arthur\"\n\"name\".'last' = \"Dent\"\n\nmany.dots.dot." +
+            "dot.dot = 42\n",
+            "{{\"many\": {{\"dots\": {{\"dot\": {{\"dot\": {{\"dot\": 42}}}}}}}}, \"name\": {{\"" +
+            "first\": \"Arthur\", \"last\": \"Dent\"}}}}"),
+        ("key/dotted-02",
+            "# Note: this file contains literal tab characters.\n\n# Space " +
+            "are ignored, and key parts can be quoted.\ncount.a       = 1\n" +
+            "count . b     = 2\n\"count\".\"c\"   = 3\n\"count\" . \"d\" = 4\n'count" +
+            "'.'e'   = 5\n'count' . 'f' = 6\n\"count\".'g'   = 7\n\"count\" . 'h" +
+            "' = 8\ncount.'i'     = 9\ncount \t.\t 'j'\t   = 10\n\"count\".k     " +
+            "= 11\n\"count\" . l   = 12\n",
+            "{{\"count\": {{\"a\": 1, \"b\": 2, \"c\": 3, \"d\": 4, \"e\": 5, \"f\": 6, \"" +
+            "g\": 7, \"h\": 8, \"i\": 9, \"j\": 10, \"k\": 11, \"l\": 12}}}}"),
+        ("key/dotted-03",
+            "top.key = 1\n\n[tbl]\na.b.c = 42.666\n\n[a.few.dots]\npolka.dot = " +
+            "\"again?\"\npolka.dance-with = \"Dot\"\n\n",
+            "{{\"a\": {{\"few\": {{\"dots\": {{\"polka\": {{\"dance-with\": \"Dot\", \"dot\"" +
+            ": \"again?\"}}}}}}}}, \"tbl\": {{\"a\": {{\"b\": {{\"c\": 4631201522987667816" +
+            "}}}}}}, \"top\": {{\"key\": 1}}}}"),
+        ("key/dotted-04",
+            "top.key = 1\n\n[[arr]]\na.b.c=1\na.b.d=2\n\n[[arr]]\na.b.c=3\na.b.d=" +
+            "4\n\n",
+            "{{\"arr\": [{{\"a\": {{\"b\": {{\"c\": 1, \"d\": 2}}}}}}, {{\"a\": {{\"b\": {{\"c\": 3" +
+            ", \"d\": 4}}}}}}], \"top\": {{\"key\": 1}}}}"),
+        ("key/dotted-empty",
+            "''.x = \"empty.x\"\nx.\"\" = \"x.empty\"\n[a]\n\"\".'' = \"empty.empty\"\n",
+            "{{\"\": {{\"x\": \"empty.x\"}}, \"a\": {{\"\": {{\"\": \"empty.empty\"}}}}, \"x\": " +
+            "{{\"\": \"x.empty\"}}}}"),
+        ("key/empty-01",
+            "\"\" = \"blank\"\n",
+            "{{\"\": \"blank\"}}"),
+        ("key/empty-02",
+            "'' = \"blank\"\n",
+            "{{\"\": \"blank\"}}"),
+        ("key/empty-03",
+            "''=0\n",
+            "{{\"\": 0}}"),
+        ("key/empty-04",
+            "tbl-1     = {{\"\" = 1}}\ntbl-2     = {{\"\" = {{\"\" = 1}}}}\narr-tbl-1 =" +
+            " [{{\"\" = 2}}]\narr-tbl-2 = [[{{\"\" = 2}}]]\n",
+            "{{\"arr-tbl-1\": [{{\"\": 2}}], \"arr-tbl-2\": [[{{\"\": 2}}]], \"tbl-1\": " +
+            "{{\"\": 1}}, \"tbl-2\": {{\"\": {{\"\": 1}}}}}}"),
+        ("key/equals-nospace",
+            "answer=42\n",
+            "{{\"answer\": 42}}"),
+        ("key/escapes",
+            "\"\\n\" = \"newline\"\n\"\\b\" = \"bell\"\n\"\\u00c0\" = \"latin capital let" +
+            "ter A with grave\"\n\"\\\"\" = \"just a quote\"\n\n[\"backsp\\b\\b\"]\n\n[\"\\" +
+            "\"quoted\\\"\"]\nquote = true\n\n[\"a.b\".\"\\u00c0\"]\n",
+            "{{\"\\u0008\": \"bell\", \"\\u000a\": \"newline\", \"\\\"\": \"just a quote\"" +
+            ", \"\\\"quoted\\\"\": {{\"quote\": true}}, \"a.b\": {{\"À\": {{}}}}, \"backsp\\u" +
+            "0008\\u0008\": {{}}, \"À\": \"latin capital letter A with grave\"}}"),
+        ("key/like-date",
+            "# '-' is a valid character in keys: make a key that looks li" +
+            "ke a date.\n2001-02-03   = 1\n\"2001-02-04\" = 2\n'2001-02-05' = " +
+            "3\n\n# Also include datetime and time for good measure; these " +
+            "need to be quoted as\n# ':' isn't a valid bare key.\n\"2001-02-" +
+            "06T15:16:17+01:00\" = 4\n\"2001-02-07T15:16:17\"       = 5\n\"15:1" +
+            "6:17\"                  = 6\n\n# Dotted keys\na.2001-02-08 = 7\na" +
+            ".2001-02-09.2001-02-10 = 8\n2001-02-11.a.2001-02-12 = 9\n\n# Ta" +
+            "ble names\n[2002-01-02]\nk = 10\n\n[2002-01-02.2024-01-03]\nk = 1" +
+            "1\n\n[[2002-01-04]]\nk = 12\n",
+            "{{\"15:16:17\": 6, \"2001-02-03\": 1, \"2001-02-04\": 2, \"2001-02-0" +
+            "5\": 3, \"2001-02-06T15:16:17+01:00\": 4, \"2001-02-07T15:16:17\"" +
+            ": 5, \"2001-02-11\": {{\"a\": {{\"2001-02-12\": 9}}}}, \"2002-01-02\": {{" +
+            "\"2024-01-03\": {{\"k\": 11}}, \"k\": 10}}, \"2002-01-04\": [{{\"k\": 12}}]" +
+            ", \"a\": {{\"2001-02-08\": 7, \"2001-02-09\": {{\"2001-02-10\": 8}}}}}}"),
+        ("key/numeric-01",
+            "1     = true\n",
+            "{{\"1\": true}}"),
+        ("key/numeric-02",
+            "1.2   = true\n",
+            "{{\"1\": {{\"2\": true}}}}"),
+        ("key/numeric-03",
+            "0123  = true\n",
+            "{{\"0123\": true}}"),
+        ("key/numeric-04",
+            "01.23 = true\n",
+            "{{\"01\": {{\"23\": true}}}}"),
+        ("key/numeric-05",
+            "23.01 = true\n",
+            "{{\"23\": {{\"01\": true}}}}"),
+        ("key/numeric-06",
+            "-1    = true\n",
+            "{{\"-1\": true}}"),
+        ("key/numeric-07",
+            "-01   = true\n",
+            "{{\"-01\": true}}"),
+        ("key/numeric-08",
+            "1  = 'one'\n01 = 'zero one'\n",
+            "{{\"01\": \"zero one\", \"1\": \"one\"}}"),
+        ("key/quoted-dots",
+            "plain = 1\n\"with.dot\" = 2\n\n[plain_table]\nplain = 3\n\"with.dot\"" +
+            " = 4\n\n[table.withdot]\nplain = 5\n\"key.with.dots\" = 6\n\"escaped" +
+            "\\u002edot\" = 7\n",
+            "{{\"plain\": 1, \"plain_table\": {{\"plain\": 3, \"with.dot\": 4}}, \"ta" +
+            "ble\": {{\"withdot\": {{\"escaped.dot\": 7, \"key.with.dots\": 6, \"pl" +
+            "ain\": 5}}}}, \"with.dot\": 2}}"),
+        ("key/quoted-unicode",
+            "\n\"\\u0000\" = \"null\"\n'\\u0000' = \"different key\"\n\"\\u0008 \\u000c" +
+            " \\U00000041 \\u007f \\u0080 \\u00ff \\ud7ff \\ue000 \\uffff \\U0001" +
+            "0000 \\U0010ffff\" = \"escaped key\"\n\n\"~ \u{80} ÿ ퟿  ￿ 𐀀 􏿿\" = \"basic" +
+            " key\"\n'l ~ \u{80} ÿ ퟿  ￿ 𐀀 􏿿' = \"literal key\"\n",
+            "{{\"\\u0000\": \"null\", \"\\u0008 \\u000c A \\u007f \u{80} ÿ ퟿  ￿ 𐀀 􏿿\": \"" +
+            "escaped key\", \"\\\\u0000\": \"different key\", \"l ~ \u{80} ÿ ퟿  ￿ 𐀀 􏿿" +
+            "\": \"literal key\", \"~ \u{80} ÿ ퟿  ￿ 𐀀 􏿿\": \"basic key\"}}"),
+        ("key/space",
+            "# Keep whitespace inside quotes keys at all positions.\n\"a b\"" +
+            "   = 1\n\" c d \" = 2\n\"  much \t\t  whitespace  \t\\n  \\r\\n  \" = 3\n" +
+            "\n[ \" tbl \" ]\n\"\\ttab\\ttab\\t\" = \"tab\"\n",
+            "{{\"  much \\u0009\\u0009  whitespace  \\u0009\\u000a  \\u000d\\u000" +
+            "a  \": 3, \" c d \": 2, \" tbl \": {{\"\\u0009tab\\u0009tab\\u0009\": \"" +
+            "tab\"}}, \"a b\": 1}}"),
+        ("key/special-chars",
+            "\"=~!@$^&*()_+-`1234567890[]|/?><.,;:'=\" = 1\n",
+            "{{\"=~!@$^&*()_+-`1234567890[]|/?><.,;:'=\": 1}}"),
+        ("key/special-word",
+            "false = false\ntrue = 1\ninf = 100000000\nnan = \"ceci n'est pas" +
+            " un nombre\"\n\n",
+            "{{\"false\": false, \"inf\": 100000000, \"nan\": \"ceci n'est pas un" +
+            " nombre\", \"true\": 1}}"),
+        ("key/start",
+            "# Table and keys can start with any character; there is no r" +
+            "equirement for it to\n# start with a letter.\n\n[-key]\n-key = 1" +
+            "\n\n[_key]\n_key = 2\n\n[1key]\n1key = 3\n\n[-]\n- = 4\n\n[_]\n_ = 5\n\n[1" +
+            "] \n1 = 6\n\n[---] \n--- = 7\n\n[___]\n___ = 8\n\n[111]\n111 = 9\n\n[inl" +
+            "ine]\n--- = {{--- = 10, ___ = 11, 111 = 12}}\n",
+            "{{\"-\": {{\"-\": 4}}, \"---\": {{\"---\": 7}}, \"-key\": {{\"-key\": 1}}, \"1\":" +
+            " {{\"1\": 6}}, \"111\": {{\"111\": 9}}, \"1key\": {{\"1key\": 3}}, \"_\": {{\"_\"" +
+            ": 5}}, \"___\": {{\"___\": 8}}, \"_key\": {{\"_key\": 2}}, \"inline\": {{\"--" +
+            "-\": {{\"---\": 10, \"111\": 12, \"___\": 11}}}}}}"),
+        ("key/zero",
+            "0=0\n",
+            "{{\"0\": 0}}"),
+        ("multibyte",
+            "# Test multibyte throughout\n\n# Tèƨƭ ƒïℓè ƒôř TÓM£\n# Óñℓ¥ ƭλï" +
+            "ƨ ôñè ƭřïèƨ ƭô è₥úℓáƭè á TÓM£ ƒïℓè ωřïƭƭèñ β¥ á úƨèř ôƒ ƭλè " +
+            "ƙïñδ ôƒ ƥářƨèř ωřïƭèřƨ ƥřôβáβℓ¥ λáƭè\n\n['𝐭𝐛𝐥']\nstring = \"𝓼𝓽𝓻𝓲" +
+            "𝓷𝓰 - #\"          # \" 𝓼𝓽𝓻𝓲𝓷𝓰\n\t['𝐭𝐛𝐥'.sub]\n\t'𝕒𝕣𝕣𝕒𝕪' = [ \"] \", " +
+            "\" # \"]      # ] 𝓪𝓻𝓻𝓪𝔂\n\t'𝕒𝕣𝕣𝕒𝕪𝟚' = [ \"Tèƨƭ #11 ]ƥřôƲèδ ƭλáƭ\"," +
+            " \"Éжƥèřï₥èñƭ #9 ωáƨ á ƨúççèƨƨ\" ]\n\t# Ýôú δïδñ'ƭ ƭλïñƙ ïƭ'δ áƨ" +
+            " èáƨ¥ áƨ çλúçƙïñϱ ôúƭ ƭλè ℓáƨƭ #, δïδ ¥ôú?\n\tanother_test_str" +
+            "ing = \"§á₥è ƭλïñϱ, βúƭ ωïƭλ á ƨƭřïñϱ #\"\n\tescapes = \" Âñδ ωλè" +
+            "ñ \\\"'ƨ ářè ïñ ƭλè ƨƭřïñϱ, áℓôñϱ ωïƭλ # \\\"\"   # \"áñδ çô₥₥èñƭƨ" +
+            " ářè ƭλèřè ƭôô\"\n\t# Tλïñϱƨ ωïℓℓ ϱèƭ λářδèř\n\t\t['𝐭𝐛𝐥'.sub.\"βïƭ#" +
+            "\"]\n\t\t\"ωλáƭ?\" = \"Ýôú δôñ'ƭ ƭλïñƙ ƨô₥è úƨèř ωôñ'ƭ δô ƭλáƭ?\"\n\t\t" +
+            "multi_line_array = [\n\t\t\t\"]\",\n\t\t\t# ] Óλ ¥èƨ Ì δïδ\n\t\t\t]\n",
+            "{{\"𝐭𝐛𝐥\": {{\"string\": \"𝓼𝓽𝓻𝓲𝓷𝓰 - #\", \"sub\": {{\"another_test_strin" +
+            "g\": \"§á₥è ƭλïñϱ, βúƭ ωïƭλ á ƨƭřïñϱ #\", \"escapes\": \" Âñδ ωλèñ" +
+            " \\\"'ƨ ářè ïñ ƭλè ƨƭřïñϱ, áℓôñϱ ωïƭλ # \\\"\", \"βïƭ#\": {{\"multi_l" +
+            "ine_array\": [\"]\"], \"ωλáƭ?\": \"Ýôú δôñ'ƭ ƭλïñƙ ƨô₥è úƨèř ωôñ'ƭ" +
+            " δô ƭλáƭ?\"}}, \"𝕒𝕣𝕣𝕒𝕪\": [\"] \", \" # \"], \"𝕒𝕣𝕣𝕒𝕪𝟚\": [\"Tèƨƭ #11 ]ƥ" +
+            "řôƲèδ ƭλáƭ\", \"Éжƥèřï₥èñƭ #9 ωáƨ á ƨúççèƨƨ\"]}}}}}}"),
+        ("newline-crlf",
+            "os = \"DOS\"\r\nnewline = \"crlf\"\r\n",
+            "{{\"newline\": \"crlf\", \"os\": \"DOS\"}}"),
+        ("newline-lf",
+            "os = \"unix\"\nnewline = \"lf\"\n",
+            "{{\"newline\": \"lf\", \"os\": \"unix\"}}"),
+        ("spec-1.0.0/array-0",
+            "integers = [ 1, 2, 3 ]\ncolors = [ \"red\", \"yellow\", \"green\" ]" +
+            "\nnested_arrays_of_ints = [ [ 1, 2 ], [3, 4, 5] ]\nnested_mixe" +
+            "d_array = [ [ 1, 2 ], [\"a\", \"b\", \"c\"] ]\nstring_array = [ \"al" +
+            "l\", 'strings', \"\"\"are the same\"\"\", '''type''' ]\n\n# Mixed-typ" +
+            "e arrays are allowed\nnumbers = [ 0.1, 0.2, 0.5, 1, 2, 5 ]\nco" +
+            "ntributors = [\n  \"Foo Bar <foo@example.com>\",\n  {{ name = \"Ba" +
+            "z Qux\", email = \"bazqux@example.com\", url = \"https://example" +
+            ".com/bazqux\" }}\n]\n",
+            "{{\"colors\": [\"red\", \"yellow\", \"green\"], \"contributors\": [\"Foo" +
+            " Bar <foo@example.com>\", {{\"email\": \"bazqux@example.com\", \"na" +
+            "me\": \"Baz Qux\", \"url\": \"https://example.com/bazqux\"}}], \"inte" +
+            "gers\": [1, 2, 3], \"nested_arrays_of_ints\": [[1, 2], [3, 4, 5" +
+            "]], \"nested_mixed_array\": [[1, 2], [\"a\", \"b\", \"c\"]], \"number" +
+            "s\": [4591870180066957722, 4596373779694328218, 4602678819172" +
+            "646912, 1, 2, 5], \"string_array\": [\"all\", \"strings\", \"are th" +
+            "e same\", \"type\"]}}"),
+        ("spec-1.0.0/array-1",
+            "integers2 = [\n  1, 2, 3\n]\n\nintegers3 = [\n  1,\n  2, # this is" +
+            " ok\n]\n",
+            "{{\"integers2\": [1, 2, 3], \"integers3\": [1, 2]}}"),
+        ("spec-1.0.0/array-of-tables-0",
+            "[[products]]\nname = \"Hammer\"\nsku = 738594937\n\n[[products]]  " +
+            "# empty table within the array\n\n[[products]]\nname = \"Nail\"\ns" +
+            "ku = 284758393\n\ncolor = \"gray\"\n",
+            "{{\"products\": [{{\"name\": \"Hammer\", \"sku\": 738594937}}, {{}}, {{\"co" +
+            "lor\": \"gray\", \"name\": \"Nail\", \"sku\": 284758393}}]}}"),
+        ("spec-1.0.0/array-of-tables-1",
+            "[[fruits]]\nname = \"apple\"\n\n[fruits.physical]  # subtable\ncol" +
+            "or = \"red\"\nshape = \"round\"\n\n[[fruits.varieties]]  # nested a" +
+            "rray of tables\nname = \"red delicious\"\n\n[[fruits.varieties]]\n" +
+            "name = \"granny smith\"\n\n\n[[fruits]]\nname = \"banana\"\n\n[[fruits" +
+            ".varieties]]\nname = \"plantain\"\n",
+            "{{\"fruits\": [{{\"name\": \"apple\", \"physical\": {{\"color\": \"red\", \"" +
+            "shape\": \"round\"}}, \"varieties\": [{{\"name\": \"red delicious\"}}, {{" +
+            "\"name\": \"granny smith\"}}]}}, {{\"name\": \"banana\", \"varieties\": [" +
+            "{{\"name\": \"plantain\"}}]}}]}}"),
+        ("spec-1.0.0/array-of-tables-2",
+            "points = [ {{ x = 1, y = 2, z = 3 }},\n           {{ x = 7, y = " +
+            "8, z = 9 }},\n           {{ x = 2, y = 4, z = 8 }} ]\n",
+            "{{\"points\": [{{\"x\": 1, \"y\": 2, \"z\": 3}}, {{\"x\": 7, \"y\": 8, \"z\": " +
+            "9}}, {{\"x\": 2, \"y\": 4, \"z\": 8}}]}}"),
+        ("spec-1.0.0/boolean-0",
+            "bool1 = true\nbool2 = false\n",
+            "{{\"bool1\": true, \"bool2\": false}}"),
+        ("spec-1.0.0/comment-0",
+            "# This is a full-line comment\nkey = \"value\"  # This is a com" +
+            "ment at the end of a line\nanother = \"# This is not a comment" +
+            "\"\n",
+            "{{\"another\": \"# This is not a comment\", \"key\": \"value\"}}"),
+        ("spec-1.0.0/float-0",
+            "# fractional\nflt1 = +1.0\nflt2 = 3.1415\nflt3 = -0.01\n\n# expon" +
+            "ent\nflt4 = 5e+22\nflt5 = 1e06\nflt6 = -2E-2\n\n# both\nflt7 = 6.6" +
+            "26e-34\n",
+            "{{\"flt1\": 4607182418800017408, \"flt2\": 4614256447914709615, \"" +
+            "flt3\": 13800290266158863483, \"flt4\": 4946409255702973174, \"f" +
+            "lt5\": 4696837146684686336, \"flt6\": 13804793865786233979, \"fl" +
+            "t7\": 4110526388413685506}}"),
+        ("spec-1.0.0/float-1",
+            "flt8 = 224_617.445_991_228\n",
+            "{{\"flt8\": 4686957809515092309}}"),
+        ("spec-1.0.0/float-2",
+            "# infinity\nsf1 = inf  # positive infinity\nsf2 = +inf # posit" +
+            "ive infinity\nsf3 = -inf # negative infinity\n\n# not a number\n" +
+            "sf4 = nan  # actual sNaN/qNaN encoding is implementation-spe" +
+            "cific\nsf5 = +nan # same as `nan`\nsf6 = -nan # valid, actual " +
+            "encoding is implementation-specific\n",
+            "{{\"sf1\": 9218868437227405312, \"sf2\": 9218868437227405312, \"sf" +
+            "3\": 18442240474082181120, \"sf4\": nan, \"sf5\": nan, \"sf6\": nan" +
+            "}}"),
+        ("spec-1.0.0/inline-table-0",
+            "name = {{ first = \"Tom\", last = \"Preston-Werner\" }}\npoint = {{ " +
+            "x = 1, y = 2 }}\nanimal = {{ type.name = \"pug\" }}\n",
+            "{{\"animal\": {{\"type\": {{\"name\": \"pug\"}}}}, \"name\": {{\"first\": \"Tom" +
+            "\", \"last\": \"Preston-Werner\"}}, \"point\": {{\"x\": 1, \"y\": 2}}}}"),
+        ("spec-1.0.0/inline-table-1",
+            "[name]\nfirst = \"Tom\"\nlast = \"Preston-Werner\"\n\n[point]\nx = 1\n" +
+            "y = 2\n\n[animal]\ntype.name = \"pug\"\n",
+            "{{\"animal\": {{\"type\": {{\"name\": \"pug\"}}}}, \"name\": {{\"first\": \"Tom" +
+            "\", \"last\": \"Preston-Werner\"}}, \"point\": {{\"x\": 1, \"y\": 2}}}}"),
+        ("spec-1.0.0/inline-table-2",
+            "[product]\ntype = {{ name = \"Nail\" }}\n# type.edible = false  # " +
+            "INVALID\n",
+            "{{\"product\": {{\"type\": {{\"name\": \"Nail\"}}}}}}"),
+        ("spec-1.0.0/inline-table-3",
+            "[product]\ntype.name = \"Nail\"\n# type = {{ edible = false }}  # " +
+            "INVALID\n",
+            "{{\"product\": {{\"type\": {{\"name\": \"Nail\"}}}}}}"),
+        ("spec-1.0.0/integer-0",
+            "int1 = +99\nint2 = 42\nint3 = 0\nint4 = -17\n",
+            "{{\"int1\": 99, \"int2\": 42, \"int3\": 0, \"int4\": -17}}"),
+        ("spec-1.0.0/integer-1",
+            "int5 = 1_000\nint6 = 5_349_221\nint7 = 53_49_221  # Indian num" +
+            "ber system grouping\nint8 = 1_2_3_4_5  # VALID but discourage" +
+            "d\n",
+            "{{\"int5\": 1000, \"int6\": 5349221, \"int7\": 5349221, \"int8\": 123" +
+            "45}}"),
+        ("spec-1.0.0/integer-2",
+            "# hexadecimal with prefix `0x`\nhex1 = 0xDEADBEEF\nhex2 = 0xde" +
+            "adbeef\nhex3 = 0xdead_beef\n\n# octal with prefix `0o`\noct1 = 0" +
+            "o01234567\noct2 = 0o755 # useful for Unix file permissions\n\n#" +
+            " binary with prefix `0b`\nbin1 = 0b11010110\n",
+            "{{\"bin1\": 214, \"hex1\": 3735928559, \"hex2\": 3735928559, \"hex3\"" +
+            ": 3735928559, \"oct1\": 342391, \"oct2\": 493}}"),
+        ("spec-1.0.0/key-value-pair-0",
+            "key = \"value\"\n",
+            "{{\"key\": \"value\"}}"),
+        ("spec-1.0.0/keys-0",
+            "key = \"value\"\nbare_key = \"value\"\nbare-key = \"value\"\n1234 = \"" +
+            "value\"\n",
+            "{{\"1234\": \"value\", \"bare-key\": \"value\", \"bare_key\": \"value\", " +
+            "\"key\": \"value\"}}"),
+        ("spec-1.0.0/keys-1",
+            "\"127.0.0.1\" = \"value\"\n\"character encoding\" = \"value\"\n\"ʎǝʞ\" =" +
+            " \"value\"\n'key2' = \"value\"\n'quoted \"value\"' = \"value\"\n",
+            "{{\"127.0.0.1\": \"value\", \"character encoding\": \"value\", \"key2\"" +
+            ": \"value\", \"quoted \\\"value\\\"\": \"value\", \"ʎǝʞ\": \"value\"}}"),
+        ("spec-1.0.0/keys-3",
+            "name = \"Orange\"\nphysical.color = \"orange\"\nphysical.shape = \"" +
+            "round\"\nsite.\"google.com\" = true\n",
+            "{{\"name\": \"Orange\", \"physical\": {{\"color\": \"orange\", \"shape\": " +
+            "\"round\"}}, \"site\": {{\"google.com\": true}}}}"),
+        ("spec-1.0.0/keys-4",
+            "fruit.name = \"banana\"     # this is best practice\nfruit. col" +
+            "or = \"yellow\"    # same as fruit.color\nfruit . flavor = \"ban" +
+            "ana\"   # same as fruit.flavor\n",
+            "{{\"fruit\": {{\"color\": \"yellow\", \"flavor\": \"banana\", \"name\": \"b" +
+            "anana\"}}}}"),
+        ("spec-1.0.0/keys-5",
+            "# VALID BUT DISCOURAGED\n\napple.type = \"fruit\"\norange.type = " +
+            "\"fruit\"\n\napple.skin = \"thin\"\norange.skin = \"thick\"\n\napple.co" +
+            "lor = \"red\"\norange.color = \"orange\"\n",
+            "{{\"apple\": {{\"color\": \"red\", \"skin\": \"thin\", \"type\": \"fruit\"}}," +
+            " \"orange\": {{\"color\": \"orange\", \"skin\": \"thick\", \"type\": \"fru" +
+            "it\"}}}}"),
+        ("spec-1.0.0/keys-6",
+            "# RECOMMENDED\n\napple.type = \"fruit\"\napple.skin = \"thin\"\nappl" +
+            "e.color = \"red\"\n\norange.type = \"fruit\"\norange.skin = \"thick\"" +
+            "\norange.color = \"orange\"\n",
+            "{{\"apple\": {{\"color\": \"red\", \"skin\": \"thin\", \"type\": \"fruit\"}}," +
+            " \"orange\": {{\"color\": \"orange\", \"skin\": \"thick\", \"type\": \"fru" +
+            "it\"}}}}"),
+        ("spec-1.0.0/keys-7",
+            "3.14159 = \"pi\"\n",
+            "{{\"3\": {{\"14159\": \"pi\"}}}}"),
+        ("spec-1.0.0/local-date-0",
+            "ld1 = 1979-05-27\n",
+            "{{\"ld1\": \"1979-05-27\"}}"),
+        ("spec-1.0.0/local-date-time-0",
+            "ldt1 = 1979-05-27T07:32:00\nldt2 = 1979-05-27T00:32:00.999\n",
+            "{{\"ldt1\": \"1979-05-27T07:32:00\", \"ldt2\": \"1979-05-27T00:32:00" +
+            ".999\"}}"),
+        ("spec-1.0.0/local-time-0",
+            "lt1 = 07:32:00\nlt2 = 00:32:00.999\n",
+            "{{\"lt1\": \"07:32:00\", \"lt2\": \"00:32:00.999\"}}"),
+        ("spec-1.0.0/offset-date-time-0",
+            "odt1 = 1979-05-27T07:32:00Z\nodt2 = 1979-05-27T00:32:00-07:00" +
+            "\nodt3 = 1979-05-27T00:32:00.999-07:00\n",
+            "{{\"odt1\": \"1979-05-27T07:32:00Z\", \"odt2\": \"1979-05-27T00:32:0" +
+            "0-07:00\", \"odt3\": \"1979-05-27T00:32:00.999-07:00\"}}"),
+        ("spec-1.0.0/offset-date-time-1",
+            "odt4 = 1979-05-27 07:32:00Z\n",
+            "{{\"odt4\": \"1979-05-27T07:32:00Z\"}}"),
+        ("spec-1.0.0/string-0",
+            "str = \"I'm a string. \\\"You can quote me\\\". Name\\tJos\\u00E9\\n" +
+            "Location\\tSF.\"\n",
+            "{{\"str\": \"I'm a string. \\\"You can quote me\\\". Name\\u0009José\\" +
+            "u000aLocation\\u0009SF.\"}}"),
+        ("spec-1.0.0/string-1",
+            "str1 = \"\"\"\nRoses are red\nViolets are blue\"\"\"\n",
+            "{{\"str1\": \"Roses are red\\u000aViolets are blue\"}}"),
+        ("spec-1.0.0/string-2",
+            "# On a Unix system, the above multi-line string will most li" +
+            "kely be the same as:\nstr2 = \"Roses are red\\nViolets are blue" +
+            "\"\n\n# On a Windows system, it will most likely be equivalent " +
+            "to:\nstr3 = \"Roses are red\\r\\nViolets are blue\"\n",
+            "{{\"str2\": \"Roses are red\\u000aViolets are blue\", \"str3\": \"Ros" +
+            "es are red\\u000d\\u000aViolets are blue\"}}"),
+        ("spec-1.0.0/string-3",
+            "# The following strings are byte-for-byte equivalent:\nstr1 =" +
+            " \"The quick brown fox jumps over the lazy dog.\"\n\nstr2 = \"\"\"\n" +
+            "The quick brown \\\n\n\n  fox jumps over \\\n    the lazy dog.\"\"\"\n" +
+            "\nstr3 = \"\"\"\\\n       The quick brown \\\n       fox jumps over " +
+            "\\\n       the lazy dog.\\\n       \"\"\"\n",
+            "{{\"str1\": \"The quick brown fox jumps over the lazy dog.\", \"st" +
+            "r2\": \"The quick brown fox jumps over the lazy dog.\", \"str3\":" +
+            " \"The quick brown fox jumps over the lazy dog.\"}}"),
+        ("spec-1.0.0/string-4",
+            "str4 = \"\"\"Here are two quotation marks: \"\". Simple enough.\"\"" +
+            "\"\n# str5 = \"\"\"Here are three quotation marks: \"\"\".\"\"\"  # INV" +
+            "ALID\nstr5 = \"\"\"Here are three quotation marks: \"\"\\\".\"\"\"\nstr6" +
+            " = \"\"\"Here are fifteen quotation marks: \"\"\\\"\"\"\\\"\"\"\\\"\"\"\\\"\"\"\\\"" +
+            ".\"\"\"\n\n# \"This,\" she said, \"is just a pointless statement.\"\ns" +
+            "tr7 = \"\"\"\"This,\" she said, \"is just a pointless statement.\"\"" +
+            "\"\"\n",
+            "{{\"str4\": \"Here are two quotation marks: \\\"\\\". Simple enough." +
+            "\", \"str5\": \"Here are three quotation marks: \\\"\\\"\\\".\", \"str6\"" +
+            ": \"Here are fifteen quotation marks: \\\"\\\"\\\"\\\"\\\"\\\"\\\"\\\"\\\"\\\"\\\"\\" +
+            "\"\\\"\\\"\\\".\", \"str7\": \"\\\"This,\\\" she said, \\\"is just a pointles" +
+            "s statement.\\\"\"}}"),
+        ("spec-1.0.0/string-5",
+            "# What you see is what you get.\nwinpath  = 'C:\\Users\\nodejs\\" +
+            "templates'\nwinpath2 = '\\\\ServerX\\admin$\\system32\\'\nquoted   " +
+            "= 'Tom \"Dubs\" Preston-Werner'\nregex    = '<\\i\\c*\\s*>'\n",
+            "{{\"quoted\": \"Tom \\\"Dubs\\\" Preston-Werner\", \"regex\": \"<\\\\i\\\\c*" +
+            "\\\\s*>\", \"winpath\": \"C:\\\\Users\\\\nodejs\\\\templates\", \"winpath2" +
+            "\": \"\\\\\\\\ServerX\\\\admin$\\\\system32\\\\\"}}"),
+        ("spec-1.0.0/string-6",
+            "regex2 = '''I [dw]on't need \\d{{2}} apples'''\nlines  = '''\nThe" +
+            " first newline is\ntrimmed in raw strings.\n   All other white" +
+            "space\n   is preserved.\n'''\n",
+            "{{\"lines\": \"The first newline is\\u000atrimmed in raw strings." +
+            "\\u000a   All other whitespace\\u000a   is preserved.\\u000a\", " +
+            "\"regex2\": \"I [dw]on't need \\\\d{{2}} apples\"}}"),
+        ("spec-1.0.0/string-7",
+            "quot15 = '''Here are fifteen quotation marks: \"\"\"\"\"\"\"\"\"\"\"\"\"\"" +
+            "\"'''\n\n# apos15 = '''Here are fifteen apostrophes: ''''''''''" +
+            "''''''''  # INVALID\napos15 = \"Here are fifteen apostrophes: " +
+            "'''''''''''''''\"\n\n# 'That,' she said, 'is still pointless.'\n" +
+            "str = ''''That,' she said, 'is still pointless.''''\n",
+            "{{\"apos15\": \"Here are fifteen apostrophes: '''''''''''''''\", " +
+            "\"quot15\": \"Here are fifteen quotation marks: \\\"\\\"\\\"\\\"\\\"\\\"\\\"\\" +
+            "\"\\\"\\\"\\\"\\\"\\\"\\\"\\\"\", \"str\": \"'That,' she said, 'is still pointl" +
+            "ess.'\"}}"),
+        ("spec-1.0.0/table-0",
+            "[table]\n",
+            "{{\"table\": {{}}}}"),
+        ("spec-1.0.0/table-1",
+            "[table-1]\nkey1 = \"some string\"\nkey2 = 123\n\n[table-2]\nkey1 = " +
+            "\"another string\"\nkey2 = 456\n",
+            "{{\"table-1\": {{\"key1\": \"some string\", \"key2\": 123}}, \"table-2\":" +
+            " {{\"key1\": \"another string\", \"key2\": 456}}}}"),
+        ("spec-1.0.0/table-2",
+            "[dog.\"tater.man\"]\ntype.name = \"pug\"\n",
+            "{{\"dog\": {{\"tater.man\": {{\"type\": {{\"name\": \"pug\"}}}}}}}}"),
+        ("spec-1.0.0/table-3",
+            "[a.b.c]            # this is best practice\n[ d.e.f ]        " +
+            "  # same as [d.e.f]\n[ g .  h  . i ]    # same as [g.h.i]\n[ j" +
+            " . \"ʞ\" . 'l' ]  # same as [j.\"ʞ\".'l']\n",
+            "{{\"a\": {{\"b\": {{\"c\": {{}}}}}}, \"d\": {{\"e\": {{\"f\": {{}}}}}}, \"g\": {{\"h\": {{\"" +
+            "i\": {{}}}}}}, \"j\": {{\"ʞ\": {{\"l\": {{}}}}}}}}"),
+        ("spec-1.0.0/table-4",
+            "# [x] you\n# [x.y] don't\n# [x.y.z] need these\n[x.y.z.w] # for" +
+            " this to work\n\n[x] # defining a super-table afterward is ok\n",
+            "{{\"x\": {{\"y\": {{\"z\": {{\"w\": {{}}}}}}}}}}"),
+        ("spec-1.0.0/table-5",
+            "# VALID BUT DISCOURAGED\n[fruit.apple]\n[animal]\n[fruit.orange" +
+            "]\n",
+            "{{\"animal\": {{}}, \"fruit\": {{\"apple\": {{}}, \"orange\": {{}}}}}}"),
+        ("spec-1.0.0/table-6",
+            "# RECOMMENDED\n[fruit.apple]\n[fruit.orange]\n[animal]\n",
+            "{{\"animal\": {{}}, \"fruit\": {{\"apple\": {{}}, \"orange\": {{}}}}}}"),
+        ("spec-1.0.0/table-7",
+            "# Top-level table begins.\nname = \"Fido\"\nbreed = \"pug\"\n\n# Top" +
+            "-level table ends.\n[owner]\nname = \"Regina Dogman\"\nmember_sin" +
+            "ce = 1999-08-04\n",
+            "{{\"breed\": \"pug\", \"name\": \"Fido\", \"owner\": {{\"member_since\": \"" +
+            "1999-08-04\", \"name\": \"Regina Dogman\"}}}}"),
+        ("spec-1.0.0/table-8",
+            "fruit.apple.color = \"red\"\n# Defines a table named fruit\n# De" +
+            "fines a table named fruit.apple\n\nfruit.apple.taste.sweet = t" +
+            "rue\n# Defines a table named fruit.apple.taste\n# fruit and fr" +
+            "uit.apple were already created\n",
+            "{{\"fruit\": {{\"apple\": {{\"color\": \"red\", \"taste\": {{\"sweet\": true" +
+            "}}}}}}}}"),
+        ("spec-1.0.0/table-9",
+            "[fruit]\napple.color = \"red\"\napple.taste.sweet = true\n\n# [fru" +
+            "it.apple]  # INVALID\n# [fruit.apple.taste]  # INVALID\n\n[frui" +
+            "t.apple.texture]  # you can add sub-tables\nsmooth = true\n",
+            "{{\"fruit\": {{\"apple\": {{\"color\": \"red\", \"taste\": {{\"sweet\": true" +
+            "}}, \"texture\": {{\"smooth\": true}}}}}}}}"),
+        ("spec-example-1-compact",
+            "#Useless spaces eliminated.\ntitle=\"TOML Example\"\n[owner]\nnam" +
+            "e=\"Lance Uppercut\"\ndob=1979-05-27T07:32:00-08:00#First class" +
+            " dates\n[database]\nserver=\"192.168.1.1\"\nports=[8001,8001,8002" +
+            "]\nconnection_max=5000\nenabled=true\n[servers]\n[servers.alpha]" +
+            "\nip=\"10.0.0.1\"\ndc=\"eqdc10\"\n[servers.beta]\nip=\"10.0.0.2\"\ndc=\"" +
+            "eqdc10\"\n[clients]\ndata=[[\"gamma\",\"delta\"],[1,2]]\nhosts=[\n\"al" +
+            "pha\",\n\"omega\"\n]\n",
+            "{{\"clients\": {{\"data\": [[\"gamma\", \"delta\"], [1, 2]], \"hosts\": " +
+            "[\"alpha\", \"omega\"]}}, \"database\": {{\"connection_max\": 5000, \"e" +
+            "nabled\": true, \"ports\": [8001, 8001, 8002], \"server\": \"192.1" +
+            "68.1.1\"}}, \"owner\": {{\"dob\": \"1979-05-27T07:32:00-08:00\", \"nam" +
+            "e\": \"Lance Uppercut\"}}, \"servers\": {{\"alpha\": {{\"dc\": \"eqdc10\"," +
+            " \"ip\": \"10.0.0.1\"}}, \"beta\": {{\"dc\": \"eqdc10\", \"ip\": \"10.0.0.2" +
+            "\"}}}}, \"title\": \"TOML Example\"}}"),
+        ("spec-example-1",
+            "# This is a TOML document. Boom.\n\ntitle = \"TOML Example\"\n\n[o" +
+            "wner]\nname = \"Lance Uppercut\"\ndob = 1979-05-27T07:32:00-08:0" +
+            "0 # First class dates? Why not?\n\n[database]\nserver = \"192.16" +
+            "8.1.1\"\nports = [ 8001, 8001, 8002 ]\nconnection_max = 5000\nen" +
+            "abled = true\n\n[servers]\n\n  # You can indent as you please. T" +
+            "abs or spaces. TOML don't care.\n  [servers.alpha]\n  ip = \"10" +
+            ".0.0.1\"\n  dc = \"eqdc10\"\n\n  [servers.beta]\n  ip = \"10.0.0.2\"\n" +
+            "  dc = \"eqdc10\"\n\n[clients]\ndata = [ [\"gamma\", \"delta\"], [1, " +
+            "2] ]\n\n# Line breaks are OK when inside arrays\nhosts = [\n  \"a" +
+            "lpha\",\n  \"omega\"\n]\n",
+            "{{\"clients\": {{\"data\": [[\"gamma\", \"delta\"], [1, 2]], \"hosts\": " +
+            "[\"alpha\", \"omega\"]}}, \"database\": {{\"connection_max\": 5000, \"e" +
+            "nabled\": true, \"ports\": [8001, 8001, 8002], \"server\": \"192.1" +
+            "68.1.1\"}}, \"owner\": {{\"dob\": \"1979-05-27T07:32:00-08:00\", \"nam" +
+            "e\": \"Lance Uppercut\"}}, \"servers\": {{\"alpha\": {{\"dc\": \"eqdc10\"," +
+            " \"ip\": \"10.0.0.1\"}}, \"beta\": {{\"dc\": \"eqdc10\", \"ip\": \"10.0.0.2" +
+            "\"}}}}, \"title\": \"TOML Example\"}}"),
+        ("string/basic-escape-01",
+            "# Escape \"\ntest = \"\\\"one\\\"\"\n",
+            "{{\"test\": \"\\\"one\\\"\"}}"),
+        ("string/basic-escape-02",
+            "# Escape \\ and then \"\ntest = \"\\\\\\\"one\"\n",
+            "{{\"test\": \"\\\\\\\"one\"}}"),
+        ("string/basic-escape-03",
+            "# Escape \\ four times and then \"\ntest = \"\\\\\\\\\\\\\\\\\\\"one\"\n",
+            "{{\"test\": \"\\\\\\\\\\\\\\\\\\\"one\"}}"),
+        ("string/empty",
+            "answer = \"\"\n",
+            "{{\"answer\": \"\"}}"),
+        ("string/ends-in-whitespace-escape",
+            "beee = \"\"\"\nheeee\ngeeee\\  \n\n\n      \"\"\"\n",
+            "{{\"beee\": \"heeee\\u000ageeee\"}}"),
+        ("string/escape-tricky",
+            "end_esc = \"String does not end here\\\" but ends here\\\\\"\nlit_e" +
+            "nd_esc = 'String ends here\\'\n\nmultiline_unicode = \"\"\"\n\\u00a0" +
+            "\"\"\"\n\nmultiline_not_unicode = \"\"\"\n\\\\u0041\"\"\"\n\nmultiline_end_e" +
+            "sc = \"\"\"When will it end? \\\"\"\"...\"\"\\\" should be here\\\"\"\"\"\n\nl" +
+            "it_multiline_not_unicode = '''\n\\u007f'''\n\nlit_multiline_end " +
+            "= '''There is no escape\\'''\n",
+            "{{\"end_esc\": \"String does not end here\\\" but ends here\\\\\", \"l" +
+            "it_end_esc\": \"String ends here\\\\\", \"lit_multiline_end\": \"The" +
+            "re is no escape\\\\\", \"lit_multiline_not_unicode\": \"\\\\u007f\", " +
+            "\"multiline_end_esc\": \"When will it end? \\\"\\\"\\\"...\\\"\\\"\\\" shou" +
+            "ld be here\\\"\", \"multiline_not_unicode\": \"\\\\u0041\", \"multilin" +
+            "e_unicode\": \" \"}}"),
+        ("string/escaped-escape",
+            "answer = \"\\\\x64\"\n",
+            "{{\"answer\": \"\\\\x64\"}}"),
+        ("string/escapes",
+            "backspace     = \"|\\b.\"\ntab           = \"|\\t.\"\nnewline       " +
+            "= \"|\\n.\"\nformfeed      = \"|\\f.\"\ncarriage      = \"|\\r.\"\nquote" +
+            "         = \"|\\\".\"\nbackslash     = \"|\\\\.\"\ndelete        = \"|\\" +
+            "u007F.\"\nunitseparator = \"|\\u001F.\"\n\n# \\u is escaped, so shou" +
+            "ld NOT be interperted as a \\u escape.\nnotunicode1   = \"|\\\\u." +
+            "\"\nnotunicode2   = \"|\\u005Cu.\"\nnotunicode3   = \"|\\\\u0075.\"\nno" +
+            "tunicode4   = \"|\\\\\\u0075.\"\n",
+            "{{\"backslash\": \"|\\\\.\", \"backspace\": \"|\\u0008.\", \"carriage\": \"" +
+            "|\\u000d.\", \"delete\": \"|\\u007f.\", \"formfeed\": \"|\\u000c.\", \"ne" +
+            "wline\": \"|\\u000a.\", \"notunicode1\": \"|\\\\u.\", \"notunicode2\": \"" +
+            "|\\\\u.\", \"notunicode3\": \"|\\\\u0075.\", \"notunicode4\": \"|\\\\u.\", " +
+            "\"quote\": \"|\\\".\", \"tab\": \"|\\u0009.\", \"unitseparator\": \"|\\u001" +
+            "f.\"}}"),
+        ("string/multibyte-escape",
+            "# Test each multibyte length: 2, 3, and 4 bytes:\n# ɑ € 𐫱\n\nba" +
+            "sic-1    = \"\\u0251 \\u20ac \\U00010AF1 \\u0251\\u20ac\\U00010AF1\"" +
+            "\nml-basic-1 = \"\"\"\\u0251 \\u20ac \\U00010AF1 \\u0251\\u20ac\\U0001" +
+            "0AF1\"\"\"\n\n# Again, but only using \\U\nbasic-2    = \"\\U00000251" +
+            " \\U000020ac \\U00010AF1 \\U00000251\\U000020ac\\U00010AF1\"\nml-ba" +
+            "sic-2 = \"\"\"\\U00000251 \\U000020ac \\U00010AF1 \\U00000251\\U0000" +
+            "20ac\\U00010AF1\"\"\"\n",
+            "{{\"basic-1\": \"ɑ € 𐫱 ɑ€𐫱\", \"basic-2\": \"ɑ € 𐫱 ɑ€𐫱\", \"ml-basic-1" +
+            "\": \"ɑ € 𐫱 ɑ€𐫱\", \"ml-basic-2\": \"ɑ € 𐫱 ɑ€𐫱\"}}"),
+        ("string/multibyte",
+            "# Test each multibyte length: 2, 3, and 4 bytes:\n# ɑ € 𐫱\n\nba" +
+            "sic    = \"ɑ € 𐫱 ɑ€𐫱\"\nraw      = 'ɑ € 𐫱 ɑ€𐫱'\nml-basic = \"\"\"ɑ " +
+            "€ 𐫱 ɑ€𐫱\"\"\"\nml-raw   = '''ɑ € 𐫱 ɑ€𐫱'''\n",
+            "{{\"basic\": \"ɑ € 𐫱 ɑ€𐫱\", \"ml-basic\": \"ɑ € 𐫱 ɑ€𐫱\", \"ml-raw\": \"ɑ" +
+            " € 𐫱 ɑ€𐫱\", \"raw\": \"ɑ € 𐫱 ɑ€𐫱\"}}"),
+        ("string/multiline-empty",
+            "empty-1 = \"\"\"\"\"\"\n\n# A newline immediately following the open" +
+            "ing delimiter will be trimmed.\nempty-2 = \"\"\"\n\"\"\"\n\n# \\ at the" +
+            " end of line trims newlines as well; note that last \\ is fol" +
+            "lowed by\n# two spaces, which are ignored.\nempty-3 = \"\"\"\\\n   " +
+            " \"\"\"\nempty-4 = \"\"\"\\\n   \\\n   \\  \n   \"\"\"\n\n",
+            "{{\"empty-1\": \"\", \"empty-2\": \"\", \"empty-3\": \"\", \"empty-4\": \"\"}}"),
+        ("string/multiline-escaped-crlf",
+            "# The following line should be an unescaped backslash follow" +
+            "ed by a Windows\r\n# newline sequence (\"\\r\\n\")\r\n0=\"\"\"\\\r\n\"\"\"\r\n",
+            "{{\"0\": \"\"}}"),
+        ("string/multiline-quotes",
+            "# Make sure that quotes inside multiline strings are allowed" +
+            ", including right\n# after the opening '''/\"\"\" and before the" +
+            " closing '''/\"\"\"\n\nlit_one = ''''one quote''''\nlit_two = ''''" +
+            "'two quotes'''''\nlit_one_space = ''' 'one quote' '''\nlit_two" +
+            "_space = ''' ''two quotes'' '''\n\none = \"\"\"\"one quote\"\"\"\"\ntwo" +
+            " = \"\"\"\"\"two quotes\"\"\"\"\"\none_space = \"\"\" \"one quote\" \"\"\"\ntwo_" +
+            "space = \"\"\" \"\"two quotes\"\" \"\"\"\n\nmismatch1 = \"\"\"aaa'''bbb\"\"\"\n" +
+            "mismatch2 = '''aaa\"\"\"bbb'''\n\n# Three opening \"\"\", then one e" +
+            "scaped \", then two \"\" (allowed), and then three\n# closing \"\"" +
+            "\"\nescaped = \"\"\"lol\\\"\"\"\"\"\"\n\nfive-quotes = \"\"\"\nClosing with fi" +
+            "ve quotes\n\"\"\"\"\"\nfour-quotes = \"\"\"\nClosing with four quotes\n\"" +
+            "\"\"\"\n",
+            "{{\"escaped\": \"lol\\\"\\\"\\\"\", \"five-quotes\": \"Closing with five q" +
+            "uotes\\u000a\\\"\\\"\", \"four-quotes\": \"Closing with four quotes\\u" +
+            "000a\\\"\", \"lit_one\": \"'one quote'\", \"lit_one_space\": \" 'one q" +
+            "uote' \", \"lit_two\": \"''two quotes''\", \"lit_two_space\": \" ''t" +
+            "wo quotes'' \", \"mismatch1\": \"aaa'''bbb\", \"mismatch2\": \"aaa\\\"" +
+            "\\\"\\\"bbb\", \"one\": \"\\\"one quote\\\"\", \"one_space\": \" \\\"one quote" +
+            "\\\" \", \"two\": \"\\\"\\\"two quotes\\\"\\\"\", \"two_space\": \" \\\"\\\"two qu" +
+            "otes\\\"\\\" \"}}"),
+        ("string/multiline",
+            "# NOTE: this file includes some literal tab characters.\n\nequ" +
+            "ivalent_one = \"The quick brown fox jumps over the lazy dog.\"" +
+            "\nequivalent_two = \"\"\"\nThe quick brown \\\n\n\n  fox jumps over \\" +
+            "\n    the lazy dog.\"\"\"\n\nequivalent_three = \"\"\"\\\n       The qu" +
+            "ick brown \\\n       fox jumps over \\\n       the lazy dog.\\\n  " +
+            "     \"\"\"\n\nwhitespace-after-bs = \"\"\"\\\n       The quick brown " +
+            "\\\n       fox jumps over \\   \n       the lazy dog.\\\t\n       \"" +
+            "\"\"\n\nno-space = \"\"\"a\\\n    b\"\"\"\n\n# Has tab character.\nkeep-ws-" +
+            "before = \"\"\"a   \t\\\n   b\"\"\"\n\nescape-bs-1 = \"\"\"a \\\\\nb\"\"\"\n\nesca" +
+            "pe-bs-2 = \"\"\"a \\\\\\\nb\"\"\"\n\nescape-bs-3 = \"\"\"a \\\\\\\\\n  b\"\"\"\n",
+            "{{\"equivalent_one\": \"The quick brown fox jumps over the lazy " +
+            "dog.\", \"equivalent_three\": \"The quick brown fox jumps over t" +
+            "he lazy dog.\", \"equivalent_two\": \"The quick brown fox jumps " +
+            "over the lazy dog.\", \"escape-bs-1\": \"a \\\\\\u000ab\", \"escape-b" +
+            "s-2\": \"a \\\\b\", \"escape-bs-3\": \"a \\\\\\\\\\u000a  b\", \"keep-ws-be" +
+            "fore\": \"a   \\u0009b\", \"no-space\": \"ab\", \"whitespace-after-bs" +
+            "\": \"The quick brown fox jumps over the lazy dog.\"}}"),
+        ("string/nl",
+            "nl_mid = \"val\\nue\"\nnl_end = \"\"\"value\\n\"\"\"\n\nlit_nl_end = '''v" +
+            "alue\\n'''\nlit_nl_mid = 'val\\nue'\nlit_nl_uni = 'val\\ue'\n",
+            "{{\"lit_nl_end\": \"value\\\\n\", \"lit_nl_mid\": \"val\\\\nue\", \"lit_nl" +
+            "_uni\": \"val\\\\ue\", \"nl_end\": \"value\\u000a\", \"nl_mid\": \"val\\u0" +
+            "00aue\"}}"),
+        ("string/quoted-unicode",
+            "\nescaped_string = \"\\u0000 \\u0008 \\u000c \\U00000041 \\u007f \\u" +
+            "0080 \\u00ff \\ud7ff \\ue000 \\uffff \\U00010000 \\U0010ffff\"\nnot_" +
+            "escaped_string = '\\u0000 \\u0008 \\u000c \\U00000041 \\u007f \\u0" +
+            "080 \\u00ff \\ud7ff \\ue000 \\uffff \\U00010000 \\U0010ffff'\n\nbasi" +
+            "c_string = \"~ \u{80} ÿ ퟿  ￿ 𐀀 􏿿\"\nliteral_string = '~ \u{80} ÿ ퟿  ￿ 𐀀" +
+            " 􏿿'\n",
+            "{{\"basic_string\": \"~ \u{80} ÿ ퟿  ￿ 𐀀 􏿿\", \"escaped_string\": \"\\u000" +
+            "0 \\u0008 \\u000c A \\u007f \u{80} ÿ ퟿  ￿ 𐀀 􏿿\", \"literal_string\": \"" +
+            "~ \u{80} ÿ ퟿  ￿ 𐀀 􏿿\", \"not_escaped_string\": \"\\\\u0000 \\\\u0008 \\\\u" +
+            "000c \\\\U00000041 \\\\u007f \\\\u0080 \\\\u00ff \\\\ud7ff \\\\ue000 \\\\u" +
+            "ffff \\\\U00010000 \\\\U0010ffff\"}}"),
+        ("string/raw-empty",
+            "empty = ''\n",
+            "{{\"empty\": \"\"}}"),
+        ("string/raw-multiline",
+            "# Single ' should be allowed.\noneline = '''This string has a" +
+            " ' quote character.'''\n\n# A newline immediately following th" +
+            "e opening delimiter will be trimmed.\nfirstnl = '''\nThis stri" +
+            "ng has a ' quote character.'''\n\n# All other whitespace and n" +
+            "ewline characters remain intact.\nmultiline = '''\nThis string" +
+            "\nhas ' a quote character\nand more than\none newline\nin it.'''" +
+            "\n\n# Tab character in literal string does not need to be esca" +
+            "ped\nmultiline_with_tab = '''First line\n\t Followed by a tab''" +
+            "'\n\nthis-str-has-apostrophes='''' there's one already\n'' two " +
+            "more\n'''''\n",
+            "{{\"firstnl\": \"This string has a ' quote character.\", \"multili" +
+            "ne\": \"This string\\u000ahas ' a quote character\\u000aand more" +
+            " than\\u000aone newline\\u000ain it.\", \"multiline_with_tab\": \"" +
+            "First line\\u000a\\u0009 Followed by a tab\", \"oneline\": \"This " +
+            "string has a ' quote character.\", \"this-str-has-apostrophes\"" +
+            ": \"' there's one already\\u000a'' two more\\u000a''\"}}"),
+        ("string/raw",
+            "backspace = 'This string has a \\b backspace character.'\ntab " +
+            "= 'This string has a \\t tab character.'\nunescaped_tab = 'Thi" +
+            "s string has an \t unescaped tab character.'\nnewline = 'This " +
+            "string has a \\n new line character.'\nformfeed = 'This string" +
+            " has a \\f form feed character.'\ncarriage = 'This string has " +
+            "a \\r carriage return character.'\nslash = 'This string has a " +
+            "\\/ slash character.'\nbackslash = 'This string has a \\\\ backs" +
+            "lash character.'\n",
+            "{{\"backslash\": \"This string has a \\\\\\\\ backslash character.\"," +
+            " \"backspace\": \"This string has a \\\\b backspace character.\", " +
+            "\"carriage\": \"This string has a \\\\r carriage return character" +
+            ".\", \"formfeed\": \"This string has a \\\\f form feed character.\"" +
+            ", \"newline\": \"This string has a \\\\n new line character.\", \"s" +
+            "lash\": \"This string has a \\\\/ slash character.\", \"tab\": \"Thi" +
+            "s string has a \\\\t tab character.\", \"unescaped_tab\": \"This s" +
+            "tring has an \\u0009 unescaped tab character.\"}}"),
+        ("string/simple",
+            "answer = \"You are not drinking enough whisky.\"\n",
+            "{{\"answer\": \"You are not drinking enough whisky.\"}}"),
+        ("string/start-mb",
+            "# Start first line with a multibyte character.\n#\n# https://g" +
+            "ithub.com/marzer/tomlplusplus/issues/190\ns1 = \"§\"\ns2 = '§'\ns" +
+            "3 = \"\"\"\\\n§\"\"\"\ns4 = \"\"\"\n§\"\"\"\ns5 = \"\"\"§\"\"\"\ns6 = '''\n§'''\ns7 = " +
+            "'''§'''\n",
+            "{{\"s1\": \"§\", \"s2\": \"§\", \"s3\": \"§\", \"s4\": \"§\", \"s5\": \"§\", \"s6\"" +
+            ": \"§\", \"s7\": \"§\"}}"),
+        ("string/unicode-escape",
+            "delta-1 = \"\\u03B4\"\ndelta-2 = \"\\U000003B4\"\na       = \"\\u0061\"" +
+            "\nb       = \"\\u0062\"\nc       = \"\\U00000063\"\nnull-1  = \"\\u0000" +
+            "\"\nnull-2  = \"\\U00000000\"\n\nml-delta-1 = \"\"\"\\u03B4\"\"\"\nml-delta" +
+            "-2 = \"\"\"\\U000003B4\"\"\"\nml-a       = \"\"\"\\u0061\"\"\"\nml-b       =" +
+            " \"\"\"\\u0062\"\"\"\nml-c       = \"\"\"\\U00000063\"\"\"\nml-null-1  = \"\"\"" +
+            "\\u0000\"\"\"\nml-null-2  = \"\"\"\\U00000000\"\"\"\n",
+            "{{\"a\": \"a\", \"b\": \"b\", \"c\": \"c\", \"delta-1\": \"δ\", \"delta-2\": \"δ" +
+            "\", \"ml-a\": \"a\", \"ml-b\": \"b\", \"ml-c\": \"c\", \"ml-delta-1\": \"δ\"," +
+            " \"ml-delta-2\": \"δ\", \"ml-null-1\": \"\\u0000\", \"ml-null-2\": \"\\u0" +
+            "000\", \"null-1\": \"\\u0000\", \"null-2\": \"\\u0000\"}}"),
+        ("string/with-pound",
+            "pound = \"We see no # comments here.\"\npoundcomment = \"But the" +
+            "re are # some comments here.\" # Did I # mess you up?\n",
+            "{{\"pound\": \"We see no # comments here.\", \"poundcomment\": \"But" +
+            " there are # some comments here.\"}}"),
+        ("table/array-empty-name",
+            "# Silly thing to do, but valid.\n\n[['']]\na = 1\n[['']]\na = 2\n",
+            "{{\"\": [{{\"a\": 1}}, {{\"a\": 2}}]}}"),
+        ("table/array-empty",
+            "[[a]]\n",
+            "{{\"a\": [{{}}]}}"),
+        ("table/array-implicit-and-explicit-after",
+            "[[a.b]]\nx = 1\n\n[a]\ny = 2\n",
+            "{{\"a\": {{\"b\": [{{\"x\": 1}}], \"y\": 2}}}}"),
+        ("table/array-implicit",
+            "[[albums.songs]]\nname = \"Glory Days\"\n",
+            "{{\"albums\": {{\"songs\": [{{\"name\": \"Glory Days\"}}]}}}}"),
+        ("table/array-many",
+            "[[people]]\nfirst_name = \"Bruce\"\nlast_name = \"Springsteen\"\n\n[" +
+            "[people]]\nfirst_name = \"Eric\"\nlast_name = \"Clapton\"\n\n[[peopl" +
+            "e]]\nfirst_name = \"Bob\"\nlast_name = \"Seger\"\n",
+            "{{\"people\": [{{\"first_name\": \"Bruce\", \"last_name\": \"Springstee" +
+            "n\"}}, {{\"first_name\": \"Eric\", \"last_name\": \"Clapton\"}}, {{\"first" +
+            "_name\": \"Bob\", \"last_name\": \"Seger\"}}]}}"),
+        ("table/array-nest",
+            "[[albums]]\nname = \"Born to Run\"\n\n  [[albums.songs]]\n  name =" +
+            " \"Jungleland\"\n\n  [[albums.songs]]\n  name = \"Meeting Across t" +
+            "he River\"\n\n[[albums]]\nname = \"Born in the USA\"\n  \n  [[albums" +
+            ".songs]]\n  name = \"Glory Days\"\n\n  [[albums.songs]]\n  name = " +
+            "\"Dancing in the Dark\"\n",
+            "{{\"albums\": [{{\"name\": \"Born to Run\", \"songs\": [{{\"name\": \"Jung" +
+            "leland\"}}, {{\"name\": \"Meeting Across the River\"}}]}}, {{\"name\": \"" +
+            "Born in the USA\", \"songs\": [{{\"name\": \"Glory Days\"}}, {{\"name\":" +
+            " \"Dancing in the Dark\"}}]}}]}}"),
+        ("table/array-one",
+            "[[people]]\nfirst_name = \"Bruce\"\nlast_name = \"Springsteen\"\n",
+            "{{\"people\": [{{\"first_name\": \"Bruce\", \"last_name\": \"Springstee" +
+            "n\"}}]}}"),
+        ("table/array-table-array",
+            "[[a]]\n    [[a.b]]\n        [a.b.c]\n            d = \"val0\"\n   " +
+            " [[a.b]]\n        [a.b.c]\n            d = \"val1\"\n",
+            "{{\"a\": [{{\"b\": [{{\"c\": {{\"d\": \"val0\"}}}}, {{\"c\": {{\"d\": \"val1\"}}}}]}}]}}"),
+        ("table/array-within-dotted",
+            "[fruit]\napple.color = \"red\"\n\n[[fruit.apple.seeds]]\nsize = 2\n",
+            "{{\"fruit\": {{\"apple\": {{\"color\": \"red\", \"seeds\": [{{\"size\": 2}}]}}" +
+            "}}}}"),
+        ("table/empty-name",
+            "['']\nx = 1\n\n[\"\".a]\nx = 2\n\n[a.'']\nx = 3\n",
+            "{{\"\": {{\"a\": {{\"x\": 2}}, \"x\": 1}}, \"a\": {{\"\": {{\"x\": 3}}}}}}"),
+        ("table/empty",
+            "[a]\n",
+            "{{\"a\": {{}}}}"),
+        ("table/keyword-with-values",
+            "[true]\nk = 1\n\n[false]\nk = 2\n\n[inf]\nk = 3\n\n[nan]\nk = 4\n",
+            "{{\"false\": {{\"k\": 2}}, \"inf\": {{\"k\": 3}}, \"nan\": {{\"k\": 4}}, \"true\"" +
+            ": {{\"k\": 1}}}}"),
+        ("table/keyword",
+            "[true]\n\n[false]\n\n[inf]\n\n[nan]\n\n\n",
+            "{{\"false\": {{}}, \"inf\": {{}}, \"nan\": {{}}, \"true\": {{}}}}"),
+        ("table/names-with-values",
+            "[a.b.c]\nkey = 1\n\n[a.\"b.c\"]\nkey = 2\n\n[a.'d.e']\nkey = 3\n\n[a.' " +
+            "x ']\nkey = 4\n\n[ d.e.f ]\nkey = 5\n\n[ g . h . i ]\nkey = 6\n\n[ j " +
+            ". \"ʞ\" . 'l' ]\nkey = 7\n\n[x.1.2]\nkey = 8\n",
+            "{{\"a\": {{\" x \": {{\"key\": 4}}, \"b\": {{\"c\": {{\"key\": 1}}}}, \"b.c\": {{\"k" +
+            "ey\": 2}}, \"d.e\": {{\"key\": 3}}}}, \"d\": {{\"e\": {{\"f\": {{\"key\": 5}}}}}}, " +
+            "\"g\": {{\"h\": {{\"i\": {{\"key\": 6}}}}}}, \"j\": {{\"ʞ\": {{\"l\": {{\"key\": 7}}}}}}" +
+            ", \"x\": {{\"1\": {{\"2\": {{\"key\": 8}}}}}}}}"),
+        ("table/names",
+            "[a.b.c]\n[a.\"b.c\"]\n[a.'d.e']\n[a.' x ']\n[ d.e.f ]\n[ g . h . i " +
+            "]\n[ j . \"ʞ\" . 'l' ]\n\n[x.1.2]\n",
+            "{{\"a\": {{\" x \": {{}}, \"b\": {{\"c\": {{}}}}, \"b.c\": {{}}, \"d.e\": {{}}}}, \"d\"" +
+            ": {{\"e\": {{\"f\": {{}}}}}}, \"g\": {{\"h\": {{\"i\": {{}}}}}}, \"j\": {{\"ʞ\": {{\"l\": " +
+            "{{}}}}}}, \"x\": {{\"1\": {{\"2\": {{}}}}}}}}"),
+        ("table/no-eol-01",
+            "# No newline at end of file.\n[table]",
+            "{{\"table\": {{}}}}"),
+        ("table/no-eol-02",
+            "# No newline at end of file.\n[table]\na=1",
+            "{{\"table\": {{\"a\": 1}}}}"),
+        ("table/sub-empty",
+            "[a]\n[a.b]\n",
+            "{{\"a\": {{\"b\": {{}}}}}}"),
+        ("table/sub",
+            "[a]\nkey = 1\n\n# a.extend is a key inside the \"a\" table.\n[a.ex" +
+            "tend]\nkey = 2\n\n[a.extend.more]\nkey = 3\n",
+            "{{\"a\": {{\"extend\": {{\"key\": 2, \"more\": {{\"key\": 3}}}}, \"key\": 1}}}}"),
+        ("table/whitespace",
+            "[\"valid key\"]\n",
+            "{{\"valid key\": {{}}}}"),
+        ("table/with-literal-string",
+            "['a']\n[a.'\"b\"']\n[a.'\"b\"'.c]\nanswer = 42 \n",
+            "{{\"a\": {{\"\\\"b\\\"\": {{\"c\": {{\"answer\": 42}}}}}}}}"),
+        ("table/with-pound",
+            "[\"key#group\"]\nanswer = 42\n",
+            "{{\"key#group\": {{\"answer\": 42}}}}"),
+        ("table/with-single-quotes",
+            "['a']\n[a.'b']\n[a.'b'.c]\nanswer = 42 \n",
+            "{{\"a\": {{\"b\": {{\"c\": {{\"answer\": 42}}}}}}}}"),
+        ("table/without-super-with-values",
+            "# [x] you\n# [x.y] don't\n# [x.y.z] need these\n[x.y.z.w] # for" +
+            " this to work\na = 1\nb = 2\n[x] # defining a super-table after" +
+            "wards is ok\nc = 3\nd = 4\n",
+            "{{\"x\": {{\"c\": 3, \"d\": 4, \"y\": {{\"z\": {{\"w\": {{\"a\": 1, \"b\": 2}}}}}}}}}}"),
+        ("table/without-super",
+            "# [x] you\n# [x.y] don't\n# [x.y.z] need these\n[x.y.z.w] # for" +
+            " this to work\n[x] # defining a super-table afterwards is ok\n",
+            "{{\"x\": {{\"y\": {{\"z\": {{\"w\": {{}}}}}}}}}}")
+    ]
+End Function
+
+Public Function InvalidCases(): (String, String)[]
+    Return [
+        ("array/double-comma-01",
+            "double-comma-01 = [1,,2]\n"),
+        ("array/double-comma-02",
+            "double-comma-02 = [1,2,,]\n"),
+        ("array/extend-defined-aot",
+            "[[tab.arr]]\n[tab]\narr.val1=1\n"),
+        ("array/extending-table",
+            "a = [{{ b = 1 }}]\n\n# Cannot extend tables within static arrays" +
+            "\n# https://github.com/toml-lang/toml/issues/908\n[a.c]\nfoo = " +
+            "1\n"),
+        ("array/missing-separator-01",
+            "arrr = [true false]\n"),
+        ("array/missing-separator-02",
+            "wrong = [ 1 2 3 ]\n"),
+        ("array/no-close-01",
+            "no-close-01 = [ 1, 2, 3\n"),
+        ("array/no-close-02",
+            "no-close-02 = [1,\n"),
+        ("array/no-close-03",
+            "no-close-03 = [42 #]\n"),
+        ("array/no-close-04",
+            "no-close-04 = [{{ key = 42\n"),
+        ("array/no-close-05",
+            "no-close-05 = [{{ key = 42}}\n"),
+        ("array/no-close-06",
+            "no-close-06 = [{{ key = 42 #}}]\n"),
+        ("array/no-close-07",
+            "no-close-07 = [{{ key = 42}} #]\n"),
+        ("array/no-close-08",
+            "no-close-08 = [\n"),
+        ("array/no-close-table-01",
+            "no-close-table-01 = [{{ key = 42\n"),
+        ("array/no-close-table-02",
+            "no-close-table-02 = [{{ key = 42 #\n"),
+        ("array/no-close-table-03",
+            "no-close-table-03 = [1,{{a=1]\n"),
+        ("array/no-close-table-04",
+            "no-close-table-04 = [1,{{2]\n"),
+        ("array/no-comma-01",
+            "no-comma-01 = [true false]\n"),
+        ("array/no-comma-02",
+            "no-comma-02 = [ 1 2 3 ]\n"),
+        ("array/no-comma-03",
+            "no-comma-03 = [ 1 #,]\n"),
+        ("array/only-comma-01",
+            "only-comma-01 = [,]\n"),
+        ("array/only-comma-02",
+            "only-comma-02 = [,,]\n"),
+        ("array/tables-01",
+            "# INVALID TOML DOC\nfruit = []\n\n[[fruit]] # Not allowed\n"),
+        ("array/tables-02",
+            "# INVALID TOML DOC\n[[fruit]]\n  name = \"apple\"\n\n  [[fruit.var" +
+            "iety]]\n    name = \"red delicious\"\n\n  # This table conflicts " +
+            "with the previous table\n  [fruit.variety]\n    name = \"granny" +
+            " smith\"\n"),
+        ("array/text-after-array-entries",
+            "array = [\n  \"Is there life after an array separator?\", No\n  " +
+            "\"Entry\"\n]\n"),
+        ("array/text-before-array-separator",
+            "array = [\n  \"Is there life before an array separator?\" No,\n " +
+            " \"Entry\"\n]\n"),
+        ("array/text-in-array",
+            "array = [\n  \"Entry 1\",\n  I don't belong,\n  \"Entry 2\",\n]\n"),
+        ("bool/almost-false-with-extra",
+            "almost-false-with-extra = falsify\n"),
+        ("bool/almost-false",
+            "almost-false            = fals\n"),
+        ("bool/almost-true-with-extra",
+            "almost-true-with-extra  = truthy\n"),
+        ("bool/almost-true",
+            "almost-true             = tru\n"),
+        ("bool/capitalized-false",
+            "capitalized-false        = False\n"),
+        ("bool/capitalized-true",
+            "capitalized-true         = True\n"),
+        ("bool/just-f",
+            "just-f                  = f\n"),
+        ("bool/just-t",
+            "just-t                  = t\n"),
+        ("bool/mixed-case-false",
+            "mixed-case-false        = falsE\n"),
+        ("bool/mixed-case-true",
+            "mixed-case-true         = trUe\n"),
+        ("bool/mixed-case",
+            "mixed-case              = valid   = False\n"),
+        ("bool/starting-same-false",
+            "starting-same-false     = falsey\n"),
+        ("bool/starting-same-true",
+            "starting-same-true      = truer\n"),
+        ("bool/wrong-case-false",
+            "wrong-case-false        = FALSE\n"),
+        ("bool/wrong-case-true",
+            "wrong-case-true         = TRUE\n"),
+        ("control/bare-cr",
+            "# The following line contains a single carriage return contr" +
+            "ol character\r\n\r"),
+        ("control/bare-formfeed",
+            "bare-formfeed     = \u{c}\n"),
+        ("control/bare-null",
+            "bare-null         = \"some value\" \u{0}\n"),
+        ("control/bare-vertical-tab",
+            "bare-vertical-tab = \u{b}\n"),
+        ("control/comment-cr",
+            "comment-cr   = \"Carriage return in comment\" # \ra=1\n"),
+        ("control/comment-del",
+            "comment-del  = \"0x7f\"   # \u{7f}\n"),
+        ("control/comment-ff",
+            "comment-ff   = \"0x7f\"   # \u{c}\n"),
+        ("control/comment-lf",
+            "comment-lf   = \"ctrl-P\" # \u{10}\n"),
+        ("control/comment-null",
+            "comment-null = \"null\"   # \u{0}\n"),
+        ("control/comment-us",
+            "comment-us   = \"ctrl-_\" # \u{1f}\n"),
+        ("control/linetab-number-01",
+            "linetab-number-01 = 1\u{b}\n"),
+        ("control/linetab-number-02",
+            "linetab-number-02 = 1.5\u{b}\n"),
+        ("control/linetab-number-03",
+            "linetab-number-03 = 0xff\u{b}\n"),
+        ("control/linetab-number-04",
+            "linetab-number-04 = +inf\u{b}\n"),
+        ("control/multi-del",
+            "multi-del  = \"\"\"null\u{7f}\"\"\"\n"),
+        ("control/multi-lf",
+            "multi-lf   = \"\"\"null\u{10}\"\"\"\n"),
+        ("control/multi-null",
+            "multi-null = \"\"\"null\u{0}\"\"\"\n"),
+        ("control/multi-us",
+            "multi-us   = \"\"\"null\u{1f}\"\"\"\n"),
+        ("control/only-ff",
+            "\u{c}"),
+        ("control/only-null",
+            "\u{0}"),
+        ("control/only-vt",
+            "\u{b}"),
+        ("control/rawmulti-del",
+            "rawmulti-del  = '''null\u{7f}'''\n"),
+        ("control/rawmulti-lf",
+            "rawmulti-lf   = '''null\u{10}'''\n"),
+        ("control/rawmulti-null",
+            "rawmulti-null = '''null\u{0}'''\n"),
+        ("control/rawmulti-us",
+            "rawmulti-us   = '''null\u{1f}'''\n"),
+        ("control/rawstring-cr",
+            "rawstring-cr   = 'null\r'\n"),
+        ("control/rawstring-del",
+            "rawstring-del  = 'null\u{7f}'\n"),
+        ("control/rawstring-lf",
+            "rawstring-lf   = 'null\u{10}'\n"),
+        ("control/rawstring-null",
+            "rawstring-null = 'null\u{0}'\n"),
+        ("control/rawstring-us",
+            "rawstring-us   = 'null\u{1f}'\n"),
+        ("control/string-bs",
+            "string-bs   = \"backspace\u{8}\"\n"),
+        ("control/string-cr",
+            "string-cr   = \"null\r\"\n"),
+        ("control/string-del",
+            "string-del  = \"null\u{7f}\"\n"),
+        ("control/string-lf",
+            "string-lf   = \"null\u{10}\"\n"),
+        ("control/string-null",
+            "string-null = \"null\u{0}\"\n"),
+        ("control/string-us",
+            "string-us   = \"null\u{1f}\"\n"),
+        ("datetime/day-zero",
+            "foo = 1997-09-00T09:09:09.09Z\n"),
+        ("datetime/feb-29",
+            "\"not a leap year\" = 2100-02-29T15:15:15Z\n"),
+        ("datetime/feb-30",
+            "\"only 28 or 29 days in february\" = 1988-02-30T15:15:15Z\n"),
+        ("datetime/hour-over",
+            "# time-hour       = 2DIGIT  ; 00-23\nd = 2006-01-01T24:00:00-" +
+            "00:00\n"),
+        ("datetime/leading-zero-date",
+            "# No leading zero on year allowed.\nd = 02026-05-07\n"),
+        ("datetime/leading-zero-datetime",
+            "# No leading zero on year allowed.\nd = 02026-05-07T14:15:16Z" +
+            "\n"),
+        ("datetime/mday-over",
+            "# date-mday       = 2DIGIT  ; 01-28, 01-29, 01-30, 01-31 bas" +
+            "ed on\n#                           ; month/year\nd = 2006-01-3" +
+            "2T00:00:00-00:00\n"),
+        ("datetime/mday-under",
+            "# date-mday       = 2DIGIT  ; 01-28, 01-29, 01-30, 01-31 bas" +
+            "ed on\n#                           ; month/year\nd = 2006-01-0" +
+            "0T00:00:00-00:00\n"),
+        ("datetime/minute-over",
+            "# time-minute     = 2DIGIT  ; 00-59\nd = 2006-01-01T00:60:00-" +
+            "00:00\n"),
+        ("datetime/month-over",
+            "# date-month      = 2DIGIT  ; 01-12\nd = 2006-13-01T00:00:00-" +
+            "00:00\n"),
+        ("datetime/month-under",
+            "# date-month      = 2DIGIT  ; 01-12\nd = 2007-00-01T00:00:00-" +
+            "00:00\n"),
+        ("datetime/no-date-time-sep",
+            "foo = 1997-09-0909:09:09\n"),
+        ("datetime/no-leads-month",
+            "# Month \"7\" instead of \"07\"; the leading zero is required.\nn" +
+            "o-leads = 1987-7-05T17:45:00Z\n"),
+        ("datetime/no-leads-with-milli",
+            "# Day \"5\" instead of \"05\"; the leading zero is required.\nwit" +
+            "h-milli = 1987-07-5T17:45:00.12Z\n"),
+        ("datetime/no-leads",
+            "# Month \"7\" instead of \"07\"; the leading zero is required.\nn" +
+            "o-leads = 1987-7-05T17:45:00Z\n"),
+        ("datetime/no-secs",
+            "# No seconds in time.\nno-secs = 1987-07-05T17:45Z\n"),
+        ("datetime/no-t",
+            "# No \"t\" or \"T\" between the date and time.\nno-t = 1987-07-05" +
+            "17:45:00Z\n"),
+        ("datetime/no-year-month-sep",
+            "foo = 199709-09\n"),
+        ("datetime/offset-minus-minute-1digit",
+            "foo = 1997-09-09T09:09:09.09+09:9\n"),
+        ("datetime/offset-minus-no-hour-minute-sep",
+            "foo = 1997-09-09T09:09:09.09+0909\n"),
+        ("datetime/offset-minus-no-hour-minute",
+            "foo = 1997-09-09T09:09:09.09+\n"),
+        ("datetime/offset-minus-no-minute",
+            "foo = 1997-09-09T09:09:09.09+09\n"),
+        ("datetime/offset-overflow-hour",
+            "# Hour must be 00-24\nd = 1985-06-18 17:04:07+25:00\n"),
+        ("datetime/offset-overflow-minute",
+            "d = 1985-06-18 17:04:07+12:60\n"),
+        ("datetime/offset-plus-minute-1digit",
+            "foo = 1997-09-09T09:09:09.09+09:9\n"),
+        ("datetime/offset-plus-no-hour-minute-sep",
+            "foo = 1997-09-09T09:09:09.09+0909\n"),
+        ("datetime/offset-plus-no-hour-minute",
+            "foo = 1997-09-09T09:09:09.09+\n"),
+        ("datetime/offset-plus-no-minute",
+            "foo = 1997-09-09T09:09:09.09+09\n"),
+        ("datetime/only-T",
+            "foo = T\n"),
+        ("datetime/only-Tdot",
+            "foo = T.\n"),
+        ("datetime/only-TZ",
+            "foo = TZ\n"),
+        ("datetime/second-over",
+            "# time-second     = 2DIGIT  ; 00-58, 00-59, 00-60 based on l" +
+            "eap second\n#                           ; rules\nd = 2006-01-0" +
+            "1T00:00:61-00:00\n"),
+        ("datetime/second-trailing-dot",
+            "foo = 1997-09-09T09:09:09.\n"),
+        ("datetime/second-trailing-dotz",
+            "foo = 2016-09-09T09:09:09.Z\n"),
+        ("datetime/time-no-leads",
+            "# Leading 0 is always required.\nd = 2023-10-01T1:32:00Z\n"),
+        ("datetime/trailing-x",
+            "sign=2020-01-01x\n"),
+        ("datetime/y10k-date",
+            "# Maximum RFC3399 year is 9999.\nd = 10000-01-01\n"),
+        ("datetime/y10k-datetime",
+            "# Maximum RFC3399 year is 9999.\nd = 10000-01-01 00:00:00z\n"),
+        ("encoding/bom-not-at-start-01",
+            "# Contains UTF-8 BOM between = and 1\na=\u{feff}1\n"),
+        ("encoding/bom-not-at-start-02",
+            "\u{feff}\u{feff}# Contains two UTF-8 BOMS at the start\na=1\n"),
+        ("encoding/bom-not-at-start-03",
+            "\u{feff}\u{feff}a=1\n# Contains two UTF-8 BOMS at the start\n"),
+        ("encoding/ideographic-space",
+            "# First on next line is U+3000 IDEOGRAPHIC SPACE\n　foo = \"bar" +
+            "\"\n"),
+        ("encoding/utf16-comment",
+            "\u{0}#\u{0} \u{0}U\u{0}T\u{0}F\u{0}-\u{0}1\u{0}6\u{0} \u{0}w\u{0}i\u{0}t\u{0}h\u{0}o\u{0}u\u{0}t\u{0} \u{0}B\u{0}O\u{0}M\u{0}\n"),
+        ("encoding/utf16-key",
+            "\u{0}k\u{0} \u{0}=\u{0} \u{0}\"\u{0}v\u{0}\"\u{0}\n"),
+        ("float/arabic-zero-01",
+            "arabic-zero-01 = 1.٠\n"),
+        ("float/arabic-zero-02",
+            "arabic-zero-02 = ٠\n"),
+        ("float/arabic-zero-03",
+            "arabic-zero-03 = 1e٠\n"),
+        ("float/arabic-zero-04",
+            "arabic-zero-04 = +٠\n"),
+        ("float/double-dot-01",
+            "double-dot-01 = 0..1\n"),
+        ("float/double-dot-02",
+            "double-dot-02 = 0.1.2\n"),
+        ("float/exp-dot-01",
+            "exp-dot-01 = 1e2.3\n"),
+        ("float/exp-dot-02",
+            "exp-dot-02 = 1.e2\n"),
+        ("float/exp-dot-03",
+            "exp-dot-03 = 3.e+20\n"),
+        ("float/exp-double-e-01",
+            "exp-double-e-01 = 1ee2\n"),
+        ("float/exp-double-e-02",
+            "exp-double-e-02 = 1e2e3\n"),
+        ("float/exp-double-us",
+            "exp-double-us = 1e__23\n"),
+        ("float/exp-leading-us",
+            "exp-leading-us = 1e_23\n"),
+        ("float/exp-trailing-us-01",
+            "exp-trailing-us-01 = 1_e2\n"),
+        ("float/exp-trailing-us-02",
+            "exp-trailing-us-02 = 1.2_e2\n"),
+        ("float/exp-trailing-us",
+            "exp-trailing-us = 1e23_\n"),
+        ("float/inf-capital",
+            "v = Inf\n"),
+        ("float/inf-incomplete-01",
+            "inf-incomplete-01 = in\n"),
+        ("float/inf-incomplete-02",
+            "inf-incomplete-02 = +in\n"),
+        ("float/inf-incomplete-03",
+            "inf-incomplete-03 = -in\n"),
+        ("float/inf_underscore",
+            "inf_underscore = in_f\n"),
+        ("float/leading-dot-neg",
+            "leading-dot-neg = -.12345\n"),
+        ("float/leading-dot-plus",
+            "leading-dot-plus = +.12345\n"),
+        ("float/leading-dot",
+            "leading-dot = .12345\n"),
+        ("float/leading-us",
+            "leading-us = _1.2\n"),
+        ("float/leading-zero-neg",
+            "leading-zero-neg = -03.14\n"),
+        ("float/leading-zero-plus",
+            "leading-zero-plus = +03.14\n"),
+        ("float/leading-zero",
+            "leading-zero = 03.14\n"),
+        ("float/nan-capital",
+            "v = NaN\n"),
+        ("float/nan-incomplete-01",
+            "nan-incomplete-01 = na\n"),
+        ("float/nan-incomplete-02",
+            "nan-incomplete-02 = +na\n"),
+        ("float/nan-incomplete-03",
+            "nan-incomplete-03 = -na\n"),
+        ("float/nan_underscore",
+            "nan_underscore = na_n\n"),
+        ("float/trailing-dot-01",
+            "trailing-point = 1.\n"),
+        ("float/trailing-dot-02",
+            "a = 1.\nb = 2\n"),
+        ("float/trailing-dot-min",
+            "trailing-dot-min = -1.\n"),
+        ("float/trailing-dot-plus",
+            "trailing-dot-plus = +1.\n"),
+        ("float/trailing-dot",
+            "trailing-dot = 1.\n"),
+        ("float/trailing-exp-dot",
+            "trailing-exp-dot =  0.e\n"),
+        ("float/trailing-exp-minus",
+            "trailing-exp-minus = 0.0e-\n"),
+        ("float/trailing-exp-plus",
+            "trailing-exp-plus = 0.0e+\n"),
+        ("float/trailing-exp",
+            "trailing-exp = 0.0E\n"),
+        ("float/trailing-us-exp-01",
+            "trailing-us-exp-1 = 1_e2\n"),
+        ("float/trailing-us-exp-02",
+            "trailing-us-exp-2 = 1.2_e2\n"),
+        ("float/trailing-us",
+            "trailing-us = 1.2_\n"),
+        ("float/us-after-dot",
+            "us-after-dot = 1._2\n"),
+        ("float/us-before-dot",
+            "us-before-dot = 1_.2\n"),
+        ("inline-table/bad-key-syntax",
+            "tbl = {{ a = 1, [b] }}\n"),
+        ("inline-table/double-comma",
+            "t = {{x=3,,y=4}}\n"),
+        ("inline-table/duplicate-key-01",
+            "# Duplicate keys within an inline table are invalid\na={{b=1, " +
+            "b=2}}\n"),
+        ("inline-table/duplicate-key-02",
+            "table1 = {{ table2.dupe = 1, table2.dupe = 2 }}\n"),
+        ("inline-table/duplicate-key-03",
+            "tbl = {{ fruit = {{ apple.color = \"red\" }}, fruit.apple.texture" +
+            " = {{ smooth = true }} }}\n\n"),
+        ("inline-table/duplicate-key-04",
+            "tbl = {{ a.b = \"a_b\", a.b.c = \"a_b_c\" }}\n"),
+        ("inline-table/empty-01",
+            "t = {{,}}\n"),
+        ("inline-table/empty-02",
+            "t = {{,\n}}\n"),
+        ("inline-table/empty-03",
+            "t = {{\n,\n}}\n"),
+        ("inline-table/linebreak-01",
+            "# No newlines are allowed between the curly braces unless th" +
+            "ey are valid within\n# a value.\nsimple = {{ a = 1 \n}}\n"),
+        ("inline-table/linebreak-02",
+            "t = {{a=1,\nb=2}}\n"),
+        ("inline-table/linebreak-03",
+            "t = {{a=1\n,b=2}}\n"),
+        ("inline-table/linebreak-04",
+            "json_like = {{\n          first = \"Tom\",\n          last = \"Pre" +
+            "ston-Werner\"\n}}\n"),
+        ("inline-table/no-close-01",
+            "a={{\n"),
+        ("inline-table/no-close-02",
+            "a={{b=1\n"),
+        ("inline-table/no-comma-01",
+            "t = {{x = 3 y = 4}}\n"),
+        ("inline-table/no-comma-02",
+            "arrr = {{ comma-missing = true valid-toml = false }}\n"),
+        ("inline-table/overwrite-01",
+            "a.b=0\n# Since table \"a\" is already defined, it can't be repl" +
+            "aced by an inline table.\na={{}}\n"),
+        ("inline-table/overwrite-02",
+            "a={{}}\n# Inline tables are immutable and can't be extended\n[a." +
+            "b]\n"),
+        ("inline-table/overwrite-03",
+            "a = {{ b = 1 }}\na.b = 2\n"),
+        ("inline-table/overwrite-04",
+            "inline-t = {{ nest = {{}} }}\n\n[[inline-t.nest]]\n"),
+        ("inline-table/overwrite-05",
+            "inline-t = {{ nest = {{}} }}\n\n[inline-t.nest]\n"),
+        ("inline-table/overwrite-06",
+            "a = {{ b = 1, b.c = 2 }}\n"),
+        ("inline-table/overwrite-07",
+            "tab = {{ inner.table = [{{}}], inner.table.val = \"bad\" }}"),
+        ("inline-table/overwrite-08",
+            "tab = {{ inner = {{ dog = \"best\" }}, inner.cat = \"worst\" }}"),
+        ("inline-table/overwrite-09",
+            "[tab.nested]\ninline-t = {{ nest = {{}} }}\n\n[tab]\nnested.inline-t" +
+            ".nest = 2\n"),
+        ("inline-table/overwrite-10",
+            "# Set implicit \"b\", overwrite \"b\" (illegal!) and then set an" +
+            "other implicit.\n#\n# Caused panic: https://github.com/BurntSu" +
+            "shi/toml/issues/403\na = {{b.a = 1, b = 2, b.c = 3}}\n"),
+        ("inline-table/trailing-comma",
+            "# A terminating comma (also called trailing comma) is not pe" +
+            "rmitted after the\n# last key/value pair in an inline table\na" +
+            "bc = {{ abc = 123, }}\n"),
+        ("integer/arabic-zero-01",
+            "arabic-zero-01 = 1٠\n"),
+        ("integer/arabic-zero-02",
+            "arabic-zero-02 = 1_0٠\n"),
+        ("integer/arabic-zero-03",
+            "arabic-zero-03 = ٠.1\n"),
+        ("integer/arabic-zero-04",
+            "arabic-zero-04 = ٠e0\n"),
+        ("integer/capital-bin",
+            "capital-bin = 0B0\n"),
+        ("integer/capital-hex",
+            "capital-hex = 0X1\n"),
+        ("integer/capital-oct",
+            "capital-oct = 0O0\n"),
+        ("integer/double-sign-nex",
+            "double-sign-nex = --99\n"),
+        ("integer/double-sign-plus",
+            "double-sign-plus = ++99\n"),
+        ("integer/double-us",
+            "double-us = 1__23\n"),
+        ("integer/incomplete-bin",
+            "incomplete-bin = 0b\n"),
+        ("integer/incomplete-hex",
+            "incomplete-hex = 0x\n"),
+        ("integer/incomplete-oct",
+            "incomplete-oct = 0o\n"),
+        ("integer/invalid-bin",
+            "invalid-bin = 0b0012\n"),
+        ("integer/invalid-hex-01",
+            "invalid-hex-01 = 0xaafz\n"),
+        ("integer/invalid-hex-02",
+            "invalid-hex-02 = 0xgabba00f1\n"),
+        ("integer/invalid-hex-03",
+            "a = 0x-1\n"),
+        ("integer/invalid-oct",
+            "invalid-oct = 0o778\n"),
+        ("integer/leading-us-bin",
+            "leading-us-bin = _0b1\n"),
+        ("integer/leading-us-hex",
+            "leading-us-hex = _0x1\n"),
+        ("integer/leading-us-oct",
+            "leading-us-oct = _0o1\n"),
+        ("integer/leading-us",
+            "leading-us = _123\n"),
+        ("integer/leading-zero-01",
+            "leading-zero-01 = 01\n"),
+        ("integer/leading-zero-02",
+            "leading-zero-02 = 00\n"),
+        ("integer/leading-zero-03",
+            "leading-zero-03 = 0_0\n"),
+        ("integer/leading-zero-sign-01",
+            "leading-zero-sign-01 = -01\n"),
+        ("integer/leading-zero-sign-02",
+            "leading-zero-sign-02 = +01\n"),
+        ("integer/leading-zero-sign-03",
+            "leading-zero-sign-03 = +0_1\n"),
+        ("integer/negative-bin",
+            "negative-bin = -0b11010110\n"),
+        ("integer/negative-hex",
+            "negative-hex = -0xff\n"),
+        ("integer/negative-oct",
+            "negative-oct = -0o755\n"),
+        ("integer/positive-bin",
+            "positive-bin = +0b11010110\n"),
+        ("integer/positive-hex",
+            "positive-hex = +0xff\n"),
+        ("integer/positive-oct",
+            "positive-oct = +0o755\n"),
+        ("integer/text-after-integer",
+            "answer = 42 the ultimate answer?\n"),
+        ("integer/trailing-us-bin",
+            "trailing-us-bin = 0b1_\n"),
+        ("integer/trailing-us-hex",
+            "trailing-us-hex = 0x1_\n"),
+        ("integer/trailing-us-oct",
+            "trailing-us-oct = 0o1_\n"),
+        ("integer/trailing-us",
+            "trailing-us = 123_\n"),
+        ("integer/us-after-bin",
+            "us-after-bin = 0b_1\n"),
+        ("integer/us-after-hex",
+            "us-after-hex = 0x_1\n"),
+        ("integer/us-after-oct",
+            "us-after-oct = 0o_1\n"),
+        ("key/after-array",
+            "[[agencies]] owner = \"S Cjelli\"\n"),
+        ("key/after-table",
+            "[error] this = \"should not be here\"\n"),
+        ("key/after-value",
+            "first = \"Tom\" last = \"Preston-Werner\" # INVALID\n"),
+        ("key/bare-invalid-character-01",
+            "! = 123\n"),
+        ("key/bare-invalid-character-02",
+            "bare!key = 123\n"),
+        ("key/dot",
+            ". = 1\n"),
+        ("key/dotdot",
+            ".. = 1\n"),
+        ("key/dotted-redefine-table-01",
+            "a = false\na.b = true\n"),
+        ("key/dotted-redefine-table-02",
+            "# Defined a.b as int\na.b = 1\n# Tries to access it as table: " +
+            "error\na.b.c = 2\n"),
+        ("key/duplicate-keys-01",
+            "name = \"Tom\"\nname = \"Pradyun\"\n"),
+        ("key/duplicate-keys-02",
+            "dupe = false\ndupe = true\n"),
+        ("key/duplicate-keys-03",
+            "spelling   = \"favorite\"\n\"spelling\" = \"favourite\"\n"),
+        ("key/duplicate-keys-04",
+            "spelling   = \"favorite\"\n'spelling' = \"favourite\"\n"),
+        ("key/duplicate-keys-05",
+            "a        = 1\n\"\\u0061\" = 1\n"),
+        ("key/duplicate-keys-06",
+            "\"a'b\"      = 1\n\"a\\u0027b\" = 2\n"),
+        ("key/duplicate-keys-07",
+            "\"\" = 1\n\"\" = 2\n"),
+        ("key/duplicate-keys-08",
+            "arr = [1]\narr = [2]\n"),
+        ("key/duplicate-keys-09",
+            "tbl = {{k=1}}\ntbl = {{kk=2}}\n"),
+        ("key/empty",
+            " = 1\n"),
+        ("key/end-in-escape",
+            "\"backslash is the last char\\\n"),
+        ("key/escape",
+            "\\u00c0 = \"latin capital letter A with grave\"\n"),
+        ("key/hash",
+            "a# = 1\n"),
+        ("key/multiline-key-01",
+            "\"\"\"key\"\"\" = 1\n"),
+        ("key/multiline-key-02",
+            "'''key''' = 1\n"),
+        ("key/multiline-key-03",
+            "\"\"\"key\"\"\" = \"\"\"v\"\"\"\n"),
+        ("key/multiline-key-04",
+            "'''key''' = '''v'''\n"),
+        ("key/newline-01",
+            "barekey\n   = 1\n"),
+        ("key/newline-02",
+            "\"quoted\nkey\" = 1\n"),
+        ("key/newline-03",
+            "'quoted\nkey' = 1\n"),
+        ("key/newline-04",
+            "\"\"\"long\nkey\"\"\" = 1\n"),
+        ("key/newline-05",
+            "'''long\nkey''' = 1\n"),
+        ("key/newline-06",
+            "key =\n1\n"),
+        ("key/no-eol-01",
+            "a = 1 b = 2\n"),
+        ("key/no-eol-02",
+            "0=0r=false\n"),
+        ("key/no-eol-03",
+            "0=\"\"o=\"\"m=\"\"r=\"\"00=\"0\"q=\"\"\"0\"\"\"e=\"\"\"0\"\"\"\n"),
+        ("key/no-eol-04",
+            "[[0000l0]]\n0=\"0\"[[0000l0]]\n0=\"0\"[[0000l0]]\n0=\"0\"l=\"0\"\n"),
+        ("key/no-eol-05",
+            "0=[0]00=[0,0,0]t=[\"0\",\"0\",\"0\"]s=[1000-00-00T00:00:00Z,2000-0" +
+            "0-00T00:00:00Z]\n"),
+        ("key/no-eol-06",
+            "0=0r0=0r=false\n"),
+        ("key/no-eol-07",
+            "0=0r0=0r=falsefal=false\n"),
+        ("key/only-float",
+            "1.1\n"),
+        ("key/only-int",
+            "1\n"),
+        ("key/only-str",
+            "\"\"\n"),
+        ("key/open-bracket",
+            "[abc = 1\n"),
+        ("key/partial-quoted",
+            "partial\"quoted\" = 5\n"),
+        ("key/quoted-unclosed-01",
+            "\"key = x\n"),
+        ("key/quoted-unclosed-02",
+            "\"key\n"),
+        ("key/single-open-bracket",
+            "[\n"),
+        ("key/space-quoted",
+            "# Tab literal between a and b below.\n\"a\" \"b\" = 1\n"),
+        ("key/space",
+            "a b = 1\n"),
+        ("key/special-character",
+            "μ = \"greek small letter mu\"\n"),
+        ("key/start-bracket",
+            "[a]\n[xyz = 5\n[b]\n"),
+        ("key/start-dot",
+            ".key = 1\n"),
+        ("key/tab-quoted",
+            "# Tab literal between a and b below.\n\"a\"\t\"b\" = 1\n"),
+        ("key/tab",
+            "# Tab literal between a and b below.\na\tb = 1\n"),
+        ("key/two-equals-01",
+            "key= = 1\n"),
+        ("key/two-equals-02",
+            "a==1\n"),
+        ("key/two-equals-03",
+            "a=b=1\n"),
+        ("key/without-value-01",
+            "key\n"),
+        ("key/without-value-02",
+            "key = \n"),
+        ("key/without-value-03",
+            "\"key\"\n"),
+        ("key/without-value-04",
+            "\"key\" = \n"),
+        ("key/without-value-05",
+            "fs.fw\n"),
+        ("key/without-value-06",
+            "fs.fw =\n"),
+        ("key/without-value-07",
+            "fs.\n"),
+        ("local-date/day-1digit",
+            "foo = 1997-09-9\n"),
+        ("local-date/feb-29",
+            "\"not a leap year\" = 2100-02-29\n"),
+        ("local-date/feb-30",
+            "\"only 28 or 29 days in february\" = 1988-02-30\n\n"),
+        ("local-date/mday-over",
+            "# date-mday       = 2DIGIT  ; 01-28, 01-29, 01-30, 01-31 bas" +
+            "ed on\n#                           ; month/year\nd = 2006-01-3" +
+            "2\n"),
+        ("local-date/mday-under",
+            "# date-mday       = 2DIGIT  ; 01-28, 01-29, 01-30, 01-31 bas" +
+            "ed on\n#                           ; month/year\nd = 2006-01-0" +
+            "0\n"),
+        ("local-date/month-over",
+            "# date-month      = 2DIGIT  ; 01-12\nd = 2006-13-01\n"),
+        ("local-date/month-under",
+            "# date-month      = 2DIGIT  ; 01-12\nd = 2007-00-01\n"),
+        ("local-date/no-leads-with-milli",
+            "# Day \"5\" instead of \"05\"; the leading zero is required.\nwit" +
+            "h-milli = 1987-07-5\n"),
+        ("local-date/no-leads",
+            "# Month \"7\" instead of \"07\"; the leading zero is required.\nn" +
+            "o-leads = 1987-7-05\n"),
+        ("local-date/trailing-t",
+            "# Date cannot end with trailing T\nd = 2006-01-30T\n"),
+        ("local-date/y10k",
+            "# Maximum RFC3399 year is 9999.\nd = 10000-01-01\n"),
+        ("local-date/year-3digits",
+            "foo = 199-09-09\n"),
+        ("local-datetime/feb-29",
+            "\"not a leap year\" = 2100-02-29T15:15:15\n"),
+        ("local-datetime/feb-30",
+            "\"only 28 or 29 days in february\" = 1988-02-30T15:15:15\n\n"),
+        ("local-datetime/hour-over",
+            "# time-hour       = 2DIGIT  ; 00-23\nd = 2006-01-01T24:00:00\n"),
+        ("local-datetime/mday-over",
+            "# date-mday       = 2DIGIT  ; 01-28, 01-29, 01-30, 01-31 bas" +
+            "ed on\n#                           ; month/year\nd = 2006-01-3" +
+            "2T00:00:00\n"),
+        ("local-datetime/mday-under",
+            "# date-mday       = 2DIGIT  ; 01-28, 01-29, 01-30, 01-31 bas" +
+            "ed on\n#                           ; month/year\nd = 2006-01-0" +
+            "0T00:00:00\n"),
+        ("local-datetime/minute-over",
+            "# time-minute     = 2DIGIT  ; 00-59\nd = 2006-01-01T00:60:00\n"),
+        ("local-datetime/month-over",
+            "# date-month      = 2DIGIT  ; 01-12\nd = 2006-13-01T00:00:00\n"),
+        ("local-datetime/month-under",
+            "# date-month      = 2DIGIT  ; 01-12\nd = 2007-00-01T00:00:00\n"),
+        ("local-datetime/no-leads-with-milli",
+            "# Day \"5\" instead of \"05\"; the leading zero is required.\nwit" +
+            "h-milli = 1987-07-5T17:45:00.12\n"),
+        ("local-datetime/no-leads",
+            "# Month \"7\" instead of \"07\"; the leading zero is required.\nn" +
+            "o-leads = 1987-7-05T17:45:00\n"),
+        ("local-datetime/no-secs",
+            "# No seconds in time.\nno-secs = 1987-07-05T17:45\n"),
+        ("local-datetime/no-t",
+            "# No \"t\" or \"T\" between the date and time.\nno-t = 1987-07-05" +
+            "17:45:00\n"),
+        ("local-datetime/second-over",
+            "# time-second     = 2DIGIT  ; 00-58, 00-59, 00-60 based on l" +
+            "eap second\n#                           ; rules\nd = 2006-01-0" +
+            "1T00:00:61\n"),
+        ("local-datetime/time-no-leads",
+            "# Leading 0 is always required.\nd = 2023-10-01T1:32:00Z\n"),
+        ("local-datetime/y10k",
+            "# Maximum RFC3399 year is 9999.\nd = 10000-01-01 00:00:00\n"),
+        ("local-time/hour-over",
+            "# time-hour       = 2DIGIT  ; 00-23\nd = 24:00:00\n"),
+        ("local-time/minute-over",
+            "# time-minute     = 2DIGIT  ; 00-59\nd = 00:60:00\n"),
+        ("local-time/no-secs",
+            "# No seconds in time.\nno-secs = 17:45\n"),
+        ("local-time/second-over",
+            "# time-second     = 2DIGIT  ; 00-58, 00-59, 00-60 based on l" +
+            "eap second\n#                           ; rules\nd = 00:00:61\n"),
+        ("local-time/time-no-leads-01",
+            "# Leading 0 is always required.\nd = 1:32:00\n"),
+        ("local-time/time-no-leads-02",
+            "# Leading 0 is always required.\nd = 01:32:0\n"),
+        ("local-time/trailing-dot",
+            "t = 12:13:14.\n"),
+        ("local-time/trailing-dotdot",
+            "t = 12:13:14..\n"),
+        ("spec-1.0.0/inline-table-2-0",
+            "[product]\ntype = {{ name = \"Nail\" }}\ntype.edible = false  # IN" +
+            "VALID\n"),
+        ("spec-1.0.0/inline-table-3-0",
+            "[product]\ntype.name = \"Nail\"\ntype = {{ edible = false }}  # IN" +
+            "VALID\n"),
+        ("spec-1.0.0/key-value-pair-1",
+            "key = # INVALID\n"),
+        ("spec-1.0.0/keys-2",
+            "= \"no key name\"  # INVALID\n\"\" = \"blank\"     # VALID but disc" +
+            "ouraged\n'' = 'blank'     # VALID but discouraged\n"),
+        ("spec-1.0.0/string-4-0",
+            "str4 = \"\"\"Here are two quotation marks: \"\". Simple enough.\"\"" +
+            "\"\nstr5 = \"\"\"Here are three quotation marks: \"\"\".\"\"\"  # INVAL" +
+            "ID\nstr5 = \"\"\"Here are three quotation marks: \"\"\\\".\"\"\"\nstr6 =" +
+            " \"\"\"Here are fifteen quotation marks: \"\"\\\"\"\"\\\"\"\"\\\"\"\"\\\"\"\"\\\".\"" +
+            "\"\"\n\n# \"This,\" she said, \"is just a pointless statement.\"\nstr" +
+            "7 = \"\"\"\"This,\" she said, \"is just a pointless statement.\"\"\"\"" +
+            "\n"),
+        ("spec-1.0.0/string-7-0",
+            "quot15 = '''Here are fifteen quotation marks: \"\"\"\"\"\"\"\"\"\"\"\"\"\"" +
+            "\"'''\n\napos15 = '''Here are fifteen apostrophes: ''''''''''''" +
+            "''''''  # INVALID\napos15 = \"Here are fifteen apostrophes: ''" +
+            "'''''''''''''\"\n\n# 'That,' she said, 'is still pointless.'\nst" +
+            "r = ''''That,' she said, 'is still pointless.''''\n"),
+        ("spec-1.0.0/table-9-0",
+            "[fruit]\napple.color = \"red\"\napple.taste.sweet = true\n\n[fruit" +
+            ".apple]  # INVALID\n# [fruit.apple.taste]  # INVALID\n\n[fruit." +
+            "apple.texture]  # you can add sub-tables\nsmooth = true\n"),
+        ("spec-1.0.0/table-9-1",
+            "[fruit]\napple.color = \"red\"\napple.taste.sweet = true\n\n# [fru" +
+            "it.apple]  # INVALID\n[fruit.apple.taste]  # INVALID\n\n[fruit." +
+            "apple.texture]  # you can add sub-tables\nsmooth = true\n"),
+        ("string/bad-byte-escape",
+            "naughty = \"\\xAg\"\n"),
+        ("string/bad-concat",
+            "no_concat = \"first\" \"second\"\n"),
+        ("string/bad-escape-01",
+            "invalid-escape = \"This string has a bad \\a escape character." +
+            "\"\n"),
+        ("string/bad-escape-02",
+            "invalid-escape = \"This string has a bad \\  escape character." +
+            "\"\n\n"),
+        ("string/bad-escape-03",
+            "backslash = \"\\\"\n"),
+        ("string/bad-escape-04",
+            "a = \"a \\\\\\ b\"\n"),
+        ("string/bad-escape-05",
+            "a = \"a \\\\\\\\\\ b\"\n"),
+        ("string/bad-hex-esc-01",
+            "bad-hex-esc-01 = \"\\x0g\"\n"),
+        ("string/bad-hex-esc-02",
+            "bad-hex-esc-02 = \"\\xG0\"\n"),
+        ("string/bad-hex-esc-03",
+            "bad-hex-esc-03 = \"\\x\"\n"),
+        ("string/bad-hex-esc-04",
+            "bad-hex-esc-04 = \"\\x 50\"\n"),
+        ("string/bad-hex-esc-05",
+            "bad-hex-esc-5 = \"\\x 50\"\n"),
+        ("string/bad-multiline",
+            "multi = \"first line\nsecond line\"\n"),
+        ("string/bad-slash-escape",
+            "invalid-escape = \"This string has a bad \\/ escape character." +
+            "\"\n"),
+        ("string/bad-uni-esc-01",
+            "bad-uni-esc-01 = \"val\\ue\"\n"),
+        ("string/bad-uni-esc-02",
+            "bad-uni-esc-02 = \"val\\Ux\"\n"),
+        ("string/bad-uni-esc-03",
+            "bad-uni-esc-03 = \"val\\U0000000\"\n"),
+        ("string/bad-uni-esc-04",
+            "bad-uni-esc-04 = \"val\\U0000\"\n"),
+        ("string/bad-uni-esc-05",
+            "bad-uni-esc-05 = \"val\\Ugggggggg\"\n"),
+        ("string/bad-uni-esc-06",
+            "bad-uni-esc-06 = \"This string contains a non scalar unicode " +
+            "codepoint \\uD801\"\n"),
+        ("string/bad-uni-esc-07",
+            "bad-uni-esc-07 = \"\\uabag\"\n"),
+        ("string/bad-uni-esc-ml-01",
+            "bad-uni-esc-ml-01 = \"\"\"val\\ue\"\"\"\n"),
+        ("string/bad-uni-esc-ml-02",
+            "bad-uni-esc-ml-02 = \"\"\"val\\Ux\"\"\"\n"),
+        ("string/bad-uni-esc-ml-03",
+            "bad-uni-esc-ml-03 = \"\"\"val\\U0000000\"\"\"\n"),
+        ("string/bad-uni-esc-ml-04",
+            "bad-uni-esc-ml-04 = \"\"\"val\\U0000\"\"\"\n"),
+        ("string/bad-uni-esc-ml-05",
+            "bad-uni-esc-ml-05 = \"\"\"val\\Ugggggggg\"\"\"\n"),
+        ("string/bad-uni-esc-ml-06",
+            "bad-uni-esc-ml-06 = \"\"\"This string contains a non scalar uni" +
+            "code codepoint \\uD801\"\"\"\n"),
+        ("string/bad-uni-esc-ml-07",
+            "bad-uni-esc-ml-07 = \"\"\"\\uabag\"\"\"\n"),
+        ("string/basic-byte-escapes",
+            "answer = \"\\x33\"\n"),
+        ("string/basic-multiline-out-of-range-unicode-escape-01",
+            "a = \"\"\"\\UFFFFFFFF\"\"\"\n"),
+        ("string/basic-multiline-out-of-range-unicode-escape-02",
+            "a = \"\"\"\\U00D80000\"\"\"\n"),
+        ("string/basic-multiline-quotes",
+            "str5 = \"\"\"Here are three quotation marks: \"\"\".\"\"\"\n"),
+        ("string/basic-multiline-unknown-escape",
+            "a = \"\"\"\\@\"\"\"\n"),
+        ("string/basic-out-of-range-unicode-escape-01",
+            "a = \"\\UFFFFFFFF\"\n"),
+        ("string/basic-out-of-range-unicode-escape-02",
+            "a = \"\\U00D80000\"\n"),
+        ("string/basic-unknown-escape",
+            "a = \"\\@\"\n"),
+        ("string/literal-multiline-quotes-01",
+            "a = '''6 apostrophes: ''''''\n\n"),
+        ("string/literal-multiline-quotes-02",
+            "a = '''15 apostrophes: ''''''''''''''''''\n"),
+        ("string/missing-quotes-array",
+            "name = [value]\n"),
+        ("string/missing-quotes-inline-table",
+            "name = {{ key = value }}\n"),
+        ("string/missing-quotes",
+            "name = value\n"),
+        ("string/multiline-bad-escape-01",
+            "k = \"\"\"t\\a\"\"\"\n\n"),
+        ("string/multiline-bad-escape-02",
+            "# \\<Space> is not a valid escape.\nk = \"\"\"t\\ t\"\"\"\n"),
+        ("string/multiline-bad-escape-03",
+            "# \\<Space> is not a valid escape.\nk = \"\"\"t\\ \"\"\"\n\n"),
+        ("string/multiline-bad-escape-04",
+            "backslash = \"\"\"\\\"\"\"\n"),
+        ("string/multiline-escape-space-01",
+            "a = \"\"\"\n  foo \\ \\n\n  bar\"\"\"\n"),
+        ("string/multiline-escape-space-02",
+            "bee = \"\"\"\nhee \\\n\ngee \\   \"\"\"\n"),
+        ("string/multiline-lit-no-close-01",
+            "invalid = '''\n    this will fail\n"),
+        ("string/multiline-lit-no-close-02",
+            "x='''\n"),
+        ("string/multiline-lit-no-close-03",
+            "not-closed= '''\ndiibaa\nblibae ete\neteta\n"),
+        ("string/multiline-lit-no-close-04",
+            "bee = '''\nhee\ngee ''\n"),
+        ("string/multiline-no-close-01",
+            "invalid = \"\"\"\n    this will fail\n"),
+        ("string/multiline-no-close-02",
+            "x=\"\"\"\n"),
+        ("string/multiline-no-close-03",
+            "not-closed= \"\"\"\ndiibaa\nblibae ete\neteta\n"),
+        ("string/multiline-no-close-04",
+            "bee = \"\"\"\nhee\ngee \"\"\n"),
+        ("string/multiline-no-close-05",
+            "bee = \"\"\"\nhee\ngee\\\t \n"),
+        ("string/multiline-quotes-01",
+            "a = \"\"\"6 quotes: \"\"\"\"\"\"\n"),
+        ("string/no-close-01",
+            "no-ending-quote = \"One time, at band camp\n"),
+        ("string/no-close-02",
+            "\"a-string\".must-be = \"closed\n"),
+        ("string/no-close-03",
+            "no-ending-quote = 'One time, at band camp\n"),
+        ("string/no-close-04",
+            "'a-string'.must-be = 'closed\n"),
+        ("string/no-close-05",
+            "# No newline at end\nno-ending-quote = \"One time, at band cam" +
+            "p"),
+        ("string/no-close-06",
+            "# No newline at end\n\"a-string\".must-be = \"closed"),
+        ("string/no-close-07",
+            "# No newline at end\nno-ending-quote = 'One time, at band cam" +
+            "p"),
+        ("string/no-close-08",
+            "# No newline at end\n'a-string'.must-be = 'closed"),
+        ("string/no-close-09",
+            "# Newlines are not allowed in \"-strings.\na = \"\n\"\n"),
+        ("string/no-close-10",
+            "# Newlines are not allowed in '-strings.\na = '\n'\n"),
+        ("string/no-open-01",
+            "s = a\"\n"),
+        ("string/no-open-02",
+            "a = [a\"]\n"),
+        ("string/no-open-03",
+            "s = a'\n"),
+        ("string/no-open-04",
+            "a = [a']\n"),
+        ("string/no-open-05",
+            "a = a\"\"\"\n"),
+        ("string/no-open-06",
+            "a = [a\"\"\"]\n"),
+        ("string/no-open-07",
+            "a = a'''\n"),
+        ("string/no-open-08",
+            "a = [a''']\n"),
+        ("string/text-after-string",
+            "string = \"Is there life after strings?\" No.\n"),
+        ("string/wrong-close",
+            "bad-ending-quote = \"double and single'\n"),
+        ("table/append-with-dotted-keys-01",
+            "# First a.b.c defines a table: a.b.c = {{z=9}}\n#\n# Then we def" +
+            "ine a.b.c.t = \"str\" to add a str to the above table, making " +
+            "it:\n#\n#   a.b.c = {{z=9, t=\"...\"}}\n#\n# While this makes sense," +
+            " logically, it was decided this is not valid TOML as\n# it's " +
+            "too confusing/convoluted.\n# \n# See: https://github.com/toml-" +
+            "lang/toml/issues/846\n#      https://github.com/toml-lang/tom" +
+            "l/pull/859\n\n[a.b.c]\n  z = 9\n\n[a]\n  b.c.t = \"Using dotted key" +
+            "s to add to [a.b.c] after explicitly defining it above is no" +
+            "t allowed\"\n"),
+        ("table/append-with-dotted-keys-02",
+            "# This is the same issue as in injection-1.toml, except that" +
+            " nests one level\n# deeper. See that file for a more complete" +
+            " description.\n\n[a.b.c.d]\n  z = 9\n\n[a]\n  b.c.d.k.t = \"Using d" +
+            "otted keys to add to [a.b.c.d] after explicitly defining it " +
+            "above is not allowed\"\n"),
+        ("table/append-with-dotted-keys-03",
+            "[[a.b]]\n\n[a]\nb.y = 2\n"),
+        ("table/append-with-dotted-keys-04",
+            "[dependencies.foo]\nversion = \"0.16\"\n\n[dependencies]\nlibc = \"" +
+            "0.2\"\n\n[dependencies]\nrand = \"0.3.14\"\n"),
+        ("table/append-with-dotted-keys-05",
+            "a.b.c = 1\na.b = 2\n"),
+        ("table/append-with-dotted-keys-06",
+            "a = 1\na.b = 2\n"),
+        ("table/append-with-dotted-keys-07",
+            "a = {{k1 = 1, k1.name = \"joe\"}}\n"),
+        ("table/append-with-dotted-keys-08",
+            "[a.b.c]\nz = 9\n\n[[totally_unrelated]]\nx = 123\n\n[a]\nb.c.t = \"t" +
+            "his should NOT be allowed\"\n"),
+        ("table/array-empty",
+            "[[]]\nname = \"Born to Run\"\n"),
+        ("table/array-implicit",
+            "# This test is a bit tricky. It should fail because the firs" +
+            "t use of\n# `[[albums.songs]]` without first declaring `album" +
+            "s` implies that `albums`\n# must be a table. The alternative " +
+            "would be quite weird. Namely, it wouldn't\n# comply with the " +
+            "TOML spec: \"Each double-bracketed sub-table will belong to \n" +
+            "# the most *recently* defined table element *above* it.\"\n#\n#" +
+            " This is in contrast to the *valid* test, table-array-implic" +
+            "it where\n# `[[albums.songs]]` works by itself, so long as `[" +
+            "[albums]]` isn't declared\n# later. (Although, `[albums]` cou" +
+            "ld be.)\n[[albums.songs]]\nname = \"Glory Days\"\n\n[[albums]]\nnam" +
+            "e = \"Born in the USA\"\n"),
+        ("table/array-no-close-01",
+            "[[albums]\nname = \"Born to Run\"\n"),
+        ("table/array-no-close-02",
+            "[[closing-bracket.missing]\nblaa=2\n"),
+        ("table/array-no-close-03",
+            "[[a\n[[b]]\n"),
+        ("table/array-no-close-04",
+            "[[a\nb = 2\n"),
+        ("table/array-no-close-05",
+            "[[a]\n"),
+        ("table/array-no-close-06",
+            "[[a]x\n"),
+        ("table/bare-invalid-character-01",
+            "[!]\nk = 123\n"),
+        ("table/bare-invalid-character-02",
+            "[bare!key]\nk = 123\n"),
+        ("table/dot",
+            "[.]\nk = 1\n"),
+        ("table/dotdot",
+            "[..]\nk = 1\n"),
+        ("table/duplicate-key-01",
+            "[a]\nb = 1\n\n[a]\nc = 2\n"),
+        ("table/duplicate-key-02",
+            "[fruit]\ntype = \"apple\"\n\n[fruit.type]\napple = \"yes\"\n"),
+        ("table/duplicate-key-03",
+            "[fruit]\napple.color = \"red\"\n\n[[fruit.apple]]\n"),
+        ("table/duplicate-key-04",
+            "[fruit]\napple.color = \"red\"\n\n[fruit.apple] # INVALID\n"),
+        ("table/duplicate-key-05",
+            "[fruit]\napple.taste.sweet = true\n\n[fruit.apple.taste] # INVA" +
+            "LID\n"),
+        ("table/duplicate-key-06",
+            "[tbl]\n[[tbl]]\n"),
+        ("table/duplicate-key-07",
+            "[[tbl]]\n[tbl]\n"),
+        ("table/duplicate-key-08",
+            "[a]\nb = {{ c = 2, d = {{}} }}\n[a.b]\nc = 2\n"),
+        ("table/duplicate-key-09",
+            "[a]\nfoo=\"bar\"\n[a.b]\nfoo=\"bar\"\n[a]\n"),
+        ("table/duplicate-key-10",
+            "a = []\n[[a.b]]\n"),
+        ("table/duplicate-key-11",
+            "[a]\n[a.b]\n[a.b]\n"),
+        ("table/duplicate-key-12",
+            "[a]\n[a.b]\nc = 1\n[a.b]\nc = 2\n"),
+        ("table/duplicate-key-13",
+            "[a.b]\n[a]\n[a.b]\n"),
+        ("table/duplicate-key-14",
+            "[a.b]\nc = 1\n[a]\n[a.b]\nc = 2\n"),
+        ("table/empty-implicit-table",
+            "[naughty..naughty]\n"),
+        ("table/empty",
+            "[]\n"),
+        ("table/equals-sign",
+            "[name=bad]\n"),
+        ("table/llbrace",
+            "[ [table]]\n"),
+        ("table/multiline-key-01",
+            "[\"\"\"tbl\"\"\"]\nk = 1\n"),
+        ("table/multiline-key-02",
+            "['''tbl''']\nk = 1\n"),
+        ("table/nested-brackets-close",
+            "[a]b]\nzyx = 42\n"),
+        ("table/nested-brackets-open",
+            "[a[b]\nzyx = 42\n"),
+        ("table/newline-01",
+            "[tbl\n]\nk = 1\n"),
+        ("table/newline-02",
+            "[\"tbl\n\"]\nk = 1\n"),
+        ("table/newline-03",
+            "[\"tbl\"\n]\nk = 1\n"),
+        ("table/newline-04",
+            "[tbl.\n]\nk = 1\n"),
+        ("table/newline-05",
+            "[tbl\n.sub]\nk = 1\n"),
+        ("table/no-close-01",
+            "[where will it end\nname = value\n\n"),
+        ("table/no-close-02",
+            "[closing-bracket.missingö\nblaa=2\n"),
+        ("table/no-close-03",
+            "[\"where will it end]\nname = value\n\n"),
+        ("table/no-close-04",
+            "[\n"),
+        ("table/no-close-05",
+            "[fwfw.wafw\n"),
+        ("table/no-close-06",
+            "[a\n[b]\n[c\n[d]\n"),
+        ("table/no-close-07",
+            "[']\n"),
+        ("table/no-close-08",
+            "[''']\n"),
+        ("table/no-close-09",
+            "[\"where will it end\"\"]\nname = value\n"),
+        ("table/overwrite-array-in-parent",
+            "[[parent-table.arr]]\n[parent-table]\nnot-arr = 1\narr = 2\n"),
+        ("table/overwrite-bool-with-array",
+            "a=true\n[[a]]\n"),
+        ("table/overwrite-with-deep-table",
+            "a=1\n[a.b.c.d]\n"),
+        ("table/redefine-01",
+            "# Define b as int, and try to use it as a table: error\n[a]\nb" +
+            " = 1\n\n[a.b]\nc = 2\n"),
+        ("table/redefine-02",
+            "# Define t2 as a table via dotted key in [t1] block, and the" +
+            "n redefine [t1.t2]\n[t1]\nt2.t3.v = 0\n[t1.t2]\n"),
+        ("table/redefine-03",
+            "# Define t2.t3 as a table via dotted key in [t1] block, and " +
+            "then redefine [t1.t2.t3]\n[t1]\nt2.t3.v = 0\n[t1.t2.t3]\n"),
+        ("table/rrbrace",
+            "[[table] ]\n"),
+        ("table/super-twice",
+            "[a.b]\n[a]\n[a]\n"),
+        ("table/text-after-table",
+            "[error] this shouldn't be here\n"),
+        ("table/trailing-dot",
+            "[a.]\n"),
+        ("table/whitespace",
+            "[invalid key]\n"),
+        ("table/with-pound",
+            "[key#group]\nanswer = 42\n")
+    ]
+End Function
