@@ -51,3 +51,4 @@ True
 PATTERN 9 the pattern isn't valid: missing closing parenthesis, at its byte 9
 PATTERN 5 the pattern isn't valid: numbers out of order in {} quantifier, at its byte 5
 ok\d
+PATTERN 3 the pattern isn't valid: using \C is disabled by the application, at its byte 3

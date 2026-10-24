@@ -1,0 +1,2 @@
+1048576
+panic: MemoryLimit takes at least 1048576 bytes, not 1048575 at panic_regex_memory.fb:8:1

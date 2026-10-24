@@ -1,0 +1,8 @@
+// A MemoryLimit below 1 MiB panics, where it's set.
+Import std.core
+Import std.text.regex
+
+Local r = Regex("x")
+r.MemoryLimit = 1048576
+Print(r.MemoryLimit)
+r.MemoryLimit = 1048575

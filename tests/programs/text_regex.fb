@@ -149,8 +149,9 @@ For limit In ["LIMIT_MATCH=10", "LIMIT_DEPTH=5", "LIMIT_HEAP=1"]
 End For
 Print(Try (Try Regex.Parse("(*LIMIT_MATCH=10)^(a|b)*c")).IsMatch("abc"))
 
-// Parse throws for a pattern from elsewhere, with where in it PCRE2 stopped.
-For pattern In ["(unclosed", r"a{2,1}", r"ok\d"]
+// Parse throws for a pattern from elsewhere, with where in it PCRE2 stopped, and the runtime
+// refuses \C, which matches a byte, as the compiler does.
+For pattern In ["(unclosed", r"a{2,1}", r"ok\d", r"a\Cb"]
     Try
         Print((Try Regex.Parse(pattern)).Pattern)
     Catch e As RegexError
