@@ -56,6 +56,12 @@ edited.Clear()
 Try edited.Save()
 Print("{(Try Preferences("Edited", root)).Count()} {Try File.ReadLines(edited.Location)}")
 
+// An editor's UTF-8 byte order mark before the first line isn't the first key's.
+Try Dir.CreateAll(root / "Marked")
+Try File.WriteText(root / "Marked" / "preferences.txt", "\u{FEFF}volume=0.8\nname=x\n")
+Local marked = Try Preferences("Marked", root)
+Print("{marked.Get("volume") ?? "none"} {marked.Keys()[0].Bytes.Count}")
+
 Print("async")
 Local opened = Try Await Preferences.OpenAsync("Größe Game", root)
 Print("{opened.Get("volume") ?? "none"}")

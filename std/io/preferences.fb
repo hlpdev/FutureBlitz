@@ -22,7 +22,8 @@ Const HASH: UInt8 = 35
 // which writes them atomically; IsChanged says whether there's something to save. The file is
 // UTF-8 text a person can read and change: a "key=value" line for each setting, with "\\", "\n",
 // and "\r" for a backslash, a line break, and a carriage return in both, "\=" for an '=' in a
-// key and "\#" for a '#' at its start; a line that starts with '#', or has no '=', is skipped.
+// key and "\#" for a '#' at its start; a line that starts with '#', or has no '=', is skipped,
+// and so is a byte order mark an editor writes before the first.
 Public Class Preferences
     Public ReadOnly Field App: String
     // The file they're kept in.
@@ -190,8 +191,13 @@ End Function
 // The settings a file's lines hold.
 Function ValuesOf(lines: String[]): Map<String, String>
     Local values = Map<String, String>()
-    For line In lines
-        Local bytes = line.Bytes
+    For i = 0 Until lines.Count
+        Local bytes = lines[i].Bytes
+        // UTF-8's byte order mark, which some editors write first.
+        If i == 0 && bytes.Count >= 3 && bytes[0] == 239 && bytes[1] == 187 && bytes[2] == 191
+            bytes = bytes[3..bytes.Count]
+        End If
+
         If bytes.Count == 0 || bytes[0] == HASH Then Continue
         Local split = -1
         Local at = 0
