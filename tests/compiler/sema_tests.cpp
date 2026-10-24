@@ -14014,3 +14014,19 @@ TEST_CASE("overloads: a literal with an element that has an error as a parameter
     CHECK(probe(call("G([Function(x) => x - 1])")) == "Bool");
     CHECK(errors_of(call("A([nope])")) == errors_t{ "nope: 'nope' isn't declared" });
 }
+
+TEST_CASE("overloads: what a literal's lambda is checked as for one that isn't chosen goes",
+          "[sema]") {
+    // Checked as Run's String overload's Func, the lambda calls the @MainThread Touch, but the
+    // Int overload is chosen, whose lambda calls the other, so Work can run on another thread.
+    CHECK(errors_of("Import std.core\n"
+                    "@MainThread\n"
+                    "Function Touch(s: String): Int => 0\n"
+                    "Function Touch(n: Int): Int => n\n"
+                    "Function Run(fs: (Func(String): Int)[], tag: String): Int => 0\n"
+                    "Function Run(fs: (Func(Int): Int)[], tag: Int): Int => fs[0](tag)\n"
+                    "Function Work(): Int => Run([Function(x) => Touch(x)], 1)\n"
+                    "Local task = Spawn(Function() => Work())\n"
+                    "Print(task.Wait())")
+              .empty());
+}
