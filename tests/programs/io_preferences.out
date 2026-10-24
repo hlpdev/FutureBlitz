@@ -14,6 +14,7 @@ a second run
 #value スロット 1 True
 True False 4 True
 0.5 False
+[b, a]
 what isn't saved is gone
 False
 0.5
