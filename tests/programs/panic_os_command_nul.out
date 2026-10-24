@@ -1,0 +1,2 @@
+made
+panic: a Command takes a program, arguments, variables' values, and a folder without a NUL at panic_os_command_nul.fb:8:6

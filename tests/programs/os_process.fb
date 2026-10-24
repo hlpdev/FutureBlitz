@@ -1,0 +1,166 @@
+// std.os's Command and Child: the program runs itself, with arguments and an environment and no
+// shell, writes to its stdin, reads its stdout and stderr, and gets its exit status, blocking and
+// Async.
+
+Import std.core
+Import std.ffi
+Import std.io
+Import std.os
+
+// What the program does as its own child, by its first argument.
+Function RunChild(arguments: String[])
+    Local mode = arguments[0]
+    If mode == "echo"
+        For i = 1 Until arguments.Count
+            Print("[{arguments[i]}]")
+        End For
+        Print(Env.Get("FB_PROCESS_TEST") ?? "Null", Env.Get("FB_PROCESS_UNSET") ?? "Null")
+        Process.Exit(3)
+    ElseIf mode == "case"
+        Print(Env.Get("FB_PROCESS_CASE") ?? "Null")
+    ElseIf mode == "path"
+        Print(Env.Get("PATH") != Null)
+    ElseIf mode == "cat"
+        Local line = Input()
+        While line != Null
+            Print("got {line}")
+            line = Input()
+        End While
+        PrintError("done")
+    ElseIf mode == "loud"
+        // More than a pipe holds goes to stderr before anything goes to stdout.
+        Local chunk = ""
+        For i = 0 Until 100
+            chunk += "0123456789"
+        End For
+        For i = 0 Until 1000
+            WriteError(chunk)
+        End For
+        Print("out")
+    ElseIf mode == "wait"
+        Input()
+    End If
+    Process.Exit(0)
+End Function
+
+Local arguments = Process.Arguments()
+If arguments.Count > 0 Then RunChild(arguments)
+
+Local self = Folders.Executable.Expect("the program's path")
+
+// Each argument reaches the child as it is, and the environment has the Command's changes.
+Env.Set("FB_PROCESS_UNSET", "parent's")
+Local command = Command(self).Arg("echo")
+command.Args(["a b", "", "\"quoted\"", "back\\slash\\", "a\\\"b", "tab\there", "µ", "$HOME", "*",
+              "%PATH%", "'single'"])
+command.Env("FB_PROCESS_TEST", "set").Unset("FB_PROCESS_UNSET")
+Local echo = Try command.Output()
+Write(echo.Text)
+Print(echo.Status, echo.Status.Code ?? -1, echo.Status.Signal ?? -1, echo.Status.Success,
+      echo.Stderr.Count)
+
+// Without changes it's this program's environment, and ClearEnv leaves only what Env sets after.
+Write((Try Command(self).Arg("echo").Output()).Text)
+Write((Try Command(self).Arg("echo").ClearEnv().Env("FB_PROCESS_TEST", "only").Output()).Text)
+
+// On Windows the variables every program needs stay, which only there includes PATH.
+Local windows = System.Platform == Platform.WINDOWS
+Print((Try Command(self).Arg("path").ClearEnv().Output()).Text == "{windows}\n")
+Print((Try Command(self).Arg("path").Unset("PATH").Output()).Text == "{windows}\n")
+
+// On Windows a variable's name is the same in any case.
+Env.Set("FB_PROCESS_CASE", "upper")
+Local cased = Try Command(self).Arg("case").Env("fb_process_case", "lower").Output()
+Print(cased.Text == (System.Platform == Platform.WINDOWS ? "lower\n" : "upper\n"))
+
+// A Child's stdin is a Writer, and its stdout and stderr are Readers.
+Local catCommand = Command(self).Arg("cat").Stdin(Stdio.PIPED).Stdout(Stdio.PIPED)
+Local cat = Try catCommand.Stderr(Stdio.PIPED).Spawn()
+Print(cat.Id > 0, cat.Id != Process.Id)
+Local input = cat.Stdin.Expect("a piped stdin")
+Try input.WriteText("one\n")
+Try input.WriteBytes("two\n".Bytes)
+input.Close()
+input.Close()
+Write(Try ReadAllText(cat.Stdout.Expect("a piped stdout")))
+Write(Try ReadAllText(cat.Stderr.Expect("a piped stderr")))
+Print(cat.Wait(), cat.TryWait()?.ToString() ?? "running")
+
+// Writing after Close throws.
+Try
+    Try input.WriteText("three\n")
+Catch e As IOError
+    Print("closed:", e.Kind)
+End Try
+
+// Wait closes a piped stdin first, so a child that reads it to its end doesn't wait for more.
+Local unclosed = Try Command(self).Arg("cat").Stdin(Stdio.PIPED).Stderr(Stdio.NONE).Spawn()
+Print(unclosed.Wait())
+
+// Output reads stdout and stderr both, so a child that fills one pipe doesn't wait for the other,
+// and closes a piped stdin, which nothing writes to.
+Local loud = Try Command(self).Arg("loud").Output()
+Print(loud.Text == "out\n", loud.Stderr.Count, loud.Status)
+Local fed = Try Command(self).Arg("cat").Stdin(Stdio.PIPED).Output()
+Print("[{fed.Text}]", fed.ErrorText == "done\n", fed.Status)
+
+// A stream keeps its child's pipe after the Child goes.
+Function StdoutOf(self: String): ChildOutput Throws IOError
+    Local child = Try Command(self).Arg("case").Stdout(Stdio.PIPED).Spawn()
+    Return child.Stdout.Expect("a piped stdout")
+End Function
+
+Write(Try ReadAllText(Try StdoutOf(self)))
+
+// What isn't piped has no stream, and Status gives only how the child ended.
+Local quiet = Try Command(self).Arg("case").Stdout(Stdio.NONE).Output()
+Print(quiet.Stdout.Count, quiet.Status)
+Local plain = Try Command(self).Arg("case").Stdout(Stdio.NONE).Spawn()
+Print(plain.Stdin == Null, plain.Stdout == Null, plain.Stderr == Null, plain.Wait())
+Print(Try Command(self).Arg("echo").Stdout(Stdio.NONE).Status())
+
+// Kill ends a child that's waiting, with signal 9 on every OS, and TryWait says it's running
+// until it's ended. Killing it again does nothing.
+Local waiting = Try Command(self).Arg("wait").Stdin(Stdio.PIPED).Spawn()
+Print(waiting.TryWait()?.ToString() ?? "running")
+Try waiting.Kill()
+Local killed = waiting.Wait()
+Print(killed, killed.Code ?? -1, killed.Signal ?? -1, killed.Success)
+Try waiting.Kill()
+Print(waiting.TryWait()?.ToString() ?? "running")
+
+// A program runs in the folder it's given, which must be there.
+Local inTemp = Try Command(self).Arg("case").Folder(Folders.Temp.Expect("a temp folder")).Output()
+Print(inTemp.Status)
+
+// A program that isn't there, or a folder that isn't, can't start.
+Try
+    Try Command("fb-no-such-program").Arg("x").Output()
+Catch e As IOError
+    Print(e.Kind, e.Path ?? "Null")
+End Try
+Try
+    Try Command(self).Arg("case").Folder(self + "-no-such-folder").Output()
+Catch e As IOError
+    Print(e.Kind)
+End Try
+
+// The Async twins wait on the main thread instead of blocking it.
+Async Function Twins(self: String) Throws IOError
+    Local echoed = Try Await Command(self).Arg("echo").Arg("async").OutputAsync()
+    Write(echoed.Text)
+    Print(echoed.Status)
+    Print(Try Await Command(self).Arg("case").Stdout(Stdio.NONE).StatusAsync())
+
+    Local cat = Command(self).Arg("cat").Stdin(Stdio.PIPED).Stdout(Stdio.PIPED)
+    Local child = Try cat.Stderr(Stdio.NONE).Spawn()
+    Local into = child.Stdin.Expect("a piped stdin")
+    Try Await into.WriteAsync(Buffer<UInt8>.From("four\n".Bytes))
+    into.Close()
+    Local text = StringWriter()
+    Try Await CopyAsync(child.Stdout.Expect("a piped stdout"), text)
+    Write(text.ToString())
+    Print(Await child.WaitAsync())
+End Function
+
+Try Await Twins(self)

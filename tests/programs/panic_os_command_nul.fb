@@ -1,0 +1,8 @@
+// A Command whose argument has a NUL panics where it starts, before anything runs.
+Import std.core
+Import std.os
+
+Local command = Command("fb-no-such-program").Arg("fine")
+Print("made")
+command.Arg("a" + "\0" + "b")
+Try? command.Output()
