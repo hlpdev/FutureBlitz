@@ -774,7 +774,7 @@ Skeptic: confirmed=True, low. Reproduced. From PowerShell: `cmd /c "chcp 437 >nu
 
 ## A-new-6 (medium): Overload resolution doesn't let an array literal fit an overload's array parameter
 
-Status: fixed in 6184ddb (an array, tuple, or map literal fits an overload's parameter as it fits a lone function's), with a sema test: each overload checks an array, tuple, or Map literal as its parameter's type, as a lone Function does, so `[1, 2, 3]` and `[]` fit a UInt8[], and one it then converts to, like an Iterable<Int>, a literal of its own type is exact, two overloads that convert it are ambiguous, an untyped Function in one takes its parameter's type, and one with no type of its own that fits no overload, like `(nope, 1)`, reports its own errors
+Status: fixed in 8d2afa3 (an array, tuple, or map literal fits an overload's parameter as it fits a lone function's), with a sema test: each overload checks an array, tuple, or Map literal as its parameter's type, as a lone Function does, so `[1, 2, 3]` and `[]` fit a UInt8[], and one it then converts to, like an Iterable<Int>, a literal of its own type is exact, two overloads that convert it are ambiguous, an untyped Function in one takes its parameter's type, and one with no type of its own that fits no overload, like `(nope, 1)`, reports its own errors
 
 Where: compiler/src/sema.cpp:21323
 
