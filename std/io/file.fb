@@ -389,10 +389,19 @@ End Function
 Package Function StatOf(request: Request): Metadata
     Local values: Int64[] = []
     fb_io_request_stat(request.Native, values)
-    // The runtime's times are nanoseconds since 1970 began, in UTC, and a time made of 0 is none.
-    Local created = values[4] == 0 ? Null : Timestamp.FromUnixNanoseconds(values[4])
-    Return Metadata(FileKindOf(values[0]), values[1], Timestamp.FromUnixNanoseconds(values[2]),
-                    Timestamp.FromUnixNanoseconds(values[3]), created, values[5] != 0)
+    // The runtime's times are seconds since 1970 began, in UTC, and nanoseconds after them, and
+    // a time made of 0 is none.
+    Local created = values[6] == 0 && values[7] == 0 ? Null : TimeOf(values[6], values[7])
+    Return Metadata(FileKindOf(values[0]), values[1], TimeOf(values[2], values[3]),
+                    TimeOf(values[4], values[5]), created, values[8] != 0)
+End Function
+
+// A time a file keeps, past the years a Timestamp holds only by a disk's mistake, so it's the
+// nearest a Timestamp holds.
+Function TimeOf(seconds: Int64, nanoseconds: Int64): Timestamp
+    If seconds < Timestamp.MinValue().UnixSeconds Then Return Timestamp.MinValue()
+    If seconds > Timestamp.MaxValue().UnixSeconds Then Return Timestamp.MaxValue()
+    Return Timestamp.FromUnixSeconds(seconds, nanoseconds)
 End Function
 
 Function FileKindOf(number: Int64): FileKind
