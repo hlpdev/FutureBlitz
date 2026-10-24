@@ -92,5 +92,8 @@ target_compile_definitions(fb_runtime_tests PRIVATE FB_TEST_TERM_PROBE="$<TARGET
 if(UNIX AND NOT APPLE)
   target_link_libraries(fb_runtime_tests PRIVATE util)
 endif()
+# image_text's fonts, which std.image's font tests break.
+target_compile_definitions(fb_runtime_tests PRIVATE
+  FB_TEST_FONTS="${CMAKE_CURRENT_SOURCE_DIR}/programs/image_text")
 fb_set_warnings(fb_runtime_tests)
 catch_discover_tests(fb_runtime_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})

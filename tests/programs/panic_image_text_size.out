@@ -1,0 +1,2 @@
+0 0
+panic: a font's size is finite and not negative, not -2 at panic_image_text_size.fb:12:1
