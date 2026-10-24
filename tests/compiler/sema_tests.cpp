@@ -9218,7 +9218,8 @@ TEST_CASE("a Sendable Func is a lambda or a Function's name that other threads c
     CHECK(with_twice("Function Get(): (Sendable Func(): Int)? => Function() => 1\n"
                      "Local t = Spawn(Get())") ==
           errors_t{ "Get(): expected Sendable Func(): Int32, found (Sendable Func(): Int32)?, "
-                    "which may be Null; check it first, or give a value for Null with '??'" });
+                    "which may be Null; check it first, or give a value for Null with '?"
+                    "?'" });
 
     // One that captures Self, kept in a Lock of a Mutex that's one of Self's fields, keeps Self
     // alive, as in the field itself.

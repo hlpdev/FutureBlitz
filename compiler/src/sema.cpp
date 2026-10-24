@@ -5027,6 +5027,20 @@ private:
         return kept;
     }
 
+    /// An Interface Method's Throws as `self`, which implements `interface`, an instance of the
+    /// Interface, has them.
+    std::vector<type_id_t> implemented_throws(const symbol_t& method, const type_id_t interface,
+                                              const type_id_t self) {
+        std::vector<type_id_t> throws;
+        throws.reserve(method.throws.size());
+        for (const type_id_t thrown : method.throws) {
+            const type_id_t implemented = as_implemented(thrown, interface, self);
+            throws.push_back(implemented == type_id_t::INVALID ? thrown : implemented);
+        }
+
+        return throws;
+    }
+
     type_id_t as_implemented(const type_id_t type, const type_id_t interface,
                              const type_id_t self) {
         if (interface == type_id_t::INVALID) {
@@ -5236,13 +5250,7 @@ private:
                               const type_id_t interface, const type_id_t self, const span_t span) {
         const symbol_t& found = symbol(id);
         // A generic Interface's Throws has the type arguments of the instance implemented.
-        std::vector<type_id_t> allowed;
-        allowed.reserve(required.throws.size());
-        for (const type_id_t type : required.throws) {
-            const type_id_t implemented = as_implemented(type, interface, self);
-            allowed.push_back(implemented == type_id_t::INVALID ? type : implemented);
-        }
-
+        const std::vector<type_id_t> allowed = implemented_throws(required, interface, self);
         const auto thrown = std::ranges::find_if(
             found.throws, [&](const type_id_t type) { return !covers(allowed, type); });
         // A constraint on one of its own type parameters that the Interface's doesn't have, as
@@ -5393,11 +5401,7 @@ private:
 
         symbol_t taken = method;
         taken.type = as_implemented(method.type, interface, type);
-        taken.throws.clear();
-        for (const type_id_t thrown : method.throws) {
-            const type_id_t implemented = as_implemented(thrown, interface, type);
-            taken.throws.push_back(implemented == type_id_t::INVALID ? thrown : implemented);
-        }
+        taken.throws = implemented_throws(method, interface, type);
 
         taken.constraints =
             implemented_bounds(method, interface, type).value_or(method.constraints);
@@ -10707,13 +10711,10 @@ private:
         std::vector<type_id_t> throws;
         throws.reserve(member.throws.size());
         for (const type_id_t thrown : member.throws) {
-            type_id_t type = thrown;
-            if (member.owner != type_id_t::INVALID && is_interface(member.owner)) {
-                type = as_implemented(thrown, instance_for(self, member.owner), self);
-            } else {
-                type = member_type(self, member, thrown);
-            }
-
+            const type_id_t type =
+                member.owner != type_id_t::INVALID && is_interface(member.owner)
+                    ? as_implemented(thrown, instance_for(self, member.owner), self)
+                    : member_type(self, member, thrown);
             throws.push_back(type == type_id_t::INVALID ? thrown : type);
         }
 
@@ -21200,7 +21201,7 @@ private:
             if (known) {
                 example += name_of(*known);
             } else if (is_value_parameter(parameter)) {
-                example += "1";
+                example += '1';
             } else if (const std::optional<std::string> fitting =
                            example_argument(parameter, call_bounds(function))) {
                 example += *fitting;
