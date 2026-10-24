@@ -214,6 +214,7 @@ bool color_panics() {
     // Whatever the program printed shows up before the panic, without a line cut in half.
     output().lock();
     std::fflush(stdout);
+    fb::runtime::run_before_report();
     const char* label = color_panics() ? "\x1b[1;31mpanic\x1b[0m" : "panic";
     std::fprintf(stderr, "%s: ", label);
     std::fwrite(message.data(), 1, message.size(), stderr);
@@ -282,6 +283,26 @@ void at_end(void (*restore)()) {
             expected == restore) {
             return;
         }
+    }
+}
+
+namespace {
+
+/// What before_report() was given.
+std::atomic<void (*)()>& leaver() {
+    static std::atomic<void (*)()> instance = nullptr;
+    return instance;
+}
+
+} // namespace
+
+void before_report(void (*leave)()) {
+    leaver().store(leave, std::memory_order_release);
+}
+
+void run_before_report() {
+    if (void (*const leave)() = leaver().load(std::memory_order_acquire); leave != nullptr) {
+        leave();
     }
 }
 
@@ -430,6 +451,7 @@ void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location) 
     ending().lock();
     output().lock();
     std::fflush(stdout);
+    fb::runtime::run_before_report();
     const char* label = color_panics() ? "\x1b[1;31muncaught\x1b[0m" : "uncaught";
     // The Classes shown, so each is named apart from one alike it, as the leak report does.
     std::vector<const fb_class_t*> types;

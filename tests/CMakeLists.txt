@@ -86,5 +86,11 @@ target_link_libraries(fb_runtime_tests PRIVATE fb_runtime_markdown md4c fb_runti
 # CommonMark's spec examples, which std.text.markdown's HTML passes.
 target_compile_definitions(fb_runtime_tests PRIVATE
   FB_TEST_COMMONMARK_SPEC="${CMAKE_CURRENT_SOURCE_DIR}/runtime/data/commonmark/spec.json")
+# std.term's tests run the term probe in a terminal of their own: a pty, which forkpty makes.
+add_dependencies(fb_runtime_tests fb_term_probe)
+target_compile_definitions(fb_runtime_tests PRIVATE FB_TEST_TERM_PROBE="$<TARGET_FILE:fb_term_probe>")
+if(UNIX AND NOT APPLE)
+  target_link_libraries(fb_runtime_tests PRIVATE util)
+endif()
 fb_set_warnings(fb_runtime_tests)
 catch_discover_tests(fb_runtime_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})

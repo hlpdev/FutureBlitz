@@ -19,3 +19,10 @@ if(WIN32)
   add_executable(fb_console_probe console_probe/console_probe.c)
   set_target_properties(fb_console_probe PROPERTIES C_STANDARD 11)
 endif()
+
+# For std.term's runtime tests, a program that reads its terminal's keys as std.term does, which
+# they run in a pseudoconsole on Windows and a pty elsewhere. It finds MinGW's DLLs as the tests
+# do, on the PATH ctest gives them.
+add_executable(fb_term_probe term_probe/term_probe.cpp)
+target_link_libraries(fb_term_probe PRIVATE fb_runtime)
+fb_set_warnings(fb_term_probe)
