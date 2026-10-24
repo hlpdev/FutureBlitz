@@ -537,16 +537,8 @@ void fb_finish(fb_class_t* const* classes, const std::int64_t count) {
     fb::runtime::run_finish();
     // Whatever the program printed shows up before the report.
     std::fflush(stdout);
-    if (const std::int64_t strings = fb_string_live_count(); strings != 0) {
-        std::fprintf(stderr, "leak: %lld %s never released\n", static_cast<long long>(strings),
-                     strings == 1 ? "String was" : "Strings were");
-    }
-
-    if (const std::int64_t copies = fb_cstring_live_count(); copies != 0) {
-        std::fprintf(stderr, "leak: %lld CString %s never freed\n", static_cast<long long>(copies),
-                     copies == 1 ? "copy of a String was" : "copies of Strings were");
-    }
-
+    const std::int64_t strings = fb_string_live_count();
+    const std::int64_t copies = fb_cstring_live_count();
     // The report shows the leaked Classes by their names, or by their full names where two are
     // alike, in the counts and the cycles both.
     std::vector<const fb_class_t*> leaked;
@@ -554,6 +546,21 @@ void fb_finish(fb_class_t* const* classes, const std::int64_t count) {
         if (type->live != 0) {
             leaked.push_back(type);
         }
+    }
+
+    // A report shows on the screen the program started on, as a panic's message does.
+    if (strings != 0 || copies != 0 || !leaked.empty()) {
+        fb::runtime::run_before_report();
+    }
+
+    if (strings != 0) {
+        std::fprintf(stderr, "leak: %lld %s never released\n", static_cast<long long>(strings),
+                     strings == 1 ? "String was" : "Strings were");
+    }
+
+    if (copies != 0) {
+        std::fprintf(stderr, "leak: %lld CString %s never freed\n", static_cast<long long>(copies),
+                     copies == 1 ? "copy of a String was" : "copies of Strings were");
     }
 
     for (const fb_class_t* type : leaked) {

@@ -343,7 +343,7 @@ Class ConsoleTerminal Extends Terminal
     End Method
 
     Override Method ScreenChanged(enter: String, leave: String)
-        fb_term_set_screen(enter, leave)
+        fb_term_set_screen(enter, leave, Stream As Int32)
     End Method
 End Class
 

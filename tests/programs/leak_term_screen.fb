@@ -1,0 +1,26 @@
+// A Screen that's leaked, in a cycle, so its Destroy never puts the screen back, still has it put
+// back before the leak report, as a panic's message has, so the report shows on the screen the
+// program started on.
+Import std.core
+Import std.term
+
+// An app that holds its Screen, and a node that holds the app, in a cycle.
+Class App
+    Field Display: Screen
+    Field Child: Node? = Null
+
+    New()
+        Display = Screen()
+    End New
+End Class
+
+Class Node
+    Field Owner: App? = Null
+End Class
+
+Local app = App()
+Local node = Node()
+node.Owner = app
+app.Child = node
+Print("drawn")
+Flush()
