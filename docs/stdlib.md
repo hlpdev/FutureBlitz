@@ -1156,8 +1156,8 @@ Step 28's half without streams is built: the addresses, `Url` and `QueryParams`,
   through a client of their own. A client's `Timeout`, a Duration, or Null for none, as it is to
   start, is how long a request may take, and `ConnectTimeout` (30 seconds) how long its
   connecting may; past either is a TimeoutError. It speaks HTTP/2 where TLS's ALPN agrees on it,
-  over nghttp2, and HTTP/1.1 otherwise. A program that only makes Headers or a Body links no
-  libcurl.
+  over nghttp2, and HTTP/1.1 otherwise. A Download to a file waits for step 14's files. A program
+  that only makes Headers or a Body links no libcurl.
 - std.net.http's server: `HttpServer`, whose handlers are Async code on its own loop (no data
   races, and Globals work), with `Workers = n` to spread them over threads once they're
   Sendable-safe; routes as
