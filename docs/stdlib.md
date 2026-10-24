@@ -150,6 +150,7 @@ So far, std/ holds:
 | std/text/humanize.fb | std.text.humanize: `Humanize`'s `Plural`, `Relative`, `Ordinal`, `Words`, `SnakeCase`, `KebabCase`, `CamelCase`, and `PascalCase` |
 | std/text/diff.fb | std.text.diff: `Diff`'s `Lines`, `Chars`, `Unified`, and `Merge`, and `DiffKind`, `DiffRun`, and `Merged` |
 | std/text/markdown.fb | `MarkdownToHtml` and `ParseMarkdown`, over md4c through `fb_markdown_`, with `MarkdownExtensions`, `MarkdownNode`, `MarkdownKind`, and `MarkdownAlignment` |
+| std/text/template.fb | `Template` and `Templates` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -370,9 +371,34 @@ file or URL in the default app.
     replacement's `$1`, `${1}`, `${name}`, and `$$` panic on a group the pattern doesn't have.
   - Each thread keeps the last 16 patterns it compiled, which a Regex of one shares, so the
     shortcuts compile a pattern once.
-- std.text.template: Mustache-style `{{name}}`, `{{#each items}}`, `{{#if x}}`/`{{else}}`,
-  partials, and format specs inside (`{{price:.2}}`), with HTML escaping on for `.html`; values
-  from a Map, a Struct (by reflection), or a JSON Value.
+- std.text.template: Mustache-style templates. `Template(text, html)` reads one, and
+  `Render(data)` fills it from a `Value`, whose Object's keys are the names, a
+  `Map<String, Value>`, or a `Map<String, String>`; `Templates` holds them by name, with
+  `Add(name, text)`, `Contains(name)`, and `Render(name, data)`, and they render each other as
+  partials. Its tags:
+  - `{{name}}` is a value, the first step of a path like `{{user.name}}` looked up in the scopes
+    from the innermost out, then each step from what the last gave; `{{this}}` or `{{.}}` is the
+    scope itself. A String gives its text, a number or Bool what Print shows, Null or a name
+    nothing has nothing, and an Array or Object its ToString. A template for HTML escapes `&`,
+    `<`, `>`, `"`, and `'`, but never in `{{{name}}}` or `{{& name}}`.
+  - `{{#each name}}` renders its body for each of an Array's elements or an Object's values, in
+    a scope of its own, where `@index`, `@key`, `@first`, and `@last` say where the item is;
+    `{{#if name}}` renders its body when the value is anything but Null, False, 0, NaN, "", or an
+    empty Array or Object, and `{{#unless name}}` when it's one of those. Each can have an
+    `{{else}}`, for when there's no item, or the test fails, and closes with `{{/each}}`,
+    `{{/if}}`, or `{{/unless}}`.
+  - `{{> name}}` renders the template of that name, a partial, in the scopes there. `{{! }}` is
+    a comment, and `\{{` is a "{{" of the text.
+  - A block's tag, a comment, or a partial alone on its line takes the line with it, and a
+    partial's lines take its indentation there, as Mustache's do.
+  - A template of `Templates` whose name ends with ".html" or ".htm", in any case, escapes for
+    HTML, and so do the partials it renders.
+  - A template that isn't one throws a `FormatError` of BAD_TEMPLATE, which says the template's
+    name, its line, and its column; Render throws one of MISSING_VALUE for a partial there's no
+    template of, and of OTHER for partials more than 1000 deep inside each other. A template
+    and its data nest however deep, since neither is read or rendered with calls.
+  - A Struct's or Class's data, and a Map of other values, come with `Save<T>`, and format specs
+    like `{{price:.2}}` with step 5's formatting.
 - std.text.markdown (md4c): CommonMark, which it passes all 652 of 0.31.2's spec examples of, as
   CommonMark's spec_tests.py compares them, with tables and task lists unless it's told other
   `MarkdownExtensions`: `None` for CommonMark alone, `Tables`, `TaskLists`, `Strikethrough`,
