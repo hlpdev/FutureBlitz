@@ -12,6 +12,7 @@
 
 #include "fb/image.hpp"
 #include "fb/runtime.hpp"
+#include "font_internal.hpp"
 #include "image_internal.hpp"
 
 #include <algorithm>
@@ -21,6 +22,7 @@
 #include <cstdint>
 #include <numbers>
 #include <span>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -593,6 +595,155 @@ private:
     }
 };
 
+/// The most chords a quadratic or a cubic of a glyph's is cut into.
+constexpr int most_chords = 1024;
+
+/// Adds the chords from p0 to p1 of the quadratic through c, but p0's point: as many as keep
+/// them within the tolerance, which its second difference over 4 times their count squared is.
+void add_quadratic(const point_t p0, const point_t c, const point_t p1, ring_t& ring) {
+    const double dx = p0.x - (2 * c.x) + p1.x;
+    const double dy = p0.y - (2 * c.y) + p1.y;
+    const double bend = std::sqrt((dx * dx) + (dy * dy));
+    const int count =
+        std::clamp(static_cast<int>(std::ceil(std::sqrt(bend / (4 * tolerance)))), 1, most_chords);
+    for (int i = 1; i < count; ++i) {
+        const double t = static_cast<double>(i) / count;
+        const double u = 1 - t;
+        ring.push_back({
+            .x = (u * u * p0.x) + (2 * u * t * c.x) + (t * t * p1.x),
+            .y = (u * u * p0.y) + (2 * u * t * c.y) + (t * t * p1.y),
+        });
+    }
+    ring.push_back(p1);
+}
+
+/// Adds the chords from p0 to p3 of the cubic through p1 and p2, but p0's point: as many as keep
+/// them within the tolerance, three quarters of the larger of its two second differences over
+/// their count squared.
+void add_cubic(const point_t p0, const point_t p1, const point_t p2, const point_t p3,
+               ring_t& ring) {
+    const double ax = p0.x - (2 * p1.x) + p2.x;
+    const double ay = p0.y - (2 * p1.y) + p2.y;
+    const double bx = p1.x - (2 * p2.x) + p3.x;
+    const double by = p1.y - (2 * p2.y) + p3.y;
+    const double bend =
+        std::max(std::sqrt((ax * ax) + (ay * ay)), std::sqrt((bx * bx) + (by * by)));
+    const int count =
+        std::clamp(static_cast<int>(std::ceil(std::sqrt(0.75 * bend / tolerance))), 1, most_chords);
+    for (int i = 1; i < count; ++i) {
+        const double t = static_cast<double>(i) / count;
+        const double u = 1 - t;
+        ring.push_back({
+            .x = (u * u * u * p0.x) + (3 * u * u * t * p1.x) + (3 * u * t * t * p2.x) +
+                 (t * t * t * p3.x),
+            .y = (u * u * u * p0.y) + (3 * u * u * t * p1.y) + (3 * u * t * t * p2.y) +
+                 (t * t * t * p3.y),
+        });
+    }
+    ring.push_back(p3);
+}
+
+/// A glyph's outline as rings, `place` putting each of its points in the image: a ring from each
+/// start, its lines, and its curves as chords, without its last point when that's back at its
+/// first, as each ring closes itself.
+template <typename Place>
+void add_glyph_rings(const fb::image::font_path_t& path, const Place& place,
+                     std::vector<ring_t>& rings) {
+    using fb::image::font_segment_t;
+    const auto close = [&] {
+        if (!rings.empty() && rings.back().size() > 1 &&
+            rings.back().front().x == rings.back().back().x &&
+            rings.back().front().y == rings.back().back().y) {
+            rings.back().pop_back();
+        }
+    };
+
+    point_t current{};
+    bool open = false;
+    for (const font_segment_t& segment : path) {
+        const point_t end = place(segment.x, segment.y);
+        if (segment.kind == font_segment_t::MOVE) {
+            if (open) {
+                close();
+            }
+            rings.push_back({ end });
+            open = true;
+        } else if (!open) {
+            continue;
+        } else if (segment.kind == font_segment_t::LINE) {
+            rings.back().push_back(end);
+        } else if (segment.kind == font_segment_t::QUADRATIC) {
+            add_quadratic(current, place(segment.x1, segment.y1), end, rings.back());
+        } else {
+            add_cubic(current, place(segment.x1, segment.y1), place(segment.x2, segment.y2), end,
+                      rings.back());
+        }
+        current = end;
+    }
+    if (open) {
+        close();
+    }
+}
+
+/// The next code point of the text's UTF-8, which a String's always is, from `at`, which it
+/// moves past it.
+std::uint32_t next_code_point(const std::string_view text, std::size_t& at) {
+    const auto lead = static_cast<unsigned char>(text[at]);
+    std::size_t length = 1;
+    std::uint32_t point = lead;
+    if (lead >= 0xF0) {
+        length = 4;
+        point = lead & 0x07U;
+    } else if (lead >= 0xE0) {
+        length = 3;
+        point = lead & 0x0FU;
+    } else if (lead >= 0xC0) {
+        length = 2;
+        point = lead & 0x1FU;
+    }
+    for (std::size_t i = 1; i < length && at + i < text.size(); ++i) {
+        point = (point << 6U) | (static_cast<unsigned char>(text[at + i]) & 0x3FU);
+    }
+    at += length;
+    return point;
+}
+
+/// Lays the text out in the font at `size` pixels an em, its first line's baseline from (x,
+/// y): each glyph after the last's advance and the kerning between them, unrounded, and each
+/// line feed a line's height down at x again. Gives each glyph's place to `glyph`, and the
+/// widest line's width.
+template <typename Glyph>
+double lay_out(const fb::image::font_t& font, const std::string_view text, const double size,
+               const double x, const double y, const Glyph& glyph) {
+    const double scale = size / font.units_per_em();
+    const double line_height = (font.ascent() - font.descent() + font.line_gap()) * scale;
+    double pen_x = x;
+    double pen_y = y;
+    double widest = 0;
+    bool first = true;
+    std::uint32_t before = 0;
+    for (std::size_t at = 0; at < text.size();) {
+        const std::uint32_t point = next_code_point(text, at);
+        if (point == '\n') {
+            widest = std::max(widest, pen_x - x);
+            pen_x = x;
+            pen_y += line_height;
+            first = true;
+            continue;
+        }
+
+        const std::uint32_t index = font.glyph_of(point);
+        if (!first) {
+            pen_x += font.kerning(before, index) * scale;
+        }
+        glyph(index, pen_x, pen_y, scale);
+        pen_x += font.advance_of(index) * scale;
+        before = index;
+        first = false;
+    }
+    return std::max(widest, pen_x - x);
+}
+
 } // namespace
 
 extern "C" {
@@ -645,5 +796,29 @@ void fb_image_stroke_ellipse(const fb_array_t* pixels, const std::int64_t width,
     stroker_t stroker(line_width / 2, CAP_BUTT, JOIN_MITER, 4);
     const std::vector<ring_t> pieces = stroker.stroke(ellipse({ .x = x, .y = y }, rx, ry), true);
     fill(pixels, width, height, pieces, rgba, antialias != 0);
+}
+
+void fb_image_fill_text(const fb_array_t* pixels, const std::int64_t width,
+                        const std::int64_t height, const void* font, const fb_string_t* text,
+                        const double size, const double x, const double y, const std::uint32_t rgba,
+                        const std::int32_t antialias) {
+    const auto& face = *static_cast<const fb::image::font_t*>(font);
+    std::vector<ring_t> rings;
+    lay_out(
+        face, text_of(text), size, x, y,
+        [&](const std::uint32_t glyph, const double at_x, const double at_y, const double scale) {
+            // A point of the glyph's, in font units, y up, in the image.
+            const auto place = [&](const double unit_x, const double unit_y) {
+                return point_t{ .x = at_x + (unit_x * scale), .y = at_y - (unit_y * scale) };
+            };
+            add_glyph_rings(face.outline(glyph), place, rings);
+        });
+    fill(pixels, width, height, rings, rgba, antialias != 0);
+}
+
+double fb_font_width(const void* font, const fb_string_t* text, const double size) {
+    const auto& face = *static_cast<const fb::image::font_t*>(font);
+    return lay_out(face, text_of(text), size, 0, 0,
+                   [](std::uint32_t /*glyph*/, double /*x*/, double /*y*/, double /*scale*/) {});
 }
 }

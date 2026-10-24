@@ -117,6 +117,33 @@ void fb_image_stroke_ellipse(const fb_array_t* pixels, std::int64_t width, std::
                              double x, double y, double rx, double ry, double line_width,
                              std::uint32_t rgba, std::int32_t antialias);
 
+/// TrueType fonts, read by the runtime itself (font.cpp), each offset checked first: a font of
+/// `data`, which it copies, and whose error is "" unless it isn't one, or is one of a kind it
+/// doesn't read, which fb_font_unsupported says, like CFF's outlines. Its metrics are in font
+/// units, its descent 0 or below, as hhea has them.
+void* fb_font_parse(const fb_array_t* data);
+fb_string_t* fb_font_error(const void* font);
+std::int32_t fb_font_unsupported(const void* font);
+std::int32_t fb_font_units(const void* font);
+std::int32_t fb_font_ascent(const void* font);
+std::int32_t fb_font_descent(const void* font);
+std::int32_t fb_font_line_gap(const void* font);
+/// Whether cmap gives the code point a glyph.
+std::int32_t fb_font_has(const void* font, std::uint32_t code_point);
+void fb_font_free(void* font);
+/// The widest line of `text`'s width, in pixels, at `size` pixels an em, as fb_image_fill_text
+/// lays it out.
+double fb_font_width(const void* font, const fb_string_t* text, double size);
+/// Fills the glyphs of `text` in `font` at `size` pixels an em, its first line's baseline from
+/// (`x`, `y`), as one region: each glyph after the last's advance and the kerning between them,
+/// unrounded, each line feed a line's height, ascent less descent and the line gap, down, and
+/// a code point the font has no glyph for its .notdef; each glyph's quadratics cut into the
+/// chords that keep them within the tolerance, their second difference over 4 times the count
+/// squared, at most 1024.
+void fb_image_fill_text(const fb_array_t* pixels, std::int64_t width, std::int64_t height,
+                        const void* font, const fb_string_t* text, double size, double x, double y,
+                        std::uint32_t rgba, std::int32_t antialias);
+
 /// stb_image's decoding: `format` is one of fb_image_format's 1 PNG, 2 JPEG, 3 BMP, 4 TGA, or 6
 /// HDR, and the bytes must be that format. An HDR gives fb_image_hdr_pixels.
 void* fb_stb_decode(const fb_array_t* data, std::int32_t format, std::int64_t limit);
