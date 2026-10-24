@@ -54,6 +54,28 @@ Print(Diff.Unified("a\r\nb\r\n",
 Print("== unified 11")
 Print(Diff.Unified("café\n😀\n",
                    "cafe\n😀\n").Replace("\r", "\\r"))
+Print("== unified 12")
+Print(Diff.Unified("b0\n\n\nx\n",
+                   "\n\n\nx\n", context: 0).Replace("\r", "\\r"))
+Print("== unified 13")
+Print(Diff.Unified("b0\n\n\nx\n",
+                   "\n\n\nx\n").Replace("\r", "\\r"))
+Print("== unified 14")
+Print(Diff.Unified("a\n",
+                   "b\na\na\n").Replace("\r", "\\r"))
+Print("== unified 15")
+Print(Diff.Unified("a\nb\na\nb\n",
+                   "a\nb\n").Replace("\r", "\\r"))
+Print("== unified 16")
+Print(Diff.Unified("x\n\ny\n\nz\n",
+                   "x\n\nz\n").Replace("\r", "\\r"))
+Print("== unified 17")
+Print(Diff.Unified("{{\n  a\n}}\n{{\n  b\n}}\n",
+                   "{{\n  a\n}}\n{{\n  c\n}}\n" +
+                   "{{\n  b\n}}\n").Replace("\r", "\\r"))
+Print("== unified 18")
+Print(Diff.Unified("1\n1\n1\n2\n1\n1\n",
+                   "1\n1\n2\n1\n1\n1\n").Replace("\r", "\\r"))
 Local merged0 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "1\ntwo\n3\n4\n5\n6\n" +
@@ -148,3 +170,8 @@ Local merged12 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "")
 Print("== merge 12 {merged12.Conflicts}")
 Print(merged12.Text)
+Local merged13 = Diff.Merge("b0\n\n\nx\n",
+                         "\n\n\nx\n",
+                         "b0\n\n\nT\nx\n")
+Print("== merge 13 {merged13.Conflicts}")
+Print(merged13.Text)

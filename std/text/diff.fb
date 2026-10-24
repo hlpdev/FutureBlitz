@@ -7,6 +7,7 @@
 
 Import std.core
 Import std.collections.array
+Import std.collections.map
 Import std.text.char
 Import std.text.string
 
@@ -217,118 +218,365 @@ Function LinesOf(text: String): String[]
     Return lines
 End Function
 
-// The fewest deletions from a and insertions from b that turn a into b, by Myers' algorithm, as
-// what each step does, in order: each round d finds how far along a each diagonal k, x - y, gets
-// with d edits, from the round before's, which it keeps for the diagonals it reads, -d - 1 to
-// d + 1, and the rounds are read back from the end. Where lines are replaced, the deletions go
-// before the insertions.
+// The fewest deletions from a and insertions from b that turn a into b, as what each step does,
+// in order, with the deletions before the insertions where lines are replaced. It goes as git's
+// xdiff does, without the shortcuts that let a diff of many lines be longer than the fewest:
+// past the lines both start and end with, a line with no equal in the other text is changed
+// without a search, Myers' search in linear space marks the rest, and each run of changes then
+// slides as git's does, so the diff is the one git and diff -u give.
 Function Script(a: String[], b: String[]): DiffKind[]
+    // Each line as its class, which equal lines share, and how many of each class each text has.
+    Local classes = Map<String, Int>()
+    Local left = ClassesOf(a, classes)
+    Local right = ClassesOf(b, classes)
+    Local inLeft: Int[] = []
+    inLeft.Resize(classes.Count, 0)
+    For line In left
+        inLeft[line] += 1
+    End For
+
+    Local inRight: Int[] = []
+    inRight.Resize(classes.Count, 0)
+    For line In right
+        inRight[line] += 1
+    End For
+
     Local n = a.Count
     Local m = b.Count
-    Local most = n + m
-    Local offset = most + 1
-    Local reach: Int[] = []
-    reach.Resize(2 * most + 3, 0)
-    Local rounds: Int[][] = []
-    Local done = False
-    Local d = 0
-    While !done
-        Local kept: Int[] = []
-        For k = -d - 1 To d + 1
-            kept.Add(reach[offset + k])
-        End For
-
-        rounds.Add(kept)
-        For k = -d To d Step 2
-            Local x = 0
-            If k == -d || (k != d && reach[offset + k - 1] < reach[offset + k + 1])
-                x = reach[offset + k + 1]
-            Else
-                x = reach[offset + k - 1] + 1
-            End If
-
-            Local y = x - k
-            While x < n && y < m && a[x] == b[y]
-                x += 1
-                y += 1
-            End While
-
-            reach[offset + k] = x
-            If x >= n && y >= m
-                done = True
-                Break
-            End If
-        End For
-
-        If !done Then d += 1
+    Local first = 0
+    While first < n && first < m && left[first] == right[first]
+        first += 1
     End While
 
-    // Back from the end, each round's step, then its run of what's the same. A round keeps
-    // diagonal k at k + round + 1.
+    Local last = 0
+    While last < n - first && last < m - first && left[n - 1 - last] == right[m - 1 - last]
+        last += 1
+    End While
+
+    Local deleted: Bool[] = []
+    deleted.Resize(n, False)
+    Local inserted: Bool[] = []
+    inserted.Resize(m, False)
+    Local searchedLeft: Int[] = []
+    For i = first Until n - last
+        If inRight[left[i]] == 0 Then deleted[i] = True Else searchedLeft.Add(i)
+    End For
+
+    Local searchedRight: Int[] = []
+    For j = first Until m - last
+        If inLeft[right[j]] == 0 Then inserted[j] = True Else searchedRight.Add(j)
+    End For
+
+    Local search = Myers(Picked(left, searchedLeft), Picked(right, searchedRight))
+    search.Compare(0, searchedLeft.Count, 0, searchedRight.Count)
+    For i = 0 Until searchedLeft.Count
+        If search.Deleted[i] Then deleted[searchedLeft[i]] = True
+    End For
+
+    For j = 0 Until searchedRight.Count
+        If search.Inserted[j] Then inserted[searchedRight[j]] = True
+    End For
+
+    Compact(left, deleted, right, inserted)
+    Compact(right, inserted, left, deleted)
     Local steps: DiffKind[] = []
-    Local x = n
-    Local y = m
-    For round = d To 0 Step -1
-        Local before = rounds[round]
-        Local k = x - y
-        Local previous = k - 1
-        If k == -round || (k != round && before[k + round] < before[k + round + 2])
-            previous = k + 1
+    Local x = 0
+    Local y = 0
+    While x < n || y < m
+        If x < n && deleted[x]
+            steps.Add(DiffKind.DELETED)
+            x += 1
+        ElseIf y < m && inserted[y]
+            steps.Add(DiffKind.INSERTED)
+            y += 1
+        Else
+            steps.Add(DiffKind.SAME)
+            x += 1
+            y += 1
+        End If
+    End While
+
+    Return steps
+End Function
+
+// Each of lines' class, which equal lines share, adding a class to classes for each line that
+// has none yet.
+Function ClassesOf(lines: String[], classes: Map<String, Int>): Int[]
+    Local found: Int[] = []
+    For line In lines
+        Local known = classes.Get(line, -1)
+        If known < 0
+            known = classes.Count
+            classes.Add(line, known)
         End If
 
-        Local fromX = before[previous + round + 1]
-        Local fromY = fromX - previous
-        While x > fromX && y > fromY
-            steps.Add(DiffKind.SAME)
-            x -= 1
-            y -= 1
+        found.Add(known)
+    End For
+
+    Return found
+End Function
+
+// The values at each of indexes.
+Function Picked(values: Int[], indexes: Int[]): Int[]
+    Local picked: Int[] = []
+    For index In indexes
+        picked.Add(values[index])
+    End For
+
+    Return picked
+End Function
+
+// Myers' search for the fewest changes between two texts' lines, as their classes, in linear
+// space, as git's xdl_recs_cmp and xdl_split search with XDF_NEED_MINIMAL: it marks which of A's
+// lines are Deleted and which of B's are Inserted.
+Class Myers
+    Field A: Int[]
+    Field B: Int[]
+    Field Deleted: Bool[] = []
+    Field Inserted: Bool[] = []
+    // How far along A the path on each diagonal, a line of A less a line of B, reaches forward
+    // and backward. A diagonal's place is it plus Offset.
+    Field Forward: Int[] = []
+    Field Backward: Int[] = []
+    Field Offset: Int
+
+    New(a: Int[], b: Int[])
+        A = a
+        B = b
+        Deleted.Resize(a.Count, False)
+        Inserted.Resize(b.Count, False)
+        Forward.Resize(a.Count + b.Count + 3, 0)
+        Backward.Resize(a.Count + b.Count + 3, 0)
+        Offset = b.Count + 1
+    End New
+
+    // Marks the changes between A's lines from aStart up to aEnd and B's from bStart up to bEnd:
+    // past the lines they start and end with alike, every line of one when the other has none
+    // left, or else the changes on each side of where a path of the fewest crosses its middle.
+    Method Compare(aStart: Int, aEnd: Int, bStart: Int, bEnd: Int)
+        Local x = aStart
+        Local y = bStart
+        Local xEnd = aEnd
+        Local yEnd = bEnd
+        While x < xEnd && y < yEnd && A[x] == B[y]
+            x += 1
+            y += 1
         End While
 
-        If round > 0
-            If x == fromX
-                steps.Add(DiffKind.INSERTED)
-                y -= 1
+        While x < xEnd && y < yEnd && A[xEnd - 1] == B[yEnd - 1]
+            xEnd -= 1
+            yEnd -= 1
+        End While
+
+        If x == xEnd
+            For j = y Until yEnd
+                Inserted[j] = True
+            End For
+        ElseIf y == yEnd
+            For i = x Until xEnd
+                Deleted[i] = True
+            End For
+        Else
+            Local middleX, middleY = Middle(x, xEnd, y, yEnd)
+            Compare(x, middleX, y, middleY)
+            Compare(middleX, xEnd, middleY, yEnd)
+        End If
+    End Method
+
+    // Where a path of the fewest changes from (aStart, bStart) to (aEnd, bEnd) crosses its
+    // middle, as xdl_split finds it: paths go forward from the start and back from the end, a
+    // change at a time on each diagonal, until one reaches the other's on the same diagonal.
+    Method Middle(aStart: Int, aEnd: Int, bStart: Int, bEnd: Int): (Int, Int)
+        Local lowest = aStart - bEnd
+        Local highest = aEnd - bStart
+        Local forwardMiddle = aStart - bStart
+        Local backwardMiddle = aEnd - bEnd
+        Local odd = (forwardMiddle - backwardMiddle) % 2 != 0
+        Local forwardLow = forwardMiddle
+        Local forwardHigh = forwardMiddle
+        Local backwardLow = backwardMiddle
+        Local backwardHigh = backwardMiddle
+        Forward[Offset + forwardMiddle] = aStart
+        Backward[Offset + backwardMiddle] = aEnd
+        Loop
+            // Each round reaches one diagonal further each way, or one less where the next is
+            // past the box's edge, and marks the diagonal past it as not reached yet.
+            If forwardLow > lowest
+                forwardLow -= 1
+                Forward[Offset + forwardLow - 1] = -1
             Else
-                steps.Add(DiffKind.DELETED)
-                x -= 1
+                forwardLow += 1
+            End If
+
+            If forwardHigh < highest
+                forwardHigh += 1
+                Forward[Offset + forwardHigh + 1] = -1
+            Else
+                forwardHigh -= 1
+            End If
+
+            For d = forwardHigh To forwardLow Step -2
+                Local x = Forward[Offset + d + 1]
+                If Forward[Offset + d - 1] >= x Then x = Forward[Offset + d - 1] + 1
+                Local y = x - d
+                While x < aEnd && y < bEnd && A[x] == B[y]
+                    x += 1
+                    y += 1
+                End While
+
+                Forward[Offset + d] = x
+                If odd && backwardLow <= d && d <= backwardHigh && Backward[Offset + d] <= x
+                    Return (x, y)
+                End If
+            End For
+
+            If backwardLow > lowest
+                backwardLow -= 1
+                Backward[Offset + backwardLow - 1] = 2147483647
+            Else
+                backwardLow += 1
+            End If
+
+            If backwardHigh < highest
+                backwardHigh += 1
+                Backward[Offset + backwardHigh + 1] = 2147483647
+            Else
+                backwardHigh -= 1
+            End If
+
+            For d = backwardHigh To backwardLow Step -2
+                Local x = Backward[Offset + d + 1] - 1
+                If Backward[Offset + d - 1] < Backward[Offset + d + 1]
+                    x = Backward[Offset + d - 1]
+                End If
+
+                Local y = x - d
+                While x > aStart && y > bStart && A[x - 1] == B[y - 1]
+                    x -= 1
+                    y -= 1
+                End While
+
+                Backward[Offset + d] = x
+                If !odd && forwardLow <= d && d <= forwardHigh && x <= Forward[Offset + d]
+                    Return (x, y)
+                End If
+            End For
+        End Loop
+    End Method
+End Class
+
+// A run of a text's changed lines, from Start up to Finish, which is empty between two lines
+// that aren't changed, as git's xdlgroup is: it moves to the next run, or the one before, and
+// slides over the lines around it. Lines are the text's lines' classes.
+Class Run
+    Field Lines: Int[]
+    Field Changed: Bool[]
+    Field Start: Int = 0
+    Field Finish: Int = 0
+
+    New(lines: Int[], changed: Bool[])
+        Lines = lines
+        Changed = changed
+        While IsChanged(Finish)
+            Finish += 1
+        End While
+    End New
+
+    Method IsChanged(line: Int): Bool => line >= 0 && line < Changed.Count && Changed[line]
+
+    // Moves to the next run, or tells that there's none.
+    Method Next(): Bool
+        If Finish == Changed.Count Then Return False
+        Start = Finish + 1
+        Finish = Start
+        While IsChanged(Finish)
+            Finish += 1
+        End While
+
+        Return True
+    End Method
+
+    // Moves to the run before, or tells that there's none.
+    Method Previous(): Bool
+        If Start == 0 Then Return False
+        Finish = Start - 1
+        Start = Finish
+        While IsChanged(Start - 1)
+            Start -= 1
+        End While
+
+        Return True
+    End Method
+
+    // Slides the run a line down, where the line after it is the same as its first, taking in
+    // the run it then touches, or tells that it can't.
+    Method SlideDown(): Bool
+        If Finish >= Changed.Count || Lines[Start] != Lines[Finish] Then Return False
+        Changed[Start] = False
+        Start += 1
+        Changed[Finish] = True
+        Finish += 1
+        While IsChanged(Finish)
+            Finish += 1
+        End While
+
+        Return True
+    End Method
+
+    // Slides the run a line up, where the line before it is the same as its last, taking in the
+    // run it then touches, or tells that it can't.
+    Method SlideUp(): Bool
+        If Start == 0 || Lines[Start - 1] != Lines[Finish - 1] Then Return False
+        Start -= 1
+        Changed[Start] = True
+        Finish -= 1
+        Changed[Finish] = False
+        While IsChanged(Start - 1)
+            Start -= 1
+        End While
+
+        Return True
+    End Method
+End Class
+
+// Slides each run of a text's changed lines as git's xdl_change_compact does without its indent
+// heuristic: as far up as its lines allow, then as far down, taking in the runs it meets, and
+// then back up to the last place where it lines up with a run of the other text's changes, if
+// it passed one. lines and changed are the text's, and others and otherChanged the other's.
+Function Compact(lines: Int[], changed: Bool[], others: Int[], otherChanged: Bool[])
+    Local run = Run(lines, changed)
+    Local other = Run(others, otherChanged)
+    Loop
+        If run.Finish > run.Start
+            Local earliest = 0
+            Local matching = -1
+            Local size = 0
+            Repeat
+                size = run.Finish - run.Start
+                matching = -1
+                While run.SlideUp()
+                    other.Previous()
+                End While
+
+                earliest = run.Finish
+                If other.Finish > other.Start Then matching = run.Finish
+                While run.SlideDown()
+                    other.Next()
+                    If other.Finish > other.Start Then matching = run.Finish
+                End While
+            Until size == run.Finish - run.Start
+
+            If run.Finish != earliest && matching >= 0
+                While other.Finish == other.Start
+                    run.SlideUp()
+                    other.Previous()
+                End While
             End If
         End If
-    End For
 
-    steps.Reverse()
-    Return Ordered(steps)
-End Function
-
-// steps with each run of changes' deletions before its insertions.
-Function Ordered(steps: DiffKind[]): DiffKind[]
-    Local ordered: DiffKind[] = []
-    Local deleted = 0
-    Local inserted = 0
-    For step In steps
-        If step == DiffKind.DELETED
-            deleted += 1
-        ElseIf step == DiffKind.INSERTED
-            inserted += 1
-        Else
-            Flush(ordered, deleted, inserted)
-            deleted = 0
-            inserted = 0
-            ordered.Add(step)
-        End If
-    End For
-
-    Flush(ordered, deleted, inserted)
-    Return ordered
-End Function
-
-Function Flush(ordered: DiffKind[], deleted: Int, inserted: Int)
-    For i = 0 Until deleted
-        ordered.Add(DiffKind.DELETED)
-    End For
-
-    For i = 0 Until inserted
-        ordered.Add(DiffKind.INSERTED)
-    End For
+        If !run.Next() Then Return
+        other.Next()
+    End Loop
 End Function
 
 // The runs that steps make of a and b.

@@ -17,8 +17,8 @@ Function Shown(runs: DiffRun[]): String
     Return shown
 End Function
 
-// Myers' own example, from his paper: ABCABBA to CBABAC takes 5 edits, his deleting A and B,
-// keeping C, inserting B, keeping A and B, deleting B, keeping A, and inserting C.
+// Myers' own example, from his paper: ABCABBA to CBABAC takes 5 edits, which, as in git diff and
+// diff -u, delete A and B, keep C, delete A, keep B, insert A, keep B and A, and insert C.
 Print(Shown(Diff.Lines("A\nB\nC\nA\nB\nB\nA\n", "C\nB\nA\nB\nA\nC\n")))
 Print(Shown(Diff.Chars("ABCABBA", "CBABAC")))
 
@@ -39,8 +39,7 @@ Write(Diff.Unified(before, after, context: 1))
 Write(Diff.Unified(before, after, context: 2))
 Print(Diff.Unified(before, before) == "")
 
-// Two texts of 3000 lines, a third of them changed: Myers' rounds keep only the diagonals each
-// reads, so a thousand changes take a few megabytes.
+// Two texts of 3000 lines, a third of them changed.
 Local many = ""
 Local changed = ""
 For i = 0 Until 3000
@@ -51,6 +50,24 @@ End For
 Local runs = Diff.Lines(many, changed)
 Local deleted = 0
 Local inserted = 0
+For run In runs
+    If run.Kind == DiffKind.DELETED Then deleted += run.Text.Count("\n")
+    If run.Kind == DiffKind.INSERTED Then inserted += run.Text.Count("\n")
+End For
+Print(runs.Count, deleted, inserted)
+
+// Two texts of 50000 lines, alike only in every 100th: a hundred thousand changes, which Myers'
+// search finds in memory that grows with the lines, not with the changes times themselves.
+Local oldLines: String[] = []
+Local newLines: String[] = []
+For i = 0 Until 50000
+    oldLines.Add(i % 100 == 0 ? "same\n" : "old {i}\n")
+    newLines.Add(i % 100 == 0 ? "same\n" : "new {i}\n")
+End For
+
+runs = Diff.Lines("".Join(oldLines), "".Join(newLines))
+deleted = 0
+inserted = 0
 For run In runs
     If run.Kind == DiffKind.DELETED Then deleted += run.Text.Count("\n")
     If run.Kind == DiffKind.INSERTED Then inserted += run.Text.Count("\n")
