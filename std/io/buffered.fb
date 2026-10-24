@@ -130,9 +130,9 @@ Public Class BufferedReader Implements Reader
     End Method
 End Class
 
-// Writes another Writer `size` bytes at a time: what's written waits in a buffer until it fills,
-// or Flush sends it on. What's still waiting when it goes is written then, without the errors
-// that Flush would give.
+// Writes another Writer `size` bytes at a time: what's written waits in a buffer until a write
+// doesn't fit what's left of it, or Flush sends it on. What's still waiting when it goes is
+// written then, without the errors that Flush would give.
 Public Class BufferedWriter Implements Writer
     Field Inner: Writer
     Field Held: Buffer<UInt8>
@@ -146,27 +146,24 @@ Public Class BufferedWriter Implements Writer
         Held = Buffer<UInt8>(size)
     End New
 
-    // Keeps the bytes until the buffer fills. A write of a whole buffer or more, once what waits
-    // is sent, goes straight to the other Writer.
+    // Keeps the bytes, sending on what waits first when they don't fit what's left of the
+    // buffer. A write of a whole buffer or more goes straight to the other Writer, after what
+    // waits.
     Public Method Write(from: Buffer<UInt8>) Throws IOError
-        If Length + from.Count > Held.Count
-            Try Send()
-            If from.Count >= Held.Count
-                Try Inner.Write(from)
-                Return
-            End If
+        If Length + from.Count > Held.Count Then Try Send()
+        If from.Count >= Held.Count
+            Try Inner.Write(from)
+            Return
         End If
 
         Keep(from)
     End Method
 
     Public Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
-        If Length + from.Count > Held.Count
-            Try Await SendAsync()
-            If from.Count >= Held.Count
-                Try Await Inner.WriteAsync(from)
-                Return
-            End If
+        If Length + from.Count > Held.Count Then Try Await SendAsync()
+        If from.Count >= Held.Count
+            Try Await Inner.WriteAsync(from)
+            Return
         End If
 
         Keep(from)

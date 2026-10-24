@@ -185,6 +185,24 @@ End Function
 Try WriteAndGo(late)
 Print(late.ToString())
 
+// A write of a whole buffer or more goes straight through, after what waits.
+Local counted = Counted()
+Local whole = BufferedWriter(counted, 4)
+For part In ["abcd", "e", "fghi", "jk", "lmnopq"]
+    Try whole.WriteText(part)
+End For
+
+Print(counted.Sizes)
+
+// What fails to go as a BufferedWriter goes is lost, as Flush would have thrown it.
+Function WriteBroken() Throws IOError
+    Local held = BufferedWriter(Broken(), 16)
+    Try held.WriteText("lost")
+End Function
+
+Try WriteBroken()
+Print("a write that fails as it goes is lost")
+
 // Binary numbers in either order, at their types' edges, and text.
 For order In [ByteOrder.LITTLE, ByteOrder.BIG]
     Local data = MemoryStream()
