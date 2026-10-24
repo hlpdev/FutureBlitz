@@ -1,0 +1,8 @@
+True True
+First game _fbtest._udp 4242 2 True True
+[First game, Second game]
+_fbtest._udp 4242 dust 3 True True
+[Elsewhere]
+from a thread: 2
+True [First game]
+0

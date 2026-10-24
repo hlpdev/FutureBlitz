@@ -1,0 +1,10 @@
+// A LanService's type is DNS-SD's, '_', a name, and "._udp" or "._tcp", so another panics where
+// it's given.
+Import std.core
+Import std.net
+
+Try
+    Print(Lan.Find("mygame", Null, 55354).Count)
+Catch e As NetError
+    Print("failed: {e.Message}")
+End Try

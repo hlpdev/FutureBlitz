@@ -1,0 +1,88 @@
+// std.net's LAN discovery: a program offers services with LanAnnouncers and finds them with Lan,
+// over mDNS's records, Async and from another thread, and a goodbye has them forgotten. It keeps
+// to a discovery port of its own, so what else on the machine answers mDNS doesn't answer it,
+// and what isn't a DNS message, sent there, is let be. A Find that has to find something waits
+// a second and a half, since its answers come from the main thread's Async code, which a busy
+// machine can be slow to run.
+
+Import std.core
+Import std.collections
+Import std.net
+Import std.time
+
+Const port: UInt16 = 55353
+Const type = "_fbtest._udp"
+
+// The names of what Find found, in order, since two can answer in either.
+Function Names(services: LanService[]): String
+    Local names: String[] = []
+    For service In services
+        names.Add(service.Name)
+    End For
+
+    names.Sort()
+    Return "{names}"
+End Function
+
+Try
+    Print(Lan.HostName() != "", Lan.LocalAddresses().Count > 0)
+
+    Local text = Map<String, String>()
+    text["map"] = "dust"
+    text["players"] = "3"
+    Local announcer = LanAnnouncer.Start(type, "First game", 4242, text, port)
+    Local offered = announcer.Service
+    Print(offered.Name, offered.Type, offered.Port, offered.Text.Count, offered.Addresses.Count > 0,
+          "{offered}" == "First game (_fbtest._udp) at {offered.Host}:4242")
+
+    // What isn't a DNS message is let be: garbage, a name that points at itself, and a message
+    // that ends too soon.
+    Local junk = UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0))
+    Local garbage: UInt8[][] = [[1, 2, 3],
+                                [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 192, 12, 0, 12, 0, 1],
+                                [0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 7, 95, 102, 98]]
+    For bytes In garbage
+        junk.Send(bytes, SocketAddress(IpAddress.Loopback, port))
+    End For
+
+    // A second service of the type, and a third of another.
+    Local second = LanAnnouncer.Start(type, "Second game", 4343, Null, port)
+    Local other = LanAnnouncer.Start("_fbother._tcp", "Elsewhere", 80, Null, port)
+
+    // Async, on the main thread, where the announcers answer.
+    Local found = Await Lan.FindAsync(type, 1500.Milliseconds, port)
+    Print(Names(found))
+    For service In found
+        If service.Name == "First game"
+            Print(service.Type, service.Port, service.Text["map"], service.Text["players"],
+                  service.Host == offered.Host, service.Address != Null)
+        End If
+    End For
+
+    Print(Names(Await Lan.FindAsync("_fbother._tcp", 1500.Milliseconds, port)))
+
+    // Blocking, on a Thread, while the main thread goes on answering.
+    Const counts = Channel<Int>(1)
+    Local finder = Thread.Start(Function()
+        Try
+            counts.Send(Lan.Find("_fbtest._udp", 1500.Milliseconds, 55353).Count)
+        Catch e As NetError
+            counts.Send(-1)
+        End Try
+    End Function)
+    While !finder.IsDone()
+        Await NextFrame()
+    End While
+    finder.Join()
+    Print("from a thread: {counts.Receive() ?? -2}")
+
+    // A goodbye: what stopped doesn't answer any more.
+    second.Stop()
+    second.Stop()
+    Print(second.IsStopped, Names(Await Lan.FindAsync(type, 1500.Milliseconds, port)))
+    announcer.Stop()
+    other.Stop()
+    Print((Await Lan.FindAsync(type, 300.Milliseconds, port)).Count)
+Catch e As NetError
+    Print("failed: {e.Kind} {e.Message}")
+End Try
