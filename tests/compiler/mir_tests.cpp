@@ -2920,6 +2920,21 @@ TEST_CASE("lowering stops where code needs a larger instance each time, which an
     CHECK(stopped(std::format("{}Global g: Grid<65536, 65536>?", grid)) ==
           "g: Int8[65536, 65536] comes out here with more elements than a fixed array can hold, "
           "at most 2147483647");
+    // And a size below 1, in a Struct's or Class's Field, or a Global's type.
+    const std::string_view row = "Struct Row<Const W: Int>\n"
+                                 "    Field Cells: Float[W]\n"
+                                 "    Field Name: String = \"row\"\n"
+                                 "End Struct\n";
+    CHECK(stopped(std::format("{}Struct Level\n    Field Map: Row<0>\nEnd Struct\n"
+                              "Local level = Level()",
+                              row)) ==
+          "Level(): Float32[0] comes out here, but a fixed array's sizes are from 1 to 2147483647");
+    CHECK(stopped(std::format("{}Class Room\n    Field Map: Row<-4>\nEnd Class\n"
+                              "Local room = Room()",
+                              row)) ==
+          "Room(): Float32[-4] comes out here, but a fixed array's sizes are from 1 to 2147483647");
+    CHECK(stopped(std::format("{}Global g: Row<0>", row)) ==
+          "g: Float32[0] comes out here, but a fixed array's sizes are from 1 to 2147483647");
     CHECK(stopped("Function Cells<Const N: Int>(): Int\n"
                   "    Local c: Int8[N, N * 2]\n"
                   "    Return c.Count\n"
