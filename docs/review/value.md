@@ -4,7 +4,7 @@
 
 ## change-1 (medium): Holds goes through a shared part once for each reference to it, so Add takes exponential time
 
-Status: open
+Status: fixed in fdf9e66f: Holds walks with a stack of its own and gives each Value it looks through that walk's number (a Global Atomic's count, in the Value's Walked Field), so a part held in several places is looked through once; core_value_deep adds 60 levels that each hold the one before twice, and panic_value_holds_itself_shared finds a 40-level one holding itself at once
 
 Where: std/core/value.fb:414
 
@@ -35,7 +35,7 @@ Skeptic: I ran the reviewer's program (rv-value/idx/dag26.fb). Each level is an 
 
 ## core-2 (medium): ToString, Clone, Hash, and == crash with a stack overflow for a Value nested about 2000 deep in debug, deeper in release
 
-Status: open
+Status: fixed in fdf9e66f: ToString (into parts the runtime's new fb_value_joined joins), Clone, Hash, and == walk with stacks of their own, Hash through std.core.value's Step, which keeps each Array's or Object's place and what it's added up; core_value_deep writes, clones, hashes, and compares Values 100000 deep, in debug and release
 
 Where: std/core/value.fb:376
 
@@ -66,7 +66,7 @@ Skeptic: Ran c2.fb (3000 deep): debug 'error: c2.exe exited with code 0xC00000FD
 
 ## change-2 (low): Holds recurses once per level and overflows the stack when a Value nested about 4000 deep is added
 
-Status: open
+Status: fixed in fdf9e66f, with core-2: Holds no longer recurses, so adding a Value 100000 deep works (core_value_deep, built both from the inside out and from the outside in)
 
 Where: std/core/value.fb:414
 
@@ -104,7 +104,7 @@ Skeptic: I built a chain 4000 deep from the top (h4000.fb) and added it to a new
 
 ## change-5 (low): Spec 14's Value section says 'each is a tree', which shared parts disprove, on a line 113 columns wide
 
-Status: open
+Status: fixed in adeae79e: spec 14, stdlib.md, and value.fb's header say one Value can sit in several places, where a change to it shows in each, and that Clone copies it into each, and spec 14's line wraps at 100
 
 Where: docs/spec/14-strings-collections.md:287
 
@@ -137,7 +137,7 @@ Skeptic: share.fb printed '[[1], [1]]' then '[[1, 2], [1]]'. One Array sits in t
 
 ## core-3 (low): stdlib.md says the getters' elements are copies, but AsArray's elements are the Value's own
 
-Status: open
+Status: fixed in adeae79e: stdlib.md and AsArray's comment say it's a new array of the Value's own elements, so a change to an element shows; core_value prints one
 
 Where: docs/stdlib.md:240
 
@@ -165,7 +165,7 @@ Skeptic: Ran c3.fb: debug and release both print [{"changed": true}]. AsArray (v
 
 ## core-4 (low): The docs say each Value is a tree, but a Value can be held twice, and traversals then take exponential time
 
-Status: open
+Status: fixed in adeae79e, with change-5: the docs say a Value holds no cycle, not that it's a tree, and stdlib.md says ToString, ==, Hash, and Clone go through a part held in several places once for each place
 
 Where: docs/spec/14-strings-collections.md:287
 
@@ -202,7 +202,7 @@ Skeptic: Ran c4.fb: it prints [[1], [1]] and then True. Adding one Value to an A
 
 ## core-5 (low): stdlib.md and spec 14 leave out Keys and Contains, and say ToString writes JSON though bytes come out as <hex>
 
-Status: open
+Status: fixed in adeae79e: stdlib.md and spec 14 name Keys() and Contains(key), and say bytes are written in hex between angle brackets, which JSON doesn't have
 
 Where: docs/stdlib.md:229
 
@@ -229,7 +229,7 @@ Skeptic: Ran c5.fb: both builds print {"blob": <01ff>} [blob] True. Keys() and C
 
 ## core-7 (low): milestones.md still puts Value in step 19's std.data I and has no row for std.core's Value
 
-Status: open
+Status: handed over: milestones.md and decisions.md are the coordinator's. Row 19's `Value` belongs to step 17 (std.core's Value, with Load<T> and Save<T>), and decisions.md needs the 2026-10-23 call, one dynamic Value in std.core with built-in Load<T> and Save<T>; lane4-value.md has the row's text
 
 Where: docs/milestones.md:187
 
