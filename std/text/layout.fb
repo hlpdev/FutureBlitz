@@ -3,6 +3,7 @@
 // before each line. A line ends at "\n", "\r\n", or "\r", and each keeps its line break.
 
 Import std.core
+Import std.text.char
 Import std.text.string
 Import std.text.unicode
 
@@ -12,17 +13,18 @@ End Extern
 
 Extend String
     // Its lines filled with words up to width columns each, as a terminal shows them, with
-    // DisplayWidth: each line breaks before the word that would go past it, at the spaces between
-    // words, which go. A line's leading whitespace starts each line it becomes, and a word wider
-    // than the rest of the width is broken between its grapheme clusters. Panics when width is
-    // below 1.
+    // DisplayWidth: each line breaks before the word that would go past it, at the spaces before
+    // that word, which go, while the spaces between words that stay on a line stay as they are.
+    // A no-break space, U+00A0, U+2007, or U+202F, is part of its word, not a place to break. A
+    // line's leading whitespace starts each line it becomes, and a word wider than the rest of
+    // the width is broken between its grapheme clusters. Panics when width is below 1.
     @PanicsAtCaller
     Public Method WordWrap(width: Int): String
         If width < 1 Then Panic("WordWrap takes a width of at least 1, not {width}")
         Local wrapped = ""
         For line In LinesOf(Self)
-            Local content = Self.Slice(line.0, line.1)
-            Local indent = content.Slice(0, content.Length - content.TrimStart().Length)
+            Local words = WordsOf(Self.Slice(line.0, line.1))
+            Local indent = words.Count > 0 ? words[0].0 : ""
             Local room = width - DisplayWidth(indent)
             If room < 1
                 indent = ""
@@ -31,17 +33,22 @@ Extend String
 
             Local filled = ""
             Local used = 0
-            For word In content.SplitWhitespace()
-                For part In Pieces(word, room)
+            For i = 0 Until words.Count
+                // The spaces before the word, which a line's first word has none of here.
+                Local spaces = i == 0 ? "" : words[i].0
+                For part In Pieces(words[i].1, room)
                     Local columns = DisplayWidth(part)
-                    If used > 0 && used + 1 + columns <= room
-                        filled += " " + part
-                        used += 1 + columns
+                    Local spacing = DisplayWidth(spaces)
+                    If used > 0 && used + spacing + columns <= room
+                        filled += spaces + part
+                        used += spacing + columns
                     Else
                         If used > 0 Then filled += "\n"
                         filled += indent + part
                         used = columns
                     End If
+
+                    spaces = ""
                 End For
             End For
 
@@ -134,6 +141,37 @@ End Function
 
 // word in pieces no wider than room each, broken between its grapheme clusters, each piece at
 // least one of them.
+// line's words, each with the whitespace before it, which a line can break at, the first one's
+// being the line's indentation. A no-break space is part of its word, and whitespace after the
+// last word goes.
+Function WordsOf(line: String): (String, String)[]
+    Local words: (String, String)[] = []
+    Local spaces = 0
+    Local word = -1
+    Local at = 0
+    For c In line.Chars
+        Local breaks = Breaks(c)
+        If breaks && word >= 0
+            words.Add((line.Slice(spaces, word), line.Slice(word, at)))
+            spaces = at
+            word = -1
+        ElseIf !breaks && word < 0
+            word = at
+        End If
+
+        at += c.Utf8Length
+    End For
+
+    If word >= 0 Then words.Add((line.Slice(spaces, word), line.Slice(word, at)))
+    Return words
+End Function
+
+// Whether a line can break at c: whitespace, but not a no-break space.
+Function Breaks(c: Char): Bool
+    If c.Code == 0xA0 || c.Code == 0x2007 || c.Code == 0x202F Then Return False
+    Return c.IsWhitespace()
+End Function
+
 Function Pieces(word: String, room: Int): String[]
     If DisplayWidth(word) <= room Then Return [word]
     Local pieces: String[] = []

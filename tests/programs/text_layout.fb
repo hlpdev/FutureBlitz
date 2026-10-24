@@ -17,6 +17,13 @@ Print("--")
 Print("e\u{301}e\u{301}e\u{301}e\u{301}".WordWrap(2))
 Print("--")
 Print("    deep".WordWrap(3), "|", "a b c".WordWrap(1), "|", "".WordWrap(5) == "")
+// A no-break space is no place to break and stays one, and the spaces between words that stay
+// on a line stay as they are, while those at a break go.
+Print("100\u{A0}km away".WordWrap(80) == "100\u{A0}km away")
+Print("[" + "go 100\u{A0}km".WordWrap(7).Replace("\u{A0}", "<nbsp>") + "]")
+Print("[" + "a  b   c d".WordWrap(80) + "]", "[" + "a  b   c d".WordWrap(5) + "]")
+Print("[" + "\u{202F}x  y\u{2007}z".WordWrap(3).Replace("\u{202F}", "_").Replace("\u{2007}", "_") +
+      "]", "[" + "  a   b  ".WordWrap(80) + "]")
 Print("--")
 Local code = "    def f():\n        return 1\n\n    x = 2\n"
 Print("[" + code.Dedent() + "]")

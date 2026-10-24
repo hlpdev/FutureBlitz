@@ -23,6 +23,13 @@ dee
 p | a
 b
 c | True
+True
+[go
+100<nbsp>km]
+[a  b   c d] [a  b
+c d]
+[_x
+y_z] [  a   b]
 --
 [def f():
     return 1
