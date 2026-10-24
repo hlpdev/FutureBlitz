@@ -36,6 +36,8 @@ places
   a has b DIRECTORY
   a has x DIRECTORY
   [b/c/levels/one.txt, b/c/levels/two.txt, b/c/readme.txt, x/y.txt]
+  [b/c/levels/one.txt, b/c/levels/two.txt]
+  [b/c/music/größe.ogg]
   root has mods DIRECTORY
   root has notes DIRECTORY
   root has readme.txt FILE
