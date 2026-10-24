@@ -80,13 +80,15 @@ Print(Await Fetched("{base}/cookies"))
 Print(Fetched(base + "/cookies").Wait())
 
 Print("== downloads")
-Global calls = 0
+// Half of it comes 300 ms before the rest, which progress is told of before the end.
+Global early = 0
 Global ordered = True
 Global last: Int64 = 0
 Global expected: Int64 = 0
 Try
-    Local bytes = Await client.DownloadAsync("{base}/bytes/200000", Function(got: Int64, all: Int64)
-        calls += 1
+    Local url = "{base}/bytes/200000?pause=100000"
+    Local bytes = Await client.DownloadAsync(url, Function(got: Int64, all: Int64)
+        If got < all Then early += 1
         If got < last Then ordered = False
         last = got
         expected = all
@@ -95,7 +97,7 @@ Try
     For i, byte In bytes
         If byte != (i % 251) As UInt8 Then right = False
     End For
-    Print("{bytes.Count} {right} {calls > 0} {ordered} {last} {expected}")
+    Print("{bytes.Count} {right} {early > 0} {ordered} {last} {expected}")
     Print((Await client.DownloadAsync("{base}/hello")).Count)
     Await client.DownloadAsync("{base}/status/404")
 Catch e As NetError

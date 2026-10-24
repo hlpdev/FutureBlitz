@@ -800,7 +800,8 @@ Step 28's half without streams is built: the addresses, `Url` and `QueryParams`,
   `EnsureSuccess`). `HttpClient`: `Get`, `Head`,
   `Post`, `Put`, `Patch`, `Delete`, `Send(method, url, body, headers)`, and `Download(url,
   progress)`, the body's bytes, which tells `progress` of how many came and how many the response
-  said, each with an Async twin that the I/O thread runs, telling progress on the main thread;
+  said, or -1 when it didn't say, and nothing of a redirect's own body, each with an Async twin
+  that the I/O thread runs, telling progress on the main thread;
   `DefaultHeaders`, which the request's own replace by name; `UserAgent`, checked as a header's
   value is; `FollowRedirects` and `MaxRedirects` (10), which the runtime follows as the fetch
   standard says, a 301 or 302 changing a POST to a GET and a 303 any method but HEAD, without the
