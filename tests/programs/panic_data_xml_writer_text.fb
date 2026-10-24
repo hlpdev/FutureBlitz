@@ -1,6 +1,5 @@
 // Text goes in an element, and Text panics outside one.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Local writer = XmlWriter()

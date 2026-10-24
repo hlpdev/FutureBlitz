@@ -3,7 +3,6 @@
 // as the same.
 
 Import std.core
-Import std.data.value
 Import std.data.ini
 
 Local text = "\u{FEFF}; a comment\nname = top\n\n[server]\nhost = example.com\nport: 8080\r\n" +
@@ -26,10 +25,10 @@ Failure("[s]\njust a line")
 Failure("[s]\n = 1")
 Failure("a = 1\n[a]")
 
-Local document = Value.NewObject()
+Local document = Value.Object()
 document["title"] = Value("top")
 document["count"] = Value(3 As Int64)
-Local server = Value.NewObject()
+Local server = Value.Object()
 server["host"] = Value("example.com")
 server["spaced"] = Value(" a b ")
 server["quote"] = Value("\"q\"")
@@ -37,9 +36,9 @@ server["ratio"] = Value(0.5)
 server["on"] = Value(True)
 server["none"] = Value()
 document["server"] = server
-document["empty"] = Value.NewObject()
+document["empty"] = Value.Object()
 Local written = Ini.Write(document)
 Print(written)
 Local again = Try Ini.Read(written)
 Print(again)
-Print(again["server"]["spaced"].AsString() == " a b ", again["server"]["quote"].AsString() == "\"q\"")
+Print(again.Path("server.spaced")?.AsString() == " a b ", again.Path("server.quote")?.AsString() == "\"q\"")

@@ -1,6 +1,5 @@
 // XML can't hold every character, and Text panics at one it can't.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Local writer = XmlWriter()

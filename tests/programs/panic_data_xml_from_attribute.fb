@@ -1,10 +1,9 @@
 // An attribute's value is a String, a number, a Bool, or Null, and FromValue panics at an Object.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
-Local value = Value.NewObject()
+Local value = Value.Object()
 value["@id"] = Value(1 As Int64)
 Print(Xml.FromValue("a", value))
-value["@id"] = Value.NewObject()
+value["@id"] = Value.Object()
 Print(Xml.FromValue("a", value))

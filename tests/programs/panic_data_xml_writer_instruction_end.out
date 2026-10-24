@@ -1,1 +1,1 @@
-panic: a processing instruction can't hold "?>" at panic_data_xml_writer_instruction_end.fb:8:1
+panic: a processing instruction can't hold "?>" at panic_data_xml_writer_instruction_end.fb:7:1

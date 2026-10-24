@@ -1,6 +1,5 @@
 // A document has one root element, and StartElement panics at a second.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Local writer = XmlWriter()

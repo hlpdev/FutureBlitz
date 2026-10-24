@@ -1,5 +1,5 @@
 // Toml: TOML 1.0's documents, read into an Object Value and written from one. A table is an
-// Object, an array an Array, a string a String, an integer an Int, a float a Float, inf and nan
+// Object, an array an Array, a string a String, an integer an INT, a float a DOUBLE, inf and nan
 // too, and a boolean a Bool. A date, a time, or both, with an offset or local, is a String of its
 // RFC 3339 text, with 'T' between the date and the time, and 'Z' for UTC, as it's written
 // otherwise. Which tables a document may define, and where, follows TOML 1.0 as tomli reads it.
@@ -7,7 +7,6 @@
 Import std.core
 Import std.collections
 Import std.data.text
-Import std.data.value
 
 Public Struct Toml
     // Toml isn't made: it's only its Static Methods.
@@ -25,7 +24,7 @@ Public Struct Toml
     // value, an Object, as a TOML document: each table's keys and values, then its tables, each
     // under its header, an Array of Objects as an array of tables, and an Object in an Array as
     // an inline table. TOML has no null, so an Object's Null is left out. Panics when value isn't
-    // an Object, or an Array holds a Null.
+    // an Object, an Array holds a Null, or it holds bytes or an integer past an Int64.
     @PanicsAtCaller
     Public Static Method Write(value: Value): String
         If value.Kind != ValueKind.OBJECT Then Panic("a TOML document is an Object, not {value.Kind}")
@@ -38,7 +37,7 @@ Public Struct Toml
     @PanicsAtCaller
     Static Method WriteTable(out: UInt8[], path: String[], table: Value)
         For key In table.Keys()
-            Local value = table[key]
+            Local value = EntryOf(table, key)
             If value.IsNull || value.Kind == ValueKind.OBJECT || IsTableArray(value) Then Continue
             AddText(out, KeyText(key) + " = ")
             WriteInline(out, value)
@@ -46,7 +45,7 @@ Public Struct Toml
         End For
 
         For key In table.Keys()
-            Local value = table[key]
+            Local value = EntryOf(table, key)
             Local inner = path.Clone()
             inner.Add(KeyText(key))
             If value.Kind == ValueKind.OBJECT
@@ -54,7 +53,7 @@ Public Struct Toml
                 AddText(out, "[" + inner.Join(".") + "]\n")
                 WriteTable(out, inner, value)
             ElseIf IsTableArray(value)
-                For item In value.Values()
+                For item In ElementsOf(value)
                     If out.Count > 0 Then out.Add(10)
                     AddText(out, "[[" + inner.Join(".") + "]]\n")
                     WriteTable(out, inner, item)
@@ -70,17 +69,21 @@ Public Struct Toml
             Case ValueKind.NULL
                 Panic("TOML has no null, so an Array can't hold one")
             Case ValueKind.BOOL
-                AddText(out, value.AsBool() ? "true" : "false")
+                AddText(out, (value.AsBool() ?? False) ? "true" : "false")
             Case ValueKind.INT
-                AddText(out, "{value.AsInt()}")
-            Case ValueKind.FLOAT
-                AddText(out, FloatText(value.AsFloat(), "inf", "nan"))
+                AddText(out, "{value.AsInt64() ?? 0}")
+            Case ValueKind.UINT
+                Panic("TOML's integers are an Int64's, and {value} is past them")
+            Case ValueKind.DOUBLE
+                AddText(out, FloatText(value.AsDouble() ?? 0.0, "inf", "nan"))
             Case ValueKind.STRING
-                AddQuoted(out, value.AsString())
+                AddQuoted(out, value.AsString() ?? "")
+            Case ValueKind.BYTES
+                Panic("TOML has no bytes")
             Case ValueKind.ARRAY
                 out.Add(91)
                 Local first = True
-                For item In value.Values()
+                For item In ElementsOf(value)
                     If !first Then AddText(out, ", ")
                     first = False
                     WriteInline(out, item)
@@ -90,7 +93,7 @@ Public Struct Toml
                 out.Add(123)
                 Local first = True
                 For key In value.Keys()
-                    Local item = value[key]
+                    Local item = EntryOf(value, key)
                     If item.IsNull Then Continue
                     AddText(out, first ? " " : ", ")
                     first = False
@@ -104,7 +107,7 @@ Public Struct Toml
     // Whether value is an Array of Objects, which is written as an array of tables.
     Static Method IsTableArray(value: Value): Bool
         If value.Kind != ValueKind.ARRAY || value.Count == 0 Then Return False
-        For item In value.Values()
+        For item In ElementsOf(value)
             If item.Kind != ValueKind.OBJECT Then Return False
         End For
         Return True
@@ -261,7 +264,7 @@ Class TomlReader
             If bytes[i] == 13 && i + 1 < bytes.Count && bytes[i + 1] == 10 Then Continue
             Bytes.Add(bytes[i])
         End For
-        Root = Value.NewObject()
+        Root = Value.Object()
         Flags = TomlFlags()
     End New
 
@@ -381,16 +384,16 @@ Class TomlReader
         Local parent = NestOf(Root, key[0..key.Count - 1], True)
         Local stem = key[key.Count - 1]
         If parent != Null
-            Local array = parent.Get(stem)
+            Local array = parent[stem]
             If array == Null
-                Local made = Value.NewArray()
-                made.Add(Value.NewObject())
+                Local made = Value.Array()
+                made.Add(Value.Object())
                 parent[stem] = made
                 Return key
             End If
 
             If array.Kind == ValueKind.ARRAY
-                array.Add(Value.NewObject())
+                array.Add(Value.Object())
                 Return key
             End If
         End If
@@ -411,15 +414,12 @@ Class TomlReader
     Static Method NestOf(table: Value, path: String[], lists: Bool): Value?
         Local at = table
         For key In path
-            Local next = at.Get(key)
-            If next == Null
-                next = Value.NewObject()
-                at[key] = next
-            End If
-
+            Local next = at[key] ?? Value.Object()
+            If !at.Contains(key) Then at[key] = next
             If lists && next.Kind == ValueKind.ARRAY
-                If next.Count == 0 Then Return Null
-                next = next[next.Count - 1]
+                Local items = ElementsOf(next)
+                If items.Count == 0 Then Return Null
+                next = items[items.Count - 1]
             End If
 
             If next.Kind != ValueKind.OBJECT Then Return Null
@@ -485,7 +485,7 @@ Class TomlReader
     Method ArrayValue(): Value Throws ParseError
         Local start = At
         At += 1
-        Local array = Value.NewArray()
+        Local array = Value.Array()
         Loop
             Try SkipBlank()
             If At >= Bytes.Count Then Throw Ended(start, "the array has no ']'")
@@ -510,7 +510,7 @@ Class TomlReader
     Method InlineTable(): Value Throws ParseError
         Local start = At
         At += 1
-        Local table = Value.NewObject()
+        Local table = Value.Object()
         Local flags = TomlFlags()
         SkipSpaces()
         If At < Bytes.Count && Bytes[At] == 125

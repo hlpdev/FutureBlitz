@@ -1,0 +1,9 @@
+// TOML's integers are an Int64's, and Write panics where it's given one past them.
+Import std.core
+Import std.data.toml
+
+Local document = Value.Object()
+document["most"] = Value(9223372036854775807 As UInt64)
+Print(Toml.Write(document))
+document["past"] = Value(9223372036854775808 As UInt64)
+Print(Toml.Write(document))

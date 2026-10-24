@@ -1,2 +1,2 @@
 0
-panic: a TOML document is an Object, not ARRAY at panic_data_toml_kind.fb:7:7
+panic: a TOML document is an Object, not ARRAY at panic_data_toml_kind.fb:6:7

@@ -1,9 +1,8 @@
 // An INI value can't hold a line break, and Write panics where one does.
 Import std.core
-Import std.data.value
 Import std.data.ini
 
-Local document = Value.NewObject()
+Local document = Value.Object()
 document["one"] = Value("line")
 Print(Ini.Write(document))
 document["two"] = Value("line\nbreak")

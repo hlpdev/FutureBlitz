@@ -1,5 +1,5 @@
 // Yaml: YAML 1.2's documents, read into Values by its core schema and written from them. A
-// mapping is an Object, a sequence an Array, and a scalar Null, a Bool, an Int, a Float, or a
+// mapping is an Object, a sequence an Array, and a scalar Null, a Bool, an integer, a Double, or a
 // String as the core schema resolves its plain text, and a String in quotes or a block. A key is
 // its scalar's text, and the keys of a mapping are each its own. An alias is the node its anchor
 // names. Tags are the core schema's: `!!str`, `!!int`, `!!float`, `!!bool`, `!!null`, `!!seq`,
@@ -9,7 +9,6 @@
 Import std.core
 Import std.collections
 Import std.data.text
-Import std.data.value
 Import std.data.yaml_scanner
 
 Public Struct Yaml
@@ -18,7 +17,7 @@ Public Struct Yaml
     End New
 
     // The document text holds, or Null for a text of none. An integer past what an Int64 holds is
-    // a Float. Throws a ParseError, with its line and column, of UNEXPECTED_END for text that
+    // a UINT, and past a UInt64 a Double. Throws a ParseError, with its line and column, of UNEXPECTED_END for text that
     // ends inside a quoted scalar, of OTHER for a tag that isn't the core schema's, a key that's
     // a mapping or a sequence, or a text of more than one document, which ReadAll reads, and of
     // SYNTAX for the rest that isn't YAML 1.2.
@@ -41,7 +40,8 @@ Public Struct Yaml
 
     // value as a document: an Object as a block mapping, an Array as a block sequence, an empty
     // one as {} or [], and a String plain where the core schema reads it back as that String,
-    // else in double quotes.
+    // else in double quotes. Panics when value holds bytes, which the core schema hasn't got.
+    @PanicsAtCaller
     Public Static Method Write(value: Value): String
         Local out: UInt8[] = []
         WriteNode(out, value, 0, False)
@@ -49,7 +49,8 @@ Public Struct Yaml
         Return TextOf(out)
     End Method
 
-    // values as documents, each after a "---".
+    // values as documents, each after a "---". Panics as Write does.
+    @PanicsAtCaller
     Public Static Method WriteAll(values: Value[]): String
         Local out: UInt8[] = []
         For value In values
@@ -65,6 +66,7 @@ Public Struct Yaml
     End Method
 
     // Writes value at depth's indent, on the line it's on when inline says so.
+    @PanicsAtCaller
     Static Method WriteNode(out: UInt8[], value: Value, depth: Int, inline: Bool)
         If value.Kind == ValueKind.OBJECT && value.Count > 0
             Local first = True
@@ -72,7 +74,7 @@ Public Struct Yaml
                 If !first || !inline Then AddIndent(out, depth)
                 first = False
                 AddScalarText(out, key)
-                Local item = value[key]
+                Local item = EntryOf(value, key)
                 out.Add(58)
                 If IsBlock(item)
                     out.Add(10)
@@ -85,7 +87,7 @@ Public Struct Yaml
             End For
         ElseIf value.Kind == ValueKind.ARRAY && value.Count > 0
             Local first = True
-            For item In value.Values()
+            For item In ElementsOf(value)
                 If !first || !inline Then AddIndent(out, depth)
                 first = False
                 out.Add(45)
@@ -114,18 +116,23 @@ Public Struct Yaml
         End For
     End Method
 
+    @PanicsAtCaller
     Static Method WriteScalar(out: UInt8[], value: Value)
         Select value.Kind
             Case ValueKind.NULL
                 AddText(out, "null")
             Case ValueKind.BOOL
-                AddText(out, value.AsBool() ? "true" : "false")
+                AddText(out, (value.AsBool() ?? False) ? "true" : "false")
             Case ValueKind.INT
-                AddText(out, "{value.AsInt()}")
-            Case ValueKind.FLOAT
-                AddText(out, FloatText(value.AsFloat(), ".inf", ".nan"))
+                AddText(out, "{value.AsInt64() ?? 0}")
+            Case ValueKind.UINT
+                AddText(out, "{value.AsUInt64() ?? 0}")
+            Case ValueKind.DOUBLE
+                AddText(out, FloatText(value.AsDouble() ?? 0.0, ".inf", ".nan"))
             Case ValueKind.STRING
-                AddScalarText(out, value.AsString())
+                AddScalarText(out, value.AsString() ?? "")
+            Case ValueKind.BYTES
+                Panic("YAML's core schema has no bytes")
             Case ValueKind.ARRAY
                 AddText(out, "[]")
             Default
@@ -212,8 +219,7 @@ Public Struct Yaml
         Return number ?? Value(text)
     End Method
 
-    // The Int or Float the core schema reads text as, or Null when it's neither. An integer an
-    // Int64 doesn't hold is a Float.
+    // The integer or Double the core schema reads text as, or Null when it's neither.
     Static Method NumberOf(text: String): Value?
         Local bytes = text.Bytes
         Local start = 0
@@ -234,15 +240,7 @@ Public Struct Yaml
 
         // 0o and 0x integers have no sign.
         If start == 0 && bytes.Count > 2 && bytes[0] == 48 && (bytes[1] == 111 || bytes[1] == 120)
-            Local base: Int64 = bytes[1] == 111 ? 8 : 16
-            Local value: Int64 = 0
-            For i = 2 Until bytes.Count
-                Local digit = DigitOf(bytes[i])
-                If digit < 0 || digit >= base Then Return Null
-                If value > (MOST_INT64 - digit) / base Then Return Null
-                value = value * base + digit
-            End For
-            Return Value(value)
+            Return IntegerOf(bytes, 2, bytes[1] == 111 ? 8 : 16, False)
         End If
 
         // A decimal integer, or a float: digits, a '.', digits, and an exponent.
@@ -252,18 +250,7 @@ Public Struct Yaml
             at += 1
             digits += 1
         End While
-        If at == bytes.Count && digits > 0
-            Local value: Int64 = 0
-            For i = start Until bytes.Count
-                Local digit = (bytes[i] As Int64) - 48
-                If value > (MOST_INT64 - digit) / 10
-                    Return Value(FloatOf(bytes, start, bytes.Count) ?? 0.0)
-                End If
-
-                value = value * 10 + digit
-            End For
-            Return Value(negative ? -value : value)
-        End If
+        If at == bytes.Count && digits > 0 Then Return IntegerOf(bytes, start, 10, negative)
 
         Local fraction = 0
         If at < bytes.Count && bytes[at] == 46
@@ -299,6 +286,32 @@ Public Struct Yaml
         Local value = FloatOf(plain, 0, plain.Count)
         If value == Null Then Return Null
         Return Value(value)
+    End Method
+
+    // The integer bytes write from `from` in base, its digits all the base's, or Null: an INT, a
+    // UINT past an Int64's largest, or a Double past a UInt64's, which keeps its sign.
+    Static Method IntegerOf(bytes: UInt8[], from: Int, base: Int, negative: Bool): Value?
+        Local value: UInt64 = 0
+        Local real: Double = 0
+        Local whole = True
+        For i = from Until bytes.Count
+            Local digit = DigitOf(bytes[i])
+            If digit < 0 || digit >= base Then Return Null
+            Local step = digit As UInt64
+            If whole && value > (18446744073709551615 - step) / (base As UInt64) Then whole = False
+            If whole Then value = value * (base As UInt64) + step
+            real = real * (base As Double) + (digit As Double)
+        End For
+        If !whole
+            // A decimal from_chars rounds once; another base's digits were summed as Doubles.
+            If base == 10 Then real = FloatOf(bytes, from, bytes.Count) ?? real
+            Return Value(negative ? -real : real)
+        End If
+
+        If !negative Then Return Value(value)
+        If value <= 9223372036854775807 Then Return Value(-(value As Int64))
+        If value == 9223372036854775808 Then Return Value(LEAST_INT64)
+        Return Value(-(value As Double))
     End Method
 
     Static Method DigitOf(b: UInt8): Int64
@@ -538,10 +551,16 @@ Class YamlParser
         ElseIf tag == "tag:yaml.org,2002:bool"
             If resolved.Kind != ValueKind.BOOL Then Throw Fail(token, "!!bool tags a Bool, and \"{text}\" isn't one")
         ElseIf tag == "tag:yaml.org,2002:int"
-            If resolved.Kind != ValueKind.INT Then Throw Fail(token, "!!int tags an integer, and \"{text}\" isn't one")
+            If resolved.Kind != ValueKind.INT && resolved.Kind != ValueKind.UINT
+                Throw Fail(token, "!!int tags an integer, and \"{text}\" isn't one")
+            End If
+
         ElseIf tag == "tag:yaml.org,2002:float"
-            If resolved.Kind == ValueKind.INT Then Return Value(resolved.AsFloat())
-            If resolved.Kind != ValueKind.FLOAT Then Throw Fail(token, "!!float tags a float, and \"{text}\" isn't one")
+            If resolved.Kind == ValueKind.INT || resolved.Kind == ValueKind.UINT
+                Return Value(resolved.AsDouble() ?? 0.0)
+            End If
+
+            If resolved.Kind != ValueKind.DOUBLE Then Throw Fail(token, "!!float tags a float, and \"{text}\" isn't one")
         ElseIf tag == "tag:yaml.org,2002:seq" || tag == "tag:yaml.org,2002:map"
             Throw Fail(token, "a scalar's tag isn't {tag}")
         Else
@@ -553,7 +572,7 @@ Class YamlParser
 
     Method BlockSequence(): Value Throws ParseError
         Try Scanner.Take()
-        Local sequence = Value.NewArray()
+        Local sequence = Value.Array()
         Loop
             Local token = Try Scanner.Peek()
             If token.Kind == YamlTokenKind.BLOCK_END
@@ -574,7 +593,7 @@ Class YamlParser
 
     // A sequence whose '-'s are as indented as the mapping's keys it's a value of.
     Method IndentlessSequence(): Value Throws ParseError
-        Local sequence = Value.NewArray()
+        Local sequence = Value.Array()
         Loop
             Local token = Try Scanner.Peek()
             If token.Kind != YamlTokenKind.BLOCK_ENTRY Then Return sequence
@@ -591,7 +610,7 @@ Class YamlParser
 
     Method BlockMapping(): Value Throws ParseError
         Try Scanner.Take()
-        Local mapping = Value.NewObject()
+        Local mapping = Value.Object()
         Loop
             Local token = Try Scanner.Peek()
             If token.Kind == YamlTokenKind.BLOCK_END
@@ -630,7 +649,7 @@ Class YamlParser
 
     Method FlowSequence(): Value Throws ParseError
         Try Scanner.Take()
-        Local sequence = Value.NewArray()
+        Local sequence = Value.Array()
         Local first = True
         Loop
             Local token = Try Scanner.Peek()
@@ -653,7 +672,7 @@ Class YamlParser
             If token.Kind == YamlTokenKind.FLOW_ENTRY Then Throw Fail(token, "a flow sequence's entry is missing")
             If token.Kind == YamlTokenKind.KEY || token.Kind == YamlTokenKind.VALUE
                 // A single pair, `? key : value` or `key: value`.
-                Local pair = Value.NewObject()
+                Local pair = Value.Object()
                 Local key = Value()
                 KeyText = ""
                 If token.Kind == YamlTokenKind.KEY
@@ -678,7 +697,7 @@ Class YamlParser
 
     Method FlowMapping(): Value Throws ParseError
         Try Scanner.Take()
-        Local mapping = Value.NewObject()
+        Local mapping = Value.Object()
         Local first = True
         Loop
             Local token = Try Scanner.Peek()

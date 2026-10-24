@@ -1,6 +1,5 @@
 // Finish gives a document, which has a root element, and panics when none was written.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Local writer = XmlWriter()

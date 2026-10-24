@@ -1,6 +1,5 @@
 // An attribute's name is an XML name, and SetAttribute panics where it's given another.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Local node = XmlNode("a")

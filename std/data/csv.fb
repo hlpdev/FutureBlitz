@@ -6,7 +6,6 @@
 Import std.core
 Import std.collections
 Import std.data.text
-Import std.data.value
 
 Public Struct Csv
     // Csv isn't made: it's only its Static Methods.
@@ -29,7 +28,7 @@ Public Struct Csv
     Public Static Method ReadRecords(text: String, separator: String = ","): Value Throws ParseError
         Local reader = CsvReader(text, SeparatorOf(separator))
         Local rows = Try reader.Rows()
-        Local records = Value.NewArray()
+        Local records = Value.Array()
         If rows.Count == 0 Then Return records
         Local header = rows[0]
         Local names = Set<String>()
@@ -47,7 +46,7 @@ Public Struct Csv
                                  "as the header, {header.Count}, not {row.Count}", line, 1)
             End If
 
-            Local record = Value.NewObject()
+            Local record = Value.Object()
             For j = 0 Until row.Count
                 record[header[j]] = Value(row[j])
             End For
@@ -75,7 +74,7 @@ Public Struct Csv
 
     // records, an Array of Objects, as CSV, with a header of every key they have, in the order
     // they come in, and a row for each, a key it hasn't got an empty field: a String as it is, a
-    // Bool, an Int, or a Float as its text, and Null as nothing. Panics when records isn't an
+    // Bool, an integer, or a Double as its text, and Null as nothing. Panics when records isn't an
     // Array of Objects, a field is an Array or an Object, or the separator is one Write panics
     // for.
     @PanicsAtCaller
@@ -83,7 +82,7 @@ Public Struct Csv
         If records.Kind != ValueKind.ARRAY Then Panic("CSV's records are an Array, not {records.Kind}")
         Local names: String[] = []
         Local known = Set<String>()
-        For record In records.Values()
+        For record In ElementsOf(records)
             If record.Kind != ValueKind.OBJECT
                 Panic("CSV's records are Objects, not {record.Kind}")
             End If
@@ -94,10 +93,10 @@ Public Struct Csv
         End For
 
         Local rows: String[][] = [names]
-        For record In records.Values()
+        For record In ElementsOf(records)
             Local row: String[] = []
             For name In names
-                Local field = record.Get(name)
+                Local field = record[name]
                 row.Add(field == Null ? "" : FieldText(field))
             End For
             rows.Add(row)
@@ -112,13 +111,15 @@ Public Struct Csv
             Case ValueKind.NULL
                 Return ""
             Case ValueKind.BOOL
-                Return field.AsBool() ? "true" : "false"
+                Return field.AsBool() ?? False ? "true" : "false"
             Case ValueKind.INT
-                Return "{field.AsInt()}"
-            Case ValueKind.FLOAT
-                Return "{field.AsFloat()}"
+                Return "{field.AsInt64() ?? 0}"
+            Case ValueKind.UINT
+                Return "{field.AsUInt64() ?? 0}"
+            Case ValueKind.DOUBLE
+                Return "{field.AsDouble() ?? 0.0}"
             Case ValueKind.STRING
-                Return field.AsString()
+                Return field.AsString() ?? ""
             Default
                 Panic("a CSV field is a String, a number, a Bool, or Null, not {field.Kind}")
         End Select

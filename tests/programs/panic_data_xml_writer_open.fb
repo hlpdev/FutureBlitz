@@ -1,6 +1,5 @@
 // Finish gives a whole document, and panics while an element is open.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Local writer = XmlWriter()

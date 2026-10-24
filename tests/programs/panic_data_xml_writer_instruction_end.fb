@@ -1,6 +1,5 @@
 // A processing instruction can't hold "?>", and Instruction panics where it does.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Local writer = XmlWriter()

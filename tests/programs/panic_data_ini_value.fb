@@ -1,10 +1,9 @@
 // An INI value is a String, a number, a Bool, or Null, and Write panics where one is an Array.
 Import std.core
-Import std.data.value
 Import std.data.ini
 
-Local document = Value.NewObject()
+Local document = Value.Object()
 document["n"] = Value(1 As Int64)
 Print(Ini.Write(document))
-document["list"] = Value.NewArray()
+document["list"] = Value.Array()
 Print(Ini.Write(document))
