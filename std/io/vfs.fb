@@ -28,8 +28,9 @@ End Interface
 
 // A folder on the disk as a source, which reads it as it's asked, so it sees what changes in it.
 // Nothing outside the folder is in it: by Windows' rules, a name with a ':' in it, which would
-// be a drive or a file's stream, isn't there.
-Public Class FolderSource Implements VfsSource
+// be a drive or a file's stream, isn't there. It's Final, so a Vfs's Async reads of it read what
+// its Read does; a source that changes what a folder's files read as wraps one.
+Public Final Class FolderSource Implements VfsSource
     Public ReadOnly Field Folder: Path
 
     Public New(folder: Path)

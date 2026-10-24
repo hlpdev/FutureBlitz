@@ -171,6 +171,32 @@ Local numbers = Vfs()
 numbers.Mount("n", Numbers())
 Print("  [{Try numbers.ReadText("n/42")}] {(Try numbers.Entries("n")).Count}")
 
+// A folder whose files read in capitals, through a FolderSource it wraps, read both ways alike.
+Class Shouted Implements VfsSource
+    Field Inner: FolderSource
+
+    New(folder: Path)
+        Inner = FolderSource(folder)
+    End New
+
+    Method Read(path: String): UInt8[]? Throws IOError
+        Local bytes = Try Inner.Read(path)
+        If bytes == Null Then Return Null
+        For i = 0 Until bytes.Count
+            If bytes[i] >= 97 && bytes[i] <= 122 Then bytes[i] -= 32
+        End For
+
+        Return bytes
+    End Method
+
+    Method KindAt(path: String): FileKind? Throws IOError => Try Inner.KindAt(path)
+    Method List(path: String): (String, FileKind)[]? Throws IOError => Try Inner.List(path)
+End Class
+
+Local shouted = Vfs()
+shouted.Mount("", Shouted(root / "game"))
+Print("  [{Try shouted.ReadText("readme.txt")}] [{Try Await shouted.ReadTextAsync("readme.txt")}]")
+
 // A read gives a copy, so changing it changes no later read.
 Local copy = Try fromMemory.ReadBytes("readme.txt")
 copy[0] = 84
