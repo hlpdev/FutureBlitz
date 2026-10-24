@@ -1,0 +1,7 @@
+// A Timeout isn't 0 or less: setting one panics where it's set.
+Import std.time
+Import std.net.http
+
+Local client = HttpClient()
+client.Timeout = 1.Seconds
+client.Timeout = 0.Seconds

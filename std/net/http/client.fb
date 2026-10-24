@@ -6,6 +6,7 @@
 Import std.core
 Import std.collections
 Import std.crypto
+Import std.time
 Import std.net.http.headers
 Import std.net.http.status
 
@@ -129,7 +130,8 @@ End Class
 // and decompresses what comes so. It goes through Proxy, or else the proxy the environment
 // names, as http_proxy, https_proxy, and no_proxy do. A failure throws: a NetError for the
 // network's or the server's, or for a URL that isn't HTTP's or HTTPS's, and a TimeoutError for a
-// request that took too long.
+// request that took longer than its Timeout, or connecting that took longer than its
+// ConnectTimeout.
 Public Class HttpClient
     Field State: Ptr<Void>
     // The headers each request sends, before its own.
@@ -143,14 +145,36 @@ Public Class HttpClient
     Public Field Proxy: String? = Null
     Field Agent: String = "FutureBlitz"
     Field Redirects: Int = 10
-    // How many milliseconds a request may take, 0 for no limit, and its connecting.
-    Package Field TimeoutMilliseconds: Int64 = 0
-    Package Field ConnectMilliseconds: Int64 = 30000
+    Field Whole: Duration?
+    Field Connecting: Duration
 
     Public New()
         DefaultHeaders = Headers()
+        Connecting = 30.Seconds
         State = fb_http_client_new()
     End New
+
+    // How long a request may take in all, after which it throws a TimeoutError, or Null for as
+    // long as it takes, as it is to start. Panics when it's set to a Duration that isn't above 0.
+    @PanicsAtCaller
+    Public Property Timeout: Duration?
+        Get => Whole
+        Set(value)
+            If value != Null Then CheckTimeout("Timeout", value)
+            Whole = value
+        End Set
+    End Property
+
+    // How long a request's connecting, TLS's handshake too, may take, 30 seconds unless it's set,
+    // after which it throws a TimeoutError. Panics when it's set to a Duration that isn't above 0.
+    @PanicsAtCaller
+    Public Property ConnectTimeout: Duration
+        Get => Connecting
+        Set(value)
+            CheckTimeout("ConnectTimeout", value)
+            Connecting = value
+        End Set
+    End Property
 
     // The User-Agent header a request sends unless its headers have one. Panics when it's set to
     // what a header's value can't be, as Headers.Add does.
@@ -315,6 +339,18 @@ Public Class HttpClient
 
     Package Property RedirectLimit: Int
         Get => FollowRedirects ? Redirects : -1
+    End Property
+
+    // The Timeout's milliseconds, rounded up, or 0 for none, and the ConnectTimeout's.
+    Package Property TimeoutMilliseconds: Int64
+        Get
+            Local whole = Whole
+            Return whole != Null ? Milliseconds(whole) : 0
+        End Get
+    End Property
+
+    Package Property ConnectMilliseconds: Int64
+        Get => Milliseconds(Connecting)
     End Property
 End Class
 
@@ -494,3 +530,15 @@ Public Struct Http
         Return Try Await HttpClient().DownloadAsync(url, progress)
     End Method
 End Struct
+
+// Panics, where a timeout is set, unless it's above 0.
+@PanicsAtCaller
+Function CheckTimeout(name: String, value: Duration)
+    If value.Nanoseconds <= 0 Then Panic("an HttpClient's {name} is above 0, not {value}")
+End Function
+
+// A Duration above 0 in milliseconds, rounded up, so the shortest is one.
+Function Milliseconds(value: Duration): Int64
+    Local nanoseconds = value.Nanoseconds
+    Return nanoseconds / 1000000 + (nanoseconds % 1000000 != 0 ? 1 : 0)
+End Function
