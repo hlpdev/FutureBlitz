@@ -1,8 +1,8 @@
 // std.text.glob: a shell's wildcards, matched against all of a String, a character at a time. *
 // is any run of characters but /, and ** any run at all, so "src/**/*.fb" reaches into folders,
-// and "**/" can be no folder; ? is one character but /; [abc] and [a-z] are one of a set, and
-// [!abc] or [^abc] one that isn't, never /; {a,b} is either; and \ makes the character after it
-// itself. A [ or { without its end is itself.
+// and "**/", as a whole folder, can be no folder, as in bash's globstar; ? is one character but
+// /; [abc] and [a-z] are one of a set, and [!abc] or [^abc] one that isn't, never /; {a,b} is
+// either; and \ makes the character after it itself. A [ or { without its end is itself.
 
 Import std.core
 Import std.collections.array
@@ -170,7 +170,9 @@ Function PiecesOf(pattern: String): Piece[]
             i += 2
         ElseIf c == '*'
             If i + 1 < chars.Count && chars[i + 1] == '*'
-                If i + 2 < chars.Count && chars[i + 2] == '/'
+                // "**/" is any folders or none only as a whole folder; elsewhere its / is one.
+                Local whole = i == 0 || chars[i - 1] == '/'
+                If whole && i + 2 < chars.Count && chars[i + 2] == '/'
                     pieces.Add(Piece(PieceKind.FOLDERS, ' ', [], [], False))
                     i += 3
                 Else

@@ -1,6 +1,6 @@
-// std.text.glob: * stops at /, ** doesn't, and **/ can be no folder; ?, sets, ranges, and their
-// negation; braces, nested too; \ before a wildcard; a [ or { without its end; characters beyond
-// ASCII; and letters in either case.
+// std.text.glob: * stops at /, ** doesn't, and **/ can be no folder where it's a whole one; ?,
+// sets, ranges, and their negation; braces, nested too; \ before a wildcard; a [ or { without its
+// end; characters beyond ASCII; and letters in either case.
 Import std.core
 Import std.text.glob
 
@@ -13,7 +13,8 @@ For check In [("*.fb", "main.fb"), ("*.fb", "src/main.fb"), ("src/**/*.fb", "src
               (r"{a", r"{a"), (r"{a}", r"{a}"), ("", ""), ("", "x"), ("*", ""),
               ("a*b*c", "abxbxc"), ("a*b*c", "abxbx"), (r"{a,{b,c}d}", "cd"),
               (r"{a,{b,c}d}", "bd"), (r"{a,{b,c}d}", "d"), ("😀*", "😀.png"), ("*", "a/b"),
-              ("ÉCOLE*", "école.md")]
+              ("ÉCOLE*", "école.md"), ("a**/b", "ab"), ("a**/b", "a/b"), ("a**/b", "ax/y/b"),
+              ("src**/main.fb", "srcmain.fb"), ("src/**/x", "src/x"), ("**/x", "x")]
     Print(check.0, check.1, Glob.Match(check.0, check.1))
 End For
 

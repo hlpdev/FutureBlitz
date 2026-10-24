@@ -32,4 +32,10 @@ a*b*c abxbx False
 😀* 😀.png True
 * a/b False
 ÉCOLE* école.md False
+a**/b ab False
+a**/b a/b True
+a**/b ax/y/b True
+src**/main.fb srcmain.fb False
+src/**/x src/x True
+**/x x True
 True True False **/*.{png,jpg} True True
