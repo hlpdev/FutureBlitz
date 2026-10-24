@@ -9942,7 +9942,8 @@ TEST_CASE("a Channel's TryReceive() gives a T?, beside the ByRef one", "[sema]")
                 "Local x = ch.TryReceive(ByRef value)") == "Bool");
     CHECK(errors_of("Const ch = Channel<Int>(2)\nLocal x: Int = ch.TryReceive()") ==
           errors_t{ "ch.TryReceive(): expected Int32, found Int32?, which may be Null; check it "
-                    "first, or give a value for Null with '??'" });
+                    "first, or give a value for Null with '?"
+                    "?'" });
 }
 
 TEST_CASE("a Channel's IsClosed says whether it's closed, on any thread", "[sema]") {
