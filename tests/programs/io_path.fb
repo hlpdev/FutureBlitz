@@ -30,6 +30,9 @@ Print("{Windows("C:\\games") / "save.dat"} {Windows("C:\\games\\") / "save.dat"}
 Print("{Windows("C:\\games") / "D:\\music"} {Windows("C:\\games") / "\\music"} {Windows("C:\\games") / "C:saves"}")
 Print("{Windows("C:\\games") / "D:saves"} {Windows("games") / "\\music"} {Windows("C:games") / "x"}")
 Print("{Windows("//server/share") / "dir"} {Windows("a") / "//server/share/b"}")
+// The same drive alone adds nothing, and a share starts again, as it's absolute.
+Print("{Windows("C:/a") / "C:"} {Windows("C:games") / "c:"} {(Windows("C:/a") / "C:") == Windows("C:/a")}")
+Print("{Windows("//server/share/x") / "//server/share"} {Windows("C:/a") / "//other/share"}")
 
 Print("Normalize")
 For text In ["", ".", "a/./b", "a//b///c/", "a/../b", "../a/../..", "/../a", "/a/b/../../..",

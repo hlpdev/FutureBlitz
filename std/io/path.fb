@@ -85,12 +85,14 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Local prefix, anchor = AnchorOf(bytes, windows)
         Local addedPrefix, addedAnchor = AnchorOf(added, windows)
         If addedPrefix > 0
-            // Another drive or share, or this drive's root, starts again; "C:saves" goes on from
-            // where this one is on C:.
-            If addedAnchor > addedPrefix || prefix == 0 || !SameDrive(bytes, prefix, added, addedPrefix)
+            // A share, another drive, or this drive's root starts again; "C:saves" goes on from
+            // where this one is on C:, and "C:" alone adds nothing.
+            If addedPrefix > 2 || addedAnchor > addedPrefix || prefix == 0 ||
+               !SameDrive(bytes, prefix, added, addedPrefix)
                 Return Path(other.Text, Style)
             End If
 
+            If addedPrefix == added.Count Then Return Self
             Return Joined(bytes, prefix, anchor, TextOfBytes(added[addedPrefix..added.Count]))
         End If
 
@@ -261,9 +263,15 @@ Public Struct Path Implements Comparable, Hashable, Printable
 
     // The path from the current folder's root, normalized: the path itself when it's absolute.
     // On Windows, one from a root without a drive is on the current folder's drive. Throws an
-    // IOError when the OS doesn't say what the current folder is.
+    // IOError when the OS doesn't say what the current folder is. Panics for a path by the other
+    // OS's rules that isn't absolute by them, since the current folder is by the target's.
+    @PanicsAtCaller
     Public Method Absolute(): Path Throws IOError
         If IsAbsolute() Then Return Normalize()
+        If Style != NativeStyle()
+            Panic("Absolute needs a path by the target's rules, or one that's absolute by its own, not '{Text}'")
+        End If
+
         Local current = fb_io_dir_current()
         If current == Null Then Throw IOError(IOErrorKind.OTHER, "the OS doesn't say what the current folder is", Text)
         Local here = Path(current, Style)
