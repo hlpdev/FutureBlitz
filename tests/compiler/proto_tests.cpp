@@ -700,10 +700,14 @@ TEST_CASE("a .proto with errors gives an empty module, past them", "[proto]") {
     const fb::compilation_t importing = compile_with(
         "Import \"bad.proto\"",
         {
-            { .path = "bad.proto",
-              .text = "syntax = \"proto3\";\nimport \"ok.proto\";\nmessage Bad { int32 x = ; }\n" },
-            { .path = "ok.proto",
-              .text = "syntax = \"proto3\";\nmessage Ok { map<int32, string> m = 1; }\n" },
+            {
+                .path = "bad.proto",
+                .text = "syntax = \"proto3\";\nimport \"ok.proto\";\nmessage Bad { int32 x = ; }\n",
+            },
+            {
+                .path = "ok.proto",
+                .text = "syntax = \"proto3\";\nmessage Ok { map<int32, string> m = 1; }\n",
+            },
         });
     CHECK(diagnostics_of(importing) ==
           diagnostics_t{ "bad.proto:3:25: expected the field's number, found ';'" });
@@ -716,16 +720,26 @@ TEST_CASE("the module of a .proto imports each file it does, whose types it name
     const fb::compilation_t compilation = compile_with(
         "Import \"main.proto\"\nLocal m = Main()",
         {
-            { .path = "main.proto",
-              .text = "syntax = \"proto3\";\nimport \"unused.proto\";\nimport \"forward.proto\";\n"
-                      "import \"google/protobuf/descriptor.proto\";\n"
-                      "extend google.protobuf.FieldOptions { string label = 50000; }\n"
-                      "message Main { New n = 1 [(label) = \"n\"]; }\n" },
-            { .path = "unused.proto",
-              .text = "syntax = \"proto3\";\nmessage Unused { map<int32, string> m = 1; }\n" },
-            { .path = "forward.proto",
-              .text = "syntax = \"proto3\";\nimport public \"new.proto\";\n" },
-            { .path = "new.proto", .text = "syntax = \"proto3\";\nmessage New { int32 v = 1; }\n" },
+            {
+                .path = "main.proto",
+                .text =
+                    "syntax = \"proto3\";\nimport \"unused.proto\";\nimport \"forward.proto\";\n"
+                    "import \"google/protobuf/descriptor.proto\";\n"
+                    "extend google.protobuf.FieldOptions { string label = 50000; }\n"
+                    "message Main { New n = 1 [(label) = \"n\"]; }\n",
+            },
+            {
+                .path = "unused.proto",
+                .text = "syntax = \"proto3\";\nmessage Unused { map<int32, string> m = 1; }\n",
+            },
+            {
+                .path = "forward.proto",
+                .text = "syntax = \"proto3\";\nimport public \"new.proto\";\n",
+            },
+            {
+                .path = "new.proto",
+                .text = "syntax = \"proto3\";\nmessage New { int32 v = 1; }\n",
+            },
         });
     CHECK(diagnostics_of(compilation).empty());
     const std::string module = generated(compilation, "main.proto");
@@ -738,11 +752,15 @@ TEST_CASE("the module of a .proto imports each file it does, whose types it name
     CHECK(diagnostics_of(
               compile_with("Import \"main.proto\"\nLocal f = Fresh()",
                            {
-                               { .path = "main.proto",
-                                 .text = "syntax = \"proto3\";\nimport \"new.proto\";\nmessage "
-                                         "Main { Fresh f = 1; }\n" },
-                               { .path = "new.proto",
-                                 .text = "syntax = \"proto3\";\nmessage Fresh { int32 v = 1; }\n" },
+                               {
+                                   .path = "main.proto",
+                                   .text = "syntax = \"proto3\";\nimport \"new.proto\";\nmessage "
+                                           "Main { Fresh f = 1; }\n",
+                               },
+                               {
+                                   .path = "new.proto",
+                                   .text = "syntax = \"proto3\";\nmessage Fresh { int32 v = 1; }\n",
+                               },
                            })) ==
           diagnostics_t{ "main.fb:2:11: 'Fresh' is in new.proto, which this file doesn't import: "
                          "Import \"new.proto\"" });
