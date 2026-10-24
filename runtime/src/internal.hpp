@@ -39,6 +39,14 @@ void release_thread_locals();
 /// and its ThreadLocal Globals' Destroys, which a thread C started runs as it exits, let go.
 void ready_letting_go();
 
+/// Has `done` run on the main thread once the program's code is done, its coroutines too,
+/// before the pool finishes its jobs and the Globals are let go of, as the signals' handlers stop
+/// there. At most one per part of the runtime.
+void at_code_end(void (*done)());
+
+/// Runs what at_code_end() was given, the last one first.
+void run_code_end();
+
 /// Has `stop` run as the program ends, before the leak report, as the I/O thread does to stop.
 /// At most one per part of the runtime.
 void at_finish(void (*stop)());
