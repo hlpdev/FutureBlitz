@@ -9,13 +9,14 @@
 // sessions for each of its transfers, and its connections for its blocking ones; Async transfers
 // run on the I/O thread, whose connections they share. A transfer is one request and its
 // response, after the redirects it follows. Arrays and Strings are only borrowed. std.net.http
-// checks what it passes first, so a bad one here is a bug, which panics.
+// checks what it passes first, so a bad one here is a bug, which panics, but for text libcurl
+// can't take, with a NUL or longer than its most, which the transfer ends with, unstarted.
 //
 // A transfer's outcome is 0 when it got a response, whatever its status, or else what failed:
 // 1 a host that wasn't found, 2 a refused connection, 3 an unreachable network or host, 4 a
 // connection reset, 5 one closed before the whole response came, 6 TLS, 7 a timeout, 8 another
-// failure of the network or of the server, 9 a URL that can't be used, 10 too many redirects,
-// and 11 a program that ended before the transfer did.
+// failure of the network or of the server, or of what the transfer was given, 9 a URL that can't
+// be used, 10 too many redirects, and 11 a program that ended before the transfer did.
 
 extern "C" {
 
