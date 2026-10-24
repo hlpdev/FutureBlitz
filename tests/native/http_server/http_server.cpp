@@ -374,6 +374,8 @@ struct response_t {
     std::size_t chunks = 0;
     /// Its Content-Length, when it isn't the body's.
     std::optional<std::size_t> length;
+    /// How much of the body comes before a pause of 300 ms, and the rest after, when it isn't 0.
+    std::size_t pause = 0;
 };
 
 response_t text(std::string body, const int status = 200, std::string reason = "OK") {
@@ -414,11 +416,22 @@ bool send_response(connection_t& connection, const response_t& response, const b
 
     out += "Content-Length: " + std::to_string(response.length.value_or(response.body.size())) +
            "\r\n\r\n";
-    if (!head) {
-        out += response.body;
+    if (head) {
+        return connection.write(out);
     }
 
-    return connection.write(out);
+    const std::string_view body = response.body;
+    out += body.substr(0, response.pause != 0 ? response.pause : body.size());
+    if (!connection.write(out)) {
+        return false;
+    }
+
+    if (response.pause == 0) {
+        return true;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    return connection.write(body.substr(std::min(body.size(), response.pause)));
 }
 
 /// `text` compressed as the HTTP coding `coding` is: gzip's and deflate's (zlib's format, as HTTP's
@@ -455,9 +468,12 @@ enum class after_t : std::uint8_t { KEEP, CLOSE, RESET };
 /// - /status/<code>: that status.
 /// - /redirect/<n>: a 302 to /redirect/<n - 1>, and /redirect/0 "redirected".
 /// - /moved/<code>: a <code> redirect to /echo; /redirect-to?url=<url>: a 302 to the URL.
+/// - /redirect-with-body: a 302 to /bytes/2 with a body of its own, 5000 bytes, of which the
+///   second half comes 300 ms after the first over HTTP/1.1.
 /// - /cookies/set?name=<n>&value=<v>: sets the cookie; /cookies: the request's Cookie header.
-/// - /bytes/<n>: n bytes, each its index's remainder by 251; /chunked: "chunk" ten times, in
-///   chunks of 7 bytes.
+/// - /bytes/<n>: n bytes, each its index's remainder by 251, and with ?pause=<k>, the first k of
+///   them 300 ms before the rest over HTTP/1.1; /chunked: "chunk" ten times, in chunks of 7
+///   bytes.
 /// - /multi: two X-Multi headers.
 /// - /compressed/<coding>: "<coding>" and "fox " 5000 times, compressed by the coding (gzip,
 ///   deflate, or zstd) when the request's Accept-Encoding has it.
@@ -533,6 +549,13 @@ std::pair<response_t, after_t> answer(const request_t& request) {
         return { moved, after_t::KEEP };
     }
 
+    if (path == "/redirect-with-body") {
+        response_t moved = text(std::string(5000, 'x'), 302, "Found");
+        moved.headers.emplace_back("Location", "/bytes/2");
+        moved.pause = 2500;
+        return { moved, after_t::KEEP };
+    }
+
     if (path == "/cookies/set") {
         response_t set = text("set");
         set.headers.emplace_back("Set-Cookie", request.query("name").value_or("") + "=" +
@@ -553,6 +576,7 @@ std::pair<response_t, after_t> answer(const request_t& request) {
             bytes.body += static_cast<char>(i % 251);
         }
 
+        bytes.pause = std::stoull(request.query("pause").value_or("0"));
         return { bytes, after_t::KEEP };
     }
 

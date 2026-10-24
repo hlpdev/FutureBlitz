@@ -254,8 +254,9 @@ Public Class HttpClient
     End Method
 
     // The body of url's response, which progress, unless it's Null, is told of as it comes: how
-    // many bytes came, and how many the response said it has, or -1 when it didn't say. Throws a
-    // NetError of HTTP_STATUS when the response's status isn't success.
+    // many bytes came, and how many the response said it has, or -1 when it didn't say, but
+    // nothing of a redirect's own body. Throws a NetError of HTTP_STATUS when the response's
+    // status isn't success.
     Public Method Download(
             url: String,
             progress: Func(Int64, Int64)? = Null): UInt8[] Throws NetError, TimeoutError
