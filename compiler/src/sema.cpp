@@ -9143,12 +9143,14 @@ private:
     }
 
     /// Whether an Interface's member redeclares one of an Interface it extends, taking its
-    /// place: one of its name, kind, and types, as refined_result() sees them. A type implements
-    /// both with the one that takes the place, its default too, so the two are one member
-    /// wherever both are seen.
+    /// place: one of its name, kind, types, and Async-ness, as refined_result() sees them. A type
+    /// implements both with the one that takes the place, its default too, so the two are one
+    /// member wherever both are seen.
     [[nodiscard]] bool redeclares(const symbol_id_t near_id, const symbol_id_t far_id) const {
         const std::optional<type_id_t> result = refined_result(near_id, far_id);
-        return result && *result == m_analysis.symbols[index(near_id)].type;
+        const symbol_t& near = m_analysis.symbols[index(near_id)];
+        return result && *result == near.type &&
+               near.modifiers.is_async == m_analysis.symbols[index(far_id)].modifiers.is_async;
     }
 
     /// An Interface's member with the name and parameters of one of an Interface it extends
@@ -9200,6 +9202,25 @@ private:
                                   symbol(near).name, name_among(extended, shown),
                                   name_among(*result, shown), name_among(symbol(near).type, shown))
                                 .with_label(symbol(far).span, "declared here");
+                            return true;
+                        }
+
+                        // One member, the other's, is Async as that one is, or it couldn't be
+                        // implemented.
+                        if (result &&
+                            symbol(near).modifiers.is_async != symbol(far).modifiers.is_async) {
+                            if (symbol(far).modifiers.is_async) {
+                                error(symbol(near).span,
+                                      "'{}' redeclares {}'s, which is Async, so it has to be "
+                                      "Async too",
+                                      symbol(near).name, shown_name(extended))
+                                    .with_label(symbol(far).span, "declared here");
+                            } else {
+                                error(symbol(near).span,
+                                      "'{}' is Async, so it can't redeclare {}'s, which isn't",
+                                      symbol(near).name, shown_name(extended))
+                                    .with_label(symbol(far).span, "declared here");
+                            }
                             return true;
                         }
                     }
