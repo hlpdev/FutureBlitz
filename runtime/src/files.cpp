@@ -391,9 +391,44 @@ std::string temporary_beside(const std::string& path) {
     return temporary + ".tmp";
 }
 
-/// Writes `bytes` to a new temporary file beside `path`, onto the disk, and renames it over
-/// `path`. On POSIX it takes the permissions of the file it replaces.
-std::int64_t write_atomic(const std::string& path, const std::string_view bytes) {
+/// Whether a link's target `target` is from a root, not from the link's folder.
+bool is_rooted(const std::string_view target) {
+#ifdef _WIN32
+    return target.starts_with('/') || target.starts_with('\\') ||
+           (target.size() > 1 && target[1] == ':');
+#else
+    return target.starts_with('/');
+#endif
+}
+
+/// The file a write to `path` changes: the one its link leads to, through each link after it,
+/// which needn't be there yet, or `path` itself when it isn't a link.
+std::string linked_file(std::string path) {
+    // As many links as Linux follows before it says there's a loop.
+    for (int links = 0; links < 40; ++links) {
+        uv_stat_t found{};
+        if (stat_path(path, false, found) != 0 || kind_of(found) != KIND_LINK) {
+            break;
+        }
+
+        fs_t call;
+        if (uv_fs_readlink(nullptr, call.get(), path.c_str(), nullptr) != 0) {
+            break;
+        }
+
+        const std::string target = static_cast<const char*>(call.get()->ptr);
+        const std::string folder = split_path(path).first;
+        path = is_rooted(target) || folder == "." ? target : folder + target;
+    }
+
+    return path;
+}
+
+/// Writes `bytes` to a new temporary file beside `path`'s, onto the disk, and renames it over
+/// that file, which is the one a link at `path` leads to, so the link stays. On POSIX it takes
+/// the permissions of the file it replaces.
+std::int64_t write_atomic(const std::string& given, const std::string_view bytes) {
+    const std::string path = linked_file(given);
     // A rename over a folder fails differently on each OS.
     if (uv_stat_t found{}; stat_path(path, true, found) == 0 && is_directory(found)) {
         return UV_EISDIR;

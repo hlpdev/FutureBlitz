@@ -16,6 +16,8 @@ atomic
   lines.txt FILE
   new.bin FILE
   odd.txt FILE
+[atomic] LINK
+[made] LINK
 rename, copy, delete
 False True [replaced whole]
 True [replaced whole]
