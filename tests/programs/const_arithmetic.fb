@@ -80,3 +80,33 @@ Function Count<Const N: Int>(a: Int[N]): Int => N
 Function Wrap<Const N: Int>(a: Int[N]): Int => Count(a) * 100 + Count(Trimmed(a))
 
 Print(Wrap(a))
+
+// Recursion through / or % can come back to an instance it made: Bits<8> needs Bits<4>, <2>,
+// <1>, and <0>, which needs itself.
+Function Bits<Const N: Int>(): Int
+    If N == 0 Then Return 0
+    Return 1 + Bits<N / 2>()
+End Function
+
+Function Cycle<Const N: Int>(n: Int): Int
+    If n == 0 Then Return N
+    Return Cycle<(N + 1) % 3>(n - 1)
+End Function
+
+Print(Bits<8>(), Bits<255>(), Cycle<0>(4), Cycle<2>(7))
+
+// A known part of a computed argument is worked out in an Int64 too, so only what it comes to has
+// to fit its parameter's type.
+Struct Q8<Const A: Int8>
+    Method Get(): Int => A
+End Struct
+
+Struct U8<Const A: UInt8>
+    Method Get(): Int => A
+End Struct
+
+Function Narrow<Const N: Int>(): Int => Q8<N - 200>().Get()
+
+Function Wide<Const N: Int>(): Int => U8<300 - N>().Get() * 1000 + U8<N + -1>().Get()
+
+Print(Narrow<100>(), Wide<100>())

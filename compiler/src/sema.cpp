@@ -10456,7 +10456,7 @@ private:
                     .from = node(from, scope),
                     .to = to,
                     .argument = argument,
-                    .grows = argument != from,
+                    .grows = argument != from && !can_repeat(argument),
                     .span = span,
                 });
             }
@@ -10582,14 +10582,28 @@ private:
             }
 
             reported.push_back(edge.to);
+            const bool value = m_analysis.types.get(edge.argument).kind == type_kind_t::VALUE;
             in_file(edge.span.file, [&] {
                 error(edge.span,
                       "{} gets {} for {} here, which leads back to this code, so it would need a "
-                      "larger instance each time, without end",
+                      "{} instance each time, without end",
                       parameter_owner(edge.to), shown_name(edge.argument),
-                      shown_name(edge.to.parameter));
+                      shown_name(edge.to.parameter), value ? "different" : "larger");
             });
         }
+    }
+
+    /// Whether a Const type argument is computed with / or %, which can come back to a value it
+    /// had, as Bits<N / 2> comes to Bits<0> and stays, so lowering's chain of instances finds
+    /// one that doesn't. One computed with +, -, and * alone is a different value each time.
+    [[nodiscard]] bool can_repeat(const type_id_t argument) const {
+        const type_t& info = m_analysis.types.get(argument);
+        if (info.kind != type_kind_t::VALUE || info.operation == value_op_t::NONE) {
+            return false;
+        }
+
+        return info.operation == value_op_t::DIVIDE || info.operation == value_op_t::REMAINDER ||
+               can_repeat(info.parameters[0]) || can_repeat(info.parameters[1]);
     }
 
     /// Whether a constructor is the New a Struct without one gets, whose Fields' defaults, if it
@@ -12776,7 +12790,7 @@ private:
 
         // One computed from Const type parameters is known in each instance.
         if (mentions_value_parameter(*expression)) {
-            return computed_value(*expression, type);
+            return computed_value(*expression);
         }
 
         check(*expression, type);
@@ -12815,10 +12829,11 @@ private:
         return false;
     }
 
-    /// "N * 2" as a value of `type` that each instance works out: Const type parameters,
+    /// "N * 2" as a value that each instance works out, in an Int64: Const type parameters,
     /// integers, and Consts, with +, -, *, /, and %, and -N as 0 - N. An instance where it divides
-    /// by 0, or that makes a size of it below 1, is an error where it's made.
-    type_id_t computed_value(const expr_id_t id, const type_id_t type) {
+    /// by 0, or that makes a size of it below 1 or a value that doesn't fit its parameter's type,
+    /// is an error where it's made.
+    type_id_t computed_value(const expr_id_t id) {
         const expr_node_t& node = m_ast.get(id).node;
         if (const auto* name = std::get_if<name_expr_t>(&node)) {
             for (const type_id_t parameter : std::views::reverse(m_type_scope)) {
@@ -12830,24 +12845,29 @@ private:
 
         if (const auto* binary = std::get_if<binary_expr_t>(&node)) {
             if (const std::optional<value_op_t> op = value_op_of(binary->op)) {
-                return m_analysis.types.value_expression(*op, computed_value(binary->left, type),
-                                                         computed_value(binary->right, type));
+                return m_analysis.types.value_expression(*op, computed_value(binary->left),
+                                                         computed_value(binary->right));
             }
         }
 
         if (const auto* unary = std::get_if<unary_expr_t>(&node);
             unary != nullptr && unary->op == unary_op_t::NEGATE &&
             mentions_value_parameter(unary->operand)) {
-            return m_analysis.types.value_expression(value_op_t::SUBTRACT,
-                                                     m_analysis.types.value(0),
-                                                     computed_value(unary->operand, type));
+            return m_analysis.types.value_expression(
+                value_op_t::SUBTRACT, m_analysis.types.value(0), computed_value(unary->operand));
         }
 
+        // A known part is worked out in an Int64 too; only what it all comes to has to fit.
         if (!mentions_value_parameter(id)) {
-            check(id, type);
+            const std::size_t errors = m_diagnostics->error_count();
+            check(id, type_id_t::INT64);
             const std::optional<std::int64_t> known = integer_value(id);
-            if (known && expect_type(id, type)) {
+            if (known && expect_type(id, type_id_t::INT64)) {
                 return m_analysis.types.value(*known);
+            }
+
+            if (m_diagnostics->error_count() != errors) {
+                return type_id_t::INVALID;
             }
         }
 
@@ -12913,7 +12933,7 @@ private:
             // One computed from Const type parameters, like N * 2, is known in each instance.
             if (!std::holds_alternative<name_expr_t>(m_ast.get(expression).node) &&
                 mentions_value_parameter(expression)) {
-                const type_id_t computed = computed_value(expression, type_id_t::INT64);
+                const type_id_t computed = computed_value(expression);
                 if (computed == type_id_t::INVALID) {
                     return type_id_t::INVALID;
                 }

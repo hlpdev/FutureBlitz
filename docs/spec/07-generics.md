@@ -28,21 +28,24 @@ Max<Float>(1, 2.5)     // explicit
   calls itself, or each other, with a type holding its own type parameter, like `Deep<T>`
   calling `Deep([x])` with a `T[]`, would need instances without end, and is an error at the
   call: "'Deep' gets T[] for T here, which leads back to this code, so it would need a larger
-  instance each time, without end". A type that only names a larger instance, like a Field of
-  `Node<Node<T>>?`, is fine, and so is making one with the New a Struct gets, when its Fields'
-  defaults are known at compile time, since that runs none of its code: a `Quantity<L + L2>` in
-  Quantity's own Operator. An Interface's default is code of this kind too, with what each
-  call gives it for Self, and a Class's copies of the defaults in the Interface's table run when
-  one of its objects is made, so a default that wraps Self in a Class implementing the
-  Interface, `Holder<Self>(Self)`, is an error where the wrapped one runs it again: a call of it
+  instance each time, without end". A Const type argument computed from its own parameter needs a
+  different instance each time, as `Down<N - 1>` does, unless `/` or `%` computes it: then it can
+  come back to one already made, as `Bits<N / 2>` comes to `Bits<0>`, which needs itself, so only
+  the chain of instances below stops one that doesn't. A type that only names a larger instance,
+  like a Field of `Node<Node<T>>?`, is fine, and so is making one with the New a Struct gets, when
+  its Fields' defaults are known at compile time, since that runs none of its code: a
+  `Quantity<L + L2>` in Quantity's own Operator. An Interface's default is code of this kind too,
+  with what each call gives it for Self, and a Class's copies of the defaults in the Interface's
+  table run when one of its objects is made, so a default that wraps Self in a Class implementing
+  the Interface, `Holder<Self>(Self)`, is an error where the wrapped one runs it again: a call of it
   on the Holder, or the Holder's table holding it. One the compiler can't follow there, like a
   Static default, or one that only tests for a Holder, which still makes its table, is an error
-  where the compiler makes the instance that keeps growing: one more than 50 instances of the
-  same function or Class deep in a chain of instances made one from another, or one whose type
-  arguments are made of more than 65536 types, as an argument that doubles each time, like
-  `Pair<Self, Self>`, soon is. A type nested more than 1000 deep, or made of more than 65536
-  types, is an error even where nothing grows. A Field's type that grows that way is left out
-  past those limits, as it's never reached.
+  where the compiler makes the instance that keeps growing: one more than 50 instances of the same
+  function or Class deep in a chain of instances made one from another, or one whose type arguments
+  are made of more than 65536 types, as an argument that doubles each time, like `Pair<Self, Self>`,
+  soon is. A type nested more than 1000 deep, or made of more than 65536 types, is an error even
+  where nothing grows. A Field's type that grows that way is left out past those limits, as it's
+  never reached.
 - A Const type argument an instance works out, like `N * 2` or `N - 1`, has to fit its type
   parameter's type, and one that's a fixed array's size has to be from 1 to 2147483647, or it's
   an error where the instance is made, as one that divides by 0 is.

@@ -2828,6 +2828,13 @@ TEST_CASE("lowering stops where code needs a larger instance each time, which an
                   "End Class\n"
                   "Local a = A<1>().Spawned()")
               .ends_with("needs a larger instance each time it runs here, without end"));
+    // As does one computed with / or %, which sema can't tell keeps growing.
+    CHECK(stopped("Function Grow<Const N: Int>(): Int\n"
+                  "    If N > 1000 Then Return N\n"
+                  "    Return Grow<N * 2 / 2 + 1>()\n"
+                  "End Function\n"
+                  "Local g = Grow<1>()")
+              .ends_with("needs a larger instance each time it runs here, without end"));
 
     // A Const type argument an instance works out has to fit its type, and a size has to be
     // from 1 to 2147483647.

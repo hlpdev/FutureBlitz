@@ -8529,7 +8529,24 @@ TEST_CASE("an Operator takes type parameters of its own from its operands", "[se
                     "End Struct\n"
                     "Local x = S<1>().Next()") ==
           errors_t{ "S<A + 1>().Next(): S<A> gets A + 1 for A here, which leads back to this code, "
-                    "so it would need a larger instance each time, without end" });
+                    "so it would need a different instance each time, without end" });
+    CHECK(errors_of("Function Down<Const N: Int>(): Int\n"
+                    "    If N == 0 Then Return 0\n"
+                    "    Return Down<N - 1>()\n"
+                    "End Function") ==
+          errors_t{ "Down<N - 1>(): 'Down' gets N - 1 for N here, which leads back to this code, "
+                    "so it would need a different instance each time, without end" });
+    // One computed with / or % can come back to an instance it made, so only lowering's chain
+    // of them stops one that doesn't.
+    CHECK(errors_of("Function Bits<Const N: Int>(): Int\n"
+                    "    If N == 0 Then Return 0\n"
+                    "    Return 1 + Bits<N / 2>()\n"
+                    "End Function\n"
+                    "Function Cycle<Const N: Int>(n: Int): Int\n"
+                    "    If n == 0 Then Return N\n"
+                    "    Return Cycle<(N + 1) % 3>(n - 1)\n"
+                    "End Function")
+              .empty());
 }
 
 TEST_CASE("what an Extend of one instance adds can't override what the instance inherits",
@@ -8666,6 +8683,21 @@ TEST_CASE("a Const type argument or size can be computed from Const type paramet
     CHECK(errors_of("Function F<Const N: Int>(a: Int[N ** 2])\nEnd Function") ==
           errors_t{ "N ** 2: a value computed from Const type parameters uses integers known at "
                     "compile time, with +, -, *, /, and %, like N * 2" });
+    // Its known parts are worked out in an Int64, so only what it comes to has to fit, and each
+    // is reported once.
+    CHECK(errors_of("Struct Q8<Const A: Int8>\nEnd Struct\n"
+                    "Function F<Const N: Int>(): Q8<N - 200> => Q8<N - 200>()\n"
+                    "Local q = F<100>()")
+              .empty());
+    CHECK(errors_of("Struct Q8<Const A: Int8>\nEnd Struct\n"
+                    "Function F<Const N: Int>(): Q8<N - 1.5> => Q8<N - 1.5>()") ==
+          errors_t{ "1.5: a value computed from Const type parameters uses integers known at "
+                    "compile time, with +, -, *, /, and %, like N * 2",
+                    "1.5: a value computed from Const type parameters uses integers known at "
+                    "compile time, with +, -, *, /, and %, like N * 2" });
+    CHECK(errors_of("Struct Q8<Const A: Int8>\nEnd Struct\n"
+                    "Function F<Const N: Int>(): Q8<N - Missing> => Q8<N - 1>()") ==
+          errors_t{ "Missing: 'Missing' isn't declared" });
 
     // A value is one type whatever its parameter's type, and a size computed as an argument is
     // computed is that type too.
