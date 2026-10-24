@@ -831,7 +831,7 @@ discovery. `Import std.net` brings in std/net/.
   answers while that thread runs Async code. UDP broadcast is UdpSocket's.
 - `TlsStream` over any stream (mbedTLS, the OS's roots by default), and a TLS listener.
 - std.net.http's client (step 29), over libcurl, whose TLS is mbedTLS's, trusting the OS's roots:
-  Windows' ROOT store and macOS's system anchors, each that's valid now and for servers, or the
+  Windows' ROOT store, each that's valid now and for servers, macOS's system anchors, or the
   first of the bundle files Linux distributions and the BSDs keep, or the one `SSL_CERT_FILE`
   names. `HttpMethod` (GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS); `StatusCode`, its named
   statuses as Ints, `StatusCode.NOT_FOUND`, with `Reason`, `IsSuccess`, and `IsRedirect`;
