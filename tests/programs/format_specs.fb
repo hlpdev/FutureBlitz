@@ -80,3 +80,6 @@ Local five = 5
 Print(five.Format("03") ?? "none", five.Format(".2") ?? "no precision", 2.5.Format("e") ?? "-")
 Print("abc".Format("^7") ?? "-", True.Format("+") ?? "no sign", Suit.Hearts.Format(">7") ?? "-")
 Print(LABEL)
+
+// An empty spec is none, a program's own Formattable type's too, which shows its ToString.
+Print("{wallet:} [{five:}] [{"a":}] [{(1, 2):}]")
