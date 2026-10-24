@@ -3,6 +3,7 @@
 #include "fb/runtime.hpp"
 
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -54,6 +55,10 @@ std::int32_t fb_os_open_default(const fb_string_t* target);
 // The paths std.os's folders are made from, apart from the OS, so the tests can check them on
 // every platform.
 namespace fb::os {
+
+/// Keeps the program's own threads from reading the environment while one changes it: the
+/// fb_os_env_ functions, and starting a process, which gets this program's.
+[[nodiscard]] std::mutex& environment_lock();
 
 /// Whether `target` starts with a URL's scheme and its colon, like "https:" or "mailto:". A
 /// scheme of one letter is a Windows drive's, as in "C:".

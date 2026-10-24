@@ -32,7 +32,14 @@
 extern char** environ;
 #endif
 
+std::mutex& fb::os::environment_lock() {
+    static std::mutex lock;
+    return lock;
+}
+
 namespace {
+
+using fb::os::environment_lock;
 
 /// What std.os's numbers stand for.
 enum class folder_t : std::int8_t {
@@ -51,12 +58,6 @@ enum class opened_t : std::int8_t {
     DENIED,
     NO_APP,
 };
-
-/// Keeps the program's own threads from reading the environment while one changes it.
-std::mutex& environment_lock() {
-    static std::mutex lock;
-    return lock;
-}
 
 std::string_view text_of(const fb_string_t* string) {
     return { reinterpret_cast<const char*>(string + 1), static_cast<std::size_t>(string->length) };
