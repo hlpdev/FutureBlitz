@@ -832,7 +832,7 @@ Function NumberOf(text: String): Float64
     While finish > start && IsSpace(bytes[finish - 1])
         finish -= 1
     End While
-    Local nan = Infinite() - Infinite()
+    Local nan = NotANumber()
     If start == finish Then Return nan
     For i = start Until finish
         Local b = bytes[i]

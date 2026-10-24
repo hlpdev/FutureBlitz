@@ -71,9 +71,15 @@ Package Function FloatOf(bytes: UInt8[], start: Int, finish: Int): Float64?
     Return value
 End Function
 
-// A Float64's infinity, which nan is infinity less itself.
+// A Float64's infinity.
 Package Function Infinite(): Float64
     Local bytes = "inf".Bytes
+    Return FloatOf(bytes, 0, bytes.Count) ?? 0.0
+End Function
+
+// A Float64's NaN, whose sign bit is 0 on every target, as infinity less itself's isn't.
+Package Function NotANumber(): Float64
+    Local bytes = "nan".Bytes
     Return FloatOf(bytes, 0, bytes.Count) ?? 0.0
 End Function
 
