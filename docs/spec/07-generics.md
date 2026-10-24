@@ -319,9 +319,10 @@ Sum(row)                           // N from row's Int[8]
   value of that type, and in types a fixed array's size, or an argument for another. It has no
   constraints.
 - Its argument is an integer literal, a `Const`, or a Const type parameter of the code around
-  it, any value of its type, 0 and below among them, as a unit's exponents are. Each value makes
-  an instance, like `Grid<Float32, 64, 64>`. Where it's a fixed array's size, it has to be from
-  1 to a fixed array's limit, which each instance checks.
+  it, any value of its type, 0 and below among them, as a unit's exponents are, though a
+  `UInt64`'s goes up to 9223372036854775807, since each instance works one out in an Int64.
+  Each value makes an instance, like `Grid<Float32, 64, 64>`. Where it's a fixed array's size,
+  it has to be from 1 to a fixed array's limit, which each instance checks.
 - An argument or a fixed array's size can be computed from Const type parameters with `+`, `-`,
   `*`, `/`, and `%`, which round toward 0 as an Int's do, a `-` before one, and parentheses:
   `Function Join<Const N: Int, Const M: Int>(a: Int[N], b: Int[M]): Int[N + M]`, `Grid<W * 2>`,

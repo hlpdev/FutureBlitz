@@ -6398,6 +6398,12 @@ TEST_CASE("Const type parameter mistakes", "[sema]") {
               .empty());
     CHECK(errors_of("Struct Small<Const N: Int8>\nEnd Struct\nLocal s = Small<300>()") ==
           errors_t{ "300: 300 doesn't fit in Int8" });
+    // Each instance works one out in an Int64, so a UInt64's goes up to Int64's highest.
+    CHECK(errors_of("Struct Mask<Const M: UInt64>\nEnd Struct\n"
+                    "Local a = Mask<9223372036854775807>()\n"
+                    "Local b = Mask<18446744073709551615>()") ==
+          errors_t{ "18446744073709551615: M takes a value up to 9223372036854775807, not "
+                    "18446744073709551615" });
     CHECK(errors_of(std::format("{}Local a = Grid<Int, 2>()", grid)) ==
           errors_t{ "Int: W is Const, so it takes an integer known at compile time, like 64, not "
                     "Int" });
