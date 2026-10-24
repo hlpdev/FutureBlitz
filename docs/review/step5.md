@@ -4,7 +4,7 @@
 
 ## S5-debug-1 (high): A cycle through arrays overflows the stack: only objects shown through fb_debug_object are tracked, never a T[]
 
-Status: open
+Status: fixed in f42f6116 (a debug form cuts a cycle through arrays, and reads a fixed array where it is), with the Struct graph and the array that holds itself in tests/programs/debug_form.fb
 
 Where: compiler/src/lower.cpp:6244
 
@@ -38,7 +38,7 @@ Skeptic: I ran the finding's program, rev-scratch/s5/dbg/f1.fb. Debug and --rele
 
 ## S5-debug-2 (high): Any debug form crashes the compiler in a program whose Class holds a large fixed array
 
-Status: open
+Status: fixed in f42f6116 (a debug form cuts a cycle through arrays, and reads a fixed array where it is), with a Class's UInt8[256, 256] Field in tests/programs/debug_form.fb; a debug function takes what holds a fixed array ByRef. Passing a large fixed array by value elsewhere still crashes codegen, which lane 2 reported with the P1 lowering batch
 
 Where: compiler/src/lower.cpp:1173
 
@@ -68,7 +68,7 @@ Skeptic: f2.fb (a Class with a UInt8[256, 256] Field, plus Print("{n:?}") on an 
 
 ## S5-format-parse-1 (high): An Interface's default Methods lose their default values when called on the type that implements them
 
-Status: open
+Status: fixed in 63d7f3ee (an interface's default methods and inherited news keep their parameters' default values), with tests/programs/copied_defaults.fb
 
 Where: compiler/src/sema.cpp:5209
 
@@ -115,7 +115,7 @@ Skeptic: Ran f1.fb (the finding's program) with build-rev3 fb, debug and --relea
 
 ## S5-format-parse-2 (high): Inherited News lose their default values
 
-Status: open
+Status: fixed in 63d7f3ee (an interface's default methods and inherited news keep their parameters' default values), with tests/programs/copied_defaults.fb
 
 Where: compiler/src/sema.cpp:6118
 
@@ -159,7 +159,7 @@ Skeptic: Ran f2.fb, debug and release: prints '5|base|0|||0' where the expected 
 
 ## S5-debug-3 (medium): A width on a number's debug form aligns left at run time but right when folded or through Format
 
-Status: open
+Status: fixed in db34fdef (a number's padded debug form goes right, and std's box shows as the value in it), with cases in tests/programs/debug_form.fb
 
 Where: compiler/src/lower.cpp:5998
 
@@ -199,7 +199,7 @@ Skeptic: f3.fb printed `[5     ]`, `[     5]`, `[5     ] Hearts`, `[     5]`, th
 
 ## S5-debug-4 (medium): A value passed through a Formattable... parameter shows std's Formatted<T> box in its debug form
 
-Status: open
+Status: fixed in db34fdef (a number's padded debug form goes right, and std's box shows as the value in it), with a case in tests/programs/debug_form.fb
 
 Where: std/core/format.fb:15
 
@@ -230,7 +230,7 @@ Skeptic: f4.fb printed `Formatted<Int32> { Value: 5 } Formatted<String> { Value:
 
 ## S5-debug-5 (medium): Format(r"{:?}", x) throws BAD_VALUE for every program type, though '?' is every value's debug form
 
-Status: open
+Status: fixed in 874f6d79 (format's debug fields give a program's own type its debug form, which its format doesn't take), with cases in tests/programs/format_template.fb
 
 Where: std/core/format.fb:67
 
@@ -274,7 +274,7 @@ Skeptic: f5.fb printed `Money { Cents: 5 }`, `5 "a"`, then `error: value 0, $5, 
 
 ## S5-format-parse-4 (medium): Format's "{:?}" throws BAD_VALUE for a program's Formattable type instead of giving its debug form
 
-Status: open
+Status: fixed in 874f6d79 (format's debug fields give a program's own type its debug form, which its format doesn't take), with cases in tests/programs/format_template.fb
 
 Where: std/core/format.fb:67
 
@@ -312,7 +312,7 @@ Skeptic: Ran f4.fb, debug and release: prints 'Money { Cents: 5 } 5 "a"', then '
 
 ## S5-format-parse-5 (medium): A precision of .999 on a Float64 of 1e100 or more writes 1100 NUL bytes
 
-Status: open
+Status: fixed in be577422 (a float's fixed text is its shortest digits, a percent moves the point, and the longest text fits), with cases in tests/compiler/text_format_tests.cpp
 
 Where: runtime/include/fb/text_format.hpp:244
 
@@ -339,7 +339,7 @@ Skeptic: Ran f5.fb, debug and release, with output sent to a file. The first lin
 
 ## S5-format-parse-6 (medium): '%' writes "inf%" for a large finite float, and "Inf" with no '%' for infinity
 
-Status: open
+Status: fixed in be577422 (a float's fixed text is its shortest digits, a percent moves the point, and the longest text fits), with cases in tests/compiler/text_format_tests.cpp
 
 Where: runtime/include/fb/text_format.hpp:625
 
@@ -364,7 +364,7 @@ Skeptic: Ran f6.fb, debug and release: prints 'inf% inf% Inf'. Ran my own g6.fb:
 
 ## S5-specs-1 (medium): A large Float with a long precision prints 1100 NUL bytes
 
-Status: open
+Status: fixed in be577422 (a float's fixed text is its shortest digits, a percent moves the point, and the longest text fits), with cases in tests/compiler/text_format_tests.cpp
 
 Where: runtime/include/fb/text_format.hpp:244
 
@@ -393,7 +393,7 @@ Skeptic: I ran s1.fb (the finding's program) from rev-scratch/s5/specs. In both 
 
 ## S5-specs-2 (medium): '%' without a precision prints float noise for common ratios
 
-Status: open
+Status: fixed in be577422 (a float's fixed text is its shortest digits, a percent moves the point, and the longest text fits), with cases in tests/compiler/text_format_tests.cpp; 'f' without a precision writes the shortest digits too, which spec 14 promises
 
 Where: runtime/include/fb/text_format.hpp:625
 
@@ -422,7 +422,7 @@ Skeptic: I ran s2.fb in debug and release. Both print '56.99999999999999% 7.0000
 
 ## S5-specs-4 (medium): An interpolation with a format spec skips the main-thread check of the code it runs
 
-Status: open
+Status: fixed in 18838775 (a value shown by a format spec counts what it runs, for work on another thread), with a case in tests/compiler/sema_tests.cpp
 
 Where: compiler/src/sema.cpp:16071
 
@@ -473,7 +473,7 @@ Skeptic: s4.fb compiles and prints 'True True True Bag []': all four Spawns that
 
 ## S5-specs-5 (medium): ',' grouping and '0' padding on a round Float write the exponent form
 
-Status: open
+Status: fixed in be577422 (a float's fixed text is its shortest digits, a percent moves the point, and the longest text fits), with cases in tests/compiler/text_format_tests.cpp
 
 Where: runtime/include/fb/text_format.hpp:632
 
@@ -499,7 +499,7 @@ Skeptic: I ran s5.fb in debug and release. Both print '2e6|2,000,001|0000000002e
 
 ## S5-debug-10 (low): No test checks the multi-dimensional fixed array's one-list debug form, or '?' through Format
 
-Status: open
+Status: fixed in 924d9e9c (a flags value's debug form shows the bits no member has, and the debug form of a fixed array of several dimensions has a test), with fixed arrays in tests/programs/debug_form.fb; Format's '?' fields are in format_template.fb, from the S5-debug-5 fix
 
 Where: tests/programs/debug_form.fb:90
 
@@ -529,7 +529,7 @@ Skeptic: f10.fb prints `[1, 0, 0, 0, 0, 6]` and `[ 1.5] ["a"]`, but no test chec
 
 ## S5-debug-7 (low): Spec 14 says an Atomic's or Mutex's debug form can be shown, but "{x:?}" on one is an error
 
-Status: open
+Status: fixed in b2021f99 (spec 05, spec 14, and stdlib.md say what step 5's review fixed), docs only: spec 14 says an Atomic's or Mutex's debug form is inside what holds it, and lists Scheduler, CString, and Ptr<T>
 
 Where: docs/spec/14-strings-collections.md:32
 
@@ -558,7 +558,7 @@ Skeptic: f7.fb fails with `10:9: error: Atomic<Int32> stays where it's made, so 
 
 ## S5-debug-8 (low): A @Flags value with bits outside its members shows the same debug form as a member
 
-Status: open
+Status: fixed in 924d9e9c (a flags value's debug form shows the bits no member has, and the debug form of a fixed array of several dimensions has a test), with a case in tests/programs/debug_form.fb
 
 Where: compiler/src/lower.cpp:6094
 
@@ -585,7 +585,7 @@ Skeptic: f8.fb printed `World World False`. A more natural case, f8b.fb with `Lo
 
 ## S5-debug-9 (low): Grid and Grid3, std collections, don't show their elements as the docs say std's collections do
 
-Status: open
+Status: fixed in b2021f99 (spec 05, spec 14, and stdlib.md say what step 5's review fixed), docs only: spec 14 and stdlib.md say a Grid and a Grid3 show their Fields, their cells and sizes, which their elements alone would leave out
 
 Where: std/collections/grid.fb:9
 
@@ -614,7 +614,7 @@ Skeptic: f9.fb printed `Stack<Int32> [1]` and `Grid<Int32> { Cells: [7, 7], Colu
 
 ## S5-format-parse-12 (low): Spec 05 doesn't document `values: Formattable...` parameters, which box their arguments
 
-Status: open
+Status: fixed in b2021f99 (spec 05, spec 14, and stdlib.md say what step 5's review fixed), docs only: spec 05 has a values: Formattable... bullet; its decisions.md row is in lane 2's report
 
 Where: docs/spec/05-functions.md:42
 
@@ -644,7 +644,7 @@ Skeptic: Ran f12.fb: prints '[  1][2.5][  x][True]'. sema.cpp:7016 gives any pro
 
 ## S5-format-parse-3 (low): Float64.Parse and Float32.Parse give Null for a number that underflows to zero
 
-Status: open
+Status: fixed in c26b4e1b (parse reads a float too small for its type as 0, and -0 as an unsigned 0), with cases in tests/programs/parse.fb
 
 Where: runtime/src/format.cpp:230
 
@@ -671,7 +671,7 @@ Skeptic: Ran f3.fb, debug and release: prints '- - 5e-324 / - - 1e-45'. Float64.
 
 ## S5-format-parse-7 (low): An unsigned type's Parse gives Null for "-0"
 
-Status: open
+Status: fixed in c26b4e1b (parse reads a float too small for its type as 0, and -0 as an unsigned 0), with a case in tests/programs/parse.fb
 
 Where: runtime/src/format.cpp:186
 
@@ -693,7 +693,7 @@ Skeptic: Ran f7.fb, debug and release: prints '99 0 0'. UInt64.Parse("-0") gives
 
 ## S5-specs-3 (low): '%' writes lowercase "inf%" when the product overflows, and drops the '%' for Inf and NaN
 
-Status: open
+Status: fixed in be577422 (a float's fixed text is its shortest digits, a percent moves the point, and the longest text fits), with cases in tests/compiler/text_format_tests.cpp
 
 Where: runtime/include/fb/text_format.hpp:600
 
@@ -720,7 +720,7 @@ Skeptic: I ran s3.fb in debug and release. Both print 'inf%|Inf|Inf|NaN|inf%|Inf
 
 ## S5-specs-7 (low): An empty spec on a program's Formattable type panics, though Format shows its ToString
 
-Status: open
+Status: fixed in c3d4838a (an empty format spec is none, a program's formattable type's too), with a case in tests/programs/format_specs.fb
 
 Where: compiler/src/lower.cpp:6019
 
@@ -755,7 +755,7 @@ Skeptic: s7.fb prints '5 cents', '5 cents', then 'panic: Money doesn't take the 
 
 ## S5-specs-8 (low): Format's "{:?}" throws BAD_VALUE for a program's Formattable type, though its fields "take interpolation's specs"
 
-Status: open
+Status: fixed in 874f6d79 (format's debug fields give a program's own type its debug form, which its format doesn't take), with cases in tests/programs/format_template.fb
 
 Where: std/core/format.fb:67
 
