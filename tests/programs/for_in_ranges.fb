@@ -1,0 +1,183 @@
+// For x In over a range written there counts as a For loop with its bounds does, without making a
+// Range: Until, To, Step, negative and run-time Steps, empty ranges, and unsigned and wide types
+// give what the same Range gives.
+Import std.core
+
+Local got: Int[] = []
+For x In 1 To 5
+    got.Add(x)
+End For
+Assert(got == (1 To 5).ToArray())
+Print(got)
+
+got = []
+For x In 0 Until 5
+    got.Add(x)
+End For
+Assert(got == (0 Until 5).ToArray())
+Print(got)
+
+got = []
+For x In 0 Until 10 Step 3
+    got.Add(x)
+End For
+Assert(got == (0 Until 10 Step 3).ToArray())
+Print(got)
+
+got = []
+For x In 0 To 9 Step 3
+    got.Add(x)
+End For
+Assert(got == (0 To 9 Step 3).ToArray())
+Print(got)
+
+// Negative Steps count down.
+got = []
+For x In 10 To 0 Step -3
+    got.Add(x)
+End For
+Assert(got == (10 To 0 Step -3).ToArray())
+Print(got)
+
+got = []
+For x In 10 Until 1 Step -3
+    got.Add(x)
+End For
+Assert(got == (10 Until 1 Step -3).ToArray())
+Print(got)
+
+// Empty ranges run no pass, and one with a single value runs one.
+Local passes = 0
+For x In 5 Until 5
+    passes++
+End For
+
+For x In 5 To 1
+    passes++
+End For
+
+For x In 1 To 5 Step -1
+    passes++
+End For
+
+For x In 0 Until -3
+    passes++
+End For
+
+Print("empty {passes}")
+For x In 3 To 3
+    Print("one {x}")
+End For
+
+// A Step known only when the program runs picks the direction then.
+Local direction = -1
+got = []
+For x In 3 To 1 Step direction
+    got.Add(x)
+End For
+Assert(got == (3 To 1 Step direction).ToArray())
+Print(got)
+
+direction = 2
+got = []
+For x In 0 Until 5 Step direction
+    got.Add(x)
+End For
+
+For x In 1 To 3 Step -direction
+    got.Add(x)
+End For
+Assert(got == (0 Until 5 Step direction).ToArray())
+Print(got)
+
+// Unsigned and wide types, up to the end of their values, which the loop never steps past.
+Local top: UInt8 = 255
+Local bytes: UInt8[] = []
+For b In top - 2 To top
+    bytes.Add(b)
+End For
+
+For b In 0 To top Step 100
+    bytes.Add(b)
+End For
+Print(bytes)
+
+Local first: UInt32 = 1
+Local by: UInt32 = 2
+Local words: UInt32[] = []
+For w In first Until 6 Step by
+    words.Add(w)
+End For
+Assert(words == (first Until 6 Step by).ToArray())
+Print(words)
+
+Local most: UInt64 = 18446744073709551615
+Local longs: UInt64[] = []
+For n In most - 1 To most
+    longs.Add(n)
+End For
+Print(longs)
+
+Local biggest: Int64 = 9223372036854775807
+Local wide: Int64[] = []
+For n In biggest - 2 To biggest
+    wide.Add(n)
+End For
+Print(wide)
+
+Local low: Int8 = -128
+Local small: Int8[] = []
+For n In low + 2 To low Step -1
+    small.Add(n)
+End For
+
+For n In -128 As Int8 To 127 As Int8 Step 127
+    small.Add(n)
+End For
+Print(small)
+
+// The start, end, and step are worked out once each, in that order.
+Global calls: String[] = []
+
+Function Noted(name: String, value: Int): Int
+    calls.Add(name)
+    Return value
+End Function
+
+got = []
+For x In Noted("start", 1) To Noted("end", 9) Step Noted("step", 4)
+    got.Add(x)
+End For
+Print(got, calls)
+
+// A Function made in a pass keeps that pass's x.
+Local made: (Func(): Int)[] = []
+For x In 1 To 3
+    made.Add(Function() => x * 10)
+End For
+
+For f In made
+    Write(f(), "")
+End For
+
+Print()
+
+// Break and Continue, and a label, as in any loop.
+got = []
+For x In 0 Until 10
+    If x % 2 == 0 Then Continue
+    If x > 6 Then Break
+    got.Add(x)
+End For
+Print(got)
+
+Local found = -1
+Outer: For y In 0 To 9
+    For x In 0 To 9
+        If x * y == 42
+            found = y * 10 + x
+            Break Outer
+        End If
+    End For
+End For
+Print("found {found}")

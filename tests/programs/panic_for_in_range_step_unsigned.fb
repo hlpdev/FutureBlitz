@@ -1,0 +1,8 @@
+// An unsigned one too.
+Import std.core
+
+Local first: UInt32 = 1
+Local step: UInt32 = 0
+For x In first Until 3 Step step
+    Print(x)
+End For

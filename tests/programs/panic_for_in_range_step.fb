@@ -1,0 +1,8 @@
+// A For ... In's range's Step that's only known at run time is checked for 0 before the first
+// pass, as a For loop's is.
+Import std.core
+
+Local step = 0
+For x In 1 To 3 Step step
+    Print(x)
+End For
