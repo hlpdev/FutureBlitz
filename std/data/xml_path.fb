@@ -4,9 +4,11 @@
 // '@'); tests of a name, '*', text(), node(), comment(), and processing-instruction(); and
 // predicates of positions, paths, strings, and numbers, compared with =, !=, <, <=, >, and >=,
 // joined with and and or, and the functions last(), position(), count(), not(), contains(),
-// starts-with(), string(), name(), true(), and false(). Paths can be joined with '|'. A path
-// that starts with '/' starts at a document whose root element is the node it's selecting
-// from. Names are matched as they're written, prefixes and all.
+// starts-with(), string(), name(), true(), and false(). Paths can be joined with '|', which binds
+// tighter than the comparisons, as in XPath. A path that starts with '/' starts at a document
+// whose root element is the node it's selecting from. Names are matched as they're written,
+// prefixes and all. A run of text and CDATA next to each other is one text node, as XPath's data
+// model has no CDATA, a TEXT of their text when there are more than one.
 
 Import std.core
 Import std.collections
@@ -23,7 +25,7 @@ Public Class XmlPath
     Public New(text: String)
         Source = text
         Local parser = PathParser(text)
-        Tree = parser.Union()
+        Tree = parser.Or()
         If parser.Failure != "" Then Panic("the XPath \"{text}\" isn't one XmlPath reads: {parser.Failure}")
         If !parser.AtEnd() Then Panic("the XPath \"{text}\" has more after its path: {parser.Rest()}")
         If !Tree.IsPath() Then Panic("the XPath \"{text}\" selects no nodes")
@@ -34,48 +36,84 @@ Public Class XmlPath
     Public Method Query(node: XmlNode): XmlNode[]
         Local document = XmlNode(XmlKind.ELEMENT, "", "")
         document.Children.Add(node)
-        Local top = XmlPlace(document, Null, [])
-        Local start = XmlPlace(node, top, [0])
+        Number(node)
+        Local top = XmlPlace(document, Null, -1, -1)
+        Local start = XmlPlace(node, top, 0, node.Mark)
         Local found = PathEvaluator(top).Evaluate(Tree, start, 1, 1)
         Local nodes: XmlNode[] = []
         For place In found.Places
-            If place.Key.Count > 0 Then nodes.Add(place.Node)
+            If place.Parent != Null Then nodes.Add(place.Node)
         End For
         Return nodes
+    End Method
+
+    // Numbers node's tree in the document's order, each element's attributes the numbers after
+    // its own, before its children's.
+    Static Method Number(node: XmlNode)
+        Local next = 0
+        Local open: (XmlNode, Int)[] = [(node, 0)]
+        node.Mark = next
+        next += 1 + node.Attributes.Count
+        While open.Count > 0
+            Local top = open.Count - 1
+            Local parent, index = open[top]
+            If index >= parent.Children.Count
+                open.RemoveLast()
+                Continue
+            End If
+
+            open[top] = (parent, index + 1)
+            Local child = parent.Children[index]
+            child.Mark = next
+            next += 1 + child.Attributes.Count
+            If child.Children.Count > 0 Then open.Add((child, 0))
+        End While
     End Method
 
     Public Method ToString(): String => Source
 End Class
 
-// A node where a path goes, with the place it's under, and its key: the children's indexes that
-// lead to it from the document, an attribute's below 0 and before the children's, so keys in
-// order are places in the document's order.
+// A node where a path goes, with the place it's under, its index among the place's children, or
+// -1 for an attribute, and its number in the document's order, which Query gives each node.
 Class XmlPlace
     Field Node: XmlNode
     Field Parent: XmlPlace?
-    Field Key: Int[]
+    Field Index: Int
+    Field Order: Int
 
-    New(node: XmlNode, parent: XmlPlace?, key: Int[])
+    New(node: XmlNode, parent: XmlPlace?, index: Int, order: Int)
         Node = node
         Parent = parent
-        Key = key
+        Index = index
+        Order = order
     End New
 
-    // Below 0, 0, or above 0 as this place comes before other's, is it, or comes after.
-    Method Order(other: XmlPlace): Int
-        For i = 0 Until Min(Key.Count, other.Key.Count)
-            If Key[i] != other.Key[i] Then Return Key[i] < other.Key[i] ? -1 : 1
-        End For
-        Return Key.Count - other.Key.Count
+    // Its child at index, which starts a run of text: the run as one TEXT when it's more than one.
+    Method Child(index: Int): XmlPlace
+        Local children = Node.Children
+        Local child = children[index]
+        If IsText(child) && index + 1 < children.Count && IsText(children[index + 1])
+            Local out: UInt8[] = []
+            Local at = index
+            While at < children.Count && IsText(children[at])
+                out.AddAll(children[at].Content.Bytes)
+                at += 1
+            End While
+            Return XmlPlace(XmlNode(XmlKind.TEXT, "", TextOf(out)), Self, index, child.Mark)
+        End If
+
+        Return XmlPlace(child, Self, index, child.Mark)
     End Method
 
-    // Its child at index.
-    Method Child(index: Int): XmlPlace
-        Local key = Key.Clone()
-        key.Add(index)
-        Return XmlPlace(Node.Children[index], Self, key)
+    // Whether its child at index is a place of its own, not the rest of a run of text.
+    Method Starts(index: Int): Bool
+        Local children = Node.Children
+        Return index == 0 || !IsText(children[index]) || !IsText(children[index - 1])
     End Method
 End Class
+
+// Whether node is text or CDATA, which XPath's text nodes are made of.
+Function IsText(node: XmlNode): Bool => node.Kind == XmlKind.TEXT || node.Kind == XmlKind.CDATA
 
 // The axes, and the node tests.
 Const CHILD = 0
@@ -299,7 +337,7 @@ Class PathEvaluator
         Select axis
             Case CHILD
                 For i = 0 Until place.Node.Children.Count
-                    found.Add(place.Child(i))
+                    If place.Starts(i) Then found.Add(place.Child(i))
                 End For
             Case DESCENDANT
                 Descendants(place, found)
@@ -323,40 +361,52 @@ Class PathEvaluator
                 End While
             Case FOLLOWING_SIBLING
                 Local parent = place.Parent
-                If parent != Null && place.Node.Kind != XmlKind.ATTRIBUTE
-                    For i = place.Key[place.Key.Count - 1] + 1 Until parent.Node.Children.Count
-                        found.Add(parent.Child(i))
+                If parent != Null && place.Index >= 0
+                    For i = place.Index + 1 Until parent.Node.Children.Count
+                        If parent.Starts(i) Then found.Add(parent.Child(i))
                     End For
                 End If
             Case PRECEDING_SIBLING
                 Local parent = place.Parent
-                If parent != Null && place.Node.Kind != XmlKind.ATTRIBUTE
-                    For i = place.Key[place.Key.Count - 1] - 1 To 0 Step -1
-                        found.Add(parent.Child(i))
+                If parent != Null && place.Index >= 0
+                    For i = place.Index - 1 To 0 Step -1
+                        If parent.Starts(i) Then found.Add(parent.Child(i))
                     End For
                 End If
             Case SELF
                 found.Add(place)
             Default
-                If place.Node.Kind == XmlKind.ELEMENT && place.Key.Count > 0
-                    Local index = 0
+                If place.Node.Kind == XmlKind.ELEMENT && place.Parent != Null
+                    Local order = place.Order + 1
                     For name, value In place.Node.Attributes
-                        Local key = place.Key.Clone()
-                        key.Add(index - 1000000000)
-                        found.Add(XmlPlace(XmlNode(XmlKind.ATTRIBUTE, name, value), place, key))
-                        index += 1
+                        found.Add(XmlPlace(XmlNode(XmlKind.ATTRIBUTE, name, value), place, -1, order))
+                        order += 1
                     End For
                 End If
         End Select
         Return found
     End Method
 
+    // Adds place's descendants to found, in the document's order, through a stack of the places
+    // open and their next children's indexes, however deep they go.
     Method Descendants(place: XmlPlace, found: XmlPlace[])
-        For i = 0 Until place.Node.Children.Count
-            Local child = place.Child(i)
+        Local open: (XmlPlace, Int)[] = [(place, 0)]
+        While open.Count > 0
+            Local top = open.Count - 1
+            Local parent, index = open[top]
+            If index >= parent.Node.Children.Count
+                open.RemoveLast()
+                Continue
+            End If
+
+            open[top] = (parent, index + 1)
+            If !parent.Starts(index) Then Continue
+            Local child = parent.Child(index)
             found.Add(child)
-            Descendants(child, found)
-        End For
+            If child.Node.Kind == XmlKind.ELEMENT && child.Node.Children.Count > 0
+                open.Add((child, 0))
+            End If
+        End While
     End Method
 
     // Whether candidate passes step's test: a name or '*' tests the axis's kind of node, an
@@ -366,11 +416,11 @@ Class PathEvaluator
         Local principal = step.Axis == ATTRIBUTE_AXIS ? XmlKind.ATTRIBUTE : XmlKind.ELEMENT
         Select step.Test
             Case TEST_NAME
-                Return node.Kind == principal && candidate.Key.Count > 0 && node.Name == step.Name
+                Return node.Kind == principal && candidate.Parent != Null && node.Name == step.Name
             Case TEST_ANY
-                Return node.Kind == principal && candidate.Key.Count > 0
+                Return node.Kind == principal && candidate.Parent != Null
             Case TEST_TEXT
-                Return node.Kind == XmlKind.TEXT || node.Kind == XmlKind.CDATA
+                Return IsText(node)
             Case TEST_COMMENT
                 Return node.Kind == XmlKind.COMMENT
             Case TEST_INSTRUCTION
@@ -383,10 +433,10 @@ Class PathEvaluator
     // places in the document's order, each once.
     Static Method Ordered(places: XmlPlace[]): XmlPlace[]
         Local sorted = places.Clone()
-        sorted.Sort(Function(a: XmlPlace, b: XmlPlace) => a.Order(b) < 0)
+        sorted.Sort(Function(a: XmlPlace, b: XmlPlace) => a.Order < b.Order)
         Local unique: XmlPlace[] = []
         For place In sorted
-            If unique.Count == 0 || unique[unique.Count - 1].Order(place) != 0 Then unique.Add(place)
+            If unique.Count == 0 || unique[unique.Count - 1].Order != place.Order Then unique.Add(place)
         End For
         Return unique
     End Method
@@ -477,18 +527,20 @@ Class PathParser
         Bytes = text.Bytes
     End New
 
-    // Paths, or expressions, joined with '|'.
+    // A comparison's operand: a primary, or paths joined with '|', which binds tighter than the
+    // comparisons, and joins only paths.
     Method Union(): PathExpression
-        Local first = Or()
+        Local first = Primary()
         Space()
         If !Starts("|") Then Return first
         Local union = PathExpression("|")
         union.Parts.Add(first)
         While Starts("|")
             At += 1
-            union.Parts.Add(Or())
+            union.Parts.Add(Primary())
             Space()
         End While
+        If !union.IsPath() Then Fail("'|' joins paths")
         Return union
     End Method
 
@@ -517,7 +569,7 @@ Class PathParser
     End Method
 
     Method Comparison(): PathExpression
-        Local left = Primary()
+        Local left = Union()
         Loop
             Space()
             Local op = ""
@@ -531,7 +583,7 @@ Class PathParser
             At += op.Bytes.Count
             Local compared = PathExpression(op)
             compared.Parts.Add(left)
-            compared.Parts.Add(Primary())
+            compared.Parts.Add(Union())
             left = compared
         End Loop
     End Method
@@ -559,17 +611,25 @@ Class PathParser
 
         If IsDigitByte(b) || (b == 46 && At + 1 < Bytes.Count && IsDigitByte(Bytes[At + 1]))
             Local start = At
+            Local points = 0
             While At < Bytes.Count && (IsDigitByte(Bytes[At]) || Bytes[At] == 46)
+                If Bytes[At] == 46 Then points += 1
                 At += 1
             End While
             Local number = PathExpression("number")
-            number.Number = FloatOf(Bytes, start, At) ?? 0.0
+            Local value = FloatOf(Bytes, start, At)
+            If points > 1 || value == Null
+                Fail("{TextOf(Bytes, start, At)} isn't a number")
+                Return number
+            End If
+
+            number.Number = value
             Return number
         End If
 
         If b == 40
             At += 1
-            Local inner = Union()
+            Local inner = Or()
             Space()
             Expect(")")
             Return inner
@@ -612,6 +672,10 @@ Class PathParser
                 Fail("XmlPath has no function {name}()")
             ElseIf call.Parts.Count != expected
                 Fail("{name}() takes {expected} arguments")
+            End If
+
+            If (name == "count" || name == "name") && call.Parts.Count > 0 && !call.Parts[0].IsPath()
+                Fail("{name}() takes a path")
             End If
 
             Return call
@@ -737,7 +801,7 @@ Class PathParser
             Space()
             If !Starts("[") Then Return step
             At += 1
-            step.Predicates.Add(Union())
+            step.Predicates.Add(Or())
             Space()
             Expect("]")
         End Loop
@@ -841,5 +905,69 @@ Function NumberOf(text: String): Float64
     Return FloatOf(bytes, start, finish) ?? nan
 End Function
 
-// A number as XPath's string() writes it: an integer without a point.
-Function NumberText(number: Float64): String => number != number ? "NaN" : "{number}"
+// A number as XPath's string() writes it: an integer without a point, and no exponent, "NaN", and
+// "Infinity" or "-Infinity".
+Function NumberText(number: Float64): String
+    If number != number Then Return "NaN"
+    If number - number != 0 Then Return number > 0 ? "Infinity" : "-Infinity"
+    If number == 0 Then Return "0"
+    // The shortest digits that read back, with the exponent, if they have one, written out.
+    Local bytes = "{number}".Bytes
+    Local negative = bytes[0] == 45
+    Local digits: UInt8[] = []
+    Local point = -1
+    Local exponent = 0
+    Local at = negative ? 1 : 0
+    While at < bytes.Count && bytes[at] != 101 && bytes[at] != 69
+        If bytes[at] == 46
+            point = digits.Count
+        Else
+            digits.Add(bytes[at])
+        End If
+
+        at += 1
+    End While
+    If point < 0 Then point = digits.Count
+    If at < bytes.Count
+        Local sign = 1
+        at += 1
+        If bytes[at] == 45 || bytes[at] == 43
+            sign = bytes[at] == 45 ? -1 : 1
+            at += 1
+        End If
+
+        While at < bytes.Count
+            exponent = exponent * 10 + (bytes[at] - 48) As Int
+            at += 1
+        End While
+        exponent *= sign
+    End If
+
+    point += exponent
+    Local out: UInt8[] = []
+    If negative Then out.Add(45)
+    If point <= 0
+        out.Add(48)
+        out.Add(46)
+        For i = 1 To -point
+            out.Add(48)
+        End For
+        out.AddAll(digits)
+    Else
+        For i = 0 Until Max(point, digits.Count)
+            If i == point Then out.Add(46)
+            out.Add(i < digits.Count ? digits[i] : 48)
+        End For
+    End If
+
+    // No 0s after the point, nor a point with none after it.
+    Local hasPoint = point < digits.Count
+    If hasPoint
+        While out[out.Count - 1] == 48
+            out.RemoveLast()
+        End While
+        If out[out.Count - 1] == 46 Then out.RemoveLast()
+    End If
+
+    Return TextOf(out)
+End Function

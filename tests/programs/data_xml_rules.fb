@@ -183,6 +183,23 @@ Bad("a parameter entity in an internal subset's declaration",
 Bad("a parameter entity in an internal entity's value", "<!DOCTYPE a [<!ENTITY % p 'x'><!ENTITY e '%p;'>]><a/>")
 Bad("a parameter entity's text that isn't whole declarations", "<!DOCTYPE a [<!ENTITY % p '<!ENTITY'>%p; e 'x'>]><a/>")
 
+// Past a parameter entity that isn't read, declarations are taken in a standalone document, and
+// only checked in one that isn't, an element's earlier ATTLIST or not (XML 1.0's 5.1).
+Good("standalone, an entity past an unread parameter entity",
+     "<?xml version='1.0' standalone='yes'?><!DOCTYPE a [<!ENTITY % e SYSTEM 'e.dtd'>%e;<!ENTITY x 'y'>]><a>&x;</a>",
+     "<a>y</a>")
+Good("standalone, an ATTLIST past an unread parameter entity",
+     "<?xml version='1.0' standalone='yes'?><!DOCTYPE a [<!ENTITY % e SYSTEM 'e.dtd'>%e;<!ATTLIST a b CDATA 'v'>]><a/>",
+     "<a b=\"v\"></a>")
+Good("an ATTLIST past an unread parameter entity, after the element's first",
+     "<!DOCTYPE a [<!ATTLIST a x CDATA 'one'><!ENTITY % e SYSTEM 'e.dtd'>%e;<!ATTLIST a y CDATA 'two'>]><a/>",
+     "<a x=\"one\"></a>")
+Good("an ATTLIST's type past an unread parameter entity",
+     "<!DOCTYPE a [<!ATTLIST a x CDATA #IMPLIED><!ENTITY % e SYSTEM 'e.dtd'>%e;<!ATTLIST a y NMTOKENS #IMPLIED>]>" +
+     "<a y='  p   q '/>", "<a y=\"  p   q \"></a>")
+Bad("an ATTLIST past an unread parameter entity, still checked",
+    "<!DOCTYPE a [<!ENTITY % e SYSTEM 'e.dtd'>%e;<!ATTLIST a y NUMBER #IMPLIED>]><a/>")
+
 // The internal subset's declarations' syntax.
 Good("element declarations of each kind",
      "<!DOCTYPE a [<!ELEMENT a (b, (c | d)*, e?)+><!ELEMENT b EMPTY><!ELEMENT c ANY>" +

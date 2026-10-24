@@ -1,0 +1,7 @@
+// count() takes a path, whose nodes it counts.
+Import std.core
+Import std.data.xml
+
+Local root = Try Xml.Read("<r><v>0</v></r>")
+Print(root.Query("v[count(.) = 1]").Count)
+Print(root.Query("v[count('x') = 0]").Count)

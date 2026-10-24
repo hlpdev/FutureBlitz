@@ -1,0 +1,7 @@
+// '|' joins paths, not what else a comparison takes.
+Import std.core
+Import std.data.xml
+
+Local root = Try Xml.Read("<r><v>0</v></r>")
+Print(root.Query("v | r").Count)
+Print(root.Query("v['a' | v]").Count)

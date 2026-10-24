@@ -1,0 +1,7 @@
+// A path's number with two points isn't one.
+Import std.core
+Import std.data.xml
+
+Local root = Try Xml.Read("<r><v>0</v></r>")
+Print(root.Query("v[1.5]").Count)
+Print(root.Query("v[1.2.3]").Count)

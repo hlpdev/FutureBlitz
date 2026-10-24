@@ -1,0 +1,2 @@
+0
+panic: the XPath "v[1.2.3]" isn't one XmlPath reads: 1.2.3 isn't a number at panic_data_xml_path_number.fb:7:7

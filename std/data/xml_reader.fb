@@ -54,6 +54,10 @@ Public Class XmlReader
     Field Typed: Bool
     // Whether the text starts with a byte order mark, which says it's UTF-8.
     Field Marked: Bool
+    // How many bytes of entities' text have been read, and the most that may be: ten times the
+    // document's size and a MiB, as expat and libxml2 cap what entities make of a document.
+    Field Expanded: Int64
+    Field MostExpanded: Int64
 
     // A reader of text's document, its line ends LFs, and past a byte order mark at its start.
     Public New(text: String)
@@ -74,6 +78,7 @@ Public Class XmlReader
             End If
         End For
         Sources.Add(XmlSource(normal, "", 0))
+        MostExpanded = (normal.Count As Int64) * 10 + 1048576
         General = {}
         Parameter = {}
         Lists = {}
@@ -331,13 +336,25 @@ Public Class XmlReader
         Try Enter(entity, Open.Count)
     End Method
 
-    // Starts reading entity's text, and panics past this much nesting.
+    // Starts reading entity's text, which a reference to it in the text being read names. Throws a
+    // ParseError for an entity that refers to itself, past 64 entities deep, and once entities'
+    // text comes to more than MostExpanded bytes.
     Method Enter(entity: XmlEntity, depth: Int) Throws ParseError
         For source In Sources
             If source.Entity == entity.Name Then Throw Fail("the entity {entity.Name} refers to itself")
         End For
         If Sources.Count > 64 Then Throw Fail("entities are nested more than 64 deep")
+        Try Expand(entity.Text.Count)
         Sources.Add(XmlSource(entity.Text, entity.Name, depth))
+    End Method
+
+    // Counts count bytes more of entities' text, which may come to no more than MostExpanded.
+    Method Expand(count: Int) Throws ParseError
+        Expanded += count
+        If Expanded > MostExpanded
+            Throw Fail("the document's entities expand to more than {MostExpanded} bytes, ten " +
+                       "times its size and a MiB")
+        End If
     End Method
 
     // The end of an entity's text, which ends what it starts.
@@ -395,22 +412,32 @@ Public Class XmlReader
         Local quote = ByteAt(0)
         If quote != 34 && quote != 39 Then Throw Fail("an attribute's value is in quotes")
         Advance(1)
+        // The entities its references name are read as sources past these.
+        Local base = Sources.Count
         Local out: UInt8[] = []
         Loop
-            If AtEnd() Then Throw Ended("the attribute's value has no closing quote")
+            If AtEnd()
+                If Sources.Count > base
+                    Sources.RemoveLast()
+                    Continue
+                End If
+
+                Throw Ended("the attribute's value has no closing quote")
+            End If
+
             Local b = ByteAt(0)
-            If b == quote
+            If b == quote && Sources.Count == base
                 Advance(1)
                 Return TextOf(out)
             End If
 
-            Try AttributeChar(out, [])
+            Try AttributeChar(out)
         End Loop
     End Method
 
-    // Adds the attribute value's character or reference at the current place to out, reading the
-    // text of an entity a reference names in turn; entities holds those being read.
-    Method AttributeChar(out: UInt8[], entities: String[]) Throws ParseError
+    // Adds the attribute value's character or reference at the current place to out, or starts
+    // reading the text of an entity a reference names, which AttributeValue reads in turn.
+    Method AttributeChar(out: UInt8[]) Throws ParseError
         Local b = ByteAt(0)
         If b == 60 Then Throw Fail("an attribute's value can't hold '<'")
         If b == 9 || b == 10 || b == 13
@@ -449,14 +476,7 @@ Public Class XmlReader
             Throw Fail("an attribute's value can't refer to the external entity &{name};")
         End If
 
-        If entities.IndexOf(name) != Null Then Throw Fail("the entity {name} refers to itself")
-        Local inner = entities.Clone()
-        inner.Add(name)
-        Sources.Add(XmlSource(entity.Text, name, Open.Count))
-        While !AtEnd()
-            Try AttributeChar(out, inner)
-        End While
-        Sources.RemoveLast()
+        Try Enter(entity, Open.Count)
     End Method
 
     // An attribute's value as its declared type has it: a type other than CDATA's has its
@@ -584,7 +604,8 @@ Public Class XmlReader
     End Method
 
     // A parameter entity's reference between declarations, whose text is read as declarations. In
-    // a document that isn't standalone, a reference to an undeclared entity is then left out.
+    // a document that isn't standalone, a reference to an undeclared entity is then left out, and
+    // past an external one, which isn't read, declarations aren't taken (XML 1.0's 5.1).
     Method SubsetReference() Throws ParseError
         Unread = True
         Advance(1)
@@ -599,13 +620,14 @@ Public Class XmlReader
 
         If entity.External
             Unread = True
-            Stopped = True
+            If !Standalone Then Stopped = True
             Return
         End If
 
         For source In Sources
             If source.Entity == "%" + name Then Throw Fail("the entity %{name}; refers to itself")
         End For
+        Try Expand(entity.Text.Count)
         Sources.Add(XmlSource(entity.Text, "%" + name, 0))
     End Method
 
@@ -711,10 +733,15 @@ Public Class XmlReader
         Advance(9)
         If !SkipSpace() Then Throw Fail("ATTLIST is followed by a space")
         Local element = Try Name()
-        Local declared = Lists.Get(element)
-        If declared == Null
-            declared = {}
-            If !Stopped Then Lists[element] = declared
+        // Past an unread parameter entity, the declaration is only checked.
+        Local declared: Map<String, XmlAttribute> = {}
+        If !Stopped
+            Local listed = Lists.Get(element)
+            If listed == Null
+                Lists[element] = declared
+            Else
+                declared = listed
+            End If
         End If
 
         Loop
@@ -972,7 +999,10 @@ Public Class XmlReader
         Return ErrorAt(Sources[0].Bytes, Sources[0].At, ParseErrorKind.SYNTAX, message)
     End Method
 
+    // A ParseError of UNEXPECTED_END at the document's end, or of SYNTAX at an entity's, where the
+    // document goes on.
     Method Ended(message: String): ParseError
+        If Sources.Count > 1 Then Return Fail(message + " before its entity's text ends")
         Return ErrorAt(Sources[0].Bytes, Sources[0].At, ParseErrorKind.UNEXPECTED_END, message)
     End Method
 End Class

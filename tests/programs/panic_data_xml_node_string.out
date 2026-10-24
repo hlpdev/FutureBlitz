@@ -1,0 +1,2 @@
+<!--fine-->
+panic: a comment can't hold "--", or end with '-' at panic_data_xml_node_string.fb:6:1

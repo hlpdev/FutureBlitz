@@ -67,6 +67,11 @@ ok   an unparsed entity in text
 ok   a parameter entity in an internal subset's declaration
 ok   a parameter entity in an internal entity's value
 ok   a parameter entity's text that isn't whole declarations
+ok   standalone, an entity past an unread parameter entity
+ok   standalone, an ATTLIST past an unread parameter entity
+ok   an ATTLIST past an unread parameter entity, after the element's first
+ok   an ATTLIST's type past an unread parameter entity
+ok   an ATTLIST past an unread parameter entity, still checked
 ok   element declarations of each kind
 ok   notations, and public IDs
 ok   comments and instructions in the subset

@@ -1,0 +1,11 @@
+laughs in text: SYNTAX the document's entities expand to more than 1054746 bytes, ten times its size and a MiB at line 1, column 611
+laughs in an attribute: SYNTAX the document's entities expand to more than 1054736 bytes, ten times its size and a MiB at line 1, column 614
+a parameter entity: SYNTAX the document's entities expand to more than 1659016 bytes, ten times its size and a MiB at line 1, column 5974
+a thousand entities: reads 1000000 bytes of text
+a chain in text: SYNTAX entities are nested more than 64 deep at line 1, column 147825
+a chain in an attribute: SYNTAX entities are nested more than 64 deep at line 1, column 147828
+a short chain in an attribute: reads 0 bytes of text
+x 70001
+OBJECT 69996
+10000 1 1
+y 70008 True

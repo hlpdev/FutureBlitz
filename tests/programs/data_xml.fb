@@ -83,6 +83,12 @@ Failure("<1a/>")
 Failure("<a>\u{1}</a>")
 Failure("")
 
+// Markup that an entity's text leaves unfinished is SYNTAX, as the document goes on.
+Failure("<!DOCTYPE a [<!ENTITY e '<b'>]><a>&e;/></a>")
+Failure("<!DOCTYPE a [<!ENTITY e '<!-- c'>]><a>&e; --></a>")
+Failure("<!DOCTYPE a [<!ENTITY e 'x&#38;'>]><a>&e;amp;</a>")
+Failure("<!DOCTYPE a [<!ENTITY e '&#38;'>]><a b='&e;amp;'/>")
+
 // What Xml.Write writes: indented but in elements that hold text, which keep their spaces.
 Local made = XmlNode("menu")
 made.SetAttribute("date", "2026-10-23 \"today\" & <tomorrow>")
@@ -101,6 +107,33 @@ data.Add(XmlNode.NewCData("a ]]> b"))
 Print(Xml.Write(made))
 Print(Xml.Write(made, 0, False))
 Print((Try Xml.Read(Xml.Write(made, 0))).ToString() == made.ToString())
+
+// An element that holds text has nothing in it indented, before its first text too, so it reads
+// back with the same text and nodes.
+For mixed In ["<p><b>bold</b> text</p>", "<p><!--note-->text</p>", "<r><p><?x y?><i>a</i>b</p><q><s/></q></r>",
+              "<r><p><![CDATA[c]]><i/></p></r>"]
+    Local read = Try Xml.Read(mixed)
+    Local written = Xml.Write(read, 2, False)
+    Local again = Try Xml.Read(written)
+    Local before = read.QueryFirst("descendant-or-self::p")?.ToString() ?? "-"
+    Local after = again.QueryFirst("descendant-or-self::p")?.ToString() ?? "-"
+    Print(written.Bytes.Count, before == after, after)
+End For
+Print(Xml.Write(Try Xml.Read("<r><p><i>a</i>b</p><q><s/></q></r>"), 2, False))
+
+// CDATA that holds "]]>" reads back as it was.
+For cdata In ["x ]]> y", "]]>", "]]]>>", "a]]>]]>b", "]]"]
+    Local holder = XmlNode("a")
+    holder.Add(XmlNode.NewCData(cdata))
+    Local written = Xml.Write(holder, 0, False)
+    Print(written, (Try Xml.Read(written)).Text == cdata)
+End For
+
+// Each kind of node prints as XML.
+Local kinds = Try Xml.Read("<a id='1 &amp; 2'><b>hi &lt;there&gt;</b><!--note--><?p q?><c><![CDATA[<raw>]]></c></a>")
+For node In kinds.Query("@id | b/text() | comment() | processing-instruction() | c/text() | b")
+    Print(node.Kind, node)
+End For
 
 // An XmlWriter writes a document a part at a time.
 Local writer = XmlWriter(4)
@@ -153,6 +186,28 @@ Show(root, "book[name() = 'book'][string(title) = 'Third']/@id")
 Show(root, "/")
 Show(root, "missing/thing")
 Print(root.QueryFirst("//price")?.Text ?? "-", root.QueryFirst("//nothing") == Null, XmlPath("book").ToString())
+
+// '|' binds tighter than the comparisons, as XPath has it.
+Local pairs = Try Xml.Read("<r><i><a>1</a></i><i><b>2</b></i><i><a>3</a><b>4</b></i></r>")
+Show(pairs, "i[a | b = '2']")
+Show(pairs, "i[(a | b) = '2']")
+Show(pairs, "i[a | b][1]")
+Show(pairs, "i[a | b = '4' or a = '1']")
+
+// Text and the CDATA next to it are one text node.
+Local runs = Try Xml.Read("<r><a>x<![CDATA[y]]>z</a><a>p<b/>q</a><a><![CDATA[only]]></a></r>")
+Print(runs.Query("a/text()").Count, runs.Query("a[text() = 'xyz']").Count, runs.QueryFirst("a/text()")?.Content ?? "-")
+Show(runs, "a/node()")
+Show(runs, "a[2]/b/preceding-sibling::node() | a[2]/b/following-sibling::node()")
+Show(runs, "//text()[. = 'only']")
+
+// string() of a number writes it out, without an exponent.
+Local numbers = Try Xml.Read("<r><v>1000000000000000000000</v><v>1e+21</v><v>0.0000001</v><v>1e-07</v>" +
+                             "<v>1.5</v><v>0.25</v><v>123456789012</v><v>0.00000012345</v></r>")
+For path In ["v[. = string(1000000000000000000000)]", "v[. = string(0.0000001)]", "v[. = string(1.50)]",
+             "v[. = string(.25)]", "v[. = string(123456789012)]", "v[. = string(0.00000012345)]"]
+    Show(numbers, path)
+End For
 
 // Values to and from elements, as xmltodict has them.
 Local value = Xml.ToValue(root)

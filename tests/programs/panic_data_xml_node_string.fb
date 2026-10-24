@@ -1,0 +1,6 @@
+// Printing a node that holds what XML can't panics where it's printed.
+Import std.core
+Import std.data.xml
+
+Print(XmlNode.NewComment("fine"))
+Print(XmlNode.NewComment("not -- fine"))

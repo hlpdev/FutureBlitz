@@ -1,0 +1,100 @@
+// What XML's reader and tree do with what could run away: entities expand to no more than ten
+// times the document's size and a MiB, in text, attributes, and the internal subset; entities
+// nest 64 deep at most in attributes as in text; and a tree however deep reads, writes, queries,
+// and goes to and from Values without running out of stack.
+
+Import std.core
+Import std.collections
+Import std.data.xml
+
+Function Show(about: String, text: String)
+    Try
+        Local root = Try Xml.Read(text)
+        Print(about, "reads", root.Text.Bytes.Count, "bytes of text")
+    Catch e As ParseError
+        Print(about, e.Kind, e.Message)
+    End Try
+End Function
+
+// A billion laughs cut to 10^7: 617 bytes that name "lol" ten million times, in text and in an
+// attribute's value.
+Function Laughs(attribute: Bool): String
+    Local parts: String[] = ["<?xml version=\"1.0\"?><!DOCTYPE lolz [<!ENTITY lol0 \"lol\">"]
+    For i = 1 To 7
+        Local refs = ""
+        For j = 1 To 10
+            refs += "&lol{i - 1};"
+        End For
+        parts.Add("<!ENTITY lol{i} \"{refs}\">")
+    End For
+    parts.Add(attribute ? "]><lolz a=\"&lol7;\"/>" : "]><lolz>&lol7;</lolz>")
+    Return parts.Join("")
+End Function
+
+Show("laughs in text:", Laughs(False))
+Show("laughs in an attribute:", Laughs(True))
+
+// A parameter entity's declarations read again and again.
+Local subset: String[] = ["<!DOCTYPE a [<!ENTITY % p '<!-- "]
+For i = 1 To 1000
+    subset.Add("x")
+End For
+subset.Add(" -->'>")
+For i = 1 To 20000
+    subset.Add("%p;")
+End For
+subset.Add("]><a/>")
+Show("a parameter entity:", subset.Join(""))
+
+// What stays within the cap reads: an entity a thousand times, ten times the document's size.
+Local fine: String[] = ["<!DOCTYPE a [<!ENTITY e '"]
+For i = 1 To 100
+    fine.Add("0123456789")
+End For
+fine.Add("'>]><a>")
+For i = 1 To 1000
+    fine.Add("&e;")
+End For
+fine.Add("</a>")
+Show("a thousand entities:", fine.Join(""))
+
+// Entities nested 6000 deep, which Enter stops at 64 in text and in an attribute.
+Function Chain(depth: Int, attribute: Bool): String
+    Local parts: String[] = ["<!DOCTYPE a [<!ENTITY e0 'x'>"]
+    For i = 1 To depth
+        parts.Add("<!ENTITY e{i} '&e{i - 1};'>")
+    End For
+    parts.Add(attribute ? "]><a b='&e{depth};'/>" : "]><a>&e{depth};</a>")
+    Return parts.Join("")
+End Function
+
+Show("a chain in text:", Chain(6000, False))
+Show("a chain in an attribute:", Chain(6000, True))
+Show("a short chain in an attribute:", Chain(60, True))
+
+// Elements nested 10,000 deep, 70 KB of text.
+Local parts: String[] = []
+For i = 1 To 10000
+    parts.Add("<a>")
+End For
+parts.Add("x")
+For i = 1 To 10000
+    parts.Add("</a>")
+End For
+Local deep = Try Xml.Read(parts.Join(""))
+Print(deep.Text, Xml.Write(deep, 0, False).Bytes.Count)
+Local value = Xml.ToValue(deep)
+Print(value.Kind, value.ToString().Bytes.Count)
+Print(deep.Query("//a").Count, deep.Query("//a[not(a)]/text()").Count, deep.Query("//text()").Count)
+
+// A Value nested as deep, as an element, whose innermost is its text.
+Local root = Value.Object()
+Local at = root
+For i = 1 To 9999
+    Local inner = Value.Object()
+    at["b"] = inner
+    at = inner
+End For
+at["b"] = Value("y")
+Local made = Xml.FromValue("a", root)
+Print(made.Text, Xml.Write(made, 0, False).Bytes.Count, Xml.ToValue(made) == root)

@@ -1,0 +1,2 @@
+1
+panic: the XPath "v['a' | v]" isn't one XmlPath reads: '|' joins paths at panic_data_xml_path_union.fb:7:7
