@@ -28,14 +28,14 @@ Local tags = fields["tags"].list_value?.values ?? []
 Print("{tags.Count} {tags[0].string_value ?? "-"} {tags[1].bool_value ?? False} {tags[2].kind}")
 
 // A Value holds a Struct, which holds Values: a Struct can't hold itself, so a Value holds it
-// in a ProtoBox. google.protobuf.Struct is Struct_, since Struct is a keyword, and Empty is
-// std.core's Empty<T>() too, so it takes its qualifier.
+// in a ProtoBox. google.protobuf.Struct is Struct_, since Struct is a keyword, and Value and
+// Empty are std.core's names too, Value and Empty<T>(), so they take their qualifiers.
 Local meta = Struct_()
-meta.fields["tags"] = Value(list_value: ListValue(values: [Value(string_value: "a"),
-                                                           Value(bool_value: True),
-                                                           Value(null_value: NullValue.NULL_VALUE)]))
+Local values = [struct.Value(string_value: "a"), struct.Value(bool_value: True),
+                struct.Value(null_value: NullValue.NULL_VALUE)]
+meta.fields["tags"] = struct.Value(list_value: ListValue(values: values))
 Local anything = Struct_()
-anything.fields["k"] = Value(number_value: 2.5)
+anything.fields["k"] = struct.Value(number_value: 2.5)
 Local made = Match(players: [PlayerId(value: "ada"), PlayerId(value: "alan")],
                    rules: Rules(rounds: 3, ranked: True),
                    started: Timestamp(seconds: 1700000000, nanos: 5),
@@ -45,7 +45,7 @@ Local made = Match(players: [PlayerId(value: "ada"), PlayerId(value: "alan")],
                               value: PlayerId(value: "x").Encode()),
                    meta: meta, nothing: empty.Empty(),
                    changed: FieldMask(paths: ["players", "rules.rounds"]),
-                   anything: Value(struct_value: anything))
+                   anything: struct.Value(struct_value: anything))
 made.teams["ada"] = Team.RED
 Print("encoded match.txtpb {made.Encode()}")
 Print("made like match: {made == read}")
