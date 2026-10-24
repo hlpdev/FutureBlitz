@@ -11,3 +11,4 @@ $12.50 1250 cents $12.50 30.0C 86.0F 86.0F
 005 no precision 2.5e0
   abc   no sign  Hearts
 #026 1a 39.0
+$12.50 [5] [a] [(1, 2)]

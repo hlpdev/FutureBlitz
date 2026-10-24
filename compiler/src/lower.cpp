@@ -6052,7 +6052,8 @@ private:
             const auto& interpolation = std::get<interpolation_t>(part);
             const operand_t value = settled(lower_value(interpolation.value), later[next++]);
             const type_id_t type = converted_type(interpolation.value);
-            if (interpolation.format) {
+            // An empty spec, as in "{x:}", is none.
+            if (interpolation.format && !interpolation.format->text.empty()) {
                 add_formatted(parts, value, type, *interpolation.format);
             } else {
                 add_text(parts, value, type);
