@@ -11,9 +11,10 @@ Public Struct Bmp
     New()
     End New
 
-    // The image in data, a BMP of 1, 4, 8, 16, 24, or 32 bits a pixel, or run-length encoded.
-    // Throws an IOError of INVALID_DATA when the data isn't a BMP or is broken, and OTHER when the
-    // image has more pixels than `limit`. Panics when the limit is negative.
+    // The image in data, a BMP of 1, 4, 8, 16, 24, or 32 bits a pixel. Throws an IOError of
+    // INVALID_DATA when the data isn't a BMP or is broken, and OTHER when it's run-length
+    // encoded, which stb_image doesn't read, or the image has more pixels than `limit`. Panics
+    // when the limit is negative.
     @PanicsAtCaller
     Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError
         CheckLimit(limit)
