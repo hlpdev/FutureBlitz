@@ -7,6 +7,10 @@ Import std.core
 Import std.text.char
 Import std.text.string
 
+Extern "runtime"
+    Function fb_unicode_category(code: UInt32): Int32
+End Extern
+
 // Humanize's operations.
 Public Class Humanize
     // word's plural: "enemy" is "enemies", "box" "boxes", "leaf" "leaves", "child" "children",
@@ -167,14 +171,21 @@ Function Lowered(words: String[]): String[]
     Return lowered
 End Function
 
-// text's words: runs of letters and digits, split where a capital follows a lowercase letter or
-// a digit, or starts a word after a run of capitals, as the S in "HTTPServer" does.
+// text's words: runs of letters and digits, with the combining marks after them, split where a
+// capital follows a lowercase letter or a digit, or starts a word after a run of capitals, as
+// the S in "HTTPServer" does.
 Function WordsIn(text: String): String[]
     Local words: String[] = []
     Local word = ""
     Local chars = text.Chars
     For i = 0 Until chars.Count
         Local c = chars[i]
+        // A mark goes with the letter or digit before it, as the accent of "e\u{301}" does.
+        If word != "" && IsMark(c)
+            word += "{c}"
+            Continue
+        End If
+
         If !c.IsLetterOrDigit()
             If word != "" Then words.Add(word)
             word = ""
@@ -182,9 +193,10 @@ Function WordsIn(text: String): String[]
         End If
 
         If word != "" && c.IsUpper()
-            Local before = chars[i - 1]
+            Local before = chars[Unmarked(chars, i - 1, -1)]
+            Local after = Unmarked(chars, i + 1, 1)
             Local starts = before.IsLower() || before.IsDigit()
-            If before.IsUpper() && i + 1 < chars.Count && chars[i + 1].IsLower() Then starts = True
+            If before.IsUpper() && after < chars.Count && chars[after].IsLower() Then starts = True
             If starts
                 words.Add(word)
                 word = ""
@@ -196,6 +208,22 @@ Function WordsIn(text: String): String[]
 
     If word != "" Then words.Add(word)
     Return words
+End Function
+
+// Whether c is a combining mark, Unicode's Mn, Mc, or Me, which goes with the character before.
+Function IsMark(c: Char): Bool
+    Local category = fb_unicode_category(c As UInt32)
+    Return category >= 6 && category <= 8
+End Function
+
+// The first place from at, going by step, whose character isn't a combining mark.
+Function Unmarked(chars: Char[], at: Int, step: Int): Int
+    Local place = at
+    While place >= 0 && place < chars.Count && IsMark(chars[place])
+        place += step
+    End While
+
+    Return place
 End Function
 
 // How long size seconds is, as people say it.

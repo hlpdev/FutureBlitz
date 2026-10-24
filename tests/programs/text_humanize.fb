@@ -33,7 +33,8 @@ End For
 
 For text In ["Hello World", "helloWorld", "HelloWorld", "HTTPServer2", "hello_world",
              "hello-world", "  many   spaces  ", "XMLHttpRequest", "vec3Length", "3DModel",
-             "Straße Größe", "a", ""]
+             "Straße Größe", "a", "", "cafe\u{301} au lait", "nai\u{308}ve set",
+             "cafe\u{301}Bar", "E\u{301}COLEName", "\u{301}x"]
     Print(text, "|", Humanize.SnakeCase(text), Humanize.KebabCase(text), Humanize.CamelCase(text),
           Humanize.PascalCase(text))
 End For

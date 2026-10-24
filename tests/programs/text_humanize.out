@@ -100,3 +100,8 @@ vec3Length | vec3_length vec3-length vec3Length Vec3Length
 Straße Größe | straße_größe straße-größe straßeGröße StraßeGröße
 a | a a a A
  |    
+café au lait | café_au_lait café-au-lait caféAuLait CaféAuLait
+naïve set | naïve_set naïve-set naïveSet NaïveSet
+caféBar | café_bar café-bar caféBar CaféBar
+ÉCOLEName | école_name école-name écoleName ÉcoleName
+́x | x x x X
