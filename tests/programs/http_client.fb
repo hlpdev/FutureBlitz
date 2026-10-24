@@ -111,6 +111,18 @@ For status In [200, 204, 404, 418, 500, 503]
     End Try
 End For
 
+// What EnsureSuccess says names the status, with its reason when it has one.
+For status In [404, 418]
+    Try
+        client.Get("{base}/status/{status}").EnsureSuccess()
+    Catch e As NetError
+        Local named = status == 404 ? "404 Not Found" : "418"
+        Print(e.Message == "{base}/status/{status} answered {named}")
+    Catch e As TimeoutError
+        Print("TimeoutError")
+    End Try
+End For
+
 Print("== redirects")
 Print(Fetched(client, "{base}/redirect/3"))
 Try
