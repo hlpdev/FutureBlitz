@@ -1,8 +1,8 @@
 # Standard Library
 
 Status: what std/ holds today, then [M6's design](#m6s-design), planned 2026-10-20 and built
-in M6's 32 steps (see [milestones.md](milestones.md#m6-build-order)). Steps 1 to 4 are built;
-the rest is planned.
+in M6's 32 steps (see [milestones.md](milestones.md#m6-build-order));
+[history.md](history.md) says which have landed, and the rest are planned.
 
 ## Split
 
@@ -580,6 +580,11 @@ the rest is planned.
     like dividing by 0, has NaN parts.
 
 #### std.io
+
+Step 14 built `Path`, `File`'s one-call reads and writes, `FileLock`, `MappedFile`, `Dir`,
+`TempFile` and `TempDir`, `FileWatcher`, and IOError's Kinds; the streams, `File.Open`, and the
+console come with step 13, and the virtual file system, the Embeds, and `Preferences` with step
+15. `Import std.io` brings in all of std/io/.
 
 - `Reader`, `Writer`, and `Seeker` Interfaces, with Async twins, and `Copy`, `ReadAll`,
   `ReadExact`; buffered, memory, and string readers and writers; `BinaryReader` and
