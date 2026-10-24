@@ -59,16 +59,23 @@ Async Function Drain<S: Source<String>>(source: S): String Throws Empty
     Return pair.0 + pair.1
 End Function
 
-// A Static one, which generic code calls on its type.
+// A Static one, which generic code calls on its type, its modifiers in any order, after a
+// required Method too.
 Interface Maker
-    Static Async Method MakeAsync(): Int
+    Method Size(): Int
+    Async Static Method MakeAsync(): Int
     Static Async Method TwiceAsync(): Int => 2 * Await MakeAsync()
+    Method Half(): Int
+    Async Final Method SizeAsync(): Int => Size() + Half()
 End Interface
 
 Struct Seven Implements Maker
     Field unused: Int
 
-    Static Async Method MakeAsync(): Int
+    Method Size(): Int => 3
+    Method Half(): Int => 1
+
+    Async Static Method MakeAsync(): Int
         Await NextFrame()
         Return 7
     End Method
@@ -97,7 +104,7 @@ Print("started")
 Print(Await first)
 Print(Await second)
 Print(Try? Await Drain(Steady("ab")) ?? "none")
-Print("{Await Made<Seven>()}")
+Print("{Await Made<Seven>()} {Await Seven().SizeAsync()}")
 
 Function Pick(numbers: Bool): Source<Int32>? => numbers ? Numbers(1) : Null
 
