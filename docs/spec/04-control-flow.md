@@ -173,8 +173,8 @@ End Select
 
 - No fallthrough.
 - `Select` on an enum must be **exhaustive** or include `Default`. An exhaustive one leaves no
-  path past it, so a function can return from every Case. A `@Flags` Enum's values combine, so
-  a `Select` on one always needs a `Default`.
+  path past it, so a function can return from every Case. A `@Flags` Enum's values combine, and
+  an `@Open` Enum holds others, so a `Select` on one always needs a `Default`.
 - The subject is an integer, `Bool`, `String`, `Char`, or enum value, unless every `Case` is a
   type match like `Case e As Boss`.
 - A type match runs for an object of that Class, or of one extending it, with `e` naming it as

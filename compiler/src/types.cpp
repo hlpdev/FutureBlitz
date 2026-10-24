@@ -1115,12 +1115,13 @@ type_id_t type_table_t::add_enum(std::string name, std::string module) {
 }
 
 void type_table_t::set_values(const type_id_t type, const type_id_t integer,
-                              std::vector<enum_value_t> values, const bool flags) {
+                              std::vector<enum_value_t> values, const bool flags, const bool open) {
     assert(get(type).kind == type_kind_t::ENUM);
     type_t& entry = *m_entries[std::to_underlying(type)].type;
     entry.inner = integer;
     entry.values = std::move(values);
     entry.flags = flags;
+    entry.open = open;
 }
 
 std::uint64_t type_table_t::enum_zero(const type_id_t type) const {

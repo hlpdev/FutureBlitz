@@ -416,6 +416,10 @@ End Enum
     World, Player, Trigger
 End Enum
 
+@Open Enum Kind: Int32              // and any other Int32
+    Unknown = 0, Circle = 1
+End Enum
+
 Local mask = Layer.World | Layer.Player
 ```
 
@@ -427,11 +431,15 @@ Local mask = Layer.World | Layer.Player
 - `State.Walk` is a member. Values compare with `==` and `!=`; a `@Flags` Enum's also combine
   with `|`, `&`, `^`, and `~`, and `mask.Has(flags)` tells whether all of `flags` are set.
 - `As` turns an Enum into any integer type, and an integer into an Enum. For an Enum without
-  `@Flags`, the integer must be one of its values: known ones are checked at compile time, and
-  others panic.
+  `@Flags` or `@Open`, the integer must be one of its values: known ones are checked at compile
+  time, and others panic.
+- An `@Open` Enum holds any value of its integer type, as protobuf's open enums do, so a number
+  a newer program wrote survives: `7 As Kind` is a Kind that isn't one of its members, which C
+  can give too, and a `Select` on one needs a `Default`. A `@Flags` Enum holds every combination
+  of its flags already, so it isn't `@Open` too.
 - An Enum's zero is its first member, or no flags for a `@Flags` Enum.
 - A string shows a member's name. A `@Flags` value that isn't a member shows its flags,
-  like `World | Player`.
+  like `World | Player`, and another value that isn't one, like an `@Open` Enum's, its integer.
 
 ## Visibility
 

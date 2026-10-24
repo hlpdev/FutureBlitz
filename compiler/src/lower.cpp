@@ -8410,8 +8410,7 @@ private:
 
         operand_t given = temporary(std::move(call), result, has_references(result));
         // An Enum C's code gives has to be one of its values, as an Extern Function's does.
-        if (types().get(type_of(callee)).kind == type_kind_t::CALLBACK && is_enum(result) &&
-            !types().get(result).flags) {
+        if (types().get(type_of(callee)).kind == type_kind_t::CALLBACK && only_members(result)) {
             return to_enum(given, result, span,
                            std::format("a Callback gave a value that isn't one of {}'s",
                                        types().name(result)));
@@ -8588,9 +8587,7 @@ private:
         }
 
         // An Enum C gives, or sets ByRef, has to be one of its values.
-        const auto checked_enum = [&](const type_id_t type) {
-            return is_enum(type) && !types().get(type).flags;
-        };
+        const auto checked_enum = [&](const type_id_t type) { return only_members(type); };
         const std::string gave =
             std::format("'{}' gave a value that isn't one of {}'s", function.name,
                         checked_enum(function.type) ? types().name(function.type) : "");
@@ -9039,18 +9036,24 @@ private:
                           type);
         }
 
-        if (is_enum(type) && !is_enum(type_of(value)) && !types().get(type).flags) {
+        if (only_members(type) && !is_enum(type_of(value))) {
             return to_enum(value, type, span_of(id));
         }
 
         return convert(value, type, span_of(id));
     }
 
+    /// Whether `type` is an Enum that holds only its members, so a value made from an integer, or
+    /// that C gives, is checked: one that's neither @Flags nor @Open.
+    [[nodiscard]] bool only_members(const type_id_t type) const {
+        return is_enum(type) && !types().get(type).flags && !types().get(type).open;
+    }
+
     /// Whether a value of `type` has an Enum inside that C could set to another value: one that
-    /// isn't @Flags, in a Struct's fields or a fixed array's elements.
+    /// holds only its members, in a Struct's fields or a fixed array's elements.
     [[nodiscard]] bool holds_checked_enum(const type_id_t type) const {
         if (is_enum(type)) {
-            return !types().get(type).flags;
+            return only_members(type);
         }
 
         if (is_fixed_array(type)) {
@@ -9181,7 +9184,8 @@ private:
     }
 
     /// An Enum value's text: its member's name. A @Flags Enum's value that isn't one of its
-    /// members shows the flags it has, like "World | Player". Anything else shows its integer.
+    /// members shows the flags it has, like "World | Player". Anything else, like an @Open
+    /// Enum's other values, shows its integer.
     void lower_text(const type_id_t type, const function_id_t id) {
         begin_function(id);
         const local_id_t value = add_local(type, "value");

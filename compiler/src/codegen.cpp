@@ -1620,7 +1620,7 @@ private:
             LLVMValueRef argument = LLVMGetParam(thunk, static_cast<unsigned>(i));
             // An Enum C passes has to be one of its values.
             const type_t& parameter = m_mir.types->get(info.parameters[i]);
-            if (parameter.kind == type_kind_t::ENUM && !parameter.flags) {
+            if (parameter.kind == type_kind_t::ENUM && !parameter.flags && !parameter.open) {
                 const mir_function_t& code = m_mir.functions[index(node.function)];
                 const std::string_view parameter_name =
                     code.locals[i + (node.closure ? 1 : 0)].name;

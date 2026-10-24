@@ -2567,6 +2567,28 @@ TEST_CASE("As turns an Enum to and from integers", "[sema]") {
           errors_t{ "State.Idle As Float: 'As' can't convert State to Float32" });
 }
 
+TEST_CASE("an @Open Enum holds any value of its integer type", "[sema]") {
+    constexpr std::string_view kind =
+        "@Open Enum Kind: Int32\n    Known = 0, Other = 1\nEnd Enum\n";
+    const auto with = [&](const std::string_view text) { return std::format("{}{}", kind, text); };
+
+    CHECK(probe(with("Local x = 7 As Kind")) == "Kind 7");
+    CHECK(probe(with("Local x = -2 As Kind")) == "Kind -2");
+    CHECK(errors_of(with("Local k = Kind.Known\nSelect k\n    Case Kind.Known, Kind.Other\nEnd "
+                         "Select")) ==
+          errors_t{ "k: a Select on Kind, an @Open Enum, needs a Default, since it holds values "
+                    "that aren't its members" });
+    CHECK(errors_of(with("Function F(k: Kind): Int\n"
+                         "    Select k\n"
+                         "        Case Kind.Known\n"
+                         "            Return 0\n"
+                         "        Default\n"
+                         "            Return k As Int\n"
+                         "    End Select\n"
+                         "End Function"))
+              .empty());
+}
+
 TEST_CASE("a Select on an Enum covers every value, or has a Default", "[sema]") {
     constexpr std::string_view state = "Enum State\n    Idle, Walk, Dead\nEnd Enum\n";
     const auto with_state = [&](const std::string_view text) {

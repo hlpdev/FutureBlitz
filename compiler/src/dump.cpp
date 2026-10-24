@@ -1096,11 +1096,15 @@ private:
         return out;
     }
 
-    /// "(enum State: UInt8 Idle (= Attack 10))", with "@Flags" before the name.
+    /// "(enum State: UInt8 Idle (= Attack 10))", with "@Flags" or "@Open" before the name.
     [[nodiscard]] node_t build(const enum_stmt_t& node) const {
         node_t out = list("enum");
         if (node.flags) {
             out.items.push_back(atom("@Flags", tone_t::KEYWORD));
+        }
+
+        if (node.open) {
+            out.items.push_back(atom("@Open", tone_t::KEYWORD));
         }
 
         add_modifiers(out, node.modifiers);
