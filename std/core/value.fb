@@ -2,8 +2,9 @@
 // String, bytes, an Array of Values, or an Object of Values by their keys, in the order they were
 // added. Each format reads its text into one and writes one out. A Value is an object, so a
 // change to an Array's or Object's shows through every reference to it, and Clone() copies one
-// whole. None holds itself, inside it however deep, so each is a tree, which ToString, ==, Hash,
-// and Clone go through to its end.
+// whole. None holds itself, inside it however deep, though one can sit in several places, where
+// a change to it shows in each; ToString, ==, Hash, and Clone go through each place, however
+// deep, without recursing.
 
 Import std.core.error
 Import std.core.interfaces
@@ -13,8 +14,12 @@ Import std.collections.map
 Extern "runtime"
     Function fb_value_quoted(text: String): String
     Function fb_value_hex(bytes: UInt8[]): String
+    Function fb_value_joined(parts: String[]): String
     Function fb_value_path(path: String, keys: String[], indices: Int64[]): Int32
 End Extern
+
+// How many times Holds has looked through Values, on any thread, which numbers each look.
+Global Walks: Atomic<Int64> = Atomic<Int64>(0)
 
 // What a Value holds. An integer is an INT, an Int64, but for one past an Int64's largest, which
 // is a UINT, a UInt64.
@@ -31,6 +36,8 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
     Field Data: UInt8[]?
     Field Elements: Value[]?
     Field Entries: Map<String, Value>?
+    // The last of Holds' looks that went through it.
+    Field Walked: Int64
 
     // Null.
     Public New()
@@ -200,7 +207,8 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
 
     Public Method AsString(): String? => Shape == ValueKind.STRING ? Text : Null
 
-    // The bytes, or an Array's elements, in a new array, which the Value doesn't see changes to.
+    // The bytes, in a copy, or an Array's elements, in a new array of the Value's own elements:
+    // adding to it or taking from it doesn't change the Value, but a change to an element does.
     Public Method AsBytes(): UInt8[]? => Shape == ValueKind.BYTES ? Data?.Clone() : Null
     Public Method AsArray(): Value[]? => Shape == ValueKind.ARRAY ? Elements?.Clone() : Null
 
@@ -296,33 +304,35 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
     @PanicsAtCaller
     Public Method Remove(key: String): Bool => ObjectEntries("Value.Remove").Remove(key)
 
-    // Copies it, and its elements and entries, whole.
+    // Copies it, and its elements and entries, whole. A Value held in several places is copied
+    // once for each place.
     Public Method Clone(): Value
-        Local copy = Value()
-        copy.Shape = Shape
-        copy.Bits = Bits
-        copy.Real = Real
-        copy.Text = Text
-        Local data = Data
-        If data != Null Then copy.Data = data.Clone()
-        Local elements = Elements
-        If elements != Null
-            Local copies: Value[] = []
-            copies.Reserve(elements.Count)
-            For element In elements
-                copies.Add(element.Clone())
-            End For
-            copy.Elements = copies
-        End If
+        Local copy = Shallow()
+        Local pending = [(Self, copy)]
+        While pending.Count > 0
+            Local pair = pending[pending.Count - 1]
+            pending.RemoveAt(pending.Count - 1)
+            Local elements = pair.0.Elements
+            Local into = pair.1.Elements
+            If elements != Null && into != Null
+                into.Reserve(elements.Count)
+                For element In elements
+                    Local made = element.Shallow()
+                    into.Add(made)
+                    If element.IsArray || element.IsObject Then pending.Add((element, made))
+                End For
+            End If
 
-        Local entries = Entries
-        If entries != Null
-            Local copies = Map<String, Value>()
-            For key, value In entries
-                copies[key] = value.Clone()
-            End For
-            copy.Entries = copies
-        End If
+            Local entries = pair.0.Entries
+            Local intoEntries = pair.1.Entries
+            If entries != Null && intoEntries != Null
+                For key, value In entries
+                    Local made = value.Shallow()
+                    intoEntries[key] = made
+                    If value.IsArray || value.IsObject Then pending.Add((value, made))
+                End For
+            End If
+        End While
 
         Return copy
     End Method
@@ -331,27 +341,167 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
     // with equal Values, in any order. A Double compares as Doubles do, so NaN isn't equal to
     // itself and 0.0 is -0.0.
     Operator ==(a: Value, b: Value): Bool
-        If a.Shape != b.Shape Then Return False
-        Select a.Shape
+        Local pending = [(a, b)]
+        While pending.Count > 0
+            Local pair = pending[pending.Count - 1]
+            pending.RemoveAt(pending.Count - 1)
+            Local left = pair.0
+            Local right = pair.1
+            If !left.SameAlone(right) Then Return False
+            Local elements = left.Elements
+            Local others = right.Elements
+            If elements != Null && others != Null
+                For i = 0 Until elements.Count
+                    pending.Add((elements[i], others[i]))
+                End For
+            End If
+
+            Local entries = left.Entries
+            Local otherEntries = right.Entries
+            If entries != Null && otherEntries != Null
+                For key, value In entries
+                    Local other = otherEntries.Get(key)
+                    If other == Null Then Return False
+                    pending.Add((value, other))
+                End For
+            End If
+        End While
+
+        Return True
+    End Operator
+
+    // The same for equal Values, an Object's in any order. Each Array or Object on the way down
+    // keeps what it's added up so far, and adds what each element or entry comes to.
+    Public Method Hash(): UInt64
+        If !IsArray && !IsObject Then Return HashAlone()
+        Local steps = [Step(Self)]
+        Loop
+            Local last = steps.Count - 1
+            Local step = steps[last]
+            If step.At < step.Item.Count
+                Local child = step.Next()
+                steps[last] = step
+                If child.IsArray || child.IsObject
+                    steps.Add(Step(child))
+                Else
+                    step.Add(child.HashAlone())
+                    steps[last] = step
+                End If
+
+                Continue
+            End If
+
+            Local finished = step.Finished()
+            steps.RemoveAt(last)
+            If steps.Count == 0 Then Return finished
+            Local parent = steps[last - 1]
+            parent.Add(finished)
+            steps[last - 1] = parent
+        End Loop
+    End Method
+
+    // As JSON writes it, on one line: null, true, 42, 1.5, "text" with JSON's escapes, [1, 2],
+    // and {"key": 1}; a Double always with a point or an exponent, as 1.0; and, as JSON has no
+    // bytes, bytes in hex between angle brackets, as <0a1b>. A Value held in several places is
+    // written in each.
+    Public Method ToString(): String
+        If !IsArray && !IsObject Then Return TextAlone()
+        Local parts: String[] = [IsArray ? "[" : "{{"]
+        Local steps = [Step(Self)]
+        While steps.Count > 0
+            Local last = steps.Count - 1
+            Local step = steps[last]
+            If step.At >= step.Item.Count
+                parts.Add(step.Item.IsArray ? "]" : "}}")
+                steps.RemoveAt(last)
+                Continue
+            End If
+
+            If step.At > 0 Then parts.Add(", ")
+            If step.Item.IsObject Then parts.Add(fb_value_quoted(step.Keys[step.At]) + ": ")
+            Local child = step.Next()
+            steps[last] = step
+            If child.IsArray || child.IsObject
+                parts.Add(child.IsArray ? "[" : "{{")
+                steps.Add(Step(child))
+            Else
+                parts.Add(child.TextAlone())
+            End If
+        End While
+
+        Return fb_value_joined(parts)
+    End Method
+
+    // Panics when value is this Value or holds it, which would make it hold itself.
+    @PanicsAtCaller
+    Method CheckHeld(value: Value)
+        If value.Holds(Self) Then Panic("a Value can't hold itself, inside it or as it is")
+    End Method
+
+    // Whether it's target, or holds it, however deep. Each Value it looks through gets this walk's
+    // number, so one held in several places is looked through once.
+    Method Holds(target: Value): Bool
+        Local walk = Walks.Add(1) + 1
+        Local pending = [Self]
+        While pending.Count > 0
+            Local here = pending[pending.Count - 1]
+            pending.RemoveAt(pending.Count - 1)
+            If RefEquals(here, target) Then Return True
+            If here.Walked == walk Then Continue
+            here.Walked = walk
+            Local elements = here.Elements
+            If elements != Null
+                For element In elements
+                    If element.Walked != walk Then pending.Add(element)
+                End For
+            End If
+
+            Local entries = here.Entries
+            If entries != Null
+                For key, value In entries
+                    If value.Walked != walk Then pending.Add(value)
+                End For
+            End If
+        End While
+
+        Return False
+    End Method
+
+    // A copy of it alone: its bytes, but an Array or Object empty, for Clone to fill.
+    Method Shallow(): Value
+        Local copy = Value()
+        copy.Shape = Shape
+        copy.Bits = Bits
+        copy.Real = Real
+        copy.Text = Text
+        copy.Data = Data?.Clone()
+        If Shape == ValueKind.ARRAY Then copy.Elements = []
+        If Shape == ValueKind.OBJECT Then copy.Entries = Map<String, Value>()
+        Return copy
+    End Method
+
+    // Whether it and other are equal but for what an Array's elements or an Object's entries
+    // hold: the same kind, the same scalar, and as many elements or entries.
+    Method SameAlone(other: Value): Bool
+        If Shape != other.Shape Then Return False
+        Select Shape
             Case ValueKind.NULL
                 Return True
             Case ValueKind.DOUBLE
-                Return a.Real == b.Real
+                Return Real == other.Real
             Case ValueKind.STRING
-                Return a.Text == b.Text
+                Return Text == other.Text
             Case ValueKind.BYTES
-                Return a.Data == b.Data
-            Case ValueKind.ARRAY
-                Return a.Elements == b.Elements
-            Case ValueKind.OBJECT
-                Return a.Entries == b.Entries
+                Return Data == other.Data
+            Case ValueKind.ARRAY, ValueKind.OBJECT
+                Return Count == other.Count
             Default
-                Return a.Bits == b.Bits
+                Return Bits == other.Bits
         End Select
-    End Operator
+    End Method
 
-    // The same for equal Values, an Object's in any order.
-    Public Method Hash(): UInt64
+    // A scalar's hash and text.
+    Method HashAlone(): UInt64
         Local seed = Shape As UInt64
         Select Shape
             Case ValueKind.DOUBLE
@@ -361,19 +511,12 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
                 Return HashCombine(seed, Text.Hash())
             Case ValueKind.BYTES
                 Return HashCombine(seed, Data.Expect("bytes").Hash())
-            Case ValueKind.ARRAY
-                Return HashCombine(seed, Elements.Expect("an Array's").Hash())
-            Case ValueKind.OBJECT
-                Return HashCombine(seed, Entries.Expect("an Object's").Hash())
             Default
                 Return HashCombine(seed, Bits)
         End Select
     End Method
 
-    // As JSON writes it, on one line: null, true, 42, 1.5, "text" with JSON's escapes, [1, 2],
-    // and {"key": 1}; a Double always with a point or an exponent, as 1.0, and bytes in hex, as
-    // <0a1b>.
-    Public Method ToString(): String
+    Method TextAlone(): String
         Select Shape
             Case ValueKind.NULL
                 Return "null"
@@ -387,47 +530,9 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
                 Return DoubleText(Real)
             Case ValueKind.STRING
                 Return fb_value_quoted(Text)
-            Case ValueKind.BYTES
-                Return "<{fb_value_hex(Data.Expect("bytes"))}>"
-            Case ValueKind.ARRAY
-                Local parts: String[] = []
-                For element In Elements.Expect("an Array's")
-                    parts.Add(element.ToString())
-                End For
-                Return "[" + JoinedText(parts) + "]"
             Default
-                Local parts: String[] = []
-                For key, value In Entries.Expect("an Object's")
-                    parts.Add("{fb_value_quoted(key)}: {value}")
-                End For
-                Return "{{" + JoinedText(parts) + "}}"
+                Return "<{fb_value_hex(Data.Expect("bytes"))}>"
         End Select
-    End Method
-
-    // Panics when value is this Value or holds it, which would make it hold itself.
-    @PanicsAtCaller
-    Method CheckHeld(value: Value)
-        If value.Holds(Self) Then Panic("a Value can't hold itself, inside it or as it is")
-    End Method
-
-    // Whether it's target, or holds it, however deep.
-    Method Holds(target: Value): Bool
-        If RefEquals(Self, target) Then Return True
-        Local elements = Elements
-        If elements != Null
-            For element In elements
-                If element.Holds(target) Then Return True
-            End For
-        End If
-
-        Local entries = Entries
-        If entries != Null
-            For key, value In entries
-                If value.Holds(target) Then Return True
-            End For
-        End If
-
-        Return False
     End Method
 
     // An integer's bits, as an INT.
@@ -458,6 +563,46 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return entries
     End Method
 End Class
+
+// Where Hash and ToString are in an Array or Object, on their way through it without recursing:
+// the next element or entry, and for Hash, what's added up so far.
+Struct Step
+    Field Item: Value
+    Field At: Int
+    // An Object's keys, in order; none for an Array.
+    Field Keys: String[]
+    Field Total: UInt64
+    // The hash of the key of the entry being added, for an Object.
+    Field KeyHash: UInt64
+
+    New(item: Value)
+        Item = item
+        Keys = item.Keys()
+        Local count = item.Count As UInt64
+        Total = item.IsArray ? HashCombine(item.Shape As UInt64, count) : count
+    End New
+
+    // The next element or entry's Value, which it goes past.
+    ByRef Method Next(): Value
+        Local at = At
+        At += 1
+        If Item.IsArray Then Return Item.Elements.Expect("an Array's")[at]
+        KeyHash = Keys[at].Hash()
+        Return Item.Entries.Expect("an Object's")[Keys[at]]
+    End Method
+
+    // Adds the hash of the element or entry it went past: in order for an Array, and for an
+    // Object's, in any order.
+    ByRef Method Add(hash: UInt64)
+        If Item.IsArray
+            Total = HashCombine(Total, hash)
+        Else
+            Total = Total.WrappingAdd(HashCombine(KeyHash, hash))
+        End If
+    End Method
+
+    Method Finished(): UInt64 => Item.IsArray ? Total : HashCombine(Item.Shape As UInt64, Total)
+End Struct
 
 // "a Bool", "an INT", and the rest, for what a panic says.
 Function Article(kind: ValueKind): String

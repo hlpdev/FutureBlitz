@@ -1,0 +1,14 @@
+// A Value shared in many places still can't come to hold itself, which the check finds at once.
+Import std.core
+
+Local level = Value.Array()
+Local bottom = level
+For i = 1 To 40
+    Local pair = Value.Array()
+    pair.Add(level)
+    pair.Add(level)
+    level = pair
+End For
+
+Print(level.Count)
+bottom.Add(level)

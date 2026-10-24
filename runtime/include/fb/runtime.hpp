@@ -523,6 +523,9 @@ void fb_flush();
 fb_string_t* fb_value_quoted(const fb_string_t* text);
 /// `bytes`, a UInt8[], in hex, two digits each, like "0aff".
 fb_string_t* fb_value_hex(const fb_array_t* bytes);
+/// The Strings in `parts`, a String[], one after another, for a Value's text, which it writes in
+/// parts without recursing.
+fb_string_t* fb_value_joined(const fb_array_t* parts);
 /// Takes apart a Value's path, like "server.ports[0].name": a key, then a key after each dot,
 /// and an index in brackets after any of them, or first. Each step adds a key to `keys`, a
 /// String[], and -1 to `indices`, an Int64[], or "" and an index. 1 for a path, and 0 for text

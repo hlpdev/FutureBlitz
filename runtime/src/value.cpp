@@ -117,6 +117,23 @@ std::int32_t fb_value_path(const fb_string_t* path, fb_array_t* keys, fb_array_t
     return 1;
 }
 
+fb_string_t* fb_value_joined(const fb_array_t* parts) {
+    const auto* strings = static_cast<const fb_string_t* const*>(parts->data);
+    std::size_t size = 0;
+    for (std::int64_t i = 0; i < parts->count; ++i) {
+        size += static_cast<std::size_t>(strings[i]->length);
+    }
+
+    std::string text;
+    text.reserve(size);
+    for (std::int64_t i = 0; i < parts->count; ++i) {
+        text.append(reinterpret_cast<const char*>(strings[i] + 1),
+                    static_cast<std::size_t>(strings[i]->length));
+    }
+
+    return string_of(text);
+}
+
 fb_string_t* fb_value_hex(const fb_array_t* bytes) {
     const auto* data = static_cast<const std::uint8_t*>(bytes->data);
     std::string text;

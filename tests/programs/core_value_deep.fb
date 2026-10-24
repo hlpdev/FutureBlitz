@@ -1,0 +1,43 @@
+// Values nested deep, and shared, as a format's reader can build them: ToString, ==, Hash, Clone,
+// and the check that none holds itself go through them without recursing, and that check looks
+// through a shared part once.
+Import std.core
+Import std.collections
+
+// An Array in an Array, 100000 deep, made from the inside out.
+Local nested = Value(1)
+For i = 1 To 100000
+    nested = Value([nested])
+End For
+
+Local copy = nested.Clone()
+Print(nested.ToString().Bytes.Count, copy == nested, copy.Hash() == nested.Hash())
+Local holder = Value.Array()
+holder.Add(nested)
+Print(holder.Count, nested.Path("[0][0][0]") != Null)
+
+// An Object in an Object, 100000 deep, made from the outside in, as a reader adds each level to
+// the last, then put inside another.
+Local top = Value.Object()
+Local at = top
+For i = 1 To 100000
+    Local next = Value.Object()
+    at["next"] = next
+    at = next
+End For
+
+Local wrapper = Value.Array()
+wrapper.Add(top)
+Print(wrapper.Count, top.Path("next.next.next") != Null, top.Clone() == top)
+
+// Each level holds the one before it twice, so 60 levels have 2^60 places, which the check
+// looks through once each.
+Local level = Value.Array()
+For i = 1 To 60
+    Local pair = Value.Array()
+    pair.Add(level)
+    pair.Add(level)
+    level = pair
+End For
+
+Print(level.Count, (level[0] ?? Value()).Count)
