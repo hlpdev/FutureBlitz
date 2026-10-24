@@ -57,18 +57,22 @@ Public Enum HttpMethod
 End Enum
 
 // What a request sends: its bytes, and what they are, as its Content-Type header says unless the
-// request's headers say it themselves.
+// request's headers say it themselves. Panics for a contentType a header's value can't be, as
+// Headers.Add does.
 Public Struct Body
     Public ReadOnly Field Bytes: UInt8[]
     // Its Content-Type, or Null to send none.
     Public ReadOnly Field ContentType: String?
 
+    @PanicsAtCaller
     Public New(bytes: UInt8[], contentType: String? = "application/octet-stream")
+        If contentType != Null Then CheckField("Content-Type", contentType)
         Bytes = bytes
         ContentType = contentType
     End New
 
     // text's UTF-8, as plain text unless contentType says another kind.
+    @PanicsAtCaller
     Public Static Method Text(text: String,
                               contentType: String = "text/plain; charset=utf-8"): Body
         Return Body(text.Bytes, contentType)

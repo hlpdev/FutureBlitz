@@ -1,0 +1,9 @@
+// A Body's Content-Type is a header's value, so one with a line break panics where the Body is
+// made.
+Import std.core
+Import std.net.http
+
+Local fine = Body.Text("hi", "text/csv")
+Print(fine.ContentType ?? "none")
+Local body = Body.Text("hi", "text/plain\r\nX-Injected: yes")
+Print("not here")

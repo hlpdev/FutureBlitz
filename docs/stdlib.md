@@ -1128,10 +1128,10 @@ Step 28's half without streams is built: the addresses, `Url` and `QueryParams`,
   `Headers` (`Add`, `Set`, `Get`, `GetAll`, `Contains`, `Remove`, `Clear`, `Count`, and
   `For name, value In`), whose names keep their letter cases but match in any, and which panic
   for a name that isn't RFC 9110's token, or a value with a control character but a tab; `Body`
-  (bytes with a Content-Type, `Text`, `Json`, and `Form`, a Map's fields as
-  application/x-www-form-urlencoded); `HttpResponse` (`Status`, `Headers`, `Bytes`, `Text` as
-  UTF-8, `Url` after the redirects, `Version`, "HTTP/1.1" or "HTTP/2", `IsSuccess`,
-  `EnsureSuccess`). `HttpClient`: `Get`, `Head`,
+  (bytes with a Content-Type, which panics as a header's value does, `Text`, `Json`, and `Form`,
+  a Map's fields as application/x-www-form-urlencoded); `HttpResponse` (`Status`, `Headers`,
+  `Bytes`, `Text` as UTF-8, `Url` after the redirects, `Version`, "HTTP/1.1" or "HTTP/2",
+  `IsSuccess`, `EnsureSuccess`). `HttpClient`: `Get`, `Head`,
   `Post`, `Put`, `Patch`, `Delete`, `Send(method, url, body, headers)`, and `Download(url,
   progress)`, the body's bytes, which tells `progress` of how many came and how many the response
   said, or -1 when it didn't say, and nothing of a redirect's own body, each with an Async twin
