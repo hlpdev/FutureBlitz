@@ -940,6 +940,35 @@ TEST_CASE("a file reached by paths that differ only in letter case loads once", 
     std::filesystem::remove_all(folder, ignored);
 }
 
+TEST_CASE("a .proto's import in other letter cases than the disk's gets a warning", "[driver]") {
+    const std::filesystem::path folder = fb::temporary_path("proto_cases", "");
+    std::filesystem::create_directories(folder / "protos" / "common");
+    const auto write = [&](const std::filesystem::path& path, const std::string_view text) {
+        std::ofstream file(folder / path, std::ios::binary);
+        file << text;
+    };
+    write("main.fb", "Import \"protos/player.proto\"\nLocal p = Player()\n");
+    write("protos/player.proto", "syntax = \"proto3\";\nimport \"Common/IDs.proto\";\n"
+                                 "message Player { common.Id id = 1; }\n");
+    write("protos/common/ids.proto",
+          "syntax = \"proto3\";\npackage common;\nmessage Id { string value = 1; }\n");
+
+    // Only a disk that ignores letter case finds Common/IDs.proto, as it does an Import's path.
+    if (std::filesystem::exists(folder / "protos" / "Common" / "IDs.proto")) {
+        const std::expected<fb::compilation_t, std::string> compiled =
+            fb::compile_file(folder / "main.fb");
+        REQUIRE(compiled);
+        const std::vector<std::string> errors = errors_of(*compiled);
+        REQUIRE(errors.size() == 1);
+        CHECK(errors.front().ends_with(
+            "player.proto: \"Common/IDs.proto\": the disk spells it \"common/ids.proto\", in other "
+            "letter cases, which only a disk that ignores them finds"));
+    }
+
+    std::error_code ignored;
+    std::filesystem::remove_all(folder, ignored);
+}
+
 TEST_CASE("a main file given without its folder is in the current one", "[driver]") {
     const std::filesystem::path folder = fb::temporary_path("bare", "");
     std::filesystem::create_directories(folder / "ui");

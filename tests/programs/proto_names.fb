@@ -27,3 +27,8 @@ Print("{Holder_Kinds.FromNumber_(2) ?? Holder_Kinds.NONE} {Holder_Kinds.FromNumb
 Local choice = Choice(NONE: 5)
 Print("{choice} {choice.kind} {Choice(kinds: Holder_Kinds.End_).kind} {Choice().kind}")
 Print("{Choice(kinds: Holder_Kinds.FromNumber)}")
+
+Local poll = Poll(answer: Answer.True_, history: [Answer.False_, Answer.Default_])
+poll.by_round[1] = Answer.Hash_
+Print("{poll} {(Try Poll.Decode(poll.Encode())) == poll}")
+Print("{Answer.Hash_ == Answer.True_} {Answer.ToString_} {Answer.ProtoName(Answer.False_)}")

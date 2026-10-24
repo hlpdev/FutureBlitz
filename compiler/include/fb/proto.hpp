@@ -88,6 +88,9 @@ struct proto_constant_t {
     std::uint64_t integer = 0;
     bool negative = false;
     double number = 0;
+    /// An integer past 64 bits, whose `integer` is the most 64 bits hold, and whose `number` is
+    /// it as a double when it's decimal.
+    bool too_big = false;
     span_t span;
 };
 
@@ -240,8 +243,13 @@ void resolve_proto(proto_file_t& file, diagnostic_bag_t& diagnostics);
 /// The FutureBlitz module `file` gives, which resolve_proto() has resolved without errors: a
 /// Struct for each message, an Enum for each enum (@Open for proto3's), and an Interface of
 /// Async Methods for each service, with what reads and writes them in protobuf's wire format,
-/// through std.data.protobuf. It imports the modules of the files whose types it names by their
-/// paths in the program, which the driver resolves.
+/// through std.data.protobuf. It imports the modules of the files it imports by their paths in
+/// the program, which the driver resolves.
 [[nodiscard]] std::string generate_proto(const proto_file_t& file);
+
+/// The module of a .proto file with errors, shown as `shown`, which has nothing of it but the
+/// Imports of the files it imports that the driver found, as their modules are in the program
+/// only through an Import.
+[[nodiscard]] std::string failed_proto_module(const proto_file_t& file, std::string_view shown);
 
 } // namespace fb

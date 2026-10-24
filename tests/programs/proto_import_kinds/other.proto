@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package kinds;
+
+message Other {
+  map<int32, string> m = 1;
+}

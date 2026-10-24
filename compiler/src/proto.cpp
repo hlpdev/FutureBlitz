@@ -53,6 +53,10 @@ struct proto_token_t {
     double number = 0;
     /// A number that's wrong, which is reported already, so what it's in is skipped.
     bool wrong = false;
+    /// An integer past 64 bits, whose `integer` is the most 64 bits hold, so what takes an
+    /// integer reports it, and whose `number` is it as a double when it's decimal, as a float's
+    /// default takes it.
+    bool too_big = false;
 };
 
 /// Whether `c` starts an identifier.
@@ -106,7 +110,9 @@ public:
                 return tokens;
             }
 
-            tokens.push_back(next());
+            if (std::optional<proto_token_t> token = next()) {
+                tokens.push_back(std::move(*token));
+            }
         }
     }
 
@@ -153,7 +159,8 @@ private:
         }
     }
 
-    proto_token_t next() {
+    /// The token at m_at, or nothing for a character that isn't part of one, which it reports.
+    std::optional<proto_token_t> next() {
         const std::size_t begin = m_at;
         const char c = m_text[m_at];
         if (is_letter(c)) {
@@ -161,7 +168,7 @@ private:
                 ++m_at;
             }
 
-            return {
+            return proto_token_t{
                 .kind = lexeme_t::IDENTIFIER,
                 .text = slice(begin),
                 .span = span(begin, m_at),
@@ -185,21 +192,15 @@ private:
             m_at = std::min(m_at + length, m_text.size());
             m_diagnostics.error(span(begin, m_at), "'{}' isn't part of a .proto's syntax",
                                 slice(begin));
-            return next_or_end();
+            return std::nullopt;
         }
 
         ++m_at;
-        return { .kind = lexeme_t::SYMBOL, .text = slice(begin), .span = span(begin, m_at) };
-    }
-
-    /// The token after a character that isn't one.
-    proto_token_t next_or_end() {
-        skip_space();
-        if (m_at >= m_text.size()) {
-            return { .kind = lexeme_t::END, .span = span(m_at, m_at) };
-        }
-
-        return next();
+        return proto_token_t{
+            .kind = lexeme_t::SYMBOL,
+            .text = slice(begin),
+            .span = span(begin, m_at),
+        };
     }
 
     [[nodiscard]] std::string_view slice(const std::size_t begin) const {
@@ -245,6 +246,8 @@ private:
             ++m_at;
         }
 
+        // A number that starts with 0 is octal, which is an integer, as protoc has it.
+        const bool octal = m_at - begin > 1 && m_text[begin] == '0';
         bool real = false;
         if (at() == '.') {
             real = true;
@@ -281,7 +284,15 @@ private:
             }
 
             (void)fast_float::from_chars(written.data(), written.data() + written.size(), value);
-            const bool wrong = !check_after(begin);
+            bool wrong = !check_after(begin);
+            if (octal && !wrong) {
+                m_diagnostics.error(span(begin, m_at),
+                                    "{} starts with 0, so it's an octal number, which is an "
+                                    "integer",
+                                    slice(begin));
+                wrong = true;
+            }
+
             return {
                 .kind = lexeme_t::FLOAT,
                 .text = slice(begin),
@@ -292,7 +303,6 @@ private:
         }
 
         const std::string_view digits = slice(begin);
-        const bool octal = digits.size() > 1 && digits.front() == '0';
         const std::uint64_t base = octal ? 8 : 10;
         std::uint64_t value = 0;
         bool overflow = false;
@@ -312,22 +322,26 @@ private:
             value = (value * base) + amount;
         }
 
-        return finish_integer(begin, value, overflow);
-    }
-
-    proto_token_t finish_integer(const std::size_t begin, const std::uint64_t value,
-                                 const bool overflow) {
-        if (overflow) {
-            m_diagnostics.error(span(begin, m_at), "{} doesn't fit in 64 bits", slice(begin));
+        proto_token_t token = finish_integer(begin, value, overflow);
+        if (overflow && !octal) {
+            (void)fast_float::from_chars(digits.data(), digits.data() + digits.size(),
+                                         token.number);
         }
 
-        const bool wrong = !check_after(begin) || overflow;
+        return token;
+    }
+
+    /// An integer, which what takes it checks, past 64 bits too.
+    proto_token_t finish_integer(const std::size_t begin, const std::uint64_t value,
+                                 const bool overflow) {
+        const bool wrong = !check_after(begin);
         return {
             .kind = lexeme_t::INTEGER,
             .text = slice(begin),
             .span = span(begin, m_at),
-            .integer = value,
+            .integer = overflow ? std::numeric_limits<std::uint64_t>::max() : value,
             .wrong = wrong,
+            .too_big = overflow,
         };
     }
 
@@ -445,6 +459,22 @@ private:
 
                 point = (point * 16) + static_cast<std::uint32_t>(hex_value(at()));
                 ++m_at;
+            }
+
+            // A \u head surrogate and a \u trail surrogate after it are one character, as protoc
+            // reads them; either alone is an error.
+            if (point >= 0xD800 && point <= 0xDBFF && at() == '\\' && at(1) == 'u') {
+                std::uint32_t trail = 0;
+                bool hex = true;
+                for (std::size_t i = 2; i < 6; ++i) {
+                    hex = hex && is_hex_digit(at(i));
+                    trail = hex ? (trail * 16) + static_cast<std::uint32_t>(hex_value(at(i))) : 0;
+                }
+
+                if (hex && trail >= 0xDC00 && trail <= 0xDFFF) {
+                    m_at += 6;
+                    point = 0x10000 + ((point - 0xD800) << 10U) + (trail - 0xDC00);
+                }
             }
 
             if (point > 0x10FFFF || (point >= 0xD800 && point <= 0xDFFF)) {
@@ -882,6 +912,9 @@ private:
             parse_service();
         } else if (looking_at("extend")) {
             parse_extend(std::nullopt);
+        } else if (at_symbol('}')) {
+            // skip_statement leaves a '}', which here closes nothing.
+            error(advance().span, "this '}}' closes no block");
         } else {
             expected("a declaration, like a message, an enum, or a service");
             skip_statement();
@@ -964,6 +997,21 @@ private:
 
         m_package = true;
         m_file.package = *name;
+        // What's declared before the package line is in the package too, as protoc has it.
+        const auto in_package = [&](std::string& full) {
+            full = std::format("{}.{}", *name, full);
+        };
+        for (proto_message_t& message : m_file.messages) {
+            in_package(message.full_name);
+        }
+
+        for (proto_enum_t& declared : m_file.enums) {
+            in_package(declared.full_name);
+        }
+
+        for (proto_service_t& service : m_file.services) {
+            in_package(service.full_name);
+        }
     }
 
     /// A constant: a name, a number with or without a sign, strings, or a message's fields in
@@ -1019,6 +1067,8 @@ private:
             advance();
             constant.kind = proto_constant_kind_t::INTEGER;
             constant.integer = token.integer;
+            constant.number = token.number;
+            constant.too_big = token.too_big;
             constant.text = token.text;
             return constant;
         }
@@ -1703,8 +1753,10 @@ private:
             return;
         }
 
-        // The fields go in a message of their own, which is dropped.
+        // The fields go in a message of their own, which is dropped, with the enums its groups
+        // declare.
         const std::size_t scratch = m_file.messages.size();
+        const std::size_t enums = m_file.enums.size();
         m_file.messages.push_back({ .name = "", .parent = parent });
         while (!accept_symbol('}')) {
             if (at_end()) {
@@ -1720,6 +1772,8 @@ private:
         // A group's message comes after it.
         m_file.messages.erase(m_file.messages.begin() + static_cast<std::ptrdiff_t>(scratch),
                               m_file.messages.end());
+        m_file.enums.erase(m_file.enums.begin() + static_cast<std::ptrdiff_t>(enums),
+                           m_file.enums.end());
     }
 
     /// `enum Name { VALUE = 0; ... }`.
@@ -1998,8 +2052,12 @@ private:
                     continue;
                 }
 
+                // What isn't an option is skipped here, so the rpc's '}' isn't taken for the
+                // service's.
                 if (!looking_at("option")) {
-                    return expected("an option");
+                    expected("an option");
+                    skip_statement();
+                    continue;
                 }
 
                 if (const std::optional<option_t> option = parse_option_statement("rpc")) {
@@ -2387,9 +2445,12 @@ std::set<std::string, std::less<>> module_types(const proto_file_t& file) {
     return types;
 }
 
-/// The FutureBlitz name of an enum's value: its own, with a '_' after a reserved one.
-std::string value_name(const proto_enum_value_t& value) {
-    return fb_name(value.name);
+/// The FutureBlitz name of an enum's value: its own, with a '_' after a reserved one, or for an
+/// alias, a Static Property of the Enum's Extend, after a member every Enum has too.
+std::string value_name(const proto_enum_t& declared, const proto_enum_value_t& value) {
+    const auto first =
+        std::ranges::find(declared.values, value.number, &proto_enum_value_t::number);
+    return &*first == &value ? fb_name(value.name) : fb_name(value.name, { "Hash", "ToString" });
 }
 
 /// Checks the types a file's fields and rpcs name once they're found, and the names
@@ -2515,6 +2576,12 @@ private:
                 (value.kind != proto_constant_kind_t::IDENTIFIER ||
                  (value.text != "inf" && value.text != "nan"))) {
                 wrong("a number");
+            } else if (value.too_big && value.text.starts_with('0')) {
+                // A decimal integer past 64 bits is read as a double, as protoc reads it.
+                m_diagnostics.error(value.span,
+                                    "{} doesn't fit in 64 bits, as a hex or octal "
+                                    "number has to",
+                                    value.text);
             }
 
             return;
@@ -2566,7 +2633,7 @@ private:
             return;
         }
 
-        if (value.integer > limit) {
+        if (value.integer > limit || value.too_big) {
             m_diagnostics.error(value.span, "{}{} doesn't fit in {}, {}'s type",
                                 value.negative ? "-" : "", value.text, scalar_name(field.type.kind),
                                 field.name);
@@ -2623,10 +2690,10 @@ private:
     void check_values(const proto_enum_t& declared) {
         std::set<std::string, std::less<>> values;
         for (const proto_enum_value_t& value : declared.values) {
-            if (!values.insert(value_name(value)).second) {
+            if (!values.insert(value_name(declared, value)).second) {
                 m_diagnostics.error(value.name_span,
                                     "{} is {} in FutureBlitz, as another of {}'s values is",
-                                    value.name, value_name(value), declared.name);
+                                    value.name, value_name(declared, value), declared.name);
             }
         }
     }
@@ -2908,7 +2975,7 @@ public:
         constexpr std::string_view locals = "writer_ reader_ text_ tag_ group_ item_ outer_ inner_ "
                                             "start_ key_ value_ entry_ bytes_ message_ other_ "
                                             "copy_ prefix_ missing_ number_ known_ index_ given_ "
-                                            "request_";
+                                            "request_ first_ second_";
         for (const auto part : std::views::split(locals, ' ')) {
             const std::string name(part.begin(), part.end());
             m_locals.emplace(name, fresh(name));
@@ -2927,8 +2994,8 @@ public:
             m_out.line("Import std.math.numbers As {}", m_numbers);
         }
 
-        for (const auto& [file, alias] : m_imports) {
-            m_out.line("Import {} As {}", string_literal(file->path), alias);
+        for (const proto_file_t* file : m_imported) {
+            m_out.line("Import {} As {}", string_literal(file->path), m_imports.at(file));
         }
 
         for (std::size_t i = 0; i < m_file.enums.size(); ++i) {
@@ -2966,13 +3033,17 @@ private:
     std::string m_proto;
     std::string m_numbers;
     std::map<std::string, std::string, std::less<>> m_locals;
-    /// The alias of each other file whose types the module names, by path order.
+    /// The alias of each file it imports, or whose types it names.
     std::map<const proto_file_t*, std::string> m_imports;
+    /// The files it imports, in the order of their paths.
+    std::vector<const proto_file_t*> m_imported;
     /// Each file's messages that have required fields, or hold messages that do.
     std::map<const proto_file_t*, std::vector<bool>> m_required;
-    /// The current message's members' names, and the Locals that hold its fields' values.
+    /// The current message's members' names, the Locals that hold its fields' values, and those
+    /// that hold its maps' keys, in order, for its text.
     member_names_t m_names;
     std::vector<std::string> m_values;
+    std::vector<std::string> m_keys;
     std::vector<bool> m_boxed;
     std::vector<std::string> m_storage;
     std::string m_unknown;
@@ -3014,7 +3085,17 @@ private:
             }
         }
 
+        // And each file it imports, whose types it may not name, as for a custom option or a
+        // file that only forwards to others, since the driver puts each file's module in the
+        // program only through an Import.
+        for (const proto_import_t& imported : m_file.imports) {
+            if (imported.file != nullptr && !std::ranges::contains(files, imported.file)) {
+                files.push_back(imported.file);
+            }
+        }
+
         std::ranges::sort(files, {}, &proto_file_t::path);
+        m_imported = files;
         for (const proto_file_t* file : files) {
             std::string_view stem = file->path;
             stem = stem.substr(stem.find_last_of('/') + 1);
@@ -3077,15 +3158,28 @@ private:
     [[nodiscard]] static std::string from_number(const proto_enum_t& declared) {
         std::set<std::string, std::less<>> values;
         for (const proto_enum_value_t& value : declared.values) {
-            values.insert(value_name(value));
+            values.insert(value_name(declared, value));
         }
 
         return fb_name("FromNumber", values);
     }
 
+    /// The name of an enum's Static Method that gives a value's name in the .proto, as
+    /// protobuf's text format writes it: one none of its values has.
+    [[nodiscard]] static std::string proto_name(const proto_enum_t& declared) {
+        std::set<std::string, std::less<>> values;
+        for (const proto_enum_value_t& value : declared.values) {
+            values.insert(value_name(declared, value));
+        }
+
+        return fb_name("ProtoName", values);
+    }
+
     /// An enum's first value, its zero, as FutureBlitz writes it.
     [[nodiscard]] std::string enum_zero(const proto_type_t& type) const {
-        return std::format("{}.{}", named_type(type), value_name(enum_of(type).values.front()));
+        const proto_enum_t& declared = enum_of(type);
+        return std::format("{}.{}", named_type(type),
+                           value_name(declared, declared.values.front()));
     }
 
     /// A value's zero, for a field without presence.
@@ -3113,31 +3207,55 @@ private:
             }
 
             numbers.push_back(value.number);
-            m_out.line("{} = {}", value_name(value), value.number);
+            m_out.line("{} = {}", value_name(declared, value), value.number);
         }
 
         m_out.dedent();
         m_out.line("End Enum");
-        if (aliases.empty() && open) {
-            return;
-        }
-
         m_out.line();
         m_out.line("Extend {}", name);
         m_out.indent();
         for (const proto_enum_value_t* alias : aliases) {
             const auto first =
                 std::ranges::find(declared.values, alias->number, &proto_enum_value_t::number);
-            m_out.line("// The same value as {}.", value_name(*first));
-            m_out.line("Public Static Property {}: {}", value_name(*alias), name);
+            m_out.line("// The same value as {}.", value_name(declared, *first));
+            m_out.line("Public Static Property {}: {}", value_name(declared, *alias), name);
             m_out.indent();
-            m_out.line("Get => {}.{}", name, value_name(*first));
+            m_out.line("Get => {}.{}", name, value_name(declared, *first));
             m_out.dedent();
             m_out.line("End Property");
             m_out.line();
         }
 
+        // A value's name, as its first value of that number has it, as protobuf does.
+        m_out.line("// The value's name in the .proto, as protobuf's text format writes it{}.",
+                   open ? ", or its number when it has no name" : "");
+        m_out.line("Public Static Method {}(value: {}): String", proto_name(declared), name);
+        m_out.indent();
+        m_out.line("Select value");
+        m_out.indent();
+        for (const proto_enum_value_t& value : declared.values) {
+            if (!std::ranges::contains(aliases, &value)) {
+                m_out.line("Case {}.{}", name, value_name(declared, value));
+                m_out.indent();
+                m_out.line("Return {}", string_literal(value.name));
+                m_out.dedent();
+            }
+        }
+
+        if (open) {
+            m_out.line("Default");
+            m_out.indent();
+            m_out.line("Return \"{}\"", "{value As Int32}");
+            m_out.dedent();
+        }
+
+        m_out.dedent();
+        m_out.line("End Select");
+        m_out.dedent();
+        m_out.line("End Method");
         if (!open) {
+            m_out.line();
             // A closed enum's number that it doesn't name goes in the message's unknown fields.
             m_out.line("// The value whose number this is, or Null when it's none of them.");
             m_out.line("Public Static Method {}(number: Int32): {}?", from_number(declared), name);
@@ -3310,6 +3428,7 @@ private:
         m_boxed.assign(message.fields.size(), false);
         m_storage.assign(message.fields.size(), std::string());
         m_values.clear();
+        m_keys.clear();
         for (std::size_t i = 0; i < message.fields.size(); ++i) {
             m_boxed[i] = must_box(index, message.fields[i]);
             if (m_boxed[i] || message.fields[i].oneof) {
@@ -3317,6 +3436,8 @@ private:
             }
 
             m_values.push_back(fresh(m_names.fields[i] + "_value"));
+            m_keys.push_back(message.fields[i].key ? fresh(m_names.fields[i] + "_keys")
+                                                   : std::string());
         }
 
         m_unknown = fresh("unknown_");
@@ -3557,7 +3678,7 @@ private:
             const proto_enum_t& declared = enum_of(field.type);
             const auto found =
                 std::ranges::find(declared.values, value.text, &proto_enum_value_t::name);
-            return std::format("{}.{}", named_type(field.type), value_name(*found));
+            return std::format("{}.{}", named_type(field.type), value_name(declared, *found));
         }
         case proto_kind_t::FLOAT:
         case proto_kind_t::DOUBLE:
@@ -3580,7 +3701,7 @@ private:
                                                    const proto_constant_t& value) {
         double number = value.number;
         if (value.kind == proto_constant_kind_t::INTEGER) {
-            number = static_cast<double>(value.integer);
+            number = value.too_big ? value.number : static_cast<double>(value.integer);
             if (value.negative) {
                 number = -number;
             }
@@ -4256,6 +4377,10 @@ private:
             m_out.line("{}.Write{}({}, {})", text, wire_method(type.kind), string_literal(name),
                        value);
             return;
+        case proto_kind_t::ENUM:
+            m_out.line("{}.Write({}, {}.{}({}))", text, string_literal(name), named_type(type),
+                       proto_name(enum_of(type)), value);
+            return;
         default:
             m_out.line("{}.Write({}, \"{{{}}}\")", text, string_literal(name), value);
             return;
@@ -4292,8 +4417,21 @@ private:
     void text_field(const proto_field_t& field, const std::size_t index) {
         const std::string& item = local("item_");
         if (field.key) {
-            m_out.line("For {}, {} In {}", local("key_"), local("value_"), read_field(index));
+            // By key, as protobuf's text format writes a map, false before true.
+            const std::string& keys = m_keys[index];
+            m_out.line("Local {} = {}.Keys()", keys, read_field(index));
+            if (field.key->kind == proto_kind_t::BOOL) {
+                const std::string& first = local("first_");
+                const std::string& second = local("second_");
+                m_out.line("{}.Sort(Function({}: Bool, {}: Bool) => !{} && {})", keys, first,
+                           second, first, second);
+            } else {
+                m_out.line("{}.Sort()", keys);
+            }
+
+            m_out.line("For {} In {}", local("key_"), keys);
             m_out.indent();
+            m_out.line("Local {} = {}[{}]", local("value_"), read_field(index), local("key_"));
             m_out.line("{}.BeginMessage({})", local("text_"), string_literal(field.name));
             text_value(field, *field.key, "key", local("key_"));
             text_value(field, field.type, "value", local("value_"));
@@ -4358,6 +4496,18 @@ private:
 
 std::string generate_proto(const proto_file_t& file) {
     return proto_generator_t(file).run();
+}
+
+std::string failed_proto_module(const proto_file_t& file, const std::string_view shown) {
+    std::string module = std::format("// {} has errors, so fb makes nothing from it.\n", shown);
+    for (std::size_t i = 0; i < file.imports.size(); ++i) {
+        if (file.imports[i].file != nullptr) {
+            module += std::format("Import {} As Imported{}_\n",
+                                  string_literal(file.imports[i].file->path), i);
+        }
+    }
+
+    return module;
 }
 
 } // namespace fb

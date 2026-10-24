@@ -552,6 +552,10 @@ private:
 
             candidate += imported.path;
             if (has_file(candidate) && !linked_away(candidate)) {
+                if (m_files.root) {
+                    warn_respelled_proto(imported, candidate);
+                }
+
                 return candidate;
             }
 
@@ -628,8 +632,7 @@ private:
         }
 
         std::string module =
-            entry.failed ? std::format("// {} has errors, so fb makes nothing from it.\n", shown)
-                         : generate_proto(entry.file);
+            entry.failed ? failed_proto_module(entry.file, shown) : generate_proto(entry.file);
         const file_id_t file = m_compilation.sources.add(shown + ".fb", std::move(module));
         const std::size_t index = m_loaded.size();
         m_loaded.push_back(
@@ -751,6 +754,32 @@ private:
                 "the disk spells it {}, in other letter cases, which only a disk that ignores "
                 "them finds",
                 node.quoted ? std::format("\"{}\"", written) : written);
+        }
+    }
+
+    /// Warns where a .proto's import, found at `found` in the program, spells a folder or file in
+    /// other letter cases than the disk has it, as warn_respelled does for an Import.
+    void warn_respelled_proto(const proto_import_t& imported, const std::string& found) {
+        std::filesystem::path real =
+            disk_path(m_files, found.substr(0, found.size() - imported.path.size()));
+        std::string written;
+        bool differs = false;
+        for (const std::string_view part : path_parts(imported.path)) {
+            const std::optional<std::string> spelled = on_disk(real, part);
+            if (!spelled) {
+                return;
+            }
+
+            differs = differs || *spelled != part;
+            real /= path_from_utf8(*spelled);
+            written += std::format("{}{}", written.empty() ? "" : "/", *spelled);
+        }
+
+        if (differs) {
+            m_compilation.diagnostics.warning(imported.span,
+                                              "the disk spells it \"{}\", in other letter cases, "
+                                              "which only a disk that ignores them finds",
+                                              written);
         }
     }
 

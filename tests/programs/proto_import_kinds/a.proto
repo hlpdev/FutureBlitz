@@ -1,0 +1,14 @@
+// A weak import is an import: b.proto's B, and through its public import, c.proto's C, by its
+// name in the package, its full name, and its name with the package.
+syntax = "proto3";
+
+package q;
+
+import weak "b.proto";
+
+message A {
+  B b = 1;
+  C c = 2;
+  .q.C d = 3;
+  q.C e = 4;
+}

@@ -74,3 +74,20 @@ message Choice {
     Holder.Kinds kinds = 2;
   }
 }
+
+// Values named like what FutureBlitz reserves, which ToString writes by their names here, and
+// aliases named like the members every Enum has, which take a '_'.
+enum Answer {
+  option allow_alias = true;
+  Default = 0;
+  True = 1;
+  False = 2;
+  Hash = 1;
+  ToString = 2;
+}
+
+message Poll {
+  optional Answer answer = 1;
+  repeated Answer history = 2;
+  map<int32, Answer> by_round = 3;
+}

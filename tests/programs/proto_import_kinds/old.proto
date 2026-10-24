@@ -1,0 +1,4 @@
+// A file that only forwards to the one that took its place, as a moved file's old path does.
+syntax = "proto3";
+
+import public "new.proto";
