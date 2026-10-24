@@ -6343,7 +6343,7 @@ private:
         }
 
         // A value that holds a fixed array is read where it is, not copied in, however large.
-        const bool in_place = holds_fixed_array(type);
+        const bool in_place = types().holds_fixed_array(type);
         operand_t shown = value;
         if (in_place && std::holds_alternative<const_value_t>(value)) {
             shown = temporary(use_t{ .value = value }, type);
@@ -6397,25 +6397,6 @@ private:
         start(done);
         m_temporaries.push_back(shown);
         return place_t{ shown };
-    }
-
-    /// Whether a value of a type holds a fixed array: a fixed array, or a Struct, tuple, or T? of
-    /// what holds one.
-    [[nodiscard]] bool holds_fixed_array(const type_id_t type) const {
-        const type_t& info = types().get(type);
-        switch (info.kind) {
-        case type_kind_t::FIXED_ARRAY:
-            return true;
-        case type_kind_t::NULLABLE:
-            return holds_fixed_array(info.inner);
-        case type_kind_t::STRUCT:
-        case type_kind_t::TUPLE:
-            return std::ranges::any_of(info.fields, [this](const field_t& field) {
-                return holds_fixed_array(field.type);
-            });
-        default:
-            return false;
-        }
     }
 
     /// How a debug form lays out its parts, in String locals: on one line, as "(1, 2)", or each
@@ -6933,7 +6914,7 @@ private:
         // A debug form reads a fixed array, or what holds one, through the caller's place.
         const bool by_ref = (generated.kind == generated_kind_t::DEBUG ||
                              generated.kind == generated_kind_t::DEBUG_ENTRIES) &&
-                            holds_fixed_array(type);
+                            types().holds_fixed_array(type);
         const local_id_t array =
             add_local(type, generated.kind == generated_kind_t::EQUAL ? "a" : "Self", by_ref);
         const local_id_t other =

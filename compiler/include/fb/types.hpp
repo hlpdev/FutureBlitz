@@ -426,6 +426,11 @@ public:
     /// none, since it can't be Null, and neither does a Struct with a field of one.
     [[nodiscard]] bool has_zero(type_id_t type) const;
 
+    /// Whether a value holds a fixed array: a fixed array, or a Struct, tuple, or T? with one
+    /// inside. LLVM handles a large aggregate loaded, stored, or passed whole badly, or not at
+    /// all, so codegen copies one as bytes, and a debug form reads one where it is.
+    [[nodiscard]] bool holds_fixed_array(type_id_t type) const;
+
 private:
     /// A value computed with + and -, and * by a known number: a known number, and how many
     /// times it has each other part.

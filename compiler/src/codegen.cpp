@@ -632,24 +632,6 @@ private:
         return m_mir.types->get(type).kind == type_kind_t::STRUCT;
     }
 
-    /// Whether a value of a type holds a fixed array, which a copy moves as bytes, since LLVM
-    /// handles a large aggregate loaded and stored whole badly, or not at all.
-    [[nodiscard]] bool holds_fixed_array(const type_id_t type) const {
-        const type_t& info = m_mir.types->get(type);
-        switch (info.kind) {
-        case type_kind_t::FIXED_ARRAY:
-            return true;
-        case type_kind_t::NULLABLE:
-            return holds_fixed_array(info.inner);
-        case type_kind_t::STRUCT:
-        case type_kind_t::TUPLE:
-            return std::ranges::any_of(
-                info.fields, [&](const field_t& field) { return holds_fixed_array(field.type); });
-        default:
-            return false;
-        }
-    }
-
     [[nodiscard]] bool is_enum(const type_id_t type) const {
         return m_mir.types->get(type).kind == type_kind_t::ENUM;
     }
@@ -2557,7 +2539,7 @@ private:
         // A value that holds a fixed array goes in a part at a time, since LLVM handles a large
         // aggregate loaded, built, or stored whole badly, or not at all.
         const type_id_t type = type_of(node.target);
-        if (holds_fixed_array(type)) {
+        if (m_mir.types->holds_fixed_array(type)) {
             const auto* use = std::get_if<use_t>(&node.value);
             if (const auto* place = use != nullptr ? std::get_if<place_t>(&use->value) : nullptr) {
                 LLVMValueRef source = address_of(*place);
@@ -2590,7 +2572,7 @@ private:
     /// Puts an operand at `address`, as bytes when its type holds a fixed array.
     void put(LLVMValueRef address, const type_id_t type, const operand_t& operand) {
         const auto* place = std::get_if<place_t>(&operand);
-        if (place != nullptr && holds_fixed_array(type)) {
+        if (place != nullptr && m_mir.types->holds_fixed_array(type)) {
             copy_bytes(address, address_of(*place), type);
         } else {
             LLVMBuildStore(builder(), value_of(operand), address);
@@ -2616,7 +2598,7 @@ private:
             LLVMBuildMemSet(builder(), address,
                             LLVMConstInt(LLVMInt8TypeInContext(context()), 0, 0), LLVMSizeOf(llvm),
                             alignment);
-        } else if (!holds_fixed_array(type)) {
+        } else if (!m_mir.types->holds_fixed_array(type)) {
             LLVMBuildStore(builder(), zero_constant(type), address);
         } else if (info.kind == type_kind_t::FIXED_ARRAY) {
             LLVMValueRef count = LLVMConstInt(m_i64, m_mir.types->element_count(type), 0);
