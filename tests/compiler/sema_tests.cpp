@@ -4675,6 +4675,31 @@ TEST_CASE("Property mistakes", "[sema]") {
           errors_t{ "P: a Struct's Properties can't be Abstract, Final, or Override" });
 }
 
+TEST_CASE("a Property's type is reported once, though its Get gives it and its Set takes it",
+          "[sema]") {
+    const auto in_class = [](const std::string_view member) {
+        return errors_of(std::format(
+            "Import std.core\nClass C\n    Field Kept: Int\n    {}\nEnd Class", member));
+    };
+
+    CHECK(in_class("Property P: NoSuchType\n        Get => 1\n        Set(value)\n        End Set\n"
+                   "    End Property") == errors_t{ "NoSuchType: 'NoSuchType' isn't a type" });
+    CHECK(in_class("Property P: Ptr<String>\n        Get => Null\n        Set(value)\n"
+                   "        End Set\n    End Property") ==
+          errors_t{ "String: a Ptr points at a value C code has: a number, Bool, Enum, CString, "
+                    "Ptr, Callback, or a fixed array or Struct of these; String isn't one" });
+    CHECK(in_class("Property Q: Weak<Int>\n        Get => Kept\n    End Property") ==
+          errors_t{ "Weak<Int>: Weak<T> refers to an object of a Class, not Int32" });
+    CHECK(in_class("Property R: Task<Int> Throws Int\n        Get => Spawn(Function() => 1)\n"
+                   "    End Property") ==
+          errors_t{ "Int: Throws lists Classes that extend Error, not Int32" });
+    // And once that it can't be given, apart from the Get's own Mutex.
+    CHECK(in_class("Property S: Mutex<Int>\n        Get => Mutex<Int>(1)\n    End Property") ==
+          errors_t{ "Mutex<Int>: Mutex<Int32> stays where it's made, so a Property can't give one",
+                    "Mutex<Int>(1): Mutex<Int32> stays where it's made, so it's made only as what "
+                    "a Global, a Static Field, or a Class's Field starts with" });
+}
+
 // Built-in Interfaces
 
 TEST_CASE("the built-in types implement the built-in Interfaces that fit them", "[sema]") {
