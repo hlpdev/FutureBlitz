@@ -246,9 +246,17 @@ Print(Failure("map", "a\u{0}b"))
 Print("watching")
 Local watcher = Try FileWatcher(root)
 Try File.WriteText(root / "watched.txt", "w")
-Local event = Await watcher.NextAsync()
-Print("{event != Null}")
+// Whatever comes next, waited for ten seconds at most.
+Local next = watcher.NextAsync()
+For tries = 1 To 1000
+    If next.IsDone() Then Break
+    Await RealWait(10.Milliseconds)
+End For
+
+Print("{next.IsDone()}")
 watcher.Close()
+Local event = Await next
+Print("{event != Null}")
 Print("{watcher.Next() == Null}")
 
 Print("removing")

@@ -114,6 +114,7 @@ map INVALID_PATH
 watching
 True
 True
+True
 removing
 True False False
 True False
