@@ -289,21 +289,33 @@ std::array<std::atomic<void (*)()>, 8>& code_enders() {
     return instance;
 }
 
+/// Whether run_code_end() has run, after which at_code_end() runs what it's given at once.
+std::atomic<bool>& code_ended() {
+    static std::atomic<bool> instance = false;
+    return instance;
+}
+
 } // namespace
 
 void at_code_end(void (*done)()) {
     for (std::atomic<void (*)()>& slot : code_enders()) {
         void (*expected)() = nullptr;
-        if (slot.compare_exchange_strong(expected, done, std::memory_order_acq_rel) ||
-            expected == done) {
-            return;
+        if (slot.compare_exchange_strong(expected, done) || expected == done) {
+            break;
         }
+    }
+
+    // run_code_end() marks the code done before it looks at the slots, and this looks at the mark
+    // after it fills one, both in one order for every thread, so one of them sees the other.
+    if (code_ended().load()) {
+        done();
     }
 }
 
 void run_code_end() {
+    code_ended().store(true);
     for (const std::atomic<void (*)()>& slot : std::views::reverse(code_enders())) {
-        if (void (*const done)() = slot.load(std::memory_order_acquire); done != nullptr) {
+        if (void (*const done)() = slot.load(); done != nullptr) {
             done();
         }
     }
