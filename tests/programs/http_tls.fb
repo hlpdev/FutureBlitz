@@ -69,6 +69,12 @@ Try
     Local cookie = "{base}/redirect-to?url={secure}/header/cookie"
     Print(client.Send(HttpMethod.GET, cookie, Null, own).Text)
     Print(client.Send(HttpMethod.GET, "{secure}/header/cookie", Null, own).Text)
+    // A Host of the request's own goes to its origin only, too.
+    Local hosted = Headers()
+    hosted.Add("Host", "custom.example")
+    Print(client.Send(HttpMethod.GET, "{secure}/header/host", Null, hosted).Text)
+    Local moved = "{base}/redirect-to?url={secure}/header/host"
+    Print(client.Send(HttpMethod.GET, moved, Null, hosted).Text == "custom.example")
 Catch e As NetError
     Print("NetError {e.Kind}")
 Catch e As TimeoutError

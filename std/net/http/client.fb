@@ -137,11 +137,10 @@ Public Class HttpClient
     Public Field FollowRedirects: Bool = True
     // Whether a request asks for its response compressed, which it decompresses.
     Public Field Decompress: Bool = True
-    // The proxy each request goes through, like "http://proxy:3128", or Null for the
+    // The proxy each request goes through, like "http://proxy:3128", "" for none, or Null for the
     // environment's.
     Public Field Proxy: String? = Null
-    // The User-Agent header a request sends unless its Headers have one.
-    Public Field UserAgent: String = "FutureBlitz"
+    Field Agent: String = "FutureBlitz"
     Field Redirects: Int = 10
     // How many milliseconds a request may take, 0 for no limit, and its connecting.
     Package Field TimeoutMilliseconds: Int64 = 0
@@ -151,6 +150,17 @@ Public Class HttpClient
         DefaultHeaders = Headers()
         State = fb_http_client_new()
     End New
+
+    // The User-Agent header a request sends unless its headers have one. Panics when it's set to
+    // what a header's value can't be, as Headers.Add does.
+    @PanicsAtCaller
+    Public Property UserAgent: String
+        Get => Agent
+        Set(value)
+            CheckField("User-Agent", value)
+            Agent = value
+        End Set
+    End Property
 
     // The most redirects a request follows before it throws a NetError. Panics when it's set
     // below 0.

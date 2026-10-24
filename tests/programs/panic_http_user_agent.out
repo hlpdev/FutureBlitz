@@ -1,0 +1,1 @@
+panic: the value for User-Agent has a control character, which a header can't have at panic_http_user_agent.fb:7:1
