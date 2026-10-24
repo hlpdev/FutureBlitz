@@ -1000,11 +1000,9 @@ Function Labels(points: Int[]): Int[][]
     Return labels
 End Function
 
-// A domain as ASCII, as UTS #46's ToASCII has it for URLs, without its mapping of what isn't
-// ASCII but for what the start of this file says: each label in lowercase, and one with code
-// points past ASCII as xn-- and its Punycode, where an xn-- label has to decode. Null when it
-// can't be, or comes out empty.
-Function DomainToAscii(domain: Int[]): String?
+// A domain's code points as UTS #46 maps them, without its tables, but for what the start of
+// this file says, or Null when one is disallowed.
+Function Mapped(domain: Int[]): Int[]?
     Local mapped: Int[] = []
     For c In domain
         If c == 0x3002 || c == 0xFF0E || c == 0xFF61
@@ -1026,22 +1024,36 @@ Function DomainToAscii(domain: Int[]): String?
             mapped.Add(Lower(c))
         End If
     End For
+    Return mapped
+End Function
 
+// Whether a label starts with xn--, the start of Punycode's.
+Function IsAce(label: Int[]): Bool
+    Return label.Count >= 4 && label[0] == 120 && label[1] == 110 && label[2] == 45 &&
+           label[3] == 45
+End Function
+
+// A domain as ASCII, as UTS #46's ToASCII has it for URLs, without its mapping of what isn't
+// ASCII but for what the start of this file says: each label as Mapped gives it, and one with
+// code points past ASCII as xn-- and its Punycode, where an xn-- label has to decode to one
+// Mapped keeps as it is. Null when it can't be, or comes out empty.
+Function DomainToAscii(domain: Int[]): String?
+    Local mapped = Mapped(domain)
+    If mapped == Null Then Return Null
     Local ascii: UInt8[] = []
     Local labels = Labels(mapped)
     For i = 0 Until labels.Count
         If i > 0 Then ascii.Add(46)
         Local label = labels[i]
         If label.All(Function(c: Int) => c < 0x80)
-            If label.Count >= 4 && label[0] == 120 && label[1] == 110 && label[2] == 45 &&
-               label[3] == 45
-                // It has to decode to what isn't all ASCII, nor maps to something else.
+            If IsAce(label)
+                // It has to decode to what isn't all ASCII, nor is disallowed or maps to
+                // something else.
                 Local decoded = PunycodeDecode(label[4..label.Count])
                 If decoded == Null Then Return Null
                 If decoded.Count > 0 && decoded.All(Function(c: Int) => c < 0x80) Then Return Null
-                If decoded.Any(Function(c: Int) => Lower(c) != c || (c >= 0x80 && c <= 0x9F))
-                    Return Null
-                End If
+                Local remapped = Mapped(decoded)
+                If remapped == Null || remapped != decoded Then Return Null
             End If
 
             For c In label
@@ -1167,7 +1179,7 @@ Function PunycodeDecode(input: Int[]): Int[]?
         bias = Adapt(i - old, count, old == 0)
         n += i / count
         i %= count
-        If n > 0x10FFFF || n < 0x80 Then Return Null
+        If n > 0x10FFFF || n < 0x80 || (n >= 0xD800 && n <= 0xDFFF) Then Return Null
         output.Insert(i As Int, n As Int)
         i += 1
     End While

@@ -56,3 +56,11 @@ Print(one == two, one?.ToString() == two?.ToString(),
 // Percent-encoding a component, and decoding.
 Print(Url.Encode("a b&c=d/e?f#g+h~é"), Url.Encode(""))
 Print(Url.Decode("a%20b%26c%3Dd%2Fe%3Ff%23g%2Bh~%C3%A9"), Url.Decode("%zz%4"), Url.Decode("%FF"))
+
+// An xn-- label has to decode to what a host written in Unicode can have, so each of these fails
+// as its Unicode form does: U+FFFD, a noncharacter, a space, a soft hyphen, and a surrogate.
+For text In ["http://\u{FFFD}.com/", "http://xn--zn7c.com/", "http://\u{FDD0}x.com/",
+             "http://xn--x-v49h.com/", "http://\u{3000}x.com/", "http://xn--x-43t.com/",
+             "http://xn--ab-5da.com/", "http://xn--x-qc4g.com/"]
+    Print("{text}: {Url.Parse(text)?.ToString() ?? "not a URL"}")
+End For
