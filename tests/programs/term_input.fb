@@ -47,6 +47,56 @@ Function Brief(event: InputEvent): String
     Return "{event}"
 End Function
 
+// A Terminal of a program's own, whose input is two a's, which keeps the input mode each read
+// came in.
+Class ModeTerminal Extends Terminal
+    Field Mode: Int
+    Field Reads: String[] = []
+    Field Left: Int = 2
+
+    New()
+        Super.New()
+    End New
+
+    Override Property Columns: Int
+        Get => 80
+    End Property
+
+    Override Property Rows: Int
+        Get => 24
+    End Property
+
+    Override Property Colors: ColorLevel
+        Get => ColorLevel.NONE
+    End Property
+
+    Override Property IsInteractive: Bool
+        Get => True
+    End Property
+
+    Override Property IsInputInteractive: Bool
+        Get => True
+    End Property
+
+    Override Method Write(text: String)
+    End Method
+
+    Override Method Flush()
+    End Method
+
+    Override Method ReadInput(into: UInt8[], timeout: Int64): Int64
+        Reads.Add("{Mode}")
+        If Left == 0 Then Return -1
+        Left -= 1
+        into[0] = 0x61
+        Return 1
+    End Method
+
+    Override Method SetInputMode(mode: Int)
+        Mode = mode
+    End Method
+End Class
+
 Print("text:", Parsed("aZ 9é中😀"))
 Print("controls:", Parsed("\r\n\t\u{7f}\u{8}\u{0}\u{1}\u{1a}\u{1c}\u{1d}\u{1e}\u{1f}"))
 Print("lines:", Parsed("a\r\nb\nc\rd\r\r\ne"))
@@ -76,6 +126,15 @@ Print("bad paste:", ParsedBytes([0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E, 0x61, 0xFF,
 Print("cut short:", Parsed("{E}[1;5"), "/", Parsed("{E}O"), "/", Parsed("{E}[1\u{7}A"))
 Local long = Parsed("{E}[" + "1".Repeated(40))
 Print("long:", long.StartsWith("|, Escape, [, 1, 1"), long.Count("1"))
+// Konsole's F1 to F4 with modifiers, the Linux console's F1 to F5, and Alt and [ alone, or
+// before what can't go on with a sequence.
+Print("konsole's f keys:", Parsed("{E}O2P{E}O5Q{E}O3S{E}O2"), "/", Parsed("{E}O2{E}[A"))
+Print("linux console's f keys:", Parsed("{E}[[A{E}[[E{E}[[F{E}[[{E}[B"), "/", Parsed("{E}[["))
+Print("alt+[:", Parsed(E + "["), "/", Parsed(E + "[" + E + "["), "/", Parsed(E + "[\u{7f}"))
+// A mouse's back and forward buttons, which have no MouseButton, are skipped.
+Print("other buttons:", Parsed("{E}[<128;5;3M{E}[<129;5;3m{E}[<131;1;1Mx"), "/", ParsedBytes([0x1B, 0x5B, 0x4D, 0xA0, 0x21, 0x21, 0x78]))
+// A character cut short by a byte that doesn't go on with it is U+FFFD, and that byte its own.
+Print("cut short characters:", ParsedBytes([0xE4, 0x61]), "/", ParsedBytes([0x63, 0xE9, 0x0A]), "/", ParsedBytes([0xF0, 0x9F, 0x41]), "/", ParsedBytes([0xE4, 0xB8]))
 
 // The same, split across reads, as a terminal can send them.
 Local split = InputParser()
@@ -92,6 +151,13 @@ For part In [[0xE4 As UInt8], [0xB8 As UInt8], [0xAD As UInt8, 0x21]]
 End For
 
 Print("then:", EventsOf(split))
+
+// A paste's start mark at the end of one read, and its text and end mark in the next.
+Local marked = InputParser()
+marked.Feed("x{E}[200~")
+Print("paste's mark alone:", Brief(marked.Next() ?? InputEvent("none")), marked.Next() == Null, marked.IsPasting, marked.IsWaiting)
+marked.Feed("hi{E}[201~")
+Print("then:", EventsOf(marked))
 
 // What's made into events goes now and then, so a long session's bytes don't pile up, a
 // sequence waiting for its end across that too.
@@ -181,6 +247,39 @@ Print("key:", "{fake.ReadKey() ?? KeyEvent('?')}", "mode", fake.InputMode)
 fake.Feed("3")
 fake.Pause()
 Print("key:", "{fake.ReadKey(10.Milliseconds) ?? KeyEvent('?')}", "{fake.ReadKey(10.Milliseconds) ?? KeyEvent('?')}")
+// A timeout as long as a Duration can be waits as long as it takes.
+fake.Feed("4")
+fake.Pause(1.Seconds)
+fake.Feed("5")
+Print("forever:", "{fake.ReadKey(Duration.MaxValue()) ?? KeyEvent('?')}", Brief(fake.PollEvent(Duration.MaxValue()) ?? InputEvent("none")))
+
+// A resize while a paste's text comes doesn't end the paste.
+Local resizing = FakeTerminal(80, 24)
+resizing.Feed("{E}[200~abc")
+resizing.Resize(100, 40)
+resizing.Feed("def{E}[201~")
+Loop
+    Local next = resizing.ReadEvent()
+    If next == Null Then Break
+    Print("resized pasting:", Brief(next))
+End Loop
+
+// A "\n" is part of the "\r" right before it, as a line from a pipe ends, but after a pause,
+// it's a key of its own, as Ctrl+J is.
+Local returns = FakeTerminal(80, 24)
+returns.Feed("\r")
+returns.Pause(1.Seconds)
+returns.Feed("\n")
+returns.Feed("x\r\ny")
+Loop
+    Local next = returns.ReadEvent()
+    If next == Null Then Break
+    Print("returns:", Brief(next))
+End Loop
+
+// ReadEvent and PollEvent read in raw mode, as ReadKey does, on a Terminal of a program's own.
+Local own = ModeTerminal()
+Print("read in raw mode:", Brief(own.ReadEvent() ?? InputEvent("none")), Brief(own.PollEvent(1.Seconds) ?? InputEvent("none")), ", ".Join(own.Reads), own.Mode)
 
 // Raw mode, which nests, each asking for more.
 Print("raw:", fake.IsRaw, fake.InputMode)
