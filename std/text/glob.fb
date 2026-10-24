@@ -6,6 +6,7 @@
 
 Import std.core
 Import std.collections.array
+Import std.text.char
 Import std.text.unicode
 
 // What a piece of a pattern matches.
@@ -32,15 +33,21 @@ Public Class Glob
     // Whether letters match in either case.
     Public ReadOnly Field IgnoreCase: Bool
 
-    // A Glob of pattern. With ignoreCase, letters match in either case, as Unicode folds them.
+    // A Glob of pattern. With ignoreCase, letters match in either case, as Unicode folds each
+    // one, so the pattern matches all it does without it, and more.
     Public New(pattern: String, ignoreCase: Bool = False)
         Pattern = pattern
         IgnoreCase = ignoreCase
         Local alternatives: Piece[][] = []
-        Local read = pattern
-        If ignoreCase Then read = CaseFold(pattern)
-        For alternative In Expanded(read)
-            alternatives.Add(PiecesOf(alternative))
+        For alternative In Expanded(pattern)
+            Local pieces = PiecesOf(alternative)
+            If ignoreCase
+                For i = 0 Until pieces.Count
+                    pieces[i].Literal = Fold(pieces[i].Literal)
+                End For
+            End If
+
+            alternatives.Add(pieces)
         End For
 
         Alternatives = alternatives
@@ -48,11 +55,16 @@ Public Class Glob
 
     // Whether all of text matches the pattern.
     Public Method Matches(text: String): Bool
-        Local read = text
-        If IgnoreCase Then read = CaseFold(text)
-        Local chars = read.Chars
+        Local chars = text.Chars
+        Local folded: Char[] = []
+        If IgnoreCase
+            For c In chars
+                folded.Add(Fold(c))
+            End For
+        End If
+
         For pieces In Alternatives
-            If Matched(pieces, chars) Then Return True
+            If Matched(pieces, chars, folded) Then Return True
         End For
 
         Return False
@@ -259,9 +271,19 @@ Function SetOf(chars: Char[], open: Int, finish: Int): Piece
     Return Piece(PieceKind.SET, ' ', lows, highs, negated)
 End Function
 
+// c as a glob that ignores case compares it: its case folding, where that's one character, as
+// it is for nearly all, or else its lowercase, as for "ß", whose folding is "ss".
+Function Fold(c: Char): Char
+    Local folded = CaseFold("{c}").Chars
+    Return folded.Count == 1 ? folded[0] : c.ToLower()
+End Function
+
 // Whether pieces match all of text: a table, from the last piece back, of whether the pieces
-// from each on match the text from each place on.
-Function Matched(pieces: Piece[], text: Char[]): Bool
+// from each on match the text from each place on. Ignoring case, folded holds text's characters
+// folded, which a literal piece, folded too, is compared with, and a set has a letter in it when
+// it has the letter in any case.
+Function Matched(pieces: Piece[], text: Char[], folded: Char[]): Bool
+    Local ignoring = folded.Count > 0
     Local count = text.Count
     Local after: Bool[] = []
     after.Resize(count + 1, False)
@@ -274,11 +296,20 @@ Function Matched(pieces: Piece[], text: Char[]): Bool
         For at = count To 0 Step -1
             Select piece.Kind
             Case PieceKind.LITERAL
-                here[at] = at < count && text[at] == piece.Literal && after[at + 1]
+                here[at] = at < count && (ignoring ? folded[at] : text[at]) == piece.Literal &&
+                           after[at + 1]
             Case PieceKind.ONE
                 here[at] = at < count && text[at] != '/' && after[at + 1]
             Case PieceKind.SET
-                here[at] = at < count && text[at] != '/' && InSet(piece, text[at]) && after[at + 1]
+                If at < count && text[at] != '/' && after[at + 1]
+                    Local c = text[at]
+                    Local inside = Inside(piece, c)
+                    If ignoring
+                        inside = inside || Inside(piece, folded[at]) || Inside(piece, c.ToUpper())
+                    End If
+
+                    here[at] = inside != piece.Negated
+                End If
             Case PieceKind.STAR
                 here[at] = after[at] || (at < count && text[at] != '/' && here[at + 1])
             Case PieceKind.GLOBSTAR
@@ -296,11 +327,11 @@ Function Matched(pieces: Piece[], text: Char[]): Bool
     Return after[0]
 End Function
 
-Function InSet(piece: Piece, c: Char): Bool
-    Local inside = False
+// Whether c is one of the set's Chars, from one of its Lows to its High, negated or not.
+Function Inside(piece: Piece, c: Char): Bool
     For i = 0 Until piece.Lows.Count
-        If c >= piece.Lows[i] && c <= piece.Highs[i] Then inside = True
+        If c >= piece.Lows[i] && c <= piece.Highs[i] Then Return True
     End For
 
-    Return inside != piece.Negated
+    Return False
 End Function

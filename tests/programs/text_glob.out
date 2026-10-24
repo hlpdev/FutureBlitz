@@ -38,4 +38,16 @@ a**/b ax/y/b True
 src**/main.fb srcmain.fb False
 src/**/x src/x True
 **/x x True
+? ß True True
+[ß] ß True True
+?.txt İ.txt True True
+stra?e straße True True
+ß ẞ False True
+[a-z]x QX False True
+[A-Z] q False True
+[!a-z] Q True False
+[!a-z] 1 True True
+İ i False True
+Σ ς False True
+STRASSE straße False False
 True True False **/*.{png,jpg} True True

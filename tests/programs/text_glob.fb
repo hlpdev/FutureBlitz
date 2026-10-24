@@ -18,6 +18,16 @@ For check In [("*.fb", "main.fb"), ("*.fb", "src/main.fb"), ("src/**/*.fb", "src
     Print(check.0, check.1, Glob.Match(check.0, check.1))
 End For
 
+// Ignoring case, each letter matches in either case, as Unicode folds it to one character, so a
+// ?, a set, and a range still take "ß" and "İ", though their whole foldings are two; a set, or
+// one negated, has a letter when it has it in any case. A folding of two characters, "ß"'s "ss",
+// isn't two of the pattern's.
+For check In [("?", "ß"), ("[ß]", "ß"), ("?.txt", "İ.txt"), ("stra?e", "straße"), ("ß", "ẞ"),
+              ("[a-z]x", "QX"), ("[A-Z]", "q"), ("[!a-z]", "Q"), ("[!a-z]", "1"), ("İ", "i"),
+              ("Σ", "ς"), ("STRASSE", "straße")]
+    Print(check.0, check.1, Glob.Match(check.0, check.1), Glob.Match(check.0, check.1, True))
+End For
+
 Local pictures = Glob("**/*.{{png,jpg}}", True)
 Print(pictures.Matches("A/B/PHOTO.JPG"), pictures.Matches("photo.png"), pictures.Matches("a.gif"),
       pictures.Pattern, pictures.IgnoreCase, Glob.Match("ÉCOLE*", "école.md", True))
