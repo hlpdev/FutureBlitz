@@ -4,7 +4,7 @@
 
 ## S13-async-1 (medium): 'Async Static Method' or 'Async Final Method' after a required Interface Method is parsed as that Method's body
 
-Status: open
+Status: fixed in 0de37c1e
 
 Where: compiler/src/parser.cpp:1135
 
@@ -48,7 +48,7 @@ Skeptic: Ran f1.fb (an Interface with 'Method Size(): Int' then 'Async Static Me
 
 ## S13-buffered-binary-1 (medium): BufferedReader gives old bytes again after the wrapped Reader's read throws
 
-Status: open
+Status: fixed in ece61bad
 
 Where: std/io/buffered.fb:79
 
@@ -116,7 +116,7 @@ Skeptic: I ran the finding's program (f1.fb) in debug and release. Both builds p
 
 ## S13-streams-1 (medium): ReadAll, ReadAllAsync, and ReadAllText take quadratic time: Add reserves exactly one more chunk on every read
 
-Status: open
+Status: fixed in 62244c76
 
 Where: std/io/streams.fb:167
 
@@ -157,7 +157,7 @@ Skeptic: I built the reviewer's Zeros program in release with fb build --release
 
 ## S13-async-2 (low): An extending Interface can redeclare an Async member as plain, or the reverse, with no error at the Interface
 
-Status: open
+Status: fixed in 26f44909
 
 Where: compiler/src/sema.cpp:8762
 
@@ -191,7 +191,7 @@ Skeptic: f2.fb (Fast Extends Loader, redeclaring Async LoadAsync as plain and pl
 
 ## S13-async-3 (low): An Async Method giving an Iterator's Struct or Class for a plain requirement is reported as a signature mismatch, not as Async
 
-Status: open
+Status: fixed in 5bba7826
 
 Where: compiler/src/sema.cpp:4972
 
@@ -234,7 +234,7 @@ Skeptic: Ran f3.fb in debug. It printed "C's 'Items' doesn't match Lister's, whi
 
 ## S13-async-5 (low): Spec 06 still lets a Class implementing Iterator<T> stand in for an Async member's result, and spec 10 names only the Struct
 
-Status: open
+Status: fixed in f9a99583
 
 Where: docs/spec/10-concurrency.md:126
 
@@ -275,7 +275,7 @@ Skeptic: Ran f5.fb in debug and got "C's 'ItemsAsync' doesn't match Lister's, wh
 
 ## S13-buffered-binary-2 (low): BufferedWriter keeps a whole-buffer write, though its comments say it goes straight through
 
-Status: open
+Status: fixed in f7392ee6
 
 Where: std/io/buffered.fb:138
 
@@ -316,7 +316,7 @@ Skeptic: I ran f2.fb with a counting Writer and a 4-byte BufferedWriter. WriteTe
 
 ## S13-buffered-binary-3 (low): ReadText's error for a count past what an array holds names ReadBytes, and isn't UNEXPECTED_END as the class comment says
 
-Status: open
+Status: fixed in cd9aa487
 
 Where: std/io/binary.fb:55
 
@@ -344,7 +344,7 @@ Skeptic: I ran f3.fb in debug. ReadText(3000000000) printed `OTHER: ReadBytes re
 
 ## S13-buffered-binary-4 (low): BufferedReader.ReadByte has no Async twin, though ReadLine has one
 
-Status: open
+Status: fixed in ece61bad
 
 Where: std/io/buffered.fb:50
 
@@ -368,7 +368,7 @@ Skeptic: I ran f4.fb. It failed to compile with `error: BufferedReader has no me
 
 ## S13-buffered-binary-5 (low): Panics and paths in buffered.fb and binary.fb that no test covers
 
-Status: open
+Status: fixed in ece61bad, f7392ee6, and cd9aa487
 
 Where: tests/programs/io_streams.fb:1
 
@@ -404,7 +404,7 @@ Skeptic: I ran f5.fb. It printed `1 120`, then `OTHER`, then `panic: a BufferedW
 
 ## S13-streams-2 (low): MemoryStream.Write after a Seek near Int64's max overflows: it panics, differently in debug and release, instead of throwing its size IOError
 
-Status: open
+Status: fixed in 4e1576cd
 
 Where: std/io/memory.fb:38
 
@@ -441,7 +441,7 @@ Skeptic: I ran seekmax.fb: MemoryStream([1,2,3]), Seek(9223372036854775807, STAR
 
 ## S13-streams-3 (low): A Seek whose place overflows Int64 forward is reported as before the stream's start
 
-Status: open
+Status: fixed in 4e1576cd
 
 Where: std/io/memory.fb:138
 
@@ -477,7 +477,7 @@ Skeptic: I ran seekover.fb in debug and release. MemoryStream.Seek(9223372036854
 
 ## S13-streams-5 (low): streams.fb's header says Seeker has Async twins, but by design it has none
 
-Status: open
+Status: fixed in c1717293
 
 Where: std/io/streams.fb:1
 
