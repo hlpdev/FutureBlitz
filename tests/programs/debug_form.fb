@@ -189,3 +189,25 @@ Function DebugAll(values: Formattable...): String
 End Function
 
 Print(DebugAll(5, "a", True, Suit.Hearts))
+
+// A @Flags value's bits that no member has show after its members', in hex.
+@Flags Enum Layer
+    World, Player, Trigger
+End Enum
+
+Local odd = 9 As Layer
+Local bare = 8 As Layer
+Print("{odd:?} {Layer.World:?} {odd == Layer.World} {bare:?} {~Layer.World:?}")
+
+// A fixed array of several dimensions shows its elements in one list, as its text does.
+Struct Board
+    Field Cells: Int[2, 3]
+End Struct
+
+Local grid: Int[2, 3]
+grid[0, 0] = 1
+grid[1, 2] = 6
+Local board = Board()
+board.Cells = grid
+Print("{grid:?} {board:?}")
+Print(Dump(board))

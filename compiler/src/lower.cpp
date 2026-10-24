@@ -6239,7 +6239,8 @@ private:
         if (is_enum(type)) {
             std::vector<operand_t> parts;
             add_text(parts, value, type);
-            return parts.front();
+            return types().get(type).flags ? flags_debug(value, type, parts.front())
+                                           : parts.front();
         }
 
         // A T[] is an object too, which can be in a cycle, as a graph of Structs can be through
@@ -6281,6 +6282,49 @@ private:
             .arguments = { { .value = shown, .by_ref = in_place }, { .value = indent } },
         };
         return temporary(std::move(call), type_id_t::STRING, true);
+    }
+
+    /// A @Flags value's debug form: its text, which leaves out the bits that no member has where
+    /// it has a member's, then those bits in hex, as "World | 0x8", so it tells values apart.
+    operand_t flags_debug(const operand_t& value, const type_id_t type, const operand_t& text) {
+        const span_t nowhere;
+        const type_t& info = types().get(type);
+        const std::uint32_t width = bit_width(info.inner);
+        std::uint64_t known = 0;
+        for (const enum_value_t& member : info.values) {
+            known |= member.bits;
+        }
+
+        const std::uint64_t all =
+            width >= 64 ? ~std::uint64_t{ 0 } : (std::uint64_t{ 1 } << width) - 1;
+        const auto mask = [](const std::uint64_t bits) {
+            return const_value_t{ .type = type_id_t::UINT64, .data = bits };
+        };
+        const operand_t bits = cast(cast(value, info.inner, nowhere), type_id_t::UINT64, nowhere);
+        const operand_t rest = wrapping(binary_op_t::BIT_AND, bits, mask(all & ~known), nowhere);
+        const operand_t members = wrapping(binary_op_t::BIT_AND, bits, mask(known), nowhere);
+        const operand_t both = compare(
+            binary_op_t::AND,
+            compare(binary_op_t::NOT_EQUAL, rest, zero(type_id_t::UINT64), nowhere),
+            compare(binary_op_t::NOT_EQUAL, members, zero(type_id_t::UINT64), nowhere), nowhere);
+        const local_id_t shown = add_local(type_id_t::STRING);
+        initialize(shown, text);
+        const block_id_t extra = new_block();
+        const block_id_t done = new_block();
+        terminate(branch_t{ .condition = both, .if_true = extra, .if_false = done });
+        start(extra);
+        // What this branch makes it lets go of in it, and the statement's own stay.
+        const std::size_t mark = m_temporaries.size();
+        const operand_t hex = runtime_call(runtime_function_t::FORMAT_UINT,
+                                           { rest, make_string("X") }, type_id_t::STRING, true);
+        store(shown, runtime_call(runtime_function_t::JOIN,
+                                  { place_t{ shown }, make_string(" | 0x"), hex },
+                                  type_id_t::STRING, true));
+        release_temporaries_from(mark);
+        jump(done);
+        start(done);
+        m_temporaries.push_back(shown);
+        return place_t{ shown };
     }
 
     /// Whether a value of a type holds a fixed array: a fixed array, or a Struct, tuple, or T? of
