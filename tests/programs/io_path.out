@@ -70,7 +70,9 @@ True True
 //server/share //server/share //server/share
 WithExtension
 save.bak a/save.txt a/b.tar
-a/save.bak/ C:\x\größe.bin
+a/save.bak C:\x\größe.bin
+a/b.txt a.txt C:\x.bin b
+save.tar.gz .gz
 Compare
 True False False True
 2
