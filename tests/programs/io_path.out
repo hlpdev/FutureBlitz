@@ -63,6 +63,11 @@ a
 save.dat
 save.dat
 none
+x
+.
+../a
+True True
+//server/share //server/share //server/share
 WithExtension
 save.bak a/save.txt a/b.tar
 a/save.bak/ C:\x\größe.bin
