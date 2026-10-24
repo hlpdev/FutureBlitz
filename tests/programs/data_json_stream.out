@@ -1,0 +1,75 @@
+== reader
+BEGIN_OBJECT@1 KEY("a")@1 BEGIN_ARRAY@2 INT(1)@2 BEGIN_OBJECT@3 KEY("b")@3 NULL@3 END_OBJECT@2 END_ARRAY@1 KEY("c")@1 STRING("d")@1 KEY("e")@1 BEGIN_ARRAY@2 END_ARRAY@1 END_OBJECT@0 END@0
+INT(42)@0 END@0
+STRING("lone")@0 END@0
+BOOL(True)@0 END@0
+BEGIN_ARRAY@1 INT(0)@1 INT(0)@1 INT(9223372036854775807)@1 INT(-9223372036854775808)@1 UINT(9223372036854775808)@1 UINT(18446744073709551615)@1 END_ARRAY@0 END@0
+BEGIN_ARRAY@1 DOUBLE(18446744073709551616)@1 DOUBLE(-9223372036854775808)@1 DOUBLE(1.5)@1 DOUBLE(-0.0025)@1 DOUBLE(100)@1 DOUBLE(0)@1 DOUBLE(0)@1 END_ARRAY@0 END@0
+BEGIN_ARRAY@1 STRING("\"\\/\b\f\n\r\t")@1 STRING("Aé中𝄞")@1 STRING("��")@1 STRING("é😀")@1 END_ARRAY@0 END@0
+BEGIN_OBJECT@1 KEY("")@1 INT(1)@1 KEY("k")@1 BEGIN_OBJECT@2 KEY("k")@2 BEGIN_OBJECT@3 KEY("k")@3 BEGIN_OBJECT@4 END_OBJECT@3 END_OBJECT@2 END_OBJECT@1 END_OBJECT@0 END@0
+== numbers as each type
+INT 7 7 7
+UINT 18446744073709551615 18446744073709551616
+DOUBLE 2.5
+== places
+BEGIN_ARRAY at 1:1
+INT at 2:3
+STRING at 3:3
+STRING at 3:8
+BOOL at 4:3
+END_ARRAY at 5:1
+== skip
+skipped skip, at depth 1
+keep = 1
+skipped also, at depth 1
+last = 2
+END_OBJECT
+== bytes
+BEGIN_ARRAY@1 STRING("é")@1 END_ARRAY@0 END@0
+ParseError(SYNTAX, 1:2: the text isn't JSON: a string's bytes aren't UTF-8)
+ParseError(UNEXPECTED_END, 1:1: the text isn't JSON: the JSON ends too soon)
+== depth
+BEGIN_ARRAY@1 BEGIN_ARRAY@2 BEGIN_ARRAY@3 INT(1)@3 END_ARRAY@2 END_ARRAY@1 END_ARRAY@0 END@0
+BEGIN_ARRAY@1 BEGIN_ARRAY@2 BEGIN_ARRAY@3 INT(1)@3 END_ARRAY@2 END_ARRAY@1 END_ARRAY@0 END@0
+BEGIN_ARRAY@1 BEGIN_ARRAY@2 ParseError(OUT_OF_RANGE, 1:3: the text isn't JSON: arrays and objects are nested too deep)
+BEGIN_OBJECT@1 KEY("a")@1 ParseError(OUT_OF_RANGE, 1:7: the text isn't JSON: arrays and objects are nested too deep)
+== refused
+ParseError(UNEXPECTED_END, 1:1: the text isn't JSON: the JSON ends too soon)
+ParseError(UNEXPECTED_END, 1:4: the text isn't JSON: the JSON ends too soon)
+BEGIN_ARRAY@1 INT(1)@1 ParseError(SYNTAX, 1:4: the text isn't JSON: a value can't start here)
+BEGIN_OBJECT@1 KEY("a")@1 ParseError(SYNTAX, 1:6: the text isn't JSON: a key needs a ':' after it)
+BEGIN_OBJECT@1 KEY("a")@1 INT(1)@1 ParseError(SYNTAX, 1:9: the text isn't JSON: an object needs a key, a string, here)
+BEGIN_OBJECT@1 ParseError(SYNTAX, 1:2: the text isn't JSON: an object needs a key, a string, here)
+BEGIN_ARRAY@1 INT(1)@1 END_ARRAY@0 ParseError(SYNTAX, 1:5: the text isn't JSON: there's more after the JSON)
+BEGIN_ARRAY@1 ParseError(SYNTAX, 1:6: the text isn't JSON: a string has a control character, unescaped)
+BEGIN_ARRAY@1 ParseError(SYNTAX, 1:3: the text isn't JSON: a string has an escape JSON doesn't)
+BEGIN_ARRAY@1 ParseError(SYNTAX, 1:3: the text isn't JSON: a \u escape needs 4 hex digits)
+BEGIN_ARRAY@1 ParseError(SYNTAX, 1:5: the text isn't JSON: there's a word JSON doesn't have)
+BEGIN_ARRAY@1 ParseError(SYNTAX, 1:3: the text isn't JSON: a number needs a digit)
+BEGIN_ARRAY@1 ParseError(SYNTAX, 1:4: the text isn't JSON: a number needs a digit after its point)
+BEGIN_ARRAY@1 ParseError(SYNTAX, 1:4: the text isn't JSON: a number needs a digit in its exponent)
+BEGIN_ARRAY@1 ParseError(SYNTAX, 1:2: the text isn't JSON: a value can't start here)
+BEGIN_ARRAY@1 ParseError(SYNTAX, 1:2: the text isn't JSON: a value can't start here)
+BEGIN_ARRAY@1 INT(0)@1 ParseError(SYNTAX, 1:3: the text isn't JSON: an array needs a ',' or ']')
+BEGIN_ARRAY@1 ParseError(OUT_OF_RANGE, 1:2: the text isn't JSON: a number is too large for a Double)
+BEGIN_ARRAY@1 INT(1)@1 ParseError(SYNTAX, 1:3: the text isn't JSON: an array ends with '}')
+BEGIN_OBJECT@1 KEY("a")@1 INT(1)@1 ParseError(SYNTAX, 1:8: the text isn't JSON: an object ends with ']')
+ParseError(UNEXPECTED_END, 1:6: the text isn't JSON: a string doesn't end)
+BEGIN_ARRAY@1 ParseError(SYNTAX, 1:2: the text isn't JSON: a value can't start here)
+== writer
+[] False
+False
+{"text":"quote \" backslash \\ line\nnul \u0000 bell \u0007 é","ints":[0,-9223372036854775808,18446744073709551615],"doubles":[1.0,-0.0,0.1,1e+21,1.5e-07,123456789012345680.0],"empty":{},"none":[],"":null,"yes":true}
+True
+BEGIN_OBJECT@1 KEY("text")@1 STRING("quote \" backslash \\ line\nnul \u0000 bell \u0007 é")@1 KEY("ints")@1 BEGIN_ARRAY@2 INT(0)@2 INT(-9223372036854775808)@2 UINT(18446744073709551615)@2 END_ARRAY@1 KEY("doubles")@1 BEGIN_ARRAY@2 DOUBLE(1)@2 DOUBLE(-0)@2 DOUBLE(0.1)@2 DOUBLE(1e+21)@2 DOUBLE(1.5e-07)@2 DOUBLE(123456789012345680)@2 END_ARRAY@1 KEY("empty")@1 BEGIN_OBJECT@2 END_OBJECT@1 KEY("none")@1 BEGIN_ARRAY@2 END_ARRAY@1 KEY("")@1 NULL@1 KEY("yes")@1 BOOL(True)@1 END_OBJECT@0 END@0
+[
+    1,
+    {
+        "a": [
+            [],
+            false
+        ],
+        "b": {}
+    }
+]
+"only" True

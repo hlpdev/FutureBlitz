@@ -1,0 +1,5 @@
+// A key goes in an object: one outside of any panics where Key is called.
+Import std.data
+
+Local writer = JsonWriter()
+writer.Key("loose")

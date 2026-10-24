@@ -1,0 +1,1 @@
+panic: JsonWriter.WriteInt comes after the document's value, which is all written at panic_json_writer_second.fb:6:1

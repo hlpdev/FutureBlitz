@@ -1,0 +1,4 @@
+// A JsonReader reads to a depth of 1 or more: 0 panics where it's made.
+Import std.data
+
+Local reader = JsonReader("1", 0)

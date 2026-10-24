@@ -1,0 +1,8 @@
+// GetString is for a key or a string: on an INT, it panics where it's called.
+Import std.data
+
+Local reader = JsonReader("[1]")
+Try? reader.Next()
+Try? reader.Next()
+Local n = reader.GetInt64()
+Local text = reader.GetString()

@@ -1,0 +1,6 @@
+// An object's value comes after its key: one before panics where it's written.
+Import std.data
+
+Local writer = JsonWriter()
+writer.BeginObject()
+writer.WriteBool(True)

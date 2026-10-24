@@ -1,0 +1,64 @@
+// JSON's conformance suite: JsonReader reads each of JSONTestSuite's parsing cases to its end, and
+// takes every y_ one, which is JSON, refuses every n_ one, which isn't, and does as it says with
+// each i_ one, which RFC 8259 leaves to it.
+Import std.core
+Import std.data
+Import "./data_json_suite/cases"
+
+// The bytes hex gives, two digits each.
+Function BytesOf(hex: String): UInt8[]
+    Local bytes: UInt8[] = []
+    Local high = -1
+    For code In hex.Bytes
+        Local digit = code >= 97 ? (code As Int) - 87 : (code As Int) - 48
+        If high < 0
+            high = digit
+        Else
+            bytes.Add((high * 16 + digit) As UInt8)
+            high = -1
+        End If
+    End For
+    Return bytes
+End Function
+
+// Whether the reader reads bytes as JSON, to its END, and what refused it when it doesn't.
+Function Read(bytes: UInt8[]): String
+    Local reader = JsonReader(bytes)
+    Try
+        While reader.Next() != JsonToken.END
+        End While
+        Return "takes"
+    Catch e As ParseError
+        Return "refuses ({e.Kind})"
+    End Try
+End Function
+
+Local taken = 0
+Local refused = 0
+Local yes = 0
+Local no = 0
+For suiteCase In Cases()
+    Local name, hex = suiteCase
+    Local result = Read(BytesOf(hex))
+    Local first = name.Bytes[0]
+    If first == 121
+        yes += 1
+        If result == "takes"
+            taken += 1
+        Else
+            Print("wrong: {name} {result}")
+        End If
+    ElseIf first == 110
+        no += 1
+        If result != "takes"
+            refused += 1
+        Else
+            Print("wrong: {name} takes")
+        End If
+    Else
+        Print("{name}: {result}")
+    End If
+End For
+
+Print("takes {taken} of the {yes} y_ cases")
+Print("refuses {refused} of the {no} n_ cases")
