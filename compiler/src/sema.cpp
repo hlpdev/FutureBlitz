@@ -1301,10 +1301,12 @@ private:
 
         const type_id_t type = m_analysis.types.add_interface("Error");
         m_analysis.types.set_interfaces(type, { any_class });
+        // Public, as std's Error is, so any module's Public generic code can name it.
         m_declared_types[type] = add_symbol({
             .kind = symbol_kind_t::TYPE,
             .name = "Error",
             .type = type,
+            .modifiers = { .visibility = visibility_t::PUBLIC },
             .constraint_only = true,
         });
         m_constraint_only[type] = "says that a type is an error";
@@ -1321,10 +1323,12 @@ private:
             m_analysis.types.set_interfaces(type, { equatable });
         }
 
+        // Public, as a keyword is everywhere, so any module's Public generic code can name it.
         m_declared_types[type] = add_symbol({
             .kind = symbol_kind_t::TYPE,
             .name = "Class",
             .type = type,
+            .modifiers = { .visibility = visibility_t::PUBLIC },
             .constraint_only = true,
         });
         m_constraint_only[type] = "says that a type is a Class";

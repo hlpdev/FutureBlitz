@@ -3062,6 +3062,31 @@ TEST_CASE("Where T: Class says a type parameter is a Class, which a Weak<T> refe
           });
 }
 
+TEST_CASE("Class and Error are constraints any module's Public code can have", "[sema]") {
+    const std::vector<fb::library_file_t> holder{
+        {
+            .path = "lib/holder.fb",
+            .text = "Import std.core\n"
+                    "Public Class Holder<T>\n"
+                    "    Where T: Class\n"
+                    "    Public Field Item: Weak<T>\n"
+                    "    Public Method Keep<O: Class>(owner: O): Weak<O> => owner\n"
+                    "End Class\n"
+                    "Public Function Rethrow<E: Error>(error: E): Int Throws E\n"
+                    "    Throw error\n"
+                    "End Function\n",
+        },
+    };
+    CHECK(errors_with("Import std.core\n"
+                      "Import \"./lib/holder\"\n"
+                      "Class Node\nEnd Class\n"
+                      "Local h = Holder<Node>()\n"
+                      "Local w = h.Keep(Node())\n"
+                      "Local n = Try? Rethrow(Error(\"no\"))",
+                      holder)
+              .empty());
+}
+
 TEST_CASE("a Weak<T> of a Class that's Sendable is Sendable, a type parameter's too", "[sema]") {
     constexpr std::string_view hub = "Import std.core\n"
                                      "Shared Class Hub\n"

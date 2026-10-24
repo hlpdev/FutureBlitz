@@ -1,0 +1,35 @@
+// A module's Public generic code can have Class and Error as constraints, and another module's
+// code uses it.
+Import std.core
+Import "./class_constraint_modules/events"
+
+Class Widget
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+End Class
+
+Class Oops Extends Error
+    New(message: String)
+        Super.New(message)
+    End New
+End Class
+
+Local clicks = Event<Int>()
+Local widget = Widget("w")
+clicks.Subscribe(widget, Function(owner: Widget, n: Int) => Print("{owner.Name} hears {n}"))
+clicks.Emit(1)
+widget = Widget("v")
+clicks.Emit(2)
+
+Local holder = Holder<Widget>()
+holder.Item = widget
+Print(holder.Item?.Name ?? "gone")
+
+Try
+    Print(Rethrow(Oops("thrown")))
+Catch e As Oops
+    Print("caught {e.Message}")
+End Try

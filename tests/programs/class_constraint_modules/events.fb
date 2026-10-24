@@ -1,0 +1,35 @@
+// Public generic code whose constraints are Class and Error, which any module can name.
+Import std.core
+
+Public Class Event<T>
+    Field Handlers: (Func(T): Bool)[] = []
+
+    // Each handler holds its owner weakly, and goes once the owner does.
+    Public Method Subscribe<O: Class>(owner: O, handler: Func(O, T))
+        Local kept: Weak<O> = owner
+        Handlers.Add(Function(value: T)
+            Local alive = kept
+            If alive == Null Then Return False
+            handler(alive, value)
+            Return True
+        End Function)
+    End Method
+
+    Public Method Emit(value: T)
+        Local live: (Func(T): Bool)[] = []
+        For handler In Handlers
+            If handler(value) Then live.Add(handler)
+        End For
+
+        Handlers = live
+    End Method
+End Class
+
+Public Class Holder<T>
+    Where T: Class
+    Public Field Item: Weak<T>
+End Class
+
+Public Function Rethrow<E: Error>(error: E): Int Throws E
+    Throw error
+End Function
