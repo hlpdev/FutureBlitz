@@ -50,6 +50,8 @@ Function Failure(what: String, a: Path, b: Path? = Null): String
                 File.Copy(a, b ?? a)
             Case "move"
                 File.Move(a, b ?? a)
+            Case "lock"
+                FileLock.Acquire(a)
             Case "create"
                 Dir.Create(a)
             Case "create all"
@@ -215,6 +217,21 @@ Print(Failure("entries", root / "missing"))
 Print(Failure("copy", root / "missing", root / "x"))
 Print(Failure("copy", root / "ä", root / "x"))
 Print(Failure("move", root / "missing", root / "x"))
+// A folder only moves where nothing is, a file never goes over a folder, and a file isn't
+// copied over one, the same on every OS; and a folder isn't a lock's.
+Try File.WriteText(root / "kept.dat", "kept")
+Try Dir.Create(root / "empty")
+Print(Failure("move", root / "plain", root / "kept.dat"))
+Print(Failure("move", root / "plain", root / "empty"))
+Print(Failure("move", root / "kept.dat", root / "plain"))
+Print(Failure("copy", root / "kept.dat", root / "plain"))
+Print(Failure("lock", root / "plain"))
+Print("[{Try File.ReadText(root / "kept.dat")}] {Dir.Exists(root / "plain")} {Dir.Exists(root / "empty")}")
+// A rename of the case of a name moves it, where the disk ignores case too.
+Try File.Move(root / "kept.dat", root / "KEPT.dat")
+Print("{(Try Dir.Glob(root, "*.dat")).Count} {(Try Dir.Glob(root, "KEPT.dat")).Count} [{Try File.ReadText(root / "KEPT.dat")}]")
+Try File.Delete(root / "KEPT.dat")
+Try Dir.Remove(root / "empty")
 Print(Failure("write", root / "missing" / "x.txt"))
 Print(Failure("write", "a\u{0}b"))
 Print(Failure("metadata", root / "missing"))

@@ -700,7 +700,8 @@ the rest is planned.
   POSIX permissions), `Exists` (a file, not a folder), `Size`, `Metadata` (its `Kind`, `Size`,
   `Modified` and `Accessed` Timestamps, its `Created` Timestamp, which is Null where the OS
   doesn't say, and `IsReadOnly`; through links unless asked), `Copy` and `Move` (which replace a
-  file there, and copy a file to another disk), `Delete` (gives whether there was one), and
+  file there, and copy a file to another disk; a folder moves only where nothing is, and neither
+  puts a file over a folder), `Delete` (gives whether there was one), and
   `SetReadOnly`; each with an Async twin, which libuv's thread pool does from the I/O thread's
   loop, whose Await resumes on the main thread. Text reads as UTF-8, with U+FFFD for a byte that
   doesn't start well-formed UTF-8, and stays as it was, its line breaks and a byte order mark

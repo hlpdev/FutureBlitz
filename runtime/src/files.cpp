@@ -458,7 +458,9 @@ std::int64_t copy_request(const request_t& request) {
         return found;
     }
 
-    if (is_directory(stat)) {
+    // Windows' copy onto a folder is ACCESS_DENIED, where POSIX's is EISDIR.
+    uv_stat_t onto{};
+    if (is_directory(stat) || (stat_path(request.other, true, onto) == 0 && is_directory(onto))) {
         return UV_EISDIR;
     }
 
@@ -473,6 +475,23 @@ std::int64_t remove_file(const std::string& path) {
 std::int64_t move_request(const request_t& request) {
     if (has_nul(request.path) || has_nul(request.other)) {
         return UV_EINVAL;
+    }
+
+    // What a rename does with a folder at either end differs: Windows replaces a file with a
+    // folder, and POSIX a folder with an empty one. Here a folder only goes where nothing is, a
+    // file never replaces a folder, and a rename onto the same file, as one of its case is, is
+    // left to the OS.
+    uv_stat_t from{};
+    uv_stat_t onto{};
+    if (stat_path(request.path, false, from) == 0 && stat_path(request.other, false, onto) == 0 &&
+        (from.st_dev != onto.st_dev || from.st_ino != onto.st_ino)) {
+        if (is_directory(from)) {
+            return is_directory(onto) ? UV_EEXIST : UV_ENOTDIR;
+        }
+
+        if (is_directory(onto)) {
+            return UV_EISDIR;
+        }
     }
 
     std::int64_t result = 0;
@@ -790,6 +809,11 @@ constexpr DWORD lock_offset_low = 0xFFFFFFFE;
 std::int64_t acquire_lock(request_t& request) {
     if (has_nul(request.path)) {
         return UV_EINVAL;
+    }
+
+    // Opening a folder to write is EINVAL on Windows and EISDIR on POSIX.
+    if (uv_stat_t found{}; stat_path(request.path, true, found) == 0 && is_directory(found)) {
+        return UV_EISDIR;
     }
 
     const std::int64_t opened = open_file(request.path, UV_FS_O_RDWR | UV_FS_O_CREAT, 0666);
