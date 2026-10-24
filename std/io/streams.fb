@@ -1,6 +1,6 @@
-// std.io's streams: Reader, what bytes come from, Writer, where they go, and Seeker, what moves
-// around in them, each with Async twins that wait on the main thread instead of blocking it, as a
-// file or a socket does; and Copy, ReadAll, and ReadExact over them. Bytes go through Buffers,
+// std.io's streams: Reader, what bytes come from, and Writer, where they go, each with Async
+// twins that wait on the main thread instead of blocking it, as a file or a socket does; Seeker,
+// what moves around in them, which only blocks; and Copy, ReadAll, and ReadExact over them. Bytes go through Buffers,
 // whose memory C code reads and fills too.
 
 Import std.core
