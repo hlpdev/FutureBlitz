@@ -2,6 +2,7 @@
 
 #include "fb/runtime.hpp"
 
+#include <cstdint>
 #include <cstdio>
 #include <span>
 #include <vector>
@@ -21,6 +22,19 @@ void finish_request(const fb_task_t* task);
 /// The Tasks of the requests the I/O thread has under way, which it finishes in time.
 [[nodiscard]] std::vector<const fb_task_t*> requested_tasks();
 
+/// A TaskSource holds `task` until it's given, or lets go of it, which a handler of a signal may
+/// do: while a thread waits for a signal, the main scheduler takes a coroutine waiting for one as
+/// waiting for the signal, not as stuck.
+void start_source_task(const fb_task_t* task);
+void finish_source_task(const fb_task_t* task);
+
+/// The Tasks that TaskSources hold until they're given.
+[[nodiscard]] std::vector<const fb_task_t*> source_tasks();
+
+/// `count` more threads wait for a signal, or fewer for a negative one: the pool doesn't count
+/// them as work that could finish a Task, but for a TaskSource's.
+void add_signal_waits(std::int64_t count);
+
 /// Releases the calling thread's ThreadLocal Globals, as fb_thread_locals_release does, as a
 /// thread the runtime started ends.
 void release_thread_locals();
@@ -36,7 +50,9 @@ void ready_letting_go();
 
 /// Has `done` run on the main thread once the program's code is done, its coroutines too,
 /// before the pool finishes its jobs and the Globals are let go of, as the signals' handlers stop
-/// there. At most one per part of the runtime.
+/// there, or at once on the calling thread when the code is done already. It can run twice, for
+/// a call as the code ends, so the second time it must do nothing. At most one per part of the
+/// runtime.
 void at_code_end(void (*done)());
 
 /// Runs what at_code_end() was given, the last one first.

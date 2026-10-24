@@ -5,6 +5,7 @@
 #include "fb/concurrent.hpp"
 
 #include "fb/runtime.hpp"
+#include "internal.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -324,6 +325,7 @@ void fb_signal_task(fb_task_t* task, const std::uint64_t signal) {
         if (!state.given) {
             fb_object_retain(&task->header);
             state.tasks.push_back(task);
+            fb::runtime::start_source_task(task);
             return;
         }
     }
@@ -345,6 +347,7 @@ std::int32_t fb_signal_give(const std::uint64_t signal) {
     }
 
     for (fb_task_t* task : tasks) {
+        fb::runtime::finish_source_task(task);
         fb_task_finish(task);
         fb_object_release(&task->header);
     }
@@ -361,6 +364,7 @@ std::int32_t fb_signal_given(const std::uint64_t signal) {
 void fb_signal_free(const std::uint64_t signal) {
     auto* state = &object_of<signal_t>(signal);
     for (fb_task_t* task : state->tasks) {
+        fb::runtime::finish_source_task(task);
         fb_object_release(&task->header);
     }
 

@@ -173,6 +173,25 @@ public:
         return m_pending.load(std::memory_order_acquire) == 0;
     }
 
+    /// Whether every job started is done, or waits for a signal, as a handler's thread does
+    /// between signals. A job that starts another first stops waiting, so it's read after.
+    [[nodiscard]] bool idle_but_for_signals() const {
+        const std::int64_t pending = m_pending.load(std::memory_order_acquire);
+        return pending == m_signal_waits.load(std::memory_order_acquire);
+    }
+
+    /// Whether a thread waits for a signal, whose handler may give a TaskSource's Task.
+    [[nodiscard]] bool waits_for_signals() const {
+        return m_signal_waits.load(std::memory_order_acquire) > 0;
+    }
+
+    /// `count` more threads wait for a signal, or fewer for a negative one, which the threads
+    /// that wait look at again.
+    void add_signal_waits(const std::int64_t count) {
+        m_signal_waits.fetch_add(count, std::memory_order_acq_rel);
+        signal();
+    }
+
     /// Returns once `ready` gives true, which it's asked again whenever something changes: a job
     /// is started or done, or a Channel changes. The thread runs no jobs meanwhile, since one
     /// could wait for what this thread would do after.
@@ -366,6 +385,8 @@ private:
     std::atomic<std::uint64_t> m_generation = 0;
     /// The jobs started and not yet done.
     std::atomic<std::int64_t> m_pending = 0;
+    /// The threads of their own that wait for a signal, of those jobs.
+    std::atomic<std::int64_t> m_signal_waits = 0;
 };
 
 pool_t& pool() {
@@ -584,14 +605,20 @@ public:
     /// finishes, or that a coroutine here finishes once it goes on in turn. What they wait for is
     /// on a Scheduler, or waits for one, which only code here could tick.
     [[nodiscard]] bool stuck() const {
-        // The pool first: once it has nothing left, its Tasks are done, which the rest sees.
-        if (!pool().idle()) {
+        // The pool first: once it has nothing left, its Tasks are done, which the rest sees. A
+        // thread that waits for a signal isn't work, though its handler may give a TaskSource's
+        // Task once the signal comes.
+        if (!pool().idle_but_for_signals()) {
             return false;
         }
 
         // The I/O thread's Tasks before whether any is done: one it finishes meanwhile is done
         // by the time it's left out.
         std::vector<const fb_task_t*> coming = fb::runtime::requested_tasks();
+        if (pool().waits_for_signals()) {
+            std::ranges::copy(fb::runtime::source_tasks(), std::back_inserter(coming));
+        }
+
         coming.reserve(coming.size() + m_timers.size());
         for (const timer_t& timer : m_timers) {
             coming.push_back(timer.task);
@@ -688,6 +715,12 @@ requests_t& requests() {
     return instance;
 }
 
+/// The Tasks that TaskSources hold until they're given.
+requests_t& sources() {
+    static requests_t instance;
+    return instance;
+}
+
 } // namespace
 
 void fb::runtime::start_request(const fb_task_t* task) {
@@ -712,6 +745,30 @@ std::vector<const fb_task_t*> fb::runtime::requested_tasks() {
     requests_t& under_way = requests();
     const std::scoped_lock lock(under_way.mutex);
     return under_way.tasks;
+}
+
+void fb::runtime::start_source_task(const fb_task_t* task) {
+    requests_t& held = sources();
+    const std::scoped_lock lock(held.mutex);
+    held.tasks.push_back(task);
+}
+
+void fb::runtime::finish_source_task(const fb_task_t* task) {
+    requests_t& held = sources();
+    const std::scoped_lock lock(held.mutex);
+    std::erase(held.tasks, task);
+}
+
+std::vector<const fb_task_t*> fb::runtime::source_tasks() {
+    requests_t& held = sources();
+    const std::scoped_lock lock(held.mutex);
+    return held.tasks;
+}
+
+void fb::runtime::add_signal_waits(const std::int64_t count) {
+    if (count != 0) {
+        pool().add_signal_waits(count);
+    }
 }
 
 namespace {
