@@ -859,6 +859,23 @@ TEST_CASE("a Task's type takes a Throws, unless it's a function's result", "[par
           "(function F -> (Task<Int> Throws A) Throws B (block))");
     CHECK(parse_text("Local f: Func(): Task<Int> Throws A").dump ==
           "(local f: Func(): (Task<Int> Throws A))");
+
+    // A Func that's a function's result leaves a Throws after its own result to the function.
+    CHECK(parse_text("Function F(): Func(): Task<Int> Throws A\nEnd Function").dump ==
+          "(function F -> Func(): Task<Int> Throws A (block))");
+    CHECK(parse_text("Function F(): Sendable Func(): Task<Int> Throws A\nEnd Function").dump ==
+          "(function F -> Sendable Func(): Task<Int> Throws A (block))");
+    CHECK(parse_text("Function F(): Func(): (Task<Int> Throws A)\nEnd Function").dump ==
+          "(function F -> Func(): (Task<Int> Throws A) (block))");
+
+    // In a Func type's or a lambda's parameters, a ',' goes on to the next parameter.
+    CHECK(parse_text("Local f: Func(Task<Int> Throws A, Int): Int").dump ==
+          "(local f: Func((Task<Int> Throws A), Int): Int)");
+    CHECK(expression("Function(t: Task<Int> Throws A, n) => n") ==
+          "(lambda (t: (Task<Int> Throws A)) (n) => n)");
+
+    // A call's type arguments can be one.
+    CHECK(expression("Holder<Task<Int> Throws A>()") == "(call Holder<(Task<Int> Throws A)>)");
 }
 
 TEST_CASE("Try and Try? take what comes before the next binary operator", "[parser]") {

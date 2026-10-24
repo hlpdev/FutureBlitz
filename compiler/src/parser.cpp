@@ -197,6 +197,9 @@ private:
     /// Set while a function's result is parsed: a Throws after it is the function's, not a
     /// Task's.
     bool m_function_result = false;
+    /// Set while a Func type's or a lambda's parameter is parsed, where a ',' always goes on to
+    /// the next parameter, so a Task's Throws there ends at one.
+    bool m_list_parameter = false;
     /// The Extern block whose Functions are being parsed.
     std::optional<extern_block_t> m_extern;
 
@@ -2937,6 +2940,7 @@ private:
             case token_kind_t::STAR:
             case token_kind_t::KW_FUNC:
             case token_kind_t::KW_CALLBACK:
+            case token_kind_t::KW_THROWS:
             case token_kind_t::LEFT_PAREN:
             case token_kind_t::RIGHT_PAREN:
             case token_kind_t::COLON:
@@ -3408,6 +3412,7 @@ private:
         const name_t name = expect_name();
         std::optional<type_expr_id_t> type;
         if (accept(token_kind_t::COLON)) {
+            m_list_parameter = true;
             type = parse_type();
         }
 
@@ -3556,8 +3561,10 @@ private:
     /// "Float[4, 4]", or "(Int, String)[]".
     type_expr_id_t parse_type() {
         const token_t& token = peek();
-        // Only the outermost type of a function's result leaves a Throws to the function.
+        // Only the outermost type of a function's result leaves a Throws to the function, and of
+        // a Func's or lambda's parameter ends a Task's Throws at a ','.
         const bool result = std::exchange(m_function_result, false);
+        const bool parameter = std::exchange(m_list_parameter, false);
         type_expr_id_t type{};
         // A number is a Const type parameter's argument: the 64 in "Grid<Float, 64, 64>".
         const bool number =
@@ -3575,15 +3582,15 @@ private:
                    peek(1).kind == token_kind_t::KW_FUNC) {
             // "Sendable" is a contextual keyword before Func, and a name everywhere else.
             advance();
-            type = parse_function_type(&token);
+            type = parse_function_type(&token, result);
         } else if (token.kind == token_kind_t::IDENTIFIER) {
-            type = parse_named_type(!result);
+            type = parse_named_type(!result, parameter);
         } else if (token.kind == token_kind_t::KW_SELF) {
             // In an Interface, Self is the type that implements it.
             advance();
             type = add_type(token.span, named_type_t{ .name = text(token) });
         } else if (token.kind == token_kind_t::KW_FUNC || token.kind == token_kind_t::KW_CALLBACK) {
-            type = parse_function_type();
+            type = parse_function_type(nullptr, result);
         } else {
             report_expected("a type");
             return add_type(point(token.span.begin), error_type_t{});
@@ -3638,8 +3645,9 @@ private:
     }
 
     /// A type by name, like "Int", or "Weak<Node>", or after a module's qualifier, like
-    /// "C.Map<K, V>". With `throws`, a Task's type takes a Throws after it: "Task<T> Throws E".
-    type_expr_id_t parse_named_type(const bool throws = true) {
+    /// "C.Map<K, V>". With `throws`, a Task's type takes a Throws after it: "Task<T> Throws E",
+    /// of one Class only for a `parameter` of a Func or lambda.
+    type_expr_id_t parse_named_type(const bool throws = true, const bool parameter = false) {
         const token_t& token = advance();
         if (accept(token_kind_t::DOT)) {
             const name_t qualifier{ .text = text(token), .span = token.span };
@@ -3680,7 +3688,7 @@ private:
         // function's, unless the Task's type is in parentheses.
         std::vector<type_expr_id_t> thrown;
         if (throws && text(token) == "Task" && accept(token_kind_t::KW_THROWS)) {
-            thrown = parse_task_throws();
+            thrown = parse_task_throws(parameter);
         }
 
         if (arguments.empty() && thrown.empty()) {
@@ -3695,11 +3703,12 @@ private:
     }
 
     /// "FileError, ParseError" after a Task's Throws. A ',' goes on to another unless a
-    /// parameter follows it, as in "(t: Task<Int> Throws E, n: Int)", so where anything else
-    /// follows one, as in a tuple or type arguments, the Task's type goes in parentheses.
-    std::vector<type_expr_id_t> parse_task_throws() {
+    /// parameter follows it, as in "(t: Task<Int> Throws E, n: Int)", or always does, in a Func
+    /// type's or a lambda's parameters, which `one` says, so where anything else follows one, as
+    /// in a tuple or type arguments, the Task's type goes in parentheses.
+    std::vector<type_expr_id_t> parse_task_throws(const bool one) {
         std::vector<type_expr_id_t> thrown{ parse_type() };
-        while (at(token_kind_t::COMMA) && peek(1).kind != token_kind_t::KW_BYREF &&
+        while (!one && at(token_kind_t::COMMA) && peek(1).kind != token_kind_t::KW_BYREF &&
                (peek(1).kind != token_kind_t::IDENTIFIER || peek(2).kind != token_kind_t::COLON)) {
             advance();
             thrown.push_back(parse_type());
@@ -3710,8 +3719,10 @@ private:
 
     /// "Func(A, B): R", or "Func(A)" for a function that returns nothing, and "Callback(A, B):
     /// R" alike. The return type takes any "?" after it, so a Func that can be Null is written
-    /// "(Func(): Int)?". After `sendable`, the "Sendable" before it, it's a Sendable Func.
-    type_expr_id_t parse_function_type(const token_t* const sendable = nullptr) {
+    /// "(Func(): Int)?". After `sendable`, the "Sendable" before it, it's a Sendable Func. As a
+    /// `function_result`, a Throws after its own result is the function's too.
+    type_expr_id_t parse_function_type(const token_t* const sendable = nullptr,
+                                       const bool function_result = false) {
         if (!enter()) {
             return add_type(point(peek().span.begin), error_type_t{});
         }
@@ -3729,6 +3740,7 @@ private:
                     advance();
                 }
 
+                m_list_parameter = true;
                 parameters.push_back(parse_type());
                 if (!accept(token_kind_t::COMMA)) {
                     break;
@@ -3743,6 +3755,7 @@ private:
 
         std::optional<type_expr_id_t> result;
         if (accept(token_kind_t::COLON)) {
+            m_function_result = function_result;
             result = parse_type();
         }
 

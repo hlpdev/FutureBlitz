@@ -113,3 +113,36 @@ Try
 Catch e As ParseError
     Print("source: {e.Message}")
 End Try
+
+Async Function Plain(): Int
+    Await NextFrame()
+    Return 4
+End Function
+
+// After a function's result, even a Func's, Throws is the function's.
+Function Starter(fail: Bool): Func(): Task<Int> Throws FileError
+    If fail Then Throw FileError("no starter")
+    Return Function() => Plain()
+End Function
+
+// In a Func type's parameters, a ',' goes on to the next one.
+Function Apply(f: Func(Task<Int> Throws FileError, Int): Int): Int
+    Return f(Load("ab"), 4)
+End Function
+
+Class Holder<T>
+    Field Items: T[] = []
+End Class
+
+Try
+    Local start = Starter(False)
+    Print(Await start())
+    Print(Apply(Function(t: Task<Int> Throws FileError, n) => ((Try? t.Wait()) ?? 0) + n))
+    Local held = Holder<Task<Int> Throws FileError>()
+    held.Items.Add(Load("xyz"))
+    Print(Await held.Items[0])
+    Local again = Starter(True)
+    Print("not here {Await again()}")
+Catch e As FileError
+    Print("starter: {e.Message}")
+End Try

@@ -116,9 +116,12 @@ End Function
   `t.Wait()` re-throw them, each time, and need Try, Try?, or a Try block, as a call that throws
   does. The Task's type says so: `Task<Level> Throws FileError`, which can be written as a type.
   After a function's result, Throws is the function's, so a Task's type there goes in
-  parentheses, `Function Start(): (Task<Level> Throws FileError)`. Its Throws lists Classes as a
-  function's does, so it goes in parentheses before a `?` or `[]` too, and where a `,` goes on to
-  anything but a parameter, like a tuple's next element or the next type argument.
+  parentheses, `Function Start(): (Task<Level> Throws FileError)`, and so it does at the end of
+  a Func that's the result: `Function Make(): Func(): Task<Int> Throws FileError` can throw
+  itself. Its Throws lists Classes as a function's does, so it goes in parentheses before a `?`
+  or `[]` too, and where a `,` goes on to anything but a parameter, like a tuple's next element
+  or the next type argument; in a Func type's or a lambda's parameters, a `,` always goes on to
+  the next parameter.
 - Its error type can be a type parameter that a constraint says is an error, `E: Error` (see
   [07](07-generics.md#class-and-error)), which each call or instance has its own of: `Async
   Function WhenAll<T, E: Error>(tasks: (Task<T> Throws E)[]): T[] Throws E` passes the Tasks'
