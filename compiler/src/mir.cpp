@@ -106,6 +106,8 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "try_receive";
     case runtime_function_t::CHANNEL_CLOSE:
         return "close";
+    case runtime_function_t::CHANNEL_CLOSED:
+        return "closed";
     case runtime_function_t::ASYNC_BEGIN:
         return "async_begin";
     case runtime_function_t::ASYNC_FINISH:

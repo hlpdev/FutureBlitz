@@ -263,6 +263,8 @@ enum class runtime_function_t : std::uint8_t {
     CHANNEL_TRY_RECEIVE,
     /// (Channel<T>) to nothing: closes it.
     CHANNEL_CLOSE,
+    /// (Channel<T>) to a Bool: whether it's closed.
+    CHANNEL_CLOSED,
     /// (Task) to nothing: gives a new Task its completion, which an Async Function finishes.
     ASYNC_BEGIN,
     /// (Task) to nothing: the Async Function is done, which wakes what waits for it.

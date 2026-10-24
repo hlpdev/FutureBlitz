@@ -1,0 +1,42 @@
+// A Channel's IsClosed says whether it's closed, though it may have values left, so code that
+// takes from it with TryReceive knows when no more will come, and so does another thread.
+
+Import std.core
+
+Const ch = Channel<String>(4)
+Print(ch.IsClosed())
+ch.Send("a")
+ch.Send("b")
+ch.Close()
+Print(ch.IsClosed())
+
+// What's left still comes out once it's closed, and then TryReceive gives False for good.
+Local value = ""
+Local taken: String[] = []
+While ch.TryReceive(ByRef value)
+    taken.Add(value)
+End While
+Print(taken, ch.IsClosed(), ch.TryReceive(ByRef value))
+
+// A thread that takes with TryReceive until it's closed and empty gets every value.
+Const numbers = Channel<Int>(2)
+Local summer = Spawn(Function(): Int
+    Local total = 0
+    Local number = 0
+    Loop
+        If numbers.TryReceive(ByRef number)
+            total += number
+        ElseIf numbers.IsClosed()
+            // Closed after the last TryReceive found nothing, but a value may have come first.
+            While numbers.TryReceive(ByRef number)
+                total += number
+            End While
+            Return total
+        End If
+    End Loop
+End Function)
+For i = 1 To 100
+    numbers.Send(i)
+End For
+numbers.Close()
+Print(summer.Wait(), numbers.IsClosed())
