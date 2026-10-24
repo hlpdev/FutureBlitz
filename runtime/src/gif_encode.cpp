@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -192,6 +193,12 @@ private:
     std::array<std::uint8_t, 4096> m_values{};
 };
 
+/// An error in sixteenths, as whole units, the nearest, a half up, for one below 0 as for one
+/// above, which division by 16 would round toward 0 instead, and so make dithered colors lighter.
+int whole(const int sixteenths) {
+    return static_cast<int>(std::floor((sixteenths + 8) / 16.0));
+}
+
 /// The frame's pixels as indexes into a palette of their colors, or of median cut's, dithered by
 /// Floyd and Steinberg's weights, 7, 3, 5, and 1 sixteenths of each pixel's error.
 indexed_t indexed(const std::span<const std::uint8_t> rgba, const std::int64_t width,
@@ -264,7 +271,7 @@ indexed_t indexed(const std::span<const std::uint8_t> rgba, const std::int64_t w
 
             std::uint32_t wanted = 0;
             for (std::size_t c = 0; c < 3; ++c) {
-                const int value = rgba[(i * 4) + c] + ((errors[((x + 1) * 3) + c] + 8) / 16);
+                const int value = rgba[(i * 4) + c] + whole(errors[((x + 1) * 3) + c]);
                 wanted = (wanted << 8U) | static_cast<std::uint32_t>(std::clamp(value, 0, 255));
             }
 
