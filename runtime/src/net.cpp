@@ -61,6 +61,8 @@ enum class meaning_t : std::uint8_t {
     MEANS_HOST_NOT_FOUND,
     MEANS_CLOSED,
     MEANS_TLS,
+    /// std.net.http's, which no socket gives.
+    MEANS_HTTP_STATUS,
     MEANS_OTHER,
     MEANS_TIMED_OUT,
 };
