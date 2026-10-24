@@ -239,19 +239,41 @@ void answer(fb_task_t* task, const std::int32_t value, const bool requested) {
     fb_object_release(&task->header);
 }
 
-int on_progress(void* data, const curl_off_t expected, const curl_off_t downloaded,
+bool is_redirect(const long status) {
+    return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+}
+
+/// Whether the response coming is a redirect the transfer goes on from, as redirect() follows
+/// one, whose body isn't what the transfer gives. libcurl knows where it redirects to only once
+/// it's done, but its Location header before its body.
+bool goes_on(const transfer_t& transfer) {
+    long status = 0;
+    curl_easy_getinfo(transfer.easy, CURLINFO_RESPONSE_CODE, &status);
+    curl_header* location = nullptr;
+    return transfer.redirects >= 0 && is_redirect(status) &&
+           curl_easy_header(transfer.easy, "Location", 0, CURLH_HEADER, -1, &location) == CURLHE_OK;
+}
+
+int on_progress(void* data, curl_off_t /*expected*/, const curl_off_t downloaded,
                 curl_off_t /*to_send*/, curl_off_t /*sent*/) {
     auto& transfer = *static_cast<transfer_t*>(data);
+    // libcurl's expected is 0 both for a body that said it's empty and one that didn't say, and
+    // its Content-Length -1 only for one that didn't.
+    curl_off_t expected = -1;
+    curl_easy_getinfo(transfer.easy, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &expected);
+    const bool counted = !goes_on(transfer);
     fb_task_t* waiting = nullptr;
     bool abandoned = false;
     {
         const std::scoped_lock lock(transfer.mutex);
-        transfer.downloaded = downloaded;
-        transfer.expected = expected > 0 ? expected : -1;
-        if (transfer.waiting != nullptr && transfer.progress &&
-            transfer.downloaded != transfer.reported) {
-            transfer.reported = transfer.downloaded;
-            waiting = std::exchange(transfer.waiting, nullptr);
+        if (counted) {
+            transfer.downloaded = downloaded;
+            transfer.expected = expected;
+            if (transfer.waiting != nullptr && transfer.progress &&
+                transfer.downloaded != transfer.reported) {
+                transfer.reported = transfer.downloaded;
+                waiting = std::exchange(transfer.waiting, nullptr);
+            }
         }
 
         abandoned = transfer.abandoned;
@@ -470,8 +492,7 @@ next_t redirect(transfer_t& transfer) {
     curl_easy_getinfo(transfer.easy, CURLINFO_RESPONSE_CODE, &status);
     const char* location = nullptr;
     curl_easy_getinfo(transfer.easy, CURLINFO_REDIRECT_URL, &location);
-    if (transfer.redirects < 0 || location == nullptr ||
-        (status != 301 && status != 302 && status != 303 && status != 307 && status != 308)) {
+    if (!goes_on(transfer) || location == nullptr) {
         return next_t::END;
     }
 

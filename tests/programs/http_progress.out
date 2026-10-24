@@ -1,0 +1,11 @@
+200000 bytes, to 200000/200000, early True, back False; 200000 bytes, to 200000/200000, early True, back False
+0 bytes, to 0/0, early False, back False; 0 bytes, to 0/0, early False, back False
+50 bytes, to 50/-1, early False, back False; 50 bytes, to 50/-1, early False, back False
+2 bytes, to 2/2, early False, back False; 2 bytes, to 2/2, early False, back False
+[2/2]
+10
+[10/10]
+10
+3
+[10/10, 3/3]
+3

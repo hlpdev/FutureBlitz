@@ -1,0 +1,71 @@
+// What Download's progress is told, blocking, awaited, and through Http: how many bytes came, as
+// they come, before the end too, and how many the response said it has, 0 for an empty body that
+// says so and -1 for one that doesn't say; and nothing of a redirect's own body, so what it's
+// told never goes back.
+Import std.core
+Import std.collections
+Import std.net.http
+
+Global base = Input() ?? ""
+Global told: String[] = []
+Global early = 0
+Global backwards = False
+Global last: Int64 = 0
+
+// Keeps what progress is told, each change once, and how often it was told before the end.
+Function Tell(got: Int64, all: Int64)
+    If got < last Then backwards = True
+    last = got
+    If got < all Then early += 1
+    Local entry = "{got}/{all}"
+    If told.Count == 0 || told[told.Count - 1] != entry Then told.Add(entry)
+End Function
+
+// What a download of path told progress, blocking and awaited, once it's done.
+Async Function Downloaded(client: HttpClient, path: String): String
+    Local seen: String[] = []
+    For awaited In [False, True]
+        told.Clear()
+        early = 0
+        backwards = False
+        last = 0
+        Try
+            Local bytes: UInt8[] = []
+            If awaited
+                bytes = Await client.DownloadAsync("{base}{path}", Tell)
+            Else
+                bytes = client.Download("{base}{path}", Tell)
+            End If
+            Local final = told.Count > 0 ? told[told.Count - 1] : "none"
+            seen.Add("{bytes.Count} bytes, to {final}, early {early > 0}, back {backwards}")
+        Catch e As NetError
+            seen.Add("NetError {e.Kind}")
+        Catch e As TimeoutError
+            seen.Add("TimeoutError")
+        End Try
+    End For
+    Return seen.Join("; ")
+End Function
+
+Local client = HttpClient()
+// The first half comes 300 ms before the rest, which progress is told of before the end.
+Print(Await Downloaded(client, "/bytes/200000?pause=100000"))
+Print(Await Downloaded(client, "/bytes/0"))
+Print(Await Downloaded(client, "/chunked"))
+// A redirect's own 5000 bytes, half of them 300 ms before the rest, aren't the download's.
+Print(Await Downloaded(client, "/redirect-with-body"))
+Print(told)
+
+told.Clear()
+Try
+    Print(Http.Download("{base}/bytes/10", Tell).Count)
+    Print(told)
+    Print(Http.GetBytes("{base}/bytes/10").Count)
+    Print((Await Http.DownloadAsync("{base}/bytes/3", Tell)).Count)
+    Print(told)
+    Print((Await Http.GetBytesAsync("{base}/bytes/3")).Count)
+Catch e As NetError
+    Print("NetError {e.Kind}")
+Catch e As TimeoutError
+    Print("TimeoutError")
+End Try
