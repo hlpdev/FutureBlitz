@@ -1302,9 +1302,13 @@ private:
         const proto_token_t& start = peek();
         if (looking_at("optional") || looking_at("required") || looking_at("repeated")) {
             const proto_token_t& label = advance();
-            field.label = label.text == "optional"   ? proto_label_t::OPTIONAL
-                          : label.text == "required" ? proto_label_t::REQUIRED
-                                                     : proto_label_t::REPEATED;
+            field.label = proto_label_t::REPEATED;
+            if (label.text == "optional") {
+                field.label = proto_label_t::OPTIONAL;
+            } else if (label.text == "required") {
+                field.label = proto_label_t::REQUIRED;
+            }
+
             if (oneof) {
                 error(label.span, "a oneof's fields take no label: they're each optional");
             } else if (field.label == proto_label_t::REQUIRED &&
@@ -2454,6 +2458,15 @@ private:
                                 field.type.name);
         }
 
+        // A map's entry without a value has the enum's zero, which is its first value.
+        if (field.key && field.type.kind == proto_kind_t::ENUM &&
+            field.type.file->enums[field.type.index].values.front().number != 0) {
+            m_diagnostics.error(field.type.span,
+                                "a map's enum values start at 0, which an entry without one has; "
+                                "{}'s first value isn't 0",
+                                field.type.name);
+        }
+
         if (field.packed && field.type.kind == proto_kind_t::MESSAGE) {
             m_diagnostics.error(field.type.span, "only a repeated field of numbers, bools, or "
                                                  "enums is packed, not messages");
@@ -3403,11 +3416,12 @@ private:
             for (std::size_t k = 0; k < members.size(); ++k) {
                 const std::string& member = m_names.fields[members[k]];
                 m_out.line("If {} != Null Then {} += 1", member, local("given_"));
-                listed += std::format("{}{}",
-                                      k == 0                    ? ""
-                                      : k + 1 == members.size() ? " or "
-                                                                : ", ",
-                                      member);
+                std::string_view between = k == 0 ? "" : ", ";
+                if (k > 0 && k + 1 == members.size()) {
+                    between = members.size() > 2 ? ", or " : " or ";
+                }
+
+                listed += std::format("{}{}", between, member);
             }
 
             // "Person's oneof contact holds one of phone or friend, not {given_}".
