@@ -34,6 +34,20 @@ For found In Try xs.FindAll("axxb")
 End For
 Print(Try xs.Replace("axxb", "-"))
 Print(Try Regex("").Split("abc"))
+// After an empty match at a "\r\n", the next look starts past the whole of it, unless the
+// pattern has a "\r" or a "\n" of its own, which could match from the "\n", as in Python.
+For found In Try Regex("\n*").FindAll("a\r\n\nb")
+    Write(found.Start, found.Finish, "| ")
+End For
+
+Print()
+Local lines = Regex("$", RegexFlags.MULTILINE)
+For replaced In [Try Regex("\n?").Replace("a\r\nb", "-"), Try lines.Replace("a\r\nb", "-"),
+                 Try Regex("x*").Replace("\r\n", "-")]
+    Write(replaced.Replace("\r", "\\r").Replace("\n", "\\n"), "")
+End For
+
+Print((Try Regex("\n?").Split("x\r\ny")).Count)
 
 // Replacing: $n, ${n}, ${name}, and $$, where a group that took no part is "", or with what a
 // Function gives for each match; ReplaceFirst only the first.

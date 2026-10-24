@@ -449,6 +449,8 @@ std::int32_t fb_regex_match(const void* regex, const fb_string_t* subject, std::
                             std::int32_t options, fb_array_t* positions);
 /// How many groups the pattern captures, not counting the whole match.
 std::int32_t fb_regex_group_count(const void* regex);
+/// 1 when the pattern has a "\r" or a "\n" of its own, like \n or [\r\n], and 0 otherwise.
+std::int32_t fb_regex_has_cr_or_lf(const void* regex);
 /// How many names the pattern's groups have, and the name and group number of each, by name.
 std::int32_t fb_regex_name_count(const void* regex);
 fb_string_t* fb_regex_name(const void* regex, std::int32_t index);

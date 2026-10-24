@@ -18,6 +18,7 @@ Extern "runtime"
     Function fb_regex_match(regex: Ptr<Void>, subject: String, start: Int64, matchLimit: Int64,
                             memoryLimit: Int64, options: Int32, positions: Int[]): Int32
     Function fb_regex_group_count(regex: Ptr<Void>): Int32
+    Function fb_regex_has_cr_or_lf(regex: Ptr<Void>): Int32
     Function fb_regex_name_count(regex: Ptr<Void>): Int32
     Function fb_regex_name(regex: Ptr<Void>, index: Int32): String
     Function fb_regex_name_group(regex: Ptr<Void>, index: Int32): Int32
@@ -177,6 +178,8 @@ Public Class Regex
     Field Names: Map<String, Int[]>
     Field Steps: Int = 10000000
     Field Bytes: Int = 67108864
+    // Whether the pattern has a "\r" or a "\n" of its own, like \n or [\r\n].
+    Field Breaks: Bool
     // The pattern, as it was given.
     Public ReadOnly Field Pattern: String
     Public ReadOnly Field Flags: RegexFlags
@@ -193,6 +196,7 @@ Public Class Regex
         End If
 
         Names = NamesOf(Code)
+        Breaks = fb_regex_has_cr_or_lf(Code) != 0
         Pattern = pattern
         Flags = flags
     End New
@@ -200,6 +204,7 @@ Public Class Regex
     New(pattern: String, flags: RegexFlags, code: Ptr<Void>)
         Code = code
         Names = NamesOf(code)
+        Breaks = fb_regex_has_cr_or_lf(code) != 0
         Pattern = pattern
         Flags = flags
     End New
@@ -365,9 +370,10 @@ Public Class Regex
             Local next = Try Next(text, at, options)
             If next == Null
                 // Nothing that isn't empty starts where the empty match was, so the next match is
-                // looked for from the next character, past a whole "\r\n", where a line break is.
+                // looked for from the next character, past a whole "\r\n" unless the pattern has
+                // a "\r" or a "\n" of its own, as PCRE2 goes on after a place.
                 If options == 0 || at >= text.Length Then Break
-                at = CharAfter(text, at)
+                at = CharAfter(text, at, !Breaks)
                 options = 0
             Else
                 found.Add(next)
@@ -525,9 +531,12 @@ Function Replaced(text: String, found: Match[], replacement: Func(Match): String
 End Function
 
 // Where the character after the one at at starts, or after a whole "\r\n".
-Function CharAfter(text: String, at: Int): Int
+Function CharAfter(text: String, at: Int, wholeBreak: Bool): Int
     Local lead = fb_text_byte(text, at)
-    If lead == 13 && at + 1 < text.Length && fb_text_byte(text, at + 1) == 10 Then Return at + 2
+    If wholeBreak && lead == 13 && at + 1 < text.Length && fb_text_byte(text, at + 1) == 10
+        Return at + 2
+    End If
+
     If lead < 128 Then Return at + 1
     If lead >= 240 Then Return at + 4
     If lead >= 224 Then Return at + 3

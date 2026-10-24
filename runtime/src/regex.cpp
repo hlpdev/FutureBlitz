@@ -255,6 +255,10 @@ std::int32_t fb_regex_group_count(const void* regex) {
     return static_cast<std::int32_t>(info_of(regex, PCRE2_INFO_CAPTURECOUNT));
 }
 
+std::int32_t fb_regex_has_cr_or_lf(const void* regex) {
+    return static_cast<std::int32_t>(info_of(regex, PCRE2_INFO_HASCRORLF));
+}
+
 std::int32_t fb_regex_name_count(const void* regex) {
     return static_cast<std::int32_t>(info_of(regex, PCRE2_INFO_NAMECOUNT));
 }
