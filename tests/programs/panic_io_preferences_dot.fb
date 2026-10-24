@@ -1,0 +1,7 @@
+// An app's name that ends with a dot, which Windows drops, so "Game." would be "Game"'s there,
+// panics at the program's line, as one with a space at its end does.
+Import std.core
+Import std.io
+
+Print((Try Preferences("Game.cfg", "never-made")).Count())
+Try? Preferences("Game.", "never-made")

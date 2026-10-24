@@ -13,8 +13,10 @@ Extern "runtime"
 End Extern
 
 Const BACKSLASH: UInt8 = 92
+Const DOT: UInt8 = 46
 Const EQUALS: UInt8 = 61
 Const HASH: UInt8 = 35
+Const SPACE: UInt8 = 32
 
 // A program's settings, by name, kept in <folder>/<app>/preferences.txt, where the folder is the
 // OS's for its users' settings (Windows' %APPDATA%, macOS's ~/Library/Application Support, and
@@ -148,11 +150,16 @@ Function ConfigFolder(): Path Throws IOError
     Return Path(folder)
 End Function
 
-// Panics unless `app` can be a file's name on every OS.
+// Panics unless `app` can be a file's name on every OS: one of 1 to 255 bytes, not "." or "..",
+// without a separator, a NUL or another control character, or what else Windows doesn't take in
+// a name, not ending with a '.' or a space, which Windows drops, and not a name Windows keeps for
+// a device, like "nul" or "COM1.txt".
 @PanicsAtCaller
 Function CheckApp(app: String)
-    Local fits = app != "" && app != "." && app != ".."
-    For byte In app.Bytes
+    Local bytes = app.Bytes
+    Local fits = bytes.Count > 0 && bytes.Count <= 255 && app != "." && app != ".." &&
+                 bytes[bytes.Count - 1] != DOT && bytes[bytes.Count - 1] != SPACE && !IsDevice(bytes)
+    For byte In bytes
         // Separators, a NUL, and what Windows doesn't take in a name.
         If byte < 32 || byte == 47 || byte == BACKSLASH || byte == 58 || byte == 42 || byte == 63 ||
            byte == 34 || byte == 60 || byte == 62 || byte == 124
@@ -160,7 +167,33 @@ Function CheckApp(app: String)
         End If
     End For
 
-    If !fits Then Panic("Preferences takes an app's name that can be a file's on every OS, not '{app}'")
+    If !fits
+        Panic("Preferences takes an app's name that can be a file's on every OS, not '{app}'")
+    End If
+End Function
+
+// Whether a name is one Windows keeps for a device, in any case, alone or before an extension:
+// CON, PRN, AUX, NUL, and COM and LPT with a digit, or with a superscript 1, 2, or 3.
+Function IsDevice(name: UInt8[]): Bool
+    Local stem: UInt8[] = []
+    For byte In name
+        If byte == DOT Then Break
+        stem.Add(byte >= 97 && byte <= 122 ? byte - 32 : byte)
+    End For
+
+    // Windows drops the spaces after it, as it drops them after a name.
+    While stem.Count > 0 && stem[stem.Count - 1] == SPACE
+        stem.RemoveLast()
+    End While
+
+    Local text = TextOfBytes(stem)
+    If text == "CON" || text == "PRN" || text == "AUX" || text == "NUL" Then Return True
+    If stem.Count < 4 Then Return False
+    Local kind = TextOfBytes(stem[0..3])
+    Local number = TextOfBytes(stem[3..stem.Count])
+    Return (kind == "COM" || kind == "LPT") &&
+           ((stem.Count == 4 && stem[3] >= 48 && stem[3] <= 57) || number == "\u{B9}" ||
+            number == "\u{B2}" || number == "\u{B3}")
 End Function
 
 // The settings in the file, or none when it isn't there, as it can't be when a file is where its

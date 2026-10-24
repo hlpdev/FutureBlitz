@@ -1,0 +1,12 @@
+// An app's name of more than 255 bytes, which no OS takes for a file's, panics at the program's
+// line.
+Import std.core
+Import std.io
+
+Local name = ""
+While name.Bytes.Count < 255
+    name += "g"
+End While
+
+Print((Try Preferences(name, "never-made")).Count())
+Try? Preferences(name + "g", "never-made")
