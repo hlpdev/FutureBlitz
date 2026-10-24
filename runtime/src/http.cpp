@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <curl/curl.h>
+#include <format>
 #include <initializer_list>
 #include <mutex>
 #include <optional>
@@ -142,7 +143,9 @@ struct transfer_t {
     std::string proxy;
     /// The response's body, as it comes.
     std::vector<std::uint8_t> received;
+    /// What failed, in libcurl's words, or in the runtime's when it refused the transfer itself.
     std::array<char, CURL_ERROR_SIZE> error{};
+    std::string message;
     /// Whether its options are all set, and it's in its client's multi handle, for a blocking
     /// one.
     bool ready = false;
@@ -178,6 +181,41 @@ transfer_t* transfer_of(CURL* easy) {
     char* transfer = nullptr;
     curl_easy_getinfo(easy, CURLINFO_PRIVATE, &transfer);
     return reinterpret_cast<transfer_t*>(transfer);
+}
+
+/// Ends a transfer before it starts, with `outcome`, and `message` for why, unless it already
+/// was.
+void refuse(transfer_t& transfer, const outcome_t outcome, std::string message) {
+    const std::scoped_lock lock(transfer.mutex);
+    if (!transfer.done) {
+        transfer.outcome = outcome;
+        transfer.done = true;
+        transfer.message = std::move(message);
+    }
+}
+
+/// The most bytes libcurl takes in a string option, its CURL_MAX_INPUT_LENGTH, which its own
+/// headers keep to themselves.
+constexpr std::size_t most_input = 8000000;
+
+/// Sets the string option `option` to `text`, or gives why libcurl can't take it: it has a NUL,
+/// which C's strings end at, or it's longer than libcurl's most. `what` names it, as "the proxy"
+/// does.
+std::optional<std::string> set_text(CURL* easy, const CURLoption option, const std::string& text,
+                                    const std::string_view what) {
+    if (text.contains('\0')) {
+        return std::format("{} has a NUL in it", what);
+    }
+
+    if (text.size() > most_input) {
+        return std::format("{} is longer than the {} bytes libcurl takes", what, most_input);
+    }
+
+    if (curl_easy_setopt(easy, option, text.c_str()) != CURLE_OK) {
+        fb_panic("out of memory", nullptr);
+    }
+
+    return std::nullopt;
 }
 
 std::size_t on_data(char* data, const std::size_t size, const std::size_t count, void* transfer) {
@@ -302,9 +340,9 @@ bool same_name(const std::string_view a, const std::string_view b) {
 }
 
 /// Sets the request's method, body, and headers on its handle, for its first request or for a
-/// redirect's. The headers keep libcurl's own Content-Type for a body and Expect out unless they
-/// were given.
-void set_request(transfer_t& transfer) {
+/// redirect's, or gives why it can't be sent. The headers keep libcurl's own Content-Type for a
+/// body and Expect out unless they were given.
+std::optional<std::string> set_request(transfer_t& transfer) {
     CURL* easy = transfer.easy;
     // A GET first, which takes another method's settings off.
     curl_easy_setopt(easy, CURLOPT_HTTPGET, 1L);
@@ -362,8 +400,12 @@ void set_request(transfer_t& transfer) {
         add(line);
     }
 
-    curl_easy_setopt(easy, CURLOPT_COOKIE,
-                     transfer.cookies.empty() ? nullptr : transfer.cookies.c_str());
+    std::optional<std::string> refused;
+    if (transfer.cookies.empty()) {
+        curl_easy_setopt(easy, CURLOPT_COOKIE, nullptr);
+    } else {
+        refused = set_text(easy, CURLOPT_COOKIE, transfer.cookies, "the request's Cookie header");
+    }
 
     if (!content_type) {
         add("Content-Type:");
@@ -375,13 +417,16 @@ void set_request(transfer_t& transfer) {
 
     check(curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headers), "request");
     curl_slist_free_all(std::exchange(transfer.headers, headers));
+    return refused;
 }
 
-/// Sets the request up once it's all given.
+/// Sets the request up once it's all given, or refuses it.
 void make_ready(transfer_t& transfer) {
     if (!transfer.ready) {
         transfer.ready = true;
-        set_request(transfer);
+        if (std::optional<std::string> refused = set_request(transfer)) {
+            refuse(transfer, OUTCOME_OTHER, std::move(*refused));
+        }
     }
 }
 
@@ -409,8 +454,8 @@ std::string origin_of(const char* url) {
 }
 
 /// What comes after a response: the transfer's end, the redirect it goes on to, or its end
-/// because there were too many.
-enum class next_t : std::uint8_t { END, REDIRECT, TOO_MANY };
+/// because there were too many, or because the redirect's request can't be sent.
+enum class next_t : std::uint8_t { END, REDIRECT, TOO_MANY, REFUSED };
 
 /// After a response, sends the transfer on where a redirect says, as the fetch standard has it:
 /// a 301 or a 302 changes a POST to a GET, and a 303 any method but HEAD, without the body and
@@ -428,9 +473,8 @@ next_t redirect(transfer_t& transfer) {
     }
 
     if (transfer.followed == transfer.redirects) {
-        std::snprintf(transfer.error.data(), transfer.error.size(),
-                      "it was sent on more than the %d redirects it follows",
-                      static_cast<int>(transfer.redirects));
+        transfer.message =
+            std::format("it was sent on more than the {} redirects it follows", transfer.redirects);
         return next_t::TOO_MANY;
     }
 
@@ -464,8 +508,17 @@ next_t redirect(transfer_t& transfer) {
         transfer.expected = -1;
     }
 
-    check(curl_easy_setopt(transfer.easy, CURLOPT_URL, target.c_str()), "redirect");
-    set_request(transfer);
+    std::optional<std::string> refused =
+        set_text(transfer.easy, CURLOPT_URL, target, "the URL it was sent on to");
+    if (!refused) {
+        refused = set_request(transfer);
+    }
+
+    if (refused) {
+        transfer.message = std::move(*refused);
+        return next_t::REFUSED;
+    }
+
     return next_t::REDIRECT;
 }
 
@@ -487,6 +540,8 @@ std::optional<std::int32_t> outcome_after(transfer_t& transfer, const CURLcode r
         return OUTCOME_OTHER;
     case next_t::TOO_MANY:
         return OUTCOME_REDIRECTS;
+    case next_t::REFUSED:
+        return OUTCOME_OTHER;
     case next_t::END:
         break;
     }
@@ -524,6 +579,14 @@ void settle_blocking(CURLM* multi) {
 /// `until_more`, until more of it came. Gives its outcome plus 1, or 0 for more.
 std::int32_t run_blocking(transfer_t& transfer, const bool until_more) {
     make_ready(transfer);
+    {
+        // One refused before it started ends at once.
+        const std::scoped_lock lock(transfer.mutex);
+        if (transfer.done) {
+            return transfer.outcome + 1;
+        }
+    }
+
     client_t& client = *transfer.client;
     if (client.multi == nullptr) {
         client.multi = curl_multi_init();
@@ -839,9 +902,12 @@ void* fb_http_new(void* client, const fb_string_t* method, const fb_string_t* ur
     }
 
     CURL* easy = transfer->easy;
-    const std::string address(view_of(url));
     transfer->method = view_of(method);
-    check(curl_easy_setopt(easy, CURLOPT_URL, address.c_str()), "URL");
+    if (std::optional<std::string> refused =
+            set_text(easy, CURLOPT_URL, std::string(view_of(url)), "it")) {
+        refuse(*transfer, OUTCOME_BAD_URL, std::move(*refused));
+    }
+
     curl_easy_setopt(easy, CURLOPT_PRIVATE, static_cast<void*>(transfer));
     curl_easy_setopt(easy, CURLOPT_ERRORBUFFER, transfer->error.data());
     curl_easy_setopt(easy, CURLOPT_NOSIGNAL, 1L);
@@ -898,13 +964,19 @@ void fb_http_options(void* transfer, const std::int64_t timeout, const std::int6
 void fb_http_proxy(void* transfer, const fb_string_t* proxy) {
     auto& given = *static_cast<transfer_t*>(transfer);
     given.proxy = view_of(proxy);
-    check(curl_easy_setopt(given.easy, CURLOPT_PROXY, given.proxy.c_str()), "proxy");
+    if (std::optional<std::string> refused =
+            set_text(given.easy, CURLOPT_PROXY, given.proxy, "the proxy")) {
+        refuse(given, OUTCOME_OTHER, std::move(*refused));
+    }
 }
 
 void fb_http_user_agent(void* transfer, const fb_string_t* agent) {
     auto& given = *static_cast<transfer_t*>(transfer);
     given.user_agent = view_of(agent);
-    check(curl_easy_setopt(given.easy, CURLOPT_USERAGENT, given.user_agent.c_str()), "User-Agent");
+    if (std::optional<std::string> refused =
+            set_text(given.easy, CURLOPT_USERAGENT, given.user_agent, "the User-Agent")) {
+        refuse(given, OUTCOME_OTHER, std::move(*refused));
+    }
 }
 
 std::int32_t fb_http_perform(void* transfer) {
@@ -917,6 +989,8 @@ std::int32_t fb_http_advance(void* transfer) {
 
 void fb_http_wait_async(fb_task_t* task, void* transfer, const std::int32_t progress) {
     auto& given = *static_cast<transfer_t*>(transfer);
+    // Only this thread sets it up, before it starts, which it may refuse to.
+    make_ready(given);
     // The request holds the Task until it's done.
     fb_object_retain(&task->header);
     bool start = false;
@@ -946,7 +1020,6 @@ void fb_http_wait_async(fb_task_t* task, void* transfer, const std::int32_t prog
     if (start) {
         static std::once_flag registered;
         std::call_once(registered, [] { fb::runtime::at_io_stop(stop_on_io); });
-        make_ready(given);
         // The I/O thread holds the transfer while it runs there.
         given.owners.fetch_add(1, std::memory_order_relaxed);
         fb::runtime::on_io_thread([&given](uv_loop_t* loop) { start_on_io(loop, &given); });
@@ -1018,6 +1091,10 @@ void fb_http_take_body(void* transfer, fb_array_t* output) {
 
 fb_string_t* fb_http_message(void* transfer) {
     const auto& given = *static_cast<transfer_t*>(transfer);
+    if (!given.message.empty()) {
+        return string_of(given.message);
+    }
+
     // libcurl's own words for what failed, or else its words for the code.
     if (given.error.front() != '\0') {
         return fb_string_from_cstring(given.error.data());
