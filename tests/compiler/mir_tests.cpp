@@ -2942,6 +2942,12 @@ TEST_CASE("lowering stops where code needs a larger instance each time, which an
           "Room(): Float32[-4] comes out here, but a fixed array's sizes are from 1 to 2147483647");
     CHECK(stopped(std::format("{}Global g: Row<0>", row)) ==
           "g: Float32[0] comes out here, but a fixed array's sizes are from 1 to 2147483647");
+    // A parameter's is reported where the parameter is.
+    CHECK(stopped(std::format("{}Local first = 1\n"
+                              "Function Size(g: Row<0>?): Int => 1\n"
+                              "Local size = Size(Null)",
+                              row)) ==
+          "g: Float32[0] comes out here, but a fixed array's sizes are from 1 to 2147483647");
     CHECK(stopped("Function Cells<Const N: Int>(): Int\n"
                   "    Local c: Int8[N, N * 2]\n"
                   "    Return c.Count\n"
