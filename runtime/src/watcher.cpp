@@ -260,15 +260,17 @@ std::vector<event_t> rescanned(watcher_t& watcher) {
     return events;
 }
 
-/// Whether a folder watcher's folder holds `name`, spelled as it is, by a listing taken at most
-/// once each turn of the loop, as libuv gives a batch of events in one.
+/// Whether a folder watcher's folder holds `name`, spelled as it is, by a listing taken once for
+/// each turn of the loop, as libuv gives a batch of events in one, and again for a name it lacks,
+/// which may have come since: in a burst, the files made after it are told of in the same turn.
 bool listed(watcher_t& watcher, const uv_loop_t* loop, const std::string_view name) {
     const std::uint64_t now = uv_now(loop) + 1;
-    if (watcher.listed_at != now) {
-        watcher.listing = names_in(watcher.real);
-        watcher.listed_at = now;
+    if (watcher.listed_at == now && watcher.listing.contains(name)) {
+        return true;
     }
 
+    watcher.listing = names_in(watcher.real);
+    watcher.listed_at = now;
     return watcher.listing.contains(name);
 }
 
