@@ -436,7 +436,7 @@ type_id_t type_table_t::tuple(const std::vector<type_id_t>& elements) {
 
     type_t type{ .kind = type_kind_t::TUPLE, .name = "(" };
     for (std::size_t i = 0; i < elements.size(); ++i) {
-        type.name += std::format("{}{}", i == 0 ? "" : ", ", name(elements[i]));
+        type.name += std::format("{}{}", i == 0 ? "" : ", ", listed(elements[i]));
         type.fields.push_back({ .name = std::to_string(i), .type = elements[i] });
     }
 
@@ -461,7 +461,7 @@ type_id_t type_table_t::function(const std::vector<type_id_t>& parameters, const
 
     std::string text = sendable ? "Sendable Func(" : "Func(";
     for (std::size_t i = 0; i < parameters.size(); ++i) {
-        text += std::format("{}{}", i == 0 ? "" : ", ", name(parameters[i]));
+        text += std::format("{}{}", i == 0 ? "" : ", ", listed(parameters[i]));
     }
 
     text += ')';
@@ -493,7 +493,7 @@ type_id_t type_table_t::callback(const std::vector<type_id_t>& parameters, const
 
     std::string text = "Callback(";
     for (std::size_t i = 0; i < parameters.size(); ++i) {
-        text += std::format("{}{}", i == 0 ? "" : ", ", name(parameters[i]));
+        text += std::format("{}{}", i == 0 ? "" : ", ", listed(parameters[i]));
     }
 
     text += ')';
@@ -616,7 +616,7 @@ type_id_t type_table_t::instance(const type_id_t generic, const std::vector<type
     const std::string_view name = get(generic).name;
     std::string text(name.substr(0, name.find('<')));
     for (std::size_t i = 0; i < arguments.size(); ++i) {
-        text += std::format("{}{}", i == 0 ? "<" : ", ", this->name(arguments[i]));
+        text += std::format("{}{}", i == 0 ? "<" : ", ", listed(arguments[i]));
     }
 
     const type_id_t id = add({
@@ -700,6 +700,7 @@ std::pair<std::uint32_t, std::uint32_t> type_table_t::measure(const type_id_t ty
         }
     };
     std::ranges::for_each(info.arguments, add);
+    std::ranges::for_each(info.throws, add);
     add(info.inner);
     if (info.kind == type_kind_t::TUPLE) {
         for (const field_t& field : info.fields) {
@@ -1004,13 +1005,31 @@ std::string type_table_t::suffixed(const type_id_t type, const bool qualified,
     return text;
 }
 
+std::string type_table_t::listed(const type_id_t type, const bool qualified,
+                                 const std::string_view main) const {
+    // A Func's name ends in its result's, so one that gives such a Task goes in them too.
+    type_id_t last = type;
+    while (last != type_id_t::INVALID &&
+           (get(last).kind == type_kind_t::FUNCTION || get(last).kind == type_kind_t::CALLBACK)) {
+        last = get(last).inner;
+    }
+
+    std::string text = qualified ? qualified_name(type, main) : std::string(name(type));
+    if (last != type_id_t::INVALID && get(last).kind == type_kind_t::TASK &&
+        !get(last).throws.empty()) {
+        return std::format("({})", text);
+    }
+
+    return text;
+}
+
 std::string type_table_t::qualified_name(const type_id_t id, const std::string_view main) const {
     const type_t& type = get(id);
     // The types inside, each qualified, between commas.
     const auto list = [&](const std::vector<type_id_t>& types) {
         std::string text;
         for (std::size_t i = 0; i < types.size(); ++i) {
-            text += std::format("{}{}", i == 0 ? "" : ", ", qualified_name(types[i], main));
+            text += std::format("{}{}", i == 0 ? "" : ", ", listed(types[i], true, main));
         }
 
         return text;

@@ -465,6 +465,11 @@ private:
     /// `main` as qualified_name() takes it.
     [[nodiscard]] std::string suffixed(type_id_t type, bool qualified = false,
                                        std::string_view main = {}) const;
+    /// A type's name in a list of them, a tuple's, a Func's parameters, or type arguments: a
+    /// Task with a Throws, or a Func that gives one, goes in parentheses, so the ',' after it
+    /// doesn't read as its next Class.
+    [[nodiscard]] std::string listed(type_id_t type, bool qualified = false,
+                                     std::string_view main = {}) const;
     /// Gives an instance its generic type's fields, base, and Interfaces, with its type arguments
     /// in them, keeping the Interfaces an Extend of the instance itself lists.
     void fill(type_id_t instance);

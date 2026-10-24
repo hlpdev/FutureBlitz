@@ -9735,6 +9735,119 @@ TEST_CASE("a Task's Throws lists errors, and a type parameter there says it's on
           errors_t{ "F<String>: String isn't a Class that extends Error, which 'F' needs for E" });
 }
 
+TEST_CASE("a Task's Throws, written out, is checked, inferred, and named as a function's is",
+          "[sema]") {
+    const std::string_view oops = "Import std.core\n"
+                                  "Class Oops Extends Error\nEnd Class\n"
+                                  "Class Bad Extends Error\nEnd Class\n"
+                                  "Async Function Two(): Int Throws Bad, Oops\n"
+                                  "    Throw Bad(\"two\")\n"
+                                  "End Function\n";
+    const auto with_oops = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", oops, text));
+    };
+
+    // A type parameter covered by another, or listed twice, is reported as a Class is.
+    CHECK(with_oops("Function G<E: Error>(task: Task<Int> Throws E, Error): Int => 0\n"
+                    "Function H<E: Error>(task: Task<Int> Throws E, E): Int => 0") ==
+          errors_t{
+              "E: E is already covered by this Throws",
+              "E: E is already covered by this Throws",
+          });
+
+    // E is what a Task throws besides what the written Classes cover, in whatever order.
+    CHECK(with_oops("Function Take<E: Error>(task: Task<Int> Throws Oops, E): Int => 0\n"
+                    "Local x = Take(Two())")
+              .empty());
+
+    // A Task with a Throws goes in parentheses in a name where a ',' follows it.
+    CHECK(with_oops("Local y: ((Task<Int> Throws Oops), Bad, Int) = (Two(), Bad(\"b\"), 4)\n"
+                    "Local z: ((Task<Int> Throws Oops, Bad), Int) = y\n"
+                    "Local t: Task<Int> Throws Oops = Null") ==
+          errors_t{
+              "(Two(), Bad(\"b\"), 4): expected ((Task<Int32> Throws Oops), Bad, Int32), found "
+              "((Task<Int32> Throws Bad, Oops), Bad, Int32)",
+              "y: expected ((Task<Int32> Throws Oops, Bad), Int32), found ((Task<Int32> Throws "
+              "Oops), Bad, Int32)",
+              "Null: Task<Int32> Throws Oops can't be Null; (Task<Int32> Throws Oops)? can",
+          });
+
+    // A bad Throws is reported once, and nothing follows from it.
+    CHECK(with_oops("Local t: Task<Int> Throws String = Two()\n"
+                    "Function F<T>(x: T)\n"
+                    "    Where T: Task<Int> Throws String\n"
+                    "End Function") ==
+          errors_t{
+              "String: Throws lists Classes that extend Error, not String",
+              "Task<Int> Throws String: Task<Int32> Throws String isn't an Interface",
+              "String: Throws lists Classes that extend Error, not String",
+          });
+
+    // An E still being inferred tells a lambda's parameter nothing.
+    CHECK(with_oops("Function Run<E: Error>(f: Func(Task<Int> Throws E): Int): Int => 1\n"
+                    "Local x = Run(Function(t) => 0)") ==
+          errors_t{
+              "Run: can't tell what E is in this call; write the type arguments, like "
+              "Run<Error>(...)",
+              "t: 't' needs a type, since nothing here says what this lambda takes",
+          });
+
+    // And a type that grows only through a Throws grows all the same.
+    CHECK(with_oops("Class Wrapped<T> Extends Error\nEnd Class\n"
+                    "Function Deep<T>(n: Int, x: T): Int\n"
+                    "    If n == 0 Then Return 0\n"
+                    "    Local t: (Task<Int> Throws Wrapped<T>)? = Null\n"
+                    "    Return Deep(n - 1, t)\n"
+                    "End Function\n"
+                    "Local d = Deep(3, 1)") ==
+          errors_t{ "Deep(n - 1, t): 'Deep' gets (Task<Int32> Throws Wrapped<T>)? for T here, "
+                    "which leads back to this code, so it would need a larger instance each "
+                    "time, without end" });
+
+    // Waiting for one that's written out throws what it lists.
+    CHECK(with_oops("Function W(t: Task<Int> Throws Oops): Int => t.Wait()\n"
+                    "Async Function A(t: Task<Int> Throws Oops): Int\n"
+                    "    Return Await t\n"
+                    "End Function") ==
+          errors_t{
+              "t.Wait(): 'Wait' can throw Oops, so calling it needs Try, Try?, or a Try block",
+              "Await t: this Await can throw Oops, as its Task's Async Function can, so it needs "
+              "Try, Try?, or a Try block",
+          });
+
+    // A Catch of E covers what Error doesn't, and is reached by any error.
+    CHECK(with_oops("Function C<E: Error>(e: E): Int\n"
+                    "    Try\n"
+                    "        Throw e\n"
+                    "    Catch c As Error\n"
+                    "        Return 1\n"
+                    "    Catch d As E\n"
+                    "        Return 2\n"
+                    "    End Try\n"
+                    "End Function\n"
+                    "Function D<E: Error>(e: E): Int\n"
+                    "    Try\n"
+                    "        Throw Oops(\"x\")\n"
+                    "    Catch d As E\n"
+                    "        Return 2\n"
+                    "    Catch o As Oops\n"
+                    "        Return 3\n"
+                    "    End Try\n"
+                    "End Function") ==
+          errors_t{ "E: this Catch is already covered by an earlier Catch" });
+
+    // A Throws goes only on the built-in Task's type.
+    CHECK(with_oops("Class Task<T>\n"
+                    "    Field Value: T?\n"
+                    "End Class\n"
+                    "Local t: Task<Int> Throws Oops = Task<Int>()") ==
+          errors_t{ "Oops: only a Task's type takes a Throws, and 'Task' here is a type of the "
+                    "code's" });
+    CHECK(with_oops("Function F<Task>(x: Task Throws Oops)\nEnd Function") ==
+          errors_t{ "Task Throws Oops: 'Task' is a type parameter, so it takes no type arguments "
+                    "or Throws" });
+}
+
 TEST_CASE("a generic type's Throws E is its instance's, through bases, Interfaces, and loops",
           "[sema]") {
     const std::string_view oops = "Import std.core\n"

@@ -10229,6 +10229,10 @@ private:
             }
         }
 
+        for (const type_id_t thrown : info.throws) {
+            parameters_in(thrown, found);
+        }
+
         if (info.kind == type_kind_t::FUNCTION || info.kind == type_kind_t::CALLBACK ||
             info.kind == type_kind_t::FIXED_ARRAY || info.kind == type_kind_t::VALUE) {
             for (const type_id_t part : info.parameters) {
@@ -10587,10 +10591,11 @@ private:
         case type_kind_t::WEAK:
         case type_kind_t::ATOMIC:
         case type_kind_t::MUTEX:
-        case type_kind_t::TASK:
         case type_kind_t::CHANNEL:
         case type_kind_t::PTR:
             return mentions(info.inner, parameters);
+        case type_kind_t::TASK:
+            return any(info.throws) || mentions(info.inner, parameters);
         case type_kind_t::FUNCTION:
         case type_kind_t::CALLBACK:
             return any(info.parameters) || mentions(info.inner, parameters);
@@ -11795,6 +11800,14 @@ private:
             return true;
         }
 
+        // A Task whose Throws has what isn't an error was reported where it's written.
+        if (m_analysis.types.get(to).kind == type_kind_t::TASK &&
+            std::ranges::any_of(m_analysis.types.get(to).throws, [&](const type_id_t type) {
+                return !is_parameter(type) && !is_error(type);
+            })) {
+            return true;
+        }
+
         // A Task that throws is one that throws what covers its errors, of the same result.
         if (m_analysis.types.get(from).kind == type_kind_t::TASK &&
             m_analysis.types.get(to).kind == type_kind_t::TASK &&
@@ -12391,10 +12404,19 @@ private:
             written.spans.push_back(span);
         }
 
-        // A Class written before Classes know what they extend is checked once they do.
+        // A type parameter is checked here, with the constraints that hold where it's written.
+        for (std::size_t i = 0; i < written.types.size(); ++i) {
+            if (is_parameter(written.types[i]) && covered_in(written.types, i)) {
+                error(written.spans[i], "{} is already covered by this Throws",
+                      shown_name(written.types[i]));
+            }
+        }
+
+        // A Class written before Classes know what they extend is checked once they do, unless
+        // it's written in a try that's taken back.
         if (m_throws_checked) {
             check_task_throws(written);
-        } else {
+        } else if (m_diagnostics == m_reported) {
             m_pending_throws.push_back(written);
         }
 
@@ -16845,11 +16867,14 @@ private:
         // A Ptr's, a CString's, and a Callback's Null is C's NULL.
         if (!is_nullable(hint) && !is_pointer(hint) && hint != type_id_t::CSTRING &&
             !is_callback(hint)) {
-            // A function type's '?' would go on what it gives, so its T? is in parentheses.
+            // A function type's '?' would go on what it gives, and a Task's on its Throws, so
+            // its T? is in parentheses.
             const std::string shown = shown_name(hint);
-            const bool code = m_analysis.types.get(hint).kind == type_kind_t::FUNCTION;
+            const type_t& info = m_analysis.types.get(hint);
+            const bool grouped = info.kind == type_kind_t::FUNCTION ||
+                                 (info.kind == type_kind_t::TASK && !info.throws.empty());
             error(span_of(id), "{} can't be Null; {} can", shown,
-                  code ? std::format("({})?", shown) : std::format("{}?", shown));
+                  grouped ? std::format("({})?", shown) : std::format("{}?", shown));
             return type_id_t::INVALID;
         }
 
@@ -21026,14 +21051,29 @@ private:
         case type_kind_t::PTR:
             unify(want.inner, have.inner, parameters, arguments);
             break;
-        // "Task<T> Throws E" takes E from what a Task throws, one Class for each.
-        case type_kind_t::TASK:
+        // "Task<T> Throws Oops, E" takes E from what a Task throws besides what its Classes
+        // cover, in whatever order it lists them.
+        case type_kind_t::TASK: {
             unify(want.inner, have.inner, parameters, arguments);
-            if (want.throws.size() == have.throws.size()) {
-                each(want.throws, have.throws);
+            std::vector<type_id_t> open;
+            std::vector<type_id_t> written;
+            for (const type_id_t thrown : want.throws) {
+                (std::ranges::contains(parameters, thrown) ? open : written).push_back(thrown);
+            }
+
+            std::vector<type_id_t> left;
+            for (const type_id_t thrown : have.throws) {
+                if (!covers(written, thrown)) {
+                    left.push_back(thrown);
+                }
+            }
+
+            if (open.size() == left.size()) {
+                each(open, left);
             }
 
             break;
+        }
         case type_kind_t::TUPLE:
             for (std::size_t i = 0; i < want.fields.size() && i < have.fields.size(); ++i) {
                 unify(want.fields[i].type, have.fields[i].type, parameters, arguments);
