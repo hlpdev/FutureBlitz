@@ -8,6 +8,8 @@ endforeach()
 
 add_library(fb_runtime STATIC ${FB_RUNTIME_SOURCES})
 target_include_directories(fb_runtime PUBLIC include)
+# std.data's JSON reads its Doubles through fast_float, a header, as the compiler does.
+target_link_libraries(fb_runtime PRIVATE FastFloat::fast_float)
 fb_set_warnings(fb_runtime)
 
 # The runtime's part over libuv, the I/O thread and std.net's Dns, is an archive of its own,
