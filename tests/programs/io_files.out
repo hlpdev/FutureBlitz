@@ -88,6 +88,13 @@ entries NOT_FOUND
 copy NOT_FOUND
 copy IS_A_DIRECTORY
 move NOT_FOUND
+move NOT_A_DIRECTORY
+move ALREADY_EXISTS
+move IS_A_DIRECTORY
+copy IS_A_DIRECTORY
+lock IS_A_DIRECTORY
+[kept] True True
+2 1 [kept]
 write NOT_FOUND
 write INVALID_PATH
 metadata NOT_FOUND

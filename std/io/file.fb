@@ -299,7 +299,8 @@ Public Class File
         Return StatOf(request)
     End Method
 
-    // Copies the file at `from` to `to`, replacing a file there.
+    // Copies the file at `from` to `to`, replacing a file there. A folder at either end throws an
+    // IOError of IS_A_DIRECTORY.
     Public Static Method Copy(from: Path, to: Path) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_copy(request.Native, from.Text, to.Text), "copy", from, to)
@@ -311,7 +312,9 @@ Public Class File
     End Method
 
     // Moves, or renames, the file or folder at `from` to `to`, replacing a file there. A file
-    // moved to another disk is copied there, then deleted.
+    // moved to another disk is copied there, then deleted. A folder goes only where nothing is,
+    // else an IOError of ALREADY_EXISTS onto a folder and NOT_A_DIRECTORY onto anything else, and
+    // a file onto a folder is IS_A_DIRECTORY, the same on every OS.
     Public Static Method Move(from: Path, to: Path) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_move(request.Native, from.Text, to.Text), "move", from, to)
