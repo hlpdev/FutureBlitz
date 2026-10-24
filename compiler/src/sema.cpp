@@ -20938,6 +20938,12 @@ private:
             return;
         }
 
+        // A Weak<T> is assigned a T, as a T? is.
+        if (want.kind == type_kind_t::WEAK && have.kind != type_kind_t::WEAK) {
+            unify(want.inner, actual, parameters, arguments);
+            return;
+        }
+
         // An Interface's type arguments are those of the instance a Class, Struct, or array
         // implements, as a Set<Int32> does Iterable<Int32>, or another Interface extends.
         if (want.kind == type_kind_t::INTERFACE &&
@@ -21108,6 +21114,7 @@ private:
         const std::vector<type_id_t> written =
             called.kind == symbol_kind_t::CONSTRUCTOR ? parameters : own_type_parameters(called);
         std::string example;
+        bool fits = true;
         for (const type_id_t parameter : written) {
             const auto place = std::ranges::find(parameters, parameter);
             const auto index = static_cast<std::size_t>(place - parameters.begin());
@@ -21116,14 +21123,43 @@ private:
             example += example.empty() ? "" : ", ";
             if (known) {
                 example += name_of(*known);
+            } else if (is_value_parameter(parameter)) {
+                example += "1";
+            } else if (const std::optional<std::string> fitting =
+                           example_argument(parameter, call_bounds(function))) {
+                example += *fitting;
             } else {
-                example += is_value_parameter(parameter) ? "1" : "Int";
+                fits = false;
             }
         }
 
+        const std::string like =
+            fits ? std::format(", like {}<{}>(...)", text(node.callee), example) : std::string();
         error(span_of(node.callee),
-              "can't tell what {} {} in this call; write the type arguments, like {}<{}>(...)",
-              names, unknown.size() == 1 ? "is" : "are", text(node.callee), example);
+              "can't tell what {} {} in this call; write the type arguments{}", names,
+              unknown.size() == 1 ? "is" : "are", like);
+    }
+
+    /// A type argument an error's example can give a type parameter: Int, or for one that's an
+    /// error, std's Error. nullopt for one that's a Class, as nothing every program has is.
+    std::optional<std::string> example_argument(const type_id_t parameter,
+                                                const std::vector<bound_t>& bounds) const {
+        const auto bound_to = [&](const type_id_t interface) {
+            return std::ranges::any_of(bounds, [&](const bound_t& bound) {
+                return bound.parameter == parameter && bound.field == type_id_t::INVALID &&
+                       std::ranges::contains(with_extended(bound.interface), interface);
+            });
+        };
+        if (m_analysis.interfaces.any_error != type_id_t::INVALID &&
+            bound_to(m_analysis.interfaces.any_error)) {
+            return shown_name(m_analysis.error_class);
+        }
+
+        if (bound_to(m_analysis.interfaces.any_class)) {
+            return std::nullopt;
+        }
+
+        return std::string("Int");
     }
 
     /// A call of a function value, whose callee was checked as a value: the arguments convert to

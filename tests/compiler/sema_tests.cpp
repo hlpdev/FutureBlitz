@@ -3052,6 +3052,15 @@ TEST_CASE("Where T: Class says a type parameter is a Class, which a Weak<T> refe
               "it's one",
           });
 
+    // A Weak<T> parameter learns T from the T or T? it's given; where nothing says what T is, the
+    // error has no example, since no type every program has is a Class.
+    CHECK(probe(std::format("{}Function Read<T: Class>(w: Weak<T>): T? => w\n"
+                            "Local h = Holder<Leaf>()\n"
+                            "Local n = Read(Leaf()) ?? Read(h.Get())",
+                            node)) == "Leaf?");
+    CHECK(with_node("Function Make<T: Class>(): T? => Null\nLocal m = Make()") ==
+          errors_t{ "Make: can't tell what T is in this call; write the type arguments" });
+
     // It's only a constraint, and gives only what every Class has: it's Equatable.
     CHECK(with_node("Function Same<T: Class>(a: T, b: T): Bool => a == b && a != b").empty());
     CHECK(with_node("Function F<T: Class>(x: T): String => x.name\n"
@@ -9673,6 +9682,9 @@ TEST_CASE("a Task's Throws lists errors, and a type parameter there says it's on
               "E: E is in a Throws, so it needs a constraint that says it's an error, like <E: "
               "Error>",
           });
+    CHECK(with_oops("Function Make<E: Error>(): Int => 0\nLocal x = Make()") ==
+          errors_t{ "Make: can't tell what E is in this call; write the type arguments, like "
+                    "Make<Error>(...)" });
     CHECK(with_oops("Function F<E: Error>(task: Task<Int> Throws E)\n"
                     "End Function\n"
                     "Local f = F<String>") ==
