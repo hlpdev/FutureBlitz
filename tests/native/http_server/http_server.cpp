@@ -1,5 +1,6 @@
 // The HTTP server std.net.http's program tests run against, with no internet: plain sockets,
-// HTTP/1.1 with keep-alive, and TLS through mbedTLS with the test certificates beside it. It
+// HTTP/1.1 with keep-alive, TLS through mbedTLS with the test certificates beside it, and bodies
+// compressed by zlib-ng and zstd. It
 // listens on 127.0.0.1 for HTTP and for HTTPS, keeps a third port bound but not listening, which
 // refuses connections, and runs the program it's given, whose input is those three URLs, a line
 // each, then the test CA's PEM, then what this server's own input was. It exits as the program
@@ -31,6 +32,8 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <zlib.h>
+#include <zstd.h>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -409,6 +412,29 @@ bool send_response(connection_t& connection, const response_t& response, const b
     return connection.write(out);
 }
 
+/// `text` compressed as the HTTP coding `coding` is: gzip's and deflate's (zlib's format, as HTTP's
+/// deflate is) by zlib, and zstd's.
+std::string compressed(const std::string_view coding, const std::string& text) {
+    if (coding == "zstd") {
+        std::string out(ZSTD_compressBound(text.size()), '\0');
+        out.resize(ZSTD_compress(out.data(), out.size(), text.data(), text.size(), 3));
+        return out;
+    }
+
+    z_stream stream{};
+    deflateInit2(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, coding == "gzip" ? 31 : 15, 8,
+                 Z_DEFAULT_STRATEGY);
+    std::string out(deflateBound(&stream, static_cast<uLong>(text.size())), '\0');
+    stream.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(text.data()));
+    stream.avail_in = static_cast<uInt>(text.size());
+    stream.next_out = reinterpret_cast<Bytef*>(out.data());
+    stream.avail_out = static_cast<uInt>(out.size());
+    deflate(&stream, Z_FINISH);
+    out.resize(stream.total_out);
+    deflateEnd(&stream);
+    return out;
+}
+
 /// What the connection does after a response.
 enum class after_t : std::uint8_t { KEEP, CLOSE, RESET };
 
@@ -424,6 +450,8 @@ enum class after_t : std::uint8_t { KEEP, CLOSE, RESET };
 /// - /bytes/<n>: n bytes, each its index's remainder by 251; /chunked: "chunk" ten times, in
 ///   chunks of 7 bytes.
 /// - /multi: two X-Multi headers.
+/// - /compressed/<coding>: "<coding>" and "fox " 5000 times, compressed by the coding (gzip,
+///   deflate, or zstd) when the request's Accept-Encoding has it.
 /// - /slow: "slow" after 3 seconds.
 /// - /close: no response, closed; /reset: no response, reset; /truncated: 5 of the 100 bytes it
 ///   says.
@@ -527,6 +555,21 @@ std::pair<response_t, after_t> answer(const request_t& request) {
 
         chunked.chunks = 7;
         return { chunked, after_t::KEEP };
+    }
+
+    if (starts("/compressed/")) {
+        const std::string coding = after("/compressed/");
+        response_t response = text(coding);
+        for (int i = 0; i < 5000; ++i) {
+            response.body += " fox";
+        }
+
+        if (request.header("accept-encoding").value_or("").contains(coding)) {
+            response.body = compressed(coding, response.body);
+            response.headers.emplace_back("Content-Encoding", coding);
+        }
+
+        return { response, after_t::KEEP };
     }
 
     if (path == "/multi") {

@@ -185,17 +185,6 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .system = \"\",
     },
     {
-        .name = \"libcurl\",
-        .version = \"${FB_CURL_VERSION}\",
-        .license = \"${FB_CURL_LICENSES}\",
-        .prefix = \"fb_http_\",
-        .runtime = \"$<TARGET_FILE:fb_runtime_http>\",
-        .archives = \"${FB_CURL_ARCHIVES}\",
-        .notice = \"${FB_CURL_NOTICE}\",
-        .system = \"${FB_CURL_SYSTEM}\",
-        .needs = \"libuv;mbedTLS\",
-    },
-    {
         .name = \"zlib-ng\",
         .version = \"${FB_ZLIB_NG_VERSION}\",
         .license = \"${FB_ZLIB_NG_LICENSES}\",
@@ -244,6 +233,17 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .archives = \"$<TARGET_FILE:minizip_ng>;$<TARGET_FILE:zlib-ng>;$<TARGET_FILE:zstd>;$<TARGET_FILE:liblzma>\",
         .notice = \"${FB_MINIZIP_NG_NOTICE}\",
         .system = \"\",
+    },
+    {
+        .name = \"libcurl\",
+        .version = \"${FB_CURL_VERSION}\",
+        .license = \"${FB_CURL_LICENSES}\",
+        .prefix = \"fb_http_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_http>\",
+        .archives = \"${FB_CURL_ARCHIVES}\",
+        .notice = \"${FB_CURL_NOTICE}\",
+        .system = \"${FB_CURL_SYSTEM}\",
+        .needs = \"libuv;mbedTLS;zlib-ng;zstd\",
     },
 });
 

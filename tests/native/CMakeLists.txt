@@ -21,9 +21,10 @@ if(WIN32)
 endif()
 
 # The HTTP and HTTPS server std.net.http's program tests run against (an http_ program runs as
-# its child), with the test certificates make_certificates.sh made, over mbedTLS's TLS.
+# its child), with the test certificates make_certificates.sh made, over mbedTLS's TLS, and
+# compressing by zlib-ng and zstd.
 add_executable(fb_http_test_server http_server/http_server.cpp)
-target_link_libraries(fb_http_test_server PRIVATE mbedtls mbedx509 tfpsacrypto)
+target_link_libraries(fb_http_test_server PRIVATE mbedtls mbedx509 tfpsacrypto zlib-ng zstd)
 target_compile_definitions(fb_http_test_server PRIVATE
   FB_HTTP_TEST_CERTIFICATE="${CMAKE_CURRENT_SOURCE_DIR}/http_server/server.pem"
   FB_HTTP_TEST_KEY="${CMAKE_CURRENT_SOURCE_DIR}/http_server/server_key.pem"

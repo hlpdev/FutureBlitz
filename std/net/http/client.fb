@@ -123,9 +123,10 @@ End Class
 // Sends requests and gives their responses. A client keeps the cookies its responses set, for
 // the requests after, and the connections it made, which those reuse; its DefaultHeaders go with
 // each request, before the request's own, which replace those of their names. It follows up to
-// MaxRedirects redirects, as a browser does: a POST changes to a GET after a 301, 302, or 303, and
-// any request but a HEAD after a 303. It asks for what it decompresses, gzip and deflate, and
-// decompresses it. It goes through Proxy, or else the proxy the environment names, as
+// MaxRedirects redirects, as a browser does: a POST changes to a GET after a 301, 302, or 303,
+// and any request but a HEAD after a 303, and a redirect to another origin takes no
+// Authorization, Cookie, or Host of the request's own. It asks for gzip, deflate, and zstd, and
+// decompresses what comes so. It goes through Proxy, or else the proxy the environment names, as
 // http_proxy, https_proxy, and no_proxy do. A failure throws: a NetError for the network's or the
 // server's, or for a URL that isn't HTTP's or HTTPS's, and a TimeoutError for a request that took
 // too long.

@@ -1,0 +1,9 @@
+deflate, gzip, zstd
+gzip: 200 gzip 20004 True
+deflate: 200 deflate 20007 True
+zstd: 200 zstd 20004 True
+gzip: 200 gzip 20004 True
+zstd: 200 zstd 20004 True
+download 20007
+(none)
+gzip: 200 none 20004 True

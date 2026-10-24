@@ -445,9 +445,9 @@ set(FB_MINIZIP_NG_NOTICE "${FB_MINIZIP_NG_NOTICE}" PARENT_SCOPE)
 set(FB_MINIZIP_NG_LICENSES "the zlib, BSD-3-Clause, and 0BSD licenses" PARENT_SCOPE)
 
 # libcurl: std.net.http's client, over mbedTLS's TLS (its mbedtls and mbedx509 libraries), with
-# the OS's certificate roots, which the runtime gives it, so it has no bundle of its own. Only
-# HTTP and HTTPS are built, without the curl tool, its docs, or any library it would find on the
-# machine.
+# the OS's certificate roots, which the runtime gives it, so it has no bundle of its own, and over
+# zlib-ng and zstd, which decode gzip, deflate, and zstd. Only HTTP and HTTPS are built, without
+# the curl tool, its docs, or any library it would find on the machine.
 set(FB_CURL_VERSION 8.23.0)
 foreach(option BUILD_CURL_EXE BUILD_SHARED_LIBS BUILD_LIBCURL_DOCS BUILD_MISC_DOCS
                ENABLE_CURL_MANUAL CURL_ENABLE_EXPORT_TARGET CURL_USE_PKGCONFIG CURL_USE_CMAKECONFIG
@@ -466,9 +466,9 @@ foreach(option BUILD_STATIC_LIBS CURL_DISABLE_INSTALL CURL_USE_MBEDTLS CURL_DISA
                CURL_DISABLE_TFTP CURL_DISABLE_BINDLOCAL CURL_DISABLE_GETOPTIONS)
   set(${option} ON CACHE BOOL "" FORCE)
 endforeach()
-foreach(option CURL_ZLIB CURL_ZSTD CURL_BROTLI)
-  set(${option} OFF CACHE STRING "" FORCE)
-endforeach()
+set(CURL_ZLIB ON CACHE STRING "" FORCE)
+set(CURL_ZSTD ON CACHE STRING "" FORCE)
+set(CURL_BROTLI OFF CACHE STRING "" FORCE)
 set(CURL_CA_BUNDLE none CACHE STRING "" FORCE)
 set(CURL_CA_PATH none CACHE STRING "" FORCE)
 # Its mbedTLS is the one above, whose targets stand for the libraries its search would find.
@@ -476,6 +476,15 @@ set(MBEDTLS_INCLUDE_DIR "${mbedtls_SOURCE_DIR}/include" CACHE PATH "" FORCE)
 set(MBEDTLS_LIBRARY mbedtls CACHE STRING "" FORCE)
 set(MBEDX509_LIBRARY mbedx509 CACHE STRING "" FORCE)
 set(MBEDCRYPTO_LIBRARY tfpsacrypto CACHE STRING "" FORCE)
+# So are its zlib, zlib-ng's zlib API, whose target CMake's search for zlib takes as it finds it
+# there, and its zstd, whose search links the target it's named.
+if(NOT TARGET ZLIB::ZLIB)
+  add_library(ZLIB::ZLIB ALIAS zlib-ng)
+endif()
+set(ZLIB_INCLUDE_DIR "${zlib_ng_BINARY_DIR}" CACHE PATH "" FORCE)
+set(ZLIB_LIBRARY zlib-ng CACHE STRING "" FORCE)
+set(ZSTD_INCLUDE_DIR "${zstd_SOURCE_DIR}/lib" CACHE PATH "" FORCE)
+set(ZSTD_LIBRARY zstd CACHE STRING "" FORCE)
 string(REPLACE "." "_" tag "${FB_CURL_VERSION}")
 FetchContent_Declare(
   curl
