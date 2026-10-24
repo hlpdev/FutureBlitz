@@ -10020,6 +10020,18 @@ TEST_CASE("a Method can be Async, and its overrides are too", "[sema]") {
                     "End Class") ==
           errors_t{ "Lister: C's 'Items' doesn't match Lister's, which takes () and returns "
                     "Iterator<Int32>" });
+    // When only one of them is Async, what's wrong is that, whatever it gives.
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Once Implements Iterator<Int>\n"
+                    "    Public ByRef Method Next(): Int? => Null\n"
+                    "End Struct\n"
+                    "Interface Lister\n    Method Items(): Iterator<Int>\n"
+                    "    Async Method ItemsAsync(): Iterator<Int>\nEnd Interface\n"
+                    "Class C Implements Lister\n    Async Method Items(): Once => Once()\n"
+                    "    Method ItemsAsync(): Once => Once()\nEnd Class") ==
+          errors_t{ "Lister: 'Items' is Async, so it can't implement Lister's, which isn't",
+                    "Lister: 'ItemsAsync' implements Lister's, which is Async, so it has to be "
+                    "Async too, as a call through the Interface gets a Task" });
     CHECK(errors_of("Struct S\n    Field x: Int\n    Async ByRef Method M()\n    End Method\n"
                     "End Struct") ==
           errors_t{ "M: a ByRef Method can't be Async, since it can go on after its caller's "

@@ -5083,9 +5083,10 @@ private:
         };
         const type_id_t given_result = given_type(candidate.type);
         const type_id_t wanted_result = implemented(required.type);
-        // An Async one's Task is the caller's, so it gives just what the Interface's does.
+        // An Async one's Task is the caller's, so it gives just what the Interface's does. When
+        // only one is Async, it matches, for check_implementation to say which isn't.
         const bool boxes = boxes_into(given_result, wanted_result) &&
-                           !candidate.modifiers.is_async && !required.modifiers.is_async;
+                           !(candidate.modifiers.is_async && required.modifiers.is_async);
         if ((result && given_result != wanted_result && !boxes) ||
             candidate.parameters.size() != required.parameters.size()) {
             return false;
