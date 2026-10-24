@@ -206,7 +206,8 @@ End Class
   Method gives an `Iterator<T>`, what implements it can give a Struct or Class that implements
   that `Iterator<T>`, as a collection's Iterate does for `Iterable<T>`'s (see
   [04-control-flow.md](04-control-flow.md)). Through the Interface's value, or in generic code,
-  a Struct goes in a box, an `Iterator<T>` object.
+  a Struct goes in a box, an `Iterator<T>` object. An Async Method's Task is its caller's, so
+  what implements one gives exactly its result (see [10](10-concurrency.md)).
 - Its Methods can be generic. A generic default runs as written wherever it's called: on a
   type, on a type parameter, and on an Interface's value, whose Self it is then, so its calls on
   Self go through the value's object. A generic Method without a default can't be in a table,
