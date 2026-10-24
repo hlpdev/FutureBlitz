@@ -698,8 +698,8 @@ the rest is planned.
   `AppendBytes`, `AppendText`, `AppendLines`, `WriteBytesAtomic` and `WriteTextAtomic` (a new
   temporary file in the same folder, synced to the disk, then renamed over the file, keeping its
   POSIX permissions), `Exists` (a file, not a folder), `Size`, `Metadata` (its `Kind`, `Size`,
-  `Modified`, `Accessed`, and `Created` times in nanoseconds since 1970 in UTC until std.time's
-  Timestamp, and `IsReadOnly`; through links unless asked), `Copy` and `Move` (which replace a
+  `Modified` and `Accessed` Timestamps, its `Created` Timestamp, which is Null where the OS
+  doesn't say, and `IsReadOnly`; through links unless asked), `Copy` and `Move` (which replace a
   file there, and copy a file to another disk), `Delete` (gives whether there was one), and
   `SetReadOnly`; each with an Async twin, which libuv's thread pool does from the I/O thread's
   loop, whose Await resumes on the main thread. Text reads as UTF-8, with U+FFFD for a byte that

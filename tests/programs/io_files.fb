@@ -5,6 +5,7 @@
 // behind.
 Import std.core
 Import std.io
+Import std.time
 
 Local temp = Try TempDir("fb-files-")
 Local root = temp.Path
@@ -110,7 +111,11 @@ Print("{Try File.Delete(root / "copy.dat")} {Try File.Delete(root / "copy.dat")}
 
 Print("metadata")
 Local found = Try File.Metadata(renamed)
-Print("{found.Kind} {found.Size} {found.IsFile()} {found.IsDirectory()} {found.IsReadOnly} {found.Modified > 0}")
+// A file made a moment ago was changed, read, and made since 2020 began, where the OS says when it
+// was made.
+Local since = Timestamp.FromUnixSeconds(1577836800)
+Print("{found.Kind} {found.Size} {found.IsFile()} {found.IsDirectory()} {found.IsReadOnly} {found.Modified > since}")
+Print("{found.Accessed > since} {(found.Created ?? Timestamp.FromUnixSeconds(1600000000)) > since}")
 Local folderFound = Try File.Metadata(root)
 Print("{folderFound.Kind} {folderFound.IsDirectory()}")
 Try File.SetReadOnly(renamed, True)

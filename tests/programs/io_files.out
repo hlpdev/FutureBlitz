@@ -24,6 +24,7 @@ True [replaced whole]
 True False False
 metadata
 FILE 4 True False False True
+True True
 DIRECTORY True
 True write PERMISSION_DENIED
 False [over]
