@@ -76,6 +76,21 @@ Print(Diff.Unified("{{\n  a\n}}\n{{\n  b\n}}\n",
 Print("== unified 18")
 Print(Diff.Unified("1\n1\n1\n2\n1\n1\n",
                    "1\n1\n2\n1\n1\n1\n").Replace("\r", "\\r"))
+Print("== unified 19")
+Print(Diff.Unified("1\n2\n3\n4\n5\n6\n" +
+                   "7\n8\n9\n",
+                   "1\n2\nthree\n4\n5\n6\n" +
+                   "7\neight\n9\n", context: 1000000).Replace("\r", "\\r"))
+Print("== unified 20")
+Print(Diff.Unified("1\n2\n3\n4\n5\n6\n" +
+                   "7\n8\n9\n",
+                   "1\n2\nthree\n4\n5\n6\n" +
+                   "7\neight\n9\n", context: 1073741824).Replace("\r", "\\r"))
+Print("== unified 21")
+Print(Diff.Unified("1\n2\n3\n4\n5\n6\n" +
+                   "7\n8\n9\n",
+                   "1\n2\nthree\n4\n5\n6\n" +
+                   "7\neight\n9\n", context: 2147483647).Replace("\r", "\\r"))
 Local merged0 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "1\ntwo\n3\n4\n5\n6\n" +

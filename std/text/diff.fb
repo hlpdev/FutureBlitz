@@ -79,18 +79,21 @@ Public Class Diff
         Local to = LinesOf(b)
         Local changes = ChangesOf(Script(from, to))
         If changes.Count == 0 Then Return ""
+        // A context of more lines than a has shows no more of them, so it counts as that many,
+        // which keeps the sums below within an Int.
+        Local reach = Min(context, from.Count)
         Local text = "--- {fromName}\n+++ {toName}\n"
         Local first = 0
         While first < changes.Count
             // A hunk takes each change whose context touches the one before's.
             Local last = first
             While last + 1 < changes.Count &&
-                  changes[last + 1].Start - changes[last].Finish <= 2 * context
+                  changes[last + 1].Start - changes[last].Finish - reach <= reach
                 last += 1
             End While
 
-            Local start = Max(changes[first].Start - context, 0)
-            Local finish = Min(changes[last].Finish + context, from.Count)
+            Local start = Max(changes[first].Start - reach, 0)
+            Local finish = changes[last].Finish + Min(reach, from.Count - changes[last].Finish)
             Local otherStart = changes[first].OtherStart - (changes[first].Start - start)
             Local otherFinish = changes[last].OtherFinish + (finish - changes[last].Finish)
             text += "@@ -{Range(start, finish)} +{Range(otherStart, otherFinish)} @@\n"
