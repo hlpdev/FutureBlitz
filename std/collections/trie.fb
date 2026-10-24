@@ -151,7 +151,7 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Local keys: String[] = []
         Local start = Find(prefix)
         If start == Null Then Return keys
-        Local iterator = TrieIterator<V>(Self, [start], [-1], Changes)
+        Local iterator = TrieIterator<V>(Self, start, -1, Null, Changes)
         Loop
             Local entry = iterator.Next()
             If entry == Null Then Return keys
@@ -199,7 +199,7 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
 
     // Each key and its value, in order, for 'For key, value In trie'. Giving a key a new value
     // while going over them is fine, but adding or removing one panics.
-    Public Method Iterate(): TrieIterator<V> => TrieIterator<V>(Self, [Root], [-1], Changes)
+    Public Method Iterate(): TrieIterator<V> => TrieIterator<V>(Self, Root, -1, Null, Changes)
 
     // The node where prefix ends, or Null when no key starts with it.
     Method Find(prefix: String): TrieNode<V>?
@@ -213,34 +213,56 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
     End Method
 End Class
 
-// The keys in order: a stack of the nodes on the way down, each with the next of its children to
-// go into, or -1 before its own key.
+// The nodes above a TrieIterator's node, the lowest first, each with the next of its children to
+// go into. A step makes new ones rather than changing these, so a copy of the iterator keeps its
+// place.
+Class TriePath<V>
+    ReadOnly Field Node: TrieNode<V>
+    ReadOnly Field Place: Int
+    ReadOnly Field Up: TriePath<V>?
+
+    New(node: TrieNode<V>, place: Int, up: TriePath<V>?)
+        Node = node
+        Place = place
+        Up = up
+    End New
+End Class
+
+// The keys in order: the node it's at, or Null at the end, with the next of its children to go
+// into, or -1 before its own key, and the nodes on the way down to it.
 Public Struct TrieIterator<V> Implements Iterator<(String, V)>
     Field Owner: Trie<V>
-    Field Nodes: TrieNode<V>[]
-    Field Places: Int[]
+    Field Node: TrieNode<V>?
+    Field Place: Int
+    Field Up: TriePath<V>?
     Field Changes: Int64
 
     @PanicsAtCaller
     Public ByRef Method Next(): (String, V)?
         If Owner.Changes != Changes Then Panic("the Trie changed while a For ... In went over it")
-        While Nodes.Count > 0
-            Local top = Nodes.Count - 1
-            Local node = Nodes[top]
-            Local at = Places[top]
-            Places[top] = at + 1
+        Loop
+            Local node = Node
+            If node == Null Then Return Null
+            Local at = Place
+            Place = at + 1
             If at == -1
                 Local key = node.Key
                 If key != Null Then Return (key, node.Value.Expect("a Trie's key has a value"))
             ElseIf at < node.Children.Count
-                Nodes.Add(node.Children[at])
-                Places.Add(-1)
+                Up = TriePath<V>(node, Place, Up)
+                Node = node.Children[at]
+                Place = -1
             Else
-                Nodes.RemoveLast()
-                Places.RemoveLast()
+                Local up = Up
+                If up == Null
+                    Node = Null
+                Else
+                    Node = up.Node
+                    Place = up.Place
+                    Up = up.Up
+                End If
             End If
-        End While
-        Return Null
+        End Loop
     End Method
 End Struct
 

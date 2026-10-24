@@ -120,3 +120,18 @@ Print(fresh.HasPrefix(""), fresh.HasPrefix("a"), fresh.HasPrefix("ab"), fresh.Ha
       fresh.Get("ab", 7))
 fresh.Remove("ab")
 Print(fresh.HasPrefix(""), fresh.HasPrefix("a"), fresh.Count)
+
+// A consumer or a For ... In goes over a copy of an Iterator, so one partly used doesn't move.
+Local fifty = Trie<Int>()
+For i = 0 Until 50
+    fifty["{i}"] = i
+End For
+
+Local entries = fifty.Iterate()
+entries.Next()
+Print(entries.Count(), entries.Count(), entries.Next() ?? ("", -1))
+Local looped = 0
+For key, value In entries
+    looped += 1
+End For
+Print(looped, entries.Count())
