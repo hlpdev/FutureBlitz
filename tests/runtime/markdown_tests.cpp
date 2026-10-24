@@ -326,12 +326,26 @@ private:
 
         const std::string_view name = reference.substr(1, reference.size() - 2);
         std::string character;
+        // A numeric one has digits of its base, as Python's HTMLParser takes it, and one past
+        // U+10FFFF, which Python's chr() refuses, stays as it is.
         if (name.starts_with('#')) {
             const bool hex = name.size() > 1 && (name[1] == 'x' || name[1] == 'X');
             const unsigned base = hex ? 16 : 10;
+            const std::string_view digits = name.substr(hex ? 2 : 1);
+            const auto is_digit = [hex](const char c) {
+                return (c >= '0' && c <= '9') ||
+                       (hex && ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')));
+            };
+            if (digits.empty() || !std::ranges::all_of(digits, is_digit)) {
+                return std::string(reference);
+            }
+
             unsigned code_point = 0;
-            for (const char digit : name.substr(hex ? 2 : 1)) {
+            for (const char digit : digits) {
                 code_point = (code_point * base) + digit_value(digit);
+                if (code_point > 0x10FFFF) {
+                    return std::string(reference);
+                }
             }
 
             append_utf8(character, code_point);
@@ -422,11 +436,33 @@ private:
         m_last = last_t::END_TAG;
     }
 
+    /// Whether a tag's text, between its '<' and '>', ends with the '/' of a self-closing tag,
+    /// rather than an unquoted value's last character, as in <a href=x/>, as Python's
+    /// HTMLParser reads it: after a space or a quote, or a name's.
+    static bool self_closes(const std::string_view rest) {
+        if (rest.empty() || rest.back() != '/') {
+            return false;
+        }
+
+        const std::string_view before = rest.substr(0, rest.size() - 1);
+        if (before.empty() || is_space(before.back()) || before.back() == '"' ||
+            before.back() == '\'') {
+            return true;
+        }
+
+        std::size_t start = before.size();
+        while (start > 0 && !is_space(before[start - 1])) {
+            --start;
+        }
+
+        return before.substr(start).find('=') == std::string_view::npos;
+    }
+
     /// "<a href="x" title='y'>" or "<br />": its name and sorted attributes, values decoded and
     /// escaped again.
     void start_tag(const std::string_view tag) {
         std::string_view rest = tag.substr(1, tag.size() - 2);
-        const bool closes = !rest.empty() && rest.back() == '/';
+        const bool closes = self_closes(rest);
         if (closes) {
             rest.remove_suffix(1);
         }
@@ -812,4 +848,18 @@ TEST_CASE("Markdown of less than 4 GiB is what md4c reads", "[runtime]") {
     CHECK(fb::markdown_fits(0));
     CHECK(fb::markdown_fits(4294967295));
     CHECK_FALSE(fb::markdown_fits(4294967296));
+}
+
+TEST_CASE("the normalizer tells apart what normalize.py does", "[runtime]") {
+    // normalize.py keeps "&#;" and "&#x;", and one past U+10FFFF, as they are.
+    CHECK(normalized("<p>&#;</p>") == "<p>&#;</p>");
+    CHECK(normalized("<p>&#x;</p>") == "<p>&#x;</p>");
+    CHECK(normalized("<p>&#1114112;</p>") == "<p>&#1114112;</p>");
+    CHECK(normalized("<p>&#12a;</p>") == "<p>&#12a;</p>");
+    CHECK(normalized("<p>&#x41;&#65;</p>") == "<p>AA</p>");
+    // An unquoted value's '/' is the value's, so only the others close their tags.
+    CHECK(normalized("<a href=x/>") == "<a href=\"x/\">");
+    CHECK(normalized("<a href=x />") == "<a href=\"x\">");
+    CHECK(normalized("<a href=\"x\"/>") == "<a href=\"x\">");
+    CHECK(normalized("<br/><input disabled/>") == "<br><input disabled>");
 }
