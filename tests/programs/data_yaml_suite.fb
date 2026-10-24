@@ -1,0 +1,109 @@
+// std.data's YAML passes yaml-test-suite's cases for the core schema: each well-formed stream's
+// documents read as what they hold, and read the same once written and read again, and each
+// other one throws a ParseError. data_yaml_suite/make_data.py says which cases there are, and how
+// what each holds is written.
+
+Import std.core
+Import std.collections
+Import std.math
+Import std.data.value
+Import std.data.yaml
+Import "./data_yaml_suite/data"
+
+// Adds text in quotes, with escapes for '"', '\', and control characters.
+Function AddQuoted(out: UInt8[], text: String)
+    out.Add(34)
+    For b In text.Bytes
+        If b == 34 || b == 92
+            out.Add(92)
+            out.Add(b)
+        ElseIf b < 32 || b == 127
+            out.AddAll("\\u00".Bytes)
+            out.Add(HexDigit(b >> 4))
+            out.Add(HexDigit(b & 15))
+        Else
+            out.Add(b)
+        End If
+    End For
+    out.Add(34)
+End Function
+
+Function HexDigit(digit: UInt8): UInt8 => digit < 10 ? 48 + digit : 87 + digit
+
+// Adds value as make_data.py writes what a case holds: an Object's keys in order, and a Float
+// as its bits, or nan.
+Function AddCanonical(out: UInt8[], value: Value)
+    Select value.Kind
+        Case ValueKind.NULL
+            out.AddAll("null".Bytes)
+        Case ValueKind.BOOL
+            out.AddAll((value.AsBool() ? "true" : "false").Bytes)
+        Case ValueKind.INT
+            out.AddAll("{value.AsInt()}".Bytes)
+        Case ValueKind.FLOAT
+            Local float = value.AsFloat()
+            out.AddAll((float != float ? "nan" : "{float.ToBits()}").Bytes)
+        Case ValueKind.STRING
+            AddQuoted(out, value.AsString())
+        Case ValueKind.ARRAY
+            out.Add(91)
+            Local first = True
+            For item In value.Values()
+                If !first Then out.AddAll(", ".Bytes)
+                first = False
+                AddCanonical(out, item)
+            End For
+            out.Add(93)
+        Default
+            Local keys = value.Keys()
+            keys.Sort()
+            out.Add(123)
+            Local first = True
+            For key In keys
+                If !first Then out.AddAll(", ".Bytes)
+                first = False
+                AddQuoted(out, key)
+                out.AddAll(": ".Bytes)
+                AddCanonical(out, value[key])
+            End For
+            out.Add(125)
+    End Select
+End Function
+
+Function Canonical(documents: Value[]): UInt8[]
+    Local out: UInt8[] = []
+    For i = 0 Until documents.Count
+        If i > 0 Then out.AddAll("\n---\n".Bytes)
+        AddCanonical(out, documents[i])
+    End For
+    Return out
+End Function
+
+Local passed = 0
+Local cases = Cases()
+For test In cases
+    Try
+        Local documents = Try Yaml.ReadAll(test.1)
+        Local found = Canonical(documents)
+        If test.2 == "error"
+            Print("{test.0} reads")
+        ElseIf test.2 != "" && found != test.2.Bytes
+            Local shown: String[] = []
+            For document In documents
+                shown.Add("{document}")
+            End For
+            Print("{test.0} reads as {shown.Join(" --- ")}")
+        ElseIf Canonical(Try Yaml.ReadAll(Yaml.WriteAll(documents))) != found
+            Print("{test.0} reads otherwise once written")
+        Else
+            passed += 1
+        End If
+    Catch e As ParseError
+        If test.2 == "error"
+            passed += 1
+        Else
+            Print("{test.0} doesn't read: {e.Message}")
+        End If
+    End Try
+End For
+Print("{passed} of {cases.Count} cases pass")
