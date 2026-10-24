@@ -64,6 +64,29 @@ void fb_image_gif_encoder_add(void* encoder, const fb_array_t* pixels, std::int3
 void fb_image_gif_encoder_finish(void* encoder, fb_array_t* output);
 void fb_image_gif_encoder_free(void* encoder);
 
+/// The transforms of an image's pixels, `width` by `height` of them, which give new ones in
+/// `output`. Resizing gives `new_width` by `new_height` pixels by `filter`: 0 the nearest one's, 1
+/// a box's, 2 a triangle's, 3 Keys's cubic, or 4 Lanczos's of 3 lobes, each widened as the image
+/// shrinks, its colors weighted by their alpha, as Pillow resamples.
+void fb_image_resize(const fb_array_t* pixels, std::int64_t width, std::int64_t height,
+                     std::int64_t new_width, std::int64_t new_height, std::int32_t filter,
+                     fb_array_t* output);
+/// The `crop_width` by `crop_height` pixels from (`x`, `y`), which are all in the image.
+void fb_image_crop(const fb_array_t* pixels, std::int64_t width, std::int64_t x, std::int64_t y,
+                   std::int64_t crop_width, std::int64_t crop_height, fb_array_t* output);
+/// The pixels flipped, `how` 0 across or 1 down, or turned, 2 a quarter right, 3 a quarter left,
+/// or 4 a half.
+void fb_image_orient(const fb_array_t* pixels, std::int64_t width, std::int64_t height,
+                     std::int32_t how, fb_array_t* output);
+/// Draws `source`'s pixels on `target`'s, its top-left one at (`x`, `y`), over them by its alpha
+/// when `blend` isn't 0, else in their place; what falls outside `target` is left out. Neither
+/// this nor fill changes `target`'s count, only its elements.
+void fb_image_blit(const fb_array_t* target, std::int64_t width, std::int64_t height,
+                   const fb_array_t* source, std::int64_t source_width, std::int64_t source_height,
+                   std::int64_t x, std::int64_t y, std::int32_t blend);
+/// Gives each of `target`'s pixels the color `rgba`, whose top byte is its red.
+void fb_image_fill(const fb_array_t* target, std::uint32_t rgba);
+
 /// stb_image's decoding: `format` is one of fb_image_format's 1 PNG, 2 JPEG, 3 BMP, 4 TGA, or 6
 /// HDR, and the bytes must be that format. An HDR gives fb_image_hdr_pixels.
 void* fb_stb_decode(const fb_array_t* data, std::int32_t format, std::int64_t limit);

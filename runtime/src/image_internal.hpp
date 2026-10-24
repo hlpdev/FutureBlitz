@@ -151,6 +151,28 @@ inline std::uint32_t little16_at(const std::span<const std::uint8_t> bytes, cons
     return std::uint32_t{ bytes[at] } | (std::uint32_t{ bytes[at + 1] } << 8U);
 }
 
+/// Draws the RGBA pixel at `from` over the one at `to`, by straight alpha's "over", in 255ths:
+/// the result's alpha is a + b(1 - a), and its color the two colors by their alphas, rounded.
+inline void over(std::uint8_t* to, const std::uint8_t* from) {
+    const std::uint32_t alpha = from[3];
+    if (alpha == 255) {
+        std::memcpy(to, from, 4);
+        return;
+    }
+
+    if (alpha == 0) {
+        return;
+    }
+
+    const std::uint32_t under = to[3] * (255 - alpha);
+    const std::uint32_t total = (alpha * 255) + under;
+    for (std::size_t c = 0; c < 3; ++c) {
+        const std::uint32_t mixed = (from[c] * alpha * 255) + (to[c] * under);
+        to[c] = static_cast<std::uint8_t>((mixed + (total / 2)) / total);
+    }
+    to[3] = static_cast<std::uint8_t>((total + 127) / 255);
+}
+
 /// PNG's CRC-32, of the ISO 3309 polynomial, as zlib's crc32 gives it, for the parts that don't
 /// link zlib-ng.
 inline std::uint32_t crc32(std::uint32_t crc, const std::span<const std::uint8_t> bytes) {

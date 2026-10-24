@@ -125,26 +125,11 @@ void draw(std::vector<std::uint8_t>& canvas, const std::int64_t width, const fra
                 (((std::size_t{ frame.y } + row) * static_cast<std::size_t>(width)) + frame.x +
                  column) *
                 4;
-            const std::uint32_t alpha = pixels[from + 3];
-            if (frame.blend == blend_source || alpha == 255) {
+            if (frame.blend == blend_source) {
                 std::copy_n(pixels + from, 4, canvas.begin() + static_cast<std::ptrdiff_t>(to));
-                continue;
+            } else {
+                over(&canvas[to], pixels + from);
             }
-
-            if (alpha == 0) {
-                continue;
-            }
-
-            // In 255ths: the result's alpha is a + b(1 - a), and its color the two colors by
-            // their alphas, over it.
-            const std::uint32_t under = canvas[to + 3] * (255 - alpha);
-            const std::uint32_t total = (alpha * 255) + under;
-            for (std::size_t c = 0; c < 3; ++c) {
-                const std::uint32_t mixed =
-                    (pixels[from + c] * alpha * 255) + (canvas[to + c] * under);
-                canvas[to + c] = static_cast<std::uint8_t>((mixed + (total / 2)) / total);
-            }
-            canvas[to + 3] = static_cast<std::uint8_t>((total + 127) / 255);
         }
     }
 }
