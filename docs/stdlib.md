@@ -234,6 +234,9 @@ So far, std/ holds:
 | std/net/tls.fb | `TlsClient`, `TlsServer`, `TlsStream<S>`, and `TlsListener`, over mbedTLS's TLS through the runtime's `fb_tls_` functions |
 | std/net/acme.fb | `Acme`: an account key's JWK and thumbprint, an HTTP-01 key authorization, and the PKCS #10 CSR an order is finalized with |
 | std/net/acme_client.fb | `AcmeClient`, RFC 8555's account, order, HTTP-01 challenge, and finalizing, over std.net.http's client, and `AcmeTokens`, the challenges' answers |
+| std/os/process_command.fb | `Command`, `Stdio`, `ProcessOutput`, and `Process.Arguments`, over libuv's processes through the runtime's `fb_os_process_` functions |
+| std/os/process_child.fb | `Child`, its `ChildInput` and `ChildOutput` streams, and `ExitStatus` |
+| std/os/process_signals.fb | `Process.OnInterrupt` and `Process.OnTerminate`, over libuv's signals through `fb_os_signal_` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -872,10 +875,18 @@ std/io/.
   values in `'`s as they are, in `"`s with escapes and over lines, and the rest trimmed; all
   but those in `'`s are expanded. It leaves what's set as it is, unless `replace` is True, and
   a bad line is a ParseError, with its line and column, before anything's set.
-- `Process`: `Exit`, `Id`; `Command(program)` with arguments, environment, folder, and piped or
-  inherited streams; `Spawn` gives a `Child` (`Wait`, `TryWait`, `Kill`, its streams);
-  `Output()` and `Status()`. No shell: a program and its arguments, the same on every OS.
-- Signals that every OS has: `OnInterrupt` (Ctrl+C) and `OnTerminate`.
+- `Process`: `Exit`, `Id`, and `Arguments()`, the program's own after its name;
+  `Command(program)` with `Arg`, `Args`, `Env`, `Unset`, `ClearEnv`, `Folder`, and `Stdin`,
+  `Stdout`, and `Stderr`, each a `Stdio`: `INHERIT`, `PIPED`, or `NONE`. `Spawn` gives a `Child`
+  (`Id`, `Wait`, `TryWait`, `Kill`, and its piped streams, a `ChildInput` Writer and
+  `ChildOutput` Readers); `Output()` gives a `ProcessOutput`, the child's stdout and stderr and
+  its `ExitStatus`, and `Status()` the `ExitStatus`, each with an Async twin. No shell: a program
+  and its arguments, the same on every OS. Step 17 built them over libuv's processes, on a thread
+  of the runtime's own.
+- Signals that every OS has: `Process.OnInterrupt(handler)`, for Ctrl+C, or Ctrl+Break on
+  Windows too, and `Process.OnTerminate(handler)`, for SIGTERM and SIGHUP, or a console closing
+  on Windows. Each handler is a `Sendable Func()` that runs on a thread of its own until the
+  program's code is done. Step 17 built them over libuv's signals.
 - System: `Platform`, `Arch`, `CpuCount`, `TotalMemory`, `Hostname`, `UserName`.
 - `Folders`: `Executable`, `Home`, `Config`, `Data`, `Cache`, `Temp`, `Documents`;
   `OpenDefault(pathOrUrl)`.
