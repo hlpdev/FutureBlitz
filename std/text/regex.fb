@@ -224,12 +224,20 @@ Public Class Regex
         Return Regex(pattern, flags, code)
     End Method
 
-    // pattern with a backslash before each character that means something in a pattern, so a
-    // Regex of it matches text itself.
+    // text with a backslash before each character that can mean something in a pattern, so a
+    // Regex of it matches text itself, under any flags: each ASCII one but a letter, a digit, or
+    // _, and the whitespace beyond ASCII that EXTENDED skips, U+0085, U+200E, U+200F, U+2028,
+    // and U+2029.
     Public Static Method Escape(text: String): String
         Local escaped = ""
         For c In text.Chars
-            If c.Code < 128 && !c.IsLetter() && !c.IsDigit() && c != '_' Then escaped += "\\"
+            Local code = c.Code
+            Local skipped = code == 0x85 || code == 0x200E || code == 0x200F || code == 0x2028 ||
+                            code == 0x2029
+            If (code < 128 && !c.IsLetter() && !c.IsDigit() && c != '_') || skipped
+                escaped += "\\"
+            End If
+
             escaped += "{c}"
         End For
 

@@ -21,6 +21,7 @@ Hello world
 [a, b, c, , d] [, a, ]
 1\+1\=2\?\ \(yes\)\ \[a\-z\]\ \$5\.00\ é\\
 True
+True True True True True True True True 
 True False
 one 0
 two 5

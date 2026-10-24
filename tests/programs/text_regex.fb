@@ -64,6 +64,13 @@ Print(Try Regex(r",\s*").Split("a, b,c,,d"), Try Regex(",").Split(",a,"))
 Local odd = "1+1=2? (yes) [a-z] $5.00 é\\"
 Print(Regex.Escape(odd))
 Print(Try Regex(Regex.Escape(odd)).IsMatch("so " + odd + " so"))
+// Under any flags, EXTENDED's whitespace beyond ASCII included.
+For plain In ["a b", "a#b", "a\u{85}b", "a\u{200E}b", "a\u{200F}b", "a\u{2028}b", "a\u{2029}b",
+             "a\u{A0}b"]
+    Write(Try Regex(Regex.Escape(plain), RegexFlags.EXTENDED).IsMatch(plain), "")
+End For
+
+Print()
 
 // The flags, alone and together.
 Print(Try Regex("école", RegexFlags.IGNORE_CASE).IsMatch("ÉCOLE"),
