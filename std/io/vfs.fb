@@ -200,15 +200,17 @@ Public Class Vfs
         Throw Try Unread(path)
     End Method
 
-    // ReadBytes's Async twin, which reads a folder's files without blocking the main thread.
+    // ReadBytes's Async twin, which reads a folder's files without blocking the main thread. It
+    // reads the mounts there were when it began, whatever's mounted while it waits.
     Public Async Method ReadBytesAsync(path: Path): UInt8[] Throws IOError
         Local names = Try Checked(path)
-        For i = Mounts.Count - 1 To 0 Step -1
-            Local inner = Inside(Mounts[i], names)
+        Local mounts = Mounts.Clone()
+        For i = mounts.Count - 1 To 0 Step -1
+            Local inner = Inside(mounts[i], names)
             If inner == Null Then Continue
-            Local folder = Mounts[i].Source As? FolderSource
+            Local folder = mounts[i].Source As? FolderSource
             If folder == Null
-                Local bytes = Try Mounts[i].Source.Read(inner)
+                Local bytes = Try mounts[i].Source.Read(inner)
                 If bytes != Null Then Return bytes
             Else
                 Local file = folder.OnDisk(inner)

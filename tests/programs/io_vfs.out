@@ -49,6 +49,7 @@ async
   [level one] [the game]
   [level two, with a second line]
   NOT_FOUND
+  True True [from memory]
 a source of its own
   [number 42] 1
   [the game]

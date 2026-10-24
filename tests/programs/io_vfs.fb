@@ -144,6 +144,17 @@ Catch e As IOError
     Print("  {e.Kind}")
 End Try
 
+// A read sees the mounts as they were when it began, though they're taken out while it waits on
+// a folder's.
+Try Dir.CreateAll(root / "a")
+Try Dir.CreateAll(root / "b")
+Local layered = Vfs()
+layered.MountEmbedded("", {"x.txt": "from memory".Bytes})
+layered.MountFolder("", root / "a")
+layered.MountFolder("", root / "b")
+Local waiting = layered.ReadTextAsync("x.txt")
+Print("  {layered.Unmount("")} {layered.Unmount("")} [{Try Await waiting}]")
+
 // A source of the program's own: what it makes as it's asked.
 Class Numbers Implements VfsSource
     Method Read(path: String): UInt8[]? Throws IOError
