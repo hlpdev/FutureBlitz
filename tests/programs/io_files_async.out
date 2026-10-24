@@ -26,6 +26,8 @@ OTHER
 NOT_FOUND
 IS_A_DIRECTORY
 whole none
+[written while they wait] False
+6 waited
 True True
 True True
 True False
