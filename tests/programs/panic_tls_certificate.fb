@@ -1,0 +1,31 @@
+// A TLS identity panics where it's made with a certificate mbedTLS can't read, as one of
+// an Ed25519 key, which std.crypto reads, from net_tls/make_certificates.sh.
+Import std.core
+Import std.crypto
+Import std.io
+Import std.net
+
+Const ed25519_pem = """
+    -----BEGIN CERTIFICATE-----
+    MIIBrTCCAVKgAwIBAgIUD9vVlKp7hjLv7esMTxH+9aDmmvIwCgYIKoZIzj0EAwIw
+    HjEcMBoGA1UEAwwTRnV0dXJlQmxpdHogVGVzdCBDQTAgFw0yMDAxMDEwMDAwMDBa
+    GA8yMTIwMDEwMTAwMDAwMFowFDESMBAGA1UEAwwJbG9jYWxob3N0MCowBQYDK2Vw
+    AyEALs4pNSy+TWE5DAx6MVONSYPh0zZOB4i395UJi+17cxOjgaQwgaEwDAYDVR0T
+    AQH/BAIwADAOBgNVHQ8BAf8EBAMCBaAwEwYDVR0lBAwwCgYIKwYBBQUHAwEwLAYD
+    VR0RBCUwI4IJbG9jYWxob3N0hwR/AAABhxAAAAAAAAAAAAAAAAAAAAABMB0GA1Ud
+    DgQWBBTm3s4kip46MTmaFpgT2QoUyXyWKjAfBgNVHSMEGDAWgBTk45n6jin5tvLs
+    s88NORqhRUX0RDAKBggqhkjOPQQDAgNJADBGAiEAu6lWFnOxsks1b59zpsrCqqTy
+    hfjV0pZDpc/9aWuIn7gCIQCZ+6qTVuMe+o6qcUPLQMgyyzvN80CPwqBKhV+uq1zs
+    6Q==
+    -----END CERTIFICATE-----
+    """
+
+Local bytes: UInt8[] = []
+For i = 1 To 32
+    bytes.Add(i As UInt8)
+End For
+
+Local chain = Try Certificate.AllFromPem(ed25519_pem)
+Print(chain[0].Subject, chain[0].PublicKey?.Kind ?? KeyKind.RSA)
+TlsServer(chain, Key(KeyKind.ECDSA_P256, True, bytes))
+Print("unreachable")

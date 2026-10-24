@@ -1,0 +1,8 @@
+// Connect panics where it's given a host with a NUL in its name.
+Import std.core
+Import std.crypto
+Import std.io
+Import std.net
+
+Local tls = Try TlsClient().Connect(MemoryStream(), "local\0host")
+Print("unreachable {tls.Version}")

@@ -1,0 +1,36 @@
+== a test certificate
+client got you said hello, then the end, from CN=localhost
+served hello over TLS 1.3, no protocol, from no certificate
+== RSA
+client got you said hello, then the end, from CN=localhost
+served hello over TLS 1.3, no protocol, from no certificate
+== an IP address the certificate names
+client got you said hello, then the end, from CN=localhost
+served hello over TLS 1.3, no protocol, from no certificate
+== ALPN
+client got you said hello, then the end, from CN=localhost
+served hello over TLS 1.3, http/1.1, from no certificate
+client: NetError TLS: the server refused the handshake
+server: NetError TLS: the client and the server have no application protocol in common
+== the client's certificate
+client got you said hello, then the end, from CN=localhost
+served hello over TLS 1.3, no protocol, from CN=FutureBlitz Test Client
+client: IOError OTHER: a record the server sent doesn't authenticate, as when it refused this side's certificate
+server: NetError TLS: the client sent no certificate
+== certificates the client refuses
+client: NetError TLS: the server's certificate isn't signed by a root this side trusts
+server: NetError TLS: the client refused the handshake, or sent a record that doesn't authenticate
+client: NetError TLS: the server's certificate isn't for localhost
+server: NetError TLS: the client refused the handshake, or sent a record that doesn't authenticate
+client: NetError TLS: the server's certificate has expired
+server: NetError TLS: the client refused the handshake, or sent a record that doesn't authenticate
+client got you said hello, then the end, from CN=localhost
+served hello over TLS 1.3, no protocol, from no certificate
+== the OS's roots, which don't have the test CA
+client: NetError TLS: the server's certificate isn't signed by a root this side trusts
+server: NetError TLS: the client refused the handshake, or sent a record that doesn't authenticate
+== a write of many records
+the client wrote 100000 bytes
+the server read 100000 bytes, the last 7
+== a stream that ends
+client: NetError CLOSED: the stream ended before the TLS handshake did

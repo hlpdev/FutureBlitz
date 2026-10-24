@@ -666,6 +666,10 @@ TEST_CASE("a program links the bundled C libraries of the runtime functions it c
     CHECK(bundled("Import std.net.http\nLocal client = HttpClient()") ==
           std::vector<std::string_view>{ "libuv", "mbedTLS", "zlib-ng", "zstd", "nghttp2",
                                          "libcurl" });
+    // std.net.tls links mbedTLS's TLS, and mbedTLS, which it's a part of; a TLS stream over
+    // something other than a socket needs no libuv.
+    CHECK(bundled("Import std.net.tls\nLocal client = TlsClient()") ==
+          std::vector<std::string_view>{ "mbedTLS", "mbedTLS's TLS" });
 }
 
 TEST_CASE("a bundled C library's notices have the texts of every license it names", "[driver]") {

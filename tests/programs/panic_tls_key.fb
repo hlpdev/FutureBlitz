@@ -1,0 +1,29 @@
+// A TLS identity panics where it's made with a key that isn't its certificate's, which
+// net_tls/make_certificates.sh made.
+Import std.core
+Import std.crypto
+Import std.io
+Import std.net
+
+Const localhost_pem = """
+    -----BEGIN CERTIFICATE-----
+    MIIB2zCCAYGgAwIBAgIUedQoeu28tAH+KsyVFoglnoyivrAwCgYIKoZIzj0EAwIw
+    HjEcMBoGA1UEAwwTRnV0dXJlQmxpdHogVGVzdCBDQTAgFw0yMDAxMDEwMDAwMDBa
+    GA8yMTIwMDEwMTAwMDAwMFowFDESMBAGA1UEAwwJbG9jYWxob3N0MFkwEwYHKoZI
+    zj0CAQYIKoZIzj0DAQcDQgAE78GeMXEYbFNB0NflZo2AbNjdaly601Pq5+B2qal4
+    tWw1mDyx877K3XqgZgiN9qcNH3+LtWlPuex/aRcV8GTPAKOBpDCBoTAMBgNVHRMB
+    Af8EAjAAMA4GA1UdDwEB/wQEAwIFoDATBgNVHSUEDDAKBggrBgEFBQcDATAsBgNV
+    HREEJTAjgglsb2NhbGhvc3SHBH8AAAGHEAAAAAAAAAAAAAAAAAAAAAEwHQYDVR0O
+    BBYEFH5Ip73s1qX3QT7V3Y+RK5k5EoTmMB8GA1UdIwQYMBaAFOTjmfqOKfm28uyz
+    zw05GqFFRfREMAoGCCqGSM49BAMCA0gAMEUCIQDNw36/1Nx7N2/C7YB43g8XurAM
+    f8uuIxHawT14iT+SIgIgUjV1euZcD9ka2BeT9SXpJE6DFxUlLWO0x421CztzH84=
+    -----END CERTIFICATE-----
+    """
+
+Local bytes: UInt8[] = []
+For i = 1 To 32
+    bytes.Add(i As UInt8)
+End For
+
+TlsServer(Try Certificate.AllFromPem(localhost_pem), Key(KeyKind.ECDSA_P256, True, bytes))
+Print("unreachable")
