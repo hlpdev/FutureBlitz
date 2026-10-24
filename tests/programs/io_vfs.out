@@ -56,6 +56,9 @@ errors
   NOT_FOUND
   NOT_FOUND
   NOT_A_DIRECTORY
+  INVALID_PATH can't list ..: it goes above the Vfs's root
+  can't list x/../..: it goes above the Vfs's root
+  can't list ..: it goes above the Vfs's root
 async
   [level one] [the game]
   [level two, with a second line]

@@ -200,7 +200,7 @@ Public Class Vfs
     // The bytes of the file at `path`. One that no mount has throws an IOError of NOT_FOUND, a
     // folder one of IS_A_DIRECTORY, and a path above the root one of INVALID_PATH.
     Public Method ReadBytes(path: Path): UInt8[] Throws IOError
-        Local names = Try Checked(path)
+        Local names = Try Checked(path, "read")
         For i = Mounts.Count - 1 To 0 Step -1
             Local inner = Inside(Mounts[i], names)
             If inner == Null Then Continue
@@ -214,7 +214,7 @@ Public Class Vfs
     // ReadBytes's Async twin, which reads a folder's files without blocking the main thread. It
     // reads the mounts there were when it began, whatever's mounted while it waits.
     Public Async Method ReadBytesAsync(path: Path): UInt8[] Throws IOError
-        Local names = Try Checked(path)
+        Local names = Try Checked(path, "read")
         Local mounts = Mounts.Clone()
         For i = mounts.Count - 1 To 0 Step -1
             Local inner = Inside(mounts[i], names)
@@ -289,9 +289,10 @@ Public Class Vfs
 
     // What's in the folder at `path`, from every mount that has it, and the mounts in it, in the
     // order of their names' bytes. A name two mounts have is the last one's. A folder no mount
-    // has throws an IOError of NOT_FOUND, and a file one of NOT_A_DIRECTORY.
+    // has throws an IOError of NOT_FOUND, a file one of NOT_A_DIRECTORY, and a path above the
+    // root one of INVALID_PATH.
     Public Method Entries(path: Path): DirEntry[] Throws IOError
-        Local names = Try Checked(path)
+        Local names = Try Checked(path, "list")
         // A later mount's file where an earlier one has a folder is the file, as KindOf says.
         If (Try KindOf(path)) == FileKind.FILE
             Throw IOError(IOErrorKind.NOT_A_DIRECTORY, "can't list {path}: it's a file", path.Text)
@@ -318,21 +319,22 @@ Public Class Vfs
     Public Method Walk(): DirEntry[] Throws IOError => Try Walk(Path("", PathStyle.POSIX))
 
     // What's in the folder at `path` and in each folder in it, all the way down, each folder
-    // before what's in it, and each folder's entries in the order of their names' bytes.
+    // before what's in it, and each folder's entries in the order of their names' bytes. It
+    // throws as Entries does.
     Public Method Walk(path: Path): DirEntry[] Throws IOError
         Local entries: DirEntry[] = []
-        Try WalkInto(Try Checked(path), "", 0, entries)
+        Try WalkInto(Try Checked(path, "list"), "", 0, entries)
         Return entries
     End Method
 
     // What's in the folder at `path`, and in the folders in it, whose path from it matches
     // `pattern`, as Dir.Glob's patterns match, with '/' or '\' between its names on every OS, as
-    // between a Vfs path's.
+    // between a Vfs path's. It throws as Entries does.
     Public Method Glob(path: Path, pattern: String): DirEntry[] Throws IOError
         Local names = PatternNames(pattern, True)
         If names.Count == 0 Then Return []
         Local entries: DirEntry[] = []
-        Try WalkInto(Try Checked(path), "", DepthOf(names), entries)
+        Try WalkInto(Try Checked(path, "list"), "", DepthOf(names), entries)
         Return Matching(entries, names)
     End Method
 
@@ -400,11 +402,13 @@ Public Class Vfs
     End Method
 End Class
 
-// A Vfs path's names, or an IOError of INVALID_PATH for one that goes above its root.
-Function Checked(path: Path): String[] Throws IOError
+// A Vfs path's names, or an IOError of INVALID_PATH for one that goes above its root, which
+// can't be done what `doing` says.
+Function Checked(path: Path, doing: String): String[] Throws IOError
     Local names = NamesOf(path.Text)
     If names == Null
-        Throw IOError(IOErrorKind.INVALID_PATH, "can't read {path}: it goes above the Vfs's root", path.Text)
+        Throw IOError(IOErrorKind.INVALID_PATH, "can't {doing} {path}: it goes above the Vfs's root",
+                      path.Text)
     End If
 
     Return names
