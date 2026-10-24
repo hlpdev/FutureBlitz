@@ -204,3 +204,22 @@ Local cleared = SortedSet<Int>()
 cleared.Add(1)
 cleared.Clear()
 Print(cleared.Count, cleared.First() ?? -1, cleared)
+
+// A consumer or a For ... In goes over a copy of an Iterator, so one partly used doesn't move.
+Local fiftyMap = SortedMap<Int, Int>()
+Local fiftySet = SortedSet<Int>()
+For i = 0 Until 50
+    fiftyMap.Add(i, i)
+    fiftySet.Add(i)
+End For
+
+Local mapEntries = fiftyMap.Iterate()
+mapEntries.Next()
+Print(mapEntries.Count(), mapEntries.Count(), mapEntries.Next() ?? (-1, -1))
+Local setValues = fiftySet.Iterate()
+setValues.Next()
+Local looped = 0
+For value In setValues
+    looped += 1
+End For
+Print(looped, setValues.Count(), setValues.Next() ?? -1)

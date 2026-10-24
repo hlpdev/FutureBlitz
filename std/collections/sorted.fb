@@ -229,7 +229,7 @@ Public Class SortedMap<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
 
     // The same, for a SortedSet, whose values are a SortedMap's keys, naming it when it changes.
     Package Method IterateAs(name: String): SortedMapIterator<K, V>
-        Local iterator = SortedMapIterator<K, V>(Self, [], [], Changes, name)
+        Local iterator = SortedMapIterator<K, V>(Self, Null, 0, Null, Changes, name)
         iterator.Descend(Root)
         Return iterator
     End Method
@@ -435,14 +435,29 @@ Public Class SortedMap<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     End Method
 End Class
 
-// The entries in order: a stack of the nodes on the way down to the next one, with where each
-// node is at.
+// The nodes above a SortedMapIterator's node, the lowest first, each with where it's at. A step
+// makes new ones rather than changing these, so a copy of the iterator keeps its place.
+Class SortedPath<K, V>
+    ReadOnly Field Node: SortedNode<K, V>
+    ReadOnly Field Place: Int
+    ReadOnly Field Up: SortedPath<K, V>?
+
+    New(node: SortedNode<K, V>, place: Int, up: SortedPath<K, V>?)
+        Node = node
+        Place = place
+        Up = up
+    End New
+End Class
+
+// The entries in order: the node the next one is in, or Null at the end, where it's at among the
+// node's keys, and the nodes on the way down to it.
 Public Struct SortedMapIterator<K, V> Implements Iterator<(K, V)>
     Where K: Comparable
 
     Field Owner: SortedMap<K, V>
-    Field Nodes: SortedNode<K, V>[]
-    Field Places: Int[]
+    Field Node: SortedNode<K, V>?
+    Field Place: Int
+    Field Up: SortedPath<K, V>?
     Field Changes: Int64
     // What the loop goes over: "SortedMap", or "SortedSet".
     Field Name: String
@@ -450,28 +465,35 @@ Public Struct SortedMapIterator<K, V> Implements Iterator<(K, V)>
     @PanicsAtCaller
     Public ByRef Method Next(): (K, V)?
         If Owner.Changes != Changes Then Panic("the {Name} changed while a For ... In went over it")
-        While Nodes.Count > 0
-            Local top = Nodes.Count - 1
-            Local node = Nodes[top]
-            Local at = Places[top]
+        Loop
+            Local node = Node
+            If node == Null Then Return Null
+            Local at = Place
             If at < node.Keys.Count
-                Places[top] = at + 1
+                Place = at + 1
                 If !node.IsLeaf() Then Descend(node.Children[at + 1])
                 Return (node.Keys[at], node.Values[at])
             End If
 
-            Nodes.RemoveAt(top)
-            Places.RemoveAt(top)
-        End While
-        Return Null
+            Local up = Up
+            If up == Null
+                Node = Null
+            Else
+                Node = up.Node
+                Place = up.Place
+                Up = up.Up
+            End If
+        End Loop
     End Method
 
-    // Goes down from node to its smallest key, keeping each node on the way.
+    // Goes down from node to its smallest key, keeping each node above it on the way.
     ByRef Method Descend(node: SortedNode<K, V>)
         Local at = node
         Loop
-            Nodes.Add(at)
-            Places.Add(0)
+            Local above = Node
+            If above != Null Then Up = SortedPath<K, V>(above, Place, Up)
+            Node = at
+            Place = 0
             If at.IsLeaf() Then Return
             at = at.Children[0]
         End Loop
