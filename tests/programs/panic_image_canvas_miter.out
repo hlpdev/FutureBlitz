@@ -1,0 +1,2 @@
+1
+panic: a canvas's miter limit is finite and at least 1, not 0.75 at panic_image_canvas_miter.fb:9:1

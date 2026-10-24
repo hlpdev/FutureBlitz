@@ -1,0 +1,24 @@
+an aligned rectangle: same
+a rectangle between pixels: same
+a triangle: same
+a star, its middle filled: same
+a star, not antialiased: same
+a hole: same
+two that overlap: same
+a circle: same
+a circle, not antialiased: same
+an ellipse: same
+a line, BUTT caps: same
+a line, ROUND caps: same
+a line, SQUARE caps: same
+a polyline, MITER joins: same
+a polyline, ROUND joins: same
+a polyline, BEVEL joins: same
+a miter past its limit: same
+a polygon's edges: same
+a rectangle's edges: same
+a circle's edge: same
+an ellipse's edge: same
+a dot: same
+translucent colors: same
+outside and empty: [255, 239, 0, 0, 255, 239, 0, 0, 255, 145, 0, 0]

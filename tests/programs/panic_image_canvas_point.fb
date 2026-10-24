@@ -1,0 +1,11 @@
+// What's drawn is finite, and drawing through a point that isn't panics where it's drawn.
+Import std.core
+Import std.math.color
+Import std.math.constants
+Import std.math.vector
+Import std.image
+
+Local canvas = Canvas(Image(4, 4))
+canvas.StrokePolyline([Vec2(0, 0), Vec2(3, 3)], Color32.Black)
+Print(canvas.Image[1, 1].a > 0)
+canvas.StrokePolyline([Vec2(0, 0), Vec2(NaN, 3)], Color32.Black)

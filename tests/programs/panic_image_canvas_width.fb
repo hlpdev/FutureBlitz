@@ -1,0 +1,8 @@
+// A canvas's line width is finite and not negative, and setting another panics where it's set.
+Import std.core
+Import std.image
+
+Local canvas = Canvas(Image(2, 2))
+canvas.LineWidth = 0
+Print(canvas.LineWidth)
+canvas.LineWidth = -0.5

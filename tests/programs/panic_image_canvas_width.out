@@ -1,0 +1,2 @@
+0
+panic: a canvas's line width is finite and not negative, not -0.5 at panic_image_canvas_width.fb:8:1

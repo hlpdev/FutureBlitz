@@ -1,0 +1,2 @@
+True
+panic: a point drawn is finite, not (nan, 3) at panic_image_canvas_point.fb:11:1
