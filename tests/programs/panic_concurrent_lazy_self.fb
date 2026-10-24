@@ -1,0 +1,21 @@
+// A Lazy's maker that reads its own Lazy's value would wait for itself forever, so it panics.
+Import std.core
+Import std.concurrent
+
+Global cell = Mutex<Lazy<Int>?>(Null)
+
+// Reads the Lazy in the cell, which is the one this makes.
+Function Maker(): Int
+    Local lazy: Lazy<Int>? = Null
+    Lock cell As held
+        lazy = held
+    End Lock
+    Return lazy?.Value ?? 0
+End Function
+
+Print(Lazy<Int>(Function() => 1).Value)
+Const selfish = Lazy<Int>(Maker)
+Lock cell As held
+    held = selfish
+End Lock
+Print(selfish.Value)

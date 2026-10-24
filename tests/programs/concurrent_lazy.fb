@@ -1,0 +1,60 @@
+// A Lazy's value is made once, by the first thread to read it, however many threads read it at
+// once, and each gets that value, a Null one too; IsMade says when it is.
+
+Import std.core
+Import std.concurrent
+
+Global makes = Atomic<Int>(0)
+
+Function Answer(): Int
+    makes.Add(1)
+    Return 42
+End Function
+
+// What 8 tasks on the pool read from one Lazy, added up.
+Function Race(lazy: Lazy<Int>): Int
+    Local tasks: Task<Int>[] = []
+    For i = 1 To 8
+        tasks.Add(Spawn(Function() => lazy.Value))
+    End For
+
+    Local total = 0
+    For task In tasks
+        total += task.Wait()
+    End For
+    Return total
+End Function
+
+// A Lazy of a String that a lambda makes, capturing a parameter.
+Function Shout(word: String): Lazy<String>
+    Return Lazy<String>(Function(): String
+        makes.Add(1)
+        Return "{word}!"
+    End Function)
+End Function
+
+Local wrong = 0
+For round = 1 To 50
+    makes.Store(0)
+    Local lazy = Lazy<Int>(Answer)
+    Local before = lazy.IsMade
+    Local total = Race(lazy)
+    If before || total != 336 || makes.Load() != 1 || !lazy.IsMade Then wrong += 1
+End For
+Print("rounds wrong:", wrong)
+
+makes.Store(0)
+Const shout = Shout("hey")
+Print(shout.IsMade)
+Local heard = Spawn(Function() => shout.Value)
+Print(heard.Wait(), shout.Value, shout.IsMade, makes.Load())
+
+// A Lazy of a value that may be Null is made once too, when what it makes is Null.
+Function Nothing(): Int?
+    makes.Add(1)
+    Return Null
+End Function
+
+makes.Store(0)
+Const nothing = Lazy<Int?>(Nothing)
+Print(nothing.Value ?? -1, nothing.Value ?? -1, makes.Load(), nothing.IsMade)
