@@ -1,0 +1,6 @@
+// An app's name that can't be a file's on every OS panics at the program's line, before
+// Preferences looks at the disk.
+Import std.core
+Import std.io
+
+Try? Preferences("saves/My Game", "never-made")
