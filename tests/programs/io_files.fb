@@ -429,6 +429,20 @@ dropped = Try TempFile()
 Print("{File.Exists(droppedPath)} {File.Exists(dropped.Path)}")
 Try dropped.Close()
 
+// A TempDir is in the OS's temporary folder, named "fb-" and six more characters unless asked
+// for another prefix, and its last reference going removes it with what's in it.
+Local made = Try TempDir()
+Local madePath = made.Path
+Try File.WriteText(madePath / "inside.txt", "x")
+Try Dir.Create(madePath / "inner")
+Try File.WriteText(madePath / "inner" / "deeper.txt", "x")
+Local name = madePath.FileName()
+Local prefixed = "{name.Bytes[0..3]}" == "{"fb-".Bytes}"
+Print("{((Try Dir.Temp()) / name).Normalize() == madePath.Normalize()} {prefixed} {name.Bytes.Count}")
+made = Try TempDir()
+Print("{Dir.Exists(madePath)} {Dir.Exists(made.Path)}")
+Try made.Close()
+
 // A Close that fails, as removing the current folder does on Windows, can be tried again.
 Local busy = Try TempDir("fb-busy-")
 Local busyRoot = busy.Path

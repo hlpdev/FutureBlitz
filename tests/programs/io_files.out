@@ -152,5 +152,7 @@ temporary files
 True 0 17
 False
 False True
+True True 9
+False True
 busy left False
 left False
