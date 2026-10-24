@@ -1,0 +1,12 @@
+// An INI section holds keys and values, and Write panics where one holds an Object.
+Import std.core
+Import std.data.value
+Import std.data.ini
+
+Local document = Value.NewObject()
+Local section = Value.NewObject()
+section["key"] = Value("value")
+document["section"] = section
+Print(Ini.Write(document))
+section["inner"] = Value.NewObject()
+Print(Ini.Write(document))

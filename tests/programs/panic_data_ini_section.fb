@@ -1,0 +1,10 @@
+// An INI section's name can't hold ']' or a line break, and Write panics where one does.
+Import std.core
+Import std.data.value
+Import std.data.ini
+
+Local document = Value.NewObject()
+document["fine"] = Value.NewObject()
+Print(Ini.Write(document))
+document["bad]"] = Value.NewObject()
+Print(Ini.Write(document))

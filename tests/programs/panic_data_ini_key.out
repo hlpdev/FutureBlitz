@@ -1,0 +1,3 @@
+a-b = 1
+
+panic: an INI key isn't empty, doesn't start with '[', ';', '#', or a space, or end with one, and holds no '=', ':', or line break, as "a=b" does at panic_data_ini_key.fb:10:7
