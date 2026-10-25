@@ -35,7 +35,8 @@ hosted yet; this is the plan.
   calls to action and the cursor, and phosphor green for terminal output, on near-black
   (`#070A14`). The site has one theme, dark, with no switch, and its text meets WCAG AA contrast.
 - **Type:** a pixel display face (Silkscreen) for the wordmark, the hero's headline, and section
-  heads; IBM Plex Sans for text; JetBrains Mono for code. Fonts are self-hosted, so no third party sees a visit.
+  heads; IBM Plex Sans for text; JetBrains Mono for code. Fonts are self-hosted, so no third party
+  sees a visit.
 - **Retro, kept to its place:** the hero is a CRT monitor (curvature, scanlines, a soft glow, all
   off for `prefers-reduced-motion`); headings carry a small pixel bullet; the docs and package
   pages are calm and modern, with the blue in their chrome.
