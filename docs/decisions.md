@@ -824,14 +824,31 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 
 | Decision | Why |
 |---|---|
-| `[project] type` is `executable`, `library` (FB source), `static-library`, or `dynamic-library`, chosen by the library's author | as in Swift and Rust; a closed-source library needs its author to choose |
-| A static or dynamic FB library serves C callers through `@Export` and a generated header, and FB callers through the FB ABI | the engine's users and other languages both call FB code |
-| One shared runtime: inside the executable unless an FB DLL is used, else a versioned runtime DLL that the executable and every FB DLL share | objects, Tasks, and refcounts cross FB DLLs, while a program that uses only std stays one file |
+| A project is an `executable` or a `library`; nothing FutureBlitz builds is called from C: no `@Export`, C headers, or C-callable DLLs (replanned with the user, 2026-10-24) | FutureBlitz libraries are for FutureBlitz programs |
+| A program's project.toml says for each dependency whether it's built into the executable (embedded, the default) or shipped beside it (`link = "beside"`) | one file to ship by default, and a shared or replaceable library where a game wants one |
+| A library beside the executable is FutureBlitz's own kind, `.fbdll`, `.fbso`, or `.fbdylib`: the OS's dynamic library, built only for FB hosts, with a metadata section of its ABI hash, version, target, and mode; the executable loads and checks each as it starts | the OS loads it, so debuggers, profilers, and crash dumps see it, and its name says it isn't for C |
+| The executable always has the runtime, and every library beside it, and every plugin, uses the executable's (its exports on Windows, `-rdynamic` on Linux, `-bundle_loader` on macOS) | one heap, one refcount scheme, one scheduler, and one type registry, and a std-only program stays one file |
+| A prebuilt library is one `.fblib` per target and mode, position-independent objects with its .fbi, which embedding links into the executable and `beside` into its library file | a package ships one binary form, and its user picks |
+| `Plugin.Load(path)` loads a library built against a host's interface package, checking its ABI hash | game mods, built after the game |
 | A prebuilt FB library ships an interface file, `.fbi`: its Public declarations, and the bodies of its generic, @Inline, and Const code | callers instantiate generics themselves, and the library can be closed source |
 | The ABI is exact-version, checked by a hash in each binary | layouts and Method tables change freely; a stable ABI, like Swift's library evolution, costs much compiler work and some speed |
 | C++ is called through C APIs and fb-bindgen, never directly | works with any C++ compiler on every platform |
 | A package's native code is prebuilt per target in `native/<target>/`, C++ as DLLs | no C++ compiler on every developer's machine |
 | One version of each package per program, semver ranges resolved and pinned in `fb.lock` | modules are named by package, and the exact-version ABI wants one build of each |
+
+## futureblitz.dev (M9)
+
+| Decision | Why |
+|---|---|
+| futureblitz.dev is M9, its own milestone closing phase 1, and the engine is M10 to M17 (planned with the user, 2026-10-24) | M8's package manager needs a registry, and the site and docs are phase 1's face |
+| Addresses: futureblitz.dev (the site, docs, and playground's editor), pkg. (packages, accounts, the API), index. (the sparse index), dl. (archives and releases), play. (the run API) | each part caches and is secured on its own |
+| A modern site with a retro Blitz nod: the old IDE's blue, a CRT hero, pixel headings, dark and light | where FutureBlitz comes from, without making the docs a costume |
+| Accounts are GitHub sign-in or an email with passkeys; publishing uses scoped, expiring tokens or GitHub's OIDC trusted publishing | no passwords to leak, and CI keeps no secret |
+| The playground compiles and runs code in a Cloudflare Container sandbox (no network, 10 s of CPU, 256 MB) and streams its output | the real compiler and std, with no WebAssembly build of LLVM |
+| Everything runs on Cloudflare: Workers (static assets, and a Hono API), D1, R2, Durable Objects, Queues, Containers, Email Service, Turnstile | one provider, free egress for downloads, and the site at the edge |
+| The index is sparse, as Cargo's; versions are immutable and yankable, deleted only within 72 hours and with no dependents; names are flat, what `Import` names | fb fetches only what it needs, and a lock file's versions always download |
+| A prebuilt package has one archive of its source and interface, and one per target of its binaries and natives | a game downloads only the targets it builds |
+| The site is static Astro, with Shiki, Pagefind, and the FutureBlitz grammar shared with the VS Code extension; std's reference and every package's docs come from `fb doc` | fast and cheap to serve; one grammar and one doc generator everywhere |
 
 ## Engine, renderer, assets
 

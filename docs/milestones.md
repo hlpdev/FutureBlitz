@@ -17,21 +17,22 @@ Timeline: honors project begins **fall 2027**, so there is plenty of runway.
 | **M4** | Concurrency: Sendable checks, tasks, `Parallel For`, async/coroutines, channels, Mutex/Atomic | a parallel job and an async chain run correctly |
 | **M5** | Modules, packages, `project.toml`, FFI, bindgen | calls a C library through generated bindings |
 | **M6** | Full standard library | `std.*` complete, with tests |
-| **M7** | Libraries and native packages: static and dynamic libraries for C and FutureBlitz callers, one shared runtime, interface files, prebuilt native code in packages | a C program and an FB program each call one FB static and one FB dynamic library; a package wraps a prebuilt C++ DLL; a program that uses only std is still one executable |
+| **M7** | Libraries and packages: FutureBlitz libraries built into the executable or shipped beside it (.fbdll, .fbso, .fbdylib), interface files, plugins, prebuilt native code in packages | an FB program uses one prebuilt FB library embedded and another beside it, loads a plugin, and calls a C++ DLL from a package |
 | **M8** | Tooling: LSP, VS Code extension, formatter, test runner, package manager | daily-driving FutureBlitz in an editor feels good |
+| **M9** | futureblitz.dev: the site, docs, playground, package registry, and accounts, on Cloudflare ([website.md](website.md)) | the site, docs, registry, accounts, and playground are live, and `fb publish` and `fb add` use them |
 
 ## Phase 2: Engine
 
 | | Goal |
 |---|---|
-| **M9** | Engine bootstrap: window, input, frame loop, main scheduler |
-| **M10** | 2D: images, drawing, fonts |
-| **M11** | 3D scene: entities, cameras, lights, hierarchy |
-| **M12** | Vulkan renderer and materials |
-| **M13** | Asset pipeline: VFS, cooker, pak files, typed references, hot reload |
-| **M14** | Audio and physics (miniaudio, Jolt) |
-| **M15** | The IDE |
-| **M16** | Migrator, plus porting a real Blitz3D game as the final proof |
+| **M10** | Engine bootstrap: window, input, frame loop, main scheduler |
+| **M11** | 2D: images, drawing, fonts |
+| **M12** | 3D scene: entities, cameras, lights, hierarchy |
+| **M13** | Vulkan renderer and materials |
+| **M14** | Asset pipeline: VFS, cooker, pak files, typed references, hot reload |
+| **M15** | Audio and physics (miniaudio, Jolt) |
+| **M16** | The IDE |
+| **M17** | Migrator, plus porting a real Blitz3D game as the final proof |
 
 ## M1 build order
 
@@ -118,7 +119,7 @@ time, in debug and release builds.
 | 11 | Loose ends: the rows of the Deferred work below planned for it, and programs that run a parallel job and an async chain together, many times over, with no leaks | M4's "done when" |
 
 **Not in M4:** lock-free collections, actors, and GPU compute stay out of v1 (spec 10). I/O awaits,
-like `File.ReadAsync`, come with `std.io` in M6, and `Flip()` with the engine in M9.
+like `File.ReadAsync`, come with `std.io` in M6, and `Flip()` with the engine in M10.
 
 ## M5 build order
 
@@ -190,7 +191,7 @@ except where it's about those.
 | 22 | std.compress: Deflate, Zlib, Gzip, Zstd, Lz4, and XZ streams; Zip and Tar to read and write; 7z to read | each format round-trips, and reads what common tools wrote | archives for the VFS, packages, and HTTP |
 | 23 | std.uuid and std.db: `Uuid.V4`, `V7`, `Parse`; SQLite with `Execute`, `Query<T>`, transactions, prepared statements, and `Migrate` | Query<T> reads rows into Structs; a failed transaction leaves nothing; migrations run once each, in order | the first of the extra modules, on data and io |
 | 24 | std.image I: the codecs (PNG, JPEG, BMP, TGA, GIF, HDR, QOI, WebP, SVG, animated GIF and APNG) into an `Image`, and the transforms | each format round-trips where it can be written, and decodes reference files to known pixels; resizing matches reference output within a tolerance | images, which the engine's 2D will share |
-| 25 | std.image II: drawing lines, shapes, fills, and TrueType text | drawn images match reference images pixel for pixel | the drawing M10 builds on |
+| 25 | std.image II: drawing lines, shapes, fills, and TrueType text | drawn images match reference images pixel for pixel | the drawing M11 builds on |
 | 26 | std.term: line widgets and full-screen terminal apps | widgets render to a fake terminal as expected, with and without color; a full-screen app redraws only what changed | console tools, on io and text |
 | 27 | std.algo: BFS, DFS, Dijkstra, A*, flow fields, union-find, topological sort, combinatorics, Delaunay, Voronoi | paths match known shortest paths on grids and graphs; triangulations match reference results | the algorithms games and tools reach for |
 | 28 | std.net I: `IpAddress`, `SocketAddress`, `Dns`, `TcpListener`, `TcpStream`, `UdpSocket`, `IpcListener`, `IpcStream`, `Url`, `QueryParams`, LAN discovery | a program talks to itself over TCP, UDP, and IPC, blocking and Async; a refused connection is a NetError Kind; URLs parse per the WHATWG tests that apply | the bottom of the network stack |
@@ -231,22 +232,25 @@ Linux and macOS can't be checked from this machine, so steps there are checked b
 
 ## M7 build order
 
-Planned 2026-10-22, with the design in [libraries.md](libraries.md). Every step ends with tests on
-all three CI runners, and a program that uses only std stays one executable.
+Planned 2026-10-22 and replanned 2026-10-24, with the design in [libraries.md](libraries.md).
+Every step ends with tests on all three CI runners, and a program that uses only std, or embeds
+every package, stays one executable.
 
 | Step | What | Done when |
 |---|---|---|
-| 0 | The spec and docs: spec 11's project types, natives, and package archives, spec 12's `@Export` | the spec says what M7 builds |
-| 1 | `type` in project.toml; a static library for C callers: `@Export` Functions, the C header, and the runtime's archive beside it | a C program built by CMake links an FB static library and calls it |
-| 2 | A dynamic library for C callers: only its exports visible, the shared runtime DLL, set up on the first call | a C host loads an FB DLL and calls it from two threads, with no leaks |
-| 3 | Classes as handles for C | C makes, calls, and releases an FB object through its handle |
-| 4 | `[native]` dynamic libraries and `{target}` paths; DLLs copied beside the executable, rpaths | a program calls a C DLL from its package's native/<target>/ and runs from its build folder |
-| 5 | The interface file: fb writes a library's .fbi, and the loader reads it in place of source | a package checks against a library's .fbi as it does against its source |
-| 6 | FB callers of a static library: its archive and .fbi, generic instances, and the ABI hash | an FB program uses a prebuilt FB static library's Classes, generics, and errors; a mismatched build is an error naming both |
-| 7 | FB callers of a dynamic library: export tables and import libraries, the shared runtime, one type per instance across binaries, Globals' accessors, extending a library's Class | an FB program and an FB DLL share objects, Tasks, and `Is` checks, with one runtime and no leaks |
-| 8 | Loading at run time: `DynamicLibrary`, and plugins | a host loads an FB plugin and a C library at run time |
-| 9 | A package with prebuilt natives: a stand-in C++ engine DLL with a C API (tests/native), wrapped by an FB package through fb-bindgen | the package builds and runs on Windows, Linux, and macOS |
-| 10 | Loose ends, and the milestone's review | M7's "done when" |
+| 0 | The spec and docs: spec 11's project types, `link`, and package archives; spec 12's plugins | the spec says what M7 builds |
+| 1 | `type` in project.toml; the interface file: fb writes a library's .fbi, and the loader reads it in place of source | a package checks against a library's .fbi as it does against its source |
+| 2 | Prebuilt libraries embedded: the .fblib (position-independent objects and the .fbi), generic instances in the caller, and the ABI hash | an FB program embeds a prebuilt FB library's Classes, generics, and errors; a mismatched build is an error naming both |
+| 3 | Libraries beside the executable: `link = "beside"`, the .fbdll, .fbso, and .fbdylib with their metadata, the executable's runtime and exports, loading and checking at start-up | an FB program and a beside library share objects, Tasks, and `Is` checks, with one runtime and no leaks; a missing or mismatched file stops it with an error naming the file |
+| 4 | Across the edge: one type per instance in every binary, Globals' accessors, extending a library's Class | a Class extends a beside library's Class, and a generic instance made on both sides is one type |
+| 5 | Plugins and DynamicLibrary: `Plugin.Load` against a host's interface package, and C libraries at run time | a host loads an FB plugin and a C library at run time; a plugin of another build is a PluginError naming both |
+| 6 | `[native]` dynamic libraries and `{target}` paths; native DLLs copied beside the executable, rpaths | a program calls a C DLL from its package's native/<target>/ and runs from its build folder |
+| 7 | A package with prebuilt natives: a stand-in C++ engine DLL with a C API (tests/native), wrapped by an FB package through fb-bindgen | the package builds and runs on Windows, Linux, and macOS |
+| 8 | Loose ends, and the milestone's review | M7's "done when" |
+
+## M9 build order
+
+Planned 2026-10-24; its steps and design are in [website.md](website.md).
 
 ## Deferred work
 
@@ -273,6 +277,6 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 
 ## Process
 
-- **Proposed:** track milestones M0–M16 as GitHub milestones, with issues per task.
+- **Proposed:** track milestones M0–M17 as GitHub milestones, with issues per task.
 - Every feature lands with tests: Catch2 unit tests, plus golden tests once they're decided
   (see [open-questions.md](open-questions.md)).

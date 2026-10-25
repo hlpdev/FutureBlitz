@@ -913,7 +913,7 @@ Built in step 23, but for `Query<T>`. `Import std.db` brings in std/db/.
 - Decode and encode PNG, JPEG, BMP, TGA, GIF, HDR, QOI, and WebP, rasterize SVG, and read and
   write animated GIF and APNG frames, into an `Image` over a pixel `Buffer`.
 - Resize with good filters, crop, rotate, flip, convert, and blit; software drawing of lines,
-  shapes, and fills, and text with TrueType fonts. The engine's 2D (M10) shares the image and
+  shapes, and fills, and text with TrueType fonts. The engine's 2D (M11) shares the image and
   font code.
 
 #### std.term

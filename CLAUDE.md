@@ -34,7 +34,8 @@ design in docs/stdlib.md). Its lanes were wound down on 2026-10-24 for the weekl
 unit pushed with a handover note; they resume on 2026-10-26 from the coordinator's notes.
 docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
 The whole-codebase review's fixes and the rest of M6 run as docs/m6-plan.md describes.
-M7, libraries and native packages, is planned in docs/libraries.md; tooling is M8.
+M7, libraries and packages, is planned in docs/libraries.md; tooling is M8; futureblitz.dev
+(the site, docs, playground, registry, and accounts) is M9, in docs/website.md.
 
 ## History
 Each milestone's steps, in detail (what each added, by name, and each review's fixes), are in
