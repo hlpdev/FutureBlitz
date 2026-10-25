@@ -842,13 +842,13 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 |---|---|
 | futureblitz.dev is M9, its own milestone closing phase 1, and the engine is M10 to M17 (planned with the user, 2026-10-24) | M8's package manager needs a registry, and the site and docs are phase 1's face |
 | Addresses: futureblitz.dev (the site, docs, and playground's editor), pkg. (packages, accounts, the API), index. (the sparse index), dl. (archives and releases), play. (the run API) | each part caches and is secured on its own |
-| A modern site with a retro Blitz nod: the old IDE's blue, a CRT hero, pixel headings, dark and light | where FutureBlitz comes from, without making the docs a costume |
+| A modern site with a retro Blitz nod: the old IDE's blue, a CRT hero, pixel headings, in one dark look with no theme switch | where FutureBlitz comes from, without making the docs a costume |
 | Accounts are GitHub sign-in or an email with passkeys; publishing uses scoped, expiring tokens or GitHub's OIDC trusted publishing | no passwords to leak, and CI keeps no secret |
 | The playground compiles and runs code in a Cloudflare Container sandbox (no network, 10 s of CPU, 256 MB) and streams its output | the real compiler and std, with no WebAssembly build of LLVM |
 | Everything runs on Cloudflare: Workers (static assets, and a Hono API), D1, R2, Durable Objects, Queues, Containers, Email Service, Turnstile | one provider, free egress for downloads, and the site at the edge |
 | The index is sparse, as Cargo's; versions are immutable and yankable, deleted only within 72 hours and with no dependents; names are flat, what `Import` names | fb fetches only what it needs, and a lock file's versions always download |
 | A prebuilt package has one archive of its source and interface, and one per target of its binaries and natives | a game downloads only the targets it builds |
-| The site is static Astro, with Shiki, Pagefind, and the FutureBlitz grammar shared with the VS Code extension; std's reference and every package's docs come from `fb doc` | fast and cheap to serve; one grammar and one doc generator everywhere |
+| The site is static Astro, with Shiki, Pagefind, and the FutureBlitz grammar shared with the VS Code extension, Svelte 5 islands, and plain CSS over tokens; the package site is Astro rendered on Workers; the editor is CodeMirror 6, not Monaco; std's reference and every package's docs come from `fb doc` | fast and cheap to serve; one grammar and one doc generator everywhere |
 
 ## Engine, renderer, assets
 

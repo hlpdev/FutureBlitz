@@ -8,7 +8,8 @@ hosted yet; this is the plan.
 
 1. **Its own milestone, M9**, after M8's tooling (whose `fb add` and `fb publish` it serves) and
    before the engine, which moves to M10 to M17.
-2. **A retro Blitz nod.** A modern site, dark and light, with Blitz3D-era touches: the classic
+2. **A retro Blitz nod.** A modern site in one dark look, with no theme switch, and Blitz3D-era
+   touches: the classic
    IDE's blue, a CRT and pixel accent kept to the hero and headings, and the story of where
    FutureBlitz comes from up front.
 3. **Accounts are GitHub or email with a passkey.** Publishing uses scoped API tokens, and CI
@@ -30,11 +31,11 @@ hosted yet; this is the plan.
 
 ## Look and feel
 
-- **Palette:** "Blitz blue" (the old IDE's deep blue, about `#0B1E6B`), a warm amber accent for
-  calls to action and the cursor, phosphor green for terminal output, on near-black (`#0A0C14`) in
-  dark mode and warm white in light mode. Both modes meet WCAG AA contrast.
-- **Type:** a pixel display face for the wordmark and the hero's headline only; a clean sans
-  (Inter) for text; JetBrains Mono for code. Fonts are self-hosted, so no third party sees a visit.
+- **Palette:** "Blitz blue" (the old IDE's deep blue, about `#10258A`), a warm amber accent for
+  calls to action and the cursor, and phosphor green for terminal output, on near-black
+  (`#070A14`). The site has one theme, dark, with no switch, and its text meets WCAG AA contrast.
+- **Type:** a pixel display face (Silkscreen) for the wordmark, the hero's headline, and section
+  heads; IBM Plex Sans for text; JetBrains Mono for code. Fonts are self-hosted, so no third party sees a visit.
 - **Retro, kept to its place:** the hero is a CRT monitor (curvature, scanlines, a soft glow, all
   off for `prefers-reduced-motion`); headings carry a small pixel bullet; the docs and package
   pages are calm and modern, with the blue in their chrome.
@@ -82,9 +83,13 @@ after the first paint; Largest Contentful Paint under 1.5 s on a mid phone.
 ## The site's build
 
 - Astro builds the site as static files: prose in MDX, Shiki for highlighting with the
-  FutureBlitz grammar, Pagefind for search, and small islands of TypeScript for the hero, the
-  playground, and theme switching. The docs' content lives in this repo; the site's code in its
-  own repo, `futureblitz-web`.
+  FutureBlitz grammar, Pagefind for search, and small Svelte 5 islands for the hero and the
+  playground. Styles are plain CSS over design tokens (custom properties). The docs' content
+  lives in this repo; the site's code in its own repo, `futureblitz-web`.
+- `futureblitz-web` is a pnpm monorepo: `apps/site` (futureblitz.dev), `apps/pkg` (the package
+  site, Astro rendered on Workers through its Cloudflare adapter), `workers/api`, `workers/play`,
+  `packages/ui` (the tokens and components both sites share), and `packages/grammar` (the
+  FutureBlitz grammars).
 - Served by Workers static assets. GitHub Actions builds on each push to master and deploys with
   Wrangler; each pull request gets a preview.
 - Cloudflare Web Analytics (cookieless) only; no tracking, no cookie banner.
@@ -113,9 +118,10 @@ after the first paint; Largest Contentful Paint under 1.5 s on a mid phone.
 
 ## The API and its storage
 
-- **Workers:** `pkg.futureblitz.dev/api/v1` is one Worker in TypeScript (Hono): publish, yank,
-  owners and teams, tokens, trusted publishers, search, package and version metadata, and download
-  counts.
+- **Workers:** `pkg.futureblitz.dev/api/v1` is one Worker in TypeScript (Hono, with Drizzle over
+  D1, Zod for validation, SimpleWebAuthn for passkeys, and Arctic for GitHub sign-in): publish,
+  yank, owners and teams, tokens, trusted publishers, search, package and version metadata, and
+  download counts.
 - **D1** (SQLite) holds users, their GitHub identities and passkeys, sessions, API tokens (hashed),
   packages, versions, owners, teams, trusted publishers, an audit log of every change, and reserved
   names; search is D1's FTS5 over names, descriptions, and keywords.
@@ -163,8 +169,10 @@ after the first paint; Largest Contentful Paint under 1.5 s on a mid phone.
 
 ## The playground
 
-- **The editor** is CodeMirror 6 with the FutureBlitz grammar, on futureblitz.dev/play and inline
-  in the docs, with examples to pick and a share button.
+- **The editor** is CodeMirror 6, on futureblitz.dev/play and inline in the docs, with examples to
+  pick and a share button. Not Monaco: CodeMirror is about a tenth the size, works on phones, and
+  is cheap to have many of on one page; it takes a small Lezer grammar of its own beside the
+  TextMate one that VS Code and Shiki share, and shows the LSP's errors and hovers.
 - **Running:** the editor posts the code to `play.futureblitz.dev`, a Worker that starts a
   Cloudflare Container from an image of fb and std for Linux x64, which compiles and runs it, and
   streams its output back over a WebSocket.
@@ -189,7 +197,7 @@ after the first paint; Largest Contentful Paint under 1.5 s on a mid phone.
 
 | Step | What | Done when |
 |---|---|---|
-| 0 | The design system: palette, type, the CRT hero, components, in light and dark | a page of every component passes WCAG AA in both modes |
+| 0 | The design system: palette, type, the CRT hero, and components, in the one dark theme | a page of every component passes WCAG AA |
 | 1 | The site's skeleton: Astro, the FutureBlitz grammar in Shiki, deploys to staging | futureblitz.dev's staging serves the landing page and a docs page |
 | 2 | The landing page, with its hero and code tabs | it meets its budget on a mid phone |
 | 3 | The docs: Learn, guides, the spec, std's reference from `fb doc`, versions, search | every page renders, and every example compiles and runs in CI |
