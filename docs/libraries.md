@@ -14,11 +14,11 @@ them is designed here and in [website.md](website.md), and built in M8 and M9.
 2. **Embedded or beside.** Each dependency is built into the executable (`embed`, the default) or
    shipped beside it as a library file (`beside`), as the program's project.toml says. A library's
    author doesn't choose; the program that uses it does.
-3. **FutureBlitz's library format.** A library beside the executable is `<name>.fbdll` on Windows,
-   `<name>.fbso` on Linux, and `<name>.fbdylib` on macOS: the OS's own kind of dynamic library,
-   built only for FutureBlitz hosts, with a metadata section (its interface's hash, its version,
-   target, and mode). The OS loads it, so debuggers, profilers, and crash dumps work on it as on
-   any library.
+3. **The OS's own dynamic libraries.** A library beside the executable is `<name>.dll` on
+   Windows, `lib<name>.so` on Linux, and `lib<name>.dylib` on macOS, with the OS's own names and
+   extensions, built only for FutureBlitz hosts, with a metadata section (its interface's hash,
+   its version, target, and mode). The OS loads it, so debuggers, profilers, and crash dumps work
+   on it as on any library.
 4. **One runtime, the executable's.** The executable always has the runtime built in, as now, and
    every library beside it uses the executable's: one heap, one set of refcounts, one scheduler,
    one registry of types. A library carries no runtime of its own.
@@ -56,7 +56,7 @@ type = "executable"
 
 [dependencies]
 physics = "1.2"                                       # built into the executable
-engine = { version = "0.4", link = "beside" }        # engine.fbdll beside space-game.exe
+engine = { version = "0.4", link = "beside" }        # engine.dll beside space-game.exe
 ```
 
 - `link = "beside"` builds the dependency as its library file, copies it beside the executable
@@ -64,6 +64,8 @@ engine = { version = "0.4", link = "beside" }        # engine.fbdll beside space
   bundled libraries now.
 - The executable loads its beside libraries as it starts, before any Global, checks each one's ABI
   hash, and stops with an error naming the file when one is missing or doesn't match its build.
+- A beside library's file name can't be another file's the build puts beside the executable, such
+  as a package's native DLL of the same name: the build stops with an error naming both.
 - A beside library's own dependencies are embedded in it unless the program lists them beside too;
   either way each package is in one place.
 
@@ -75,7 +77,7 @@ engine = { version = "0.4", link = "beside" }        # engine.fbdll beside space
   loader reads a prebuilt package's .fbi in place of its source.
 - A prebuilt library is `<name>.fblib` per target and mode: its compiled code as an archive of
   position-independent objects, with its .fbi. Embedding links its objects into the executable;
-  `beside` links the same objects into the .fbdll, .fbso, or .fbdylib, so a package ships one
+  `beside` links the same objects into its .dll, .so, or .dylib, so a package ships one
   binary form and its user picks.
 - A library beside the executable takes the runtime, and what else it uses from the executable,
   from the executable itself: on Windows the executable exports them and the library links against
@@ -101,7 +103,7 @@ engine = { version = "0.4", link = "beside" }        # engine.fbdll beside space
 
 ## Loading at run time
 
-- A **plugin** is a library (.fbdll, .fbso, .fbdylib) that depends on an interface package of its
+- A **plugin** is an FB library (a .dll, .so, or .dylib) that depends on an interface package of its
   host; the host loads it with `Plugin.Load(path)`, which checks its ABI hash against the host's
   build of the interface package and throws a PluginError naming both when they differ, and gets
   values of the host's Interfaces from the plugin's entry Function. A plugin uses the host's

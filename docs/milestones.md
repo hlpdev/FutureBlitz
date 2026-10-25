@@ -17,7 +17,7 @@ Timeline: honors project begins **fall 2027**, so there is plenty of runway.
 | **M4** | Concurrency: Sendable checks, tasks, `Parallel For`, async/coroutines, channels, Mutex/Atomic | a parallel job and an async chain run correctly |
 | **M5** | Modules, packages, `project.toml`, FFI, bindgen | calls a C library through generated bindings |
 | **M6** | Full standard library | `std.*` complete, with tests |
-| **M7** | Libraries and packages: FutureBlitz libraries built into the executable or shipped beside it (.fbdll, .fbso, .fbdylib), interface files, plugins, prebuilt native code in packages | an FB program uses one prebuilt FB library embedded and another beside it, loads a plugin, and calls a C++ DLL from a package |
+| **M7** | Libraries and packages: FutureBlitz libraries built into the executable or shipped beside it as the OS's own DLLs, interface files, plugins, prebuilt native code in packages | an FB program uses one prebuilt FB library embedded and another beside it, loads a plugin, and calls a C++ DLL from a package |
 | **M8** | Tooling: LSP, VS Code extension, formatter, test runner, package manager | daily-driving FutureBlitz in an editor feels good |
 | **M9** | futureblitz.dev: the site, docs, playground, package registry, and accounts, on Cloudflare ([website.md](website.md)) | the site, docs, registry, accounts, and playground are live, and `fb publish` and `fb add` use them |
 
@@ -241,7 +241,7 @@ every package, stays one executable.
 | 0 | The spec and docs: spec 11's project types, `link`, and package archives; spec 12's plugins | the spec says what M7 builds |
 | 1 | `type` in project.toml; the interface file: fb writes a library's .fbi, and the loader reads it in place of source | a package checks against a library's .fbi as it does against its source |
 | 2 | Prebuilt libraries embedded: the .fblib (position-independent objects and the .fbi), generic instances in the caller, and the ABI hash | an FB program embeds a prebuilt FB library's Classes, generics, and errors; a mismatched build is an error naming both |
-| 3 | Libraries beside the executable: `link = "beside"`, the .fbdll, .fbso, and .fbdylib with their metadata, the executable's runtime and exports, loading and checking at start-up | an FB program and a beside library share objects, Tasks, and `Is` checks, with one runtime and no leaks; a missing or mismatched file stops it with an error naming the file |
+| 3 | Libraries beside the executable: `link = "beside"`, its .dll, .so, or .dylib with FB's metadata, the executable's runtime and exports, loading and checking at start-up | an FB program and a beside library share objects, Tasks, and `Is` checks, with one runtime and no leaks; a missing or mismatched file stops it with an error naming the file |
 | 4 | Across the edge: one type per instance in every binary, Globals' accessors, extending a library's Class | a Class extends a beside library's Class, and a generic instance made on both sides is one type |
 | 5 | Plugins and DynamicLibrary: `Plugin.Load` against a host's interface package, and C libraries at run time | a host loads an FB plugin and a C library at run time; a plugin of another build is a PluginError naming both |
 | 6 | `[native]` dynamic libraries and `{target}` paths; native DLLs copied beside the executable, rpaths | a program calls a C DLL from its package's native/<target>/ and runs from its build folder |
