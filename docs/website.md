@@ -45,24 +45,45 @@ hosted yet; this is the plan.
 
 ## The landing page
 
-1. **Hero:** a CRT window where a Blitz3D program types itself out, then morphs into the
-   FutureBlitz program that does the same, and the window runs it: a spinning lit cube in WebGL2
-   (the engine's real demos replace it once the engine exists). Headline: "Blitz3D, grown up."
-   Buttons: Download, Learn, Try it in the browser.
-2. **What it is**, in one line each: native executables through LLVM; one file to ship; safe
-   threads (Sendable, Tasks, Parallel For); a standard library with batteries; C libraries through
-   bindgen; a game engine on the way.
-3. **From Blitz3D:** the same small game in Blitz3D and in FutureBlitz, side by side, and what
-   changed (types, classes, modules, errors, async), with a link to the migration guide.
-4. **Code tabs:** Hello, a game loop with coroutines, JSON over HTTPS, a Parallel For, calling C:
-   each with a Run button.
-5. **One executable:** a build's real output, an .exe and its size, with "no runtime to install".
-6. **Packages:** a few from the registry, with `fb add` lines.
-7. **Get started:** install commands per OS (winget, Homebrew, a shell script, a zip), then the
-   footer: docs, std, packages, GitHub, community, the license.
+The page is about the language. The engine is a separate library, shown nowhere on it, and the
+project's milestones are GitHub's business, not the page's.
 
-Budget: the page is static, under 100 KB of JavaScript besides the hero's canvas, which loads
-after the first paint; Largest Contentful Paint under 1.5 s on a mid phone.
+- **Who reads it**, first to last: people who made games in Blitz3D or BlitzBasic and want that
+  feeling back; hobby and indie developers who want something simpler than C++ and faster than a
+  scripting language; programmers curious about a new language.
+- **Its one job:** get a visitor to run FutureBlitz code within a minute, in the browser, and then
+  to install it.
+- **How it talks:** plainly and specifically, about making things, not about features. No
+  "blazing", "seamless", "powerful", or "modern". Every claim comes with code, a real number, or
+  a real name (a std module, a bundled library, a Blitz3D command). Nothing is invented: no
+  testimonials, no made-up packages, no benchmark it can't show.
+- **Its sections, in order:**
+  1. **Hero.** "Blitz3D, grown up." beside a CRT monitor whose knobs switch between 2001 and now:
+     the Blitz3D program that spins a wireframe cube with its 2D commands, a glitch, then the
+     FutureBlitz program that spins one in the terminal with std.term and std.math, running. It
+     plays by itself until a knob is turned, and it never changes size. Buttons: "Run it in your
+     browser" and "Install".
+  2. **What you get.** Six tiles, each a short claim with its technical line: native code through
+     LLVM, one file to ship, threads the compiler checks, coroutines, the standard library, any C
+     library.
+  3. **From Blitz3D.** One small program in both languages side by side, and four notes on what
+     changed, with a link to the guide for Blitz3D users.
+  4. **The samples folder.** Blitz3D came with a folder of samples that taught a generation;
+     FutureBlitz has one too. Five samples, each a small story from making a game: a boss fight as
+     a coroutine, a save file in JSON, heavy work on another thread, particles over every core,
+     and a window from a C library. Picking one shows its code in an IDE window; Run plays its
+     output.
+  5. **In the box.** The standard library as a shelf of its 21 modules, each with what it's for,
+     and the C libraries std links in (SQLite, libcurl, mbedTLS, zlib-ng, zstd, PCRE2, and the
+     rest), so a program that uses them is still one file.
+  6. **Get started.** The install line for each OS, then `fb new`, `fb run`, and the three places
+     to go next: the tour, the docs, and the guide for Blitz3D users.
+- **Layout:** each section has its own shape rather than the same title, paragraph, and grid: the
+  hero is split, the comparison is two windows, the samples are a list beside a window, the std is
+  a dense shelf, and getting started is a terminal. Section heads are short and say what's there.
+- **Budget:** the page is static, under 100 KB of JavaScript besides the hero's canvas, which
+  starts after the first paint; Largest Contentful Paint under 1.5 s on a mid phone; with
+  `prefers-reduced-motion`, nothing moves and every section is still complete.
 
 ## Documentation
 
