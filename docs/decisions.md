@@ -848,7 +848,7 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | Everything runs on Cloudflare: Workers (static assets, and a Hono API), D1, R2, Durable Objects, Queues, Containers, Email Service, Turnstile | one provider, free egress for downloads, and the site at the edge |
 | The index is sparse, as Cargo's; versions are immutable and yankable, deleted only within 72 hours and with no dependents; names are flat, what `Import` names | fb fetches only what it needs, and a lock file's versions always download |
 | A prebuilt package has one archive of its source and interface, and one per target of its binaries and natives | a game downloads only the targets it builds |
-| The site is static Astro, with Shiki, Pagefind, and the FutureBlitz grammar shared with the VS Code extension, Svelte 5 islands, and plain CSS over tokens; the package site is Astro rendered on Workers; the editor is CodeMirror 6, not Monaco; std's reference and every package's docs come from `fb doc` | fast and cheap to serve; one grammar and one doc generator everywhere |
+| The site is static Astro, with Shiki, Pagefind, and the FutureBlitz grammar shared with the VS Code extension, Svelte 5 islands, and plain CSS over tokens; the package site is Astro rendered on Workers; the editor is CodeMirror 6, not Monaco (the user's call, 2026-10-25); std's reference and every package's docs come from `fb doc` | fast and cheap to serve; one grammar and one doc generator everywhere |
 
 ## Engine, renderer, assets
 
