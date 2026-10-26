@@ -98,44 +98,38 @@ double weight_of(const std::int32_t filter, const double x) {
     }
 }
 
-/// The pixels of a line of `size` each pixel of a line of `count` takes: the first, and each one's
-/// weight, which add up to 1.
-struct taps_t {
-    std::vector<std::int64_t> first;
-    std::vector<std::vector<double>> weights;
-};
-
-taps_t taps_of(const std::int32_t filter, const std::int64_t size, const std::int64_t count) {
+/// The pixels of a line of `size` the pixel `i` of a line of `count` takes: the first, which it
+/// gives, and each one's weight, into `weights`, which add up to 1.
+std::int64_t taps_of(const std::int32_t filter, const std::int64_t size, const std::int64_t count,
+                     const std::int64_t i, std::vector<double>& weights) {
     const double scale = static_cast<double>(size) / static_cast<double>(count);
     const double widened = std::max(scale, 1.0);
     const double support = support_of(filter) * widened;
-    taps_t taps;
-    for (std::int64_t i = 0; i < count; ++i) {
-        // The filter's first and last pixels, rounded as Pillow rounds them.
-        const double center = (static_cast<double>(i) + 0.5) * scale;
-        const auto first = std::max<std::int64_t>(
-            static_cast<std::int64_t>(std::floor(center - support + 0.5)), 0);
-        const auto last = std::min<std::int64_t>(
-            static_cast<std::int64_t>(std::floor(center + support + 0.5)), size);
-        std::vector<double> weights;
-        double total = 0;
-        for (std::int64_t at = first; at < last; ++at) {
-            const double weight =
-                weight_of(filter, (static_cast<double>(at) - center + 0.5) / widened);
-            weights.push_back(weight);
-            total += weight;
-        }
-
-        if (total != 0) {
-            for (double& weight : weights) {
-                weight /= total;
-            }
-        }
-        taps.first.push_back(first);
-        taps.weights.push_back(std::move(weights));
+    // The filter's first and last pixels, rounded as Pillow rounds them.
+    const double center = (static_cast<double>(i) + 0.5) * scale;
+    const auto first =
+        std::max<std::int64_t>(static_cast<std::int64_t>(std::floor(center - support + 0.5)), 0);
+    const auto last =
+        std::min<std::int64_t>(static_cast<std::int64_t>(std::floor(center + support + 0.5)), size);
+    weights.clear();
+    double total = 0;
+    for (std::int64_t at = first; at < last; ++at) {
+        const double weight = weight_of(filter, (static_cast<double>(at) - center + 0.5) / widened);
+        weights.push_back(weight);
+        total += weight;
     }
-    return taps;
+
+    if (total != 0) {
+        for (double& weight : weights) {
+            weight /= total;
+        }
+    }
+    return first;
 }
+
+/// How many weights the taps across hold at once, at least one column's: for that many columns
+/// at a time, each row uses them, so a long side's taps take no more memory than that.
+constexpr std::size_t most_weights = std::size_t{ 1 } << 16U;
 
 /// A channel's value, rounded and kept from 0 to 255.
 std::uint8_t byte_of(const double value) {
@@ -175,41 +169,62 @@ std::vector<std::uint8_t> resized(const std::span<const std::uint8_t> rgba,
     // 24 bits hold it to within a 100000th of a byte, at 16 bytes a pixel.
     const auto source_columns = static_cast<std::size_t>(width);
     const auto source_rows = static_cast<std::size_t>(height);
-    const taps_t across = taps_of(filter, width, new_width);
     std::vector<float> wide(columns * source_rows * 4);
-    for (std::size_t y = 0; y < source_rows; ++y) {
-        for (std::size_t x = 0; x < columns; ++x) {
-            const std::vector<double>& weights = across.weights[x];
-            std::array<double, 4> sum{};
-            for (std::size_t k = 0; k < weights.size(); ++k) {
-                const std::size_t from =
-                    ((y * source_columns) + static_cast<std::size_t>(across.first[x]) + k) * 4;
-                const double alpha = rgba[from + 3] / 255.0;
-                for (std::size_t c = 0; c < 3; ++c) {
-                    sum[c] += rgba[from + c] * alpha * weights[k];
-                }
-                sum[3] += rgba[from + 3] * weights[k];
-            }
+    // A run of columns' taps: each one's first pixel, and where its weights start in `weights`.
+    std::vector<std::int64_t> firsts;
+    std::vector<std::size_t> starts;
+    std::vector<double> weights;
+    std::vector<double> taps;
+    for (std::size_t run = 0; run < columns;) {
+        firsts.clear();
+        starts.clear();
+        weights.clear();
+        std::size_t end = run;
+        while (end < columns && (end == run || weights.size() < most_weights)) {
+            firsts.push_back(
+                taps_of(filter, width, new_width, static_cast<std::int64_t>(end), taps));
+            starts.push_back(weights.size());
+            weights.insert(weights.end(), taps.begin(), taps.end());
+            ++end;
+        }
+        starts.push_back(weights.size());
 
-            // Kept from 0 to 255 between the passes, as Pillow's are, so a filter's ringing
-            // past black or white across isn't made more of down.
-            for (std::size_t c = 0; c < 4; ++c) {
-                wide[(((y * columns) + x) * 4) + c] =
-                    static_cast<float>(std::clamp(sum[c], 0.0, 255.0));
+        for (std::size_t y = 0; y < source_rows; ++y) {
+            for (std::size_t x = run; x < end; ++x) {
+                const std::size_t tap = x - run;
+                std::array<double, 4> sum{};
+                for (std::size_t k = 0; k < starts[tap + 1] - starts[tap]; ++k) {
+                    const double weight = weights[starts[tap] + k];
+                    const std::size_t from =
+                        ((y * source_columns) + static_cast<std::size_t>(firsts[tap]) + k) * 4;
+                    const double alpha = rgba[from + 3] / 255.0;
+                    for (std::size_t c = 0; c < 3; ++c) {
+                        sum[c] += rgba[from + c] * alpha * weight;
+                    }
+                    sum[3] += rgba[from + 3] * weight;
+                }
+
+                // Kept from 0 to 255 between the passes, as Pillow's are, so a filter's ringing
+                // past black or white across isn't made more of down.
+                for (std::size_t c = 0; c < 4; ++c) {
+                    wide[(((y * columns) + x) * 4) + c] =
+                        static_cast<float>(std::clamp(sum[c], 0.0, 255.0));
+                }
             }
         }
+        run = end;
     }
 
-    const taps_t down = taps_of(filter, height, new_height);
+    // The taps down, worked out for each row as it's drawn.
     for (std::size_t y = 0; y < rows; ++y) {
-        const std::vector<double>& weights = down.weights[y];
+        const auto first = static_cast<std::size_t>(
+            taps_of(filter, height, new_height, static_cast<std::int64_t>(y), taps));
         for (std::size_t x = 0; x < columns; ++x) {
             std::array<double, 4> sum{};
-            for (std::size_t k = 0; k < weights.size(); ++k) {
-                const std::size_t from =
-                    (((static_cast<std::size_t>(down.first[y]) + k) * columns) + x) * 4;
+            for (std::size_t k = 0; k < taps.size(); ++k) {
+                const std::size_t from = (((first + k) * columns) + x) * 4;
                 for (std::size_t c = 0; c < 4; ++c) {
-                    sum[c] += wide[from + c] * weights[k];
+                    sum[c] += wide[from + c] * taps[k];
                 }
             }
 

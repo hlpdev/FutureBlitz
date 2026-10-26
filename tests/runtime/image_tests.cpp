@@ -1,6 +1,7 @@
 // std.image's runtime parts on input made to make them hold memory, measured by the most of the
 // heap operator new holds while they run: a GIF frame whose descriptor is far larger than its
-// screen holds no more than the screen.
+// screen holds no more than the screen, and resizing to a long thin image little more than the
+// image and what's between its passes.
 
 #include "fb/image.hpp"
 #include "fb/runtime.hpp"
@@ -11,6 +12,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <new>
+#include <tuple>
 #include <vector>
 
 #ifdef __APPLE__
@@ -101,4 +103,24 @@ TEST_CASE("a GIF frame far larger than its screen holds no more memory than the 
     fb_image_free(image);
     // Less than a megabyte, where the descriptor would have it 4 GB.
     CHECK(most_held < 1'000'000);
+}
+
+TEST_CASE("resizing to a long thin image holds little more memory than the image") {
+    std::vector<std::uint8_t> pixel{ 10, 20, 30, 255 };
+    const fb_array_t source = array_of(pixel);
+    // Two million pixels one way: the image's bytes are 8 MB, and what's between the passes, 16
+    // bytes a pixel of the new width by the old height, 32 MB the second way, and the taps a run
+    // of columns at a time. Each taps' own vector made it 108 MB and 123 MB.
+    for (const auto& [width, height, most_bytes] :
+         { std::tuple{ 1, 2'000'000, 12'000'000 }, std::tuple{ 2'000'000, 1, 48'000'000 } }) {
+        CAPTURE(width, height);
+        fb_array_t output{};
+        const std::int64_t before = start();
+        fb_image_resize(&source, 1, 1, width, height, 2, &output);
+        const std::int64_t most_held = most.load() - before;
+        CHECK(output.count == std::int64_t{ width } * height * 4);
+        CHECK(static_cast<const std::uint8_t*>(output.data)[output.count - 2] == 30);
+        fb_array_free(&output);
+        CHECK(most_held < most_bytes);
+    }
 }
