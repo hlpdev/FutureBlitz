@@ -768,14 +768,22 @@ TEST_CASE("fb and the programs it builds give the console its code page and mode
         std::filesystem::path(FB_TEST_CONSOLE_PROBE).make_preferred().string();
     const std::filesystem::path script = hello.parent_path() / "pages.cmd";
     // "run" and "break" run each with the console as its stdout and stderr, from a mode without
-    // escape codes, which fb and the programs turn on for their own.
+    // escape codes, which fb and the programs turn on for their own. "break" ends a program,
+    // and fb, as soon as it has changed the console, which is before it's done starting, five
+    // times each: Ctrl+Break then used to end them before they could put it back.
+    const std::string fb = std::filesystem::path(FB_CLI).make_preferred().string();
+    std::string breaks;
+    for (int i = 0; i < 5; ++i) {
+        breaks += std::format("\"{0}\" break \"{1}\"\r\n\"{0}\" break \"{2}\" check \"{3}\"\r\n",
+                              probe, windows_path(loops), fb,
+                              std::filesystem::path(hello).make_preferred().string());
+    }
+
     std::ofstream(script, std::ios::binary) << std::format(
         "@echo off\r\nchcp 437 >nul\r\n\"{0}\"\r\n\"{1}\" --version >nul\r\n\"{0}\"\r\n"
         "\"{2}\" >nul\r\n\"{0}\"\r\n\"{3}\" >nul 2>nul\r\n\"{0}\"\r\n"
-        "\"{0}\" run \"{1}\" --version\r\n\"{0}\" run \"{2}\"\r\n\"{0}\" run \"{3}\"\r\n"
-        "\"{0}\" break \"{4}\"\r\n",
-        probe, std::filesystem::path(FB_CLI).make_preferred().string(), windows_path(hello),
-        windows_path(panics), windows_path(loops));
+        "\"{0}\" run \"{1}\" --version\r\n\"{0}\" run \"{2}\"\r\n\"{0}\" run \"{3}\"\r\n{4}",
+        probe, fb, windows_path(hello), windows_path(panics), breaks);
     const std::vector<std::string> arguments{
         "/c",
         std::filesystem::path(script).make_preferred().string(),
@@ -809,7 +817,7 @@ TEST_CASE("fb and the programs it builds give the console its code page and mode
         ++runs;
     }
 
-    CHECK(runs == 4);
+    CHECK(runs == 13);
 #else
     SKIP("only Windows' console has a code page that programs share");
 #endif

@@ -3,8 +3,9 @@
 // "out=437". "run <command>" and "break <command>" set the console to code page 437 and its
 // screen buffer's mode without virtual terminal processing, run the command with the console as
 // its stdout and stderr, and then print both as they were and are, like
-// "before=437/0x3 after=437/0x3". "break" sends the command Ctrl+Break once it has set the
-// console's code page to UTF-8, as a program fb builds does as it starts.
+// "before=437/0x3 after=437/0x3". "break" sends the command Ctrl+Break the moment it has set
+// the console's code page to UTF-8, as fb and a program it builds do as they start, which is
+// while they're still starting.
 #include <stdio.h>
 #include <string.h>
 #include <windows.h>
@@ -24,9 +25,9 @@ int main(int argc, char** argv) {
     }
 
     SECURITY_ATTRIBUTES inherited = { sizeof(inherited), NULL, TRUE };
-    HANDLE screen = CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE,
-                                FILE_SHARE_READ | FILE_SHARE_WRITE, &inherited, OPEN_EXISTING, 0,
-                                NULL);
+    HANDLE screen =
+        CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    &inherited, OPEN_EXISTING, 0, NULL);
     DWORD before = 0;
     if (screen == INVALID_HANDLE_VALUE || GetConsoleMode(screen, &before) == 0) {
         printf("no console\n");
@@ -52,9 +53,8 @@ int main(int argc, char** argv) {
     }
 
     if (interrupt) {
-        for (int i = 0; i < 1000 && GetConsoleOutputCP() != CP_UTF8; ++i) {
-            Sleep(10);
-        }
+        const ULONGLONG start = GetTickCount64();
+        while (GetConsoleOutputCP() != CP_UTF8 && GetTickCount64() - start < 10000) {}
 
         GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, process.dwProcessId);
     }
