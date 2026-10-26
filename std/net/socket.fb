@@ -117,6 +117,12 @@ Package Function ThrowSocketError(code: Int32, doing: String,
     Throw NetErrorOf(code, doing, address)
 End Function
 
+// Panics for a listener's backlog below 1, which libuv refuses on Windows.
+@PanicsAtCaller
+Package Function CheckBacklog(backlog: Int)
+    If backlog < 1 Then Panic("a listener keeps a backlog of 1 connection at least, not {backlog}")
+End Function
+
 // The NetError for using a socket that's closed.
 Package Function ClosedError(what: String, address: String?): NetError
     Return NetError(NetErrorKind.CLOSED, "the {what} is closed", address)

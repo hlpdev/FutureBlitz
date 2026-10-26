@@ -1,0 +1,10 @@
+// A listener keeps a backlog of 1 connection at least, so a backlog of 0, which libuv refuses on
+// Windows, panics where it's given.
+Import std.core
+Import std.net
+
+Try
+    TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0), 0)
+Catch e As NetError
+    Print("failed: {e.Message}")
+End Try

@@ -1,0 +1,9 @@
+// An IPC listener keeps a backlog of 1 connection at least, so one below panics where it's given.
+Import std.core
+Import std.net
+
+Try
+    IpcListener.Listen("fb-test-net-backlog", -1)
+Catch e As NetError
+    Print("failed: {e.Message}")
+End Try

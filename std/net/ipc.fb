@@ -113,6 +113,7 @@ Public Class IpcListener
     @PanicsAtCaller
     Public Static Method Listen(name: String, backlog: Int = BACKLOG): IpcListener Throws NetError
         CheckName(name)
+        CheckBacklog(backlog)
         Local socket = ListenerSocket(SocketKind.IPC_LISTENER, "IpcListener", name)
         Local code = fb_io_net_listen_pipe(socket.Handle, name, backlog)
         If code != 0 Then Throw NetErrorOf(code, "listening at {name}", name)

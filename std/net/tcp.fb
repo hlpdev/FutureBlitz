@@ -152,10 +152,12 @@ Public Class TcpListener
     End New
 
     // Listens at `address`, whose port 0 has the OS pick one, which LocalAddress tells, keeping
-    // up to `backlog` connections the OS has that aren't taken yet. Throws a NetError when it
-    // can't, as when something listens there already.
+    // up to `backlog` connections the OS has that aren't taken yet, 1 at least, or it panics.
+    // Throws a NetError when it can't, as when something listens there already.
+    @PanicsAtCaller
     Public Static Method Listen(address: SocketAddress,
                                 backlog: Int = BACKLOG): TcpListener Throws NetError
+        CheckBacklog(backlog)
         Local socket = ListenerSocket(SocketKind.TCP_LISTENER, "TcpListener", address.ToString())
         Local code = fb_io_net_listen(socket.Handle, SocketBytes(address), backlog)
         If code != 0 Then Throw NetErrorOf(code, "listening at {address}", socket.Address)
@@ -165,6 +167,7 @@ Public Class TcpListener
     End Method
 
     // Listens at `host`'s first address, as Dns.Resolve gives them, and `port`.
+    @PanicsAtCaller
     Public Static Method Listen(host: String, port: UInt16,
                                 backlog: Int = BACKLOG): TcpListener Throws NetError
         Local addresses = Try Dns.Resolve(host)
