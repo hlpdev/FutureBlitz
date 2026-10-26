@@ -1240,29 +1240,47 @@ discovery. `Import std.net` brings in std/net/.
   and `ConnectAsync` to a SocketAddress, or a host and port, trying its addresses in Dns's order,
   each for the timeout. A TcpStream is a Reader and a Writer, so std.io's Copy, ReadAll,
   ReadExact, buffered and binary streams take one, with `ReadTimeout`, `LocalAddress`,
-  `RemoteAddress`, `ShutdownWrite` (and its Async twin), which ends what it writes, and
-  Nagle's algorithm off. A Read or Write that fails throws an IOError, as a Reader's does,
-  whose Cause is the NetError or TimeoutError. A listener's backlog is 511 unless it's given.
+  `RemoteAddress`, `ShutdownWrite` (and its Async twin), which ends what it writes, a Write
+  after it throwing `CLOSED`, and Nagle's algorithm off. A stream reads from when it connects,
+  up to 64 KiB ahead of what's taken, so a ReadTimeout of zero takes what's come without
+  waiting. A Read or Write that fails throws an IOError, as a Reader's does, whose Cause is the
+  NetError or TimeoutError. A listener's backlog is 511 unless it's given, and 1 at least, or a
+  panic, as libuv refuses less on Windows.
 - `UdpSocket.Bind(address, reuseAddress)` or `Bind(host, port, reuseAddress)`, `Send(bytes,
-  target)` and `SendAsync`, `Receive(timeout)` and `ReceiveAsync`, giving a `Datagram`, its
-  `Bytes` and where it came `From`; `SetBroadcast`, `SetMulticastLoopback`, `SetMulticastTtl`,
-  `SetMulticastInterface`, `JoinMulticast`, and `LeaveMulticast`.
+  target)` and `SendAsync`, of up to 65507 bytes, a NetError of `OTHER` past that on every OS
+  (macOS sends 9216 at once unless it's told otherwise), `Receive(timeout)` and `ReceiveAsync`,
+  giving a `Datagram`, its `Bytes` and where it came `From`, what came since the bind there for
+  a Receive that doesn't wait; `SetBroadcast`, which a broadcast needs, `SetMulticastLoopback`,
+  `SetMulticastTtl` of 1 to 255 hops, or a panic, `SetMulticastInterface`, `JoinMulticast`, and
+  `LeaveMulticast`.
 - `IpcListener.Listen(name)` and `IpcStream.Connect(name)`, one IPC type, a named pipe
   (`\\.\pipe\<name>`) on Windows and a Unix socket (`<name>.sock` in the temporary folder)
   elsewhere, chosen by libuv, never by the program; a name is 1 to 64 ASCII letters, digits,
-  '.', '-', and '_', or a panic. An IpcStream is a Reader and Writer as a TcpStream is, but for
-  ShutdownWrite, since a named pipe can't end one way only. A Unix socket's file that a program
-  left behind is taken over; on Windows a name is taken until its connections close too, both
+  '.', '-', and '_', or a panic, and the same whatever its letters' case on every OS, as a named
+  pipe's is, so its file's name is in lowercase. An IpcStream is a Reader and Writer as a
+  TcpStream is, but for ShutdownWrite, since a named pipe can't end one way only. A listener
+  holds a lock on `<name>.sock.lock` beside its Unix socket, which says the name is taken
+  without connecting to it; a Unix socket's file that a program left behind is taken over, and
+  any other file there stays. A path too long for a Unix socket's address, under a long TMPDIR
+  as macOS's is, goes in /tmp. On Windows a name is taken until its connections close too, both
   ends.
 - LAN discovery is mDNS and DNS-SD's (RFCs 6762 and 6763), as Bonjour and Avahi have them, over
   IPv4 through each interface but loopback's: `LanAnnouncer.Start(type, name, port, text)`
   offers a service of a type like `"_mygame._udp"`, answering on the main thread until `Stop()`,
-  which says goodbye, or until it goes; `Lan.Find(type, timeout)` and `FindAsync` give the
-  `LanService`s that answer (`Type`, `Name`, `Host`, `Port`, `Addresses`, `Text`), asking twice;
-  `Lan.LocalAddresses()` and `Lan.HostName()`. Each takes a discovery port of its own in place
-  of mDNS's 5353, which keeps it from other responders. A LanAnnouncer doesn't probe for a name
-  another has, and a blocking Find doesn't find what its own thread announces, which only
-  answers while that thread runs Async code. UDP broadcast is UdpSocket's.
+  or until it goes; `Lan.Find(type, timeout)` and `FindAsync` give the `LanService`s that answer
+  (`Type`, `Name`, `Host`, `Port`, `Addresses`, `Text`), asking twice; `Lan.LocalAddresses()`
+  and `Lan.HostName()`. Each takes a discovery port of its own in place of mDNS's 5353, which
+  keeps it from other responders. What a LanAnnouncer sends through an interface, or answers a
+  querier on that interface's network, gives that interface's address alone, and it doesn't
+  answer with what a query says it knows, as RFC 6762 has it; a LanService's Addresses start
+  with the one its answer came from, which the finder can reach. Stop's goodbye has other mDNS
+  caches drop the service's PTR, SRV, and TXT, but not its host's addresses or its type's place
+  in DNS-SD's enumeration, which other services can have. A text has each key and value 255
+  bytes at most, 8192 in all, so a response fits in one of mDNS's packets, and each key once
+  whatever its letters' case, or a panic; a Find keeps a key's first, as it's written. A
+  LanAnnouncer doesn't probe for a name another has, and a blocking Find doesn't find what its
+  own thread announces, which only answers while that thread runs Async code. UDP broadcast is
+  UdpSocket's.
 - `TlsStream` over any stream (mbedTLS, the OS's roots by default), and a TLS listener.
 - std.net.http's client (step 29), over libcurl, whose TLS is mbedTLS's, trusting the OS's roots:
   Windows' ROOT store, each that's valid now and for servers, macOS's system anchors, or the
