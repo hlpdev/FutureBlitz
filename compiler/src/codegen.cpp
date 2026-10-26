@@ -2137,7 +2137,7 @@ private:
         // use the ones above its object's. One that uses a Global already let go of panics where
         // the Global has a ready flag, and reads its zero otherwise.
         std::vector<std::size_t> releasing(m_mir.globals.size());
-        std::ranges::iota(releasing, std::size_t{ 0 });
+        std::iota(releasing.begin(), releasing.end(), std::size_t{ 0 });
         std::ranges::stable_sort(releasing, std::ranges::greater{},
                                  [&](const std::size_t i) { return m_mir.globals[i].order; });
         for (const std::size_t i : releasing) {
