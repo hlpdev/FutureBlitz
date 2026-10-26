@@ -1,0 +1,18 @@
+// A key, '=', and its value are one of a TXT record's strings, 255 bytes at most, so a pair of
+// 256 panics where it's given.
+Import std.core
+Import std.collections
+Import std.net
+
+Local value = ""
+For i = 1 To 254
+    value = value + "v"
+End For
+
+Local text = Map<String, String>()
+text["k"] = value
+Try
+    LanAnnouncer.Start("_fbtest._udp", "Game", 4242, text, 55364)
+Catch e As NetError
+    Print("failed: {e.Message}")
+End Try

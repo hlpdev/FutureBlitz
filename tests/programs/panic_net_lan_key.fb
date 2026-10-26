@@ -1,0 +1,12 @@
+// A key of a LanService's text ends at its '=', so a key with one panics where it's given.
+Import std.core
+Import std.collections
+Import std.net
+
+Local text = Map<String, String>()
+text["a=b"] = "c"
+Try
+    LanAnnouncer.Start("_fbtest._udp", "Game", 4242, text, 55364)
+Catch e As NetError
+    Print("failed: {e.Message}")
+End Try

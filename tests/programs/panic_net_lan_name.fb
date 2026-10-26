@@ -1,0 +1,9 @@
+// A LanService's name is a DNS label of 1 to 63 bytes, so an empty one panics where it's given.
+Import std.core
+Import std.net
+
+Try
+    LanAnnouncer.Start("_fbtest._udp", "", 4242, Null, 55364)
+Catch e As NetError
+    Print("failed: {e.Message}")
+End Try
