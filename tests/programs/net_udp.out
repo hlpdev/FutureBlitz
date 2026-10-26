@@ -6,9 +6,13 @@ True True
 Receive: True
 ReceiveAsync: timeout
 [9]
+without waiting: [4]
+OTHER a datagram holds up to 65507 bytes, not 65508
 OTHER
 True
 True
 CLOSED the UdpSocket is closed
 CLOSED
+without SetBroadcast: OTHER
+broadcast: [2]
 CLOSED
