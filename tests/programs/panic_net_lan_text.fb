@@ -1,0 +1,21 @@
+// A LanService's text has 8192 bytes at most, so a response with it fits in one of mDNS's
+// packets, and more panics where it's given, though each pair is short enough.
+Import std.core
+Import std.collections
+Import std.net
+
+Local value = ""
+For i = 1 To 250
+    value = value + "v"
+End For
+
+Local text = Map<String, String>()
+For i = 100 To 139
+    text["{i}"] = value
+End For
+
+Try
+    LanAnnouncer.Start("_fbtest._udp", "Game", 4242, text, 55364)
+Catch e As NetError
+    Print("failed: {e.Message}")
+End Try

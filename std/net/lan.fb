@@ -837,6 +837,11 @@ Function TextData(text: Map<String, String>?): UInt8[]
         End For
     End If
 
+    If data.Count > LONGEST_TEXT
+        Panic("a LanService's text has {LONGEST_TEXT} bytes at most, which one of mDNS's " +
+              "packets holds with the rest, not {data.Count}")
+    End If
+
     If data.Count == 0 Then data.Add(0)
     Return data
 End Function

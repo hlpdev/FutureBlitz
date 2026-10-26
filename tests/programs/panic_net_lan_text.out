@@ -1,0 +1,1 @@
+panic: a LanService's text has 8192 bytes at most, which one of mDNS's packets holds with the rest, not 10200 at panic_net_lan_text.fb:18:5
