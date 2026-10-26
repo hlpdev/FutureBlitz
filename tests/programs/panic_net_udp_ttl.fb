@@ -1,0 +1,11 @@
+// A multicast TTL is 1 to 255 hops, the same on every OS, so 0 panics where it's given.
+Import std.core
+Import std.net
+
+Try
+    Local socket = UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0))
+    socket.SetMulticastTtl(255)
+    socket.SetMulticastTtl(0)
+Catch e As NetError
+    Print("failed: {e.Message}")
+End Try

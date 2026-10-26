@@ -136,8 +136,10 @@ Public Class UdpSocket
     End Method
 
     // How many routers what it multicasts goes through, from 1, which keeps it on the LAN, as it
-    // does until this says otherwise, to 255.
+    // does until this says otherwise, to 255, or it panics.
+    @PanicsAtCaller
     Public Method SetMulticastTtl(hops: Int) Throws NetError
+        If hops < 1 || hops > 255 Then Panic("a multicast TTL is 1 to 255 hops, not {hops}")
         Try Set(MULTICAST_TTL, hops, "setting the multicast TTL to {hops}")
     End Method
 
