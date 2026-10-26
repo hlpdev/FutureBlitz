@@ -28,6 +28,10 @@
 
 #ifndef _WIN32
 #include <cerrno>
+#include <csignal>
+#include <fcntl.h>
+#include <pthread.h>
+#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -151,10 +155,30 @@ sockets_t& sockets() {
 
 void close_all();
 
+#ifndef _WIN32
+/// Keeps SIGPIPE from ending the program when the I/O thread writes to a socket the other side
+/// reset: libuv's write gives UV_EPIPE then, which is RESET, as Windows gives it. Only the I/O
+/// thread blocks it, so the program's own writes keep SIGPIPE as they had it.
+void block_sigpipe(const uv_loop_t* loop) {
+    if (loop == nullptr) {
+        return;
+    }
+
+    sigset_t blocked;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGPIPE);
+    pthread_sigmask(SIG_BLOCK, &blocked, nullptr);
+}
+#endif
+
 /// Runs `job` on the I/O thread, or at once with no loop once the program is ending. The first
-/// time, it has the program's end close the sockets before the I/O thread stops, which
-/// on_io_thread has registered to by then, so that runs after.
+/// time, it has the I/O thread block SIGPIPE first, and the program's end close the sockets
+/// before the I/O thread stops, which on_io_thread has registered to by then, so that runs after.
 void run(std::function<void(uv_loop_t*)> job) {
+#ifndef _WIN32
+    static std::once_flag blocking;
+    std::call_once(blocking, [] { fb::runtime::on_io_thread(block_sigpipe); });
+#endif
     fb::runtime::on_io_thread(std::move(job));
     static std::once_flag registered;
     std::call_once(registered, [] { fb::runtime::at_finish(close_all); });
