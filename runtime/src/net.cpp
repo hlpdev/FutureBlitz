@@ -391,17 +391,27 @@ std::string text_of(const fb_string_t* text) {
     return { reinterpret_cast<const char*>(text + 1), static_cast<std::size_t>(text->length) };
 }
 
-/// Where an IPC listener of `name` is: a named pipe on Windows, and elsewhere a Unix socket in
-/// the temporary folder, which libuv names.
+/// Where an IPC listener of `name` is, its letters lowercase, as Windows' named pipes and macOS's
+/// files ignore case: a named pipe on Windows, and elsewhere a Unix socket in the temporary folder
+/// libuv names, or in /tmp where that folder's path would make it longer than a Unix socket's can
+/// be, as macOS's per-user folder can.
 std::string pipe_path(const std::string& name) {
+    std::string lower = name;
+    std::ranges::transform(lower, lower.begin(), [](const char c) {
+        return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    });
 #ifdef _WIN32
-    return R"(\\.\pipe\)" + name;
+    return R"(\\.\pipe\)" + lower;
 #else
     std::array<char, 4096> folder{};
     std::size_t size = folder.size();
     std::string path = uv_os_tmpdir(folder.data(), &size) == 0 ? std::string(folder.data(), size)
                                                                : std::string("/tmp");
-    return path + "/" + name + ".sock";
+    path += "/" + lower + ".sock";
+    if (path.size() >= sizeof(sockaddr_un::sun_path)) {
+        path = "/tmp/" + lower + ".sock";
+    }
+    return path;
 #endif
 }
 

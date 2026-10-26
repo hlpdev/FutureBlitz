@@ -80,11 +80,12 @@ if(TARGET fb_bindgen)
   catch_discover_tests(fb_bindgen_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})
 endif()
 
-# Runtime unit tests.
+# Runtime unit tests, with the runtime's sockets over libuv, and its internal header.
 file(GLOB_RECURSE FB_RUNTIME_TEST_SOURCES CONFIGURE_DEPENDS runtime/*.cpp)
 add_executable(fb_runtime_tests ${FB_RUNTIME_TEST_SOURCES})
-target_link_libraries(fb_runtime_tests PRIVATE fb_runtime_markdown md4c fb_runtime_zip fb_runtime
-                      fb_runtime_tz fb_tzdata Catch2::Catch2WithMain)
+target_link_libraries(fb_runtime_tests PRIVATE fb_runtime_markdown md4c fb_runtime_zip fb_runtime_io
+                      uv_a fb_runtime fb_runtime_tz fb_tzdata Catch2::Catch2WithMain)
+target_include_directories(fb_runtime_tests PRIVATE ${PROJECT_SOURCE_DIR}/runtime/src)
 # CommonMark's spec examples, which std.text.markdown's HTML passes.
 target_compile_definitions(fb_runtime_tests PRIVATE
   FB_TEST_COMMONMARK_SPEC="${CMAKE_CURRENT_SOURCE_DIR}/runtime/data/commonmark/spec.json")

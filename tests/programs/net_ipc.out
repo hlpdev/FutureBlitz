@@ -7,7 +7,11 @@ True
 True
 Accept: timeout
 OTHER fb-test-net-ipc
+OTHER FB-Test-Net-IPC
+Accept: timeout
 True True
 REFUSED fb-test-net-ipc
 REFUSED
 fb-test-net-ipc fb-test-net-ipc
+64
+polled

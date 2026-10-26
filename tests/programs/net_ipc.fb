@@ -81,11 +81,24 @@ Try
         Print("Accept: timeout")
     End Try
 
-    // Something listens at the name already.
+    // Something listens at the name already, whatever its letters' case, and a Listen that
+    // fails leaves the listener be, with nothing to accept.
     Try
         IpcListener.Listen(name)
     Catch e As NetError
         Print(e.Kind, e.Address ?? "")
+    End Try
+
+    Try
+        IpcListener.Listen("FB-Test-Net-IPC")
+    Catch e As NetError
+        Print(e.Kind, e.Address ?? "")
+    End Try
+
+    Try
+        listener.Accept(20.Milliseconds)
+    Catch e As TimeoutError
+        Print("Accept: timeout")
     End Try
 
     // Once the listener and its connections close, both ends, as a named pipe needs, nothing
@@ -112,6 +125,33 @@ Try
     Local again = IpcListener.Listen(name)
     Local last = IpcStream.Connect(name)
     Print(again.Accept().Name, last.Name)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// A name of 64 bytes, the most there is, works wherever the OS keeps its sockets, and a name is
+// the same whatever its letters' case. A ReadTimeout of zero takes what's come without waiting.
+Try
+    Local long = "fb-test-net-ipc-012345678901234567890123456789012345678901234567"
+    Local upper = "FB-TEST-NET-IPC-012345678901234567890123456789012345678901234567"
+    Local listener = IpcListener.Listen(long)
+    Local client = IpcStream.Connect(upper)
+    Local server = listener.Accept()
+    Print(long.Bytes.Count)
+    server.WriteText("polled")
+    client.ReadTimeout = Duration.Zero()
+    Local into = Buffer<UInt8>(6)
+    Local total: Int64 = 0
+    Local deadline = Deadline.After(10.Seconds)
+    While total < 6 && !deadline.HasPassed
+        Try
+            total += client.Read(into.Slice(total, 6))
+        Catch e As IOError
+            Sleep(1.Milliseconds)
+        End Try
+    End While
+
+    Print(Text(into))
 Catch e As Error
     Print("failed: {e.Message}")
 End Try

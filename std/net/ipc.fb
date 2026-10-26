@@ -107,9 +107,11 @@ Public Class IpcListener
         Socket = socket
     End New
 
-    // Listens at `name`: 1 to 64 ASCII letters, digits, '.', '-', and '_', or it panics. Throws
-    // a NetError when something listens at it already. A Unix socket's file that a program left
-    // when it ended without closing its listener is taken over.
+    // Listens at `name`: 1 to 64 ASCII letters, digits, '.', '-', and '_', or it panics, with a
+    // `backlog` of 1 at least. A name is the same whatever its letters' case, as Windows' named
+    // pipes are, so "Game" and "game" are one name on every OS. Throws a NetError when something
+    // listens at it already. A Unix socket's file that a program left when it ended without
+    // closing its listener is taken over, and any other file there stays.
     @PanicsAtCaller
     Public Static Method Listen(name: String, backlog: Int = BACKLOG): IpcListener Throws NetError
         CheckName(name)
