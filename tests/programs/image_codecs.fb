@@ -259,6 +259,16 @@ Local still = Try Png.DecodeAnimation(Png.Encode(pattern))
 Local stillGif = Try Gif.DecodeAnimation(Gif.Encode(stripes))
 Print("still:", still.Count, still.Plays, Same(still[0].Image, pattern), stillGif.Count,
       stillGif.Plays)
+// An animation of one frame keeps its delay and plays too, opaque as it is.
+Local single = Animation(2, 2, 0)
+single.Add(Opaque(Stripes(2, 2)), 500)
+For plays In [0, 3]
+    single.Plays = plays
+    Local oneGif = Try Gif.DecodeAnimation(Gif.EncodeAnimation(single))
+    Local oneApng = Try Png.DecodeAnimation(Png.EncodeAnimation(single))
+    Print("one frame, plays {plays}:", oneGif.Count, oneGif.Plays, Delays(oneGif), oneApng.Count,
+          oneApng.Plays, Delays(oneApng))
+End For
 
 // HDR keeps light past 1, as RGBE's 8-bit mantissas do, and no alpha.
 Local hdr = HdrImage(9, 3)

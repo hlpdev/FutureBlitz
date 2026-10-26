@@ -384,7 +384,11 @@ public:
         put_little(out, static_cast<std::uint32_t>(m_height), 2);
         // No global palette, 8 bits a channel, and the background the first color.
         out.insert(out.end(), { 0x70, 0, 0 });
-        const bool animated = m_frames.size() > 1;
+        // An animation, even of one frame, with its delays and plays; a still image has one frame
+        // shown once, at once.
+        const bool animated =
+            m_frames.size() > 1 || m_plays != 1 ||
+            std::ranges::any_of(m_frames, [](const frame_t& frame) { return frame.delay != 0; });
         if (animated && m_plays != 1) {
             out.insert(out.end(), {
                                       0x21,
