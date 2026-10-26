@@ -114,6 +114,11 @@ struct socket_t {
     bool closing = false;
     /// A stream connected, with 0, or failed to.
     std::optional<std::int32_t> connected;
+    /// A stream's ShutdownWrite ended what it writes, so a write after is CLOSED.
+    bool shut = false;
+    /// An IPC listener's lock on the file beside its Unix socket, which says the name is taken
+    /// while it listens, or -1.
+    int lock = -1;
     /// A stream's other side ended it, with 0, or it failed.
     std::optional<std::int32_t> ended;
     /// The bytes read and not yet taken, from `taken` on.
@@ -744,6 +749,11 @@ std::int32_t writable(socket_t* socket) {
         return UV_ECANCELED;
     }
 
+    // What this side ended is closed, not reset by the other side, as libuv's UV_EPIPE says.
+    if (socket->shut) {
+        return UV_ENOTCONN;
+    }
+
     return socket->connected.value_or(UV_ENOTCONN);
 }
 
@@ -775,6 +785,10 @@ void start_shutdown(writing_t* writing) {
     if (started == 0) {
         writing->shutdown.data = writing;
         started = uv_shutdown(&writing->shutdown, &socket->stream, writing_t::on_shut);
+        if (started == 0) {
+            const std::scoped_lock lock(socket->mutex);
+            socket->shut = true;
+        }
     }
 
     if (started != 0) {
