@@ -129,6 +129,13 @@ console_before_t& console_before() {
     return before;
 }
 
+/// Held while fb_start() changes the console, which console_ended() waits for, so the console
+/// is never put back before it's done changing.
+std::mutex& console_mutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
 void restore_console() {
     const console_before_t& before = console_before();
     if (before.code_page != 0) {
@@ -141,10 +148,11 @@ void restore_console() {
 }
 
 /// The console ends a program on Ctrl+C or Ctrl+Break, or when its window closes, without its
-/// end or a panic's: what it changed that others share is put back first, and FALSE lets the
-/// default handler end it, as it would have.
+/// end or a panic's: what it changed that others share is put back first, once fb_start() has
+/// changed it, and FALSE lets the default handler end it, as it would have.
 BOOL WINAPI console_ended(const DWORD event) {
     if (event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT || event == CTRL_CLOSE_EVENT) {
+        const std::scoped_lock held(console_mutex());
         fb::runtime::run_end();
     }
 
@@ -312,25 +320,30 @@ extern "C" {
 
 void fb_start() {
 #ifdef _WIN32
-    // Strings are UTF-8, and binary mode keeps "\n" from becoming "\r\n". The console is the
-    // shell's too, so it gets its code page and stderr's mode back however the program ends.
-    console_before_t& before = console_before();
-    before.code_page = GetConsoleOutputCP();
-    SetConsoleOutputCP(CP_UTF8);
+    // Strings are UTF-8, and binary mode keeps "\n" from becoming "\r\n".
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stderr), _O_BINARY);
 
-    // Lets panics print in color.
+    // The console is the shell's too, so it gets its code page and stderr's mode back however
+    // the program ends: what they were is kept, and what puts them back is in place, before
+    // either changes, and a Ctrl+C or Ctrl+Break as the program starts waits for both changes.
+    const std::scoped_lock held(console_mutex());
+    console_before_t& before = console_before();
+    before.code_page = GetConsoleOutputCP();
     HANDLE error = GetStdHandle(STD_ERROR_HANDLE);
     DWORD mode = 0;
     if (GetConsoleMode(error, &mode) != 0) {
         before.error_mode = mode;
-        SetConsoleMode(error, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
     }
 
     fb::runtime::at_end(restore_console);
     SetConsoleCtrlHandler(console_ended, TRUE);
+    SetConsoleOutputCP(CP_UTF8);
+    // Lets panics print in color.
+    if (before.error_mode) {
+        SetConsoleMode(error, *before.error_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    }
 #else
     // Only a signal at its default: one the program was started ignoring stays ignored.
     for (const int number : { SIGINT, SIGTERM, SIGHUP }) {
