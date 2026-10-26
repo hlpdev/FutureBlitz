@@ -1,7 +1,8 @@
-// std.image's transforms: Resize gives what Pillow does, within a little, by each filter, its
-// alpha too, and a transparent pixel's color counts for nothing; Crop, the flips and turns, Draw,
-// Paste, and Fill give known pixels, and an Image converts to an HdrImage and back.
-// image_transforms/make_data.py says how Pillow's were made.
+// std.image's transforms: Resize gives what Pillow does to an opaque image, within a little, by
+// each filter, its alpha too, a translucent one's colors more exactly, and a transparent pixel's
+// color counts for nothing; Crop, the flips and turns, Draw, Paste, and Fill give known pixels,
+// and an Image converts to an HdrImage and back. image_transforms/make_data.py says how Pillow's
+// were made.
 
 Import std.core
 Import std.collections
@@ -70,6 +71,18 @@ Resized(ResizeFilter.BICUBIC, 40, 5, Bicubic40x5(), Bicubic40x5Mask())
 Resized(ResizeFilter.LANCZOS, 9, 7, Lanczos9x7(), Lanczos9x7Mask())
 Resized(ResizeFilter.LANCZOS, 37, 26, Lanczos37x26(), Lanczos37x26Mask())
 Resized(ResizeFilter.LANCZOS, 40, 5, Lanczos40x5(), Lanczos40x5Mask())
+
+// Translucent pixels keep their colors more exactly than Pillow's, which premultiplies alpha in
+// bytes: BILINEAR's first pixel weighs these by 3/7, 3/7, and 1/7, so its red is
+// (200 * 3 * 3 + 10 * 5 * 3 + 250 * 2 * 1) / (3 * 3 + 5 * 3 + 2 * 1), 94.2, and its alpha 26 / 7,
+// 3.7. Pillow 12.3 gives (63, 191, 63, 4) (85, 85, 170, 3) by BILINEAR and (63, 191, 127, 4)
+// (170, 85, 170, 3) by BOX.
+For filter In [ResizeFilter.BILINEAR, ResizeFilter.BOX]
+    Local faint = Image.FromBytes(4, 1, [200, 100, 50, 3, 10, 240, 90, 5, 250, 30, 160, 2, 60, 70,
+                                         220, 4])
+    faint.Resize(2, 1, filter)
+    Print("faint by {filter}:", faint[0, 0], faint[1, 0])
+End For
 
 // A transparent red beside an opaque blue makes no purple, by any filter but the nearest; a
 // filter at the image's own size changes nothing; and an image resizes to nothing and back.

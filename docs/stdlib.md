@@ -1169,9 +1169,11 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   colors under it by a `ResizeFilter`, `NEAREST`, `BOX`, `BILINEAR`, `BICUBIC`, or `LANCZOS`, by
   default, the filter widened as the image shrinks, as Pillow resamples, across and then down,
   kept from 0 to 255 between; its colors are weighted by their alpha, so a transparent pixel's
-  counts for nothing. Its sums are Doubles where Pillow's are fixed-point, and its bytes within 1
-  of Pillow's. `Crop(x, y, width, height)` keeps the pixels from (x, y); `FlipHorizontal`,
-  `FlipVertical`, `RotateClockwise`, `RotateCounterclockwise`, and `Rotate180` flip and turn it;
+  counts for nothing. Its sums are Doubles where Pillow's are fixed-point, and an opaque image's
+  bytes are within 1 of Pillow's; a translucent one's colors are more exact than Pillow's, which
+  premultiplies alpha in bytes, rounding a faint pixel's color away. `Crop(x, y, width, height)`
+  keeps the pixels from (x, y); `FlipHorizontal`, `FlipVertical`, `RotateClockwise`,
+  `RotateCounterclockwise`, and `Rotate180` flip and turn it;
   `Draw(image, x, y)` draws another image over it by its alpha, as "over" does, and `Paste(image,
   x, y)` puts one's pixels, alpha too, in place of its own, each leaving out what falls outside;
   and `Fill(color)` gives every pixel a color. A size New panics for, resizing an image of no

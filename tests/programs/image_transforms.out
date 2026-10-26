@@ -13,6 +13,8 @@ BICUBIC to 40 by 5 colors: 1 alpha: 1 True
 LANCZOS to 9 by 7 colors: 1 alpha: 1 True
 LANCZOS to 37 by 26 colors: 1 alpha: 1 True
 LANCZOS to 40 by 5 colors: 1 alpha: 1 True
+faint by BILINEAR: (94, 175, 82, 4) (99, 97, 176, 3)
+faint by BOX: (81, 187, 75, 4) (123, 57, 200, 3)
 BOX (0, 0, 255, 128) True
 BILINEAR (0, 0, 255, 128) True
 BICUBIC (0, 0, 255, 128) True
