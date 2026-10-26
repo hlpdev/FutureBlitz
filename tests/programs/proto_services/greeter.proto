@@ -1,0 +1,20 @@
+// A service, whose rpcs take and give messages, one or a stream of them.
+syntax = "proto3";
+
+package test.services;
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloReply {
+  string message = 1;
+}
+
+service Greeter {
+  rpc SayHello(HelloRequest) returns (HelloReply);
+  rpc SayHellos(stream HelloRequest) returns (stream HelloReply);
+  rpc Check(HelloRequest) returns (HelloReply) {
+    option deprecated = true;
+  }
+}

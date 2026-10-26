@@ -1,0 +1,62 @@
+// A service is an Interface of Async Methods, each taking its request and giving its response,
+// with a stream's side an array: a server implements it, and a client, here one that sends the
+// requests and responses through protobuf's wire format, as a transport would, is called the
+// same way, through the Interface.
+Import std.core
+Import "proto_services/greeter.proto"
+
+Class Error418 Extends Error
+End Class
+
+Class Server Implements Greeter
+    Async Method SayHello(request: HelloRequest): HelloReply
+        Return HelloReply(message: "Hello, {request.name}")
+    End Method
+
+    Async Method SayHellos(requests: HelloRequest[]): HelloReply[]
+        Local replies: HelloReply[] = []
+        For request In requests
+            replies.Add(Await SayHello(request))
+        End For
+        Return replies
+    End Method
+
+    Async Method Check(request: HelloRequest): HelloReply Throws Error418
+        If request.name == "teapot" Then Throw Error418("I'm a teapot")
+        Return HelloReply(message: "ok")
+    End Method
+End Class
+
+// Sends each request as bytes, and reads the response back from bytes.
+Class Client Implements Greeter
+    Field Remote: Greeter
+
+    Public New(remote: Greeter)
+        Remote = remote
+    End New
+
+    Async Method SayHello(request: HelloRequest): HelloReply Throws Error
+        Local sent = Try HelloRequest.Decode(request.Encode())
+        Local reply = Try Await Remote.SayHello(sent)
+        Return Try HelloReply.Decode(reply.Encode())
+    End Method
+
+    Async Method SayHellos(requests: HelloRequest[]): HelloReply[] Throws Error
+        Return Try Await Remote.SayHellos(requests)
+    End Method
+
+    Async Method Check(request: HelloRequest): HelloReply Throws Error
+        Return Try Await Remote.Check(request)
+    End Method
+End Class
+
+Local greeter: Greeter = Client(Server())
+Local reply = Try Await greeter.SayHello(HelloRequest(name: "Ada"))
+Print(reply.message)
+Local replies = Try Await greeter.SayHellos([HelloRequest(name: "Alan"), HelloRequest(name: "Grace")])
+Print("{replies.Count} {replies[0]} {replies[1]}")
+Try
+    Await greeter.Check(HelloRequest(name: "teapot"))
+Catch e As Error
+    Print("check: {e.Message}")
+End Try
