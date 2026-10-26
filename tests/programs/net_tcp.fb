@@ -218,3 +218,46 @@ Try
 Catch e As Error
     Print("failed: {e.Message}")
 End Try
+
+// A ReadTimeout of zero takes what's come without waiting, or throws a TimeoutError, and what
+// comes after is there for the next Read, past what a stream reads ahead of what's taken too.
+Try
+    Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local client = TcpStream.Connect(listener.LocalAddress)
+    Local server = listener.Accept()
+    client.ReadTimeout = Duration.Zero()
+    Local into = Buffer<UInt8>(4096)
+    Try
+        client.Read(into)
+    Catch e As IOError
+        Print("nothing yet:", e.Cause Is TimeoutError)
+    End Try
+
+    Const polled = 200000
+    Local writing = server.WriteAsync(Buffer<UInt8>(polled))
+    Local total: Int64 = 0
+    Local deadline = Deadline.After(10.Seconds)
+    While total < polled && !deadline.HasPassed
+        Try
+            total += client.Read(into)
+        Catch e As IOError
+            Sleep(1.Milliseconds)
+        End Try
+    End While
+
+    Print("polled:", total)
+    If total == polled Then Await writing
+
+    // A Write after its own ShutdownWrite is CLOSED, as what it ended.
+    client.ShutdownWrite()
+    Try
+        client.WriteText("more")
+    Catch e As IOError
+        Print("after ShutdownWrite:", (e.Cause As NetError).Kind)
+    End Try
+
+    server.Close()
+    client.Close()
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

@@ -508,6 +508,8 @@ void begin_close(socket_t* socket) {
     }
 }
 
+void read_more(socket_t* socket);
+
 /// What a socket of its own is, for a blocking caller: still connecting, or what its connect
 /// gave.
 void finish_connect(socket_t* socket, const std::int32_t status) {
@@ -524,6 +526,11 @@ void finish_connect(socket_t* socket, const std::int32_t status) {
         socket->changed.notify_all();
     }
 
+    // It reads from here on, as far as it reads ahead, so what comes is there for a Read that
+    // doesn't wait.
+    if (status == 0) {
+        read_more(socket);
+    }
     wake_tasks(socket, status);
 }
 
@@ -887,6 +894,8 @@ void on_connection(uv_stream_t* server, const int status) {
     }
     remember_addresses(connection);
     connection->connected = 0;
+    // It reads from here on, as a connected stream does.
+    read_more(connection);
     {
         const std::scoped_lock lock(listener->mutex);
         listener->accepted.push_back(connection);
@@ -1207,8 +1216,9 @@ std::int64_t fb_io_net_read(void* handle, std::uint8_t* into, const std::int64_t
         return 0;
     }
 
+    // A stream that has nothing reads more, which one that doesn't wait leaves for its next Read.
     std::unique_lock lock(socket->mutex);
-    if (!readable(socket) && timeout != 0) {
+    if (!readable(socket)) {
         lock.unlock();
         run([socket](uv_loop_t* loop) {
             if (loop != nullptr) {
@@ -1221,7 +1231,7 @@ std::int64_t fb_io_net_read(void* handle, std::uint8_t* into, const std::int64_t
             socket->changed.notify_all();
         });
         lock.lock();
-        if (!wait_until(lock, socket, timeout, [&] { return readable(socket); })) {
+        if (timeout != 0 && !wait_until(lock, socket, timeout, [&] { return readable(socket); })) {
             return UV_ETIMEDOUT;
         }
     }
@@ -1272,8 +1282,11 @@ std::int32_t fb_io_net_bind(void* handle, const fb_array_t* address, const std::
             result = uv_udp_bind(&socket->udp, reinterpret_cast<const sockaddr*>(&at),
                                  reuse != 0 ? UV_UDP_REUSEADDR : 0);
         }
+        // It receives from here on, so a datagram that came is there for a Receive that doesn't
+        // wait.
         if (result == 0) {
             remember_addresses(socket);
+            receive_more(socket);
         }
         return result;
     });

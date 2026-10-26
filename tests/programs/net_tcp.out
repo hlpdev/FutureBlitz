@@ -21,3 +21,6 @@ CLOSED
 CLOSED
 0
 RESET
+nothing yet: True
+polled: 200000
+after ShutdownWrite: CLOSED
