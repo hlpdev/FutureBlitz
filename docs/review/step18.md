@@ -4,7 +4,7 @@
 
 ## S18-tasks-events-1 (high): Cancelling a Subscription whose handler holds the only reference to an object that cancels it again in its Destroy is a use-after-free
 
-Status: fixed in ee9b809: Drop keeps the handler in a Local until its Event has counted it off, so a Destroy that its going runs finds it off, cancelling it again does nothing, and the Event's Count is right; events.fb has a Widget that cancels its own Subscription as it goes, through Cancel and through Clear. That doesn't need S18-tasks-events-2's fix, lane 2's 13581ac, which fixes the root cause
+Status: fixed in ee9b809: Drop keeps the handler in a Local until its Event has counted it off, so a Destroy that its going runs finds it off, cancelling it again does nothing, and the Event's Count is right; events.fb has a Widget that cancels its own Subscription as it goes, through Cancel and through Clear. That doesn't need S18-tasks-events-2's fix, lane 2's 6a3e534, which fixes the root cause
 
 Where: std/events/event.fb:30
 
@@ -56,7 +56,7 @@ Skeptic: I ran the program as given (s18/te/uaf.fb). It crashed 3 of 3 times in 
 
 ## S18-tasks-events-2 (high): Assigning a Field releases the old value before storing the new one, so a Destroy that the release runs sees a freed object in that Field (root cause of S18-tasks-events-1)
 
-Status: fixed in 13581ac (a store puts the new value in before it lets go of the old one, so a destroy finds the new one), on lane 2's dev/m6-p1-lowering, with tests/programs/store_destroy.fb and a case in tests/compiler/mir_tests.cpp; a Channel's TryReceive into its ByRef variable gets the same order
+Status: fixed in 6a3e534 (a store puts the new value in before it lets go of the old one, so a destroy finds the new one), on lane 2's dev/m6-p1-lowering, with tests/programs/store_destroy.fb and a case in tests/compiler/mir_tests.cpp; a Channel's TryReceive into its ByRef variable gets the same order
 
 Where: compiler/src/lower.cpp:2879
 

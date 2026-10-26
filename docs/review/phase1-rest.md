@@ -4,7 +4,7 @@ The review of phase 1's fixes (ecaa974..36ab52a), on 2026-10-23: six reviewers b
 
 ## P1-lowering-1 (high): For ... In now copies a fixed array as one LLVM aggregate, so iterating a 256x256 Global or Field crashes the compiler
 
-Status: fixed in 428a3a3 (for in holds a large fixed array's copy in a t[], and a value holding a fixed array is copied and made a part at a time), with tests/programs/for_in_large_fixed.fb
+Status: fixed in 176759e (for in holds a large fixed array's copy in a t[], and a value holding a fixed array is copied and made a part at a time), with tests/programs/for_in_large_fixed.fb
 
 Where: compiler/src/lower.cpp:3552
 
@@ -60,7 +60,7 @@ Skeptic: Ran the pair in rev-scratch/p1/front-v/bg (vec_types.h holds the typede
 
 ## P1-lowering-2 (medium): Static Fields, and generic instances' Statics, are released before the Globals declared below them, so a Destroy that reads one panics or reads a zero
 
-Status: fixed in e39576d (globals are let go of in the reverse of the order main sets them, static fields at their class's place), with Static Field and generic Static cases in tests/programs/globals_released.fb
+Status: fixed in 169bd18 (globals are let go of in the reverse of the order main sets them, static fields at their class's place), with Static Field and generic Static cases in tests/programs/globals_released.fb
 
 Where: compiler/src/codegen.cpp:1994
 
@@ -109,7 +109,7 @@ Skeptic: static_order.fb (the finding's program), debug and release both: 'main 
 
 ## P1-lowering-3 (medium): Return of a ByRef parameter (or a Global) isn't copied before the function's cleanups run, so a Destroy that changes it frees what's returned
 
-Status: fixed in 7adecc1 (a return copies a global or byref parameter it reads before the cleanups, so a destroy can't change what it gives), with tests/programs/return_through_reference.fb
+Status: fixed in e4703c8 (a return copies a global or byref parameter it reads before the cleanups, so a destroy can't change what it gives), with tests/programs/return_through_reference.fb
 
 Where: compiler/src/lower.cpp:4235
 
@@ -306,7 +306,7 @@ Skeptic: I built my own copy of the reporter's launcher (front-v/cc/launch.c, gc
 
 ## P1-lowering-4 (low): A Const Function limit hit before any call or operation still has no note, though spec 13 now says it points into the function
 
-Status: fixed in f0e7499 (a const function's limit points at a local's declaration, or else the function, when it reached no call or operation), with two cases in tests/compiler/evaluate_tests.cpp
+Status: fixed in d5ab5cb (a const function's limit points at a local's declaration, or else the function, when it reached no call or operation), with two cases in tests/compiler/evaluate_tests.cpp
 
 Where: compiler/src/evaluate.cpp:128
 
@@ -358,7 +358,7 @@ Skeptic: I looped over every `Status:` line in docs/review/lane2-lowering.md wit
 
 ## P1-lowering-6 (low): Releasing Globals at the end has no release-build test, though the fix and its test's comment rely on release builds
 
-Status: fixed in d822eeb (release builds of letting globals go at the end, and of using one after it's gone), with tests/programs/release_globals_released.fb and release_panic_global_released.fb
+Status: fixed in dfbdfed (release builds of letting globals go at the end, and of using one after it's gone), with tests/programs/release_globals_released.fb and release_panic_global_released.fb
 
 Where: tests/programs/panic_global_released.fb:2
 

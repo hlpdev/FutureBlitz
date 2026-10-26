@@ -4,7 +4,7 @@
 
 ## S8-build-2 (medium): PlainText() of a document, list, or table runs its blocks' words together
 
-Status: fixed in c4f9e575, as S8-tree-2
+Status: fixed in 5b815a47, as S8-tree-2
 
 Where: docs/stdlib.md:303
 
@@ -31,7 +31,7 @@ Skeptic: I ran rev-scratch/s8/build/plain.fb in debug and release. Both printed 
 
 ## S8-tree-1 (medium): A raw HTML tag that spans lines becomes several Html nodes
 
-Status: fixed in f22ba9bd
+Status: fixed in edd97465
 
 Where: runtime/src/markdown.cpp:274
 
@@ -69,7 +69,7 @@ Skeptic: Ran t1.fb in debug and release. ParseMarkdown("a <span\nclass=\"x\">b</
 
 ## S8-tree-2 (medium): PlainText() runs the text of separate blocks together
 
-Status: fixed in c4f9e575: each block is on lines of its own, and a row's cells are apart by a tab
+Status: fixed in 5b815a47: each block is on lines of its own, and a row's cells are apart by a tab
 
 Where: std/text/markdown.fb:107
 
@@ -103,7 +103,7 @@ Skeptic: Ran t2.fb and t2b.fb in debug and release. Output: [HelloWorld], [onetw
 
 ## S8-tree-3 (medium): PlainText() overflows the stack on deeply nested Markdown
 
-Status: fixed in c4f9e575: PlainText walks the tree with a stack of its own
+Status: fixed in 5b815a47: PlainText walks the tree with a stack of its own
 
 Where: std/text/markdown.fb:115
 
@@ -135,7 +135,7 @@ Skeptic: Ran t3.fb (20,000 nested '>'): debug and release both print 'error: t3.
 
 ## S8-tree-4 (medium): A code span in a table cell keeps its \| instead of giving |
 
-Status: fixed in ec49a358, in the tree and, through patch_md4c.cmake, in md4c's HTML
+Status: fixed in ee7ea462, in the tree and, through patch_md4c.cmake, in md4c's HTML
 
 Where: runtime/src/markdown.cpp:254
 
@@ -171,7 +171,7 @@ Skeptic: Ran t4.fb (fixed so the \\| escapes reach the Markdown; a bash heredoc 
 
 ## S8-build-1 (low): A leading UTF-8 BOM turns the first block into a paragraph, in HTML and in the tree
 
-Status: fixed in 623dc7f4
+Status: fixed in c9bcc97c
 
 Where: runtime/src/markdown.cpp:327
 
@@ -202,7 +202,7 @@ Skeptic: I ran rev-scratch/s8/build/bom.fb in debug and release. Both printed `<
 
 ## S8-build-6 (low): The C++ port of normalize.py has no attribution; NOTICE.md covers only spec.json
 
-Status: fixed in 991cca65
+Status: fixed in 4b20fb30
 
 Where: tests/runtime/data/commonmark/NOTICE.md:1
 
@@ -226,7 +226,7 @@ Skeptic: I compared tests/runtime/markdown_tests.cpp:194-420 with md4c 0.5.2's t
 
 ## S8-html-1 (low): A numeric reference to a surrogate becomes three U+FFFD in MarkdownToHtml's text and titles, and %ED%A0%80 in a URL, where CommonMark and ParseMarkdown have one U+FFFD
 
-Status: fixed in ec49a358, through patch_md4c.cmake
+Status: fixed in ee7ea462, through patch_md4c.cmake
 
 Where: runtime/src/markdown.cpp:327
 
@@ -262,7 +262,7 @@ Skeptic: I wrote h1.fb under C:/Users/Hunter/Projects/FutureBlitz/.claude/worktr
 
 ## S8-html-2 (low): Autolinks/GitHub leave common bare URLs unlinked or cut short (ports, %-escapes, ~, parentheses in a path, commas), unlike GitHub's Markdown that the docs promise
 
-Status: fixed in 9c42f477: the docs give md4c's rules, and text_markdown pins them
+Status: fixed in c4b34984: the docs give md4c's rules, and text_markdown pins them
 
 Where: std/text/markdown.fb:29
 
@@ -302,7 +302,7 @@ Skeptic: Ran h2.fb in debug and release. Both print `<p>http://example.com:8080/
 
 ## S8-html-3 (low): GitHub tables aren't GitHub's: a header with more cells than the delimiter row becomes a table that silently drops cells, and \| in a cell's code span keeps its backslash
 
-Status: fixed in ec49a358 (\| in a cell's code span) and 9c42f477 (the docs give md4c's table rules, and text_markdown pins them)
+Status: fixed in ee7ea462 (\| in a cell's code span) and c4b34984 (the docs give md4c's table rules, and text_markdown pins them)
 
 Where: std/text/markdown.fb:19
 
@@ -371,7 +371,7 @@ Skeptic: The heredoc mangled the finding's program (`\\|` became `\|`, an fb com
 
 ## S8-html-5 (low): The test's normalize.py port claims it's "never laxer" than Python's, but it equates HTML that normalize.py tells apart
 
-Status: fixed in c00c67ad and 685a748e: the port keeps what normalize.py keeps
+Status: fixed in 4ac2fd91 and 511b24cb: the port keeps what normalize.py keeps
 
 Where: tests/runtime/markdown_tests.cpp:198
 
@@ -397,7 +397,7 @@ Skeptic: I copied md4c's test/normalize.py (read in full, benign) to my scratch 
 
 ## S8-tree-5 (low): Tight's docs suggest only HTML drops a tight list's paragraphs, but the tree drops them too
 
-Status: fixed in 9c42f477
+Status: fixed in c4b34984
 
 Where: std/text/markdown.fb:84
 
