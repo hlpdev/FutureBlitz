@@ -1,0 +1,14 @@
+// A key of a LanService's text is the same whatever its letters' case, as DNS-SD has it, so two
+// that differ only in case panic where they're given.
+Import std.core
+Import std.collections
+Import std.net
+
+Local text = Map<String, String>()
+text["Map"] = "dust"
+text["map"] = "fields"
+Try
+    LanAnnouncer.Start("_fbtest._udp", "Game", 4242, text, 55364)
+Catch e As NetError
+    Print("failed: {e.Message}")
+End Try

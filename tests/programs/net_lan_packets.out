@@ -1,0 +1,9 @@
+an answer to each network gives one address: True
+knowing the PTR: []
+knowing it with too little TTL left: [12, 33, 16]
+knowing the SRV and TXT: []
+each announcement gives one address: True
+goodbye: _fbwire._udp.local 12
+goodbye: Leaving._fbwire._udp.local 33
+goodbye: Leaving._fbwire._udp.local 16
+Fake 4545 [127.0.0.1, 192.0.2.7] 1 dust

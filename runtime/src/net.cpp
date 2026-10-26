@@ -1470,11 +1470,26 @@ std::int32_t fb_io_net_interfaces(fb_array_t* output) {
             continue;
         }
 
+        // Its address, then its netmask, as an address of the same family.
         sockaddr_storage address{};
-        std::memcpy(&address, &each.address,
-                    family == AF_INET ? sizeof(sockaddr_in) : sizeof(sockaddr_in6));
-        if (const std::optional<std::array<std::uint8_t, address_size>> data = bytes_of(address)) {
+        sockaddr_storage netmask{};
+        if (family == AF_INET) {
+            std::memcpy(&address, &each.address.address4, sizeof(sockaddr_in));
+            auto* mask = reinterpret_cast<sockaddr_in*>(&netmask);
+            mask->sin_family = AF_INET;
+            mask->sin_addr = each.netmask.netmask4.sin_addr;
+        } else {
+            std::memcpy(&address, &each.address.address6, sizeof(sockaddr_in6));
+            auto* mask = reinterpret_cast<sockaddr_in6*>(&netmask);
+            mask->sin6_family = AF_INET6;
+            mask->sin6_addr = each.netmask.netmask6.sin6_addr;
+        }
+
+        const std::optional<std::array<std::uint8_t, address_size>> data = bytes_of(address);
+        const std::optional<std::array<std::uint8_t, address_size>> mask = bytes_of(netmask);
+        if (data && mask) {
             records.insert(records.end(), data->begin(), data->end());
+            records.insert(records.end(), mask->begin(), mask->end());
         }
     }
 

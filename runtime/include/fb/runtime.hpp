@@ -790,7 +790,7 @@ std::int32_t fb_io_net_membership(void* handle, const fb_string_t* group, const 
 /// Has a UDP socket multicast on the interface whose address is `on`.
 std::int32_t fb_io_net_multicast_interface(void* handle, const fb_string_t* on);
 /// Puts the addresses of the machine's network interfaces that are up into `output`, but for
-/// loopback's, each as an address of port 0. It doesn't block.
+/// loopback's, each as an address of port 0, then its netmask as one. It doesn't block.
 std::int32_t fb_io_net_interfaces(fb_array_t* output);
 /// The machine's name, as its OS has it, or "localhost" when that can't be read.
 fb_string_t* fb_io_net_host_name();

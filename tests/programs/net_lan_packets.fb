@@ -1,0 +1,277 @@
+// std.net's LAN discovery as mDNS's packets show it. What a LanAnnouncer sends through an
+// interface, and what it answers a querier on an interface's network, gives that interface's
+// address alone; it doesn't answer with what a query says it knows; and its goodbye takes back
+// the service's own records alone, at a TTL of 0. A finder puts the address an answer came from
+// first, and keeps a text's key once, whatever its letters' case. Each part keeps to a discovery
+// port of its own.
+
+Import std.core
+Import std.collections
+Import std.net
+Import std.text
+Import std.time
+
+Const type = "_fbwire._udp"
+
+// The type's name, and a service's of it, as labels.
+Function TypeName(): String[] => ["_fbwire", "_udp", "local"]
+Function InstanceName(name: String): String[] => [name, "_fbwire", "_udp", "local"]
+
+// mDNS's group.
+Function Group(): IpAddress => IpAddress.V4(224, 0, 0, 251)
+
+// A record of a packet: its name, its type, its TTL, and its data.
+Struct Held
+    ReadOnly Field Name: String
+    ReadOnly Field Type: Int
+    ReadOnly Field Ttl: Int64
+    ReadOnly Field Data: UInt8[]
+
+    New(name: String, type: Int, ttl: Int64, data: UInt8[])
+        Self.Name = name
+        Self.Type = type
+        Self.Ttl = ttl
+        Self.Data = data
+    End New
+End Struct
+
+Function Short(packet: UInt8[], at: Int): Int
+    Return ((packet[at] As Int) << 8) | (packet[at + 1] As Int)
+End Function
+
+// Where the name at `at` ends, as lan.fb writes names, without pointers.
+Function NameEnd(packet: UInt8[], at: Int): Int
+    Local here = at
+    While packet[here] != 0
+        here += 1 + (packet[here] As Int)
+    End While
+    Return here + 1
+End Function
+
+// The name at `at`, its labels joined by '.'.
+Function NameAt(packet: UInt8[], at: Int): String
+    Local labels: String[] = []
+    Local here = at
+    While packet[here] != 0
+        Local size = packet[here] As Int
+        labels.Add(String.FromUtf8(packet[here + 1..here + 1 + size]) ?? "?")
+        here += 1 + size
+    End While
+    Return ".".Join(labels)
+End Function
+
+// A packet's records, past its questions.
+Function Records(packet: UInt8[]): Held[]
+    Local records: Held[] = []
+    Local at = 12
+    For i = 1 To Short(packet, 4)
+        at = NameEnd(packet, at) + 4
+    End For
+
+    For i = 1 To Short(packet, 6) + Short(packet, 8) + Short(packet, 10)
+        Local finish = NameEnd(packet, at)
+        Local size = Short(packet, finish + 8)
+        Local ttl = ((Short(packet, finish + 4) As Int64) << 16) | Short(packet, finish + 6)
+        records.Add(Held(NameAt(packet, at), Short(packet, finish), ttl,
+                         packet[finish + 10..finish + 10 + size]))
+        at = finish + 10 + size
+    End For
+    Return records
+End Function
+
+// How many of `records` are A records.
+Function AddressCount(records: Held[]): Int
+    Local count = 0
+    For record In records
+        If record.Type == 1 Then count += 1
+    End For
+    Return count
+End Function
+
+// The types of the records but the A records of what came, or none when nothing did.
+Function Types(datagram: Datagram?): Int[]
+    Local types: Int[] = []
+    If datagram == Null Then Return types
+    For record In Records(datagram.Bytes)
+        If record.Type != 1 Then types.Add(record.Type)
+    End For
+    Return types
+End Function
+
+// A name's bytes: each label after its length, then a 0.
+Function Wire(labels: String[]): UInt8[]
+    Local bytes: UInt8[] = []
+    For label In labels
+        bytes.Add(label.Bytes.Count As UInt8)
+        bytes.AddAll(label.Bytes)
+    End For
+
+    bytes.Add(0)
+    Return bytes
+End Function
+
+// A record's bytes, of class IN.
+Function Record(name: String[], type: Int, ttl: Int64, data: UInt8[]): UInt8[]
+    Local bytes = Wire(name)
+    Local fixed: UInt8[] = [0, type As UInt8, 0, 1, (ttl >> 24) As UInt8,
+                            ((ttl >> 16) & 255) As UInt8, ((ttl >> 8) & 255) As UInt8,
+                            (ttl & 255) As UInt8, (data.Count >> 8) As UInt8,
+                            (data.Count & 255) As UInt8]
+    bytes.AddAll(fixed)
+    bytes.AddAll(data)
+    Return bytes
+End Function
+
+// A query for `name`'s records of `type`, which lists the answers it knows.
+Function Query(name: String[], type: Int, known: UInt8[][]): UInt8[]
+    Local bytes: UInt8[] = [0, 0, 0, 0, 0, 1, 0, known.Count As UInt8, 0, 0, 0, 0]
+    bytes.AddAll(Wire(name))
+    Local question: UInt8[] = [0, type As UInt8, 0, 1]
+    bytes.AddAll(question)
+    For record In known
+        bytes.AddAll(record)
+    End For
+    Return bytes
+End Function
+
+// This machine's IPv4 addresses.
+Function V4(): IpAddress[]
+    Local addresses: IpAddress[] = []
+    For address In Lan.LocalAddresses()
+        If address.IsV4 Then addresses.Add(address)
+    End For
+    Return addresses
+End Function
+
+// A socket on the discovery port `port`, in mDNS's group on each interface, as another machine's
+// mDNS is.
+Function Listener(port: UInt16): UdpSocket Throws NetError
+    Local socket = Try UdpSocket.Bind(SocketAddress(IpAddress.Any, port), True)
+    Local joined = False
+    For address In V4()
+        Try
+            Try socket.JoinMulticast(Group(), address)
+            joined = True
+        Catch e As NetError
+        End Try
+    End For
+
+    If !joined Then Try socket.JoinMulticast(Group())
+    Return socket
+End Function
+
+// Answers the first query that comes to `responder` from loopback, as another machine's
+// responder would, with a service whose host's address isn't one this machine has, and a text
+// whose key comes three times, in three cases.
+Async Function Respond(responder: UdpSocket) Throws NetError, TimeoutError
+    Local query = Try Await responder.ReceiveAsync(3.Seconds)
+    Local replier = Try UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0))
+    Local instance = InstanceName("Fake")
+    Local host = ["elsewhere", "local"]
+    Local server: UInt8[] = [0, 0, 0, 0, 17, 193]
+    server.AddAll(Wire(host))
+    Local text: UInt8[] = []
+    For entry In ["Map=dust", "map=fields", "MAP"]
+        text.Add(entry.Bytes.Count As UInt8)
+        text.AddAll(entry.Bytes)
+    End For
+
+    Local records = [Record(TypeName(), 12, 4500, Wire(instance)),
+                     Record(instance, 33, 120, server), Record(instance, 16, 4500, text),
+                     Record(host, 1, 120, [192, 0, 2, 7])]
+    Local response: UInt8[] = [0, 0, 132, 0, 0, 0, 0, records.Count As UInt8, 0, 0, 0, 0]
+    For record In records
+        response.AddAll(record)
+    End For
+
+    Try replier.Send(response, SocketAddress(IpAddress.Loopback, query.From.Port))
+    replier.Close()
+End Function
+
+// What it answers a querier on one of this machine's networks gives that network's address
+// alone, and what it answers a query that knows its records with half their TTL left at least
+// leaves those out.
+Try
+    Local lone = LanAnnouncer.Start(type, "Lone", 4242, Null, 55360)
+    Local alone = True
+    For address In V4()
+        Local querier = UdpSocket.Bind(SocketAddress(address, 0))
+        querier.Send(Query(TypeName(), 12, []), SocketAddress(address, 55360))
+        alone = alone && AddressCount(Records((Await querier.ReceiveAsync(2.Seconds)).Bytes)) == 1
+        querier.Close()
+    End For
+
+    Print("an answer to each network gives one address:", alone)
+
+    Local querier = UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0))
+    Local at = SocketAddress(IpAddress.Loopback, 55360)
+    Local pointer = Wire(InstanceName("Lone"))
+    querier.Send(Query(TypeName(), 12, [Record(TypeName(), 12, 4500, pointer)]), at)
+    Print("knowing the PTR:", Types(Try? Await querier.ReceiveAsync(500.Milliseconds)))
+    querier.Send(Query(TypeName(), 12, [Record(TypeName(), 12, 100, pointer)]), at)
+    Print("knowing it with too little TTL left:",
+          Types(Try? Await querier.ReceiveAsync(2.Seconds)))
+
+    Local server: UInt8[] = [0, 0, 0, 0, 16, 146]
+    server.AddAll(Wire(lone.Service.Host.Split(".")))
+    Local known = [Record(InstanceName("Lone"), 33, 120, server),
+                   Record(InstanceName("Lone"), 16, 4500, [0])]
+    querier.Send(Query(InstanceName("Lone"), 33, known), at)
+    Print("knowing the SRV and TXT:", Types(Try? Await querier.ReceiveAsync(2.Seconds)))
+    querier.Close()
+    lone.Stop()
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// What it announces through each interface gives one address, and its goodbye is the service's
+// PTR, SRV, and TXT alone, at a TTL of 0: not its host's addresses or its type's place in
+// DNS-SD's enumeration, which other services can still have.
+Try
+    Local cache = Listener(55361)
+    Local leaving = LanAnnouncer.Start(type, "Leaving", 4343, Null, 55361)
+    Local alone = True
+    Loop
+        Local datagram = Try? Await cache.ReceiveAsync(500.Milliseconds)
+        If datagram == Null Then Break
+        alone = alone && AddressCount(Records(datagram.Bytes)) == Min(V4().Count, 1)
+    End Loop
+
+    Print("each announcement gives one address:", alone)
+    leaving.Stop()
+    Loop
+        Local datagram = Try? Await cache.ReceiveAsync(2.Seconds)
+        If datagram == Null Then Break
+        Local records = Records(datagram.Bytes)
+        Local goodbye = records.Count > 0
+        For record In records
+            goodbye = goodbye && record.Ttl == 0
+        End For
+
+        If !goodbye Then Continue
+        For record In records
+            Print("goodbye:", record.Name, record.Type)
+        End For
+        Break
+    End Loop
+
+    cache.Close()
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// A finder puts the address an answer came from first, before those it gives for its host, and
+// keeps a text's key once, as it's first written.
+Try
+    Local responder = Listener(55362)
+    Local responding = Respond(responder)
+    For service In Await Lan.FindAsync(type, 1500.Milliseconds, 55362)
+        Print(service.Name, service.Port, service.Addresses, service.Text.Count,
+              service.Text.Get("Map") ?? "none")
+    End For
+
+    Await responding
+    responder.Close()
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

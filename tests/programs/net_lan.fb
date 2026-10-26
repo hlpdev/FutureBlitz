@@ -1,9 +1,10 @@
 // std.net's LAN discovery: a program offers services with LanAnnouncers and finds them with Lan,
-// over mDNS's records, Async and from another thread, and a goodbye has them forgotten. It keeps
-// to a discovery port of its own, so what else on the machine answers mDNS doesn't answer it,
-// and what isn't a DNS message, sent there, is let be. A Find that has to find something waits
-// a second and a half, since its answers come from the main thread's Async code, which a busy
-// machine can be slow to run.
+// over mDNS's records, Async and from another thread, and what stopped isn't found after;
+// net_lan_packets.fb looks at the packets, the goodbye's among them. It keeps to a discovery port
+// of its own, so what else on the machine answers mDNS doesn't answer it, and what isn't a DNS
+// message, sent there, is let be. A Find that has to find something waits a second and a half,
+// since its answers come from the main thread's Async code, which a busy machine can be slow to
+// run.
 
 Import std.core
 Import std.collections
@@ -76,7 +77,7 @@ Try
     finder.Join()
     Print("from a thread: {counts.Receive() ?? -2}")
 
-    // A goodbye: what stopped doesn't answer any more.
+    // What stopped doesn't answer any more.
     second.Stop()
     second.Stop()
     Print(second.IsStopped, Names(Await Lan.FindAsync(type, 1500.Milliseconds, port)))
