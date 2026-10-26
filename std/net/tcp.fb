@@ -135,8 +135,8 @@ Public Class TcpStream Implements Reader, Writer
         Try Await Socket.ShutdownWriteAsync()
     End Method
 
-    // Closes it at once: what's waiting for it throws a NetError of CLOSED, and so does what uses
-    // it after. Going closes it too.
+    // Closes it at once: a Read or Write waiting for it throws an IOError whose Cause is a
+    // NetError of CLOSED, and so does one after. Going closes it too.
     Public Method Close()
         Socket.Close()
     End Method
