@@ -71,7 +71,8 @@ Print(Try Template(r"|{{# if title }}={{/ if }}|{{#each" + "\n" + r"items}}{{ na
                    r"{{#" + "\t\n" + r"unless" + "\r\n" + r"one }}-{{/unless}}|").Render(data))
 
 // An {{#each}} over an Object goes over its values, with @key; names come from the innermost
-// scope that has them, and this, or ".", is the scope itself.
+// scope that has them, this, or ".", is the scope itself, and this.name is the scope's own name,
+// which isn't looked up outward.
 Local scores = Value.Object()
 scores["ann"] = Value(3)
 scores["bo"] = Value(5)
@@ -83,6 +84,8 @@ Local scored = Try Template(r"{{#each scores}}{{#if @first}}[{{/if}}{{@key}}={{t
                             r"{{game}}{{#unless @last}}, {{/unless}}{{/each}}] " +
                             r"{{#each tags}}{{.}}{{/each}}")
 Print(Try scored.Render(game))
+Print(Try Template(r"{{#each this.items}}[{{this.name}}|{{this.title}}|{{name}}]{{/each}} " +
+                   r"{{this.title}}").Render(data))
 
 // A Map fills one too, its Strings as text, and its Values as they are.
 Local names = Map<String, String>()

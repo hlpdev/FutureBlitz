@@ -387,9 +387,10 @@ file or URL in the default app.
   partials. Its tags:
   - `{{name}}` is a value, the first step of a path like `{{user.name}}` looked up in the scopes
     from the innermost out, then each step from what the last gave; `{{this}}` or `{{.}}` is the
-    scope itself. A String gives its text, a number or Bool what Print shows, Null or a name
-    nothing has nothing, and an Array or Object its ToString. A template for HTML escapes `&`,
-    `<`, `>`, `"`, and `'`, but never in `{{{name}}}` or `{{& name}}`.
+    scope itself, and `{{this.name}}` the innermost scope's own name, not looked up outward. A
+    String gives its text, a number or Bool what Print shows, Null or a name nothing has
+    nothing, and an Array or Object its ToString. A template for HTML escapes `&`, `<`, `>`, `"`,
+    and `'`, but never in `{{{name}}}` or `{{& name}}`.
   - `{{#each name}}` renders its body for each of an Array's elements or an Object's values, in
     a scope of its own, where `@index`, `@key`, `@first`, and `@last` say where the item is;
     `{{#if name}}` renders its body when the value is anything but Null, False, 0, NaN, "", or an

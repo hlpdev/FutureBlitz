@@ -124,7 +124,8 @@ Class Part
     Field Kind: PartKind
     // A TEXT's text, a PARTIAL's name, and the word a block was opened with.
     Field Text = ""
-    // A VALUE's or a block's name, as its steps, like ["user", "name"], or none for this.
+    // A VALUE's or a block's name, as its steps, like ["user", "name"], or none for this, and
+    // ["this", "name"] for this.name.
     Field Path: String[] = []
     // A VALUE that's never escaped, as {{{name}}} and {{& name}} are.
     Field Raw: Bool
@@ -312,8 +313,9 @@ Function Tag(open: Part[], triple: Bool, content: UInt8[], indent: String, name:
     Into(block).Add(value)
 End Function
 
-// A name's steps, from `from` in `name`'s bytes: "user.name" is ["user", "name"], and "this" or
-// "." is none, the scope itself. @index, @key, @first, and @last are an {{#each}}'s.
+// A name's steps, from `from` in `name`'s bytes: "user.name" is ["user", "name"], "this" or "."
+// is none, the scope itself, and "this.name" is ["this", "name"], the scope's own name. @index,
+// @key, @first, and @last are an {{#each}}'s.
 Function PathOf(written: UInt8[], from: Int, name: String, bytes: UInt8[],
                 at: Int): String[] Throws FormatError
     Local whole = Text(written[from..written.Count])
@@ -597,12 +599,13 @@ Function Each(part: Part, value: Value): Frame
 End Function
 
 // What a name gives: the first of its steps from the innermost scope that has it, then each step
-// from what the last gave, or Null where nothing has it. An {{#each}}'s @ names are its
-// innermost item's.
+// from what the last gave, or Null where nothing has it. A name after "this." is the innermost
+// scope's alone, and an {{#each}}'s @ names are its innermost item's.
 Function Lookup(scopes: Scope[], path: String[]): Value
     Local innermost = scopes[scopes.Count - 1]
     If path.Count == 0 Then Return innermost.Data
     Local first = path[0]
+    If first == "this" Then Return Stepped(innermost.Data, path, 1)
     If first.Bytes[0] == 64
         Local i = scopes.Count - 1
         While i >= 0 && !scopes[i].Each
@@ -620,21 +623,24 @@ Function Lookup(scopes: Scope[], path: String[]): Value
     Local i = scopes.Count - 1
     While i >= 0
         Local data = scopes[i].Data
-        If data.Contains(first)
-            Local at = data[first]
-            For k = 1 Until path.Count
-                Local here = at
-                If here == Null Then Return Value()
-                at = here[path[k]]
-            End For
-
-            Return at ?? Value()
-        End If
-
+        If data.Contains(first) Then Return Stepped(data[first], path, 1)
         i -= 1
     End While
 
     Return Value()
+End Function
+
+// What a name's steps from `from` give, each from what the last gave, starting at `at`, or Null
+// where nothing has them.
+Function Stepped(at: Value?, path: String[], from: Int): Value
+    Local value = at
+    For k = from Until path.Count
+        Local here = value
+        If here == Null Then Return Value()
+        value = here[path[k]]
+    End For
+
+    Return value ?? Value()
 End Function
 
 // A value's text in the template: a String's own, a number or Bool as Print shows it, nothing for
