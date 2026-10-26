@@ -1,0 +1,10 @@
+// A String holds at most 2147483647 bytes, so a + that would make one longer panics where it is,
+// before its bytes are asked for.
+Import std.core
+Import std.text
+
+Local part = "0123456789abcdef".Repeated(8388608)
+Local half = "{part}{part}{part}{part}{part}{part}{part}{part}"
+Print(half.Length)
+Local whole = half + half
+Print("never: {whole.Length}")

@@ -188,11 +188,15 @@ void fb_string_retain(fb_string_t* string);
 /// for null.
 void fb_string_release(fb_string_t* string);
 /// A new String with `left`'s bytes, then `right`'s, for `+` on Strings. The caller owns the
-/// result and must release it. The arguments are only borrowed.
-fb_string_t* fb_string_concat(const fb_string_t* left, const fb_string_t* right);
+/// result and must release it. The arguments are only borrowed. Past the most a String holds,
+/// it panics at `location`, or with no place when that's null.
+fb_string_t* fb_string_concat(const fb_string_t* left, const fb_string_t* right,
+                              const fb_location_t* location);
 /// A new String with the `count` Strings in `parts` one after another, for interpolated strings.
-/// The caller owns the result and must release it. The parts are only borrowed.
-fb_string_t* fb_string_join(const fb_string_t* const* parts, std::int64_t count);
+/// The caller owns the result and must release it. The parts are only borrowed. Past the most a
+/// String holds, it panics at `location`, or with no place when that's null.
+fb_string_t* fb_string_join(const fb_string_t* const* parts, std::int64_t count,
+                            const fb_location_t* location);
 /// 1 when `left` and `right` hold the same bytes, and 0 otherwise, for `==` and `!=` on Strings.
 std::int32_t fb_string_equal(const fb_string_t* left, const fb_string_t* right);
 /// Below 0, 0, or above 0 as `left` comes before `right`, is the same, or comes after, for `<`

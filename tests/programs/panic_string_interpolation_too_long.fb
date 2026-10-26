@@ -1,0 +1,9 @@
+// A String holds at most 2147483647 bytes, so an interpolated string that would be longer panics
+// where it is, before its bytes are asked for.
+Import std.core
+Import std.text
+
+Local part = "0123456789abcdef".Repeated(16777216)
+Print(part.Length)
+Local whole = "{part}{part}{part}{part}{part}{part}{part}{part}"
+Print("never: {whole.Length}")

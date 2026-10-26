@@ -733,8 +733,8 @@ private:
         m_finish = declare("fb_finish", m_void, { m_ptr, m_i64 });
         m_retain = declare("fb_string_retain", m_void, { m_ptr });
         m_release = declare("fb_string_release", m_void, { m_ptr });
-        m_concat = declare("fb_string_concat", m_ptr, { m_ptr, m_ptr });
-        m_join = declare("fb_string_join", m_ptr, { m_ptr, m_i64 });
+        m_concat = declare("fb_string_concat", m_ptr, { m_ptr, m_ptr, m_ptr });
+        m_join = declare("fb_string_join", m_ptr, { m_ptr, m_i64, m_ptr });
         m_equal = declare("fb_string_equal", m_i32, { m_ptr, m_ptr });
         m_compare = declare("fb_string_compare", m_i32, { m_ptr, m_ptr });
         m_hash_string = declare("fb_string_hash", m_i64, { m_ptr });
@@ -1795,6 +1795,12 @@ private:
 
         LLVMValueRef none = LLVMBuildICmp(builder(), LLVMIntEQ, place, LLVMConstNull(m_ptr), "");
         return LLVMBuildSelect(builder(), none, own, place, "");
+    }
+
+    /// The fb_location_t of where a call that can panic is, or, in code the compiler makes
+    /// itself, which has no place, null.
+    LLVMValueRef location_or_null(const std::optional<span_t> span) {
+        return span ? location(*span) : LLVMConstNull(m_ptr);
     }
 
     /// In the code of a @PanicsAtCaller function: the place its caller gives, the hidden
@@ -3657,9 +3663,13 @@ private:
     LLVMValueRef value(const runtime_call_t& node) {
         switch (node.function) {
         case runtime_function_t::CONCAT:
-            return call(m_concat, { value_of(node.arguments[0]), value_of(node.arguments[1]) });
+            return call(m_concat, {
+                                      value_of(node.arguments[0]),
+                                      value_of(node.arguments[1]),
+                                      location_or_null(node.span),
+                                  });
         case runtime_function_t::JOIN:
-            return join(node.arguments);
+            return join(node.arguments, node.span);
         case runtime_function_t::EQUAL: {
             // The runtime returns an Int32, and MIR wants a Bool.
             LLVMValueRef equal =
@@ -3887,7 +3897,7 @@ private:
     }
 
     /// The parts go in an array in the entry block, so a loop doesn't grow the stack.
-    LLVMValueRef join(const std::vector<operand_t>& parts) {
+    LLVMValueRef join(const std::vector<operand_t>& parts, const std::optional<span_t> span) {
         LLVMTypeRef array_type = LLVMArrayType2(m_ptr, parts.size());
         LLVMBasicBlockRef current = LLVMGetInsertBlock(builder());
         LLVMPositionBuilderAtEnd(builder(), m_entry); // it has no terminator until the end
@@ -3899,7 +3909,8 @@ private:
             LLVMBuildStore(builder(), value_of(parts[i]), element);
         }
 
-        return call(m_join, { array, LLVMConstInt(m_i64, parts.size(), 0) });
+        return call(m_join,
+                    { array, LLVMConstInt(m_i64, parts.size(), 0), location_or_null(span) });
     }
 
     LLVMValueRef to_text(const operand_t& operand) {

@@ -50,11 +50,11 @@ std::size_t size_of(const fb_string_t* string) {
 /// The most bytes a String holds, so its Length and positions are Ints.
 constexpr std::size_t max_length = INT32_MAX;
 
-/// A new String with room for `length` bytes, which the caller fills, and one owner. Panics past
-/// the most a String holds.
-fb_string_t* allocate(const std::size_t length) {
+/// A new String with room for `length` bytes, which the caller fills, and one owner. Past the
+/// most a String holds, it panics at `location`, or with no place when that's null.
+fb_string_t* allocate(const std::size_t length, const fb_location_t* location = nullptr) {
     if (length > max_length) {
-        fb_panic("a String holds at most 2147483647 bytes", nullptr);
+        fb_panic("a String holds at most 2147483647 bytes", location);
     }
 
     auto* string = static_cast<fb_string_t*>(std::malloc(sizeof(fb_string_t) + length));
@@ -308,21 +308,23 @@ void fb_string_release(fb_string_t* string) {
     }
 }
 
-fb_string_t* fb_string_concat(const fb_string_t* left, const fb_string_t* right) {
-    fb_string_t* string = allocate(size_of(left) + size_of(right));
+fb_string_t* fb_string_concat(const fb_string_t* left, const fb_string_t* right,
+                              const fb_location_t* location) {
+    fb_string_t* string = allocate(size_of(left) + size_of(right), location);
     std::memcpy(bytes_of(string), bytes_of(left), size_of(left));
     std::memcpy(bytes_of(string) + size_of(left), bytes_of(right), size_of(right));
     return string;
 }
 
-fb_string_t* fb_string_join(const fb_string_t* const* parts, const std::int64_t count) {
+fb_string_t* fb_string_join(const fb_string_t* const* parts, const std::int64_t count,
+                            const fb_location_t* location) {
     const std::span<const fb_string_t* const> all(parts, static_cast<std::size_t>(count));
     std::size_t length = 0;
     for (const fb_string_t* part : all) {
         length += size_of(part);
     }
 
-    fb_string_t* string = allocate(length);
+    fb_string_t* string = allocate(length, location);
     char* out = bytes_of(string);
     for (const fb_string_t* part : all) {
         std::memcpy(out, bytes_of(part), size_of(part));

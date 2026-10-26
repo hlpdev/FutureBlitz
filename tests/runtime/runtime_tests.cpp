@@ -45,11 +45,12 @@ TEST_CASE("numbers become text the way the compiler folds them", "[runtime]") {
 TEST_CASE("Strings join, concatenate, and compare", "[runtime]") {
     fb_string_t* yes = fb_string_from_bool(1);
     fb_string_t* seven = fb_string_from_int(7);
-    CHECK(take(fb_string_concat(yes, seven)) == "True7");
+    CHECK(take(fb_string_concat(yes, seven, nullptr)) == "True7");
 
     const std::vector<const fb_string_t*> parts{ seven, yes, seven };
-    CHECK(take(fb_string_join(parts.data(), static_cast<std::int64_t>(parts.size()))) == "7True7");
-    CHECK(take(fb_string_join(parts.data(), 0)).empty());
+    CHECK(take(fb_string_join(parts.data(), static_cast<std::int64_t>(parts.size()), nullptr)) ==
+          "7True7");
+    CHECK(take(fb_string_join(parts.data(), 0, nullptr)).empty());
 
     fb_string_t* other_seven = fb_string_from_int(7);
     CHECK(fb_string_equal(seven, other_seven) == 1);
@@ -81,7 +82,7 @@ TEST_CASE("a literal's negative refcount never changes", "[runtime]") {
     fb_string_release(&literal.header);
     fb_string_release(&literal.header);
     CHECK(literal.header.refcount == -1);
-    CHECK(take(fb_string_concat(&literal.header, &literal.header)) == "hihi");
+    CHECK(take(fb_string_concat(&literal.header, &literal.header, nullptr)) == "hihi");
 }
 
 TEST_CASE("integer powers wrap, or overflow when checked", "[runtime]") {
