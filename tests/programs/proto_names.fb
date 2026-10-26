@@ -32,3 +32,6 @@ Local poll = Poll(answer: Answer.True_, history: [Answer.False_, Answer.Default_
 poll.by_round[1] = Answer.Hash_
 Print("{poll} {(Try Poll.Decode(poll.Encode())) == poll}")
 Print("{Answer.Hash_ == Answer.True_} {Answer.ToString_} {Answer.ProtoName(Answer.False_)}")
+Local letter = Char_(Char__: "a")
+Local glyph = Letter(glyph: Letter_Glyph.Char_)
+Print("{letter} {(Try Char_.Decode(letter.Encode())) == letter} {glyph} {Letter_Glyph.Rune}")

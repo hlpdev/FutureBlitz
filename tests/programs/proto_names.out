@@ -8,3 +8,4 @@ NONE: 5 NONE kinds NONE_
 kinds: FromNumber
 answer: True history: False history: Default by_round { key: 1 value: True } True
 True False_ False
+Char: "a" True glyph: Char Rune

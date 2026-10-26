@@ -91,3 +91,17 @@ message Poll {
   repeated Answer history = 2;
   map<int32, Answer> by_round = 3;
 }
+
+// Char, a built-in type since std.text's step, as a message, a field, and an enum's value, in a
+// message of its own, so the value doesn't clash with the message.
+message Char {
+  optional string Char = 1;
+}
+
+message Letter {
+  enum Glyph {
+    Char = 0;
+    Rune = 1;
+  }
+  optional Glyph glyph = 1;
+}
