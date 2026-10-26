@@ -5,9 +5,9 @@ encoded full.txtpb [8, 5, 18, 5, 110, 97, 109, 101, 100, 25, 0, 0, 0, 0, 0, 0, 2
 made like full: True True
 required: id: 1
 unnamed {x}
-"quoted" -inf 1.5 GREEN
+"quoted" -Inf 1.5 GREEN
 [1, 2, 97, 98, 255] True 18446744073709551615 -9223372036854775808
-nan 8 -16 no name
+NaN 8 -16 no name
 encoded required.txtpb [8, 1]
 True RED BLUE True
 numbers: id: 1 colors: RED colors: GREEN loose: GREEN by_number { key: 2 value: RED } 5: 99 10: 99 11: 98 20: "\010\001\020a"

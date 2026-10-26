@@ -20,3 +20,4 @@ merged as protoc merges: True
 last: f_double: -2.2250738585072014e-308 f_float: -0 f_int32: -2147483648 f_int64: -9223372036854775808 f_uint32: 4294967295 f_uint64: 18446744073709551615 f_sint32: -2147483648 f_sint64: -9223372036854775808 f_fixed32: 4294967295 f_fixed64: 18446744073709551615 f_sfixed32: -2147483648 f_sfixed64: -9223372036854775808 f_bool: true f_string: "héllo, 世界 😀 \"quoted\"\n\ttabbed" f_bytes: "\000\001\177\200\377"
 last as protoc merges: True
 merge and mergefrom: True True
+exponents: r_double: 1.5e-07 r_double: 1e+21 r_double: 2.5e-300 r_float: 1e-10

@@ -648,11 +648,28 @@ Public Class ProtoText
 End Class
 
 // value's text, `shown` as a string shows it, with inf, -inf, and nan as text format writes
-// them.
+// them, and an exponent as protobuf writes one, as C's printf does: with its sign, and two digits
+// at least, as 1e+100 and 1.5e-07.
 Function FloatText(value: Float64, shown: String): String
     If value != value Then Return "nan"
     If value > 1.7976931348623157e308 Then Return "inf"
     If value < -1.7976931348623157e308 Then Return "-inf"
+    Local bytes = shown.Bytes
+    For at = 0 Until bytes.Count
+        If bytes[at] == ('e' As UInt8)
+            Local digits = at + 1
+            Local sign = "+"
+            If bytes[digits] == ('-' As UInt8)
+                sign = "-"
+                digits += 1
+            End If
+
+            Local exponent = Utf8Text(bytes, digits, bytes.Count)
+            Return Utf8Text(bytes, 0, at) + "e" + sign + (bytes.Count - digits < 2 ? "0" : "") +
+                   exponent
+        End If
+    End For
+
     Return shown
 End Function
 

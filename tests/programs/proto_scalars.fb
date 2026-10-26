@@ -80,3 +80,8 @@ Try into.Merge(MinBytes())
 Local from = max.Clone()
 from.MergeFrom(min)
 Print("merge and mergefrom: {into == last} {from == last}")
+
+// Text format writes an exponent as protobuf does, as C's printf does, with its sign and two
+// digits at least, whatever FutureBlitz's own text for the number is.
+Local exponents = Scalars(r_double: [1.5e-7, 1e21, 2.5e-300], r_float: [1e-10 As Float32])
+Print("exponents: {exponents}")
