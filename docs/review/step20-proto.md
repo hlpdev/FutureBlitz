@@ -4,7 +4,7 @@
 
 ## generate-1 (high): A .proto that has a service doesn't build: the generated Interface's Async Methods are rejected by sema
 
-Status: open: an Interface's Async Methods are step 13's (e0516dd2, "an interface's methods can be async"), which isn't on master yet; the coordinator decides whether this branch takes that commit or waits for step 13
+Status: fixed in 7eaaf2f, on master after step 13's Async Methods in Interfaces (fdef0587): proto_services' greeter.proto has a unary rpc, a streaming one, and a deprecated one, which a Class implements and a client calls through the Interface, sending its messages through the wire format; the finding's program, which only uses the messages, builds too
 
 Where: compiler/src/proto.cpp:4346
 
@@ -35,7 +35,7 @@ Skeptic: I wrote g1/svc.proto (proto3, Req, Resp, service Greeter { rpc Hello(Re
 
 ## generate-2 (high): A .proto import whose types the file doesn't name leaves an orphan module: hundreds of bogus errors
 
-Status: fixed in 4fc446b (collect_imports adds each file the driver found for one of the .proto's imports, so its module Imports every file it imports, in the order of their paths, whose types it names or not; a .proto with errors gets failed_proto_module, a comment and those Imports, so its imports' modules are in the program too; proto_import_kinds builds a custom option over descriptor.proto, an unused import, and a file with only import public, 604, 16, and 3 errors before, and the unit test "a .proto with errors gives an empty module, past them" has bad.proto's one error with ok.proto imported, 87 before)
+Status: fixed in a915ef3 (collect_imports adds each file the driver found for one of the .proto's imports, so its module Imports every file it imports, in the order of their paths, whose types it names or not; a .proto with errors gets failed_proto_module, a comment and those Imports, so its imports' modules are in the program too; proto_import_kinds builds a custom option over descriptor.proto, an unused import, and a file with only import public, 604, 16, and 3 errors before, and the unit test "a .proto with errors gives an empty module, past them" has bad.proto's one error with ok.proto imported, 87 before)
 
 Where: compiler/src/proto.cpp:2996
 
@@ -70,7 +70,7 @@ Skeptic: Reproduced exactly: custom/opts.proto imports google/protobuf/descripto
 
 ## parse-1 (high): A '}' the top level reaches hangs fb, and its memory grows without end
 
-Status: fixed in 4fc446b (parse_top_level reports a '}' that closes nothing, "this '}' closes no block", and steps past it, and parse_rpc skips what isn't an option in its braces there, so the service keeps its own '}'; the syntax-errors test's stray '}', missing '{', and error in an rpc's braces, which each hung before)
+Status: fixed in a915ef3 (parse_top_level reports a '}' that closes nothing, "this '}' closes no block", and steps past it, and parse_rpc skips what isn't an option in its braces there, so the service keeps its own '}'; the syntax-errors test's stray '}', missing '{', and error in an rpc's braces, which each hung before)
 
 Where: compiler/src/proto.cpp:886
 
@@ -96,7 +96,7 @@ Skeptic: I built three cases in rv-proto/parse-verify: f1 (a stray '}' after the
 
 ## parse-2 (high): A .proto import the generated module doesn't name breaks the build
 
-Status: fixed in 4fc446b, with generate-2, the same bug (proto_import_kinds and the unit test "the module of a .proto imports each file it does, whose types it names or not")
+Status: fixed in a915ef3, with generate-2, the same bug (proto_import_kinds and the unit test "the module of a .proto imports each file it does, whose types it names or not")
 
 Where: compiler/src/driver.cpp:1013
 
@@ -129,7 +129,7 @@ Skeptic: f2 (item.proto imports google/protobuf/descriptor.proto only for `exten
 
 ## generate-3 (medium): ToString (text format) shows an enum value's escaped FutureBlitz name, like True_, not its .proto name
 
-Status: fixed in 4fc446b (each Enum's Extend has ProtoName(value), named past its values, whose Select gives a value's name in the .proto, or an open enum's number it doesn't name, and the text writes an enum field, a repeated one's values, and a map's through it; proto_names' Poll prints True, False, and Default, True_, False_, and Default_ before)
+Status: fixed in a915ef3 (each Enum's Extend has ProtoName(value), named past its values, whose Select gives a value's name in the .proto, or an open enum's number it doesn't name, and the text writes an enum field, a repeated one's values, and a map's through it; proto_names' Poll prints True, False, and Default, True_, False_, and Default_ before)
 
 Where: compiler/src/proto.cpp:4260
 
@@ -156,7 +156,7 @@ Skeptic: enumtext/answer.proto has `enum Answer { Default = 0; True = 1; False =
 
 ## parse-3 (medium): An enum inside a group inside an extend survives the extend, with a parent index that's gone
 
-Status: fixed in 4fc446b (parse_extend erases the enums its groups declared, with their messages; the test "proto2's labels, defaults, groups, extensions, and extends" has an enum in an extend's group and a message after it, and the enum stayed before)
+Status: fixed in a915ef3 (parse_extend erases the enums its groups declared, with their messages; the test "proto2's labels, defaults, groups, extensions, and extends" has an enum in an extend's group and a message after it, and the enum stayed before)
 
 Where: compiler/src/proto.cpp:1721
 
@@ -192,7 +192,7 @@ Skeptic: f3: extend Foo { optional group G = 100 { enum E {A=0;B=1;} optional E 
 
 ## generate-4 (low): ToString writes map entries in insertion order; protobuf's text format sorts them by key, so equal messages print differently
 
-Status: fixed in 4fc446b (a map's text takes its keys, sorts them, by value, false before true, or by a string's bytes, and writes each entry in that order; proto_messages' maps filled in two orders print alike, in protoc's order)
+Status: fixed in a915ef3 (a map's text takes its keys, sorts them, by value, false before true, or by a string's bytes, and writes each entry in that order; proto_messages' maps filled in two orders print alike, in protoc's order)
 
 Where: compiler/src/proto.cpp:4294
 
@@ -229,7 +229,7 @@ Skeptic: mp.proto has `map<int32, string> m = 1`. a is filled 2 then 1, b is fil
 
 ## generate-5 (low): An enum alias named Hash or ToString makes the generated Extend fail to build
 
-Status: fixed in 4fc446b (value_name gives an alias, a Static Property of the Enum's Extend, a '_' after Hash or ToString, which every Enum has, and each use of an alias's name goes through it; proto_names' Answer has aliases Hash and ToString, which didn't build before)
+Status: fixed in a915ef3 (value_name gives an alias, a Static Property of the Enum's Extend, a '_' after Hash or ToString, which every Enum has, and each use of an alias's name goes through it; proto_names' Answer has aliases Hash and ToString, which didn't build before)
 
 Where: compiler/src/proto.cpp:3132
 
@@ -263,7 +263,7 @@ Skeptic: alias/level.proto has allow_alias and `HIGH = 1; Hash = 1;`. Building f
 
 ## parse-4 (low): A package line after declarations leaves them out of the package
 
-Status: fixed in 4fc446b (parse_package puts the messages, enums, and services declared before it in the package too; the test "a package line puts what the file declares before it in the package too")
+Status: fixed in a915ef3 (parse_package puts the messages, enums, and services declared before it in the package too; the test "a package line puts what the file declares before it in the package too")
 
 Where: compiler/src/proto.cpp:1201
 
@@ -291,7 +291,7 @@ Skeptic: f4/late.proto: syntax; `message A { B b = 1; }`; `package p;`; `message
 
 ## parse-5 (low): A \u surrogate pair in a string is an error, though protoc reads it as one character
 
-Status: fixed in 4fc446b (escape joins a \u head surrogate and a \u trail surrogate right after it into one character, and either alone is still an error; the test "a .proto's numbers and strings, at their edges")
+Status: fixed in a915ef3 (escape joins a \u head surrogate and a \u trail surrogate right after it into one character, and either alone is still an error; the test "a .proto's numbers and strings, at their edges")
 
 Where: compiler/src/proto.cpp:450
 
@@ -320,7 +320,7 @@ Skeptic: f5/s.proto has `optional string face = 1 [default = "😀"];` with real
 
 ## parse-6 (low): A .proto import in other letter cases than the disk's gets no warning
 
-Status: fixed in 4fc446b (find_proto_import checks the parts of the path it found against the disk, warn_respelled_proto, as warn_respelled does an Import's; the driver test "a .proto's import in other letter cases than the disk's gets a warning", on a disk that ignores them)
+Status: fixed in a915ef3 (find_proto_import checks the parts of the path it found against the disk, warn_respelled_proto, as warn_respelled does an Import's; the driver test "a .proto's import in other letter cases than the disk's gets a warning", on a disk that ignores them)
 
 Where: compiler/src/driver.cpp:554
 
@@ -351,7 +351,7 @@ Skeptic: f6/player.proto has `import "Common/IDs.proto";`, and the disk has f6/c
 
 ## parse-7 (low): A long run of characters that aren't tokens overflows the stack
 
-Status: fixed in 4fc446b (the lexer's run loops past each character that isn't a token, which next() reports and gives nothing for, instead of recursing; the syntax-errors test's 300000 '$', 300000 errors, a stack overflow before)
+Status: fixed in a915ef3 (the lexer's run loops past each character that isn't a token, which next() reports and gives nothing for, instead of recursing; the syntax-errors test's 300000 '$', 300000 errors, a stack overflow before)
 
 Where: compiler/src/proto.cpp:188
 
@@ -376,7 +376,7 @@ Skeptic: I wrote f7/junk.proto with Python: a syntax line, a line of 300000 '$',
 
 ## parse-8 (low): Number literals differ from protoc's at the edges
 
-Status: fixed in 4fc446b (an integer past 64 bits is a token marked too_big, at the most 64 bits hold, so what takes an integer reports it by its text, a field's number too; a float's or double's default reads a decimal one as a double, as protoc does, and a hex or octal one is an error; a custom option reads past it; a '.' or an exponent after an octal number is an error; the test "a .proto's numbers and strings, at their edges")
+Status: fixed in a915ef3 (an integer past 64 bits is a token marked too_big, at the most 64 bits hold, so what takes an integer reports it by its text, a field's number too; a float's or double's default reads a decimal one as a double, as protoc does, and a hex or octal one is an error; a custom option reads past it; a '.' or an exponent after an octal number is an error; the test "a .proto's numbers and strings, at their edges")
 
 Where: compiler/src/proto.cpp:294
 
@@ -407,7 +407,7 @@ Skeptic: f8: `optional double big = 1 [default = 100000000000000000000];` gives 
 
 ## parse-9 (low): No test for `Import "x.proto" As P`, `import weak`, or a stray '}'
 
-Status: fixed in 4fc446b (proto_import_kinds Imports a.proto As P, which imports b.proto weak, whose C comes through its import public, and From c.proto Import C; the syntax-errors test has a stray '}')
+Status: fixed in a915ef3 (proto_import_kinds Imports a.proto As P, which imports b.proto weak, whose C comes through its import public, and From c.proto Import C; the syntax-errors test has a stray '}')
 
 Where: tests/compiler/proto_tests.cpp:119
 
@@ -435,7 +435,7 @@ Skeptic: Grepping tests/compiler/proto_tests.cpp and tests/programs/proto_* find
 
 ## wire-1 (low): ProtoTag builds a wrong tag, with no panic, for a field number outside 1..PROTO_FIELD_LIMIT or a wire type past 5
 
-Status: fixed in 471a539 (ProtoTag is @PanicsAtCaller, and panics for a number that isn't from 1 to PROTO_FIELD_LIMIT or a wire type past WIRE_FIXED32; panic_proto_tag and panic_proto_tag_wire)
+Status: fixed in b8b3fff (ProtoTag is @PanicsAtCaller, and panics for a number that isn't from 1 to PROTO_FIELD_LIMIT or a wire type past WIRE_FIXED32; panic_proto_tag and panic_proto_tag_wire)
 
 Where: std/data/protobuf.fb:37
 
@@ -459,7 +459,7 @@ Skeptic: I ran t8.fb (ProtoTag(0, WIRE_VARINT), ProtoTag(536870912, WIRE_VARINT)
 
 ## wire-2 (low): The public writer, reader, and text helpers panic inside protobuf.fb on bad arguments, not at the caller
 
-Status: fixed in 471a539 (WriteUnknown, EndLength, and KeepFrom are @PanicsAtCaller: WriteUnknown panics with the ParseError's message, EndLength for a start that isn't the 0 BeginLength left, and KeepFrom for one outside 0 to where it reads; panic_proto_unknown, panic_proto_end_length, and panic_proto_keep_from)
+Status: fixed in b8b3fff (WriteUnknown, EndLength, and KeepFrom are @PanicsAtCaller: WriteUnknown panics with the ParseError's message, EndLength for a start that isn't the 0 BeginLength left, and KeepFrom for one outside 0 to where it reads; panic_proto_unknown, panic_proto_end_length, and panic_proto_keep_from)
 
 Where: std/data/protobuf.fb:588
 
@@ -485,7 +485,7 @@ Skeptic: Each case ran in debug. ProtoText().WriteUnknown([8, 1, 10, 5, 65]) gav
 
 ## wire-3 (low): docs/stdlib.md says the generated modules go through ProtoTag, but they never call it
 
-Status: fixed in 4fc446b (stdlib.md's row has ProtoTag and the WIRE_ constants as helpers for code that writes the wire format itself)
+Status: fixed in a915ef3 (stdlib.md's row has ProtoTag and the WIRE_ constants as helpers for code that writes the wire format itself)
 
 Where: docs/stdlib.md:133
 
@@ -512,7 +512,7 @@ Skeptic: I grepped the whole checkout (*.cpp, *.hpp, *.h, *.fb, *.md) for ProtoT
 
 ## new-1 (low): The hint for a type of a .proto's module that a file doesn't import names the module without .proto
 
-Status: fixed in 4fc446b (import_advice writes a .proto module's Import by the .proto's path, as it's written, without ./; the unit test "the module of a .proto imports each file it does, whose types it names or not" has "'Fresh' is in new.proto, which this file doesn't import: Import "new.proto"", which said Import "./new" before)
+Status: fixed in a915ef3 (import_advice writes a .proto module's Import by the .proto's path, as it's written, without ./; the unit test "the module of a .proto imports each file it does, whose types it names or not" has "'Fresh' is in new.proto, which this file doesn't import: Import "new.proto"", which said Import "./new" before)
 
 Where: compiler/src/sema.cpp:8351
 
@@ -531,11 +531,19 @@ Actual: 'Fresh' is in new.proto, which this file doesn't import: Import "./new"
 
 ## new-2 (low): A .proto's module wrote its Import lines in the order of its imports' addresses in memory
 
-Status: fixed in 4fc446b (the generator keeps the files it imports in m_imported, in the order of their paths, which their aliases were already given in; the unit test "the module of a .proto imports each file it does, whose types it names or not" checks the four lines' order)
+Status: fixed in a915ef3 (the generator keeps the files it imports in m_imported, in the order of their paths, which their aliases were already given in; the unit test "the module of a .proto imports each file it does, whose types it names or not" checks the four lines' order)
 
 Where: compiler/src/proto.cpp:2990
 
 Found while fixing generate-2. m_imports, a std::map keyed by each imported file's proto_file_t*, was what the Import lines were written from, so their order, and with it the order in which the imported modules' Globals initialize, could change from one build to the next.
+
+## new-3 (low): ToString's floats lost their exponent's sign after step 5's text for a double
+
+Status: fixed in a4c6108 (FloatText writes the exponent as C's printf does, as protobuf does: with its sign, and two digits at least; proto_scalars' max and repeated lines print 1.7976931348623157e+308 and 1e+100 again, as protoc does, and its exponents line has 1.5e-07, 1e+21, 2.5e-300, and 1e-10)
+
+Where: std/data/protobuf.fb:652
+
+Found while rebasing onto master after step 5, which writes a double's exponent without its sign, 1e100 for 1e+100. ProtoText writes a float or a double through that text, so a message's ToString no longer read as protobuf's text format, ShortDebugString, writes it.
 
 ## Refuted by the skeptics (no action)
 
