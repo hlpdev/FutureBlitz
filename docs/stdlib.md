@@ -402,7 +402,7 @@ file or URL in the default app.
   - A block's tag, a comment, or a partial alone on its line takes the line with it, and a
     partial's lines take its indentation there, as Mustache's do.
   - A template of `Templates` whose name ends with ".html" or ".htm", in any case, escapes for
-    HTML, and so do the partials it renders.
+    HTML, as a partial too, and so do the partials it renders.
   - A template that isn't one throws a `FormatError` of BAD_TEMPLATE, which says the template's
     name, its line, and its column; Render throws one of MISSING_VALUE for a partial there's no
     template of, and of OTHER for partials more than 1000 deep inside each other. A template

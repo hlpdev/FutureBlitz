@@ -40,8 +40,8 @@ Public Class Template
 End Class
 
 // Templates by name, which render each other as partials: {{> header}} is the template named
-// "header". One whose name ends with ".html" or ".htm" escapes its values for HTML, and so do
-// the partials it renders, whatever their names.
+// "header". One whose name ends with ".html" or ".htm" escapes its values for HTML, as a partial
+// too, and so do the partials it renders, whatever their names.
 Public Class Templates
     Field Sources: Map<String, String>
     // Each template read, by its name, and a partial indented on its line by its name, a newline,
@@ -493,24 +493,28 @@ End Class
 Class Frame
     Field Parts: Part[]
     Field Next: Int
+    // Whether its values are escaped for HTML.
+    Field Html: Bool
     Field Each: Bool
     Field Items: Value[] = []
     Field Keys: String[] = []
     Field Item = -1
     Field Partial: Bool
 
-    New(parts: Part[])
+    New(parts: Part[], html: Bool)
         Parts = parts
+        Html = html
     End New
 End Class
 
 // The parts rendered from data. What's being rendered is a stack, not calls, so a template or
-// data nested however deep renders. `templates` has the partials, or is Null for a Template.
+// data nested however deep renders. `templates` has the partials, or is Null for a Template. A
+// partial escapes for HTML when what renders it does, or its name says it's HTML.
 Function Rendered(parts: Part[], data: Value, html: Bool,
                   templates: Templates?): String Throws FormatError
     Local out: String[] = []
     Local scopes = [Scope(data)]
-    Local frames = [Frame(parts)]
+    Local frames = [Frame(parts, html)]
     Local partials = 0
     While frames.Count > 0
         Local frame = frames[frames.Count - 1]
@@ -522,17 +526,17 @@ Function Rendered(parts: Part[], data: Value, html: Bool,
                 out.Add(part.Text)
             Case PartKind.VALUE
                 Local text = TextOf(Lookup(scopes, part.Path))
-                out.Add(html && !part.Raw ? Escaped(text) : text)
+                out.Add(frame.Html && !part.Raw ? Escaped(text) : text)
             Case PartKind.IF, PartKind.UNLESS
                 Local holds = Holds(Lookup(scopes, part.Path)) != (part.Kind == PartKind.UNLESS)
                 Local chosen = holds ? part.Body : part.Otherwise
-                If chosen.Count > 0 Then frames.Add(Frame(chosen))
+                If chosen.Count > 0 Then frames.Add(Frame(chosen, frame.Html))
             Case PartKind.EACH
-                Local each = Each(part, Lookup(scopes, part.Path))
+                Local each = Each(part, Lookup(scopes, part.Path), frame.Html)
                 If each.Items.Count > 0
                     frames.Add(each)
                 ElseIf part.Otherwise.Count > 0
-                    frames.Add(Frame(part.Otherwise))
+                    frames.Add(Frame(part.Otherwise, frame.Html))
                 End If
             Case PartKind.PARTIAL
                 Local set = templates
@@ -548,7 +552,8 @@ Function Rendered(parts: Part[], data: Value, html: Bool,
                                       "other, at \"{part.Text}\"")
                 End If
 
-                Local inner = Frame(Try set.PartsOf(part.Text, part.Indent))
+                Local inner = Frame(Try set.PartsOf(part.Text, part.Indent),
+                                    frame.Html || IsHtml(part.Text))
                 inner.Partial = True
                 partials += 1
                 frames.Add(inner)
@@ -582,8 +587,8 @@ End Function
 
 // An {{#each}}'s frame, over an Array's elements or an Object's values, or nothing for anything
 // else. It starts done, so its first item comes first.
-Function Each(part: Part, value: Value): Frame
-    Local frame = Frame(part.Body)
+Function Each(part: Part, value: Value, html: Bool): Frame
+    Local frame = Frame(part.Body, html)
     frame.Each = True
     frame.Next = part.Body.Count
     If value.IsArray

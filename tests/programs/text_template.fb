@@ -114,6 +114,10 @@ Try set.Add("item", r"<b>{{title}}</b>" + "\n")
 Print(Try set.Render("page.HTML", data))
 Try set.Add("plain.txt", r"{{> item}}")
 Print(Try set.Render("plain.txt", data))
+// A ".html" one escapes as a partial too, though what renders it doesn't.
+Try set.Add("row.html", r"<td>{{title}}</td>")
+Try set.Add("mail.txt", r"{{title}} {{> row.html}} {{title}}")
+Print(Try set.Render("mail.txt", data))
 // A line break of "\r\n" ends a line, and the first and last lines need none.
 Local crlf = Try Template(r"{{#if title}}" + "\r\n" + r"yes" + "\r\n" + r"{{/if}}").Render(data)
 Print(crlf == "yes\r\n")
