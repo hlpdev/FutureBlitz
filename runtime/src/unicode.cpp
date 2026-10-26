@@ -37,12 +37,15 @@ std::vector<std::int32_t> points_of(const fb_string_t* text) {
     return points;
 }
 
-/// A new String of `points` in UTF-8.
+/// A new String of `points` in UTF-8, or null past the most a String holds.
 fb_string_t* string_of(const std::span<const std::int32_t> points) {
     std::string text;
     text.reserve(points.size());
     for (const std::int32_t point : points) {
         text += encode_utf8(static_cast<std::uint32_t>(point));
+        if (text.size() > INT32_MAX) {
+            return nullptr;
+        }
     }
 
     return new_string(text);
@@ -269,6 +272,11 @@ fb_string_t* fb_unicode_normalize(const fb_string_t* text, const std::int32_t fo
                      static_cast<utf8proc_option_t>(options.at(static_cast<std::size_t>(form))));
     if (length < 0) {
         fb_panic("out of memory", nullptr);
+    }
+
+    if (length > INT32_MAX) {
+        utf8proc_free(normal);
+        return nullptr;
     }
 
     fb_string_t* result =

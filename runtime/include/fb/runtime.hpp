@@ -400,7 +400,8 @@ std::int64_t fb_text_char_count(const fb_string_t* text, std::int64_t start, std
 fb_string_t* fb_text_from_utf8(const fb_array_t* bytes, std::int64_t start, std::int64_t count);
 /// Adds `text`'s bytes to `into`, a UInt8[].
 void fb_text_append(fb_array_t* into, const fb_string_t* text);
-/// A new String of `parts`, a String[], with `separator` between each two.
+/// A new String of `parts`, a String[], with `separator` between each two, or null past the
+/// most a String holds.
 fb_string_t* fb_text_join(const fb_array_t* parts, const fb_string_t* separator);
 /// A new String of `text` `count` times. Panics past the most a String holds.
 fb_string_t* fb_text_repeat(const fb_string_t* text, std::int64_t count);
@@ -416,12 +417,13 @@ std::uint32_t fb_unicode_upper(std::uint32_t point);
 std::uint32_t fb_unicode_lower(std::uint32_t point);
 /// `text` in uppercase or lowercase, a character's case taking more than one code point where
 /// Unicode's SpecialCasing says, as U+00DF's "SS" does, and a word's last capital sigma lowering
-/// to the final one.
+/// to the final one. Each is null past the most a String holds.
 fb_string_t* fb_unicode_to_upper(const fb_string_t* text);
 fb_string_t* fb_unicode_to_lower(const fb_string_t* text);
-/// `text` case-folded, for comparing it without case.
+/// `text` case-folded, for comparing it without case, or null past the most a String holds.
 fb_string_t* fb_unicode_case_fold(const fb_string_t* text);
-/// `text` in normal form `form`: 0 for NFC, 1 for NFD, 2 for NFKC, and 3 for NFKD.
+/// `text` in normal form `form`: 0 for NFC, 1 for NFD, 2 for NFKC, and 3 for NFKD. Null past the
+/// most a String holds.
 fb_string_t* fb_unicode_normalize(const fb_string_t* text, std::int32_t form);
 /// Where the grapheme cluster that starts at `at` ends.
 std::int64_t fb_unicode_next_grapheme(const fb_string_t* text, std::int64_t at);

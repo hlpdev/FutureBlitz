@@ -14115,6 +14115,21 @@ TEST_CASE("std's Methods of a built-in type say which module to import", "[sema]
           });
 }
 
+TEST_CASE("std.text's checks for a String past its most bytes give no warnings", "[sema]") {
+    // The runtime gives Null past the cap, so each check of it is one that can be True.
+    CHECK(errors_of("Import std.text\n"
+                    "Import std.text.unicode\n"
+                    "Local joined = \"-\".Join([\"a\", \"b\"])\n"
+                    "Local upper = \"a\".ToUpper()\n"
+                    "Local lower = \"A\".ToLower()\n"
+                    "Local same = \"a\".EqualsIgnoreCase(\"A\")\n"
+                    "Local folded = CaseFold(\"A\")\n"
+                    "Local normal = Normalize(\"e\")\n"
+                    "Local is = IsNormalized(\"e\")\n"
+                    "Local built = StringBuilder().Append(\"a\").AppendLine().ToString()\n")
+              .empty());
+}
+
 TEST_CASE("a Static Field read through its type before it initializes is reported", "[sema]") {
     // b initializes before a, which imports it, so Counter.count isn't set when b3 reads it.
     const std::vector<fb::library_file_t> modules{

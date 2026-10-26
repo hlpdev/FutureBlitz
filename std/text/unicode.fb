@@ -6,8 +6,8 @@ Import std.core
 
 Extern "runtime"
     Function fb_unicode_category(code: UInt32): Int32
-    Function fb_unicode_case_fold(text: String): String
-    Function fb_unicode_normalize(text: String, form: Int32): String
+    Function fb_unicode_case_fold(text: String): String?
+    Function fb_unicode_normalize(text: String, form: Int32): String?
     Function fb_unicode_char_width(code: UInt32): Int32
     Function fb_unicode_display_width(text: String): Int64
 End Extern
@@ -38,19 +38,27 @@ Public Function Category(c: Char): UnicodeCategory
 End Function
 
 // text in the normal form form, so text that looks the same is the same: "é" as one character
-// in NFC, and as "e" and its accent in NFD.
+// in NFC, and as "e" and its accent in NFD. Panics past the most a String holds.
+@PanicsAtCaller
 Public Function Normalize(text: String, form: NormalForm = NormalForm.NFC): String
-    Return fb_unicode_normalize(text, form As Int32)
+    Local normal = fb_unicode_normalize(text, form As Int32)
+    If normal == Null Then Panic("a String holds at most 2147483647 bytes")
+    Return normal
 End Function
 
-// Whether text is in the normal form form already.
+// Whether text is in the normal form form already. One past the most a String holds isn't.
 Public Function IsNormalized(text: String, form: NormalForm = NormalForm.NFC): Bool
-    Return Normalize(text, form) == text
+    Return fb_unicode_normalize(text, form As Int32) == text
 End Function
 
 // text case-folded, as Unicode has it, so two texts that differ only by case fold to the same:
-// "Straße" and "STRASSE" both to "strasse".
-Public Function CaseFold(text: String): String => fb_unicode_case_fold(text)
+// "Straße" and "STRASSE" both to "strasse". Panics past the most a String holds.
+@PanicsAtCaller
+Public Function CaseFold(text: String): String
+    Local folded = fb_unicode_case_fold(text)
+    If folded == Null Then Panic("a String holds at most 2147483647 bytes")
+    Return folded
+End Function
 
 // The columns c takes in a terminal: 2 for a wide one, like "中" or most emoji, 0 for a mark or a
 // control character, and 1 for the rest.

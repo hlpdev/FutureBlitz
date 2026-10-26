@@ -3,7 +3,8 @@
 ## Strings
 
 - UTF-8, **immutable**, refcounted. A string is always valid UTF-8, of at most 2147483647
-  bytes, as many as an `Int` counts; one past that panics.
+  bytes, as many as an `Int` counts; one past that panics, at the `+`, interpolated string, or
+  std call that would make it: "a String holds at most 2147483647 bytes".
 - `+` only joins `String` to `String`. Everything else uses interpolation.
 - A String's Methods are std.text's (see [stdlib.md](../stdlib.md)), by byte position: its
   `Length` is its UTF-8's bytes, and a position is a byte offset, which `Find` gives and

@@ -17,11 +17,11 @@ Extern "runtime"
     Function fb_text_matches_at(text: String, part: String, at: Int64): Int32
     Function fb_text_char_count(text: String, start: Int64, finish: Int64): Int64
     Function fb_text_from_utf8(bytes: UInt8[], start: Int64, count: Int64): String?
-    Function fb_text_join(parts: String[], separator: String): String
+    Function fb_text_join(parts: String[], separator: String): String?
     Function fb_text_repeat(text: String, count: Int64): String
-    Function fb_unicode_to_upper(text: String): String
-    Function fb_unicode_to_lower(text: String): String
-    Function fb_unicode_case_fold(text: String): String
+    Function fb_unicode_to_upper(text: String): String?
+    Function fb_unicode_to_lower(text: String): String?
+    Function fb_unicode_case_fold(text: String): String?
     Function fb_unicode_grapheme_count(text: String): Int64
     Function fb_unicode_next_grapheme(text: String, at: Int64): Int64
 End Extern
@@ -194,10 +194,17 @@ Extend String
         Return words
     End Method
 
-    // The parts with this String between each two: ", ".Join(["a", "b"]) is "a, b".
-    Public Method Join(parts: String[]): String => fb_text_join(parts, Self)
+    // The parts with this String between each two: ", ".Join(["a", "b"]) is "a, b". Panics past
+    // the most a String holds.
+    @PanicsAtCaller
+    Public Method Join(parts: String[]): String
+        Local joined = fb_text_join(parts, Self)
+        If joined == Null Then Panic("a String holds at most 2147483647 bytes")
+        Return joined
+    End Method
 
-    // A copy with each old, from the start, replaced by replacement. An empty old panics.
+    // A copy with each old, from the start, replaced by replacement. An empty old panics, and so
+    // does a copy past the most a String holds.
     @PanicsAtCaller
     Public Method Replace(old: String, replacement: String): String
         CheckPart(old, "Replace")
@@ -239,12 +246,23 @@ Extend String
         Return fb_text_slice(Self, 0, Length - suffix.Length)
     End Method
 
-    // A copy in uppercase, by Unicode's full case mapping, so "straße" is "STRASSE".
-    Public Method ToUpper(): String => fb_unicode_to_upper(Self)
+    // A copy in uppercase, by Unicode's full case mapping, so "straße" is "STRASSE". Panics past
+    // the most a String holds.
+    @PanicsAtCaller
+    Public Method ToUpper(): String
+        Local upper = fb_unicode_to_upper(Self)
+        If upper == Null Then Panic("a String holds at most 2147483647 bytes")
+        Return upper
+    End Method
 
     // A copy in lowercase, by Unicode's full case mapping, with a capital sigma that ends a word
-    // as a final sigma: "ΣΑΣ" is "σας".
-    Public Method ToLower(): String => fb_unicode_to_lower(Self)
+    // as a final sigma: "ΣΑΣ" is "σας". Panics past the most a String holds.
+    @PanicsAtCaller
+    Public Method ToLower(): String
+        Local lower = fb_unicode_to_lower(Self)
+        If lower == Null Then Panic("a String holds at most 2147483647 bytes")
+        Return lower
+    End Method
 
     // The String count times over, as std.core's Repeated gives a value. A negative count panics.
     @PanicsAtCaller
@@ -295,9 +313,14 @@ Extend String
     End Method
 
     // Whether it's equal to other but for case, as Unicode's case folding has it: "STRASSE" and
-    // "straße" are.
+    // "straße" are. Panics when both fold past the most a String holds, where one alone is
+    // longer than the other.
+    @PanicsAtCaller
     Public Method EqualsIgnoreCase(other: String): Bool
-        Return fb_unicode_case_fold(Self) == fb_unicode_case_fold(other)
+        Local mine = fb_unicode_case_fold(Self)
+        Local theirs = fb_unicode_case_fold(other)
+        If mine == Null && theirs == Null Then Panic("a String holds at most 2147483647 bytes")
+        Return mine == theirs
     End Method
 
     // -1, 0, or 1, as Compare gives, but with each run of the digits 0 to 9 compared as a number,

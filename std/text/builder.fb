@@ -31,21 +31,29 @@ Public Class StringBuilder Implements Printable
         Get => Bytes.Count
     End Property
 
-    // Adds text at the end, and gives the StringBuilder, for another call after it.
+    // Adds text at the end, and gives the StringBuilder, for another call after it. Each Append,
+    // AppendLine, Insert, and [] that makes the text longer than a String holds panics.
+    @PanicsAtCaller
     Public Method Append(text: String): StringBuilder
+        CheckRoom(text.Length)
         fb_text_append(Bytes, text)
         Return Self
     End Method
 
     // Adds c at the end.
+    @PanicsAtCaller
     Public Method Append(c: Char): StringBuilder => Append("{c}")
 
     // Adds the value's text at the end, as "{value}" shows it.
+    @PanicsAtCaller
     Public Method Append<T: Printable>(value: T): StringBuilder => Append("{value}")
 
     // Adds text, then a line break, "\n", at the end.
+    @PanicsAtCaller
     Public Method AppendLine(text: String = ""): StringBuilder
+        CheckRoom(text.Length)
         fb_text_append(Bytes, text)
+        CheckRoom(1)
         Bytes.Add(10)
         Return Self
     End Method
@@ -55,6 +63,7 @@ Public Class StringBuilder Implements Printable
     @PanicsAtCaller
     Public Method Insert(at: Int, text: String): StringBuilder
         CheckPosition(at, "Insert")
+        CheckRoom(text.Length)
         Bytes.InsertAll(at, text.Bytes)
         Return Self
     End Method
@@ -110,6 +119,7 @@ Public Class StringBuilder Implements Printable
     Operator []=(at: Int, value: Char)
         CheckCharacter(at)
         Local old = CharIn(Bytes, at)
+        CheckRoom(value.Utf8Length - old.Utf8Length)
         Bytes.RemoveRange(at, old.Utf8Length)
         Bytes.InsertAll(at, "{value}".Bytes)
     End Operator
@@ -125,6 +135,12 @@ Public Class StringBuilder Implements Printable
         If at < Bytes.Count && (Bytes[at] & 0xC0) == 0x80
             Panic("{what} takes a position between characters, not {at}")
         End If
+    End Method
+
+    // Panics unless the text has room for more bytes, as a String holds at most 2147483647.
+    @PanicsAtCaller
+    Method CheckRoom(more: Int)
+        If more > 2147483647 - Bytes.Count Then Panic("a String holds at most 2147483647 bytes")
     End Method
 
     // Panics unless a character starts at the position at.

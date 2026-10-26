@@ -111,7 +111,18 @@ void fb_text_append(fb_array_t* into, const fb_string_t* text) {
 fb_string_t* fb_text_join(const fb_array_t* parts, const fb_string_t* separator) {
     const auto* const* texts = static_cast<const fb_string_t* const*>(parts->data);
     const std::string_view between = text_of(separator);
+    // Past the most a String holds, it's null before its bytes are asked for.
+    std::size_t length = 0;
+    for (std::int64_t i = 0; i < parts->count; ++i) {
+        length += (i > 0 ? between.size() : 0) + text_of(texts[i]).size();
+    }
+
+    if (length > INT32_MAX) {
+        return nullptr;
+    }
+
     std::string joined;
+    joined.reserve(length);
     for (std::int64_t i = 0; i < parts->count; ++i) {
         if (i > 0) {
             joined += between;

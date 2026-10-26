@@ -1,0 +1,10 @@
+// A String holds at most 2147483647 bytes, so a Join that would make one longer panics at its
+// call, before its bytes are asked for.
+Import std.core
+Import std.text
+
+Local part = "0123456789abcdef".Repeated(16777216)
+Local parts = [part, part, part, part, part, part, part, part]
+Print("-".Join(["a", "b"]), part.Length)
+Local whole = "".Join(parts)
+Print("never: {whole.Length}")
