@@ -4,7 +4,7 @@
 
 ## spawn-1 (high): On Windows, a .bat or .cmd program's arguments go through cmd.exe, so an argument can run commands
 
-Status: fixed in 0e8edfa: on Windows, a program found as a .bat or .cmd file (fb::os::is_batch_file(), any case, dots and spaces after it) runs as `cmd.exe /e:ON /v:OFF /d /c` with UV_PROCESS_WINDOWS_VERBATIM_ARGUMENTS and fb::os::batch_arguments(), Rust's append_bat_arg escaping (quotes for anything but letters, digits, and #$*+-./:?@\_, a quote doubled, every % as %%cd:~,%); an argument with a line break throws an IOError (failure 3). tests/runtime/process_tests.cpp's batch cases, and the CLI test "a .bat or .cmd file gets each argument as cmd.exe can carry it, and nothing runs" (the injections above, %PATH%, .cmd, SHOW.CMD, show.bat. ., and a line break)
+Status: fixed in d381492: on Windows, a program found as a .bat or .cmd file (fb::os::is_batch_file(), any case, dots and spaces after it) runs as `cmd.exe /e:ON /v:OFF /d /c` with UV_PROCESS_WINDOWS_VERBATIM_ARGUMENTS and fb::os::batch_arguments(), Rust's append_bat_arg escaping (quotes for anything but letters, digits, and #$*+-./:?@\_, a quote doubled, every % as %%cd:~,%); an argument with a line break throws an IOError (failure 3). tests/runtime/process_tests.cpp's batch cases, and the CLI test "a .bat or .cmd file gets each argument as cmd.exe can carry it, and nothing runs" (the injections above, %PATH%, .cmd, SHOW.CMD, show.bat. ., and a line break)
 
 Where: runtime/src/process.cpp:700
 
@@ -40,7 +40,7 @@ Skeptic: Ran rv-step17/proc/s1.fb (debug). show.bat is '@echo first=[%1]'. Comma
 
 ## std-1 (high): On Windows, a .bat or .cmd program's arguments go through cmd.exe, which reads %VAR% and quotes and runs injected commands
 
-Status: fixed in 0e8edfa, with spawn-1, which it is: the same CLI test has %PATH% and the quote-and-ampersand argument, and Arg's comment and stdlib.md's Process bullet say what a batch file gets
+Status: fixed in d381492, with spawn-1, which it is: the same CLI test has %PATH% and the quote-and-ampersand argument, and Arg's comment and stdlib.md's Process bullet say what a batch file gets
 
 Where: runtime/src/process.cpp:700
 
@@ -73,7 +73,7 @@ Skeptic: Wrote %TEMP%\show.bat (@echo off / echo arg1=[%1] / echo arg2=[%2]) and
 
 ## signals-os-1 (medium): A program whose first OnInterrupt/OnTerminate comes after its code is done never ends, and the handler then catches the signal
 
-Status: fixed in 6405b3a: run_code_end() marks the code done before it runs the slots, and at_code_end() runs what it's given at once when the code is done (both seq_cst, so one sees the other; end_signals() takes a second call), so a late watch ends its waits and watches nothing; tests/programs/os_signals_late.fb, a Thread.Start thread's OnInterrupt after the code, which hung, ends
+Status: fixed in abbe9b8: run_code_end() marks the code done before it runs the slots, and at_code_end() runs what it's given at once when the code is done (both seq_cst, so one sees the other; end_signals() takes a second call), so a late watch ends its waits and watches nothing; tests/programs/os_signals_late.fb, a Thread.Start thread's OnInterrupt after the code, which hung, ends
 
 Where: runtime/src/runtime.cpp:236
 
@@ -109,7 +109,7 @@ Skeptic: I ran rv-step17/sig-os/late_handler.fb, the finding's program, with `ti
 
 ## signals-os-2 (medium): With a signal handler watching, a program with stuck coroutines never ends
 
-Status: fixed in 6405b3a and 0e8edfa: a thread waiting in fb_os_signal_wait counts in the pool's m_signal_waits (add_signal_waits(), uncounted by what wakes it, on_signal() or end_signals()), and stuck() takes the pool as idle when only those wait (idle_but_for_signals()); while one waits, the Tasks a TaskSource holds (start_source_task(), from fb_signal_task) are coming, so awaiting what a handler gives still waits. tests/programs/os_signals_stuck.fb (the finding's program ends), and the CLI test "a coroutine waiting for what a handler gives waits for the signal"
+Status: fixed in abbe9b8 and d381492: a thread waiting in fb_os_signal_wait counts in the pool's m_signal_waits (add_signal_waits(), uncounted by what wakes it, on_signal() or end_signals()), and stuck() takes the pool as idle when only those wait (idle_but_for_signals()); while one waits, the Tasks a TaskSource holds (start_source_task(), from fb_signal_task) are coming, so awaiting what a handler gives still waits. tests/programs/os_signals_stuck.fb (the finding's program ends), and the CLI test "a coroutine waiting for what a handler gives waits for the signal"
 
 Where: runtime/src/thread.cpp:588
 
@@ -155,7 +155,7 @@ Skeptic: I ran rv-step17/sig-os/stuck_coro.fb, the finding's program. Debug and 
 
 ## spawn-2 (medium): On Windows, a program given by name is looked for in the current folder or Folder() before PATH
 
-Status: fixed in 0e8edfa: on Windows, find_program() finds the program itself before uv_spawn, which gets its full path with UV_PROCESS_WINDOWS_FILE_PATH_EXACT_NAME: a path from the child's folder, and a name alone only in the child's PATH's folders (fb::os::path_entries(), as libuv reads them, with no empty one), with .com and .exe after it, never in a current folder. The CLI test "a program's name is found on PATH, never in the folder it runs in" (a planted whoami, with NoDefaultCurrentDirectoryInExePath unset; ./whoami still finds it), and process_tests' PATH cases
+Status: fixed in d381492: on Windows, find_program() finds the program itself before uv_spawn, which gets its full path with UV_PROCESS_WINDOWS_FILE_PATH_EXACT_NAME: a path from the child's folder, and a name alone only in the child's PATH's folders (fb::os::path_entries(), as libuv reads them, with no empty one), with .com and .exe after it, never in a current folder. The CLI test "a program's name is found on PATH, never in the folder it runs in" (a planted whoami, with NoDefaultCurrentDirectoryInExePath unset; ./whoami still finds it), and process_tests' PATH cases
 
 Where: runtime/src/process.cpp:702
 
@@ -197,7 +197,7 @@ Skeptic: The tool's shell sets NoDefaultCurrentDirectoryInExePath=1. With it set
 
 ## spawn-3 (medium): What the program printed before a spawn comes out after the child's output when stdout is a pipe or file
 
-Status: fixed in 0e8edfa: fb_os_process_spawn calls fb_flush() before it starts the child; os_process.fb's shared mode, whose Status child prints between its parent's lines through a pipe
+Status: fixed in d381492: fb_os_process_spawn calls fb_flush() before it starts the child; os_process.fb's shared mode, whose Status child prints between its parent's lines through a pipe
 
 Where: runtime/src/process.cpp:846
 
@@ -237,7 +237,7 @@ Skeptic: Ran s3.fb with the parent's stdout a pipe (Output). Debug printed 'chil
 
 ## spawn-4 (medium): On Windows a child still running is killed when the program ends, unlike on Linux and macOS and unlike the docs
 
-Status: fixed in 0e8edfa: third_party/CMakeLists.txt changes libuv's win/process.c, as it was fetched, so uv_spawn no longer puts a child in its kill-on-close job (`if (0 && ...)`, checked at configure time); os_process.fb's leaver mode, whose child prints after its parent ends
+Status: fixed in d381492: third_party/CMakeLists.txt changes libuv's win/process.c, as it was fetched, so uv_spawn no longer puts a child in its kill-on-close job (`if (0 && ...)`, checked at configure time); os_process.fb's leaver mode, whose child prints after its parent ends
 
 Where: runtime/src/process.cpp:419
 
@@ -275,7 +275,7 @@ Skeptic: s4.fb printed only 'the parent ends', and the top-level Output returned
 
 ## spawn-6 (medium): OnInterrupt or OnTerminate called after the program's code is done makes the program hang at its end
 
-Status: fixed in 6405b3a, with signals-os-1, which it is: os_signals_late.fb is the finding's program
+Status: fixed in abbe9b8, with signals-os-1, which it is: os_signals_late.fb is the finding's program
 
 Where: runtime/src/process.cpp:253
 
@@ -310,7 +310,7 @@ Skeptic: In s6.fb a Thread.Start thread calls OnInterrupt 300 ms after main's co
 
 ## std-2 (medium): On Windows, a program that wrote to a child's stdin that the child never read can't end until the child does
 
-Status: fixed in 0e8edfa: close_input() no longer calls uv_shutdown, which on Windows waits for the child to read the pipe; it closes stdin with uv_close once the writes under way are done (stream_t::writes); os_process.fb's writer mode, which leaves a line in a deaf child's stdin, ends in under 3 seconds
+Status: fixed in d381492: close_input() no longer calls uv_shutdown, which on Windows waits for the child to read the pipe; it closes stdin with uv_close once the writes under way are done (stream_t::writes); os_process.fb's writer mode, which leaves a line in a deaf child's stdin, ends in under 3 seconds
 
 Where: runtime/src/process.cpp:532
 
@@ -346,7 +346,7 @@ Skeptic: Built rv-step17/std-r/s2.fb (WriteText then Close), s2c.fb (WriteText, 
 
 ## signals-os-5 (low): On POSIX, a signal the program started ignoring kills it once the code is done
 
-Status: fixed in 0e8edfa: on Linux and macOS, start_watching() doesn't watch a signal the program started out ignoring (sigaction), so it stays ignored, with a handler and after; the doc comments say so. The CLI test "a signal a program started out ignoring stays ignored, with a handler or after" (POSIX only: SIGHUP while the code runs and once it's done)
+Status: fixed in d381492: on Linux and macOS, start_watching() doesn't watch a signal the program started out ignoring (sigaction), so it stays ignored, with a handler and after; the doc comments say so. The CLI test "a signal a program started out ignoring stays ignored, with a handler or after" (POSIX only: SIGHUP while the code runs and once it's done)
 
 Where: runtime/src/process.cpp:378
 
@@ -382,7 +382,7 @@ Skeptic: In the build tree's libuv-src/src/unix/signal.c, uv__signal_unregister_
 
 ## signals-os-6 (low): No test checks that signals end the program again after its code, or the extra call for signals during a handler
 
-Status: fixed in 0e8edfa: the CLI signal tests share drive(), which builds a program, starts it in a process group of its own, and sends signals after what it prints; "a signal ends a program again once its code is done, while a thread runs on" and "a handler runs once more for the signals that come while it runs" (three signals during a run make one more), and the first test counts two 'interrupted' lines on Windows
+Status: fixed in d381492: the CLI signal tests share drive(), which builds a program, starts it in a process group of its own, and sends signals after what it prints; "a signal ends a program again once its code is done, while a thread runs on" and "a handler runs once more for the signals that come while it runs" (three signals during a run make one more), and the first test counts two 'interrupted' lines on Windows
 
 Where: tests/cli/cli_tests.cpp:890
 
@@ -417,7 +417,7 @@ Skeptic: grep finds OnInterrupt/OnTerminate tested only in tests/cli/cli_tests.c
 
 ## spawn-5 (low): Windows variable names match the program's environment ignoring case only for ASCII
 
-Status: fixed in 0e8edfa: on Windows, same_variable() compares names as UTF-16 with CompareStringOrdinal(..., TRUE), as Windows and libuv do; os_process.fb's unicode mode, with Env and Unset of äfb_case beside the parent's ÄFB_CASE
+Status: fixed in d381492: on Windows, same_variable() compares names as UTF-16 with CompareStringOrdinal(..., TRUE), as Windows and libuv do; os_process.fb's unicode mode, with Env and Unset of äfb_case beside the parent's ÄFB_CASE
 
 Where: runtime/src/process.cpp:610
 
@@ -460,7 +460,7 @@ Skeptic: Fixed the program so the child prints the names it is given, then ran s
 
 ## spawn-8 (low): process.hpp says a NUL in any text gives failure 1, but a NUL in a variable's name gives 2
 
-Status: fixed in 0e8edfa: fb_os_process_spawn's comment in os_process.hpp (renamed from process.hpp, apart from the compiler's) says 1 is a NUL in the program, an argument, a value, or the folder, 2 a name that's empty or has an '=' or a NUL, and 3 a batch file's argument with a line break; the comment has no test
+Status: fixed in d381492: fb_os_process_spawn's comment in os_process.hpp (renamed from process.hpp, apart from the compiler's) says 1 is a NUL in the program, an argument, a value, or the folder, 2 a name that's empty or has an '=' or a NUL, and 3 a batch file's argument with a line break; the comment has no test
 
 Where: runtime/include/fb/process.hpp:25
 
@@ -483,7 +483,7 @@ Skeptic: Ran s8.fb, which calls Command("cmd").Env("A\0B","v").Output(). It prin
 
 ## std-3 (low): A write to a child that ended mid-write gives UNEXPECTED_END "end of file" on Windows, but OTHER "broken pipe" otherwise
 
-Status: fixed in 0e8edfa: write_error() turns libuv's UV_EOF for a write, Windows' ERROR_BROKEN_PIPE, into UV_EPIPE, in the write's callback and when uv_write fails at once; os_process.fb writes 2,000,000 bytes to a child that reads one line, OTHER broken pipe during and after
+Status: fixed in d381492: write_error() turns libuv's UV_EOF for a write, Windows' ERROR_BROKEN_PIPE, into UV_EPIPE, in the write's callback and when uv_write fails at once; os_process.fb writes 2,000,000 bytes to a child that reads one line, OTHER broken pipe during and after
 
 Where: runtime/src/process.cpp:770
 
@@ -537,7 +537,7 @@ Skeptic: Ran rv-step17/std-r/s3.fb: the child reads one line and exits while the
 
 ## std-4 (low): Output's drained stderr is handed out by erasing from the front of one string, which is quadratic in its size
 
-Status: fixed in 0e8edfa: a stream's held bytes are a fb::os::byte_queue_t, which takes from an offset and moves what's left to the front only once more is taken than is left; process_tests' "taking a child's held bytes takes time in proportion to them" (128 MiB, 64 KiB at a time, under 2 seconds; erasing from the front each time took far longer, checked)
+Status: fixed in d381492: a stream's held bytes are a fb::os::byte_queue_t, which takes from an offset and moves what's left to the front only once more is taken than is left; process_tests' "taking a child's held bytes takes time in proportion to them" (128 MiB, 64 KiB at a time, under 2 seconds; erasing from the front each time took far longer, checked)
 
 Where: runtime/src/process.cpp:507
 
@@ -582,7 +582,7 @@ Skeptic: deliver() (process.cpp:504-507) takes at most read.count bytes (ReadAll
 
 ## std-5 (low): On Windows, Command.Env with a non-ASCII name gives the child two variables instead of replacing this program's
 
-Status: fixed in 0e8edfa, with spawn-5, which it is: the same unicode case checks the child has one variable for both names on Windows
+Status: fixed in d381492, with spawn-5, which it is: the same unicode case checks the child has one variable for both names on Windows
 
 Where: runtime/src/process.cpp:610
 
