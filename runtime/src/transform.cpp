@@ -148,6 +148,11 @@ std::vector<std::uint8_t> resized(const std::span<const std::uint8_t> rgba,
                                   const std::int32_t filter) {
     const auto columns = static_cast<std::size_t>(new_width);
     const auto rows = static_cast<std::size_t>(new_height);
+    // An image of no pixels has none to work out, whatever its sides are.
+    if (columns == 0 || rows == 0) {
+        return {};
+    }
+
     std::vector<std::uint8_t> out(columns * rows * 4);
     if (filter == FILTER_NEAREST) {
         const double x_scale = static_cast<double>(width) / static_cast<double>(new_width);
@@ -224,6 +229,10 @@ std::vector<std::uint8_t> oriented(const std::span<const std::uint8_t> rgba,
                                    const std::int32_t how) {
     const auto columns = static_cast<std::size_t>(width);
     const auto rows = static_cast<std::size_t>(height);
+    if (rgba.empty()) {
+        return {};
+    }
+
     std::vector<std::uint8_t> out(rgba.size());
     // A quarter turn's image is `rows` wide.
     const bool turned = how == ROTATE_RIGHT || how == ROTATE_LEFT;
@@ -278,7 +287,8 @@ void fb_image_crop(const fb_array_t* pixels, const std::int64_t width, const std
     const std::span<const std::uint8_t> rgba = bytes_of(pixels);
     std::vector<std::uint8_t> out;
     out.reserve(static_cast<std::size_t>(crop_width * crop_height * 4));
-    for (std::int64_t row = y; row < y + crop_height; ++row) {
+    // A crop of no pixels has no rows to copy, however many it says it has.
+    for (std::int64_t row = y; crop_width > 0 && row < y + crop_height; ++row) {
         const auto from = static_cast<std::ptrdiff_t>(((row * width) + x) * 4);
         out.insert(out.end(), rgba.begin() + from, rgba.begin() + from + (crop_width * 4));
     }

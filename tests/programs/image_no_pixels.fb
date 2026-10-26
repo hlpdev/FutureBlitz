@@ -1,0 +1,28 @@
+// An image of no pixels but a long side resizes, crops, flips, and turns at once, as there's
+// nothing in it to do any of them to, whatever its sides are.
+Import std.core
+Import std.image
+
+Function Sides(image: Image): String => "{image.Width} by {image.Height}"
+
+Local tall = Image(0, 2147483647)
+Local wide = Image(2147483647, 0)
+For filter In [ResizeFilter.NEAREST, ResizeFilter.BILINEAR, ResizeFilter.LANCZOS]
+    Local shrunk = tall.Clone()
+    shrunk.Resize(5, 0, filter)
+    Local turned = tall.Clone()
+    turned.Resize(2147483647, 0, filter)
+    Local narrowed = wide.Clone()
+    narrowed.Resize(0, 7, filter)
+    Print(filter, Sides(shrunk), Sides(turned), Sides(narrowed))
+End For
+
+tall.Crop(0, 0, 0, 2147483647)
+wide.Crop(0, 0, 2147483647, 0)
+Print("cropped:", Sides(tall), Sides(wide))
+tall.FlipHorizontal()
+tall.FlipVertical()
+tall.Rotate180()
+tall.RotateClockwise()
+wide.RotateCounterclockwise()
+Print("turned:", Sides(tall), Sides(wide), tall.ToBytes().Count, wide.ToBytes().Count)
