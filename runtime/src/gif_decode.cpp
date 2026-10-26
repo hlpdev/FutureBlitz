@@ -116,11 +116,13 @@ bool read_blocks(reader_t& reader, std::vector<std::uint8_t>* data) {
     }
 }
 
-/// The indexes of `count` pixels in `codes`, LZW-compressed with codes of `least` bits and more.
-/// Codes that stop before the pixels do give fewer, which leaves the rest undrawn, as browsers do.
-/// Gives false for a code that can't be one yet.
+/// Gives `emit` each of the indexes of `count` pixels in `codes`, LZW-compressed with codes of
+/// `least` bits and more, with its place, as it's decoded, so a frame takes no memory of its own,
+/// whatever size its descriptor says. Codes that stop before the pixels do give fewer, which
+/// leaves the rest undrawn, as browsers do. Gives false for a code that can't be one yet.
+template <typename Emit>
 bool decompress(const std::span<const std::uint8_t> codes, const unsigned least,
-                const std::size_t count, std::vector<std::uint8_t>& indexes) {
+                const std::size_t count, const Emit& emit) {
     const std::uint32_t clear = 1U << least;
     const std::uint32_t end = clear + 1;
     std::array<std::uint16_t, table_size> prefixes{};
@@ -138,9 +140,9 @@ bool decompress(const std::span<const std::uint8_t> codes, const unsigned least,
     std::uint32_t bits = 0;
     unsigned held = 0;
     std::size_t at = 0;
-    indexes.clear();
-    indexes.reserve(count);
-    while (indexes.size() < count) {
+    std::size_t given = 0;
+    const auto give = [&](const std::uint8_t index) { emit(given++, index); };
+    while (given < count) {
         while (held < size && at < codes.size()) {
             bits |= std::uint32_t{ codes[at++] } << held;
             held += 8;
@@ -169,7 +171,7 @@ bool decompress(const std::span<const std::uint8_t> codes, const unsigned least,
                 return false;
             }
 
-            indexes.push_back(static_cast<std::uint8_t>(code));
+            give(static_cast<std::uint8_t>(code));
             last = static_cast<std::int32_t>(code);
             continue;
         }
@@ -193,12 +195,12 @@ bool decompress(const std::span<const std::uint8_t> codes, const unsigned least,
             walk = prefixes[walk];
         }
         string[length++] = static_cast<std::uint8_t>(walk);
-        for (std::size_t i = length; i > 0 && indexes.size() < count; --i) {
-            indexes.push_back(string[i - 1]);
+        for (std::size_t i = length; i > 0 && given < count; --i) {
+            give(string[i - 1]);
         }
 
-        if (code == next && indexes.size() < count) {
-            indexes.push_back(first);
+        if (code == next && given < count) {
+            give(first);
         }
 
         if (next < table_size) {
@@ -357,11 +359,6 @@ image_t* decode(const std::span<const std::uint8_t> bytes, const bool first_only
             return fail(RESULT_INVALID, "a frame's codes start at a size GIF doesn't have");
         }
 
-        std::vector<std::uint8_t> indexes;
-        if (!decompress(codes, least, std::size_t{ frame_width } * frame_height, indexes)) {
-            return fail(RESULT_INVALID, "a frame's pixels have a code that can't be one");
-        }
-
         // The frame before goes as it asked, once it's been shown.
         const std::uint32_t right = std::min(width, place[0] + place[2]);
         const std::uint32_t bottom = std::min(height, place[1] + place[3]);
@@ -380,19 +377,26 @@ image_t* decode(const std::span<const std::uint8_t> bytes, const bool first_only
             previous = canvas;
         }
 
+        // Each index is drawn as it's decoded, but those past the screen, so a frame takes no more
+        // memory than the screen, whatever its descriptor says; one not interlaced stops at its
+        // first row past the screen.
         const std::vector<std::uint32_t> rows = (image_flags & 0x40U) != 0
                                                     ? interlaced_rows(frame_height)
                                                     : std::vector<std::uint32_t>{};
-        for (std::size_t i = 0; i < indexes.size(); ++i) {
+        std::size_t count = std::size_t{ frame_width } * frame_height;
+        if (rows.empty()) {
+            count = std::size_t{ frame_width } *
+                    (top < height ? std::min(frame_height, height - top) : 0);
+        }
+        const auto draw = [&](const std::size_t i, const std::uint8_t index) {
             const auto column = static_cast<std::uint32_t>(i % frame_width);
             const auto row_index = static_cast<std::uint32_t>(i / frame_width);
             const std::uint32_t row = rows.empty() ? row_index : rows[row_index];
             const std::uint32_t x = left + column;
             const std::uint32_t y = top + row;
-            const std::uint8_t index = indexes[i];
             if (x >= width || y >= height || std::cmp_equal(index, transparent) ||
                 index >= palette.size) {
-                continue;
+                return;
             }
 
             const std::size_t at = ((std::size_t{ y } * columns) + x) * 4;
@@ -401,6 +405,9 @@ image_t* decode(const std::span<const std::uint8_t> bytes, const bool first_only
             canvas[at + 1] = static_cast<std::uint8_t>(rgb >> 8U);
             canvas[at + 2] = static_cast<std::uint8_t>(rgb);
             canvas[at + 3] = 255;
+        };
+        if (!decompress(codes, least, count, draw)) {
+            return fail(RESULT_INVALID, "a frame's pixels have a code that can't be one");
         }
 
         const auto shown = static_cast<std::int64_t>(image->frames.size()) + 1;
