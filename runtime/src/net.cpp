@@ -33,6 +33,7 @@
 #include <pthread.h>
 #include <sys/file.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
 #endif
@@ -916,6 +917,12 @@ void on_connection(uv_stream_t* server, const int status) {
 /// Whether a Unix socket's file is one that nothing listens at any more, which a program that
 /// ended without closing it left.
 bool left_behind(const std::string& path) {
+    // A file that isn't a socket is someone's, and stays.
+    struct stat status{};
+    if (::lstat(path.c_str(), &status) != 0 || !S_ISSOCK(status.st_mode)) {
+        return false;
+    }
+
     sockaddr_un address{};
     if (path.size() >= sizeof(address.sun_path)) {
         return false;
