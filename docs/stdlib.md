@@ -1154,8 +1154,8 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   minute, in hundredths up to 655350, and in seconds after, and its first frame the image a
   decoder without animation shows.
 - A GIF's frame has a palette of its own: its colors when there are 256 or fewer, counting one
-  for the pixels whose alpha is below 128, which are transparent, or else 255 that median cut
-  picks, with Floyd-Steinberg dithering.
+  for the pixels whose alpha is below 128, which are transparent, or else the 256 that median cut
+  picks, or 255 and the transparent one when a pixel is, with Floyd-Steinberg dithering.
 - `Svg.Parse(text)` reads an SVG at 96 dots an inch, over nanosvg, and throws an IOError of
   INVALID_DATA for one without a size: `Width` and `Height`, in pixels, and `Rasterize(scale)`, its
   size times the scale, each side rounded up, or `Rasterize(width, height)`, as large as it fits,

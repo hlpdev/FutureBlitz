@@ -196,6 +196,22 @@ For i = 0 Until source.Count
     total += difference < 0 ? -difference : difference
 End For
 Print("GIF of 4096 colors: opaque {many[5, 5].a == 255}, near {total / source.Count <= 12}")
+// Median cut picks 256 colors for an opaque image, and 255 and the transparent one for one with
+// a transparent pixel.
+Function ColorsOf(image: Image): Int
+    Local seen = Set<UInt32>()
+    Local bytes = image.ToBytes()
+    For i = 0 Until bytes.Count Step 4
+        If bytes[i + 3] == 255
+            seen.Add(((bytes[i] As UInt32) << 16) | ((bytes[i + 1] As UInt32) << 8) |
+                     (bytes[i + 2] As UInt32))
+        End If
+    End For
+    Return seen.Count
+End Function
+Local translucent = Pattern(64, 64)
+translucent[0, 0] = Color32(0, 0, 0, 0)
+Print("GIF's palettes:", ColorsOf(many), ColorsOf(Try Gif.Decode(Gif.Encode(translucent))))
 // Dithering keeps the colors' average: what a pixel's error takes from its neighbors is rounded
 // the same way below 0 as above, so each channel's average moves by less than a tenth of a byte.
 Local gradient = Image(128, 128)

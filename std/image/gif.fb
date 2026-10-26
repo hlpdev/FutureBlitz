@@ -2,8 +2,8 @@
 // DecodeAnimation every frame, each as it's shown once the frames before it are, drawn as
 // browsers draw them, on a canvas that starts transparent. Encode and EncodeAnimation make each
 // frame the whole image, with a palette of its own, of its colors when there are 256 or fewer,
-// counting one for those whose alpha is below 128, which are transparent, or else the 255 median
-// cut picks, with Floyd-Steinberg dithering.
+// counting one for those whose alpha is below 128, which are transparent, or else the 256 median
+// cut picks, 255 and the transparent one when one is, with Floyd-Steinberg dithering.
 
 Import std.core
 Import std.image.animation

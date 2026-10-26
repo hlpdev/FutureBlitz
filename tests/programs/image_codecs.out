@@ -30,6 +30,7 @@ WebP at 100: within 40 True
 lossy WebP's alpha: True
 GIF of few colors: True
 GIF of 4096 colors: opaque True, near True
+GIF's palettes: 256 255
 GIF's dithering keeps the average: 0 0 0
 GIF of alpha: 255 (0, 0, 0, 0) True
 GIF animation: 4 3 [100, 150, 190, 0] True
