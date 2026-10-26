@@ -1,14 +1,14 @@
 // std.data's functions in the runtime: text from part of a UInt8[], and a Double from text, by
-// from_chars, which rounds to the nearest and doesn't depend on the locale.
+// fast_float's from_chars, which rounds to the nearest and doesn't depend on the locale.
 
 #include "fb/data.hpp"
 
 #include "fb/runtime.hpp"
 
 #include <algorithm>
-#include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <fast_float/fast_float.h>
 #include <limits>
 #include <system_error>
 
@@ -72,7 +72,7 @@ std::int32_t fb_data_float(const fb_array_t* bytes, const std::int64_t start,
     const auto* first = static_cast<const char*>(bytes->data) + start;
     const auto* last = static_cast<const char*>(bytes->data) + finish;
     const bool negative = first != last && *first == '-';
-    const std::from_chars_result read = std::from_chars(first, last, *value);
+    const fast_float::from_chars_result read = fast_float::from_chars(first, last, *value);
     if (read.ptr != last) {
         return 0;
     }
