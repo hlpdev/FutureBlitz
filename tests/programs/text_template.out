@@ -8,6 +8,7 @@ FTFTFTFFFTF U
 |=|applepear|-|
 [ann=3 in chess, bo=5 in chess] ab
 [apple||apple][pear||pear] Fruit & <veg>
+01|ab
 Hello, &lt;world&gt;!
 3 of them
 a&amp;b&lt;c&gt;d&quot;e&#39;f a&b<c>d"e'f
@@ -29,6 +30,8 @@ Fruit & <veg> <td>Fruit &amp; &lt;veg&gt;</td> Fruit & <veg>
   one
 other
 
+&lt;me&gt; [&lt;me&gt;]some
+&lt;you&gt; [&lt;you&gt;]some
 True
 BAD_TEMPLATE: line 1, column 3: this {{ has no }} after it
 BAD_TEMPLATE: line 1, column 3: this {{{ has no }}} after it
@@ -49,6 +52,7 @@ BAD_TEMPLATE: line 1, column 1: this {{>}} names no template
 MISSING_VALUE: a Template has no partials, like {{> part}}; Templates have them
 OTHER: partials go more than 1000 deep inside each other, at "loop"
 MISSING_VALUE: there's no template named "gone"
+MISSING_VALUE: there's no template named "nowhere"
 BAD_TEMPLATE: broken, line 2, column 1: a tag needs a name, like "title" or "this"
 deep
 leaf

@@ -86,6 +86,11 @@ Local scored = Try Template(r"{{#each scores}}{{#if @first}}[{{/if}}{{@key}}={{t
 Print(Try scored.Render(game))
 Print(Try Template(r"{{#each this.items}}[{{this.name}}|{{this.title}}|{{name}}]{{/each}} " +
                    r"{{this.title}}").Render(data))
+// An Array's items have no @key, and an {{#each this}} goes over the scope.
+Local list = Value.Object()
+list["xs"] = Value([Value("a"), Value("b")])
+Print(Try Template(r"{{#each xs}}{{@key}}{{@index}}{{/each}}|" +
+                   r"{{#each this}}{{#each this}}{{.}}{{/each}}{{/each}}").Render(list))
 
 // A Map fills one too, its Strings as text, and its Values as they are.
 Local names = Map<String, String>()
@@ -124,6 +129,16 @@ Try odd.Add("a", "one\n")
 Try odd.Add("a\n  ", "other\n")
 Try odd.Add("p", r"  {{> a}}" + "\n")
 Print(Try odd.Render("p", data) + Try odd.Render("a\n  ", data))
+// Templates render from a Map too, and an {{#unless}} can have an {{else}}.
+Local cards = Templates()
+Try cards.Add("page.html", r"{{who}} {{> card}}")
+Try cards.Add("card", r"[{{who}}]{{#unless who}}none{{else}}some{{/unless}}")
+Local texts = Map<String, String>()
+texts["who"] = "<me>"
+Print(Try cards.Render("page.html", texts))
+Local valued = Map<String, Value>()
+valued["who"] = Value("<you>")
+Print(Try cards.Render("page.html", valued))
 // A line break of "\r\n" ends a line, and the first and last lines need none.
 Local crlf = Try Template(r"{{#if title}}" + "\r\n" + r"yes" + "\r\n" + r"{{/if}}").Render(data)
 Print(crlf == "yes\r\n")
@@ -166,6 +181,13 @@ End Try
 
 Try
     Print(Try loops.Render("gone", nothing))
+Catch e As FormatError
+    Print("{e.Kind}: {e.Message}")
+End Try
+
+Try loops.Add("missing", r"a {{> nowhere}} b")
+Try
+    Print(Try loops.Render("missing", nothing))
 Catch e As FormatError
     Print("{e.Kind}: {e.Message}")
 End Try
