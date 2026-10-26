@@ -4,7 +4,7 @@
 
 ## lan-1 (high): Every answer and announcement carries the A records of every interface, so a found service's Address can be one the finder can't reach
 
-Status: open
+Status: fixed in 871a932c and 48d29db0
 
 Where: std/net/lan.fb:311
 
@@ -81,7 +81,7 @@ Skeptic: Ran the reviewer's program (scratchpad/rv-net/lanrefute/lan1.fb), debug
 
 ## runtime-1 (high): On Linux, a write to a connection the other side closed kills the program with SIGPIPE instead of throwing RESET
 
-Status: open
+Status: fixed in 6b29a123
 
 Where: runtime/src/net.cpp:739
 
@@ -133,7 +133,7 @@ Skeptic: I built rev-5's net.cpp and the bundled libuv 1.52.1 on WSL Ubuntu, wit
 
 ## streams-1 (high): On Linux, writing to a TCP or IPC connection the other side closed kills the program with SIGPIPE instead of throwing RESET
 
-Status: open
+Status: fixed in 6b29a123
 
 Where: runtime/src/net.cpp:739
 
@@ -184,7 +184,7 @@ Skeptic: I read the code first. Nothing in runtime/ ignores or blocks SIGPIPE (g
 
 ## runtime-2 (medium): TcpListener.Listen with a backlog of 0 or less crashes on Windows with libuv's assertion
 
-Status: open
+Status: fixed in d28d43f3 and 48d29db0
 
 Where: runtime/src/net.cpp:1118
 
@@ -215,7 +215,7 @@ Skeptic: I ran rt-refute/backlog0.fb, TcpListener.Listen(SocketAddress(IpAddress
 
 ## runtime-3 (medium): A ReadTimeout of zero never reads: a blocking Read never starts libuv reading, so the bytes that came are never taken
 
-Status: open
+Status: fixed in 1bac26f5 and c31911ea
 
 Where: runtime/src/net.cpp:1173
 
@@ -263,7 +263,7 @@ Skeptic: rt-refute/zeroread.fb, in debug and --release on Windows: the server wr
 
 ## runtime-5 (medium): On macOS, IPC names longer than 50 bytes fail with NetError OTHER, though 1 to 64 bytes are allowed
 
-Status: open
+Status: fixed in 8963d00f and 48d29db0
 
 Where: runtime/src/net.cpp:372
 
@@ -294,7 +294,7 @@ Skeptic: The Linux harness's long-name scenario, with TMPDIR=/tmp/folders/3l/l8s
 
 ## streams-2 (medium): A blocking Read with a zero (or negative) ReadTimeout never starts reading, and stalls for good after 64 KiB
 
-Status: open
+Status: fixed in 1bac26f5, 8963d00f, and 48d29db0
 
 Where: runtime/src/net.cpp:1173
 
@@ -339,7 +339,7 @@ Skeptic: On Windows, s2.fb (the finding's program) prints -1 in debug and releas
 
 ## streams-3 (medium): TcpListener.Listen with a backlog of 0 or less aborts the process on Windows (libuv assert)
 
-Status: open
+Status: fixed in d28d43f3 and 48d29db0
 
 Where: std/net/tcp.fb:160
 
@@ -370,7 +370,7 @@ Skeptic: On Windows, TcpListener.Listen(address, 0) (s3.fb) prints "Assertion fa
 
 ## streams-4 (medium): On Linux and macOS, a failed IpcListener.Listen at a live name gives that listener a phantom connection
 
-Status: open
+Status: fixed in 83d4e7e8, 8963d00f, and 48d29db0
 
 Where: runtime/src/net.cpp:890
 
@@ -411,7 +411,7 @@ Skeptic: My WSL mirror of bind_pipe and left_behind (rv-net/streams-v/posix/phan
 
 ## streams-5 (medium): IPC names of up to 64 bytes are promised, but on macOS (and on Linux with a long TMPDIR) names over about 50 bytes fail
 
-Status: open
+Status: fixed in 8963d00f and 48d29db0
 
 Where: std/net/ipc.fb:18
 
@@ -443,7 +443,7 @@ Skeptic: pipe_path is uv_os_tmpdir() + '/' + name + '.sock'. uv_pipe_bind2 and u
 
 ## lan-2 (low): Stop says goodbye to the host's A records and the type's enumeration PTR, which other announcers still have
 
-Status: open
+Status: fixed in 871a932c and 48d29db0
 
 Where: std/net/lan.fb:257
 
@@ -549,7 +549,7 @@ Skeptic: Ran lan2.fb: after second.Stop() a socket on the discovery port, joined
 
 ## lan-3 (low): A text too big for one datagram gets past Start's checks, and the service is then silently never announced or found
 
-Status: open
+Status: fixed in 7b031825 and 48d29db0
 
 Where: std/net/lan.fb:711
 
@@ -592,7 +592,7 @@ Skeptic: Ran lan3.fb (300 pairs of 254 bytes, about 76 KB of TXT data), debug an
 
 ## lan-4 (low): The announcer answers queries that already list its answer (no known-answer suppression)
 
-Status: open
+Status: fixed in 871a932c and 48d29db0
 
 Where: std/net/lan.fb:268
 
@@ -663,7 +663,7 @@ Skeptic: Ran lan4.fb: a PTR query for _fbka._udp.local whose answer section alre
 
 ## lan-5 (low): TXT keys are case-sensitive, so keys that differ only by case both survive and lookups miss
 
-Status: open
+Status: fixed in 871a932c and 48d29db0
 
 Where: std/net/lan.fb:692
 
@@ -700,7 +700,7 @@ Skeptic: Ran lan5.fb (text 'Map'='dust' then 'map'='fields') in debug and releas
 
 ## lan-6 (low): The goodbye is never tested: Find can't hear one, though net_lan.fb's header and Stop's comment say it has the service forgotten
 
-Status: open
+Status: fixed in 871a932c
 
 Where: tests/programs/net_lan.fb:79
 
@@ -735,7 +735,7 @@ Skeptic: Ran lan6.fb: a FindAsync that is listening while Stop's goodbye goes ou
 
 ## lan-7 (low): Start's name and text panics have no tests
 
-Status: open
+Status: fixed in f622d8b1
 
 Where: std/net/lan.fb:759
 
@@ -771,7 +771,7 @@ Skeptic: Ran lan7.fb, lan7b.fb, and lan7c.fb: each exits 101 with the right @Pan
 
 ## runtime-7 (low): A Write after the stream's own ShutdownWrite throws RESET ("broken pipe") rather than CLOSED
 
-Status: open
+Status: fixed in 3b4563cd, 1bac26f5, and 48d29db0
 
 Where: runtime/src/net.cpp:1420
 
@@ -816,7 +816,7 @@ Skeptic: rt-refute/shutwrite.fb in debug and --release on Windows printed 'RESET
 
 ## runtime-8 (low): The Unix-socket takeover runs in a test only if panic_net_ipc_name.fb happened to run earlier on that machine
 
-Status: open
+Status: fixed in 8963d00f
 
 Where: tests/programs/net_ipc.fb:26
 
@@ -847,7 +847,7 @@ Skeptic: By reading: net_ipc.fb's first section passes only if Listen('fb-test-n
 
 ## streams-10 (low): net_udp.fb never sends a broadcast or tests the datagram size limit, and udp.fb's LARGEST is unused
 
-Status: open
+Status: fixed in c31911ea and 48d29db0
 
 Where: tests/programs/net_udp.fb:55
 
@@ -908,7 +908,7 @@ Skeptic: udp.fb:17 declares `Const LARGEST = 65507`, and grep finds no other use
 
 ## streams-6 (low): IpcListener.Listen on POSIX deletes any non-socket file at $TMPDIR/<name>.sock
 
-Status: open
+Status: fixed in 56637320, 8963d00f, and 48d29db0
 
 Where: runtime/src/net.cpp:891
 
@@ -938,7 +938,7 @@ Skeptic: My WSL mirror (rv-net/streams-v/posix/regular.c) writes a regular file,
 
 ## streams-7 (low): SetMulticastTtl doesn't check the 1-to-255 range its comment gives, and out-of-range values act differently on each OS
 
-Status: open
+Status: fixed in 78dea4a4 and 48d29db0
 
 Where: std/net/udp.fb:137
 
@@ -975,7 +975,7 @@ Skeptic: On Windows, s7.fb prints "1 set / 255 set / 0 set / 256 OTHER setting t
 
 ## streams-8 (low): IPC names that differ only in case are one name on Windows (and macOS) but two on Linux, and the docs don't say so
 
-Status: open
+Status: fixed in 8963d00f and 48d29db0
 
 Where: std/net/ipc.fb:155
 
@@ -1004,7 +1004,7 @@ Skeptic: On Windows, s8.fb prints "OTHER listening at fb-review-game failed: add
 
 ## streams-9 (low): TcpStream.Close's and IpcStream.Close's comments say a waiting read throws a NetError, but it throws an IOError whose Cause is the NetError
 
-Status: open
+Status: fixed in 76e521f2
 
 Where: std/net/tcp.fb:138
 
