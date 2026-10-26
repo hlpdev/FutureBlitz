@@ -274,13 +274,19 @@ Function Tag(open: Part[], triple: Bool, content: UInt8[], indent: String, name:
     End If
 
     // {{#each name}}, {{#if name}}, or {{#unless name}}, opening a block.
+    // Blanks, line breaks among them, can come before the word and between it and the name.
     If first == 35
-        Local space = 1
-        While space < content.Count && content[space] != Space && content[space] != Tab
+        Local start = 1
+        While start < content.Count && IsBlank(content[start])
+            start += 1
+        End While
+
+        Local space = start
+        While space < content.Count && !IsBlank(content[space])
             space += 1
         End While
 
-        Local word = Text(content[1..space])
+        Local word = Text(content[start..space])
         Local kind = PartKind.EACH
         If word == "if"
             kind = PartKind.IF

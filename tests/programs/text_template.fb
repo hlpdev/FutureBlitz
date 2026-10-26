@@ -66,6 +66,10 @@ For name In ["zero", "one", "nan", "half", "blank", "text", "false", "array", "o
 End For
 Print(Try Template(checks.Join("") + r" {{#unless zero}}U{{/unless}}").Render(tests))
 
+// Blanks, line breaks among them, can pad a tag's words.
+Print(Try Template(r"|{{# if title }}={{/ if }}|{{#each" + "\n" + r"items}}{{ name }}{{/each}}|" +
+                   r"{{#" + "\t\n" + r"unless" + "\r\n" + r"one }}-{{/unless}}|").Render(data))
+
 // An {{#each}} over an Object goes over its values, with @key; names come from the innermost
 // scope that has them, and this, or ".", is the scope itself.
 Local scores = Value.Object()
