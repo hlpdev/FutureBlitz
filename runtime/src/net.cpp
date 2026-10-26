@@ -467,6 +467,13 @@ std::int32_t open_handle(uv_loop_t* loop, socket_t* socket) {
 void socket_t::on_closed(uv_handle_t* handle) {
     auto* socket = static_cast<socket_t*>(handle->data);
     std::erase(sockets().open, socket);
+#ifndef _WIN32
+    // libuv took the Unix socket's file away as it closed, so the name is free.
+    if (socket->lock >= 0) {
+        ::close(socket->lock);
+        socket->lock = -1;
+    }
+#endif
     bool unheld = false;
     {
         const std::scoped_lock lock(socket->mutex);
@@ -931,12 +938,34 @@ bool left_behind(const std::string& path) {
 
 /// Binds an IPC listener at its path, in place of a Unix socket's file nothing listens at.
 std::int32_t bind_pipe(socket_t* socket, const std::string& path) {
+#ifndef _WIN32
+    // The lock says a listener of std's has the name, without connecting to it, which would give
+    // it a connection that ends at once. The OS lets go of it however its program ends.
+    const int lock = ::open((path + ".lock").c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    // libuv's errors on POSIX are errno's, negated.
+    if (lock < 0) {
+        return -errno;
+    }
+
+    if (::flock(lock, LOCK_EX | LOCK_NB) != 0) {
+        ::close(lock);
+        return UV_EADDRINUSE;
+    }
+#endif
     std::int32_t bound =
         uv_pipe_bind2(&socket->pipe, path.data(), path.size(), UV_PIPE_NO_TRUNCATE);
 #ifndef _WIN32
+    // Nothing of std's listens at the name, so a Unix socket's file there was left behind by a
+    // program that ended without closing its listener, unless one that takes no lock listens.
     if (bound == UV_EADDRINUSE && left_behind(path)) {
         ::unlink(path.c_str());
         bound = uv_pipe_bind2(&socket->pipe, path.data(), path.size(), UV_PIPE_NO_TRUNCATE);
+    }
+
+    if (bound == 0) {
+        socket->lock = lock;
+    } else {
+        ::close(lock);
     }
 #endif
     return bound;
