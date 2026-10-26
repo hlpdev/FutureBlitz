@@ -196,9 +196,9 @@ TEST_CASE("Load<T> reads an Enum's member by its name, in any case, and flags jo
         { "ENEMY", 4 },
     };
     for (const auto& [name, bits] : members) {
-        *static_cast<fb_string_t**>(fb_array_push(names, sizeof(fb_string_t*))) =
+        *static_cast<fb_string_t**>(fb_array_push(names, sizeof(fb_string_t*), nullptr)) =
             fb_string_from_bytes(name.data(), static_cast<std::int64_t>(name.size()));
-        *static_cast<std::uint64_t*>(fb_array_push(values, sizeof(std::uint64_t))) = bits;
+        *static_cast<std::uint64_t*>(fb_array_push(values, sizeof(std::uint64_t), nullptr)) = bits;
     }
 
     const auto read = [&](const std::string_view text, const bool flags) -> std::int64_t {
