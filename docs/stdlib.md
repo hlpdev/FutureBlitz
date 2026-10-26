@@ -1113,7 +1113,8 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   `Color32`s, which panic outside it, `ToBytes()` and `Image.FromBytes(width, height, bytes)`,
   copies of its bytes, 4 a pixel, and `Clone()`. It holds 536870911 pixels at most, as a UInt8[]
   holds their bytes. An `HdrImage` is the same of `Color`s, linear light that can be past 1, with
-  `ToFloats()` and `HdrImage.FromFloats`.
+  `ToFloats()` and `HdrImage.FromFloats`, and holds 134217727 pixels at most, as many as
+  stb_image reads of an HDR image.
 - The formats are each a Struct of Static Methods. `Png`, `Jpeg`, `Bmp`, `Tga`, `Gif`, `Qoi`, and
   `WebP` each `Decode(data, limit)` into an Image, and `Hdr.Decode` into an HdrImage; and they
   encode: `Png.Encode(image, level)`, 0 to 9 and 6 by default, deflated by zlib-ng, RGB when every
@@ -1124,7 +1125,8 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   transparent pixels too; and `Hdr.Encode`, Radiance's RGBE, run-length encoded, without alpha,
   a channel that's negative or NaN as 0, and one past RGBE's most, 255 times 2^119, as that
   most. A level or quality out of range, or an image a format can't hold, with no pixels or a
-  side longer than 65535 for JPEG, TGA, or GIF, or 16383 for WebP, panics at the caller.
+  side longer than 65535 for JPEG, TGA, or GIF, or 16383 for WebP, panics at the caller, as does
+  one of more than 268435456 pixels for PNG or APNG, as many as stb_image reads back.
   `Image.Decode(data, limit)` reads any of them but HDR by how its bytes start, and
   `Image.FormatOf(data)` gives the `ImageFormat` they start as, or Null; a TGA has no signature,
   so it's what starts as a TGA's header does once no other format matches.

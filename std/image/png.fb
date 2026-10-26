@@ -23,11 +23,12 @@ Public Struct Png
     End Method
 
     // The PNG of the image, deflated at `level`, from 0 to 9. Panics when the level is another,
-    // or the image has no pixels.
+    // or the image has no pixels or more than 268435456, as many as stb_image reads back.
     @PanicsAtCaller
     Public Static Method Encode(image: Image, level: Int = 6): UInt8[]
         CheckRange(level, 0, 9, "a PNG's level")
         CheckEncodable(image.Width, image.Height, 2147483647, "a PNG")
+        CheckPixelCount(image.Width, image.Height, MOST_PNG_PIXELS, "a PNG")
         Local output: UInt8[] = []
         fb_zlib_png_encode(image.Pixels, image.Width, image.Height, level, output)
         Return output
@@ -46,12 +47,13 @@ Public Struct Png
     // The APNG of the animation's frames, each deflated at `level`, from 0 to 9, whose first
     // frame is the image a decoder without animation shows: each delay in milliseconds up to
     // 65535, in hundredths of a second, rounded, up to 655350, and in seconds past that. Panics
-    // when the level is another, or the animation has no frames, no pixels, or a frame whose
-    // image isn't its size.
+    // when the level is another, or the animation has no frames, no pixels or more than
+    // 268435456, or a frame whose image isn't its size.
     @PanicsAtCaller
     Public Static Method EncodeAnimation(animation: Animation, level: Int = 6): UInt8[]
         CheckRange(level, 0, 9, "a PNG's level")
         CheckEncodable(animation.Width, animation.Height, 2147483647, "an APNG")
+        CheckPixelCount(animation.Width, animation.Height, MOST_PNG_PIXELS, "an APNG")
         If animation.Count == 0 Then Panic("an APNG has at least one frame, and the animation none")
         CheckFrames(animation, "an APNG")
         Local encoder = fb_zlib_apng_encoder_new(animation.Width, animation.Height, animation.Plays,

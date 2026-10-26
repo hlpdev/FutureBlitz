@@ -14,6 +14,11 @@
 #define STBI_REALLOC(pointer, size) realloc(pointer, size)
 #define STBI_FREE(pointer)          free(pointer)
 
+/* Any side an int holds: by default stb_image reads none past 1 << 24, which std.image writes.
+ * std.image checks an image's pixels against its limit first, and stb_image keeps its own checks
+ * of its sizes. */
+#define STBI_MAX_DIMENSIONS 0x7fffffff
+
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_STDIO
 #define STBI_FAILURE_USERMSG
@@ -26,3 +31,27 @@
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+
+/* stbi_info_from_memory for one format, which std.image has already told by how the data starts:
+ * `format` is fb_image_format's 1 PNG, 2 JPEG, 3 BMP, 4 TGA, or 6 HDR. stbi_info_from_memory
+ * tries every format, so why it failed is the last one's, as an image that's too large is
+ * an image of no known type. */
+int fb_stbi_info_of(int format, const stbi_uc* data, int size, int* width, int* height,
+                    int* channels) {
+    stbi__context context;
+    stbi__start_mem(&context, data, size);
+    switch (format) {
+    case 1:
+        return stbi__png_info(&context, width, height, channels);
+    case 2:
+        return stbi__jpeg_info(&context, width, height, channels);
+    case 3:
+        return stbi__bmp_info(&context, width, height, channels);
+    case 4:
+        return stbi__tga_info(&context, width, height, channels);
+    case 6:
+        return stbi__hdr_info(&context, width, height, channels);
+    default:
+        return stbi__err("unknown format", "Image not of any known type, or corrupt");
+    }
+}

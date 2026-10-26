@@ -1,0 +1,2 @@
+3 2
+panic: an HDR image of 134217728 by 1 has more pixels than an HdrImage holds, 134217727, as many as stb_image reads at panic_image_hdr_size.fb:8:15

@@ -1,0 +1,9 @@
+// An HdrImage holds at most 134217727 pixels, as many as stb_image reads of an HDR image, and
+// making a larger one panics where it's made, before its pixels are.
+Import std.core
+Import std.image
+
+Local small = HdrImage(3, 2)
+Print(small.Width, small.Height)
+Local large = HdrImage(134217728, 1)
+Print("not reached")

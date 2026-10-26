@@ -1,0 +1,8 @@
+// An APNG has at most 268435456 pixels, as many as stb_image reads back, and encoding a larger
+// one panics where it's encoded, before its frames are looked at.
+Import std.core
+Import std.image
+
+Local most = Animation(268435456, 1)
+Print(most.Width * most.Height)
+Png.EncodeAnimation(Animation(268435457, 1))

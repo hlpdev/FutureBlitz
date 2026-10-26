@@ -15,10 +15,11 @@ Public Class HdrImage
     Field Rows: Int
 
     // An image of width by height pixels, each transparent black. Panics when either is negative,
-    // or there'd be more pixels than an HdrImage holds, 536870911.
+    // or there'd be more pixels than an HdrImage holds, 134217727, as many as stb_image reads of
+    // an HDR image.
     @PanicsAtCaller
     Public New(width: Int, height: Int)
-        CheckSize(width, height)
+        CheckHdrSize(width, height)
         Columns = width
         Rows = height
         Pixels = []
@@ -36,7 +37,7 @@ Public Class HdrImage
     // panics for.
     @PanicsAtCaller
     Public Static Method FromFloats(width: Int, height: Int, values: Float32[]): HdrImage
-        CheckSize(width, height)
+        CheckHdrSize(width, height)
         If values.Count != width * height * 4
             Panic("an image of {width} by {height} pixels has {width * height * 4} Floats, not " +
                   "{values.Count}")
@@ -83,7 +84,10 @@ Public Class HdrImage
     Public Method Clone(): HdrImage => HdrImage(Columns, Rows, Pixels.Clone())
 
     // An image's pixels in linear light, through sRGB's gamma, as Color32's ToColor gives them.
+    // Panics when the image has more pixels than an HdrImage holds.
+    @PanicsAtCaller
     Public Static Method FromImage(image: Image): HdrImage
+        CheckHdrSize(image.Width, image.Height)
         Local linear: Color[] = []
         For byte = 0 To 255
             linear.Add(Color32(byte As UInt8, 0, 0, byte As UInt8).ToColor())
@@ -128,6 +132,17 @@ Public Class HdrImage
     End Method
 End Class
 
+// Panics when an HdrImage of width by height pixels can't be: when either is negative, or there'd
+// be more pixels than it holds.
+@PanicsAtCaller
+Function CheckHdrSize(width: Int, height: Int)
+    CheckSize(width, height)
+    If width > 0 && height > MOST_HDR_PIXELS / width
+        Panic("an HDR image of {width} by {height} has more pixels than an HdrImage holds, " +
+              "{MOST_HDR_PIXELS}, as many as stb_image reads")
+    End If
+End Function
+
 Public Struct Hdr
     // Hdr isn't made: it's only its Static Methods.
     New()
@@ -139,7 +154,7 @@ Public Struct Hdr
     @PanicsAtCaller
     Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): HdrImage Throws IOError
         CheckLimit(limit)
-        Local image = fb_stb_decode(data, 6, Min(limit, MOST_PIXELS))
+        Local image = fb_stb_decode(data, 6, Min(limit, MOST_HDR_PIXELS))
         Try CheckDecoded(image, "HDR")
         Local pixels: Float32[] = []
         fb_image_hdr_pixels(image, pixels)

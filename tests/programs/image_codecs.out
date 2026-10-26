@@ -60,7 +60,7 @@ INVALID_DATA the PNG data isn't valid: Corrupt PNG
 OTHER the PNG image is too large: its 117 pixels are more than 116
 no error
 INVALID_DATA the JPEG data isn't valid: it isn't a JPEG
-INVALID_DATA the BMP data isn't valid: Image not of any known type, or corrupt
+UNEXPECTED_END the BMP data ends too soon
 INVALID_DATA the TGA data isn't valid: it isn't a TGA
 UNEXPECTED_END the QOI data ends too soon
 UNEXPECTED_END the QOI data ends too soon

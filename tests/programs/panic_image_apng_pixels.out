@@ -1,0 +1,2 @@
+268435456
+panic: an APNG has at most 268435456 pixels, as stb_image reads no more back, and the image is 268435457 by 1 at panic_image_apng_pixels.fb:8:1

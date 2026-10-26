@@ -18,6 +18,10 @@
 
 using namespace fb::image;
 
+/// stb.c's stbi_info_from_memory for the format the data is, so why it fails is that format's.
+extern "C" int fb_stbi_info_of(int format, const stbi_uc* data, int size, int* width, int* height,
+                               int* channels);
+
 namespace {
 
 /// Frees what stb_image gives once it goes.
@@ -63,9 +67,17 @@ image_t* decode(const fb_array_t* data, const std::int32_t format, const std::in
         return failed(RESULT_INVALID, std::string("it isn't ") + name_of(format));
     }
 
+    // A BMP ends too soon when its file header, or the header after it, which says how long it
+    // is, does: stb_image reads what's past the end as 0s, a header it doesn't support.
+    const std::span<const std::uint8_t> all = bytes_of(data);
+    if (format == FORMAT_BMP &&
+        (all.size() < 18 ||
+         all.size() < 14 + (little16_at(all, 14) | (std::size_t{ little16_at(all, 16) } << 16U)))) {
+        return failed(RESULT_ENDS_TOO_SOON, "its headers end too soon");
+    }
+
     // stb_image reads no BMP that's run-length encoded, and says it doesn't know the format. The
     // compression is in every header but OS/2's first, of 12 bytes, whose palette is there.
-    const std::span<const std::uint8_t> all = bytes_of(data);
     if (format == FORMAT_BMP && all.size() >= 34 && little16_at(all, 14) != 12 &&
         (all[30] == 1 || all[30] == 2) && all[31] == 0 && all[32] == 0 && all[33] == 0) {
         return failed(RESULT_UNSUPPORTED, "it's run-length encoded, which stb_image doesn't read");
@@ -76,7 +88,7 @@ image_t* decode(const fb_array_t* data, const std::int32_t format, const std::in
     int width = 0;
     int height = 0;
     int channels = 0;
-    if (stbi_info_from_memory(bytes, size, &width, &height, &channels) == 0) {
+    if (fb_stbi_info_of(format, bytes, size, &width, &height, &channels) == 0) {
         return stb_failed();
     }
 

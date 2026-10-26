@@ -1,0 +1,22 @@
+// What std.image writes with a side past 2^24, as far as stb_image reads by default, it reads
+// back; and a PNG of more pixels than stb_image reads is too large, rather than broken.
+Import std.core
+Import std.math.color
+Import std.image
+
+Local wide = Image(16777217, 1)
+wide[16777216, 0] = Color32(10, 20, 30)
+Local png = Try Png.Decode(Png.Encode(wide))
+Print("PNG:", png.Width, png.Height, png[16777216, 0], png[0, 0])
+Local bmp = Try Bmp.Decode(Bmp.Encode(wide))
+Print("BMP:", bmp.Width, bmp.Height, bmp[16777216, 0], bmp[0, 0])
+
+// A PNG's signature and header, of 16385 by 16384 RGBA pixels, more than 2^28.
+Local header: UInt8[] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48,
+                         0x44, 0x52, 0, 0, 0x40, 0x01, 0, 0, 0x40, 0, 8, 6, 0, 0, 0, 0, 0, 0, 0]
+Try
+    Png.Decode(header)
+    Print("no error")
+Catch e As IOError
+    Print(e.Kind, e.Message)
+End Try

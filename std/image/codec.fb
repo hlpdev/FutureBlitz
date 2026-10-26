@@ -62,6 +62,14 @@ End Extern
 // The most pixels an Image holds, four bytes each in a UInt8[], which an Int counts.
 Package Const MOST_PIXELS = 536870911
 
+// The most pixels a PNG, or an APNG's frame, std.image writes has: as many as stb_image reads
+// back, 4 bytes each in 2^30 bytes.
+Package Const MOST_PNG_PIXELS = 268435456
+
+// The most pixels an HdrImage holds: as many as stb_image reads of an HDR image, 16 bytes each in
+// what an Int counts.
+Package Const MOST_HDR_PIXELS = 134217727
+
 // The longest delay a frame has, in milliseconds: APNG's, 65535 seconds.
 Package Const LONGEST_DELAY = 65535000
 
@@ -93,6 +101,16 @@ Package Function CheckEncodable(width: Int, height: Int, most: Int, format: Stri
     If width > most || height > most
         Panic("{format}'s sides are at most {most} pixels long, and the image is {width} by " +
               "{height}")
+    End If
+End Function
+
+// Panics when an image of width by height pixels, at least one, has more than `most`, which
+// stb_image reads no more of back in `format`.
+@PanicsAtCaller
+Package Function CheckPixelCount(width: Int, height: Int, most: Int, format: String)
+    If height > most / width
+        Panic("{format} has at most {most} pixels, as stb_image reads no more back, and the " +
+              "image is {width} by {height}")
     End If
 End Function
 
