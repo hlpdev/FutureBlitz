@@ -118,6 +118,12 @@ Print(Try set.Render("plain.txt", data))
 Try set.Add("row.html", r"<td>{{title}}</td>")
 Try set.Add("mail.txt", r"{{title}} {{> row.html}} {{title}}")
 Print(Try set.Render("mail.txt", data))
+// A template's name can be anything, a line break in it too.
+Local odd = Templates()
+Try odd.Add("a", "one\n")
+Try odd.Add("a\n  ", "other\n")
+Try odd.Add("p", r"  {{> a}}" + "\n")
+Print(Try odd.Render("p", data) + Try odd.Render("a\n  ", data))
 // A line break of "\r\n" ends a line, and the first and last lines need none.
 Local crlf = Try Template(r"{{#if title}}" + "\r\n" + r"yes" + "\r\n" + r"{{/if}}").Render(data)
 Print(crlf == "yes\r\n")

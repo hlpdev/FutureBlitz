@@ -26,6 +26,9 @@ True False
 <b>Fruit & <veg></b>
 
 Fruit & <veg> <td>Fruit &amp; &lt;veg&gt;</td> Fruit & <veg>
+  one
+other
+
 True
 BAD_TEMPLATE: line 1, column 3: this {{ has no }} after it
 BAD_TEMPLATE: line 1, column 3: this {{{ has no }}} after it

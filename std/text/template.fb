@@ -44,13 +44,13 @@ End Class
 // too, and so do the partials it renders, whatever their names.
 Public Class Templates
     Field Sources: Map<String, String>
-    // Each template read, by its name, and a partial indented on its line by its name, a newline,
-    // and the indentation.
-    Field Read: Map<String, Part[]>
+    // Each template read, by its name, then by the indentation it's read with, which is "" but for
+    // a partial indented on its line.
+    Field Read: Map<String, Map<String, Part[]>>
 
     Public New()
         Sources = Map<String, String>()
-        Read = Map<String, Part[]>()
+        Read = Map<String, Map<String, Part[]>>()
     End New
 
     // Adds the template that `text` is as `name`, in place of one that has the name already.
@@ -59,9 +59,10 @@ Public Class Templates
     Public Method Add(name: String, text: String) Throws FormatError
         Local parts = Try Parsed(text, name)
         Sources[name] = text
-        // An indented partial is read again from the new text.
-        Read.Clear()
-        Read[name] = parts
+        // Its indented partials are read again from the new text.
+        Local read = Map<String, Part[]>()
+        read[""] = parts
+        Read[name] = read
     End Method
 
     // Whether it has a template of the name.
@@ -91,11 +92,11 @@ Public Class Templates
             Throw FormatError(FormatErrorKind.MISSING_VALUE, "there's no template named \"{name}\"")
         End If
 
-        Local key = indent == "" ? name : "{name}\n{indent}"
-        Local found = Read.Get(key)
+        Local read = Read[name]
+        Local found = read.Get(indent)
         If found != Null Then Return found
         Local parts = Try Parsed(Indented(source, indent), name)
-        Read[key] = parts
+        read[indent] = parts
         Return parts
     End Method
 End Class
