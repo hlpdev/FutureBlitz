@@ -1,0 +1,15 @@
+// An AcmeClient's account key is an ECDSA P-256 private key, which signs its requests: a public
+// one panics where the client is made.
+Import std.core
+Import std.collections
+Import std.crypto
+Import std.net
+
+Local bytes: UInt8[] = []
+For i = 1 To 32
+    bytes.Add(i As UInt8)
+End For
+
+Print(AcmeClient("http://127.0.0.1:1/dir", Key(KeyKind.ECDSA_P256, True, bytes)).Account ?? "-")
+AcmeClient("http://127.0.0.1:1/dir", Key(KeyKind.ECDSA_P256, False, EcdsaP256.PublicKeyOf(bytes)))
+Print("unreachable")

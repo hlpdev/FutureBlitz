@@ -1,0 +1,298 @@
+// An ACME client (RFC 8555), as Let's Encrypt's are: AcmeClient makes an account with a CA, from
+// its directory's URL, and orders a certificate for names it proves it holds by HTTP-01,
+// publishing each challenge's key authorization through AcmeTokens, which a server answers on port
+// 80 at /.well-known/acme-challenge/<token>. Each request is a JWS of the account's key, ES256,
+// with a nonce from the CA, which a refused nonce is tried again with, once. Its requests are
+// Async, as the server that answers the challenges runs Async code. A CA's refusal is a NetError
+// of HTTP_STATUS that says what it said; a name it couldn't check, or an order it gave up on, is
+// a NetError of OTHER.
+
+Import std.core
+Import std.collections
+Import std.concurrent
+Import std.crypto
+Import std.data.json
+Import std.net.acme
+Import std.net.http
+Import std.text
+Import std.time
+
+// How many times a client asks about what the CA hasn't finished, waiting as RetryAfter says.
+Const POLL_LIMIT = 30
+
+// What a CA's error types start with.
+Const ERROR_PREFIX = "urn:ietf:params:acme:error:"
+
+// The key authorizations of an ACME client's HTTP-01 challenges, by token, which a server gives
+// for /.well-known/acme-challenge/<token>, through Answer, from any thread.
+Public Shared Class AcmeTokens
+    ReadOnly Field Published: ConcurrentMap<String, String>
+
+    Public New()
+        Published = ConcurrentMap<String, String>()
+    End New
+
+    Public Method Publish(token: String, keyAuthorization: String)
+        Published.Add(token, keyAuthorization)
+    End Method
+
+    Public Method Withdraw(token: String)
+        Published.Remove(token)
+    End Method
+
+    // What a request for `path` is answered with: the key authorization for
+    // /.well-known/acme-challenge/<token>, or Null for another path, or a token it hasn't.
+    Public Method Answer(path: String): String?
+        Local prefix = "/.well-known/acme-challenge/"
+        If !path.StartsWith(prefix) Then Return Null
+        Return Published.Get(path.Slice(prefix.Length, path.Length))
+    End Method
+End Class
+
+// A client of one ACME CA, with an account key, an ECDSA P-256 private key, which signs each
+// request, and Http, which it sends them with, which can trust a test CA's roots.
+Public Class AcmeClient
+    ReadOnly Field DirectoryUrl: String
+    ReadOnly Field AccountKey: Key
+    ReadOnly Field Client: HttpClient
+    // The directory, once it's read, the next nonce, and the account's URL, its kid.
+    Field Urls: Value?
+    Field Nonce: String?
+    Field Kid: String?
+
+    // A client of the CA whose directory is at `directory`. Panics unless accountKey is an ECDSA
+    // P-256 private key.
+    @PanicsAtCaller
+    Public New(directory: String, accountKey: Key)
+        If accountKey.Kind != KeyKind.ECDSA_P256 || !accountKey.IsPrivate
+            Panic("an ACME account's key is an ECDSA P-256 private key, not {accountKey.Kind}")
+        End If
+
+        DirectoryUrl = directory
+        AccountKey = accountKey
+        Client = HttpClient()
+    End New
+
+    // What its requests go through.
+    Public Property Http: HttpClient
+        Get => Client
+    End Property
+
+    // The account's URL, once Register or Obtain has made it or found it.
+    Public Property Account: String?
+        Get => Kid
+    End Property
+
+    // Makes the account, agreeing to the CA's terms of service, with `contact`, mailto: URLs, or
+    // finds the one the key has, and gives its URL.
+    Public Async Method RegisterAsync(contact: String[] = []): String Throws NetError, TimeoutError
+        Local payload = Value.Object()
+        payload["termsOfServiceAgreed"] = Value(True)
+        Local contacts = Value.Array()
+        For each In contact
+            contacts.Add(Value(each))
+        End For
+
+        payload["contact"] = contacts
+        Local response = Try Await PostAsync(Try Await UrlOfAsync("newAccount"),
+                                             Json.Write(payload))
+        Local location = response.Headers.Get("Location")
+        If location == Null
+            Throw NetError(NetErrorKind.OTHER, "the CA's new account has no Location",
+                           response.Url)
+        End If
+
+        Kid = location
+        Return location
+    End Method
+
+    // A certificate for `names`, DNS names, of `certificateKey`, an ECDSA P-256 private key, as
+    // PEM, its chain after it: it orders one, publishes each name's HTTP-01 key authorization
+    // through `tokens` while the CA checks it, finalizes the order with a CSR, and gives what the
+    // CA issued. It registers first, with no contact, when Register hasn't. Panics as
+    // Acme.CertificateRequest does for the key and names.
+    @PanicsAtCaller
+    Public Async Method ObtainAsync(names: String[], certificateKey: Key,
+                                    tokens: AcmeTokens): String Throws NetError, TimeoutError
+        Local request = Acme.CertificateRequest(certificateKey, names)
+        If Kid == Null Then Try Await RegisterAsync()
+        Local identifiers = Value.Array()
+        For name In names
+            Local identifier = Value.Object()
+            identifier["type"] = Value("dns")
+            identifier["value"] = Value(name)
+            identifiers.Add(identifier)
+        End For
+
+        Local wanted = Value.Object()
+        wanted["identifiers"] = identifiers
+        Local ordered = Try Await PostAsync(Try Await UrlOfAsync("newOrder"), Json.Write(wanted))
+        Local orderUrl = ordered.Headers.Get("Location") ?? ""
+        Local order = Try ReadOf(ordered)
+        For authorization In At(order, "authorizations")?.AsArray() ?? []
+            Try Await AuthorizeAsync(authorization.AsString() ?? "", tokens)
+        End For
+
+        order = Try Await AwaitStatusAsync(orderUrl, "ready", "the order")
+        Local finalizing = Value.Object()
+        finalizing["csr"] = Value(Base64Url(request))
+        Try Await PostAsync(Text(order, "finalize"), Json.Write(finalizing))
+        order = Try Await AwaitStatusAsync(orderUrl, "valid", "the order")
+        Local issued = Try Await PostAsync(Text(order, "certificate"), Null)
+        Return issued.Text
+    End Method
+
+    // Proves the name of the authorization at `url` by its HTTP-01 challenge, unless it's valid
+    // already.
+    Async Method AuthorizeAsync(url: String, tokens: AcmeTokens) Throws NetError, TimeoutError
+        Local authorization = Try ReadOf(Try Await PostAsync(url, Null))
+        If Text(authorization, "status") == "valid" Then Return
+        Local name = Text(At(authorization, "identifier"), "value", "?")
+        Local challenge: Value? = Null
+        For each In At(authorization, "challenges")?.AsArray() ?? []
+            If Text(each, "type") == "http-01" Then challenge = each
+        End For
+
+        If challenge == Null
+            Throw NetError(NetErrorKind.OTHER, "the CA offers no HTTP-01 challenge for {name}", url)
+        End If
+
+        Local token = Text(challenge, "token")
+        tokens.Publish(token, Acme.KeyAuthorization(token, AccountKey))
+        Try
+            Try Await PostAsync(Text(challenge, "url"), "{{}}")
+            Try Await AwaitStatusAsync(url, "valid", "the authorization of {name}")
+        Finally
+            tokens.Withdraw(token)
+        End Try
+    End Method
+
+    // The object at `url` once its status is `wanted`, asking again while the CA works on it.
+    // Throws a NetError of OTHER when it's invalid, or still isn't after POLL_LIMIT times.
+    Async Method AwaitStatusAsync(url: String, wanted: String,
+                                  what: String): Value Throws NetError, TimeoutError
+        For attempt = 1 To POLL_LIMIT
+            Local response = Try Await PostAsync(url, Null)
+            Local object = Try ReadOf(response)
+            Local status = Text(object, "status")
+            If status == wanted Then Return object
+            If status == "invalid"
+                Local why = ErrorDetail(object) ?? "it gave no reason"
+                Throw NetError(NetErrorKind.OTHER, "the CA found {what} invalid: {why}", url)
+            End If
+
+            Await Timer.After(RetryAfter(response))
+        End For
+
+        Throw NetError(NetErrorKind.OTHER, "{what} isn't {wanted} after {POLL_LIMIT} tries", url)
+    End Method
+
+    // A JWS of `payload` to `url`, POSTed, or a POST-as-GET for a Null one, and the CA's answer.
+    // A refused nonce is tried again, once, with the nonce that came with the refusal.
+    Async Method PostAsync(url: String, payload: String?): HttpResponse Throws NetError,
+                                                                           TimeoutError
+        For attempt = 1 To 2
+            Local nonce = Try Await NextNonceAsync()
+            Local body = Body(Signed(url, nonce, payload ?? "").Bytes, "application/jose+json")
+            Local response = Try Await Client.SendAsync(HttpMethod.POST, url, body)
+            Nonce = response.Headers.Get("Replay-Nonce")
+            If response.IsSuccess Then Return response
+            Local problem = Try? Json.Read(response.Text)
+            Local kind = Text(problem, "type")
+            If kind == ERROR_PREFIX + "badNonce" && attempt == 1 Then Continue
+            Local detail = Text(problem, "detail", response.Text)
+            Local named = kind
+            If kind.StartsWith(ERROR_PREFIX)
+                named = kind.Slice(ERROR_PREFIX.Length, kind.Length)
+            End If
+            Throw NetError(NetErrorKind.HTTP_STATUS,
+                           "the ACME CA answered {response.Status}: {detail} ({named})", url)
+        End For
+
+        Unreachable()
+    End Method
+
+    // The nonce the last answer gave, or a new one from the CA.
+    Async Method NextNonceAsync(): String Throws NetError, TimeoutError
+        Local kept = Nonce
+        Nonce = Null
+        If kept != Null Then Return kept
+        Local response = Try Await Client.HeadAsync(Try Await UrlOfAsync("newNonce"))
+        Return response.Headers.Get("Replay-Nonce") ?? ""
+    End Method
+
+    // The URL the directory gives for `name`, reading it the first time.
+    Async Method UrlOfAsync(name: String): String Throws NetError, TimeoutError
+        If Urls == Null
+            Local response = Try Await Client.GetAsync(DirectoryUrl)
+            Try response.EnsureSuccess()
+            Urls = Try ReadOf(response)
+        End If
+
+        Local url = At(Urls, name)?.AsString()
+        If url == Null
+            Throw NetError(NetErrorKind.OTHER, "the ACME directory has no {name}", DirectoryUrl)
+        End If
+
+        Return url
+    End Method
+
+    // A flattened JWS (RFC 7515) of `payload` to `url`, with `nonce`: its protected header names
+    // the account by its kid, or before there's one, by its key's JWK.
+    Method Signed(url: String, nonce: String, payload: String): String
+        Local header = Value.Object()
+        header["alg"] = Value("ES256")
+        Local kid = Kid
+        If kid != Null
+            header["kid"] = Value(kid)
+        Else
+            header["jwk"] = Acme.Jwk(AccountKey)
+        End If
+
+        header["nonce"] = Value(nonce)
+        header["url"] = Value(url)
+        Local protected = Base64Url(Json.Write(header).Bytes)
+        Local content = Base64Url(payload.Bytes)
+        Local jws = Value.Object()
+        jws["protected"] = Value(protected)
+        jws["payload"] = Value(content)
+        Local signature = EcdsaP256.Sign(AccountKey.Bytes, "{protected}.{content}")
+        jws["signature"] = Value(Base64Url(signature))
+        Return Json.Write(jws)
+    End Method
+End Class
+
+// The member `key` of `object`, or Null when it isn't an object, or has none.
+Function At(object: Value?, key: String): Value? => object == Null ? Null : object[key]
+
+// The text of the member `key` of `object`, or `fallback` when it has no string there.
+Function Text(object: Value?, key: String, fallback: String = ""): String
+    Return At(object, key)?.AsString() ?? fallback
+End Function
+
+// A response's JSON. Throws a NetError of OTHER for one that isn't.
+Function ReadOf(response: HttpResponse): Value Throws NetError
+    Local read = Try? Json.Read(response.Text)
+    If read == Null
+        Throw NetError(NetErrorKind.OTHER, "the CA's answer isn't JSON", response.Url)
+    End If
+    Return read
+End Function
+
+// What an authorization's or order's error says, or its challenge's, or Null.
+Function ErrorDetail(object: Value): String?
+    Local detail = At(At(object, "error"), "detail")?.AsString()
+    If detail != Null Then Return detail
+    For challenge In At(object, "challenges")?.AsArray() ?? []
+        detail = At(At(challenge, "error"), "detail")?.AsString()
+        If detail != Null Then Return detail
+    End For
+
+    Return Null
+End Function
+
+// How long to wait before asking again: the response's Retry-After in seconds, or a second.
+Function RetryAfter(response: HttpResponse): Duration
+    Local seconds = Int64.Parse(response.Headers.Get("Retry-After") ?? "")
+    Return (seconds != Null && seconds > 0 && seconds < 60 ? seconds : 1).Seconds
+End Function

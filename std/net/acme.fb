@@ -1,19 +1,26 @@
 // std.net.acme: what automatic HTTPS needs of ACME (RFC 8555), as Let's Encrypt speaks it. Acme's
 // CertificateRequest makes the certificate signing request an order is finalized with, as DER,
-// for a P-256 key and the DNS names it's for.
+// for a P-256 key and the DNS names it's for; its Jwk and Thumbprint give an account key's JWK
+// (RFC 7517) and its thumbprint (RFC 7638), and KeyAuthorization what an HTTP-01 challenge's
+// response is. AcmeClient, in acme_client.fb, goes through an order with a CA.
 
 Import std.core
 Import std.collections
 Import std.crypto
+Import std.data.json
+Import std.text
 
 // A name's most bytes, and a label's, as DNS has them.
 Const NAME_LIMIT = 253
 Const LABEL_LIMIT = 63
+// A common name's most bytes, X.520's ub-common-name.
+Const COMMON_NAME_LIMIT = 64
 
 // DER's tags, of what a request holds.
 Const DER_INTEGER: UInt8 = 0x02
 Const DER_BIT_STRING: UInt8 = 0x03
 Const DER_OCTET_STRING: UInt8 = 0x04
+Const DER_UTF8_STRING: UInt8 = 0x0C
 Const DER_SEQUENCE: UInt8 = 0x30
 Const DER_SET: UInt8 = 0x31
 // A request's attributes, [0], and a subjectAltName's dNSName, [2].
@@ -25,11 +32,44 @@ Public Struct Acme
     New()
     End New
 
+    // The JWK (RFC 7517) of `key`'s public key, an ECDSA P-256 key, private or public: its curve,
+    // its type, and its point's x and y in base64url, in that order, which its thumbprint takes.
+    // Panics for a key of another kind.
+    @PanicsAtCaller
+    Public Static Method Jwk(key: Key): Value
+        If key.Kind != KeyKind.ECDSA_P256
+            Panic("an ACME account's key is an ECDSA P-256 key, not {key.Kind}")
+        End If
+
+        Local point = key.IsPrivate ? EcdsaP256.PublicKeyOf(key.Bytes) : key.Bytes
+        Local jwk = Value.Object()
+        jwk["crv"] = Value("P-256")
+        jwk["kty"] = Value("EC")
+        jwk["x"] = Value(Base64Url(point[1..33]))
+        jwk["y"] = Value(Base64Url(point[33..65]))
+        Return jwk
+    End Method
+
+    // `key`'s JWK thumbprint (RFC 7638): SHA-256 of its JWK's members, in order, without
+    // spaces, in base64url.
+    @PanicsAtCaller
+    Public Static Method Thumbprint(key: Key): String
+        Return Base64Url(Sha256.Hash(Json.Write(Jwk(key))))
+    End Method
+
+    // What an HTTP-01 challenge's response is: its token, then ".", then the account key's
+    // thumbprint.
+    @PanicsAtCaller
+    Public Static Method KeyAuthorization(token: String, accountKey: Key): String
+        Return "{token}.{Thumbprint(accountKey)}"
+    End Method
+
     // A certificate signing request (PKCS #10) of `key`, an ECDSA P-256 private key, which signs
-    // it, for `names`, DNS names, which its subjectAltName lists, in order, and its subject
-    // doesn't: ACME's CAs read the names there. Panics for a key of another kind, no names, or a
-    // name that isn't a DNS name of ASCII letters, digits, and hyphens, as an IDN's A-label is,
-    // maybe with "*." first, for a wildcard.
+    // it, for `names`, DNS names, which its subjectAltName lists, in order, where ACME's CAs read
+    // them, and whose subject's common name is the first name that fits in one, 64 bytes, as
+    // certbot's is, since some readers, mbedTLS's among them, don't take an empty subject. Panics
+    // for a key of another kind, no names, or a name that isn't a DNS name of ASCII letters,
+    // digits, and hyphens, as an IDN's A-label is, maybe with "*." first, for a wildcard.
     @PanicsAtCaller
     Public Static Method CertificateRequest(key: Key, names: String[]): UInt8[]
         If key.Kind != KeyKind.ECDSA_P256 || !key.IsPrivate
@@ -56,9 +96,20 @@ Public Struct Acme
         Local requested: UInt8[] = [0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09,
                                     0x0E]
         requested.AddAll(Der(DER_SET, Der(DER_SEQUENCE, Der(DER_SEQUENCE, altName))))
-        // Version 0, an empty subject, the key, and the extensions.
+        // 2.5.4.3, the common name, as a UTF8String.
+        Local subject: UInt8[] = []
+        For name In names
+            If name.Bytes.Count <= COMMON_NAME_LIMIT
+                Local common: UInt8[] = [0x06, 0x03, 0x55, 0x04, 0x03]
+                common.AddAll(Der(DER_UTF8_STRING, name.Bytes))
+                subject = Der(DER_SET, Der(DER_SEQUENCE, common))
+                Break
+            End If
+        End For
+
+        // Version 0, the subject, the key, and the extensions.
         Local info: UInt8[] = [DER_INTEGER, 0x01, 0x00]
-        info.AddAll(Der(DER_SEQUENCE, []))
+        info.AddAll(Der(DER_SEQUENCE, subject))
         info.AddAll(publicKey)
         info.AddAll(Der(DER_ATTRIBUTES, Der(DER_SEQUENCE, requested)))
         Local signed = Der(DER_SEQUENCE, info)
@@ -75,6 +126,9 @@ Public Struct Acme
         Return Der(DER_SEQUENCE, request)
     End Method
 End Struct
+
+// `bytes` in base64url, without padding, as JOSE has them.
+Package Function Base64Url(bytes: UInt8[]): String => Base64.Encode(bytes, True, False)
 
 // Panics where it's called unless `name` is a DNS name a certificate can be for.
 @PanicsAtCaller

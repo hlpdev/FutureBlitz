@@ -5,12 +5,16 @@
 // fourth port it bound and let go of, which refuses connections, and runs the program it's
 // given, with an environment that names no proxy. The program's input is the HTTP, HTTPS, and
 // refused URLs, a line each, then the HTTPS URL that offers only HTTP/1.1, then the test CA's
-// PEM, then what this server's own input was. It exits as the program does, with its exit code;
-// the program's output is its own.
+// PEM, then the port the program answers ACME's HTTP-01 challenges on, then what this server's
+// own input was. It exits as the program does, with its exit code; the program's output is its
+// own. Under /acme/ on the HTTP port is the ACME tests' CA (../acme_ca), whose directory is
+// /acme/dir, whose root is at /acme/root, and which /acme/refuse-nonce has refuse a nonce.
 //
 //     fb_http_test_server <program>
 //
 // Each path it answers is in answer(), below.
+
+#include "acme_ca.hpp"
 
 #include <algorithm>
 #include <array>
@@ -29,6 +33,7 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 #include <memory>
+#include <mutex>
 #include <nghttp2/nghttp2.h>
 #include <optional>
 #include <psa/crypto.h>
@@ -462,6 +467,94 @@ std::string compressed(const std::string_view coding, const std::string& text) {
 /// What the connection does after a response.
 enum class after_t : std::uint8_t { KEEP, CLOSE, RESET };
 
+/// The ACME tests' CA, which one request at a time goes to, and the port its HTTP-01 checks go
+/// to, where the program answers them.
+std::unique_ptr<fb::test::acme_ca_t> acme_ca;
+std::mutex acme_lock;
+std::uint16_t challenge_port = 0;
+
+/// The body of what 127.0.0.1's challenge port answers for a challenge's well-known path, as the
+/// CA's check of `name` reads it, with `name` as its Host, or nothing for no answer of 200 within
+/// 5 seconds.
+std::optional<std::string> fetch_challenge(const std::string& name, const std::string& token) {
+    const socket_t socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (socket == no_socket) {
+        return std::nullopt;
+    }
+
+#ifdef _WIN32
+    const DWORD wait = 5000;
+    setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&wait), sizeof(wait));
+#else
+    const timeval wait{ .tv_sec = 5, .tv_usec = 0 };
+    setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &wait, sizeof(wait));
+#endif
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons(challenge_port);
+    std::string response;
+    if (connect(socket, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0) {
+        const std::string request = "GET /.well-known/acme-challenge/" + token +
+                                    " HTTP/1.1\r\nHost: " + name + "\r\nConnection: close\r\n\r\n";
+        send(socket, request.data(), static_cast<int>(request.size()), 0);
+        std::array<char, 4096> chunk{};
+        int got = 0;
+        while ((got = recv(socket, chunk.data(), static_cast<int>(chunk.size()), 0)) > 0) {
+            response.append(chunk.data(), static_cast<std::size_t>(got));
+        }
+    }
+
+    close_socket(socket);
+    const std::size_t body = response.find("\r\n\r\n");
+    if (!response.starts_with("HTTP/1.1 200") || body == std::string::npos) {
+        return std::nullopt;
+    }
+
+    return response.substr(body + 4);
+}
+
+/// The CA's answer to a request of `path` under /acme/, or its root at /acme/root; a GET of
+/// /acme/refuse-nonce has it refuse the next request's nonce.
+response_t acme_answer(const request_t& request, const std::string& path) {
+    if (path == "/root") {
+        response_t root = text(fb::test::acme_ca_t::root_pem());
+        root.headers = { { "Content-Type", "application/pem-certificate-chain" } };
+        return root;
+    }
+
+    fb::test::acme_response_t answered;
+    {
+        const std::scoped_lock lock(acme_lock);
+        if (path == "/refuse-nonce") {
+            acme_ca->refuse_nonce();
+            return text("refusing\n");
+        }
+
+        answered =
+            acme_ca->handle({ .method = request.method, .path = path, .body = request.body });
+    }
+
+    static const std::map<int, std::string> reasons{
+        { 200, "OK" },
+        { 201, "Created" },
+        { 204, "No Content" },
+        { 400, "Bad Request" },
+        { 401, "Unauthorized" },
+        { 403, "Forbidden" },
+        { 404, "Not Found" },
+        { 405, "Method Not Allowed" },
+        { 500, "Internal Server Error" },
+    };
+    const auto reason = reasons.find(answered.status);
+    return {
+        .status = answered.status,
+        .reason = reason != reasons.end() ? reason->second : "Unknown",
+        .headers = std::move(answered.headers),
+        .body = std::move(answered.body),
+    };
+}
+
 /// Each path's answer:
 ///
 /// - /hello: "hello"; /utf8: text that isn't all well-formed UTF-8.
@@ -484,6 +577,7 @@ enum class after_t : std::uint8_t { KEEP, CLOSE, RESET };
 /// - /close: no response, closed; /reset: no response, reset; /truncated: 5 of the 100 bytes it
 ///   says.
 /// - An absolute URL, as a proxy is sent: "proxied <path>".
+/// - /acme/...: the ACME tests' CA, with its root at /acme/root.
 std::pair<response_t, after_t> answer(const request_t& request) {
     const std::string_view path = request.path();
     const auto starts = [&](const std::string_view prefix) { return path.starts_with(prefix); };
@@ -495,6 +589,10 @@ std::pair<response_t, after_t> answer(const request_t& request) {
         const std::size_t slash = target.find('/', std::string_view("http://").size());
         return { text("proxied " + std::string(target.substr(std::min(target.size(), slash)))),
                  after_t::KEEP };
+    }
+
+    if (starts("/acme/")) {
+        return { acme_answer(request, after("/acme")), after_t::KEEP };
     }
 
     if (path == "/hello") {
@@ -1126,16 +1224,21 @@ int main(const int count, char** arguments) {
     // socket bound but not listening refuses on Linux and Windows, but macOS's TCP drops what
     // comes to it without a reset, as BSD's does, so connecting waits out its timeout there.
     close_socket(bound(false, refused_port));
+    // The port the program answers ACME's challenges on, which the CA checks: one let go of too.
+    close_socket(bound(false, challenge_port));
+    acme_ca = std::make_unique<fb::test::acme_ca_t>(
+        "http://127.0.0.1:" + std::to_string(plain_port) + "/acme", fetch_challenge);
     std::thread(accept_all, plain, nullptr).detach();
     std::thread(accept_all, secure, &tls).detach();
     std::thread(accept_all, secure1, &tls1).detach();
 
-    // The program's input: the URLs, the CA, and then this server's own input.
+    // The program's input: the URLs, the CA, the challenge port, and then this server's own
+    // input.
     std::string input = "http://127.0.0.1:" + std::to_string(plain_port) + "\n" +
                         "https://127.0.0.1:" + std::to_string(tls_port) + "\n" +
                         "http://127.0.0.1:" + std::to_string(refused_port) + "\n" +
                         "https://127.0.0.1:" + std::to_string(tls1_port) + "\n" +
-                        read_file(FB_HTTP_TEST_CA);
+                        read_file(FB_HTTP_TEST_CA) + std::to_string(challenge_port) + "\n";
     std::array<char, 4096> chunk{};
     std::size_t got = 0;
     while ((got = std::fread(chunk.data(), 1, chunk.size(), stdin)) > 0) {

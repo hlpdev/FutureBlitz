@@ -27,12 +27,19 @@ add_executable(fb_term_probe term_probe/term_probe.cpp)
 target_link_libraries(fb_term_probe PRIVATE fb_runtime)
 fb_set_warnings(fb_term_probe)
 
+# The ACME tests' certificate authority, as Pebble is for Let's Encrypt's, which a test server
+# hosts, over mbedTLS's X.509 and crypto.
+add_library(fb_acme_ca STATIC acme_ca/acme_ca.cpp)
+target_include_directories(fb_acme_ca PUBLIC acme_ca)
+target_link_libraries(fb_acme_ca PUBLIC mbedx509 tfpsacrypto)
+fb_set_warnings(fb_acme_ca)
+
 # The HTTP and HTTPS server std.net.http's program tests run against (an http_ program runs as
 # its child), with the test certificates make_certificates.sh made, over mbedTLS's TLS and
-# nghttp2's HTTP/2, and compressing by zlib-ng and zstd.
+# nghttp2's HTTP/2, and compressing by zlib-ng and zstd. It hosts the ACME tests' CA too.
 add_executable(fb_http_test_server http_server/http_server.cpp)
-target_link_libraries(fb_http_test_server PRIVATE mbedtls mbedx509 tfpsacrypto nghttp2 zlib-ng
-                      zstd)
+target_link_libraries(fb_http_test_server PRIVATE fb_acme_ca mbedtls mbedx509 tfpsacrypto
+                      nghttp2 zlib-ng zstd)
 # It uses only nghttp2's functions of nghttp2_ssize, so it needs no ssize_t, which MSVC's headers,
 # which clang-tidy reads, don't have.
 target_compile_definitions(fb_http_test_server PRIVATE
@@ -43,10 +50,3 @@ target_compile_definitions(fb_http_test_server PRIVATE
 if(WIN32)
   target_link_libraries(fb_http_test_server PRIVATE ws2_32)
 endif()
-
-# The ACME tests' certificate authority, as Pebble is for Let's Encrypt's, which a test server
-# hosts, over mbedTLS's X.509 and crypto.
-add_library(fb_acme_ca STATIC acme_ca/acme_ca.cpp)
-target_include_directories(fb_acme_ca PUBLIC acme_ca)
-target_link_libraries(fb_acme_ca PUBLIC mbedx509 tfpsacrypto)
-fb_set_warnings(fb_acme_ca)

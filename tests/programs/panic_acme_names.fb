@@ -1,4 +1,5 @@
-// A certificate signing request is for one name at least. It panics where Acme.CertificateRequest is called.
+// A certificate signing request is for one name at least. It panics where Acme.CertificateRequest
+// is called.
 Import std.core
 Import std.collections
 Import std.crypto

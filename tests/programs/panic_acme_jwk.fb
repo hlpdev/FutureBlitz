@@ -1,0 +1,15 @@
+// An ACME account's JWK is of an ECDSA P-256 key. It panics where Acme.Jwk is called.
+Import std.core
+Import std.collections
+Import std.crypto
+Import std.net
+Import std.text
+
+Local bytes: UInt8[] = []
+For i = 1 To 32
+    bytes.Add(i As UInt8)
+End For
+
+Print(Acme.Thumbprint(Key(KeyKind.ECDSA_P256, True, bytes)).Length)
+Acme.Jwk(Key(KeyKind.ED25519, True, bytes))
+Print("unreachable")

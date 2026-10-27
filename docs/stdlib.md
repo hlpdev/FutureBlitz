@@ -232,6 +232,8 @@ So far, std/ holds:
 | std/os/folders.fb | `Folders`' `Executable`, `Home`, `Config`, `Data`, `Cache`, `Temp`, and `Documents`, and `OpenDefault` |
 | std/os/process.fb | `Process`'s `Id` and `Exit` |
 | std/net/tls.fb | `TlsClient`, `TlsServer`, `TlsStream<S>`, and `TlsListener`, over mbedTLS's TLS through the runtime's `fb_tls_` functions |
+| std/net/acme.fb | `Acme`: an account key's JWK and thumbprint, an HTTP-01 key authorization, and the PKCS #10 CSR an order is finalized with |
+| std/net/acme_client.fb | `AcmeClient`, RFC 8555's account, order, HTTP-01 challenge, and finalizing, over std.net.http's client, and `AcmeTokens`, the challenges' answers |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -1441,6 +1443,25 @@ discovery. `Import std.net` brings in std/net/.
   connecting may; past either is a TimeoutError. It speaks HTTP/2 where TLS's ALPN agrees on it,
   over nghttp2, and HTTP/1.1 otherwise. A program
   that only makes Headers or a Body links no libcurl.
+- ACME (step 30), RFC 8555, as Let's Encrypt speaks it: `AcmeClient(directory, accountKey)`, an
+  ECDSA P-256 private key or a panic, whose `RegisterAsync(contact)` makes the account, agreeing
+  to the CA's terms, with mailto: contacts, or finds the key's, and gives its URL, `Account`; and
+  `ObtainAsync(names, certificateKey, tokens)`, which orders a certificate for DNS names,
+  publishes each HTTP-01 key authorization through `tokens`, an `AcmeTokens`, while the CA checks
+  it, waits as its Retry-After says, 1 to 59 seconds, or a second, 30 times at most, finalizes
+  the order with a CSR, and gives the chain the CA issued, as PEM. `AcmeTokens` is Shared, and
+  its `Answer(path)` gives what a server on port 80 answers for
+  /.well-known/acme-challenge/<token>, or Null. Each request is a flattened JWS, ES256, of the
+  account's key, by its JWK until it has a kid, with the CA's nonce, and a refused nonce is tried
+  again, once. `Http` is the client's HttpClient, which can trust a test CA's roots. A CA's
+  refusal is a NetError of HTTP_STATUS with its detail and type, like "the ACME CA answered 400:
+  a contact is a mailto: URL (unsupportedContact)", and an authorization or order it finds
+  invalid, or that isn't done in time, is one of OTHER. `Acme`'s `Jwk(key)`, `Thumbprint(key)`
+  (RFC 7638), `KeyAuthorization(token, key)`, and `CertificateRequest(key, names)`, the DER of a
+  CSR signed by a P-256 key, for DNS names of ASCII letters, digits, and hyphens, maybe with
+  "*." first, in its subjectAltName, with the first that fits in 64 bytes as its common name,
+  are what it's built on; each panics for another kind of key or a name that isn't one. Its
+  tests run against tests/native/acme_ca, a CA as Pebble is, which the HTTP test server hosts.
 - std.net.http's server (step 30): `HttpServer`, HTTP/1.1 over TCP, whose handlers are Async
   code on the main thread (no data races, and Globals work). An `HttpHandler` is a
   `Func(HttpRequest): Task<HttpResponse>`, an Async lambda or Function, and its response is the

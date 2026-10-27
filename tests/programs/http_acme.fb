@@ -1,0 +1,127 @@
+// ACME against the test server's CA (tests/native/acme_ca), as Pebble is for Let's Encrypt's: an
+// account, an order for localhost, proved by HTTP-01 through a responder of the program's own on
+// the port the server gives it, finalized with a CSR, and the certificate issued, which a
+// TlsListener then serves with, to a client that trusts the CA's root. The CA checks each
+// challenge on its second look, after a Retry-After, so the client waits for it, and refuses a
+// nonce when /acme/refuse-nonce says, which the client tries again after, once. A challenge no
+// responder answers, a contact the CA doesn't take, and a nonce refused twice fail with a
+// NetError of what the CA said.
+Import std.core
+Import std.collections
+Import std.crypto
+Import std.ffi
+Import std.io
+Import std.net
+Import std.net.http
+Import std.text
+
+Global base = Input() ?? ""
+Global secure = Input() ?? ""
+Global refused = Input() ?? ""
+Global secure1 = Input() ?? ""
+// Past the test CA's certificates, the port this program answers HTTP-01 challenges on.
+Global challengePort: UInt16 = 0
+Loop
+    Local line = Input()
+    If line == Null Then Break
+    Local port = UInt16.Parse(line)
+    If port != Null
+        challengePort = port
+        Break
+    End If
+End Loop
+
+// A key of fixed bytes, of an ECDSA P-256 private key.
+Function KeyOf(first: Int): Key
+    Local bytes: UInt8[] = []
+    For i = 0 Until 32
+        bytes.Add((first + i) As UInt8)
+    End For
+
+    Return Key(KeyKind.ECDSA_P256, True, bytes)
+End Function
+
+// Answers each HTTP-01 check at the challenge port from `tokens`, as a server answers on port 80.
+Async Function Respond(listener: TcpListener, tokens: AcmeTokens)
+    Loop
+        Try
+            Local connection = Try Await listener.AcceptAsync()
+            Local reader = BufferedReader(connection)
+            Local request = Try Await reader.ReadLineAsync() ?? ""
+            Loop
+                Local header = Try Await reader.ReadLineAsync() ?? ""
+                If header == "" Then Break
+            End Loop
+
+            Local parts = request.Split(" ")
+            Local answer = parts.Count > 1 ? tokens.Answer(parts[1]) : Null
+            Local response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+            If answer != Null
+                response = "HTTP/1.1 200 OK\r\nContent-Length: {answer.Bytes.Count}\r\n\r\n{answer}"
+            End If
+            Try Await connection.WriteAsync(Buffer<UInt8>.From(response.Bytes))
+            connection.Close()
+        Catch e As Error
+            Return
+        End Try
+    End Loop
+End Function
+
+Async Function Run()
+    Try
+        Local listener = TcpListener.Listen("127.0.0.1", challengePort)
+        Defer listener.Close()
+        Local tokens = AcmeTokens()
+        Local responding = Respond(listener, tokens)
+        Local acme = AcmeClient("{base}/acme/dir", KeyOf(1))
+        Try Http.GetText("{base}/acme/refuse-nonce")
+        Local account = Try Await acme.RegisterAsync(["mailto:admin@example.com"])
+        Print("account {account.EndsWith("/acme/account/1")} {acme.Account == account}")
+
+        Local certificateKey = KeyOf(40)
+        Local pem = Try Await acme.ObtainAsync(["localhost"], certificateKey, tokens)
+        Local chain = Try Certificate.AllFromPem(pem)
+        Print("issued {chain.Count}: {chain[0].Subject}, by {chain[0].Issuer}")
+
+        // Automatic HTTPS: a TLS listener with what was issued, which a client that trusts the
+        // CA's root reaches as localhost.
+        Local root = Try Certificate.AllFromPem(Try Http.GetText("{base}/acme/root"))
+        Local server = TlsListener.Listen("127.0.0.1", 0, TlsServer(chain, certificateKey))
+        Local accepting = server.AcceptAsync()
+        Local client = TlsClient()
+        client.TrustOnly(root)
+        Local tcp = Try Await TcpStream.ConnectAsync("127.0.0.1", server.LocalAddress.Port)
+        Local tls = Try Await client.ConnectAsync(tcp, "localhost")
+        Local served = Try Await accepting
+        Try Await tls.WriteAsync(Buffer<UInt8>.From("over HTTPS\n".Bytes))
+        Print("{Try Await BufferedReader(served).ReadLineAsync() ?? "-"} as {served.Version}")
+
+        // A second order, whose challenge nothing answers.
+        Try
+            Try Await acme.ObtainAsync(["localhost"], certificateKey, AcmeTokens())
+        Catch e As NetError
+            Print("NetError {e.Kind}: {e.Message}")
+        End Try
+
+        // A contact the CA doesn't take.
+        Try
+            Try Await AcmeClient("{base}/acme/dir", KeyOf(80)).RegisterAsync(["tel:+1555"])
+        Catch e As NetError
+            Print("NetError {e.Kind}: {e.Message}")
+        End Try
+
+        // A nonce refused twice: the client tries again once only.
+        Try
+            Try Http.GetText("{base}/acme/refuse-nonce")
+            Try Http.GetText("{base}/acme/refuse-nonce")
+            Try Await AcmeClient("{base}/acme/dir", KeyOf(120)).RegisterAsync()
+        Catch e As NetError
+            Print("NetError {e.Kind}: {e.Message}")
+        End Try
+
+    Catch e As Error
+        Print("failed: {e.Message}")
+    End Try
+End Function
+
+Await Run()

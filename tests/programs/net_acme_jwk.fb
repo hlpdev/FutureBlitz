@@ -1,0 +1,35 @@
+// An ACME account key's JWK, its members in RFC 7638's order, is the same for the private key
+// and its public key, and its thumbprint and an HTTP-01 key authorization are what Python's
+// cryptography makes of the key. AcmeTokens answers a challenge's well-known path for a token
+// it has published, until it's withdrawn, and nothing else; an AcmeClient has no account until
+// it registers.
+Import std.core
+Import std.collections
+Import std.crypto
+Import std.data.json
+Import std.net
+Import std.text
+
+Local bytes: UInt8[] = []
+For i = 1 To 32
+    bytes.Add(i As UInt8)
+End For
+
+Local key = Key(KeyKind.ECDSA_P256, True, bytes)
+Local publicKey = Key(KeyKind.ECDSA_P256, False, EcdsaP256.PublicKeyOf(bytes))
+Print(Json.Write(Acme.Jwk(key)))
+Print(Json.Write(Acme.Jwk(publicKey)) == Json.Write(Acme.Jwk(key)))
+Print(Acme.Thumbprint(key), Acme.Thumbprint(publicKey) == Acme.Thumbprint(key))
+Print(Acme.KeyAuthorization("token-1", key))
+
+Local tokens = AcmeTokens()
+tokens.Publish("abc", "abc.print")
+Print(tokens.Answer("/.well-known/acme-challenge/abc") ?? "-")
+Print(tokens.Answer("/.well-known/acme-challenge/abd") ?? "-")
+Print(tokens.Answer("/abc") ?? "-")
+Print(tokens.Answer("/.well-known/acme-challenge/") ?? "-")
+tokens.Withdraw("abc")
+Print(tokens.Answer("/.well-known/acme-challenge/abc") ?? "-")
+
+Local client = AcmeClient("http://127.0.0.1:1/dir", key)
+Print(client.Account ?? "no account")
