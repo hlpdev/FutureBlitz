@@ -4,6 +4,10 @@ release mode, the concurrent programs many times over, and clang-format and clan
 changed since the base. CI runs it without the last two.
 
     python tools/verify.py --build <build folder> [--base origin/master] [--no-format] [--no-tidy]
+                           [--quick]
+
+--quick is a lane's own check: the unit tests, and only the test programs that changed since the
+base, in debug, release, and many times over; the landing CI runs the whole of it.
 
 clang-format and clang-tidy come from $CLANG_FORMAT and $CLANG_TIDY, or else from PATH.
 """
@@ -109,8 +113,23 @@ def check_run(program: Path, name: str, expected: bytes, label: str) -> bool:
     return False
 
 
+# The programs checked: every one, or with --quick those that changed since the base.
+only: set[str] | None = None
+
+
 def programs() -> list[str]:
-    return sorted(path.stem for path in PROGRAMS.glob("*.fb"))
+    return sorted(path.stem for path in PROGRAMS.glob("*.fb") if only is None or path.stem in only)
+
+
+def check_debug(fb: Path, scratch: Path) -> None:
+    step("changed test programs built in debug mode")
+    for name in programs():
+        if name.startswith("release_"):
+            continue
+        program = build_program(fb, name, False, scratch)
+        if program is not None:
+            check_run(program, name, (PROGRAMS / f"{name}.out").read_bytes(), "debug")
+    print(f"{len(programs())} programs")
 
 
 def check_release(fb: Path, scratch: Path) -> None:
@@ -211,7 +230,13 @@ def main() -> int:
     parser.add_argument("--no-programs", action="store_true")
     parser.add_argument("--no-format", action="store_true")
     parser.add_argument("--no-tidy", action="store_true")
+    parser.add_argument("--quick", action="store_true")
     options = parser.parse_args()
+    if options.quick:
+        global only
+        only = {path.stem for path in changed_files(options.base)
+                if path.parent == PROGRAMS and path.suffix in (".fb", ".out", ".in")
+                and (PROGRAMS / f"{path.stem}.fb").exists()}
     build = options.build.resolve()
     fb = executable(build / "cli" / "fb")
 
@@ -223,13 +248,18 @@ def main() -> int:
 
     if not options.no_tests:
         step("ctest")
-        tested = subprocess.run(["ctest", "--test-dir", str(build), "-j", str(options.jobs),
-                                 "--output-on-failure"])
+        command = ["ctest", "--test-dir", str(build), "-j", str(options.jobs),
+                   "--output-on-failure"]
+        if options.quick:
+            command += ["-E", "programs print what they should"]
+        tested = subprocess.run(command)
         if tested.returncode != 0:
             fail("ctest fails")
 
     if not options.no_programs:
         with tempfile.TemporaryDirectory(prefix="fb-verify-") as scratch:
+            if options.quick:
+                check_debug(fb, Path(scratch))
             check_release(fb, Path(scratch))
             check_concurrent(fb, Path(scratch))
 

@@ -134,8 +134,9 @@ compiler step or two ahead of the std lanes that wait on one.
    that fails without the fix, and set its Status line. For a step: build what docs/milestones.md
    and docs/stdlib.md give it, with tests that check its done-when, and the spec and stdlib.md
    for what it adds.
-3. **Check it.** `python tools/verify.py --build ../build-<lane> --base master` passes: build,
-   ctest, release outputs, concurrency runs, clang-format, and clang-tidy. A program test's .out
+3. **Check it.** `python tools/verify.py --build ../build-<lane> --base master --quick --jobs 4`
+   passes: build, the unit tests, the changed programs in debug and release and many times
+   over, clang-format, and clang-tidy. A program test's .out
    is the program's real output, read and checked by hand, never pasted blind; an async one runs
    20 times each way first.
 4. **Commit and push.** As hlpdev <hunterpollock2006@gmail.com>, short lowercase messages, small
@@ -160,13 +161,19 @@ and verify.py, not by another review, unless it rewrites a large part of the com
 
 ## Landing
 
-The coordinator lands a branch once verify.py and CI are green on all three platforms:
+The coordinator lands a branch once the whole of verify.py passes on Windows, on the user's
+machine, with the branch stacked onto master (the user's call, 2026-10-26: far faster than CI):
 
-1. Rebase it onto master, keeping its commits (no squash), and rerun CI if master moved.
+1. Rebase it onto master, keeping its commits (no squash), and run verify.py on the stack.
 2. Fast-forward master and push it.
 3. Update CLAUDE.md's Current step, docs/milestones.md, docs/decisions.md, and docs/history.md,
    commit, and push.
 4. Delete the branch, local and remote, and its worktree once the lane is done with it.
+
+CI still runs on master, on Windows, Linux, and macOS, but doesn't gate a landing: what fails on
+Linux or macOS goes on a list that one pass fixes, each with a test, once M6's steps are merged.
+A lane checks its own unit with `verify.py --quick`: the unit tests, and only the test programs
+that changed, in debug, release, and many times over.
 
 ## Done
 
