@@ -852,6 +852,13 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | An escape alone is ESCAPE after 50 ms; a paste waits a second for its end (step 26) |  |
 | Progress bars and spinners draw to stderr, in place where it's a terminal and once where it isn't (step 26) |  |
 | A Screen's Present writes only the cells that changed (step 26) |  |
+| std.image reads fonts itself, TrueType's outlines and CFF's (Type 2 charstrings, so .otf fonts too), each offset checked before it's followed, and fills their glyphs with the shapes' exact-coverage rasterizer, rather than over stb_truetype; a Canvas holds the drawing state as an HTML canvas does (step 25; the user's call, 2026-10-26) | stb_truetype doesn't check a font's offsets, so it isn't safe on untrusted fonts; one rasterizer draws shapes and text, and references are worked out exactly |
+| A Channel's IsClosed() says whether it's closed, values left or not, and TryReceive() gives a T?, Null when nothing's there (step 18) | std's waits on several Channels, and a generic T has no variable for the ByRef form to start with |
+| Selector is std.concurrent's builder for waiting on several Channels, as Select is a keyword; the first Channel in On's order with a value wins (step 18) | a statement would be a compiler part; the order makes a program's runs the same |
+| A Cancellation is a flag that stops the waits that take it with a CancelledError, one of std.core's errors, beside TimeoutError (step 18) | io and net's blocking calls take it too, without importing std.concurrent |
+| ThrowingTaskSource<T, E> is a Class, a TaskSource that can fail; WhenAll of Tasks that throw waits for every one, then throws the first error in their order (step 18) | errors aren't Sendable; the order makes a run's error the same each time |
+| std.log's sinks are Sendable Funcs, Loggers and LogOutputs Shared Classes, FB_LOG read once by the default output (step 18) | any thread logs, and a program's own sink is a lambda |
+| An integer literal too big for Int32, between Int64 and Double overloads, stays ambiguous and is written `As Long` (spec 05, kept 2026-10-26) | the spec settles it on purpose; std's overload sets take an Int, which a small literal picks exactly |
 
 ## Libraries and packages (M7)
 

@@ -1125,6 +1125,34 @@ the way: codegen numbers the Globals with std::iota (Apple's clang has no ranges
 reads Doubles with fast_float (Apple's libc++ has no from_chars for them), and math_units' and
 io_streams' expected text is step 5's (Inf, 1e300).
 
+Step 25, std.image II: runtime/src/draw.cpp fills regions by the nonzero rule, each pixel by the
+exact part of its square they cover (rows cut where edges start, end, and cross, then trapezoids),
+or by its center unantialiased, in Doubles without fused multiply-adds; ellipses as polygons within
+a hundredth of a pixel, and strokes as pieces (segments, miter, round, and bevel joins, butt, round,
+and square caps) filled together. The runtime reads fonts itself, every offset checked: font.cpp's
+TrueType (cmap 4 and 12, hmtx, kern 0, glyf with composites) and cff.cpp's CFF (Type 2 charstrings,
+every operator, subroutines, arithmetic, seac through the charset, CID fonts by FDSelect), with
+glyph points bounded, and lays text out unrounded, curves as chords. std/image: `Canvas` (FillRect,
+StrokeRect, StrokeLine, StrokePolyline, StrokePolygon, FillPolygon, FillCircle, StrokeCircle,
+FillEllipse, StrokeEllipse, FillText; Antialias, LineWidth, `LineCap`, `LineJoin`, MiterLimit) and
+`Font` (Parse, UnitsPerEm, Ascent, Descent, LineGap, LineHeight, Width, HasGlyph); stb_truetype
+isn't used. Tests: image_draw and image_text match references worked out apart from the runtime, in
+Fractions, byte for byte (image_text's fonts made by font.py and cff_font.py, which use every Type 2
+operator), font_tests.cpp breaks the fonts (cut short, tables cut short, bytes changed), and 8
+panic_image_ programs.
+
+Step 18's rest: `Lazy<T>`; ParallelForEach, ParallelMap, ParallelReduce, and ParallelSort on the job
+pool; `Subscribe(owner, handler)`, holding its owner weakly; `ThrowingTaskSource` and WhenAll and
+WhenAny over Tasks that throw; `Cancellation`, which stops a Semaphore's Acquire, a WaitGroup's
+Wait, Sleep, and a Channel's Receive and Send with a `CancelledError`; `Selector` over several
+Channels and a timeout, with a Channel's `IsClosed()` and `TryReceive()` built in for it; std.log's
+Logger, filters by module from FB_LOG, outputs, and console and JSON-lines sinks; and the job pool's
+idle workers woken only for jobs, not at every Channel's change.
+
+Lane 8's pinned test: an untyped lambda or array literal passed to an overloaded Function takes the
+parameter's type where one overload fits by count (sema_tests); an integer literal past Int32
+between Int64 and Double overloads stays ambiguous, as spec 05 has it on purpose.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
