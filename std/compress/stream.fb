@@ -47,7 +47,7 @@ End Class
 // `CoderReader(file, GzipDecompressor())` reads a .gz file's: it reads the other Reader a chunk at
 // a time, and once that ends, gives what the Coder has left, and then ends. Read throws the
 // IOError the Coder or the Reader does, like a Decompressor's for bytes that aren't its format,
-// or that end too soon.
+// or that end too soon, and a Read after that throws again, or ends.
 Public Class CoderReader Implements Reader
     Field Inner: Reader
     Field Through: Coder
@@ -67,15 +67,19 @@ Public Class CoderReader Implements Reader
 
     Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError
         If into.Count == 0 Then Return 0
+        // What the Coder gives replaces what Read gave only once it gives it: one that throws
+        // leaves nothing to give again, and throws again for the next Read, as a Decompressor
+        // does once its bytes are wrong.
         While At == Coded.Count && !Ended
             Local count = Try Inner.Read(Chunk)
-            At = 0
             If count == 0
                 Coded = Try Through.Finish()
                 Ended = True
             Else
                 Coded = Try Through.Add(Chunk.Slice(0, count).ToArray())
             End If
+
+            At = 0
         End While
 
         Local count = Min(into.Count, (Coded.Count - At) As Int64)

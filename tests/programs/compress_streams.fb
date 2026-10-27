@@ -178,3 +178,39 @@ For i = 0 Until sources.Count
         Print(e.Kind, e.Message)
     End Try
 End For
+
+// A Read after one that threw throws again, or ends, and doesn't give what an earlier Read gave
+// a second time: for each format, a stream cut short, read five times, and Gzip's past its limit
+// after a first Read of more than a chunk's bytes.
+Function Outcomes(reader: CoderReader, times: Int): String[]
+    Local outcomes: String[] = []
+    Local into = Buffer<UInt8>(1000000)
+    For i = 1 To times
+        Try
+            outcomes.Add("{Try reader.Read(into)}")
+        Catch e As IOError
+            outcomes.Add("{e.Kind}")
+        End Try
+    End For
+
+    Return outcomes
+End Function
+
+For format In FORMATS
+    Local whole = Compressed(format, data)
+    Local short: UInt8[] = []
+    For i = 0 Until whole.Count - 6
+        short.Add(whole[i])
+    End For
+
+    Print(format, Outcomes(CoderReader(MemoryStream(short), Decompressor(format)), 5))
+End For
+
+Local noise: UInt8[] = []
+Local seed: UInt32 = 12345
+For i = 1 To 200000
+    seed = seed.WrappingMultiply(1664525).WrappingAdd(1013904223)
+    noise.Add((seed >> 24) As UInt8)
+End For
+
+Print(Outcomes(CoderReader(MemoryStream(Gzip.Compress(noise)), GzipDecompressor(100000)), 4))
