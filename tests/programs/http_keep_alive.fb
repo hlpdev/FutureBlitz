@@ -1,0 +1,40 @@
+// Connections the test server keeps open don't keep it from new ones: with idle keep-alives of
+// two clients held open, and the I/O thread's, a third client's request on a new connection is
+// answered, blocking and awaited, and the held ones still answer after it. A request that waited
+// on the others would be a TimeoutError here, not a hang.
+Import std.core
+Import std.net.http
+Import std.time
+
+Global base = Input() ?? ""
+
+// What a GET of /hello through client gave: its text, or what failed.
+Async Function Hello(client: HttpClient, awaited: Bool): String
+    Try
+        If awaited Then Return (Await client.GetAsync("{base}/hello")).Text
+        Return client.Get("{base}/hello").Text
+    Catch e As NetError
+        Return "NetError {e.Kind}"
+    Catch e As TimeoutError
+        Return "TimeoutError"
+    End Try
+End Function
+
+Local first = HttpClient()
+Local second = HttpClient()
+For client In [first, second]
+    client.Timeout = 10.Seconds
+End For
+
+// Each holds its connection open, idle, from here on.
+Print(Await Hello(first, False))
+Print(Await Hello(second, False))
+Print(Await Hello(first, True))
+For awaited In [False, True]
+    Local third = HttpClient()
+    third.Timeout = 10.Seconds
+    Print("third, awaited {awaited}: {Await Hello(third, awaited)}")
+End For
+
+Print(Await Hello(first, False))
+Print(Await Hello(second, True))
