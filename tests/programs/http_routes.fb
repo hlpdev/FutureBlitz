@@ -1,7 +1,9 @@
 // An HttpServer's routes from a Class's Methods: each Async Method with @Get, @Post, and the rest
 // is a route, whose argument Load makes from the path's parameters, the query, and a JSON body,
-// each read as its Field's type; one a request doesn't give keeps its default, and a request
-// whose values don't fit is a 400 that says why.
+// each read as its Field's type, a @Flatten Field's own Fields too, and a @Renamed one by its old
+// name; one a request doesn't give keeps its default, and a request whose values don't fit is a
+// 400 that says why. A route can take nothing, or the request alone, and an Async Method of the
+// request alone with no attribute, a helper, is no route.
 
 Import std.core
 Import std.collections
@@ -35,6 +37,21 @@ Struct CreateUser
 End Struct
 
 Struct Nothing
+End Struct
+
+Struct Paging
+    Field Page: Int = 1
+    Field Size: Int = 10
+End Struct
+
+Struct Listing
+    @Flatten Field Paging: Paging
+    Field Tag: String = "all"
+    @Skip Field Seen: Int = 0
+End Struct
+
+Struct Greeting
+    @Renamed("handle") Field Name: String
 End Struct
 
 Class Users
@@ -71,6 +88,28 @@ Class Users
 
     @Patch("/status")
     Async Method Status(args: Nothing): HttpResponse => Text("patched")
+
+    @Get("/ping")
+    Async Method Ping(): HttpResponse => Text("pong")
+
+    @Get("/raw/:rest")
+    Async Method Raw(request: HttpRequest): HttpResponse
+        Return Await Helper(request)
+    End Method
+
+    @Get("/list")
+    Async Method List(args: Listing): HttpResponse
+        Local paging = args.Paging
+        Return Text("page={paging.Page} size={paging.Size} tag={args.Tag} seen={args.Seen}")
+    End Method
+
+    @Get("/hello")
+    Async Method Hello(args: Greeting): HttpResponse => Text("hello {args.Name}")
+
+    // A helper of the request, which isn't a route.
+    Async Method Helper(request: HttpRequest): HttpResponse
+        Return Text("raw {request.Param("rest") ?? "?"} {request.Query.Count}")
+    End Method
 
     // Neither an Async Method with an attribute, nor one at all: no routes.
     Method Plain(args: ShowUser): HttpResponse => Text("plain")
@@ -112,6 +151,14 @@ Try
     Print(Shown(Await client.PatchAsync("{base}/status", Body.Text(""))))
     Print(Shown(Await client.GetAsync("{base}/items/3")))
     Print("calls:", users.Calls)
+
+    // Routes of nothing and of the request, a @Flatten Field's Fields, a @Skip Field, a @Renamed
+    // Field by its name and its old one, and a helper that isn't a route.
+    For path In ["/ping", "/api/ping", "/raw/x?a=1&b=2", "/list",
+                 "/list?page=2&SIZE=5&tag=new&seen=3", "/list?size=big", "/hello?name=Ada",
+                 "/hello?HANDLE=Bob", "/hello?name=Ada&handle=Bob", "/hello", "/helper"]
+        Print(path, "->", Shown(Await client.GetAsync(base + path)))
+    End For
 
     server.Stop()
     Await serving

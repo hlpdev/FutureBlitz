@@ -1,0 +1,18 @@
+// A routes Class's Method with a route's attribute that takes more than its argument and the
+// request isn't a route, so Routes panics where it's called, rather than leave the path a 404.
+Import std.core
+Import std.net.http
+
+Struct Id
+    Field Id: Int
+End Struct
+
+Class Extra
+    @Patch("/users/:id")
+    Async Method Show(args: Id, request: HttpRequest, extra: Int): HttpResponse
+        Return HttpResponse.Of(204)
+    End Method
+End Class
+
+Local server = HttpServer()
+server.Routes(Extra())

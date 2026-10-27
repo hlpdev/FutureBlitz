@@ -1,0 +1,13 @@
+// A routes Class's Method with a route's attribute that gives something other than an
+// HttpResponse isn't a route, so Routes panics where it's called, rather than leave the path a
+// 404.
+Import std.core
+Import std.net.http
+
+Class Named
+    @Get("/name")
+    Async Method Show(): String => "name"
+End Class
+
+Local server = HttpServer()
+server.Routes(Named())

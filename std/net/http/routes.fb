@@ -9,6 +9,7 @@ Import std.data.json
 Import std.net.http.client
 Import std.net.http.server
 Import std.net.http.status
+Import std.net.url
 Import std.text
 
 // What a routes Class's Method answers: its method and path, a path as HttpRouter has them.
@@ -21,17 +22,32 @@ Public Attribute Delete(Path: String)
 // A route Struct's Field that's the request's body, read as JSON, and Load's to the Field's type.
 Public Attribute JsonBody
 
+// An HttpRequest is only a server's, so Load makes none. A Method of the request alone is a route
+// of its own, for which Load isn't called; this is so that Routes' loop over Methods of one
+// argument, which Load makes, can bind the request too.
+Extend HttpRequest Implements Loadable
+    Public Static Method FromValue(value: Value): HttpRequest Throws ParseError
+        Throw ParseError(ParseErrorKind.WRONG_TYPE, "an HttpRequest is a server's, which Load " +
+                         "doesn't make")
+    End Method
+End Extend
+
 Extend HttpRouter
     // Adds a route for each Async Method of instance's type with a @Get, @Post, @Put, @Patch, or
-    // @Delete, or several, which takes one argument, a Struct or Class, or that and the request,
-    // and gives an HttpResponse: `@Get("/users/:id") Async Method Show(args: ShowUser):
-    // HttpResponse`. Each call's argument is made by Load<T> from an Object of its Fields' values:
-    // a path parameter or, failing that, a query parameter, whose name is the Field's, or its
-    // @Rename's, whatever the letters' case, as text, which Load reads as a number or a Bool
-    // where the Field is one; and for a @JsonBody Field, the body's JSON. A Field the request
-    // doesn't give keeps its default, or zero, and one with neither, or a value that doesn't fit,
-    // or a body that isn't JSON, is a 400 that says why. Panics as Get does for a path, or a
-    // route with its paths already.
+    // @Delete, or several, which gives an HttpResponse and takes nothing, the request, one
+    // Struct or Class, or that and the request: `@Get("/users/:id") Async Method Show(args:
+    // ShowUser): HttpResponse`. Each call's Struct or Class is made by Load<T> from an Object of
+    // its Fields' values: a path parameter or, failing that, a query parameter, whose name is
+    // the Field's, or its @Rename's, or else its @Renamed's old one, whatever the letters' case,
+    // as text, which Load reads as a number or a Bool where the Field is one; a @Flatten Field's
+    // own Fields, as Load reads them; and for a @JsonBody Field, the body's JSON. A Field the
+    // request doesn't give keeps its default, or zero, and one with neither, or a value that
+    // doesn't fit, or a body that isn't JSON, is a 400 that says why. Every Async Method of one
+    // argument that gives an HttpResponse, with an attribute or not, takes a type Load makes, or
+    // the request, since the loop over them can't leave one out before it's made. Panics as Get
+    // does for a path, or a route with its paths already, and for a Method of up to four
+    // arguments with an attribute that isn't one of those: one that isn't Async, gives something
+    // else, or takes the request first. A Method that throws is neither a route nor a panic.
     @PanicsAtCaller
     Public Method Routes<T>(instance: T)
         Register(Self, instance)
@@ -42,7 +58,23 @@ End Extend
 @PanicsAtCaller
 Function Register<T>(router: HttpRouter, instance: T)
     For Method m: M In T
+        Where M: Func(): Task<HttpResponse>
+        Local handler: HttpHandler = Function(request: HttpRequest) => m.Call(instance)
+        AddRoutes(router, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
+                  m.Attribute(Patch), m.Attribute(Delete), handler)
+    End For
+
+    For Method m: M In T
+        Where M: Func(HttpRequest): Task<HttpResponse>
+        Local handler: HttpHandler = Function(request: HttpRequest) => m.Call(instance, request)
+        AddRoutes(router, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
+                  m.Attribute(Patch), m.Attribute(Delete), handler)
+    End For
+
+    // The request alone is the loop's above, which doesn't Load it.
+    For Method m: M In T
         Where M: Func(A): Task<HttpResponse>
+        If TypeName<A>() == "HttpRequest" Then Continue
         Local handler: HttpHandler = Async Function(request: HttpRequest): HttpResponse
             Local args: A? = Null
             Local refusal = Bound<A>(request, ByRef args)
@@ -66,6 +98,56 @@ Function Register<T>(router: HttpRouter, instance: T)
         AddRoutes(router, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
                   m.Attribute(Patch), m.Attribute(Delete), handler)
     End For
+
+    // Methods with a route's attribute that aren't a route's shape: not Async, giving something
+    // else, taking the request first, or more. A Method that throws isn't among a loop's.
+    For Method m: M In T
+        Where M: Func(): R
+        If TypeName<R>() == "Task<HttpResponse>" Then Continue
+        Local name = "{TypeName<T>()}.{m.Name}"
+        Misshapen(name, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
+                  m.Attribute(Patch), m.Attribute(Delete))
+    End For
+
+    For Method m: M In T
+        Where M: Func(A): R
+        If TypeName<R>() == "Task<HttpResponse>" Then Continue
+        Local name = "{TypeName<T>()}.{m.Name}"
+        Misshapen(name, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
+                  m.Attribute(Patch), m.Attribute(Delete))
+    End For
+
+    For Method m: M In T
+        Where M: Func(A, B): R
+        If TypeName<R>() == "Task<HttpResponse>" && TypeName<B>() == "HttpRequest" Then Continue
+        Local name = "{TypeName<T>()}.{m.Name}"
+        Misshapen(name, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
+                  m.Attribute(Patch), m.Attribute(Delete))
+    End For
+
+    For Method m: M In T
+        Where M: Func(A, B, C): R
+        Local name = "{TypeName<T>()}.{m.Name}"
+        Misshapen(name, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
+                  m.Attribute(Patch), m.Attribute(Delete))
+    End For
+
+    For Method m: M In T
+        Where M: Func(A, B, C, D): R
+        Local name = "{TypeName<T>()}.{m.Name}"
+        Misshapen(name, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
+                  m.Attribute(Patch), m.Attribute(Delete))
+    End For
+End Function
+
+// Panics, where Routes was called, when a Method that isn't a route's shape has a route's
+// attribute.
+@PanicsAtCaller
+Function Misshapen(name: String, get: Get?, post: Post?, put: Put?, patch: Patch?,
+                   delete: Delete?)
+    If get == Null && post == Null && put == Null && patch == Null && delete == Null Then Return
+    Panic("{name} has a route's attribute, but isn't an Async Method that gives an HttpResponse " +
+          "and takes nothing, the request, one Struct or Class, or that and the request")
 End Function
 
 // Adds a route for each attribute a Method has.
@@ -85,9 +167,13 @@ Function Bound<A>(request: HttpRequest, ByRef args: A?): HttpResponse?
     Local fields = Value.Object()
     Local params = request.Params
     Local query = request.Query
-    For Field f In A
-        Local key = f.Attribute(Rename)?.Name ?? f.Name
-        If f.Has(JsonBody)
+    Local keys: String[] = []
+    Local olds: String[] = []
+    Local bodies: Bool[] = []
+    KeysOf<A>(keys, olds, bodies)
+    For i = 0 Until keys.Count
+        Local key = keys[i]
+        If bodies[i]
             If request.Bytes.Count == 0 Then Continue
             Try
                 fields[key] = Json.Read(request.Bytes)
@@ -98,14 +184,12 @@ Function Bound<A>(request: HttpRequest, ByRef args: A?): HttpResponse?
             Continue
         End If
 
-        Local text = Named(params, key)
-        If text == Null
-            For name, value In query
-                If name.EqualsIgnoreCase(key)
-                    text = value
-                    Break
-                End If
-            End For
+        // A value by the Field's old name goes in by it, which Load reads when there's none by its
+        // own.
+        Local text = Given(params, query, key)
+        If text == Null && olds[i] != ""
+            text = Given(params, query, olds[i])
+            key = olds[i]
         End If
 
         If text != Null Then fields[key] = Value(text)
@@ -120,9 +204,30 @@ Function Bound<A>(request: HttpRequest, ByRef args: A?): HttpResponse?
     Return Null
 End Function
 
-// A path parameter whose name is key, whatever the letters' case.
-Function Named(params: Map<String, String>, key: String): String?
+// The keys Load reads X's Fields by, as it reads them: each Field's name, or its @Rename's, with
+// its @Renamed's old one, or "", and whether it's a @JsonBody's; a @Flatten Field's own Fields'
+// in its place; and none for a @Skip Field.
+Function KeysOf<X>(keys: String[], olds: String[], bodies: Bool[])
+    For Field f: F In X
+        If f.Has(Skip) Then Continue
+        If f.Has(Flatten)
+            KeysOf<F>(keys, olds, bodies)
+            Continue
+        End If
+
+        keys.Add(f.Attribute(Rename)?.Name ?? f.Name)
+        olds.Add(f.Attribute(Renamed)?.From ?? "")
+        bodies.Add(f.Has(JsonBody))
+    End For
+End Function
+
+// A path parameter whose name is key, whatever the letters' case, or else a query parameter's.
+Function Given(params: Map<String, String>, query: QueryParams, key: String): String?
     For name, value In params
+        If name.EqualsIgnoreCase(key) Then Return value
+    End For
+
+    For name, value In query
         If name.EqualsIgnoreCase(key) Then Return value
     End For
     Return Null
