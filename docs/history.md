@@ -1239,6 +1239,100 @@ Steps 14's and 15's reviews (docs/review/step14.md, step15.md) and step 29's cli
 merged step 29's tests' list with the stack's, and kept the I/O thread's at_stop() with its m_stops
 under one mutex in place of step 14's own stoppers.
 
+The step 32 audit's std.text and std.compress gaps (lane 3): a StringBuilder is a std.io Writer,
+whose bytes it adds as text, and its Flush throws past a String's most bytes as its Write does;
+Humanize.Relative of a Duration, and FormatBytes and FormatDuration. Each codec's compressor and
+decompressor is a coder, which a CoderWriter and a CoderReader stream std.io's bytes through, and a
+CoderReader whose coder throws doesn't give what it gave again. Zip's and Tar's entries keep when
+they were last changed and their modes, which their writers take: a Zip's DOS dates are read and
+written as UTC, its NTFS, Info-ZIP, and PKWARE times read, and a GNU Tar's base-256 times before
+1970 too. Its review's five findings were fixed, each with a test (docs/review/lane3-gaps.md).
+
+Step 8's rest, template format specs (lane 5): a VALUE tag takes a format spec after its first ':',
+as interpolation's does, `{{price:.2}}`, `{{{x:spec}}}`, and `{{& x:spec}}`, by the value's kind; an
+integer whose Format doesn't take the spec falls back to a Double's, every digit kept past 2^53
+(fb_format_exact); a spec no kind takes, or one with a brace, is BAD_TEMPLATE when the template is
+read, and BAD_VALUE says the template, line, and column. Its review's two findings were fixed
+(docs/review/template-specs.md).
+
+Step 17's compiler part: the built-ins `Load<T>(value)` and `Save(x)`, which convert between
+std.core's Value and any type made of numbers, Bools, Strings, Enums, T?s, arrays, Maps by String,
+Values, and Structs and Classes, by compile-time reflection. Load makes a Struct or Class without
+its New, then runs its OnLoaded(). std/core/load.fb's @Rename, @Skip, @Optional, @Flatten, and
+@Renamed adjust a Field, and Loadable and Saveable let a type convert itself. ParseError gets
+MISSING and a Path, which its Message starts with, and a Load error's Place is the call's. Lowering
+builds one Load and one Save per type over std/core/load.fb's helpers. Load and Save go 256 levels
+deep. @Serialize became an error that says neither needs it.
+
+Load and Save's review (docs/review/load.md) had 23 findings, each fixed with a test: a half-made
+Class is let go of without its Destroy (OBJECT_DISCARD), instances follow analysis's rules
+(fields_problem()), a @Flatten Field's keys clash with others', Enums and @Flags keep their values,
+Save's helpers hand their errors back so Save panics at its call, integer text past every integer
+type is OUT_OF_RANGE, and Load<Bool> takes 0 and 1, as SQLite keeps a Bool; then, by the user's
+choice, a Field the Object leaves out takes its default, else its zero, else it's MISSING, and
+@Optional is gone.
+
+Step 28's second half, std.net's sockets: runtime/src/net.cpp (fb_runtime_io's, linked for the
+fb_io_ prefix) keeps each socket's libuv handle on the I/O thread (socket_t, on_io_thread jobs),
+blocking callers waiting on the socket and Async ones on a Task<Int32> (waiting_t, with a uv timer
+for a timeout) before the fb code takes what came; streams read ahead 64 KiB into a buffer of their
+own, Close returns once libuv closed the handle, and close_all closes what's left before the I/O
+thread stops. std/net/socket.fb's StreamSocket and ListenerSocket, under tcp.fb's `TcpListener` and
+`TcpStream` (Reader and Writer, ReadTimeout, ShutdownWrite, Nagle off), udp.fb's `UdpSocket` and
+`Datagram` (broadcast, multicast), and ipc.fb's `IpcListener` and `IpcStream` (named pipes and Unix
+sockets, a left-behind socket file taken over), each blocking and Async, a refused connection a
+NetError of REFUSED, a wait past its timeout a TimeoutError, and a stream's errors IOErrors with the
+NetError as Cause. lan.fb's LAN discovery over mDNS and DNS-SD: `LanAnnouncer` (a responder for PTR,
+SRV, TXT, A, and the type enumeration, one-shot and QU queries by unicast, announcements and a
+goodbye) and `Lan.Find`/`FindAsync`, through each interface (fb_io_net_interfaces,
+fb_io_net_multicast_interface), with `Lan.LocalAddresses` and `HostName`. lower.cpp's zero_value()
+gives a Ptr Null, so a Function that throws can give one. Tests: net_tcp, net_udp, net_ipc,
+net_connections (1000 connections, 100 at once, no leaks), net_lan, panic_net_ipc_name,
+panic_net_ipc_empty, panic_net_lan_type, and unsafe.fb's Checked. Its review's fixes: the I/O thread
+blocks SIGPIPE, so a write to a reset peer on Linux throws RESET; a backlog below 1 and a multicast
+TTL outside 1 to 255 panic; streams read from when they connect and UDP sockets from their bind, so
+a zero timeout polls, past the 64 KiB read-ahead too; a Write after ShutdownWrite is CLOSED; an IPC
+listener holds a lock file beside its Unix socket in place of the connect probe, which gave the live
+listener a phantom connection, a file there that isn't a socket stays, names are lowercase on every
+OS, and a path too long for sun_path goes in /tmp; Send throws past 65507 bytes on every OS; LAN
+discovery gives each interface's address alone (fb_io_net_interfaces gives netmasks), puts a
+LanService's sender first, leaves out a query's known answers, says goodbye to the service's own
+records only, caps the text at 8192 bytes, and takes keys whatever their case. Tests:
+net_lan_packets, the runtime's net_tests.cpp (POSIX), more in net_tcp, net_udp, and net_ipc, and
+eight panic programs.
+
+Partial type-argument inference (for lane 5's std.db Query<T>): a call writes a generic Function's
+or Method's first type arguments and infers the rest from its arguments, a lambda's parameters
+getting what's written, and a function value from the Func expected (resolve_arguments()'s
+`leading`). What can't be inferred is named, with an example that keeps what was written. Written
+type arguments of an Extend of T[]'s Method are its own, not the array's T, and a call that can't
+infer its type arguments no longer tells its lambdas again that they need types. Tests: a sema case,
+"generic mistakes"' Pair<Int>, and tests/programs/partial_type_arguments.fb.
+
+Its review's four fixes: a lambda's own errors still show in a call that can't be inferred
+(check_uninferred()), and arguments that don't bind are reported first; an overload or function that
+can't take the type arguments written doesn't fit (rank(), check_written_arguments(), "no overload
+of 'G' takes 3 type arguments"); and a function value's example writes them all.
+
+Step 15's compiler part: the built-ins Embed, EmbedText, and EmbedFolder (spec 13's "Embedding
+files"). Sema's check_embed() and embed_reader_t, whose file and folder callbacks are loader_t's
+embed_file() and embed_folder(), with embedded_path() keeping a path in its package's folder as a
+quoted Import's is (links, nested packages, std), a 64 MiB limit per call (max_embedded), and hidden
+files left out; analysis_t::embeds and expr_info_t::embedded hold what each call puts in the
+program, embedded_file_t its path and bytes. EmbedText folds to a String constant, checked as UTF-8.
+Lowering's lower_embed() builds the UInt8[] from a String constant, and EmbedFolder's Map through
+new_map() and add_to_map(), which the Map literal shares. compilation_t::embedded lists the files,
+which `fb build -o` won't write over. Tests: tests/programs/embed.fb and its embed/ folder, a driver
+test of every error, a disk test of links and nested packages, a MIR test of non-UTF-8 bytes, and a
+CLI test of -o.
+
+Embed's review's six findings were fixed (docs/review/embed.md): a file is read once and its bytes
+held once, in one Global per file that every embed of it shares, and EmbedFolder finds code where it
+really is, refuses links and packages in its folder, and warns at other letter cases. The landing
+stack merged Embed's sema with Load and Save's (both sides' declarations, and the built-ins'
+examples together), and lane 11's fix to NetErrorKind's ordinals, where step 29's HTTP_STATUS met
+the sockets, came with them.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
