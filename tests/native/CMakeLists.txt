@@ -43,3 +43,10 @@ target_compile_definitions(fb_http_test_server PRIVATE
 if(WIN32)
   target_link_libraries(fb_http_test_server PRIVATE ws2_32)
 endif()
+
+# The ACME tests' certificate authority, as Pebble is for Let's Encrypt's, which a test server
+# hosts, over mbedTLS's X.509 and crypto.
+add_library(fb_acme_ca STATIC acme_ca/acme_ca.cpp)
+target_include_directories(fb_acme_ca PUBLIC acme_ca)
+target_link_libraries(fb_acme_ca PUBLIC mbedx509 tfpsacrypto)
+fb_set_warnings(fb_acme_ca)

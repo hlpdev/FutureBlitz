@@ -108,3 +108,10 @@ target_compile_definitions(fb_runtime_tests PRIVATE
 target_include_directories(fb_runtime_tests PRIVATE ${PROJECT_SOURCE_DIR}/runtime/src)
 fb_set_warnings(fb_runtime_tests)
 catch_discover_tests(fb_runtime_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})
+
+# The ACME tests' certificate authority's own tests, which a client of their own drives.
+add_executable(fb_acme_ca_tests native/acme_ca/acme_ca_tests.cpp)
+target_link_libraries(fb_acme_ca_tests PRIVATE fb_acme_ca mbedx509 tfpsacrypto
+                      Catch2::Catch2WithMain)
+fb_set_warnings(fb_acme_ca_tests)
+catch_discover_tests(fb_acme_ca_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})
