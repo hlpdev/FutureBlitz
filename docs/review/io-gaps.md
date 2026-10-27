@@ -4,7 +4,7 @@
 
 ## mapped-1 (medium): Buffer's view New is Protected, so safe code in any file can extend Buffer and view memory it doesn't own
 
-Status: fixed in 3ead10b6
+Status: fixed in fab0c626
 
 Where: std/ffi/buffer.fb:47
 
@@ -37,7 +37,7 @@ Skeptic: Ran the reviewer's evil.fb (rv-iogaps/mapped-refute/evil.fb) with no Un
 
 ## stream-1 (medium): File.Create (Create + Truncate) is PERMISSION_DENIED on an existing hidden file on Windows
 
-Status: fixed in dfe6f566 (a write's replacing in File.WriteText and WriteBytes too, which now looks for a folder first, as Open does)
+Status: fixed in 5f499702 (a write's replacing in File.WriteText and WriteBytes too, which now looks for a folder first, as Open does)
 
 Where: runtime/src/files.cpp:1058
 
@@ -92,7 +92,7 @@ Skeptic: Ran the program (plus a File.WriteText line) at scratchpad/rv-iogaps/st
 
 ## vfs-1 (medium): RotatingFileSink deletes the old files on every retry while the current file can't be moved aside
 
-Status: fixed in 27ccc403 (a folder where an old file goes is found before anything moves, and a failed move is tried again once another maxBytes are in the file)
+Status: fixed in 1c2bf18e (a folder where an old file goes is found before anything moves, and a failed move is tried again once another maxBytes are in the file)
 
 Where: std/log/files.fb:116
 
@@ -142,7 +142,7 @@ Skeptic: I ran the finding's program, extended to also show app.log.4 and app.lo
 
 ## mapped-2 (low): Bytes' comment says writing a read-only map's Buffer changes only it and later Buffers, but earlier ones change too
 
-Status: fixed in 3876673d
+Status: fixed in ceb054d7
 
 Where: std/io/mapped.fb:108
 
@@ -178,7 +178,7 @@ Skeptic: Ran the reviewer's two.fb (rv-iogaps/mapped-refute/two.fb). Debug and r
 
 ## stream-2 (low): Reading near Int64's top, or writing past the file system's limit, throws an IOError of INVALID_PATH
 
-Status: fixed in 1d821cee
+Status: fixed in c26adf1f
 
 Where: runtime/src/files.cpp:1091
 
@@ -233,7 +233,7 @@ Skeptic: Ran scratchpad/rv-iogaps/stream/p12.fb, debug and release: 'memory 0', 
 
 ## stream-4 (low): Tests don't check File.Create emptying an existing file, the Create-without-a-write panic, or Close while an Async call is under way
 
-Status: fixed in dfe6f566 (File.Create on a file that's there) and 91b96cef
+Status: fixed in 5f499702 (File.Create on a file that's there) and 8f84e855
 
 Where: tests/programs/io_file_stream.fb:34
 
@@ -267,7 +267,7 @@ Skeptic: Ran scratchpad/rv-iogaps/stream/p11.fb, debug and release: prints '0', 
 
 ## vfs-2 (low): FileSink and RotatingFileSink re-resolve a relative path against the current folder on every line
 
-Status: fixed in 47d7f1cb (its messages name the path as the program gave it, with the error's Kind)
+Status: fixed in 0be7ea30 (its messages name the path as the program gave it, with the error's Kind)
 
 Where: std/log/files.fb:91
 
@@ -306,7 +306,7 @@ Skeptic: I ran the finding's program (rv-iogaps/logcheck/v2.fb). Debug and --rel
 
 ## vfs-3 (low): RotatingFileSink's panics are untested, and stdlib.md leaves out them and keep's default
 
-Status: fixed in e71dd541
+Status: fixed in 736e6f74
 
 Where: docs/stdlib.md:930
 

@@ -4,7 +4,7 @@
 
 ## server-1 (high): A *name route that matches nothing beats the exact route: "/" loses to "/*all", and "/files" loses to "/files/*path"
 
-Status: fixed in 749ee5c8: Better takes the shorter of two matches when one starts the other, since the longer one's last segment is a *name that matched none of the path; http_server_routes.fb has / beside /*all, /files beside /files/*path, /a/:b beside /a/:b/*rest and /a/fixed, and /x/:y/z beside /x/*rest, each added in the order that lost before
+Status: fixed in 07874599: Better takes the shorter of two matches when one starts the other, since the longer one's last segment is a *name that matched none of the path; http_server_routes.fb has / beside /*all, /files beside /files/*path, /a/:b beside /a/:b/*rest and /a/fixed, and /x/:y/z beside /x/*rest, each added in the order that lost before
 
 Where: std/net/http/server.fb:361
 
@@ -58,7 +58,7 @@ Skeptic: I ran rv-step30/server-verify/s1.fb, the finding's program plus /a/:b n
 
 ## server-2 (medium): HttpResponse.Of takes any Int as a status and the server sends an invalid or interim status line as the final response
 
-Status: fixed in 5d36c899: Of panics at the caller unless the status is from 200 to 599; panic_http_status.fb makes a 204 and a 599, then a 103
+Status: fixed in 83b9534c: Of panics at the caller unless the status is from 200 to 599; panic_http_status.fb makes a 204 and a 599, then a 103
 
 Where: std/net/http/server.fb:105
 
@@ -116,7 +116,7 @@ Skeptic: I ran s2.fb in debug. It printed `HTTP/1.1 1000  | ... Content-Length: 
 
 ## server-3 (medium): An HTTP/1.0 request with two Host fields is answered, and the docs say a request without a Host is a 400 when an HTTP/1.0 one isn't
 
-Status: fixed in 5d36c899: two Hosts are a 400 whatever the version, and only an HTTP/1.1 request needs one; the class comment and stdlib.md say so; http_server.fb sends HTTP/1.0 with two Hosts (a 400) and with none (a 200)
+Status: fixed in 83b9534c: two Hosts are a 400 whatever the version, and only an HTTP/1.1 request needs one; the class comment and stdlib.md say so; http_server.fb sends HTTP/1.0 with two Hosts (a 400) and with none (a 200)
 
 Where: std/net/http/server.fb:543
 
@@ -172,7 +172,7 @@ Skeptic: I ran s3.fb in debug and in release. `GET / HTTP/1.0` with `Host: a` an
 
 ## wire-1 (medium): An empty Transfer-Encoding or Content-Length value gets past the rule against both framings
 
-Status: fixed in 909a29ee: BodyFraming refuses any Transfer-Encoding field beside a Content-Length, and one with no codings, and reads each comma-separated item of each Content-Length, refusing an empty one; http_server.fb sends 'Transfer-Encoding: ,', an empty Transfer-Encoding, an empty second Content-Length, and 'Content-Length: 3,' (each a 400), and 'Content-Length: 3, 3' (a 200)
+Status: fixed in 00e39cc6: BodyFraming refuses any Transfer-Encoding field beside a Content-Length, and one with no codings, and reads each comma-separated item of each Content-Length, refusing an empty one; http_server.fb sends 'Transfer-Encoding: ,', an empty Transfer-Encoding, an empty second Content-Length, and 'Content-Length: 3,' (each a 400), and 'Content-Length: 3, 3' (a 200)
 
 Where: std/net/http/wire.fb:87
 
@@ -234,7 +234,7 @@ Skeptic: Ran rv-step30/wire/w1.fb in debug and release. Every case got 200 OK wi
 
 ## wire-2 (medium): A chunked body's lines accept a bare LF and invalid chunk extensions
 
-Status: fixed in 909a29ee: a chunk's size line and its data's end must end with CR LF, and ChunkSize reads RFC 9112's extensions, `;name` or `;name=value` with a token or quoted string and spaces around, refusing anything else; http_server.fb sends a body of bare LFs, a chunk ended with a bare LF, '3 junk', '3;a\rb', and an unclosed quoted value (each a 400), and '3 ; a ; b = c ; d="x \" y"' (a 200)
+Status: fixed in 00e39cc6: a chunk's size line and its data's end must end with CR LF, and ChunkSize reads RFC 9112's extensions, `;name` or `;name=value` with a token or quoted string and spaces around, refusing anything else; http_server.fb sends a body of bare LFs, a chunk ended with a bare LF, '3 junk', '3;a\rb', and an unclosed quoted value (each a 400), and '3 ; a ; b = c ; d="x \" y"' (a 200)
 
 Where: std/net/http/wire.fb:455
 
@@ -297,7 +297,7 @@ Skeptic: Ran rv-step30/wire/w2.fb in debug and release. '3\nabc\n0\n\n', '3 junk
 
 ## wire-3 (medium): An HTTP/1.0 request with Transfer-Encoding is read as chunked and its connection kept open
 
-Status: fixed in 909a29ee: an HTTP/1.0 request with a Transfer-Encoding is a 400, and its connection closes; http_server.fb's case pipelines a GET after it, which isn't answered
+Status: fixed in 00e39cc6: an HTTP/1.0 request with a Transfer-Encoding is a 400, and its connection closes; http_server.fb's case pipelines a GET after it, which isn't answered
 
 Where: std/net/http/wire.fb:86
 
@@ -359,7 +359,7 @@ Skeptic: Ran rv-step30/wire/w3.fb in debug and release. Output: 'HTTP/1.1 200 OK
 
 ## server-4 (low): HttpResponse.Redirect takes a status that isn't a redirect
 
-Status: fixed in 5d36c899: Redirect panics at the caller unless the status is from 300 to 399; panic_http_redirect_status.fb makes a 301 and a 308, then a 200
+Status: fixed in 83b9534c: Redirect panics at the caller unless the status is from 300 to 399; panic_http_redirect_status.fb makes a 301 and a 308, then a 200
 
 Where: std/net/http/server.fb:123
 
@@ -411,7 +411,7 @@ Skeptic: I ran s4.fb in debug. `Redirect("/x", 200)` sent `HTTP/1.1 200 OK | Loc
 
 ## server-5 (low): A route path that names two parameters the same is accepted, and the first one's value is lost
 
-Status: fixed in 5d36c899: Add panics when the joined path, its group's prefix's included, names a parameter twice; panic_http_route_param_twice.fb adds a route with two names, then Group("/teams/:id").Get("/members/:id")
+Status: fixed in 83b9534c: Add panics when the joined path, its group's prefix's included, names a parameter twice; panic_http_route_param_twice.fb adds a route with two names, then Group("/teams/:id").Get("/members/:id")
 
 Where: std/net/http/server.fb:293
 
@@ -441,7 +441,7 @@ Skeptic: I ran s5.fb in debug and it printed `added` and `added again`, so neith
 
 ## server-6 (low): An absolute-form target whose scheme is in uppercase is refused with a 400
 
-Status: fixed in 5d36c899: an absolute-form target's scheme is compared in lowercase; http_server.fb sends GET HTTP://localhost/users/caps
+Status: fixed in 83b9534c: an absolute-form target's scheme is compared in lowercase; http_server.fb sends GET HTTP://localhost/users/caps
 
 Where: std/net/http/server.fb:569
 
@@ -496,7 +496,7 @@ Skeptic: I ran s6.fb in debug. The `http://localhost/users/1` target got `200 OK
 
 ## server-7 (low): The METHODS Const is never used, and its comment says Route takes only those methods when it takes any token
 
-Status: fixed in 5d36c899: METHODS is gone, and HttpRequest's comment is whole lines; comment and dead code only, so no test
+Status: fixed in 83b9534c: METHODS is gone, and HttpRequest's comment is whole lines; comment and dead code only, so no test
 
 Where: std/net/http/server.fb:33
 
@@ -523,7 +523,7 @@ Skeptic: Grepping rev-5/std for METHODS finds only its declaration, at server.fb
 
 ## wire-4 (low): Linger isn't 'a second at most': a client that trickles bytes keeps it going
 
-Status: fixed in 909a29ee: Linger and LingerAsync read until a Deadline a second off, setting each read's timeout to what's left; net_websocket_linger.fb's client trickles a byte every 300 ms for 3.6 s, and the refused Accept gives back in under 2.5 s
+Status: fixed in 00e39cc6: Linger and LingerAsync read until a Deadline a second off, setting each read's timeout to what's left; net_websocket_linger.fb's client trickles a byte every 300 ms for 3.6 s, and the refused Accept gives back in under 2.5 s
 
 Where: std/net/http/wire.fb:358
 
@@ -588,7 +588,7 @@ Skeptic: Ran rv-step30/wire/w4.fb in debug and release. Output: 'Accept lingered
 
 ## wire-5 (low): A Transfer-Encoding whose last coding isn't chunked gets a 501, not the 400 RFC 9112 requires
 
-Status: fixed in 909a29ee: a last coding that isn't chunked is a 400, chunked twice a 400, and another coding before chunked a 501; http_server.fb sends 'chunked, gzip' and 'chunked, chunked' (400s), and 'gzip, chunked' stays a 501
+Status: fixed in 00e39cc6: a last coding that isn't chunked is a 400, chunked twice a 400, and another coding before chunked a 501; http_server.fb sends 'chunked, gzip' and 'chunked, chunked' (400s), and 'gzip, chunked' stays a 501
 
 Where: std/net/http/wire.fb:93
 
@@ -640,7 +640,7 @@ Skeptic: Ran rv-step30/wire/w567.fb in debug and release. 'Transfer-Encoding: ch
 
 ## wire-6 (low): HTTP/1.2 (a higher 1.x minor version) is refused with a 505 instead of being handled as 1.1
 
-Status: fixed in 909a29ee: RequestLine reads HTTP/1.x past 1.1 as HTTP/1.1, and keeps the 505 for other major versions; http_server.fb's GET /version with HTTP/1.2 answers HTTP/1.1, and HTTP/2.0 stays a 505
+Status: fixed in 00e39cc6: RequestLine reads HTTP/1.x past 1.1 as HTTP/1.1, and keeps the 505 for other major versions; http_server.fb's GET /version with HTTP/1.2 answers HTTP/1.1, and HTTP/2.0 stays a 505
 
 Where: std/net/http/wire.fb:203
 
@@ -691,7 +691,7 @@ Skeptic: Ran rv-step30/wire/w567.fb in debug and release. 'GET /v HTTP/1.2' got 
 
 ## wire-7 (low): Leading zeros push valid chunk sizes and Content-Lengths past the digit limits
 
-Status: fixed in 909a29ee: ChunkSize and DigitsOf skip leading zeros before counting digits against their 15 and 18, and DigitsOf's comment says so; http_server.fb sends a 16-digit chunk size and a 19-character Content-Length, both of 3 (200s)
+Status: fixed in 00e39cc6: ChunkSize and DigitsOf skip leading zeros before counting digits against their 15 and 18, and DigitsOf's comment says so; http_server.fb sends a 16-digit chunk size and a 19-character Content-Length, both of 3 (200s)
 
 Where: std/net/http/wire.fb:332
 
@@ -749,7 +749,7 @@ Skeptic: Ran rv-step30/wire/w567.fb in debug and release. A chunk size of '00000
 
 ## wire-8 (low): The WebSocket handshake's 405 has no Allow field
 
-Status: fixed in bef0a604: the handshake's 405 has Allow: GET; net_websocket_frames.out's POST case shows it
+Status: fixed in cac4b7ea: the handshake's 405 has Allow: GET; net_websocket_frames.out's POST case shows it
 
 Where: std/net/ws/handshake.fb:108
 
@@ -801,7 +801,7 @@ Skeptic: Ran rv-step30/wire/w8.fb in debug and release. Output: 'HTTP/1.1 405 Me
 
 ## wire-9 (low): HeadParser's IsEmpty comment sits above LongLine
 
-Status: fixed in 909a29ee: IsEmpty's comment is above IsEmpty; comment only, so no test
+Status: fixed in 00e39cc6: IsEmpty's comment is above IsEmpty; comment only, so no test
 
 Where: std/net/http/wire.fb:134
 
@@ -848,7 +848,7 @@ Skeptic: wire.fb:134 'Whether it has nothing yet but empty lines.' sits directly
 
 ## ws-1 (low): A valid handshake carrying Content-Length: 0 is refused with 400 as "asked to upgrade with a body"
 
-Status: fixed in bef0a604: a handshake is refused for a body only when it has a Transfer-Encoding or a Content-Length that isn't 0; net_websocket_frames.fb's 'a body' sends 5 bytes and 'a chunked body' a chunked one (400s), and 'an empty body' a Content-Length of 0, which opens
+Status: fixed in cac4b7ea: a handshake is refused for a body only when it has a Transfer-Encoding or a Content-Length that isn't 0; net_websocket_frames.fb's 'a body' sends 5 bytes and 'a chunked body' a chunked one (400s), and 'an empty body' a Content-Length of 0, which opens
 
 Where: std/net/ws/handshake.fb:138
 
@@ -905,7 +905,7 @@ Skeptic: Ran the finding's program, unchanged, as rv-step30/wsv/ws1.fb in a debu
 
 ## ws-2 (low): After Close(), a connection that ends without the other side's Close gives Null instead of throwing NetError CLOSED
 
-Status: fixed in bef0a604: a connection that ends without the other side's Close throws a NetError of CLOSED, CLOSING or OPEN; net_websocket.fb's server drops the connection after the client's Close, and ReceiveAsync throws CLOSED with 1006
+Status: fixed in cac4b7ea: a connection that ends without the other side's Close throws a NetError of CLOSED, CLOSING or OPEN; net_websocket.fb's server drops the connection after the client's Close, and ReceiveAsync throws CLOSED with 1006
 
 Where: std/net/ws/websocket.fb:532
 
@@ -993,7 +993,7 @@ Skeptic: Ran the finding's program as rv-step30/wsv/ws2.fb in debug and in relea
 
 ## ws-3 (low): CloseCode reports the code this side failed with (1002/1007/1009) although no Close came
 
-Status: fixed in bef0a604: Fail leaves CloseCode at 1006, as RFC 6455's 7.1.5 has it when no Close came, and its comment and stdlib.md say so; net_websocket.fb's server sends a masked frame, and the client's CloseCode after is 1006
+Status: fixed in cac4b7ea: Fail leaves CloseCode at 1006, as RFC 6455's 7.1.5 has it when no Close came, and its comment and stdlib.md say so; net_websocket.fb's server sends a masked frame, and the client's CloseCode after is 1006
 
 Where: std/net/ws/websocket.fb:618
 
