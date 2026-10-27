@@ -1,0 +1,25 @@
+// std.text.humanize's Relative of a Duration, as of its whole seconds; FormatBytes at each unit's
+// edges, in 1000s and 1024s, to Int64's ends; and FormatDuration of each unit, their mixes, and
+// Durations under a second, before 0, and at a Duration's ends.
+Import std.core
+Import std.time
+Import std.text.humanize
+
+For d In [0.Seconds, 44.Seconds, -44999.Milliseconds, -45.Seconds, 90.Seconds, -3.Hours,
+          2.Days, Duration.MaxValue(), Duration.MinValue()]
+    Print(d, Humanize.Relative(d))
+End For
+
+Local counts: Int64[] = [0, 1, 999, 1000, 1023, 1024, 1234, 1250, 999949, 999950, 1048575,
+                         1048576, 1234567, -1234567, 123456789, 5000000000, 1099511627776,
+                         9223372036854775807, -9223372036854775807 - 1]
+For count In counts
+    Print(count, FormatBytes(count), FormatBytes(count, binary: True))
+End For
+
+For d In [0.Seconds, 1.Nanoseconds, 80.Nanoseconds, 1500.Nanoseconds, 250.Milliseconds,
+          999999999.Nanoseconds, 1.Seconds, 1.5.Seconds, 60.Seconds, 61.Seconds, 90.25.Seconds,
+          3600.Seconds, 3723.5.Seconds, 2.Days + 1.Minutes, 1.Days + 1.Hours + 1.Minutes,
+          -1.Seconds, -250.Microseconds, Duration.MaxValue(), Duration.MinValue()]
+    Print(d, FormatDuration(d))
+End For

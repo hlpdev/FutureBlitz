@@ -1,11 +1,13 @@
 // std.text.humanize: values as people say them, in English. Plurals ("3 enemies"), how long ago
 // or from now a time is ("3 minutes ago"), ordinals ("22nd"), numbers in words ("forty-two"),
 // and a name in each case style a program uses: snake_case, camelCase, PascalCase, and
-// kebab-case.
+// kebab-case. FormatBytes and FormatDuration say a size ("1.2 MB") and a Duration ("1 hour and 30
+// minutes").
 
 Import std.core
 Import std.text.char
 Import std.text.string
+Import std.time.duration
 
 Extern "runtime"
     Function fb_unicode_category(code: UInt32): Int32
@@ -41,6 +43,10 @@ Public Class Humanize
         If seconds < 0 Then Return "{said} ago"
         Return "in {said}"
     End Method
+
+    // How long ago a time d before now was, when d is before 0, or how soon one d from now will
+    // be, as Relative says it of d's whole seconds: "3 minutes ago" and "in 2 hours".
+    Public Static Method Relative(d: Duration): String => Relative(d.Nanoseconds / 1000000000)
 
     // n with its ordinal's ending: "1st", "2nd", "3rd", "4th", "11th", "22nd", and "113th".
     Public Static Method Ordinal(n: Int64): String
@@ -243,6 +249,80 @@ Function Span(size: UInt64): String
     If size < 27648000 Then Return "{Max((size + 1314900) / 2629800, 2)} months"
     If size < 47347200 Then Return "a year"
     Return "{Max((size + 15778800) / 31557600, 2)} years"
+End Function
+
+// count bytes as people say them, in the largest unit they make at least 1 of, to a tenth,
+// rounded half up: "1.2 MB", "999 B", and "-3.4 GB". The units are 1000 apart, or with binary,
+// 1024: "1.2 MiB".
+Public Function FormatBytes(count: Int64, binary: Bool = False): String
+    Local size = Magnitude(count)
+    Local sign = count < 0 ? "-" : ""
+    Local base: UInt64 = binary ? 1024 : 1000
+    If size < base Then Return "{sign}{size} B"
+    Local units = ["kB", "MB", "GB", "TB", "PB", "EB"]
+    If binary Then units = ["KiB", "MiB", "GiB", "TiB", "PiB", "EiB"]
+    Local unit = 0
+    Local divisor = base
+    Local tenths = Tenths(size, divisor)
+    // One that rounds to the next unit's 1, like 999.96 kB, is in that unit.
+    While unit < units.Count - 1 && tenths >= base * 10
+        unit += 1
+        divisor *= base
+        tenths = Tenths(size, divisor)
+    End While
+
+    Return "{sign}{tenths / 10}.{tenths % 10} {units[unit]}"
+End Function
+
+// d in words: each of its days, hours, minutes, and seconds that isn't 0, the seconds with their
+// fraction, as "1 hour, 2 minutes, and 3.5 seconds" and "2 days and 1 minute". Under a second,
+// it's in its largest unit: "250 milliseconds", "1.5 microseconds", and "80 nanoseconds". It's
+// "0 seconds", and one before 0 is "minus" one after.
+Public Function FormatDuration(d: Duration): String
+    Local size = Magnitude(d.Nanoseconds)
+    Local sign = d.Nanoseconds < 0 ? "minus " : ""
+    If size == 0 Then Return "0 seconds"
+    If size < 1000 Then Return sign + Counted(size, 0, "nanosecond")
+    If size < 1000000 Then Return sign + Counted(size, 3, "microsecond")
+    If size < 1000000000 Then Return sign + Counted(size, 6, "millisecond")
+    Local seconds = size / 1000000000
+    Local parts: String[] = []
+    If seconds >= 86400 Then parts.Add(Counted(seconds / 86400, 0, "day"))
+    If seconds % 86400 >= 3600 Then parts.Add(Counted(seconds % 86400 / 3600, 0, "hour"))
+    If seconds % 3600 >= 60 Then parts.Add(Counted(seconds % 3600 / 60, 0, "minute"))
+    Local rest = size % 60000000000
+    If rest > 0 Then parts.Add(Counted(rest, 9, "second"))
+    If parts.Count == 1 Then Return sign + parts[0]
+    If parts.Count == 2 Then Return "{sign}{parts[0]} and {parts[1]}"
+    parts[parts.Count - 1] = "and " + parts[parts.Count - 1]
+    Return sign + ", ".Join(parts)
+End Function
+
+// count of a unit, as a number with decimals digits after its point, and the unit's name, in
+// its plural unless the number is 1: "1 day", "1.5 seconds", and "250 milliseconds".
+Function Counted(count: UInt64, decimals: Int, unit: String): String
+    Local scale: UInt64 = 1
+    For i = 1 To decimals
+        scale *= 10
+    End For
+
+    Local number = "{count / scale}"
+    Local fraction = count % scale
+    If fraction > 0
+        Local digits = "{fraction}".PadLeft(decimals, '0')
+        While digits.EndsWith("0")
+            digits = digits.Slice(0, digits.Length - 1)
+        End While
+
+        number += "." + digits
+    End If
+
+    Return number == "1" ? "1 {unit}" : "{number} {unit}s"
+End Function
+
+// size / divisor in tenths, rounded half up, in parts that don't overflow.
+Function Tenths(size: UInt64, divisor: UInt64): UInt64
+    Return size / divisor * 10 + (size % divisor * 10 + divisor / 2) / divisor
 End Function
 
 Function Magnitude(n: Int64): UInt64

@@ -167,7 +167,7 @@ So far, std/ holds:
 | std/text/glob.fb | std.text.glob: `Glob` and `Glob.Match` |
 | std/text/layout.fb | std.text.layout: String's `WordWrap`, `Dedent`, and `Indent`, and `Levenshtein` |
 | std/text/fuzzy.fb | std.text.fuzzy: `Fuzzy`'s `Match`, `Score`, and `Rank`, and `FuzzyMatch` |
-| std/text/humanize.fb | std.text.humanize: `Humanize`'s `Plural`, `Relative`, `Ordinal`, `Words`, `SnakeCase`, `KebabCase`, `CamelCase`, and `PascalCase` |
+| std/text/humanize.fb | std.text.humanize: `Humanize`'s `Plural`, `Relative`, `Ordinal`, `Words`, `SnakeCase`, `KebabCase`, `CamelCase`, and `PascalCase`; `FormatBytes` and `FormatDuration` |
 | std/text/diff.fb | std.text.diff: `Diff`'s `Lines`, `Chars`, `Unified`, and `Merge`, and `DiffKind`, `DiffRun`, and `Merged` |
 | std/text/markdown.fb | `MarkdownToHtml` and `ParseMarkdown`, over md4c through `fb_markdown_`, with `MarkdownExtensions`, `MarkdownNode`, `MarkdownKind`, and `MarkdownAlignment` |
 | std/text/template.fb | `Template` and `Templates` |
@@ -490,10 +490,14 @@ file or URL in the default app.
   - std.text.fuzzy's `Fuzzy.Match` gives a `FuzzyMatch?` with fzf's own score and the byte
     positions; `Score` and `Rank` too. A pattern without capitals ignores case.
   - std.text.humanize's `Humanize.Plural(word)`, `Plural(count, word)`, `Relative(seconds)`
-    (negative is past) until std.time's `Duration`, `Ordinal`, `Words`, and `SnakeCase`,
+    and `Relative(duration)` (negative is past), `Ordinal`, `Words`, and `SnakeCase`,
     `CamelCase`, `PascalCase`, and `KebabCase`.
 - `Glob.Match`, `WordWrap`, `Dedent`, `Indent`, `Levenshtein`; `FormatBytes` ("1.2 MB") and
   `FormatDuration`.
+  - std.text.humanize's `FormatBytes(count, binary)` gives a tenth of the largest unit, 1000s
+    ("1.2 MB") or 1024s ("1.2 MiB"), and `FormatDuration(d)` each of a Duration's days, hours,
+    minutes, and seconds in words ("1 hour, 2 minutes, and 3.5 seconds"), or one unit under a
+    second.
   - std.text.glob's `Glob.Match(pattern, text)`, or `Glob(pattern).Matches(text)`: `*` stops
     at `/` and `**` doesn't, `?`, `[a-z]` and `[!a-z]`, `{a,b}`, and `\`.
   - std.text.layout's String Methods `WordWrap(width)`, in a terminal's columns, `Dedent()`,
