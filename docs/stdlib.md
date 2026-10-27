@@ -1539,11 +1539,12 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   Double's bits, so what it draws keeps its pixels however far its points are. An ellipse is a
   polygon within a hundredth of a pixel of it, up to a radius of 34 million pixels, past which it
   has 131072 sides, and an ellipse's stroke its polygon's, with miters, of the sides for its
-  stroke's outer radius. The drawing is the runtime's own, in Doubles, without fused multiply-adds, with sines
-  of its own, so every target gives the same pixels; image_draw/make_data.py works out the same
-  drawings in Python's Fractions, and image_draw.fb gets their bytes exactly. A coordinate that isn't
-  finite, a rectangle whose far corner isn't, a negative size or radius, a negative line width,
-  or a miter limit below 1 panics at the caller.
+  stroke's outer radius. The drawing is the runtime's own, in Doubles, without fused
+  multiply-adds, with sines of its own, so every target gives the same pixels;
+  image_draw/make_data.py works out the same drawings in Python's Fractions, and image_draw.fb
+  gets their bytes exactly. A coordinate that isn't finite, a rectangle whose far corner isn't,
+  a negative size or radius, a negative line width, or a miter limit below 1 panics at the
+  caller.
 - `Font.Parse(data)` reads a TrueType or OpenType font (step 25), a font file or a
   collection's first font, through the runtime's own reader, which checks each offset before it
   follows it, so a font that's broken or made to mislead throws or draws boxes but never reads
