@@ -1,0 +1,45 @@
+protocol: x OPEN
+hello
+empty: True
+héllo, 世界
+0 False True
+125 False True
+126 False True
+65535 False True
+65536 False True
+1048576 False True
+after the ping
+CLOSING
+CLOSED the WebSocket is closing
+closed: True 4000 CLOSED
+again: True
+echoed 10, protocol x, closed with 4000 "done", CLOSED
+protocol: ""
+server got: one
+server got: 3 bytes
+server closed: 1000 CLOSED
+client got: ONE
+client got: 3 bytes
+client got: True 1000 CLOSED
+bye
+True 1001 going away CLOSED
+server: sent before the Close came, then True, 1001, CLOSED
+CLOSED 1006 True
+server: CLOSED, 1006, CLOSED
+not 101: OTHER, <server> answered 200 OK, not 101 Switching Protocols
+no Upgrade: OTHER, <server> didn't upgrade to websocket
+no Connection: OTHER, <server> didn't answer with Connection: Upgrade
+another key's answer: OTHER, <server> answered with a Sec-WebSocket-Accept that isn't the key's
+not HTTP: OTHER, <server> answered with a head HTTP/1.1 refuses: a response's line isn't HTTP/1.1's
+closed without an answer: CLOSED, <server> closed before it answered the handshake
+a subprotocol it asked for: opened with "chat"
+another subprotocol: OTHER, <server> chose a subprotocol it wasn't offered
+two subprotocols: OTHER, <server> chose a subprotocol it wasn't offered
+extensions: OTHER, <server> answered with extensions it wasn't asked for
+OTHER a WebSocket connects to a ws:// URL, not "http://127.0.0.1/"
+OTHER a WebSocket's URL can't have a fragment, as "ws://127.0.0.1/#part" does
+OTHER "not a url" isn't a URL
+OTHER a WebSocket connects to a ws:// URL, not "wss://127.0.0.1/"
+closed port: REFUSED
+quiet server: timeout
+quiet server, blocking: timeout

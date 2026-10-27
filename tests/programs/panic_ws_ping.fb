@@ -1,0 +1,19 @@
+// A Ping fits a control frame, in 125 bytes, so a longer one panics where it's sent.
+Import std.core
+Import std.net
+Import std.net.ws
+Import std.text
+
+// The server's side, once a client connects.
+Async Function Served(listener: TcpListener): WebSocket Throws NetError, TimeoutError
+    Return Try Await WebSocket.AcceptAsync(Try Await listener.AcceptAsync())
+End Function
+
+Try
+    Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local accepted = Served(listener)
+    Local ws = Await WebSocket.ConnectAsync("ws://127.0.0.1:{listener.LocalAddress.Port}/")
+    ws.Ping("a".Repeated(126).Bytes)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

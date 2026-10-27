@@ -1,0 +1,203 @@
+handshake
+  answer: HTTP/1.1 101 Switching Protocols | Upgrade: websocket | Connection: Upgrade | Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo= | Sec-WebSocket-Protocol: chat
+  client: pong "p!"
+  client: text "Hello"
+  client: close 1000 ""
+  client: end
+  server: opened with "chat"
+  server: got Hello
+  server: closed with 1000 "done", CLOSED
+the longest message
+  client: binary of 1024 bytes
+  client: close 1000 ""
+  client: end
+  server: opened with "other"
+  server: got 1024 bytes
+  server: closed with 1000 "", CLOSED
+a message too long
+  client: close 1009 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a message longer than its MaxMessageSize, 1024 bytes
+fragments too long
+  client: close 1009 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a message longer than its MaxMessageSize, 1024 bytes
+unmasked
+  client: close 1002 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent an unmasked frame to a server
+reserved bits
+  client: close 1002 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a frame with reserved bits set
+an unknown opcode
+  client: close 1002 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a frame of opcode 3, which RFC 6455 doesn't have
+text that isn't UTF-8
+  client: close 1007 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a text message that isn't UTF-8
+fragments that aren't UTF-8
+  client: close 1007 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a text message that isn't UTF-8
+UTF-8 split between fragments
+  client: text "€"
+  client: close 1000 ""
+  client: end
+  server: opened with "other"
+  server: got €
+  server: closed with 1000 "", CLOSED
+a continuation first
+  client: close 1002 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a continuation frame with no message before it
+a message in a message
+  client: close 1002 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a new message in the middle of a fragmented one
+a Ping in fragments
+  client: close 1002 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a control frame in fragments
+a long Ping
+  client: close 1002 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a control frame of more than 125 bytes
+a Close of 1 byte
+  client: close 1002 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a Close frame of 1 byte
+a Close of 1005
+  client: close 1002 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a Close frame of code 1005, which RFC 6455 doesn't allow
+a Close of 999
+  client: close 1002 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a Close frame of code 999, which RFC 6455 doesn't allow
+a Close of 5000
+  client: close 1002 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a Close frame of code 5000, which RFC 6455 doesn't allow
+a Close's reason that isn't UTF-8
+  client: close 1007 ""
+  client: end
+  server: opened with "other"
+  server: OTHER: <peer> sent a Close frame whose reason isn't UTF-8
+a Close of 4321
+  client: close 4321 ""
+  client: end
+  server: opened with "other"
+  server: closed with 4321 "custom", CLOSED
+an empty Close
+  client: close
+  client: end
+  server: opened with "other"
+  server: closed with 1005 "", CLOSED
+no Close
+  client: text "last"
+  client: end
+  server: opened with "other"
+  server: got last
+  server: CLOSED: <peer> closed the WebSocket without a Close frame
+no Upgrade
+  answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> didn't ask to upgrade to websocket
+no Connection
+  answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> didn't ask with Connection: Upgrade
+version 8
+  answer: HTTP/1.1 426 Upgrade Required | Sec-WebSocket-Version: 13 | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked for a WebSocket version other than 13
+POST
+  answer: HTTP/1.1 405 Method Not Allowed | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked to upgrade with POST, not GET
+HTTP/1.0
+  answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked to upgrade over HTTP/1.0
+no Host
+  answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked with no Host
+a short key
+  answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked with a Sec-WebSocket-Key that isn't 16 bytes
+a body
+  answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked to upgrade with a body
+space before a colon
+  answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked with a request HTTP/1.1 refuses: a field's name isn't a token
+a folded field
+  answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked with a request HTTP/1.1 refuses: a field's line goes on from the one before, which HTTP/1.1 refuses
+HTTP/2.0
+  answer: HTTP/1.1 505 HTTP Version Not Supported | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked with a request HTTP/1.1 refuses: HTTP/2.0 isn't 1.0 or 1.1
+a control character
+  answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked with a request HTTP/1.1 refuses: Origin's value has a control character
+a bare CR
+  answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked with a request HTTP/1.1 refuses: Origin's value has a control character
+a long line
+  answer: HTTP/1.1 431 Request Header Fields Too Large | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked with a request HTTP/1.1 refuses: a line is longer than 8192 bytes
+a long target
+  answer: HTTP/1.1 414 URI Too Long | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked with a request HTTP/1.1 refuses: a line is longer than 8192 bytes
+too many fields
+  answer: HTTP/1.1 431 Request Header Fields Too Large | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked with a request HTTP/1.1 refuses: a head has more than 100 fields
+nothing
+  answer: 
+  client: end
+  server: CLOSED: <peer> closed before it asked for a WebSocket
+half a head
+  answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked with a request HTTP/1.1 refuses: the connection ended in a head
+empty lines first
+  answer: HTTP/1.1 101 Switching Protocols | Upgrade: websocket | Connection: Upgrade | Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+  client: end
+  server: opened with ""
+  server: CLOSED: <peer> closed the WebSocket without a Close frame
+quit
+  client: text "quit"
+  client: close 1000 ""
+  client: end
+  server: opened with "other"
+  server: got quit
+  server: closed with 1000 "", CLOSED

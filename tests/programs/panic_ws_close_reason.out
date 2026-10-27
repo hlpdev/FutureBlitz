@@ -1,0 +1,1 @@
+panic: a WebSocket's Close has a reason of 123 bytes at most, not 124 at panic_ws_close_reason.fb:17:5

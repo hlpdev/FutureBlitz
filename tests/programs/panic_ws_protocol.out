@@ -1,0 +1,1 @@
+panic: "two words" isn't a WebSocket subprotocol's name at panic_ws_protocol.fb:7:5

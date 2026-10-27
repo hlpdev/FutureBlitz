@@ -1,0 +1,1 @@
+panic: a WebSocket can't close with code 1005 at panic_ws_close_code.fb:17:5

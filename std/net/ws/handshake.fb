@@ -1,0 +1,154 @@
+// A WebSocket's opening handshake, per RFC 6455's section 4: the client's GET with Upgrade, and
+// the server's 101 with the key's answer, over HTTP/1.1's wire.
+
+Import std.core
+Import std.collections
+Import std.ffi
+Import std.crypto
+Import std.text.encoding
+Import std.net.http.wire
+Import std.text
+
+// What RFC 6455 has a server add to the client's key before it hashes it.
+Const KEY_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+// The Sec-WebSocket-Accept that answers a Sec-WebSocket-Key.
+Package Function AcceptOf(key: String): String => Base64.Encode(Sha1.Hash(key + KEY_GUID))
+
+// A new Sec-WebSocket-Key: 16 random bytes, in Base64.
+Package Function NewKey(): String => Base64.Encode(SecureRandom.Bytes(16))
+
+// Panics, where Connect or Accept was called, unless each subprotocol is a token, as RFC 6455
+// has them.
+@PanicsAtCaller
+Package Function CheckProtocols(protocols: String[])
+    For protocol In protocols
+        If !IsToken(protocol) Then Panic("\"{protocol}\" isn't a WebSocket subprotocol's name")
+    End For
+End Function
+
+// The client's request for a URL's host and target, asking for the subprotocols, if any.
+Package Function RequestBytes(host: String, target: String, key: String,
+                              protocols: String[]): UInt8[]
+    Local names = ["Host", "Upgrade", "Connection", "Sec-WebSocket-Key", "Sec-WebSocket-Version"]
+    Local values = [host, "websocket", "Upgrade", key, "13"]
+    If protocols.Count > 0
+        names.Add("Sec-WebSocket-Protocol")
+        values.Add(protocols.Join(", "))
+    End If
+
+    Return HeadBytes("GET {target} HTTP/1.1", names, values)
+End Function
+
+// The subprotocol a server's answer chose, or the text of what's wrong with the answer.
+Package Function CheckAnswer(head: Head, key: String, protocols: String[]): (String, String?)
+    If head.Parts[1] != "101"
+        Return ("", "answered {head.Parts[1]} {head.Parts[2]}, not 101 Switching Protocols")
+    End If
+
+    If !head.HasToken("Upgrade", "websocket") Then Return ("", "didn't upgrade to websocket")
+    If !head.HasToken("Connection", "upgrade")
+        Return ("", "didn't answer with Connection: Upgrade")
+    End If
+
+    If head.Get("Sec-WebSocket-Accept") != AcceptOf(key)
+        Return ("", "answered with a Sec-WebSocket-Accept that isn't the key's")
+    End If
+
+    If head.Contains("Sec-WebSocket-Extensions")
+        Return ("", "answered with extensions it wasn't asked for")
+    End If
+
+    Local chosen = head.Items("Sec-WebSocket-Protocol", False)
+    If chosen.Count == 0 Then Return ("", Null)
+    If chosen.Count > 1 || !protocols.Contains(chosen[0])
+        Return ("", "chose a subprotocol it wasn't offered")
+    End If
+
+    Return (chosen[0], Null)
+End Function
+
+// What a server answers a request to upgrade with: a status, and its fields, the 101's with the
+// key's answer and the subprotocol it chose when the request is a WebSocket's, or an error's.
+Package Class Answer
+    Package Field Status: Int = 101
+    Package Field Reason: String = "Switching Protocols"
+    Package Field Names: String[] = []
+    Package Field Values: String[] = []
+    Package Field Protocol: String = ""
+    // What's wrong with the request, when it isn't a WebSocket's.
+    Package Field Problem: String? = Null
+
+    // The answer's bytes.
+    Package Method Bytes(): UInt8[]
+        If Status != 101
+            Names.Add("Content-Length")
+            Values.Add("0")
+            Names.Add("Connection")
+            Values.Add("close")
+        End If
+
+        Return HeadBytes("HTTP/1.1 {Status} {Reason}", Names, Values)
+    End Method
+
+    // Refuses the request with `status`, for `problem`.
+    Package Method Refuse(status: Int, reason: String, problem: String): Answer
+        Status = status
+        Reason = reason
+        Problem = problem
+        Return Self
+    End Method
+End Class
+
+// The answer to a request to upgrade, choosing the first of the client's subprotocols that the
+// server has, per RFC 6455's section 4.2.
+Package Function AnswerOf(head: Head, protocols: String[]): Answer
+    Local answer = Answer()
+    If head.Parts[0] != "GET"
+        Return answer.Refuse(405, "Method Not Allowed",
+                             "asked to upgrade with {head.Parts[0]}, not GET")
+    End If
+
+    If head.Parts[2] != "HTTP/1.1"
+        Return answer.Refuse(400, "Bad Request", "asked to upgrade over {head.Parts[2]}")
+    End If
+
+    If !head.Contains("Host") Then Return answer.Refuse(400, "Bad Request", "asked with no Host")
+    If !head.HasToken("Upgrade", "websocket")
+        Return answer.Refuse(400, "Bad Request", "didn't ask to upgrade to websocket")
+    End If
+
+    If !head.HasToken("Connection", "upgrade")
+        Return answer.Refuse(400, "Bad Request", "didn't ask with Connection: Upgrade")
+    End If
+
+    If head.Get("Sec-WebSocket-Version") != "13"
+        answer.Names.Add("Sec-WebSocket-Version")
+        answer.Values.Add("13")
+        Return answer.Refuse(426, "Upgrade Required", "asked for a WebSocket version other than 13")
+    End If
+
+    Local key = head.Get("Sec-WebSocket-Key") ?? ""
+    Local decoded = Base64.Decode(key)
+    If decoded == Null || decoded.Count != 16
+        Return answer.Refuse(400, "Bad Request",
+                             "asked with a Sec-WebSocket-Key that isn't 16 bytes")
+    End If
+
+    If head.Contains("Content-Length") || head.Contains("Transfer-Encoding")
+        Return answer.Refuse(400, "Bad Request", "asked to upgrade with a body")
+    End If
+
+    answer.Names.AddAll(["Upgrade", "Connection", "Sec-WebSocket-Accept"])
+    answer.Values.AddAll(["websocket", "Upgrade", AcceptOf(key)])
+    For offered In head.Items("Sec-WebSocket-Protocol", False)
+        If protocols.Contains(offered)
+            answer.Protocol = offered
+            answer.Names.Add("Sec-WebSocket-Protocol")
+            answer.Values.Add(offered)
+            Break
+        End If
+    End For
+
+    Return answer
+End Function

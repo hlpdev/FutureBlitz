@@ -1,0 +1,10 @@
+// A WebSocket's subprotocols are tokens, so one with a space panics where it's asked for, before
+// anything connects.
+Import std.core
+Import std.net.ws
+
+Try
+    WebSocket.Connect("ws://127.0.0.1:1/", ["chat", "two words"])
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

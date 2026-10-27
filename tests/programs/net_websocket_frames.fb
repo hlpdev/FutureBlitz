@@ -1,0 +1,308 @@
+// std.net.ws's server, frame by frame: a client written by hand sends a WebSocket handshake and
+// frames, and the server on a Thread reads them, answering each that breaks RFC 6455 with the
+// Close code the RFC gives, and each handshake that isn't a WebSocket's with an error's status.
+
+Import std.core
+Import std.collections
+Import std.ffi
+Import std.io
+Import std.net
+Import std.net.ws
+Import std.text
+
+Const UPGRADE = "GET /chat HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n" +
+                "Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+                "Sec-WebSocket-Version: 13\r\n"
+
+// The server: each connection's handshake, and then its messages, which it echoes, told through
+// a Channel as lines, a "--" after each connection's. A "quit" message stops it.
+Const reports = Channel<String>(64)
+Const ports = Channel<UInt16>(1)
+Local server = Thread.Start(Function()
+    Try
+        Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+        ports.Send(listener.LocalAddress.Port)
+        Local quit = False
+        While !quit
+            Local stream = listener.Accept()
+            Local peer = stream.RemoteAddress.ToString()
+            Try
+                Local ws = WebSocket.Accept(stream, ["chat", "other"])
+                ws.MaxMessageSize = 1024
+                reports.Send("opened with \"{ws.Protocol}\"")
+                Loop
+                    Local message = ws.Receive()
+                    If message == Null
+                        reports.Send("closed with {ws.CloseCode ?? 0} \"{ws.CloseReason}\", " +
+                                     "{ws.State}")
+                        Break
+                    End If
+
+                    reports.Send("got {message}")
+                    If message.Text == "quit" Then quit = True
+                    If message.IsText
+                        ws.Send(message.Text)
+                    Else
+                        ws.Send(message.Bytes)
+                    End If
+                End Loop
+            Catch e As NetError
+                reports.Send("{e.Kind}: {e.Message.Replace(peer, "<peer>")}")
+            End Try
+
+            reports.Send("--")
+        End While
+    Catch e As Error
+        reports.Send("server failed: {e.Message}")
+        reports.Send("--")
+    End Try
+End Function)
+
+Local port = ports.Receive() ?? 0
+
+// Prints what the server told of a connection, up to its "--".
+Function Reported(from: Channel<String>)
+    Loop
+        Local line = from.Receive() ?? "--"
+        If line == "--" Then Return
+        Print("  server:", line)
+    End Loop
+End Function
+
+// A connection to the server, with `request` sent.
+Function Connected(port: UInt16, request: UInt8[]): TcpStream Throws Error
+    Local stream = Try TcpStream.Connect(SocketAddress(IpAddress.Loopback, port))
+    Try stream.WriteBytes(request)
+    Return stream
+End Function
+
+// The answer's head, its lines joined by " | ".
+Function HeadOf(stream: TcpStream): String Throws IOError
+    Local bytes: UInt8[] = []
+    Local one = Buffer<UInt8>(1)
+    Loop
+        Local n = bytes.Count
+        If n >= 4 && bytes[n - 4] == 13 && bytes[n - 3] == 10 && bytes[n - 2] == 13 &&
+           bytes[n - 1] == 10
+            Break
+        End If
+
+        If Try stream.Read(one) == 0 Then Break
+        bytes.Add(one[0])
+    End Loop
+
+    Return (String.FromUtf8(bytes) ?? "").TrimEnd().Replace("\r\n", " | ")
+End Function
+
+// A frame of `first`, its FIN, reserved bits, and opcode, and the payload, masked as a client's
+// is unless `masked` says not.
+Function FrameOf(first: Int, payload: UInt8[], masked: Bool = True): UInt8[]
+    Local bytes: UInt8[] = [first As UInt8]
+    Local mask = masked ? 0x80 : 0
+    If payload.Count < 126
+        bytes.Add((mask | payload.Count) As UInt8)
+    Else
+        bytes.AddAll([(mask | 126) As UInt8, (payload.Count >> 8) As UInt8,
+                      (payload.Count & 0xFF) As UInt8])
+    End If
+
+    Local key: UInt8[] = [0x11, 0x22, 0x33, 0x44]
+    If masked Then bytes.AddAll(key)
+    For i = 0 Until payload.Count
+        bytes.Add(masked ? payload[i] ^ key[i % 4] : payload[i])
+    End For
+    Return bytes
+End Function
+
+// The server's next frame, as its kind and what it has, or "end" once the connection's ended.
+Function NextFrame(stream: TcpStream): String Throws IOError
+    Local start = Buffer<UInt8>(2)
+    Local got = Try stream.Read(start.Slice(0, 1))
+    If got == 0 Then Return "end"
+    Try ReadExact(stream, start.Slice(1, 2))
+    Local length = (start[1] & 0x7F) As Int
+    If length == 126
+        Local more = Buffer<UInt8>(2)
+        Try ReadExact(stream, more)
+        length = ((more[0] As Int) << 8) | (more[1] As Int)
+    End If
+
+    Local payload = Buffer<UInt8>(length)
+    Try ReadExact(stream, payload)
+    Local bytes = payload.ToArray()
+    Local masked = (start[1] & 0x80) != 0 ? " masked" : ""
+    Select (start[0] & 0x0F) As Int
+        Case 1
+            Return "text \"{String.FromUtf8(bytes) ?? "?"}\"{masked}"
+        Case 2
+            Return "binary of {bytes.Count} bytes{masked}"
+        Case 8
+            If bytes.Count < 2 Then Return "close{masked}"
+            Local code = ((bytes[0] As Int) << 8) | (bytes[1] As Int)
+            Return "close {code} \"{String.FromUtf8(bytes[2..]) ?? "?"}\"{masked}"
+        Case 10
+            Return "pong \"{String.FromUtf8(bytes) ?? "?"}\"{masked}"
+    End Select
+
+    Return "frame {start[0]}"
+End Function
+
+// Opens a WebSocket by hand, sends the frames, and ends what it writes, and prints each frame the
+// server sends back, up to the connection's end, and then what the server told.
+Function Exchange(name: String, port: UInt16, frames: UInt8[][], from: Channel<String>)
+    Print(name)
+    Try
+        Local offer = UPGRADE + "Sec-WebSocket-Protocol: other, chat\r\n\r\n"
+        Local stream = Connected(port, offer.Bytes)
+        Local head = HeadOf(stream)
+        If !head.StartsWith("HTTP/1.1 101 ") Then Print("  answer:", head)
+        For frame In frames
+            stream.WriteBytes(frame)
+        End For
+
+        stream.ShutdownWrite()
+
+        Loop
+            Local frame = NextFrame(stream)
+            Print("  client:", frame)
+            If frame == "end" Then Break
+        End Loop
+    Catch e As Error
+        Print("  client failed: {e.Message}")
+    End Try
+
+    Reported(from)
+End Function
+
+// Sends a request by hand, and ends what it writes, and prints the server's answer and what the
+// server told.
+Function Ask(name: String, port: UInt16, request: String, from: Channel<String>)
+    AskBytes(name, port, request.Bytes, from)
+End Function
+
+Function AskBytes(name: String, port: UInt16, request: UInt8[], from: Channel<String>)
+    Print(name)
+    Try
+        Local stream = Connected(port, request)
+        stream.ShutdownWrite()
+        Print("  answer:", HeadOf(stream))
+        Print("  client:", NextFrame(stream))
+    Catch e As Error
+        Print("  client failed: {e.Message}")
+    End Try
+
+    Reported(from)
+End Function
+
+Function Close(code: Int, reason: UInt8[]): UInt8[]
+    Local payload: UInt8[] = [(code >> 8) As UInt8, (code & 0xFF) As UInt8]
+    payload.AddAll(reason)
+    Return FrameOf(0x88, payload)
+End Function
+
+// The handshake RFC 6455's section 1.3 has: its key's answer is s3pPLMBiTxaQ9kYGzzhZRbK+xOo=,
+// and the server chooses "chat", the first of the client's that it has. A message in fragments,
+// with a Ping between them, comes whole, after the Pong, and the Close's code comes back.
+Print("handshake")
+Try
+    Local stream = Connected(port, (UPGRADE + "Sec-WebSocket-Protocol: chat, other\r\n\r\n").Bytes)
+    Print("  answer:", HeadOf(stream))
+    stream.WriteBytes(FrameOf(0x01, "Hel".Bytes))
+    stream.WriteBytes(FrameOf(0x89, "p!".Bytes))
+    stream.WriteBytes(FrameOf(0x80, "lo".Bytes))
+    stream.WriteBytes(Close(1000, "done".Bytes))
+    Loop
+        Local frame = NextFrame(stream)
+        Print("  client:", frame)
+        If frame == "end" Then Break
+    End Loop
+Catch e As Error
+    Print("  client failed: {e.Message}")
+End Try
+Reported(reports)
+
+Local long: UInt8[] = []
+For i = 0 Until 600
+    long.Add((i % 256) As UInt8)
+End For
+
+// Messages up to MaxMessageSize, of 1024 bytes, come; a longer one fails with 1009, and so do
+// fragments that add up to one.
+Local most: UInt8[] = []
+For i = 0 Until 1024
+    most.Add(7)
+End For
+Exchange("the longest message", port, [FrameOf(0x82, most), Close(1000, [])], reports)
+most.Add(7)
+Exchange("a message too long", port, [FrameOf(0x82, most)], reports)
+Exchange("fragments too long", port, [FrameOf(0x02, long), FrameOf(0x80, long)], reports)
+
+// Frames RFC 6455 refuses fail with 1002, or 1007 for text that isn't UTF-8.
+Exchange("unmasked", port, [FrameOf(0x81, "hi".Bytes, False)], reports)
+Exchange("reserved bits", port, [FrameOf(0xC1, "hi".Bytes)], reports)
+Exchange("an unknown opcode", port, [FrameOf(0x83, "hi".Bytes)], reports)
+Exchange("text that isn't UTF-8", port, [FrameOf(0x81, [0xC3, 0x28])], reports)
+Exchange("fragments that aren't UTF-8", port, [FrameOf(0x01, [0xE2, 0x82]),
+                                              FrameOf(0x80, [0x41])], reports)
+Exchange("UTF-8 split between fragments", port, [FrameOf(0x01, [0xE2, 0x82]),
+                                                FrameOf(0x80, [0xAC]), Close(1000, [])], reports)
+Exchange("a continuation first", port, [FrameOf(0x80, "hi".Bytes)], reports)
+Exchange("a message in a message", port, [FrameOf(0x01, "a".Bytes), FrameOf(0x81, "b".Bytes)],
+         reports)
+Exchange("a Ping in fragments", port, [FrameOf(0x09, "a".Bytes)], reports)
+Exchange("a long Ping", port, [FrameOf(0x89, long[..126])], reports)
+Exchange("a Close of 1 byte", port, [FrameOf(0x88, [3])], reports)
+Exchange("a Close of 1005", port, [Close(1005, [])], reports)
+Exchange("a Close of 999", port, [Close(999, [])], reports)
+Exchange("a Close of 5000", port, [Close(5000, [])], reports)
+Exchange("a Close's reason that isn't UTF-8", port, [Close(1000, [0xFF])], reports)
+
+// A Close of 3000 to 4999 is a program's, and one without a code is 1005's; the server sends
+// back an empty one.
+Exchange("a Close of 4321", port, [Close(4321, "custom".Bytes)], reports)
+Exchange("an empty Close", port, [FrameOf(0x88, [])], reports)
+
+// A connection that ends without a Close throws a NetError of CLOSED, with 1006.
+Exchange("no Close", port, [FrameOf(0x81, "last".Bytes)], reports)
+
+// A request that isn't a WebSocket's is answered with an error's status, and closed.
+Local key = "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+Ask("no Upgrade", port, "GET / HTTP/1.1\r\nHost: a\r\nConnection: Upgrade\r\n" + key +
+    "Sec-WebSocket-Version: 13\r\n\r\n", reports)
+Ask("no Connection", port, "GET / HTTP/1.1\r\nHost: a\r\nUpgrade: websocket\r\n" + key +
+    "Sec-WebSocket-Version: 13\r\n\r\n", reports)
+Ask("version 8", port, UPGRADE.Replace("Version: 13", "Version: 8") + "\r\n", reports)
+Ask("POST", port, UPGRADE.Replace("GET", "POST") + "\r\n", reports)
+Ask("HTTP/1.0", port, UPGRADE.Replace("HTTP/1.1", "HTTP/1.0") + "\r\n", reports)
+Ask("no Host", port, UPGRADE.Replace("Host: localhost\r\n", "") + "\r\n", reports)
+Ask("a short key", port, UPGRADE.Replace("dGhlIHNhbXBsZSBub25jZQ==", "YWJj") + "\r\n", reports)
+Ask("a body", port, UPGRADE + "Content-Length: 0\r\n\r\n", reports)
+
+// A head HTTP/1.1 refuses is answered with its status too.
+Ask("space before a colon", port, UPGRADE + "Origin : x\r\n\r\n", reports)
+Ask("a folded field", port, UPGRADE + "Origin: x\r\n y\r\n\r\n", reports)
+Ask("HTTP/2.0", port, UPGRADE.Replace("HTTP/1.1", "HTTP/2.0") + "\r\n", reports)
+Ask("a control character", port, UPGRADE + "Origin: a\x01b\r\n\r\n", reports)
+Ask("a bare CR", port, UPGRADE + "Origin: a\rb\r\n\r\n", reports)
+Local longLine = "X-Long: " + "a".Repeated(9000) + "\r\n"
+Ask("a long line", port, UPGRADE + longLine + "\r\n", reports)
+Ask("a long target", port, UPGRADE.Replace("/chat", "/" + "a".Repeated(9000)) + "\r\n", reports)
+Local manyFields = ""
+For i = 1 To 101
+    manyFields += "X-{i}: {i}\r\n"
+End For
+Ask("too many fields", port, UPGRADE + manyFields + "\r\n", reports)
+
+// A connection that ends before its request throws a NetError of CLOSED, and one that ends in
+// the middle of it is a head HTTP/1.1 refuses.
+Ask("nothing", port, "", reports)
+Ask("half a head", port, "GET / HTTP/1.1\r\nHost:", reports)
+
+// Empty lines before a request's line are skipped, and a field's value can have obs-text.
+Local obsText = ("\r\n\r\n" + UPGRADE + "X-Name: caf").Bytes
+obsText.Add(0xE9)
+obsText.AddAll("\r\n\r\n".Bytes)
+AskBytes("empty lines first", port, obsText, reports)
+
+Exchange("quit", port, [FrameOf(0x81, "quit".Bytes), Close(1000, [])], reports)
+server.Join()

@@ -1,0 +1,19 @@
+// A WebSocket's MaxMessageSize is 1 byte at least, so 0 panics where it's set.
+Import std.core
+Import std.net
+Import std.net.ws
+Import std.text
+
+// The server's side, once a client connects.
+Async Function Served(listener: TcpListener): WebSocket Throws NetError, TimeoutError
+    Return Try Await WebSocket.AcceptAsync(Try Await listener.AcceptAsync())
+End Function
+
+Try
+    Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local accepted = Served(listener)
+    Local ws = Await WebSocket.ConnectAsync("ws://127.0.0.1:{listener.LocalAddress.Port}/")
+    ws.MaxMessageSize = 0
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

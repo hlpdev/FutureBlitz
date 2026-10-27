@@ -1,0 +1,309 @@
+// std.net.ws: a program's WebSocket client talks to its own server, Async on the main thread and
+// blocking on two, with messages of text and bytes in each length's form, Pings, subprotocols,
+// and the Close both ways; and a client's handshake fails as a NetError, or a TimeoutError,
+// against servers that don't answer as a WebSocket's does. Nothing leaves the machine.
+
+Import std.core
+Import std.collections
+Import std.crypto
+Import std.ffi
+Import std.io
+Import std.net
+Import std.net.ws
+Import std.text
+Import std.time
+
+// Echoes each message until the client's Close, and gives how the WebSocket closed.
+Async Function Echo(listener: TcpListener): String Throws NetError, TimeoutError
+    Local ws = Try Await WebSocket.AcceptAsync(Try Await listener.AcceptAsync(), ["chat", "x"])
+    Local count = 0
+    Loop
+        Local message = Try Await ws.ReceiveAsync()
+        If message == Null Then Break
+        count += 1
+        If message.IsText
+            Try Await ws.SendAsync(message.Text)
+        Else
+            Try Await ws.SendAsync(message.Bytes)
+        End If
+    End Loop
+
+    Return "echoed {count}, protocol {ws.Protocol}, closed with {ws.CloseCode ?? 0} " +
+           "\"{ws.CloseReason}\", {ws.State}"
+End Function
+
+// A message as Print shows it, or "Null".
+Function Shown(message: WebSocketMessage?): String => message?.ToString() ?? "Null"
+
+Function Pattern(count: Int): UInt8[]
+    Local bytes: UInt8[] = []
+    For i = 0 Until count
+        bytes.Add((i % 251) As UInt8)
+    End For
+    Return bytes
+End Function
+
+// Async: a client and a server on the main thread. Lengths of 125, 126, and 65536 bytes take
+// each of a frame's three length forms.
+Try
+    Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local served = Echo(listener)
+    Local url = "ws://127.0.0.1:{listener.LocalAddress.Port}/echo?room=1"
+    Local ws = Await WebSocket.ConnectAsync(url, ["x", "chat"])
+    Print("protocol:", ws.Protocol, ws.State)
+    Await ws.SendAsync("hello")
+    Print(Shown(Await ws.ReceiveAsync()))
+    Await ws.SendAsync("")
+    Print("empty:", (Await ws.ReceiveAsync())?.Text == "")
+    Await ws.SendAsync("héllo, 世界")
+    Print(Shown(Await ws.ReceiveAsync()))
+    For count In [0, 125, 126, 65535, 65536, 1048576]
+        Local sent = Pattern(count)
+        Await ws.SendAsync(sent)
+        Local back = Await ws.ReceiveAsync()
+        Print(count, back?.IsText ?? True, back?.Bytes == sent)
+    End For
+
+    // A Ping's Pong is read past.
+    Await ws.PingAsync("are you there".Bytes)
+    Await ws.SendAsync("after the ping")
+    Print(Shown(Await ws.ReceiveAsync()))
+
+    Await ws.CloseAsync(4000, "done")
+    Print(ws.State)
+    Try
+        Await ws.SendAsync("late")
+    Catch e As NetError
+        Print(e.Kind, e.Message)
+    End Try
+
+    Print("closed:", Await ws.ReceiveAsync() == Null, ws.CloseCode ?? 0, ws.State)
+    Print("again:", Await ws.ReceiveAsync() == Null)
+    Print(Await served)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// Blocking, on two threads: the client on a Thread, which tells what it got through a Channel.
+Const ports = Channel<UInt16>(1)
+Const got = Channel<String>(8)
+Local client = Thread.Start(Function()
+    Try
+        Local ws = WebSocket.Connect("ws://localhost:{ports.Receive() ?? 0}/")
+        ws.Send("one")
+        ws.Send([1 As UInt8, 2, 3])
+        ws.Ping()
+        For i = 1 To 2
+            got.Send(Shown(ws.Receive()))
+        End For
+
+        ws.Close()
+        got.Send("{ws.Receive() == Null} {ws.CloseCode ?? 0} {ws.State}")
+    Catch e As Error
+        got.Send("client failed: {e.Message}")
+    End Try
+End Function)
+Try
+    Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    ports.Send(listener.LocalAddress.Port)
+    Local ws = WebSocket.Accept(listener.Accept())
+    Print("protocol: \"{ws.Protocol}\"")
+    Loop
+        Local message = ws.Receive()
+        If message == Null Then Break
+        Print("server got:", message)
+        If message.IsText
+            ws.Send(message.Text.ToUpper())
+        Else
+            ws.Send(message.Bytes)
+        End If
+    End Loop
+
+    Print("server closed:", ws.CloseCode ?? 0, ws.State)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+client.Join()
+For i = 1 To 3
+    Print("client got:", got.Receive() ?? "")
+End For
+
+// A server's Close: Receive gives the messages before it, and then Null, and the client's Close
+// answers it.
+Async Function CloseFirst(listener: TcpListener): String Throws NetError, TimeoutError
+    Local ws = Try Await WebSocket.AcceptAsync(Try Await listener.AcceptAsync())
+    Try Await ws.SendAsync("bye")
+    Await ws.CloseAsync(1001, "going away")
+    Local late = Try Await ws.ReceiveAsync()
+    Local after = Try Await ws.ReceiveAsync()
+    Return "server: {Shown(late)}, then {after == Null}, {ws.CloseCode ?? 0}, {ws.State}"
+End Function
+
+Try
+    Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local served = CloseFirst(listener)
+    Local ws = Await WebSocket.ConnectAsync("ws://127.0.0.1:{listener.LocalAddress.Port}")
+    Await ws.SendAsync("sent before the Close came")
+    Print(Shown(Await ws.ReceiveAsync()))
+    Print(Await ws.ReceiveAsync() == Null, ws.CloseCode ?? 0, ws.CloseReason, ws.State)
+    Print(Await served)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// Abort closes the connection at once, and the other side's Receive throws a NetError of CLOSED,
+// whose code is 1006.
+Async Function Aborted(listener: TcpListener): String Throws NetError, TimeoutError
+    Local ws = Try Await WebSocket.AcceptAsync(Try Await listener.AcceptAsync())
+    Try
+        Try Await ws.ReceiveAsync()
+    Catch e As NetError
+        Return "server: {e.Kind}, {ws.CloseCode ?? 0}, {ws.State}"
+    End Try
+
+    Return "server: no error"
+End Function
+
+Try
+    Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local served = Aborted(listener)
+    Local ws = Await WebSocket.ConnectAsync("ws://127.0.0.1:{listener.LocalAddress.Port}")
+    ws.Abort()
+    Print(ws.State, ws.CloseCode ?? 0, ws.Receive() == Null)
+    Print(Await served)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// A server written by hand answers a connection's handshake with `answer`, once it's read the
+// request, or closes it then for "". It reads the request first either way, as a connection
+// closed with bytes it hasn't read is reset, not ended, on some OSes.
+Async Function Answer(listener: TcpListener, answer: String) Throws Error
+    Local stream = Try Await listener.AcceptAsync()
+    Local head: UInt8[] = []
+    Local one = Buffer<UInt8>(1)
+    While head.Count < 4 || head[head.Count - 4..] != [13 As UInt8, 10, 13, 10]
+        If Try Await stream.ReadAsync(one) == 0 Then Return
+        head.Add(one[0])
+    End While
+
+    If answer == "" Then Return
+    Try Await stream.WriteAsync(Buffer<UInt8>.From(answer.Bytes))
+    Try Await ReadAllAsync(stream)
+End Function
+
+// Connects to a server that answers with `answer`, and prints how the handshake failed.
+Async Function Refused(name: String, answer: String) Throws Error
+    Local listener = Try TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local address = listener.LocalAddress.ToString()
+    Local served = Answer(listener, answer)
+    Try
+        Local ws = Try Await WebSocket.ConnectAsync("ws://{address}/", ["chat"])
+        Print(name, "opened")
+    Catch e As NetError
+        Print("{name}: {e.Kind}, {e.Message.Replace(address, "<server>")}")
+    End Try
+
+    Try? Await served
+End Function
+
+Local accept = "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"
+Try
+    Await Refused("not 101", "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+    Await Refused("no Upgrade", "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\n" +
+                                accept + "\r\n")
+    Await Refused("no Connection", "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n" +
+                                   accept + "\r\n")
+    Await Refused("another key's answer", "HTTP/1.1 101 Switching Protocols\r\nUpgrade: " +
+                                          "websocket\r\nConnection: Upgrade\r\n" + accept + "\r\n")
+    Await Refused("not HTTP", "SSH-2.0-OpenSSH\r\n\r\n")
+    Await Refused("closed without an answer", "")
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// The answer to the key the client sends is only known once it's sent, so a server that answers
+// with extensions or a subprotocol that wasn't asked for reads it first.
+Async Function Choosing(listener: TcpListener, extra: String) Throws Error
+    Local stream = Try Await listener.AcceptAsync()
+    Local head: UInt8[] = []
+    Local one = Buffer<UInt8>(1)
+    While head.Count < 4 || head[head.Count - 4..] != [13 As UInt8, 10, 13, 10]
+        If Try Await stream.ReadAsync(one) == 0 Then Return
+        head.Add(one[0])
+    End While
+
+    Local key = ""
+    For line In (String.FromUtf8(head) ?? "").Split("\r\n")
+        If line.StartsWith("Sec-WebSocket-Key: ") Then key = line.After(": ") ?? ""
+    End For
+
+    Local answer = Base64.Encode(Sha1.Hash(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+    Local text = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n" +
+                 "Connection: Upgrade\r\nSec-WebSocket-Accept: {answer}\r\n{extra}\r\n"
+    Try Await stream.WriteAsync(Buffer<UInt8>.From(text.Bytes))
+    Try Await ReadAllAsync(stream)
+End Function
+
+Async Function Chose(name: String, extra: String) Throws Error
+    Local listener = Try TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local address = listener.LocalAddress.ToString()
+    Local served = Choosing(listener, extra)
+    Try
+        Local ws = Try Await WebSocket.ConnectAsync("ws://{address}/", ["chat"])
+        Print("{name}: opened with \"{ws.Protocol}\"")
+    Catch e As NetError
+        Print("{name}: {e.Kind}, {e.Message.Replace(address, "<server>")}")
+    End Try
+
+    Try? Await served
+End Function
+
+Try
+    Await Chose("a subprotocol it asked for", "Sec-WebSocket-Protocol: chat\r\n")
+    Await Chose("another subprotocol", "Sec-WebSocket-Protocol: other\r\n")
+    Await Chose("two subprotocols", "Sec-WebSocket-Protocol: chat, chat\r\n")
+    Await Chose("extensions", "Sec-WebSocket-Extensions: permessage-deflate\r\n")
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// A URL that isn't a ws:// one's throws a NetError of OTHER, and one nothing listens at a NetError
+// of REFUSED; a server that doesn't answer in time throws a TimeoutError.
+For url In ["http://127.0.0.1/", "ws://127.0.0.1/#part", "not a url", "wss://127.0.0.1/"]
+    Try
+        WebSocket.Connect(url)
+    Catch e As NetError
+        Print(e.Kind, e.Message)
+    Catch e As TimeoutError
+        Print("timeout")
+    End Try
+End For
+
+Try
+    Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local address = listener.LocalAddress
+    listener.Close()
+    WebSocket.Connect("ws://{address}/")
+Catch e As NetError
+    Print("closed port:", e.Kind)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+Try
+    Local quiet = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Try
+        Await WebSocket.ConnectAsync("ws://{quiet.LocalAddress}/", [], 50.Milliseconds)
+    Catch e As TimeoutError
+        Print("quiet server: timeout")
+    End Try
+
+    Try
+        WebSocket.Connect("ws://{quiet.LocalAddress}/", [], 50.Milliseconds)
+    Catch e As TimeoutError
+        Print("quiet server, blocking: timeout")
+    End Try
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
