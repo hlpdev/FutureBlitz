@@ -1,0 +1,87 @@
+// An HttpServer's work routes at their limits: past MaxQueuedWork calls waiting for its Workers
+// thread a call is a 503, and a work route's request being answered when Stop comes is answered,
+// as an Async route's is, the threads ending once it has.
+
+Import std.core
+Import std.collections
+Import std.concurrent
+Import std.net
+Import std.net.http
+
+// What lets the waiting handler go on, and how many handlers have started.
+Const release = Channel<Bool>(16)
+Global started = Atomic<Int>(0)
+// How many requests the middleware has passed on, and what holds them, on the main thread.
+Global passed = 0
+Global gate = TaskSource<Bool>()
+Global gated = False
+
+Function Shown(response: HttpResponse): String => "{response.Status} {response.Text}"
+
+// Waits on the main thread, letting its coroutines run, until `count` holds.
+Async Function WaitFor(count: Func(): Bool)
+    While !count()
+        Await NextFrame()
+    End While
+End Function
+
+// One thread, and room for two calls to wait: a fourth call, while the first runs and two wait,
+// is a 503.
+Local queued = HttpServer()
+queued.Workers = 1
+queued.MaxQueuedWork = 2
+queued.Use(Async Function(request: HttpRequest, next: HttpHandler): HttpResponse
+    passed += 1
+    Return Await next(request)
+End Function)
+queued.Work("/w/:n", Function(request: WorkRequest): HttpResponse
+    started.Add(1)
+    release.Receive()
+    Return HttpResponse.Of(Body.Text("done {request.Param("n") ?? "?"}"))
+End Function)
+
+// A request held in middleware until Stop has come, to an Async route and to a work route.
+Local stopping = HttpServer()
+stopping.Workers = 1
+stopping.Use(Async Function(request: HttpRequest, next: HttpHandler): HttpResponse
+    passed += 1
+    If gated Then Await gate.Task
+    Return Await next(request)
+End Function)
+stopping.Get("/async", Async Function(request: HttpRequest) => HttpResponse.Of(Body.Text("async")))
+stopping.Work("/work", Function(request: WorkRequest) => HttpResponse.Of(Body.Text("work")))
+
+Try
+    queued.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local serving = queued.Serve()
+    Local base = "http://127.0.0.1:{queued.LocalAddress.Port}"
+    Local client = HttpClient()
+    Local first = client.GetAsync("{base}/w/1")
+    Await WaitFor(Function() => started.Load() == 1)
+    Local second = client.GetAsync("{base}/w/2")
+    Local third = client.GetAsync("{base}/w/3")
+    Await WaitFor(Function() => passed == 3)
+    Print("fourth:", Shown(Await client.GetAsync("{base}/w/4")))
+    For i = 1 To 3
+        release.Send(True)
+    End For
+
+    Print(Shown(Await first), Shown(Await second), Shown(Await third))
+    queued.Stop()
+    Await serving
+
+    passed = 0
+    gated = True
+    stopping.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local served = stopping.Serve()
+    Local held = "http://127.0.0.1:{stopping.LocalAddress.Port}"
+    Local async = client.GetAsync("{held}/async")
+    Local work = client.GetAsync("{held}/work")
+    Await WaitFor(Function() => passed == 2)
+    stopping.Stop()
+    gate.Finish(True)
+    Print("stopped while answering:", Shown(Await async), Shown(Await work))
+    Await served
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

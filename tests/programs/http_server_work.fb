@@ -54,7 +54,8 @@ End Function)
 server.Work("POST", "/echo/:id", Function(request: WorkRequest): HttpResponse
     Local text = "{request.Verb} {request.Path} id={request.Param("id") ?? "?"} " +
                  "q={request.Query.Get("q") ?? "?"} name={request.Headers.Get("X-Name") ?? "?"} " +
-                 "body={request.Text} {request.Bytes.Count} bytes, {request.Version}"
+                 "body={request.Text} {request.Bytes.Count} bytes, {request.Version}, " +
+                 "params={request.Params.Count}"
     Local response = HttpResponse.Of(StatusCode.CREATED, Body.Text(text))
     response.Headers.Set("X-Worked", "yes")
     Return response

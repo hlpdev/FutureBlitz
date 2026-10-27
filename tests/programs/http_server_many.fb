@@ -25,10 +25,10 @@ Async Function Echo(request: HttpRequest): HttpResponse
     Return HttpResponse.Of(StatusCode.OK)
 End Function
 
-// A request through a client of its own, which answers with its number.
-Async Function Fetched(base: String, n: Int): Bool
+// A request through a client of its own to a route at `prefix`, which answers with its number.
+Async Function Fetched(prefix: String, n: Int): Bool
     Try
-        Return (Try Await HttpClient().GetAsync("{base}/n/{n}")).Text == "{n}"
+        Return (Try Await HttpClient().GetAsync("{prefix}/{n}")).Text == "{n}"
     Catch e As Error
         Return False
     End Try
@@ -61,6 +61,9 @@ server.Get("/n/:n", Async Function(request: HttpRequest): HttpResponse
     Return HttpResponse.Of(Body.Text(request.Param("n") ?? ""))
 End Function)
 server.Get("/ws", Function(request: HttpRequest) => Echo(request))
+server.Work("/work/:n", Function(request: WorkRequest): HttpResponse
+    Return HttpResponse.Of(Body.Text(request.Param("n") ?? ""))
+End Function)
 Try
     server.Listen(SocketAddress(IpAddress.Loopback, 0))
     Local serving = server.Serve()
@@ -78,7 +81,7 @@ Try
     For round = 0 Until 4
         Local tasks: Task<Bool>[] = []
         For n = 1 To 50
-            tasks.Add(Fetched(base, round * 50 + n))
+            tasks.Add(Fetched("{base}/n", round * 50 + n))
         End For
         fetched += Count(Await WhenAll(tasks))
     End For
@@ -94,6 +97,17 @@ Try
         sockets.Add(Talked(url, n))
     End For
     Print("WebSockets fifty at once:", Count(Await WhenAll(sockets)))
+
+    // Work routes' calls, through a client of their own each, fifty at once.
+    Local worked = 0
+    For round = 0 Until 2
+        Local tasks: Task<Bool>[] = []
+        For n = 1 To 50
+            tasks.Add(Fetched("{base}/work", round * 50 + n))
+        End For
+        worked += Count(Await WhenAll(tasks))
+    End For
+    Print("work routes, fifty at once:", worked)
 
     server.Stop()
     Await serving

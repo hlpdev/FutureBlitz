@@ -2,3 +2,4 @@ one client: 300
 a client each, fifty at once: 200
 WebSockets one after another: 100
 WebSockets fifty at once: 50
+work routes, fifty at once: 100

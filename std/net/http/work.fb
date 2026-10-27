@@ -74,6 +74,17 @@ Public Struct WorkRequest
     // A path parameter its route bound, percent-decoded, or Null when it has none of that name.
     Public Method Param(name: String): String? => Bound.Get(name)
 
+    // Each path parameter its route bound, by name, a new Map each time.
+    Public Property Params: Map<String, String>
+        Get
+            Local params = Map<String, String>()
+            For name, value In Bound
+                params[name] = value
+            End For
+            Return params
+        End Get
+    End Property
+
     // A form's fields, when the body is application/x-www-form-urlencoded, or none.
     Public Method Form(): QueryParams
         Local kind = TrimSpace((Headers.Get("Content-Type") ?? "").Split(";")[0]).ToLower()
@@ -129,16 +140,14 @@ Struct WorkJob
     End New
 End Struct
 
-// The most calls that wait for a Workers thread at once, past which a request is a 503.
-Const WAITING = 1024
-
 // A server's Workers threads, and the calls waiting for one.
 Package Class WorkPool
     ReadOnly Field Jobs: Channel<WorkJob>
 
-    // Starts `count` threads, each making the calls that come, in order, until Close.
-    Package New(count: Int)
-        Jobs = Channel<WorkJob>(WAITING)
+    // Starts `count` threads, each making the calls that come, in order, until Close, with room
+    // for `waiting` calls that wait for one.
+    Package New(count: Int, waiting: Int)
+        Jobs = Channel<WorkJob>(waiting)
         Const jobs = Jobs
         For i = 1 To count
             Thread.Start(Function()
@@ -153,7 +162,7 @@ Package Class WorkPool
     End New
 
     // The Task of a call's reply, once a thread has made it, or Null when the pool is closed,
-    // or has WAITING calls waiting already.
+    // or has as many calls waiting as it has room for already.
     Package Method Run(handler: WorkHandler, request: WorkRequest): Task<WorkReply>?
         If Jobs.IsClosed() Then Return Null
         Local done = TaskSource<WorkReply>()

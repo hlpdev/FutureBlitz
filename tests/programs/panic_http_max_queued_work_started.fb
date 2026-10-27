@@ -1,0 +1,16 @@
+// A server's Workers threads start when a work route is first called, so MaxQueuedWork can't
+// change after, and setting it panics where it's set.
+Import std.core
+Import std.net
+Import std.net.http
+
+Local server = HttpServer()
+server.Work("/", Function(request: WorkRequest) => HttpResponse.Of(204))
+Try
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local serving = server.Serve()
+    Print((Await HttpClient().GetAsync("http://127.0.0.1:{server.LocalAddress.Port}/")).Status)
+    server.MaxQueuedWork = 8
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

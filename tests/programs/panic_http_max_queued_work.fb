@@ -1,0 +1,9 @@
+// A server's work routes have room for one call to wait at least, so MaxQueuedWork of 0 panics
+// where it's set.
+Import std.core
+Import std.net.http
+
+Local server = HttpServer()
+server.MaxQueuedWork = 1
+Print(server.MaxQueuedWork)
+server.MaxQueuedWork = 0

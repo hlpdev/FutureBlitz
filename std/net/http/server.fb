@@ -451,7 +451,11 @@ Public Class HttpServer Extends HttpRouter
     Field Idle: Duration
     // How many Workers threads its work routes have, and the threads, once one is called.
     Field Count: Int
+    Field Waiting: Int = 1024
     Field Pool: WorkPool? = Null
+    // Whether Serve has given, after which the threads end once the last connection it was
+    // answering does.
+    Field Served: Bool
 
     Public New()
         Connections = Map<Int, ServerConnection>()
@@ -474,8 +478,9 @@ Public Class HttpServer Extends HttpRouter
 
     // How many threads its work routes' handlers run on, at most that many at once, the job
     // pool's size, a core fewer than the machine's, unless it's set; the threads start when a
-    // work route is first called, and end once Serve gives. Panics when it's set below 1, or once
-    // the threads have started.
+    // work route is first called, and end once Serve has given and the connections it was
+    // answering have ended, so a request being answered as Stop comes is answered. Panics when
+    // it's set below 1, or once the threads have started.
     @PanicsAtCaller
     Public Property Workers: Int
         Get => Count
@@ -485,6 +490,21 @@ Public Class HttpServer Extends HttpRouter
                 Panic("a server's Workers can't change once its threads have started")
             End If
             Count = value
+        End Set
+    End Property
+
+    // How many work routes' calls wait for a Workers thread at most, 1024 unless it's set, past
+    // which a call is a 503 Service Unavailable. Panics when it's set below 1, or once the
+    // threads have started.
+    @PanicsAtCaller
+    Public Property MaxQueuedWork: Int
+        Get => Waiting
+        Set(value)
+            If value < 1 Then Panic("a server's MaxQueuedWork is 1 at least, not {value}")
+            If Pool != Null
+                Panic("a server's MaxQueuedWork can't change once its threads have started")
+            End If
+            Waiting = value
         End Set
     End Property
 
@@ -523,7 +543,7 @@ Public Class HttpServer Extends HttpRouter
     @PanicsAtCaller
     Public Async Method Serve()
         Local listener = Listening()
-        Defer Pool?.Close()
+        Defer Ended()
         While !Stopping
             Try
                 Local stream = Try Await listener.AcceptAsync()
@@ -563,7 +583,7 @@ Public Class HttpServer Extends HttpRouter
 
     // Answers a connection's requests, one after another, until one side closes it.
     Async Method Answer(id: Int, connection: ServerConnection)
-        Defer Connections.Remove(id)
+        Defer Left(id)
         Local stream = connection.Stream
         Local open = True
         While open && !Stopping
@@ -659,14 +679,25 @@ Public Class HttpServer Extends HttpRouter
         Return Await Around(routed)(request)
     End Method
 
+    // Serve has given: the Workers threads end now when no connection is being answered, or as
+    // the last one ends.
+    Method Ended()
+        Served = True
+        If Connections.Count == 0 Then Pool?.Close()
+    End Method
+
+    // A connection has ended.
+    Method Left(id: Int)
+        Connections.Remove(id)
+        If Served && Connections.Count == 0 Then Pool?.Close()
+    End Method
+
     // A work route's response: its handler's, from a Workers thread, which the first call starts
-    // them for, or a 503 Service Unavailable once Serve has given, or while 1024 calls wait for a
-    // thread already.
+    // them for, or a 503 Service Unavailable while MaxQueuedWork calls wait for a thread already.
     Async Method Worked(request: HttpRequest, work: WorkHandler): HttpResponse
         Local pool = Pool
         If pool == Null
-            If Stopping Then Return HttpResponse.Of(StatusCode.SERVICE_UNAVAILABLE)
-            pool = WorkPool(Count)
+            pool = WorkPool(Count, Waiting)
             Pool = pool
         End If
 
