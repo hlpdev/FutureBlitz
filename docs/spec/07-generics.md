@@ -83,6 +83,11 @@ Func(Int[]): Int = First`, or `Local g: Func(Int, String): Int = Two<Int>`.
 When a generic overload and one that isn't generic fit a call equally well, the one that isn't
 generic is chosen.
 
+Overloads that take the same parameter types can still differ in how many type parameters of
+their own they have, as `Json.Read(text)`, which gives a Value, and `Json.Read<T>(text)`, which
+gives a T, do. Type arguments written after the name pick the overload with that many, and a call
+with none takes a generic one only where its type arguments can be inferred.
+
 ## Constraints: inline and `Where`
 
 Both forms exist. The **formatter enforces** which one is used, so there is still only one

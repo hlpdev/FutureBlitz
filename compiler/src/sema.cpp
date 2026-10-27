@@ -4280,7 +4280,9 @@ private:
             }
 
             const bool overloads = is_callable_member(declared) && is_callable_member(other);
-            if (overloads && !same_parameters(declared, other)) {
+            if (overloads &&
+                (!same_parameters(declared, other) ||
+                 own_type_parameters(declared).size() != own_type_parameters(other).size())) {
                 continue;
             }
 
@@ -8235,6 +8237,13 @@ private:
         return within(mine, theirs) && within(theirs, mine);
     }
 
+    /// Whether two top-level Functions can't both be declared: they take the same types, and
+    /// have as many type parameters of their own, since F<T>(text: String) and F(text: String)
+    /// are two overloads, which a call tells apart by the type arguments written after F.
+    [[nodiscard]] bool clashes(const symbol_t& a, const symbol_t& b) {
+        return a.type_parameters.size() == b.type_parameters.size() && same_signature(a, b);
+    }
+
     /// What a generic Function's constraints ask of its type arguments, with each type through
     /// `rename`: each constraint, and one for each Interface its Interface extends, so
     /// "Where T: Comparable" asks what "Where T: Comparable, Equatable" does.
@@ -8305,7 +8314,7 @@ private:
         for (const symbol_id_t other_id : others) {
             const symbol_t& other = symbol(other_id);
             const bool overloads = is_function(declared) && is_function(other);
-            if (overloads && !same_signature(declared, other)) {
+            if (overloads && !clashes(declared, other)) {
                 // Constraints that differ now may ask the same once every Interface knows what
                 // it extends, so check_overloads() compares them again then.
                 const bool constrained =
@@ -8351,7 +8360,7 @@ private:
             const bool both = std::ranges::contains(names, declared_id) &&
                               (other.kind == symbol_kind_t::BUILTIN_FUNCTION ||
                                std::ranges::contains(names, other_id));
-            if (!both || !same_signature(declared, other)) {
+            if (!both || !clashes(declared, other)) {
                 continue;
             }
 
@@ -22405,13 +22414,7 @@ private:
         std::vector<std::optional<type_id_t>> arguments(owner_parameters.size() +
                                                         declared.type_parameters.size());
         const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
-        const auto* name = std::get_if<name_expr_t>(&m_ast.get(node.callee).node);
-        std::vector<type_expr_id_t> written;
-        if (member != nullptr) {
-            written = member->type_arguments;
-        } else if (name != nullptr) {
-            written = name->type_arguments;
-        }
+        const std::vector<type_expr_id_t> written = written_arguments(node);
 
         if (!owner_parameters.empty()) {
             // An Interface's member has the type it's called on for Self: a type parameter, or

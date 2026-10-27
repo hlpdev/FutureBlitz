@@ -74,7 +74,8 @@ Swap(x, y)                 // ✗ error: Swap takes a ByRef; write ByRef x
 
 ## Overloading
 
-Functions may be overloaded by parameter types.
+Functions may be overloaded by parameter types, or by how many type parameters of their own
+they have (see [07-generics.md](07-generics.md)).
 
 ```vb
 Function Print(value: Int)

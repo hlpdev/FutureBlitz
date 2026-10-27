@@ -792,6 +792,35 @@ TEST_CASE("overloads: an exact match beats a conversion", "[sema]") {
                     "Function F<Const N: UInt8>(x: Int[N]): Int => 2\n"
                     "Local a: Int[3]\n"
                     "Local n = F(a)") == errors_t{ "F: the call to 'F' is ambiguous" });
+
+    // Overloads with different counts of their own type parameters don't clash: the type
+    // arguments written after the name pick the one with that many, and a call with none takes
+    // a generic one only where its type arguments can be inferred.
+    constexpr std::string_view counted = "Function Parse(text: String): Bool => True\n"
+                                         "Function Parse<T>(text: String): T[] => []\n"
+                                         "Function Parse<T, U>(text: String): U[] => []\n";
+    CHECK(probe(std::format("{}Local x = Parse(\"a\")", counted)) == "Bool");
+    CHECK(probe(std::format("{}Local x = Parse<Int>(\"a\")", counted)) == "Int32[]");
+    CHECK(probe(std::format("{}Local x = Parse<Int, String>(\"a\")", counted)) == "String[]");
+    CHECK(errors_of(std::format("{}Local x = Parse<Int, Int, Int>(\"a\")", counted)) ==
+          errors_t{ "Parse<Int, Int, Int>: no overload of 'Parse' takes 3 type arguments" });
+    CHECK(errors_of("Function Parse(text: String): Bool => True\n"
+                    "Function Parse<T>(text: String): T[] => []\n"
+                    "Function Parse<U>(line: String): U[] => []") ==
+          errors_t{ "Parse: 'Parse' is already declared with the same parameter types" });
+
+    // A Method's too, as Json.Read(text) gives a Value and Json.Read<T>(text) a T.
+    constexpr std::string_view reads = "Struct Json\n"
+                                       "    Static Method Read(text: String): Bool => True\n"
+                                       "    Static Method Read<T>(text: String): T[] => []\n"
+                                       "End Struct\n";
+    CHECK(probe(std::format("{}Local x = Json.Read(\"a\")", reads)) == "Bool");
+    CHECK(probe(std::format("{}Local x = Json.Read<Int>(\"a\")", reads)) == "Int32[]");
+    CHECK(errors_of("Struct Json\n"
+                    "    Static Method Read<T>(text: String): T[] => []\n"
+                    "    Static Method Read<U>(line: String): U[] => []\n"
+                    "End Struct") ==
+          errors_t{ "Read: 'Read' is already declared with the same parameter types" });
 }
 
 TEST_CASE("std's Print and the built-ins can be overloaded, and a module's own hides them",
