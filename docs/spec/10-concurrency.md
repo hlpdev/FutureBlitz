@@ -239,7 +239,7 @@ Rules:
 ```vb
 Const ch = Channel<Packet>(64)
 Spawn(Function() => NetLoop(ch))
-While ch.TryReceive(pkt)
+While ch.TryReceive(ByRef pkt)
     Handle(pkt)
 End While
 

@@ -832,6 +832,11 @@ TEST_CASE("ByRef arguments", "[sema]") {
 
     CHECK(call("Swap(ByRef x, ByRef y)").empty());
     CHECK(call("Swap(x, ByRef y)") == errors_t{ "x: parameter 'a' is ByRef; write 'ByRef x'" });
+    // An overload that fits but for its ByRef is the one meant, either way.
+    CHECK(call("Function Swap(a: String)\nEnd Function\nSwap(x, ByRef y)") ==
+          errors_t{ "x: parameter 'a' is ByRef; write 'ByRef x'" });
+    CHECK(call("Function Twice(a: Int)\nEnd Function\nFunction Twice(a: String)\nEnd Function\n"
+               "Twice(ByRef x)") == errors_t{ "x: parameter 'a' isn't ByRef; remove 'ByRef'" });
     CHECK(call("Swap(ByRef x, ByRef x)") == errors_t{ "x: 'x' is passed ByRef twice in one call" });
     CHECK(call("Swap(ByRef 1, ByRef y)") ==
           errors_t{ "1: only a variable or one of its fields can be passed ByRef" });
@@ -10036,6 +10041,10 @@ TEST_CASE("a Channel's TryReceive() gives a T?, beside the ByRef one", "[sema]")
     CHECK(probe("Const ch = Channel<String?>(2)\nLocal x = ch.TryReceive()") == "String??");
     CHECK(probe("Const ch = Channel<Int>(2)\nLocal value = 0\n"
                 "Local x = ch.TryReceive(ByRef value)") == "Bool");
+    // Leaving off the ByRef says so, as it does without the other overload.
+    CHECK(
+        errors_of("Const ch = Channel<Int>(2)\nLocal value = 0\nLocal x = ch.TryReceive(value)") ==
+        errors_t{ "value: parameter 'value' is ByRef; write 'ByRef value'" });
     CHECK(errors_of("Const ch = Channel<Int>(2)\nLocal x: Int = ch.TryReceive()") ==
           errors_t{ "ch.TryReceive(): expected Int32, found Int32?, which may be Null; check it "
                     "first, or give a value for Null with '?"

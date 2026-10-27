@@ -22688,6 +22688,19 @@ private:
                 return unmet.front();
             }
 
+            // So is the one that fits but for a ByRef the call leaves off or adds, whose call
+            // says which.
+            std::vector<symbol_id_t> by_ref;
+            for (const symbol_id_t candidate : candidates) {
+                if (quietly([&] { return rank(candidate, node, true, false); }) != match_t::NONE) {
+                    by_ref.push_back(candidate);
+                }
+            }
+
+            if (by_ref.size() == 1) {
+                return by_ref.front();
+            }
+
             // A literal with no type of its own that no parameter gave one, like (nope, 1),
             // reports its own errors, as it would with only one overload.
             for (std::size_t i = 0; i < types.size(); ++i) {
@@ -22736,7 +22749,8 @@ private:
     /// How well a call fits `function`: its worst argument's match. NONE when the arguments
     /// don't bind to the parameters, or one's ByRef doesn't match, or, when `bounded`, the
     /// function's Where lines don't hold for them.
-    match_t rank(const symbol_id_t function, const call_expr_t& node, const bool bounded = true) {
+    match_t rank(const symbol_id_t function, const call_expr_t& node, const bool bounded = true,
+                 const bool same_by_ref = true) {
         const std::optional<binding_t> bound = bind(function, node, span_of(node.callee));
         const std::optional<std::vector<type_id_t>> arguments =
             infer(function, node, type_id_t::NONE);
@@ -22766,7 +22780,8 @@ private:
                 fit = match_t::CONVERTIBLE;
             }
 
-            worst = argument.by_ref != parameter.by_ref ? match_t::NONE : std::min(worst, fit);
+            worst = same_by_ref && argument.by_ref != parameter.by_ref ? match_t::NONE
+                                                                       : std::min(worst, fit);
         }
 
         const symbol_t* last =
@@ -22787,7 +22802,7 @@ private:
                 fit = match(argument, element);
             }
 
-            worst = argument.by_ref ? match_t::NONE : std::min(worst, fit);
+            worst = same_by_ref && argument.by_ref ? match_t::NONE : std::min(worst, fit);
         }
 
         m_substitution = outer;
