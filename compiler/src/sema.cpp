@@ -10578,7 +10578,9 @@ private:
 
     /// What a use of a symbol means for the main-thread rules: a mutable Global or Static Field,
     /// a top-level Const that isn't Sendable, or a @MainThread function is the main thread's,
-    /// and a function's, Method's, or Property's code runs from here.
+    /// and a function's, Method's, or Property's code runs from here. A Static ReadOnly Field of a
+    /// Sendable type keeps the value it starts with, before any work starts, so any thread reads
+    /// it, as it does a Sendable Const.
     void note_thread_use(const symbol_id_t id, const span_t span) {
         const std::optional<symbol_id_t> code = current_code();
         if (!code) {
@@ -10607,15 +10609,18 @@ private:
         };
 
         switch (used.kind) {
-        case symbol_kind_t::GLOBAL:
+        case symbol_kind_t::GLOBAL: {
             // Each thread has its own ThreadLocal Global.
-            if (!in_place(used.type) && !used.modifiers.is_thread_local) {
+            const bool fixed = used.owner != type_id_t::INVALID && used.modifiers.is_read_only &&
+                               !unsendable(used.type);
+            if (!in_place(used.type) && !used.modifiers.is_thread_local && !fixed) {
                 names(used.owner != type_id_t::INVALID ? "uses the Static Field"
                                                        : "uses the Global",
                       "which only the main thread can, unless it's an Atomic or a Mutex");
             }
 
             break;
+        }
         case symbol_kind_t::CONSTANT:
             if (!used.value && !scope_of(id) && unsendable(used.type)) {
                 main_only(std::format("uses the Const '{}', which holds ", used.name), used.type,

@@ -10254,6 +10254,21 @@ TEST_CASE("work on another thread reaches nothing only the main thread may", "[s
                     "uses the Static Field 'Enemy.Count', which only the main thread can, unless "
                     "it's an Atomic or a Mutex" });
 
+    // A Static ReadOnly Field of a Sendable type keeps its value, so any thread reads it, but one
+    // that isn't Sendable is still the main thread's.
+    CHECK(errors_of("Struct Status\n"
+                    "    Static ReadOnly Field OK: Int = 200\n"
+                    "    Static ReadOnly Field Name: String = \"OK\"\n"
+                    "End Struct\n"
+                    "Local t = Spawn(Function() => \"{Status.OK} {Status.Name}\")")
+              .empty());
+    CHECK(errors_of("Class Enemy\n    Field HP: Int\nEnd Class\n"
+                    "Struct Boss\n    Static ReadOnly Field Main: Enemy = Enemy()\nEnd Struct\n"
+                    "Local t = Spawn(Function() => Boss.Main.HP)") ==
+          errors_t{ "Spawn: this work runs on another thread, but it uses the Static Field "
+                    "'Boss.Main', which only the main thread can, unless it's an Atomic or a "
+                    "Mutex" });
+
     // @MainThread
     const std::string_view render = "@MainThread Function Render()\nEnd Function\n";
     CHECK(errors_of(std::format("{}Local t = Spawn(Function() => Render())", render)) ==
