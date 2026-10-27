@@ -15,7 +15,8 @@ Function LineColors(): Color32[]
     Return [Color32(214, 39, 40), Color32(31, 119, 180), Color32(44, 160, 44)]
 End Function
 
-// The chart of what store has, width by height pixels.
+// The chart of what store has, width by height pixels: its hours across, from the first to the
+// last, and its degrees down, a band of 5 at least, so a flat line, or none, draws inside it.
 Public Function Chart(store: Store, width: Int, height: Int): Image Throws DatabaseError
     Local image = Image(width, height)
     image.Fill(Color32(255, 255, 255))
@@ -25,14 +26,12 @@ Public Function Chart(store: Store, width: Int, height: Int): Image Throws Datab
     Local range = Try store.Range()
     // The grid's degrees, a line each 5, from below the lowest to above the highest.
     Local low = Floor(range.0 / 5.0) * 5.0
-    Local high = Ceil(range.1 / 5.0) * 5.0
-    Local hours = 0
-    For city In Try store.Cities()
-        hours = Max(hours, (Try store.Series(city)).Count)
-    End For
-
+    Local high = Max(Ceil(range.1 / 5.0) * 5.0, low + 5.0)
+    Local hours = Try store.Hours()
+    Local first = hours.0
+    Local span = Max(hours.1 - first, 1)
     Local At = Function(hour: Int, celsius: Double): Vec2
-        Local x = plot.X + plot.Width * (hour As Float) / (Max(hours - 1, 1) As Float)
+        Local x = plot.X + plot.Width * ((hour - first) As Float) / (span As Float)
         Local y = plot.Y + plot.Height * ((high - celsius) / (high - low)) As Float
         Return Vec2(x, y)
     End Function
@@ -41,22 +40,26 @@ Public Function Chart(store: Store, width: Int, height: Int): Image Throws Datab
     Local grid = Color32(220, 220, 220)
     Local degrees = low
     While degrees <= high
-        canvas.StrokeLine(At(0, degrees), At(hours - 1, degrees), grid)
+        canvas.StrokeLine(At(first, degrees), At(first + span, degrees), grid)
         degrees += 5.0
     End While
 
-    For hour = 0 Until hours Step 6
+    // A line each 6 hours, at the hours that are a multiple of 6.
+    Local hour = (first + 5) / 6 * 6
+    While hour <= first + span
         canvas.StrokeLine(At(hour, high), At(hour, low), grid)
-    End For
+        hour += 6
+    End While
 
     canvas.StrokeRect(plot, Color32(80, 80, 80))
     canvas.LineWidth = 2
     Local colors = LineColors()
     Local index = 0
     For city In Try store.Cities()
+        Local series = Try store.Series(city)
         Local points: Vec2[] = []
-        Local warmest: (Int, Double) = (0, -1000.0)
-        For reading In Try store.Series(city)
+        Local warmest = series[0]
+        For reading In series
             points.Add(At(reading.0, reading.1))
             If reading.1 > warmest.1 Then warmest = reading
         End For

@@ -72,7 +72,8 @@ Public Class Site
     End Property
 End Class
 
-// A WebSocket's request: the summary, then the chart, then a close.
+// A WebSocket's request: the summary, then the chart, then a close, and the client's close back,
+// which ends the closing handshake before the WebSocket is counted served.
 Async Function Live(request: HttpRequest, summary: String, chart: UInt8[],
                     served: Count): HttpResponse
     Try
@@ -80,7 +81,10 @@ Async Function Live(request: HttpRequest, summary: String, chart: UInt8[],
         Try Await ws.SendAsync(summary)
         Try Await ws.SendAsync(chart)
         Await ws.CloseAsync()
-        served.Value += 1
+        While (Try Await ws.ReceiveAsync()) != Null
+        End While
+
+        If ws.State == WebSocketState.CLOSED Then served.Value += 1
     Catch e As NetError
         Return HttpResponse.Of(StatusCode.BAD_REQUEST, Body.Text(e.Message))
     End Try

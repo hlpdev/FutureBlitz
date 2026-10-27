@@ -81,7 +81,13 @@ Public Class Store
         Return summaries
     End Method
 
-    // The lowest and highest temperatures of all.
+    // The first and last hours of all, or 0 and 0 for none.
+    Public Method Hours(): (Int, Int) Throws DatabaseError
+        Local row = (Try Db.Rows("SELECT min(hour), max(hour) FROM readings"))[0]
+        Return ((row.Integer(0) ?? 0) As Int, (row.Integer(1) ?? 0) As Int)
+    End Method
+
+    // The lowest and highest temperatures of all, or 0 and 0 for none.
     Public Method Range(): (Double, Double) Throws DatabaseError
         Local row = (Try Db.Rows("SELECT min(celsius), max(celsius) FROM readings"))[0]
         Return (row.Real(0) ?? 0.0, row.Real(1) ?? 0.0)

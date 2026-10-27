@@ -1,11 +1,15 @@
 feed: untrusted refused, TLS | trusted 200 application/json 2943 bytes, answered 1 and refused 1
 json: 3 cities, 108 readings, the same True
-stored: 108 cities [Cairo, Lisbon, Oslo]
+stored: 108 readings of [Cairo, Lisbon, Oslo] | again, warmer: True then back: True
   Cairo: low 15.9, high 31.9, mean 23.13, 36 readings
   Lisbon: low 11.2, high 21.9, mean 16.23, 36 readings
   Oslo: low 0.1, high 7.0, mean 3.55, 36 readings
-chart: 480 270 png PNG reads back the same True
-pixels: f3385d707d8f31e35e291c81ce33d32884f1bba5d1ecd8326c4593b2d9a2930e
+chart: 480 270 a png True reads back the same True
+pixels: f3385d707d8f31e35e291c81ce33d32884f1bba5d1ecd8326c4593b2d9a2930e | colored, outside: (5074, 0)
+flat: 916 colored, 0 outside the plot
+empty: 0 colored, 0 outside the plot
+every 12 hours: 1799 colored, 0 outside the plot
+from hour 30: 1558 colored, 0 outside the plot
 summary.json: 200 application/json the same True
 files/chart.png: 200 image/png the same True
 files/summary.json: 200 the same True | missing.png: 404
