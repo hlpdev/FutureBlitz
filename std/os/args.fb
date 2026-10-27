@@ -1,0 +1,691 @@
+// Args: a program's command line, read into a Struct or Class. Args.Parse<T>() reads T's Fields'
+// attributes, @Positional, @Option, and @Flag, and @Program on T itself, into an ArgsParser,
+// which reads the arguments into a Value that Load<T> makes the T from, with the help and errors
+// they make. An ArgsParser can be built at run time too, for options a program only knows then.
+
+Import std.core
+Import std.collections
+Import std.text
+Import std.text.humanize
+Import std.text.layout
+Import std.os.folders
+Import std.os.process
+Import std.os.process_command
+
+// The program a Struct or Class reads the command line of: its name, which is otherwise its
+// executable's, what it does, and its version, which --version and -V print.
+Public Attribute Program(Name: String = "", About: String = "", Version: String = "")
+// A Field an argument goes to by its place, after any before it. One that's a T[] takes the rest,
+// and one that's a T? or Optional can be left out, when it keeps its default.
+Public Attribute Positional(Help: String = "", Name: String = "", Optional: Bool = False)
+// A Field that "--name value", "--name=value", or "-s value" sets, its long name the Field's in
+// kebab case unless Long says otherwise. One that's a T[] takes each time it's given. Name is
+// what its value is called in the help.
+Public Attribute Option(Help: String = "", Short: String = "", Long: String = "", Name: String = "",
+                        Required: Bool = False)
+// A Bool Field that "--name" or "-s" sets, or an integer one that counts how many times it's
+// given, as -vvv is 3.
+Public Attribute Flag(Help: String = "", Short: String = "", Long: String = "")
+// A T? Field of a Struct or Class that its command fills from the rest of the command line, as
+// "git commit -m x" fills a Commit's. Its command is its name in kebab case unless Name says
+// otherwise. One of them, or none, is given; the others stay Null.
+Public Attribute Subcommand(Help: String = "", Name: String = "")
+
+// What an ArgsParser reads each argument as.
+Enum ArgKind
+    FLAG, COUNT, OPTION, POSITIONAL
+End Enum
+
+// One flag, option, or positional argument of an ArgsParser.
+Struct ArgSpec
+    // Its key in the Value Parse gives.
+    Field Key: String
+    Field Kind: ArgKind
+    // Without its dashes, or "" for none.
+    Field Long: String
+    Field Short: String
+    Field Help: String
+    // What its value is called in the help, as <path>.
+    Field ValueName: String
+    Field Required: Bool
+    // An option or positional that takes more than one value, each of which goes in an Array.
+    Field Repeated: Bool
+    // What it is without its argument, for the help, or "".
+    Field Fallback: String
+
+    New(key: String, kind: ArgKind, long: String, short: String, help: String,
+        valueName: String, required: Bool, repeated: Bool, fallback: String)
+        Key = key
+        Kind = kind
+        Long = long
+        Short = short
+        Help = help
+        ValueName = valueName
+        Required = required
+        Repeated = repeated
+        Fallback = fallback
+    End New
+
+    // How the help and errors name it.
+    Method Shown(): String
+        If Kind == ArgKind.POSITIONAL Then Return "<{ValueName}>"
+        Return Long != "" ? "--{Long}" : "-{Short}"
+    End Method
+End Struct
+
+// A command an ArgsParser reads the rest of the command line with, after its name.
+Struct CommandSpec
+    Field Name: String
+    Field Key: String
+    Field Help: String
+    Field Parser: ArgsParser
+
+    New(name: String, key: String, help: String, parser: ArgsParser)
+        Name = name
+        Key = key
+        Help = help
+        Parser = parser
+    End New
+End Struct
+
+// What --help or --version asks for, which isn't an error: its text, which Args.Parse<T>()
+// prints before the program ends with 0.
+Public Class ArgsHelp Extends ArgumentError
+    Public New(text: String)
+        Super.New(ArgumentErrorKind.OTHER, text)
+    End New
+End Class
+
+// A command line an ArgsParser can't read, with the usage of the command it was reading.
+Public Class ArgsError Extends ArgumentError
+    Public ReadOnly Field Usage: String
+
+    Public New(kind: ArgumentErrorKind, message: String, usage: String, name: String? = Null,
+               cause: Error? = Null)
+        Super.New(kind, message, name, cause)
+        Usage = usage
+    End New
+End Class
+
+// Reads a command line into a Value's Object: each flag's Bool or count, each option's and
+// positional argument's String, or Array of them, and a command's Object, by their keys. Its
+// methods give the ArgsParser back, so they chain.
+Public Class ArgsParser
+    Field Name: String
+    Field About: String
+    Field Version: String
+    Field Specs: ArgSpec[]
+    Field Commands: CommandSpec[]
+    // A command has to be given, when there are any.
+    Field CommandRequired: Bool
+
+    Public New(name: String, about: String = "", version: String = "")
+        Name = name
+        About = about
+        Version = version
+        Specs = []
+        Commands = []
+    End New
+
+    // A flag, "--long" or "-s", which is True once given, or with counts, how many times it was.
+    // Panics for a key, long name, or short name another has, or a short name that isn't one
+    // ASCII letter or digit.
+    @PanicsAtCaller
+    Public Method Flag(key: String, long: String = "", short: String = "", help: String = "",
+                       counts: Bool = False): ArgsParser
+        Add(ArgSpec(key, counts ? ArgKind.COUNT : ArgKind.FLAG, long, short, help, "", False,
+                    False, ""))
+        Return Self
+    End Method
+
+    // An option that takes a value, "--long value", "--long=value", "-s value", or "-svalue",
+    // which can be given once, or with repeated, any number of times. Panics as Flag does.
+    @PanicsAtCaller
+    Public Method Option(key: String, long: String = "", short: String = "", help: String = "",
+                         valueName: String = "", required: Bool = False, repeated: Bool = False,
+                         shownDefault: String = ""): ArgsParser
+        Add(ArgSpec(key, ArgKind.OPTION, long, short, help,
+                    valueName != "" ? valueName : (long != "" ? long : key), required, repeated,
+                    shownDefault))
+        Return Self
+    End Method
+
+    // The next argument by its place, which with rest takes all that are left. Panics for one
+    // after one that takes the rest, a required one after one that isn't, or one beside commands.
+    @PanicsAtCaller
+    Public Method Positional(key: String, help: String = "", valueName: String = "",
+                             required: Bool = True, rest: Bool = False): ArgsParser
+        If Commands.Count > 0 Then Panic("an ArgsParser takes positional arguments or commands")
+        For spec In Specs
+            If spec.Kind != ArgKind.POSITIONAL Then Continue
+            If spec.Repeated Then Panic("'{key}' comes after <{spec.ValueName}>, which takes the rest")
+            If required && !spec.Required
+                Panic("the required <{key}> comes after <{spec.ValueName}>, which isn't")
+            End If
+        End For
+
+        Add(ArgSpec(key, ArgKind.POSITIONAL, "", "", help, valueName != "" ? valueName : key,
+                    required, rest, ""))
+        Return Self
+    End Method
+
+    // A command, which reads the rest of the command line after its name, into an Object at its
+    // key. One of the commands has to be given, unless optional. Panics beside positional
+    // arguments, or for a name another command has.
+    @PanicsAtCaller
+    Public Method Command(name: String, key: String, parser: ArgsParser, help: String = "",
+                          optional: Bool = False): ArgsParser
+        For spec In Specs
+            If spec.Kind == ArgKind.POSITIONAL
+                Panic("an ArgsParser takes positional arguments or commands")
+            End If
+        End For
+
+        For command In Commands
+            If command.Name == name Then Panic("an ArgsParser has one command named '{name}'")
+        End For
+
+        Commands.Add(CommandSpec(name, key, help, parser))
+        CommandRequired = !optional
+        Return Self
+    End Method
+
+    // Reads `arguments` into an Object. Throws an ArgsHelp for --help or -h, or --version or -V
+    // where there's a version, and an ArgsError for what it can't read, which says why.
+    Public Method Parse(arguments: String[]): Value Throws ArgumentError
+        Local read = Value.Object()
+        Local place = 0
+        Local options = True
+        Local i = 0
+        While i < arguments.Count
+            Local word = arguments[i]
+            i += 1
+            If options && word == "--"
+                options = False
+            ElseIf options && word.StartsWith("--")
+                Local name = word.Slice(2, word.Length)
+                Local value: String? = Null
+                Local split = name.SplitOnce("=")
+                If split != Null
+                    name = split.0
+                    value = split.1
+                End If
+
+                Try Asked(name, "")
+                Local spec = Try Named(name)
+                i = Try Take(spec, "--{name}", value, arguments, i, read)
+            ElseIf options && word.StartsWith("-") && word != "-"
+                // Short flags go together, as -abc, and an option's value can follow its letter.
+                Local at = 1
+                While at < word.Length
+                    Local letter = word.Slice(at, at + 1)
+                    at += 1
+                    Try Asked("", letter)
+                    Local spec = Try Lettered(letter)
+                    If spec.Kind == ArgKind.OPTION
+                        i = Try Take(spec, "-{letter}", at < word.Length ? word.Slice(at, word.Length) : Null,
+                                     arguments, i, read)
+                        Break
+                    End If
+
+                    Try Take(spec, "-{letter}", Null, arguments, i, read)
+                End While
+            ElseIf Commands.Count > 0
+                Local command = Try Commanded(word)
+                Local rest: String[] = []
+                For j = i Until arguments.Count
+                    rest.Add(arguments[j])
+                End For
+
+                read[command.Key] = Try command.Parser.Parse(rest)
+                Try Check(read)
+                Return read
+            Else
+                place = Try Place(word, place, read)
+            End If
+        End While
+
+        If CommandRequired && Commands.Count > 0
+            Throw Mistake(ArgumentErrorKind.MISSING, "missing a command: {CommandNames()}")
+        End If
+
+        Try Check(read)
+        Return read
+    End Method
+
+    // How the program is run, as the help's first line has it.
+    Public Method Usage(): String
+        Local line = "Usage: {Name}"
+        If Specs.Any(Function(spec: ArgSpec) => spec.Kind != ArgKind.POSITIONAL)
+            line += " [options]"
+        End If
+
+        For spec In Specs
+            If spec.Kind != ArgKind.POSITIONAL Then Continue
+            Local shown = spec.Required ? "<{spec.ValueName}>" : "[{spec.ValueName}]"
+            line += " " + shown + (spec.Repeated ? "..." : "")
+        End For
+
+        If Commands.Count > 0 Then line += CommandRequired ? " <command>" : " [command]"
+        Return line
+    End Method
+
+    // What --help prints: what the program does, how it's run, and each argument, option, and
+    // command, with what it does.
+    Public Method Help(): String
+        Local text = About != "" ? About + "\n\n" : ""
+        text += Usage() + "\n"
+        Local arguments: (String, String)[] = []
+        Local options: (String, String)[] = []
+        For spec In Specs
+            If spec.Kind == ArgKind.POSITIONAL
+                arguments.Add(("<{spec.ValueName}>", spec.Help))
+                Continue
+            End If
+
+            Local shown = spec.Short != "" ? "-{spec.Short}" : "  "
+            If spec.Long != "" Then shown += (spec.Short != "" ? ", " : "  ") + "--{spec.Long}"
+            If spec.Kind == ArgKind.OPTION Then shown += " <{spec.ValueName}>"
+            Local help = spec.Help
+            If spec.Fallback != ""
+                help += (help != "" ? " " : "") + "(default: {spec.Fallback})"
+            End If
+
+            options.Add((shown, help))
+        End For
+
+        options.Add(("-h, --help", "Prints this help"))
+        If Version != "" Then options.Add(("-V, --version", "Prints the version"))
+        Local commands: (String, String)[] = []
+        For command In Commands
+            commands.Add((command.Name, command.Help))
+        End For
+
+        Local width = 0
+        For rows In [arguments, options, commands]
+            For row In rows
+                width = Max(width, row.0.CharCount)
+            End For
+        End For
+
+        text += Section("Arguments", arguments, width)
+        text += Section("Options", options, width)
+        text += Section("Commands", commands, width)
+        Return text
+    End Method
+
+    @PanicsAtCaller
+    Method Add(spec: ArgSpec)
+        If spec.Short.Length > 1 || (spec.Short != "" && !IsAsciiWord(spec.Short))
+            Panic("a short name is one ASCII letter or digit, not '{spec.Short}'")
+        End If
+
+        For other In Specs
+            If other.Key == spec.Key Then Panic("an ArgsParser has one argument keyed '{spec.Key}'")
+            If spec.Long != "" && other.Long == spec.Long
+                Panic("an ArgsParser has one option named '--{spec.Long}'")
+            End If
+
+            If spec.Short != "" && other.Short == spec.Short
+                Panic("an ArgsParser has one option named '-{spec.Short}'")
+            End If
+        End For
+
+        Specs.Add(spec)
+    End Method
+
+    // An ArgsError, with this parser's usage.
+    Method Mistake(kind: ArgumentErrorKind, message: String, name: String? = Null): ArgsError
+        Return ArgsError(kind, message, Usage(), name)
+    End Method
+
+    // --help, -h, --version, or -V, unless an option has the name.
+    Method Asked(long: String, short: String) Throws ArgumentError
+        If (long == "help" || short == "h") && !Has(long, short) Then Throw ArgsHelp(Help())
+        If Version != "" && (long == "version" || short == "V") && !Has(long, short)
+            Throw ArgsHelp("{Name} {Version}")
+        End If
+    End Method
+
+    Method Has(long: String, short: String): Bool
+        Return Specs.Any(Function(spec: ArgSpec) => (long != "" && spec.Long == long) ||
+                                                    (short != "" && spec.Short == short))
+    End Method
+
+    Method Named(long: String): ArgSpec Throws ArgumentError
+        For spec In Specs
+            If spec.Long == long && spec.Kind != ArgKind.POSITIONAL Then Return spec
+        End For
+
+        Local names: String[] = ["help"]
+        For spec In Specs
+            If spec.Long != "" Then names.Add(spec.Long)
+        End For
+
+        Local closest = Closest(long, names)
+        Throw Mistake(ArgumentErrorKind.UNKNOWN,
+                      "unknown option '--{long}'" +
+                      (closest != Null ? "; did you mean '--{closest}'?" : ""), "--{long}")
+    End Method
+
+    Method Lettered(short: String): ArgSpec Throws ArgumentError
+        For spec In Specs
+            If spec.Short == short Then Return spec
+        End For
+
+        Throw Mistake(ArgumentErrorKind.UNKNOWN, "unknown option '-{short}'", "-{short}")
+    End Method
+
+    Method Commanded(name: String): CommandSpec Throws ArgumentError
+        For command In Commands
+            If command.Name == name Then Return command
+        End For
+
+        Local names: String[] = []
+        For command In Commands
+            names.Add(command.Name)
+        End For
+
+        Local closest = Closest(name, names)
+        Throw Mistake(ArgumentErrorKind.UNKNOWN,
+                      "unknown command '{name}'" +
+                      (closest != Null ? "; did you mean '{closest}'?" : "; the commands are " +
+                                                                         CommandNames()), name)
+    End Method
+
+    Method CommandNames(): String
+        Local names: String[] = []
+        For command In Commands
+            names.Add(command.Name)
+        End For
+
+        Return ", ".Join(names)
+    End Method
+
+    // Gives a flag or option what it was given, and where the arguments go on from: past the
+    // option's value, when it took the next one.
+    Method Take(spec: ArgSpec, shown: String, value: String?, arguments: String[], at: Int,
+                read: Value): Int Throws ArgumentError
+        If spec.Kind == ArgKind.FLAG || spec.Kind == ArgKind.COUNT
+            If value != Null Then Throw Mistake(ArgumentErrorKind.INVALID,
+                                                "'{shown}' takes no value", shown)
+            If spec.Kind == ArgKind.COUNT
+                read[spec.Key] = Value(((read[spec.Key]?.AsInt64() ?? 0) + 1))
+            Else
+                read[spec.Key] = Value(True)
+            End If
+
+            Return at
+        End If
+
+        Local next = at
+        Local given = value
+        If given == Null
+            If next >= arguments.Count
+                Throw Mistake(ArgumentErrorKind.MISSING, "'{shown}' takes a value", shown)
+            End If
+
+            given = arguments[next]
+            next += 1
+        End If
+
+        Try Put(spec, shown, given, read)
+        Return next
+    End Method
+
+    // Puts an option's or positional argument's value at its key, in an Array when it takes more
+    // than one.
+    Method Put(spec: ArgSpec, shown: String, value: String, read: Value) Throws ArgumentError
+        Local held = read[spec.Key]
+        If spec.Repeated
+            If held == Null
+                held = Value.Array()
+                read[spec.Key] = held
+            End If
+
+            held.Add(Value(value))
+        ElseIf held != Null
+            Throw Mistake(ArgumentErrorKind.INVALID, "'{shown}' is given more than once", shown)
+        Else
+            read[spec.Key] = Value(value)
+        End If
+    End Method
+
+    // Gives the positional argument at `place` the word, and where the next one goes.
+    Method Place(word: String, place: Int, read: Value): Int Throws ArgumentError
+        Local seen = 0
+        For spec In Specs
+            If spec.Kind != ArgKind.POSITIONAL Then Continue
+            If seen == place
+                Try Put(spec, spec.Shown(), word, read)
+                Return spec.Repeated ? place : place + 1
+            End If
+
+            seen += 1
+        End For
+
+        Throw Mistake(ArgumentErrorKind.UNKNOWN, "unexpected argument '{word}'", word)
+    End Method
+
+    // The required ones that weren't given.
+    Method Check(read: Value) Throws ArgumentError
+        For spec In Specs
+            If spec.Required && !read.Contains(spec.Key)
+                Throw Mistake(ArgumentErrorKind.MISSING, "missing {spec.Shown()}", spec.Shown())
+            End If
+        End For
+    End Method
+
+    // What the help and errors call the argument at `key`, which a Load path starts with, and
+    // its command's parser, for the rest of the path.
+    Package Method Shown(path: String): String
+        Local key = path
+        Local rest = ""
+        Local dot = path.Find(".")
+        Local bracket = path.Find("[")
+        Local at = dot ?? bracket
+        If bracket != Null && (at == Null || bracket < at) Then at = bracket
+        If at != Null
+            key = path.Slice(0, at)
+            rest = path.Slice(at + (at == dot ? 1 : 0), path.Length)
+        End If
+
+        For spec In Specs
+            If spec.Key == key Then Return spec.Shown()
+        End For
+
+        For command In Commands
+            If command.Key == key Then Return command.Parser.Shown(rest)
+        End For
+
+        Return key
+    End Method
+
+    // The usage of the command the path goes into.
+    Package Method UsageAt(path: String): String
+        For command In Commands
+            If path == command.Key || path.StartsWith(command.Key + ".")
+                Return command.Parser.UsageAt(path.Slice(command.Key.Length + 1, path.Length))
+            End If
+        End For
+
+        Return Usage()
+    End Method
+End Class
+
+// Args' Static Methods.
+Public Struct Args
+    // Args isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // Reads the program's command line into a T. --help, -h, --version, and -V print what they
+    // ask for, and a command line it can't read prints why, with how the program is run, to
+    // stderr; either way the program then ends, with 0 or 2.
+    Public Static Method Parse<T>(): T
+        Local parser = ParserOf<T>()
+        Try
+            Return Try Read<T>(parser, Process.Arguments())
+        Catch e As ArgsHelp
+            Print(e.Message)
+            Process.Exit(0)
+        Catch e As ArgsError
+            PrintError("error: {e.Message}\n\n{e.Usage}\n\nFor more, try '--help'.")
+            Process.Exit(2)
+        Catch e As ArgumentError
+            PrintError("error: {e.Message}")
+            Process.Exit(2)
+        End Try
+
+        Panic("Process.Exit returned")
+    End Method
+
+    // Reads `arguments` into a T. Throws an ArgsHelp for --help, -h, --version, and -V, and an
+    // ArgsError for what it can't read, which says why.
+    Public Static Method Parse<T>(arguments: String[]): T Throws ArgumentError
+        Return Try Read<T>(ParserOf<T>(), arguments)
+    End Method
+
+    // The ArgsParser that Parse<T> reads with, made from T's Fields' attributes.
+    Public Static Method Parser<T>(): ArgsParser => ParserOf<T>()
+
+    // What --help prints for a T.
+    Public Static Method Help<T>(): String => ParserOf<T>().Help()
+End Struct
+
+// Reads `arguments` with the parser, and makes a T of what it read.
+Function Read<T>(parser: ArgsParser, arguments: String[]): T Throws ArgumentError
+    Local read = Try parser.Parse(arguments)
+    Try
+        Return Try Load<T>(read)
+    Catch e As ParseError
+        Local path = e.Path ?? ""
+        Local shown = parser.Shown(path)
+        Local usage = parser.UsageAt(path)
+        If e.Kind == ParseErrorKind.MISSING
+            Throw ArgsError(ArgumentErrorKind.MISSING, "missing {shown}", usage, shown, e)
+        End If
+
+        Throw ArgsError(ArgumentErrorKind.INVALID, "{shown}: {e.Plain}", usage, shown, e)
+    End Try
+End Function
+
+// The ArgsParser of a T's Fields: a @Positional's, @Option's, and @Flag's each, and a Field
+// without one an option, or a flag for a Bool. Load's @Skip leaves one out, and its @Rename
+// gives the key, and the option's long name too.
+Function ParserOf<T>(command: String = ""): ArgsParser
+    Local program = T.Attribute(Program)
+    Local name = Given(program?.Name, command != "" ? command : ExecutableName())
+    Local parser = ArgsParser(name, program?.About ?? "", program?.Version ?? "")
+    // What the Fields are without their arguments, to show in the help, when T has them all.
+    Local defaults = DefaultsOf<T>()
+    For Field f: F In T
+        If f.Has(Skip) Then Continue
+        Local key = f.Attribute(Rename)?.Name ?? f.Name
+        Local type = TypeName<F>()
+        Local long = Humanize.KebabCase(key)
+        Local optional = type.EndsWith("?")
+        Local many = type.EndsWith("[]")
+        Local subcommand = f.Attribute(Subcommand)
+        If subcommand != Null
+            Local called = Given(subcommand.Name, long)
+            parser.Command(called, key, ParserOf<F>("{name} {called}"), subcommand.Help, True)
+            Continue
+        End If
+
+        Local positional = f.Attribute(Positional)
+        If positional != Null
+            parser.Positional(key, positional.Help, Given(positional.Name, long),
+                              !optional && !many && !positional.Optional, many)
+            Continue
+        End If
+
+        Local flag = f.Attribute(Flag)
+        Local counts = IsInteger(type)
+        If flag != Null || (type == "Bool" && !f.Has(Option))
+            parser.Flag(key, Given(flag?.Long, long), flag?.Short ?? "", flag?.Help ?? "", counts)
+            Continue
+        End If
+
+        Local option = f.Attribute(Option)
+        Local shown = defaults != Null ? Shown(defaults[key]) : ""
+        parser.Option(key, Given(option?.Long, long), option?.Short ?? "", option?.Help ?? "",
+                      Given(option?.Name, long), option?.Required ?? False, many, shown)
+    End For
+
+    Return parser
+End Function
+
+// An attribute's text, or `otherwise` where it gives none.
+Function Given(text: String?, otherwise: String): String
+    Return text != Null && text != "" ? text : otherwise
+End Function
+
+// What a T's Fields are when nothing sets them, by their keys, when Load can make one of nothing.
+// Read from what Save gives, not the Fields, which a T? may not have.
+Function DefaultsOf<T>(): Value?
+    Try
+        Return Save(Try Load<T>(Value.Object()))
+    Catch e As ParseError
+        Return Null
+    End Try
+End Function
+
+// A default's text for the help, or "" for nothing worth showing: Null, False, 0, "", or an
+// empty Array.
+Function Shown(value: Value?): String
+    If value == Null || value.IsNull || value == Value(False) || value == Value(0) || value == Value("") Then Return ""
+    If value.IsArray && value.Count == 0 Then Return ""
+    Return value.AsString() ?? value.ToString()
+End Function
+
+Function IsInteger(type: String): Bool
+    Return ["Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"].Contains(type)
+End Function
+
+Function IsAsciiWord(text: String): Bool
+    For c In text.Chars
+        If !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+            Return False
+        End If
+    End For
+
+    Return True
+End Function
+
+// The executable's name, without its folder or its extension.
+Function ExecutableName(): String
+    Local path = Folders.Executable ?? "program"
+    Local slash = Max(path.FindLast("/") ?? -1, path.FindLast("\\") ?? -1)
+    Local name = path.Slice(slash + 1, path.Length)
+    Local dot = name.FindLast(".")
+    Return dot != Null && dot > 0 ? name.Slice(0, dot) : name
+End Function
+
+// The name closest to `word`, when one is close enough to be what was meant.
+Function Closest(word: String, names: String[]): String?
+    Local best: String? = Null
+    Local distance = Max(2, word.CharCount / 3) + 1
+    For name In names
+        Local edits = Levenshtein(word, name)
+        If edits < distance
+            best = name
+            distance = edits
+        End If
+    End For
+
+    Return best
+End Function
+
+// A titled section of the help, its rows' names in a column `width` wide.
+Function Section(title: String, rows: (String, String)[], width: Int): String
+    If rows.Count == 0 Then Return ""
+    Local text = "\n{title}:\n"
+    For row In rows
+        Local line = "  " + row.0
+        If row.1 != "" Then line += " ".Repeated(width - row.0.CharCount + 2) + row.1
+        text += line + "\n"
+    End For
+
+    Return text
+End Function

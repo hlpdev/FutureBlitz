@@ -237,6 +237,7 @@ So far, std/ holds:
 | std/os/process_command.fb | `Command`, `Stdio`, `ProcessOutput`, and `Process.Arguments`, over libuv's processes through the runtime's `fb_os_process_` functions |
 | std/os/process_child.fb | `Child`, its `ChildInput` and `ChildOutput` streams, and `ExitStatus` |
 | std/os/process_signals.fb | `Process.OnInterrupt` and `Process.OnTerminate`, over libuv's signals through `fb_os_signal_` |
+| std/os/args.fb | `Args`' `Parse`, `Parser`, and `Help`, the `Program`, `Positional`, `Option`, `Flag`, and `Subcommand` attributes, `ArgsParser`, `ArgsHelp`, and `ArgsError` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -867,9 +868,12 @@ std/io/.
 
 #### std.os
 
-- Arguments: a Struct with `@Command`, `@Positional`, `@Option`, and `@Flag` attributes, which
-  `Args.Parse<T>()` fills by reflection, with generated help, errors, and subcommands; a builder
-  underneath for options made at run time. fb's own CLI can use it.
+- Arguments: a Struct with `@Program`, `@Positional`, `@Option`, `@Flag`, and `@Subcommand`
+  attributes, which `Args.Parse<T>()` fills by reflection, through Load<T>, with generated help,
+  errors, and subcommands; `ArgsParser`, the builder underneath, for options made at run time. fb's
+  own CLI can use it. `@Program` names the program, what it does, and its version, in place of the
+  `@Command` first planned, which `Command`, the Class that starts a program, has the name of. A
+  subcommand is a `T?` Field, which For Field reads the T's Fields of.
 - `Env`: `Get`, `Set`, `Unset`, `All`, `Expand` (`$NAME`, `${NAME}`, and `$$`), and
   `Env.Load(".env")` for `.env` files: `NAME=value` lines, with `export ` or not, `#` comments,
   values in `'`s as they are, in `"`s with escapes and over lines, and the rest trimmed; all
