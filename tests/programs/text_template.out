@@ -50,7 +50,7 @@ BAD_TEMPLATE: line 1, column 1: "zz" isn't a format spec, like ".2" or ">8"
 BAD_TEMPLATE: line 1, column 3: a format spec can't hold a brace, as "}<3" does
 BAD_TEMPLATE: line 1, column 1: a value takes a format, like {{price:.2}}, but a block's name doesn't
 BAD_TEMPLATE: line 1, column 1: a tag needs a name, like "title" or "this"
-BAD_VALUE: name's value, <b>, doesn't take the format spec "x"
+BAD_VALUE: line 1, column 1: name's value, <b>, doesn't take the format spec "x"
 BAD_TEMPLATE: line 1, column 1: "@size" isn't a name; an {{#each}}'s are @index, @key, @first, and @last, alone
 BAD_TEMPLATE: line 1, column 1: "x.@index" isn't a name; an {{#each}}'s are @index, @key, @first, and @last, alone
 BAD_TEMPLATE: line 1, column 1: this {{}} has no name in it
@@ -59,6 +59,8 @@ MISSING_VALUE: a Template has no partials, like {{> part}}; Templates have them
 OTHER: partials go more than 1000 deep inside each other, at "loop"
 MISSING_VALUE: there's no template named "gone"
 MISSING_VALUE: there's no template named "nowhere"
+BAD_VALUE: spec, line 2, column 5: name's value, <b>, doesn't take the format spec "+"
+BAD_VALUE: inner, line 2, column 3: name's value, <b>, doesn't take the format spec "+"
 BAD_TEMPLATE: broken, line 2, column 1: a tag needs a name, like "title" or "this"
 deep
 leaf

@@ -440,11 +440,12 @@ file or URL in the default app.
     and `'`, but never in `{{{name}}}` or `{{& name}}`.
   - `{{price:.2}}`, in any of the three, gives a value by the format spec after the `:`, as
     interpolation's `"{price:.2}"` does: a number's, an integer's by a Double's spec where an
-    integer's doesn't take it, so `{{count:.1}}` gives "3.0" for 3; a String's or a Bool's; an
-    Array's or Object's ToString as a String's; and nothing for Null or a name nothing has. A
-    spec that nothing takes, or that holds a brace, is BAD_TEMPLATE, as a block's name with a
-    `:` is, and one the value doesn't take throws a FormatError of BAD_VALUE at Render. HTML
-    escapes what the spec gives.
+    integer's doesn't take it, so `{{count:.1}}` gives "3.0" for 3, with every digit, past 2^53
+    too, where a Double would round; a String's or a Bool's; an Array's or Object's ToString as
+    a String's; and nothing for Null or a name nothing has. A spec that nothing takes, or that
+    holds a brace, is BAD_TEMPLATE, as a block's name with a `:` is, and one the value doesn't
+    take throws a FormatError of BAD_VALUE at Render, which says where its tag is, as
+    BAD_TEMPLATE does. HTML escapes what the spec gives.
   - `{{#each name}}` renders its body for each of an Array's elements or an Object's values, in
     a scope of its own, where `@index`, `@key`, `@first`, and `@last` say where the item is;
     `{{#if name}}` renders its body when the value is anything but Null, False, 0, NaN, "", or an

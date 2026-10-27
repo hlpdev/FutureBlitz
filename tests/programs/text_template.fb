@@ -210,6 +210,18 @@ Catch e As FormatError
     Print("{e.Kind}: {e.Message}")
 End Try
 
+// A spec its value doesn't take says where its tag is, in an indented partial too.
+Try loops.Add("spec", "one\n" + r"two {{name:+}}")
+Try loops.Add("outer", "one\n" + r"  {{> inner}}" + "\n")
+Try loops.Add("inner", "x\n" + r"é {{name:+}}")
+For named In ["spec", "outer"]
+    Try
+        Print(Try loops.Render(named, kinds))
+    Catch e As FormatError
+        Print("{e.Kind}: {e.Message}")
+    End Try
+End For
+
 Try
     Try loops.Add("broken", "ok\n" + r"{{#if}}")
 Catch e As FormatError

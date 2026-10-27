@@ -97,7 +97,7 @@ Public Class Templates
         Local read = Read[name]
         Local found = read.Get(indent)
         If found != Null Then Return found
-        Local parts = Try Parsed(Indented(source, indent), name)
+        Local parts = Try Parsed(Indented(source, indent), name, indent.Bytes.Count)
         read[indent] = parts
         Return parts
     End Method
@@ -132,8 +132,10 @@ Class Part
     Field Path: String[] = []
     // A VALUE that's never escaped, as {{{name}}} and {{& name}} are.
     Field Raw: Bool
-    // A VALUE's format spec, what's after the ':' in {{price:.2}}, or "" for none.
+    // A VALUE's format spec, what's after the ':' in {{price:.2}}, or "" for none, and where its
+    // tag is, as "page, line 2, column 5", for the error a value it doesn't take throws.
     Field Spec = ""
+    Field Location = ""
     // A block's parts, and those after its {{else}}.
     Field Body: Part[] = []
     Field Otherwise: Part[] = []
@@ -149,12 +151,15 @@ Class Part
 End Class
 
 // The parts that a template's text is. The blocks it's inside are a stack, not calls, so one
-// nested however deep is read. `name` is the template's, for messages, or "" for one alone.
-Function Parsed(text: String, name: String): Part[] Throws FormatError
+// nested however deep is read. `name` is the template's, for messages, or "" for one alone, and
+// `indent` how many characters an indented partial's lines start with.
+Function Parsed(text: String, name: String, indent: Int = 0): Part[] Throws FormatError
     Local bytes = text.Bytes
     Local root = Part(PartKind.TEXT)
     // The blocks open, innermost last, after the template itself.
     Local open: Part[] = [root]
+    // Where the last tag is, which only goes on.
+    Local position = Position(indent)
     // Where the text that's no part yet starts, and where the next tag is looked for from.
     Local start = 0
     Local at = 0
@@ -197,10 +202,10 @@ Function Parsed(text: String, name: String): Part[] Throws FormatError
         Local lineEnd = past == bytes.Count || bytes[past] == LineFeed ||
                         (bytes[past] == CarriageReturn && past + 1 < bytes.Count &&
                          bytes[past + 1] == LineFeed)
-        Local indent = ""
+        Local spaces = ""
         If takesLine && (before == 0 || bytes[before - 1] == LineFeed) && lineEnd
             AddText(open, bytes, start, before)
-            indent = fb_string_from_array(bytes[before..tag])
+            spaces = fb_string_from_array(bytes[before..tag])
             start = past == bytes.Count ? past : past + (bytes[past] == CarriageReturn ? 2 : 1)
         Else
             AddText(open, bytes, start, tag)
@@ -208,7 +213,8 @@ Function Parsed(text: String, name: String): Part[] Throws FormatError
         End If
 
         at = start
-        Try Tag(open, triple, content, indent, name, bytes, tag)
+        position.Advance(bytes, tag)
+        Try Tag(open, triple, content, spaces, name, bytes, tag, position)
     End Loop
 
     AddText(open, bytes, start, bytes.Count)
@@ -222,13 +228,13 @@ Function Parsed(text: String, name: String): Part[] Throws FormatError
 End Function
 
 // Adds what a tag is, whose `content` is what's between its braces, trimmed, to the innermost
-// block open, or opens or closes a block.
+// block open, or opens or closes a block. `position` is the tag's.
 Function Tag(open: Part[], triple: Bool, content: UInt8[], indent: String, name: String,
-             bytes: UInt8[], at: Int) Throws FormatError
+             bytes: UInt8[], at: Int, position: Position) Throws FormatError
     Local block = open[open.Count - 1]
     Local text = Text(content)
     If triple
-        Into(block).Add(Try ValuePart(content, True, name, bytes, at))
+        Into(block).Add(Try ValuePart(content, True, name, bytes, at, position))
         Return
     End If
 
@@ -247,7 +253,8 @@ Function Tag(open: Part[], triple: Bool, content: UInt8[], indent: String, name:
 
     // {{& name}}, never escaped.
     If first == 38
-        Into(block).Add(Try ValuePart(Trimmed(content, 1, content.Count), True, name, bytes, at))
+        Into(block).Add(Try ValuePart(Trimmed(content, 1, content.Count), True, name, bytes, at,
+                                      position))
         Return
     End If
 
@@ -307,13 +314,13 @@ Function Tag(open: Part[], triple: Bool, content: UInt8[], indent: String, name:
         Return
     End If
 
-    Into(block).Add(Try ValuePart(content, False, name, bytes, at))
+    Into(block).Add(Try ValuePart(content, False, name, bytes, at, position))
 End Function
 
 // A VALUE of a tag's name, and of the format spec after its ':', as "price:.2" is, which has to
 // be one that a number, a String, or a Bool takes.
-Function ValuePart(written: UInt8[], raw: Bool, name: String, bytes: UInt8[],
-                   at: Int): Part Throws FormatError
+Function ValuePart(written: UInt8[], raw: Bool, name: String, bytes: UInt8[], at: Int,
+                   position: Position): Part Throws FormatError
     Local value = Part(PartKind.VALUE)
     value.Raw = raw
     Local colon = 0
@@ -336,6 +343,7 @@ Function ValuePart(written: UInt8[], raw: Bool, name: String, bytes: UInt8[],
         Throw Bad(name, bytes, at, "\"{value.Spec}\" isn't a format spec, like \".2\" or \">8\"")
     End If
 
+    value.Location = Location(name, position)
     Return value
 End Function
 
@@ -435,23 +443,45 @@ Function AddText(open: Part[], bytes: UInt8[], from: Int, to: Int)
     Into(open[open.Count - 1]).Add(text)
 End Function
 
-// A FormatError of BAD_TEMPLATE, which says the template's name, when it has one, and the line
-// and column `at` is on, from 1.
-Function Bad(name: String, bytes: UInt8[], at: Int, message: String): FormatError
-    Local line = 1
-    Local column = 1
-    For i = 0 Until at
-        If bytes[i] == LineFeed
-            line += 1
-            column = 1
-        ElseIf bytes[i] < 128 || bytes[i] >= 192
-            column += 1
-        End If
-    End For
+// How far a template's text is read, by its line and column, from 1: a line feed starts a line,
+// and a column is a character, each UTF-8 lead byte. An indented partial's lines start with its
+// indentation's characters, which its columns leave out.
+Class Position
+    Field At = 0
+    Field Line = 1
+    Field Column = 1
+    Field Indent: Int
 
-    Local where = name == "" ? "" : "{name}, "
-    Return FormatError(FormatErrorKind.BAD_TEMPLATE,
-                       "{where}line {line}, column {column}: {message}")
+    New(indent: Int)
+        Indent = indent
+    End New
+
+    // Reads on to `to` in bytes.
+    Method Advance(bytes: UInt8[], to: Int)
+        For i = At Until to
+            If bytes[i] == LineFeed
+                Line += 1
+                Column = 1
+            ElseIf bytes[i] < 128 || bytes[i] >= 192
+                Column += 1
+            End If
+        End For
+
+        At = to
+    End Method
+End Class
+
+// Where a position is: its template's name, when it has one, then its line and column.
+Function Location(name: String, position: Position): String
+    Local named = name == "" ? "" : "{name}, "
+    Return "{named}line {position.Line}, column {position.Column - position.Indent}"
+End Function
+
+// A FormatError of BAD_TEMPLATE, which says where `at` is, as Location does.
+Function Bad(name: String, bytes: UInt8[], at: Int, message: String): FormatError
+    Local position = Position(0)
+    position.Advance(bytes, at)
+    Return FormatError(FormatErrorKind.BAD_TEMPLATE, "{Location(name, position)}: {message}")
 End Function
 
 // A partial's text with each of its lines indented: after each line break, but the one that ends
@@ -725,8 +755,8 @@ Function SpecText(value: Value, part: Part): String Throws FormatError
     If text == Null
         Local name = part.Path.Count == 0 ? "this" : part.Path.Join(".")
         Throw FormatError(FormatErrorKind.BAD_VALUE,
-                          "{name}'s value, {TextOf(value)}, doesn't take the format spec " +
-                          "\"{part.Spec}\"")
+                          "{part.Location}: {name}'s value, {TextOf(value)}, doesn't take the " +
+                          "format spec \"{part.Spec}\"")
     End If
 
     Return text
