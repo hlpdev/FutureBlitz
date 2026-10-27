@@ -1,0 +1,6 @@
+// Two arguments of an ArgsParser can't have one key.
+Import std.core
+Import std.os
+
+Local parser = ArgsParser("tool").Flag("All", "all", "a")
+parser.Option("All", "every")

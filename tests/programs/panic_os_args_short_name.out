@@ -1,0 +1,1 @@
+panic: a short name is one ASCII letter or digit, not 'ou' at panic_os_args_short_name.fb:6:1

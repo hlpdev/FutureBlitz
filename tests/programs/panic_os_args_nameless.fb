@@ -1,0 +1,6 @@
+// A flag or option needs a long name or a short one, or nothing could give it.
+Import std.core
+Import std.os
+
+Local parser = ArgsParser("tool").Flag("A", "all", "a")
+parser.Flag("Verbose")

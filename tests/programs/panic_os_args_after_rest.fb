@@ -1,0 +1,6 @@
+// No positional argument comes after one that takes the rest.
+Import std.core
+Import std.os
+
+Local parser = ArgsParser("tool").Positional("Files", rest: True)
+parser.Positional("To")

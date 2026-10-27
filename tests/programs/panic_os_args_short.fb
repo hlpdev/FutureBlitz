@@ -1,0 +1,6 @@
+// Two options of an ArgsParser can't have one short name.
+Import std.core
+Import std.os
+
+Local parser = ArgsParser("tool").Flag("A", "all", "a")
+parser.Flag("B", "both", "a")

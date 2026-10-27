@@ -1,0 +1,6 @@
+// A short name is one ASCII letter or digit.
+Import std.core
+Import std.os
+
+Local parser = ArgsParser("tool").Flag("A", "all", "a")
+parser.Option("Out", "out", "ou")

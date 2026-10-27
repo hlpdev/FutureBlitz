@@ -1,0 +1,6 @@
+// Two commands of an ArgsParser can't have one name.
+Import std.core
+Import std.os
+
+Local parser = ArgsParser("tool").Command("run", "Run", ArgsParser("run"))
+parser.Command("run", "Again", ArgsParser("run"))

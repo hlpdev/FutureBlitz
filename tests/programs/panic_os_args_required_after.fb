@@ -1,0 +1,6 @@
+// A required positional argument doesn't come after one that isn't.
+Import std.core
+Import std.os
+
+Local parser = ArgsParser("tool").Positional("From", required: False)
+parser.Positional("To")

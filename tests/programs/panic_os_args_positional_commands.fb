@@ -1,0 +1,6 @@
+// An ArgsParser with commands takes no positional arguments.
+Import std.core
+Import std.os
+
+Local parser = ArgsParser("tool").Command("run", "Run", ArgsParser("run"))
+parser.Positional("File")
