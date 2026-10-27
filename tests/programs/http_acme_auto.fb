@@ -4,8 +4,9 @@
 // third of its lifetime from expiring is renewed as the server runs, and RenewAsync renews one at
 // once; a connection made after gets the new one, and one made before keeps its own. A renewal
 // that fails says why, and the certificate before goes on; std.log logs both, which a sink of
-// the program's own prints without their times. A server made again with the folder uses what it
-// keeps.
+// the program's own prints without their times. AcmeClient.InFolder keeps the account's key in
+// the same folder, and a client and a server made again with the folder use what it keeps; an
+// account.pem that isn't a key's is a ParseError.
 Import std.core
 Import std.collections
 Import std.crypto
@@ -32,16 +33,6 @@ Loop
         Break
     End If
 End Loop
-
-// A key of fixed bytes, of an ECDSA P-256 private key.
-Function KeyOf(first: Int): Key
-    Local bytes: UInt8[] = []
-    For i = 0 Until 32
-        bytes.Add((first + i) As UInt8)
-    End For
-
-    Return Key(KeyKind.ECDSA_P256, True, bytes)
-End Function
 
 // A TLS connection to localhost at `port`, trusting only the CA's `root`, and its certificate's
 // serial number.
@@ -83,7 +74,8 @@ Async Function Run()
         // The first certificate is due for renewal at once: valid from 100 seconds ago to 40
         // from now. Those after are valid for a century.
         Try Http.GetText("{base}/acme/validity?before=100&after=40")
-        Local acme = AcmeClient("{base}/acme/dir", KeyOf(1))
+        Local acme = Try AcmeClient.InFolder("{base}/acme/dir", folder.Path)
+        Print("the account's key kept: {File.Exists(folder.Path / Path("account.pem"))}")
         Try Await server.ListenAutoAsync(acme, ["localhost"], folder.Path,
                                          SocketAddress(IpAddress.Loopback, 0),
                                          SocketAddress(IpAddress.Loopback, challengePort))
@@ -138,7 +130,10 @@ Async Function Run()
         // A server made again with the folder uses what it keeps, and orders nothing.
         Local again = HttpServer()
         again.Get("/hello", Function(request: HttpRequest) => Hello(request))
-        Try Await again.ListenAutoAsync(AcmeClient("{base}/acme/dir", KeyOf(1)), ["localhost"],
+        Local acmeAgain = Try AcmeClient.InFolder("{base}/acme/dir", folder.Path)
+        Local account = Try Await acmeAgain.RegisterAsync()
+        Print("the same account: {account == acme.Account}")
+        Try Await again.ListenAutoAsync(acmeAgain, ["localhost"],
                                         folder.Path, SocketAddress(IpAddress.Loopback, 0),
                                         SocketAddress(IpAddress.Loopback, challengePort))
         Local servingAgain = again.Serve()
@@ -147,6 +142,17 @@ Async Function Run()
         again.Stop()
         Await servingAgain
         Try folder.Close()
+
+        // An account.pem that isn't a key's.
+        Local broken = Try TempDir()
+        Try File.WriteText(broken.Path / Path("account.pem"), "not a key")
+        Try
+            Try AcmeClient.InFolder("{base}/acme/dir", broken.Path)
+        Catch e As ParseError
+            Print("a broken account.pem: ParseError")
+        End Try
+
+        Try broken.Close()
     Catch e As Error
         Print("failed: {e.Message}")
     End Try

@@ -1465,7 +1465,10 @@ discovery. `Import std.net` brings in std/net/.
   over nghttp2, and HTTP/1.1 otherwise. A program
   that only makes Headers or a Body links no libcurl.
 - ACME (step 30), RFC 8555, as Let's Encrypt speaks it: `AcmeClient(directory, accountKey)`, an
-  ECDSA P-256 private key of 32 bytes that are one, or a panic, whose `RegisterAsync(contact)`
+  ECDSA P-256 private key of 32 bytes that are one, or a panic, or `AcmeClient.InFolder(directory,
+  folder)`, with the key a folder keeps as account.pem, or a new one it writes there atomically
+  (an IOError when it can't, and a ParseError for an account.pem that isn't a key's), which
+  automatic HTTPS keeps its certificate in too, whose `RegisterAsync(contact)`
   makes the account, agreeing to the CA's terms, with mailto: contacts, or finds the key's, as
   often as it's called, and gives its URL, `Account`; and `ObtainAsync(names, certificateKey,
   tokens)`, which registers first when the client hasn't, orders a certificate for DNS names,

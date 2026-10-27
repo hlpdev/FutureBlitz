@@ -12,6 +12,9 @@ Import std.collections
 Import std.concurrent
 Import std.crypto
 Import std.data.json
+Import std.io.dir
+Import std.io.file
+Import std.io.path
 Import std.net.acme
 Import std.net.http.client
 Import std.net.http.headers
@@ -80,6 +83,23 @@ Public Class AcmeClient
         AccountKey = accountKey
         Client = HttpClient()
     End New
+
+    // A client of the CA whose directory is at `directory`, with the account key `folder` keeps
+    // as account.pem, or a new ECDSA P-256 key, which it writes there atomically, making the
+    // folder, for the runs after; automatic HTTPS's ListenAutoAsync keeps its certificate in the
+    // same folder. Throws an IOError when the folder can't be read or written, or a ParseError
+    // when its account.pem isn't a key's PEM. Panics as New does for a key it keeps that isn't
+    // an ECDSA P-256 private key.
+    @PanicsAtCaller
+    Public Static Method InFolder(directory: String,
+                                  folder: Path): AcmeClient Throws IOError, ParseError
+        Local path = folder / Path("account.pem")
+        If File.Exists(path) Then Return AcmeClient(directory, Try Key.FromPem(Try File.ReadText(path)))
+        Local key = Key(KeyKind.ECDSA_P256, True, EcdsaP256.NewPrivateKey())
+        Try Dir.CreateAll(folder)
+        Try File.WriteTextAtomic(path, key.ToPem())
+        Return AcmeClient(directory, key)
+    End Method
 
     // What its requests go through.
     Public Property Http: HttpClient

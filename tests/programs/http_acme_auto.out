@@ -1,3 +1,4 @@
+the account's key kept: True
 first: 10:00:00:00:00:00:00:00:01, HTTP/1.1 200 OK
 log: INFO net.http: renewed the certificate for localhost, valid until 2120-01-01T00:00:00Z
 renewed as it runs: 10:00:00:00:00:00:00:00:02, True
@@ -9,4 +10,6 @@ NetError HTTP_STATUS: True
 still: 10:00:00:00:00:00:00:00:03
 HTTP: 308, True
 an unknown challenge: 404
+the same account: True
 made again: True, HTTP/1.1 200 OK
+a broken account.pem: ParseError
