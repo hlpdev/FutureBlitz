@@ -1,11 +1,14 @@
 // HttpClient, which sends HTTP and HTTPS requests and gives their responses, over libcurl, whose
 // TLS is mbedTLS's: it follows redirects, decompresses what comes compressed, keeps cookies, and
-// trusts the OS's roots unless it's given its own. Each request has an Async twin, which the I/O
-// thread runs. Http's Static Methods send one request each, through a client of their own.
+// trusts the OS's roots unless it's given its own. A download goes to memory, or atomically to a
+// file as it comes. Each request has an Async twin, which the I/O thread runs. Http's Static
+// Methods send one request each, through a client of their own.
 
 Import std.core
 Import std.collections
 Import std.crypto
+Import std.io.path
+Import std.io.request
 Import std.time
 Import std.net.http.headers
 Import std.net.http.status
@@ -23,6 +26,7 @@ Extern "runtime"
                              redirects: Int32, decompress: Int32)
     Function fb_http_proxy(transfer: Ptr<Void>, proxy: String)
     Function fb_http_user_agent(transfer: Ptr<Void>, agent: String)
+    Function fb_http_to_file(transfer: Ptr<Void>, path: String): Int64
     Function fb_http_perform(transfer: Ptr<Void>): Int32
     Function fb_http_advance(transfer: Ptr<Void>): Int32
     Function fb_http_wait_async(transfer: Ptr<Void>, progress: Int32): Task<Int32>
@@ -34,6 +38,7 @@ Extern "runtime"
     Function fb_http_response_headers(transfer: Ptr<Void>, names: String[], values: String[])
     Function fb_http_take_body(transfer: Ptr<Void>, output: UInt8[])
     Function fb_http_message(transfer: Ptr<Void>): String
+    Function fb_http_file_error(transfer: Ptr<Void>): Int64
     Function fb_http_free(transfer: Ptr<Void>)
     Function fb_string_from_utf8(bytes: UInt8[]): String
     Function fb_percent_encode(text: String): String
@@ -50,6 +55,7 @@ Const TLS = 6
 Const TIMED_OUT = 7
 Const BAD_URL = 9
 Const BAD_REDIRECT = 12
+Const FILE_FAILED = 13
 
 // The methods a request can have.
 Public Enum HttpMethod
@@ -266,22 +272,22 @@ Public Class HttpClient
             url: String,
             progress: Func(Int64, Int64)? = Null): UInt8[] Throws NetError, TimeoutError
         Local transfer = Transfer(Self, HttpMethod.GET, url, Null, Null)
-        Local outcome: Int32 = 0
-        If progress == Null
-            outcome = fb_http_perform(transfer.State)
-            Return Try transfer.Downloaded(outcome, Null)
-        End If
+        Local response = Try transfer.Downloaded(transfer.Run(progress), progress)
+        Return response.Bytes
+    End Method
 
-        Loop
-            Local step = fb_http_advance(transfer.State)
-            If step != 0
-                outcome = step - 1
-                Break
-            End If
-
-            progress(fb_http_received(transfer.State), fb_http_expected(transfer.State))
-        End Loop
-        Return Try transfer.Downloaded(outcome, progress)
+    // Writes url's body to the file at path as it comes, atomically, as File.WriteBytesAtomic
+    // does: to a new temporary file in its folder, which is renamed over the file, onto the disk,
+    // once all of it came, so the file holds either all of it or what it held before. progress
+    // is told of it as Download's is. Throws a NetError of HTTP_STATUS when the response's
+    // status isn't success, and an IOError when the file can't be written, which a folder that
+    // isn't there throws before anything's sent; each leaves the file as it was.
+    Public Method Download(
+            url: String, path: Path,
+            progress: Func(Int64, Int64)? = Null) Throws NetError, TimeoutError, IOError
+        Local transfer = Transfer(Self, HttpMethod.GET, url, Null, Null)
+        Try transfer.WriteTo(path)
+        Try transfer.Written(transfer.Run(progress), progress, path)
     End Method
 
     Public Async Method GetAsync(url: String): HttpResponse Throws NetError, TimeoutError
@@ -325,19 +331,20 @@ Public Class HttpClient
             url: String,
             progress: Func(Int64, Int64)? = Null): UInt8[] Throws NetError, TimeoutError
         Local transfer = Transfer(Self, HttpMethod.GET, url, Null, Null)
-        Local outcome: Int32 = 0
-        Loop
-            Local step = Await fb_http_wait_async(transfer.State, progress != Null ? 1 : 0)
-            If step != 0
-                outcome = step - 1
-                Break
-            End If
+        Local outcome = Await transfer.RunAsync(progress)
+        Local response = Try transfer.Downloaded(outcome, progress)
+        Return response.Bytes
+    End Method
 
-            If progress != Null
-                progress(fb_http_received(transfer.State), fb_http_expected(transfer.State))
-            End If
-        End Loop
-        Return Try transfer.Downloaded(outcome, progress)
+    // The Async twin of Download to a file, whose progress is told on the main thread, and whose
+    // file the I/O thread writes and puts onto the disk.
+    Public Async Method DownloadAsync(
+            url: String, path: Path,
+            progress: Func(Int64, Int64)? = Null) Throws NetError, TimeoutError, IOError
+        Local transfer = Transfer(Self, HttpMethod.GET, url, Null, Null)
+        Try transfer.WriteTo(path)
+        Local outcome = Await transfer.RunAsync(progress)
+        Try transfer.Written(outcome, progress, path)
     End Method
 
     Method Destroy()
@@ -426,17 +433,61 @@ Class Transfer
                             VersionOf(fb_http_version(State)))
     End Method
 
-    // A download's body, once it ended with outcome, after telling progress how much came in
-    // all.
+    // Has the transfer write its body to the file at path, or throws why it can't.
+    Method WriteTo(path: Path) Throws IOError
+        Try Checked(fb_http_to_file(State, path.Text), "write", path)
+    End Method
+
+    // Runs the transfer to its end on this thread, telling progress, unless it's Null, how much
+    // came as it comes, and gives its outcome.
+    Method Run(progress: Func(Int64, Int64)?): Int32
+        If progress == Null Then Return fb_http_perform(State)
+        Local outcome: Int32 = 0
+        Loop
+            Local step = fb_http_advance(State)
+            If step != 0
+                outcome = step - 1
+                Break
+            End If
+
+            progress(fb_http_received(State), fb_http_expected(State))
+        End Loop
+        Return outcome
+    End Method
+
+    // Run's Async twin, which the I/O thread runs, telling progress on the main thread.
+    Async Method RunAsync(progress: Func(Int64, Int64)?): Int32
+        Local outcome: Int32 = 0
+        Loop
+            Local step = Await fb_http_wait_async(State, progress != Null ? 1 : 0)
+            If step != 0
+                outcome = step - 1
+                Break
+            End If
+
+            If progress != Null Then progress(fb_http_received(State), fb_http_expected(State))
+        End Loop
+        Return outcome
+    End Method
+
+    // A download's response, once it ended with outcome, after telling progress how much came
+    // in all.
     Method Downloaded(outcome: Int32,
-                      progress: Func(Int64, Int64)?): UInt8[] Throws NetError, TimeoutError
+                      progress: Func(Int64, Int64)?): HttpResponse Throws NetError, TimeoutError
         Local response = Try Finish(outcome)
         Try response.EnsureSuccess()
         If progress != Null
             progress(fb_http_received(State), fb_http_expected(State))
         End If
 
-        Return response.Bytes
+        Return response
+    End Method
+
+    // Throws what failed of a download to the file at path that ended with outcome.
+    Method Written(outcome: Int32, progress: Func(Int64, Int64)?,
+                   path: Path) Throws NetError, TimeoutError, IOError
+        If outcome == FILE_FAILED Then Throw ErrorOf(fb_http_file_error(State), "write", path)
+        Try Downloaded(outcome, progress)
     End Method
 
     // Throws what the outcome says failed.
@@ -519,6 +570,13 @@ Public Struct Http
         Return Try HttpClient().Download(url, progress)
     End Method
 
+    // Writes url's body to the file at path, as HttpClient's Download does.
+    Public Static Method Download(
+            url: String, path: Path,
+            progress: Func(Int64, Int64)? = Null) Throws NetError, TimeoutError, IOError
+        Try HttpClient().Download(url, path, progress)
+    End Method
+
     Public Static Async Method GetAsync(url: String): HttpResponse Throws NetError, TimeoutError
         Return Try Await HttpClient().GetAsync(url)
     End Method
@@ -542,6 +600,12 @@ Public Struct Http
             url: String,
             progress: Func(Int64, Int64)? = Null): UInt8[] Throws NetError, TimeoutError
         Return Try Await HttpClient().DownloadAsync(url, progress)
+    End Method
+
+    Public Static Async Method DownloadAsync(
+            url: String, path: Path,
+            progress: Func(Int64, Int64)? = Null) Throws NetError, TimeoutError, IOError
+        Try Await HttpClient().DownloadAsync(url, path, progress)
     End Method
 End Struct
 

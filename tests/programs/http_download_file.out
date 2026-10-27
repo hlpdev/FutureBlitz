@@ -1,0 +1,38 @@
+== blocking
+done
+True 200000/200000
+done
+20004 True
+done
+True 2/2
+done
+0
+/status/404: NetError HTTP_STATUS True
+/truncated: NetError CLOSED True
+/close: NetError CLOSED True
+IOError NOT_FOUND
+IOError IS_A_DIRECTORY
+IOError NOT_FOUND
+1 True
+== awaited
+done
+True 200000/200000
+done
+20004 True
+done
+True 2/2
+done
+0
+/status/404: NetError HTTP_STATUS True
+/truncated: NetError CLOSED True
+/close: NetError CLOSED True
+IOError NOT_FOUND
+IOError IS_A_DIRECTORY
+IOError NOT_FOUND
+1 True
+== Http
+True
+True 20/20
+NetError HTTP_STATUS
+True
+[awaited.bin, awaited.empty, awaited.txt, blocking.bin, blocking.empty, blocking.txt, http.bin]

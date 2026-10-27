@@ -1,0 +1,119 @@
+// Download to a file, blocking, awaited, and through Http, in a temporary folder of the program's
+// own: the body as it came, decompressed, without a redirect's own, and an empty one; progress
+// told as Download's is; and the file as it was after a status that isn't success, a connection
+// that closes partway, a folder that isn't there, a folder at the path, and a temporary file
+// that's gone before its rename. Nothing's left behind but what was written.
+Import std.core
+Import std.collections
+Import std.io
+Import std.net.http
+Import std.text
+
+Global base = Input() ?? ""
+Global last = ""
+Global folder = Path("")
+Global removed = 0
+
+Function Tell(got: Int64, all: Int64)
+    last = "{got}/{all}"
+End Function
+
+// Removes the download's temporary file, the first time progress is told of it.
+Function RemoveTemporary(got: Int64, all: Int64)
+    If removed > 0 Then Return
+    For entry In Try? Dir.Entries(folder) ?? []
+        If entry.Name().StartsWith(".fb-") && (Try? File.Delete(entry.Path)) == True
+            removed += 1
+        End If
+    End For
+End Function
+
+// Whether the file at path holds count bytes, each its index's remainder by 251, as /bytes/
+// sends them.
+Function HoldsBytes(path: Path, count: Int): Bool
+    Local bytes = Try? File.ReadBytes(path)
+    If bytes == Null Then Return False
+    If bytes.Count != count Then Return False
+    For i = 0 Until count
+        If bytes[i] != (i % 251) As UInt8 Then Return False
+    End For
+    Return True
+End Function
+
+// What a download of url to path gave: "done", or what it threw.
+Async Function Outcome(client: HttpClient, url: String, path: Path, awaited: Bool,
+                       progress: Func(Int64, Int64)): String
+    Try
+        If awaited
+            Await client.DownloadAsync(url, path, progress)
+        Else
+            client.Download(url, path, progress)
+        End If
+        Return "done"
+    Catch e As NetError
+        Return "NetError {e.Kind}"
+    Catch e As TimeoutError
+        Return "TimeoutError"
+    Catch e As IOError
+        Return "IOError {e.Kind}"
+    End Try
+End Function
+
+Local temp = Try TempDir("fb-download-")
+folder = temp.Path
+Local client = HttpClient()
+For awaited In [False, True]
+    Local way = awaited ? "awaited" : "blocking"
+    Print("== {way}")
+    // Half of it comes 300 ms before the rest.
+    Local file = temp.Path / "{way}.bin"
+    Print(Await Outcome(client, "{base}/bytes/200000?pause=100000", file, awaited, Tell))
+    Print("{HoldsBytes(file, 200000)} {last}")
+    Local text = temp.Path / "{way}.txt"
+    Print(Await Outcome(client, "{base}/compressed/gzip", text, awaited, Tell))
+    Local decoded = Try File.ReadText(text)
+    Print("{decoded.Length} {decoded.StartsWith("gzip fox fox")}")
+    // A redirect's own 5000 bytes aren't the file's.
+    Print(Await Outcome(client, "{base}/redirect-with-body", file, awaited, Tell))
+    Print("{HoldsBytes(file, 2)} {last}")
+    Local empty = temp.Path / "{way}.empty"
+    Print(Await Outcome(client, "{base}/bytes/0", empty, awaited, Tell))
+    Print(Try File.Size(empty))
+
+    // What fails leaves the file as it was.
+    For path In ["/status/404", "/truncated", "/close"]
+        Local outcome = Await Outcome(client, "{base}{path}", file, awaited, Tell)
+        Print("{path}: {outcome} {HoldsBytes(file, 2)}")
+    End For
+    Print(Await Outcome(client, "{base}/hello", temp.Path / "missing" / "hello.txt", awaited, Tell))
+    Print(Await Outcome(client, "{base}/hello", temp.Path, awaited, Tell))
+    removed = 0
+    Print(Await Outcome(client, "{base}/bytes/200000?pause=100000", file, awaited,
+                        RemoveTemporary))
+    Print("{removed} {HoldsBytes(file, 2)}")
+End For
+
+Print("== Http")
+Try
+    // A String is a Path where one's expected.
+    Http.Download("{base}/bytes/10", (temp.Path / "http.bin").Text)
+    Print(HoldsBytes(temp.Path / "http.bin", 10))
+    Await Http.DownloadAsync("{base}/bytes/20", temp.Path / "http.bin", Tell)
+    Print("{HoldsBytes(temp.Path / "http.bin", 20)} {last}")
+    Http.Download("{base}/status/500", temp.Path / "http.bin")
+Catch e As NetError
+    Print("NetError {e.Kind}")
+Catch e As TimeoutError
+    Print("TimeoutError")
+Catch e As IOError
+    Print("IOError {e.Kind}")
+End Try
+Print(HoldsBytes(temp.Path / "http.bin", 20))
+
+Local names: String[] = []
+For entry In Try Dir.Entries(temp.Path)
+    names.Add(entry.Name())
+End For
+names.Sort()
+Print(names)
+Try temp.Close()
