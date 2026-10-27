@@ -1,0 +1,92 @@
+// std.compress over std.io's streams: a CoderWriter writes what's written to it through a Coder,
+// like a GzipCompressor, to another Writer, and a CoderReader reads what another Reader gives
+// through one, like a GzipDecompressor, so a file or a socket compresses and decompresses as it
+// goes, a part at a time.
+
+Import std.core
+Import std.ffi
+Import std.io.streams
+Import std.compress.codec
+
+// How many bytes a CoderReader reads from its Reader at a time.
+Const CHUNK = 65536
+
+// A Writer whose bytes go through a Coder to another Writer: Write adds them to the Coder and
+// writes what comes of them, and Finish writes the rest, which ends what the Coder makes, as
+// `CoderWriter(file, GzipCompressor())` ends a gzip member. A Coder holds on to what it hasn't
+// coded yet, so Flush flushes only the other Writer, and the Coder's rest comes with Finish. Each
+// throws the IOError the Coder or the Writer does.
+Public Class CoderWriter Implements Writer
+    Field Inner: Writer
+    Field Through: Coder
+
+    Public New(inner: Writer, through: Coder)
+        Inner = inner
+        Through = through
+    End New
+
+    Public Method Write(from: Buffer<UInt8>) Throws IOError
+        Local coded = Try Through.Add(from.ToArray())
+        If coded.Count > 0 Then Try Inner.WriteBytes(coded)
+    End Method
+
+    Public Method Flush() Throws IOError
+        Try Inner.Flush()
+    End Method
+
+    // Writes what the Coder has left, and flushes the other Writer. The Coder starts again, so
+    // what's written next is coded on its own, as a gzip's next member is.
+    Public Method Finish() Throws IOError
+        Local coded = Try Through.Finish()
+        If coded.Count > 0 Then Try Inner.WriteBytes(coded)
+        Try Inner.Flush()
+    End Method
+End Class
+
+// A Reader whose bytes are what another Reader's come to through a Coder, as
+// `CoderReader(file, GzipDecompressor())` reads a .gz file's: it reads the other Reader a chunk at
+// a time, and once that ends, gives what the Coder has left, and then ends. Read throws the
+// IOError the Coder or the Reader does, like a Decompressor's for bytes that aren't its format,
+// or that end too soon.
+Public Class CoderReader Implements Reader
+    Field Inner: Reader
+    Field Through: Coder
+    // What the Coder gave that Read hasn't, from At on.
+    Field Coded: UInt8[] = []
+    Field At: Int = 0
+    // Whether the other Reader has ended, and the Coder given its rest.
+    Field Ended: Bool = False
+    // What it reads the other Reader into.
+    Field Chunk: Buffer<UInt8>
+
+    Public New(inner: Reader, through: Coder)
+        Inner = inner
+        Through = through
+        Chunk = Buffer<UInt8>(CHUNK)
+    End New
+
+    Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+        If into.Count == 0 Then Return 0
+        While At == Coded.Count && !Ended
+            Local count = Try Inner.Read(Chunk)
+            At = 0
+            If count == 0
+                Coded = Try Through.Finish()
+                Ended = True
+            Else
+                Coded = Try Through.Add(Chunk.Slice(0, count).ToArray())
+            End If
+        End While
+
+        Local count = Min(into.Count, (Coded.Count - At) As Int64)
+        If count > 0
+            Unsafe
+                Mem.Copy(into.Pointer(), AddressOf(Coded[At]), count)
+            End Unsafe
+
+            At += count As Int
+        End If
+
+        Return count
+    End Method
+End Class

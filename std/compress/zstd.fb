@@ -51,7 +51,7 @@ End Struct
 
 // Zstd's bytes made in turn: Add gives what compressing the bytes it takes has made so far, and
 // Finish what's left, which ends a frame, and starts again.
-Public Class ZstdCompressor
+Public Class ZstdCompressor Implements Coder
     Field State: Ptr<Void>
 
     // Panics when the level isn't from 1 to 22.
@@ -81,7 +81,7 @@ End Class
 // to so far, and Finish what's left once they've all been added, and starts again. Each throws
 // an IOError when the bytes aren't Zstd's or would come to more than the limit, and Finish when
 // they end too soon.
-Public Class ZstdDecompressor
+Public Class ZstdDecompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
 

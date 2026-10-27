@@ -144,7 +144,8 @@ So far, std/ holds:
 | std/time/zone.fb | `TimeZone`, over the embedded IANA tz database through `fb_tz_`, `ZonedDateTime`, and `Disambiguation` |
 | std/time/format.fb | ISO 8601, RFC 2822, and the patterns `Format` and `Parse` take |
 | std/time/timers.fb | `Timer`, on the I/O thread's loop, `Deadline`, `FixedStep`, `RateLimiter`, and `Debounce` |
-| std/compress/codec.fb | What the formats share: a Decompress's limit, and the IOErrors the runtime's results mean |
+| std/compress/codec.fb | What the formats share: `Coder`, which each Compressor and Decompressor is, a Decompress's limit, and the IOErrors the runtime's results mean |
+| std/compress/stream.fb | `CoderWriter` and `CoderReader`, which stream std.io's bytes through a Coder |
 | std/compress/deflate.fb | `Deflate`, `Zlib`, and `Gzip`, with `DeflateCompressor`, `DeflateDecompressor`, `ZlibCompressor`, `ZlibDecompressor`, `GzipCompressor`, and `GzipDecompressor`, over zlib-ng through `fb_zlib_` |
 | std/compress/zstd.fb, lz4.fb, xz.fb | `Zstd`, `Lz4`, and `XZ`, with their Compressors and Decompressors, over zstd, LZ4, and liblzma through `fb_zstd_`, `fb_lz4_`, and `fb_xz_` |
 | std/compress/archive.fb | `ArchiveEntry` and `ArchiveEntryKind` |
@@ -1105,15 +1106,19 @@ Bool, or Null where their text goes.
 
 #### std.compress
 
-Step 22 built the codecs and archives over bytes; their Readers and Writers wait for step 13's
-streams. `Import std.compress` brings in all of std/compress/.
+Step 22 built the codecs and archives over bytes, and a `CoderWriter` and a `CoderReader` stream
+std.io's bytes through a codec. `Import std.compress` brings in all of std/compress/.
 
 - Codecs: `Deflate` (RFC 1951), `Zlib` (RFC 1950), and `Gzip` (RFC 1952) over zlib-ng's zlib API,
   `Zstd` over zstd, `Lz4` (LZ4's frame format) over LZ4, and `XZ` over liblzma. Each one's
   `Compress(data, level)` and `Decompress(data, limit)` work on a `UInt8[]` at once, and its
   Compressor and Decompressor, like `GzipCompressor(level)` and `GzipDecompressor(limit)`, take
-  bytes in turn: `Add(data)` gives what came out so far, and `Finish()` the rest, and starts again,
-  which is what step 13's streams will wrap. Levels are each library's: 0 to 9 for Deflate, Zlib,
+  bytes in turn: `Add(data)` gives what came out so far, and `Finish()` the rest, and starts again.
+  Each is a `Coder`, which a `CoderWriter(writer, coder)` writes through, its `Finish()` writing the
+  Coder's rest, and a `CoderReader(reader, coder)` reads through, giving the Coder's rest once the
+  Reader ends: `CoderWriter(file, GzipCompressor())` writes a .gz, and `CoderReader(file,
+  GzipDecompressor())` reads one. A Coder holds what it hasn't coded, so a CoderWriter's `Flush`
+  flushes only its Writer. Levels are each library's: 0 to 9 for Deflate, Zlib,
   Gzip, and XZ, 6 by default, 1 to 22 for Zstd, 3 by default, and 1 to 12 for Lz4, 1 by default;
   another panics at the caller. Gzip writes one member with no name, time, or OS in its header, so
   every OS makes the same bytes; a Zstd or Lz4 frame has its content's checksum, and an XZ stream a
@@ -1156,8 +1161,7 @@ streams. `Import std.compress` brings in all of std/compress/.
   in chains, as 7-Zip writes them; BCJ2, PPMd, BZip2, and encryption are IOErrors. A solid folder is
   decoded once for the files read from it in turn, and its links' targets, but one of more bytes
   than an array holds is decoded up to each file read, and kept for none. Writing 7z isn't std's.
-- Planned: the Readers and Writers over step 13's streams, and entries' times and permissions, with
-  std.time and std.io's files.
+- Planned: entries' times and permissions, with std.time and std.io's files.
 
 #### std.net
 

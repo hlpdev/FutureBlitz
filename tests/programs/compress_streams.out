@@ -1,0 +1,14 @@
+Deflate [True, True, True, True] [True, True, True, True]
+Zlib [True, True, True, True] [True, True, True, True]
+Gzip [True, True, True, True] [True, True, True, True]
+Zstd [True, True, True, True] [True, True, True, True]
+Lz4 [True, True, True, True] [True, True, True, True]
+XZ [True, True, True, True] [True, True, True, True]
+first second
+0 first second 0
+True True
+True
+True
+INVALID_DATA the Gzip data isn't valid: incorrect header check
+UNEXPECTED_END the Gzip data ends too soon
+OTHER the Gzip data comes to more than 1000 bytes

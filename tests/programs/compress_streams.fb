@@ -1,0 +1,180 @@
+// std.compress over std.io's streams: each codec's Compressor, as a CoderWriter's Coder, makes
+// what its Decompress reads back, written in parts of any size, and its Decompressor, as a
+// CoderReader's, reads back what its Compress made, read in parts of any size; Finish ends a
+// stream and starts the next; a Compressor reads too, and a Decompressor writes; and a
+// CoderReader says what's wrong with bytes that aren't its Coder's, or that end too soon.
+
+Import std.core
+Import std.collections
+Import std.ffi
+Import std.io
+Import std.compress
+Import std.text
+
+Const FORMATS = ["Deflate", "Zlib", "Gzip", "Zstd", "Lz4", "XZ"]
+
+Function Compressor(format: String): Coder
+    Select format
+        Case "Deflate"
+            Return DeflateCompressor()
+        Case "Zlib"
+            Return ZlibCompressor()
+        Case "Gzip"
+            Return GzipCompressor()
+        Case "Zstd"
+            Return ZstdCompressor()
+        Case "Lz4"
+            Return Lz4Compressor()
+        Default
+            Return XZCompressor()
+    End Select
+End Function
+
+Function Decompressor(format: String, limit: Int = 2147483647): Coder
+    Select format
+        Case "Deflate"
+            Return DeflateDecompressor(limit)
+        Case "Zlib"
+            Return ZlibDecompressor(limit)
+        Case "Gzip"
+            Return GzipDecompressor(limit)
+        Case "Zstd"
+            Return ZstdDecompressor(limit)
+        Case "Lz4"
+            Return Lz4Decompressor(limit)
+        Default
+            Return XZDecompressor(limit)
+    End Select
+End Function
+
+Function Compressed(format: String, data: UInt8[]): UInt8[]
+    Select format
+        Case "Deflate"
+            Return Deflate.Compress(data)
+        Case "Zlib"
+            Return Zlib.Compress(data)
+        Case "Gzip"
+            Return Gzip.Compress(data)
+        Case "Zstd"
+            Return Zstd.Compress(data)
+        Case "Lz4"
+            Return Lz4.Compress(data)
+        Default
+            Return XZ.Compress(data)
+    End Select
+End Function
+
+Function Decompressed(format: String, data: UInt8[]): UInt8[] Throws IOError
+    Select format
+        Case "Deflate"
+            Return Try Deflate.Decompress(data)
+        Case "Zlib"
+            Return Try Zlib.Decompress(data)
+        Case "Gzip"
+            Return Try Gzip.Decompress(data)
+        Case "Zstd"
+            Return Try Zstd.Decompress(data)
+        Case "Lz4"
+            Return Try Lz4.Decompress(data)
+        Default
+            Return Try XZ.Decompress(data)
+    End Select
+End Function
+
+// Text that repeats, and bytes that don't.
+Function Sample(): UInt8[]
+    Local bytes: UInt8[] = []
+    For i = 1 To 500
+        bytes.AddAll("{i} bottles of milk on the wall, ".Bytes)
+    End For
+
+    Local state: UInt32 = 12345
+    For i = 1 To 20000
+        state = state.WrappingMultiply(1664525).WrappingAdd(1013904223)
+        bytes.Add((state >> 24) As UInt8)
+    End For
+
+    Return bytes
+End Function
+
+// data written to a CoderWriter of format's Compressor in parts of size bytes, and Finished.
+Function Written(format: String, data: UInt8[], size: Int): UInt8[] Throws IOError
+    Local into = MemoryStream()
+    Local writer = CoderWriter(into, Compressor(format))
+    Local at = 0
+    While at < data.Count
+        Local finish = Min(at + size, data.Count)
+        Try writer.Write(Buffer<UInt8>.From(data).Slice(at, finish))
+        at = finish
+    End While
+
+    Try writer.Finish()
+    Return into.ToArray()
+End Function
+
+// All a CoderReader of format's Decompressor reads of data, size bytes at a time at most.
+Function Read(format: String, data: UInt8[], size: Int): UInt8[] Throws IOError
+    Local reader = CoderReader(MemoryStream(data), Decompressor(format))
+    Local all: UInt8[] = []
+    Local part = Buffer<UInt8>(size)
+    Loop
+        Local count = Try reader.Read(part)
+        If count == 0 Then Return all
+        all.AddAll(part.Slice(0, count).ToArray())
+    End Loop
+End Function
+
+Local data = Sample()
+For format In FORMATS
+    Local wrote = [Try Decompressed(format, Try Written(format, data, 1)) == data,
+                   Try Decompressed(format, Try Written(format, data, 4096)) == data,
+                   Try Decompressed(format, Try Written(format, data, 1000000)) == data,
+                   Try Decompressed(format, Try Written(format, [], 7)).Count == 0]
+    Local made = Compressed(format, data)
+    Local read = [Try Read(format, made, 1) == data, Try Read(format, made, 7) == data,
+                  Try Read(format, made, 70000) == data,
+                  (Try Read(format, Compressed(format, []), 5)).Count == 0]
+    Print(format, wrote, read)
+End For
+
+// Finish ends a stream and starts the next, so a gzip gets two members, which Decompress reads
+// one after another, and an empty Read reads nothing.
+Local members = MemoryStream()
+Local gzip = CoderWriter(members, GzipCompressor())
+Try gzip.WriteText("first ")
+Try gzip.Finish()
+Try gzip.WriteText("second")
+Try gzip.Finish()
+Print(String.FromUtf8(Try Gzip.Decompress(members.ToArray())) ?? "-")
+Try members.Seek(0, SeekOrigin.START)
+Local both = CoderReader(members, GzipDecompressor())
+Print(Try both.Read(Buffer<UInt8>(0)), Try ReadAllText(both), Try both.Read(Buffer<UInt8>(4)))
+
+// A Compressor reads too, and a Decompressor writes: text compressed as it's read is what Zstd
+// decompresses, and a Copy through both gives it back.
+Local text = "e\u{301} 😀 wörld, " .Repeated(1000)
+Local squeezed = Try ReadAll(CoderReader(StringReader(text), ZstdCompressor(19)))
+Print(String.FromUtf8(Try Zstd.Decompress(squeezed)) == text, squeezed.Count < text.Length / 20)
+Local back = StringWriter()
+Local unsqueeze = CoderWriter(back, ZstdDecompressor())
+Print(Try Copy(MemoryStream(squeezed), unsqueeze) == squeezed.Count)
+Try unsqueeze.Finish()
+Print(back.ToString() == text)
+
+// Bytes that aren't the format, that end too soon, or that come to more than the limit.
+Local gz = Gzip.Compress(data)
+Local cut: UInt8[] = []
+For i = 0 Until gz.Count - 10
+    cut.Add(gz[i])
+End For
+
+Local sources = [MemoryStream("not gzip at all".Bytes), MemoryStream(cut), MemoryStream(gz)]
+Local limits = [2147483647, 2147483647, 1000]
+For i = 0 Until sources.Count
+    Try
+        Local all = Try ReadAll(CoderReader(sources[i], GzipDecompressor(limits[i])))
+        Print("never:", all.Count)
+    Catch e As IOError
+        Print(e.Kind, e.Message)
+    End Try
+End For

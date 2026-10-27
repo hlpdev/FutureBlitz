@@ -1,7 +1,16 @@
-// What std.compress's formats share: the most bytes a UInt8[] holds, which is a Decompress's
-// limit unless it's given a smaller one, and the IOErrors the runtime's results mean.
+// What std.compress's formats share: Coder, which each one's Compressor and Decompressor is; the
+// most bytes a UInt8[] holds, which is a Decompress's limit unless it's given a smaller one; and
+// the IOErrors the runtime's results mean.
 
 Import std.core
+
+// What each format's Compressor and Decompressor is: Add gives what the bytes it takes come to so
+// far, and Finish what's left once they've all been added, which ends what it makes, and starts
+// again. A CoderWriter and a CoderReader stream bytes through one.
+Public Interface Coder
+    Method Add(data: UInt8[]): UInt8[] Throws IOError
+    Method Finish(): UInt8[] Throws IOError
+End Interface
 
 // The most bytes a UInt8[] holds, which an Int counts.
 Package Const MOST_BYTES = 2147483647
