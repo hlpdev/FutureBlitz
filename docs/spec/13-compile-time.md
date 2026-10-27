@@ -253,8 +253,8 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   Interface's object, a tuple, a fixed array, a Weak, a Ptr, a Task, and the other types like
   them can't be converted.
 - Load also reads a number or a Bool from a String that reads as one, like "8080" or "true", as
-  a command line's and an environment's values are; and an integer from a whole Double, and a
-  Double from an integer.
+  a command line's and an environment's values are; an integer from a whole Double, and a
+  Double from an integer; and a Bool from the integer 0 or 1, as SQLite and others keep one.
 - std.core's attributes on a Field change it: `@Rename("key")` gives it another key, `@Skip`
   leaves it out (Load leaves it at its default), and `@Renamed("old")` reads an older key when
   the Object doesn't have its own, so what an earlier version of a program saved still loads. `@Flatten` puts a Struct's or Class's Field's own

@@ -28,3 +28,4 @@ p [1] {"First": "p", "Second": [1]}
 -2 9 "PLAYER | ENEMY"
 True 9
 HUGE SMALL "HUGE"
+True False True [False, True, False]

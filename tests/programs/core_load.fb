@@ -246,3 +246,7 @@ End Enum
 
 Print(Try Load<Big>(Value(18446744073709551615 As UInt64)), Try Load<Big>(Value("1")),
       Save(Big.HUGE))
+
+// A Bool is also the integer 0 or 1, and as a String, "0" or "1".
+Print(Try Load<Bool>(Value(1)), Try Load<Bool>(Value(0)), Try Load<Bool>(Value("1")),
+      Try Load<Bool[]>(Value([Value(0), Value(True), Value("false")])))

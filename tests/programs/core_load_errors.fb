@@ -284,3 +284,12 @@ Alone(Value({"Sizes": Value({"Width": Value(1), "Height": Value("x")}), "Bytes":
 Alone(Value({"Sizes": Value.Array(), "Bytes": Value(300)}))
 Alone(Value({"Sizes": Value([Value({"Width": Value(1), "Height": Value(2)}), Value(5)]),
              "Bytes": Value.Array()}))
+
+// Any other integer, or a Double, isn't a Bool.
+For bad In [Value(2), Value(-1), Value(1.0), Value("2")]
+    Try
+        Print(Load<Bool>(bad))
+    Catch e As ParseError
+        Print(e.Kind, e.Message)
+    End Try
+End For

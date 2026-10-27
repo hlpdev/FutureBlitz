@@ -116,15 +116,16 @@ Function Deep(depth: Int, ByRef error: Error?): Bool
     Return True
 End Function
 
-// Load's Bool: a BOOL, or a String that reads as one, like "true".
+// Load's Bool: a BOOL, or a String that reads as one, like "true", or the integer 0 or 1, as
+// SQLite and others keep a Bool.
 Package Function LoadBool(value: Value, ByRef error: Error?): Bool
-    Local read = Read(value).AsBool()
-    If read == Null
-        error = Mismatch(value, "Bool")
-        Return False
-    End If
-
-    Return read
+    Local read = Read(value)
+    Local bool = read.AsBool()
+    If bool != Null Then Return bool
+    Local whole = read.AsInt64()
+    If whole == 0 || whole == 1 Then Return whole == 1
+    error = Mismatch(value, "Bool, or the integer 0 or 1")
+    Return False
 End Function
 
 // Load's integer, from least to most: an integer, a whole Double, or a String that reads as

@@ -38,3 +38,7 @@ OUT_OF_RANGE expected UInt64, from 0 to 18446744073709551615, found "-1844674407
 [Sizes.Height] True Sizes.Height: expected Int8, found "x"
 [Bytes] True Bytes: expected UInt8, from 0 to 255, found 300
 [Sizes[1]] True Sizes[1]: expected an Object, for Size, found 5
+WRONG_TYPE expected Bool, or the integer 0 or 1, found 2
+WRONG_TYPE expected Bool, or the integer 0 or 1, found -1
+WRONG_TYPE expected Bool, or the integer 0 or 1, found 1.0
+WRONG_TYPE expected Bool, or the integer 0 or 1, found "2"
