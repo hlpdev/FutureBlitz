@@ -1,0 +1,1 @@
+panic: a message of 101 bytes is past the host's MaxMessageSize, 100 at panic_net_game_message.fb:14:1

@@ -165,6 +165,12 @@ So far, std/ holds:
 | std/net/udp.fb | `UdpSocket` and `Datagram` |
 | std/net/ipc.fb | `IpcListener` and `IpcStream`, named pipes on Windows and Unix sockets elsewhere |
 | std/net/lan.fb | `LanAnnouncer`, `Lan`, and `LanService`, over mDNS and DNS-SD |
+| std/net/game/host.fb | std.net.game: `GameHost`, `GameEvent`, and `GameEventKind` |
+| std/net/game/peer.fb | `GamePeer` and `PeerState` |
+| std/net/game/settings.fb | `GameSettings` and `DisconnectReason` |
+| std/net/game/channel.fb | `ChannelKind`, and each channel's sending and receiving sides |
+| std/net/game/link.fb | `GameLink`, which a UdpSocket is, through `GameHost.Bind`, or a test's own link |
+| std/net/game/packet.fb | The wire's packets: CONNECT, ACCEPT, REFUSE, DATA, and DISCONNECT |
 | std/text/string.fb | std.text: a String's `Length`, `CharCount`, and `GraphemeCount`, and its Methods by byte position: `IsEmpty`, `IsBlank`, `Contains`, `StartsWith`, `EndsWith`, `Find`, `FindLast`, `FindAll`, `Count`, `Slice`, `Before`, `After`, `SplitOnce`, `Split`, `SplitN`, `SplitLines`, `SplitWhitespace`, `Join`, `Replace`, `ReplaceFirst`, `Trim`, `TrimStart`, `TrimEnd`, `TrimPrefix`, `TrimSuffix`, `ToUpper`, `ToLower`, `Repeated`, `PadLeft`, `PadRight`, `Center`, `Compare`, `EqualsIgnoreCase`, `NaturalCompare`, `Lines`, and `Graphemes`, with `LineIterator` and `GraphemeIterator`; `String.FromUtf8`; over the runtime's `fb_text_` functions, and its `fb_unicode_` ones for case and grapheme clusters |
 | std/text/char.fb | A Char's `Code`, `Utf8Length`, `IsLetter`, `IsDigit`, `IsNumber`, `IsLetterOrDigit`, `IsUpper`, `IsLower`, `IsPunctuation`, `IsSymbol`, `IsControl`, `IsWhitespace`, `IsAscii`, `ToUpper`, and `ToLower`, and `Char.From` |
 | std/text/builder.fb, scanner.fb | `StringBuilder` and `Scanner` |
@@ -1332,8 +1338,33 @@ discovery. `Import std.net` brings in std/net/.
   and JSON bodies to typed parameters; middleware; static files; and automatic HTTPS, getting
   and renewing Let's Encrypt certificates (ACME).
 - std.net.ws: WebSocket client and server (the server from an HttpServer handler).
-- std.net.game: reliable UDP, ENet-style: connections, reliable-ordered, reliable-unordered,
-  and unreliable channels, fragmentation, and round-trip time.
+- std.net.game (built in step 31; `Import std.net.game` brings in std/net/game/): reliable UDP
+  for games, ENet-style. A `GameHost` is one end of any number of connections over a
+  `GameLink`: a UdpSocket's, through `GameHost.Bind(address, settings)`, or any Class of a
+  program's own, as a test's network that loses datagrams on purpose. `Connect(address)` gives a
+  `GamePeer`, connecting, and a host takes those others ask for, up to its `MaxPeers`: a
+  handshake of salts, whose XOR is the connection's, which refuses a full host, or one whose
+  channels or largest message differ (`DisconnectReason.FULL` or `MISMATCH`). A peer's
+  `Send(channel, bytes or text)` goes at the next `Update(now)`, which takes what's come, sends
+  what's due, and gives the `GameEvent`s since the last: `CONNECT`, `RECEIVE` (a channel and
+  its `Bytes` or `Text`), and `DISCONNECT`, with why (`LOCAL`, `REMOTE`, `TIMEOUT`, `FULL`, or
+  `MISMATCH`). `Service(timeout)` and `ServiceAsync` wait for events, and `Broadcast` and
+  `Close` act on every peer. Channels are `GameSettings.Channels`' `ChannelKind`s:
+  `RELIABLE_ORDERED`, each message once and in order; `RELIABLE_UNORDERED`, each once, as soon
+  as it can; and `UNRELIABLE`, never after a newer one, so what comes is the freshest. A message
+  past a packet's `Mtu` (1200 bytes) goes in fragments, which are put back together, up to
+  `MaxMessageSize` (1 MiB), with `MaxBuffered` (4 MiB) held at once. Each packet has a 16-bit
+  sequence, and acks the latest of the other side's and the 32 before it; a reliable part goes
+  again once a round-trip time and four times its variance have passed, as TCP's RFC 6298 works
+  them out, each time waiting twice as long, up to 8 times. A Flush sends 16 packets at most,
+  and a peer acks every 16 it takes, so an ack's loss loses nothing. Reliable channels keep
+  1024 messages in flight, and ids and sequences go round. `Disconnect` waits for what's sent to
+  be acked, `DisconnectNow` doesn't, and nothing heard for the `Timeout` (10 seconds) ends a
+  connection, with a keepalive each `KeepAlive` (250 milliseconds). A peer has
+  `RoundTripTime`, `RoundTripVariance`, `PacketLoss`, `PacketsSent`, `PacketsReceived`,
+  `PacketsLost`, `Resends`, `BytesSent`, `BytesReceived`, and `Unacked`. Time is the host's to be
+  given, so a test repeats; a seed for its salts and first sequences does too. A bad channel, a
+  message too big, or settings that make no sense panic at the caller.
 
 #### std.db
 

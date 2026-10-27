@@ -1,0 +1,19 @@
+connected: CONNECTED CONNECTED 1 1 127.0.0.1:5000 127.0.0.1:6000
+ordered: in order True whole True
+unordered: 300 each once True
+unreliable: 198 of 300, each newer True events 798 acked after 14 ticks
+network: sent 565 dropped 103 duplicated 45 reordered 133
+client: sent 341 received 207 lost 66 resends 246 loss 0.15 rtt 43.563929ms variance 5.054415ms
+bytes: 77599 3519 3774 64973
+connecting: CONNECTING True 1
+nobody there: [7000 DISCONNECT TIMEOUT DISCONNECTED] after 101 ticks DISCONNECTED TIMEOUT 0
+full: [5000 DISCONNECT FULL DISCONNECTED] 1
+other channels: [5000 DISCONNECT MISMATCH DISCONNECTED]
+other largest message: [5000 DISCONNECT MISMATCH DISCONNECTED]
+disconnecting: DISCONNECTING
+disconnect: [6000 got 0 on 0, 6000 got 1 on 0, 6000 got 2 on 0, 6000 got 3 on 0, 6000 got 4 on 0, 5000 DISCONNECT LOCAL DISCONNECTED] [6000 DISCONNECT REMOTE DISCONNECTED] 0 0
+disconnect now: [5000 DISCONNECT LOCAL DISCONNECTED] 1 ticks [6000 DISCONNECT REMOTE DISCONNECTED]
+timeout: [5000 DISCONNECT TIMEOUT DISCONNECTED] 100 [6000 DISCONNECT TIMEOUT DISCONNECTED] TIMEOUT TIMEOUT
+garbage: 1 [7] 1 1 CONNECTED
+ids round: ordered in order True unreliable 70000 each newer True lost 0 in 275 ticks
+sequences round: True unreliable 66000 each newer True then ordered [0, 1, 2] 0 lost 0 CONNECTED

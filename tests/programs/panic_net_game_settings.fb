@@ -1,0 +1,9 @@
+// Settings that don't make sense, like packets too small for a message's headers, are a bug,
+// which panics where the host is made.
+Import std.core
+Import std.net
+Import std.net.game
+
+Local settings = GameSettings()
+settings.Mtu = 64
+Local host = Try GameHost.Bind(SocketAddress(IpAddress.Loopback, 0), settings)

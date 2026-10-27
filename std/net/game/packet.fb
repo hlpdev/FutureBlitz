@@ -1,0 +1,158 @@
+// std.net.game's packets as they go over the wire. Each starts with the protocol's mark, "FG",
+// its version, and the packet's kind. A CONNECT asks for a connection, with the asker's salt, its
+// first sequence, its largest message, and its channels' kinds, which an ACCEPT answers with both
+// salts and the accepter's first sequence, or a REFUSE with why. DATA is the connection's, salts
+// XORed, then whether it acks, its sequence, the latest the other side's it got, and a bit for
+// each of the 32 before, then messages: a channel, flags, an id, a length, a fragment's index
+// and count when it's one, and the bytes. DISCONNECT ends the connection. Numbers are
+// big-endian, and sequences and ids are 16 bits, which go round, so "after" is RFC 1982's.
+
+Import std.core
+
+Package Const MAGIC_F: UInt8 = 0x46
+Package Const MAGIC_G: UInt8 = 0x47
+Package Const VERSION: UInt8 = 1
+
+// The bytes before a packet's own: the mark, the version, and the kind.
+Package Const HEADER = 4
+
+// The bytes of DATA before its messages: the header, the connection, the flags, the sequence,
+// the ack, and the ack bits.
+Package Const DATA_HEADER = 17
+
+// The bytes before a message's own, and a fragment's index and count after those.
+Package Const MESSAGE_HEADER = 6
+Package Const FRAGMENT_HEADER = 4
+
+// A message's flag that it's a fragment, and DATA's that it acks.
+Package Const FRAGMENT_FLAG: UInt8 = 1
+Package Const ACK_FLAG: UInt8 = 1
+
+// What a packet is, by its fourth byte.
+Package Enum PacketKind: UInt8
+    CONNECT = 1, ACCEPT, REFUSE, DATA, DISCONNECT
+End Enum
+
+// Writes a packet's numbers, big-endian, and bytes.
+Package Class PacketWriter
+    Package Field Bytes: UInt8[] = []
+
+    // A packet of kind, its header written.
+    Package New(kind: PacketKind)
+        Bytes.Add(MAGIC_F)
+        Bytes.Add(MAGIC_G)
+        Bytes.Add(VERSION)
+        Bytes.Add(kind As UInt8)
+    End New
+
+    Package Method Byte(value: UInt8)
+        Bytes.Add(value)
+    End Method
+
+    // The low 16 bits of value.
+    Package Method U16(value: Int)
+        Bytes.Add(((value >> 8) & 0xFF) As UInt8)
+        Bytes.Add((value & 0xFF) As UInt8)
+    End Method
+
+    Package Method U32(value: UInt32)
+        Bytes.Add(((value >> 24) & 0xFF) As UInt8)
+        Bytes.Add(((value >> 16) & 0xFF) As UInt8)
+        Bytes.Add(((value >> 8) & 0xFF) As UInt8)
+        Bytes.Add((value & 0xFF) As UInt8)
+    End Method
+
+    // count of from's bytes, from start.
+    Package Method Raw(from: UInt8[], start: Int, count: Int)
+        For i = start Until start + count
+            Bytes.Add(from[i])
+        End For
+    End Method
+End Class
+
+// Reads a packet's numbers and bytes, and says when one went past its end, which makes it one
+// to drop.
+Package Class PacketReader
+    Field Bytes: UInt8[]
+    Field At: Int
+    Package Field Failed: Bool
+
+    // A reader of bytes past their header, which KindOf has checked.
+    Package New(bytes: UInt8[])
+        Self.Bytes = bytes
+        At = HEADER
+    End New
+
+    // How many bytes are left.
+    Package Property Left: Int
+        Get => Bytes.Count - At
+    End Property
+
+    Package Method Byte(): UInt8
+        If At + 1 > Bytes.Count
+            Failed = True
+            Return 0
+        End If
+
+        At += 1
+        Return Bytes[At - 1]
+    End Method
+
+    Package Method U16(): Int
+        If At + 2 > Bytes.Count
+            Failed = True
+            Return 0
+        End If
+
+        At += 2
+        Return ((Bytes[At - 2] As Int) << 8) | (Bytes[At - 1] As Int)
+    End Method
+
+    Package Method U32(): UInt32
+        If At + 4 > Bytes.Count
+            Failed = True
+            Return 0
+        End If
+
+        At += 4
+        Return ((Bytes[At - 4] As UInt32) << 24) | ((Bytes[At - 3] As UInt32) << 16) |
+               ((Bytes[At - 2] As UInt32) << 8) | (Bytes[At - 1] As UInt32)
+    End Method
+
+    // The next count bytes.
+    Package Method Take(count: Int): UInt8[]
+        If count < 0 || At + count > Bytes.Count
+            Failed = True
+            Return []
+        End If
+
+        At += count
+        Return Bytes[At - count..At]
+    End Method
+End Class
+
+// The kind of packet bytes are, or Null for bytes that aren't this protocol's, or its version.
+Package Function KindOf(bytes: UInt8[]): PacketKind?
+    If bytes.Count < HEADER || bytes[0] != MAGIC_F || bytes[1] != MAGIC_G || bytes[2] != VERSION
+        Return Null
+    End If
+
+    Local kind = bytes[3]
+    If kind < (PacketKind.CONNECT As UInt8) || kind > (PacketKind.DISCONNECT As UInt8)
+        Return Null
+    End If
+
+    Return kind As PacketKind
+End Function
+
+// How far 16-bit a is after b, going round: from 0 to 65535.
+Package Function Ahead(a: Int, b: Int): Int => (a - b) & 0xFFFF
+
+// Whether 16-bit a is after b: in the half of the round that follows b.
+Package Function IsAfter(a: Int, b: Int): Bool
+    Local ahead = Ahead(a, b)
+    Return ahead != 0 && ahead < 0x8000
+End Function
+
+// The 16-bit number after value.
+Package Function NextOf(value: Int): Int => (value + 1) & 0xFFFF

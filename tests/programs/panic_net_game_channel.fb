@@ -1,0 +1,9 @@
+// A peer sends on one of its host's channels, so another is a bug, which panics at the caller.
+Import std.core
+Import std.net
+Import std.net.game
+
+Local host = Try GameHost.Bind(SocketAddress(IpAddress.Loopback, 0))
+Local peer = host.Connect(SocketAddress(IpAddress.Loopback, 9))
+peer.Send(2, "fine")
+peer.Send(3, "past the three channels")

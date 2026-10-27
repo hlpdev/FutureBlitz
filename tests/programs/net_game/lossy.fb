@@ -1,0 +1,130 @@
+// A test's network for std.net.game: links that carry datagrams between each other in memory,
+// dropping, duplicating, and holding some back past others, as a seeded generator says, so a run
+// repeats, at the times the test gives.
+
+Import std.core
+Import std.math.random
+Import std.time.clock
+Import std.time.duration
+Import std.net.address
+Import std.net.game
+
+// A datagram on its way to Target, which arrives at Arrives, after those sent before it that
+// arrive then.
+Class InFlight
+    Field Bytes: UInt8[]
+    Field From: SocketAddress
+    Field Target: SocketAddress
+    Field Arrives: Int64
+
+    New(bytes: UInt8[], from: SocketAddress, to: SocketAddress, arrives: Int64)
+        Self.Bytes = bytes
+        From = from
+        Target = to
+        Arrives = arrives
+    End New
+End Class
+
+// Links on 127.0.0.1, each at a port, whose datagrams take Latency to arrive, and Drop of them
+// are lost, Duplicate of them arrive twice, and Reorder of them are held back up to Jitter more,
+// so later ones pass them.
+Public Class LossyNetwork
+    Field Generator: Random
+    Field Flying: InFlight[] = []
+    Field Clock: Int64
+    Public Field Drop: Double
+    Public Field Duplicate: Double
+    Public Field Reorder: Double
+    Public Field Latency: Duration
+    Public Field Jitter: Duration
+    // How many datagrams were sent, dropped, sent twice, and held back.
+    Public Field Sent: Int
+    Public Field Dropped: Int
+    Public Field Duplicated: Int
+    Public Field Reordered: Int
+
+    Public New(seed: Int64)
+        Generator = Random(seed)
+        Latency = 20.Milliseconds
+        Jitter = 60.Milliseconds
+    End New
+
+    // A link at port.
+    Public Method Link(port: UInt16): LossyLink
+        Return LossyLink(Self, SocketAddress(IpAddress.Loopback, port))
+    End Method
+
+    // The network's time.
+    Public Property Now: Instant
+        Get => Instant.FromNanoseconds(Clock)
+    End Property
+
+    // Lets time go by.
+    Public Method Advance(time: Duration)
+        Clock += time.Nanoseconds
+    End Method
+
+    // Sends bytes from one link's address to another's, as the network does with it.
+    Package Method Carry(bytes: UInt8[], from: SocketAddress, to: SocketAddress)
+        Sent += 1
+        If Generator.Chance(Drop)
+            Dropped += 1
+            Return
+        End If
+
+        Local copies = 1
+        If Generator.Chance(Duplicate)
+            Duplicated += 1
+            copies = 2
+        End If
+
+        For i = 0 Until copies
+            Local arrives = Clock + Latency.Nanoseconds
+            If Generator.Chance(Reorder)
+                Reordered += 1
+                arrives += Generator.Int(1, Max(Jitter.Nanoseconds As Int, 1)) As Int64
+            End If
+
+            Flying.Add(InFlight(bytes.Clone(), from, to, arrives))
+        End For
+    End Method
+
+    // The first datagram that's arrived at `to` by now, or Null.
+    Package Method Take(to: SocketAddress): (UInt8[], SocketAddress)?
+        Local best = -1
+        For i = 0 Until Flying.Count
+            Local flying = Flying[i]
+            If flying.Target != to || flying.Arrives > Clock Then Continue
+            If best < 0 || flying.Arrives < Flying[best].Arrives Then best = i
+        End For
+
+        If best < 0 Then Return Null
+        Local taken = Flying[best]
+        Flying.RemoveAt(best)
+        Return (taken.Bytes, taken.From)
+    End Method
+End Class
+
+// A link on a LossyNetwork, at Address. Its receive takes what's arrived by the network's time,
+// without waiting, since the test gives the time.
+Public Class LossyLink Implements GameLink
+    Field Network: LossyNetwork
+    Field Address: SocketAddress
+
+    Package New(network: LossyNetwork, address: SocketAddress)
+        Network = network
+        Address = address
+    End New
+
+    Public Property LocalAddress: SocketAddress
+        Get => Address
+    End Property
+
+    Public Method Send(bytes: UInt8[], to: SocketAddress) Throws NetError
+        Network.Carry(bytes, Address, to)
+    End Method
+
+    Public Method Receive(timeout: Duration): (UInt8[], SocketAddress)? Throws NetError
+        Return Network.Take(Address)
+    End Method
+End Class

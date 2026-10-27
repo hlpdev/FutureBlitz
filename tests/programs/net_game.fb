@@ -1,0 +1,341 @@
+// std.net.game over a test's network that drops, duplicates, and reorders datagrams as a seeded
+// generator says, at times the test gives: a reliable-ordered channel's messages arrive each
+// once, in order, fragments put together; a reliable-unordered one's each once; and an
+// unreliable one's never after a newer one, so what comes is the freshest. Then the handshake's
+// timeout and refusals, disconnects and timeouts, garbage, and message ids that go round.
+Import std.core
+Import std.collections
+Import std.text
+Import std.time
+Import std.net
+Import std.net.game
+Import "./net_game/lossy"
+
+// A tick of the test's time, 10 milliseconds, and each host's events at it.
+Function Tick(network: LossyNetwork, hosts: GameHost[]): GameEvent[] Throws NetError
+    network.Advance(10.Milliseconds)
+    Local events: GameEvent[] = []
+    For host In hosts
+        For event In Try host.Update(network.Now)
+            events.Add(event)
+        End For
+    End For
+
+    Return events
+End Function
+
+// Ticks until done says so, or limit ticks go by, and gives how many did.
+Function TickUntil(network: LossyNetwork, hosts: GameHost[], limit: Int,
+                   done: Func(GameEvent[]): Bool): Int Throws NetError
+    For i = 1 To limit
+        If done(Try Tick(network, hosts)) Then Return i
+    End For
+
+    Return limit
+End Function
+
+// A message whose bytes say i, and are as many as size.
+Function Numbered(i: Int, size: Int): UInt8[]
+    Local bytes = "{i}:".Bytes
+    While bytes.Count < size
+        bytes.Add((bytes.Count % 251) As UInt8)
+    End While
+
+    Return bytes
+End Function
+
+// The number a Numbered message's bytes start with, and whether the rest are what they were.
+Function NumberOf(bytes: UInt8[]): (Int, Bool)
+    Local value = 0
+    Local at = 0
+    While at < bytes.Count && bytes[at] != 0x3A
+        value = value * 10 + (bytes[at] As Int) - 48
+        at += 1
+    End While
+
+    For i = at + 1 Until bytes.Count
+        If bytes[i] != ((i % 251) As UInt8) Then Return (value, False)
+    End For
+
+    Return (value, True)
+End Function
+
+// Whether a run's numbers are each one more than the one before, from 0, up to count.
+Function InOrder(numbers: Int[], count: Int): Bool
+    If numbers.Count != count Then Return False
+    For i = 0 Until count
+        If numbers[i] != i Then Return False
+    End For
+
+    Return True
+End Function
+
+// A server at port 5000 and a client at 6000, on network, with settings, connected, and each
+// one's peer for the other.
+Function Connected(network: LossyNetwork,
+                   settings: GameSettings): (GameHost, GameHost, GamePeer, GamePeer) Throws NetError
+    Local server = GameHost(network.Link(5000), settings, 1)
+    Local client = GameHost(network.Link(6000), settings, 2)
+    Local toServer = client.Connect(server.LocalAddress)
+    Local toClient: GamePeer? = Null
+    For i = 0 Until 1000
+        For event In Try Tick(network, [server, client])
+            If event.Kind == GameEventKind.CONNECT && event.Peer.Address == client.LocalAddress
+                toClient = event.Peer
+            End If
+        End For
+
+        If toClient != Null && toServer.State == PeerState.CONNECTED Then Break
+    End For
+
+    Return (server, client, toServer, toClient ?? toServer)
+End Function
+
+// A lossy network of the seed's.
+Function Lossy(seed: Int64): LossyNetwork
+    Local network = LossyNetwork(seed)
+    network.Drop = 0.2
+    network.Duplicate = 0.1
+    network.Reorder = 0.25
+    Return network
+End Function
+
+// What a run received, by channel: the ordered and unordered messages' numbers, and the
+// unreliable ones'.
+Class Received
+    Field Ordered: Int[] = []
+    Field Unordered: Set<Int>
+    Field Twice: Int
+    Field Fresh: Int[] = []
+    Field Whole: Bool = True
+    Field Events: Int
+
+    New()
+        Unordered = Set<Int>()
+    End New
+
+    Method Take(events: GameEvent[])
+        For event In events
+            Events += 1
+            If event.Kind != GameEventKind.RECEIVE Then Continue
+            Local number = NumberOf(event.Bytes)
+            Whole = Whole && number.1
+            Select event.Channel
+                Case 0
+                    Ordered.Add(number.0)
+                Case 1
+                    If !Unordered.Add(number.0) Then Twice += 1
+                Default
+                    Fresh.Add(number.0)
+            End Select
+        End For
+    End Method
+
+    // Whether each unreliable message was newer than the one before it.
+    Property Newer: Bool
+        Get
+            For i = 1 Until Fresh.Count
+                If Fresh[i] <= Fresh[i - 1] Then Return False
+            End For
+
+            Return True
+        End Get
+    End Property
+End Class
+
+// The lossy run: 300 ticks of a message a tick on each channel, one in every 50 on the ordered
+// one 5000 bytes, in fragments, then as long as the reliable ones take to be acked.
+Local network = Lossy(31)
+Local made = Try Connected(network, GameSettings())
+Local server = made.0
+Local client = made.1
+Local toServer = made.2
+Local toClient = made.3
+Print("connected:", toServer.State, toClient.State, server.Peers.Count, client.Peers.Count, "{toServer}", "{toClient}")
+Local got = Received()
+For i = 0 Until 300
+    toServer.Send(0, Numbered(i, i % 50 == 0 ? 5000 : 20))
+    toServer.Send(1, Numbered(i, 20))
+    toServer.Send(2, Numbered(i, 20))
+    got.Take(Try Tick(network, [server, client]))
+End For
+
+Local after = 0
+While after < 3000 && (toServer.Unacked > 0 || got.Ordered.Count < 300)
+    got.Take(Try Tick(network, [server, client]))
+    after += 1
+End While
+
+Print("ordered: in order", InOrder(got.Ordered, 300), "whole", got.Whole)
+Print("unordered:", got.Unordered.Count, "each once", got.Twice == 0)
+Print("unreliable:", got.Fresh.Count, "of 300, each newer", got.Newer, "events", got.Events, "acked after", after, "ticks")
+Print("network: sent", network.Sent, "dropped", network.Dropped, "duplicated", network.Duplicated, "reordered", network.Reordered)
+Print("client: sent", toServer.PacketsSent, "received", toServer.PacketsReceived, "lost", toServer.PacketsLost,
+      "resends", toServer.Resends, "loss {toServer.PacketLoss:.2}", "rtt", toServer.RoundTripTime, "variance", toServer.RoundTripVariance)
+Print("bytes:", toServer.BytesSent, toServer.BytesReceived, toClient.BytesSent, toClient.BytesReceived)
+
+// Events as "port: what happened", for a run's few.
+Function Shown(events: GameEvent[]): String[]
+    Local shown: String[] = []
+    For event In events
+        Select event.Kind
+            Case GameEventKind.RECEIVE
+                shown.Add("{event.Peer.Address.Port} got {NumberOf(event.Bytes).0} on {event.Channel}")
+            Case GameEventKind.DISCONNECT
+                shown.Add("{event.Peer.Address.Port} {event.Kind} {event.Reason} {event.Peer.State}")
+            Default
+                shown.Add("{event.Peer.Address.Port} {event.Kind}")
+        End Select
+    End For
+
+    Return shown
+End Function
+
+// Ticks until a host gives a DISCONNECT, at most limit, and gives the events and the ticks.
+Function UntilDisconnect(network: LossyNetwork, hosts: GameHost[], limit: Int): (String[], Int) Throws NetError
+    Local shown: String[] = []
+    For i = 1 To limit
+        Local events = Try Tick(network, hosts)
+        For line In Shown(events)
+            shown.Add(line)
+        End For
+
+        For event In events
+            If event.Kind == GameEventKind.DISCONNECT Then Return (shown, i)
+        End For
+    End For
+
+    Return (shown, limit)
+End Function
+
+// The handshake: a host that isn't there times out, after the Timeout; a full host refuses, and
+// so does one whose channels or largest message aren't the asker's.
+Local quick = GameSettings()
+quick.Timeout = 1.Seconds
+Local alone = Lossy(5)
+Local asker = GameHost(alone.Link(6000), quick, 3)
+Local nobody = asker.Connect(SocketAddress(IpAddress.Loopback, 7000))
+Print("connecting:", nobody.State, RefEquals(nobody, asker.Connect(SocketAddress(IpAddress.Loopback, 7000))), asker.Peers.Count)
+Local timedOut = Try UntilDisconnect(alone, [asker], 500)
+Print("nobody there:", timedOut.0, "after", timedOut.1, "ticks", nobody.State, nobody.Reason, asker.Peers.Count)
+
+Local single = GameSettings()
+single.MaxPeers = 1
+Local refusing = Lossy(6)
+Local full = GameHost(refusing.Link(5000), single, 4)
+Local first = GameHost(refusing.Link(6000), single, 5)
+Local second = GameHost(refusing.Link(6001), single, 6)
+first.Connect(full.LocalAddress)
+Try UntilDisconnect(refusing, [full, first], 100)
+second.Connect(full.LocalAddress)
+Local refused = Try UntilDisconnect(refusing, [full, first, second], 500)
+Print("full:", refused.0, full.Peers.Count)
+Local fewer = GameSettings([ChannelKind.UNRELIABLE])
+Local other = GameHost(refusing.Link(6002), fewer, 7)
+other.Connect(full.LocalAddress)
+Print("other channels:", Try UntilDisconnect(refusing, [full, first, other], 500).0)
+Local smaller = GameSettings()
+smaller.MaxMessageSize = 1000
+Local small = GameHost(refusing.Link(6003), smaller, 8)
+small.Connect(full.LocalAddress)
+Print("other largest message:", Try UntilDisconnect(refusing, [full, first, small], 500).0)
+
+// Disconnect sends what's left first, and the other side hears of it; DisconnectNow doesn't wait.
+Local leaving = Lossy(7)
+Local pair = Try Connected(leaving, quick)
+For i = 0 Until 5
+    pair.2.Send(0, Numbered(i, 10))
+End For
+
+pair.2.Disconnect()
+pair.2.Send(0, Numbered(99, 10))
+Print("disconnecting:", pair.2.State)
+Local gone = Try UntilDisconnect(leaving, [pair.0, pair.1], 500)
+Local rest = Try UntilDisconnect(leaving, [pair.0, pair.1], 500)
+Print("disconnect:", gone.0, rest.0, pair.0.Peers.Count, pair.1.Peers.Count)
+Local abrupt = Lossy(8)
+Local quickPair = Try Connected(abrupt, quick)
+quickPair.2.Send(0, Numbered(1, 10))
+quickPair.2.DisconnectNow()
+Local cut = Try UntilDisconnect(abrupt, [quickPair.0, quickPair.1], 500)
+Local heard = Try UntilDisconnect(abrupt, [quickPair.0, quickPair.1], 500)
+Print("disconnect now:", cut.0, cut.1, "ticks", heard.0)
+
+// A network that stops carrying anything times both sides out.
+Local dying = Lossy(9)
+Local stranded = Try Connected(dying, quick)
+dying.Drop = 1.0
+Local one = Try UntilDisconnect(dying, [stranded.0, stranded.1], 500)
+Local both = Try UntilDisconnect(dying, [stranded.0, stranded.1], 500)
+Print("timeout:", one.0, one.1, both.0, stranded.2.Reason, stranded.3.Reason)
+
+// Garbage from anywhere, a stranger's or the client's own address, is dropped, and the
+// connection goes on.
+Local noisy = Lossy(10)
+Local busy = Try Connected(noisy, quick)
+Local stranger = noisy.Link(9000)
+Local spoofer = noisy.Link(6000)
+Local magic: UInt8[] = [0x46, 0x47, 1]
+Local garbage: UInt8[][] = [[], [0x46], magic, [0x46, 0x47, 2, 4], [0x46, 0x47, 1, 9], [0x46, 0x47, 1, 1],
+                            [0x46, 0x47, 1, 2, 0, 0, 0, 0], [0x46, 0x47, 1, 3, 1, 2, 3, 4, 1],
+                            [0x46, 0x47, 1, 4, 0, 0, 0, 1, 1, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 3, 0, 4],
+                            [0x46, 0x47, 1, 5, 0xDE, 0xAD, 0xBE, 0xEF], "hello".Bytes]
+For bytes In garbage
+    Try stranger.Send(bytes, busy.0.LocalAddress)
+    Try spoofer.Send(bytes, busy.0.LocalAddress)
+    Try spoofer.Send(bytes, busy.1.LocalAddress)
+End For
+
+Local afterGarbage = Received()
+busy.2.Send(0, Numbered(7, 10))
+For i = 0 Until 100
+    afterGarbage.Take(Try Tick(noisy, [busy.0, busy.1]))
+End For
+
+Print("garbage:", afterGarbage.Events, afterGarbage.Ordered, busy.0.Peers.Count, busy.1.Peers.Count, busy.2.State)
+
+// Message ids and packet sequences are 16 bits, and go round: 70,000 ordered messages, and
+// 70,000 unreliable ones, in bursts, then 66,000 packets of a message each.
+Local clean = LossyNetwork(11)
+Local round = Try Connected(clean, GameSettings())
+Local wrapped = Received()
+Local sent = 0
+Local ticks = 0
+While ticks < 5000 && wrapped.Ordered.Count < 70000
+    For i = 0 Until (sent < 70000 ? 1000 : 0)
+        round.2.Send(0, Numbered(sent, 4))
+        round.2.Send(2, Numbered(sent, 4))
+        sent += 1
+    End For
+
+    wrapped.Take(Try Tick(clean, [round.0, round.1]))
+    ticks += 1
+End While
+
+Print("ids round: ordered in order", InOrder(wrapped.Ordered, 70000), "unreliable", wrapped.Fresh.Count,
+      "each newer", wrapped.Newer, "lost", round.2.PacketsLost, "in", ticks, "ticks")
+Local tiny = GameSettings()
+tiny.Mtu = 128
+Local packed = LossyNetwork(12)
+Local sequenced = Try Connected(packed, tiny)
+Local packets = Received()
+ticks = 0
+While sequenced.2.PacketsSent < 66000
+    For i = 0 Until 16
+        sequenced.2.Send(2, Numbered(ticks * 16 + i, 100))
+    End For
+
+    packets.Take(Try Tick(packed, [sequenced.0, sequenced.1]))
+    ticks += 1
+End While
+
+For i = 0 Until 3
+    sequenced.2.Send(0, Numbered(i, 10))
+End For
+
+For i = 0 Until 50
+    packets.Take(Try Tick(packed, [sequenced.0, sequenced.1]))
+End For
+
+Print("sequences round:", sequenced.2.PacketsSent > 65536, "unreliable", packets.Fresh.Count, "each newer", packets.Newer,
+      "then ordered", packets.Ordered, sequenced.2.Unacked, "lost", sequenced.2.PacketsLost, sequenced.3.State)

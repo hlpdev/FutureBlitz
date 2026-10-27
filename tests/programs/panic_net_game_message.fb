@@ -1,0 +1,14 @@
+// A message past its host's MaxMessageSize is a bug, which panics at the caller.
+Import std.core
+Import std.collections
+Import std.net
+Import std.net.game
+
+Local settings = GameSettings()
+settings.MaxMessageSize = 100
+Local host = Try GameHost.Bind(SocketAddress(IpAddress.Loopback, 0), settings)
+Local peer = host.Connect(SocketAddress(IpAddress.Loopback, 9))
+Local bytes: UInt8[] = []
+bytes.Resize(101, 0)
+peer.Send(0, bytes[0..100])
+peer.Send(0, bytes)

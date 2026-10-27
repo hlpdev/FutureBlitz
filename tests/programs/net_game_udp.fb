@@ -1,0 +1,95 @@
+// std.net.game over real UDP on the loopback: two hosts Bind, connect, and trade messages on
+// each kind of channel through Service, which waits for what comes; then the same through
+// ServiceAsync, on the main thread; and Close, which tells the other side.
+Import std.core
+Import std.text
+Import std.time
+Import std.net
+Import std.net.game
+
+// Services both hosts until done says so, for 10 seconds at most, and gives whether it did.
+Function ServiceUntil(a: GameHost, b: GameHost, done: Func(GameEvent): Bool): Bool Throws NetError
+    Local started = Instant.Now()
+    While Instant.Now() - started < 10.Seconds
+        For host In [a, b]
+            For event In Try host.Service(5.Milliseconds)
+                If done(event) Then Return True
+            End For
+        End For
+    End While
+
+    Return False
+End Function
+
+Local loopback = SocketAddress(IpAddress.Loopback, 0)
+Local server = Try GameHost.Bind(loopback)
+Local client = Try GameHost.Bind(loopback)
+Print("bound:", server.LocalAddress.Port != 0, server.LocalAddress.Port != client.LocalAddress.Port, server.IsClosed)
+Local toServer = client.Connect(server.LocalAddress)
+Local toClient: GamePeer? = Null
+Local connected = 0
+Print("connected:", Try ServiceUntil(server, client, Function(event: GameEvent): Bool
+    If event.Kind == GameEventKind.CONNECT
+        connected += 1
+        If RefEquals(event.Peer, toServer) == False Then toClient = event.Peer
+    End If
+
+    Return connected == 2
+End Function), toServer.State, toClient?.State ?? PeerState.DISCONNECTED)
+
+// Messages each way, a long one in fragments, and text.
+For i = 0 Until 20
+    toServer.Send(0, "ordered {i}")
+End For
+
+toServer.Send(1, "unordered")
+toServer.Send(2, "unreliable")
+Local big: UInt8[] = []
+For i = 0 Until 20000
+    big.Add((i % 256) As UInt8)
+End For
+
+toServer.Send(0, big)
+toClient?.Send(0, "reply")
+Local texts: String[] = []
+Local bigOk = False
+Local replied = False
+Print("received:", Try ServiceUntil(server, client, Function(event: GameEvent): Bool
+    If event.Kind == GameEventKind.RECEIVE
+        If event.Bytes.Count == 20000
+            bigOk = event.Bytes == big
+        ElseIf event.Text == "reply"
+            replied = True
+        ElseIf event.Channel == 0
+            texts.Add(event.Text)
+        End If
+    End If
+
+    Return texts.Count == 20 && bigOk && replied
+End Function))
+Print("in order:", texts[0], texts[19], texts.Count, "big", bigOk, "reply", replied)
+
+// The same, waiting on the main thread.
+Async Function Exchange(a: GameHost, b: GameHost, peer: GamePeer): String Throws NetError
+    peer.Send(0, "async")
+    Local started = Instant.Now()
+    While Instant.Now() - started < 10.Seconds
+        For host In [a, b]
+            For event In Try Await host.ServiceAsync(5.Milliseconds)
+                If event.Kind == GameEventKind.RECEIVE && event.Text == "async" Then Return event.Text
+            End For
+        End For
+    End While
+
+    Return "nothing"
+End Function
+
+Print("async:", Try Await Exchange(server, client, toServer))
+
+// Close tells the other side, which hears of it, and gives no more events.
+client.Close()
+Print("closed:", client.IsClosed, toServer.State, toServer.Reason, (Try client.Update()).Count)
+// A timeout as long as a Duration can be waits as long as it takes, here for the DISCONNECT.
+Local heard = Try server.Service(Duration.MaxValue())
+Print("heard:", heard.Count, heard[0].Kind, heard[0].Reason, server.Peers.Count)
+server.Close()

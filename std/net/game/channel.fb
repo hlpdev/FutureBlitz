@@ -1,0 +1,316 @@
+// std.net.game's channels: what each of a connection's channels does with its messages. A
+// RELIABLE_ORDERED channel's messages each arrive once, in the order they were sent; a
+// RELIABLE_UNORDERED channel's each arrive once, as soon as they can; and an UNRELIABLE one's
+// arrive or don't, and never after a newer one, so what comes is the freshest. A message too big
+// for a packet goes in fragments, which are put back together where it arrives, and a reliable
+// one's are sent again until each is acked.
+
+Import std.core
+Import std.collections
+Import std.net.game.packet
+
+// What a channel promises of its messages.
+Public Enum ChannelKind: UInt8
+    RELIABLE_ORDERED, RELIABLE_UNORDERED, UNRELIABLE
+End Enum
+
+// How far a reliable channel's newest message in flight can be ahead of its oldest one not yet
+// acked, which is how far ahead of what it waits for a receiver takes one.
+Package Const WINDOW = 1024
+
+// A message's part on its way: all of it, or one fragment, of Count, with when it was last sent,
+// in nanoseconds, or -1 before it was, and how many times.
+Package Class OutPart
+    Package Field Channel: Int
+    Package Field Id: Int
+    Package Field Index: Int
+    Package Field Count: Int
+    Package Field Bytes: UInt8[]
+    Package Field Sent: Int64 = -1
+    Package Field Sends: Int
+    Package Field Acked: Bool
+
+    Package New(channel: Int, id: Int, index: Int, count: Int, bytes: UInt8[])
+        Channel = channel
+        Id = id
+        Index = index
+        Count = count
+        Self.Bytes = bytes
+    End New
+
+    // The bytes it takes in a packet.
+    Package Property Size: Int
+        Get => MESSAGE_HEADER + (Count > 1 ? FRAGMENT_HEADER : 0) + Bytes.Count
+    End Property
+End Class
+
+// A channel's side that sends: the next message's id, and for a reliable one, the messages that
+// wait for the window, and the parts in flight, each until it's acked.
+Package Class OutChannel
+    Package Field Kind: ChannelKind
+    Package Field NextId: Int
+    // Reliable messages the window hasn't let go yet, oldest first.
+    Package Field Queued: Deque<OutPart[]>
+    // Reliable parts sent and not yet acked, in the order they first went.
+    Package Field Flying: OutPart[] = []
+    // The ids of the messages in flight, oldest first, and how many of each one's parts aren't
+    // acked; an id that's done goes from Unacked first, and from Ids once it's at the front.
+    Package Field Ids: Deque<Int>
+    Package Field Unacked: Map<Int, Int>
+    // Unreliable parts that go at the next send.
+    Package Field Fresh: OutPart[] = []
+
+    Package New(kind: ChannelKind, first: Int)
+        Kind = kind
+        NextId = first
+        Queued = Deque<OutPart[]>()
+        Ids = Deque<Int>()
+        Unacked = Map<Int, Int>()
+    End New
+
+    // Whether it has nothing of a reliable message's left to send or to have acked.
+    Package Property IsDone: Bool
+        Get => Queued.Count == 0 && Unacked.Count == 0 && Fresh.Count == 0
+    End Property
+
+    // Takes a message to send, cut into parts of partSize bytes at most.
+    Package Method Add(channel: Int, bytes: UInt8[], partSize: Int)
+        Local count = Max((bytes.Count + partSize - 1) / partSize, 1)
+        Local parts: OutPart[] = []
+        For index = 0 Until count
+            Local start = index * partSize
+            Local finish = Min(start + partSize, bytes.Count)
+            parts.Add(OutPart(channel, NextId, index, count, bytes[start..finish]))
+        End For
+
+        NextId = NextOf(NextId)
+        If Kind == ChannelKind.UNRELIABLE
+            For part In parts
+                Fresh.Add(part)
+            End For
+        Else
+            Queued.AddLast(parts)
+        End If
+    End Method
+
+    // The parts due at now, as rto and the backoff after each send say for those sent before,
+    // with the queued messages the window lets go, and the fresh ones, which go once.
+    Package Method Due(now: Int64, rto: Int64): OutPart[]
+        Local due: OutPart[] = []
+        If Kind == ChannelKind.UNRELIABLE
+            due = Fresh
+            Fresh = []
+            Return due
+        End If
+
+        // What's acked leaves, and what isn't is due once it's waited long enough.
+        Local flying: OutPart[] = []
+        For part In Flying
+            If part.Acked Then Continue
+            flying.Add(part)
+            // Each send waits twice as long as the last, up to 8 times rto.
+            Local backoff = (1 << Clamp(part.Sends - 1, 0, 3)) As Int64
+            If now - part.Sent >= rto * backoff Then due.Add(part)
+        End For
+
+        Flying = flying
+        While Ids.Count > 0 && !Unacked.Contains(Ids.First())
+            Ids.RemoveFirst()
+        End While
+
+        // A queued message goes once it's within the window of the oldest one not yet acked.
+        While Queued.Count > 0
+            Local parts = Queued.First()
+            If Ids.Count > 0 && Ahead(parts[0].Id, Ids.First()) >= WINDOW Then Break
+            Queued.RemoveFirst()
+            Ids.AddLast(parts[0].Id)
+            Unacked[parts[0].Id] = parts.Count
+            For part In parts
+                Flying.Add(part)
+                due.Add(part)
+            End For
+        End While
+
+        Return due
+    End Method
+
+    // A part of its own is acked, which its message is once each of its parts is.
+    Package Method Acked(part: OutPart)
+        If part.Acked Then Return
+        part.Acked = True
+        Local left = Unacked.Get(part.Id)
+        If left == Null Then Return
+        If left <= 1 Then Unacked.Remove(part.Id) Else Unacked[part.Id] = left - 1
+    End Method
+End Class
+
+// A message's fragments as they arrive, until it has all Count of them.
+Package Class Assembly
+    Package Field Count: Int
+    Field Parts: Map<Int, UInt8[]>
+    Package Field Size: Int
+
+    Package New(count: Int)
+        Count = count
+        Parts = Map<Int, UInt8[]>()
+    End New
+
+    // Takes a fragment, unless it has it, and gives the bytes it takes on top of what it had.
+    Package Method Add(index: Int, bytes: UInt8[]): Int
+        If Parts.Contains(index) Then Return 0
+        Parts[index] = bytes
+        Size += bytes.Count
+        Return bytes.Count
+    End Method
+
+    Package Property IsWhole: Bool
+        Get => Parts.Count == Count
+    End Property
+
+    // Its fragments' bytes, in order.
+    Package Method Joined(): UInt8[]
+        Local whole: UInt8[] = []
+        whole.Reserve(Size)
+        For index = 0 Until Count
+            For b In Parts[index]
+                whole.Add(b)
+            End For
+        End For
+
+        Return whole
+    End Method
+End Class
+
+// A channel's side that receives: for an ordered one, the id it waits for next, and the messages
+// after it that came first; for an unordered one, the first id it hasn't had, and those after it
+// that it has; and for an unreliable one, the id it gave last. Fragments wait to be whole.
+Package Class InChannel
+    Package Field Kind: ChannelKind
+    Package Field Next: Int
+    Field Ready: Map<Int, UInt8[]>
+    Field Seen: Set<Int>
+    Field Assemblies: Map<Int, Assembly>
+    // The bytes it holds, of messages that wait and fragments, which the connection limits.
+    Package Field Held: Int
+
+    // A channel whose sender's first id is first.
+    Package New(kind: ChannelKind, first: Int)
+        Kind = kind
+        // An unreliable channel takes what's after what it gave last, which is first's before.
+        Next = kind == ChannelKind.UNRELIABLE ? (first + 0xFFFF) & 0xFFFF : first
+        Ready = Map<Int, UInt8[]>()
+        Seen = Set<Int>()
+        Assemblies = Map<Int, Assembly>()
+    End New
+
+    // Takes a message's part, of count, and gives the messages it can give now, in order. room is
+    // how many bytes the connection can still hold of what waits, which a part of the message
+    // waited for next may go past, so the channel never stalls; most is the largest a message
+    // can be. A part it has had, or that's too old or too far ahead, gives nothing.
+    Package Method Take(id: Int, index: Int, count: Int, bytes: UInt8[], room: Int,
+                        most: Int): UInt8[][]
+        Local given: UInt8[][] = []
+        If count < 1 || index >= count Then Return given
+        Select Kind
+            Case ChannelKind.RELIABLE_ORDERED, ChannelKind.RELIABLE_UNORDERED
+                Local ahead = Ahead(id, Next)
+                If ahead >= WINDOW || Ready.Contains(id) || Seen.Contains(id) Then Return given
+                Local whole = Whole(id, index, count, bytes, ahead == 0 ? -1 : room, most)
+                If whole == Null Then Return given
+                If Kind == ChannelKind.RELIABLE_ORDERED
+                    If id != Next
+                        Ready[id] = whole
+                        Held += whole.Count
+                        Return given
+                    End If
+
+                    given.Add(whole)
+                    Next = NextOf(Next)
+                    Loop
+                        Local waiting = Ready.Get(Next)
+                        If waiting == Null Then Break
+                        Ready.Remove(Next)
+                        Held -= waiting.Count
+                        given.Add(waiting)
+                        Next = NextOf(Next)
+                    End Loop
+
+                    Return given
+                End If
+
+                given.Add(whole)
+                If id != Next
+                    Seen.Add(id)
+                    Return given
+                End If
+
+                Next = NextOf(Next)
+                While Seen.Remove(Next)
+                    Next = NextOf(Next)
+                End While
+
+                Return given
+            Case ChannelKind.UNRELIABLE
+                If !IsAfter(id, Next) Then Return given
+                Local whole = Whole(id, index, count, bytes, room, most)
+                If whole == Null Then Return given
+                Next = id
+                // What's put together of older messages won't be wanted.
+                For old In Assemblies.Keys()
+                    If !IsAfter(old, Next) Then Drop(old)
+                End For
+
+                given.Add(whole)
+                Return given
+        End Select
+    End Method
+
+    // The message whole, once its part is in, or Null while its fragments aren't all there, or
+    // when it would go past room, unless room is -1, or past most.
+    Method Whole(id: Int, index: Int, count: Int, bytes: UInt8[], room: Int,
+                 most: Int): UInt8[]?
+        If count == 1
+            If bytes.Count > most Then Return Null
+            Return bytes
+        End If
+
+        Local assembly = Assemblies.Get(id)
+        If assembly == Null
+            If room >= 0 && bytes.Count > room Then Return Null
+            // An unreliable channel puts a few messages together at a time, the newest.
+            If Kind == ChannelKind.UNRELIABLE && Assemblies.Count >= 8 Then DropOldest()
+            assembly = Assembly(count)
+            Assemblies[id] = assembly
+        ElseIf assembly.Count != count
+            Return Null
+        End If
+
+        If room >= 0 && bytes.Count > room && !assembly.Parts.Contains(index) Then Return Null
+        Held += assembly.Add(index, bytes)
+        If assembly.Size > most
+            Drop(id)
+            Return Null
+        End If
+
+        If !assembly.IsWhole Then Return Null
+        Drop(id)
+        Return assembly.Joined()
+    End Method
+
+    Method Drop(id: Int)
+        Local assembly = Assemblies.Get(id)
+        If assembly == Null Then Return
+        Held -= assembly.Size
+        Assemblies.Remove(id)
+    End Method
+
+    // Drops the oldest message being put together.
+    Method DropOldest()
+        Local oldest: Int? = Null
+        For id In Assemblies.Keys()
+            If oldest == Null || IsAfter(oldest, id) Then oldest = id
+        End For
+
+        If oldest != Null Then Drop(oldest)
+    End Method
+End Class

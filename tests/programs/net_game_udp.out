@@ -1,0 +1,7 @@
+bound: True True False
+connected: True CONNECTED CONNECTED
+received: True
+in order: ordered 0 ordered 19 20 big True reply True
+async: async
+closed: True DISCONNECTED LOCAL 0
+heard: 1 DISCONNECT REMOTE 0
