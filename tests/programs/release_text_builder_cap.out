@@ -1,0 +1,5 @@
+2147483646
+Write past the cap: OTHER a StringBuilder holds up to 2147483647 bytes, not 2147483648 2147483646
+pending written 2147483646
+Flush past the cap: OTHER a StringBuilder holds up to 2147483647 bytes, not 2147483649 2147483646
+Write of the rest past the cap: OTHER a StringBuilder holds up to 2147483647 bytes, not 2147483649 2147483646

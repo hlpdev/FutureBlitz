@@ -122,18 +122,15 @@ Public Class StringBuilder Implements Printable, Writer
 
         bytes.RemoveRange(bytes.Count - waiting.Count, waiting.Count)
         Local text = fb_string_from_array(bytes)
-        Local finish = (Bytes.Count As Int64) + text.Length
-        If finish > 2147483647
-            Throw IOError(IOErrorKind.OTHER, "a StringBuilder holds up to 2147483647 bytes, not " +
-                                             "{finish}")
-        End If
-
+        Try CheckRoomFor(text)
         fb_text_append(Bytes, text)
         Pending = waiting
     End Method
 
-    // Adds what Write has had of a character whose last bytes haven't come, as U+FFFD.
+    // Adds what Write has had of a character whose last bytes haven't come, as U+FFFD. Throws an
+    // IOError past the most a String holds, as Write does, keeping them.
     Public Method Flush() Throws IOError
+        If Pending.Count > 0 Then Try CheckRoomFor(fb_string_from_array(Pending))
         Settle()
     End Method
 
@@ -190,6 +187,16 @@ Public Class StringBuilder Implements Printable, Writer
         Pending = []
         CheckRoom(text.Length)
         fb_text_append(Bytes, text)
+    End Method
+
+    // Throws an IOError, for Write and Flush, unless the text has room for text's bytes, as a
+    // String holds at most 2147483647.
+    Method CheckRoomFor(text: String) Throws IOError
+        Local finish = (Bytes.Count As Int64) + text.Length
+        If finish > 2147483647
+            Throw IOError(IOErrorKind.OTHER, "a StringBuilder holds up to 2147483647 bytes, not " +
+                                             "{finish}")
+        End If
     End Method
 
     // Panics unless the text has room for more bytes, as a String holds at most 2147483647.

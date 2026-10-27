@@ -1,0 +1,40 @@
+// A StringBuilder holds at most 2147483647 bytes, as a String does: a Write past them throws an
+// IOError and adds none of its bytes, and so does a Flush that would add an unfinished
+// character's U+FFFD past them, which keeps it. Built in release, for the 2 GiB it fills.
+Import std.core
+Import std.io
+Import std.text
+
+Local builder = StringBuilder()
+builder.Reserve(2147483647)
+Local chunk = "x".Repeated(1048576)
+For i = 1 To 2047
+    builder.Append(chunk)
+End For
+
+builder.Append("x".Repeated(1048574))
+Print(builder.Length)
+
+Try
+    builder.WriteBytes([0x41, 0x42])
+Catch e As IOError
+    Print("Write past the cap:", e.Kind, e.Message, builder.Length)
+End Try
+
+Try
+    builder.WriteBytes([0xE2])
+    Print("pending written", builder.Length)
+    builder.Flush()
+    Print("never:", builder.Length)
+Catch e As IOError
+    Print("Flush past the cap:", e.Kind, e.Message, builder.Length)
+End Try
+
+// It kept the unfinished character, which the rest of makes "€", 3 bytes, not a U+FFFD for each
+// of the rest's, 6.
+Try
+    builder.WriteBytes([0x82, 0xAC])
+    Print("never:", builder.Length)
+Catch e As IOError
+    Print("Write of the rest past the cap:", e.Kind, e.Message, builder.Length)
+End Try
