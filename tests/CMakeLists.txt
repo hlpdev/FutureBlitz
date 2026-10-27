@@ -45,8 +45,9 @@ math(EXPR FB_LAST_PROGRAM_SHARD "${FB_PROGRAM_SHARDS} - 1")
 foreach(shard RANGE ${FB_LAST_PROGRAM_SHARD})
   set(test "programs print what they should ${shard}/${FB_PROGRAM_SHARDS}")
   add_test(NAME "${test}" COMMAND fb_compiler_tests "programs print what they should")
+  # A shard takes about two minutes, 32 at once, so a hung program fails it in 20, not never.
   set_tests_properties("${test}" PROPERTIES
-    ENVIRONMENT "FB_PROGRAM_SHARD=${shard}/${FB_PROGRAM_SHARDS}")
+    ENVIRONMENT "FB_PROGRAM_SHARD=${shard}/${FB_PROGRAM_SHARDS}" TIMEOUT 1200)
   if(FB_TEST_DLL_PATHS)
     set_tests_properties("${test}" PROPERTIES
       ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${FB_TEST_DLL_PATHS}")

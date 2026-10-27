@@ -80,5 +80,19 @@ class limit_tests_t(unittest.TestCase):
             self.assertIn("was still running after 3 seconds", problems[0])
 
 
+class shard_tests_t(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get("FB_TEST_BUILD"), "needs FB_TEST_BUILD")
+    def test_each_shard_of_the_programs_test_has_a_time_limit(self) -> None:
+        shown = subprocess.run(["ctest", "--test-dir", os.environ["FB_TEST_BUILD"],
+                                "--show-only=json-v1"], capture_output=True, check=True)
+        shards = [test for test in json.loads(shown.stdout)["tests"]
+                  if test["name"].startswith("programs print what they should ")]
+        self.assertEqual(len(shards), 32)
+        for shard in shards:
+            limits = [p["value"] for p in shard.get("properties", []) if p["name"] == "TIMEOUT"]
+            self.assertEqual(len(limits), 1, shard["name"])
+            self.assertGreater(float(limits[0]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
