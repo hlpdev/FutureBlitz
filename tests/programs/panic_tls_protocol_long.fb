@@ -1,0 +1,11 @@
+// An application protocol's name is 255 bytes at most, as ALPN's length byte says. Offer panics
+// where it's given a longer one.
+Import std.core
+Import std.net
+Import std.text
+
+Local client = TlsClient()
+client.Offer(["p".Repeated(255)])
+Print("offered 255 bytes")
+client.Offer(["p".Repeated(256)])
+Print("unreachable")
