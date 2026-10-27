@@ -1,0 +1,32 @@
+// A template renders a Class's data through Save, which goes 256 levels deep, so a list of
+// Nodes that deep renders, and one deeper panics where Render is called, as Save does.
+Import std.core
+Import std.text.template
+
+Class Node
+    Field Label = ""
+    Field Next: Node? = Null
+End Class
+
+// A list of `count` Nodes, labeled from 0.
+Function Listed(count: Int): Node
+    Local head = Node()
+    head.Label = "0"
+    Local tail = head
+    For i = 1 Until count
+        Local made = Node()
+        made.Label = "{i}"
+        tail.Next = made
+        tail = made
+    End For
+
+    Return head
+End Function
+
+Try
+    Local template = Template(r"{{Label}}{{#if Next}}, {{Next.Label}}{{/if}}")
+    Print(template.Render(Listed(200)))
+    Print(template.Render(Listed(300)))
+Catch e As FormatError
+    Print(e.Message)
+End Try

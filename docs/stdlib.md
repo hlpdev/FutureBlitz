@@ -475,7 +475,9 @@ file or URL in the default app.
   - A template that isn't one throws a `FormatError` of BAD_TEMPLATE, which says the template's
     name, its line, and its column; Render throws one of MISSING_VALUE for a partial there's no
     template of, and of OTHER for partials more than 1000 deep inside each other. A template
-    and its data nest however deep, since neither is read or rendered with calls.
+    and a Value nest however deep, since neither is read or rendered with calls, but data that
+    Save makes a Value of nests only as deep as Save goes, 256 levels, past which Render panics
+    at its caller, as Save does.
 - std.text.markdown (md4c): CommonMark, which it passes all 652 of 0.31.2's spec examples of, as
   CommonMark's spec_tests.py compares them, with tables and task lists unless it's told other
   `MarkdownExtensions`: `None` for CommonMark alone, `Tables`, `TaskLists`, `Strikethrough`,
