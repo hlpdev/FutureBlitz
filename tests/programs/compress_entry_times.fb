@@ -6,6 +6,7 @@
 Import std.core
 Import std.collections
 Import std.time
+Import std.crypto
 Import std.compress
 
 // When each entry was last changed, and its mode.
@@ -23,7 +24,8 @@ Function At(text: String): Timestamp => Timestamp.Parse(text) ?? Timestamp.MinVa
 Local times = [At("2026-10-26T12:34:57.5Z"), At("2026-10-26T12:34:56Z"),
                At("1969-07-20T20:17:40Z"), At("1979-12-31T23:59:59Z"),
                At("2106-02-07T06:28:15Z"), At("2106-02-07T06:28:16Z"), At("2150-06-01T00:00:00Z"),
-               At("2242-03-16T12:56:31Z"), At("2242-03-16T12:56:32Z"), At("1900-01-01T00:00:00.25Z")]
+               At("2242-03-16T12:56:31Z"), At("2242-03-16T12:56:32Z"),
+               At("1900-01-01T00:00:00.25Z")]
 Local modes = [0o600, 0o755, 0o4755, 0o7777, 0, 0o640, 0o444, 0o700, 0o644, 0o1777]
 
 Local zip = ZipWriter()
@@ -92,4 +94,103 @@ Local fields: UInt8[][] = [[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xc4
                            [0x80, 0, 0, 0, 0, 0, 0, 0, 0x69, 0x55, 0xb9, 0x00]]
 For field In fields
     Print("gnu:", (Try Tar.Read(WithTime(field))).Entries[0].Modified?.ToString() ?? "-")
+End For
+
+// Zips made by hand, each of one stored entry with an extra field, which says when it was last
+// changed in UTC: NTFS's, to 100 nanoseconds since 1601, Info-ZIP's extended timestamp, and
+// PKWARE's Unix field, NTFS's first when there's more than one; and one with none, made by MS-DOS,
+// whose time is its DOS date's, read as UTC, and which has no mode.
+Function Put(into: UInt8[], value: UInt64, size: Int)
+    For i = 0 Until size
+        into.Add(((value >> (8 * i)) & 0xff) As UInt8)
+    End For
+End Function
+
+// A zip of a.txt, made by `host`, with `extra`, external attributes `attributes`, and a DOS date of
+// 1980-01-01 00:00.
+Function Zipped(extra: UInt8[], host: Int, attributes: UInt64): UInt8[]
+    Local data = "a".Bytes
+    Local crc = Crc32.Hash(data) As UInt64
+    Local name = "a.txt".Bytes
+    Local zip: UInt8[] = []
+    Put(zip, 0x04034b50, 4)
+    Put(zip, 20, 2)
+    Put(zip, 0, 2)
+    Put(zip, 0, 2)
+    Put(zip, 0, 2)
+    Put(zip, 0x21, 2)
+    Put(zip, crc, 4)
+    Put(zip, 1, 4)
+    Put(zip, 1, 4)
+    Put(zip, name.Count As UInt64, 2)
+    Put(zip, extra.Count As UInt64, 2)
+    zip.AddAll(name)
+    zip.AddAll(extra)
+    zip.AddAll(data)
+    Local central = zip.Count
+    Put(zip, 0x02014b50, 4)
+    Put(zip, ((host As UInt64) << 8) | 20, 2)
+    Put(zip, 20, 2)
+    Put(zip, 0, 2)
+    Put(zip, 0, 2)
+    Put(zip, 0, 2)
+    Put(zip, 0x21, 2)
+    Put(zip, crc, 4)
+    Put(zip, 1, 4)
+    Put(zip, 1, 4)
+    Put(zip, name.Count As UInt64, 2)
+    Put(zip, extra.Count As UInt64, 2)
+    Put(zip, 0, 2)
+    Put(zip, 0, 2)
+    Put(zip, 0, 2)
+    Put(zip, attributes, 4)
+    Put(zip, 0, 4)
+    zip.AddAll(name)
+    zip.AddAll(extra)
+    Local size = zip.Count - central
+    Put(zip, 0x06054b50, 4)
+    Put(zip, 0, 2)
+    Put(zip, 0, 2)
+    Put(zip, 1, 2)
+    Put(zip, 1, 2)
+    Put(zip, size As UInt64, 4)
+    Put(zip, central As UInt64, 4)
+    Put(zip, 0, 2)
+
+    Return zip
+End Function
+
+Local ntfs: UInt8[] = []
+Put(ntfs, 0x000a, 2)
+Put(ntfs, 32, 2)
+Put(ntfs, 0, 4)
+Put(ntfs, 1, 2)
+Put(ntfs, 24, 2)
+Put(ntfs, 134116992001234567, 8)
+Put(ntfs, 0, 8)
+Put(ntfs, 0, 8)
+
+Local extended: UInt8[] = []
+Put(extended, 0x5455, 2)
+Put(extended, 5, 2)
+Put(extended, 1, 1)
+Put(extended, 1767225600, 4)
+
+Local unix: UInt8[] = []
+Put(unix, 0x000d, 2)
+Put(unix, 12, 2)
+Put(unix, 0, 4)
+Put(unix, 1767225660, 4)
+Put(unix, 0, 4)
+
+Local both: UInt8[] = []
+both.AddAll(extended)
+both.AddAll(ntfs)
+Local made = [("ntfs", Zipped(ntfs, 3, 0o100755 << 16)),
+              ("extended", Zipped(extended, 3, 0o100600 << 16)),
+              ("unix", Zipped(unix, 3, 0o120777 << 16)), ("both", Zipped(both, 0, 0x20)),
+              ("none", Zipped([], 0, 0x20))]
+For each In made
+    Print("{each.0}:")
+    Show((Try Zip.Read(each.1)).Entries)
 End For
