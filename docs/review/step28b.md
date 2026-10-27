@@ -1046,6 +1046,22 @@ Suggested fix: Change both comments to say a waiting or later Read or Write thro
 
 Skeptic: s9.fb prints "IOError, Cause CLOSED" for a ReadAsync waiting when Close runs, and "after: IOError, Cause CLOSED" for a Read afterwards, in debug and release. StreamSocket.Open and StreamError wrap the NetError in an IOError. TcpStream.Close's comment (tcp.fb:138) and IpcStream.Close's (ipc.fb) say what's waiting, and what uses it after, throws a NetError of CLOSED. That contradicts the code and the class comments. Only the listeners' Close comments are accurate.
 
+## landing-1 (medium): net_connections fails when another run of it is going at the same time on the machine
+
+Status: fixed in ef46cc2b
+
+Where: tests/programs/net_connections.fb:75
+
+Found by the landing's verify.py, in the concurrent repeats, not by the review. An IPC name is the machine's: a named pipe on Windows, a Unix socket's file in the temporary folder elsewhere. net_connections listened at the fixed "fb-test-net-connections", so while another verify on the machine ran it too (lanes whose branches stack on this one), one run printed "failed: listening at fb-test-net-connections failed: address already in use". Two copies started together reproduce it; 30 runs one after another don't. net_ipc and net_tests.cpp had fixed names the same way, and net_ipc's first section relied on panic_net_ipc_name having left its socket file behind. Each run's IPC names now have a random Uuid in them (a process ID in net_tests.cpp, which keeps its folder per process too), net_ipc prints whether a name is the one it gave rather than the name, and the takeover is net_tests.cpp's alone. Checked: net_connections and net_ipc, 50 runs in debug and 50 in release, the two loops at once.
+
+## landing-2 (medium): net_lan's Finds see the services of another run of it at the same time on the machine
+
+Status: fixed in e0e02c90
+
+Where: tests/programs/net_lan.fb:14
+
+Found by the landing's verify.py, in the concurrent repeats. net_lan kept to the fixed discovery port 55353, and net_lan_packets to 55360 to 55362, so another run's announcers of the same type answered its Finds: after Stop, a run printed "True [First game, Second game]" and a count of 1 or 2 where the .out has "True [First game]" and 0. A second copy started one to four seconds after the first reproduced it 4 times in 4. Each part now takes a discovery port the OS picks (a UDP socket bound to port 0, then closed), so runs at once keep to their own. Checked: net_lan and net_lan_packets, 50 runs in debug and 50 in release, the two loops at once.
+
 ## Refuted by the skeptics (no action)
 
 - runtime-4: On POSIX, listening at a name that's taken leaves the live listener with a connection nobody made. The behavior is real on POSIX. The Linux harness's phantom scenario printed 'first listen: ok / second listen: EADDRINUSE / first accept with nothing connecting: ok / its read: 0', and on Windows phantom.fb printed 'OTHER / nothing to accept'. But this follows from lane decision 7, which prescribes detecting a stale file as 'connect refused, then unlink': a connect probe must connect, so a live listener sees a connection that ends at once. Nothing in the spec, stdlib.md ('A Unix socket's file that a program left behind is taken over'), or the milestones row says a failed Listen leaves no trace. Listen still throws as ipc.fb documents, and the probe is an ordinary connection that ends at once, which any server meets anyway. The proposed fix, an flock file, would replace the decided method. So it is a decision's consequence, not a bug by the rules given.
