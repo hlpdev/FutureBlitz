@@ -1,0 +1,260 @@
+// Static files: a folder's files as a router's routes, for GET and HEAD, with their Content-Type,
+// ETag, and Last-Modified, a 304 Not Modified for a request whose copy is current, and a 206
+// Partial Content for a request for one range of a file's bytes.
+
+Import std.core
+Import std.collections
+Import std.io.file
+Import std.io.path
+Import std.time
+Import std.net.http.client
+Import std.net.http.headers
+Import std.net.http.server
+Import std.net.http.status
+Import std.net.http.wire
+Import std.text
+
+Extend HttpRouter
+    // Serves folder's files at prefix, a path as routes have them, without a *name,
+    // or "/" for the router's own: a GET or a HEAD of prefix/a/b.png gives folder's a/b.png, and
+    // one of a folder gives its index.html, once its path ends with '/', to which one that
+    // doesn't is redirected. A segment that starts with a '.', or has a '\', a ':', or a control
+    // character, or ends with a '.' or a space, or is a name Windows keeps for a device, like
+    // NUL or COM1, is a 404, as is what isn't there, whatever the OS, so a request never reaches
+    // outside the folder. Panics when prefix isn't a path, or a route has its paths already.
+    @PanicsAtCaller
+    Public Method Files(prefix: String, folder: Path)
+        If !prefix.StartsWith("/")
+            Panic("Files' prefix starts with '/', and \"{prefix}\" doesn't")
+        End If
+        Local files = FileServer(folder)
+        Get(prefix == "/" ? "/*file" : prefix + "/*file",
+            Function(request: HttpRequest) => files.Answer(request))
+    End Method
+End Extend
+
+// A folder's files, as Files serves them.
+Class FileServer
+    ReadOnly Field Folder: Path
+
+    New(folder: Path)
+        Folder = folder
+    End New
+
+    // The response to a request for one of the folder's files.
+    Async Method Answer(request: HttpRequest): HttpResponse
+        Local name = request.Param("file") ?? ""
+        Local segments: String[] = name == "" ? [] : name.Split("/")
+        Local path = Folder
+        For i = 0 Until segments.Count
+            Local segment = segments[i]
+            If segment == "" && i == segments.Count - 1 Then Continue
+            If !Servable(segment) Then Return HttpResponse.Of(StatusCode.NOT_FOUND)
+            path = path.Join(Path(segment))
+        End For
+
+        Local found = Try? Await File.MetadataAsync(path)
+        If found == Null Then Return HttpResponse.Of(StatusCode.NOT_FOUND)
+        Local metadata = found
+        If metadata.IsDirectory()
+            If !request.Path.EndsWith("/")
+                Local query = request.Query.Count > 0 ? "?{request.Query}" : ""
+                Local slashed = request.Path + "/" + query
+                Return HttpResponse.Redirect(slashed, StatusCode.MOVED_PERMANENTLY)
+            End If
+
+            path = path.Join(Path("index.html"))
+            Local index = Try? Await File.MetadataAsync(path)
+            If index == Null Then Return HttpResponse.Of(StatusCode.NOT_FOUND)
+            metadata = index
+        End If
+
+        // A file's path that ends with '/', as a folder's does, isn't the file's.
+        Local asFolder = name != "" && name.EndsWith("/")
+        If !metadata.IsFile() || (asFolder && found.IsFile())
+            Return HttpResponse.Of(StatusCode.NOT_FOUND)
+        End If
+        Local tag = "\"{metadata.Size}-{metadata.Modified.UnixMilliseconds}\""
+        Local modified = HttpDate(metadata.Modified)
+        If Unchanged(request.Headers, tag, metadata.Modified)
+            Local same = HttpResponse.Of(StatusCode.NOT_MODIFIED)
+            same.Headers.Set("ETag", tag)
+            same.Headers.Set("Last-Modified", modified)
+            Return same
+        End If
+
+        Local bytes: UInt8[] = []
+        Try
+            bytes = Try Await File.ReadBytesAsync(path)
+        Catch e As IOError
+            Return HttpResponse.Of(StatusCode.NOT_FOUND)
+        End Try
+
+        Local response = HttpResponse.Of(StatusCode.OK, Body(bytes, ContentTypeOf(path)))
+        Local range = request.Headers.Get("Range")
+        Local ifRange = request.Headers.Get("If-Range")
+        If range != Null && (ifRange == Null || ifRange == tag || ifRange == modified)
+            Local wanted = RangeOf(range, bytes.Count)
+            If wanted != Null
+                Local start, finish = wanted
+                If start > finish
+                    response = HttpResponse.Of(StatusCode.RANGE_NOT_SATISFIABLE)
+                    response.Headers.Set("Content-Range", "bytes */{bytes.Count}")
+                Else
+                    Local part = Body(bytes[start..finish + 1], ContentTypeOf(path))
+                    response = HttpResponse.Of(StatusCode.PARTIAL_CONTENT, part)
+                    response.Headers.Set("Content-Range", "bytes {start}-{finish}/{bytes.Count}")
+                End If
+            End If
+        End If
+
+        response.Headers.Set("Accept-Ranges", "bytes")
+        response.Headers.Set("ETag", tag)
+        response.Headers.Set("Last-Modified", modified)
+        Return response
+    End Method
+End Class
+
+// Whether a request's copy of a file is current, as RFC 9110's section 13.2.2 checks it: by its
+// If-None-Match, when it has one, a tag of the file's, weak or not, or "*", or otherwise by its
+// If-Modified-Since, a date the file hasn't changed since, to the second.
+Function Unchanged(headers: Headers, tag: String, modified: Timestamp): Bool
+    Local matches = headers.GetAll("If-None-Match")
+    If matches.Count > 0
+        For value In matches
+            For item In value.Split(",")
+                Local candidate = item.Trim()
+                If candidate == "*" || candidate.TrimPrefix("W/") == tag Then Return True
+            End For
+        End For
+        Return False
+    End If
+
+    Local since = headers.Get("If-Modified-Since")
+    If since == Null Then Return False
+    Local date = ParseHttpDate(since)
+    If date == Null Then Return False
+    Return modified.UnixMilliseconds / 1000 <= date.UnixMilliseconds / 1000
+End Function
+
+// The one range of a file's `size` bytes that a Range of bytes asks for, its first and last
+// byte, a first past the last when it's past the file's end, or Null for a Range it serves the
+// whole file for: of another unit, of more than one range, or that isn't a Range's.
+Function RangeOf(range: String, size: Int): (Int, Int)?
+    If !range.StartsWith("bytes=") Then Return Null
+    Local spec = range.Slice(6, range.Length).Trim()
+    If spec.Contains(",") Then Return Null
+    Local dash = spec.Find("-")
+    If dash == Null Then Return Null
+    Local first = spec.Slice(0, dash).Trim()
+    Local last = spec.Slice(dash + 1, spec.Length).Trim()
+    If first == ""
+        Local suffix = DigitsOf(last)
+        If suffix == Null Then Return Null
+        If suffix == 0 || size == 0 Then Return (1, 0)
+        Return (Max(0, size - (Min(suffix, size As Int64) As Int)), size - 1)
+    End If
+
+    Local start = DigitsOf(first)
+    If start == Null Then Return Null
+    If start >= size Then Return (1, 0)
+    If last == "" Then Return (start As Int, size - 1)
+    Local finish = DigitsOf(last)
+    If finish == Null || finish < start Then Return Null
+    Return (start As Int, Min(finish, (size - 1) As Int64) As Int)
+End Function
+
+// Whether a path's segment can name one of the folder's files on any OS.
+Function Servable(segment: String): Bool
+    If segment == "" || segment.StartsWith(".") || segment.EndsWith(".") || segment.EndsWith(" ")
+        Return False
+    End If
+
+    For c In segment.Bytes
+        If c < 0x20 || c == 0x7F || c == 0x5C || c == 0x3A Then Return False
+    End For
+
+    Local device = (segment.Before(".") ?? segment).ToUpper()
+    If ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"].Contains(device) Then Return False
+    If device.Length == 4 && (device.StartsWith("COM") || device.StartsWith("LPT"))
+        Local digit = device.Bytes[3]
+        If digit >= 0x30 && digit <= 0x39 Then Return False
+    End If
+
+    Return True
+End Function
+
+// A file's Content-Type, by its extension, with UTF-8 for text, or application/octet-stream.
+Function ContentTypeOf(path: Path): String
+    Local extension = path.Extension().TrimPrefix(".").ToLower()
+    Local text = "; charset=utf-8"
+    Select extension
+        Case "html", "htm"
+            Return "text/html" + text
+        Case "css"
+            Return "text/css" + text
+        Case "js", "mjs"
+            Return "text/javascript" + text
+        Case "json", "map"
+            Return "application/json"
+        Case "txt"
+            Return "text/plain" + text
+        Case "md"
+            Return "text/markdown" + text
+        Case "csv"
+            Return "text/csv" + text
+        Case "xml"
+            Return "application/xml"
+        Case "svg"
+            Return "image/svg+xml"
+        Case "png"
+            Return "image/png"
+        Case "jpg", "jpeg"
+            Return "image/jpeg"
+        Case "gif"
+            Return "image/gif"
+        Case "webp"
+            Return "image/webp"
+        Case "avif"
+            Return "image/avif"
+        Case "ico"
+            Return "image/x-icon"
+        Case "wasm"
+            Return "application/wasm"
+        Case "pdf"
+            Return "application/pdf"
+        Case "zip"
+            Return "application/zip"
+        Case "woff"
+            Return "font/woff"
+        Case "woff2"
+            Return "font/woff2"
+        Case "ttf"
+            Return "font/ttf"
+        Case "otf"
+            Return "font/otf"
+        Case "mp3"
+            Return "audio/mpeg"
+        Case "ogg"
+            Return "audio/ogg"
+        Case "wav"
+            Return "audio/wav"
+        Case "mp4"
+            Return "video/mp4"
+        Case "webm"
+            Return "video/webm"
+    End Select
+
+    Return "application/octet-stream"
+End Function
+
+// A time as HTTP writes one, RFC 9110's IMF-fixdate: "Sun, 06 Nov 1994 08:49:37 GMT".
+Package Function HttpDate(time: Timestamp): String
+    Return time.Format("EEE, dd MMM yyyy HH:mm:ss 'GMT'")
+End Function
+
+// The time an IMF-fixdate writes, or Null for other text.
+Package Function ParseHttpDate(text: String): Timestamp?
+    If !text.EndsWith(" GMT") Then Return Null
+    Return Timestamp.Parse(text.Slice(0, text.Length - 4) + "Z", "EEE, dd MMM yyyy HH:mm:ssX")
+End Function

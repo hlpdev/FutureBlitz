@@ -1,0 +1,8 @@
+// Files' prefix is a route's path, so one that doesn't start with '/' panics where it's given.
+Import std.core
+Import std.io
+Import std.net.http
+
+Local server = HttpServer()
+server.Files("/assets", Path("public"))
+server.Files("assets", Path("public"))

@@ -1,0 +1,47 @@
+200 text/css; charset=utf-8: p { color: red }
+200 text/plain; charset=utf-8: deep
+200 text/plain; charset=utf-8: accents
+200 application/octet-stream: ?
+200 text/html; charset=utf-8: <p>home</p>
+200 text/html; charset=utf-8: <p>docs</p>
+200 text/html; charset=utf-8: <p>docs</p>
+200 text/css; charset=utf-8: p { color: red }
+200 text/html; charset=utf-8: <p>home</p>
+HTTP/1.1 301 Moved Permanently | Location: /files/docs/?x=1 | Content-Length: 0 |  | 
+missing.txt 404
+empty/ 404
+.secret 404
+a/../.secret 404
+%2e%2e/%2e%2e/etc/passwd 404
+..%5c..%5cwindows 404
+NUL 404
+con.txt 404
+COM1 404
+style.css. 404
+style.css%20 404
+a%3Ab 404
+a/b.txt/ 404
+HTTP/1.1 404 Not Found | Content-Length: 0 |  | 
+HTTP/1.1 405 Method Not Allowed | Allow: GET, HEAD | Content-Length: 0 |  | 
+HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Accept-Ranges: bytes | Content-Length: 4 |  | 
+validators: True True bytes
+If-None-Match its tag 304 0 True
+If-None-Match W/ and it 304 0 True
+If-None-Match * 304 0 True
+If-None-Match another and it 304 0 True
+If-None-Match another 200 16 True
+If-Modified-Since its date 304 0 True
+If-Modified-Since an older date 200 16 True
+If-Modified-Since not a date 200 16 True
+bytes=0-9 206 bytes 0-9/300 0123456789
+bytes=290- 206 bytes 290-299/300 0123456789
+bytes=-5 206 bytes 295-299/300 56789
+bytes=295-1000 206 bytes 295-299/300 56789
+bytes=300- 416 bytes */300 
+bytes=-0 416 bytes */300 
+bytes=0-1,5-6 200 none 300 bytes
+bytes=5-2 200 none 300 bytes
+items=0-1 200 none 300 bytes
+bytes=x-y 200 none 300 bytes
+stale If-Range: 200 300
+current If-Range: 206 0123456789

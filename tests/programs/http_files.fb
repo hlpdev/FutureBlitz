@@ -1,0 +1,143 @@
+// std.net.http's static files: a server's Files serves a folder the test makes, with each file's
+// Content-Type, a folder's index.html, a 304 for a copy that's current by its ETag or its date,
+// a 206 for a range of a file's bytes, and a 404 for what isn't there or isn't the folder's to
+// give, however the request spells it. Nothing leaves the machine.
+
+Import std.core
+Import std.collections
+Import std.crypto
+Import std.ffi
+Import std.io
+Import std.net
+Import std.net.http
+Import std.text
+
+// A connection written by hand: the request, the end of what it writes, and what comes back,
+// its status line and the headers that don't change from run to run.
+Async Function Raw(port: UInt16, request: String): String Throws Error
+    Local stream = Try Await TcpStream.ConnectAsync(SocketAddress(IpAddress.Loopback, port))
+    Try Await stream.WriteAsync(Buffer<UInt8>.From(request.Bytes))
+    Try Await stream.ShutdownWriteAsync()
+    Local answer = String.FromUtf8(Try Await ReadAllAsync(stream)) ?? "?"
+    Local lines: String[] = []
+    For line In answer.Split("\r\n")
+        If !line.StartsWith("Date: ") && !line.StartsWith("ETag: ") &&
+           !line.StartsWith("Last-Modified: ")
+            lines.Add(line)
+        End If
+    End For
+    Return lines.Join(" | ")
+End Function
+
+Function Shown(response: HttpResponse): String
+    Local kind = response.Headers.Get("Content-Type") ?? "no type"
+    Return "{response.Status} {kind}: {response.Text}"
+End Function
+
+Local unique = "fb-http-files-{Hex.Encode(SecureRandom.Bytes(8))}"
+Local folder = ((Try? Dir.Temp()) ?? Path(".")).Join(Path(unique))
+Try
+    Dir.CreateAll(folder.Join(Path("a")))
+    Dir.CreateAll(folder.Join(Path("docs")))
+    Dir.CreateAll(folder.Join(Path("empty")))
+    File.WriteText(folder.Join(Path("index.html")), "<p>home</p>")
+    File.WriteText(folder.Join(Path("style.css")), "p {{ color: red }}")
+    File.WriteText(folder.Join(Path("a/b.txt")), "deep")
+    File.WriteText(folder.Join(Path("docs/index.html")), "<p>docs</p>")
+    File.WriteText(folder.Join(Path(".secret")), "hidden")
+    File.WriteText(folder.Join(Path("café.txt")), "accents")
+    File.WriteText(folder.Join(Path("blob.unknown")), "?")
+    Local digits = ""
+    For i = 0 Until 30
+        digits += "0123456789"
+    End For
+    File.WriteText(folder.Join(Path("digits.txt")), digits)
+
+    Local server = HttpServer()
+    server.Files("/files", folder)
+    server.Group("/site").Files("/", folder)
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local serving = server.Serve()
+    Local port = server.LocalAddress.Port
+    Local base = "http://127.0.0.1:{port}"
+    Local client = HttpClient()
+
+    // Files, a folder's index.html, and a folder's path without its '/' redirected to it.
+    Print(Shown(Await client.GetAsync("{base}/files/style.css")))
+    Print(Shown(Await client.GetAsync("{base}/files/a/b.txt")))
+    Print(Shown(Await client.GetAsync("{base}/files/caf%C3%A9.txt")))
+    Print(Shown(Await client.GetAsync("{base}/files/blob.unknown")))
+    Print(Shown(Await client.GetAsync("{base}/files/")))
+    Print(Shown(Await client.GetAsync("{base}/files/docs/")))
+    Print(Shown(Await client.GetAsync("{base}/files/docs")))
+    Print(Shown(Await client.GetAsync("{base}/site/style.css")))
+    Print(Shown(Await client.GetAsync("{base}/site/")))
+    Print(Await Raw(port, "GET /files/docs?x=1 HTTP/1.1\r\nHost: a\r\n\r\n"))
+
+    // What isn't there, or isn't the folder's to give.
+    For path In ["missing.txt", "empty/", ".secret", "a/../.secret", "%2e%2e/%2e%2e/etc/passwd",
+                 "..%5c..%5cwindows", "NUL", "con.txt", "COM1", "style.css.", "style.css%20",
+                 "a%3Ab", "a/b.txt/"]
+        Print(path, (Await client.GetAsync("{base}/files/{path}")).Status)
+    End For
+
+    Print(Await Raw(port, "GET /files/../style.css HTTP/1.1\r\nHost: a\r\n\r\n"))
+    Print(Await Raw(port, "POST /files/style.css HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\n\r\n"))
+
+    // A HEAD has the file's length but not its bytes.
+    Print(Await Raw(port, "HEAD /files/a/b.txt HTTP/1.1\r\nHost: a\r\n\r\n"))
+
+    // A copy that's current, by its ETag, weak or not, or "*", or by the date it changed.
+    Local first = Await client.GetAsync("{base}/files/style.css")
+    Local tag = first.Headers.Get("ETag") ?? ""
+    Local modified = first.Headers.Get("Last-Modified") ?? ""
+    Local ranges = first.Headers.Get("Accept-Ranges") ?? "none"
+    Print("validators:", tag != "", modified.EndsWith(" GMT"), ranges)
+    Local conditions = [("If-None-Match", tag, "its tag"),
+                        ("If-None-Match", "W/" + tag, "W/ and it"),
+                        ("If-None-Match", "*", "*"),
+                        ("If-None-Match", "\"other\", " + tag, "another and it"),
+                        ("If-None-Match", "\"other\"", "another"),
+                        ("If-Modified-Since", modified, "its date"),
+                        ("If-Modified-Since", "Sun, 06 Nov 1994 08:49:37 GMT", "an older date"),
+                        ("If-Modified-Since", "not a date", "not a date")]
+    For condition In conditions
+        Local headers = Headers()
+        headers.Add(condition.0, condition.1)
+        Local url = "{base}/files/style.css"
+        Local response = Await client.SendAsync(HttpMethod.GET, url, Null, headers)
+        Local same = (response.Headers.Get("ETag") ?? "") == tag
+        Print(condition.0, condition.2, response.Status, response.Bytes.Count, same)
+    End For
+
+    // Ranges of a file's 300 bytes: one range, an open end, the last bytes, past the end, more
+    // than one, and an If-Range that isn't the file's.
+    For range In ["bytes=0-9", "bytes=290-", "bytes=-5", "bytes=295-1000", "bytes=300-",
+                  "bytes=-0", "bytes=0-1,5-6", "bytes=5-2", "items=0-1", "bytes=x-y"]
+        Local headers = Headers()
+        headers.Add("Range", range)
+        Local url = "{base}/files/digits.txt"
+        Local response = Await client.SendAsync(HttpMethod.GET, url, Null, headers)
+        Local body = response.Bytes.Count > 12 ? "{response.Bytes.Count} bytes" : response.Text
+        Print(range, response.Status, response.Headers.Get("Content-Range") ?? "none", body)
+    End For
+
+    Local stale = Headers()
+    stale.Add("Range", "bytes=0-9")
+    stale.Add("If-Range", "\"stale\"")
+    Local whole = Await client.SendAsync(HttpMethod.GET, "{base}/files/digits.txt", Null, stale)
+    Print("stale If-Range:", whole.Status, whole.Bytes.Count)
+    Local current = Headers()
+    current.Add("Range", "bytes=0-9")
+    Local fresh = Await client.GetAsync("{base}/files/digits.txt")
+    current.Add("If-Range", fresh.Headers.Get("ETag") ?? "")
+    Local part = Await client.SendAsync(HttpMethod.GET, "{base}/files/digits.txt", Null, current)
+    Print("current If-Range:", part.Status, part.Text)
+
+    server.Stop()
+    Await serving
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+Try? Dir.RemoveAll(folder)
