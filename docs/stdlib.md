@@ -1156,19 +1156,19 @@ std.io's bytes through a codec. `Import std.compress` brings in all of std/compr
   and a '\' panics; its LZMA and XZ levels go from 1 to 9, as minizip-ng stores an entry at 0. An
   LZMA or XZ entry is decoded over liblzma, with no more memory than XZ.Decompress takes, and only a
   Unix, macOS, or RISC OS entry's mode, or an extra field naming a target, makes a link. Tar: ustar,
-  pax's extended headers, GNU's long names and base-256 numbers, and old tars, whose folders are
-  names ending with '/', leaving out devices and FIFOs. A type it doesn't know is a file, as POSIX
-  says, and GNU's 'D', an incremental tar's, a folder; GNU's sparse files, old and in pax, are
-  listed, and their reads are IOErrors. `Tar.Read` decompresses a .tar.gz, .tar.zst, .tar.xz, or
-  .tar.lz4 first, after skippable frames too, and a TarWriter's tar compresses to one, as
-  `Gzip.Compress(writer.Finish())` does. A TarWriter writes ustar, with a pax header for a name
-  ustar can't hold or that isn't ASCII, or a time, which pax's has to the nanosecond, before 1970 or
-  past 2242, owned by root, and at 1970's start unless it's told otherwise. 7z, read over liblzma:
-  its coders stored, LZMA, with or without its end marker, LZMA2, Delta, and the branch filters for
-  x86, PowerPC, IA-64, ARM, ARM Thumb, ARM64, SPARC, and RISC-V, in chains, as 7-Zip writes them;
-  BCJ2, PPMd, BZip2, and encryption are IOErrors. A solid folder is decoded once for the files read
-  from it in turn, and its links' targets, but one of more bytes than an array holds is decoded up
-  to each file read, and kept for none. Writing 7z isn't std's.
+  pax's extended headers, GNU's long names and base-256 numbers, a time's before 1970 too, and old
+  tars, whose folders are names ending with '/', leaving out devices and FIFOs. A type it doesn't
+  know is a file, as POSIX says, and GNU's 'D', an incremental tar's, a folder; GNU's sparse files,
+  old and in pax, are listed, and their reads are IOErrors. `Tar.Read` decompresses a .tar.gz,
+  .tar.zst, .tar.xz, or .tar.lz4 first, after skippable frames too, and a TarWriter's tar compresses
+  to one, as `Gzip.Compress(writer.Finish())` does. A TarWriter writes ustar, with a pax header for
+  a name ustar can't hold or that isn't ASCII, or a time, which pax's has to the nanosecond, before
+  1970 or past 2242, owned by root, and at 1970's start unless it's told otherwise. 7z, read over
+  liblzma: its coders stored, LZMA, with or without its end marker, LZMA2, Delta, and the branch
+  filters for x86, PowerPC, IA-64, ARM, ARM Thumb, ARM64, SPARC, and RISC-V, in chains, as 7-Zip
+  writes them; BCJ2, PPMd, BZip2, and encryption are IOErrors. A solid folder is decoded once for
+  the files read from it in turn, and its links' targets, but one of more bytes than an array holds
+  is decoded up to each file read, and kept for none. Writing 7z isn't std's.
 
 #### std.net
 

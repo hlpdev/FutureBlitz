@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -110,6 +111,30 @@ std::optional<std::int64_t> number_of(const std::span<const std::uint8_t> header
 
     // An empty field is 0, as some tars write a time or an owner.
     return digits || at == bytes.size() ? std::optional(value) : std::nullopt;
+}
+
+/// A field's number that can be before 0, as a header's time can: number_of()'s, or GNU's
+/// negative base-256, a first byte of 0xff and then a big-endian two's complement, as GNU's tar
+/// and Python's write a time before 1970. Nothing for one an Int64 can't hold.
+std::optional<std::int64_t> signed_number_of(const std::span<const std::uint8_t> header,
+                                             const field_t field) {
+    const std::span<const std::uint8_t> bytes = header.subspan(field.at, field.size);
+    if (bytes[0] != 0xff) {
+        return number_of(header, field);
+    }
+
+    // The bytes an Int64 has no room for can only be the sign's.
+    std::uint64_t value = UINT64_MAX;
+    for (std::size_t i = 1; i < bytes.size(); ++i) {
+        if ((value >> 56U) != 0xffU) {
+            return std::nullopt;
+        }
+
+        value = (value << 8U) | bytes[i];
+    }
+
+    const auto number = std::bit_cast<std::int64_t>(value);
+    return number < 0 ? std::optional(number) : std::nullopt;
 }
 
 /// Whether the header's checksum is its bytes' sum, with the checksum's own read as spaces, by
@@ -448,11 +473,11 @@ std::int32_t open(reader_t& reader) {
             whole = std::max(size, number_of(header, { .at = 483, .size = 12 }).value_or(0));
         }
 
-        // A time is a pax record's, which can be before 1970 and has a fraction, or else the
-        // header's, which can be neither.
+        // A time is a pax record's, which can have a fraction, or else the header's, which can
+        // be before 1970 too in GNU's base-256.
         std::optional<moment_t> modified = pax.mtime;
         if (!modified) {
-            if (const std::optional<std::int64_t> seconds = number_of(header, time_field)) {
+            if (const std::optional<std::int64_t> seconds = signed_number_of(header, time_field)) {
                 modified = moment_t{ .seconds = *seconds, .nanos = 0 };
             }
         }

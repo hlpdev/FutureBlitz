@@ -58,3 +58,38 @@ Local tars = [TarWriter(), TarWriter()]
 tars[0].Add("x", [1, 2], At("2026-10-26T12:34:57.5Z"), 0o600)
 tars[1].Add("x", [1, 2], At("2026-10-26T12:34:57.5Z"), 0o600)
 Print(tars[0].Finish() == tars[1].Finish())
+
+// A GNU tar's time before 1970 is its header's base-256, negative: 0xff, then the rest of a
+// big-endian two's complement, as GNU's tar and Python's write one. -1000000000 is
+// 1938-04-24T22:13:20Z, all 0xff is a second before 1970, and one an Int64 can't hold is none.
+Function WithTime(field: UInt8[]): UInt8[]
+    Local writer = TarWriter()
+    writer.Add("a.txt", "a".Bytes)
+    Local bytes = writer.Finish()
+    For i = 0 Until 12
+        bytes[136 + i] = field[i]
+    End For
+
+    // The checksum again: each byte's sum, with the checksum's own as spaces.
+    Local sum = 0
+    For i = 0 Until 512
+        sum += i >= 148 && i < 156 ? 32 : bytes[i] As Int
+    End For
+
+    Local digits = "{sum:06o}".Bytes
+    For i = 0 Until 6
+        bytes[148 + i] = digits[i]
+    End For
+
+    bytes[154] = 0
+    bytes[155] = 32
+    Return bytes
+End Function
+
+Local fields: UInt8[][] = [[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xc4, 0x65, 0x36, 0x00],
+                           [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+                           [0xff, 0xff, 0xff, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+                           [0x80, 0, 0, 0, 0, 0, 0, 0, 0x69, 0x55, 0xb9, 0x00]]
+For field In fields
+    Print("gnu:", (Try Tar.Read(WithTime(field))).Entries[0].Modified?.ToString() ?? "-")
+End For
