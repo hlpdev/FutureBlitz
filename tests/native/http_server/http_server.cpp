@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cwchar>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -510,7 +511,8 @@ std::optional<std::string> fetch_challenge(const std::string& name, const std::s
 }
 
 /// The CA's answer to a request of `path` under /acme/, or its root at /acme/root; a GET of
-/// /acme/refuse-nonce has it refuse the next request's nonce.
+/// /acme/refuse-nonce has it refuse the next request's nonce, and one of
+/// /acme/validity?before=N&after=M has what it issues be valid from N seconds ago to M from now.
 response_t acme_answer(const request_t& request, const std::string& path) {
     if (path == "/root") {
         response_t root = text(fb::test::acme_ca_t::root_pem());
@@ -524,6 +526,21 @@ response_t acme_answer(const request_t& request, const std::string& path) {
         if (path == "/refuse-nonce") {
             acme_ca->refuse_nonce();
             return text("refusing\n");
+        }
+
+        // /validity?before=N&after=M, or /validity for 2020 to 2120 again.
+        if (path == "/validity") {
+            const std::optional<std::string> before = request.query("before");
+            const std::optional<std::string> after = request.query("after");
+            if (!before || !after) {
+                acme_ca->validity(std::nullopt);
+                return text("2020 to 2120\n");
+            }
+
+            const std::int64_t from = std::stoll(*before);
+            const std::int64_t to = std::stoll(*after);
+            acme_ca->validity(std::pair(from, to));
+            return text(std::format("{} seconds before to {} after\n", from, to));
         }
 
         answered = acme_ca->handle({ .method = request.method,

@@ -309,6 +309,16 @@ Public Class TlsServer
         Setup.Change()
     End Method
 
+    // Gives connections `chain` and `key` from then on, as a renewed certificate is given; those
+    // accepted before keep what they had. Panics as New does.
+    @PanicsAtCaller
+    Public Method Identify(chain: Certificate[], key: Key)
+        CheckIdentity(chain, key, True)
+        Setup.Chain = chain.Clone()
+        Setup.Key = key
+        Setup.Change()
+    End Method
+
     // Asks each client for a certificate that one of `roots` signed, and refuses a client
     // without one, from then on.
     Public Method RequireClients(roots: Certificate[])

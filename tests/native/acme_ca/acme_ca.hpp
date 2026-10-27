@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -61,6 +62,10 @@ public:
     /// Refuses the next request's nonce, as badNonce, as a CA may any nonce, which a client tries
     /// again after.
     void refuse_nonce();
+
+    /// Has the certificates it issues from then on be valid from `before` seconds ago to `after`
+    /// seconds from now, as a renewal's test needs, or from 2020 to 2120 again for nothing.
+    void validity(std::optional<std::pair<std::int64_t, std::int64_t>> span);
 
     /// The root its certificates chain to, as PEM, which a test trusts.
     [[nodiscard]] static const std::string& root_pem();

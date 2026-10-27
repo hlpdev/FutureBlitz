@@ -14,6 +14,9 @@ client got you said hello, then the end, from CN=localhost
 served hello over TLS 1.3, http/1.1, from no certificate
 client: NetError TLS: the server refused the handshake
 server: NetError TLS: the client and the server have no application protocol in common
+== a server's identity, changed for the connections after
+ECDSA_P256, the server's TLS 1.3
+RSA, the server's TLS 1.3
 == the client's certificate
 client got you said hello, then the end, from CN=localhost
 served hello over TLS 1.3, no protocol, from CN=FutureBlitz Test Client

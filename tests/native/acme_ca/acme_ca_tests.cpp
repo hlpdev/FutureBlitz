@@ -344,7 +344,9 @@ TEST_CASE("an account orders a certificate, proves its names by HTTP-01, and get
     CHECK(member(existing.body, "type") == "urn:ietf:params:acme:error:accountDoesNotExist");
 }
 
-TEST_CASE("an order of 100 names is issued, and one of more is refused", "[acme]") {
+TEST_CASE("an order of 100 names is issued for the validity it's set to, and one of more is "
+          "refused",
+          "[acme]") {
     REQUIRE(psa_crypto_init() == PSA_SUCCESS);
     fb::test::acme_ca_t ca{ std::string(base), fetch };
     client_t client(ca);
@@ -375,6 +377,8 @@ TEST_CASE("an order of 100 names is issued, and one of more is refused", "[acme]
         REQUIRE(member(client.post(path, "").body, "status") == "valid");
     }
 
+    // Valid from 100 seconds ago to 30 from now, as a renewal's test has it.
+    ca.validity(std::pair<std::int64_t, std::int64_t>(100, 30));
     const fb::test::acme_response_t finalized =
         client.post("/order/1/finalize", std::format(R"({{"csr":"{}"}})", client_t::csr(names)));
     CHECK(finalized.status == 200);
@@ -387,6 +391,9 @@ TEST_CASE("an order of 100 names is issued, and one of more is refused", "[acme]
                                    reinterpret_cast<const unsigned char*>(chain.body.c_str()),
                                    chain.body.size() + 1) == 0);
     CHECK(certificate.raw.len > 4096);
+    CHECK(mbedtls_x509_time_is_past(&certificate.valid_from) == 1);
+    CHECK(mbedtls_x509_time_is_future(&certificate.valid_to) == 1);
+    CHECK(certificate.valid_to.year < 2100);
     std::uint32_t flags = 0;
     for (const std::string& name : { names.front(), names.back() }) {
         CHECK(mbedtls_x509_crt_verify(&certificate, certificate.next, nullptr, name.c_str(), &flags,

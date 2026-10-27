@@ -1,11 +1,11 @@
 // A TLS client and server in one program, each Async, over a pipe in memory, through the test
 // certificates net_tls/certificates.fb has, which net_tls/make_certificates.sh made: a handshake
-// and bytes both ways, an RSA server, IP addresses, ALPN, a client's certificate, and
-// close_notify; and a server whose certificate a root the client doesn't trust signed, one for
-// another host, and one that has expired, which the client refuses with a NetError of TLS, as the
-// server sees, through a stream that holds what's written until Flush too. Past the handshake, a
-// write after Close throws, a second Close sends nothing, the stream's own failure is thrown as
-// it was, and an end without close_notify is UNEXPECTED_END; a stream that fails in the
+// and bytes both ways, an RSA server, IP addresses, ALPN, a server's identity changed, a client's
+// certificate, and close_notify; and a server whose certificate a root the client doesn't trust
+// signed, one for another host, and one that has expired, which the client refuses with a NetError
+// of TLS, as the server sees, through a stream that holds what's written until Flush too. Past the
+// handshake, a write after Close throws, a second Close sends nothing, the stream's own failure is
+// thrown as it was, and an end without close_notify is UNEXPECTED_END; a stream that fails in the
 // handshake is a NetError of OTHER.
 Import std.core
 Import std.collections
@@ -214,6 +214,26 @@ Run(offering, picking)
 Local other = Server(localhost_pem, localhost_key)
 other.Offer(["spdy/3"])
 Run(offering, other)
+
+// The kind of key of the certificate a client that trusts the test CA gets from `server`.
+Async Function PeerKind(server: TlsServer): String
+    Local near = NewPipe()
+    Local accepting = server.AcceptAsync(near.Other())
+    Try
+        Local tls = Try Await Client().ConnectAsync(near, "localhost")
+        Local accepted = Try Await accepting
+        Local key = tls.PeerCertificate?.PublicKey
+        Return key == Null ? "no key" : "{key.Kind}, the server's {accepted.Version}"
+    Catch e As Error
+        Return "failed: {e.Message}"
+    End Try
+End Function
+
+Print("== a server's identity, changed for the connections after")
+Local changing = Server(localhost_pem, localhost_key)
+Print(PeerKind(changing).Wait())
+changing.Identify(Certificates(rsa_pem), KeyOf(rsa_key))
+Print(PeerKind(changing).Wait())
 
 Print("== the client's certificate")
 Local asking = Server(localhost_pem, localhost_key)

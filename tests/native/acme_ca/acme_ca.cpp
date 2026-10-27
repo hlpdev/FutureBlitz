@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -270,7 +271,7 @@ private:
 
 /// `text` as a JSON string, in quotes, with its quotes, backslashes, and control characters
 /// escaped.
-std::string quoted(const std::string_view text) {
+std::string json_string(const std::string_view text) {
     std::string out = "\"";
     for (const char c : text) {
         if (c == '"' || c == '\\') {
@@ -290,7 +291,7 @@ std::string quoted(const std::string_view text) {
 std::string string_array(const std::vector<std::string>& texts) {
     std::string out = "[";
     for (std::size_t i = 0; i < texts.size(); ++i) {
-        out += (i == 0 ? "" : ",") + quoted(texts[i]);
+        out += (i == 0 ? "" : ",") + json_string(texts[i]);
     }
 
     return out + "]";
@@ -516,6 +517,9 @@ struct acme_ca_t::state_t {
     std::vector<authorization_t> authorizations;
     /// How many requests' nonces it refuses next, whatever they are.
     std::size_t refusing = 0;
+    /// How many seconds before now and after it what it issues is valid, or nothing for 2020 to
+    /// 2120.
+    std::optional<std::pair<std::int64_t, std::int64_t>> validity;
     mbedtls_pk_context key{};
 };
 
@@ -528,8 +532,8 @@ acme_response_t problem(const int status, const std::string_view type,
         .status = status,
         .headers = { { "Content-Type", "application/problem+json" } },
         .body = std::format(R"({{"type":{},"detail":{},"status":{}}})",
-                            quoted(std::string(error_prefix) + std::string(type)), quoted(detail),
-                            status),
+                            json_string(std::string(error_prefix) + std::string(type)),
+                            json_string(detail), status),
     };
 }
 
@@ -659,6 +663,10 @@ void acme_ca_t::refuse_nonce() {
     ++m_state->refusing;
 }
 
+void acme_ca_t::validity(std::optional<std::pair<std::int64_t, std::int64_t>> span) {
+    m_state->validity = span;
+}
+
 const std::string& acme_ca_t::root_pem() {
     static const std::string pem(root_certificate);
     return pem;
@@ -686,26 +694,26 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
             authorization.error.empty()
                 ? ""
                 : std::format(R"(,"error":{{"type":{},"detail":{}}})",
-                              quoted(std::string(error_prefix) + "incorrectResponse"),
-                              quoted(authorization.error));
+                              json_string(std::string(error_prefix) + "incorrectResponse"),
+                              json_string(authorization.error));
         return std::format(R"({{"type":"http-01","url":{},"token":{},"status":{}{}}})",
-                           quoted(std::format("{}/challenge/{}", base, index + 1)),
-                           quoted(authorization.token), quoted(authorization.challenge_status),
-                           error);
+                           json_string(std::format("{}/challenge/{}", base, index + 1)),
+                           json_string(authorization.token),
+                           json_string(authorization.challenge_status), error);
     };
     const auto authorization_json = [&](const std::size_t index) {
         const authorization_t& authorization = state.authorizations[index];
         return std::format(R"({{"status":{},"expires":{},"identifier":{{"type":"dns","value":{}}},)"
                            R"("challenges":[{}]}})",
-                           quoted(authorization.status), quoted(expires),
-                           quoted(authorization.name), challenge_json(index));
+                           json_string(authorization.status), json_string(expires),
+                           json_string(authorization.name), challenge_json(index));
     };
     const auto order_json = [&](const std::size_t index) {
         const order_t& order = state.orders[index];
         std::string identifiers;
         for (const std::string& name : order.names) {
             identifiers += std::format(R"({}{{"type":"dns","value":{}}})",
-                                       identifiers.empty() ? "" : ",", quoted(name));
+                                       identifiers.empty() ? "" : ",", json_string(name));
         }
 
         std::vector<std::string> authorizations;
@@ -716,19 +724,21 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
         const std::string certificate =
             order.status == "valid"
                 ? std::format(R"(,"certificate":{})",
-                              quoted(std::format("{}/certificate/{}", base, index + 1)))
+                              json_string(std::format("{}/certificate/{}", base, index + 1)))
                 : "";
         return std::format(
             R"({{"status":{},"expires":{},"identifiers":[{}],"authorizations":{},"finalize":{}{}}})",
-            quoted(order.status), quoted(expires), identifiers, string_array(authorizations),
-            quoted(std::format("{}/order/{}/finalize", base, index + 1)), certificate);
+            json_string(order.status), json_string(expires), identifiers,
+            string_array(authorizations),
+            json_string(std::format("{}/order/{}/finalize", base, index + 1)), certificate);
     };
 
     if (request.path == "/dir" && request.method == "GET") {
-        return json_response(200, std::format(R"({{"newNonce":{},"newAccount":{},"newOrder":{},)"
-                                              R"("meta":{{"termsOfService":{}}}}})",
-                                              quoted(base + "/nonce"), quoted(base + "/account"),
-                                              quoted(base + "/order"), quoted(base + "/terms")));
+        return json_response(
+            200, std::format(R"({{"newNonce":{},"newAccount":{},"newOrder":{},)"
+                             R"("meta":{{"termsOfService":{}}}}})",
+                             json_string(base + "/nonce"), json_string(base + "/account"),
+                             json_string(base + "/order"), json_string(base + "/terms")));
     }
 
     if (request.path == "/nonce" && (request.method == "HEAD" || request.method == "GET")) {
@@ -867,7 +877,7 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
         acme_response_t response = json_response(
             made ? 201 : 200, std::format(R"({{"status":"valid","contact":{},"orders":{}}})",
                                           string_array(state.accounts[index].contact),
-                                          quoted(account_url(index) + "/orders")));
+                                          json_string(account_url(index) + "/orders")));
         response.headers.emplace_back("Location", account_url(index));
         return with_nonce(std::move(response));
     }
@@ -1050,7 +1060,18 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
         }
 
         (void)mbedtls_x509write_crt_set_serial_raw(&writer, serial.data(), serial.size());
-        (void)mbedtls_x509write_crt_set_validity(&writer, "20200101000000", "21200101000000");
+        // X.509's times, in UTC, as mbedTLS writes them.
+        std::string from = "20200101000000";
+        std::string to = "21200101000000";
+        if (state.validity) {
+            const auto now =
+                std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+            from =
+                std::format("{:%Y%m%d%H%M%S}", now - std::chrono::seconds(state.validity->first));
+            to = std::format("{:%Y%m%d%H%M%S}", now + std::chrono::seconds(state.validity->second));
+        }
+
+        (void)mbedtls_x509write_crt_set_validity(&writer, from.c_str(), to.c_str());
         (void)mbedtls_x509write_crt_set_issuer_name(&writer, std::string(root_name).c_str());
         (void)mbedtls_x509write_crt_set_subject_name(&writer,
                                                      ("CN=" + order.names.front()).c_str());
