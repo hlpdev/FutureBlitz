@@ -33,6 +33,12 @@ Class Summary
     @Rename("best") Field Top = 0.0
 End Class
 
+Class Settings
+    Field Name = ""
+    Field Volume = 7
+    Field Muted = True
+End Class
+
 Const Everything = "SELECT name AS Name, level AS Level, score AS Score, role AS Role, " +
                    "note AS Note, active AS Active, badge AS Badge FROM players"
 
@@ -68,10 +74,28 @@ Function Run() Throws DatabaseError, ParseError
     Print((Try strong.Query<Named>()).Count)
     Print((Try strong.Query<Named, Int>(3)).Count)
 
-    // Values bind in order, as Rows' do, one to eight of them.
-    Print((Try db.Query<Named, String>("SELECT name AS Name FROM players WHERE role = ?",
-                                       "ADMIN"))[0].Name)
-    Local eight = Try db.Query<Named, Int, Int, Int, Int, Int, Int, Int, String>(
+    // A Field no column has takes its default, from a Database's Query or a Statement's.
+    For settings In Try db.Query<Settings>("SELECT 'main' AS Name")
+        Print(settings.Name, settings.Volume, settings.Muted)
+    End For
+
+    Local named = Try db.Prepare("SELECT ? AS Name")
+    Try named.Bind(1, "side")
+    For settings In Try named.Query<Settings>()
+        Print(settings.Name, settings.Volume, settings.Muted)
+    End For
+
+    Try
+        Print((Try named.Query<Settings, Int>(5)).Count)
+    Catch e As ParseError
+        Print("{e.Kind}: {e.Message}")
+    End Try
+
+    // Values bind in order, as Rows' do, one to eight of them, whose types are inferred, or
+    // written out after the T.
+    Print((Try db.Query<Named>("SELECT name AS Name FROM players WHERE role = ?",
+                               "ADMIN"))[0].Name)
+    Local eight = Try db.Query<Named>(
         "SELECT (? + ? + ? + ? + ? + ? + ?) || ? AS Name", 1, 2, 3, 4, 5, 6, 7, "!")
     Print(eight[0].Name)
 

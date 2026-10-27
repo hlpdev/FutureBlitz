@@ -8,6 +8,9 @@ first
 1
 2
 1
+main 7 True
+side 7 True
+WRONG_TYPE: [0].Name: expected String, found 5
 ada
 28!
 a a ab ab abc abc abcd abcd abcde abcde abcdef abcdef abcdefg abcdefg abcdefgh abcdefgh
