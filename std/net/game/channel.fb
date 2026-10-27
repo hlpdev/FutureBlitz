@@ -57,6 +57,10 @@ Package Class OutChannel
     // acked; an id that's done goes from Unacked first, and from Ids once it's at the front.
     Package Field Ids: Deque<Int>
     Package Field Unacked: Map<Int, Int>
+    // The bytes of each message in Ids, and of all of them, which the other side may hold while
+    // the oldest isn't acked, so they're kept to its MaxBuffered.
+    Field Sizes: Map<Int, Int>
+    Package Field Spanned: Int
     // Unreliable parts that go at the next send.
     Package Field Fresh: OutPart[] = []
 
@@ -66,6 +70,7 @@ Package Class OutChannel
         Queued = Deque<OutPart[]>()
         Ids = Deque<Int>()
         Unacked = Map<Int, Int>()
+        Sizes = Map<Int, Int>()
     End New
 
     // Whether it has nothing of a reliable message's left to send or to have acked.
@@ -94,8 +99,9 @@ Package Class OutChannel
     End Method
 
     // The parts due at now, as rto and the backoff after each send say for those sent before,
-    // with the queued messages the window lets go, and the fresh ones, which go once.
-    Package Method Due(now: Int64, rto: Int64): OutPart[]
+    // with the queued messages the window lets go, and the fresh ones, which go once. room is how
+    // many more bytes of messages the other side may have to hold, which a message let go takes.
+    Package Method Due(now: Int64, rto: Int64, ByRef room: Int): OutPart[]
         Local due: OutPart[] = []
         If Kind == ChannelKind.UNRELIABLE
             due = Fresh
@@ -115,16 +121,28 @@ Package Class OutChannel
 
         Flying = flying
         While Ids.Count > 0 && !Unacked.Contains(Ids.First())
+            Spanned -= Sizes.Get(Ids.First(), 0)
+            Sizes.Remove(Ids.First())
             Ids.RemoveFirst()
         End While
 
-        // A queued message goes once it's within the window of the oldest one not yet acked.
+        // A queued message goes once it's within the window of the oldest one not yet acked, and
+        // the room, which a message alone in flight may go past, so a large one goes at all.
         While Queued.Count > 0
             Local parts = Queued.First()
-            If Ids.Count > 0 && Ahead(parts[0].Id, Ids.First()) >= WINDOW Then Break
+            Local size = 0
+            For part In parts
+                size += part.Bytes.Count
+            End For
+
+            Local outside = Ids.Count > 0 && Ahead(parts[0].Id, Ids.First()) >= WINDOW
+            If outside || (Ids.Count > 0 && size > room) Then Break
             Queued.RemoveFirst()
             Ids.AddLast(parts[0].Id)
             Unacked[parts[0].Id] = parts.Count
+            Sizes[parts[0].Id] = size
+            Spanned += size
+            room -= size
             For part In parts
                 Flying.Add(part)
                 due.Add(part)
@@ -192,6 +210,11 @@ Package Class InChannel
     Field Assemblies: Map<Int, Assembly>
     // The bytes it holds, of messages that wait and fragments, which the connection limits.
     Package Field Held: Int
+    // Whether the last Take refused a reliable part for the room it would take, which then
+    // mustn't be acked, so it comes again.
+    Package Field Refused: Bool
+    // The sequence of the packet that brought the unreliable message it gave last, or -1.
+    Field Packet: Int = -1
 
     // A channel whose sender's first id is first.
     Package New(kind: ChannelKind, first: Int)
@@ -203,13 +226,15 @@ Package Class InChannel
         Assemblies = Map<Int, Assembly>()
     End New
 
-    // Takes a message's part, of count, and gives the messages it can give now, in order. room is
-    // how many bytes the connection can still hold of what waits, which a part of the message
-    // waited for next may go past, so the channel never stalls; most is the largest a message
-    // can be. A part it has had, or that's too old or too far ahead, gives nothing.
-    Package Method Take(id: Int, index: Int, count: Int, bytes: UInt8[], room: Int,
+    // Takes a message's part, of count, in the packet of sequence packet, and gives the messages
+    // it can give now, in order. room is how many bytes the connection can still hold of what
+    // waits, which a part of the message waited for next may go past, so the channel never
+    // stalls; most is the largest a message can be. A part it has had, or that's too old or too
+    // far ahead, gives nothing.
+    Package Method Take(id: Int, index: Int, count: Int, bytes: UInt8[], packet: Int, room: Int,
                         most: Int): UInt8[][]
         Local given: UInt8[][] = []
+        Refused = False
         If count < 1 || index >= count Then Return given
         Select Kind
             Case ChannelKind.RELIABLE_ORDERED, ChannelKind.RELIABLE_UNORDERED
@@ -251,10 +276,15 @@ Package Class InChannel
 
                 Return given
             Case ChannelKind.UNRELIABLE
-                If !IsAfter(id, Next) Then Return given
+                // An id far behind the last given, in a packet after the one that brought it, is
+                // past half a round of ids lost in a row, as in an outage, so it's newer.
+                Local newer = IsAfter(id, Next) ||
+                              (Packet >= 0 && Ahead(Next, id) > WINDOW && IsAfter(packet, Packet))
+                If !newer Then Return given
                 Local whole = Whole(id, index, count, bytes, room, most)
                 If whole == Null Then Return given
                 Next = id
+                Packet = packet
                 // What's put together of older messages won't be wanted.
                 For old In Assemblies.Keys()
                     If !IsAfter(old, Next) Then Drop(old)
@@ -276,7 +306,7 @@ Package Class InChannel
 
         Local assembly = Assemblies.Get(id)
         If assembly == Null
-            If room >= 0 && bytes.Count > room Then Return Null
+            If room >= 0 && bytes.Count > room Then Return Refuse()
             // An unreliable channel puts a few messages together at a time, the newest.
             If Kind == ChannelKind.UNRELIABLE && Assemblies.Count >= 8 Then DropOldest()
             assembly = Assembly(count)
@@ -285,7 +315,7 @@ Package Class InChannel
             Return Null
         End If
 
-        If room >= 0 && bytes.Count > room && !assembly.Parts.Contains(index) Then Return Null
+        If room >= 0 && bytes.Count > room && !assembly.Parts.Contains(index) Then Return Refuse()
         Held += assembly.Add(index, bytes)
         If assembly.Size > most
             Drop(id)
@@ -295,6 +325,12 @@ Package Class InChannel
         If !assembly.IsWhole Then Return Null
         Drop(id)
         Return assembly.Joined()
+    End Method
+
+    // Refuses a part for the room it would take: a reliable one, to come again.
+    Method Refuse(): UInt8[]?
+        Refused = Kind != ChannelKind.UNRELIABLE
+        Return Null
     End Method
 
     Method Drop(id: Int)

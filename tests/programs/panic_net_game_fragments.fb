@@ -1,0 +1,10 @@
+// A MaxMessageSize past 65535 fragments, as Int's most is, is a bug, which panics where the host
+// is made, rather than overflowing.
+Import std.core
+Import std.net
+Import std.net.game
+
+Local settings = GameSettings()
+settings.Mtu = 128
+settings.MaxMessageSize = 2147483647
+Local host = Try GameHost.Bind(SocketAddress(IpAddress.Loopback, 0), settings)

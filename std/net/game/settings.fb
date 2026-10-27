@@ -57,8 +57,15 @@ Package Function Check(settings: GameSettings)
         Panic("a GameHost's Mtu must be from 128 to 65507 bytes, not {settings.Mtu}")
     End If
 
-    Local partSize = settings.Mtu - 27
-    If settings.MaxMessageSize < 1 || (settings.MaxMessageSize + partSize - 1) / partSize > 65535
+    // A CONNECT takes 15 bytes and one for each channel, which a packet must hold too.
+    If settings.Mtu < 15 + settings.Channels.Count
+        Panic("a GameHost's Mtu of {settings.Mtu} bytes can't hold a CONNECT for " +
+              "{settings.Channels.Count} channels, which takes {15 + settings.Channels.Count}")
+    End If
+
+    // A message's fragments are counted in 16 bits, so 65535 is the most.
+    Local partSize = (settings.Mtu - 27) As Int64
+    If settings.MaxMessageSize < 1 || (settings.MaxMessageSize As Int64) > 65535 * partSize
         Panic("a GameHost's MaxMessageSize must be from 1 to 65535 packets' worth, not " +
               "{settings.MaxMessageSize}")
     End If
@@ -67,5 +74,26 @@ Package Function Check(settings: GameSettings)
     If settings.Timeout.Nanoseconds <= 0 || settings.KeepAlive.Nanoseconds <= 0 ||
        settings.ConnectRetry.Nanoseconds <= 0
         Panic("a GameHost's Timeout, KeepAlive, and ConnectRetry must be above 0")
+    End If
+
+    // Each must come before the Timeout, or a quiet connection, or a handshake, never would.
+    If settings.KeepAlive.Nanoseconds >= settings.Timeout.Nanoseconds ||
+       settings.ConnectRetry.Nanoseconds >= settings.Timeout.Nanoseconds
+        Panic("a GameHost's KeepAlive, {settings.KeepAlive}, and ConnectRetry, " +
+              "{settings.ConnectRetry}, must be under its Timeout, {settings.Timeout}")
+    End If
+End Function
+
+// Panics, at the caller, for a channel settings don't have, or a message past their
+// MaxMessageSize.
+@PanicsAtCaller
+Package Function CheckMessage(settings: GameSettings, channel: Int, bytes: UInt8[])
+    If channel < 0 || channel >= settings.Channels.Count
+        Panic("a host of {settings.Channels.Count} channels has no channel {channel}")
+    End If
+
+    If bytes.Count > settings.MaxMessageSize
+        Panic("a message of {bytes.Count} bytes is past the host's MaxMessageSize, " +
+              "{settings.MaxMessageSize}")
     End If
 End Function

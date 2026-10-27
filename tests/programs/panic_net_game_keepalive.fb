@@ -1,0 +1,11 @@
+// A KeepAlive that isn't under the Timeout would let every quiet connection time out, so it's a
+// bug, which panics where the host is made.
+Import std.core
+Import std.time
+Import std.net
+Import std.net.game
+
+Local settings = GameSettings()
+settings.Timeout = 1.Seconds
+settings.KeepAlive = 2.Seconds
+Local host = Try GameHost.Bind(SocketAddress(IpAddress.Loopback, 0), settings)

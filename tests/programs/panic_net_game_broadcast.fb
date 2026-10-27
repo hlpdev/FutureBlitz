@@ -1,0 +1,9 @@
+// Broadcast on a channel the host doesn't have is a bug, which panics at the caller, with peers
+// connected or not, as a peer's Send does.
+Import std.core
+Import std.net
+Import std.net.game
+
+Local host = Try GameHost.Bind(SocketAddress(IpAddress.Loopback, 0))
+host.Broadcast(2, "fine".Bytes)
+host.Broadcast(7, "no channel 7".Bytes)

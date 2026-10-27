@@ -2,10 +2,11 @@
 // its version, and the packet's kind. A CONNECT asks for a connection, with the asker's salt, its
 // first sequence, its largest message, and its channels' kinds, which an ACCEPT answers with both
 // salts and the accepter's first sequence, or a REFUSE with why. DATA is the connection's, salts
-// XORed, then whether it acks, its sequence, the latest the other side's it got, and a bit for
-// each of the 32 before, then messages: a channel, flags, an id, a length, a fragment's index
-// and count when it's one, and the bytes. DISCONNECT ends the connection. Numbers are
-// big-endian, and sequences and ids are 16 bits, which go round, so "after" is RFC 1982's.
+// XORed, then whether it acks and asks to be acked, its sequence, the latest the other side's
+// it got, and a bit for each of the 32 before, then messages: a channel, flags, an id, a
+// length, a fragment's index and count when it's one, and the bytes. DISCONNECT ends the
+// connection. Numbers are big-endian, and sequences and ids are 16 bits, which go round, so
+// "after" is RFC 1982's.
 
 Import std.core
 
@@ -24,9 +25,12 @@ Package Const DATA_HEADER = 17
 Package Const MESSAGE_HEADER = 6
 Package Const FRAGMENT_HEADER = 4
 
-// A message's flag that it's a fragment, and DATA's that it acks.
+// A message's flag that it's a fragment, and DATA's that it acks, and that it asks to be acked
+// at the other side's next Update, as one with messages or a keepalive does, but not one that
+// only acks.
 Package Const FRAGMENT_FLAG: UInt8 = 1
 Package Const ACK_FLAG: UInt8 = 1
+Package Const ASK_FLAG: UInt8 = 2
 
 // What a packet is, by its fourth byte.
 Package Enum PacketKind: UInt8

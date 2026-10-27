@@ -33,18 +33,20 @@ Const MOST_RESEND: Int64 = 2000000000
 Const FIRST_ROUND_TRIP: Int64 = 100000000
 Const FIRST_VARIANCE: Int64 = 50000000
 
-// A packet a peer sent: its sequence, when, and the reliable parts in it, until it's acked or
-// counted lost.
+// A packet a peer sent: its sequence, when, the reliable parts in it, and whether it asked to be
+// acked at once, so its ack times a round trip, until it's acked or counted lost.
 Class SentRecord
     Field Sequence: Int
     Field Sent: Int64
     Field Parts: OutPart[]
+    Field Timed: Bool
     Field Resolved: Bool
 
-    New(sequence: Int, sent: Int64, parts: OutPart[])
+    New(sequence: Int, sent: Int64, parts: OutPart[], timed: Bool)
         Sequence = sequence
         Sent = sent
         Parts = parts
+        Timed = timed
     End New
 End Class
 
@@ -66,7 +68,8 @@ Public Class GamePeer Implements Printable
     Package Field Inbound: InChannel[] = []
     Field Sequence: Int
     Field Records: SentRecord?[] = []
-    Field LastSent: Int64 = -1
+    // When it last sent a packet that asks to be acked, which a keepalive goes KeepAlive after.
+    Field LastAsked: Int64 = -1
     Field AckPending: Bool
     // How many of the other side's packets have come since this one last sent one.
     Package Field Unanswered: Int
@@ -190,14 +193,7 @@ Public Class GamePeer Implements Printable
     // MaxMessageSize.
     @PanicsAtCaller
     Public Method Send(channel: Int, bytes: UInt8[])
-        If channel < 0 || channel >= Outbound.Count
-            Panic("a host of {Outbound.Count} channels has no channel {channel}")
-        End If
-
-        If bytes.Count > Settings.MaxMessageSize
-            Panic("a message of {bytes.Count} bytes is past the host's MaxMessageSize, " +
-                  "{Settings.MaxMessageSize}")
-        End If
+        CheckMessage(Settings, channel, bytes)
 
         If Leaving || Status == PeerState.DISCONNECTING || Status == PeerState.DISCONNECTED
             Return
@@ -256,9 +252,16 @@ Public Class GamePeer Implements Printable
     // sent, so the other side knows it's there.
     Package Method Flush(now: Int64): UInt8[][]
         Local rto = ResendTime()
+        // What's in flight is kept to MaxBuffered, from each channel's oldest message not acked,
+        // which is all the other side may have to hold, so it needn't refuse any of it.
+        Local room = Settings.MaxBuffered
+        For channel In Outbound
+            room -= channel.Spanned
+        End For
+
         Local parts: OutPart[] = []
         For channel In Outbound
-            For part In channel.Due(now, rto)
+            For part In channel.Due(now, rto, ByRef room)
                 parts.Add(part)
             End For
         End For
@@ -267,10 +270,12 @@ Public Class GamePeer Implements Printable
         Local writer: PacketWriter? = Null
         Local sequence = 0
         Local carried: OutPart[] = []
-        Local unsent = 0
+        // How many unreliable parts each channel has back, to go before its newer ones.
+        Local unsent: Int[] = []
+        unsent.Resize(Outbound.Count, 0)
         For part In parts
             If writer != Null && writer.Bytes.Count + part.Size > Settings.Mtu
-                packets.Add(Finish(writer, sequence, carried, now))
+                packets.Add(Finish(writer, sequence, carried, True, now))
                 writer = Null
                 carried = []
             End If
@@ -279,8 +284,8 @@ Public Class GamePeer Implements Printable
             // which waits in flight, unsent, and an unreliable one, which waits to be fresh again.
             If writer == Null && packets.Count >= MOST_PACKETS
                 If Outbound[part.Channel].Kind == ChannelKind.UNRELIABLE
-                    Outbound[part.Channel].Fresh.Insert(unsent, part)
-                    unsent += 1
+                    Outbound[part.Channel].Fresh.Insert(unsent[part.Channel], part)
+                    unsent[part.Channel] += 1
                 End If
 
                 Continue
@@ -288,7 +293,7 @@ Public Class GamePeer Implements Printable
 
             If writer == Null
                 sequence = Sequence
-                writer = Begin()
+                writer = Begin(True)
             End If
 
             writer.Byte(part.Channel As UInt8)
@@ -307,11 +312,13 @@ Public Class GamePeer Implements Printable
             If Outbound[part.Channel].Kind != ChannelKind.UNRELIABLE Then carried.Add(part)
         End For
 
-        If writer != Null Then packets.Add(Finish(writer, sequence, carried, now))
-        Local keepAlive = Settings.KeepAlive.Nanoseconds
-        If packets.Count == 0 && (AckPending || LastSent < 0 || now - LastSent >= keepAlive)
+        If writer != Null Then packets.Add(Finish(writer, sequence, carried, True, now))
+        // A keepalive asks to be acked, so it times a round trip too; a packet that only acks
+        // doesn't, or the two sides would ack each other's acks for good.
+        Local keepAlive = LastAsked < 0 || now - LastAsked >= Settings.KeepAlive.Nanoseconds
+        If packets.Count == 0 && (AckPending || keepAlive)
             sequence = Sequence
-            packets.Add(Finish(Begin(), sequence, [], now))
+            packets.Add(Finish(Begin(keepAlive), sequence, [], keepAlive, now))
         End If
 
         Return packets
@@ -331,8 +338,8 @@ Public Class GamePeer Implements Printable
         ReceivedCount += 1
         ReceivedBytes += size
         If (flags & ACK_FLAG) != 0 Then TakeAcks(ack, bits, now)
-        Local again = Note(sequence)
-        Local any = False
+        Local again = Had(sequence)
+        Local refused = False
         While reader.Left > 0
             Local channel = reader.Byte() As Int
             Local fragment = (reader.Byte() & FRAGMENT_FLAG) != 0
@@ -347,7 +354,6 @@ Public Class GamePeer Implements Printable
 
             Local bytes = reader.Take(length)
             If reader.Failed || channel >= Inbound.Count Then Break
-            any = True
             If again Then Continue
             Local room = Settings.MaxBuffered
             For opened In Inbound
@@ -355,12 +361,18 @@ Public Class GamePeer Implements Printable
             End For
 
             Local most = Settings.MaxMessageSize
-            For whole In Inbound[channel].Take(id, index, count, bytes, Max(room, 0), most)
+            Local inbound = Inbound[channel]
+            For whole In inbound.Take(id, index, count, bytes, sequence, Max(room, 0), most)
                 given.Add((channel, whole))
             End For
+
+            refused = refused || inbound.Refused
         End While
 
-        If any Then AckPending = True
+        // A packet with a reliable part refused for room isn't acked, so it comes again.
+        If again || refused Then Return given
+        Note(sequence)
+        If (flags & ASK_FLAG) != 0 Then AckPending = True
         Unanswered += 1
         Return given
     End Method
@@ -369,7 +381,7 @@ Public Class GamePeer Implements Printable
     // sent one, which a host sends before its next Update when there are MOST_PACKETS of them.
     Package Method Ack(now: Int64): UInt8[]
         Local sequence = Sequence
-        Return Finish(Begin(), sequence, [], now)
+        Return Finish(Begin(False), sequence, [], False, now)
     End Method
 
     // Whether it's taken as many packets as it can before it acks them.
@@ -387,7 +399,7 @@ Public Class GamePeer Implements Printable
         End If
 
         If AckPending || Leaving || Status == PeerState.DISCONNECTING Then Return 0
-        Local soonest = Min(LastReceived + timeout, LastSent + Settings.KeepAlive.Nanoseconds)
+        Local soonest = Min(LastReceived + timeout, LastAsked + Settings.KeepAlive.Nanoseconds)
         Local rto = ResendTime()
         For channel In Outbound
             If channel.Fresh.Count > 0 || channel.Queued.Count > 0 Then Return 0
@@ -401,12 +413,12 @@ Public Class GamePeer Implements Printable
         Return Max(soonest - now, 0)
     End Method
 
-    // A DATA packet's start: its connection, whether it acks, its sequence, which it takes, and
-    // its ack and ack bits.
-    Method Begin(): PacketWriter
+    // A DATA packet's start: its connection, whether it acks and asks to be acked, its sequence,
+    // which it takes, and its ack and ack bits.
+    Method Begin(ask: Bool): PacketWriter
         Local writer = PacketWriter(PacketKind.DATA)
         writer.U32(Connection)
-        writer.Byte(HasLatest ? ACK_FLAG : 0)
+        writer.Byte((HasLatest ? ACK_FLAG : 0) | (ask ? ASK_FLAG : 0))
         writer.U16(Sequence)
         writer.U16(HasLatest ? Latest : 0)
         writer.U32(HasLatest ? Bits : 0)
@@ -414,19 +426,31 @@ Public Class GamePeer Implements Printable
         Return writer
     End Method
 
-    // A packet's bytes, once it's remembered as sent at now, with the reliable parts in it.
-    Method Finish(writer: PacketWriter, sequence: Int, parts: OutPart[], now: Int64): UInt8[]
+    // A packet's bytes, once it's remembered as sent at now, with the reliable parts in it, and
+    // whether it asks to be acked.
+    Method Finish(writer: PacketWriter, sequence: Int, parts: OutPart[], ask: Bool,
+                  now: Int64): UInt8[]
         Local slot = sequence & (RECORDS - 1)
         // A packet it remembered there that wasn't acked by now won't be.
         Local old = Records[slot]
         If old != Null && !old.Resolved Then Lose(old)
-        Records[slot] = SentRecord(sequence, now, parts)
-        LastSent = now
+        Records[slot] = SentRecord(sequence, now, parts, ask)
+        If ask Then LastAsked = now
         AckPending = False
         Unanswered = 0
         SentCount += 1
         SentBytes += writer.Bytes.Count
         Return writer.Bytes
+    End Method
+
+    // Whether the other side's packet of sequence came before, as far as the bits go back.
+    Method Had(sequence: Int): Bool
+        If !HasLatest Then Return False
+        If sequence == Latest Then Return True
+        If IsAfter(sequence, Latest) Then Return False
+        Local behind = Ahead(Latest, sequence)
+        If behind > 32 Then Return False
+        Return (Bits & ((1 As UInt32) << (behind - 1))) != 0
     End Method
 
     // Notes the other side's packet of sequence as received, and gives whether it was before.
@@ -489,7 +513,7 @@ Public Class GamePeer Implements Printable
             record.Resolved = True
             // Only the newest ack times the round trip: an older one may have waited for a lost
             // ack of its own.
-            If i == 0 Then Measure(now - record.Sent)
+            If i == 0 && record.Timed Then Measure(now - record.Sent)
             For part In record.Parts
                 Outbound[part.Channel].Acked(part)
             End For

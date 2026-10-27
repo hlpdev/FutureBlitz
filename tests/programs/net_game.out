@@ -1,10 +1,10 @@
 connected: CONNECTED CONNECTED 1 1 127.0.0.1:5000 127.0.0.1:6000
 ordered: in order True whole True
 unordered: 300 each once True
-unreliable: 198 of 300, each newer True events 798 acked after 14 ticks
-network: sent 565 dropped 103 duplicated 45 reordered 133
-client: sent 341 received 207 lost 66 resends 246 loss 0.15 rtt 43.563929ms variance 5.054415ms
-bytes: 77599 3519 3774 64973
+unreliable: 203 of 300, each newer True events 803 acked after 19 ticks
+network: sent 566 dropped 103 duplicated 45 reordered 133
+client: sent 338 received 199 lost 55 resends 238 loss 0.14 rtt 52.527645ms variance 18.69404ms
+bytes: 75318 3383 3842 66698
 connecting: CONNECTING True 1
 nobody there: [7000 DISCONNECT TIMEOUT DISCONNECTED] after 101 ticks DISCONNECTED TIMEOUT 0
 full: [5000 DISCONNECT FULL DISCONNECTED] 1
@@ -17,3 +17,17 @@ timeout: [5000 DISCONNECT TIMEOUT DISCONNECTED] 100 [6000 DISCONNECT TIMEOUT DIS
 garbage: 1 [7] 1 1 CONNECTED
 ids round: ordered in order True unreliable 70000 each newer True lost 0 in 275 ticks
 sequences round: True unreliable 66000 each newer True then ordered [0, 1, 2] 0 lost 0 CONNECTED
+two unreliable channels: [20, 20] packets 41
+MaxBuffered 4000, ordered: 20 of 20, as they should be True, whole True, unacked 0
+MaxBuffered 64 KiB, ordered: 100 of 100, as they should be True, whole True, unacked 0
+MaxBuffered 64 KiB, unordered: 100 of 100, as they should be True, whole True, unacked 0
+MaxBuffered 0, ordered: 30 of 30, as they should be True, whole True, unacked 0
+receiver's MaxBuffered 4000, sender's 4 MiB: True True 0
+rtt busy: 40ms 40ms
+rtt idle: 40ms 40ms
+rtt one way: 40ms 40ms
+rtt never busy: 40ms 40ms
+MaxPeers 1, out and in: CONNECTED CONNECTED NONE 2
+at once: [5000 CONNECT, 6000 CONNECT, 6000 got 2 on 0, 5000 got 1 on 0] CONNECTED CONNECTED 1 1
+outage: CONNECTED before 2800 after 72400 of 72400 again at tick 112
+broadcast: [5000 got 5 on 0, 5000 got 5 on 0]

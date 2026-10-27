@@ -1342,9 +1342,11 @@ discovery. `Import std.net` brings in std/net/.
   for games, ENet-style. A `GameHost` is one end of any number of connections over a
   `GameLink`: a UdpSocket's, through `GameHost.Bind(address, settings)`, or any Class of a
   program's own, as a test's network that loses datagrams on purpose. `Connect(address)` gives a
-  `GamePeer`, connecting, and a host takes those others ask for, up to its `MaxPeers`: a
-  handshake of salts, whose XOR is the connection's, which refuses a full host, or one whose
-  channels or largest message differ (`DisconnectReason.FULL` or `MISMATCH`). A peer's
+  `GamePeer`, connecting, and a host takes those others ask for, up to its `MaxPeers`, which
+  counts only those: a handshake of salts, whose XOR is the connection's, which refuses a full
+  host, or one whose channels or largest message differ (`DisconnectReason.FULL` or
+  `MISMATCH`). Two hosts that ask each other at once connect, the one of the larger salt
+  answering. A peer's
   `Send(channel, bytes or text)` goes at the next `Update(now)`, which takes what's come, sends
   what's due, and gives the `GameEvent`s since the last: `CONNECT`, `RECEIVE` (a channel and
   its `Bytes` or `Text`), and `DISCONNECT`, with why (`LOCAL`, `REMOTE`, `TIMEOUT`, `FULL`, or
@@ -1353,18 +1355,24 @@ discovery. `Import std.net` brings in std/net/.
   `RELIABLE_ORDERED`, each message once and in order; `RELIABLE_UNORDERED`, each once, as soon
   as it can; and `UNRELIABLE`, never after a newer one, so what comes is the freshest. A message
   past a packet's `Mtu` (1200 bytes) goes in fragments, which are put back together, up to
-  `MaxMessageSize` (1 MiB), with `MaxBuffered` (4 MiB) held at once. Each packet has a 16-bit
-  sequence, and acks the latest of the other side's and the 32 before it; a reliable part goes
-  again once a round-trip time and four times its variance have passed, as TCP's RFC 6298 works
-  them out, each time waiting twice as long, up to 8 times. A Flush sends 16 packets at most,
+  `MaxMessageSize` (1 MiB), with `MaxBuffered` (4 MiB) held at once: a sender keeps what's in
+  flight to it, from each channel's oldest message not acked, and a receiver doesn't ack a
+  packet with a reliable part it hasn't room for, so it comes again. Each packet has a 16-bit
+  sequence, and acks the latest of the other side's and the 32 before it; a packet with
+  messages, or a keepalive, asks to be acked at the other side's next Update, and its ack times
+  the round trip. A reliable part goes again once a round-trip time and four times its variance
+  have passed, as TCP's RFC 6298 works them out, each time waiting twice as long, up to 8 times. A Flush sends 16 packets at most,
   and a peer acks every 16 it takes, so an ack's loss loses nothing. Reliable channels keep
-  1024 messages in flight, and ids and sequences go round. `Disconnect` waits for what's sent to
+  1024 messages in flight, and ids and sequences go round; an unreliable id far behind the last
+  given, in a newer packet, is past an outage, and newer. `Disconnect` waits for what's sent to
   be acked, `DisconnectNow` doesn't, and nothing heard for the `Timeout` (10 seconds) ends a
   connection, with a keepalive each `KeepAlive` (250 milliseconds). A peer has
   `RoundTripTime`, `RoundTripVariance`, `PacketLoss`, `PacketsSent`, `PacketsReceived`,
   `PacketsLost`, `Resends`, `BytesSent`, `BytesReceived`, and `Unacked`. Time is the host's to be
-  given, so a test repeats; a seed for its salts and first sequences does too. A bad channel, a
-  message too big, or settings that make no sense panic at the caller.
+  given, so a test repeats; a seed for its salts and first sequences does too. A bad channel or
+  a message too big, to `Send` or `Broadcast`, panics at the caller, and so do settings that
+  make no sense: an Mtu that can't hold a CONNECT of the channels, more than 65535 fragments to
+  a message, or a KeepAlive or ConnectRetry that isn't under the Timeout.
 
 #### std.db
 

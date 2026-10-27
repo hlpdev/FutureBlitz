@@ -1,0 +1,14 @@
+// An Mtu too small for a CONNECT of the host's channels, 15 bytes and one a channel, is a bug,
+// which panics where the host is made.
+Import std.core
+Import std.net
+Import std.net.game
+
+Local kinds: ChannelKind[] = []
+For i = 0 Until 255
+    kinds.Add(ChannelKind.UNRELIABLE)
+End For
+
+Local settings = GameSettings(kinds)
+settings.Mtu = 128
+Local host = Try GameHost.Bind(SocketAddress(IpAddress.Loopback, 0), settings)

@@ -147,9 +147,11 @@ Public Class GameHost
         Return peer
     End Method
 
-    // Sends bytes on channel to every peer that's connected.
+    // Sends bytes on channel to every peer that's connected. Panics, peers or not, for a channel
+    // the host doesn't have, or a message past its MaxMessageSize, as a peer's Send does.
     @PanicsAtCaller
     Public Method Broadcast(channel: Int, bytes: UInt8[])
+        CheckMessage(Settings, channel, bytes)
         For peer In Connections.Values()
             If peer.State == PeerState.CONNECTED Then peer.Send(channel, bytes)
         End For
@@ -302,26 +304,52 @@ Public Class GameHost
         If reader.Failed || reader.Left != 0 Then Return
         If peer != Null
             // The asker didn't get the ACCEPT, which goes again.
-            If peer.Incoming && peer.Salt == salt Then SendAccept(peer)
-            Return
+            If peer.Incoming
+                If peer.Salt == salt Then SendAccept(peer)
+                Return
+            End If
+
+            // Two hosts that ask each other at once: the one of the larger salt, or else of the
+            // larger address, answers, and the other waits for its ACCEPT.
+            If peer.State != PeerState.CONNECTING Then Return
+            Local mine = "{Link.LocalAddress}"
+            If peer.Salt < salt || (peer.Salt == salt && mine < "{from}") Then Return
         End If
 
+        Local why: DisconnectReason? = Null
         If !Matches(most, kinds)
-            Refuse(from, salt, REFUSED_MISMATCH)
+            why = DisconnectReason.MISMATCH
+        ElseIf IncomingCount() >= Settings.MaxPeers
+            why = DisconnectReason.FULL
+        End If
+
+        If why != Null
+            Refuse(from, salt, why == DisconnectReason.FULL ? REFUSED_FULL : REFUSED_MISMATCH)
+            If peer != Null Then Finish(peer, why)
             Return
         End If
 
-        If Connections.Count >= Settings.MaxPeers
-            Refuse(from, salt, REFUSED_FULL)
-            Return
-        End If
+        // The asker's peer, made now, or the one this host made to ask it, which answers it.
+        Local taken = peer ?? GamePeer(from, Settings, True, salt, Generator.Int(0, 0xFFFF), now)
+        taken.Incoming = True
+        taken.Salt = salt
+        taken.Status = PeerState.CONNECTED
+        taken.LastReceived = now
+        taken.Connection = salt ^ NextSalt()
+        taken.Open(first)
+        Connections["{from}"] = taken
+        SendAccept(taken)
+        Pending.Add(GameEvent(GameEventKind.CONNECT, taken, 0, [], DisconnectReason.NONE))
+    End Method
 
-        Local made = GamePeer(from, Settings, True, salt, Generator.Int(0, 0xFFFF), now)
-        made.Connection = salt ^ NextSalt()
-        made.Open(first)
-        Connections["{from}"] = made
-        SendAccept(made)
-        Pending.Add(GameEvent(GameEventKind.CONNECT, made, 0, [], DisconnectReason.NONE))
+    // How many of its peers connected to it, which MaxPeers limits.
+    Method IncomingCount(): Int
+        Local count = 0
+        For peer In Connections.Values()
+            If peer.Incoming Then count += 1
+        End For
+
+        Return count
     End Method
 
     // An ACCEPT: the asker's salt, the accepter's, and the accepter's first sequence.
