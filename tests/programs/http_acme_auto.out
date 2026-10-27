@@ -1,0 +1,12 @@
+first: 10:00:00:00:00:00:00:00:01, HTTP/1.1 200 OK
+log: INFO net.http: renewed the certificate for localhost, valid until 2120-01-01T00:00:00Z
+renewed as it runs: 10:00:00:00:00:00:00:00:02, True
+the connection before: 10:00:00:00:00:00:00:00:01, HTTP/1.1 200 OK
+log: INFO net.http: renewed the certificate for localhost, valid until 2120-01-01T00:00:00Z
+renewed at once: 10:00:00:00:00:00:00:00:03, HTTP/1.1 200 OK
+log: ERROR net.http: the certificate for localhost wasn't renewed: the ACME CA answered 400: the CA refused the nonce (badNonce)
+NetError HTTP_STATUS: True
+still: 10:00:00:00:00:00:00:00:03
+HTTP: 308, True
+an unknown challenge: 404
+made again: True, HTTP/1.1 200 OK

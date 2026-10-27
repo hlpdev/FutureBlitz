@@ -13,7 +13,8 @@ Import std.concurrent
 Import std.crypto
 Import std.data.json
 Import std.net.acme
-Import std.net.http
+Import std.net.http.client
+Import std.net.http.headers
 Import std.text
 Import std.time
 

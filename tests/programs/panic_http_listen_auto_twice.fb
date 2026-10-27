@@ -1,0 +1,23 @@
+// A server listens at one address, so ListenAutoAsync after Listen panics where it's called,
+// before anything goes to the CA.
+Import std.core
+Import std.crypto
+Import std.io
+Import std.net
+Import std.net.http
+
+Local bytes: UInt8[] = []
+For i = 1 To 32
+    bytes.Add(i As UInt8)
+End For
+
+Local acme = AcmeClient("http://127.0.0.1:1/dir", Key(KeyKind.ECDSA_P256, True, bytes))
+Local server = HttpServer()
+Try
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Await server.ListenAutoAsync(acme, ["localhost"], Path("unused"),
+                                 SocketAddress(IpAddress.Loopback, 0),
+                                 SocketAddress(IpAddress.Loopback, 0))
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

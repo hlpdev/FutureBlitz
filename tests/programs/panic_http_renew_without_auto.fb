@@ -1,0 +1,13 @@
+// A server's RenewAsync renews automatic HTTPS's certificate, so one without ListenAutoAsync
+// panics where it's called.
+Import std.core
+Import std.net
+Import std.net.http
+
+Local server = HttpServer()
+Print(server.CertificateNotAfter == Null, server.RenewalError == Null)
+Try
+    Await server.RenewAsync()
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

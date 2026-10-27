@@ -1396,7 +1396,9 @@ discovery. `Import std.net` brings in std/net/.
   `Identify(chain, key)` for a server that asks; `Connect(stream, host)` and `ConnectAsync`,
   whose server's certificate has to be for the host, a name, which goes as the server_name, or
   an IP address, which goes as none (RFC 6066) and has to be in the certificate's
-  subjectAltName. `TlsServer(chain, key)`, with `Offer` and `RequireClients(roots)`;
+  subjectAltName. `TlsServer(chain, key)`, with `Offer`, `RequireClients(roots)`, and
+  `Identify(chain, key)`, which gives connections a chain from then on, as a renewed
+  certificate is given, while those before keep theirs;
   `Accept(stream)` and `AcceptAsync`. Each gives a `TlsStream<S>`, a Reader and a Writer, with
   `Version` ("TLS 1.2" or "TLS 1.3"), `Protocol`, `PeerCertificate`, `Stream`, and `Close` and
   `CloseAsync`, which send close_notify the first time, after which a write throws an IOError
@@ -1511,8 +1513,18 @@ discovery. `Import std.net` brings in std/net/.
   around its own routes. `Listen(address)` or `Listen(host, port)`, or for HTTPS
   `ListenTls(address, tls)` or `ListenTls(host, port, tls)`, whose connections a `TlsServer`
   accepts, each handshake in its connection's own time, so a slow one holds no other up, and a
-  handshake that fails or takes longer than `IdleTimeout` closes its connection; `LocalAddress`,
-  `Serve()`,
+  handshake that fails or takes longer than `IdleTimeout` closes its connection; or automatic
+  HTTPS, `ListenAutoAsync(acme, names, folder, https, http)`, which listens for HTTPS at `https`
+  with a certificate for `names` that `acme`, an AcmeClient, gets from its CA, as Caddy does,
+  or that `folder` keeps from a run before while it's valid for those names (its key.pem,
+  chain.pem, and names.txt, each written atomically), while a server of its own at `http`, where
+  the CA checks HTTP-01, answers the challenges and redirects everything else to HTTPS with a
+  308; Serve renews the certificate once less than a third of its lifetime is left, which it
+  checks every `RenewalCheck` (12 hours unless it's set, more than 0 or a panic), `RenewAsync()`
+  renews it at once, and connections from then on get the renewed one while those before keep
+  theirs; a renewal that fails logs its error through std.log, as one that works logs that it
+  did, and the certificate before goes on; `CertificateNotAfter` and `RenewalError` (Null once
+  a renewal works) say how it stands; `LocalAddress`, `Serve()`,
   which answers until `Stop()`, `IsRunning`, `MaxBodySize` (16 MiB, past which a 413), and
   `IdleTimeout` (a minute). Connections stay open for the next request as RFC 9112 has it,
   pipelined requests too; an HTTP/1.1 request without a Host, or any with two, is a 400, a
@@ -1543,8 +1555,7 @@ discovery. `Import std.net` brings in std/net/.
   it's set, 1 at least, and fixed once the threads start) wait for a thread already is a 503.
   Still to come: Classes whose Methods carry `@Get` and the rest,
   registered with `server.Routes<T>(instance)` and binding a Struct of path parameters, the query,
-  and a JSON body (lane 2's For Method over a Func with type parameters of its own), and HTTPS with
-  ACME (lane 11's, through wire.fb's Duplex).
+  and a JSON body (lane 2's For Method over a Func with type parameters of its own).
 - std.net.ws: WebSocket client and server, per RFC 6455, built in step 30.
   `Import std.net.ws` brings in std/net/ws/. `WebSocket.Connect(url, protocols, timeout, tls)`
   and `ConnectAsync` open a client at a ws:// URL, or a wss:// one over TLS as `tls`, a

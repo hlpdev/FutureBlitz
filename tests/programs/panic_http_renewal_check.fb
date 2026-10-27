@@ -1,0 +1,11 @@
+// A server's RenewalCheck is more than 0, or it panics where it's set.
+Import std.core
+Import std.net.http
+Import std.time
+
+Local server = HttpServer()
+Print(server.RenewalCheck)
+server.RenewalCheck = 1.Seconds
+Print(server.RenewalCheck)
+server.RenewalCheck = Duration.Zero()
+Print("unreachable")

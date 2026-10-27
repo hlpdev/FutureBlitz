@@ -3,13 +3,21 @@
 // middleware, in the order Use gave it, to the handler of the route that fits its method and path
 // best, through the middleware of the groups that route is in; the response goes back on a
 // connection kept open for the next request, unless the request or the response says to close
-// it.
+// it. Automatic HTTPS gets the server's certificate from an ACME CA, as Let's Encrypt is, and
+// renews it while the server runs.
 
 Import std.core
 Import std.collections
+Import std.crypto
 Import std.ffi
+Import std.io.dir
+Import std.io.file
+Import std.io.path
 Import std.io.streams
+Import std.log
 Import std.time
+Import std.net.acme
+Import std.net.acme_client
 Import std.net.address
 Import std.net.tcp
 Import std.net.tls
@@ -448,6 +456,11 @@ Public Class HttpServer Extends HttpRouter
     Field Listener: TcpListener? = Null
     // What its connections' TLS is, for ListenTls.
     Field Tls: TlsServer? = Null
+    // Automatic HTTPS, for ListenAutoAsync, and its renewals, which Serve waits for as it ends,
+    // and how often they check the certificate.
+    Field Auto: AutoHttps? = Null
+    Field Renewal: Task? = Null
+    Field Check: Duration
     Field Connections: Map<Int, ServerConnection>
     Field NextId: Int
     Field Stopping: Bool
@@ -464,6 +477,7 @@ Public Class HttpServer Extends HttpRouter
     Public New()
         Connections = Map<Int, ServerConnection>()
         Idle = 60.Seconds
+        Check = 12.Hours
         Count = fb_pool_size() As Int
         Own = RouteTable()
         Super.New(Own, [], [])
@@ -554,6 +568,80 @@ Public Class HttpServer Extends HttpRouter
         Tls = tls
     End Method
 
+    // Listens for HTTPS at `https` with a certificate for `names`, DNS names, which `acme` gets
+    // from its CA, or which `folder` keeps from a run before, while it's valid for those names.
+    // On `http`, where the CA checks HTTP-01's challenges, a server of its own answers them, and
+    // redirects every other request to HTTPS, with a 308. `folder` keeps the certificate's key,
+    // as key.pem, its chain, as chain.pem, and its names, each written atomically. Serve renews
+    // the certificate as it runs, as RenewAsync does, once less than a third of its lifetime is
+    // left, which it checks every RenewalCheck; connections from then on get the renewed one,
+    // and those before keep theirs. Throws what ObtainAsync, Listen, and writing the folder do.
+    // Panics when it listens already, and as ObtainAsync does for the names.
+    @PanicsAtCaller
+    Public Async Method ListenAutoAsync(acme: AcmeClient, names: String[], folder: Path,
+                                        https: SocketAddress,
+                                        http: SocketAddress) Throws NetError, TimeoutError,
+                                                                    IOError
+        If Listener != Null || Auto != Null Then Panic("the HttpServer listens already")
+        If names.Count == 0 Then Panic("automatic HTTPS gets a certificate for a name at least")
+        Local auto = AutoHttps(acme, names, folder)
+        Try auto.Plain.Listen(http)
+        auto.Serving = auto.Plain.Serve()
+        Try
+            Local identity = Try Await auto.FirstAsync()
+            Local tls = TlsServer(identity.Chain, identity.Key)
+            Try ListenTls(https, tls)
+            auto.Tls = tls
+            auto.Use(identity)
+            auto.Secure.Port = LocalAddress.Port
+        Catch e As NetError
+            auto.Stop()
+            Throw e
+        Catch e As TimeoutError
+            auto.Stop()
+            Throw e
+        Catch e As IOError
+            auto.Stop()
+            Throw e
+        End Try
+
+        Auto = auto
+        Local check: Func(): Duration = Function() => Check
+        Renewal = auto.Renewing(check)
+    End Method
+
+    // Gets automatic HTTPS's certificate again at once, and gives it to connections from then
+    // on. Throws what ObtainAsync and writing the folder do, which RenewalError then says, and
+    // the certificate before goes on. Panics without ListenAutoAsync.
+    @PanicsAtCaller
+    Public Async Method RenewAsync() Throws NetError, TimeoutError, IOError
+        Local auto = Auto
+        If auto == Null Then Panic("the HttpServer has no automatic HTTPS; call ListenAutoAsync")
+        Try Await auto.RenewAsync()
+    End Method
+
+    // How often automatic HTTPS checks whether its certificate is due to renew: 12 hours unless
+    // it's set. Panics when it's set to 0 or less.
+    @PanicsAtCaller
+    Public Property RenewalCheck: Duration
+        Get => Check
+        Set(value)
+            If value <= Duration.Zero() Then Panic("a server's RenewalCheck is more than 0")
+            Check = value
+        End Set
+    End Property
+
+    // When automatic HTTPS's certificate expires, or Null without it.
+    Public Property CertificateNotAfter: Timestamp?
+        Get => Auto?.ValidUntil
+    End Property
+
+    // Why automatic HTTPS's last renewal failed, which std.log logs too, or Null once one has
+    // worked, or without it.
+    Public Property RenewalError: Error?
+        Get => Auto?.Failure
+    End Property
+
     // Where it listens, the port the OS picked included. Panics before Listen.
     @PanicsAtCaller
     Public Property LocalAddress: SocketAddress
@@ -577,10 +665,16 @@ Public Class HttpServer Extends HttpRouter
                 Connections[NextId] = connection
                 Answer(NextId, connection)
             Catch e As NetError
-                If listener.IsClosed Then Return
+                If listener.IsClosed Then Break
             Catch e As TimeoutError
             End Try
         End While
+
+        // Automatic HTTPS's renewals and server for HTTP end with it.
+        Local renewal = Renewal
+        If renewal != Null Then Await renewal
+        Local serving = Auto?.Serving
+        If serving != Null Then Await serving
     End Method
 
     // Stops taking connections, closes those waiting for a request, and has those answering one
@@ -588,6 +682,7 @@ Public Class HttpServer Extends HttpRouter
     Public Method Stop()
         Stopping = True
         Listener?.Close()
+        Auto?.Stop()
         For id, connection In Connections.Clone()
             If !connection.Busy Then connection.Stream.Close()
         End For
@@ -857,4 +952,198 @@ End Function
 Function ErrorBytes(status: Int): UInt8[]
     Return HeadBytes("HTTP/1.1 {status} {StatusCode.Reason(status)}",
                      ["Content-Length", "Connection"], ["0", "close"])
+End Function
+
+// Where HTTP-01's challenges are.
+Const CHALLENGES = "/.well-known/acme-challenge/"
+
+// The port HTTPS listens at, which automatic HTTPS's redirects go to once it's listening.
+Package Class HttpsPort
+    Package Field Port: UInt16
+End Class
+
+// A certificate chain and its key, and when its certificate is valid.
+Package Class Identity
+    Package ReadOnly Field Chain: Certificate[]
+    Package ReadOnly Field Key: Key
+    Package ReadOnly Field NotBefore: Timestamp
+    Package ReadOnly Field NotAfter: Timestamp
+
+    New(chain: Certificate[], key: Key, notBefore: Timestamp, notAfter: Timestamp)
+        Chain = chain
+        Key = key
+        NotBefore = notBefore
+        NotAfter = notAfter
+    End New
+End Class
+
+// `chain`, its certificate first, and `key`, or Null for no certificate, or one whose times
+// don't read.
+Function IdentityOf(chain: Certificate[], key: Key): Identity?
+    If chain.Count == 0 Then Return Null
+    Local notBefore = Timestamp.Parse(chain[0].NotBefore)
+    Local notAfter = Timestamp.Parse(chain[0].NotAfter)
+    If notBefore == Null || notAfter == Null Then Return Null
+    Return Identity(chain, key, notBefore, notAfter)
+End Function
+
+// A server's automatic HTTPS: the ACME client and the names it gets a certificate for, the folder
+// it keeps the certificate in, the challenges' answers, which a server of its own on HTTP gives,
+// and when the certificate is valid, and why its last renewal failed.
+Package Class AutoHttps
+    ReadOnly Field Acme: AcmeClient
+    ReadOnly Field Names: String[]
+    ReadOnly Field Folder: Path
+    ReadOnly Field Tokens: AcmeTokens
+    Package ReadOnly Field Secure: HttpsPort
+    Package ReadOnly Field Plain: HttpServer
+    ReadOnly Field Log: Logger
+    Package Field Serving: Task? = Null
+    Package Field Tls: TlsServer? = Null
+    Package Field ValidFrom: Timestamp
+    Package Field ValidUntil: Timestamp
+    Package Field Failure: Error? = Null
+    Field Stopped: Bool
+
+    Package New(acme: AcmeClient, names: String[], folder: Path)
+        Acme = acme
+        Names = names.Clone()
+        Folder = folder
+        Tokens = AcmeTokens()
+        Secure = HttpsPort()
+        Log = Logger("net.http")
+        Plain = HttpServer()
+        // What the server on HTTP answers with holds what it reads, and not this, which holds it.
+        Local tokens = Tokens
+        Local secure = Secure
+        Local fallback = names[0]
+        Plain.Use(Async Function(request: HttpRequest, next: HttpHandler): HttpResponse
+            Return Challenged(request, tokens, secure.Port, fallback)
+        End Function)
+    End New
+
+    // The certificate the folder keeps, while it's for the names and hasn't expired, or else one
+    // the CA gives.
+    Package Async Method FirstAsync(): Identity Throws NetError, TimeoutError, IOError
+        Local stored = Stored()
+        If stored != Null Then Return stored
+        Return Try Await ObtainAsync()
+    End Method
+
+    // What the folder keeps, or Null when it keeps nothing, or nothing it can use.
+    Method Stored(): Identity?
+        Try
+            Local names = Try File.ReadText(Folder / Path("names.txt"))
+            If names != NamesText() Then Return Null
+            Local chain = Try Certificate.AllFromPem(Try File.ReadText(Folder / Path("chain.pem")))
+            Local key = Try Key.FromPem(Try File.ReadText(Folder / Path("key.pem")))
+            Local identity = IdentityOf(chain, key)
+            If identity == Null || identity.NotAfter <= Timestamp.Now() Then Return Null
+            Return identity
+        Catch e As IOError
+            Return Null
+        Catch e As ParseError
+            Return Null
+        End Try
+    End Method
+
+    // A certificate for the names, with a new key, which the folder keeps from then on.
+    Async Method ObtainAsync(): Identity Throws NetError, TimeoutError, IOError
+        Local key = Key(KeyKind.ECDSA_P256, True, EcdsaP256.NewPrivateKey())
+        Local pem = Try Await Acme.ObtainAsync(Names, key, Tokens)
+        Local chain = Try? Certificate.AllFromPem(pem)
+        Local identity = chain == Null ? Null : IdentityOf(chain, key)
+        If identity == Null
+            Throw NetError(NetErrorKind.OTHER, "the ACME CA's certificate doesn't read")
+        End If
+
+        Try Await Dir.CreateAllAsync(Folder)
+        Try Await File.WriteTextAtomicAsync(Folder / Path("key.pem"), key.ToPem())
+        Try Await File.WriteTextAtomicAsync(Folder / Path("chain.pem"), pem)
+        Try Await File.WriteTextAtomicAsync(Folder / Path("names.txt"), NamesText())
+        Return identity
+    End Method
+
+    // Gets the certificate again, which connections from then on get, or keeps why it failed,
+    // and logs either.
+    Package Async Method RenewAsync() Throws NetError, TimeoutError, IOError
+        Try
+            Local identity = Try Await ObtainAsync()
+            Tls?.Identify(identity.Chain, identity.Key)
+            Use(identity)
+            Failure = Null
+            Log.Info("renewed the certificate for {NamesText()}, valid until {ValidUntil}")
+        Catch e As NetError
+            Failed(e)
+            Throw e
+        Catch e As TimeoutError
+            Failed(e)
+            Throw e
+        Catch e As IOError
+            Failed(e)
+            Throw e
+        End Try
+    End Method
+
+    Method Failed(e: Error)
+        Failure = e
+        Log.Error("the certificate for {NamesText()} wasn't renewed: {e.Message}")
+    End Method
+
+    // Renews the certificate once less than a third of its lifetime is left, checking every
+    // `check()`, until Stop; it waits a second at a time, so Stop ends it soon.
+    Package Async Method Renewing(check: Func(): Duration)
+        While !Stopped
+            Local deadline = Deadline.After(check())
+            While !Stopped && !deadline.HasPassed
+                Local wait = deadline.Remaining
+                Await Timer.After(wait < 1.Seconds ? wait : 1.Seconds)
+            End While
+
+            If !Stopped && ValidUntil - Timestamp.Now() < (ValidUntil - ValidFrom) / 3
+                Try? Await RenewAsync()
+            End If
+        End While
+    End Method
+
+    // Notes when the certificate it serves from then on is valid.
+    Package Method Use(identity: Identity)
+        ValidFrom = identity.NotBefore
+        ValidUntil = identity.NotAfter
+    End Method
+
+    Method NamesText(): String => Names.Join("\n")
+
+    Package Method Stop()
+        Stopped = True
+        Plain.Stop()
+    End Method
+End Class
+
+// What automatic HTTPS's server on HTTP answers `request` with: a challenge's key authorization
+// from `tokens`, or a 404 for a token it hasn't, and for anything else, a 308 to the same target
+// over HTTPS, at its Host, or `fallback` without one, and `port`.
+Function Challenged(request: HttpRequest, tokens: AcmeTokens, port: UInt16,
+                    fallback: String): HttpResponse
+    If request.Path.StartsWith(CHALLENGES)
+        Local answer = tokens.Answer(request.Path)
+        If answer == Null Then Return HttpResponse.Of(StatusCode.NOT_FOUND)
+        Return HttpResponse.Of(Body.Text(answer))
+    End If
+
+    Local host = HostOf(request.Headers.Get("Host") ?? fallback)
+    Local authority = port == 443 ? host : "{host}:{port}"
+    Local target = request.Target.StartsWith("/") ? request.Target : request.Path
+    Return HttpResponse.Redirect("https://{authority}{target}", 308)
+End Function
+
+// A Host field's host, without its port: a name, an IPv4 address, or an IPv6 one in brackets.
+Function HostOf(field: String): String
+    If field.StartsWith("[")
+        Local close = field.Find("]") ?? -1
+        Return close < 0 ? field : field.Slice(0, close + 1)
+    End If
+
+    Local colon = field.Find(":") ?? -1
+    Return colon < 0 ? field : field.Slice(0, colon)
 End Function

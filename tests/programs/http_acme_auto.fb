@@ -1,0 +1,155 @@
+// Automatic HTTPS against the test server's CA (tests/native/acme_ca): a server's ListenAutoAsync
+// gets a certificate for localhost, proved by HTTP-01 on the port the test server checks, which
+// its own server on HTTP answers, redirecting everything else to HTTPS. A certificate that's a
+// third of its lifetime from expiring is renewed as the server runs, and RenewAsync renews one at
+// once; a connection made after gets the new one, and one made before keeps its own. A renewal
+// that fails says why, and the certificate before goes on; std.log logs both, which a sink of
+// the program's own prints without their times. A server made again with the folder uses what it
+// keeps.
+Import std.core
+Import std.collections
+Import std.crypto
+Import std.ffi
+Import std.io
+Import std.log
+Import std.net
+Import std.net.http
+Import std.text
+Import std.time
+
+Global base = Input() ?? ""
+Global secure = Input() ?? ""
+Global refused = Input() ?? ""
+Global secure1 = Input() ?? ""
+// Past the test CA's certificates, the port the CA checks HTTP-01's challenges at.
+Global challengePort: UInt16 = 0
+Loop
+    Local line = Input()
+    If line == Null Then Break
+    Local port = UInt16.Parse(line)
+    If port != Null
+        challengePort = port
+        Break
+    End If
+End Loop
+
+// A key of fixed bytes, of an ECDSA P-256 private key.
+Function KeyOf(first: Int): Key
+    Local bytes: UInt8[] = []
+    For i = 0 Until 32
+        bytes.Add((first + i) As UInt8)
+    End For
+
+    Return Key(KeyKind.ECDSA_P256, True, bytes)
+End Function
+
+// A TLS connection to localhost at `port`, trusting only the CA's `root`, and its certificate's
+// serial number.
+Async Function Connected(port: UInt16, root: Certificate[]): TlsStream<TcpStream> Throws NetError,
+                                                                                       TimeoutError
+    Local client = TlsClient()
+    client.TrustOnly(root)
+    Local tcp = Try Await TcpStream.ConnectAsync("127.0.0.1", port)
+    Return Try Await client.ConnectAsync(tcp, "localhost")
+End Function
+
+Function SerialOf(tls: TlsStream<TcpStream>): String => tls.PeerCertificate?.SerialNumber ?? "-"
+
+// The status line a GET of /hello on `tls` is answered with.
+Async Function Hello(tls: TlsStream<TcpStream>): String Throws IOError
+    Try Await tls.WriteAsync(Buffer<UInt8>.From("GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n".Bytes))
+    Return Try Await BufferedReader(tls).ReadLineAsync() ?? "-"
+End Function
+
+// The route both servers have.
+Async Function Hello(request: HttpRequest): HttpResponse
+    Return HttpResponse.Of(Body.Text("hello"))
+End Function
+
+// std.log's records, printed without their times, which change each run.
+DefaultLogOutput().Clear()
+DefaultLogOutput().Add(Function(record: LogRecord)
+    Print("log: {record.Level} {record.Module}: {record.Message}")
+End Function)
+
+Async Function Run()
+    Try
+        Local folder = Try TempDir()
+        Local root = Try Certificate.AllFromPem(Try Http.GetText("{base}/acme/root"))
+        Local server = HttpServer()
+        server.RenewalCheck = 500.Milliseconds
+        server.Get("/hello", Function(request: HttpRequest) => Hello(request))
+
+        // The first certificate is due for renewal at once: valid from 100 seconds ago to 40
+        // from now. Those after are valid for a century.
+        Try Http.GetText("{base}/acme/validity?before=100&after=40")
+        Local acme = AcmeClient("{base}/acme/dir", KeyOf(1))
+        Try Await server.ListenAutoAsync(acme, ["localhost"], folder.Path,
+                                         SocketAddress(IpAddress.Loopback, 0),
+                                         SocketAddress(IpAddress.Loopback, challengePort))
+        Try Http.GetText("{base}/acme/validity")
+        Local serving = server.Serve()
+        Local port = server.LocalAddress.Port
+        Local first = server.CertificateNotAfter
+        Local before = Try Await Connected(port, root)
+        Print("first: {SerialOf(before)}, {Try Await Hello(before)}")
+
+        // Renewed as the server runs.
+        Local waited = 0
+        While server.CertificateNotAfter == first && waited < 200
+            Await Timer.After(100.Milliseconds)
+            waited += 1
+        End While
+
+        Local after = Try Await Connected(port, root)
+        Print("renewed as it runs: {SerialOf(after)}, {server.RenewalError == Null}")
+        Print("the connection before: {SerialOf(before)}, {Try Await Hello(before)}")
+
+        // Renewed at once.
+        Try Await server.RenewAsync()
+        Local now = Try Await Connected(port, root)
+        Print("renewed at once: {SerialOf(now)}, {Try Await Hello(now)}")
+
+        // A renewal that fails, after which the certificate before goes on.
+        Try Http.GetText("{base}/acme/refuse-nonce")
+        Try Http.GetText("{base}/acme/refuse-nonce")
+        Try
+            Try Await server.RenewAsync()
+        Catch e As NetError
+            Print("NetError {e.Kind}: {server.RenewalError?.Message == e.Message}")
+        End Try
+
+        Local still = Try Await Connected(port, root)
+        Print("still: {SerialOf(still)}")
+
+        // HTTP: challenges, and a redirect to HTTPS for the rest.
+        Local plain = HttpClient()
+        plain.FollowRedirects = False
+        Local redirected = Try Await plain.GetAsync("http://127.0.0.1:{challengePort}/page?x=1")
+        Local location = redirected.Headers.Get("Location") ?? "-"
+        Print("HTTP: {redirected.Status}, {location == "https://127.0.0.1:{port}/page?x=1"}")
+        Local unknown = Try Await plain.GetAsync("http://127.0.0.1:{challengePort}" +
+                                                 "/.well-known/acme-challenge/none")
+        Print("an unknown challenge: {unknown.Status}")
+
+        server.Stop()
+        Await serving
+
+        // A server made again with the folder uses what it keeps, and orders nothing.
+        Local again = HttpServer()
+        again.Get("/hello", Function(request: HttpRequest) => Hello(request))
+        Try Await again.ListenAutoAsync(AcmeClient("{base}/acme/dir", KeyOf(1)), ["localhost"],
+                                        folder.Path, SocketAddress(IpAddress.Loopback, 0),
+                                        SocketAddress(IpAddress.Loopback, challengePort))
+        Local servingAgain = again.Serve()
+        Local kept = Try Await Connected(again.LocalAddress.Port, root)
+        Print("made again: {SerialOf(kept) == SerialOf(now)}, {Try Await Hello(kept)}")
+        again.Stop()
+        Await servingAgain
+        Try folder.Close()
+    Catch e As Error
+        Print("failed: {e.Message}")
+    End Try
+End Function
+
+Await Run()
