@@ -4,6 +4,7 @@
 
 Import std.core
 Import std.os
+Import std.text
 
 Enum CopyMode
     NEWER, ALL
@@ -75,6 +76,20 @@ Struct Maybe
     Field Tag: String[]?
     Field Ratio: Double = 0.0
     Field Count: Int = 0
+End Struct
+
+// An OnLoaded that needs what the command line gives.
+@Program(Name: "sized")
+Struct Sized
+    @Positional(Help: "The file")
+    Field Path: String
+    @Option(Help: "How big")
+    Field Size: Int = 5
+
+    ByRef Method OnLoaded()
+        Print("OnLoaded with '{Path}'")
+        Size = 100 / Path.Length
+    End Method
 End Struct
 
 // Commands whose help says what they do, by @Program or by @Subcommand.
@@ -192,6 +207,12 @@ ShowGit(["commit"])
 ShowGit(["comit"])
 ShowGit(["send", "--help"])
 Print(Args.Help<Git>())
+
+// OnLoaded runs once, on what the command line gives, and never on the defaults the help
+// shows.
+Local sized = Try Args.Parse<Sized>(["abcd"])
+Print(sized.Path, sized.Size)
+Print(Args.Help<Sized>())
 
 // A short group goes a letter at a time, one of more than one byte too.
 For arguments In [["-é"], ["-vé"], ["-v", "é"]]

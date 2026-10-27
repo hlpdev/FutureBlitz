@@ -504,14 +504,6 @@ Public Class ArgsParser
         End For
     End Method
 
-    // What a command line with nothing on it reads as: an empty Array for each argument that
-    // takes more than one value.
-    Package Method Nothing(): Value
-        Local read = Value.Object()
-        Fill(read)
-        Return read
-    End Method
-
     // Leaves the argument at `key` out when it isn't given, where Parse would give an empty
     // Array, as for a T[]? Field, which is Null then.
     Package Method Unfilled(key: String)
@@ -523,8 +515,7 @@ Public Class ArgsParser
         End For
     End Method
 
-    // Each option's default, for the help, from what Load made of a command line with nothing on
-    // it, by its key.
+    // Each option's default, for the help, from what Defaults<T>() gives, by its key.
     Package Method ShowDefaults(defaults: Value)
         For i = 0 Until Specs.Count
             If Specs[i].Kind != ArgKind.OPTION Then Continue
@@ -678,26 +669,15 @@ Function ParserOf<T>(command: String = "", about: String = ""): ArgsParser
         If many && optional Then parser.Unfilled(key)
     End For
 
-    // What the Fields are without their arguments, to show in the help, when Load can make a T of
-    // a command line with nothing on it.
-    Local defaults = DefaultsOf<T>(parser.Nothing())
-    If defaults != Null Then parser.ShowDefaults(defaults)
+    // What the Fields are without their arguments, to show in the help: their defaults, made
+    // without T's New or OnLoaded, which runs only on the T a command line gives.
+    parser.ShowDefaults(Defaults<T>())
     Return parser
 End Function
 
 // An attribute's text, or `otherwise` where it gives none.
 Function Given(text: String?, otherwise: String): String
     Return text != Null && text != "" ? text : otherwise
-End Function
-
-// What a T's Fields are when nothing sets them, by their keys, when Load can make one of nothing.
-// Read from what Save gives, not the Fields, which a T? may not have.
-Function DefaultsOf<T>(nothing: Value): Value?
-    Try
-        Return Save(Try Load<T>(nothing))
-    Catch e As ParseError
-        Return Null
-    End Try
 End Function
 
 // A default's text for the help, or "" for nothing worth showing: Null, False, a zero of any

@@ -75,6 +75,16 @@ Options:
 Commands:
   commit       Records changes
   send         Sends commits
+OnLoaded with 'abcd'
+abcd 25
+Usage: sized [options] <path>
+
+Arguments:
+  <path>             The file
+
+Options:
+      --size <size>  How big (default: 5)
+  -h, --help         Prints this help
 UNKNOWN unknown option '-é'
 UNKNOWN unknown option '-é'
 ok True é
