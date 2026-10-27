@@ -932,6 +932,18 @@ TEST_CASE("std.io's FolderSource is Final so its Async reads are its reads", "[s
           errors_t{ "FolderSource: FolderSource is Final, so it can't be extended" });
 }
 
+TEST_CASE("only std extends Buffer with a view of memory it keeps", "[sema]") {
+    // Safe code views memory it doesn't own only through Unsafe's View, which checks it.
+    CHECK(errors_of("Import std.ffi\n"
+                    "Class Wild Extends Buffer<UInt8>\n"
+                    "    New(first: Ptr<UInt8>, viewed: Buffer<UInt8>?)\n"
+                    "        Super.New(first, 1000000, viewed)\n"
+                    "    End New\n"
+                    "End Class") ==
+          errors_t{ "New: Buffer<T>'s New is Package in std/ffi/buffer.fb, so only the package std "
+                    "can use it" });
+}
+
 TEST_CASE("conditions must be Bool", "[sema]") {
     CHECK(errors_of("If 1\nEnd If") == errors_t{ "1: expected Bool, found Int32" });
     CHECK(errors_of("Local n = 1\nWhile n\nEnd While") ==

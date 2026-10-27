@@ -43,8 +43,9 @@ Public Class Buffer<T: CData> Implements Iterable<T>
     End New
 
     // A view of `count` T's from `first`, in what `viewed` has, or in C's memory, or, for a
-    // Class extending this one, in memory it keeps there while it is.
-    Protected New(first: Ptr<T>, count: Int64, viewed: Buffer<T>?)
+    // Class of std's extending this one, in memory it keeps there while it is. It's std's alone,
+    // since safe code can't view memory it doesn't own.
+    Package New(first: Ptr<T>, count: Int64, viewed: Buffer<T>?)
         First = first
         Length = count
         Viewed = viewed
