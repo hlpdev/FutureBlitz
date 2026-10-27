@@ -12,7 +12,9 @@
 // 8555 for a client to make an account, order a certificate, prove its names by HTTP-01, and
 // finalize the order with a CSR, which it issues from its own root. It answers requests a test
 // server gives it, so it has no socket of its own, and checks a challenge through the server's
-// fetch. Its accounts' keys are ES256's, P-256, which is what std.net.acme makes.
+// fetch, as Pebble does, later: the second time its authorization is asked about, after a
+// Retry-After of a second. Its accounts' keys are ES256's, P-256, which is what std.net.acme
+// makes.
 namespace fb::test {
 
 /// A request to the CA: its method, its path from the CA's base URL, and its body.
@@ -47,6 +49,10 @@ public:
 
     /// The CA's answer to `request`.
     [[nodiscard]] acme_response_t handle(const acme_request_t& request);
+
+    /// Refuses the next request's nonce, as badNonce, as a CA may any nonce, which a client tries
+    /// again after.
+    void refuse_nonce();
 
     /// The root its certificates chain to, as PEM, which a test trusts.
     [[nodiscard]] static const std::string& root_pem();

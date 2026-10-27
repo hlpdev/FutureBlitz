@@ -394,6 +394,8 @@ struct authorization_t {
     std::string status = "pending";
     std::string challenge_status = "pending";
     std::string error;
+    /// How many times it's been asked about since its challenge was, which its check waits for.
+    std::size_t looks = 0;
 };
 
 struct order_t {
@@ -507,6 +509,8 @@ struct acme_ca_t::state_t {
     std::vector<account_t> accounts;
     std::vector<order_t> orders;
     std::vector<authorization_t> authorizations;
+    /// How many requests' nonces it refuses next, whatever they are.
+    std::size_t refusing = 0;
     mbedtls_pk_context key{};
 };
 
@@ -561,6 +565,10 @@ acme_ca_t::acme_ca_t(std::string base, acme_fetch_t fetch)
 
 acme_ca_t::~acme_ca_t() {
     mbedtls_pk_free(&m_state->key);
+}
+
+void acme_ca_t::refuse_nonce() {
+    ++m_state->refusing;
 }
 
 const std::string& acme_ca_t::root_pem() {
@@ -674,6 +682,11 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
     }
 
     state.nonces.erase(used);
+    if (state.refusing > 0) {
+        --state.refusing;
+        return with_nonce(problem(400, "badNonce", "the CA refused the nonce"));
+    }
+
     if (header->string("url") != base + request.path) {
         return with_nonce(problem(401, "unauthorized", "the JWS's url isn't the request's"));
     }
@@ -800,24 +813,17 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
 
     if (const std::optional<std::size_t> index =
             index_after(request.path, "/authz/", state.authorizations.size())) {
-        if (state.authorizations[*index].account != account) {
+        authorization_t& authorization = state.authorizations[*index];
+        if (authorization.account != account) {
             return with_nonce(
                 problem(403, "unauthorized", "the authorization isn't the account's"));
         }
 
-        return with_nonce(json_response(200, authorization_json(*index)));
-    }
-
-    if (const std::optional<std::size_t> index =
-            index_after(request.path, "/challenge/", state.authorizations.size())) {
-        authorization_t& authorization = state.authorizations[*index];
-        if (authorization.account != account) {
-            return with_nonce(problem(403, "unauthorized", "the challenge isn't the account's"));
-        }
-
-        // The check runs at once: the key authorization, the token and the account key's
-        // thumbprint, at the name's well-known path.
-        if (authorization.status == "pending") {
+        // A challenge being checked is checked the second time its authorization is asked about,
+        // so a client waits, as Retry-After says, at least once: the key authorization, the token
+        // and the account key's thumbprint, at the name's well-known path.
+        acme_response_t response = json_response(200, "");
+        if (authorization.challenge_status == "processing" && ++authorization.looks > 1) {
             const std::string expected =
                 std::format("{}.{}", authorization.token, state.accounts[account].thumbprint);
             const std::optional<std::string> fetched =
@@ -841,6 +847,24 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
                     order.status = good ? (all ? "ready" : "pending") : "invalid";
                 }
             }
+        } else if (authorization.challenge_status == "processing") {
+            response.headers.emplace_back("Retry-After", "1");
+        }
+
+        response.body = authorization_json(*index);
+        return with_nonce(std::move(response));
+    }
+
+    if (const std::optional<std::size_t> index =
+            index_after(request.path, "/challenge/", state.authorizations.size())) {
+        authorization_t& authorization = state.authorizations[*index];
+        if (authorization.account != account) {
+            return with_nonce(problem(403, "unauthorized", "the challenge isn't the account's"));
+        }
+
+        // The CA checks it later, as Pebble does: see the authorization's.
+        if (authorization.challenge_status == "pending") {
+            authorization.challenge_status = "processing";
         }
 
         acme_response_t response = json_response(200, challenge_json(*index));

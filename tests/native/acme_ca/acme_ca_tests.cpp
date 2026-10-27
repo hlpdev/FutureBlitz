@@ -255,16 +255,25 @@ TEST_CASE("an account orders a certificate, proves its names by HTTP-01, and get
     CHECK(member(order.body, "status") == "pending");
     CHECK(member(order.body, "finalize") == std::format("{}/order/1/finalize", base));
 
-    // Each name's authorization has an HTTP-01 challenge, which the responder answers.
+    // Each name's authorization has an HTTP-01 challenge, which the responder answers, and which
+    // the CA checks the second time the authorization is asked about after it.
     for (const std::string_view path : { "/authz/1", "/authz/2" }) {
         const fb::test::acme_response_t authorization = client.post(path, "");
         REQUIRE(authorization.status == 200);
+        CHECK(header(authorization, "Retry-After").empty());
         const std::string token = member(authorization.body, "token");
         responses()[token] = client.key_authorization(token);
         const std::string url = member(authorization.body, "url");
         const fb::test::acme_response_t challenge = client.post(url.substr(base.size()), "{}");
         CHECK(challenge.status == 200);
-        CHECK(member(challenge.body, "status") == "valid");
+        CHECK(member(challenge.body, "status") == "processing");
+        const fb::test::acme_response_t waiting = client.post(path, "");
+        CHECK(member(waiting.body, "status") == "pending");
+        CHECK(header(waiting, "Retry-After") == "1");
+        CHECK(member(client.post(url.substr(base.size()), "{}").body, "status") == "processing");
+        const fb::test::acme_response_t checked = client.post(path, "");
+        CHECK(member(checked.body, "status") == "valid");
+        CHECK(header(checked, "Retry-After").empty());
     }
 
     CHECK(member(client.post("/order/1", "").body, "status") == "ready");
@@ -350,6 +359,15 @@ TEST_CASE("the CA refuses what RFC 8555 has it refuse", "[acme]") {
     CHECK(type(stranger.post("/account", "{}")) == "userActionRequired");
     CHECK(ca.handle({ .method = "POST", .path = "/account", .body = "not json" }).status == 400);
 
+    // A nonce it refuses, though it gave it, once, after which the nonce that came with the
+    // refusal works.
+    ca.refuse_nonce();
+    client_t refused(ca);
+    const fb::test::acme_response_t refusal = refused.post("/account", terms);
+    CHECK(type(refusal) == "badNonce");
+    CHECK(member(refusal.body, "detail") == "the CA refused the nonce");
+    CHECK(refused.post("/account", terms).status == 201);
+
     // An order before its names are proved isn't ready; a wrong key authorization fails the
     // challenge, and with it the order; and a CSR for other names is refused.
     client_t joined(ca);
@@ -362,8 +380,10 @@ TEST_CASE("the CA refuses what RFC 8555 has it refuse", "[acme]") {
           "orderNotReady");
     const std::string token = member(joined.post("/authz/1", "").body, "token");
     responses()[token] = "wrong";
-    const fb::test::acme_response_t failed = joined.post("/challenge/1", "{}");
-    CHECK(member(failed.body, "status") == "invalid");
+    CHECK(member(joined.post("/challenge/1", "{}").body, "status") == "processing");
+    CHECK(member(joined.post("/authz/1", "").body, "status") == "pending");
+    CHECK(member(joined.post("/authz/1", "").body, "status") == "invalid");
+    CHECK(member(joined.post("/challenge/1", "{}").body, "status") == "invalid");
     CHECK(member(joined.post("/authz/1", "").body, "detail") ==
           "the response at localhost isn't the key authorization");
     CHECK(member(joined.post("/order/1", "").body, "status") == "invalid");
@@ -373,7 +393,10 @@ TEST_CASE("the CA refuses what RFC 8555 has it refuse", "[acme]") {
         201);
     const std::string second = member(joined.post("/authz/2", "").body, "token");
     responses()[second] = joined.key_authorization(second);
-    CHECK(member(joined.post("/challenge/2", "{}").body, "status") == "valid");
+    CHECK(member(joined.post("/challenge/2", "{}").body, "status") == "processing");
+    CHECK(member(joined.post("/authz/2", "").body, "status") == "pending");
+    CHECK(member(joined.post("/authz/2", "").body, "status") == "valid");
+    CHECK(member(joined.post("/order/2", "").body, "status") == "ready");
     CHECK(type(joined.post(
               "/order/2/finalize",
               std::format(R"({{"csr":"{}"}})", client_t::csr({ "other.localhost" })))) == "badCSR");
