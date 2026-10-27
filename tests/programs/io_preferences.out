@@ -29,6 +29,29 @@ async
 0.5
 yes 0
 yes True
+typed
+False
+# Typed's preferences, which std.io's Preferences keeps
+lives=3
+most=9223372036854775807
+least=-9223372036854775808
+volume=0.1
+huge=1e300
+tiny=5e-324
+negative zero=-0
+nan=NaN
+infinite=-Inf
+fullscreen=True
+muted=False
+
+3 9223372036854775807 -9223372036854775808
+0.1 1e300 5e-324
+-0 -Inf True -Inf
+True False
+True True 7
+3 2.5 True
+True True False
+3 False
 errors
 0 0
 NOT_A_DIRECTORY

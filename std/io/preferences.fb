@@ -88,11 +88,54 @@ Public Class Preferences
     // The setting `key`, or `fallback` when there's none.
     Public Method Get(key: String, fallback: String): String => Values.Get(key, fallback)
 
+    // The setting `key` as an integer, as Int64.Parse reads it, or Null when there's none, or it
+    // isn't one.
+    Public Method GetInt(key: String): Int64?
+        Local text = Values.Get(key)
+        Return text == Null ? Null : Int64.Parse(text)
+    End Method
+
+    // The setting `key` as an integer, or `fallback` when there's none, or it isn't one.
+    Public Method GetInt(key: String, fallback: Int64): Int64 => GetInt(key) ?? fallback
+
+    // The setting `key` as a Double, as Double.Parse reads it, or Null when there's none, or it
+    // isn't one.
+    Public Method GetDouble(key: String): Double?
+        Local text = Values.Get(key)
+        Return text == Null ? Null : Double.Parse(text)
+    End Method
+
+    Public Method GetDouble(key: String, fallback: Double): Double => GetDouble(key) ?? fallback
+
+    // The setting `key` as a Bool, "True" or "False", or Null when there's none, or it's another.
+    Public Method GetBool(key: String): Bool?
+        Local text = Values.Get(key)
+        Return text == Null ? Null : Bool.Parse(text)
+    End Method
+
+    Public Method GetBool(key: String, fallback: Bool): Bool => GetBool(key) ?? fallback
+
     // Sets `key` to `value`, which Save keeps.
     Public Method Set(key: String, value: String)
         If Values.Get(key) == value Then Return
         Values[key] = value
         Change()
+    End Method
+
+    // Sets `key` to the integer's text, which GetInt reads back.
+    Public Method SetInt(key: String, value: Int64)
+        Set(key, "{value}")
+    End Method
+
+    // Sets `key` to the Double's text, the shortest that reads back as it, which GetDouble does,
+    // NaN and the infinities too.
+    Public Method SetDouble(key: String, value: Double)
+        Set(key, "{value}")
+    End Method
+
+    // Sets `key` to "True" or "False", which GetBool reads back.
+    Public Method SetBool(key: String, value: Bool)
+        Set(key, "{value}")
     End Method
 
     // Takes out the setting `key`, and gives whether there was one.

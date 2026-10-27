@@ -94,6 +94,40 @@ Try Await later
 Local raced = Try Preferences("Racing", root)
 Print("{racing.Get("late") ?? "none"} {(raced.Get("late") == Null) == racing.IsChanged()}")
 
+Print("typed")
+// Numbers and Bools are kept as the text Parse reads back, and read back as the same value.
+Local typed = Try Preferences("Typed", root)
+typed.SetInt("lives", 3)
+typed.SetInt("most", 9223372036854775807)
+typed.SetInt("least", -9223372036854775807 - 1)
+typed.SetDouble("volume", 0.1)
+typed.SetDouble("huge", 1e300)
+typed.SetDouble("tiny", 5e-324)
+typed.SetDouble("negative zero", -0.0)
+Local nothing = 0.0
+typed.SetDouble("nan", nothing / nothing)
+typed.SetDouble("infinite", -1.0 / nothing)
+typed.SetBool("fullscreen", True)
+typed.SetBool("muted", False)
+Try typed.Save()
+typed.SetInt("lives", 3)
+Print("{typed.IsChanged()}")
+Print(Try File.ReadText(root / "Typed" / "preferences.txt"))
+Local reread = Try Preferences("Typed", root)
+Print("{reread.GetInt("lives") ?? -1} {reread.GetInt("most") ?? -1} {reread.GetInt("least") ?? -1}")
+Print("{reread.GetDouble("volume") ?? -1.0} {reread.GetDouble("huge") ?? -1.0} {reread.GetDouble("tiny") ?? -1.0}")
+Local zero = reread.GetDouble("negative zero") ?? 1.0
+Local nan = reread.GetDouble("nan") ?? 1.0
+Print("{zero} {1.0 / zero} {nan != nan} {reread.GetDouble("infinite") ?? 0.0}")
+Print("{reread.GetBool("fullscreen") ?? False} {reread.GetBool("muted") ?? True}")
+// One that isn't there, or isn't one of the type, is Null, or the fallback.
+reread.Set("name", "Ada")
+reread.Set("lower", "true")
+Print("{reread.GetInt("name") == Null} {reread.GetInt("volume") == Null} {reread.GetInt("missing", 7)}")
+Print("{reread.GetDouble("lives") ?? -1.0} {reread.GetDouble("name", 2.5)} {reread.GetDouble("missing") == Null}")
+Print("{reread.GetBool("lower") == Null} {reread.GetBool("lives", True)} {reread.GetBool("missing", False)}")
+Print("{reread.Get("lives") ?? "none"} {reread.Get("muted") ?? "none"}")
+
 Print("errors")
 // A file where the app's folder goes holds no settings, on every OS, though a save throws.
 Try File.WriteText(root / "Blocked", "a file where the app's folder goes")
