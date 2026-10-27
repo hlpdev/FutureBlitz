@@ -296,6 +296,14 @@ std::int32_t kind_of(const uv_stat_t& stat) {
     }
 }
 
+/// Empties the open file. Opening it with O_TRUNC would, but Windows opens a hidden or system
+/// file to be emptied, as libuv asks, only when the call gives it the same attributes, and one
+/// that has to be there only for a GENERIC_WRITE that libuv doesn't ask for.
+std::int64_t empty_file(const uv_file file) {
+    fs_t call;
+    return known_error(call.get(), uv_fs_ftruncate(nullptr, call.get(), file, 0, nullptr));
+}
+
 /// Writes all of `bytes` to `file`, from where it is.
 std::int64_t write_all(const uv_file file, std::string_view bytes) {
     while (!bytes.empty()) {
@@ -480,15 +488,24 @@ std::int64_t write_file(const request_t& request) {
         return write_atomic(request.path, request.input);
     }
 
-    const int flags =
-        UV_FS_O_WRONLY | UV_FS_O_CREAT | (request.number == 1 ? UV_FS_O_APPEND : UV_FS_O_TRUNC);
+    // Opening a folder to write is EINVAL on Windows and EISDIR on POSIX.
+    if (uv_stat_t found{}; stat_path(request.path, true, found) == 0 && is_directory(found)) {
+        return UV_EISDIR;
+    }
+
+    const bool appends = request.number == 1;
+    const int flags = UV_FS_O_WRONLY | UV_FS_O_CREAT | (appends ? UV_FS_O_APPEND : 0);
     const std::int64_t opened = open_file(request.path, flags, 0666);
     if (opened < 0) {
         return opened;
     }
 
     const auto file = static_cast<uv_file>(opened);
-    const std::int64_t result = write_all(file, request.input);
+    std::int64_t result = appends ? 0 : empty_file(file);
+    if (result == 0) {
+        result = write_all(file, request.input);
+    }
+
     close_file(file);
     return result;
 }
@@ -997,9 +1014,8 @@ std::int64_t open_request(request_t& request) {
     const bool appends = (how & open_append) != 0;
     const bool exclusive = (how & open_create_new) != 0;
     const bool creates = exclusive || (how & open_create) != 0;
-    // Windows empties a file that has to be there only for a GENERIC_WRITE that libuv doesn't
-    // ask for, so that one's emptied once it's open.
-    const bool truncates = (how & open_truncate) != 0;
+    // A file is emptied once it's open, as empty_file says why; a new one is empty already.
+    const bool truncates = (how & open_truncate) != 0 && !exclusive;
     std::uint32_t flags = flag_of(UV_FS_O_RDONLY);
     if (writes) {
         flags = flag_of(reads ? UV_FS_O_RDWR : UV_FS_O_WRONLY);
@@ -1015,10 +1031,6 @@ std::int64_t open_request(request_t& request) {
 
     if (exclusive) {
         flags |= flag_of(UV_FS_O_EXCL);
-    }
-
-    if (truncates && creates) {
-        flags |= flag_of(UV_FS_O_TRUNC);
     }
 
     // Opening a folder to write is EINVAL on Windows and EISDIR on POSIX, and to read works on
@@ -1038,12 +1050,10 @@ std::int64_t open_request(request_t& request) {
         return UV_EISDIR;
     }
 
-    if (truncates && !creates) {
-        fs_t call;
-        const int emptied = uv_fs_ftruncate(nullptr, call.get(), file, 0, nullptr);
-        if (emptied < 0) {
+    if (truncates) {
+        if (const std::int64_t emptied = empty_file(file); emptied < 0) {
             close_file(file);
-            return known_error(call.get(), emptied);
+            return emptied;
         }
     }
 

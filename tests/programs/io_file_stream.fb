@@ -8,6 +8,21 @@ Import std.ffi
 Import std.io
 Import std.text
 
+// Hides a file, as Windows' attrib +h does; elsewhere a file's hidden by its name, so it's left
+// as it is.
+#If PLATFORM_WINDOWS
+Extern "C"
+    Function SetFileAttributesA(path: CString, attributes: UInt32): Int32
+End Extern
+
+Function Hide(path: Path)
+    SetFileAttributesA(path.Text, 2)
+End Function
+#Else
+Function Hide(path: Path)
+End Function
+#End If
+
 Local temp = Try TempDir("fb-stream-")
 Local root = temp.Path
 
@@ -90,6 +105,22 @@ adding.Close()
 Local emptied = Try File.Open(root / "log.txt", OpenOptions(Write: True, Truncate: True))
 Print("{Try emptied.Size()}")
 emptied.Close()
+// File.Create, and a write's replacing, empty a file that's there, hidden ones too, which Windows
+// refuses to open with O_TRUNC.
+Try File.WriteText(root / "hidden.txt", "hidden and long")
+Hide(root / "hidden.txt")
+Local recreated = Try File.Create(root / "hidden.txt")
+Print("{Try recreated.Size()}")
+Try recreated.WriteText("one")
+recreated.Close()
+Print("{Try File.ReadText(root / "hidden.txt")}")
+Local options = OpenOptions(Write: True, Create: True, Truncate: True)
+Local again = Try File.Open(root / "hidden.txt", options)
+Try again.WriteText("two")
+again.Close()
+Try File.WriteText(root / "hidden.txt", "three")
+Try File.WriteBytes(root / "hidden.txt", "four".Bytes)
+Print("{Try File.ReadText(root / "hidden.txt")}")
 Print("{OpenKind(root / "new.txt", OpenOptions(Write: True, CreateNew: True))}")
 Print("{OpenKind(root / "new.txt", OpenOptions(Write: True, CreateNew: True))}")
 Print("{OpenKind(root / "missing.txt", OpenOptions(Read: True))}")
