@@ -260,7 +260,6 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | What | Left out in | Planned for |
 |---|---|---|
 | Setting a reflected Property or Static Field, which needs telling apart the ones without a Set or that are ReadOnly | M3 step 13 | open question |
-| Serialization by reflection, sketched as `@Serialize` and now automatic | M3 step 11 | M6 step 19 |
 | A Task that another thread waits for, which needs a Sendable result and one waiter for its error | M4 step 5 | open question |
 | A Step in a Parallel For | M4 step 7 | open question |
 | A task that waits on a Channel holds its worker, so tasks that all wait can leave none for the work they wait for | M4 step 8 | open question |
