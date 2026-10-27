@@ -88,3 +88,46 @@ End Class
 For Method m In Mixed
     m.Call(Mixed())
 End For
+
+// A loop inside another names the outer one's own type parameter, in a Function as at the top.
+Class Shapes
+    Method SI(n: Int): String => "si"
+    Method SS(s: String): String => "ss"
+    Method II(n: Int): Int => 1
+    Method IS(s: String): Int => 2
+End Class
+
+For Method m: M In Shapes
+    Where M: Func(A): String
+    For Method k: K In Shapes
+        Where K: Func(A): Int
+        Print("top {m.Name} with {k.Name}: {TypeName<A>()}")
+    End For
+End For
+
+Function Nested(shapes: Shapes)
+    For Method m: M In Shapes
+        Where M: Func(A): String
+        For Method k: K In Shapes
+            Where K: Func(A): Int
+            Print("in a Function {m.Name} with {k.Name}: {TypeName<A>()}")
+        End For
+    End For
+End Function
+
+Nested(Shapes())
+
+// The loop's Where lines are in force in its Func type.
+Class Node
+    Field v: Int
+End Class
+
+Class Watcher
+    Method Watch(w: Weak<Node>): String => "watch"
+End Class
+
+For Method m: M In Watcher
+    Where M: Func(Weak<A>): String
+    Where A: Class
+    Print("{m.Name} {TypeName<A>()}")
+End For

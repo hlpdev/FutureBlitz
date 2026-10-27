@@ -638,17 +638,12 @@ private:
     };
 
     /// The Func type a typed For Method loop's Where line gives, like "Func(A): Task<Response>",
-    /// and the type parameters of the loop's own in it, A, which each Method binds.
+    /// the type parameters of the loop's own in it, A, which each Method binds, and the loop's
+    /// file, which decides what Extends it sees.
     struct method_pattern_t {
         type_id_t signature = type_id_t::INVALID;
         std::vector<type_id_t> fresh;
-    };
-
-    /// A Method a typed For Method loop goes over: its name, and what it binds the loop's own
-    /// type parameters to.
-    struct bound_method_t {
-        std::string name;
-        std::vector<type_id_t> arguments;
+        file_id_t file{};
     };
 
     /// Work that runs on another thread: a Spawn's or Thread.Start's, or a Shared Class's
@@ -10290,8 +10285,14 @@ private:
 
         if (is_parameter(type)) {
             const bool known = std::ranges::any_of(m_bounds, [&](const bound_t& other) {
-                return other.parameter == type && other.field != type_id_t::INVALID &&
-                       other.members == bound.members && other.interface == interface;
+                if (other.parameter != type || other.field == type_id_t::INVALID ||
+                    other.members != bound.members) {
+                    return false;
+                }
+
+                return bound.members == member_kind_t::METHOD
+                           ? same_method_bound(bound, other, interface)
+                           : other.interface == interface;
             });
             return known ? std::nullopt : std::optional(misfit_t{ .type = type });
         }
@@ -10304,11 +10305,12 @@ private:
 
             const std::vector<type_id_t>& fresh = pattern->second.fresh;
             const auto place = std::ranges::find(fresh, bound.field);
-            for (const bound_method_t& method : loop_methods(type, pattern->second)) {
+            for (const loop_method_t& method : loop_methods(type, pattern->second)) {
                 const type_id_t given =
                     method.arguments[static_cast<std::size_t>(place - fresh.begin())];
                 if (!implements(given, substitute(interface, fresh, method.arguments))) {
-                    return misfit_t{ .field = method.name, .type = given };
+                    const std::string name(m_analysis.symbols[index(method.symbol)].name);
+                    return misfit_t{ .field = name, .type = given };
                 }
             }
 
@@ -10323,6 +10325,27 @@ private:
         }
 
         return std::nullopt;
+    }
+
+    /// Whether `other`, a constraint on a type parameter's Methods that its own loop puts, says
+    /// what `bound` needs, with `interface` for its Interface: a For Method loop goes over only
+    /// the Methods of its Func type, so it says that only for a loop of the same Func type, of
+    /// the same type parameter in it.
+    [[nodiscard]] bool same_method_bound(const bound_t& bound, const bound_t& other,
+                                         const type_id_t interface) const {
+        const auto wanted = m_method_patterns.find(bound.field);
+        const auto known = m_method_patterns.find(other.field);
+        if (wanted == m_method_patterns.end() || known == m_method_patterns.end() ||
+            wanted->second.fresh.size() != known->second.fresh.size()) {
+            return false;
+        }
+
+        const std::vector<type_id_t>& theirs = known->second.fresh;
+        const std::vector<type_id_t>& ours = wanted->second.fresh;
+        return substitute(known->second.signature, theirs, ours) == wanted->second.signature &&
+               std::ranges::find(theirs, other.field) - theirs.begin() ==
+                   std::ranges::find(ours, bound.field) - ours.begin() &&
+               substitute(other.interface, theirs, ours) == interface;
     }
 
     /// Why a misfit doesn't meet the constraint, as an error that shows the types in `shown`
@@ -10436,51 +10459,62 @@ private:
     void collect_field_bounds(const block_t& body, const std::vector<type_id_t>& own,
                               std::vector<bound_t>& constraints) {
         for (const stmt_id_t id : body) {
+            // A loop's own type parameters are in scope in its body, where a loop inside it
+            // names them, as when they're checked.
+            const auto* loop = std::get_if<for_member_stmt_t>(&m_ast.get(id).node);
+            const std::vector<type_id_t> scoped =
+                loop != nullptr ? collect_loop_bounds(id, *loop, own, constraints)
+                                : std::vector<type_id_t>{};
+            const std::size_t mark = enter_type_scope(scoped);
             for_each_block(
                 id, [&](const block_t& inner) { collect_field_bounds(inner, own, constraints); });
-            const auto* loop = std::get_if<for_member_stmt_t>(&m_ast.get(id).node);
-            if (loop == nullptr) {
-                continue;
-            }
-
-            if (loop->kind == member_kind_t::METHOD) {
-                collect_method_bounds(id, *loop, own, constraints);
-                continue;
-            }
-
-            const type_id_t field = m_analysis.types.add_parameter(
-                loop->type_name ? std::string(loop->type_name->text)
-                                : std::format("{}{}", unnamed_member_type, loop->variable.text));
-            m_loop_fields[id] = field;
-            // A loop over a T? goes over the T's fields, so its Where lines bound them too.
-            type_expr_id_t over = loop->type;
-            while (const auto* nullable = std::get_if<nullable_type_t>(&m_ast.get(over).node)) {
-                over = nullable->inner;
-            }
-
-            const auto* named = std::get_if<named_type_t>(&m_ast.get(over).node);
-            const auto parameter =
-                named == nullptr || !named->arguments.empty()
-                    ? own.end()
-                    : std::ranges::find(own, named->name,
-                                        [this](const type_id_t t) { return name_of(t); });
-            if (parameter == own.end()) {
-                continue;
-            }
-
-            const std::size_t mark = enter_type_scope({ field });
-            for (const bound_t& bound :
-                 quietly([&] { return resolve_constraints(loop->constraints, { field }); })) {
-                constraints.push_back({
-                    .parameter = *parameter,
-                    .interface = bound.interface,
-                    .field = field,
-                    .members = loop->kind,
-                });
-            }
-
             m_type_scope.resize(mark);
         }
+    }
+
+    /// One loop's part of collect_field_bounds(): the type parameters it makes, which are in
+    /// scope in its body.
+    std::vector<type_id_t> collect_loop_bounds(const stmt_id_t id, const for_member_stmt_t& loop,
+                                               const std::vector<type_id_t>& own,
+                                               std::vector<bound_t>& constraints) {
+        if (loop.kind == member_kind_t::METHOD) {
+            collect_method_bounds(id, loop, own, constraints);
+            return m_loop_methods.at(id).fresh;
+        }
+
+        const type_id_t field = m_analysis.types.add_parameter(
+            loop.type_name ? std::string(loop.type_name->text)
+                           : std::format("{}{}", unnamed_member_type, loop.variable.text));
+        m_loop_fields[id] = field;
+        // A loop over a T? goes over the T's fields, so its Where lines bound them too.
+        type_expr_id_t over = loop.type;
+        while (const auto* nullable = std::get_if<nullable_type_t>(&m_ast.get(over).node)) {
+            over = nullable->inner;
+        }
+
+        const auto* named = std::get_if<named_type_t>(&m_ast.get(over).node);
+        const auto parameter = named == nullptr || !named->arguments.empty()
+                                   ? own.end()
+                                   : std::ranges::find(own, named->name, [this](const type_id_t t) {
+                                         return name_of(t);
+                                     });
+        if (parameter == own.end()) {
+            return { field };
+        }
+
+        const std::size_t mark = enter_type_scope({ field });
+        for (const bound_t& bound :
+             quietly([&] { return resolve_constraints(loop.constraints, { field }); })) {
+            constraints.push_back({
+                .parameter = *parameter,
+                .interface = bound.interface,
+                .field = field,
+                .members = loop.kind,
+            });
+        }
+
+        m_type_scope.resize(mark);
+        return { field };
     }
 
     /// A typed For Method loop's Func type and type parameters, and over the function's own
@@ -15988,9 +16022,16 @@ private:
 
         std::vector<type_id_t> fresh;
         if (methods) {
+            // The pre-pass made the type parameters a function's constraints name, quietly, so
+            // the loop's own mistakes are reported here.
             const auto made = m_loop_methods.find(id);
-            const method_pattern_t pattern =
-                made != m_loop_methods.end() ? made->second : method_signature(node);
+            const method_pattern_t pattern = method_signature(
+                node, made != m_loop_methods.end() ? made->second.fresh : std::vector<type_id_t>{});
+            m_loop_methods[id] = pattern;
+            for (const type_id_t parameter : pattern.fresh) {
+                m_method_patterns[parameter] = pattern;
+            }
+
             signature = pattern.signature;
             fresh = pattern.fresh;
             if (node.type_name) {
@@ -16093,7 +16134,8 @@ private:
     /// nothing and give nothing. A name in it that isn't a type is a type parameter of the
     /// loop's own, which each Method binds: "Func(A): Task<Response>" goes over the Async
     /// Methods that take one argument of any type and give a Response.
-    method_pattern_t method_signature(const for_member_stmt_t& node) {
+    method_pattern_t method_signature(const for_member_stmt_t& node,
+                                      const std::vector<type_id_t>& made = {}) {
         const type_id_t plain = m_analysis.types.function({}, type_id_t::NONE);
         if (!node.type_name) {
             if (!node.constraints.empty()) {
@@ -16116,59 +16158,85 @@ private:
             return { .signature = plain };
         }
 
+        // One line says which Methods; another can't say others.
+        for (const constraint_t& line : node.constraints) {
+            if (&line != &*said && line.parameter.text == node.type_name->text) {
+                error(line.parameter.span,
+                      "a For Method loop says which Methods it goes over with one Where line on "
+                      "{}; this is another",
+                      node.type_name->text);
+            }
+        }
+
+        const file_id_t file = m_ast.get(node.type).span.file;
         std::vector<type_id_t> fresh;
-        add_new_names(said->interfaces.front(), fresh);
+        const std::size_t errors = m_diagnostics->error_count();
+        add_new_names(said->interfaces.front(), node.type_name->text, made, fresh);
+        if (m_diagnostics->error_count() != errors) {
+            return { .signature = plain, .file = file };
+        }
+
+        // The loop's other Where lines are in force in its Func type, as a function's are in
+        // its parameters' types, so it can name a Weak<A> under Where A: Class.
         const std::size_t mark = enter_type_scope(fresh);
+        const std::vector<bound_t> outer_bounds = m_bounds;
+        for (const bound_t& bound :
+             quietly([&] { return resolve_constraints(fresh_constraints(node), fresh); })) {
+            m_bounds.push_back(bound);
+        }
+
         const type_id_t signature = resolve_type(said->interfaces.front());
+        m_bounds = outer_bounds;
         m_type_scope.resize(mark);
         if (signature != type_id_t::INVALID && !is_func(signature)) {
             error(m_ast.get(said->interfaces.front()).span,
                   "{} is the Methods' Func type, like Func(Int): String, not {}",
                   node.type_name->text, shown_name(signature));
-            return { .signature = plain };
+            return { .signature = plain, .file = file };
         }
 
-        return { .signature = signature, .fresh = fresh };
+        return { .signature = signature, .fresh = fresh, .file = file };
     }
 
     /// Adds to `fresh` a type parameter for each name in the type at `id` that isn't a type,
-    /// once for each name.
-    void add_new_names(const type_expr_id_t id, std::vector<type_id_t>& fresh) {
+    /// once for each name: the one in `made` of that name, if any, which a function's
+    /// constraints name. `own`, the loop's name for the Func type, can't be one of them.
+    void add_new_names(const type_expr_id_t id, const std::string_view own,
+                       const std::vector<type_id_t>& made, std::vector<type_id_t>& fresh) {
         const type_expr_node_t& node = m_ast.get(id).node;
+        const auto each = [&](const type_expr_id_t part) { add_new_names(part, own, made, fresh); };
         if (const auto* named = std::get_if<named_type_t>(&node)) {
             const auto known = [&](const type_id_t parameter) {
                 return name_of(parameter) == named->name;
             };
             if (named->arguments.empty() && named->throws.empty() && !named->qualifier &&
-                !std::ranges::any_of(fresh, known) &&
-                quietly([&] { return resolve_type(id); }) == type_id_t::INVALID) {
-                fresh.push_back(m_analysis.types.add_parameter(std::string(named->name)));
+                named->name == own) {
+                error(m_ast.get(id).span,
+                      "{} is the Methods' Func type, so it can't be one of the types in it",
+                      named->name);
+            } else if (named->arguments.empty() && named->throws.empty() && !named->qualifier &&
+                       !std::ranges::any_of(fresh, known) &&
+                       quietly([&] { return resolve_type(id); }) == type_id_t::INVALID) {
+                const auto earlier = std::ranges::find_if(made, known);
+                fresh.push_back(earlier != made.end()
+                                    ? *earlier
+                                    : m_analysis.types.add_parameter(std::string(named->name)));
             }
 
-            for (const type_expr_id_t part : named->arguments) {
-                add_new_names(part, fresh);
-            }
-
-            for (const type_expr_id_t part : named->throws) {
-                add_new_names(part, fresh);
-            }
+            std::ranges::for_each(named->arguments, each);
+            std::ranges::for_each(named->throws, each);
         } else if (const auto* nullable = std::get_if<nullable_type_t>(&node)) {
-            add_new_names(nullable->inner, fresh);
+            each(nullable->inner);
         } else if (const auto* array = std::get_if<array_type_t>(&node)) {
-            add_new_names(array->element, fresh);
+            each(array->element);
         } else if (const auto* weak = std::get_if<weak_type_t>(&node)) {
-            add_new_names(weak->inner, fresh);
+            each(weak->inner);
         } else if (const auto* tuple = std::get_if<tuple_type_t>(&node)) {
-            for (const type_expr_id_t part : tuple->elements) {
-                add_new_names(part, fresh);
-            }
+            std::ranges::for_each(tuple->elements, each);
         } else if (const auto* function = std::get_if<function_type_t>(&node)) {
-            for (const type_expr_id_t part : function->parameters) {
-                add_new_names(part, fresh);
-            }
-
+            std::ranges::for_each(function->parameters, each);
             if (function->result) {
-                add_new_names(*function->result, fresh);
+                each(*function->result);
             }
         }
     }
@@ -16191,77 +16259,21 @@ private:
         return lines;
     }
 
-    /// The Methods of `type` a typed For Method loop goes over, with what each binds its own
-    /// type parameters to: those whose Func type, as an object of `type` has it, is the loop's
-    /// with them in place. An Async Method's gives its Task. Static, Unsafe, generic, and
-    /// throwing Methods aren't among them, nor Destroy, nor ones with a ByRef parameter, nor what
-    /// the instance's type arguments don't meet the Where lines of.
-    [[nodiscard]] std::vector<bound_method_t> loop_methods(const type_id_t type,
-                                                           const method_pattern_t& pattern) const {
-        if (type == type_id_t::INVALID || !(is_struct(type) || is_class(type))) {
-            return {};
-        }
-
-        std::vector<bound_method_t> found;
-        for (type_id_t current = type; current != type_id_t::INVALID;
-             current = is_class(current) ? base_of(current) : type_id_t::INVALID) {
-            const auto declared = m_declared_types.find(definition_of(current));
-            if (declared == m_declared_types.end()) {
-                break;
-            }
-
-            const type_t& info = m_analysis.types.get(current);
-            const std::vector<type_id_t> parameters =
-                info.generic != type_id_t::INVALID ? m_analysis.types.get(info.generic).parameters
-                                                   : std::vector<type_id_t>{};
-            for (const symbol_id_t id : m_analysis.symbols[index(declared->second)].members) {
-                const symbol_t& method = m_analysis.symbols[index(id)];
-                const auto by_ref = [this](const symbol_id_t parameter) {
-                    return m_analysis.symbols[index(parameter)].by_ref;
-                };
-                if (method.kind != symbol_kind_t::METHOD || method.modifiers.is_static ||
-                    method.modifiers.is_unsafe || method.by_ref ||
-                    std::ranges::any_of(method.parameters, by_ref) ||
-                    !method.type_parameters.empty() || !method.throws.empty() ||
-                    method.name == "Destroy" || method.name == "[]" || method.name == "[]=" ||
-                    std::ranges::contains(found, method.name, &bound_method_t::name)) {
-                    continue;
-                }
-
-                if (info.generic != type_id_t::INVALID &&
-                    !bounds_hold(method.constraints, parameters, info.arguments)) {
-                    continue;
-                }
-
-                std::vector<type_id_t> takes;
-                takes.reserve(method.parameters.size());
-                for (const symbol_id_t parameter : method.parameters) {
-                    takes.push_back(substitute(m_analysis.symbols[index(parameter)].type,
-                                               parameters, info.arguments));
-                }
-
-                type_id_t gives = substitute(method.type, parameters, info.arguments);
-                if (method.modifiers.is_async) {
-                    gives = m_types->task(gives);
-                }
-
-                const type_id_t func = m_types->function(takes, gives);
-                if (std::optional<std::vector<type_id_t>> arguments =
-                        m_types->match(pattern.signature, func, pattern.fresh)) {
-                    found.push_back(
-                        { .name = std::string(method.name), .arguments = std::move(*arguments) });
-                }
-            }
-        }
-
-        return found;
+    /// The Methods of `type` a typed For Method loop goes over, as lowering copies them.
+    [[nodiscard]] std::vector<loop_method_t> loop_methods(const type_id_t type,
+                                                          const method_pattern_t& pattern) const {
+        return fb::loop_methods(m_ast, m_analysis, *m_types, type, pattern.signature, pattern.fresh,
+                                pattern.file,
+                                [this](const type_id_t argument, const type_id_t interface) {
+                                    return implements(argument, interface);
+                                });
     }
 
     /// A loop over a concrete type's Methods: what each binds the loop's own type parameters to
     /// meets the loop's Where lines on them.
     void check_methods(const type_id_t type, const method_pattern_t& pattern,
                        const std::vector<bound_t>& bounds, const span_t span) {
-        for (const bound_method_t& method : loop_methods(type, pattern)) {
+        for (const loop_method_t& method : loop_methods(type, pattern)) {
             for (const bound_t& bound : bounds) {
                 const auto place = std::ranges::find(pattern.fresh, bound.parameter);
                 const type_id_t given =
@@ -16272,7 +16284,7 @@ private:
                     error(span,
                           "{}'s Method '{}' has {} for {}, which doesn't implement {}, as this "
                           "loop needs",
-                          name_of(type, { given, wanted }), method.name,
+                          name_of(type, { given, wanted }), symbol(method.symbol).name,
                           name_of(given, { type, wanted }), name_of(bound.parameter),
                           name_of(wanted, { type, given }));
                 }
@@ -26271,6 +26283,143 @@ std::optional<std::string> fields_problem(
 bool implements(const analysis_t& analysis, type_table_t& types, const type_id_t type,
                 const type_id_t interface) {
     return conformance_query_t(analysis, types).implements(type, interface);
+}
+
+std::vector<loop_method_t>
+loop_methods(const ast_t& ast, const analysis_t& analysis, type_table_t& types,
+             const type_id_t type, const type_id_t signature, const std::vector<type_id_t>& fresh,
+             const file_id_t file,
+             const std::function<bool(type_id_t type, type_id_t interface)>& implements) {
+    const auto definition_of = [&](const type_id_t at) {
+        const type_id_t generic = types.get(at).generic;
+        return generic != type_id_t::INVALID ? generic : at;
+    };
+    // The type arguments of the instance of `owner` that `type` is or extends.
+    const auto owner_arguments = [&](const type_id_t owner) {
+        for (type_id_t at = type; at != type_id_t::INVALID; at = types.get(at).base) {
+            if (definition_of(at) == owner) {
+                return types.get(at).arguments;
+            }
+        }
+
+        return std::vector<type_id_t>{};
+    };
+    // What an Extend adds, the defaults it gives included, is seen only where its module is, or
+    // is imported.
+    const auto seen = [&](const symbol_t& member) {
+        const module_table_t& modules = ast.modules();
+        const std::optional<module_id_t> here = modules.of(file);
+        const std::optional<module_id_t> there = modules.of(member.span.file);
+        if (!member.extended || !here || !there || *here == *there) {
+            return true;
+        }
+
+        return std::ranges::any_of(modules.get(*here).imports,
+                                   [&](const module_import_t& imported) {
+                                       return std::ranges::contains(imported.modules, *there);
+                                   });
+    };
+    // What Where lines on its Struct's or Class's type parameters make conditional, the type
+    // arguments of the instance meet.
+    const auto held = [&](const symbol_t& member, const std::vector<type_id_t>& parameters,
+                          const std::vector<type_id_t>& arguments) {
+        return std::ranges::all_of(member.constraints, [&](const bound_t& bound) {
+            const auto at = std::ranges::find(parameters, bound.parameter);
+            if (at == parameters.end() || bound.field != type_id_t::INVALID ||
+                arguments.size() != parameters.size()) {
+                return true;
+            }
+
+            return implements(arguments[static_cast<std::size_t>(at - parameters.begin())],
+                              types.substitute(bound.interface, parameters, arguments));
+        });
+    };
+
+    std::unordered_map<type_id_t, symbol_id_t> declared;
+    for (std::size_t i = 0; i < analysis.symbols.size(); ++i) {
+        if (analysis.symbols[i].kind == symbol_kind_t::TYPE) {
+            declared[analysis.symbols[i].type] = static_cast<symbol_id_t>(i);
+        }
+    }
+
+    // The base Class's members first.
+    std::vector<std::vector<symbol_id_t>> chain;
+    for (type_id_t at = type; at != type_id_t::INVALID; at = types.get(at).base) {
+        const auto found = declared.find(definition_of(at));
+        const type_kind_t kind = types.get(at).kind;
+        if (found == declared.end() ||
+            (kind != type_kind_t::STRUCT && kind != type_kind_t::CLASS)) {
+            break;
+        }
+
+        std::vector<symbol_id_t> members = analysis.symbol(found->second).members;
+        if (const auto added = analysis.instance_members.find(at);
+            added != analysis.instance_members.end()) {
+            std::ranges::copy(added->second, std::back_inserter(members));
+        }
+
+        chain.push_back(std::move(members));
+    }
+
+    std::ranges::reverse(chain);
+    std::vector<loop_method_t> methods;
+    for (const std::vector<symbol_id_t>& level : chain) {
+        for (const symbol_id_t member : level) {
+            const symbol_t& method = analysis.symbol(member);
+            const auto by_ref = [&](const symbol_id_t parameter) {
+                return analysis.symbol(parameter).by_ref;
+            };
+            if (method.kind != symbol_kind_t::METHOD || method.modifiers.is_static ||
+                method.modifiers.is_unsafe || method.by_ref ||
+                std::ranges::any_of(method.parameters, by_ref) || !method.type_parameters.empty() ||
+                !method.throws.empty() || method.name == "Destroy" || method.name == "[]" ||
+                method.name == "[]=" || !seen(method)) {
+                continue;
+            }
+
+            const type_id_t owner = method.owner != type_id_t::INVALID ? definition_of(method.owner)
+                                                                       : type_id_t::INVALID;
+            const std::vector<type_id_t> parameters = owner != type_id_t::INVALID
+                                                          ? types.get(owner).parameters
+                                                          : std::vector<type_id_t>{};
+            const std::vector<type_id_t> arguments =
+                parameters.empty() ? std::vector<type_id_t>{} : owner_arguments(owner);
+            if (!held(method, parameters, arguments)) {
+                continue;
+            }
+
+            // What it takes, besides the object, and what it gives, an Async Method's Task.
+            std::vector<type_id_t> takes;
+            takes.reserve(method.parameters.size());
+            for (const symbol_id_t parameter : method.parameters) {
+                takes.push_back(
+                    types.substitute(analysis.symbol(parameter).type, parameters, arguments));
+            }
+
+            type_id_t gives = types.substitute(method.type, parameters, arguments);
+            if (method.modifiers.is_async) {
+                gives = types.task(gives);
+            }
+
+            const type_id_t func = types.function(takes, gives);
+            std::optional<std::vector<type_id_t>> bound = types.match(signature, func, fresh);
+            if (!bound) {
+                continue;
+            }
+
+            loop_method_t found{ .symbol = member, .type = func, .arguments = std::move(*bound) };
+            const auto overridden = method.overrides ? std::ranges::find(methods, *method.overrides,
+                                                                         &loop_method_t::symbol)
+                                                     : methods.end();
+            if (overridden != methods.end()) {
+                *overridden = std::move(found);
+            } else {
+                methods.push_back(std::move(found));
+            }
+        }
+    }
+
+    return methods;
 }
 
 analysis_t analyze(const source_manager_t& sources, const ast_t& ast, diagnostic_bag_t& diagnostics,

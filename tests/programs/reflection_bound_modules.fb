@@ -1,0 +1,13 @@
+Import std.core
+Import "./reflection_bound_modules/api"
+Import "./reflection_bound_modules/user"
+
+// The Extend that adds Two is in a module this file doesn't import, so the loop doesn't go over
+// Two, and doesn't check it: its Plain isn't Defaultable.
+Local api = Api()
+Print(UseTwo(api))
+For Method m: M In Api
+    Where M: Func(A): String
+    Where A: Defaultable
+    Print("{m.Name} {m.Call(api, A.DefaultValue())}")
+End For

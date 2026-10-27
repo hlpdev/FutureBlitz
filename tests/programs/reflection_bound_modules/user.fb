@@ -1,0 +1,4 @@
+Import "./api"
+Import "./ext"
+
+Public Function UseTwo(api: Api): String => api.Two(Plain(9))

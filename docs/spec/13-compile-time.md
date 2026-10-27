@@ -190,8 +190,13 @@ End Function
   Method binds: `Where M: Func(A): Task<Response>` goes over the Methods that take one argument,
   of any type, and give a `Task<Response>`, and in each copy `A` is what that Method takes. The
   body is checked once, generic over `A`, which the loop's other Where lines constrain, like
-  `Where A: Defaultable`. What each Method binds meets them, over a concrete type at the loop and
-  over the code's type parameter at each call, as a For Field's `F` does.
+  `Where A: Defaultable`, and which are in force in the Func type too, so `Func(Weak<A>): String`
+  goes with `Where A: Class`. What each Method binds meets them, every overload's and what an
+  Extend the loop sees adds, over a concrete type at the loop and over the code's type parameter
+  at each call, as a For Field's `F` does. There, another loop over the same type parameter says
+  they're met only when it's of the same Func type, with the same line on the same type
+  parameter in it. A name that is a type stays one, an outer loop's own type parameter too, but
+  the Func type can't name the loop's own `M`, and one Where line on `M` says which Methods.
 - Async Methods are among a typed loop's Methods when its Func type gives a Task: an Async
   Method that gives a T has the Func type `Func(...): Task<T>`, and `m.Call` starts it and gives
   its Task, which `Await` waits for.

@@ -3927,7 +3927,7 @@ private:
         if (node.kind == member_kind_t::METHOD) {
             // The loop's own type parameters stay in the pattern, for each Method to bind.
             const type_id_t signature = concrete(info.type_arguments.at(2));
-            for (const reflected_method_t& method :
+            for (const loop_method_t& method :
                  reflected_methods(type, signature, fresh, span.file)) {
                 reflected_t member{ .name = std::string(m_analysis.symbol(method.symbol).name) };
                 member.symbol = method.symbol;
@@ -4072,65 +4072,16 @@ private:
                                    });
     }
 
-    /// A Method a For Method loop goes over, its Func type as the loop's object has it, and what
-    /// it binds the loop's own type parameters to.
-    struct reflected_method_t {
-        symbol_id_t symbol;
-        type_id_t type;
-        std::vector<type_id_t> arguments;
-    };
-
-    /// The Methods a For Method loop goes over: a Struct's or Class's own and inherited ones
-    /// whose Func type is `signature`, with the loop's own type parameters, `fresh`, in it bound
-    /// to what each has there, the base Class's first, each in the place of what it overrides.
-    /// An Async Method's Func type gives its Task. Destroy and Unsafe Methods aren't among them,
-    /// nor ones with a ByRef parameter, which no Func type has, nor generic or throwing ones,
-    /// nor what the instance's type arguments don't meet the Where lines of, nor what an Extend
-    /// the loop's file doesn't see adds.
-    [[nodiscard]] std::vector<reflected_method_t>
-    reflected_methods(const type_id_t type, const type_id_t signature,
-                      const std::vector<type_id_t>& fresh, const file_id_t file) {
-        const auto by_ref = [&](const symbol_id_t parameter) {
-            return m_analysis.symbol(parameter).by_ref;
-        };
-        std::vector<reflected_method_t> methods;
-        for (const std::vector<symbol_id_t>& level : member_chain(type, false, file)) {
-            for (const symbol_id_t member : level) {
-                const symbol_t& method = m_analysis.symbol(member);
-                if (method.kind != symbol_kind_t::METHOD || method.modifiers.is_static ||
-                    method.modifiers.is_unsafe || method.by_ref ||
-                    std::ranges::any_of(method.parameters, by_ref) ||
-                    !method.type_parameters.empty() || !method.throws.empty() ||
-                    method.name == "Destroy" || method.name == "[]" || method.name == "[]=" ||
-                    !has_member(type, method)) {
-                    continue;
-                }
-
-                const type_id_t func = method_type(type, member);
-                std::optional<std::vector<type_id_t>> arguments =
-                    types().match(signature, func, fresh);
-                if (!arguments) {
-                    continue;
-                }
-
-                const auto overridden =
-                    method.overrides
-                        ? std::ranges::find(methods, *method.overrides, &reflected_method_t::symbol)
-                        : methods.end();
-                reflected_method_t found{
-                    .symbol = member,
-                    .type = func,
-                    .arguments = std::move(*arguments),
-                };
-                if (overridden != methods.end()) {
-                    *overridden = std::move(found);
-                } else {
-                    methods.push_back(std::move(found));
-                }
-            }
-        }
-
-        return methods;
+    /// The Methods a For Method loop goes over, which analysis checked: loop_methods(), with the
+    /// loop's own type parameters, `fresh`, in `signature` bound for each.
+    [[nodiscard]] std::vector<loop_method_t> reflected_methods(const type_id_t type,
+                                                               const type_id_t signature,
+                                                               const std::vector<type_id_t>& fresh,
+                                                               const file_id_t file) {
+        return loop_methods(m_ast, m_analysis, types(), type, signature, fresh, file,
+                            [this](const type_id_t argument, const type_id_t interface) {
+                                return fb::implements(m_analysis, types(), argument, interface);
+                            });
     }
 
     /// A Method's Func type, as an object of `type` has it: what it takes, besides the object,

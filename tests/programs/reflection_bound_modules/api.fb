@@ -1,0 +1,14 @@
+Import std.core
+
+Public Struct Args Implements Defaultable
+    Public Field id: Int
+    Public Static Method DefaultValue(): Args => Args(1)
+End Struct
+
+Public Struct Plain
+    Public Field id: Int
+End Struct
+
+Public Class Api
+    Public Method One(a: Args): String => "args {a.id}"
+End Class

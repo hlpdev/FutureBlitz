@@ -5,3 +5,8 @@ not Async: Plain ShowUser plain
 Join: Int32 -> String
 Flip: Bool -> String
 ping
+top SI with II: Int32
+top SS with IS: String
+in a Function SI with II: Int32
+in a Function SS with IS: String
+Watch Node

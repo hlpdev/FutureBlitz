@@ -523,6 +523,26 @@ struct embed_reader_t {
 [[nodiscard]] bool implements(const analysis_t& analysis, type_table_t& types, type_id_t type,
                               type_id_t interface);
 
+/// A Method a For Method loop goes over: its Func type, as an object of the loop's type has it,
+/// an Async Method's giving its Task, and what it binds the loop's own type parameters to.
+struct loop_method_t {
+    symbol_id_t symbol{};
+    type_id_t type = type_id_t::INVALID;
+    std::vector<type_id_t> arguments;
+};
+
+/// The Methods a For Method loop in `file` goes over in `type`, which analysis checks and
+/// lowering copies: a Struct's or Class's own and inherited ones, the base Class's first, each in
+/// the place of what it overrides, with what an Extend of that one instance adds, whose Func type
+/// is `signature` with the loop's own type parameters, `fresh`, bound to what each has there.
+/// Destroy and Unsafe Methods aren't among them, nor ones with a ByRef parameter, which no Func
+/// type has, nor generic or throwing ones, nor what the instance's type arguments don't meet the
+/// Where lines of, as `implements` decides, nor what an Extend that `file` doesn't see adds.
+[[nodiscard]] std::vector<loop_method_t>
+loop_methods(const ast_t& ast, const analysis_t& analysis, type_table_t& types, type_id_t type,
+             type_id_t signature, const std::vector<type_id_t>& fresh, file_id_t file,
+             const std::function<bool(type_id_t type, type_id_t interface)>& implements);
+
 /// Resolves names, checks types and that variables are assigned before they're read, folds
 /// constants, and reports errors to `diagnostics`. Each of the modules in `ast` has its own
 /// top-level names, and sees those of the modules it imports after them, as the module table

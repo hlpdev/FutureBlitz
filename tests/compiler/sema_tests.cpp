@@ -9795,6 +9795,114 @@ TEST_CASE("a typed For Method's Func type binds type parameters of its own for e
           });
 }
 
+TEST_CASE("a typed For Method checks each Method it copies, overloads and Extends' too", "[sema]") {
+    const std::string types = "Import std.core\n"
+                              "Struct Args Implements Defaultable\n"
+                              "    Field Id: Int\n"
+                              "    Static Method DefaultValue(): Args => Args(1)\n"
+                              "End Struct\n"
+                              "Struct Plain\n"
+                              "    Field Id: Int\n"
+                              "End Struct\n"
+                              "Function Routes<T>(api: T)\n"
+                              "    For Method m: M In T\n"
+                              "        Where M: Func(A): String\n"
+                              "        Where A: Defaultable\n"
+                              "        Print(m.Call(api, A.DefaultValue()))\n"
+                              "    End For\n"
+                              "End Function\n";
+    // Each overload, in either order, and what an Extend of one instance adds.
+    CHECK(errors_of(types + "Class First\n"
+                            "    Method Put(a: Plain): String => \"plain\"\n"
+                            "    Method Put(a: Args): String => \"args\"\n"
+                            "End Class\n"
+                            "Class Second\n"
+                            "    Method Put(a: Args): String => \"args\"\n"
+                            "    Method Put(a: Plain): String => \"plain\"\n"
+                            "End Class\n"
+                            "Class Box<T>\n"
+                            "    Method One(a: Args): String => \"args\"\n"
+                            "End Class\n"
+                            "Extend Box<Int>\n"
+                            "    Method Two(a: Plain): String => \"plain\"\n"
+                            "End Extend\n"
+                            "Routes(First())\n"
+                            "Routes(Second())\n"
+                            "Routes(Box<Int>())\n"
+                            "Routes(Box<String>())\n"
+                            "For Method m: M In Second\n"
+                            "    Where M: Func(A): String\n"
+                            "    Where A: Defaultable\n"
+                            "End For") ==
+          errors_t{
+              "Routes: 'Routes' needs what each Method of First has for A to implement "
+              "Defaultable, but its Method 'Put' has Plain for A, which doesn't",
+              "Routes: 'Routes' needs what each Method of Second has for A to implement "
+              "Defaultable, but its Method 'Put' has Plain for A, which doesn't",
+              "Routes: 'Routes' needs what each Method of Box<Int32> has for A to implement "
+              "Defaultable, but its Method 'Two' has Plain for A, which doesn't",
+              "Second: Second's Method 'Put' has Plain for A, which doesn't implement "
+              "Defaultable, as this loop needs",
+          });
+    // A loop of another Func type, or of another of its type parameters, says nothing of the
+    // Methods this one goes over.
+    CHECK(errors_of(types + "Function Inner<T>(api: T)\n"
+                            "    For Method m: M In T\n"
+                            "        Where M: Func(B, Int): String\n"
+                            "        Where B: Defaultable\n"
+                            "    End For\n"
+                            "End Function\n"
+                            "Function Second<T>(api: T)\n"
+                            "    For Method m: M In T\n"
+                            "        Where M: Func(A, B): String\n"
+                            "        Where B: Defaultable\n"
+                            "    End For\n"
+                            "End Function\n"
+                            "Function Outer<U>(api: U)\n"
+                            "    For Method m: M In U\n"
+                            "        Where M: Func(A): String\n"
+                            "        Where A: Defaultable\n"
+                            "    End For\n"
+                            "    For Method m: M In U\n"
+                            "        Where M: Func(A, B): String\n"
+                            "        Where A: Defaultable\n"
+                            "    End For\n"
+                            "    Inner(api)\n"
+                            "    Second(api)\n"
+                            "    Routes(api)\n"
+                            "End Function") ==
+          errors_t{
+              "Inner: 'Inner' needs what each Method of U has for B to implement Defaultable, "
+              "but nothing says that of U's Methods",
+              "Second: 'Second' needs what each Method of U has for B to implement Defaultable, "
+              "but nothing says that of U's Methods",
+          });
+    // The loop's Where lines are in force in its Func type, which can't name the loop's own M,
+    // and one Where line says which Methods.
+    CHECK(errors_of("Import std.core\n"
+                    "Class Node\n"
+                    "End Class\n"
+                    "Class Api\n"
+                    "    Method Watch(w: Weak<Node>): String => \"watch\"\n"
+                    "End Class\n"
+                    "For Method m: M In Api\n"
+                    "    Where M: Func(Weak<A>): String\n"
+                    "    Where A: Class\n"
+                    "End For\n"
+                    "For Method m: M In Api\n"
+                    "    Where M: Func(M): String\n"
+                    "End For\n"
+                    "For Method m: M In Api\n"
+                    "    Where M: Func(A): String\n"
+                    "    Where M: Func(A): Int\n"
+                    "End For") ==
+          errors_t{
+              "M: M is the Methods' Func type, so it can't be one of the types in it",
+              "M: a For Method loop says which Methods it goes over with one Where line on M; "
+              "this is another",
+          });
+}
+
 TEST_CASE("a type's own attributes", "[sema]") {
     CHECK(probe("Attribute Saved\n@Saved Struct P\nEnd Struct\nLocal x = P.Has(Saved)") == "Bool");
     CHECK(probe("Attribute Label(Text: String)\nStruct P\nEnd Struct\n"
