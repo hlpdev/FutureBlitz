@@ -7,6 +7,7 @@
 #include "fb/image.hpp"
 #include "fb/runtime.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
@@ -194,6 +195,118 @@ std::vector<std::uint8_t> zigzag_font(const int units, const int points, const i
     return font;
 }
 
+/// A TrueType font whose A is a composite of 16 composites of 8192 parts each, every part one
+/// simple glyph of 32767 contours of two points, though the font has only their contour ends and
+/// flags.
+std::vector<std::uint8_t> fan_out_font() {
+    const auto composite = [](std::vector<std::uint8_t>& glyf, const int part, const int count) {
+        put(glyf, 0xFFFF, 2);
+        glyf.resize(glyf.size() + 8, 0);
+        for (int i = 0; i < count; ++i) {
+            put(glyf, i + 1 < count ? 0x0022 : 0x0002, 2);
+            put(glyf, static_cast<std::uint64_t>(part), 2);
+            put(glyf, 0, 2);
+        }
+    };
+
+    std::vector<std::uint8_t> glyf;
+    std::vector<std::size_t> loca{ 0, 0 };
+    put(glyf, 32767, 2);
+    glyf.resize(glyf.size() + 8, 0);
+    for (int i = 0; i < 32767; ++i) {
+        put(glyf, (2 * static_cast<std::uint64_t>(i)) + 1, 2);
+    }
+    put(glyf, 0, 2);
+    for (int left = 65534; left > 0; left -= 256) {
+        glyf.push_back(0x39);
+        glyf.push_back(static_cast<std::uint8_t>(std::min(left, 256) - 1));
+    }
+    pad(glyf);
+    loca.push_back(glyf.size());
+    composite(glyf, 1, 8192);
+    loca.push_back(glyf.size());
+    composite(glyf, 2, 16);
+    loca.push_back(glyf.size());
+
+    std::vector<std::uint8_t> locas;
+    for (const std::size_t offset : loca) {
+        put(locas, offset, 4);
+    }
+    std::vector<std::uint8_t> head;
+    put(head, 0x00010000, 4);
+    head.resize(head.size() + 8, 0);
+    put(head, 0x5F0F3CF5, 4);
+    put(head, 0, 2);
+    put(head, 1000, 2);
+    head.resize(head.size() + 30, 0);
+    put(head, 1, 2);
+    put(head, 0, 2);
+    std::vector<std::uint8_t> hhea;
+    put(hhea, 0x00010000, 4);
+    put(hhea, 800, 2);
+    put(hhea, 65536 - 200, 2);
+    hhea.resize(hhea.size() + 26, 0);
+    put(hhea, 4, 2);
+    std::vector<std::uint8_t> maxp;
+    put(maxp, 0x00005000, 4);
+    put(maxp, 4, 2);
+    std::vector<std::uint8_t> hmtx;
+    for (int i = 0; i < 4; ++i) {
+        put(hmtx, 500, 2);
+        put(hmtx, 0, 2);
+    }
+    // cmap's format 4: A to glyph 3.
+    std::vector<std::uint8_t> cmap;
+    for (const int value : {
+             0,
+             1,
+             3,
+             1,
+             0,
+             12,
+             4,
+             32,
+             0,
+             4,
+             0,
+             0,
+             0,
+             0x41,
+             0xFFFF,
+             0,
+             0x41,
+             0xFFFF,
+             65536 + 3 - 0x41,
+             1,
+             0,
+             0,
+         }) {
+        put(cmap, static_cast<std::uint64_t>(value), 2);
+    }
+
+    const std::vector<std::pair<std::string_view, std::vector<std::uint8_t>*>> tables{
+        { "cmap", &cmap }, { "glyf", &glyf },  { "head", &head }, { "hhea", &hhea },
+        { "hmtx", &hmtx }, { "loca", &locas }, { "maxp", &maxp },
+    };
+    std::vector<std::uint8_t> font;
+    put(font, 0x00010000, 4);
+    put(font, tables.size(), 2);
+    put(font, 0, 6);
+    std::size_t offset = 12 + (16 * tables.size());
+    for (const auto& [tag, table] : tables) {
+        font.insert(font.end(), tag.begin(), tag.end());
+        put(font, 0, 4);
+        put(font, offset, 4);
+        put(font, table->size(), 4);
+        offset += (table->size() + 3) / 4 * 4;
+    }
+    for (const auto& [tag, table] : tables) {
+        font.insert(font.end(), table->begin(), table->end());
+        pad(font);
+    }
+    return font;
+}
+
 /// The most of the heap drawing `text` in the font of `bytes` at `size` pixels an em into a 16
 /// by 16 image holds, and how long it takes, in seconds.
 std::pair<std::int64_t, double> drawn(std::vector<std::uint8_t>& bytes, const std::string_view text,
@@ -338,4 +451,13 @@ TEST_CASE("a TrueType glyph of a million curves zigzagging past the image draws 
         CHECK(most_held < 64'000'000);
         CHECK(took < 5);
     }
+}
+
+TEST_CASE("a TrueType composite whose parts fan out reads a bounded amount and has no outline") {
+    // 16 composites of 8192 parts each of a glyph of 32767 contour ends and 65535 flags but no
+    // coordinates: each of the 65536 visits read every contour end again, 2 billion reads, 58 s.
+    std::vector<std::uint8_t> bytes = fan_out_font();
+    const auto [most_held, took] = drawn(bytes, "A", 16);
+    CHECK(most_held < 64'000'000);
+    CHECK(took < 5);
 }

@@ -36,9 +36,10 @@ constexpr int most_depth = 8;
 /// The most points one glyph's outline has, all its parts' counted: as many as drawing one takes,
 /// more than any glyph a font draws has.
 constexpr std::size_t most_points = std::size_t{ 1 } << 16U;
-/// The most glyphs one glyph's outline visits, its parts and theirs, so a font whose composites
-/// each have many parts, of parts of many, takes no longer than that.
-constexpr std::size_t most_visits = std::size_t{ 1 } << 16U;
+/// The most one glyph's outline reads: each glyph it visits, its parts and theirs, and each
+/// contour end, flag, and coordinate of theirs, so a font whose composites each have many parts,
+/// of parts of many, takes no longer than that, and its outline is none.
+constexpr std::size_t most_reads = std::size_t{ 1 } << 20U;
 
 /// A composite part's flags.
 constexpr std::uint32_t words = 0x0001;
@@ -451,18 +452,27 @@ font_path_t font_t::outline(const std::uint32_t glyph) const {
         return path;
     }
 
-    std::size_t visits = 0;
-    add_outline(glyph, { 1, 0, 0, 1, 0, 0 }, 0, path, visits);
+    std::size_t reads = 0;
+    if (!add_outline(glyph, { 1, 0, 0, 1, 0, 0 }, 0, path, reads)) {
+        path.clear();
+    }
     return path;
 }
 
-void font_t::add_outline(const std::uint32_t glyph, const std::array<double, 6>& transform,
-                         const int depth, font_path_t& path, std::size_t& visits) const {
+bool font_t::add_outline(const std::uint32_t glyph, const std::array<double, 6>& transform,
+                         const int depth, font_path_t& path, std::size_t& reads) const {
     std::size_t at = 0;
     std::size_t size = 0;
-    if (depth > most_depth || ++visits > most_visits || !glyph_range(glyph, at, size) ||
-        size < 10) {
-        return;
+    if (depth > most_depth || ++reads > most_reads || !glyph_range(glyph, at, size)) {
+        return false;
+    }
+
+    // A glyph of no outline, as a space has, is one; one too short for its header is broken.
+    if (size == 0) {
+        return true;
+    }
+    if (size < 10) {
+        return false;
     }
 
     const std::size_t end = at + size;
@@ -470,22 +480,28 @@ void font_t::add_outline(const std::uint32_t glyph, const std::array<double, 6>&
     if (count >= 0) {
         const auto contour_count = static_cast<std::size_t>(count);
         const std::size_t ends = at + 10;
-        if (contour_count == 0 || ends + (contour_count * 2) + 2 > end) {
-            return;
+        if (contour_count == 0) {
+            return true;
+        }
+        if (ends + (contour_count * 2) + 2 > end) {
+            return false;
+        }
+
+        // Its points are its last contour's end and one, counted before they're read, with its
+        // contour ends, and a flag and two coordinates each.
+        const std::size_t points = std::size_t{ u16(ends + ((contour_count - 1) * 2)) } + 1;
+        reads += contour_count + (points * 3);
+        if (path.size() + points > most_points || reads > most_reads) {
+            return false;
         }
 
         std::vector<std::size_t> last_points;
         for (std::size_t i = 0; i < contour_count; ++i) {
             const std::size_t last = u16(ends + (i * 2));
             if (!last_points.empty() && last <= last_points.back()) {
-                return;
+                return false;
             }
             last_points.push_back(last);
-        }
-
-        const std::size_t points = last_points.back() + 1;
-        if (path.size() + points > most_points) {
-            return;
         }
 
         std::size_t cursor = ends + (contour_count * 2);
@@ -493,13 +509,13 @@ void font_t::add_outline(const std::uint32_t glyph, const std::array<double, 6>&
         std::vector<std::uint32_t> flags;
         while (flags.size() < points) {
             if (cursor >= end) {
-                return;
+                return false;
             }
             const std::uint32_t flag = u8(cursor++);
             flags.push_back(flag);
             if ((flag & repeat) != 0) {
                 if (cursor >= end) {
-                    return;
+                    return false;
                 }
                 for (std::uint32_t times = u8(cursor++); times > 0 && flags.size() < points;
                      --times) {
@@ -518,13 +534,13 @@ void font_t::add_outline(const std::uint32_t glyph, const std::array<double, 6>&
                 const std::uint32_t flag = flags[i];
                 if ((flag & short_bit) != 0) {
                     if (cursor + 1 > end) {
-                        return;
+                        return false;
                     }
                     const auto delta = static_cast<int>(u8(cursor++));
                     value += (flag & same_bit) != 0 ? delta : -delta;
                 } else if ((flag & same_bit) == 0) {
                     if (cursor + 2 > end) {
-                        return;
+                        return false;
                     }
                     value += s16(cursor);
                     cursor += 2;
@@ -548,7 +564,7 @@ void font_t::add_outline(const std::uint32_t glyph, const std::array<double, 6>&
             first = last + 1;
             add_contour(contour, path);
         }
-        return;
+        return true;
     }
 
     // A composite: its parts, each a glyph moved, and maybe scaled or turned, as a matrix of
@@ -557,7 +573,7 @@ void font_t::add_outline(const std::uint32_t glyph, const std::array<double, 6>&
     std::uint32_t flags = more;
     while ((flags & more) != 0) {
         if (cursor + 4 > end) {
-            return;
+            return false;
         }
         flags = u16(cursor);
         const std::uint32_t part = u16(cursor + 2);
@@ -566,7 +582,7 @@ void font_t::add_outline(const std::uint32_t glyph, const std::array<double, 6>&
         double dy = 0;
         const std::size_t arguments = (flags & words) != 0 ? 4 : 2;
         if (cursor + arguments > end) {
-            return;
+            return false;
         }
         if ((flags & words) != 0) {
             dx = s16(cursor);
@@ -586,20 +602,20 @@ void font_t::add_outline(const std::uint32_t glyph, const std::array<double, 6>&
         const auto fixed = [&](const std::size_t where) { return s16(where) / 16384.0; };
         if ((flags & scale) != 0) {
             if (cursor + 2 > end) {
-                return;
+                return false;
             }
             m[0] = m[3] = fixed(cursor);
             cursor += 2;
         } else if ((flags & two_scales) != 0) {
             if (cursor + 4 > end) {
-                return;
+                return false;
             }
             m[0] = fixed(cursor);
             m[3] = fixed(cursor + 2);
             cursor += 4;
         } else if ((flags & matrix) != 0) {
             if (cursor + 8 > end) {
-                return;
+                return false;
             }
             m = { fixed(cursor), fixed(cursor + 2), fixed(cursor + 4), fixed(cursor + 6) };
             cursor += 8;
@@ -614,8 +630,11 @@ void font_t::add_outline(const std::uint32_t glyph, const std::array<double, 6>&
             (transform[0] * dx) + (transform[2] * dy) + transform[4],
             (transform[1] * dx) + (transform[3] * dy) + transform[5],
         };
-        add_outline(part, combined, depth + 1, path, visits);
+        if (!add_outline(part, combined, depth + 1, path, reads)) {
+            return false;
+        }
     }
+    return true;
 }
 
 } // namespace fb::image

@@ -109,8 +109,10 @@ private:
     [[nodiscard]] int s16(std::size_t at) const;
     [[nodiscard]] std::uint32_t u32(std::size_t at) const;
     [[nodiscard]] bool glyph_range(std::uint32_t glyph, std::size_t& at, std::size_t& size) const;
-    void add_outline(std::uint32_t glyph, const std::array<double, 6>& transform, int depth,
-                     font_path_t& path, std::size_t& visits) const;
+    /// Adds the glyph's outline to the path through `transform`, its parts' too, `depth` parts
+    /// deep, counting what it reads in `reads`: false when it's broken, or reads too much.
+    [[nodiscard]] bool add_outline(std::uint32_t glyph, const std::array<double, 6>& transform,
+                                   int depth, font_path_t& path, std::size_t& reads) const;
     bool find_tables(std::size_t start);
 
     // cff.cpp's.

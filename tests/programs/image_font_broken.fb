@@ -1,0 +1,42 @@
+// A composite glyph whose record is cut short is broken, so it has no outline, as a broken
+// simple glyph or CFF glyph has: a TrueType font of a square, glyph 1 for "A", and glyph 2 for
+// "B", a composite of glyph 1 whose flags say MORE_COMPONENTS but whose record ends there.
+Import std.core
+Import std.math.color
+Import std.math.vector
+Import std.image
+
+Function FontBytes(): UInt8[]
+    Return [0, 1, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 99, 109, 97, 112, 0, 0, 0, 0, 0, 0, 0, 124, 0,
+            0, 0, 52, 103, 108, 121, 102, 0, 0, 0, 0, 0, 0, 0, 176, 0, 0, 0, 92, 104, 101, 97,
+            100, 0, 0, 0, 0, 0, 0, 1, 12, 0, 0, 0, 54, 104, 104, 101, 97, 0, 0, 0, 0, 0, 0, 1,
+            68, 0, 0, 0, 36, 104, 109, 116, 120, 0, 0, 0, 0, 0, 0, 1, 104, 0, 0, 0, 12, 108,
+            111, 99, 97, 0, 0, 0, 0, 0, 0, 1, 116, 0, 0, 0, 16, 109, 97, 120, 112, 0, 0, 0, 0,
+            0, 0, 1, 132, 0, 0, 0, 32, 0, 0, 0, 1, 0, 3, 0, 1, 0, 0, 0, 12, 0, 4, 0, 40, 0, 0,
+            0, 6, 0, 0, 0, 0, 0, 0, 0, 65, 0, 66, 255, 255, 0, 0, 0, 65, 0, 66, 255, 255, 255,
+            192, 255, 192, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 1,
+            1, 1, 1, 0, 100, 0, 0, 1, 244, 0, 0, 0, 0, 2, 188, 0, 0, 253, 68, 0, 0, 0, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 1, 1, 1, 1, 0, 100, 0, 0, 1, 244, 0, 0, 0, 0, 2, 188,
+            0, 0, 253, 68, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 35, 0, 1, 0, 0, 0, 0, 0,
+            0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 95, 15, 60, 245, 0, 0, 3, 232, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+            0, 0, 0, 0, 1, 0, 0, 3, 32, 255, 56, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 1, 244, 0, 0, 1, 244, 0, 0, 1, 244, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 36, 0, 0, 0, 72, 0, 0, 0, 92, 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+End Function
+
+Function Covered(font: Font, text: String): Int
+    Local canvas = Canvas(Image(16, 16))
+    canvas.FillText(text, font, 16, Vec2(2, 14), Color32.Black)
+    Local count = 0
+    For y = 0 Until 16
+        For x = 0 Until 16
+            If canvas.Image[x, y].a != 0 Then count += 1
+        End For
+    End For
+    Return count
+End Function
+
+Local font = Try Font.Parse(FontBytes())
+Print(Covered(font, "A"), Covered(font, "B"))
