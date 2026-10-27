@@ -45,12 +45,13 @@ kept = Buffer<UInt8>(0)
 Print("{Try File.ReadBytes(root / "six.bin")}")
 
 // A read-only one's Buffer copies a page as it's written, so the file and the MappedFile keep
-// what they had, and its later Buffers see what the first wrote.
+// what they had, and its Buffers, before and after, see what each wrote.
 Local reading = Try MappedFile(root / "six.bin")
 Local copy = Try reading.Bytes()
 copy[0] = 99
 Local again = Try reading.Bytes()
-Print("{copy[0]} {again[0]} {reading[0]} {reading.ReadBytes(0, 2)}")
+again[1] = 98
+Print("{copy[0]} {copy[1]} {again[0]} {reading[0]} {reading.ReadBytes(0, 2)}")
 reading.Close()
 Print("{copy.ToArray()}")
 copy = Buffer<UInt8>(0)

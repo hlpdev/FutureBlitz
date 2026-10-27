@@ -105,10 +105,10 @@ Public Class MappedFile
     // Its bytes as a Buffer<UInt8>, without copying them, for streams and C code to read in
     // place. The Buffer, and each view of it, keeps them mapped while it is, even once this is
     // closed. A writable one's Buffer is its bytes, so writing it changes the file, as []= does. A
-    // read-only one's is a view of its own, which copies a page of the file's as it's first
-    // written, so writing it changes only that Buffer, and the Buffers this gives after, never the
-    // file. Throws an IOError when that view can't be made, the first time, and panics when it's
-    // closed.
+    // read-only one's Buffers share a view of their own, which copies a page of the file's as it's
+    // first written, so writing one changes every Buffer this gives, before it and after, but never
+    // the file or what [] reads. Throws an IOError when that view can't be made, the first time,
+    // and panics when it's closed.
     @PanicsAtCaller
     Public Method Bytes(): Buffer<UInt8> Throws IOError
         CheckOpen()
