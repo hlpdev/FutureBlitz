@@ -68,6 +68,21 @@ struct lock_t {
     bool held = true;
 };
 
+/// A file File.Open opened, open until it's closed.
+struct stream_t {
+    uv_file file;
+    bool open = true;
+};
+
+/// What File.Open's `how` says: to read, to write, to write at the end, to make the file when it
+/// isn't there, to make it and refuse one that's there, and to empty it.
+constexpr std::uint32_t open_read = 1;
+constexpr std::uint32_t open_write = 2;
+constexpr std::uint32_t open_append = 4;
+constexpr std::uint32_t open_create = 8;
+constexpr std::uint32_t open_create_new = 16;
+constexpr std::uint32_t open_truncate = 32;
+
 /// A read that would hold more bytes than its most, which fb_io_error_message tells of.
 constexpr std::int64_t too_big = -5000;
 
@@ -161,6 +176,11 @@ struct request_t {
     /// What a stat found the file changed, read, and made at.
     std::array<file_time_t, 3> times{};
     lock_t* lock = nullptr;
+    /// The file an open made, until fb_io_request_stream takes it, and the one a stream's call is
+    /// on, with where in it the call reads or writes, or -1 for where it is.
+    stream_t* stream = nullptr;
+    uv_file file = -1;
+    std::int64_t offset = -1;
     /// An Async twin's work, Task, and libuv request.
     work_t work = nullptr;
     std::int64_t result = 0;
@@ -172,6 +192,10 @@ void release(request_t* request) {
     if (request->owners.fetch_sub(1, std::memory_order_acq_rel) == 1) {
         if (request->lock != nullptr) {
             fb_io_lock_free(request->lock);
+        }
+
+        if (request->stream != nullptr) {
+            fb_io_stream_free(request->stream);
         }
 
         delete request;
@@ -957,6 +981,138 @@ std::int64_t acquire_lock(request_t& request) {
     return 1;
 }
 
+/// One of libuv's open flags, as bits that add up to its flags.
+constexpr std::uint32_t flag_of(const int flag) {
+    return static_cast<std::uint32_t>(flag);
+}
+
+std::int64_t open_request(request_t& request) {
+    if (has_nul(request.path)) {
+        return UV_EINVAL;
+    }
+
+    const auto how = static_cast<std::uint32_t>(request.flag);
+    const bool reads = (how & open_read) != 0;
+    const bool writes = (how & (open_write | open_append)) != 0;
+    const bool appends = (how & open_append) != 0;
+    const bool exclusive = (how & open_create_new) != 0;
+    const bool creates = exclusive || (how & open_create) != 0;
+    // Windows empties a file that has to be there only for a GENERIC_WRITE that libuv doesn't
+    // ask for, so that one's emptied once it's open.
+    const bool truncates = (how & open_truncate) != 0;
+    std::uint32_t flags = flag_of(UV_FS_O_RDONLY);
+    if (writes) {
+        flags = flag_of(reads ? UV_FS_O_RDWR : UV_FS_O_WRONLY);
+    }
+
+    if (appends) {
+        flags |= flag_of(UV_FS_O_APPEND);
+    }
+
+    if (creates) {
+        flags |= flag_of(UV_FS_O_CREAT);
+    }
+
+    if (exclusive) {
+        flags |= flag_of(UV_FS_O_EXCL);
+    }
+
+    if (truncates && creates) {
+        flags |= flag_of(UV_FS_O_TRUNC);
+    }
+
+    // Opening a folder to write is EINVAL on Windows and EISDIR on POSIX, and to read works on
+    // POSIX, so a folder is looked for before and after.
+    if (uv_stat_t found{}; stat_path(request.path, true, found) == 0 && is_directory(found)) {
+        return UV_EISDIR;
+    }
+
+    const std::int64_t opened = open_file(request.path, static_cast<int>(flags), 0666);
+    if (opened < 0) {
+        return opened;
+    }
+
+    const auto file = static_cast<uv_file>(opened);
+    if (uv_stat_t found{}; stat_file(file, found) == 0 && is_directory(found)) {
+        close_file(file);
+        return UV_EISDIR;
+    }
+
+    if (truncates && !creates) {
+        fs_t call;
+        const int emptied = uv_fs_ftruncate(nullptr, call.get(), file, 0, nullptr);
+        if (emptied < 0) {
+            close_file(file);
+            return known_error(call.get(), emptied);
+        }
+    }
+
+    request.stream = new stream_t{ .file = file };
+    return 0;
+}
+
+/// Reads up to `count` bytes, at `offset` in `file`, or from where it is for -1, into `data`: how
+/// many, 0 at the end, or an error.
+std::int64_t read_at(const uv_file file, char* data, const std::int64_t count,
+                     const std::int64_t offset) {
+    // libuv takes a buffer's size as an unsigned int.
+    const std::size_t size = std::min<std::uint64_t>(static_cast<std::uint64_t>(count), 1U << 30U);
+    const uv_buf_t buffer = uv_buf_init(data, static_cast<unsigned int>(size));
+    fs_t call;
+    return uv_fs_read(nullptr, call.get(), file, &buffer, 1, offset, nullptr);
+}
+
+/// Writes all of `bytes` to `file` at `offset`, or from where it is for -1, as an appending file
+/// always writes at its end.
+std::int64_t write_at(const uv_file file, std::string_view bytes, std::int64_t offset) {
+    while (!bytes.empty()) {
+        const std::size_t size = std::min<std::size_t>(bytes.size(), 1U << 30U);
+        const uv_buf_t buffer =
+            uv_buf_init(const_cast<char*>(bytes.data()), static_cast<unsigned int>(size));
+        fs_t call;
+        const int written = uv_fs_write(nullptr, call.get(), file, &buffer, 1, offset, nullptr);
+        if (written < 0) {
+            return known_error(call.get(), written);
+        }
+
+        bytes.remove_prefix(static_cast<std::size_t>(written));
+        if (offset >= 0) {
+            offset += written;
+        }
+    }
+
+    return 0;
+}
+
+/// A stream's Async read, into the request's bytes, which fb_io_request_copy gives.
+std::int64_t stream_read(request_t& request) {
+    buffer_t& bytes = request.bytes;
+    bytes.clear();
+    if (!bytes.reserve(static_cast<std::size_t>(request.number))) {
+        return UV_ENOMEM;
+    }
+
+    const std::int64_t count = read_at(request.file, bytes.end(), request.number, request.offset);
+    if (count > 0) {
+        bytes.add(static_cast<std::size_t>(count));
+    }
+
+    return count;
+}
+
+std::int64_t stream_write(const request_t& request) {
+    return write_at(request.file, request.input, request.offset);
+}
+
+std::int64_t sync_file(const uv_file file) {
+    fs_t call;
+    return uv_fs_fsync(nullptr, call.get(), file, nullptr);
+}
+
+std::int64_t stream_sync(const request_t& request) {
+    return sync_file(request.file);
+}
+
 /// The work of a call that only reads its request.
 template <std::int64_t (*Work)(const request_t&)>
 std::int64_t reading(request_t& request) {
@@ -1602,5 +1758,96 @@ void fb_io_lock_release(void* lock) {
 void fb_io_lock_free(void* lock) {
     fb_io_lock_release(lock);
     delete static_cast<lock_t*>(lock);
+}
+
+std::int64_t fb_io_file_open(void* request, const fb_string_t* path, const std::int32_t how) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.flag = how;
+    return run(self, open_request);
+}
+
+void fb_io_file_open_async(fb_task_t* task, void* request, const fb_string_t* path,
+                           const std::int32_t how) {
+    request_t& self = request_of(request);
+    self.path = view_of(path);
+    self.flag = how;
+    run_async(task, request, open_request);
+}
+
+void* fb_io_request_stream(void* request) {
+    return std::exchange(request_of(request).stream, nullptr);
+}
+
+void fb_io_request_copy(const void* request, std::uint8_t* into) {
+    const std::string_view bytes = static_cast<const request_t*>(request)->bytes.view();
+    if (!bytes.empty()) {
+        std::memcpy(into, bytes.data(), bytes.size());
+    }
+}
+
+std::int32_t fb_io_stream_open(const void* stream) {
+    return static_cast<const stream_t*>(stream)->open ? 1 : 0;
+}
+
+std::int64_t fb_io_stream_read(void* stream, std::uint8_t* data, const std::int64_t count,
+                               const std::int64_t offset) {
+    return read_at(static_cast<stream_t*>(stream)->file, reinterpret_cast<char*>(data), count,
+                   offset);
+}
+
+void fb_io_stream_read_async(fb_task_t* task, void* request, void* stream, const std::int64_t count,
+                             const std::int64_t offset) {
+    request_t& self = request_of(request);
+    self.file = static_cast<stream_t*>(stream)->file;
+    self.number = count;
+    self.offset = offset;
+    run_async(task, request, stream_read);
+}
+
+std::int64_t fb_io_stream_write(void* stream, const std::uint8_t* data, const std::int64_t count,
+                                const std::int64_t offset) {
+    return write_at(static_cast<stream_t*>(stream)->file,
+                    { reinterpret_cast<const char*>(data), static_cast<std::size_t>(count) },
+                    offset);
+}
+
+void fb_io_stream_write_async(fb_task_t* task, void* request, void* stream,
+                              const std::uint8_t* data, const std::int64_t count,
+                              const std::int64_t offset) {
+    request_t& self = request_of(request);
+    self.file = static_cast<stream_t*>(stream)->file;
+    self.offset = offset;
+    keep_input(self, { reinterpret_cast<const char*>(data), static_cast<std::size_t>(count) },
+               true);
+    run_async(task, request, reading<stream_write>);
+}
+
+std::int64_t fb_io_stream_size(void* stream) {
+    uv_stat_t stat{};
+    const std::int64_t found = stat_file(static_cast<stream_t*>(stream)->file, stat);
+    return found < 0 ? found : static_cast<std::int64_t>(stat.st_size);
+}
+
+std::int64_t fb_io_stream_sync(void* stream) {
+    return sync_file(static_cast<stream_t*>(stream)->file);
+}
+
+void fb_io_stream_sync_async(fb_task_t* task, void* request, void* stream) {
+    request_of(request).file = static_cast<stream_t*>(stream)->file;
+    run_async(task, request, reading<stream_sync>);
+}
+
+void fb_io_stream_close(void* stream) {
+    auto& self = *static_cast<stream_t*>(stream);
+    if (self.open) {
+        self.open = false;
+        close_file(self.file);
+    }
+}
+
+void fb_io_stream_free(void* stream) {
+    fb_io_stream_close(stream);
+    delete static_cast<stream_t*>(stream);
 }
 }

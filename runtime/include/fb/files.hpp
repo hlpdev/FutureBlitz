@@ -142,6 +142,40 @@ std::int32_t fb_io_lock_held(const void* lock);
 void fb_io_lock_release(void* lock);
 void fb_io_lock_free(void* lock);
 
+/// Opens the file at `path` as `how` says, the sum of 1 to read, 2 to write, 4 to write at its
+/// end, 8 to make it when it isn't there, 16 to make it and refuse one that's there, and 32 to
+/// empty it: 0, and the stream, at fb_io_request_stream, which fb_io_stream_free gives back. A
+/// folder is UV_EISDIR.
+std::int64_t fb_io_file_open(void* request, const fb_string_t* path, std::int32_t how);
+void fb_io_file_open_async(fb_task_t* task, void* request, const fb_string_t* path,
+                           std::int32_t how);
+void* fb_io_request_stream(void* request);
+/// Copies what a stream's Async read gave, all the bytes it said it read, to `into`.
+void fb_io_request_copy(const void* request, std::uint8_t* into);
+/// Whether a stream is open: 1 until fb_io_stream_close closes it, which a second close leaves
+/// alone.
+std::int32_t fb_io_stream_open(const void* stream);
+/// Reads up to `count` bytes at `offset` into `data`, or from where the file is for -1: how many,
+/// 0 at its end, or an error. The Async twin reads them into the request, for
+/// fb_io_request_copy.
+std::int64_t fb_io_stream_read(void* stream, std::uint8_t* data, std::int64_t count,
+                               std::int64_t offset);
+void fb_io_stream_read_async(fb_task_t* task, void* request, void* stream, std::int64_t count,
+                             std::int64_t offset);
+/// Writes all `count` bytes of `data` at `offset`, or from where the file is for -1, as a file
+/// opened to write at its end always does: 0, or an error. The Async twin keeps a copy.
+std::int64_t fb_io_stream_write(void* stream, const std::uint8_t* data, std::int64_t count,
+                                std::int64_t offset);
+void fb_io_stream_write_async(fb_task_t* task, void* request, void* stream,
+                              const std::uint8_t* data, std::int64_t count, std::int64_t offset);
+/// How many bytes the file has, or an error.
+std::int64_t fb_io_stream_size(void* stream);
+/// Puts what's been written to the file onto the disk: 0, or an error.
+std::int64_t fb_io_stream_sync(void* stream);
+void fb_io_stream_sync_async(fb_task_t* task, void* request, void* stream);
+void fb_io_stream_close(void* stream);
+void fb_io_stream_free(void* stream);
+
 /// The file at `path` mapped into memory whole, read-only, or writable when `writable` isn't 0,
 /// which fb_io_map_free gives back. fb_io_map_error gives 0, or the error it couldn't map with.
 void* fb_io_map_new(const fb_string_t* path, std::int32_t writable);
