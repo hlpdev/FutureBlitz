@@ -1,0 +1,90 @@
+Import std.core
+
+Struct Response
+    Field status: Int
+    Field body: String
+End Struct
+
+Struct ShowUser Implements Defaultable
+    Field id: Int
+    Static Method DefaultValue(): ShowUser => ShowUser(7)
+End Struct
+
+Struct ListUsers Implements Defaultable
+    Field page: Int = 1
+    Static Method DefaultValue(): ListUsers => ListUsers()
+End Struct
+
+Attribute Get(path: String)
+
+Class Api
+    Field calls: Int
+
+    @Get("/users/:id")
+    Async Method Show(args: ShowUser): Response
+        calls += 1
+        Return Response(200, "user {args.id}")
+    End Method
+
+    @Get("/users")
+    Async Method List(args: ListUsers): Response
+        calls += 1
+        Return Response(200, "page {args.page}")
+    End Method
+
+    // Not Async, so its Func gives no Task.
+    Method Plain(args: ShowUser): Response => Response(500, "plain")
+
+    Method Helper(): Int => 1
+End Class
+
+// Each Method binds A to its own parameter's type, which the body makes from Defaultable, and an
+// Async Method gives the Task the Func says.
+Async Function Routes<T>(api: T)
+    For Method m: M In T
+        Where M: Func(A): Task<Response>
+        Where A: Defaultable
+        Local route = m.Attribute(Get)
+        Local args = A.DefaultValue()
+        Local response = Await m.Call(api, args)
+        Print("{m.Name} {route?.path ?? "-"} {TypeName<A>()}: {response.status} {response.body}")
+    End For
+End Function
+
+Local api = Api()
+Await Routes(api)
+Print(api.calls)
+
+// Over a concrete type, with two of the loop's own, and a Func without a Task, which no Async
+// Method fits, while a name that's a type stays one.
+For Method m: M In Api
+    Where M: Func(A): Response
+    Where A: Defaultable
+    Print("not Async: {m.Name} {TypeName<A>()} {m.Call(api, A.DefaultValue()).body}")
+End For
+
+Class Pairs
+    Method Join(a: Int, b: String): String => "{a}{b}"
+    Method Flip(a: Bool, b: String): String => "{b}{a}"
+    Method Three(a: Int, b: Int, c: Int): String => "three"
+End Class
+
+For Method m: M In Pairs
+    Where M: Func(A, String): B
+    Print("{m.Name}: {TypeName<A>()} -> {TypeName<B>()}")
+End For
+
+// An untyped For Method still leaves Async Methods out, which give a Task.
+Class Mixed
+    Method Ping()
+        Print("ping")
+    End Method
+
+    Async Method Later()
+        Print("later")
+    End Method
+End Class
+
+For Method m In Mixed
+    m.Call(Mixed())
+End For

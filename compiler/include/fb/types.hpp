@@ -374,6 +374,11 @@ public:
     [[nodiscard]] type_id_t substitute(type_id_t type, const std::vector<type_id_t>& parameters,
                                        const std::vector<type_id_t>& arguments);
 
+    /// The arguments for `parameters` that make `pattern` into `actual`, like Int32 for the A of
+    /// "Func(A): Task<A>" and "Func(Int32): Task<Int32>", or nullopt when none do.
+    [[nodiscard]] std::optional<std::vector<type_id_t>>
+    match(type_id_t pattern, type_id_t actual, const std::vector<type_id_t>& parameters);
+
     /// A fixed array's number of elements, in all its dimensions.
     [[nodiscard]] std::uint64_t element_count(type_id_t type) const;
 

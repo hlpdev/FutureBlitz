@@ -637,6 +637,20 @@ private:
         type_id_t type;
     };
 
+    /// The Func type a typed For Method loop's Where line gives, like "Func(A): Task<Response>",
+    /// and the type parameters of the loop's own in it, A, which each Method binds.
+    struct method_pattern_t {
+        type_id_t signature = type_id_t::INVALID;
+        std::vector<type_id_t> fresh;
+    };
+
+    /// A Method a typed For Method loop goes over: its name, and what it binds the loop's own
+    /// type parameters to.
+    struct bound_method_t {
+        std::string name;
+        std::vector<type_id_t> arguments;
+    };
+
     /// Work that runs on another thread: a Spawn's or Thread.Start's, or a Shared Class's
     /// Destroy(), which whichever thread lets go last runs. `span` is where it's started, and
     /// `where` says where it runs.
@@ -840,6 +854,11 @@ private:
     /// Each For Field loop's type parameter for its fields' types, made when its function is
     /// declared.
     std::unordered_map<stmt_id_t, type_id_t> m_loop_fields;
+    /// Each typed For Method loop's Func type and the type parameters of its own in it, made when
+    /// its function is declared, or else when it's checked.
+    std::unordered_map<stmt_id_t, method_pattern_t> m_loop_methods;
+    /// The same, by each of those type parameters, for the constraints on them that calls check.
+    std::unordered_map<type_id_t, method_pattern_t> m_method_patterns;
     /// The types whose == two Interfaces' defaults give, which check_equality_defaults()
     /// reported, so a use of their == isn't reported again.
     std::unordered_set<type_id_t> m_ambiguous_equality;
@@ -5788,11 +5807,13 @@ private:
             const type_id_t wanted = as_implemented(bound.interface, interface, type);
             if (const std::optional<misfit_t> misfit = field_misfit(bound, type, wanted)) {
                 const std::array shown{ type, interface, wanted, misfit->type };
-                error(span,
-                      "{} takes {}'s '{}', which needs each of its {} to implement {}, but {}",
+                const std::string needed =
+                    bound.members == member_kind_t::METHOD
+                        ? std::format("what each of its Methods has for {}", name_of(bound.field))
+                        : std::format("each of its {}", members_text(bound.members));
+                error(span, "{} takes {}'s '{}', which needs {} to implement {}, but {}",
                       name_among(type, shown), name_among(interface, shown), symbol(method).name,
-                      members_text(bound.members), name_among(wanted, shown),
-                      misfit_text(bound, *misfit, shown));
+                      needed, name_among(wanted, shown), misfit_text(bound, *misfit, shown));
             }
         }
     }
@@ -10176,9 +10197,16 @@ private:
                 if (const std::optional<misfit_t> misfit =
                         field_misfit(bound, argument, interface)) {
                     const std::array shown{ argument, interface, misfit->type };
-                    error(span, "{} needs each {} of {} to implement {}, but {}", what,
-                          member_text(bound.members), name_among(argument, shown),
-                          name_among(interface, shown), misfit_text(bound, *misfit, shown));
+                    if (bound.members == member_kind_t::METHOD) {
+                        error(span,
+                              "{} needs what each Method of {} has for {} to implement {}, but {}",
+                              what, name_among(argument, shown), name_of(bound.field),
+                              name_among(interface, shown), misfit_text(bound, *misfit, shown));
+                    } else {
+                        error(span, "{} needs each {} of {} to implement {}, but {}", what,
+                              member_text(bound.members), name_among(argument, shown),
+                              name_among(interface, shown), misfit_text(bound, *misfit, shown));
+                    }
                 }
 
                 continue;
@@ -10268,6 +10296,25 @@ private:
             return known ? std::nullopt : std::optional(misfit_t{ .type = type });
         }
 
+        if (bound.members == member_kind_t::METHOD) {
+            const auto pattern = m_method_patterns.find(bound.field);
+            if (pattern == m_method_patterns.end()) {
+                return std::nullopt;
+            }
+
+            const std::vector<type_id_t>& fresh = pattern->second.fresh;
+            const auto place = std::ranges::find(fresh, bound.field);
+            for (const bound_method_t& method : loop_methods(type, pattern->second)) {
+                const type_id_t given =
+                    method.arguments[static_cast<std::size_t>(place - fresh.begin())];
+                if (!implements(given, substitute(interface, fresh, method.arguments))) {
+                    return misfit_t{ .field = method.name, .type = given };
+                }
+            }
+
+            return std::nullopt;
+        }
+
         for (const field_t& field : reflected_types(type, bound.members)) {
             const type_id_t wanted = substitute(interface, { bound.field }, { field.type });
             if (!implements(field.type, wanted)) {
@@ -10285,6 +10332,11 @@ private:
         if (!misfit.field) {
             return std::format("nothing says that of {}'s {}", name_among(misfit.type, shown),
                                members_text(bound.members));
+        }
+
+        if (bound.members == member_kind_t::METHOD) {
+            return std::format("its Method '{}' has {} for {}, which doesn't", *misfit.field,
+                               name_among(misfit.type, shown), name_of(bound.field));
         }
 
         return std::format("its {} '{}' is {}, which doesn't", member_text(bound.members),
@@ -10387,7 +10439,12 @@ private:
             for_each_block(
                 id, [&](const block_t& inner) { collect_field_bounds(inner, own, constraints); });
             const auto* loop = std::get_if<for_member_stmt_t>(&m_ast.get(id).node);
-            if (loop == nullptr || loop->kind == member_kind_t::METHOD) {
+            if (loop == nullptr) {
+                continue;
+            }
+
+            if (loop->kind == member_kind_t::METHOD) {
+                collect_method_bounds(id, *loop, own, constraints);
                 continue;
             }
 
@@ -10424,6 +10481,42 @@ private:
 
             m_type_scope.resize(mark);
         }
+    }
+
+    /// A typed For Method loop's Func type and type parameters, and over the function's own
+    /// type parameter, the constraints its other Where lines put on what each Method binds them
+    /// to, which each call checks.
+    void collect_method_bounds(const stmt_id_t id, const for_member_stmt_t& loop,
+                               const std::vector<type_id_t>& own,
+                               std::vector<bound_t>& constraints) {
+        const method_pattern_t pattern = quietly([&] { return method_signature(loop); });
+        m_loop_methods[id] = pattern;
+        for (const type_id_t parameter : pattern.fresh) {
+            m_method_patterns[parameter] = pattern;
+        }
+
+        const auto* named = std::get_if<named_type_t>(&m_ast.get(loop.type).node);
+        const auto parameter = named == nullptr || !named->arguments.empty()
+                                   ? own.end()
+                                   : std::ranges::find(own, named->name, [this](const type_id_t t) {
+                                         return name_of(t);
+                                     });
+        if (parameter == own.end()) {
+            return;
+        }
+
+        const std::size_t mark = enter_type_scope(pattern.fresh);
+        for (const bound_t& bound :
+             quietly([&] { return resolve_constraints(fresh_constraints(loop), pattern.fresh); })) {
+            constraints.push_back({
+                .parameter = *parameter,
+                .interface = bound.interface,
+                .field = bound.parameter,
+                .members = loop.kind,
+            });
+        }
+
+        m_type_scope.resize(mark);
     }
 
     /// Calls `visit` with each block a statement holds, like an If's branches.
@@ -15891,19 +15984,41 @@ private:
             if (!is_parameter(type)) {
                 check_fields(type, bounds, m_ast.get(node.type).span, node.kind);
             }
-        } else {
-            signature = method_signature(node);
+        }
+
+        std::vector<type_id_t> fresh;
+        if (methods) {
+            const auto made = m_loop_methods.find(id);
+            const method_pattern_t pattern =
+                made != m_loop_methods.end() ? made->second : method_signature(node);
+            signature = pattern.signature;
+            fresh = pattern.fresh;
             if (node.type_name) {
                 field = m_analysis.types.add_parameter(std::string(node.type_name->text));
+            }
+
+            // The other Where lines are on the type parameters the Func type names.
+            const std::size_t mark = enter_type_scope(fresh);
+            bounds = resolve_constraints(fresh_constraints(node), fresh);
+            m_type_scope.resize(mark);
+            for (bound_t& bound : bounds) {
+                bound.members = node.kind;
+            }
+
+            if (!is_parameter(type)) {
+                check_methods(type, pattern, bounds, m_ast.get(node.type).span);
             }
         }
 
         m_analysis.stmts[index(id)].type_arguments = { type, field, signature };
+        std::ranges::copy(fresh, std::back_inserter(m_analysis.stmts[index(id)].type_arguments));
         forget_changed(node.body);
         const flow_t entry = m_flow;
         push_loop(id, node.label);
         push_scope();
-        const std::size_t mark = enter_type_scope({ field });
+        std::vector<type_id_t> scoped{ field };
+        std::ranges::copy(fresh, std::back_inserter(scoped));
+        const std::size_t mark = enter_type_scope(scoped);
         const std::vector<bound_t> outer_bounds = m_bounds;
         m_bounds.insert(m_bounds.end(), bounds.begin(), bounds.end());
         m_analysis.stmts[index(id)].symbol = declare_local({
@@ -15975,8 +16090,10 @@ private:
 
     /// The Func type of the Methods a For Method loop goes over: "Where M: Func(Int): String"
     /// gives it for "For Method m: M In T", and without an M, it's the Methods that take
-    /// nothing and give nothing.
-    type_id_t method_signature(const for_member_stmt_t& node) {
+    /// nothing and give nothing. A name in it that isn't a type is a type parameter of the
+    /// loop's own, which each Method binds: "Func(A): Task<Response>" goes over the Async
+    /// Methods that take one argument of any type and give a Response.
+    method_pattern_t method_signature(const for_member_stmt_t& node) {
         const type_id_t plain = m_analysis.types.function({}, type_id_t::NONE);
         if (!node.type_name) {
             if (!node.constraints.empty()) {
@@ -15985,7 +16102,7 @@ private:
                       "to give it a Where line");
             }
 
-            return plain;
+            return { .signature = plain };
         }
 
         const auto said = std::ranges::find_if(node.constraints, [&](const constraint_t& line) {
@@ -15996,18 +16113,171 @@ private:
                   "a For Method loop says which Methods it goes over with a Where line, like "
                   "'Where {}: Func(Int): String'",
                   node.type_name->text);
-            return plain;
+            return { .signature = plain };
         }
 
+        std::vector<type_id_t> fresh;
+        add_new_names(said->interfaces.front(), fresh);
+        const std::size_t mark = enter_type_scope(fresh);
         const type_id_t signature = resolve_type(said->interfaces.front());
+        m_type_scope.resize(mark);
         if (signature != type_id_t::INVALID && !is_func(signature)) {
             error(m_ast.get(said->interfaces.front()).span,
                   "{} is the Methods' Func type, like Func(Int): String, not {}",
                   node.type_name->text, shown_name(signature));
-            return plain;
+            return { .signature = plain };
         }
 
-        return signature;
+        return { .signature = signature, .fresh = fresh };
+    }
+
+    /// Adds to `fresh` a type parameter for each name in the type at `id` that isn't a type,
+    /// once for each name.
+    void add_new_names(const type_expr_id_t id, std::vector<type_id_t>& fresh) {
+        const type_expr_node_t& node = m_ast.get(id).node;
+        if (const auto* named = std::get_if<named_type_t>(&node)) {
+            const auto known = [&](const type_id_t parameter) {
+                return name_of(parameter) == named->name;
+            };
+            if (named->arguments.empty() && named->throws.empty() && !named->qualifier &&
+                !std::ranges::any_of(fresh, known) &&
+                quietly([&] { return resolve_type(id); }) == type_id_t::INVALID) {
+                fresh.push_back(m_analysis.types.add_parameter(std::string(named->name)));
+            }
+
+            for (const type_expr_id_t part : named->arguments) {
+                add_new_names(part, fresh);
+            }
+
+            for (const type_expr_id_t part : named->throws) {
+                add_new_names(part, fresh);
+            }
+        } else if (const auto* nullable = std::get_if<nullable_type_t>(&node)) {
+            add_new_names(nullable->inner, fresh);
+        } else if (const auto* array = std::get_if<array_type_t>(&node)) {
+            add_new_names(array->element, fresh);
+        } else if (const auto* weak = std::get_if<weak_type_t>(&node)) {
+            add_new_names(weak->inner, fresh);
+        } else if (const auto* tuple = std::get_if<tuple_type_t>(&node)) {
+            for (const type_expr_id_t part : tuple->elements) {
+                add_new_names(part, fresh);
+            }
+        } else if (const auto* function = std::get_if<function_type_t>(&node)) {
+            for (const type_expr_id_t part : function->parameters) {
+                add_new_names(part, fresh);
+            }
+
+            if (function->result) {
+                add_new_names(*function->result, fresh);
+            }
+        }
+    }
+
+    /// A typed For Method loop's Where lines besides the one that gives its Func type: those on
+    /// the type parameters that Func type names. An untyped loop's were reported.
+    [[nodiscard]] static std::vector<constraint_t>
+    fresh_constraints(const for_member_stmt_t& node) {
+        std::vector<constraint_t> lines;
+        if (!node.type_name) {
+            return lines;
+        }
+
+        for (const constraint_t& line : node.constraints) {
+            if (line.parameter.text != node.type_name->text) {
+                lines.push_back(line);
+            }
+        }
+
+        return lines;
+    }
+
+    /// The Methods of `type` a typed For Method loop goes over, with what each binds its own
+    /// type parameters to: those whose Func type, as an object of `type` has it, is the loop's
+    /// with them in place. An Async Method's gives its Task. Static, Unsafe, generic, and
+    /// throwing Methods aren't among them, nor Destroy, nor ones with a ByRef parameter, nor what
+    /// the instance's type arguments don't meet the Where lines of.
+    [[nodiscard]] std::vector<bound_method_t> loop_methods(const type_id_t type,
+                                                           const method_pattern_t& pattern) const {
+        if (type == type_id_t::INVALID || !(is_struct(type) || is_class(type))) {
+            return {};
+        }
+
+        std::vector<bound_method_t> found;
+        for (type_id_t current = type; current != type_id_t::INVALID;
+             current = is_class(current) ? base_of(current) : type_id_t::INVALID) {
+            const auto declared = m_declared_types.find(definition_of(current));
+            if (declared == m_declared_types.end()) {
+                break;
+            }
+
+            const type_t& info = m_analysis.types.get(current);
+            const std::vector<type_id_t> parameters =
+                info.generic != type_id_t::INVALID ? m_analysis.types.get(info.generic).parameters
+                                                   : std::vector<type_id_t>{};
+            for (const symbol_id_t id : m_analysis.symbols[index(declared->second)].members) {
+                const symbol_t& method = m_analysis.symbols[index(id)];
+                const auto by_ref = [this](const symbol_id_t parameter) {
+                    return m_analysis.symbols[index(parameter)].by_ref;
+                };
+                if (method.kind != symbol_kind_t::METHOD || method.modifiers.is_static ||
+                    method.modifiers.is_unsafe || method.by_ref ||
+                    std::ranges::any_of(method.parameters, by_ref) ||
+                    !method.type_parameters.empty() || !method.throws.empty() ||
+                    method.name == "Destroy" || method.name == "[]" || method.name == "[]=" ||
+                    std::ranges::contains(found, method.name, &bound_method_t::name)) {
+                    continue;
+                }
+
+                if (info.generic != type_id_t::INVALID &&
+                    !bounds_hold(method.constraints, parameters, info.arguments)) {
+                    continue;
+                }
+
+                std::vector<type_id_t> takes;
+                takes.reserve(method.parameters.size());
+                for (const symbol_id_t parameter : method.parameters) {
+                    takes.push_back(substitute(m_analysis.symbols[index(parameter)].type,
+                                               parameters, info.arguments));
+                }
+
+                type_id_t gives = substitute(method.type, parameters, info.arguments);
+                if (method.modifiers.is_async) {
+                    gives = m_types->task(gives);
+                }
+
+                const type_id_t func = m_types->function(takes, gives);
+                if (std::optional<std::vector<type_id_t>> arguments =
+                        m_types->match(pattern.signature, func, pattern.fresh)) {
+                    found.push_back(
+                        { .name = std::string(method.name), .arguments = std::move(*arguments) });
+                }
+            }
+        }
+
+        return found;
+    }
+
+    /// A loop over a concrete type's Methods: what each binds the loop's own type parameters to
+    /// meets the loop's Where lines on them.
+    void check_methods(const type_id_t type, const method_pattern_t& pattern,
+                       const std::vector<bound_t>& bounds, const span_t span) {
+        for (const bound_method_t& method : loop_methods(type, pattern)) {
+            for (const bound_t& bound : bounds) {
+                const auto place = std::ranges::find(pattern.fresh, bound.parameter);
+                const type_id_t given =
+                    method.arguments[static_cast<std::size_t>(place - pattern.fresh.begin())];
+                const type_id_t wanted =
+                    substitute(bound.interface, pattern.fresh, method.arguments);
+                if (!implements(given, wanted)) {
+                    error(span,
+                          "{}'s Method '{}' has {} for {}, which doesn't implement {}, as this "
+                          "loop needs",
+                          name_of(type, { given, wanted }), method.name,
+                          name_of(given, { type, wanted }), name_of(bound.parameter),
+                          name_of(wanted, { type, given }));
+                }
+            }
+        }
     }
 
     /// What kind of member a loop's variable stands for.

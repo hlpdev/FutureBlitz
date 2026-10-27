@@ -938,6 +938,70 @@ std::pair<std::uint32_t, std::uint32_t> type_table_t::measure(const type_id_t ty
     return m_measures[type] = { depth, size };
 }
 
+std::optional<std::vector<type_id_t>>
+type_table_t::match(const type_id_t pattern, const type_id_t actual,
+                    const std::vector<type_id_t>& parameters) {
+    // Each parameter takes the part of `actual` where the pattern has it, and the pattern with
+    // those in place has to be `actual`, which also checks what the walk doesn't look into.
+    std::vector<std::optional<type_id_t>> found(parameters.size());
+    const auto walk = [&](const auto& self, const type_id_t want, const type_id_t have) -> void {
+        if (want == type_id_t::INVALID || have == type_id_t::INVALID) {
+            return;
+        }
+
+        if (const auto place = std::ranges::find(parameters, want); place != parameters.end()) {
+            std::optional<type_id_t>& argument =
+                found[static_cast<std::size_t>(place - parameters.begin())];
+            if (!argument) {
+                argument = have;
+            }
+
+            return;
+        }
+
+        const type_t& wanted = get(want);
+        const type_t& had = get(have);
+        if (wanted.kind != had.kind) {
+            return;
+        }
+
+        self(self, wanted.inner, had.inner);
+        if (wanted.kind == type_kind_t::FUNCTION &&
+            wanted.parameters.size() == had.parameters.size()) {
+            for (std::size_t i = 0; i < wanted.parameters.size(); ++i) {
+                self(self, wanted.parameters[i], had.parameters[i]);
+            }
+        }
+
+        if (wanted.generic != type_id_t::INVALID && wanted.generic == had.generic) {
+            for (std::size_t i = 0; i < wanted.arguments.size() && i < had.arguments.size(); ++i) {
+                self(self, wanted.arguments[i], had.arguments[i]);
+            }
+        }
+
+        if (wanted.kind == type_kind_t::TUPLE && wanted.fields.size() == had.fields.size()) {
+            for (std::size_t i = 0; i < wanted.fields.size(); ++i) {
+                self(self, wanted.fields[i].type, had.fields[i].type);
+            }
+        }
+    };
+    walk(walk, pattern, actual);
+    std::vector<type_id_t> arguments;
+    for (const std::optional<type_id_t> argument : found) {
+        if (!argument) {
+            return std::nullopt;
+        }
+
+        arguments.push_back(*argument);
+    }
+
+    if (substitute(pattern, parameters, arguments) != actual) {
+        return std::nullopt;
+    }
+
+    return arguments;
+}
+
 type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_id_t>& parameters,
                                    const std::vector<type_id_t>& arguments) {
     if (parameters.empty() || type == type_id_t::INVALID) {

@@ -3889,7 +3889,12 @@ private:
         const type_id_t type = concrete(info.type_arguments.at(0));
         const symbol_id_t variable = expect(info.symbol);
         std::vector<block_id_t> breaks;
-        const auto copy = [&](reflected_t member, const type_id_t field) {
+        // A typed For Method's own type parameters, after its Func type, which each Method
+        // binds.
+        const std::vector<type_id_t> fresh(info.type_arguments.begin() + 3,
+                                           info.type_arguments.end());
+        const auto copy = [&](reflected_t member, const type_id_t field,
+                              const std::vector<type_id_t>& bound = {}) {
             member.owner = type;
             m_reflected[variable] = std::move(member);
             const bool typed =
@@ -3899,9 +3904,16 @@ private:
                 m_arguments.push_back(field);
             }
 
+            for (std::size_t i = 0; i < bound.size(); ++i) {
+                m_parameters.push_back(fresh[i]);
+                m_arguments.push_back(bound[i]);
+            }
+
             m_copies.push_back(m_next_copy++);
             loop_t loop = lower_loop_body(id, node.body);
             m_copies.pop_back();
+            m_parameters.resize(m_parameters.size() - bound.size());
+            m_arguments.resize(m_arguments.size() - bound.size());
             if (typed) {
                 m_parameters.pop_back();
                 m_arguments.pop_back();
@@ -3913,11 +3925,13 @@ private:
         };
 
         if (node.kind == member_kind_t::METHOD) {
+            // The loop's own type parameters stay in the pattern, for each Method to bind.
             const type_id_t signature = concrete(info.type_arguments.at(2));
-            for (const symbol_id_t method : reflected_methods(type, signature, span.file)) {
-                reflected_t member{ .name = std::string(m_analysis.symbol(method).name) };
-                member.symbol = method;
-                copy(std::move(member), signature);
+            for (const reflected_method_t& method :
+                 reflected_methods(type, signature, fresh, span.file)) {
+                reflected_t member{ .name = std::string(m_analysis.symbol(method.symbol).name) };
+                member.symbol = method.symbol;
+                copy(std::move(member), method.type, method.arguments);
             }
         } else if (node.kind == member_kind_t::PROPERTY ||
                    node.kind == member_kind_t::STATIC_FIELD) {
@@ -4058,37 +4072,60 @@ private:
                                    });
     }
 
+    /// A Method a For Method loop goes over, its Func type as the loop's object has it, and what
+    /// it binds the loop's own type parameters to.
+    struct reflected_method_t {
+        symbol_id_t symbol;
+        type_id_t type;
+        std::vector<type_id_t> arguments;
+    };
+
     /// The Methods a For Method loop goes over: a Struct's or Class's own and inherited ones
-    /// that take no arguments, give nothing, and throw nothing, the base Class's first, each in
-    /// the place of what it overrides. Destroy and Unsafe Methods aren't among them, nor Async
-    /// ones, which give a Task, nor ones with a ByRef parameter, which no Func type has, nor what
-    /// the instance's type arguments don't meet the Where lines of, nor what an Extend the loop's
-    /// file doesn't see adds.
-    [[nodiscard]] std::vector<symbol_id_t>
-    reflected_methods(const type_id_t type, const type_id_t signature, const file_id_t file) {
+    /// whose Func type is `signature`, with the loop's own type parameters, `fresh`, in it bound
+    /// to what each has there, the base Class's first, each in the place of what it overrides.
+    /// An Async Method's Func type gives its Task. Destroy and Unsafe Methods aren't among them,
+    /// nor ones with a ByRef parameter, which no Func type has, nor generic or throwing ones,
+    /// nor what the instance's type arguments don't meet the Where lines of, nor what an Extend
+    /// the loop's file doesn't see adds.
+    [[nodiscard]] std::vector<reflected_method_t>
+    reflected_methods(const type_id_t type, const type_id_t signature,
+                      const std::vector<type_id_t>& fresh, const file_id_t file) {
         const auto by_ref = [&](const symbol_id_t parameter) {
             return m_analysis.symbol(parameter).by_ref;
         };
-        std::vector<symbol_id_t> methods;
+        std::vector<reflected_method_t> methods;
         for (const std::vector<symbol_id_t>& level : member_chain(type, false, file)) {
             for (const symbol_id_t member : level) {
                 const symbol_t& method = m_analysis.symbol(member);
                 if (method.kind != symbol_kind_t::METHOD || method.modifiers.is_static ||
-                    method.modifiers.is_unsafe || method.modifiers.is_async || method.by_ref ||
+                    method.modifiers.is_unsafe || method.by_ref ||
                     std::ranges::any_of(method.parameters, by_ref) ||
                     !method.type_parameters.empty() || !method.throws.empty() ||
                     method.name == "Destroy" || method.name == "[]" || method.name == "[]=" ||
-                    !has_member(type, method) || method_type(type, member) != signature) {
+                    !has_member(type, method)) {
                     continue;
                 }
 
-                const auto overridden = method.overrides
-                                            ? std::ranges::find(methods, *method.overrides)
-                                            : methods.end();
+                const type_id_t func = method_type(type, member);
+                std::optional<std::vector<type_id_t>> arguments =
+                    types().match(signature, func, fresh);
+                if (!arguments) {
+                    continue;
+                }
+
+                const auto overridden =
+                    method.overrides
+                        ? std::ranges::find(methods, *method.overrides, &reflected_method_t::symbol)
+                        : methods.end();
+                reflected_method_t found{
+                    .symbol = member,
+                    .type = func,
+                    .arguments = std::move(*arguments),
+                };
                 if (overridden != methods.end()) {
-                    *overridden = member;
+                    *overridden = std::move(found);
                 } else {
-                    methods.push_back(member);
+                    methods.push_back(std::move(found));
                 }
             }
         }
@@ -4097,7 +4134,7 @@ private:
     }
 
     /// A Method's Func type, as an object of `type` has it: what it takes, besides the object,
-    /// and what it gives.
+    /// and what it gives, an Async Method's Task.
     type_id_t method_type(const type_id_t type, const symbol_id_t id) {
         const symbol_t& method = m_analysis.symbol(id);
         const std::vector<type_id_t> parameters = type_parameters_of(method);
@@ -4108,7 +4145,12 @@ private:
                 types().substitute(m_analysis.symbol(parameter).type, parameters, arguments));
         }
 
-        return types().function(takes, types().substitute(method.type, parameters, arguments));
+        type_id_t gives = types().substitute(method.type, parameters, arguments);
+        if (method.modifiers.is_async) {
+            gives = types().task(gives);
+        }
+
+        return types().function(takes, gives);
     }
 
     /// The Properties a For Property loop goes over, the inherited ones first, each in the place
@@ -9582,6 +9624,11 @@ private:
 
             if (is_virtual(m_analysis.symbol(method))) {
                 call.slot = slot_of(method);
+            }
+
+            // An Async Method's call starts it, and gives its Task.
+            if (m_analysis.symbol(method).modifiers.is_async) {
+                return start_async_member(id, std::move(call), true);
             }
 
             // A reflected Method doesn't throw, so its error variable is never set.

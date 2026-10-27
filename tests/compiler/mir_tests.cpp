@@ -456,6 +456,42 @@ TEST_CASE("a generic Async Function's Task has its instance's errors", "[mir]") 
     CHECK(!dumped.contains("Throws E"));
 }
 
+TEST_CASE("a typed For Method's copies have what each Method binds, and start an Async one",
+          "[mir]") {
+    const std::string dumped = lower_text("Class Api\n"
+                                          "    Async Method Show(n: Int): String => \"{n}\"\n"
+                                          "    Method Twice(n: Int): Int => n * 2\n"
+                                          "    Method Name(s: String): String => s\n"
+                                          "End Class\n"
+                                          "Function Run<T>(api: T)\n"
+                                          "    For Method m: M In T\n"
+                                          "        Where M: Func(Int): B\n"
+                                          "        Local result = m.Call(api, 3)\n"
+                                          "    End For\n"
+                                          "End Function\n"
+                                          "Run(Api())\n");
+    // B is Show's Task and Twice's Int32, and Name takes no Int, so it has no copy.
+    CHECK(dumped.contains("function Run<Api>(Api)\n"
+                          "    _0 api: Api\n"
+                          "    _1: Task<String>\n"
+                          "    _2 result: Task<String>\n"
+                          "    _3: Int32\n"
+                          "    _4 result: Int32\n"
+                          "bb0:\n"
+                          "    _1 = new Task<String>\n"
+                          "    async_begin(_1)\n"
+                          "    call virtual Api.Show(Int32)(_0, _1, 3)\n"
+                          "    _2 = _1\n"
+                          "    release _2\n"
+                          "    goto bb1\n"
+                          "bb1:\n"
+                          "    _3 = call virtual Api.Twice(Int32)(_0, 3)\n"
+                          "    _4 = _3\n"
+                          "    goto bb2\n"
+                          "bb2:\n"
+                          "    goto bb3\n"));
+}
+
 TEST_CASE("an embedded file is one Global String, whose bytes that aren't UTF-8 print by value",
           "[mir]") {
     std::vector<fb::library_file_t> library =

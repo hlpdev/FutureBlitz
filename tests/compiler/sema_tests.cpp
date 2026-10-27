@@ -9741,6 +9741,60 @@ TEST_CASE("loops over Properties, Static Fields, and Methods of a Func type", "[
                     "Attribute(A)" });
 }
 
+TEST_CASE("a typed For Method's Func type binds type parameters of its own for each Method",
+          "[sema]") {
+    const std::string api = "Import std.core\n"
+                            "Struct Args Implements Defaultable\n"
+                            "    Field Id: Int\n"
+                            "    Static Method DefaultValue(): Args => Args(1)\n"
+                            "End Struct\n"
+                            "Struct Plain\n"
+                            "    Field Id: Int\n"
+                            "End Struct\n"
+                            "Class Api\n"
+                            "    Async Method Show(args: Args): String => \"{args.Id}\"\n"
+                            "    Method Pick(a: Int, b: String): Bool => True\n"
+                            "End Class\n"
+                            "Class Other\n"
+                            "    Async Method Show(args: Plain): String => \"{args.Id}\"\n"
+                            "End Class\n"
+                            "Async Function Routes<T>(api: T)\n"
+                            "    For Method m: M In T\n"
+                            "        Where M: Func(A): Task<String>\n"
+                            "        Where A: Defaultable\n"
+                            "        Local text: String = Await m.Call(api, A.DefaultValue())\n"
+                            "    End For\n"
+                            "End Function\n";
+    // The body is generic over A, which each Method binds, Async ones where the Func gives a
+    // Task, and a name that's a type stays one.
+    CHECK(errors_of(api + "Local done = Routes(Api())\n"
+                          "For Method m: M In Api\n"
+                          "    Where M: Func(A, String): B\n"
+                          "    Print(\"{m.Name} {TypeName<A>()} {TypeName<B>()}\")\n"
+                          "End For")
+              .empty());
+    // What a Method binds meets the loop's other Where lines: over a concrete type at the loop,
+    // and over a type parameter at each call. A's Where lines only say what A is in the body.
+    CHECK(errors_of(api + "Local done = Routes(Other())\n"
+                          "For Method m: M In Api\n"
+                          "    Where M: Func(A): Task<String>\n"
+                          "    Where A: Printable\n"
+                          "End For\n"
+                          "For Method m: M In Api\n"
+                          "    Where M: Func(A): Task<String>\n"
+                          "    Where B: Printable\n"
+                          "    Local n = A.DefaultValue()\n"
+                          "End For") ==
+          errors_t{
+              "Routes: 'Routes' needs what each Method of Other has for A to implement "
+              "Defaultable, but its Method 'Show' has Plain for A, which doesn't",
+              "Api: Api's Method 'Show' has Args for A, which doesn't implement Printable, as "
+              "this loop needs",
+              "B: 'B' isn't a type parameter here",
+              "DefaultValue: A has no member named 'DefaultValue'",
+          });
+}
+
 TEST_CASE("a type's own attributes", "[sema]") {
     CHECK(probe("Attribute Saved\n@Saved Struct P\nEnd Struct\nLocal x = P.Has(Saved)") == "Bool");
     CHECK(probe("Attribute Label(Text: String)\nStruct P\nEnd Struct\n"
