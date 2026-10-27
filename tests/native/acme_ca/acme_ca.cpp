@@ -1071,7 +1071,12 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
             to = std::format("{:%Y%m%d%H%M%S}", now + std::chrono::seconds(state.validity->second));
         }
 
-        (void)mbedtls_x509write_crt_set_validity(&writer, from.c_str(), to.c_str());
+        if (mbedtls_x509write_crt_set_validity(&writer, from.c_str(), to.c_str()) != 0) {
+            mbedtls_x509write_crt_free(&writer);
+            mbedtls_x509_csr_free(&csr);
+            return with_nonce(problem(500, "serverInternal", "the validity isn't X.509's"));
+        }
+
         (void)mbedtls_x509write_crt_set_issuer_name(&writer, std::string(root_name).c_str());
         (void)mbedtls_x509write_crt_set_subject_name(&writer,
                                                      ("CN=" + order.names.front()).c_str());

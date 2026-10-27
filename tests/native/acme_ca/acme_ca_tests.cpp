@@ -377,6 +377,13 @@ TEST_CASE("an order of 100 names is issued for the validity it's set to, and one
         REQUIRE(member(client.post(path, "").body, "status") == "valid");
     }
 
+    // A validity past X.509's years is the CA's failure, and the order can be finalized again.
+    ca.validity(std::pair<std::int64_t, std::int64_t>(0, 9000LL * 366 * 24 * 60 * 60));
+    const fb::test::acme_response_t failed =
+        client.post("/order/1/finalize", std::format(R"({{"csr":"{}"}})", client_t::csr(names)));
+    CHECK(failed.status == 500);
+    CHECK(member(failed.body, "detail") == "the validity isn't X.509's");
+
     // Valid from 100 seconds ago to 30 from now, as a renewal's test has it.
     ca.validity(std::pair<std::int64_t, std::int64_t>(100, 30));
     const fb::test::acme_response_t finalized =

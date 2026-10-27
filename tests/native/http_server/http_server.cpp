@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <chrono>
 #include <csignal>
 #include <cstddef>
@@ -510,6 +511,19 @@ std::optional<std::string> fetch_challenge(const std::string& name, const std::s
     return fb::test::body_of_ok(response);
 }
 
+/// The seconds `text` is, a century at most either way, or nothing for what isn't such a number.
+std::optional<std::int64_t> seconds_of(const std::string_view text) {
+    constexpr std::int64_t century = 100LL * 366 * 24 * 60 * 60;
+    std::int64_t seconds = 0;
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), seconds);
+    if (error != std::errc{} || end != text.data() + text.size() || seconds < -century ||
+        seconds > century) {
+        return std::nullopt;
+    }
+
+    return seconds;
+}
+
 /// The CA's answer to a request of `path` under /acme/, or its root at /acme/root; a GET of
 /// /acme/refuse-nonce has it refuse the next request's nonce, and one of
 /// /acme/validity?before=N&after=M has what it issues be valid from N seconds ago to M from now.
@@ -537,10 +551,15 @@ response_t acme_answer(const request_t& request, const std::string& path) {
                 return text("2020 to 2120\n");
             }
 
-            const std::int64_t from = std::stoll(*before);
-            const std::int64_t to = std::stoll(*after);
-            acme_ca->validity(std::pair(from, to));
-            return text(std::format("{} seconds before to {} after\n", from, to));
+            const std::optional<std::int64_t> from = seconds_of(*before);
+            const std::optional<std::int64_t> to = seconds_of(*after);
+            if (!from || !to) {
+                return text("before and after are seconds, a century at most\n", 400,
+                            "Bad Request");
+            }
+
+            acme_ca->validity(std::pair(*from, *to));
+            return text(std::format("{} seconds before to {} after\n", *from, *to));
         }
 
         answered = acme_ca->handle({ .method = request.method,
