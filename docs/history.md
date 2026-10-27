@@ -1153,6 +1153,92 @@ Lane 8's pinned test: an untyped lambda or array literal passed to an overloaded
 parameter's type where one overload fits by count (sema_tests); an integer literal past Int32
 between Int64 and Double overloads stays ambiguous, as spec 05 has it on purpose.
 
+Step 14, std.io's files, without streams: the I/O thread closes other parts' handles as it stops
+(io_internal.hpp's at_io_stop(), io_t::at_stop()), and its job queue, step 28's on_io_thread(),
+starts their work; runtime/src/files.cpp in fb_runtime_io, the fb_io_file_, fb_io_dir_, fb_io_temp_,
+and fb_io_lock_ calls over libuv's synchronous file functions, each with an _async twin on libuv's
+thread pool from the I/O thread's loop (request_t, run_async(), start_queued(), finishing a
+Task<Int64>), errors numbered as IOErrorKinds (fb_io_error_kind, fb_io_error_message); path.cpp's
+fb_path_windows(); watcher.cpp's fb_io_watcher_ over uv_fs_event, telling events by the names it
+knows; mapped.cpp's fb_io_map_ over mmap and MapViewOfFile; runtime/include/fb/files.hpp. A String
+converts to std.io's Path where one is expected (sema's find_path_struct() and makes_path(),
+`analysis_t::path` and `path_new`, lowering's path_of()), spec 02. IOErrorKind's NOT_A_DIRECTORY,
+IS_A_DIRECTORY, NOT_EMPTY, BUSY, NO_SPACE, and INVALID_PATH. std/io/path.fb's `Path` (Join and `/`,
+FileName, Stem, Extension, WithExtension, Parent, IsAbsolute, Normalize, RelativeTo, Absolute,
+NativeStyle) and `PathStyle`; request.fb's Package Request, Checked, and ErrorOf; file.fb's `File`
+(ReadBytes, ReadText, ReadLines, WriteBytes, WriteText, WriteLines, AppendBytes, AppendText,
+AppendLines, WriteBytesAtomic, WriteTextAtomic, Exists, Size, Metadata, Copy, Move, Delete,
+SetReadOnly, each with an Async twin), `Metadata`, `FileKind`, and `LineEnding`; dir.fb's `Dir`
+(Create, CreateAll, Remove, RemoveAll, Exists, Entries, Walk, Glob, with Async twins, Current,
+SetCurrent, Temp) and `DirEntry`; temp.fb's `TempFile` and `TempDir`; lock.fb's `FileLock` (Acquire,
+AcquireShared, TryAcquire, TryAcquireShared, AcquireAsync, AcquireSharedAsync, IsHeld, Close);
+mapped.fb's `MappedFile`; watcher.fb's `FileWatcher` (Next, TryNext, NextAsync, Close), `FileEvent`,
+and `FileEventKind`. Tests: tests/programs/io_path.fb, io_files.fb, io_files_async.fb, io_watch.fb,
+panic_io_map_index.fb, panic_io_map_read_only.fb, panic_io_map_closed.fb, panic_io_map_range.fb,
+panic_io_path_extension.fb, and sema_tests' "a String converts to std.io's Path where one is
+expected".
+
+Step 15's std part: std/io/vfs.fb's `Vfs` (Mount, MountFolder, MountEmbedded, Unmount, ReadBytes,
+ReadText, ReadLines and their Async twins, KindOf, Exists, DirExists, Entries, Walk, Glob), mounts
+over mounts with the last first, `VfsSource` (Read, KindAt, List), `FolderSource`, and
+`EmbeddedSource` over EmbedFolder's Map<String, UInt8[]>; dir.fb's Package PatternNames, DepthOf,
+and Matching, which Vfs.Glob shares; std/io/preferences.fb's `Preferences` (Get, Set, Remove,
+Contains, Keys, Count, Clear, IsChanged, Save, SaveAsync, OpenAsync, Folder), over the runtime's
+fb_io_dir_config(), in an escaped key=value file saved atomically. Its review's fixes: a
+FolderSource is Final and has nothing outside its folder, a mount is a folder, KindOf takes the last
+mount's kind as Entries does, Async reads read a snapshot of the mounts, Glob splits patterns at
+'\', EmbeddedSource panics for a place that's a file and a folder; Preferences keep a change made
+while saving, read a file behind a BOM or where a file blocks their folder, and refuse more app
+names; and file times come from Windows itself as seconds and nanoseconds (fb_io_request_stat), past
+2038 too. Tests: tests/programs/io_vfs.fb, io_preferences.fb, panic_io_vfs_mount.fb,
+panic_io_vfs_embedded.fb, panic_io_vfs_embedded_both.fb, panic_io_preferences_app.fb,
+panic_io_preferences_dot.fb, panic_io_preferences_device.fb, panic_io_preferences_long.fb,
+io_files.fb's time past 2038, and sema_tests' "std.io's FolderSource is Final so its Async reads are
+its reads".
+
+Step 29's HTTP client (lane 9): third_party/ fetches libcurl 8.23.0 (HTTP and HTTPS only; no tool,
+docs, libpsl, libidn2, libssh2, or brotli; CURL_CA_BUNDLE and CURL_CA_PATH none) over the bundled
+mbedTLS's mbedtls and mbedx509, which curl's FindMbedTLS takes as targets, zlib-ng and zstd
+(ZLIB::ZLIB an alias of zlib-ng), and nghttp2 1.70.0, built from its lib/ C files, for HTTP/2 over
+ALPN; curl's notice has its curlx/inet_ntop.c's and inet_pton.c's ISC text.
+`bundled_library_t::needs` names the bundled libraries one is built on, which bundled_libraries()
+adds and fb prints, and an entry with no prefix or runtime is only needed; libcurl needs libuv,
+mbedTLS, zlib-ng, zstd, and nghttp2; link_program() links a system library "Name.framework" as
+`-framework Name`. io.cpp's run_on_io_thread() and at_io_stop() (internal.hpp) let another part run
+work on the I/O thread's libuv loop and close its handles as it stops. The runtime's fb/http.hpp and
+fb_runtime_http: http.cpp (client_t, a curl share of cookies, DNS, and TLS sessions, and a multi
+handle for blocking transfers; transfer_t, refcounted between std.net.http and the I/O thread;
+run_blocking(); the I/O thread's io_part_t, a multi handle over uv_poll_t sockets and a uv_timer_t,
+start_on_io(), settle(), stop_on_io(); set_request(), redirect(), and origin_of(), which follow
+redirects as the fetch standard does; a request's Cookie headers through CURLOPT_COOKIE;
+outcome_of(), the outcomes as NetError Kinds) and tls_roots.cpp (os_roots(): Windows' ROOT store,
+valid and for server auth; macOS's SecTrustCopyAnchorCertificates; else SSL_CERT_FILE or the first
+of the distributions' bundle files; append_pem()), and http_text.cpp in fb_runtime
+(fb_string_from_utf8, fb_headers_same_name, fb_headers_is_name, fb_headers_is_value,
+fb_percent_encode), so Headers and Bodies link no libcurl. std/core/error.fb's
+NetErrorKind.HTTP_STATUS. std/net/http/: headers.fb (Headers, HeadersIterator, CheckField),
+status.fb (StatusCode: named statuses, Reason, IsSuccess, IsRedirect), client.fb (HttpMethod, Body
+with Text, Json, and Form, HttpResponse, HttpClient with Get, Head, Post, Put, Patch, Delete, Send,
+Download, their Async twins, DefaultHeaders, UserAgent, FollowRedirects, MaxRedirects, Decompress,
+Proxy, TrustOnly, TrustOsRoots, ClearCookies; Transfer; Http's one-call requests;
+HttpResponse.Version; Timeout and ConnectTimeout Durations). The runtime refuses text libcurl can't
+take (set_text, refuse) and a redirect to a URL it can't use (OUTCOME_BAD_REDIRECT) before sending,
+trusts the client's roots for an HTTPS proxy, gives one-line messages, and counts no redirect's body
+in progress. tests/native/http_server: fb_http_test_server (plain sockets, HTTP/1.1 with keep-alive,
+TLS through mbedTLS with its committed test CA and certificate from make_certificates.sh, HTTP/2
+through an nghttp2 server session where ALPN agrees on it, an HTTPS port that offers only HTTP/1.1,
+bodies compressed by zlib-ng and zstd), which runs a program as its child, with no proxy in its
+environment, and its URLs and the CA as its input; program_tests.cpp and verify.py run each http_
+program under it. Tests: http_client, http_tls, http_async, http_decompress, http_h2, http_progress,
+http_refused, http_timeouts, net_http_headers, the panic_http_ programs, tls_roots_tests (RFC 4648's
+vectors through append_pem, and the OS's roots read by mbedTLS), driver_tests' libcurl and notices
+cases, and program_tests' environment-proxy case. docs/review/step29.md has the review.
+
+Steps 14's and 15's reviews (docs/review/step14.md, step15.md) and step 29's client review
+(docs/review/step29.md) were fixed before they landed, each finding with a test; the landing stack
+merged step 29's tests' list with the stack's, and kept the I/O thread's at_stop() with its m_stops
+under one mutex in place of step 14's own stoppers.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
