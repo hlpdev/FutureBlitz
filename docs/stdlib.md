@@ -753,14 +753,17 @@ std/io/.
 - `File.Open(path)` opens a file to read, `File.Open(path, options)` as an `OpenOptions` says
   (`Read`, `Write`, `Append`, which writes too, `Create`, `CreateNew`, which refuses a file that's
   there with ALREADY_EXISTS, and `Truncate`, all False unless given, as in
-  `OpenOptions(Write: True, Create: True)`), and `File.Create(path)` to write, made or emptied;
+  `OpenOptions(Write: True, Create: True)`), and `File.Create(path)` to write, made or emptied
+  (once it's open, as Windows won't open a hidden file with O_TRUNC, which no write uses);
   each with an Async twin. They give a `FileStream`, a Reader, Writer, and Seeker, with
   `ReadAsync`, `WriteAsync`, and `FlushAsync` that libuv's thread pool does, `Seek` and `Position`
   from where it is, which each read and write moves on, `Size`, `Sync` and `SyncAsync`, which put
   what's been written onto the disk, `IsReadable`, `IsWritable`, `IsAppending`, `IsOpen`, and
   `Close`, which its last reference does too. An appending one writes at the end wherever it's
-  moved to, and a write past the end fills what's before it with 0s. It holds nothing back, so
-  Flush has nothing to do, and a BufferedReader or BufferedWriter around it takes fewer calls.
+  moved to, and a write past the end fills what's before it with 0s; a read past the end gives
+  nothing, up to the last place an Int64 counts, and a write farther out than the file system
+  lets a file reach is NO_SPACE. It holds nothing back, so Flush has nothing to do, and a
+  BufferedReader or BufferedWriter around it takes fewer calls.
   Options no file opens with panic (none of Read, Write, and Append; Create, CreateNew, or
   Truncate without a write; Truncate with Append), and so do a call while an Async one is under
   way, using it once it's closed, reading one not opened to read, and writing one not opened to
@@ -774,8 +777,9 @@ std/io/.
   `ReadBytes`, `WriteBytes`, `Flush`, `IsOpen`, and `Close`, which unmaps it; misuse panics at the
   caller. `Bytes()` gives its bytes as a `Buffer<UInt8>`, without copying them, which, with each
   view of it, keeps them mapped until it goes, though the MappedFile is closed or gone: a writable
-  one's Buffer is the file's bytes, and a read-only one's a copy-on-write view of its own, made
-  the first time, so writing it never changes the file.
+  one's Buffer is the file's bytes, and a read-only one's Buffers share a copy-on-write view of
+  their own, made the first time, so writing one changes them all but never the file. Only std
+  extends Buffer with memory it keeps, as MappedFile's does: Buffer's view New is Package.
 - `Dir`: `Create`, `CreateAll`, `Remove` and `RemoveAll` (which give whether there was one, and
   don't follow links), `Exists`, `Entries`, `Walk`, and `Glob`, which give `DirEntry`s (`Path`,
   `Relative` from the folder listed, `Kind`, `Name`) in the order of their names' bytes, each
@@ -963,10 +967,15 @@ Step 18 built `Logger`, its levels, filters, outputs, and sinks, in std/log/; `I
   `ConsoleSink(colors, times)` as it says; `JsonLinesSink(write)` gives write each `JsonLine`.
   Lines from threads at once don't mix. `FileSink(path)` adds each `LogLine`, with its time and
   without colors, to a file's end, made with its folders, each line in one write that no other
-  thread's or program's comes into; `RotatingFileSink(path, maxBytes, keep)` does until a line
-  would make the file hold more than maxBytes, and then moves it to `<path>.1`, that one to `.2`,
-  and so on, the oldest of keep going, and a file that can't be moved aside gets the lines
-  meanwhile. A line that can't be written is lost, and the first since one was says so on stderr.
+  thread's or program's comes into; a relative path is from the folder that's current when the
+  sink's made. `RotatingFileSink(path, maxBytes, keep = 5)` does until a line would make the file
+  hold more than maxBytes, and then moves it to `<path>.1`, that one to `.2`, and so on, the
+  oldest of keep going, or, with a keep of 0, the old lines; a maxBytes that isn't above 0 or a
+  keep below 0 panics. Nothing old is deleted or moved until the file's been moved aside, so a
+  file that can't be (one another program has open on Windows, or a folder where an old one
+  goes) keeps its old ones and gets the lines meanwhile, and the move's tried again once another
+  maxBytes are in it. A line that can't be written is lost, and the first since one was says so
+  on stderr, as a failed move does.
 - `LogFilter.Parse(text)` reads FB_LOG's text: parts between commas, each a level for every
   module, or `module=level`, like "info,net=trace,net.http=off", a later part winning, every
   module at INFO unless a part says otherwise; Null for anything else. A module gets its own

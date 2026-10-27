@@ -1,0 +1,6 @@
+// A rotating file sink that holds no bytes panics at the program's line.
+Import std.core
+Import std.log
+
+Print("making")
+Local sink = RotatingFileSink("never.log", 0)

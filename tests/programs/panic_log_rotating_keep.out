@@ -1,0 +1,2 @@
+making
+panic: a rotating file keeps a count of old files that isn't negative, not -1 at panic_log_rotating_keep.fb:6:14

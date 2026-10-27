@@ -1,0 +1,2 @@
+making
+panic: a rotating file holds a most of bytes above 0, not 0 at panic_log_rotating_bytes.fb:6:14
