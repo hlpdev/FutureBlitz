@@ -4,7 +4,7 @@
 
 ## runtime-1 (high): On Windows, the OS's roots miss every root Windows hasn't downloaded yet, so a client refuses servers Windows trusts, depending on the machine
 
-Status: fixed in 70806345 (tls_roots.cpp's os_verify, mbedTLS's verify callback for the OS's roots: on Windows, when a chain's one flaw is BADCERT_NOT_TRUSTED, it builds the chain with CertGetCertificateChain, the other side's certificates in a store in memory, and checks CertVerifyCertificateChainPolicy's CERT_CHAIN_POLICY_SSL, which fetches a root Windows trusts that the ROOT store hasn't got; any other flaw, like a name or a date, stands. tls.cpp's connections and libcurl's, through CURLOPT_SSL_CTX_FUNCTION ahead of libcurl's own check, which still says why a chain failed, both use it), with tls_roots_tests' "a chain none of the OS's roots signed is trusted as the OS trusts it": one of the OS's roots, which mbedTLS alone flags NOT_TRUSTED without roots, is trusted on Windows through os_verify, and isn't elsewhere, a name it isn't for stays flagged, and the test CA stays untrusted; stdlib.md says how Windows' roots are read and checked
+Status: fixed in 5779a795 (tls_roots.cpp's os_verify, mbedTLS's verify callback for the OS's roots: on Windows, when a chain's one flaw is BADCERT_NOT_TRUSTED, it builds the chain with CertGetCertificateChain, the other side's certificates in a store in memory, and checks CertVerifyCertificateChainPolicy's CERT_CHAIN_POLICY_SSL, which fetches a root Windows trusts that the ROOT store hasn't got; any other flaw, like a name or a date, stands. tls.cpp's connections and libcurl's, through CURLOPT_SSL_CTX_FUNCTION ahead of libcurl's own check, which still says why a chain failed, both use it), with tls_roots_tests' "a chain none of the OS's roots signed is trusted as the OS trusts it": one of the OS's roots, which mbedTLS alone flags NOT_TRUSTED without roots, is trusted on Windows through os_verify, and isn't elsewhere, a name it isn't for stays flagged, and the test CA stays untrusted; stdlib.md says how Windows' roots are read and checked
 
 Where: runtime/src/tls_roots.cpp:70
 
@@ -52,7 +52,7 @@ Skeptic: Ran r1.fb (TlsClient().Connect over TcpStream to port 443, OS roots, de
 
 ## runtime-2 (medium): A certificate refused for its key usage or extended key usage gets mbedTLS's raw text, and reasons()' usage branch never runs
 
-Status: fixed in 184f09e6 (describe() reads MBEDTLS_ERR_SSL_BAD_CERTIFICATE's flags as it does CERT_VERIFY_FAILED's), with tls_tests' "a client whose certificate isn't for a TLS client is refused for its usage", over the fb_tls_ functions, since Identify now panics for such a certificate (runtime-4): the server says "the client's certificate isn't for a TLS client"
+Status: fixed in a86db803 (describe() reads MBEDTLS_ERR_SSL_BAD_CERTIFICATE's flags as it does CERT_VERIFY_FAILED's), with tls_tests' "a client whose certificate isn't for a TLS client is refused for its usage", over the fb_tls_ functions, since Identify now panics for such a certificate (runtime-4): the server says "the client's certificate isn't for a TLS client"
 
 Where: runtime/src/tls.cpp:251
 
@@ -171,7 +171,7 @@ Skeptic: Ran r2.fb, a client identified with localhost_pem (EKU serverAuth) to a
 
 ## std-1 (medium): TlsListener.Accept(timeout) doesn't bound the handshake, so a client that connects and stays silent holds Accept, and every later client, forever
 
-Status: fixed in 184f09e6 (TlsListener's Accept and AcceptAsync set the TcpStream's ReadTimeout to what's left of the timeout for the handshake, and Null after it), with net_tls_tcp's silent clients: Accept(300 ms) and AcceptAsync(300 ms) throw a TimeoutError within a second, and the listener answers the next client
+Status: fixed in a86db803 (TlsListener's Accept and AcceptAsync set the TcpStream's ReadTimeout to what's left of the timeout for the handshake, and Null after it), with net_tls_tcp's silent clients: Accept(300 ms) and AcceptAsync(300 ms) throw a TimeoutError within a second, and the listener answers the next client
 
 Where: std/net/tls.fb:566
 
@@ -227,7 +227,7 @@ Skeptic: Ran the program as given, with net_tls/certificates.fb copied next to i
 
 ## std-3 (medium): Write after Close succeeds silently, and the bytes are lost after close_notify
 
-Status: fixed in 184f09e6 (TlsStream's Closed: Close and CloseAsync send close_notify the first time only, and Write and WriteAsync throw an IOError whose Cause is a NetError of CLOSED after it), with net_tls's "past the handshake": a second Close sends 0 bytes, and a write after it throws "the TlsStream is closed" with a NetError of CLOSED
+Status: fixed in a86db803 (TlsStream's Closed: Close and CloseAsync send close_notify the first time only, and Write and WriteAsync throw an IOError whose Cause is a NetError of CLOSED after it), with net_tls's "past the handshake": a second Close sends 0 bytes, and a write after it throws "the TlsStream is closed" with a NetError of CLOSED
 
 Where: std/net/tls.fb:524
 
@@ -351,7 +351,7 @@ Skeptic: Ran an extended version of the program (rv-tls/v1/s3.fb) in debug. It p
 
 ## std-4 (medium): A host over 255 bytes isn't checked, and its handshake fails with a garbled 'HMAC_DRBG - Read/write error in file' message
 
-Status: fixed in 184f09e6 (CheckHost panics for a host of more than 255 bytes, and describe() gives PSA's statuses their own text, runtime-3), with panic_tls_host_long (255 bytes fit, 256 panic at the Connect line) and tls_tests' "mbedTLS's PSA statuses say what they are" for a 300-byte host through the fb_tls_ functions
+Status: fixed in a86db803 (CheckHost panics for a host of more than 255 bytes, and describe() gives PSA's statuses their own text, runtime-3), with panic_tls_host_long (255 bytes fit, 256 panic at the Connect line) and tls_tests' "mbedTLS's PSA statuses say what they are" for a 300-byte host through the fb_tls_ functions
 
 Where: std/net/tls.fb:251
 
@@ -384,7 +384,7 @@ Skeptic: Ran the program (rv-tls/v1/s4.fb) in debug. With a 300-byte host, Conne
 
 ## runtime-3 (low): describe()'s mbedtls_strerror fallback turns mbedTLS 4's PSA error codes into nonsense, such as a "BIGNUM" error for a ClientHello that's too big
 
-Status: fixed in 184f09e6 (describe() names BUFFER_TOO_SMALL and ALLOC_FAILED, and gives any other code from -128 to -255 as PSA's status, not mbedtls_strerror's misreading; CheckProtocols panics past 8192 bytes, std-5), with tls_tests' "mbedTLS's PSA statuses say what they are": 70 protocols of 250 bytes given straight to the runtime say "a handshake message this side made is bigger than mbedTLS's buffer", and panic_tls_protocols_long
+Status: fixed in a86db803 (describe() names BUFFER_TOO_SMALL and ALLOC_FAILED, and gives any other code from -128 to -255 as PSA's status, not mbedtls_strerror's misreading; CheckProtocols panics past 8192 bytes, std-5), with tls_tests' "mbedTLS's PSA statuses say what they are": 70 protocols of 250 bytes given straight to the runtime say "a handshake message this side made is bigger than mbedTLS's buffer", and panic_tls_protocols_long
 
 Where: runtime/src/tls.cpp:288
 
@@ -508,7 +508,7 @@ Skeptic: Ran r3.fb, which offers 70 ALPN names of 250 bytes, in debug and releas
 
 ## runtime-4 (low): A server whose certificate isn't for TLS servers says the two sides have "no version of TLS or cipher suite in common"
 
-Status: fixed in 184f09e6 (fb_tls_config_usable checks the first certificate's key usage for digitalSignature and its extended key usage for serverAuth or clientAuth, and CheckIdentity panics when it fails, for TlsServer and for Identify), with panic_tls_server_usage (the test client's certificate as a server's) and panic_tls_client_usage (the test server's as a client's), and stdlib.md's identity panics
+Status: fixed in a86db803 (fb_tls_config_usable checks the first certificate's key usage for digitalSignature and its extended key usage for serverAuth or clientAuth, and CheckIdentity panics when it fails, for TlsServer and for Identify), with panic_tls_server_usage (the test client's certificate as a server's) and panic_tls_client_usage (the test server's as a client's), and stdlib.md's identity panics
 
 Where: runtime/src/tls.cpp:277
 
@@ -619,7 +619,7 @@ Skeptic: Ran r4.fb, TlsServer(client_pem, client_key) where client_pem has EKU c
 
 ## runtime-5 (low): A client to an IP address sends that address as SNI, which RFC 6066 forbids
 
-Status: fixed in 184f09e6 (std.net.tls passes an IP host's bytes to fb_tls_new, which sets no hostname, so no server_name goes, and its verify callback checks the leaf's subjectAltName iPAddress entries, flagging CN_MISMATCH for none), with tls_tests' "a client of an IP address sends no server_name, and checks the address": the ClientHello holds "localhost" for a name and neither 127.0.0.1 nor ::1 for those, both of which connect, and 127.0.0.2 fails as "the server's certificate isn't for 127.0.0.2"; net_tls connects to ::1 too
+Status: fixed in a86db803 (std.net.tls passes an IP host's bytes to fb_tls_new, which sets no hostname, so no server_name goes, and its verify callback checks the leaf's subjectAltName iPAddress entries, flagging CN_MISMATCH for none), with tls_tests' "a client of an IP address sends no server_name, and checks the address": the ClientHello holds "localhost" for a name and neither 127.0.0.1 nor ::1 for those, both of which connect, and 127.0.0.2 fails as "the server's certificate isn't for 127.0.0.2"; net_tls connects to ::1 too
 
 Where: runtime/src/tls.cpp:379
 
@@ -745,7 +745,7 @@ Skeptic: Ran r5.fb (captures the ClientHello), in debug and release. localhost: 
 
 ## runtime-6 (low): runtime.hpp still says fb_io_net_error_kind gives 7 for a timeout, which is now OTHER's ordinal
 
-Status: fixed in 184f09e6 (runtime.hpp says 8 for a timeout, past NetErrorKind's ordinals, as net.cpp's meaning_t and socket.fb's TIMED_OUT have it); a comment, which the net programs' timeouts, TIMED_OUT's, test
+Status: fixed in a86db803 (runtime.hpp says 8 for a timeout, past NetErrorKind's ordinals, as net.cpp's meaning_t and socket.fb's TIMED_OUT have it); a comment, which the net programs' timeouts, TIMED_OUT's, test
 
 Where: runtime/include/fb/runtime.hpp:778
 
@@ -768,7 +768,7 @@ Skeptic: Read the code. runtime/include/fb/runtime.hpp:778 still says fb_io_net_
 
 ## std-2 (low): A failed handshake writes its alert but never flushes it, so over a buffered stream the other side sees CLOSED, not TLS
 
-Status: fixed in 184f09e6 (a failed handshake's step flushes after the alert it sends, ignoring a failure as the send does, in Handshake and HandshakeAsync), with net_tls's "through a stream that holds what's written until Flush": the server says the client refused the handshake, not CLOSED
+Status: fixed in a86db803 (a failed handshake's step flushes after the alert it sends, ignoring a failure as the send does, in Handshake and HandshakeAsync), with net_tls's "through a stream that holds what's written until Flush": the server says the client refused the handshake, not CLOSED
 
 Where: std/net/tls.fb:363
 
@@ -923,7 +923,7 @@ Skeptic: Ran the program (rv-tls/v1/s2.fb) in debug. With held False, the server
 
 ## std-5 (low): Offer doesn't check ALPN's 65535-byte list limit; a longer list fails every handshake with the same garbled message
 
-Status: fixed in 184f09e6 (CheckProtocols panics when the names, each with a byte for its length, come to more than 8192 bytes, what a ClientHello has room for, under ALPN's 65535), with panic_tls_protocols_long: 32 names of 255 bytes, 8192 in all, are offered, and one more panics at the Offer line; Offer's comments and stdlib.md say so
+Status: fixed in a86db803 (CheckProtocols panics when the names, each with a byte for its length, come to more than 8192 bytes, what a ClientHello has room for, under ALPN's 65535), with panic_tls_protocols_long: 32 names of 255 bytes, 8192 in all, are offered, and one more panics at the Offer line; Offer's comments and stdlib.md say so
 
 Where: std/net/tls.fb:154
 
@@ -965,7 +965,7 @@ Skeptic: Ran the program (rv-tls/v1/s5.fb) in debug. It printed "offered 300 nam
 
 ## std-6 (low): TlsListener.Listen isn't @PanicsAtCaller, so a backlog below 1 panics at std/net/tls.fb:549, not at the caller's line
 
-Status: fixed in 184f09e6 (both TlsListener.Listen overloads are @PanicsAtCaller, and say the backlog's panic), with panic_tls_listener_backlog: a backlog of 1 listens, and 0 panics at the program's line
+Status: fixed in a86db803 (both TlsListener.Listen overloads are @PanicsAtCaller, and say the backlog's panic), with panic_tls_listener_backlog: a backlog of 1 listens, and 0 panics at the program's line
 
 Where: std/net/tls.fb:547
 
@@ -994,7 +994,7 @@ Skeptic: Ran it (rv-tls/v1/s6.fb) in debug and release. Both printed "panic: a l
 
 ## tests-1 (low): A failed handshake's alert is written but never flushed, so over a buffered stream the other side never learns why
 
-Status: fixed in 184f09e6, as std-2, the same bug
+Status: fixed in a86db803, as std-2, the same bug
 
 Where: std/net/tls.fb:363
 
@@ -1128,7 +1128,7 @@ Skeptic: I ran the program as t1.fb (it uses a pipe end that holds writes until 
 
 ## tests-2 (low): A TlsStream write after Close succeeds silently, and the other side drops the bytes
 
-Status: fixed in 184f09e6, as std-3, the same bug
+Status: fixed in a86db803, as std-3, the same bug
 
 Where: std/net/tls.fb:475
 
@@ -1266,7 +1266,7 @@ Skeptic: t2.fb prints "client wrote after Close" and "server read 3 bytes, then 
 
 ## tests-3 (low): Offer accepts an ALPN list too large to send, and the handshake then fails with a garbled mbedTLS message
 
-Status: fixed in 184f09e6, as std-5 and runtime-3, the same bug: panic_tls_protocols_long has a list at the limit and one past it, and panic_tls_protocol_long (7686e6ea) a 255-byte name that's offered and a 256-byte one that panics
+Status: fixed in a86db803, as std-5 and runtime-3, the same bug: panic_tls_protocols_long has a list at the limit and one past it, and panic_tls_protocol_long (5cb40a90) a 255-byte name that's offered and a 256-byte one that panics
 
 Where: std/net/tls.fb:156
 
@@ -1424,7 +1424,7 @@ Skeptic: t3.fb: a single 255-byte name works on both sides ("connected, 255 char
 
 ## tests-4 (low): No test covers two documented behaviors: an ending without close_notify after the handshake, and a non-socket stream failing during the handshake
 
-Status: fixed in 184f09e6: net_tls's "a stream that fails" gives a NetError of OTHER from the pipe's failure in the handshake, "past the handshake" gives the server an IOError of UNEXPECTED_END when the client's stream ends without close_notify, and the client connects to ::1
+Status: fixed in a86db803: net_tls's "a stream that fails" gives a NetError of OTHER from the pipe's failure in the handshake, "past the handshake" gives the server an IOError of UNEXPECTED_END when the client's stream ends without close_notify, and the client connects to ::1
 
 Where: tests/programs/net_tls.fb:224
 
@@ -1573,7 +1573,7 @@ Skeptic: t4.fb works as the docs say: "client: IOError UNEXPECTED_END: the strea
 
 ## tests-5 (low): docs/stdlib.md says every failure past the handshake has a NetError of TLS as its Cause, but the stream's own IOError passes through unchanged
 
-Status: fixed in 184f09e6 (stdlib.md, tls.fb's header, and TlsStream's comment say TLS's failure past the handshake has a NetError of TLS as its Cause, and the stream's own failure is thrown as it was), with net_tls's "past the handshake": a write over a pipe whose other end closed throws the pipe's IOError, with no Cause
+Status: fixed in a86db803 (stdlib.md, tls.fb's header, and TlsStream's comment say TLS's failure past the handshake has a NetError of TLS as its Cause, and the stream's own failure is thrown as it was), with net_tls's "past the handshake": a write over a pipe whose other end closed throws the pipe's IOError, with no Cause
 
 Where: docs/stdlib.md:1122
 
@@ -1711,7 +1711,7 @@ Skeptic: t5.fb prints "IOError OTHER: the pipe's other end is closed; Cause a Ne
 
 ## tests-6 (low): net_tls_tcp.fb's header comment says the listener refuses the first Async client, but the client refuses the listener
 
-Status: fixed in 184f09e6 (the header says the first Async client refuses the listener's certificate)
+Status: fixed in a86db803 (the header says the first Async client refuses the listener's certificate)
 
 Where: tests/programs/net_tls_tcp.fb:3
 

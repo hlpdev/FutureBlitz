@@ -4,7 +4,7 @@
 
 ## peer-1 (high): Flush panics when a host has two unreliable channels and one Flush overflows 16 packets
 
-Status: fixed in 4d8fc2fb (net_game's "two unreliable channels": [20, 20]): Flush keeps how many unreliable parts each channel has back, so each goes before that channel's newer ones.
+Status: fixed in 1536f5a2 (net_game's "two unreliable channels": [20, 20]): Flush keeps how many unreliable parts each channel has back, so each goes before that channel's newer ones.
 
 Where: std/net/game/peer.fb:282
 
@@ -71,7 +71,7 @@ Skeptic: I ran the reviewer's program (rv-game/peers/p1.fb, with lossy.fb copied
 
 ## peer-2 (high): A fragment refused for MaxBuffered is still acked, so a reliable message is lost and its channel stalls
 
-Status: fixed in 4d8fc2fb (net_game: "receiver's MaxBuffered 4000, sender's 4 MiB", 20 of 20 in order and whole, and the MaxBuffered 4000, 64 KiB, and 0 runs, ordered and unordered, all of their messages): InChannel.Take says when it refused a reliable part for room, and GamePeer.Receive then neither notes nor acks its packet, so the sender sends it again. A sender also keeps what's in flight to its MaxBuffered, from each channel's oldest message not acked, which is all the receiver may hold, or a message alone, so a receiver of the same settings needn't refuse anything: without that, 64 KiB took 5000 ticks for 79 of 100.
+Status: fixed in 1536f5a2 (net_game: "receiver's MaxBuffered 4000, sender's 4 MiB", 20 of 20 in order and whole, and the MaxBuffered 4000, 64 KiB, and 0 runs, ordered and unordered, all of their messages): InChannel.Take says when it refused a reliable part for room, and GamePeer.Receive then neither notes nor acks its packet, so the sender sends it again. A sender also keeps what's in flight to its MaxBuffered, from each channel's oldest message not acked, which is all the receiver may hold, or a message alone, so a receiver of the same settings needn't refuse anything: without that, 64 KiB took 5000 ticks for 79 of 100.
 
 Where: std/net/game/peer.fb:334
 
@@ -140,7 +140,7 @@ Skeptic: p2.fb (MaxBuffered 4000, 20% drop) prints "received 1 of 20; client's u
 
 ## tests-1 (high): Fragments refused for MaxBuffered are still acked, so reliable messages are silently lost and an ordered channel stalls for good
 
-Status: fixed in 4d8fc2fb (net_game: "receiver's MaxBuffered 4000, sender's 4 MiB", 20 of 20 in order and whole, and the MaxBuffered 4000, 64 KiB, and 0 runs, ordered and unordered, all of their messages): InChannel.Take says when it refused a reliable part for room, and GamePeer.Receive then neither notes nor acks its packet, so the sender sends it again. A sender also keeps what's in flight to its MaxBuffered, from each channel's oldest message not acked, which is all the receiver may hold, or a message alone, so a receiver of the same settings needn't refuse anything: without that, 64 KiB took 5000 ticks for 79 of 100.
+Status: fixed in 1536f5a2 (net_game: "receiver's MaxBuffered 4000, sender's 4 MiB", 20 of 20 in order and whole, and the MaxBuffered 4000, 64 KiB, and 0 runs, ordered and unordered, all of their messages): InChannel.Take says when it refused a reliable part for room, and GamePeer.Receive then neither notes nor acks its packet, so the sender sends it again. A sender also keeps what's in flight to its MaxBuffered, from each channel's oldest message not acked, which is all the receiver may hold, or a message alone, so a receiver of the same settings needn't refuse anything: without that, 64 KiB took 5000 ticks for 79 of 100.
 
 Where: std/net/game/channel.fb:279
 
@@ -212,7 +212,7 @@ Skeptic: Ran the program (tv5/t1.fb, with tests/programs/net_game/lossy.fb copie
 
 ## wire-1 (high): A reliable fragment dropped for MaxBuffered is still acked, so the message is lost for good and an ordered channel stalls
 
-Status: fixed in 4d8fc2fb (net_game: "receiver's MaxBuffered 4000, sender's 4 MiB", 20 of 20 in order and whole, and the MaxBuffered 4000, 64 KiB, and 0 runs, ordered and unordered, all of their messages): InChannel.Take says when it refused a reliable part for room, and GamePeer.Receive then neither notes nor acks its packet, so the sender sends it again. A sender also keeps what's in flight to its MaxBuffered, from each channel's oldest message not acked, which is all the receiver may hold, or a message alone, so a receiver of the same settings needn't refuse anything: without that, 64 KiB took 5000 ticks for 79 of 100.
+Status: fixed in 1536f5a2 (net_game: "receiver's MaxBuffered 4000, sender's 4 MiB", 20 of 20 in order and whole, and the MaxBuffered 4000, 64 KiB, and 0 runs, ordered and unordered, all of their messages): InChannel.Take says when it refused a reliable part for room, and GamePeer.Receive then neither notes nor acks its packet, so the sender sends it again. A sender also keeps what's in flight to its MaxBuffered, from each channel's oldest message not acked, which is all the receiver may hold, or a message alone, so a receiver of the same settings needn't refuse anything: without that, 64 KiB took 5000 ticks for 79 of 100.
 
 Where: std/net/game/channel.fb:279
 
@@ -319,7 +319,7 @@ Skeptic: I ran the finding's program (rv-game/wire/w1.fb) in debug and release. 
 
 ## peer-3 (medium): RoundTripTime is inflated whenever a side sends ack-only or keepalive packets: about 6x when idle, 2.5x for a client that only receives
 
-Status: fixed in 4d8fc2fb (net_game's "rtt busy", "rtt idle", "rtt one way", and "rtt never busy", all 40ms on a 20 ms each way path): a packet with messages, or a keepalive, has DATA's new ASK_FLAG, which the other side acks at its next Update, and only those packets' acks time a round trip; a packet that only acks doesn't ask, so the two sides don't ack each other's acks. A keepalive goes KeepAlive after the last packet that asked.
+Status: fixed in 1536f5a2 (net_game's "rtt busy", "rtt idle", "rtt one way", and "rtt never busy", all 40ms on a 20 ms each way path): a packet with messages, or a keepalive, has DATA's new ASK_FLAG, which the other side acks at its next Update, and only those packets' acks time a round trip; a packet that only acks doesn't ask, so the two sides don't ack each other's acks. A keepalive goes KeepAlive after the last packet that asked.
 
 Where: std/net/game/peer.fb:492
 
@@ -386,7 +386,7 @@ Skeptic: p3.fb prints "busy: client rtt 40ms server rtt 40ms" then "idle: client
 
 ## peer-4 (medium): MaxPeers counts the host's own outgoing peers, though Connect's doc says it limits only peers that connect to it
 
-Status: fixed in 4d8fc2fb (net_game's "MaxPeers 1, out and in": CONNECTED CONNECTED NONE 2): OnConnect counts only the peers that connected to the host, IncomingCount, against MaxPeers.
+Status: fixed in 1536f5a2 (net_game's "MaxPeers 1, out and in": CONNECTED CONNECTED NONE 2): OnConnect counts only the peers that connected to the host, IncomingCount, against MaxPeers.
 
 Where: std/net/game/host.fb:314
 
@@ -429,7 +429,7 @@ Skeptic: p4.fb prints "a to b: CONNECTED c to a: DISCONNECTED FULL a's peers: 1"
 
 ## peer-5 (medium): Two hosts that Connect to each other at the same time never connect and both time out
 
-Status: fixed in 4d8fc2fb (net_game's "at once": a CONNECT each, both CONNECTED, and a message each way): a CONNECT from an address this host is asking breaks the tie, the host of the larger salt, or else of the larger address, answering with its own peer, which takes the asker's salt and first sequence, and the other waiting for that ACCEPT. stdlib.md says so.
+Status: fixed in 1536f5a2 (net_game's "at once": a CONNECT each, both CONNECTED, and a message each way): a CONNECT from an address this host is asking breaks the tie, the host of the larger salt, or else of the larger address, answering with its own peer, which takes the asker's salt and first sequence, and the other waiting for that ACCEPT. stdlib.md says so.
 
 Where: std/net/game/host.fb:303
 
@@ -474,7 +474,7 @@ Skeptic: p5.fb prints "101 5000 DISCONNECT 127.0.0.1:6000, TIMEOUT" and "101 600
 
 ## tests-2 (medium): RoundTripTime on an idle connection includes the other side's keepalive wait (256 ms reported for a 64 ms path)
 
-Status: fixed in 4d8fc2fb (net_game's "rtt busy", "rtt idle", "rtt one way", and "rtt never busy", all 40ms on a 20 ms each way path): a packet with messages, or a keepalive, has DATA's new ASK_FLAG, which the other side acks at its next Update, and only those packets' acks time a round trip; a packet that only acks doesn't ask, so the two sides don't ack each other's acks. A keepalive goes KeepAlive after the last packet that asked.
+Status: fixed in 1536f5a2 (net_game's "rtt busy", "rtt idle", "rtt one way", and "rtt never busy", all 40ms on a 20 ms each way path): a packet with messages, or a keepalive, has DATA's new ASK_FLAG, which the other side acks at its next Update, and only those packets' acks time a round trip; a packet that only acks doesn't ask, so the two sides don't ack each other's acks. A keepalive goes KeepAlive after the last packet that asked.
 
 Where: std/net/game/peer.fb:492
 
@@ -530,7 +530,7 @@ Skeptic: Ran tv5/t2.fb in debug and release: 'connected: CONNECTED 100ms', then 
 
 ## tests-3 (medium): MaxPeers counts the host's own outgoing connections, though Connect's doc says it limits only peers that connect to it
 
-Status: fixed in 4d8fc2fb (net_game's "MaxPeers 1, out and in": CONNECTED CONNECTED NONE 2): OnConnect counts only the peers that connected to the host, IncomingCount, against MaxPeers.
+Status: fixed in 1536f5a2 (net_game's "MaxPeers 1, out and in": CONNECTED CONNECTED NONE 2): OnConnect counts only the peers that connected to the host, IncomingCount, against MaxPeers.
 
 Where: std/net/game/host.fb:314
 
@@ -590,7 +590,7 @@ Skeptic: Ran tv5/t3.fb in debug and release: 'a to b: CONNECTED', then 'DISCONNE
 
 ## tests-4 (medium): Broadcast to a channel the host lacks, or of a message past MaxMessageSize, panics only once a peer is connected
 
-Status: fixed in 4d8fc2fb (panic_net_game_broadcast, with no peers, and net_game's "broadcast"): Broadcast checks the channel and the size first, through CheckMessage in settings.fb, which a peer's Send uses too.
+Status: fixed in 1536f5a2 (panic_net_game_broadcast, with no peers, and net_game's "broadcast"): Broadcast checks the channel and the size first, through CheckMessage in settings.fb, which a peer's Send uses too.
 
 Where: std/net/game/host.fb:152
 
@@ -625,7 +625,7 @@ Skeptic: Ran tv5/t4.fb in debug and release. It prints 'no panic' for Broadcast(
 
 ## wire-2 (medium): Check's fragment-count test overflows Int for a MaxMessageSize near Int's maximum: debug panics with an overflow, release accepts it and truncates messages
 
-Status: fixed in 4d8fc2fb (panic_net_game_fragments, MaxMessageSize 2147483647): Check compares MaxMessageSize with 65535 parts in Int64, so it panics with its message in either build.
+Status: fixed in 1536f5a2 (panic_net_game_fragments, MaxMessageSize 2147483647): Check compares MaxMessageSize with 65535 parts in Int64, so it panics with its message in either build.
 
 Where: std/net/game/settings.fb:289
 
@@ -716,7 +716,7 @@ Skeptic: I ran the program (w2.fb). Debug: 'panic: integer overflow in '+'' at t
 
 ## wire-3 (medium): An unreliable channel drops every new message for a while after more than 32767 of its messages are lost in a row
 
-Status: fixed in 4d8fc2fb (net_game's "outage": 400 unreliable messages a tick through a second's outage, then all 72400 after it, the first at tick 112): an unreliable id more than WINDOW behind the last given, in a packet after the one that brought it, is past an outage, and newer; a stale one comes in an older packet.
+Status: fixed in 1536f5a2 (net_game's "outage": 400 unreliable messages a tick through a second's outage, then all 72400 after it, the first at tick 112): an unreliable id more than WINDOW behind the last given, in a packet after the one that brought it, is past an outage, and newer; a stale one comes in an older packet.
 
 Where: std/net/game/channel.fb:254
 
@@ -821,7 +821,7 @@ Skeptic: I ran the program (w3.fb) in debug and release. Both print 'CONNECTED u
 
 ## peer-6 (low): Broadcast doesn't panic for a bad channel or an oversized message when no peer is connected
 
-Status: fixed in 4d8fc2fb (panic_net_game_broadcast, with no peers, and net_game's "broadcast"): Broadcast checks the channel and the size first, through CheckMessage in settings.fb, which a peer's Send uses too.
+Status: fixed in 1536f5a2 (panic_net_game_broadcast, with no peers, and net_game's "broadcast"): Broadcast checks the channel and the size first, through CheckMessage in settings.fb, which a peer's Send uses too.
 
 Where: std/net/game/host.fb:152
 
@@ -851,7 +851,7 @@ Skeptic: p6.fb prints "no panic" for host.Broadcast(99, ...) with no peers, in d
 
 ## tests-5 (low): Settings whose KeepAlive is not under Timeout don't panic, and idle connections between live hosts time out
 
-Status: fixed in 4d8fc2fb (panic_net_game_keepalive): Check panics for a KeepAlive or a ConnectRetry that isn't under the Timeout.
+Status: fixed in 1536f5a2 (panic_net_game_keepalive): Check panics for a KeepAlive or a ConnectRetry that isn't under the Timeout.
 
 Where: std/net/game/settings.fb:67
 
@@ -903,7 +903,7 @@ Skeptic: Ran tv5/t5.fb in debug and release: '2 CONNECT 127.0.0.1:6000', '4 CONN
 
 ## wire-4 (low): A CONNECT can be larger than Mtu, though GameSettings calls Mtu the most bytes a packet takes
 
-Status: fixed in 4d8fc2fb (panic_net_game_connect_mtu, 255 channels and an Mtu of 128): Check panics for an Mtu that can't hold a CONNECT of the channels, 15 bytes and one a channel.
+Status: fixed in 1536f5a2 (panic_net_game_connect_mtu, 255 channels and an Mtu of 128): Check panics for an Mtu that can't hold a CONNECT of the channels, 15 bytes and one a channel.
 
 Where: std/net/game/settings.fb:284
 

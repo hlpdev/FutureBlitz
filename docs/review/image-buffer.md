@@ -4,7 +4,7 @@
 
 ## runtime-1 (low): fb_stb_encode_hdr's comment still calls its pixels a Float32[], and floats_of is left with no callers
 
-Status: fixed in d17a428c (the comment says the pixels are the width * height * 4 floats at
+Status: fixed in fdd78da7 (the comment says the pixels are the width * height * 4 floats at
 `pixels`, and floats_of is deleted; no test, as neither changes what a program does, and the
 build fails if anything still calls floats_of)
 

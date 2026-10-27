@@ -4,7 +4,7 @@
 
 ## query-1 (low): db_query.fb never checks that a missing column takes a Field's non-zero default
 
-Status: fixed in 1bfee465: db_query reads a Settings Class with defaults of 7 and True from a Database's Query and a Statement's, where no column has them, and a Statement's Query<Settings, Int>(5) throws its ParseError
+Status: fixed in b71bdf3d: db_query reads a Settings Class with defaults of 7 and True from a Database's Query and a Statement's, where no column has them, and a Statement's Query<Settings, Int>(5) throws its ParseError
 
 Where: tests/programs/db_query.fb:30
 
@@ -50,7 +50,7 @@ Skeptic: I ran q1.fb under scratchpad/rv-query/cov, in debug and release. It pri
 
 ## query-2 (low): No panic test for Query<T, A...> given the wrong number of values
 
-Status: fixed in d7977d12: panic_db_query_values and panic_db_statement_query_values give Database's Query and a Statement's another number of values than the SQL takes, each panicking at the program's own line
+Status: fixed in 2e4f368c: panic_db_query_values and panic_db_statement_query_values give Database's Query and a Statement's another number of values than the SQL takes, each panicking at the program's own line
 
 Where: tests/programs/panic_db_query_parameters.fb:14
 
@@ -82,7 +82,7 @@ Skeptic: In debug and release, p1.fb (db.Query<Named, Int> on SQL that takes 2 p
 
 ## template-1 (low): Rendering a Struct or Class nested past 256 levels panics, though the docs say a template's data can nest to any depth
 
-Status: fixed in 504c3bb0: stdlib.md says a template and a Value nest however deep, but data Save makes a Value of only 256 levels, past which Render panics at its caller; panic_template_save_depth renders a list of 200 Nodes, then panics at its line for 300
+Status: fixed in e9f1f015: stdlib.md says a template and a Value nest however deep, but data Save makes a Value of only 256 levels, past which Render panics at its caller; panic_template_save_depth renders a list of 200 Nodes, then panics at its line for 300
 
 Where: std/text/template.fb:37
 
@@ -137,7 +137,7 @@ Skeptic: Ran the finding's program (rv-query/tmpl/t1.fb) in debug and release: p
 
 ## template-2 (low): A Save panic inside Render points at std's template.fb, not at the caller's line
 
-Status: fixed in e4901e46: both Render<T> are @PanicsAtCaller, so Save's panic names the caller's line; panic_templates_save_cycle renders a Node that holds itself through Templates, and panic_template_save_depth goes through a Template
+Status: fixed in 684fdca2: both Render<T> are @PanicsAtCaller, so Save's panic names the caller's line; panic_templates_save_cycle renders a Node that holds itself through Templates, and panic_template_save_depth goes through a Template
 
 Where: std/text/template.fb:37
 
