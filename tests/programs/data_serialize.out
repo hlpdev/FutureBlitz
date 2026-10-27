@@ -81,3 +81,4 @@ OUT_OF_RANGE [Grid[0][1]] Grid[0][1]: expected Int8, from -128 to 127, found 200
 MISSING [Stash] Stash: missing, and Game's Field Stash has no default or zero
 WRONG_TYPE [Stash["a.b"].Weight] Stash["a.b"].Weight: expected Float64, found "heavy"
 UNEXPECTED_END [Null] the text isn't JSON: the JSON ends too soon
+WRONG_TYPE [Player] Player: expected String, found an Array

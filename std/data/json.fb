@@ -382,6 +382,19 @@ Public Struct Json
         Return writer.ToString()
     End Method
 
+    // The T of text's JSON: Read's Value, made a T by Load<T>. Throws Read's ParseErrors, and
+    // Load's, whose Path says where in the document a value doesn't fit.
+    @PanicsAtCaller
+    Public Static Method Read<T>(text: String, depth: Int = DEPTH): T Throws ParseError
+        Return Try Load<T>(Try Read(text, depth))
+    End Method
+
+    // The T of UTF-8 bytes' JSON, as Read<T> of text gives it.
+    @PanicsAtCaller
+    Public Static Method Read<T>(bytes: UInt8[], depth: Int = DEPTH): T Throws ParseError
+        Return Try Load<T>(Try Read(bytes, depth))
+    End Method
+
     // x as JSON: Save's Value of it, written as Write writes a Value.
     @PanicsAtCaller
     Public Static Method Write<T>(x: T, indent: Int = 0): String

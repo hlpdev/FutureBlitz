@@ -73,7 +73,7 @@ End Function
 Local game = Full()
 Local text = Json.Write(game)
 Print(text)
-Local back = Try Load<Game>(Try Json.Read(text))
+Local back = Try Json.Read<Game>(text)
 Print(Save(back) == Save(game), Json.Write(back) == text)
 Print(back.Player, back.Level, back.Seed, back.Speed, back.Status, back.Last ?? Kind.SWORD,
       Json.Write(back.Home))
@@ -83,19 +83,19 @@ Print(back.Stash["chest"].Weight, back.Best ?? {})
 
 Local indented = Json.Write(game, 2)
 Print(indented)
-Print(Save(Try Load<Game>(Try Json.Read(indented))) == Save(game))
+Print(Save(Try Json.Read<Game>(indented)) == Save(game))
 
 Local packed = MessagePack.Write(game)
 Print(packed.Count)
-Local unpacked = Try Load<Game>(Try MessagePack.Read(packed))
+Local unpacked = Try MessagePack.Read<Game>(packed)
 Print(Save(unpacked) == Save(game), MessagePack.Write(unpacked) == packed)
 Print(Json.Write(unpacked) == text)
 
 // A Game of its zeros, its T?s Null and its arrays and Maps empty, round-trips too.
 Local empty = Game()
 Print(Json.Write(empty))
-Print(Save(Try Load<Game>(Try Json.Read(Json.Write(empty)))) == Save(empty))
-Print(Save(Try Load<Game>(Try MessagePack.Read(MessagePack.Write(empty)))) == Save(empty))
+Print(Save(Try Json.Read<Game>(Json.Write(empty))) == Save(empty))
+Print(Save(Try MessagePack.Read<Game>(MessagePack.Write(empty))) == Save(empty))
 
 // What isn't a Struct writes the same: a number, an array, a Map, and an Enum.
 Print(Json.Write(7), Json.Write([Point(1, 2)]), Json.Write({"a": [Kind.SWORD]}),
@@ -125,20 +125,20 @@ Struct Profile
 End Struct
 
 Local old = ProfileV1("Grace", 150)
-Local fromJson = Try Load<Profile>(Try Json.Read(Json.Write(old)))
+Local fromJson = Try Json.Read<Profile>(Json.Write(old))
 Print(fromJson.Name, fromJson.Points, fromJson.Level, fromJson.Friends, fromJson.Title)
-Local fromPack = Try Load<Profile>(Try MessagePack.Read(MessagePack.Write(old)))
+Local fromPack = Try MessagePack.Read<Profile>(MessagePack.Write(old))
 Print(fromPack.Name, fromPack.Points, fromPack.Level, fromPack.Friends, fromPack.Title)
 // Version 2 writes its own keys, which it reads back as they are.
 Local now = Profile(Name: "Lin", Points: 7, Level: 3, Friends: ["Grace"])
 Print(Json.Write(now))
-Local again = Try Load<Profile>(Try Json.Read(Json.Write(now)))
+Local again = Try Json.Read<Profile>(Json.Write(now))
 Print(again.Name, again.Points, again.Level, again.Friends, again.Title)
 
 // A document that doesn't fit the type throws Load's ParseError, whose Path says where.
 Function Tried(text: String)
     Try
-        Local game = Load<Game>(Json.Read(text))
+        Local game = Json.Read<Game>(text)
         Print("loaded", game.Player)
     Catch e As ParseError
         Print("{e.Kind} [{e.Path ?? "Null"}] {e.Message}")
@@ -151,3 +151,11 @@ Tried("{{\"Stash\": {{}}, \"Grid\": [[1, 200]]}}")
 Tried("{{\"Player\": \"Ada\"}}")
 Tried("{{\"Stash\": {{\"a.b\": {{\"Name\": \"x\", \"Weight\": \"heavy\"}}}}}}")
 Tried("{{\"Player\": ")
+
+// MessagePack's are the same, at the same Path.
+Try
+    Local packedGame = MessagePack.Read<Game>(MessagePack.Write({"Player": [1]}))
+    Print("loaded", packedGame.Player)
+Catch e As ParseError
+    Print("{e.Kind} [{e.Path ?? "Null"}] {e.Message}")
+End Try

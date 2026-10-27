@@ -79,6 +79,13 @@ Public Struct MessagePack
         End Loop
     End Method
 
+    // The T of data's MessagePack: Read's Value, made a T by Load<T>. Throws Read's ParseErrors,
+    // and Load's, whose Path says where in the document a value doesn't fit.
+    @PanicsAtCaller
+    Public Static Method Read<T>(data: UInt8[], depth: Int = DEPTH): T Throws ParseError
+        Return Try Load<T>(Try Read(data, depth))
+    End Method
+
     // x's MessagePack: Save's Value of it, written as Write writes a Value.
     @PanicsAtCaller
     Public Static Method Write<T>(x: T): UInt8[]

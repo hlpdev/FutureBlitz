@@ -193,8 +193,8 @@ So far, std/ holds:
 | std/text/template.fb | `Template` and `Templates` |
 | std/data/protobuf.fb | `ProtoWriter` and `ProtoReader`, Protocol Buffers' wire format, `ProtoText`, its text format on one line, `ProtoBox<T>`, and `ProtoIsZero`, `ProtoKeepEnum`, and `ProtoPanic`, which the modules fb makes from .proto files go through; and `ProtoTag` and the `WIRE_` constants, for code that writes the wire format itself |
 | std/data/proto/google/protobuf/ | protobuf's well-known types, as protoc 36.2 has them, under protobuf's BSD-3-Clause license, in its LICENSE: any, api, descriptor, duration, empty, field_mask, source_context, struct, timestamp, type, and wrappers.proto, which a .proto or a program imports as `"google/protobuf/timestamp.proto"` |
-| std/data/json.fb | `Json` (`Read` and `Write` of Values), `JsonReader`, `JsonWriter`, and `JsonToken`, over the runtime's `fb_json_` functions |
-| std/data/msgpack.fb | `MessagePack` (`Read` and `Write` of Values) |
+| std/data/json.fb | `Json` (`Read` and `Write` of Values, and `Read<T>` and `Write(x)` of any type through Load and Save), `JsonReader`, `JsonWriter`, and `JsonToken`, over the runtime's `fb_json_` functions |
+| std/data/msgpack.fb | `MessagePack` (`Read` and `Write` of Values, and `Read<T>` and `Write(x)` of any type through Load and Save) |
 | std/term/console.fb | std.term: `StandardStream`, `IsTerminal`, `TerminalSize`, `ReadKey`, and `ReadPassword`, over the runtime's `fb_term_` functions |
 | std/term/style.fb | `ColorLevel`, `ColorKind`, `TermColor`, `TextAttributes`, `Style`, `ConsoleColors`, `Paint`, `StripStyles`, and `VisibleWidth` |
 | std/term/input.fb | `KeyCode`, `KeyModifiers`, `KeyEvent`, `MouseButton`, `MouseAction`, `MouseEvent`, `InputKind`, `InputEvent`, and `InputParser` |
@@ -1046,12 +1046,15 @@ Step 18 built `Event<T>`, `Subscription`, and `Subscribe(owner, handler)`, in st
   can't come. Text that isn't JSON throws a ParseError at its line and column: bytes that aren't
   UTF-8, a number past a Double's range, and arrays and objects nested past a depth, 1000 unless
   it's given, are refused; a lone surrogate escape reads as U+FFFD, and a byte order mark before
-  the JSON is left out.
+  the JSON is left out. `Json.Read<T>(text)` or `Read<T>(bytes)` gives a T, Load<T> of the
+  Value, and `Json.Write(x, indent)` writes anything Save converts, its Save written as a Value
+  is; a ParseError of Load's has the Path of what doesn't fit.
 - MessagePack (step 19): `MessagePack.Read(bytes)` gives the Value (a bin as BYTES; a map's keys
   must be strs, and an ext, which a Value has no kind for, is refused, as WRONG_TYPE), and
   `MessagePack.Write(value)` gives each integer, str, bin, array, and map in the fewest bytes its
   kind has, and a DOUBLE as a float 64. A count that's more than the data holds is refused before
-  any memory is taken for it.
+  any memory is taken for it. `MessagePack.Read<T>(bytes)` and `MessagePack.Write(x)` read a T
+  and write anything Save converts, as JSON's do.
 - Protocol Buffers: `Import "game.proto"` reads a .proto file, proto2 or proto3, as the program
   builds, into a module of its types (see spec 11), which read and write protobuf's wire format
   through std/data/protobuf.fb.
