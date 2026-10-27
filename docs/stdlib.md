@@ -202,7 +202,7 @@ So far, std/ holds:
 | std/image/jpeg.fb | `Jpeg`, over stb_image and stb_image_write through `fb_stb_` |
 | std/image/bitmap.fb | `Bmp` and `Tga`, over them too, and `Qoi`, through `fb_image_qoi_` |
 | std/image/gif.fb | `Gif`, through `fb_image_gif_` |
-| std/image/hdr.fb | `HdrImage`, which converts to and from an `Image`, and `Hdr`, over stb_image and stb_image_write |
+| std/image/hdr.fb | `HdrImage`, over a `Buffer<Float32>`, which converts to and from an `Image`, and `Hdr`, over stb_image and stb_image_write |
 | std/image/webp.fb | `WebP`, over libwebp through `fb_webp_` |
 | std/image/svg.fb | `Svg`, over nanosvg through `fb_svg_` |
 | std/image/canvas.fb | `Canvas`, `LineCap`, and `LineJoin`, drawing through the runtime's `fb_image_` functions |
@@ -1443,15 +1443,20 @@ Built in step 23, and `Query<T>` over step 17's `Load<T>`. `Import std.db` bring
 
 #### std.image
 
-Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] until step 12's
-`Buffer`, and its transforms; the rest is planned. `Import std.image` brings in all of std/image/.
+Step 24 built the codecs over bytes, into an `Image`, and its transforms, and step 25 drawing and
+fonts; an Image's pixels are a `Buffer<UInt8>`. `Import std.image` brings in all of std/image/.
 
 - `Image(width, height)`: pixels in rows from the top, each RGBA, 8 bits a channel, its alpha
   straight, all transparent black at first: `Width`, `Height`, `[x, y]` and `[x, y] = color` as
   `Color32`s, which panic outside it, `ToBytes()` and `Image.FromBytes(width, height, bytes)`,
-  copies of its bytes, 4 a pixel, and `Clone()`. It holds 536870911 pixels at most, as a UInt8[]
-  holds their bytes. An `HdrImage` is the same of `Color`s, linear light that can be past 1, with
-  `ToFloats()` and `HdrImage.FromFloats`, and holds 134217727 pixels at most, as many as
+  copies of its bytes, 4 a pixel, and `Clone()`, whose pixels are its own. Its bytes are in a
+  `Buffer<UInt8>`, `Pixels`, the image's own, which C code reads and writes through its
+  `Pointer()`, and `Image.Over(width, height, pixels)` is an image over a Buffer, not a copy, so
+  what changes in one changes in the other, until Resize, Crop, or a flip or turn gives the image
+  new pixels; it panics at the caller for a Buffer of another count. It holds 536870911 pixels at
+  most, as a UInt8[], which ToBytes gives, holds their bytes. An `HdrImage` is the same of
+  `Color`s, linear light that can be past 1, over a `Buffer<Float32>`, with `ToFloats()`,
+  `HdrImage.FromFloats`, and `HdrImage.Over`, and holds 134217727 pixels at most, as many as
   stb_image reads of an HDR image.
 - The formats are each a Struct of Static Methods. `Png`, `Jpeg`, `Bmp`, `Tga`, `Gif`, `Qoi`, and
   `WebP` each `Decode(data, limit)` into an Image, and `Hdr.Decode` into an HdrImage; and they
@@ -1511,11 +1516,12 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   bytes are within 1 of Pillow's; a translucent one's colors are more exact than Pillow's, which
   premultiplies alpha in bytes, rounding a faint pixel's color away. `Crop(x, y, width, height)`
   keeps the pixels from (x, y); `FlipHorizontal`, `FlipVertical`, `RotateClockwise`,
-  `RotateCounterclockwise`, and `Rotate180` flip and turn it;
-  `Draw(image, x, y)` draws another image over it by its alpha, as "over" does, and `Paste(image,
-  x, y)` puts one's pixels, alpha too, in place of its own, each leaving out what falls outside;
-  and `Fill(color)` gives every pixel a color. A size New panics for, resizing an image of no
-  pixels to some, or cropping to pixels not all in the image panics at the caller.
+  `RotateCounterclockwise`, and `Rotate180` flip and turn it; `Draw(image, x, y)` draws another
+  image over it by its alpha, as "over" does, and `Paste(image, x, y)` puts one's pixels, alpha
+  too, in place of its own, each leaving out what falls outside, and drawing an image whose
+  pixels share memory with its own, itself or another view of the same Buffer, as they were
+  before; and `Fill(color)` gives every pixel a color. A size New panics for, resizing an image
+  of no pixels to some, or cropping to pixels not all in the image panics at the caller.
   `HdrImage.FromImage(image)` and `ToImage()` convert through sRGB's gamma, as Color32's
   `ToColor` and Color's `ToColor32` do, ToImage keeping each channel from 0 to 255.
 - `Canvas(image)` draws on an Image (step 25): `FillRect` and `StrokeRect` of a `Rect`,
@@ -1568,8 +1574,8 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   but the project's, and image_text/make_data.py draws their text from those glyphs apart from
   the runtime; tests/runtime/font_tests.cpp breaks them, cut short and changed at random. A size
   that isn't finite or is negative panics at the caller.
-- Planned: an Image over a Buffer; and reading and writing image and font files, on step 14's.
-  The engine's 2D (M11) shares the image and font code.
+- Planned: reading and writing image and font files, on step 14's. The engine's 2D (M11) shares
+  the image and font code.
 
 #### std.term
 

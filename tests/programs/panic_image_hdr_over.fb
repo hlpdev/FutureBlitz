@@ -1,0 +1,8 @@
+// HdrImage.Over takes 4 Floats for each pixel, and panics where it's given a Buffer of another
+// count.
+Import std.core
+Import std.ffi
+Import std.image
+
+Print(HdrImage.Over(1, 1, Buffer<Float32>(4))[0, 0])
+HdrImage.Over(1, 2, Buffer<Float32>(4))

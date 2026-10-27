@@ -80,7 +80,7 @@ image_t* decode(const std::span<const std::uint8_t> bytes, const std::int64_t li
     return image;
 }
 
-std::vector<std::uint8_t> encode(const fb_array_t* pixels, const std::int64_t width,
+std::vector<std::uint8_t> encode(const std::uint8_t* pixels, const std::int64_t width,
                                  const std::int64_t height, const std::int32_t quality,
                                  const bool lossless) {
     const std::scoped_lock lock(coding);
@@ -107,9 +107,7 @@ std::vector<std::uint8_t> encode(const fb_array_t* pixels, const std::int64_t wi
     WebPMemoryWriterInit(&writer);
     picture.writer = WebPMemoryWrite;
     picture.custom_ptr = &writer;
-    const bool imported =
-        WebPPictureImportRGBA(&picture, static_cast<const std::uint8_t*>(pixels->data),
-                              picture.width * 4) != 0;
+    const bool imported = WebPPictureImportRGBA(&picture, pixels, picture.width * 4) != 0;
     const bool encoded = imported && WebPEncode(&config, &picture) != 0;
     WebPPictureFree(&picture);
     if (!encoded) {
@@ -130,7 +128,7 @@ void* fb_webp_decode(const fb_array_t* data, const std::int64_t limit) {
     return decode(bytes_of(data), limit);
 }
 
-void fb_webp_encode(const fb_array_t* pixels, const std::int64_t width, const std::int64_t height,
+void fb_webp_encode(const std::uint8_t* pixels, const std::int64_t width, const std::int64_t height,
                     const std::int32_t quality, const std::int32_t lossless, fb_array_t* output) {
     set_elements<std::uint8_t>(output, encode(pixels, width, height, quality, lossless != 0));
 }

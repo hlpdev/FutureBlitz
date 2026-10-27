@@ -233,8 +233,8 @@ void* fb_image_qoi_decode(const fb_array_t* data, const std::int64_t limit) {
     return decode(bytes_of(data), limit);
 }
 
-void fb_image_qoi_encode(const fb_array_t* pixels, const std::int64_t width,
+void fb_image_qoi_encode(const std::uint8_t* pixels, const std::int64_t width,
                          const std::int64_t height, fb_array_t* output) {
-    set_elements<std::uint8_t>(output, encode(bytes_of(pixels), width, height));
+    set_elements<std::uint8_t>(output, encode(pixels_at(pixels, width, height), width, height));
 }
 }

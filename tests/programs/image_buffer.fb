@@ -1,0 +1,67 @@
+// std.image's images over Buffers: Image.Over and HdrImage.Over keep the Buffer they're given, so
+// what changes through one changes in the other, until a transform gives the image new pixels; an
+// image's Pixels is that Buffer; and a Draw or Paste from an image whose pixels share memory with
+// the one drawn on, itself or another view of the same Buffer, draws them as they were before it.
+Import std.core
+Import std.ffi
+Import std.math.color
+Import std.image
+
+// The Buffer's bytes, each pixel's 4 in parentheses.
+Function Shown(bytes: Buffer<UInt8>): String
+    Local text = ""
+    For at = 0 Until bytes.Count Step 4
+        text += "({bytes[at]}, {bytes[at + 1]}, {bytes[at + 2]}, {bytes[at + 3]})"
+    End For
+    Return text
+End Function
+
+Local bytes = Buffer<UInt8>(2 * 2 * 4)
+Local image = Image.Over(2, 2, bytes)
+image[1, 0] = Color32(10, 20, 30, 40)
+Print(Shown(bytes))
+bytes[0] = 255
+bytes[3] = 128
+Print("{image[0, 0]} {image.Pixels.Count}")
+image.Pixels[8] = 7
+Print(bytes[8])
+image.Fill(Color32(1, 2, 3, 4))
+Print(Shown(bytes))
+
+// A Clone has pixels of its own, and so does a transformed image.
+Local copy = image.Clone()
+copy[0, 0] = Color32(9, 9, 9, 9)
+image.FlipHorizontal()
+image[0, 0] = Color32(5, 6, 7, 8)
+Print(Shown(bytes))
+Print("{image[0, 0]} {copy.Pixels.Count}")
+
+// Two views of 3 pixels, A, B, and C, `left` A and B and `right` B and C: drawing or pasting
+// `left` on `right` makes them A, A, B, as it does from a copy.
+For paste In [False, True]
+    Local three = Buffer<UInt8>.From([1, 1, 1, 255, 2, 2, 2, 255, 3, 3, 3, 255])
+    Local left = Image.Over(2, 1, three.Slice(0, 8))
+    Local right = Image.Over(2, 1, three.Slice(4, 12))
+    If paste
+        right.Paste(left, 0, 0)
+    Else
+        right.Draw(left, 0, 0)
+    End If
+    Print(Shown(three))
+End For
+
+// An image pasted on itself, a pixel to the right.
+Local row = Image.FromBytes(3, 1, [10, 0, 0, 255, 20, 0, 0, 255, 30, 0, 0, 255])
+row.Paste(row, 1, 0)
+Print(Shown(row.Pixels))
+
+// An HdrImage's Floats, the same way.
+Local floats = Buffer<Float32>(4)
+Local hdr = HdrImage.Over(1, 1, floats)
+hdr[0, 0] = Color(0.5, 2, 4, 1)
+Print("{floats[1]} {hdr.Pixels.Count}")
+floats[0] = 8
+Print(hdr[0, 0])
+Local hdrCopy = hdr.Clone()
+hdrCopy[0, 0] = Color(0, 0, 0, 0)
+Print(floats[0])

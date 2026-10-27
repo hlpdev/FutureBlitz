@@ -100,6 +100,13 @@ inline std::span<const float> floats_of(const fb_array_t* array) {
     return { static_cast<const float*>(array->data), static_cast<std::size_t>(array->count) };
 }
 
+/// The bytes of an image's `width` by `height` pixels at `pixels`, 4 each, as an Image's
+/// Buffer<UInt8> holds them.
+inline std::span<const std::uint8_t> pixels_at(const std::uint8_t* pixels, const std::int64_t width,
+                                               const std::int64_t height) {
+    return { pixels, static_cast<std::size_t>(width * height * 4) };
+}
+
 inline std::string_view text_of(const fb_string_t* text) {
     return { reinterpret_cast<const char*>(text + 1), static_cast<std::size_t>(text->length) };
 }

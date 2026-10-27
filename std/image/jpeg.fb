@@ -27,7 +27,9 @@ Public Struct Jpeg
         CheckRange(quality, 1, 100, "a JPEG's quality")
         CheckEncodable(image.Width, image.Height, 65535, "a JPEG")
         Local output: UInt8[] = []
-        fb_stb_encode(image.Pixels, image.Width, image.Height, 2, quality, output)
+        Unsafe
+            fb_stb_encode(image.Pixels.Pointer(), image.Width, image.Height, 2, quality, output)
+        End Unsafe
         Return output
     End Method
 End Struct

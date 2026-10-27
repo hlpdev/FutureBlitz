@@ -1,0 +1,2 @@
+(0, 0, 0, 0)
+panic: an image of 1 by 2 pixels has 8 Floats, not 4 at panic_image_hdr_over.fb:8:1

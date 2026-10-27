@@ -42,6 +42,8 @@ End Struct
 Function Encoded(image: Image, quality: Int, lossless: Int32): UInt8[]
     CheckEncodable(image.Width, image.Height, 16383, "a WebP")
     Local output: UInt8[] = []
-    fb_webp_encode(image.Pixels, image.Width, image.Height, quality, lossless, output)
+    Unsafe
+        fb_webp_encode(image.Pixels.Pointer(), image.Width, image.Height, quality, lossless, output)
+    End Unsafe
     Return output
 End Function

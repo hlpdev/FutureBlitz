@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <numbers>
 #include <span>
 #include <vector>
@@ -289,42 +290,44 @@ std::vector<std::uint8_t> oriented(const std::span<const std::uint8_t> rgba,
 
 extern "C" {
 
-void fb_image_resize(const fb_array_t* pixels, const std::int64_t width, const std::int64_t height,
-                     const std::int64_t new_width, const std::int64_t new_height,
-                     const std::int32_t filter, fb_array_t* output) {
-    set_elements<std::uint8_t>(
-        output, resized(bytes_of(pixels), width, height, new_width, new_height, filter));
+void fb_image_resize(const std::uint8_t* pixels, const std::int64_t width,
+                     const std::int64_t height, const std::int64_t new_width,
+                     const std::int64_t new_height, const std::int32_t filter,
+                     std::uint8_t* output) {
+    std::ranges::copy(
+        resized(pixels_at(pixels, width, height), width, height, new_width, new_height, filter),
+        output);
 }
 
-void fb_image_crop(const fb_array_t* pixels, const std::int64_t width, const std::int64_t x,
+void fb_image_crop(const std::uint8_t* pixels, const std::int64_t width, const std::int64_t x,
                    const std::int64_t y, const std::int64_t crop_width,
-                   const std::int64_t crop_height, fb_array_t* output) {
-    const std::span<const std::uint8_t> rgba = bytes_of(pixels);
-    std::vector<std::uint8_t> out;
-    out.reserve(static_cast<std::size_t>(crop_width * crop_height * 4));
+                   const std::int64_t crop_height, std::uint8_t* output) {
     // A crop of no pixels has no rows to copy, however many it says it has.
     for (std::int64_t row = y; crop_width > 0 && row < y + crop_height; ++row) {
-        const auto from = static_cast<std::ptrdiff_t>(((row * width) + x) * 4);
-        out.insert(out.end(), rgba.begin() + from, rgba.begin() + from + (crop_width * 4));
+        const std::uint8_t* from = pixels + (((row * width) + x) * 4);
+        output = std::copy(from, from + (crop_width * 4), output);
     }
-    set_elements<std::uint8_t>(output, out);
 }
 
-void fb_image_orient(const fb_array_t* pixels, const std::int64_t width, const std::int64_t height,
-                     const std::int32_t how, fb_array_t* output) {
-    set_elements<std::uint8_t>(output, oriented(bytes_of(pixels), width, height, how));
+void fb_image_orient(const std::uint8_t* pixels, const std::int64_t width,
+                     const std::int64_t height, const std::int32_t how, std::uint8_t* output) {
+    std::ranges::copy(oriented(pixels_at(pixels, width, height), width, height, how), output);
 }
 
-void fb_image_blit(const fb_array_t* target, const std::int64_t width, const std::int64_t height,
-                   const fb_array_t* source, const std::int64_t source_width,
+void fb_image_blit(std::uint8_t* target, const std::int64_t width, const std::int64_t height,
+                   const std::uint8_t* source, const std::int64_t source_width,
                    const std::int64_t source_height, const std::int64_t x, const std::int64_t y,
                    const std::int32_t blend) {
-    auto* to = static_cast<std::uint8_t*>(target->data);
-    const auto* from = static_cast<const std::uint8_t*>(source->data);
-    // An image drawn on itself is drawn from a copy, so no pixel is read after it's drawn on.
+    // An image drawn on one whose memory it shares any of, itself or a view of the same
+    // Buffer's, is drawn from a copy, so no pixel is read after it's drawn on.
+    const std::span<const std::uint8_t> drawn_from = pixels_at(source, source_width, source_height);
+    const std::span<const std::uint8_t> drawn_on = pixels_at(target, width, height);
     std::vector<std::uint8_t> copy;
-    if (from == to) {
-        copy.assign(from, from + target->count);
+    const std::uint8_t* from = source;
+    const auto less = std::less<>();
+    if (less(drawn_from.data(), drawn_on.data() + drawn_on.size()) &&
+        less(drawn_on.data(), drawn_from.data() + drawn_from.size())) {
+        copy.assign(drawn_from.begin(), drawn_from.end());
         from = copy.data();
     }
 
@@ -334,7 +337,7 @@ void fb_image_blit(const fb_array_t* target, const std::int64_t width, const std
     const std::int64_t bottom = std::min(height, y + source_height);
     for (std::int64_t row = top; row < bottom; ++row) {
         for (std::int64_t column = left; column < right; ++column) {
-            std::uint8_t* pixel = to + (((row * width) + column) * 4);
+            std::uint8_t* pixel = target + (((row * width) + column) * 4);
             const std::uint8_t* drawn = from + ((((row - y) * source_width) + column - x) * 4);
             if (blend != 0) {
                 over(pixel, drawn);
@@ -345,16 +348,16 @@ void fb_image_blit(const fb_array_t* target, const std::int64_t width, const std
     }
 }
 
-void fb_image_fill(const fb_array_t* target, const std::uint32_t rgba) {
-    auto* bytes = static_cast<std::uint8_t*>(target->data);
+void fb_image_fill(std::uint8_t* target, const std::int64_t width, const std::int64_t height,
+                   const std::uint32_t rgba) {
     const std::array<std::uint8_t, 4> color{
         static_cast<std::uint8_t>(rgba >> 24U),
         static_cast<std::uint8_t>(rgba >> 16U),
         static_cast<std::uint8_t>(rgba >> 8U),
         static_cast<std::uint8_t>(rgba),
     };
-    for (std::int64_t at = 0; at < target->count; at += 4) {
-        std::memcpy(bytes + at, color.data(), 4);
+    for (std::int64_t at = 0; at < width * height * 4; at += 4) {
+        std::memcpy(target + at, color.data(), 4);
     }
 }
 }

@@ -48,11 +48,11 @@ TEST_CASE("a line chart of thousands of points strokes in time for its pixels, n
     }
     std::vector<std::int32_t> counts{ 8000 };
     std::vector<std::uint8_t> bytes(std::size_t{ 400 } * 100 * 4, 0);
-    const fb_array_t pixels = array_of(bytes);
     const fb_array_t points = array_of(coords);
     const fb_array_t sizes = array_of(counts);
-    const double took = seconds_of(
-        [&] { fb_image_stroke(&pixels, 400, 100, &points, &sizes, 0, 1.5, 0, 0, 4, black, 1); });
+    const double took = seconds_of([&] {
+        fb_image_stroke(bytes.data(), 400, 100, &points, &sizes, 0, 1.5, 0, 0, 4, black, 1);
+    });
     CHECK(took < 10);
     // The line's middle row is covered where it runs, and nothing far above it.
     CHECK(bytes[((((50 * 400) + 200) * 4) + 3)] > 0);
@@ -68,11 +68,10 @@ TEST_CASE("a polygon of thousands of edges that each cross every other fills in 
     }
     std::vector<std::int32_t> counts{ 3000 };
     std::vector<std::uint8_t> bytes(std::size_t{ 200 } * 200 * 4, 0);
-    const fb_array_t pixels = array_of(bytes);
     const fb_array_t points = array_of(coords);
     const fb_array_t sizes = array_of(counts);
     const double took =
-        seconds_of([&] { fb_image_fill_rings(&pixels, 200, 200, &points, &sizes, black, 1); });
+        seconds_of([&] { fb_image_fill_rings(bytes.data(), 200, 200, &points, &sizes, black, 1); });
     CHECK(took < 10);
 }
 
@@ -88,10 +87,9 @@ TEST_CASE("a pixel dozens of edges pass through covers what their region does") 
         counts.push_back(4);
     }
     std::vector<std::uint8_t> bytes(8, 0);
-    const fb_array_t pixels = array_of(bytes);
     const fb_array_t points = array_of(coords);
     const fb_array_t sizes = array_of(counts);
-    fb_image_fill_rings(&pixels, 2, 1, &points, &sizes, black, 1);
+    fb_image_fill_rings(bytes.data(), 2, 1, &points, &sizes, black, 1);
     CHECK(bytes[3] == 128);
     CHECK(bytes[7] == 128);
 }

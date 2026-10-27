@@ -30,7 +30,9 @@ Public Struct Png
         CheckEncodable(image.Width, image.Height, 2147483647, "a PNG")
         CheckPixelCount(image.Width, image.Height, MOST_PNG_PIXELS, "a PNG")
         Local output: UInt8[] = []
-        fb_zlib_png_encode(image.Pixels, image.Width, image.Height, level, output)
+        Unsafe
+            fb_zlib_png_encode(image.Pixels.Pointer(), image.Width, image.Height, level, output)
+        End Unsafe
         Return output
     End Method
 
@@ -59,7 +61,9 @@ Public Struct Png
         Local encoder = fb_zlib_apng_encoder_new(animation.Width, animation.Height, animation.Plays,
                                                  level)
         For frame In animation.Frames
-            fb_zlib_apng_encoder_add(encoder, frame.Image.Pixels, frame.Delay)
+            Unsafe
+                fb_zlib_apng_encoder_add(encoder, frame.Image.Pixels.Pointer(), frame.Delay)
+            End Unsafe
         End For
 
         Local output: UInt8[] = []

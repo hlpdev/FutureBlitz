@@ -92,38 +92,14 @@ std::int32_t fb_image_plays(const void* image) {
     return image_of(image).plays;
 }
 
-void fb_image_pixels(const void* image, const std::int64_t frame, fb_array_t* output) {
+void fb_image_pixels(const void* image, const std::int64_t frame, std::uint8_t* output) {
     const std::vector<std::uint8_t>& pixels =
         image_of(image).frames[static_cast<std::size_t>(frame)];
-    set_elements<std::uint8_t>(output, pixels);
+    std::ranges::copy(pixels, output);
 }
 
-void fb_image_hdr_pixels(const void* image, fb_array_t* output) {
-    set_elements<float>(output, image_of(image).hdr);
-}
-
-void fb_image_blank(fb_array_t* output, const std::int64_t count) {
-    output->count = 0;
-    if (count > output->capacity) {
-        fb_array_reserve(output, 1, count, nullptr);
-    }
-
-    if (count > 0) {
-        std::memset(output->data, 0, static_cast<std::size_t>(count));
-    }
-    output->count = count;
-}
-
-void fb_image_blank_hdr(fb_array_t* output, const std::int64_t count) {
-    output->count = 0;
-    if (count > output->capacity) {
-        fb_array_reserve(output, sizeof(float), count, nullptr);
-    }
-
-    if (count > 0) {
-        std::memset(output->data, 0, static_cast<std::size_t>(count) * sizeof(float));
-    }
-    output->count = count;
+void fb_image_hdr_pixels(const void* image, float* output) {
+    std::ranges::copy(image_of(image).hdr, output);
 }
 
 void fb_image_free(void* image) {

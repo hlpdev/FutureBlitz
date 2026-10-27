@@ -1,0 +1,7 @@
+// Image.Over takes 4 bytes for each pixel, and panics where it's given a Buffer of another count.
+Import std.core
+Import std.ffi
+Import std.image
+
+Print(Image.Over(1, 1, Buffer<UInt8>(4))[0, 0])
+Local image = Image.Over(2, 2, Buffer<UInt8>(15))

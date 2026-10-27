@@ -374,6 +374,13 @@ public:
     gif_encoder_t(const std::int64_t width, const std::int64_t height, const std::int32_t plays)
         : m_width(width), m_height(height), m_plays(plays) {}
 
+    [[nodiscard]] std::int64_t width() const {
+        return m_width;
+    }
+    [[nodiscard]] std::int64_t height() const {
+        return m_height;
+    }
+
     void add(const std::span<const std::uint8_t> rgba, const std::int32_t delay) {
         m_frames.push_back({ .frame = indexed(rgba, m_width, m_height), .delay = delay });
     }
@@ -477,8 +484,9 @@ void* fb_image_gif_encoder_new(const std::int64_t width, const std::int64_t heig
     return new gif_encoder_t(width, height, plays);
 }
 
-void fb_image_gif_encoder_add(void* encoder, const fb_array_t* pixels, const std::int32_t delay) {
-    static_cast<gif_encoder_t*>(encoder)->add(bytes_of(pixels), delay);
+void fb_image_gif_encoder_add(void* encoder, const std::uint8_t* pixels, const std::int32_t delay) {
+    auto* gif = static_cast<gif_encoder_t*>(encoder);
+    gif->add(pixels_at(pixels, gif->width(), gif->height()), delay);
 }
 
 void fb_image_gif_encoder_finish(void* encoder, fb_array_t* output) {

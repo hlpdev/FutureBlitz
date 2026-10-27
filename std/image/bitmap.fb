@@ -26,7 +26,9 @@ Public Struct Bmp
     Public Static Method Encode(image: Image): UInt8[]
         CheckEncodable(image.Width, image.Height, 2147483647, "a BMP")
         Local output: UInt8[] = []
-        fb_stb_encode(image.Pixels, image.Width, image.Height, 3, 0, output)
+        Unsafe
+            fb_stb_encode(image.Pixels.Pointer(), image.Width, image.Height, 3, 0, output)
+        End Unsafe
         Return output
     End Method
 End Struct
@@ -51,7 +53,9 @@ Public Struct Tga
     Public Static Method Encode(image: Image): UInt8[]
         CheckEncodable(image.Width, image.Height, 65535, "a TGA")
         Local output: UInt8[] = []
-        fb_stb_encode(image.Pixels, image.Width, image.Height, 4, 0, output)
+        Unsafe
+            fb_stb_encode(image.Pixels.Pointer(), image.Width, image.Height, 4, 0, output)
+        End Unsafe
         Return output
     End Method
 End Struct
@@ -75,7 +79,9 @@ Public Struct Qoi
     Public Static Method Encode(image: Image): UInt8[]
         CheckEncodable(image.Width, image.Height, 2147483647, "a QOI")
         Local output: UInt8[] = []
-        fb_image_qoi_encode(image.Pixels, image.Width, image.Height, output)
+        Unsafe
+            fb_image_qoi_encode(image.Pixels.Pointer(), image.Width, image.Height, output)
+        End Unsafe
         Return output
     End Method
 End Struct

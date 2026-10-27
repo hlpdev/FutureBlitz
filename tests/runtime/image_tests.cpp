@@ -317,11 +317,10 @@ std::pair<std::int64_t, double> drawn(std::vector<std::uint8_t>& bytes, const st
     CHECK(error->length == 0);
     fb_string_release(error);
     std::vector<std::uint8_t> pixels(std::size_t{ 16 } * 16 * 4, 0);
-    const fb_array_t image = array_of(pixels);
     fb_string_t* string = fb_string_from_bytes(text.data(), static_cast<std::int64_t>(text.size()));
     const std::int64_t before = start();
     const auto started = std::chrono::steady_clock::now();
-    fb_image_fill_text(&image, 16, 16, font, string, size, 0, 12, 0x000000FF, 1);
+    fb_image_fill_text(pixels.data(), 16, 16, font, string, size, 0, 12, 0x000000FF, 1);
     const double took =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
     const std::int64_t most_held = most.load() - before;
@@ -380,21 +379,18 @@ TEST_CASE("a GIF frame far larger than its screen holds no more memory than the 
 }
 
 TEST_CASE("resizing to a long thin image holds little more memory than the image") {
-    std::vector<std::uint8_t> pixel{ 10, 20, 30, 255 };
-    const fb_array_t source = array_of(pixel);
+    const std::vector<std::uint8_t> pixel{ 10, 20, 30, 255 };
     // Two million pixels one way: the image's bytes are 8 MB, and what's between the passes, 16
     // bytes a pixel of the new width by the old height, 32 MB the second way, and the taps a run
     // of columns at a time. Each taps' own vector made it 108 MB and 123 MB.
     for (const auto& [width, height, most_bytes] :
          { std::tuple{ 1, 2'000'000, 12'000'000 }, std::tuple{ 2'000'000, 1, 48'000'000 } }) {
         CAPTURE(width, height);
-        fb_array_t output{};
+        std::vector<std::uint8_t> output(std::size_t{ 2'000'000 } * 4, 0);
         const std::int64_t before = start();
-        fb_image_resize(&source, 1, 1, width, height, 2, &output);
+        fb_image_resize(pixel.data(), 1, 1, width, height, 2, output.data());
         const std::int64_t most_held = most.load() - before;
-        CHECK(output.count == std::int64_t{ width } * height * 4);
-        CHECK(static_cast<const std::uint8_t*>(output.data)[output.count - 2] == 30);
-        fb_array_free(&output);
+        CHECK(output[output.size() - 2] == 30);
         CHECK(most_held < most_bytes);
     }
 }

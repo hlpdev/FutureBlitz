@@ -15,18 +15,18 @@ Import std.image.font
 Import std.image.image
 
 Package Extern "runtime"
-    Function fb_image_fill_rings(pixels: UInt8[], width: Int64, height: Int64, coords: Float64[],
+    Function fb_image_fill_rings(pixels: Ptr<UInt8>, width: Int64, height: Int64, coords: Float64[],
                                  counts: Int32[], rgba: UInt32, antialias: Int32)
-    Function fb_image_fill_ellipse(pixels: UInt8[], width: Int64, height: Int64, x: Float64,
+    Function fb_image_fill_ellipse(pixels: Ptr<UInt8>, width: Int64, height: Int64, x: Float64,
                                    y: Float64, rx: Float64, ry: Float64, rgba: UInt32,
                                    antialias: Int32)
-    Function fb_image_stroke(pixels: UInt8[], width: Int64, height: Int64, coords: Float64[],
+    Function fb_image_stroke(pixels: Ptr<UInt8>, width: Int64, height: Int64, coords: Float64[],
                              counts: Int32[], closed: Int32, lineWidth: Float64, cap: Int32,
                              join: Int32, miterLimit: Float64, rgba: UInt32, antialias: Int32)
-    Function fb_image_stroke_ellipse(pixels: UInt8[], width: Int64, height: Int64, x: Float64,
+    Function fb_image_stroke_ellipse(pixels: Ptr<UInt8>, width: Int64, height: Int64, x: Float64,
                                      y: Float64, rx: Float64, ry: Float64, lineWidth: Float64,
                                      rgba: UInt32, antialias: Int32)
-    Function fb_image_fill_text(pixels: UInt8[], width: Int64, height: Int64, font: Ptr<Void>,
+    Function fb_image_fill_text(pixels: Ptr<UInt8>, width: Int64, height: Int64, font: Ptr<Void>,
                                 text: String, size: Float64, x: Float64, y: Float64, rgba: UInt32,
                                 antialias: Int32)
 End Extern
@@ -180,16 +180,21 @@ Public Class Canvas
     @PanicsAtCaller
     Public Method FillEllipse(center: Vec2, radii: Vec2, color: Color32)
         CheckEllipse(center, radii)
-        fb_image_fill_ellipse(Target.Pixels, Target.Width, Target.Height, center.x, center.y,
-                              radii.x, radii.y, RgbaOf(color), Smooth ? 1 : 0)
+        Unsafe
+            fb_image_fill_ellipse(Target.Pixels.Pointer(), Target.Width, Target.Height, center.x,
+                                  center.y, radii.x, radii.y, RgbaOf(color), Smooth ? 1 : 0)
+        End Unsafe
     End Method
 
     // Strokes the ellipse, its outline LineWidth wide. Panics as FillEllipse does.
     @PanicsAtCaller
     Public Method StrokeEllipse(center: Vec2, radii: Vec2, color: Color32)
         CheckEllipse(center, radii)
-        fb_image_stroke_ellipse(Target.Pixels, Target.Width, Target.Height, center.x, center.y,
-                                radii.x, radii.y, Width, RgbaOf(color), Smooth ? 1 : 0)
+        Unsafe
+            fb_image_stroke_ellipse(Target.Pixels.Pointer(), Target.Width, Target.Height, center.x,
+                                    center.y, radii.x, radii.y, Width, RgbaOf(color),
+                                    Smooth ? 1 : 0)
+        End Unsafe
     End Method
 
     // Fills the text in the font at `size` pixels an em, its first line's baseline from
@@ -204,23 +209,29 @@ Public Class Canvas
             Panic("text is drawn from a finite position, not {position}")
         End If
 
-        fb_image_fill_text(Target.Pixels, Target.Width, Target.Height, font.State, text, size,
-                           position.x, position.y, RgbaOf(color), Smooth ? 1 : 0)
+        Unsafe
+            fb_image_fill_text(Target.Pixels.Pointer(), Target.Width, Target.Height, font.State,
+                               text, size, position.x, position.y, RgbaOf(color), Smooth ? 1 : 0)
+        End Unsafe
     End Method
 
     @PanicsAtCaller
     Method FillRings(rings: Vec2[][], color: Color32)
         Local coords = CoordsOf(rings)
-        fb_image_fill_rings(Target.Pixels, Target.Width, Target.Height, coords.0, coords.1,
-                            RgbaOf(color), Smooth ? 1 : 0)
+        Unsafe
+            fb_image_fill_rings(Target.Pixels.Pointer(), Target.Width, Target.Height, coords.0,
+                                coords.1, RgbaOf(color), Smooth ? 1 : 0)
+        End Unsafe
     End Method
 
     @PanicsAtCaller
     Method Stroke(lines: Vec2[][], closed: Bool, color: Color32)
         Local coords = CoordsOf(lines)
-        fb_image_stroke(Target.Pixels, Target.Width, Target.Height, coords.0, coords.1,
-                        closed ? 1 : 0, Width, Ends As Int32, Corners As Int32, Limit,
-                        RgbaOf(color), Smooth ? 1 : 0)
+        Unsafe
+            fb_image_stroke(Target.Pixels.Pointer(), Target.Width, Target.Height, coords.0,
+                            coords.1, closed ? 1 : 0, Width, Ends As Int32, Corners As Int32,
+                            Limit, RgbaOf(color), Smooth ? 1 : 0)
+        End Unsafe
     End Method
 End Class
 

@@ -66,11 +66,12 @@ outcome_t parse_and_draw(std::vector<std::uint8_t> bytes) {
         const auto size = static_cast<std::size_t>(width * height * 4);
         std::vector<std::uint8_t> pixels(guard + size + guard, guarded);
         std::fill_n(pixels.data() + guard, size, std::uint8_t{ 0 });
-        const fb_array_t image = array_of(pixels.data() + guard, size);
         fb_string_t* string =
             fb_string_from_bytes(text.data(), static_cast<std::int64_t>(text.size()));
-        fb_image_fill_text(&image, width, height, font, string, 12, 1, 15, 0x000000FF, 1);
-        fb_image_fill_text(&image, width, height, font, string, 7.5, -3, 4, 0x204080C0, 0);
+        fb_image_fill_text(pixels.data() + guard, width, height, font, string, 12, 1, 15,
+                           0x000000FF, 1);
+        fb_image_fill_text(pixels.data() + guard, width, height, font, string, 7.5, -3, 4,
+                           0x204080C0, 0);
         outcome.finite = std::isfinite(fb_font_width(font, string, 12));
         fb_string_release(string);
         for (std::size_t i = 0; i < guard; ++i) {

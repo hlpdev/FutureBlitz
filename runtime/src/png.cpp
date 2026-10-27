@@ -196,6 +196,13 @@ public:
                    const int level)
         : m_width(width), m_height(height), m_plays(plays), m_level(level) {}
 
+    [[nodiscard]] std::int64_t width() const {
+        return m_width;
+    }
+    [[nodiscard]] std::int64_t height() const {
+        return m_height;
+    }
+
     void add(const std::span<const std::uint8_t> rgba, const std::int32_t delay) {
         m_frames.push_back(deflated(filtered(rgba, m_width, m_height, 4), m_level));
         m_delays.push_back(delay);
@@ -256,9 +263,10 @@ private:
 
 extern "C" {
 
-void fb_zlib_png_encode(const fb_array_t* pixels, const std::int64_t width,
+void fb_zlib_png_encode(const std::uint8_t* pixels, const std::int64_t width,
                         const std::int64_t height, const std::int32_t level, fb_array_t* output) {
-    set_elements<std::uint8_t>(output, encode(bytes_of(pixels), width, height, level));
+    set_elements<std::uint8_t>(output,
+                               encode(pixels_at(pixels, width, height), width, height, level));
 }
 
 void* fb_zlib_apng_encoder_new(const std::int64_t width, const std::int64_t height,
@@ -266,8 +274,9 @@ void* fb_zlib_apng_encoder_new(const std::int64_t width, const std::int64_t heig
     return new apng_encoder_t(width, height, plays, level);
 }
 
-void fb_zlib_apng_encoder_add(void* encoder, const fb_array_t* pixels, const std::int32_t delay) {
-    static_cast<apng_encoder_t*>(encoder)->add(bytes_of(pixels), delay);
+void fb_zlib_apng_encoder_add(void* encoder, const std::uint8_t* pixels, const std::int32_t delay) {
+    auto* apng = static_cast<apng_encoder_t*>(encoder);
+    apng->add(pixels_at(pixels, apng->width(), apng->height()), delay);
 }
 
 void fb_zlib_apng_encoder_finish(void* encoder, fb_array_t* output) {

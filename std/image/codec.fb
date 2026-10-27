@@ -3,6 +3,7 @@
 // results mean, and the checks of what the encoders take.
 
 Import std.core
+Import std.ffi
 
 // The runtime's functions for std.image, which its formats share.
 Package Extern "runtime"
@@ -13,43 +14,42 @@ Package Extern "runtime"
     Function fb_image_frames(image: Ptr<Void>): Int64
     Function fb_image_delay(image: Ptr<Void>, frame: Int64): Int32
     Function fb_image_plays(image: Ptr<Void>): Int32
-    Function fb_image_pixels(image: Ptr<Void>, frame: Int64, output: UInt8[])
-    Function fb_image_hdr_pixels(image: Ptr<Void>, output: Float32[])
+    Function fb_image_pixels(image: Ptr<Void>, frame: Int64, output: Ptr<UInt8>)
+    Function fb_image_hdr_pixels(image: Ptr<Void>, output: Ptr<Float32>)
     Function fb_image_free(image: Ptr<Void>)
-    Function fb_image_blank(output: UInt8[], count: Int64)
-    Function fb_image_blank_hdr(output: Float32[], count: Int64)
     Function fb_image_format(data: UInt8[]): Int32
     Function fb_image_qoi_decode(data: UInt8[], limit: Int64): Ptr<Void>
-    Function fb_image_qoi_encode(pixels: UInt8[], width: Int64, height: Int64, output: UInt8[])
+    Function fb_image_qoi_encode(pixels: Ptr<UInt8>, width: Int64, height: Int64, output: UInt8[])
     Function fb_image_gif_decode(data: UInt8[], firstOnly: Int32, limit: Int64): Ptr<Void>
     Function fb_image_gif_encoder_new(width: Int64, height: Int64, plays: Int32): Ptr<Void>
-    Function fb_image_gif_encoder_add(encoder: Ptr<Void>, pixels: UInt8[], delay: Int32)
+    Function fb_image_gif_encoder_add(encoder: Ptr<Void>, pixels: Ptr<UInt8>, delay: Int32)
     Function fb_image_gif_encoder_finish(encoder: Ptr<Void>, output: UInt8[])
     Function fb_image_gif_encoder_free(encoder: Ptr<Void>)
-    Function fb_image_resize(pixels: UInt8[], width: Int64, height: Int64, newWidth: Int64,
-                             newHeight: Int64, filter: Int32, output: UInt8[])
-    Function fb_image_crop(pixels: UInt8[], width: Int64, x: Int64, y: Int64, cropWidth: Int64,
-                           cropHeight: Int64, output: UInt8[])
-    Function fb_image_orient(pixels: UInt8[], width: Int64, height: Int64, how: Int32,
-                             output: UInt8[])
-    Function fb_image_blit(target: UInt8[], width: Int64, height: Int64, source: UInt8[],
+    Function fb_image_resize(pixels: Ptr<UInt8>, width: Int64, height: Int64, newWidth: Int64,
+                             newHeight: Int64, filter: Int32, output: Ptr<UInt8>)
+    Function fb_image_crop(pixels: Ptr<UInt8>, width: Int64, x: Int64, y: Int64,
+                           cropWidth: Int64, cropHeight: Int64, output: Ptr<UInt8>)
+    Function fb_image_orient(pixels: Ptr<UInt8>, width: Int64, height: Int64, how: Int32,
+                             output: Ptr<UInt8>)
+    Function fb_image_blit(target: Ptr<UInt8>, width: Int64, height: Int64, source: Ptr<UInt8>,
                            sourceWidth: Int64, sourceHeight: Int64, x: Int64, y: Int64,
                            blend: Int32)
-    Function fb_image_fill(target: UInt8[], rgba: UInt32)
+    Function fb_image_fill(target: Ptr<UInt8>, width: Int64, height: Int64, rgba: UInt32)
     Function fb_stb_decode(data: UInt8[], format: Int32, limit: Int64): Ptr<Void>
     Function fb_stb_decode_apng(data: UInt8[], limit: Int64): Ptr<Void>
-    Function fb_stb_encode(pixels: UInt8[], width: Int64, height: Int64, format: Int32,
+    Function fb_stb_encode(pixels: Ptr<UInt8>, width: Int64, height: Int64, format: Int32,
                            quality: Int32, output: UInt8[])
-    Function fb_stb_encode_hdr(pixels: Float32[], width: Int64, height: Int64, output: UInt8[])
-    Function fb_zlib_png_encode(pixels: UInt8[], width: Int64, height: Int64, level: Int32,
+    Function fb_stb_encode_hdr(pixels: Ptr<Float32>, width: Int64, height: Int64,
+                               output: UInt8[])
+    Function fb_zlib_png_encode(pixels: Ptr<UInt8>, width: Int64, height: Int64, level: Int32,
                                 output: UInt8[])
     Function fb_zlib_apng_encoder_new(width: Int64, height: Int64, plays: Int32,
                                       level: Int32): Ptr<Void>
-    Function fb_zlib_apng_encoder_add(encoder: Ptr<Void>, pixels: UInt8[], delay: Int32)
+    Function fb_zlib_apng_encoder_add(encoder: Ptr<Void>, pixels: Ptr<UInt8>, delay: Int32)
     Function fb_zlib_apng_encoder_finish(encoder: Ptr<Void>, output: UInt8[])
     Function fb_zlib_apng_encoder_free(encoder: Ptr<Void>)
     Function fb_webp_decode(data: UInt8[], limit: Int64): Ptr<Void>
-    Function fb_webp_encode(pixels: UInt8[], width: Int64, height: Int64, quality: Int32,
+    Function fb_webp_encode(pixels: Ptr<UInt8>, width: Int64, height: Int64, quality: Int32,
                             lossless: Int32, output: UInt8[])
     Function fb_svg_parse(text: String): Ptr<Void>
     Function fb_svg_width(svg: Ptr<Void>): Float64
@@ -59,7 +59,7 @@ Package Extern "runtime"
     Function fb_svg_free(svg: Ptr<Void>)
 End Extern
 
-// The most pixels an Image holds, four bytes each in a UInt8[], which an Int counts.
+// The most pixels an Image holds, four bytes each, which an Int counts.
 Package Const MOST_PIXELS = 536870911
 
 // The most pixels a PNG, or an APNG's frame, std.image writes has: as many as stb_image reads
@@ -134,8 +134,10 @@ Package Function CheckDecoded(image: Ptr<Void>, format: String) Throws IOError
 End Function
 
 // The pixels of the runtime's image's frame, which it decoded without an error.
-Package Function PixelsOf(image: Ptr<Void>, frame: Int): UInt8[]
-    Local pixels: UInt8[] = []
-    fb_image_pixels(image, frame, pixels)
+Package Function PixelsOf(image: Ptr<Void>, frame: Int): Buffer<UInt8>
+    Local pixels = Buffer<UInt8>(fb_image_width(image) * fb_image_height(image) * 4)
+    Unsafe
+        fb_image_pixels(image, frame, pixels.Pointer())
+    End Unsafe
     Return pixels
 End Function

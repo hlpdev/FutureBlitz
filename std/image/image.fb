@@ -1,9 +1,11 @@
 // Image: a picture's pixels, in rows from the top, each RGBA, 8 bits a channel, its alpha
-// straight, which the formats' Decodes give and their Encodes take. Image.Decode reads any
-// format std.image knows, by how its bytes start, but HDR's, whose pixels are an HdrImage's. Its
-// transforms, Resize, Crop, the flips and turns, Draw, Paste, and Fill, change it in place.
+// straight, in a Buffer<UInt8>, which C code can read and write through its Pointer, and which
+// the formats' Decodes give and their Encodes take. Image.Decode reads any format std.image
+// knows, by how its bytes start, but HDR's, whose pixels are an HdrImage's. Its transforms,
+// Resize, Crop, the flips and turns, Draw, Paste, and Fill, change it in place.
 
 Import std.core
+Import std.ffi
 Import std.math.color
 Import std.image.codec
 
@@ -21,7 +23,7 @@ End Enum
 
 Public Class Image
     // Its pixels' bytes, 4 for each, red, green, blue, and alpha.
-    Package Field Pixels: UInt8[]
+    Field Memory: Buffer<UInt8>
     Field Columns: Int
     Field Rows: Int
 
@@ -32,14 +34,13 @@ Public Class Image
         CheckSize(width, height)
         Columns = width
         Rows = height
-        Pixels = []
-        fb_image_blank(Pixels, (width * height * 4) As Int64)
+        Memory = Buffer<UInt8>((width * height * 4) As Int64)
     End New
 
-    New(width: Int, height: Int, pixels: UInt8[])
+    New(width: Int, height: Int, pixels: Buffer<UInt8>)
         Columns = width
         Rows = height
-        Pixels = pixels
+        Memory = pixels
     End New
 
     // An image of width by height pixels whose bytes, 4 for each pixel, red, green, blue, and
@@ -53,13 +54,35 @@ Public Class Image
                   "{bytes.Count}")
         End If
 
-        Return Image(width, height, bytes.Clone())
+        Return Image(width, height, Buffer<UInt8>.From(bytes))
+    End Method
+
+    // An image of width by height pixels whose bytes, 4 for each pixel, red, green, blue, and
+    // alpha, are the Buffer's own, not a copy: what changes in one changes in the other, until a
+    // transform gives the image new ones. Panics when the Buffer doesn't have that many, or the
+    // size is one New panics for.
+    @PanicsAtCaller
+    Public Static Method Over(width: Int, height: Int, pixels: Buffer<UInt8>): Image
+        CheckSize(width, height)
+        If pixels.Count != width * height * 4
+            Panic("an image of {width} by {height} pixels has {width * height * 4} bytes, not " +
+                  "{pixels.Count}")
+        End If
+
+        Return Image(width, height, pixels)
     End Method
 
     // An image of pixels the runtime or a format made, which it keeps.
-    Package Static Method Of(width: Int, height: Int, pixels: UInt8[]): Image
+    Package Static Method Of(width: Int, height: Int, pixels: Buffer<UInt8>): Image
         Return Image(width, height, pixels)
     End Method
+
+    // Its pixels' bytes, 4 for each, red, green, blue, and alpha, in rows from the top: the
+    // image's own, not a copy, which C code can read and write through its Pointer. Resize, Crop,
+    // and the flips and turns give it new ones, which a Buffer from before doesn't see.
+    Public Property Pixels: Buffer<UInt8>
+        Get => Memory
+    End Property
 
     Public Property Width: Int
         Get => Columns
@@ -73,7 +96,7 @@ Public Class Image
     @PanicsAtCaller
     Operator [](x: Int, y: Int): Color32
         Local at = ByteOf(x, y)
-        Return Color32(Pixels[at], Pixels[at + 1], Pixels[at + 2], Pixels[at + 3])
+        Return Color32(Memory[at], Memory[at + 1], Memory[at + 2], Memory[at + 3])
     End Operator
 
     // Gives the pixel `x` from the left and `y` from the top a color. Panics when it's outside
@@ -81,17 +104,17 @@ Public Class Image
     @PanicsAtCaller
     Operator []=(x: Int, y: Int, color: Color32)
         Local at = ByteOf(x, y)
-        Pixels[at] = color.r
-        Pixels[at + 1] = color.g
-        Pixels[at + 2] = color.b
-        Pixels[at + 3] = color.a
+        Memory[at] = color.r
+        Memory[at + 1] = color.g
+        Memory[at + 2] = color.b
+        Memory[at + 3] = color.a
     End Operator
 
     // A copy of its pixels' bytes, 4 for each, red, green, blue, and alpha.
-    Public Method ToBytes(): UInt8[] => Pixels.Clone()
+    Public Method ToBytes(): UInt8[] => Memory.ToArray()
 
-    // A new image of the same pixels.
-    Public Method Clone(): Image => Image(Columns, Rows, Pixels.Clone())
+    // A new image of the same pixels, in a Buffer of its own.
+    Public Method Clone(): Image => Image(Columns, Rows, Copied(Memory))
 
     // The image in data, a PNG, JPEG, BMP, TGA, GIF's first frame, QOI, or WebP, by how its
     // bytes start. Throws an IOError of INVALID_DATA when they're none of those, or broken,
@@ -135,9 +158,12 @@ Public Class Image
             Panic("an image of {Columns} by {Rows} has no pixels to resize to {width} by {height}")
         End If
 
-        Local resized: UInt8[] = []
-        fb_image_resize(Pixels, Columns, Rows, width, height, filter As Int32, resized)
-        Pixels = resized
+        Local resized = Buffer<UInt8>((width * height * 4) As Int64)
+        Unsafe
+            fb_image_resize(Memory.Pointer(), Columns, Rows, width, height, filter As Int32,
+                            resized.Pointer())
+        End Unsafe
+        Memory = resized
         Columns = width
         Rows = height
     End Method
@@ -150,9 +176,11 @@ Public Class Image
                   "{Columns} by {Rows}")
         End If
 
-        Local cropped: UInt8[] = []
-        fb_image_crop(Pixels, Columns, x, y, width, height, cropped)
-        Pixels = cropped
+        Local cropped = Buffer<UInt8>((width * height * 4) As Int64)
+        Unsafe
+            fb_image_crop(Memory.Pointer(), Columns, x, y, width, height, cropped.Pointer())
+        End Unsafe
+        Memory = cropped
         Columns = width
         Rows = height
     End Method
@@ -198,14 +226,18 @@ Public Class Image
     Public Method Fill(color: Color32)
         Local rgba = ((color.r As UInt32) << 24) | ((color.g As UInt32) << 16) |
                      ((color.b As UInt32) << 8) | (color.a As UInt32)
-        fb_image_fill(Pixels, rgba)
+        Unsafe
+            fb_image_fill(Memory.Pointer(), Columns, Rows, rgba)
+        End Unsafe
     End Method
 
     // Flips or turns it as fb_image_orient's how says.
     Method Orient(how: Int32)
-        Local oriented: UInt8[] = []
-        fb_image_orient(Pixels, Columns, Rows, how, oriented)
-        Pixels = oriented
+        Local oriented = Buffer<UInt8>(Memory.Count)
+        Unsafe
+            fb_image_orient(Memory.Pointer(), Columns, Rows, how, oriented.Pointer())
+        End Unsafe
+        Memory = oriented
         If how == 2 || how == 3
             Local columns = Columns
             Columns = Rows
@@ -214,10 +246,13 @@ Public Class Image
     End Method
 
     Method Blit(image: Image, x: Int, y: Int, blend: Int32)
-        fb_image_blit(Pixels, Columns, Rows, image.Pixels, image.Columns, image.Rows, x, y, blend)
+        Unsafe
+            fb_image_blit(Memory.Pointer(), Columns, Rows, image.Memory.Pointer(), image.Columns,
+                          image.Rows, x, y, blend)
+        End Unsafe
     End Method
 
-    // Where the pixel's bytes start in Pixels. Panics when it's outside the image.
+    // Where the pixel's bytes start in Memory. Panics when it's outside the image.
     @PanicsAtCaller
     Method ByteOf(x: Int, y: Int): Int
         If x < 0 || x >= Columns || y < 0 || y >= Rows
@@ -248,6 +283,13 @@ Package Function Decoded(image: Ptr<Void>, format: String): Image Throws IOError
                              PixelsOf(image, 0))
     fb_image_free(image)
     Return decoded
+End Function
+
+// A copy of the Buffer, in one of its own.
+Package Function Copied<T: CData>(values: Buffer<T>): Buffer<T>
+    Local copy = Buffer<T>(values.Count)
+    values.CopyTo(copy)
+    Return copy
 End Function
 
 // A format's name, by the runtime's number for it.

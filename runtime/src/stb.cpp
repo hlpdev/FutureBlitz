@@ -137,18 +137,18 @@ void* fb_stb_decode(const fb_array_t* data, const std::int32_t format, const std
     return decode(data, format, limit);
 }
 
-void fb_stb_encode(const fb_array_t* pixels, const std::int64_t width, const std::int64_t height,
+void fb_stb_encode(const std::uint8_t* pixels, const std::int64_t width, const std::int64_t height,
                    const std::int32_t format, const std::int32_t quality, fb_array_t* output) {
     std::vector<std::uint8_t> out;
     const auto w = static_cast<int>(width);
     const auto h = static_cast<int>(height);
     int written = 0;
     if (format == FORMAT_JPEG) {
-        written = stbi_write_jpg_to_func(append, &out, w, h, 4, pixels->data, quality);
+        written = stbi_write_jpg_to_func(append, &out, w, h, 4, pixels, quality);
     } else if (format == FORMAT_BMP) {
-        written = stbi_write_bmp_to_func(append, &out, w, h, 4, pixels->data);
+        written = stbi_write_bmp_to_func(append, &out, w, h, 4, pixels);
     } else {
-        written = stbi_write_tga_to_func(append, &out, w, h, 4, pixels->data);
+        written = stbi_write_tga_to_func(append, &out, w, h, 4, pixels);
     }
 
     if (written == 0) {
@@ -157,13 +157,13 @@ void fb_stb_encode(const fb_array_t* pixels, const std::int64_t width, const std
     set_elements<std::uint8_t>(output, out);
 }
 
-void fb_stb_encode_hdr(const fb_array_t* pixels, const std::int64_t width,
-                       const std::int64_t height, fb_array_t* output) {
+void fb_stb_encode_hdr(const float* pixels, const std::int64_t width, const std::int64_t height,
+                       fb_array_t* output) {
     // stb_image_write's RGBE takes channels from 0 to the most it holds, 255 times 2^119, and
     // what's outside that would be converted to a byte it can't be, which C leaves undefined; so
     // what's negative or NaN is 0, and what's past the most, the most.
     constexpr float most = 0x1.FEp126F;
-    std::vector<float> values(floats_of(pixels).begin(), floats_of(pixels).end());
+    std::vector<float> values(pixels, pixels + (width * height * 4));
     for (float& value : values) {
         value = std::isnan(value) ? 0 : std::clamp(value, 0.0F, most);
     }

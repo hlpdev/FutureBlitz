@@ -703,7 +703,7 @@ std::vector<ring_t> clipped_lines(ring_t points, const bool closed, const clip_t
 
 /// Draws `rgba` over the pixels by the region the rings fill, by the nonzero rule, each ring cut
 /// first to a box kept_past the image.
-void fill(const fb_array_t* pixels, const std::int64_t width, const std::int64_t height,
+void fill(std::uint8_t* pixels, const std::int64_t width, const std::int64_t height,
           const std::span<const ring_t> rings, const std::uint32_t rgba, const bool antialias) {
     const clip_t box{
         .left = -kept_past,
@@ -728,7 +728,7 @@ void fill(const fb_array_t* pixels, const std::int64_t width, const std::int64_t
         static_cast<std::uint8_t>(rgba >> 8U),
         static_cast<std::uint8_t>(rgba),
     };
-    auto* bytes = static_cast<std::uint8_t*>(pixels->data);
+    std::uint8_t* bytes = pixels;
     const auto columns = static_cast<std::size_t>(width);
     std::vector<const edge_t*> active;
     std::size_t next = 0;
@@ -1179,14 +1179,13 @@ void add_stroke(stroker_t& stroker, ring_t line, const bool closed, const double
 
 extern "C" {
 
-void fb_image_fill_rings(const fb_array_t* pixels, const std::int64_t width,
-                         const std::int64_t height, const fb_array_t* coords,
-                         const fb_array_t* counts, const std::uint32_t rgba,
-                         const std::int32_t antialias) {
+void fb_image_fill_rings(std::uint8_t* pixels, const std::int64_t width, const std::int64_t height,
+                         const fb_array_t* coords, const fb_array_t* counts,
+                         const std::uint32_t rgba, const std::int32_t antialias) {
     fill(pixels, width, height, rings_of(coords, counts), rgba, antialias != 0);
 }
 
-void fb_image_fill_ellipse(const fb_array_t* pixels, const std::int64_t width,
+void fb_image_fill_ellipse(std::uint8_t* pixels, const std::int64_t width,
                            const std::int64_t height, const double x, const double y,
                            const double rx, const double ry, const std::uint32_t rgba,
                            const std::int32_t antialias) {
@@ -1198,7 +1197,7 @@ void fb_image_fill_ellipse(const fb_array_t* pixels, const std::int64_t width,
     fill(pixels, width, height, rings, rgba, antialias != 0);
 }
 
-void fb_image_stroke(const fb_array_t* pixels, const std::int64_t width, const std::int64_t height,
+void fb_image_stroke(std::uint8_t* pixels, const std::int64_t width, const std::int64_t height,
                      const fb_array_t* coords, const fb_array_t* counts, const std::int32_t closed,
                      const double line_width, const std::int32_t cap, const std::int32_t join,
                      const double miter_limit, const std::uint32_t rgba,
@@ -1213,7 +1212,7 @@ void fb_image_stroke(const fb_array_t* pixels, const std::int64_t width, const s
     fill(pixels, width, height, pieces, rgba, antialias != 0);
 }
 
-void fb_image_stroke_ellipse(const fb_array_t* pixels, const std::int64_t width,
+void fb_image_stroke_ellipse(std::uint8_t* pixels, const std::int64_t width,
                              const std::int64_t height, const double x, const double y,
                              const double rx, const double ry, const double line_width,
                              const std::uint32_t rgba, const std::int32_t antialias) {
@@ -1230,9 +1229,9 @@ void fb_image_stroke_ellipse(const fb_array_t* pixels, const std::int64_t width,
     fill(pixels, width, height, pieces, rgba, antialias != 0);
 }
 
-void fb_image_fill_text(const fb_array_t* pixels, const std::int64_t width,
-                        const std::int64_t height, const void* font, const fb_string_t* text,
-                        const double size, const double x, const double y, const std::uint32_t rgba,
+void fb_image_fill_text(std::uint8_t* pixels, const std::int64_t width, const std::int64_t height,
+                        const void* font, const fb_string_t* text, const double size,
+                        const double x, const double y, const std::uint32_t rgba,
                         const std::int32_t antialias) {
     const auto& face = *static_cast<const fb::image::font_t*>(font);
     const box_t box{

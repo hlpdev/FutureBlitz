@@ -41,7 +41,9 @@ Public Struct Gif
     Public Static Method Encode(image: Image): UInt8[]
         CheckEncodable(image.Width, image.Height, 65535, "a GIF")
         Local encoder = fb_image_gif_encoder_new(image.Width, image.Height, 1)
-        fb_image_gif_encoder_add(encoder, image.Pixels, 0)
+        Unsafe
+            fb_image_gif_encoder_add(encoder, image.Pixels.Pointer(), 0)
+        End Unsafe
         Return Finished(encoder)
     End Method
 
@@ -67,7 +69,9 @@ Public Struct Gif
 
         Local encoder = fb_image_gif_encoder_new(animation.Width, animation.Height, animation.Plays)
         For frame In animation.Frames
-            fb_image_gif_encoder_add(encoder, frame.Image.Pixels, frame.Delay)
+            Unsafe
+                fb_image_gif_encoder_add(encoder, frame.Image.Pixels.Pointer(), frame.Delay)
+            End Unsafe
         End For
         Return Finished(encoder)
     End Method
