@@ -3491,12 +3491,26 @@ private:
         }
     }
 
+    /// An If's, a While's, or an Until's condition, which is read after the statement's
+    /// temporaries are released: one inside a temporary, like an Await's result in its Task, is
+    /// kept apart from it first.
+    operand_t lower_condition(const expr_id_t id) {
+        operand_t condition = lower_value(id);
+        const auto* place = std::get_if<place_t>(&condition);
+        const auto* root = place == nullptr ? nullptr : std::get_if<local_id_t>(&place->root);
+        if (root == nullptr || !std::ranges::contains(m_temporaries, *root)) {
+            return condition;
+        }
+
+        return temporary(use_t{ .value = condition }, type_of(condition));
+    }
+
     void lower_stmt(stmt_id_t /*id*/, span_t /*span*/, const if_stmt_t& node) {
         // A false condition goes on to the next one, and then to the Else. Each body jumps past
         // the rest when it ends.
         std::vector<block_id_t> exits;
         for (const if_branch_t& branch : node.branches) {
-            const operand_t condition = lower_value(branch.condition);
+            const operand_t condition = lower_condition(branch.condition);
             finish_statement();
             const block_id_t test = here();
             m_block.reset();
@@ -3532,7 +3546,7 @@ private:
         const block_id_t head = new_block();
         jump(head);
         start(head);
-        const operand_t condition = lower_value(node.condition);
+        const operand_t condition = lower_condition(node.condition);
         finish_statement();
         const block_id_t test = here();
         m_block.reset();
@@ -3554,7 +3568,7 @@ private:
         loop_t loop = lower_loop_body(id, node.body);
         leave(loop.continues); // the end of the body goes to the condition, like Continue
         join(loop.continues);
-        const operand_t condition = lower_value(node.condition);
+        const operand_t condition = lower_condition(node.condition);
         finish_statement();
         const block_id_t test = here();
         m_block.reset();

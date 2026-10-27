@@ -456,6 +456,28 @@ TEST_CASE("a generic Async Function's Task has its instance's errors", "[mir]") 
     CHECK(!dumped.contains("Throws E"));
 }
 
+TEST_CASE("an If's, a While's, and an Until's Await is read before its Task is released", "[mir]") {
+    // The result is in the Task, which the statement releases before its branch, so the branch
+    // reads a copy: a freed Task's memory may be anything by then, as macOS's malloc makes it.
+    const std::string dumped = lower_text("Async Function Yes(): Bool => True\n"
+                                          "Async Function Count(): Int\n"
+                                          "    Local n = 0\n"
+                                          "    If Await Yes() Then n += 1\n"
+                                          "    While Await Yes()\n"
+                                          "        Return n\n"
+                                          "    End While\n"
+                                          "    Repeat\n"
+                                          "    Until Await Yes()\n"
+                                          "    Return n\n"
+                                          "End Function\n");
+    CHECK(dumped.contains("bb1:\n"
+                          "    _3 = _2.result\n"
+                          "    release _2\n"
+                          "    branch _3, "));
+    CHECK(!dumped.contains("branch _2.result"));
+    CHECK(!dumped.contains(".result, bb"));
+}
+
 TEST_CASE("a typed For Method's copies have what each Method binds, and start an Async one",
           "[mir]") {
     const std::string dumped = lower_text("Class Api\n"

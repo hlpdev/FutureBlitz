@@ -1,0 +1,57 @@
+// An Await as an If's, a While's, or an Until's condition, read before its Task is let go of,
+// and through Try, on a Method of a generic Class as std.net.tls's handshake has it.
+
+Import std.core
+
+Async Function Yes(): Bool
+    Await NextFrame()
+    Return True
+End Function
+
+Async Function YesNow(): Bool => True
+
+Class Oops Extends Error
+End Class
+
+Class Sender<T>
+    Field Sent: Int
+
+    Async Method SendAsync(): Bool Throws Oops
+        Await NextFrame()
+        Sent += 1
+        Return True
+    End Method
+
+    Async Method StepAsync(): String Throws Oops
+        Local said = ""
+        If Try Await SendAsync() Then said += "sent "
+        If Try Await SendAsync() Then Sent += 10
+        Return "{said}{Sent}"
+    End Method
+End Class
+
+Async Function Conditions(): String
+    Local said = ""
+    If Await Yes() Then said += "if "
+    If Await YesNow() Then said += "if-now "
+    If !Await Yes() Then said += "not "
+    If False
+    ElseIf Await Yes()
+        said += "elseif "
+    End If
+
+    Local rounds = 0
+    While Await YesNow()
+        rounds += 1
+        If rounds == 3 Then Break
+    End While
+
+    said += "while {rounds} "
+    Repeat
+        rounds += 1
+    Until Await Yes()
+    Return said + "until {rounds}"
+End Function
+
+Print(Conditions().Wait())
+Print((Try? Sender<Int>().StepAsync().Wait()) ?? "threw")
