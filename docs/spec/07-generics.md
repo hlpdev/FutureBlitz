@@ -69,7 +69,9 @@ to inference, as a `_` for each of them does in Rust: `db.Query<Player>(sql, id)
 `Query<T, A>` its `T`, and its `A` comes from `id`. What's written is taken as given, so an
 argument that doesn't fit it is an error, not inferred instead: `Two<Int>("s", 2)` wants an Int.
 A Method that an Extend of `T[]` adds counts only its own type parameters, since the array gives
-T. A type's New still writes all of a type's: `Box<Int>()` for a `Box<A, B>` is an error.
+T. An overload with fewer type parameters of its own than a call writes doesn't fit it, and a
+Function or Method that isn't generic takes none: `Plain<Int>(1)` is an error. A type's New still
+writes all of a type's: `Box<Int>()` for a `Box<A, B>` is an error.
 
 The arguments of a generic type's Method come from the object it's called on. When something
 can't be told, the call is an error that names what it can't, and asks for the type arguments,
