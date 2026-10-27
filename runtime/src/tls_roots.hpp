@@ -10,7 +10,8 @@
 namespace fb::runtime {
 
 /// The OS's trusted roots, as PEM, read once, the first time: Windows' ROOT store, each that's
-/// for servers and valid now, macOS's system anchors, all of them, whose dates mbedTLS checks as
+/// for servers, valid now, and trusted by Windows' SSL policy for servers, so none Windows
+/// distrusts, as from a date, macOS's system anchors, all of them, whose dates mbedTLS checks as
 /// it verifies, or elsewhere the first of the bundle files distributions keep that's there, or
 /// the one SSL_CERT_FILE names. Empty when there are none.
 [[nodiscard]] const std::string& os_roots();

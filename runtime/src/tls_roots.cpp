@@ -68,6 +68,45 @@ bool for_servers(PCCERT_CONTEXT certificate) {
     return false;
 }
 
+/// Whether a chain Windows builds from `leaf`, with `others`' certificates too, or none for null,
+/// meets its SSL policy for a TLS server, or a client, as Schannel's would, fetching a root from
+/// the list Windows trusts that the ROOT store hasn't got yet. The chain's name is mbedTLS's to
+/// check.
+bool meets_ssl_policy(PCCERT_CONTEXT leaf, HCERTSTORE others, const bool clients) {
+    // wincrypt.h's usages are char*s, which it only reads.
+    char* usage =
+        const_cast<char*>(clients ? szOID_PKIX_KP_CLIENT_AUTH : szOID_PKIX_KP_SERVER_AUTH);
+    CERT_CHAIN_PARA wanted{};
+    wanted.cbSize = sizeof(wanted);
+    wanted.RequestedUsage.dwType = USAGE_MATCH_TYPE_AND;
+    wanted.RequestedUsage.Usage.cUsageIdentifier = 1;
+    wanted.RequestedUsage.Usage.rgpszUsageIdentifier = &usage;
+    PCCERT_CHAIN_CONTEXT built = nullptr;
+    if (CertGetCertificateChain(nullptr, leaf, nullptr, others, &wanted, 0, nullptr, &built) ==
+        FALSE) {
+        return false;
+    }
+
+    // With no server name, the policy leaves the name alone.
+    SSL_EXTRA_CERT_CHAIN_POLICY_PARA ssl{};
+    ssl.cbSize = sizeof(ssl);
+    ssl.dwAuthType = clients ? AUTHTYPE_CLIENT : AUTHTYPE_SERVER;
+    CERT_CHAIN_POLICY_PARA policy{};
+    policy.cbSize = sizeof(policy);
+    policy.pvExtraPolicyPara = &ssl;
+    CERT_CHAIN_POLICY_STATUS status{};
+    status.cbSize = sizeof(status);
+    const bool met =
+        CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, built, &policy, &status) != FALSE &&
+        status.dwError == 0;
+    CertFreeCertificateChain(built);
+    return met;
+}
+
+/// The ROOT store's roots that are valid now, for servers, and that Windows' SSL policy trusts
+/// for servers, so none that Windows distrusts, as one it distrusts for servers from a date, or
+/// whose properties leave server authentication out, which mbedTLS would otherwise trust where
+/// Schannel wouldn't.
 std::string read_roots() {
     std::string pem;
     HCERTSTORE store = CertOpenSystemStoreW(0, L"ROOT");
@@ -82,7 +121,8 @@ std::string read_roots() {
         const CERT_INFO& info = *certificate->pCertInfo;
         if (certificate->dwCertEncodingType != X509_ASN_ENCODING ||
             CompareFileTime(&now, &info.NotBefore) < 0 ||
-            CompareFileTime(&now, &info.NotAfter) > 0 || !for_servers(certificate)) {
+            CompareFileTime(&now, &info.NotAfter) > 0 || !for_servers(certificate) ||
+            !meets_ssl_policy(certificate, nullptr, false)) {
             continue;
         }
 
@@ -95,9 +135,7 @@ std::string read_roots() {
 }
 
 /// Whether Windows trusts `chain`, a certificate and the others its side sent after it, for a
-/// TLS server, or a client: a chain it builds, fetching a root from the list it trusts that the
-/// ROOT store hasn't got yet, as for Schannel, meets its SSL policy. The chain's name is mbedTLS's
-/// to check.
+/// TLS server, or a client, as meets_ssl_policy has it.
 bool os_trusts(const mbedtls_x509_crt& chain, const bool clients) {
     HCERTSTORE sent = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, nullptr);
     if (sent == nullptr) {
@@ -112,34 +150,8 @@ bool os_trusts(const mbedtls_x509_crt& chain, const bool clients) {
             CERT_STORE_ADD_ALWAYS, at == &chain ? &leaf : nullptr);
     }
 
-    bool trusted = false;
+    const bool trusted = leaf != nullptr && meets_ssl_policy(leaf, sent, clients);
     if (leaf != nullptr) {
-        // wincrypt.h's usages are char*s, which it only reads.
-        char* usage =
-            const_cast<char*>(clients ? szOID_PKIX_KP_CLIENT_AUTH : szOID_PKIX_KP_SERVER_AUTH);
-        CERT_CHAIN_PARA wanted{};
-        wanted.cbSize = sizeof(wanted);
-        wanted.RequestedUsage.dwType = USAGE_MATCH_TYPE_AND;
-        wanted.RequestedUsage.Usage.cUsageIdentifier = 1;
-        wanted.RequestedUsage.Usage.rgpszUsageIdentifier = &usage;
-        PCCERT_CHAIN_CONTEXT built = nullptr;
-        if (CertGetCertificateChain(nullptr, leaf, nullptr, sent, &wanted, 0, nullptr, &built) !=
-            FALSE) {
-            // With no server name, the policy leaves the name alone.
-            SSL_EXTRA_CERT_CHAIN_POLICY_PARA ssl{};
-            ssl.cbSize = sizeof(ssl);
-            ssl.dwAuthType = clients ? AUTHTYPE_CLIENT : AUTHTYPE_SERVER;
-            CERT_CHAIN_POLICY_PARA policy{};
-            policy.cbSize = sizeof(policy);
-            policy.pvExtraPolicyPara = &ssl;
-            CERT_CHAIN_POLICY_STATUS status{};
-            status.cbSize = sizeof(status);
-            trusted = CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, built, &policy,
-                                                       &status) != FALSE &&
-                      status.dwError == 0;
-            CertFreeCertificateChain(built);
-        }
-
         CertFreeCertificateContext(leaf);
     }
 

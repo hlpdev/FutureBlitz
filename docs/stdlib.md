@@ -1422,9 +1422,10 @@ discovery. `Import std.net` brings in std/net/.
   it needs, so a server Windows trusts is trusted whatever the machine has run before; the HTTP
   client's TLS does the same. A program over a stream that isn't a socket links no libuv.
 - std.net.http's client (step 29), over libcurl, whose TLS is mbedTLS's, trusting the OS's roots:
-  Windows' ROOT store, each that's valid now and for servers, and what Windows trusts besides,
-  as std.net.tls has it, macOS's system anchors, or the first of the bundle files Linux
-  distributions and the BSDs keep, or the one `SSL_CERT_FILE` names. `HttpMethod` (GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS); `StatusCode`, its named
+  Windows' ROOT store, each that's valid now and for servers and that Windows' SSL policy
+  (CERT_CHAIN_POLICY_SSL) trusts for servers, so none Windows distrusts, as from a date or by
+  its properties, and what Windows trusts besides, as std.net.tls has it, macOS's system
+  anchors, or the first of the bundle files Linux distributions and the BSDs keep, or the one `SSL_CERT_FILE` names. `HttpMethod` (GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS); `StatusCode`, its named
   statuses as Ints, `StatusCode.NOT_FOUND`, with `Reason`, `IsSuccess`, and `IsRedirect`;
   `Headers` (`Add`, `Set`, `Get`, `GetAll`, `Contains`, `Remove`, `Clear`, `Count`, and
   `For name, value In`), whose names keep their letter cases but match in any, and which panic

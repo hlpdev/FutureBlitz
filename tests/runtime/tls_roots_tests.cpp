@@ -124,6 +124,30 @@ TEST_CASE("the OS's roots are certificates that mbedTLS reads", "[runtime][tls]"
     mbedtls_x509_crt_free(&chain);
 }
 
+#ifdef _WIN32
+
+TEST_CASE("Windows' roots are those its SSL policy trusts for servers", "[runtime][tls]") {
+    // A root the store keeps that Windows distrusts for servers, as from a date, or by its
+    // properties, is left out, so mbedTLS never trusts one Schannel wouldn't.
+    const std::string& roots = fb::runtime::os_roots();
+    REQUIRE(psa_crypto_init() == PSA_SUCCESS);
+    mbedtls_x509_crt chain;
+    mbedtls_x509_crt_init(&chain);
+    REQUIRE(mbedtls_x509_crt_parse(&chain, reinterpret_cast<const unsigned char*>(roots.c_str()),
+                                   roots.size() + 1) >= 0);
+    std::size_t count = 0;
+    for (const mbedtls_x509_crt* root = &chain; root != nullptr && root->raw.len != 0;
+         root = root->next) {
+        CHECK(windows_trusts(*root));
+        ++count;
+    }
+
+    CHECK(count > 0);
+    mbedtls_x509_crt_free(&chain);
+}
+
+#endif
+
 TEST_CASE("a chain none of the OS's roots signed is trusted as the OS trusts it",
           "[runtime][tls]") {
     REQUIRE(psa_crypto_init() == PSA_SUCCESS);
