@@ -1,0 +1,9 @@
+ada 3 1.5 ADMIN none [10, 255]
+bob 1 2 GUEST new [1]
+1 2 2
+first
+0
+1
+2
+WRONG_TYPE: [2].Name: expected String, found 5
+MISSING: [0].Level: missing, and Player's Field Level isn't @Optional

@@ -1,0 +1,17 @@
+// Database.Query<T>(sql) binds no values, so it panics where it's called with SQL that takes
+// some, which a Statement's Query<T>() binds.
+Import std.core
+Import std.db
+
+Struct Named
+    Field Name: String
+End Struct
+
+Try
+    Local db = Database.Open(":memory:")
+    db.Execute("CREATE TABLE t (name TEXT); INSERT INTO t VALUES ('a')")
+    Print(db.Query<Named>("SELECT name AS Name FROM t")[0].Name)
+    Print(db.Query<Named>("SELECT name AS Name FROM t WHERE name = ?").Count)
+Catch e As Error
+    Print(e.Message)
+End Try

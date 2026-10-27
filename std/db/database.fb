@@ -1,8 +1,9 @@
 // std.db: SQLite databases, through the runtime's fb_db_ functions. A Database runs SQL with its
-// parameters bound to values, and gives the Rows a query reads; Prepare makes a Statement to run
-// many times, Begin a Transaction, which keeps all of what it does or none of it, and Migrate
-// brings a database up to date, a numbered migration at a time. What SQLite can't do throws a
-// DatabaseError of its kind, with SQLite's message.
+// parameters bound to values, and gives the Rows a query reads, or with Query<T> each as a T that
+// Load<T> makes of its columns; Prepare makes a Statement to run many times, Begin a Transaction,
+// which keeps all of what it does or none of it, and Migrate brings a database up to date, a
+// numbered migration at a time. What SQLite can't do throws a DatabaseError of its kind, with
+// SQLite's message.
 
 Import std.core
 Import std.collections
@@ -279,6 +280,35 @@ Public Struct Row
     End Method
 End Struct
 
+// The rows as Ts, each loaded from an Object of its columns by their names, a name two columns
+// have being the first's.
+Function Loaded<T>(rows: Row[]): T[] Throws ParseError
+    Local values = Value.Array()
+    For row In rows
+        Local columns = Value.Object()
+        For column, cell In row.Cells
+            Local name = row.Names[column]
+            If columns.Contains(name) Then Continue
+            Select cell.Type
+            Case 1
+                columns[name] = Value(cell.Integer)
+            Case 2
+                columns[name] = Value(cell.Real)
+            Case 3
+                columns[name] = Value(cell.Text)
+            Case 4
+                columns[name] = Value(cell.Blob ?? [])
+            Default
+                columns[name] = Value()
+            End Select
+        End For
+
+        values.Add(columns)
+    End For
+
+    Return Try Load<T[]>(values)
+End Function
+
 // A connection to an SQLite database, which closes when Close is called, or when its last
 // reference goes, and those of its Statements and Transactions. One thread uses it at a time.
 Public Class Database
@@ -444,6 +474,15 @@ Public Class Database
         Local statement = Try Prepare(sql)
         statement.Expect(0)
         Return Try statement.Rows()
+    End Method
+
+    // The rows sql's one query reads, each a T, as a Statement's Query<T>() gives them. Panics
+    // when sql takes parameters, which a Statement binds.
+    @PanicsAtCaller
+    Public Method Query<T>(sql: String): T[] Throws DatabaseError, ParseError
+        Local statement = Try Prepare(sql)
+        statement.Expect(0)
+        Return Try statement.Query<T>()
     End Method
 
     @PanicsAtCaller
@@ -811,6 +850,16 @@ Public Class Statement
     @PanicsAtCaller
     Public Method Rows(): Row[] Throws DatabaseError
         Return Try Collect()
+    End Method
+
+    // The rows it reads, with its parameters as they're bound, each a T that Load<T> makes of an
+    // Object of its columns by their names, each an integer, a Double, text, bytes, or Null, so
+    // a T's Fields of numbers, Strings, UInt8[]s, Enums by their names, and T?s take them. Throws
+    // a ParseError for a row that doesn't make a T, whose Path starts with the row's index, as
+    // "[2].Age" does.
+    @PanicsAtCaller
+    Public Method Query<T>(): T[] Throws DatabaseError, ParseError
+        Return Try Loaded<T>(Try Collect())
     End Method
 
     // Binds its parameters to values, in order, as Execute does, then gives the rows it reads.

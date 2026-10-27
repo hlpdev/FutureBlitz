@@ -114,7 +114,7 @@ So far, std/ holds:
 | std/crypto/ciphers.fb | `Aes256Gcm` and `ChaCha20Poly1305` |
 | std/crypto/signatures.fb | `Ed25519`, over Monocypher through `fb_ed25519_`, and `EcdsaP256`, `Rsa`, and `X25519` |
 | std/crypto/pem.fb | `KeyKind`, `Key`, and `Certificate` |
-| std/db/database.fb | `Database`, `Statement`, `Transaction`, `Row`, `ColumnType`, `SqlValue`, and `Nullable`, over SQLite through the runtime's `fb_db_` functions |
+| std/db/database.fb | `Database`, `Statement`, `Transaction`, `Row`, `ColumnType`, `SqlValue`, and `Nullable`, with `Query<T>` over `Load<T>`, over SQLite through the runtime's `fb_db_` functions |
 | std/uuid/uuid.fb | `Uuid` |
 | std/data/text.fb | What std.data's formats share in text, over the runtime's `fb_data_` functions |
 | std/data/toml.fb | `Toml` |
@@ -1376,7 +1376,7 @@ discovery. `Import std.net` brings in std/net/.
 
 #### std.db
 
-Built in step 23, but for `Query<T>`. `Import std.db` brings in std/db/.
+Built in step 23, and `Query<T>` over step 17's `Load<T>`. `Import std.db` brings in std/db/.
 
 - SQLite: `Database.Open(path)` opens a file, made when there's none, `":memory:"`, or a URI
   file name, like `"file:data.db?mode=ro"` or `"file:name?mode=memory&cache=shared"`. Foreign
@@ -1397,8 +1397,8 @@ Built in step 23, but for `Query<T>`. `Import std.db` brings in std/db/.
   column's index or name, each a `T?` that's Null for NULL, with the columns the statement has
   as it runs. A value of another type panics, but `Real` reads an integer too.
 - `Prepare(sql)` gives a `Statement` to run many times: `Bind(index, value)` and
-  `Bind(name, value)`, `Clear()`, `Parameters`, and `Execute` and `Rows`, with values, or as
-  they're bound.
+  `Bind(name, value)`, `Clear()`, `Parameters`, and `Execute`, `Rows`, and `Query<T>`, with
+  values, or as they're bound.
 - `Begin()` gives a `Transaction`, with `Commit()`, `Rollback()`, and `IsOpen`. One let go of
   without a Commit rolls back, as when an error leaves the code holding it, so a failed
   transaction leaves nothing. The outermost is BEGIN IMMEDIATE, and one begun inside another is
@@ -1412,8 +1412,14 @@ Built in step 23, but for `Query<T>`. `Import std.db` brings in std/db/.
   and 26), or `OTHER`, with SQLite's message. A wrong number of values, a column or parameter
   that isn't there, a wrong type read, a Transaction ended twice, and a Commit while a
   Transaction begun inside it is open panic at the caller.
-- Left for later: `Query<T>`, reading rows into Structs by reflection, with step 17's
-  Field-by-Field fill. No query builder and no server databases.
+- `Query<T>(sql)`, and a Statement's `Query<T>()` with its parameters as they're bound, read
+  each row as a T, which `Load<T>` makes of an Object of the row's columns by their names, each
+  an integer, a Double, text, bytes, or Null for NULL, as many as `Rows` reads: a Struct's or
+  Class's Fields take the columns of their names, or of the keys `@Rename` gives them, as
+  `SELECT name AS Name` or `@Rename("name")` does, and a column a T has no Field for, or the
+  second of a name, is left alone. A row that doesn't make a T throws a ParseError, whose Path
+  starts with the row's index, as `[2].Level`. `Query<T>(sql)`, like `Rows(sql)`, panics for SQL
+  that takes parameters. No query builder and no server databases.
 
 #### std.image
 
