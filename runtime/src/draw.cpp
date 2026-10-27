@@ -5,10 +5,14 @@
 // at each end. It computes in doubles, without fused multiply-adds, with sines of its own, so
 // every target gives the same pixels.
 //
-// A row of pixels is cut into bands where an edge starts, ends, or crosses another, so in each
-// band the edges go straight across in an order of their own; going across a band, the winding
-// says which stretches between edges are filled, trapezoids that don't overlap, and each pixel
-// adds up the exact area of them in its square.
+// A row of pixels is swept across, a pixel at a time, with the winding of what's wholly to the
+// pixel's left kept as it changes down the row. In the pixel, its edges' pieces and those changes
+// cut it into bands where none starts, ends, or crosses another, so in each band they go
+// straight across in an order of their own; going across a band, the winding says which
+// stretches between them are filled, trapezoids that don't overlap, whose areas add up to the
+// exact part of the pixel the region covers. So a row costs what its pixels' pieces do, not what
+// all its edges do together. A pixel that more than a few dozen pieces pass through, which only
+// a font made to be slow has, is measured along 16 lines across it instead.
 
 #include "fb/image.hpp"
 #include "fb/runtime.hpp"
@@ -20,6 +24,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <numbers>
 #include <span>
 #include <string_view>
@@ -155,63 +160,6 @@ std::vector<edge_t> edges_of(const std::span<const ring_t> rings) {
     return edges;
 }
 
-/// The mean over t from 0 to 1 of u0 + (u1 - u0) t kept from 0 to 1: how much of a pixel's
-/// column a line covers to its left, from u0 to u1 across it, in pieces whose sizes divide out
-/// exactly where they're the whole.
-double mean_covered(const double u0, const double u1) {
-    const double a = std::min(u0, u1);
-    const double b = std::max(u0, u1);
-    if (b - a == 0) {
-        return std::clamp(a, 0.0, 1.0);
-    }
-
-    double mean = 0;
-    const double low = std::max(a, 0.0);
-    const double high = std::min(b, 1.0);
-    if (high > low) {
-        mean += ((high - low) / (b - a)) * ((high + low) / 2);
-    }
-    if (b > 1) {
-        mean += (b - std::max(a, 1.0)) / (b - a);
-    }
-    return mean;
-}
-
-/// A row's coverage, a pixel's for each column, and the part every column to the left of one
-/// has, which a sum across adds.
-struct row_t {
-    std::vector<double> cover;
-    std::vector<double> left;
-
-    explicit row_t(const std::size_t width) : cover(width, 0), left(width + 1, 0) {}
-
-    /// Adds `sign` times what a line from xa at ya to xb at yb covers of each pixel left of it.
-    void add(const double sign, const double xa, const double xb, const double height) {
-        const auto width = static_cast<double>(cover.size());
-        const double low = std::min(xa, xb);
-        const double high = std::max(xa, xb);
-        // Every column wholly to the line's left is covered for its height.
-        const double first = std::clamp(std::floor(low), 0.0, width);
-        left[0] += sign * height;
-        left[static_cast<std::size_t>(first)] -= sign * height;
-        const double last = std::clamp(std::ceil(high), 0.0, width);
-        for (auto column = static_cast<std::size_t>(first); column < static_cast<std::size_t>(last);
-             ++column) {
-            const auto at = static_cast<double>(column);
-            cover[column] += sign * height * mean_covered(xa - at, xb - at);
-        }
-    }
-
-    /// Each pixel's coverage, from 0 to 1.
-    void finish() {
-        double running = 0;
-        for (std::size_t column = 0; column < cover.size(); ++column) {
-            running += left[column];
-            cover[column] = std::clamp(cover[column] + running, 0.0, 1.0);
-        }
-    }
-};
-
 /// An edge across a band: where it is at the band's top and bottom.
 struct across_t {
     const edge_t* edge;
@@ -231,57 +179,80 @@ void sort_by_middle(std::vector<across_t>& across) {
     }
 }
 
-/// Adds what the edges fill of a band from `low` to `high`, where none crosses another, so each
-/// stretch the winding fills between two of them is a trapezoid.
-void fill_band(std::vector<across_t>& across, const double low, const double high, row_t& row) {
-    for (across_t& edge : across) {
-        edge.top = edge.edge->x_at(low);
-        edge.bottom = edge.edge->x_at(high);
-    }
-    sort_by_middle(across);
-
-    int winding = 0;
-    const across_t* left = nullptr;
-    for (const across_t& edge : across) {
-        const int was = winding;
-        winding += edge.edge->winding;
-        if (was == 0 && winding != 0) {
-            left = &edge;
-        } else if (was != 0 && winding == 0 && left != nullptr) {
-            row.add(1, edge.top, edge.bottom, high - low);
-            row.add(-1, left->top, left->bottom, high - low);
+/// The winding down a row of what's wholly to a pixel's left: how it changes at each height, the
+/// row's top's for what it is there. A change and its opposite at one height, as two edges of a
+/// ring that meet there give, are none.
+class turns_t {
+public:
+    void add(const double y, const int turn) {
+        auto [at, added] = m_turns.try_emplace(y, turn);
+        if (!added) {
+            at->second += turn;
+            if (at->second == 0) {
+                m_turns.erase(at);
+            }
         }
     }
-}
 
-/// The coverage of a row of pixels, from `top` to top + 1, by the edges that reach it: cut where
-/// an edge starts or ends, then where two cross, which in a part no edge starts or ends in are
-/// the pairs whose order at its bottom isn't their order at its top, each a swap of an
-/// insertion sort from the one order to the other.
-void cover_row(const std::span<const edge_t* const> edges, const double top, row_t& row) {
-    const double bottom = top + 1;
+    [[nodiscard]] const std::map<double, int>& all() const {
+        return m_turns;
+    }
+
+    /// The winding at `y`.
+    [[nodiscard]] int at(const double y) const {
+        int winding = 0;
+        for (auto it = m_turns.begin(); it != m_turns.end() && it->first <= y; ++it) {
+            winding += it->second;
+        }
+        return winding;
+    }
+
+private:
+    std::map<double, int> m_turns;
+};
+
+/// More pieces than a pixel's exact coverage is worked out for: past them, it's measured along
+/// lines across it, as a pixel's pieces can each cross every other.
+constexpr std::size_t most_exact_pieces = 32;
+/// The lines across a pixel of too many pieces it's measured along.
+constexpr int sampled_lines = 16;
+
+/// The part of the pixel from `left` to left + 1 across and `top` to `bottom` down that the
+/// region covers, where the winding of `turns`, from what's wholly to its left, and its
+/// `pieces` isn't 0: cut where a piece starts or ends or the turns change, then where two
+/// pieces cross, which in a part nothing starts or ends in are the pairs whose order at its
+/// bottom isn't their order at its top, each a swap of an insertion sort from the one order to
+/// the other.
+double exactly_covered(const std::span<const edge_t> pieces, const turns_t& turns,
+                       const double left, const double top, const double bottom) {
     std::vector<double> ends{ top, bottom };
-    for (const edge_t* edge : edges) {
-        if (edge->y0 > top && edge->y0 < bottom) {
-            ends.push_back(edge->y0);
+    for (const auto& [y, turn] : turns.all()) {
+        if (y > top && y < bottom) {
+            ends.push_back(y);
         }
-        if (edge->y1 > top && edge->y1 < bottom) {
-            ends.push_back(edge->y1);
+    }
+    for (const edge_t& piece : pieces) {
+        for (const double y : { piece.y0, piece.y1 }) {
+            if (y > top && y < bottom) {
+                ends.push_back(y);
+            }
         }
     }
     std::ranges::sort(ends);
     ends.erase(std::ranges::unique(ends).begin(), ends.end());
 
+    double area = 0;
     std::vector<across_t> across;
     std::vector<double> cuts;
     for (std::size_t part = 0; part + 1 < ends.size(); ++part) {
         const double low = ends[part];
         const double high = ends[part + 1];
+        const int base = turns.at(low);
         across.clear();
-        for (const edge_t* edge : edges) {
-            if (edge->y0 <= low && edge->y1 >= high) {
+        for (const edge_t& piece : pieces) {
+            if (piece.y0 <= low && piece.y1 >= high) {
                 across.push_back(
-                    { .edge = edge, .top = edge->x_at(low), .bottom = edge->x_at(high) });
+                    { .edge = &piece, .top = piece.x_at(low), .bottom = piece.x_at(high) });
             }
         }
         std::ranges::sort(across, [](const across_t& a, const across_t& b) {
@@ -306,16 +277,198 @@ void cover_row(const std::span<const edge_t* const> edges, const double top, row
         std::ranges::sort(cuts);
         cuts.erase(std::ranges::unique(cuts).begin(), cuts.end());
 
+        // Each band's stretches the winding fills, from the pixel's left side to its right.
         for (std::size_t band = 0; band + 1 < cuts.size(); ++band) {
-            fill_band(across, cuts[band], cuts[band + 1], row);
+            const double a = cuts[band];
+            const double b = cuts[band + 1];
+            for (across_t& edge : across) {
+                edge.top = edge.edge->x_at(a);
+                edge.bottom = edge.edge->x_at(b);
+            }
+            sort_by_middle(across);
+
+            int winding = base;
+            double from_top = left;
+            double from_bottom = left;
+            for (const across_t& edge : across) {
+                const int was = winding;
+                winding += edge.edge->winding;
+                if (was == 0 && winding != 0) {
+                    from_top = edge.top;
+                    from_bottom = edge.bottom;
+                } else if (was != 0 && winding == 0) {
+                    area += (b - a) * ((edge.top + edge.bottom) - (from_top + from_bottom)) / 2;
+                }
+            }
+            if (winding != 0) {
+                area += (b - a) * ((2 * (left + 1)) - (from_top + from_bottom)) / 2;
+            }
         }
     }
-    row.finish();
+    return std::clamp(area, 0.0, 1.0);
+}
+
+/// The same, measured along lines across the pixel, at the middles of `sampled_lines` equal
+/// parts of it: what's filled of each, exactly, averaged.
+double sampled_covered(const std::span<const edge_t> pieces, const turns_t& turns,
+                       const double left, const double top, const double bottom) {
+    double covered = 0;
+    std::vector<std::pair<double, int>> crossings;
+    for (int line = 0; line < sampled_lines; ++line) {
+        const double y = top + ((bottom - top) * (line + 0.5) / sampled_lines);
+        crossings.clear();
+        for (const edge_t& piece : pieces) {
+            if (piece.y0 <= y && y < piece.y1) {
+                crossings.emplace_back(piece.x_at(y), piece.winding);
+            }
+        }
+        std::ranges::sort(crossings, {}, &std::pair<double, int>::first);
+
+        int winding = turns.at(y);
+        double from = left;
+        for (const auto& [x, turn] : crossings) {
+            const int was = winding;
+            winding += turn;
+            if (was == 0 && winding != 0) {
+                from = x;
+            } else if (was != 0 && winding == 0) {
+                covered += x - from;
+            }
+        }
+        if (winding != 0) {
+            covered += left + 1 - from;
+        }
+    }
+    return std::clamp(covered * (bottom - top) / sampled_lines, 0.0, 1.0);
+}
+
+/// The part of a row's pixel, from `top` to `bottom`, the winding of `turns` alone fills: where
+/// it isn't 0.
+double turns_covered(const turns_t& turns, const double top, const double bottom) {
+    double covered = 0;
+    int winding = 0;
+    double from = top;
+    for (const auto& [y, turn] : turns.all()) {
+        if (y >= bottom) {
+            break;
+        }
+        if (winding != 0) {
+            covered += y - from;
+        }
+        winding += turn;
+        from = y;
+    }
+    if (winding != 0) {
+        covered += bottom - from;
+    }
+    return covered;
+}
+
+/// The row's pieces of an edge from (xa, ya) down to (xb, yb), its part in the row, each in a
+/// pixel's column, which it gives with the column; its part left of the row's first pixel is in
+/// `turns`, and its part right of its last is left out.
+void add_pieces(const double xa, const double ya, const double xb, const double yb,
+                const int winding, const double width, turns_t& turns,
+                std::vector<std::pair<std::size_t, edge_t>>& pieces) {
+    const auto give = [&](const double x0, const double y0, const double x1, const double y1) {
+        if (!(y0 < y1)) {
+            return;
+        }
+        const double low = std::min(x0, x1);
+        if (std::max(x0, x1) <= 0) {
+            turns.add(y0, winding);
+            turns.add(y1, -winding);
+        } else if (low < width) {
+            pieces.emplace_back(
+                static_cast<std::size_t>(std::floor(low)),
+                edge_t{ .x0 = x0, .y0 = y0, .x1 = x1, .y1 = y1, .winding = winding });
+        }
+    };
+
+    const double low = std::min(xa, xb);
+    const double high = std::max(xa, xb);
+    if (low == high) {
+        give(xa, ya, xb, yb);
+        return;
+    }
+
+    // Cut where it crosses each side of a pixel's column, from 0 to the width, the way it goes.
+    const auto first = static_cast<std::int64_t>(std::max(std::floor(low) + 1, 0.0));
+    const auto last = static_cast<std::int64_t>(std::min(std::ceil(high) - 1, width));
+    double x = xa;
+    double y = ya;
+    const auto cut_at = [&](const std::int64_t column) {
+        const auto side = static_cast<double>(column);
+        const double at = std::clamp(ya + ((side - xa) * (yb - ya) / (xb - xa)), ya, yb);
+        give(x, y, side, at);
+        x = side;
+        y = at;
+    };
+    if (xa < xb) {
+        for (std::int64_t column = first; column <= last; ++column) {
+            cut_at(column);
+        }
+    } else {
+        for (std::int64_t column = last; column >= first; --column) {
+            cut_at(column);
+        }
+    }
+    give(x, y, xb, yb);
+}
+
+/// Each pixel's coverage in a row of `cover.size()` from `top` to top + 1, by the edges that
+/// reach it, swept across: a pixel's pieces and the turns of what's left of it give its exact
+/// coverage, and a stretch of pixels with no pieces is what the turns alone give.
+void cover_row(const std::span<const edge_t* const> edges, const double top,
+               std::vector<double>& cover) {
+    const double bottom = top + 1;
+    const auto width = static_cast<double>(cover.size());
+    turns_t turns;
+    std::vector<std::pair<std::size_t, edge_t>> pieces;
+    for (const edge_t* edge : edges) {
+        const double ya = std::max(edge->y0, top);
+        const double yb = std::min(edge->y1, bottom);
+        if (ya < yb) {
+            add_pieces(edge->x_at(ya), ya, edge->x_at(yb), yb, edge->winding, width, turns, pieces);
+        }
+    }
+    std::ranges::stable_sort(pieces, {}, &std::pair<std::size_t, edge_t>::first);
+
+    std::vector<edge_t> here;
+    std::size_t next = 0;
+    std::size_t column = 0;
+    while (column < cover.size()) {
+        if (next == pieces.size() || pieces[next].first > column) {
+            // Up to the next pixel with pieces, the turns alone, which don't change.
+            const std::size_t until = next == pieces.size() ? cover.size() : pieces[next].first;
+            const double covered = std::clamp(turns_covered(turns, top, bottom), 0.0, 1.0);
+            std::fill(cover.begin() + static_cast<std::ptrdiff_t>(column),
+                      cover.begin() + static_cast<std::ptrdiff_t>(until), covered);
+            column = until;
+            continue;
+        }
+
+        here.clear();
+        while (next < pieces.size() && pieces[next].first == column) {
+            here.push_back(pieces[next].second);
+            ++next;
+        }
+        const auto left = static_cast<double>(column);
+        cover[column] = here.size() > most_exact_pieces
+                            ? sampled_covered(here, turns, left, top, bottom)
+                            : exactly_covered(here, turns, left, top, bottom);
+        for (const edge_t& piece : here) {
+            turns.add(piece.y0, piece.winding);
+            turns.add(piece.y1, -piece.winding);
+        }
+        ++column;
+    }
 }
 
 /// Without antialiasing, a row's pixels whose centers the edges' region holds, where a center on
 /// an edge is in the region to its right, and one on its top end in it, but not on its bottom.
-void center_row(const std::span<const edge_t* const> edges, const double top, row_t& row) {
+void center_row(const std::span<const edge_t* const> edges, const double top,
+                std::vector<double>& cover) {
     const double y = top + 0.5;
     std::vector<std::pair<double, int>> crossings;
     for (const edge_t* edge : edges) {
@@ -325,7 +478,7 @@ void center_row(const std::span<const edge_t* const> edges, const double top, ro
     }
     std::ranges::sort(crossings, {}, &std::pair<double, int>::first);
 
-    const auto width = static_cast<double>(row.cover.size());
+    const auto width = static_cast<double>(cover.size());
     int winding = 0;
     double start = 0;
     for (const auto& [x, turn] : crossings) {
@@ -339,7 +492,7 @@ void center_row(const std::span<const edge_t* const> edges, const double top, ro
             const double last = std::clamp(std::ceil(x - 0.5), 0.0, width);
             for (auto column = static_cast<std::size_t>(first);
                  column < static_cast<std::size_t>(last); ++column) {
-                row.cover[column] = 1;
+                cover[column] = 1;
             }
         }
     }
@@ -381,16 +534,16 @@ void fill(const fb_array_t* pixels, const std::int64_t width, const std::int64_t
             continue;
         }
 
-        row_t row(columns);
+        std::vector<double> cover(columns, 0);
         if (antialias) {
-            cover_row(active, top, row);
+            cover_row(active, top, cover);
         } else {
-            center_row(active, top, row);
+            center_row(active, top, cover);
         }
 
         std::uint8_t* pixel = bytes + (static_cast<std::size_t>(y) * columns * 4);
         for (std::size_t x = 0; x < columns; ++x, pixel += 4) {
-            const double covered = row.cover[x];
+            const double covered = cover[x];
             if (covered <= 0) {
                 continue;
             }

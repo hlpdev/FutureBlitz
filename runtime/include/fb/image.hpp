@@ -92,7 +92,8 @@ void fb_image_fill(const fb_array_t* target, std::uint32_t rgba);
 /// y + 1), and with `antialias` it's drawn by the part of it the region covers, exactly, its
 /// color's alpha times that, rounded to the nearest, a half and what's within a billionth below
 /// one up, or else wholly when the region holds its center, which on the region's edge is in it
-/// on the edge's right, and on its top but not its bottom. Rings are `coords`' points, a
+/// on the edge's right, and on its top but not its bottom; a pixel more than 32 edges pass
+/// through is measured along 16 lines across it. Rings are `coords`' points, a
 /// Float64[] of x then y, `counts`' of them each, an Int32[]. A region is filled by the nonzero
 /// rule. An ellipse is a polygon within a hundredth of a pixel of it, from its rightmost point,
 /// of 4 times the fewest sides from 2 up that keep it so, at most 1024, by sines of the
