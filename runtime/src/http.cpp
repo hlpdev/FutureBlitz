@@ -239,7 +239,8 @@ std::optional<std::string> set_text(CURL* easy, const CURLoption option, const s
 }
 
 /// mbedTLS's check of each certificate of a chain, as the OS checks it (tls_roots.hpp), and then
-/// libcurl's own, which says why it failed.
+/// libcurl's own, which says why it failed. Its pointers aren't const, as mbedTLS has them.
+// NOLINTNEXTLINE(misc-const-correctness)
 int verify_as_os(void* check, mbedtls_x509_crt* certificate, const int depth,
                  std::uint32_t* flags) {
     (void)fb::runtime::os_verify(nullptr, certificate, depth, flags);

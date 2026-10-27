@@ -229,6 +229,8 @@ const std::string& os_roots() {
     return roots;
 }
 
+// Its pointers aren't const, as mbedTLS has them.
+// NOLINTNEXTLINE(misc-const-correctness)
 int os_verify(void* clients, mbedtls_x509_crt* certificate, const int depth, std::uint32_t* flags) {
 #ifdef _WIN32
     // mbedTLS's flags are ints. A flag a callback leaves on any certificate fails the chain, so

@@ -194,20 +194,20 @@ TEST_CASE("a client whose certificate isn't for a TLS client is refused for its 
 TEST_CASE("mbedTLS's PSA statuses say what they are", "[runtime][tls]") {
     // A host past a server_name's 255 bytes, which std.net.tls panics for, is PSA's invalid
     // argument, which mbedtls_strerror reads as an HMAC_DRBG error.
-    config_t client_config(false);
-    tls_t long_host(client_config, std::string(300, 'a'));
+    const config_t client_config(false);
+    const tls_t long_host(client_config, std::string(300, 'a'));
     CHECK(fb_tls_handshake(long_host.get()) == -1);
     CHECK(long_host.message() == "mbedTLS failed with PSA's status -135");
 
     // Protocols past what a ClientHello holds, which std.net.tls panics for too.
-    config_t offering(false);
+    const config_t offering(false);
     for (int i = 0; i < 70; ++i) {
         fb_string_t* protocol = fb_string_from_cstring(std::string(250, 'p').c_str());
         fb_tls_config_offer(offering.get(), protocol);
         fb_string_release(protocol);
     }
 
-    tls_t big(offering, "localhost");
+    const tls_t big(offering, "localhost");
     CHECK(fb_tls_handshake(big.get()) == -1);
     CHECK(big.message() == "a handshake message this side made is bigger than mbedTLS's buffer");
 }
@@ -216,7 +216,7 @@ TEST_CASE("a client of an IP address sends no server_name, and checks the addres
           "[runtime][tls]") {
     config_t server_config(true);
     server_config.identify();
-    config_t client_config(false);
+    const config_t client_config(false);
     {
         tls_t client(client_config, "localhost");
         tls_t server(server_config, "");
@@ -231,7 +231,8 @@ TEST_CASE("a client of an IP address sends no server_name, and checks the addres
     for (const auto& [host, address] :
          std::vector<std::pair<std::string, std::vector<std::uint8_t>>>{
              { "127.0.0.1", { 127, 0, 0, 1 } },
-             { "::1", { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 } } }) {
+             { "::1", { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 } },
+         }) {
         tls_t client(client_config, host, address);
         tls_t server(server_config, "");
         const shaken_t shaken = shake(client, server);
