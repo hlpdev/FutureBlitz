@@ -217,7 +217,7 @@ So far, std/ holds:
 | std/io/request.fb | the runtime's requests, std's own |
 | std/io/vfs.fb | `Vfs`, `VfsSource`, `FolderSource`, and `EmbeddedSource` |
 | std/io/preferences.fb | `Preferences` |
-| std/os/env.fb | `Env`'s `Get`, `Set`, `Unset`, and `All`, over libuv through the runtime's `fb_os_` functions |
+| std/os/env.fb | `Env`'s `Get`, `Set`, `Unset`, `All`, and `Expand`, over libuv through the runtime's `fb_os_` functions, and `Load`, which sets what a `.env` file names |
 | std/os/system.fb | `System`'s `Platform`, `Arch`, `CpuCount`, `TotalMemory`, `Hostname`, and `UserName`, with the `Platform` and `Arch` Enums |
 | std/os/folders.fb | `Folders`' `Executable`, `Home`, `Config`, `Data`, `Cache`, `Temp`, and `Documents`, and `OpenDefault` |
 | std/os/process.fb | `Process`'s `Id` and `Exit` |
@@ -828,7 +828,11 @@ brings in all of std/io/.
 - Arguments: a Struct with `@Command`, `@Positional`, `@Option`, and `@Flag` attributes, which
   `Args.Parse<T>()` fills by reflection, with generated help, errors, and subcommands; a builder
   underneath for options made at run time. fb's own CLI can use it.
-- `Env`: `Get`, `Set`, `Unset`, `All`, `Expand`, and `Env.Load(".env")` for `.env` files.
+- `Env`: `Get`, `Set`, `Unset`, `All`, `Expand` (`$NAME`, `${NAME}`, and `$$`), and
+  `Env.Load(".env")` for `.env` files: `NAME=value` lines, with `export ` or not, `#` comments,
+  values in `'`s as they are, in `"`s with escapes and over lines, and the rest trimmed; all
+  but those in `'`s are expanded. It leaves what's set as it is, unless `replace` is True, and
+  a bad line is a ParseError, with its line and column, before anything's set.
 - `Process`: `Exit`, `Id`; `Command(program)` with arguments, environment, folder, and piped or
   inherited streams; `Spawn` gives a `Child` (`Wait`, `TryWait`, `Kill`, its streams);
   `Output()` and `Status()`. No shell: a program and its arguments, the same on every OS.

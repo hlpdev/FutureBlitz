@@ -1,0 +1,87 @@
+// std.os's Env.Expand, with $NAME, ${NAME}, $$, and every other '$', and Env.Load, which sets
+// what a .env file names: comments, "export ", blanks around the '=', values in 's, in "s with
+// their escapes, over lines, and without either, expanded, with the lines before them; what's
+// already set, without replace and with it; and what a missing file and each bad line throw,
+// before anything's set.
+
+Import std.core
+Import std.io
+Import std.text
+Import std.os
+
+// value, with its line breaks and tabs shown.
+Function Shown(value: String?): String
+    If value == Null Then Return "Null"
+    Return "[" + value.Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t") + "]"
+End Function
+
+Env.Set("FB_ENV_X", "x1")
+Env.Unset("FB_ENV_UNSET")
+Print(Env.Expand("a $FB_ENV_X b ${{FB_ENV_X}}c [$FB_ENV_Xy] [$FB_ENV_UNSET] [${{FB_ENV_UNSET}}]"))
+Print(Env.Expand("$$FB_ENV_X $$$FB_ENV_X $ $1 $- ${{}} ${{FB_ENV_X ${{1A}} µ$FB_ENV_X end$"))
+Print(Shown(Env.Expand("")))
+
+Local temp = Try TempDir("fb-env-")
+Local path = temp.Path / ".env"
+Try File.WriteText(path, "\u{FEFF}# a comment\n" +
+                         "FB_ENV_A=plain\r\n" +
+                         "export FB_ENV_B = spaced value   # a comment\n" +
+                         "FB_ENV_C='single $FB_ENV_A \\n # kept' # a comment\n" +
+                         "FB_ENV_D=\"double $FB_ENV_A ${{FB_ENV_A}}x " +
+                         "\\\"q\\\" \\\\ \\$FB_ENV_A \\n\\tend \\q\"\n" +
+                         "FB_ENV_E=\n" +
+                         "FB_ENV_F=a#b\n" +
+                         "FB_ENV_G=#a comment\n" +
+                         "FB_ENV_H=\"two\nlines\"\n" +
+                         "FB_ENV_I=$FB_ENV_A-${{FB_ENV_B}}-$FB_ENV_X\n" +
+                         "FB_ENV_PRESET=from the file\n" +
+                         "FB_ENV_TWICE=one\n" +
+                         "FB_ENV_TWICE=two\n" +
+                         "   \n" +
+                         "\tFB_ENV_J\t=\t'quoted'\t\r" +
+                         "FB_ENV_K=$FB_ENV_PRESET")
+Env.Set("FB_ENV_PRESET", "before")
+Try Env.Load(path)
+For name In ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "PRESET", "TWICE"]
+    Print(name, Shown(Env.Get("FB_ENV_" + name)))
+End For
+
+// With replace, what's set takes the file's value, and the lines after it see it.
+Try Env.Load(path, True)
+Print(Shown(Env.Get("FB_ENV_PRESET")), Shown(Env.Get("FB_ENV_K")))
+
+// What a file that isn't there and each bad line throw; nothing before the bad line is set.
+Try
+    Env.Load(temp.Path / "missing.env")
+Catch e As IOError
+    Print(e.Kind)
+End Try
+
+Function Failure(temp: TempDir, text: String)
+    Local path = temp.Path / "bad.env"
+    Try
+        File.WriteText(path, text)
+        Env.Load(path)
+        Print("loads:", text)
+    Catch e As ParseError
+        Print(e.Kind, e.Line, e.Column, e.Message)
+    Catch e As IOError
+        Print(e.Message)
+    End Try
+End Function
+
+Failure(temp, "FB_ENV_SET=1\n1BAD=2")
+Failure(temp, "FB_ENV_SET=1\nFB_ENV_L 2")
+Failure(temp, "FB_ENV_SET=1\nFB_ENV_L")
+Failure(temp, "FB_ENV_SET=1\nexport")
+Failure(temp, "FB_ENV_SET='open\n")
+Failure(temp, "FB_ENV_SET=\"open\\\"")
+Failure(temp, "FB_ENV_SET=\"x\" y")
+Failure(temp, "FB_ENV_SET='x'y")
+Failure(temp, "FB_ENV_SET=${{FB_ENV_A")
+Failure(temp, "FB_ENV_SET=\"a ${{}}\"")
+Failure(temp, "FB_ENV_SET=a${{1}}")
+Failure(temp, "FB_ENV_SET=a\0b")
+Print(Shown(Env.Get("FB_ENV_SET")))
+
+Try temp.Close()

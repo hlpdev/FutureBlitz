@@ -1,0 +1,31 @@
+a x1 b x1c [] [] []
+$FB_ENV_X $x1 $ $1 $- ${} ${FB_ENV_X ${1A} µx1 end$
+[]
+A [plain]
+B [spaced value]
+C [single $FB_ENV_A \n # kept]
+D [double plain plainx "q" \ $FB_ENV_A \n\tend \q]
+E []
+F [a#b]
+G []
+H [two\nlines]
+I [plain-spaced value-x1]
+J [quoted]
+K [before]
+PRESET [before]
+TWICE [two]
+[from the file] [from the file]
+NOT_FOUND
+SYNTAX 2 1 a line is NAME=value, a comment, or blank, and a name starts with a letter or '_' at line 2, column 1
+SYNTAX 2 10 FB_ENV_L is followed by '=' at line 2, column 10
+SYNTAX 2 9 FB_ENV_L is followed by '=' at line 2, column 9
+SYNTAX 2 7 export is followed by '=' at line 2, column 7
+UNEXPECTED_END 1 12 FB_ENV_SET's value's quote isn't closed at line 1, column 12
+UNEXPECTED_END 1 12 FB_ENV_SET's value's quote isn't closed at line 1, column 12
+SYNTAX 1 16 only a comment can follow FB_ENV_SET's quoted value at line 1, column 16
+SYNTAX 1 15 only a comment can follow FB_ENV_SET's quoted value at line 1, column 15
+SYNTAX 1 12 a ${ is followed by a name and '}' at line 1, column 12
+SYNTAX 1 15 a ${ is followed by a name and '}' at line 1, column 15
+SYNTAX 1 13 a ${ is followed by a name and '}' at line 1, column 13
+SYNTAX 1 1 FB_ENV_SET's value can't hold a NUL at line 1, column 1
+Null
