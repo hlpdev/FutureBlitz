@@ -4,7 +4,7 @@
 
 ## S29-client-1 (high): Decompress does nothing: libcurl is built with no decoders, so a compressed response throws, and no test checks the done-when's decompression
 
-Status: fixed in 071e7f44: libcurl is built over the bundled zlib-ng and zstd, so Decompress asks for deflate, gzip, and zstd and decodes them; the test server's /compressed/<coding> compresses when it's asked to, and http_decompress checks each coding, blocking and Async, and that with Decompress off a body comes as it is, compressed or not
+Status: fixed in 37268b5e: libcurl is built over the bundled zlib-ng and zstd, so Decompress asks for deflate, gzip, and zstd and decodes them; the test server's /compressed/<coding> compresses when it's asked to, and http_decompress checks each coding, blocking and Async, and that with Decompress off a body comes as it is, compressed or not
 
 Where: third_party/CMakeLists.txt:309
 
@@ -40,7 +40,7 @@ Skeptic: I ran f1.fb under fb_http_test_server. It printed [identity] with the d
 
 ## S29-async-server-1 (medium): Decompress decodes nothing: libcurl is built without zlib, so the done-when's "decompresses" is unmet and untested
 
-Status: fixed in 071e7f44: the fix of S29-client-1
+Status: fixed in 37268b5e: the fix of S29-client-1
 
 Where: third_party/CMakeLists.txt:309
 
@@ -79,7 +79,7 @@ Skeptic: I ran f1.fb under fb_http_test_server.exe from build-rev (debug). It pr
 
 ## S29-async-server-2 (medium): DownloadAsync's progress is told about a followed redirect's own body, as if it were the download
 
-Status: fixed in 15215c5d: on_progress tells nothing while a redirect that's followed comes (goes_on reads its status and Location header, which libcurl has before its body), so progress never counts a redirect's own body; the test server's /redirect-with-body sends 5000 bytes in two halves 300 ms apart, and http_progress checks that Download and DownloadAsync are told 2/2 alone
+Status: fixed in a99a3286: on_progress tells nothing while a redirect that's followed comes (goes_on reads its status and Location header, which libcurl has before its body), so progress never counts a redirect's own body; the test server's /redirect-with-body sends 5000 bytes in two halves 300 ms apart, and http_progress checks that Download and DownloadAsync are told 2/2 alone
 
 Where: runtime/src/http.cpp:200
 
@@ -124,7 +124,7 @@ Skeptic: I wrote a local Python server (redirect_server.py in my scratch dir): /
 
 ## S29-async-server-4 (medium): A URL with a NUL is cut at the NUL, so the request goes to a different URL than the one given
 
-Status: fixed in 8ae10e2b: a URL with a NUL is refused before the transfer starts, as the outcome BAD_URL (set_text and refuse in http.cpp), so it's a NetError of OTHER, blocking or awaited, and so is a Proxy with one; http_refused checks both
+Status: fixed in 68387742: a URL with a NUL is refused before the transfer starts, as the outcome BAD_URL (set_text and refuse in http.cpp), so it's a NetError of OTHER, blocking or awaited, and so is a Proxy with one; http_refused checks both
 
 Where: runtime/src/http.cpp:842
 
@@ -162,7 +162,7 @@ Skeptic: I ran f4.fb (url = "{base}/hello\0/../status/500") under the test serve
 
 ## S29-client-2 (medium): A URL with a NUL is cut at the NUL and the shorter URL is fetched
 
-Status: fixed in 8ae10e2b: the fix of S29-async-server-4
+Status: fixed in 68387742: the fix of S29-async-server-4
 
 Where: runtime/src/http.cpp:844
 
@@ -197,7 +197,7 @@ Skeptic: f2.fb printed 40, then "200 hello http://127.0.0.1:52687/hello", in bot
 
 ## S29-client-3 (medium): A URL over 8,000,000 bytes panics in the runtime instead of throwing a NetError
 
-Status: fixed in 8ae10e2b: a URL, Proxy, User-Agent, or Cookie longer than libcurl's 8,000,000 bytes is refused the same way, as is a redirect's URL, instead of panicking; http_refused checks each, blocking and awaited
+Status: fixed in 68387742: a URL, Proxy, User-Agent, or Cookie longer than libcurl's 8,000,000 bytes is refused the same way, as is a redirect's URL, instead of panicking; http_refused checks each, blocking and awaited
 
 Where: runtime/src/http.cpp:844
 
@@ -235,7 +235,7 @@ Skeptic: f3.fb (a 2^23-byte query) printed "panic: std.net.http's URL failed: A 
 
 ## S29-tls-build-1 (medium): An https:// proxy's certificate is checked against no roots at all, so every request through one fails with NetError TLS
 
-Status: fixed in 429a79f2: fb_http_new gives libcurl the roots for an HTTPS proxy's TLS too (CURLOPT_PROXY_CAINFO_BLOB), and roots past libcurl's 8,000,000 bytes end the transfer as a TLS failure instead of panicking; http_tls goes through the test server's HTTPS ports as proxies with the test CA trusted, which works, and with the OS's roots, which fails
+Status: fixed in d00f7df9: fb_http_new gives libcurl the roots for an HTTPS proxy's TLS too (CURLOPT_PROXY_CAINFO_BLOB), and roots past libcurl's 8,000,000 bytes end the transfer as a TLS failure instead of panicking; http_tls goes through the test server's HTTPS ports as proxies with the test CA trusted, which works, and with the OS's roots, which fails
 
 Where: runtime/src/http.cpp:869
 
@@ -297,7 +297,7 @@ Skeptic: I ran C:/Users/Hunter/Projects/FutureBlitz/.claude/worktrees/rev-scratc
 
 ## S29-tls-build-2 (medium): libcurl is built with no decoders, so Decompress decodes nothing, and a gzipped response throws NetError OTHER
 
-Status: fixed in 071e7f44: the fix of S29-client-1
+Status: fixed in 37268b5e: the fix of S29-client-1
 
 Where: third_party/CMakeLists.txt:309
 
@@ -334,7 +334,7 @@ Skeptic: decompress.fb under the test server prints 'True' then 'identity': with
 
 ## S29-tls-build-3 (medium): libcurl's notice leaves out the ISC license of its inet_pton.c and inet_ntop.c, which every HTTP program links
 
-Status: fixed in 1cffb09d: curl's notice has the comments before the code of lib/curlx/inet_ntop.c and inet_pton.c after its COPYING, and its licenses are "the curl and ISC licenses"; driver_tests checks the notice's texts
+Status: fixed in e0e9fd77: curl's notice has the comments before the code of lib/curlx/inet_ntop.c and inet_pton.c after its COPYING, and its licenses are "the curl and ISC licenses"; driver_tests checks the notice's texts
 
 Where: third_party/CMakeLists.txt:332
 
@@ -360,7 +360,7 @@ Skeptic: curl-src/lib/curlx/inet_ntop.c and inet_pton.c are both 'SPDX-License-I
 
 ## S29-async-server-3 (low): Download's progress says -1 ("didn't say") for a response whose Content-Length is 0
 
-Status: fixed in 15215c5d: on_progress takes how many the response said from CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, which is -1 only when it didn't say; http_progress checks that /bytes/0 tells 0/0 and /chunked 50/-1
+Status: fixed in a99a3286: on_progress takes how many the response said from CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, which is -1 only when it didn't say; http_progress checks that /bytes/0 tells 0/0 and /chunked 50/-1
 
 Where: runtime/src/http.cpp:208
 
@@ -404,7 +404,7 @@ Skeptic: I ran f3.fb under the test server. Debug and release both printed `Cont
 
 ## S29-async-server-5 (low): The test server runs http_ programs with the environment's proxy, so the tests send their requests to it
 
-Status: fixed in 102e4265: the test server runs its program with its own environment but http_proxy, https_proxy, and all_proxy, of either case (names_proxy in run()); a program test sets all three and checks that a GET of the server's URL still works
+Status: fixed in 0e070073: the test server runs its program with its own environment but http_proxy, https_proxy, and all_proxy, of either case (names_proxy in run()); a program test sets all three and checks that a GET of the server's URL still works
 
 Where: tests/native/http_server/http_server.cpp:658
 
@@ -437,7 +437,7 @@ Skeptic: f5.fb run under fb_http_test_server.exe printed `hello`. The same exe r
 
 ## S29-async-server-6 (low): http_async's progress check passes on the call Downloaded makes at the end, alone
 
-Status: fixed in 15215c5d: http_async and http_progress download /bytes/200000?pause=100000, whose first half comes 300 ms before the rest, and check that progress was told of less than all, blocking and awaited; http_progress covers Http.Download, GetBytes, DownloadAsync, and GetBytesAsync too
+Status: fixed in a99a3286: http_async and http_progress download /bytes/200000?pause=100000, whose first half comes 300 ms before the rest, and check that progress was told of less than all, blocking and awaited; http_progress covers Http.Download, GetBytes, DownloadAsync, and GetBytesAsync too
 
 Where: tests/programs/http_async.fb:98
 
@@ -474,7 +474,7 @@ Skeptic: f6.fb (DownloadAsync of /bytes/0) printed `0 calls 1: calls > 0 is True
 
 ## S29-async-server-8 (low): stdlib.md drops or postpones parts of the design with no Deferred work row
 
-Status: fixed in 2ee4e967: stdlib.md says HTTP/2, decompression, and the timeouts work now, and that a Download to a file waits for step 14's files; milestones.md is the coordinator's, so the Deferred work rows, a Download to a path (step 14) and TlsStream and the TLS listener with the done-when of a client and server in one program (step 13), are in the lane's report
+Status: fixed in a8dbd415: stdlib.md says HTTP/2, decompression, and the timeouts work now, and that a Download to a file waits for step 14's files; milestones.md is the coordinator's, so the Deferred work rows, a Download to a path (step 14) and TlsStream and the TLS listener with the done-when of a client and server in one program (step 13), are in the lane's report
 
 Where: docs/stdlib.md:654
 
@@ -507,7 +507,7 @@ Skeptic: f8.fb fails to compile with `error: too many arguments to 'Download'`. 
 
 ## S29-client-10 (low): A redirect to a URL that isn't HTTP or HTTPS is reported as the request's own URL not being HTTP
 
-Status: fixed in 7e35156d: a URL a redirect gave that libcurl refuses as not HTTP's or HTTPS's ends the transfer as the outcome BAD_REDIRECT, whose NetError says "<url> was sent on to <target>, which isn't an HTTP or HTTPS URL"; http_refused checks one redirect and two
+Status: fixed in 9d710ddc: a URL a redirect gave that libcurl refuses as not HTTP's or HTTPS's ends the transfer as the outcome BAD_REDIRECT, whose NetError says "<url> was sent on to <target>, which isn't an HTTP or HTTPS URL"; http_refused checks one redirect and two
 
 Where: std/net/http/client.fb:401
 
@@ -539,7 +539,7 @@ Skeptic: f10.fb printed "NetError OTHER: http://127.0.0.1:52708/redirect-to?url=
 
 ## S29-client-11 (low): UserAgent = "" sends no User-Agent header at all
 
-Status: fixed in f2ef1212: an empty UserAgent goes as an empty User-Agent header, unless the request's headers have one; the test server's /header/<name> tells an empty value from none, and http_client checks it
+Status: fixed in 12a69db4: an empty UserAgent goes as an empty User-Agent header, unless the request's headers have one; the test server's /header/<name> tells an empty value from none, and http_client checks it
 
 Where: std/net/http/client.fb:158
 
@@ -580,7 +580,7 @@ Skeptic: Against my Python /headers echo on 127.0.0.1:48321, f11.fb with UserAge
 
 ## S29-client-4 (low): Body doesn't check its ContentType, so a bad one panics inside std/net/http/client.fb, not at the program's line
 
-Status: fixed in b74e01c7: Body's New and Text are @PanicsAtCaller and check a Content-Type as Headers.Add checks a value; panic_http_body_content_type
+Status: fixed in 57e79e00: Body's New and Text are @PanicsAtCaller and check a Content-Type as Headers.Add checks a value; panic_http_body_content_type
 
 Where: std/net/http/client.fb:63
 
@@ -615,7 +615,7 @@ Skeptic: f4.fb printed "made the body", then "panic: the value for Content-Type 
 
 ## S29-client-5 (low): Download's progress says -1 ("didn't say") for a response whose Content-Length is 0
 
-Status: fixed in 15215c5d: the fix of S29-async-server-3
+Status: fixed in a99a3286: the fix of S29-async-server-3
 
 Where: runtime/src/http.cpp:208
 
@@ -653,7 +653,7 @@ Skeptic: f5.fb printed "empty: 0 got 0 said -1" in both debug and release. f5b.f
 
 ## S29-client-6 (low): Download's progress counts a redirect response's body as the download's, so progress can go backwards
 
-Status: fixed in 15215c5d: the fix of S29-async-server-2
+Status: fixed in a99a3286: the fix of S29-async-server-2
 
 Where: runtime/src/http.cpp:461
 
@@ -702,7 +702,7 @@ Skeptic: My Python server on 127.0.0.1:48321 answers /slow-redirect with a 302 t
 
 ## S29-client-7 (low): Send(PUT or PATCH) without a body sends no Content-Length, while POST sends Content-Length: 0
 
-Status: fixed in 7f9ca0e2: set_request gives a PUT or PATCH without a body an empty one, as it gives a POST, so each says Content-Length: 0; http_client checks POST, PUT, PATCH, and DELETE
+Status: fixed in b18f1ff7: set_request gives a PUT or PATCH without a body an empty one, as it gives a POST, so each says Content-Length: 0; http_client checks POST, PUT, PATCH, and DELETE
 
 Where: runtime/src/http.cpp:315
 
@@ -741,7 +741,7 @@ Skeptic: f7.fb printed "POST without a body: Content-Length 0", then "PUT withou
 
 ## S29-client-8 (low): EnsureSuccess's message ends in a space for a status with no name
 
-Status: fixed in 7cb79ae4: EnsureSuccess adds the status's reason only when it has one; http_client checks 404's message and 418's
+Status: fixed in 6d4e3d0f: EnsureSuccess adds the status's reason only when it has one; http_client checks 404's message and 418's
 
 Where: std/net/http/client.fb:119
 
@@ -773,7 +773,7 @@ Skeptic: f8.fb printed "[http://127.0.0.1:52703/status/418 answered 418 ]", endi
 
 ## S29-client-9 (low): Body.Form's doc says it encodes "as a browser sends them", but browsers encode differently
 
-Status: fixed in 6434db5d: Form's comment says it writes application/x-www-form-urlencoded, which servers read as they read a browser's, and no longer that it's what a browser sends
+Status: fixed in 197dc39a: Form's comment says it writes application/x-www-form-urlencoded, which servers read as they read a browser's, and no longer that it's what a browser sends
 
 Where: std/net/http/client.fb:77
 
@@ -798,7 +798,7 @@ Skeptic: f9.fb printed "a%20b=~%2A". The WHATWG application/x-www-form-urlencode
 
 ## S29-tls-build-4 (low): A certificate error's NetError message ends in a newline, and puts each further problem on a line of its own
 
-Status: fixed in b05ce4fc: fb_http_message gives libcurl's words as one line, each line's end trimmed and the lines joined by "; "; http_tls prints a TLS failure's Message
+Status: fixed in 69001179: fb_http_message gives libcurl's words as one line, each line's end trimmed and the lines joined by "; "; http_tls prints a TLS failure's Message
 
 Where: runtime/src/http.cpp:1000
 
@@ -844,7 +844,7 @@ Skeptic: message.fb under the test server, piped through od -c, shows 'NetError 
 
 ## S29-tls-build-5 (low): The docs say macOS's anchors are filtered to those valid now and for servers, but the macOS code takes every anchor
 
-Status: fixed in 41b93756: tls_roots.hpp and stdlib.md say only Windows' roots are filtered, and macOS's system anchors taken whole, whose dates mbedTLS checks as it verifies; a filter on Apple's trust settings can't be built or run here, on Windows, so the docs are what changed
+Status: fixed in 101af748: tls_roots.hpp and stdlib.md say only Windows' roots are filtered, and macOS's system anchors taken whole, whose dates mbedTLS checks as it verifies; a filter on Apple's trust settings can't be built or run here, on Windows, so the docs are what changed
 
 Where: runtime/src/tls_roots.cpp:96
 
@@ -877,7 +877,7 @@ Skeptic: I could only check this from the source, since the macOS branch can't r
 
 ## S29-tls-build-6 (low): third_party's mbedTLS comment still says only its crypto library is built, and TLS comes 'later'
 
-Status: fixed in b9a3b9dc: the comment says mbedTLS's mbedtls and mbedx509 libraries are built too, for the TLS of std.net.http's client
+Status: fixed in 8ef6ae31: the comment says mbedTLS's mbedtls and mbedx509 libraries are built too, for the TLS of std.net.http's client
 
 Where: third_party/CMakeLists.txt:93
 

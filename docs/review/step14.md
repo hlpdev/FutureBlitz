@@ -4,7 +4,7 @@
 
 ## S14-dir-2 (high): A folder watcher silently loses most events in a burst, and its known names go stale
 
-Status: fixed in d5465e27, and on macOS, where FSEvents starts late, 1a85cd57
+Status: fixed in 927de66d, and on macOS, where FSEvents starts late, d73161b4
 
 Where: runtime/src/watcher.cpp:165
 
@@ -48,7 +48,7 @@ Skeptic: overflow.fb gave "created 14 of 200" and "created 58 of 200" in two deb
 
 ## S14-dir-3 (medium): On Windows, a case-only rename is CHANGED and CREATED, and the old name stays known for good
 
-Status: fixed in 6960a930
+Status: fixed in 99d7bbbe
 
 Where: runtime/src/watcher.cpp:172
 
@@ -113,7 +113,7 @@ Skeptic: case.fb printed exactly the reviewer's actual output in both debug and 
 
 ## S14-dir-4 (medium): A watcher on a path ending with a separator gives event paths with '//' that don't equal folder / name
 
-Status: fixed in 725b4b0e
+Status: fixed in cb846cf4
 
 Where: runtime/src/watcher.cpp:168
 
@@ -148,7 +148,7 @@ Skeptic: slash.fb printed "False True", and the event path was "C:/Users/Hunter/
 
 ## S14-dir-6 (medium): Glob lists every folder down to the pattern's depth, so an unrelated unreadable folder makes it throw
 
-Status: fixed in 25bcb45e
+Status: fixed in c27d7b69
 
 Where: std/io/dir.fb:154
 
@@ -180,7 +180,7 @@ Skeptic: glob_perm.fb printed "True" then "PERMISSION_DENIED can't list C:/: ope
 
 ## S14-dir-7 (medium): Glob's '*' matching backtracks exponentially
 
-Status: fixed in 25bcb45e
+Status: fixed in c27d7b69
 
 Where: std/io/dir.fb:291
 
@@ -212,7 +212,7 @@ Skeptic: slow.fb in release printed 0 after 11.3 s wall time. The same program w
 
 ## S14-dir-8 (medium): A TempDir or TempFile whose Close fails is marked closed, so it's never removed
 
-Status: fixed in eacba671
+Status: fixed in 1a6783d2
 
 Where: std/io/temp.fb:29
 
@@ -254,7 +254,7 @@ Skeptic: busy.fb printed "BUSY", "left True", "left False": after the failed Clo
 
 ## S14-file-1 (medium): ReadBytes/ReadText/ReadLines of a file bigger than memory crash with std::bad_alloc instead of throwing an IOError
 
-Status: fixed in 081bf6ef
+Status: fixed in e28d0d7f
 
 Where: runtime/src/files.cpp:224
 
@@ -298,7 +298,7 @@ Skeptic: I ran file-refute/f1.fb, which makes a 200 GiB sparse file with fsutil 
 
 ## S14-file-2 (medium): Waiting AcquireAsync/AcquireSharedAsync calls hold libuv's thread-pool threads, so every other Async file call stalls
 
-Status: fixed in bbfdf686
+Status: fixed in f033c7a4
 
 Where: runtime/src/files.cpp:790
 
@@ -361,7 +361,7 @@ Skeptic: f2.fb, with 4 waiting AcquireSharedAsync calls, printed 'two seconds on
 
 ## S14-file-3 (medium): File.Move of a folder onto an existing file deletes the file on Windows; POSIX refuses it
 
-Status: fixed in 221afbc7
+Status: fixed in c0db6bf3
 
 Where: runtime/src/files.cpp:384
 
@@ -403,7 +403,7 @@ Skeptic: f3.fb in debug and in --release printed 'moved' then 'False True False'
 
 ## S14-path-1 (medium): A share with no separator after it is a different anchor from the same share with one, so RelativeTo gives Null and Normalize keeps two texts for one place
 
-Status: fixed in 2984b6ed
+Status: fixed in 7b67b861
 
 Where: std/io/path.fb:299
 
@@ -443,7 +443,7 @@ Skeptic: Ran the finding's program (pathref/p1.fb), debug and release, and got t
 
 ## S14-path-2 (medium): WithExtension panics on a path ending in "." even though FileName gives a name for it
 
-Status: fixed in ca191bde
+Status: fixed in c4fb7c38
 
 Where: std/io/path.fb:150
 
@@ -470,7 +470,7 @@ Skeptic: pathref/p2.fb, debug and release: printed 'b', then 'panic: WithExtensi
 
 ## S14-path-3 (medium): On Windows a zero Path (a Struct field with no default) has POSIX rules, not the target's
 
-Status: fixed in 69dd5cb8
+Status: fixed in 3841b125
 
 Where: std/io/path.fb:18
 
@@ -504,7 +504,7 @@ Skeptic: pathref/p3.fb on Windows, debug and release (I rewrote it with the Writ
 
 ## S14-dir-10 (low): docs/stdlib.md and path.fb say Paths sort by their texts' bytes, but '<' compares the style first
 
-Status: fixed in 69dd5cb8, with S14-path-6
+Status: fixed in 3841b125, with S14-path-6
 
 Where: docs/stdlib.md:458
 
@@ -530,7 +530,7 @@ Skeptic: sort.fb printed "True False": a POSIX "b" sorts before a WINDOWS "a". p
 
 ## S14-dir-11 (low): Glob's docs say '**' is any number of folders, but a final '**' matches files and the folder itself
 
-Status: fixed in cab14e97
+Status: fixed in 856af88d
 
 Where: docs/stdlib.md:489
 
@@ -571,7 +571,7 @@ Skeptic: star.fb printed "**: [file.txt FILE, sub DIRECTORY, sub/inner.txt FILE]
 
 ## S14-dir-12 (low): The std.io docs don't say what step 14 built, and the milestones row's console is neither built nor deferred
 
-Status: fixed in e0c631b4
+Status: fixed in 21d5250d
 
 Where: docs/stdlib.md:446
 
@@ -597,7 +597,7 @@ Skeptic: console.fb fails to compile with "'IsTerminal' isn't declared" and "'Te
 
 ## S14-dir-13 (low): The tests don't cover Dir.Temp, TempDir's default prefix, or a TempDir going with its last reference
 
-Status: fixed in 09e323a5
+Status: fixed in 9f9d659b
 
 Where: tests/programs/io_files.fb:249
 
@@ -629,7 +629,7 @@ Skeptic: tempdef.fb printed "True 9 True" and "False", so the behaviour is right
 
 ## S14-dir-5 (low): A watcher made with a relative path drops every event once the current folder changes
 
-Status: fixed in 725b4b0e
+Status: fixed in cb846cf4
 
 Where: runtime/src/watcher.cpp:253
 
@@ -677,7 +677,7 @@ Skeptic: cwd.fb printed "False []". The same program without the second SetCurre
 
 ## S14-dir-9 (low): Walk's and Glob's IOError names the folder listed, not the one that failed
 
-Status: fixed in 25bcb45e
+Status: fixed in c27d7b69
 
 Where: runtime/src/files.cpp:578
 
@@ -713,7 +713,7 @@ Skeptic: walk_perm.fb printed "entries: PERMISSION_DENIED [C:/PerfLogs]" and "wa
 
 ## S14-file-4 (low): WriteTextAtomic/WriteBytesAtomic to a link replace the link with a plain file and leave the linked file unchanged
 
-Status: fixed in e4505ddc
+Status: fixed in 298072b2
 
 Where: runtime/src/files.cpp:280
 
@@ -759,7 +759,7 @@ Skeptic: f4.fb makes a symlink with pwsh New-Item, which works here. It printed 
 
 ## S14-file-5 (low): Atomic writes fail for long file names that plain writes accept
 
-Status: fixed in 6227df51
+Status: fixed in bc576871
 
 Where: runtime/src/files.cpp:273
 
@@ -804,7 +804,7 @@ Skeptic: f5.fb with a 249-byte path printed 'plain [plain]' then 'atomic NOT_FOU
 
 ## S14-file-6 (low): FileLock can't lock a file that's there but read-only
 
-Status: fixed in 50c1cafa
+Status: fixed in 06db19ca
 
 Where: runtime/src/files.cpp:703
 
@@ -843,7 +843,7 @@ Skeptic: f6.fb printed 'PERMISSION_DENIED: can't lock .../data.txt: operation no
 
 ## S14-file-7 (low): On Windows, Copy/Move onto a folder throw PERMISSION_DENIED and FileLock on a folder throws INVALID_PATH, not IS_A_DIRECTORY
 
-Status: fixed in 221afbc7
+Status: fixed in c0db6bf3
 
 Where: runtime/src/files.cpp:362
 
@@ -907,7 +907,7 @@ Skeptic: f7.fb printed 'write IS_A_DIRECTORY', 'atomic IS_A_DIRECTORY', 'copy PE
 
 ## S14-file-8 (low): MappedFile's comment says a mapped file can't be deleted on Windows; it can, and writing it fails with OTHER "unknown error"
 
-Status: fixed in faee7582
+Status: fixed in 87db1bf0
 
 Where: std/io/mapped.fb:25
 
@@ -950,7 +950,7 @@ Skeptic: f8.fb printed 'write OTHER: can't write .../m.bin: unknown error' and t
 
 ## S14-path-4 (low): Joining a bare same-drive "C:" adds a trailing '/' instead of adding nothing
 
-Status: fixed in b357874c
+Status: fixed in de1f68d5
 
 Where: std/io/path.fb:79
 
@@ -981,7 +981,7 @@ Skeptic: pathref/p4.fb, debug and release: 'C:/a/', 'C:games/', 'False'. The sha
 
 ## S14-path-5 (low): Absolute of a non-native-style path isn't absolute by its own rules, and calling it again nests the current folder
 
-Status: fixed in b357874c
+Status: fixed in de1f68d5
 
 Where: std/io/path.fb:239
 
@@ -1010,7 +1010,7 @@ Skeptic: pathref/p5.fb on Windows, debug and release: 'False', 'False', then 'C:
 
 ## S14-path-6 (low): Docs say Paths sort by their texts' bytes, but '<' compares Style first
 
-Status: fixed in 69dd5cb8, with S14-dir-10
+Status: fixed in 3841b125, with S14-dir-10
 
 Where: docs/stdlib.md:458
 
@@ -1033,7 +1033,7 @@ Skeptic: pathref/p6.fb, debug and release: 'True' for Path("b", POSIX) < Path("a
 
 ## S14-path-7 (low): WithExtension(".") accepts an extension the result then doesn't have
 
-Status: fixed in ca191bde
+Status: fixed in c4fb7c38
 
 Where: std/io/path.fb:156
 
