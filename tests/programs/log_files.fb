@@ -25,6 +25,20 @@ Local temp = Try TempDir("fb-log-")
 Local before = Try Dir.Current()
 Try Dir.SetCurrent(temp.Path)
 
+// A relative path is from the folder that's current when the sink's made, whatever's current
+// after.
+Try Dir.CreateAll("one")
+Try Dir.CreateAll("two")
+Try Dir.SetCurrent("one")
+Local here = FileSink("here.log")
+Local rotatingHere = RotatingFileSink("rotating here.log", 100)
+here(Line("first"))
+Try Dir.SetCurrent(temp.Path / "two")
+here(Line("second"))
+rotatingHere(Line("first"))
+Try Dir.SetCurrent(temp.Path)
+Print("{LinesOf("one/here.log")} {LinesOf("one/rotating here.log")} {(Try Dir.Entries("two")).Count}")
+
 // A FileSink makes the file and its folders, and adds to the end of one that's there.
 Local sink = FileSink("logs/deep/app.log")
 sink(Line("first"))
