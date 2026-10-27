@@ -77,6 +77,21 @@ stuck(Line("moved"))
 Print(LinesOf("stuck.log"))
 Print(LinesOf("stuck.log.1"))
 
+// While the file can't be moved aside, its old ones stay as they are, however many lines come.
+Try File.WriteText("kept.log", "current\n")
+Try File.WriteText("kept.log.2", "two\n")
+Try File.WriteText("kept.log.3", "three\n")
+Try Dir.Create("kept.log.1")
+Local kept = RotatingFileSink("kept.log", 10, 3)
+For i = 1 To 4
+    kept(Line("kept {i}"))
+End For
+
+Print("{(Try File.ReadLines("kept.log")).Count} {LinesOf("kept.log.2")} {LinesOf("kept.log.3")} {File.Exists("kept.log.4")}")
+Try Dir.Remove("kept.log.1")
+kept(Line("moved"))
+Print("{LinesOf("kept.log")} {(Try File.ReadLines("kept.log.1")).Count} {LinesOf("kept.log.2")} {LinesOf("kept.log.3")}")
+
 // A file that's gone when it would be moved aside, as another program can take it, starts again,
 // and its old one stays.
 Local gone = RotatingFileSink("gone.log", 100, 1)

@@ -11,9 +11,12 @@ none
 [2026-10-24T00:00:00.123Z INFO  app: a line that has more bytes than the file's most of 100 bytes, all on its own]
 [2026-10-24T00:00:00.123Z INFO  app: line 7]
 [2026-10-24T00:00:00.123Z INFO  app: only 3] False
-std.log: can't delete stuck.log.1: illegal operation on a directory, so lines go on being added to stuck.log until it can be moved aside
+std.log: can't move stuck.log aside: stuck.log.1 is a folder, so lines go on being added to stuck.log until it can be moved aside
 [2026-10-24T00:00:00.123Z INFO  app: moved]
 [2026-10-24T00:00:00.123Z INFO  app: stuck 1, 2026-10-24T00:00:00.123Z INFO  app: stuck 2, 2026-10-24T00:00:00.123Z INFO  app: stuck 3]
+std.log: can't move kept.log aside: kept.log.1 is a folder, so lines go on being added to kept.log until it can be moved aside
+5 [two] [three] False
+[2026-10-24T00:00:00.123Z INFO  app: moved] 5 none [two]
 [2026-10-24T00:00:00.123Z INFO  app: after it went]
 [old]
 crowd True

@@ -38,12 +38,13 @@ End Function
 
 // What a file's sink knows: whether it's found how many bytes the file holds, and that size,
 // which its writes count, and whether its last write, and its last move of the file aside,
-// failed, which stderr's been told.
+// failed, which stderr's been told, and, after a move that failed, the size it's tried again at.
 Struct FileState
     Field Known: Bool
     Field Size: Int64
     Field Failed: Bool
     Field Unmoved: Bool
+    Field RetryAt: Int64
 End Struct
 
 // A file lines are added to, by any thread, one at a time, moved aside once it holds Most bytes
@@ -71,13 +72,16 @@ Shared Class LogFile
                 End If
 
                 Local bytes = line.Bytes.Count
-                If Most > 0 && state.Size > 0 && state.Size + bytes > Most
+                If Most > 0 && state.Size > 0 && state.Size + bytes > Most &&
+                   state.Size >= state.RetryAt
                     // A file that can't be moved aside, as one another program has open on
-                    // Windows, gets the line, which isn't lost.
+                    // Windows, gets the line, which isn't lost, and the move's tried again once
+                    // another Most bytes are in it.
                     Try
                         Try Rotate()
                         state.Size = 0
                         state.Unmoved = False
+                        state.RetryAt = 0
                     Catch e As IOError
                         If !state.Unmoved
                             PrintError("std.log: {e.Message}, so lines go on being added to " +
@@ -85,6 +89,7 @@ Shared Class LogFile
                         End If
 
                         state.Unmoved = True
+                        state.RetryAt = state.Size + Most
                     End Try
                 End If
 
@@ -103,7 +108,9 @@ Shared Class LogFile
         End Lock
     End Method
 
-    // Moves the file to its ".1", and each old one to the next, the oldest going.
+    // Moves the file to its ".1", and each old one to the next, the oldest going. Nothing old is
+    // deleted or moved until the file's been moved aside, to a name beside it, so one that can't
+    // be leaves the old ones as they were, and one that can't go on to its ".1" goes back.
     Method Rotate() Throws IOError
         // One that's gone, as another program can take it, has nothing to move aside, and the old
         // ones stay.
@@ -113,12 +120,30 @@ Shared Class LogFile
             Return
         End If
 
-        Try File.Delete(Old(Keep))
-        For i = Keep - 1 To 1 Step -1
-            If File.Exists(Old(i)) Then Try File.Move(Old(i), Old(i + 1))
+        For i = 1 To Keep
+            If Dir.Exists(Old(i))
+                Throw IOError(IOErrorKind.IS_A_DIRECTORY,
+                              "can't move {Location} aside: {Old(i)} is a folder", Old(i).Text)
+            End If
         End For
 
-        Try File.Move(Location, Old(1))
+        Local moving = Path(Location.Text + ".moving", Location.Style)
+        Try File.Move(Location, moving)
+        Try
+            Try File.Delete(Old(Keep))
+            For i = Keep - 1 To 1 Step -1
+                If File.Exists(Old(i)) Then Try File.Move(Old(i), Old(i + 1))
+            End For
+
+            Try File.Move(moving, Old(1))
+        Catch e As IOError
+            Try
+                File.Move(moving, Location)
+            Catch back As IOError
+            End Try
+
+            Throw e
+        End Try
     End Method
 
     // The old file `index` back.
