@@ -2,8 +2,8 @@
 // is a route, whose argument Load makes from the path's parameters, the query, and a JSON body,
 // each read as its Field's type, a @Flatten Field's own Fields too, and a @Renamed one by its old
 // name; one a request doesn't give keeps its default, and a request whose values don't fit is a
-// 400 that says why. A route can take nothing, or the request alone, and an Async Method of the
-// request alone with no attribute, a helper, is no route.
+// 400 that says why. A route can take nothing, or the request alone, and an Async Method with no
+// attribute, a helper, is no route, whatever it takes.
 
 Import std.core
 Import std.collections
@@ -110,6 +110,9 @@ Class Users
     Async Method Helper(request: HttpRequest): HttpResponse
         Return Text("raw {request.Param("rest") ?? "?"} {request.Query.Count}")
     End Method
+
+    // A helper of what Load doesn't make, which isn't a route either.
+    Async Method Wrapped(make: Func(): HttpResponse): HttpResponse => make()
 
     // Neither an Async Method with an attribute, nor one at all: no routes.
     Method Plain(args: ShowUser): HttpResponse => Text("plain")

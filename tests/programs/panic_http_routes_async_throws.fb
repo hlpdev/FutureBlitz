@@ -1,0 +1,23 @@
+// A routes Class's Async Method with a route's attribute whose Task throws isn't a route, as a
+// handler answers its errors itself, so Routes panics where it's called, rather than leave the
+// path a 404.
+Import std.core
+Import std.net.http
+
+Struct Id
+    Field Id: Int
+End Struct
+
+Class Missing Extends Error
+End Class
+
+Class Thrown
+    @Get("/users/:id")
+    Async Method Show(args: Id, request: HttpRequest): HttpResponse Throws Missing
+        If args.Id == 0 Then Throw Missing("no user")
+        Return HttpResponse.Of(204)
+    End Method
+End Class
+
+Local server = HttpServer()
+server.Routes(Thrown())

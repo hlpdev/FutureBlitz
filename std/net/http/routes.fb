@@ -24,7 +24,7 @@ Public Attribute JsonBody
 
 // An HttpRequest is only a server's, so Load makes none. A Method of the request alone is a route
 // of its own, for which Load isn't called; this is so that Routes' loop over Methods of one
-// argument, which Load makes, can bind the request too.
+// argument, which Load makes, and which a Method of the request is among, compiles for it.
 Extend HttpRequest Implements Loadable
     Public Static Method FromValue(value: Value): HttpRequest Throws ParseError
         Throw ParseError(ParseErrorKind.WRONG_TYPE, "an HttpRequest is a server's, which Load " +
@@ -42,12 +42,10 @@ Extend HttpRouter
     // as text, which Load reads as a number or a Bool where the Field is one; a @Flatten Field's
     // own Fields, as Load reads them; and for a @JsonBody Field, the body's JSON. A Field the
     // request doesn't give keeps its default, or zero, and one with neither, or a value that
-    // doesn't fit, or a body that isn't JSON, is a 400 that says why. Every Async Method of one
-    // argument that gives an HttpResponse, with an attribute or not, takes a type Load makes, or
-    // the request, since the loop over them can't leave one out before it's made. Panics as Get
-    // does for a path, or a route with its paths already, and for a Method of up to four
-    // arguments with an attribute that isn't one of those: one that isn't Async, gives something
-    // else, or takes the request first. A Method that throws is neither a route nor a panic.
+    // doesn't fit, or a body that isn't JSON, is a 400 that says why. Methods without one of
+    // those attributes are left alone. Panics as Get does for a path, or a route with its paths
+    // already, and for a Method of up to four arguments with one that isn't a route's shape: one
+    // that isn't Async, throws, gives something else, or takes the request first.
     @PanicsAtCaller
     Public Method Routes<T>(instance: T)
         Register(Self, instance)
@@ -59,6 +57,7 @@ End Extend
 Function Register<T>(router: HttpRouter, instance: T)
     For Method m: M In T
         Where M: Func(): Task<HttpResponse>
+        Where m Has Get Or Post Or Put Or Patch Or Delete
         Local handler: HttpHandler = Function(request: HttpRequest) => m.Call(instance)
         AddRoutes(router, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
                   m.Attribute(Patch), m.Attribute(Delete), handler)
@@ -66,6 +65,7 @@ Function Register<T>(router: HttpRouter, instance: T)
 
     For Method m: M In T
         Where M: Func(HttpRequest): Task<HttpResponse>
+        Where m Has Get Or Post Or Put Or Patch Or Delete
         Local handler: HttpHandler = Function(request: HttpRequest) => m.Call(instance, request)
         AddRoutes(router, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
                   m.Attribute(Patch), m.Attribute(Delete), handler)
@@ -74,6 +74,7 @@ Function Register<T>(router: HttpRouter, instance: T)
     // The request alone is the loop's above, which doesn't Load it.
     For Method m: M In T
         Where M: Func(A): Task<HttpResponse>
+        Where m Has Get Or Post Or Put Or Patch Or Delete
         If TypeName<A>() == "HttpRequest" Then Continue
         Local handler: HttpHandler = Async Function(request: HttpRequest): HttpResponse
             Local args: A? = Null
@@ -88,6 +89,7 @@ Function Register<T>(router: HttpRouter, instance: T)
 
     For Method m: M In T
         Where M: Func(A, HttpRequest): Task<HttpResponse>
+        Where m Has Get Or Post Or Put Or Patch Or Delete
         Local handler: HttpHandler = Async Function(request: HttpRequest): HttpResponse
             Local args: A? = Null
             Local refusal = Bound<A>(request, ByRef args)
@@ -100,54 +102,83 @@ Function Register<T>(router: HttpRouter, instance: T)
     End For
 
     // Methods with a route's attribute that aren't a route's shape: not Async, giving something
-    // else, taking the request first, or more. A Method that throws isn't among a loop's.
+    // else, taking the request first, or more, or throwing, which an Async one's Task does in R.
     For Method m: M In T
         Where M: Func(): R
+        Where m Has Get Or Post Or Put Or Patch Or Delete
         If TypeName<R>() == "Task<HttpResponse>" Then Continue
-        Local name = "{TypeName<T>()}.{m.Name}"
-        Misshapen(name, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
-                  m.Attribute(Patch), m.Attribute(Delete))
+        Misshapen("{TypeName<T>()}.{m.Name}")
     End For
 
     For Method m: M In T
         Where M: Func(A): R
+        Where m Has Get Or Post Or Put Or Patch Or Delete
         If TypeName<R>() == "Task<HttpResponse>" Then Continue
-        Local name = "{TypeName<T>()}.{m.Name}"
-        Misshapen(name, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
-                  m.Attribute(Patch), m.Attribute(Delete))
+        Misshapen("{TypeName<T>()}.{m.Name}")
     End For
 
     For Method m: M In T
         Where M: Func(A, B): R
+        Where m Has Get Or Post Or Put Or Patch Or Delete
         If TypeName<R>() == "Task<HttpResponse>" && TypeName<B>() == "HttpRequest" Then Continue
-        Local name = "{TypeName<T>()}.{m.Name}"
-        Misshapen(name, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
-                  m.Attribute(Patch), m.Attribute(Delete))
+        Misshapen("{TypeName<T>()}.{m.Name}")
     End For
 
     For Method m: M In T
         Where M: Func(A, B, C): R
-        Local name = "{TypeName<T>()}.{m.Name}"
-        Misshapen(name, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
-                  m.Attribute(Patch), m.Attribute(Delete))
+        Where m Has Get Or Post Or Put Or Patch Or Delete
+        Misshapen("{TypeName<T>()}.{m.Name}")
     End For
 
     For Method m: M In T
         Where M: Func(A, B, C, D): R
-        Local name = "{TypeName<T>()}.{m.Name}"
-        Misshapen(name, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
-                  m.Attribute(Patch), m.Attribute(Delete))
+        Where m Has Get Or Post Or Put Or Patch Or Delete
+        Misshapen("{TypeName<T>()}.{m.Name}")
+    End For
+
+    For Method m: M In T
+        Where M: Func(): R Throws E
+        Where E: Error
+        Where m Has Get Or Post Or Put Or Patch Or Delete
+        Misshapen("{TypeName<T>()}.{m.Name}")
+    End For
+
+    For Method m: M In T
+        Where M: Func(A): R Throws E
+        Where E: Error
+        Where m Has Get Or Post Or Put Or Patch Or Delete
+        Misshapen("{TypeName<T>()}.{m.Name}")
+    End For
+
+    For Method m: M In T
+        Where M: Func(A, B): R Throws E
+        Where E: Error
+        Where m Has Get Or Post Or Put Or Patch Or Delete
+        Misshapen("{TypeName<T>()}.{m.Name}")
+    End For
+
+    For Method m: M In T
+        Where M: Func(A, B, C): R Throws E
+        Where E: Error
+        Where m Has Get Or Post Or Put Or Patch Or Delete
+        Misshapen("{TypeName<T>()}.{m.Name}")
+    End For
+
+    For Method m: M In T
+        Where M: Func(A, B, C, D): R Throws E
+        Where E: Error
+        Where m Has Get Or Post Or Put Or Patch Or Delete
+        Misshapen("{TypeName<T>()}.{m.Name}")
     End For
 End Function
 
-// Panics, where Routes was called, when a Method that isn't a route's shape has a route's
-// attribute.
+// Panics, where Routes was called, for a Method with a route's attribute that isn't a route's
+// shape.
 @PanicsAtCaller
-Function Misshapen(name: String, get: Get?, post: Post?, put: Put?, patch: Patch?,
-                   delete: Delete?)
-    If get == Null && post == Null && put == Null && patch == Null && delete == Null Then Return
-    Panic("{name} has a route's attribute, but isn't an Async Method that gives an HttpResponse " +
-          "and takes nothing, the request, one Struct or Class, or that and the request")
+Function Misshapen(name: String)
+    Panic("{name} has a route's attribute, but isn't an Async Method that throws nothing, gives " +
+          "an HttpResponse, and takes nothing, the request, one Struct or Class, or that and " +
+          "the request")
 End Function
 
 // Adds a route for each attribute a Method has.

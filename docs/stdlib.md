@@ -1572,13 +1572,10 @@ discovery. `Import std.net` brings in std/net/.
   Bool, or an Enum's name where the Field is one; a `@Flatten` Field's own Fields the same way;
   and the body's JSON for a `@JsonBody` Field. A Field the request doesn't give keeps its
   default, or zero, and one with neither, a value that doesn't fit, or a body that isn't JSON, is
-  a 400 that says why. A Method of up to four arguments with one of those attributes that isn't
-  a route's shape (not Async, giving something else, or taking the request first) panics at
-  Routes. Since the loop over Methods of one argument makes each one's handler before it can
-  read the attributes, every Async Method of one argument that gives an HttpResponse, a helper
-  without an attribute too, takes the HttpRequest or a type Load makes, or the program doesn't
-  compile; and a Method that throws is neither a route nor a panic, as spec 13's typed For
-  Method leaves those out.
+  a 400 that says why. Its loops pick the Methods with those attributes (spec 13's `Where m
+  Has`), so a Method without one, a helper, is left alone, whatever it takes; and one of up to
+  four arguments with one that isn't a route's shape (not Async, throwing, giving something
+  else, or taking the request first) panics at Routes.
   Load's reading of text made a separate Parsable Interface unnecessary.
 - std.net.ws: WebSocket client and server, per RFC 6455, built in step 30.
   `Import std.net.ws` brings in std/net/ws/. `WebSocket.Connect(url, protocols, timeout, tls)`
