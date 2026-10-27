@@ -1386,6 +1386,54 @@ OpenDefault, and process.fb's Process.Id and Exit, over libuv through the runtim
 with fast_float, as Apple's C++ library's from_chars doesn't, and the stack merged TLS's bundled
 entry with std.os's renamed `prefixes` and TLS's http.cpp with Download's.
 
+Step 32's audit's std.io gaps (lane 10): `File.Open`, with `OpenOptions`, and `File.Create`, each
+with an Async twin, give a `FileStream`, a Reader, Writer, and Seeker over libuv's positional reads
+and writes, with `Seek`, `Size`, and `Sync`, holding nothing back; misuse, a call while an Async one
+is under way, and options no file opens with panic at the caller, and Windows' Truncate without
+Create goes through ftruncate. `MappedFile.Bytes()` gives a `Buffer<UInt8>` that holds the map until
+it goes, a read-only one's a copy-on-write view of its own, and Buffer's view New is Protected for
+it. std.compress's `ZipSource` and `Vfs.MountZip` mount a zip, without links or names above its
+root. Preferences get and set Int64s, Doubles, and Bools through step 5's Parse. std.log's
+`FileSink` and `RotatingFileSink` add each line in one append, under a lock, moving a full file to
+`.1` and on, keeping `keep`.
+
+The std.io gaps' review's eight findings were fixed (docs/review/io-gaps.md): Buffer's view New is
+Package, so no Class outside std can view memory it doesn't own; File.Create and File.WriteText
+empty a file with ftruncate once it's open, so Windows' hidden files take them; RotatingFileSink
+keeps the old files while the current one can't be moved aside; a FileStream's read near Int64's top
+gives nothing and a write past the file system's limit is NO_SPACE; and the sinks resolve a relative
+path once.
+
+- `HttpServer` (`Listen`, `LocalAddress`, `Serve()` until `Stop()`, `IsRunning`, `MaxBodySize`,
+`IdleTimeout`), `HttpRouter` (`Get`, `Post`, `Put`, `Patch`, `Delete`, `Route(method, ...)`, `Use`,
+`Group`), `HttpRequest` (`Verb`, since Method is a keyword; `Target`, `Path`, `Query`, `Headers`,
+`Bytes`, `Text`, `Version`, `RemoteAddress`, `Param`, `Params`, `Form()`), `HttpHandler` and
+`HttpMiddleware` (Aliases of Funcs giving `Task<HttpResponse>`), and `HttpResponse.Of(status,
+body)`, `Of(body)`, `Redirect(url, status)`: a handler gives step 29's own HttpResponse, as Deno's
+and the Fetch API's do. - Paths are `:name` and `*rest` (Express's), since `{name}` in a string is
+interpolation. - HTTP/1.1 per RFC 9112: keep-alive and pipelining, HTTP/1.0's keep-alive,
+Connection: close either way, one Host or a 400, Expect: 100-continue (and 417 for another),
+absolute-form targets, OPTIONS * (a 204), 404 and 405 with Allow, HEAD through GET's route without a
+body, Content-Length/Date/Connection set, lingering close after a refusal, idle timeout. -
+`WebSocket.AcceptAsync(request, protocols)` takes a handler's connection over; Stop leaves it. -
+Tests: http_server (routes, params, groups, middleware order and short-circuit, bodies, form, query,
+headers, redirects, 204, keep-alive and pipelining by hand, every refusal), http_server_websocket,
+http_server_many (300 requests through one client, 200 through a client each fifty at once, 100
+WebSockets one after another and 50 at once: no leaks), and 12 panic programs
+(panic_http_route_{path,twice,rest,name,method}, group_{rest,gone}, listen_twice, not_listening,
+max_body, redirect, panic_ws_accept_twice). All 20 times each way by hand.
+
+Step 30's server half (lane 6) is HTTP/1.1 per RFC 9112 in std/net/http/wire.fb, HttpServer,
+HttpRouter, HttpRequest, HttpHandler, and HttpMiddleware in server.fb, and std.net.ws's WebSocket
+per RFC 6455 in std/net/ws/, which connects and accepts over TCP or takes over a handler's request.
+Its review's 19 findings were fixed (docs/review/step30.md): a route that matches the whole path
+beats one whose *name matches none of it; framings a proxy could read another way (an empty
+Transfer-Encoding or Content-Length, a bare LF or a bad extension in a chunk, Transfer-Encoding in
+HTTP/1.0) are a 400; a response's status is a final one and a redirect's a redirect's; two Hosts are
+a 400 in HTTP/1.0 too; leading zeros and a later 1.x minor version are read as RFC 9112 has them;
+lingering takes a second in all; and a WebSocket's 405 has an Allow, a Content-Length of 0 isn't a
+body, and a close that isn't answered, or a failure, throws with 1006.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
