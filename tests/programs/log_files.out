@@ -1,0 +1,22 @@
+[2026-10-24T00:00:00.123Z INFO  app: first, 2026-10-24T00:00:00.123Z WARN  net.http: two words port=443 note="a b"]
+2026-10-24T00:00:00.123Z INFO  app: first
+2026-10-24T00:00:00.123Z WARN  net.http: two words port=443 note="a b"
+2026-10-24T00:00:00.123Z INFO  app: from another sink
+
+43 [2026-10-24T00:00:00.123Z INFO  app: line 7]
+[2026-10-24T00:00:00.123Z INFO  app: line 5, 2026-10-24T00:00:00.123Z INFO  app: line 6]
+[2026-10-24T00:00:00.123Z INFO  app: line 3, 2026-10-24T00:00:00.123Z INFO  app: line 4]
+none
+[2026-10-24T00:00:00.123Z INFO  app: after it]
+[2026-10-24T00:00:00.123Z INFO  app: a line that has more bytes than the file's most of 100 bytes, all on its own]
+[2026-10-24T00:00:00.123Z INFO  app: line 7]
+[2026-10-24T00:00:00.123Z INFO  app: only 3] False
+std.log: can't delete stuck.log.1: illegal operation on a directory, so lines go on being added to stuck.log until it can be moved aside
+[2026-10-24T00:00:00.123Z INFO  app: moved]
+[2026-10-24T00:00:00.123Z INFO  app: stuck 1, 2026-10-24T00:00:00.123Z INFO  app: stuck 2, 2026-10-24T00:00:00.123Z INFO  app: stuck 3]
+[2026-10-24T00:00:00.123Z INFO  app: after it went]
+[old]
+crowd True
+std.log: can't add to blocked: illegal operation on a directory, so lines are lost until one can be added
+[2026-10-24T00:00:00.123Z INFO  app: added, 2026-10-24T00:00:00.123Z INFO  app: added too]
+False

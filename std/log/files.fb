@@ -1,0 +1,126 @@
+// std.log's sinks into files: FileSink adds each line to a file's end, and RotatingFileSink does
+// until the file's as big as it's let be, then moves it aside, keeping a few of the old ones.
+
+Import std.core
+Import std.io.dir
+Import std.io.file
+Import std.io.path
+Import std.log.output
+Import std.log.sinks
+
+// A sink that adds each line, as LogLine has it, with its time and without colors, and a "\n",
+// to the end of the file at `path`, made, with the folders it's in, when it isn't there. Each
+// line goes in one write, which no other line's comes into, from this program's threads or, on
+// every OS, another program's adding to the file too. A line that can't be written is gone, and
+// the first of those since one was written says so on stderr.
+Public Function FileSink(path: Path): Sendable Func(LogRecord)
+    Const file = LogFile(path, 0, 0)
+    Return Function(record: LogRecord) => file.Add(LogLine(record, True, False) + "\n")
+End Function
+
+// A sink that adds lines as FileSink does, until a line would make the file hold more than
+// `maxBytes`: then the file becomes `path` with ".1" after it, the ".1" before it ".2", and so on,
+// the oldest of `keep` going, and the line starts a new file. A file holds one line at least, so
+// one longer than maxBytes has one of its own. While the file can't be moved aside, which stderr
+// is told once, lines go on being added to it. Panics when maxBytes isn't above 0, or keep is
+// below 0; with a keep of 0, the old lines go.
+@PanicsAtCaller
+Public Function RotatingFileSink(path: Path, maxBytes: Int64,
+                                 keep: Int = 5): Sendable Func(LogRecord)
+    If maxBytes <= 0 Then Panic("a rotating file holds a most of bytes above 0, not {maxBytes}")
+    If keep < 0
+        Panic("a rotating file keeps a count of old files that isn't negative, not {keep}")
+    End If
+
+    Const file = LogFile(path, maxBytes, keep)
+    Return Function(record: LogRecord) => file.Add(LogLine(record, True, False) + "\n")
+End Function
+
+// What a file's sink knows: whether it's found how many bytes the file holds, and that size,
+// which its writes count, and whether its last write, and its last move of the file aside,
+// failed, which stderr's been told.
+Struct FileState
+    Field Known: Bool
+    Field Size: Int64
+    Field Failed: Bool
+    Field Unmoved: Bool
+End Struct
+
+// A file lines are added to, by any thread, one at a time, moved aside once it holds Most bytes
+// unless Most is 0.
+Shared Class LogFile
+    ReadOnly Field Location: Path
+    ReadOnly Field Most: Int64
+    ReadOnly Field Keep: Int
+    Field State: Mutex<FileState>
+
+    New(path: Path, most: Int64, keep: Int)
+        Location = path
+        Most = most
+        Keep = keep
+    End New
+
+    // Adds the line to the file's end, moving the file aside first when it would be too big.
+    Method Add(line: String)
+        Lock State As state
+            Try
+                If !state.Known
+                    Try Dir.CreateAll(Location.Parent())
+                    state.Size = File.Exists(Location) ? Try File.Size(Location) : 0
+                    state.Known = True
+                End If
+
+                Local bytes = line.Bytes.Count
+                If Most > 0 && state.Size > 0 && state.Size + bytes > Most
+                    // A file that can't be moved aside, as one another program has open on
+                    // Windows, gets the line, which isn't lost.
+                    Try
+                        Try Rotate()
+                        state.Size = 0
+                        state.Unmoved = False
+                    Catch e As IOError
+                        If !state.Unmoved
+                            PrintError("std.log: {e.Message}, so lines go on being added to " +
+                                       "{Location} until it can be moved aside")
+                        End If
+
+                        state.Unmoved = True
+                    End Try
+                End If
+
+                Try File.AppendText(Location, line)
+                state.Size += bytes
+                state.Failed = False
+            Catch e As IOError
+                // The size is found again, since a write that failed may have added some.
+                state.Known = False
+                If !state.Failed
+                    PrintError("std.log: {e.Message}, so lines are lost until one can be added")
+                End If
+
+                state.Failed = True
+            End Try
+        End Lock
+    End Method
+
+    // Moves the file to its ".1", and each old one to the next, the oldest going.
+    Method Rotate() Throws IOError
+        // One that's gone, as another program can take it, has nothing to move aside, and the old
+        // ones stay.
+        If !File.Exists(Location) Then Return
+        If Keep == 0
+            Try File.Delete(Location)
+            Return
+        End If
+
+        Try File.Delete(Old(Keep))
+        For i = Keep - 1 To 1 Step -1
+            If File.Exists(Old(i)) Then Try File.Move(Old(i), Old(i + 1))
+        End For
+
+        Try File.Move(Location, Old(1))
+    End Method
+
+    // The old file `index` back.
+    Method Old(index: Int): Path => Path(Location.Text + ".{index}", Location.Style)
+End Class

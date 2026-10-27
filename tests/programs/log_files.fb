@@ -1,0 +1,147 @@
+// std.log's sinks into files: a FileSink adds each line to a file's end, made with its folders,
+// and a RotatingFileSink moves a file that would get too big aside, keeping a few old ones, the
+// oldest going. Lines from many threads at once each go in whole. A line that can't be written is
+// lost, and the first since one was says so on stderr. Everything is in a temporary folder, the
+// current one while the test runs, which goes at the end.
+
+Import std.core
+Import std.collections
+Import std.concurrent
+Import std.io
+Import std.log
+Import std.time
+
+Const at = Timestamp.FromUnixMilliseconds(1792800000123)
+
+Function Line(message: String): LogRecord => LogRecord(at, LogLevel.INFO, "app", message)
+
+// The file's lines, or "none" when it isn't there.
+Function LinesOf(path: Path): String
+    If !File.Exists(path) Then Return "none"
+    Return "{(Try? File.ReadLines(path)) ?? []}"
+End Function
+
+Local temp = Try TempDir("fb-log-")
+Local before = Try Dir.Current()
+Try Dir.SetCurrent(temp.Path)
+
+// A FileSink makes the file and its folders, and adds to the end of one that's there.
+Local sink = FileSink("logs/deep/app.log")
+sink(Line("first"))
+Local fields = ImmutableArray<LogField>().Add(LogField("port", "443", False))
+sink(LogRecord(at, LogLevel.WARN, "net.http", "two words", fields.Add(LogField("note", "a b"))))
+Print(LinesOf("logs/deep/app.log"))
+Local again = FileSink("logs/deep/app.log")
+again(Line("from another sink"))
+Print(Try File.ReadText("logs/deep/app.log"))
+
+// Each line of this sink is 43 bytes with its "\n", so two fit in 100, and a third starts a new
+// file, the old one going to ".1", and that one to ".2", and the oldest of two going.
+Local rotating = RotatingFileSink("rotating.log", 100, 2)
+For i = 1 To 7
+    rotating(Line("line {i}"))
+End For
+
+Print("{Try File.Size("rotating.log")} {LinesOf("rotating.log")}")
+Print(LinesOf("rotating.log.1"))
+Print(LinesOf("rotating.log.2"))
+Print(LinesOf("rotating.log.3"))
+
+// A file that's there counts what it holds, and a line longer than the most has a file of its
+// own.
+Local reopened = RotatingFileSink("rotating.log", 100, 2)
+reopened(Line("a line that has more bytes than the file's most of 100 bytes, all on its own"))
+reopened(Line("after it"))
+Print(LinesOf("rotating.log"))
+Print(LinesOf("rotating.log.1"))
+Print(LinesOf("rotating.log.2"))
+
+// Keeping none, the old lines go.
+Local none = RotatingFileSink("none.log", 50, 0)
+For i = 1 To 3
+    none(Line("only {i}"))
+End For
+
+Print("{LinesOf("none.log")} {File.Exists("none.log.1")}")
+
+// A file that can't be moved aside, for a folder where its ".1" goes, gets its lines, and stderr
+// is told once, until it can be.
+Try Dir.Create("stuck.log.1")
+Local stuck = RotatingFileSink("stuck.log", 50, 1)
+For i = 1 To 3
+    stuck(Line("stuck {i}"))
+End For
+
+Try Dir.Remove("stuck.log.1")
+stuck(Line("moved"))
+Print(LinesOf("stuck.log"))
+Print(LinesOf("stuck.log.1"))
+
+// A file that's gone when it would be moved aside, as another program can take it, starts again,
+// and its old one stays.
+Local gone = RotatingFileSink("gone.log", 100, 1)
+Try File.WriteText("gone.log.1", "old\n")
+For i = 1 To 2
+    gone(Line("gone {i}"))
+End For
+
+Try File.Delete("gone.log")
+gone(Line("after it went"))
+Print(LinesOf("gone.log"))
+Print(LinesOf("gone.log.1"))
+
+// Lines from many threads at once each go in whole, and each thread's in its order.
+Function Crowd(): Bool
+    Const output = LogOutput(LogFilter.At(LogLevel.INFO))
+    output.Add(FileSink("crowd.log"))
+    Local tasks: Task[] = []
+    For t = 0 Until 8
+        tasks.Add(Spawn(Function()
+            Const log = Logger("crowd", output)
+            For i = 0 Until 100
+                log.Info("{t} {i}")
+            End For
+        End Function))
+    End For
+
+    For task In tasks
+        task.Wait()
+    End For
+
+    Local next: Int[] = [0, 0, 0, 0, 0, 0, 0, 0]
+    For line In (Try? File.ReadLines("crowd.log")) ?? []
+        // "... INFO  crowd: t i": the thread's digit, a space, and the line's number.
+        Local text = line.Bytes
+        Local start = text.Count - 1
+        While text[start] != 58
+            start -= 1
+        End While
+
+        Local thread = (text[start + 2] - 48) As Int
+        Local index = 0
+        For place = start + 4 Until text.Count
+            index = index * 10 + (text[place] - 48) As Int
+        End For
+
+        If index != next[thread] Then Return False
+        next[thread] += 1
+    End For
+
+    Return next == [100, 100, 100, 100, 100, 100, 100, 100]
+End Function
+
+Print("crowd {Crowd()}")
+
+// A folder where the file goes: its lines are lost, and stderr's told once, until one's added.
+Try Dir.Create("blocked")
+Local blocked = FileSink("blocked")
+blocked(Line("lost"))
+blocked(Line("lost too"))
+Try Dir.Remove("blocked")
+blocked(Line("added"))
+blocked(Line("added too"))
+Print(LinesOf("blocked"))
+
+Try Dir.SetCurrent(before)
+Try temp.Close()
+Print("{Dir.Exists(temp.Path)}")
