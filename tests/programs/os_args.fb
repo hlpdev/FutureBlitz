@@ -1,0 +1,155 @@
+// std.os's Args: a Struct's Fields read from a command line by their attributes, with the help
+// and errors they make, and an ArgsParser built at run time, with commands. The program runs
+// itself too, for what Args.Parse<T>() prints and the code the program ends with.
+
+Import std.core
+Import std.os
+
+Enum CopyMode
+    NEWER, ALL
+End Enum
+
+@Program(Name: "tool", About: "Copies files somewhere.", Version: "1.2.3")
+Struct Copy
+    @Positional(Help: "Where they go", Name: "to")
+    Field Destination: String
+    @Positional(Help: "What to copy", Name: "file")
+    Field Sources: String[]
+    @Option(Help: "How many at once", Short: "j", Name: "count")
+    Field Jobs: Int = 4
+    @Flag(Help: "Says what it does", Short: "v")
+    Field Verbose: Int
+    @Flag(Help: "Copies nothing")
+    Field DryRun: Bool
+    @Option(Help: "Leaves these out", Name: "glob")
+    Field Exclude: String[]
+    Field Mode: CopyMode = CopyMode.NEWER
+    @Rename("log")
+    Field LogFile: String?
+End Struct
+
+// Commands as T? Fields, each a Struct of its own, which the rest of the command line fills.
+Struct CommitArgs
+    @Option(Help: "The commit's message", Short: "m", Required: True)
+    Field Message: String
+    @Flag(Help: "Commits every change", Short: "a")
+    Field All: Bool
+End Struct
+
+Struct PushArgs
+    @Positional(Help: "Where to", Optional: True)
+    Field Remote: String = "origin"
+End Struct
+
+@Program(Name: "git", About: "Keeps versions.")
+Struct Git
+    @Flag(Help: "Says less", Short: "q")
+    Field Quiet: Bool
+    @Subcommand(Help: "Records changes")
+    Field Commit: CommitArgs?
+    @Subcommand(Help: "Sends commits", Name: "send")
+    Field Push: PushArgs?
+End Struct
+
+Function ShowGit(arguments: String[])
+    Try
+        Local git = Try Args.Parse<Git>(arguments)
+        Local commit = git.Commit
+        Local push = git.Push
+        Print("quiet={git.Quiet}",
+              commit != Null ? "commit message={commit.Message} all={commit.All}" : "no commit",
+              push != Null ? "push remote={push.Remote}" : "no push")
+    Catch e As ArgsError
+        Print("{e.Kind} {e.Message} | {e.Usage}")
+    Catch e As ArgumentError
+        Print("help:", e.Message)
+    End Try
+End Function
+
+Function Show(copy: Copy)
+    Print("to={copy.Destination} files={copy.Sources} jobs={copy.Jobs} verbose={copy.Verbose}",
+          "dry={copy.DryRun} exclude={copy.Exclude} mode={copy.Mode} log={copy.LogFile ?? "Null"}")
+End Function
+
+Function Tries(arguments: String[])
+    Try
+        Show(Try Args.Parse<Copy>(arguments))
+    Catch e As ArgsHelp
+        Print("help:", e.Message)
+    Catch e As ArgsError
+        Print("{e.Kind} [{e.Name ?? "Null"}] {e.Message}")
+    Catch e As ArgumentError
+        Print("not an ArgsError:", e.Message)
+    End Try
+End Function
+
+// As its own child, the program reads its command line as a tool would.
+If Env.Get("FB_ARGS_CHILD") != Null
+    Show(Args.Parse<Copy>())
+    Process.Exit(0)
+End If
+
+// Positional arguments by their places, the last taking the rest; options long and short, with
+// their values after them, after '=', or after the letter; flags, together and counted.
+Tries(["out", "a.txt", "b.txt", "-j", "8", "-vv", "--dry-run", "--exclude", "*.tmp",
+       "--exclude=*.bak", "--mode", "all", "--log", "copy.log"])
+Tries(["out"])
+Tries(["-vj3", "out", "-v", "a"])
+Tries(["out", "--", "-weird", "--jobs"])
+Tries(["out", "-", "--mode=Newer"])
+
+// What's wrong, said with the names the command line has.
+Tries([])
+Tries(["out", "--jobs", "many"])
+Tries(["out", "--jbos", "3"])
+Tries(["out", "-x"])
+Tries(["out", "--jobs"])
+Tries(["out", "--dry-run=yes"])
+Tries(["out", "-j", "1", "--jobs", "2"])
+Tries(["out", "--mode", "sideways"])
+
+// --help and -h, and --version and -V.
+Tries(["--version"])
+Tries(["-V"])
+Print(Args.Help<Copy>())
+Try
+    Try Args.Parse<Copy>(["out", "-h"])
+Catch e As ArgsHelp
+    Print(e.Message == Args.Help<Copy>())
+End Try
+
+// An ArgsParser built at run time, with commands, each reading the rest of the command line.
+Local commit = ArgsParser("git commit").Option("Message", "message", "m", "The commit's message",
+                                                required: True)
+commit.Flag("All", "all", "a", "Commits every change")
+Local push = ArgsParser("git push").Positional("Remote", "Where to", required: False)
+Local git = ArgsParser("git", "Keeps versions.").Flag("Quiet", "quiet", "q", "Says less")
+git.Command("commit", "Commit", commit, "Records changes")
+git.Command("push", "Push", push, "Sends commits")
+Print(Try git.Parse(["-q", "commit", "-am", "first"]))
+Print(Try git.Parse(["push", "origin"]))
+Print(git.Help())
+For arguments In [["comit"], ["zzz"], [], ["commit"], ["commit", "-m"]]
+    Try
+        Try git.Parse(arguments)
+    Catch e As ArgsError
+        Print("{e.Kind} {e.Message} | {e.Usage}")
+    End Try
+End For
+
+// The same, from a Struct's Fields: a command takes the rest of the command line.
+ShowGit(["-q", "commit", "-am", "first"])
+ShowGit(["send"])
+ShowGit(["send", "upstream"])
+ShowGit([])
+ShowGit(["commit"])
+ShowGit(["comit"])
+ShowGit(["send", "--help"])
+Print(Args.Help<Git>())
+
+// Args.Parse<T>() prints the help or the error itself, and ends the program with 0 or 2.
+Local self = Folders.Executable.Expect("the program's path")
+For arguments In [["out", "a", "-v"], ["--help"], ["out", "--jobs", "x"]]
+    Local output = Try Command(self).Args(arguments).Env("FB_ARGS_CHILD", "1").Output()
+    Print(output.Status.Code ?? -1, "[{output.Text}]", "[{output.ErrorText}]")
+End For

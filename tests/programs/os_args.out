@@ -1,0 +1,101 @@
+to=out files=[a.txt, b.txt] jobs=8 verbose=2 dry=True exclude=[*.tmp, *.bak] mode=ALL log=copy.log
+to=out files=[] jobs=4 verbose=0 dry=False exclude=[] mode=NEWER log=Null
+to=out files=[a] jobs=3 verbose=2 dry=False exclude=[] mode=NEWER log=Null
+to=out files=[-weird, --jobs] jobs=4 verbose=0 dry=False exclude=[] mode=NEWER log=Null
+to=out files=[-] jobs=4 verbose=0 dry=False exclude=[] mode=NEWER log=Null
+MISSING [<to>] missing <to>
+INVALID [--jobs] --jobs: expected Int32, found "many"
+UNKNOWN [--jbos] unknown option '--jbos'; did you mean '--jobs'?
+UNKNOWN [-x] unknown option '-x'
+MISSING [--jobs] '--jobs' takes a value
+INVALID [--dry-run] '--dry-run' takes no value
+INVALID [--jobs] '--jobs' is given more than once
+INVALID [--mode] --mode: expected CopyMode, one of NEWER or ALL, found "sideways"
+help: tool 1.2.3
+help: tool 1.2.3
+Copies files somewhere.
+
+Usage: tool [options] <to> [file]...
+
+Arguments:
+  <to>                  Where they go
+  <file>                What to copy
+
+Options:
+  -j, --jobs <count>    How many at once (default: 4)
+  -v, --verbose         Says what it does
+      --dry-run         Copies nothing
+      --exclude <glob>  Leaves these out
+      --mode <mode>     (default: NEWER)
+      --log <log>
+  -h, --help            Prints this help
+  -V, --version         Prints the version
+True
+{"Quiet": true, "Commit": {"All": true, "Message": "first"}}
+{"Push": {"Remote": "origin"}}
+Keeps versions.
+
+Usage: git [options] <command>
+
+Options:
+  -q, --quiet  Says less
+  -h, --help   Prints this help
+
+Commands:
+  commit       Records changes
+  push         Sends commits
+UNKNOWN unknown command 'comit'; did you mean 'commit'? | Usage: git [options] <command>
+UNKNOWN unknown command 'zzz'; the commands are commit, push | Usage: git [options] <command>
+MISSING missing a command: commit, push | Usage: git [options] <command>
+MISSING missing --message | Usage: git commit [options]
+MISSING '-m' takes a value | Usage: git commit [options]
+quiet=True commit message=first all=True no push
+quiet=False no commit push remote=origin
+quiet=False no commit push remote=upstream
+quiet=False no commit no push
+MISSING missing --message | Usage: git commit [options]
+UNKNOWN unknown command 'comit'; did you mean 'commit'? | Usage: git [options] [command]
+help: Usage: git send [remote]
+
+Arguments:
+  <remote>    Where to
+
+Options:
+  -h, --help  Prints this help
+Keeps versions.
+
+Usage: git [options] [command]
+
+Options:
+  -q, --quiet  Says less
+  -h, --help   Prints this help
+
+Commands:
+  commit       Records changes
+  send         Sends commits
+0 [to=out files=[a] jobs=4 verbose=1 dry=False exclude=[] mode=NEWER log=Null
+] []
+0 [Copies files somewhere.
+
+Usage: tool [options] <to> [file]...
+
+Arguments:
+  <to>                  Where they go
+  <file>                What to copy
+
+Options:
+  -j, --jobs <count>    How many at once (default: 4)
+  -v, --verbose         Says what it does
+      --dry-run         Copies nothing
+      --exclude <glob>  Leaves these out
+      --mode <mode>     (default: NEWER)
+      --log <log>
+  -h, --help            Prints this help
+  -V, --version         Prints the version
+] []
+2 [] [error: --jobs: expected Int32, found "x"
+
+Usage: tool [options] <to> [file]...
+
+For more, try '--help'.
+]

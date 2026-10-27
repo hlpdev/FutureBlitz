@@ -311,7 +311,7 @@ Public Class ArgsParser
         text += Section("Arguments", arguments, width)
         text += Section("Options", options, width)
         text += Section("Commands", commands, width)
-        Return text
+        Return text.TrimEnd()
     End Method
 
     @PanicsAtCaller
@@ -467,12 +467,40 @@ Public Class ArgsParser
         Throw Mistake(ArgumentErrorKind.UNKNOWN, "unexpected argument '{word}'", word)
     End Method
 
-    // The required ones that weren't given.
+    // The required ones that weren't given, and an empty Array for each that takes more than one
+    // value and wasn't given, which Load then has for it.
     Method Check(read: Value) Throws ArgumentError
         For spec In Specs
             If spec.Required && !read.Contains(spec.Key)
                 Throw Mistake(ArgumentErrorKind.MISSING, "missing {spec.Shown()}", spec.Shown())
             End If
+        End For
+
+        Fill(read)
+    End Method
+
+    Method Fill(read: Value)
+        For spec In Specs
+            If spec.Repeated && !read.Contains(spec.Key) Then read[spec.Key] = Value.Array()
+        End For
+    End Method
+
+    // What a command line with nothing on it reads as: an empty Array for each argument that
+    // takes more than one value.
+    Package Method Nothing(): Value
+        Local read = Value.Object()
+        Fill(read)
+        Return read
+    End Method
+
+    // Each option's default, for the help, from what Load made of a command line with nothing on
+    // it, by its key.
+    Package Method ShowDefaults(defaults: Value)
+        For i = 0 Until Specs.Count
+            If Specs[i].Kind != ArgKind.OPTION Then Continue
+            Local spec = Specs[i]
+            spec.Fallback = DefaultText(defaults[spec.Key])
+            Specs[i] = spec
         End For
     End Method
 
@@ -577,8 +605,6 @@ Function ParserOf<T>(command: String = ""): ArgsParser
     Local program = T.Attribute(Program)
     Local name = Given(program?.Name, command != "" ? command : ExecutableName())
     Local parser = ArgsParser(name, program?.About ?? "", program?.Version ?? "")
-    // What the Fields are without their arguments, to show in the help, when T has them all.
-    Local defaults = DefaultsOf<T>()
     For Field f: F In T
         If f.Has(Skip) Then Continue
         Local key = f.Attribute(Rename)?.Name ?? f.Name
@@ -608,11 +634,14 @@ Function ParserOf<T>(command: String = ""): ArgsParser
         End If
 
         Local option = f.Attribute(Option)
-        Local shown = defaults != Null ? Shown(defaults[key]) : ""
         parser.Option(key, Given(option?.Long, long), option?.Short ?? "", option?.Help ?? "",
-                      Given(option?.Name, long), option?.Required ?? False, many, shown)
+                      Given(option?.Name, long), option?.Required ?? False, many)
     End For
 
+    // What the Fields are without their arguments, to show in the help, when Load can make a T of
+    // a command line with nothing on it.
+    Local defaults = DefaultsOf<T>(parser.Nothing())
+    If defaults != Null Then parser.ShowDefaults(defaults)
     Return parser
 End Function
 
@@ -623,9 +652,9 @@ End Function
 
 // What a T's Fields are when nothing sets them, by their keys, when Load can make one of nothing.
 // Read from what Save gives, not the Fields, which a T? may not have.
-Function DefaultsOf<T>(): Value?
+Function DefaultsOf<T>(nothing: Value): Value?
     Try
-        Return Save(Try Load<T>(Value.Object()))
+        Return Save(Try Load<T>(nothing))
     Catch e As ParseError
         Return Null
     End Try
@@ -633,7 +662,7 @@ End Function
 
 // A default's text for the help, or "" for nothing worth showing: Null, False, 0, "", or an
 // empty Array.
-Function Shown(value: Value?): String
+Function DefaultText(value: Value?): String
     If value == Null || value.IsNull || value == Value(False) || value == Value(0) || value == Value("") Then Return ""
     If value.IsArray && value.Count == 0 Then Return ""
     Return value.AsString() ?? value.ToString()
