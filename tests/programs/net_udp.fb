@@ -1,6 +1,7 @@
 // std.net's UDP: a program sends itself datagrams between UdpSockets, blocking and Async, empty
 // ones too, and a Receive that takes too long throws a TimeoutError. Nothing leaves the machine,
-// and the ports are the OS's to pick.
+// and the ports are the OS's to pick. A broadcast is tests/runtime/net_tests.cpp's, on Linux and
+// macOS, which can skip it where macOS doesn't let the program reach the LAN.
 
 Import std.core
 Import std.net
@@ -98,25 +99,6 @@ Try
     Catch e As NetError
         Print(e.Kind)
     End Try
-Catch e As Error
-    Print("failed: {e.Message}")
-End Try
-
-// A broadcast needs SetBroadcast(True) first, and then what listens at its port on the machine
-// gets it.
-Try
-    Local receiver = UdpSocket.Bind(SocketAddress(IpAddress.Any, 0), True)
-    Local everyone = SocketAddress(IpAddress.Broadcast, receiver.LocalAddress.Port)
-    Local sender = UdpSocket.Bind(SocketAddress(IpAddress.Any, 0))
-    Try
-        sender.Send([1], everyone)
-    Catch e As NetError
-        Print("without SetBroadcast:", e.Kind)
-    End Try
-
-    sender.SetBroadcast(True)
-    sender.Send([2], everyone)
-    Print("broadcast:", receiver.Receive(2.Seconds).Bytes)
 Catch e As Error
     Print("failed: {e.Message}")
 End Try

@@ -13,6 +13,4 @@ True
 True
 CLOSED the UdpSocket is closed
 CLOSED
-without SetBroadcast: OTHER
-broadcast: [2]
 CLOSED

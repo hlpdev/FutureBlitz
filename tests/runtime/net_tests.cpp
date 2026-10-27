@@ -1,11 +1,15 @@
-// std.net's IPC listeners on Linux and macOS, where they're Unix sockets whose files the tests
-// make themselves: one that a program left takes over, another file stays, and a name fits
-// however long TMPDIR is. Windows' named pipes have no files.
+// std.net's sockets on Linux and macOS, where a test program can't check them on every machine:
+// a UDP broadcast, which macOS's Local Network privacy refuses a program it doesn't allow, as on
+// CI's runners, so the test says so and skips there; and IPC listeners' Unix socket files, which
+// the tests make themselves: one that a program left takes over, another file stays, and a name
+// fits however long TMPDIR is. (On Windows, where libuv is compiled for UCRT, which the tests
+// aren't, linking it into them breaks their heap.)
 #ifndef _WIN32
 
 #include "fb/runtime.hpp"
 #include "internal.hpp"
 
+#include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/reporters/catch_reporter_event_listener.hpp>
@@ -37,6 +41,40 @@ public:
         fb::runtime::run_finish();
     }
 };
+
+/// NetErrorKind's ordinals, as fb_io_net_error_kind gives them.
+#ifdef __APPLE__
+constexpr std::int32_t unreachable_kind = 2;
+#endif
+constexpr std::int32_t other_kind = 6;
+
+/// An IPv4 address and port as SocketBytes gives them, in a UInt8[] the test owns, or room for
+/// fb_io_net_address's. Its array points at its own bytes, so it isn't copied.
+struct address_t {
+    fb_array_t array{};
+    std::array<std::uint8_t, 23> bytes{};
+
+    address_t(const std::array<std::uint8_t, 4> parts, const std::uint16_t port) {
+        array.header.refcount = -1;
+        array.count = static_cast<std::int64_t>(bytes.size());
+        array.capacity = array.count;
+        array.data = bytes.data();
+        bytes[0] = 4;
+        std::ranges::copy(parts, bytes.begin() + 1);
+        bytes[17] = static_cast<std::uint8_t>(port / 256);
+        bytes[18] = static_cast<std::uint8_t>(port % 256);
+    }
+
+    address_t(const address_t&) = delete;
+    address_t& operator=(const address_t&) = delete;
+};
+
+/// A UDP socket's port.
+std::uint16_t port_of(void* socket) {
+    address_t local({}, 0);
+    REQUIRE(fb_io_net_address(socket, 0, &local.array) == 0);
+    return static_cast<std::uint16_t>((local.bytes[17] * 256) + local.bytes[18]);
+}
 
 /// A String the test owns, as a literal is.
 struct literal_t {
@@ -81,6 +119,31 @@ bool connects(void* listener, const literal_t& name) {
 } // namespace
 
 CATCH_REGISTER_LISTENER(finish_runtime_t)
+
+TEST_CASE("a UDP broadcast needs SetBroadcast, and then what listens at its port gets it") {
+    void* receiver = fb_io_net_new(4);
+    const address_t any({}, 0);
+    REQUIRE(fb_io_net_bind(receiver, &any.array, 1) == 0);
+    const address_t everyone({ 255, 255, 255, 255 }, port_of(receiver));
+    void* sender = fb_io_net_new(4);
+    REQUIRE(fb_io_net_bind(sender, &any.array, 0) == 0);
+
+    const std::array<std::uint8_t, 1> bytes{ 7 };
+    const std::int32_t refused = fb_io_net_send(sender, bytes.data(), 1, &everyone.array);
+#ifdef __APPLE__
+    if (fb_io_net_error_kind(refused) == unreachable_kind) {
+        fb_io_net_release(sender);
+        fb_io_net_release(receiver);
+        SKIP("macOS's Local Network privacy doesn't let this program reach the LAN");
+    }
+#endif
+    CHECK(fb_io_net_error_kind(refused) == other_kind);
+    REQUIRE(fb_io_net_set(sender, 0, 1) == 0);
+    CHECK(fb_io_net_send(sender, bytes.data(), 1, &everyone.array) == 0);
+    CHECK(fb_io_net_receive(receiver, wait_nanoseconds) == 0);
+    fb_io_net_release(sender);
+    fb_io_net_release(receiver);
+}
 
 TEST_CASE("an IPC listener takes over a Unix socket's file that nothing listens at") {
     const std::string path = folder(own("/tmp/fb-net-tests")) + "/fb-net-stale.sock";
