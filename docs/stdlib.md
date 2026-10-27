@@ -1532,9 +1532,12 @@ discovery. `Import std.net` brings in std/net/.
   (the job pool's size unless it's set, 1 at least, or a panic, and fixed once they start), at most
   that many at once, while the main thread goes on answering the others; it's given a `WorkRequest`,
   a Sendable copy of the request (its `Verb`, `Target`, `Path`, `Version`, `RemoteAddress`, `Bytes`,
-  `Headers`, `Query`, `Text`, `Param(name)`, and `Form()`), and the middleware runs around it on the
-  main thread. The threads start at the first call, and end once Serve gives; a call after, or with
-  1024 waiting already, is a 503. Still to come: Classes whose Methods carry `@Get` and the rest,
+  `Headers`, `Query`, `Text`, `Param(name)`, `Params`, and `Form()`), and the middleware runs
+  around it on the main thread. The threads start at the first call, and end once Serve has given
+  and the connections it was answering have ended, so a work route's request being answered as
+  Stop comes is answered, as an Async route's is; a call while `MaxQueuedWork` calls (1024 unless
+  it's set, 1 at least, and fixed once the threads start) wait for a thread already is a 503.
+  Still to come: Classes whose Methods carry `@Get` and the rest,
   registered with `server.Routes<T>(instance)` and binding a Struct of path parameters, the query,
   and a JSON body (lane 2's For Method over a Func with type parameters of its own), and HTTPS with
   ACME (lane 11's, through wire.fb's Duplex).
