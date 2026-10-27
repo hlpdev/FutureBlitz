@@ -4,7 +4,7 @@
 
 ## parse-1 (medium): A block's tag with a blank after '#', or a line break in it, is BAD_TEMPLATE, though {{/ if }} and {{ ! }} are read
 
-Status: fixed in 91f0f7aa: a block's tag skips blanks, line breaks among them, after its '#', and its word ends at the next blank, line breaks too; text_template renders a padded {{# if title }}, an {{#each}} with a line feed before its name, and an {{#unless}} with a tab and line feed after the '#' and a CRLF before its name
+Status: fixed in 75e45023: a block's tag skips blanks, line breaks among them, after its '#', and its word ends at the next blank, line breaks too; text_template renders a padded {{# if title }}, an {{#each}} with a line feed before its name, and an {{#unless}} with a tab and line feed after the '#' and a CRLF before its name
 
 Where: std/text/template.fb:278
 
@@ -45,7 +45,7 @@ Skeptic: Ran the program at C:/Users/Hunter/AppData/Local/Temp/claude/C--Users-H
 
 ## parse-4 (medium): {{this.name}} silently renders nothing instead of the scope's name (or a BAD_TEMPLATE)
 
-Status: fixed in b411fbbc: a path whose first step is "this" is the innermost scope's own name, read from that scope alone, not looked up outward, as Handlebars has it; stdlib.md says so, and text_template renders {{#each this.items}} with {{this.name}}, an outer {{this.title}} inside it that gives nothing, and {{this.title}} at the top
+Status: fixed in 900cdd35: a path whose first step is "this" is the innermost scope's own name, read from that scope alone, not looked up outward, as Handlebars has it; stdlib.md says so, and text_template renders {{#each this.items}} with {{this.name}}, an outer {{this.title}} inside it that gives nothing, and {{this.title}} at the top
 
 Where: std/text/template.fb:315
 
@@ -77,7 +77,7 @@ Skeptic: Ran p4.fb in debug and release. `{{#each people}}{{this.name}} {{/each}
 
 ## render-1 (medium): {{this.name}}, Handlebars' spelling of a name in the current scope, always renders nothing
 
-Status: fixed in b411fbbc, with parse-4, the same bug
+Status: fixed in 900cdd35, with parse-4, the same bug
 
 Where: std/text/template.fb:315
 
@@ -105,7 +105,7 @@ Skeptic: Ran the finding's program (rv-template/rendering/r1.fb) in debug and re
 
 ## render-2 (medium): A .html template rendered as a partial of a non-HTML template doesn't escape
 
-Status: fixed in b2e7d07b: each frame being rendered says whether it escapes for HTML; blocks take what they're in, and a partial escapes when what renders it does or its own name ends with ".html" or ".htm"; stdlib.md and the Templates comment say so, and text_template renders row.html inside mail.txt, escaped there and the text around it not
+Status: fixed in 8c87e5c4: each frame being rendered says whether it escapes for HTML; blocks take what they're in, and a partial escapes when what renders it does or its own name ends with ".html" or ".htm"; stdlib.md and the Templates comment say so, and text_template renders row.html inside mail.txt, escaped there and the text around it not
 
 Where: std/text/template.fb:74
 
@@ -136,7 +136,7 @@ Skeptic: Ran rv-template/rendering/r2.fb in debug and release. The output is "<t
 
 ## render-3 (low): The indented-partial cache key collides with a template whose name contains a newline
 
-Status: fixed in 01df45ef: Templates keeps the templates it has read by name, then by indentation, so a name with a line break in it can't be an indented partial's key, and Add replaces just that name's; text_template renders "a" indented as a partial and then the template named "a\n  "
+Status: fixed in bccea600: Templates keeps the templates it has read by name, then by indentation, so a name with a line break in it can't be an indented partial's key, and Add replaces just that name's; text_template renders "a" indented as a partial and then the template named "a\n  "
 
 Where: std/text/template.fb:94
 
@@ -171,7 +171,7 @@ Skeptic: Ran rv-template/rendering/r3.fb in debug and release. The output is "  
 
 ## render-4 (low): Several Render paths the docs promise have no test
 
-Status: fixed in c9b5b216: text_template renders Templates from a Map<String, String> and a Map<String, Value>, an {{#unless}} with an {{else}}, @key over an Array, and nested {{#each this}}, and throws MISSING_VALUE for a partial a Templates doesn't have
+Status: fixed in 965402c0: text_template renders Templates from a Map<String, String> and a Map<String, Value>, an {{#unless}} with an {{else}}, @key over an Array, and nested {{#each this}}, and throws MISSING_VALUE for a partial a Templates doesn't have
 
 Where: tests/programs/text_template.fb:99
 
