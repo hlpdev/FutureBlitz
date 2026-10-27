@@ -1,0 +1,20 @@
+/users/7 -> 200 user 7 verbose=False limit=none order=NAME
+/users/7?verbose=true&limit=5 -> 200 user 7 verbose=True limit=5 order=NAME
+/users/7?VERBOSE=1&order=AGE -> 200 user 7 verbose=True limit=none order=AGE
+/api/users/8 -> 200 user 8 verbose=False limit=none order=NAME
+/search?q=two+words -> 200 words=two words page=1
+/search?q=x&page=3 -> 200 words=x page=3
+/users/x -> 400 Id: expected Int32, found "x"
+/users/7?limit=lots -> 400 Limit: expected Int32, found "lots"
+/users/7?order=height -> 400 Order: expected Sort, one of NAME or AGE, found "height"
+/search -> 200 words= page=1
+{"Name":"Ada","Age":36} -> 201 Ada 36 red POST
+not json -> 400 the body isn't JSON: the text isn't JSON: there's a word JSON doesn't have 
+{"Name":"Ada"} -> 201 Ada 0 red POST
+{"Name":"Ada","Age":"old"} -> 400 User.Age: expected Int32, found "old" 
+ -> 400 User: missing, and CreateUser's Field User has no default or zero 
+200 PUT item 3
+200 DELETE item 4
+200 patched
+405 
+calls: 3

@@ -1,0 +1,19 @@
+// Two of a routes Class's Methods with the same method's paths are two routes for one, so Routes
+// panics where it's called, as Get does.
+Import std.core
+Import std.net.http
+
+Struct Id
+    Field Id: Int
+End Struct
+
+Class Twice
+    @Get("/users/:id")
+    Async Method Show(args: Id): HttpResponse => HttpResponse.Of(204)
+
+    @Get("/users/:name")
+    Async Method Again(args: Id): HttpResponse => HttpResponse.Of(204)
+End Class
+
+Local server = HttpServer()
+server.Routes(Twice())

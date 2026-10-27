@@ -1,0 +1,120 @@
+// An HttpServer's routes from a Class's Methods: each Async Method with @Get, @Post, and the rest
+// is a route, whose argument Load makes from the path's parameters, the query, and a JSON body,
+// each read as its Field's type; one a request doesn't give keeps its default, and a request
+// whose values don't fit is a 400 that says why.
+
+Import std.core
+Import std.collections
+Import std.net
+Import std.net.http
+
+Enum Sort
+    NAME, AGE
+End Enum
+
+Struct ShowUser
+    Field Id: Int
+    Field Verbose: Bool = False
+    Field Limit: Int? = Null
+    Field Order: Sort = Sort.NAME
+End Struct
+
+Struct Search
+    @Rename("q") Field Words: String
+    Field Page: Int = 1
+End Struct
+
+Class NewUser
+    Field Name: String
+    Field Age: Int
+End Class
+
+Struct CreateUser
+    @JsonBody Field User: NewUser
+    Field Team: String = "none"
+End Struct
+
+Struct Nothing
+End Struct
+
+Class Users
+    Field Calls: Int
+
+    @Get("/users/:id")
+    Async Method Show(args: ShowUser): HttpResponse
+        Calls += 1
+        Local limit = args.Limit?.ToString() ?? "none"
+        Return Text("user {args.Id} verbose={args.Verbose} limit={limit} order={args.Order}")
+    End Method
+
+    @Get("/search")
+    Async Method Find(args: Search): HttpResponse
+        Return Text("words={args.Words} page={args.Page}")
+    End Method
+
+    // With the request too.
+    @Post("/users")
+    Async Method Create(args: CreateUser, request: HttpRequest): HttpResponse
+        Local user = args.User
+        Local response = HttpResponse.Of(StatusCode.CREATED,
+                                         Body.Text("{user.Name} {user.Age} {args.Team}"))
+        response.Headers.Set("X-Verb", request.Verb)
+        Return response
+    End Method
+
+    // Two routes for one Method.
+    @Put("/items/:id")
+    @Delete("/items/:id")
+    Async Method Change(args: ShowUser, request: HttpRequest): HttpResponse
+        Return Text("{request.Verb} item {args.Id}")
+    End Method
+
+    @Patch("/status")
+    Async Method Status(args: Nothing): HttpResponse => Text("patched")
+
+    // Neither an Async Method with an attribute, nor one at all: no routes.
+    Method Plain(args: ShowUser): HttpResponse => Text("plain")
+
+    Async Method Unrouted(args: ShowUser): HttpResponse => Text("unrouted")
+End Class
+
+Function Text(text: String): HttpResponse => HttpResponse.Of(Body.Text(text))
+
+Function Shown(response: HttpResponse): String => "{response.Status} {response.Text}"
+
+Local users = Users()
+Local server = HttpServer()
+server.Routes(users)
+server.Group("/api").Routes(Users())
+Try
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local serving = server.Serve()
+    Local base = "http://127.0.0.1:{server.LocalAddress.Port}"
+    Local client = HttpClient()
+
+    // A path parameter, query parameters by any case, a Field's default, an Int?, and an Enum.
+    For path In ["/users/7", "/users/7?verbose=true&limit=5", "/users/7?VERBOSE=1&order=AGE",
+                 "/api/users/8", "/search?q=two+words", "/search?q=x&page=3", "/users/x",
+                 "/users/7?limit=lots", "/users/7?order=height", "/search"]
+        Print(path, "->", Shown(Await client.GetAsync(base + path)))
+    End For
+
+    // A JSON body, with the request; one that isn't JSON, or doesn't fit, or isn't there.
+    For body In ["{{\"Name\":\"Ada\",\"Age\":36}}", "not json", "{{\"Name\":\"Ada\"}}",
+                 "{{\"Name\":\"Ada\",\"Age\":\"old\"}}", ""]
+        Local response = Await client.PostAsync("{base}/users?team=red", Body.Json(body))
+        Print(body, "->", Shown(response), response.Headers.Get("X-Verb") ?? "")
+    End For
+
+    // Two routes of one Method, a Method of no Fields, and Methods that aren't routes.
+    Print(Shown(Await client.PutAsync("{base}/items/3", Body.Text(""))))
+    Print(Shown(Await client.DeleteAsync("{base}/items/4")))
+    Print(Shown(Await client.PatchAsync("{base}/status", Body.Text(""))))
+    Print(Shown(Await client.GetAsync("{base}/items/3")))
+    Print("calls:", users.Calls)
+
+    server.Stop()
+    Await serving
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
