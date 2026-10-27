@@ -206,8 +206,19 @@ TEST_CASE("an integer by a float's spec keeps every digit, as a float past 2^53 
     CHECK(exact(9995, false, ".2e") == "1.00e4");
 
     // Where a float holds the integer, the text is the float's.
-    for (const std::string_view text : { ".0"sv, ".3"sv, "e"sv, ".2e"sv, ".1E"sv, "%"sv, ".1%"sv,
-                                         ",.2"sv, "+010.1"sv, "f"sv, "_.1f"sv }) {
+    for (const std::string_view text : {
+             ".0"sv,
+             ".3"sv,
+             "e"sv,
+             ".2e"sv,
+             ".1E"sv,
+             "%"sv,
+             ".1%"sv,
+             ",.2"sv,
+             "+010.1"sv,
+             "f"sv,
+             "_.1f"sv,
+         }) {
         for (const std::uint64_t value : { 0ULL, 1ULL, 7ULL, 25ULL, 99ULL, 125ULL, 1234567ULL }) {
             INFO(text << " " << value);
             CHECK(exact(value, false, text) == number(static_cast<double>(value), text));
