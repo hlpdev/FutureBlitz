@@ -941,6 +941,9 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | Any thread reads a Static ReadOnly Field of a Sendable type, as a Sendable Const (spec 10, step 30) | it never changes once its initializer runs, in source order with the Globals |
 | A typed For Method's Where Func type can bind type parameters of its own per Method, and takes Async Methods when it gives a Task; sema and lowering go over one list of Methods (spec 13, step 30; the user's call) | Routes<T> binds each route's own argument type, and what sema checks is what lowering copies |
 | Step 32's integration program is a test program with its own HTTPS feed and site, so it runs with no internet and leaves nothing behind (step 32) | std working together is checked by ctest on every OS |
+| verify.py runs the test programs --jobs at a time, each in a folder of its own, and the programs ctest test is 32 shards with a 20-minute limit each; a run past 600 s fails (the user's call, 2026-10-27) | a full verify took 78 minutes on one core of 32; a hang now names its program |
+| Automatic HTTPS keeps its account and certificate in a folder the program gives, written atomically and reused across runs, as Caddy and certmagic do; the HTTP side answers challenges and 308s everything else; it renews at a third of the lifetime left, at start too, and a failure is logged and readable while the old certificate goes on (step 30) | a restarted server reuses its certificate, and a renewal failure never takes a site down |
+| wss:// takes `tls: TlsClient? = Null`, Null trusting the OS's roots; a renewed chain applies to new connections only, through TlsServer.Identify (step 30) | a test or a private CA can be trusted without a global setting |
 
 ## Libraries and packages (M7)
 

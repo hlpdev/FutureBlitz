@@ -1516,6 +1516,27 @@ std's Hex and == in place of its own. Lane 7's fixes came with it: net_tests cou
 nested-overloads sema test allows 30 seconds on Linux's CI, and CI gives a job three hours, as
 macOS's runner needs more than two.
 
+The parallel verify (lane 3): tools/verify.py builds and runs the test programs --jobs at a time,
+each run in an empty folder of its own, with builds cached between steps, a run past 600 s failed
+and its whole process tree killed, and --quick checking changed release_ programs and changes in a
+program's own folder; the programs ctest test is 32 shards (FB_PROGRAM_SHARD), each with a 20-minute
+limit. A full verify on the 32-core machine went from about 78 minutes to about 10. Its review's
+four findings were fixed (docs/review/parallel-verify.md).
+
+Step 30's HTTPS (lane 11): HttpServer.ListenTls(address, TlsServer), through a Package TlsDuplex in
+wire.fb, each handshake in its connection's own Answer with IdleTimeout over all of it; wss:// for
+WebSocket.Connect and ConnectAsync, which take `tls: TlsClient? = Null`; TlsServer.Identify, for new
+connections only; and automatic HTTPS, ListenAutoAsync(acme, names, folder, https, http) with
+AcmeClient.InFolder(directory, folder), which keeps account.pem and certificate.pem (key and chain
+in one atomic file) in the folder, answers HTTP-01 on the HTTP side and 308s the rest (a 503 with
+Retry-After until HTTPS listens), renews when a third of the lifetime is left, at start too, checked
+every RenewalCheck, or at once through RenewAsync, and logs a failure through std.log while
+RenewalError and CertificateNotAfter say it. Its review's nine findings were fixed
+(docs/review/https.md). Step 32's program moved to it: its feed and site serve over ListenTls and
+its WebSocket client connects with wss://, stopping its servers on every way out
+(docs/review/readings-tls.md). Lane 9's test holds two keep-alive connections to the HTTP test
+server and asks on a third.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
