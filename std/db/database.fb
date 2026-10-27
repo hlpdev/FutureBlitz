@@ -485,6 +485,88 @@ Public Class Database
         Return Try statement.Query<T>()
     End Method
 
+    // The rows sql's one query reads as Ts, with its parameters bound to values as Execute's are.
+    @PanicsAtCaller
+    Public Method Query<T, A: SqlValue>(sql: String, a: A): T[] Throws DatabaseError, ParseError
+        Return Try Prepare(sql).Query<T, A>(a)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B>(sql: String, a: A, b: B): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Return Try Prepare(sql).Query<T, A, B>(a, b)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B, C>(sql: String, a: A, b: B,
+                                    c: C): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Return Try Prepare(sql).Query<T, A, B, C>(a, b, c)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B, C, D>(sql: String, a: A, b: B, c: C,
+                                       d: D): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Return Try Prepare(sql).Query<T, A, B, C, D>(a, b, c, d)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B, C, D, E>(sql: String, a: A, b: B, c: C, d: D,
+                                          e: E): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Return Try Prepare(sql).Query<T, A, B, C, D, E>(a, b, c, d, e)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B, C, D, E, F>(sql: String, a: A, b: B, c: C, d: D, e: E,
+                                             f: F): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Return Try Prepare(sql).Query<T, A, B, C, D, E, F>(a, b, c, d, e, f)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B, C, D, E, F, G>(sql: String, a: A, b: B, c: C, d: D, e: E, f: F,
+                                                g: G): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Where G: SqlValue
+        Return Try Prepare(sql).Query<T, A, B, C, D, E, F, G>(a, b, c, d, e, f, g)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B, C, D, E, F, G, H>(sql: String, a: A, b: B, c: C, d: D, e: E, f: F,
+                                                   g: G, h: H): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Where G: SqlValue
+        Where H: SqlValue
+        Return Try Prepare(sql).Query<T, A, B, C, D, E, F, G, H>(a, b, c, d, e, f, g, h)
+    End Method
+
     @PanicsAtCaller
     Public Method Rows<A: SqlValue>(sql: String, a: A): Row[] Throws DatabaseError
         Return Try Prepare(sql).Rows(a)
@@ -860,6 +942,87 @@ Public Class Statement
     @PanicsAtCaller
     Public Method Query<T>(): T[] Throws DatabaseError, ParseError
         Return Try Loaded<T>(Try Collect())
+    End Method
+
+    // Binds its parameters to values, in order, as Execute does, then gives the rows it reads as
+    // Ts, as Query<T>() does.
+    @PanicsAtCaller
+    Public Method Query<T, A: SqlValue>(a: A): T[] Throws DatabaseError, ParseError
+        Return Try Loaded<T>(Try Rows(a))
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B>(a: A, b: B): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Return Try Loaded<T>(Try Rows(a, b))
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B, C>(a: A, b: B, c: C): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Return Try Loaded<T>(Try Rows(a, b, c))
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B, C, D>(a: A, b: B, c: C, d: D): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Return Try Loaded<T>(Try Rows(a, b, c, d))
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B, C, D, E>(a: A, b: B, c: C, d: D,
+                                          e: E): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Return Try Loaded<T>(Try Rows(a, b, c, d, e))
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B, C, D, E, F>(a: A, b: B, c: C, d: D, e: E,
+                                             f: F): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Return Try Loaded<T>(Try Rows(a, b, c, d, e, f))
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B, C, D, E, F, G>(a: A, b: B, c: C, d: D, e: E, f: F,
+                                                g: G): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Where G: SqlValue
+        Return Try Loaded<T>(Try Rows(a, b, c, d, e, f, g))
+    End Method
+
+    @PanicsAtCaller
+    Public Method Query<T, A, B, C, D, E, F, G, H>(a: A, b: B, c: C, d: D, e: E, f: F, g: G,
+                                                   h: H): T[] Throws DatabaseError, ParseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Where G: SqlValue
+        Where H: SqlValue
+        Return Try Loaded<T>(Try Rows(a, b, c, d, e, f, g, h))
     End Method
 
     // Binds its parameters to values, in order, as Execute does, then gives the rows it reads.
