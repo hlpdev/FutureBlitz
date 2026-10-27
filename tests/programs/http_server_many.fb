@@ -1,0 +1,102 @@
+// Many connections to a program's own HttpServer: requests through one HttpClient, which keeps
+// its connections, and through a new client each, fifty at once, and WebSockets that a handler
+// takes over, one after another and fifty at once. The server holds nothing of them after it
+// stops, which the leak report at the end would show.
+
+Import std.core
+Import std.collections
+Import std.concurrent
+Import std.net
+Import std.net.http
+Import std.net.ws
+
+Async Function Echo(request: HttpRequest): HttpResponse
+    Try
+        Local ws = Try Await WebSocket.AcceptAsync(request)
+        Loop
+            Local message = Try Await ws.ReceiveAsync()
+            If message == Null Then Break
+            Try Await ws.SendAsync(message.Text)
+        End Loop
+    Catch e As NetError
+        Return HttpResponse.Of(StatusCode.BAD_REQUEST)
+    End Try
+
+    Return HttpResponse.Of(StatusCode.OK)
+End Function
+
+// A request through a client of its own, which answers with its number.
+Async Function Fetched(base: String, n: Int): Bool
+    Try
+        Return (Try Await HttpClient().GetAsync("{base}/n/{n}")).Text == "{n}"
+    Catch e As Error
+        Return False
+    End Try
+End Function
+
+// A WebSocket that sends its number, gets it back, and closes.
+Async Function Talked(url: String, n: Int): Bool
+    Try
+        Local ws = Try Await WebSocket.ConnectAsync(url)
+        Try Await ws.SendAsync("{n}")
+        Local back = Try Await ws.ReceiveAsync()
+        Await ws.CloseAsync()
+        Local closed = Try Await ws.ReceiveAsync() == Null
+        Return back?.Text == "{n}" && closed
+    Catch e As Error
+        Return False
+    End Try
+End Function
+
+Function Count(results: Bool[]): Int
+    Local count = 0
+    For result In results
+        If result Then count += 1
+    End For
+    Return count
+End Function
+
+Local server = HttpServer()
+server.Get("/n/:n", Async Function(request: HttpRequest): HttpResponse
+    Return HttpResponse.Of(Body.Text(request.Param("n") ?? ""))
+End Function)
+server.Get("/ws", Function(request: HttpRequest) => Echo(request))
+Try
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local serving = server.Serve()
+    Local base = "http://127.0.0.1:{server.LocalAddress.Port}"
+    Local url = "ws://127.0.0.1:{server.LocalAddress.Port}/ws"
+
+    Local client = HttpClient()
+    Local same = 0
+    For n = 1 To 300
+        If (Await client.GetAsync("{base}/n/{n}")).Text == "{n}" Then same += 1
+    End For
+    Print("one client:", same)
+
+    Local fetched = 0
+    For round = 0 Until 4
+        Local tasks: Task<Bool>[] = []
+        For n = 1 To 50
+            tasks.Add(Fetched(base, round * 50 + n))
+        End For
+        fetched += Count(Await WhenAll(tasks))
+    End For
+    Print("a client each, fifty at once:", fetched)
+
+    Local talked: Bool[] = []
+    For n = 1 To 100
+        talked.Add(Await Talked(url, n))
+    End For
+    Print("WebSockets one after another:", Count(talked))
+    Local sockets: Task<Bool>[] = []
+    For n = 1 To 50
+        sockets.Add(Talked(url, n))
+    End For
+    Print("WebSockets fifty at once:", Count(Await WhenAll(sockets)))
+
+    server.Stop()
+    Await serving
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
