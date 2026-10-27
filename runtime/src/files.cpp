@@ -1695,6 +1695,22 @@ fb_string_t* fb_io_dir_temp() {
     return temporary ? string_of(trimmed(*temporary)) : nullptr;
 }
 
+fb_string_t* fb_io_real_path(const fb_string_t* path) {
+    const std::string text(view_of(path));
+    if (has_nul(text)) {
+        return nullptr;
+    }
+
+    uv_fs_t call{};
+    std::optional<std::string> real;
+    if (uv_fs_realpath(nullptr, &call, text.c_str(), nullptr) == 0) {
+        real = with_slashes(static_cast<const char*>(call.ptr));
+    }
+
+    uv_fs_req_cleanup(&call);
+    return real ? string_of(*real) : nullptr;
+}
+
 fb_string_t* fb_io_dir_config() {
 #ifdef _WIN32
     const std::optional<std::string> folder = path_from(

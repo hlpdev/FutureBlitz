@@ -12,6 +12,52 @@ Import std.net
 Import std.net.http
 Import std.text
 
+// A link at `link` to `target`, a folder's when `folder` says, which Windows makes only with
+// Developer Mode on or for an administrator; and a sparse file of `size` bytes, which holds no
+// disk for them. Each tells whether it could.
+#If PLATFORM_WINDOWS
+Extern "C"
+    Function CreateSymbolicLinkA(link: CString, target: CString, flags: UInt32): UInt8
+    Function CreateFileA(name: CString, access: UInt32, share: UInt32, security: Ptr<Void>,
+                         creation: UInt32, flags: UInt32, template: Ptr<Void>): Ptr<Void>
+    Function DeviceIoControl(device: Ptr<Void>, code: UInt32, input: Ptr<Void>, inputSize: UInt32,
+                             output: Ptr<Void>, outputSize: UInt32, ByRef returned: UInt32,
+                             overlapped: Ptr<Void>): Int32
+    Function SetFilePointerEx(file: Ptr<Void>, distance: Int64, position: Ptr<Void>,
+                              method: UInt32): Int32
+    Function SetEndOfFile(file: Ptr<Void>): Int32
+    Function CloseHandle(handle: Ptr<Void>): Int32
+End Extern
+
+Function MadeLink(link: Path, target: Path, folder: Bool): Bool
+    Return CreateSymbolicLinkA(link.Text, target.Text, folder ? 3 : 2) != 0
+End Function
+
+Function MadeSparse(path: Path, size: Int64): Bool
+    // GENERIC_READ | GENERIC_WRITE, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL; FSCTL_SET_SPARSE.
+    Local file = CreateFileA(path.Text, 0xC0000000, 0, Null, 2, 0x80, Null)
+    Local returned: UInt32 = 0
+    Local sparse = DeviceIoControl(file, 0x900C4, Null, 0, Null, 0, ByRef returned, Null) != 0
+    Local sized = SetFilePointerEx(file, size, Null, 0) != 0 && SetEndOfFile(file) != 0
+    CloseHandle(file)
+    Return sparse && sized
+End Function
+#Else
+Extern "C"
+    Function symlink(target: CString, link: CString): Int32
+    Function truncate(path: CString, size: Int64): Int32
+End Extern
+
+Function MadeLink(link: Path, target: Path, folder: Bool): Bool
+    Return symlink(target.Text, link.Text) == 0
+End Function
+
+Function MadeSparse(path: Path, size: Int64): Bool
+    If Try? File.WriteText(path, "") == Null Then Return False
+    Return truncate(path.Text, size) == 0
+End Function
+#End If
+
 // A connection written by hand: the request, the end of what it writes, and what comes back,
 // its status line and the headers that don't change from run to run.
 Async Function Raw(port: UInt16, request: String): String Throws Error
@@ -36,6 +82,7 @@ End Function
 
 Local unique = "fb-http-files-{Hex.Encode(SecureRandom.Bytes(8))}"
 Local folder = ((Try? Dir.Temp()) ?? Path(".")).Join(Path(unique))
+Local outside = ((Try? Dir.Temp()) ?? Path(".")).Join(Path(unique + "-outside"))
 Try
     Dir.CreateAll(folder.Join(Path("a")))
     Dir.CreateAll(folder.Join(Path("docs")))
@@ -52,6 +99,16 @@ Try
         digits += "0123456789"
     End For
     File.WriteText(folder.Join(Path("digits.txt")), digits)
+
+    // A dot folder's file, links out of the folder, to a file and to a folder, and a file past
+    // what Files reads whole.
+    Dir.CreateAll(folder.Join(Path(".git")))
+    File.WriteText(folder.Join(Path(".git/config")), "[remote] url = secret")
+    Dir.CreateAll(outside)
+    File.WriteText(outside.Join(Path("secret.txt")), "outside the folder")
+    Local linked = MadeLink(folder.Join(Path("link.txt")), outside.Join(Path("secret.txt")), False)
+    Local linkedFolder = MadeLink(folder.Join(Path("dir")), outside, True)
+    Local sparse = MadeSparse(folder.Join(Path("big.bin")), 2200000000)
 
     Local server = HttpServer()
     server.Files("/files", folder)
@@ -73,13 +130,32 @@ Try
     Print(Shown(Await client.GetAsync("{base}/site/style.css")))
     Print(Shown(Await client.GetAsync("{base}/site/")))
     Print(Await Raw(port, "GET /files/docs?x=1 HTTP/1.1\r\nHost: a\r\n\r\n"))
+    // The redirect keeps the query as the request wrote it.
+    For query In ["?flag", "?a&b=1", "?x=1;y=2", "?"]
+        Local answer = Await Raw(port, "GET /files/docs{query} HTTP/1.1\r\nHost: a\r\n\r\n")
+        Print(query, "->", answer.Split(" | ")[1])
+    End For
 
     // What isn't there, or isn't the folder's to give.
     For path In ["missing.txt", "empty/", ".secret", "a/../.secret", "%2e%2e/%2e%2e/etc/passwd",
                  "..%5c..%5cwindows", "NUL", "con.txt", "COM1", "style.css.", "style.css%20",
-                 "a%3Ab", "a/b.txt/"]
+                 "a%3Ab", "a/b.txt/", ".git/config", "SECRET~1", "GIT~1/config", "GIT~1/"]
         Print(path, (Await client.GetAsync("{base}/files/{path}")).Status)
     End For
+
+    // Links out of the folder are 404s too, where the OS makes them; where it doesn't, there's
+    // nothing there, which is one.
+    For link In [("link.txt", linked), ("dir/secret.txt", linkedFolder)]
+        Local status = link.1 ? (Await client.GetAsync("{base}/files/{link.0}")).Status : 404
+        Print(link.0, status)
+    End For
+
+    // A file past 2 GiB, which Files reads whole, is a 500, not a 404, a range of it too.
+    Local wanted = Headers()
+    wanted.Add("Range", "bytes=0-3")
+    Local bigUrl = "{base}/files/big.bin"
+    Local big = sparse ? (Await client.SendAsync(HttpMethod.GET, bigUrl, Null, wanted)).Status : 500
+    Print("big.bin", big)
 
     Print(Await Raw(port, "GET /files/../style.css HTTP/1.1\r\nHost: a\r\n\r\n"))
     Print(Await Raw(port, "POST /files/style.css HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\n\r\n"))
@@ -100,6 +176,10 @@ Try
                         ("If-None-Match", "\"other\"", "another"),
                         ("If-Modified-Since", modified, "its date"),
                         ("If-Modified-Since", "Sun, 06 Nov 1994 08:49:37 GMT", "an older date"),
+                        ("If-Modified-Since", "Wednesday, 01-Jan-70 00:00:00 GMT", "RFC 850's"),
+                        ("If-Modified-Since", "Wed Jan  1 00:00:00 2070", "asctime's"),
+                        ("If-Modified-Since", "Sun Nov  6 08:49:37 1994", "an older asctime's"),
+                        ("If-Modified-Since", "Sunday, 06-Nov-94 08:49:37 GMT", "an older 850's"),
                         ("If-Modified-Since", "not a date", "not a date")]
     For condition In conditions
         Local headers = Headers()
@@ -113,7 +193,9 @@ Try
     // Ranges of a file's 300 bytes: one range, an open end, the last bytes, past the end, more
     // than one, and an If-Range that isn't the file's.
     For range In ["bytes=0-9", "bytes=290-", "bytes=-5", "bytes=295-1000", "bytes=300-",
-                  "bytes=-0", "bytes=0-1,5-6", "bytes=5-2", "items=0-1", "bytes=x-y"]
+                  "bytes=-0", "bytes=0-1,5-6", "bytes=5-2", "items=0-1", "bytes=x-y",
+                  "Bytes=2-3", "BYTES=2-3", "bytes=7-99999999999999999999",
+                  "bytes=-99999999999999999999", "bytes=99999999999999999999-"]
         Local headers = Headers()
         headers.Add("Range", range)
         Local url = "{base}/files/digits.txt"
@@ -141,3 +223,4 @@ Catch e As Error
 End Try
 
 Try? Dir.RemoveAll(folder)
+Try? Dir.RemoveAll(outside)

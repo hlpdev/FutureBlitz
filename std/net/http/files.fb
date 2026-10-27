@@ -14,14 +14,25 @@ Import std.net.http.status
 Import std.net.http.wire
 Import std.text
 
+Extern "runtime"
+    Function fb_io_real_path(path: String): String?
+End Extern
+
+// The most bytes a file it serves can have, which it reads whole, as an array holds them.
+Const MOST_BYTES: Int64 = 2147483647
+
 Extend HttpRouter
     // Serves folder's files at prefix, a path as routes have them, without a *name,
     // or "/" for the router's own: a GET or a HEAD of prefix/a/b.png gives folder's a/b.png, and
     // one of a folder gives its index.html, once its path ends with '/', to which one that
     // doesn't is redirected. A segment that starts with a '.', or has a '\', a ':', or a control
     // character, or ends with a '.' or a space, or is a name Windows keeps for a device, like
-    // NUL or COM1, is a 404, as is what isn't there, whatever the OS, so a request never reaches
-    // outside the folder. Panics when prefix isn't a path, or a route has its paths already.
+    // NUL or COM1, is a 404, as is what isn't there, whatever the OS; and so is a file whose path
+    // on the disk, its links followed and its names the disk's own, isn't inside the folder's,
+    // or has such a name there, as a link out of the folder, or Windows' 8.3 short name SECRET~1
+    // for .secret, would; so a request never reaches outside the folder, nor a name it refuses.
+    // A file of more than 2 GiB, which it reads whole, is a 500. Panics when prefix isn't a
+    // path, or a route has its paths already.
     @PanicsAtCaller
     Public Method Files(prefix: String, folder: Path)
         If !prefix.StartsWith("/")
@@ -58,7 +69,9 @@ Class FileServer
         Local metadata = found
         If metadata.IsDirectory()
             If !request.Path.EndsWith("/")
-                Local query = request.Query.Count > 0 ? "?{request.Query}" : ""
+                // The query as the request has it, which QueryParams would write another way.
+                Local at = request.Target.Find("?")
+                Local query = at == Null ? "" : request.Target.Slice(at, request.Target.Length)
                 Local slashed = request.Path + "/" + query
                 Return HttpResponse.Redirect(slashed, StatusCode.MOVED_PERMANENTLY)
             End If
@@ -71,9 +84,11 @@ Class FileServer
 
         // A file's path that ends with '/', as a folder's does, isn't the file's.
         Local asFolder = name != "" && name.EndsWith("/")
-        If !metadata.IsFile() || (asFolder && found.IsFile())
+        If !metadata.IsFile() || (asFolder && found.IsFile()) || !Within(path)
             Return HttpResponse.Of(StatusCode.NOT_FOUND)
         End If
+
+        If metadata.Size > MOST_BYTES Then Return HttpResponse.Of(StatusCode.INTERNAL_SERVER_ERROR)
         Local tag = "\"{metadata.Size}-{metadata.Modified.UnixMilliseconds}\""
         Local modified = HttpDate(metadata.Modified)
         If Unchanged(request.Headers, tag, metadata.Modified)
@@ -87,7 +102,8 @@ Class FileServer
         Try
             bytes = Try Await File.ReadBytesAsync(path)
         Catch e As IOError
-            Return HttpResponse.Of(StatusCode.NOT_FOUND)
+            If e.Kind == IOErrorKind.NOT_FOUND Then Return HttpResponse.Of(StatusCode.NOT_FOUND)
+            Return HttpResponse.Of(StatusCode.INTERNAL_SERVER_ERROR)
         End Try
 
         Local response = HttpResponse.Of(StatusCode.OK, Body(bytes, ContentTypeOf(path)))
@@ -112,6 +128,20 @@ Class FileServer
         response.Headers.Set("ETag", tag)
         response.Headers.Set("Last-Modified", modified)
         Return response
+    End Method
+
+    // Whether a file's path on the disk, its links followed and its names the disk's own, is
+    // inside the folder's, with no name past it that Servable refuses.
+    Method Within(path: Path): Bool
+        Local folder = fb_io_real_path(Folder.Text)
+        Local file = fb_io_real_path(path.Text)
+        If folder == Null || file == Null Then Return False
+        Local inside = folder.EndsWith("/") ? folder : folder + "/"
+        If !file.StartsWith(inside) Then Return False
+        For segment In file.Slice(inside.Length, file.Length).Split("/")
+            If !Servable(segment) Then Return False
+        End For
+        Return True
     End Method
 End Class
 
@@ -141,27 +171,39 @@ End Function
 // byte, a first past the last when it's past the file's end, or Null for a Range it serves the
 // whole file for: of another unit, of more than one range, or that isn't a Range's.
 Function RangeOf(range: String, size: Int): (Int, Int)?
-    If !range.StartsWith("bytes=") Then Return Null
-    Local spec = range.Slice(6, range.Length).Trim()
+    Local equals = range.Find("=")
+    If equals == Null || !range.Slice(0, equals).Trim().EqualsIgnoreCase("bytes") Then Return Null
+    Local spec = range.Slice(equals + 1, range.Length).Trim()
     If spec.Contains(",") Then Return Null
     Local dash = spec.Find("-")
     If dash == Null Then Return Null
     Local first = spec.Slice(0, dash).Trim()
     Local last = spec.Slice(dash + 1, spec.Length).Trim()
     If first == ""
-        Local suffix = DigitsOf(last)
+        Local suffix = PositionOf(last)
         If suffix == Null Then Return Null
         If suffix == 0 || size == 0 Then Return (1, 0)
         Return (Max(0, size - (Min(suffix, size As Int64) As Int)), size - 1)
     End If
 
-    Local start = DigitsOf(first)
+    Local start = PositionOf(first)
     If start == Null Then Return Null
     If start >= size Then Return (1, 0)
     If last == "" Then Return (start As Int, size - 1)
-    Local finish = DigitsOf(last)
+    Local finish = PositionOf(last)
     If finish == Null || finish < start Then Return Null
     Return (start As Int, Min(finish, (size - 1) As Int64) As Int)
+End Function
+
+// A byte position a range's digits write, past any file's end when there are more than an Int64
+// holds, or Null for text that isn't digits.
+Function PositionOf(text: String): Int64?
+    Local value = DigitsOf(text)
+    If value != Null || text == "" Then Return value
+    For c In text.Bytes
+        If c < 0x30 || c > 0x39 Then Return Null
+    End For
+    Return 9223372036854775807
 End Function
 
 // Whether a path's segment can name one of the folder's files on any OS.
@@ -253,8 +295,41 @@ Package Function HttpDate(time: Timestamp): String
     Return time.Format("EEE, dd MMM yyyy HH:mm:ss 'GMT'")
 End Function
 
-// The time an IMF-fixdate writes, or Null for other text.
+// The time an HTTP-date writes, in any of the three forms RFC 9110's section 5.6.7 has a recipient
+// read: IMF-fixdate, "Sun, 06 Nov 1994 08:49:37 GMT"; RFC 850's, "Sunday, 06-Nov-94 08:49:37 GMT",
+// whose year is the one of its last two digits not more than 50 years ahead; and asctime's,
+// "Sun Nov  6 08:49:37 1994"; or Null for other text. The weekday isn't checked.
 Package Function ParseHttpDate(text: String): Timestamp?
-    If !text.EndsWith(" GMT") Then Return Null
-    Return Timestamp.Parse(text.Slice(0, text.Length - 4) + "Z", "EEE, dd MMM yyyy HH:mm:ssX")
+    Local parts = text.SplitWhitespace()
+    Local day = ""
+    Local month = ""
+    Local year = ""
+    Local time = ""
+    If parts.Count == 6 && parts[0].EndsWith(",") && parts[5] == "GMT"
+        day = parts[1]
+        month = parts[2]
+        year = parts[3]
+        time = parts[4]
+    ElseIf parts.Count == 4 && parts[0].EndsWith(",") && parts[3] == "GMT"
+        Local date = parts[1].Split("-")
+        If date.Count != 3 || date[2].Length != 2 Then Return Null
+        Local short = DigitsOf(date[2])
+        If short == Null Then Return Null
+        Local now = Int.Parse(Timestamp.Now().Format("yyyy")) ?? 2000
+        Local full = now - now % 100 + (short As Int)
+        If full > now + 50 Then full -= 100
+        day = date[0]
+        month = date[1]
+        year = "{full}"
+        time = parts[2]
+    ElseIf parts.Count == 5 && !parts[0].EndsWith(",")
+        day = parts[2]
+        month = parts[1]
+        year = parts[4]
+        time = parts[3]
+    Else
+        Return Null
+    End If
+
+    Return Timestamp.Parse("{day} {month} {year} {time}Z", "d MMM yyyy HH:mm:ssX")
 End Function

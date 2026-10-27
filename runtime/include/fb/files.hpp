@@ -119,6 +119,10 @@ void fb_io_dir_entries_async(fb_task_t* task, void* request, const fb_string_t* 
 /// Makes a new, empty folder, or file when `folder` is 0, in the OS's temporary folder, named
 /// `prefix` and six letters and digits, at fb_io_request_path.
 std::int64_t fb_io_temp_new(void* request, const fb_string_t* prefix, std::int32_t folder);
+/// The path from the root to what `path` names, with every link in it followed, "." and ".."
+/// taken out, and each name as the disk has it, its long one on Windows, not its 8.3 short one,
+/// with '/' between names; or null when nothing's there.
+fb_string_t* fb_io_real_path(const fb_string_t* path);
 /// The current folder, and the OS's temporary folder, or null when the OS doesn't say.
 fb_string_t* fb_io_dir_current();
 fb_string_t* fb_io_dir_temp();

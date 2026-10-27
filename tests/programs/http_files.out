@@ -8,6 +8,10 @@
 200 text/css; charset=utf-8: p { color: red }
 200 text/html; charset=utf-8: <p>home</p>
 HTTP/1.1 301 Moved Permanently | Location: /files/docs/?x=1 | Content-Length: 0 |  | 
+?flag -> Location: /files/docs/?flag
+?a&b=1 -> Location: /files/docs/?a&b=1
+?x=1;y=2 -> Location: /files/docs/?x=1;y=2
+? -> Location: /files/docs/?
 missing.txt 404
 empty/ 404
 .secret 404
@@ -21,6 +25,13 @@ style.css. 404
 style.css%20 404
 a%3Ab 404
 a/b.txt/ 404
+.git/config 404
+SECRET~1 404
+GIT~1/config 404
+GIT~1/ 404
+link.txt 404
+dir/secret.txt 404
+big.bin 500
 HTTP/1.1 404 Not Found | Content-Length: 0 |  | 
 HTTP/1.1 405 Method Not Allowed | Allow: GET, HEAD | Content-Length: 0 |  | 
 HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Accept-Ranges: bytes | Content-Length: 4 |  | 
@@ -32,6 +43,10 @@ If-None-Match another and it 304 0 True
 If-None-Match another 200 16 True
 If-Modified-Since its date 304 0 True
 If-Modified-Since an older date 200 16 True
+If-Modified-Since RFC 850's 304 0 True
+If-Modified-Since asctime's 304 0 True
+If-Modified-Since an older asctime's 200 16 True
+If-Modified-Since an older 850's 200 16 True
 If-Modified-Since not a date 200 16 True
 bytes=0-9 206 bytes 0-9/300 0123456789
 bytes=290- 206 bytes 290-299/300 0123456789
@@ -43,5 +58,10 @@ bytes=0-1,5-6 200 none 300 bytes
 bytes=5-2 200 none 300 bytes
 items=0-1 200 none 300 bytes
 bytes=x-y 200 none 300 bytes
+Bytes=2-3 206 bytes 2-3/300 23
+BYTES=2-3 206 bytes 2-3/300 23
+bytes=7-99999999999999999999 206 bytes 7-299/300 293 bytes
+bytes=-99999999999999999999 206 bytes 0-299/300 300 bytes
+bytes=99999999999999999999- 416 bytes */300 
 stale If-Range: 200 300
 current If-Range: 206 0123456789
