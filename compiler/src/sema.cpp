@@ -18213,12 +18213,32 @@ private:
 
             if (const auto unknown = std::ranges::find(arguments, type_id_t::INVALID);
                 unknown != arguments.end()) {
+                // The example writes them all: what's written as it's written, what the Func
+                // told, and one that fits for each of the rest.
+                std::string example;
+                bool fits = true;
+                for (std::size_t i = 0; i < parameters.size(); ++i) {
+                    example += example.empty() ? "" : ", ";
+                    if (i < type_arguments.size()) {
+                        example += text(m_ast.get(type_arguments[i]).span);
+                    } else if (arguments[i] != type_id_t::INVALID) {
+                        example += name_of(arguments[i]);
+                    } else if (is_value_parameter(parameters[i])) {
+                        example += '1';
+                    } else if (const std::optional<std::string> filler =
+                                   example_argument(parameters[i], call_bounds(*chosen))) {
+                        example += *filler;
+                    } else {
+                        fits = false;
+                    }
+                }
+
                 error(span,
                       "'{}' is generic, so it needs a Func type to say what {} is, or type "
-                      "arguments, like {}<Int>",
+                      "arguments{}",
                       name,
                       shown_name(parameters[static_cast<std::size_t>(unknown - arguments.begin())]),
-                      name);
+                      fits ? std::format(", like {}<{}>", name, example) : std::string());
                 return type_id_t::INVALID;
             }
         }
@@ -20816,17 +20836,16 @@ private:
         // A generic function's types have its type arguments in them, while the call is checked.
         const std::optional<std::vector<type_id_t>> arguments = infer(*function, node, hint);
         if (!arguments) {
-            report_uninferred(id, *function, node, hint);
-            // A lambda's parameters can need the type arguments the call couldn't tell, so it
-            // isn't told that again.
-            for (const argument_t& argument : node.arguments) {
-                if (std::holds_alternative<lambda_expr_t>(m_ast.get(argument.value).node)) {
-                    (void)quietly([&] { return check(argument.value, type_id_t::NONE); });
-                } else {
-                    check(argument.value, type_id_t::NONE);
-                }
+            // Arguments that don't fit the parameters, like one too few, are what's wrong with
+            // it, more than what that leaves untold.
+            if (!quietly([&] { return bind(*function, node, span_of(id)); })) {
+                (void)bind(*function, node, span_of(id));
+                check_alone(node.arguments);
+                return type_id_t::INVALID;
             }
 
+            report_uninferred(id, *function, node, hint);
+            check_uninferred(*function, node, hint);
             return type_id_t::INVALID;
         }
 
@@ -22129,37 +22148,102 @@ private:
         }
     }
 
+    /// The arguments of a call whose type arguments couldn't be told, checked for their own
+    /// errors: a lambda as its parameter's Func, with the type arguments that were told in it,
+    /// so a parameter of a type that needs one of the others isn't told again that it needs a
+    /// type, while its body's mistakes are still reported.
+    void check_uninferred(const symbol_id_t function, const call_expr_t& node,
+                          const type_id_t hint) {
+        const std::vector<type_id_t> parameters = type_parameters_of(function);
+        const std::vector<std::optional<type_id_t>> told =
+            quietly([&] { return told_arguments(function, node, hint); });
+        const std::optional<binding_t> bound =
+            quietly([&] { return bind(function, node, span_of(node.callee)); });
+        std::vector<type_id_t> so_far;
+        std::vector<type_id_t> unknown;
+        for (std::size_t i = 0; i < parameters.size(); ++i) {
+            const std::optional<type_id_t> argument = i < told.size() ? told[i] : std::nullopt;
+            so_far.push_back(argument.value_or(parameters[i]));
+            if (!argument) {
+                unknown.push_back(parameters[i]);
+            }
+        }
+
+        // The type each argument's parameter has, with what was told: a variadic parameter's
+        // packed ones are its elements.
+        std::vector<type_id_t> expected(node.arguments.size(), type_id_t::NONE);
+        const std::vector<symbol_id_t>& declared = symbol(function).parameters;
+        if (bound) {
+            for (std::size_t i = 0; i < bound->slots.size(); ++i) {
+                if (const std::optional<std::size_t> slot = bound->slots[i]) {
+                    expected[*slot] =
+                        m_analysis.types.substitute(symbol(declared[i]).type, parameters, so_far);
+                }
+            }
+
+            for (const std::size_t slot : bound->packed) {
+                expected[slot] = m_analysis.types.substitute(
+                    element_of(symbol(declared.back()).type), parameters, so_far);
+            }
+        }
+
+        for (std::size_t i = 0; i < node.arguments.size(); ++i) {
+            const expr_id_t value = node.arguments[i].value;
+            if (std::holds_alternative<lambda_expr_t>(m_ast.get(value).node)) {
+                const std::vector<type_id_t> outer = std::exchange(m_inferring, unknown);
+                check(value, expected[i]);
+                m_inferring = outer;
+            } else {
+                check(value, type_id_t::NONE);
+            }
+        }
+    }
+
     /// The type arguments a call gives without inference: from the object of a generic type's
     /// Method, or written after the type's name for its New, then written after the function's
     /// name. Inside a generic type, its own Methods and News have its type parameters.
     /// Type arguments written where nothing takes them: on Super.New, whose are the Class
-    /// Self's Class extends, or on a type that isn't generic, like "Base<Int>()".
+    /// Self's Class extends, on a type that isn't generic, like "Base<Int>()", or on a function
+    /// that isn't, like "Plain<Int>(1)".
     void check_written_arguments(const symbol_id_t function, const call_expr_t& node) {
         const symbol_t& declared = symbol(function);
+        const std::vector<type_expr_id_t> written = written_arguments(node);
+        if (written.empty()) {
+            return;
+        }
+
+        // A generic function's own are checked as they're resolved.
         if (declared.kind != symbol_kind_t::CONSTRUCTOR) {
+            if (type_parameters_of(function).empty()) {
+                (void)resolve_arguments(written, {}, span_of(node.callee));
+            }
+
             return;
         }
 
         const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
-        const auto* name = std::get_if<name_expr_t>(&m_ast.get(node.callee).node);
-        const std::vector<type_expr_id_t>* written = nullptr;
-        if (member != nullptr) {
-            written = &member->type_arguments;
-        } else if (name != nullptr) {
-            written = &name->type_arguments;
-        }
-
-        if (written == nullptr || written->empty()) {
-            return;
-        }
-
         if (member != nullptr &&
             std::holds_alternative<super_expr_t>(m_ast.get(member->object).node)) {
             error(span_of(node.callee),
                   "Super.New takes no type arguments, since the Class this one extends has them");
         } else if (owner_parameters(declared.owner).empty()) {
-            (void)resolve_arguments(*written, {}, span_of(node.callee));
+            (void)resolve_arguments(written, {}, span_of(node.callee));
         }
+    }
+
+    /// The type arguments written after a call's callee, like "Max<Float>(1, 2)" or
+    /// "box.Map<String>(f)". Empty for one that's neither a name nor a member.
+    [[nodiscard]] std::vector<type_expr_id_t> written_arguments(const call_expr_t& node) const {
+        const expr_node_t& callee = m_ast.get(node.callee).node;
+        if (const auto* member = std::get_if<member_expr_t>(&callee)) {
+            return member->type_arguments;
+        }
+
+        if (const auto* name = std::get_if<name_expr_t>(&callee)) {
+            return name->type_arguments;
+        }
+
+        return {};
     }
 
     std::vector<std::optional<type_id_t>> known_arguments(const symbol_id_t function,
@@ -22436,13 +22520,7 @@ private:
         const expr_node_t& callee = m_ast.get(node.callee).node;
         const auto* named = std::get_if<name_expr_t>(&callee);
         const auto* member = std::get_if<member_expr_t>(&callee);
-        std::vector<type_expr_id_t> wrote;
-        if (named != nullptr) {
-            wrote = named->type_arguments;
-        } else if (member != nullptr) {
-            wrote = member->type_arguments;
-        }
-
+        const std::vector<type_expr_id_t> wrote = written_arguments(node);
         if (!wrote.empty() && (symbol(function).kind == symbol_kind_t::CONSTRUCTOR ||
                                wrote.size() >= own_type_parameters(symbol(function)).size())) {
             return;
@@ -23254,6 +23332,18 @@ private:
                 }
             }
 
+            // None takes as many type arguments as the call wrote, which is what's wrong with it.
+            const std::size_t written = written_arguments(node).size();
+            if (written != 0 && std::ranges::none_of(candidates, [&](const symbol_id_t candidate) {
+                    return symbol(candidate).kind == symbol_kind_t::CONSTRUCTOR ||
+                           own_type_parameters(symbol(candidate)).size() >= written;
+                })) {
+                error(span, "no overload of '{}' takes {} type argument{}", name, written,
+                      written == 1 ? "" : "s");
+                check_alone(node.arguments);
+                return std::nullopt;
+            }
+
             std::string list;
             for (std::size_t i = 0; i < types.size(); ++i) {
                 list += i == 0 ? "" : ", ";
@@ -23295,6 +23385,13 @@ private:
     /// function's Where lines don't hold for them.
     match_t rank(const symbol_id_t function, const call_expr_t& node, const bool bounded = true,
                  const bool same_by_ref = true) {
+        // One with fewer type parameters of its own than the call wrote, none for one that isn't
+        // generic, doesn't fit it, as what's written is taken as given.
+        if (symbol(function).kind != symbol_kind_t::CONSTRUCTOR &&
+            written_arguments(node).size() > own_type_parameters(symbol(function)).size()) {
+            return match_t::NONE;
+        }
+
         const std::optional<binding_t> bound = bind(function, node, span_of(node.callee));
         const std::optional<std::vector<type_id_t>> arguments =
             infer(function, node, type_id_t::NONE);
@@ -24144,11 +24241,12 @@ private:
                                      "a lambda's parameter can't hold one");
             } else if (fits && known(m_analysis.types.get(expected).parameters[i])) {
                 type = m_analysis.types.get(expected).parameters[i];
-            } else {
+            } else if (!fits) {
                 error(parameter.name.span,
                       "'{}' needs a type, since nothing here says what this lambda takes",
                       parameter.name.text);
             }
+            // Else its type is one a call couldn't infer, which the call's error says.
 
             types.push_back(type);
             parameters.push_back(add_symbol({

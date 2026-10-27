@@ -4117,6 +4117,7 @@ TEST_CASE("a call writes a generic function's first type arguments, and infers t
                                 "End Class\n"
                                 "Extend T[]\n"
                                 "    Method Pick<U, V>(u: U, v: V): V => v\n"
+                                "    Method Take<U, V>(u: U): V[] => []\n"
                                 "End Extend\n";
     // The rest come from the arguments, and a lambda's parameter has what's written.
     CHECK(errors_of(generic + "Local rows: String[] = Query<String>(\"sql\", 1)\n"
@@ -4133,15 +4134,16 @@ TEST_CASE("a call writes a generic function's first type arguments, and infers t
               "\"s\": expected Int32, found String",
               "Two<Float>(1, 2): expected String, found Float32",
           });
-    // Too many, counting only a Method's own, not the T of the T[] an Extend adds it to; what
-    // can't be inferred is named, its lambda not told again that it needs a type; and a type's
-    // New, or a function value without a Func that tells the rest, writes them all.
+    // Too many, counting only a Method's own, not the T of the T[] an Extend adds it to; a
+    // missing argument before what it leaves untold; what can't be inferred is named, its lambda
+    // not told again that it needs a type; and a type's New, or a function value without a Func
+    // that tells the rest, writes them all.
     const errors_t errors =
         errors_of(generic + "Local a = Two<Int, Int, Int>(1, 2)\n"
                             "Local b = [1, 2].Pick<String, Int, Int>(\"u\", 2)\n"
                             "Local c = Db().Query<Int>(\"sql\")\n"
                             "Local d = Apply<Int>(1)\n"
-                            "Local e = [1].Pick<Int>(Function(x) => x)\n"
+                            "Local e = [1].Take<Func(Int): Int>(Function(x) => x)\n"
                             "Class Box<A, B>\n"
                             "    Field a: A?\n"
                             "End Class\n"
@@ -4151,15 +4153,66 @@ TEST_CASE("a call writes a generic function's first type arguments, and infers t
     CHECK(errors[0] == "Two<Int, Int, Int>: 'Two<Int, Int, Int>' takes 2 type arguments, not 3");
     CHECK(errors[1] == "[1, 2].Pick<String, Int, Int>: '[1, 2].Pick<String, Int, Int>' takes 2 "
                        "type arguments, not 3");
-    CHECK(errors[2] == "Db().Query<Int>: can't tell what A is in this call; write the type "
-                       "arguments, like Db().Query<Int, Int>(...)");
-    CHECK(errors[3] == "Apply<Int>: can't tell what U is in this call; write the type arguments, "
-                       "like Apply<Int, Int>(...)");
-    CHECK(errors[4] == "[1].Pick<Int>: can't tell what V is in this call; write the type "
-                       "arguments, like [1].Pick<Int, Int>(...)");
+    CHECK(errors[2] == "Db().Query<Int>(\"sql\"): missing an argument for parameter 'a'");
+    CHECK(errors[3] == "Apply<Int>(1): missing an argument for parameter 'f'");
+    CHECK(errors[4] == "[1].Take<Func(Int): Int>: can't tell what V is in this call; write the "
+                       "type arguments, like [1].Take<Func(Int): Int, Int>(...)");
     CHECK(errors[5] == "Box<Int>: 'Box<Int>' takes 2 type arguments, not 1");
     CHECK(errors[6] == "Query<Int>: 'Query' is generic, so it needs a Func type to say what A "
-                       "is, or type arguments, like Query<Int>");
+                       "is, or type arguments, like Query<Int, Int>");
+
+    // A lambda in a call that can't infer them still has its own mistakes reported, only not
+    // that a parameter of a type the call couldn't tell needs a type.
+    const errors_t lambdas = errors_of("Import std.core\nImport std.collections\n" + generic +
+                                       "Local a = [1, 2].Map(Function(x) => Doubel(x))\n"
+                                       "Local b = Apply(1, Function(x: Int) => Missing(x))\n"
+                                       "Local c = Apply<Int>(1, Function(x) => Missing(x))");
+    REQUIRE(lambdas.size() == 6);
+    CHECK(lambdas[0] == "[1, 2].Map: can't tell what U is in this call; write the type "
+                        "arguments, like [1, 2].Map<Int>(...)");
+    CHECK(lambdas[1] == "Doubel: 'Doubel' isn't declared");
+    CHECK(lambdas[2] == "Apply: can't tell what U is in this call; write the type arguments, "
+                        "like Apply<Int32, Int>(...)");
+    CHECK(lambdas[3] == "Missing: 'Missing' isn't declared");
+    CHECK(lambdas[4] == "Apply<Int>: can't tell what U is in this call; write the type "
+                        "arguments, like Apply<Int, Int>(...)");
+    CHECK(lambdas[5] == "Missing: 'Missing' isn't declared");
+    // A function or Method that isn't generic takes none, as a function value doesn't.
+    CHECK(errors_of(generic + "Function Plain(a: Int): Int => a\n"
+                              "Local p = Plain<String, Bool>(1)\n"
+                              "Local q = Db().Plain<String>(1)\n"
+                              "Local r: Func(Int): Int = Plain<String>\n"
+                              "Extend Db\n"
+                              "    Method Plain(a: Int): Int => a\n"
+                              "End Extend") ==
+          errors_t{
+              "Plain<String, Bool>: 'Plain<String, Bool>' isn't generic",
+              "Db().Plain<String>: 'Db().Plain<String>' isn't generic",
+              "Plain<String>: 'Plain<String>' isn't generic",
+          });
+}
+
+TEST_CASE("an overload that takes fewer type arguments than a call wrote doesn't fit it",
+          "[sema]") {
+    // Only the one with two type parameters takes two written, and only a generic one takes any,
+    // as tests/programs/partial_type_arguments.fb shows by what each call runs; when none takes
+    // as many as were written, that's the error.
+    const std::string overloads = "Function G<A>(a: A, b: String): Int => 1\n"
+                                  "Function G<A, B>(a: A, b: B): String => \"two\"\n"
+                                  "Function H(a: Int, b: String): Int => 1\n"
+                                  "Function H<A, B>(a: A, b: B): String => \"generic\"\n"
+                                  "Local x: Int64 = 1\n";
+    CHECK(errors_of(overloads + "Local a: String = G<Int64, String>(x, \"s\")\n"
+                                "Local b: String = G<Int64, String>(1, \"s\")\n"
+                                "Local c: String = H<Int64>(1, \"s\")\n"
+                                "Local d: Int = H(1, \"s\")")
+              .empty());
+    CHECK(errors_of(overloads + "Local e = G<Int, Int, Int>(1, 2)\n"
+                                "Local f = H<Int, Int, Int>(1, \"s\")") ==
+          errors_t{
+              "G<Int, Int, Int>: no overload of 'G' takes 3 type arguments",
+              "H<Int, Int, Int>: no overload of 'H' takes 3 type arguments",
+          });
 }
 
 TEST_CASE("generic mistakes", "[sema]") {

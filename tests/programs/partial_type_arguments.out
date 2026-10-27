@@ -7,3 +7,7 @@ query select id with ada, Int32
 0
 3 UInt8 Float32
 4 (Int32) and four (String)
+two Int64 String
+two Int64 String
+generic Int64 String
+plain

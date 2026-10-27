@@ -38,3 +38,14 @@ Print([1, 2, 3].Paired<UInt8>(1, 2.5))
 // A function value takes the rest from the Func expected.
 Local f: Func(Int, String): String = Both<Int>
 Print(f(4, "four"))
+// An overload with fewer type parameters than the call wrote doesn't fit, nor one that isn't
+// generic.
+Function Pick<A>(a: A, b: String): String => "one {TypeName<A>()}"
+Function Pick<A, B>(a: A, b: B): String => "two {TypeName<A>()} {TypeName<B>()}"
+Function Plain(a: Int, b: String): String => "plain"
+Function Plain<A, B>(a: A, b: B): String => "generic {TypeName<A>()} {TypeName<B>()}"
+Local wide: Int64 = 1
+Print(Pick<Int64, String>(wide, "s"))
+Print(Pick<Int64, String>(1, "s"))
+Print(Plain<Int64>(1, "s"))
+Print(Plain(1, "s"))
