@@ -62,6 +62,9 @@ http_server: Path | None = None
 # How many programs build and run at once.
 jobs = 1
 
+# The longest a test program runs before it counts as hung, in seconds.
+RUN_LIMIT = 600
+
 failures: list[str] = []
 
 
@@ -148,8 +151,15 @@ class programs_t:
             command.insert(0, str(http_server))
             stdin = stdin or b""
         folder = self.folder()
-        ran = subprocess.run(command, cwd=folder, stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, input=stdin)
+        try:
+            ran = subprocess.run(command, cwd=folder, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT, input=stdin, timeout=RUN_LIMIT)
+        except subprocess.TimeoutExpired as hung:
+            shutil.rmtree(folder, ignore_errors=True)
+            printed = (hung.stdout or b"").decode(errors="replace")
+            problems.append(f"{name} ({label}) was still running after {RUN_LIMIT} seconds, "
+                            f"having printed:\n{printed}")
+            return False
         shutil.rmtree(folder, ignore_errors=True)
         expected = (PROGRAMS / f"{name}.out").read_bytes()
         if ran.stdout == expected and ran.returncode == expected_code(name):
