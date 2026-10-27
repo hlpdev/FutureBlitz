@@ -9993,6 +9993,88 @@ TEST_CASE("a typed For Method picks Methods by attribute, and takes throwing one
                        "picks its members with a Where line");
 }
 
+TEST_CASE("a picked or throwing For Method vouches only for its own Methods, and only its own Func "
+          "type throws",
+          "[sema]") {
+    const std::string api = "Import std.core\n"
+                            "Attribute Get\n"
+                            "Class Missing Extends Error\n"
+                            "End Class\n"
+                            "Struct Args Implements Defaultable\n"
+                            "    Field Id: Int\n"
+                            "    Static Method DefaultValue(): Args => Args(1)\n"
+                            "End Struct\n"
+                            "Struct Socket\n"
+                            "    Field Id: Int\n"
+                            "End Struct\n"
+                            "Class Api\n"
+                            "    @Get Method Find(a: Args): String => \"find\"\n"
+                            "    Method Log(s: Socket): String => \"log\"\n"
+                            "    Method Drop(n: Int) Throws Missing\n"
+                            "    End Method\n"
+                            "End Class\n"
+                            "Function All<T>(api: T)\n"
+                            "    For Method m: M In T\n"
+                            "        Where M: Func(A): String\n"
+                            "        Where A: Defaultable\n"
+                            "    End For\n"
+                            "End Function\n"
+                            "Function Inner<T>()\n"
+                            "    For Method m: M In T\n"
+                            "        Where M: Func(A) Throws E\n"
+                            "        Where E: Error\n"
+                            "    End For\n"
+                            "End Function\n"
+                            "Function Params<T>()\n"
+                            "    For Method m: M In T\n"
+                            "        Where M: Func(A): String\n"
+                            "        Where A: Error\n"
+                            "    End For\n"
+                            "End Function\n";
+    // A picked loop says nothing of an unpicked one's Methods. What a Method throws is always an
+    // error, so a caller needn't say it of E, but a parameter's A isn't, and Error, which only
+    // constraints name, is named as they write it.
+    CHECK(errors_of(api + "Function Routes<T>(api: T)\n"
+                          "    For Method m: M In T\n"
+                          "        Where M: Func(A): String\n"
+                          "        Where A: Defaultable\n"
+                          "        Where m Has Get\n"
+                          "    End For\n"
+                          "    All(api)\n"
+                          "    Inner<T>()\n"
+                          "    Params<T>()\n"
+                          "End Function") ==
+          errors_t{
+              "All: 'All' needs what each Method of T has for A to implement Defaultable, but "
+              "nothing says that of T's Methods",
+              "Params<T>: 'Params' needs what each Method of T has for A to implement Error, but "
+              "nothing says that of T's Methods",
+          });
+    // A Func type in the loop's own can't throw, in a parameter or the result, and the loop's
+    // own still can; one whose Func type has an error doesn't say what m.Call takes.
+    CHECK(errors_of(api + "For Method m: M In Api\n"
+                          "    Where M: Func(Int[], Func(Int): Int Throws E): Int\n"
+                          "    Where E: Error\n"
+                          "End For\n"
+                          "For Method m: M In Api\n"
+                          "    Where M: Func(Func(): Int Throws E): String Throws E\n"
+                          "    Where E: Error\n"
+                          "End For\n"
+                          "For Method m: M In Api\n"
+                          "    Where M: Func(Int): (Func(): Int Throws E)\n"
+                          "    Where E: Error\n"
+                          "    Local s = m.Call(Api(), 1)\n"
+                          "End For") ==
+          errors_t{
+              "Func(Int): Int Throws E: a Func value can't throw; only a For Method loop's Func "
+              "type says that its Methods do",
+              "Func(): Int Throws E: a Func value can't throw; only a For Method loop's Func type "
+              "says that its Methods do",
+              "Func(): Int Throws E: a Func value can't throw; only a For Method loop's Func type "
+              "says that its Methods do",
+          });
+}
+
 TEST_CASE("a type's own attributes", "[sema]") {
     CHECK(probe("Attribute Saved\n@Saved Struct P\nEnd Struct\nLocal x = P.Has(Saved)") == "Bool");
     CHECK(probe("Attribute Label(Text: String)\nStruct P\nEnd Struct\n"

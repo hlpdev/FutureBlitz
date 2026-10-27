@@ -3853,7 +3853,7 @@ private:
                    peek(1).kind == token_kind_t::KW_FUNC) {
             // "Sendable" is a contextual keyword before Func, and a name everywhere else.
             advance();
-            type = parse_function_type(&token, result);
+            type = parse_function_type(&token, result, parameter);
         } else if (token.kind == token_kind_t::IDENTIFIER) {
             type = parse_named_type(!result, parameter);
         } else if (token.kind == token_kind_t::KW_SELF) {
@@ -3861,7 +3861,7 @@ private:
             advance();
             type = add_type(token.span, named_type_t{ .name = text(token) });
         } else if (token.kind == token_kind_t::KW_FUNC || token.kind == token_kind_t::KW_CALLBACK) {
-            type = parse_function_type(nullptr, result);
+            type = parse_function_type(nullptr, result, parameter);
         } else {
             report_expected("a type");
             return add_type(point(token.span.begin), error_type_t{});
@@ -3990,10 +3990,13 @@ private:
 
     /// "Func(A, B): R", or "Func(A)" for a function that returns nothing, and "Callback(A, B):
     /// R" alike. The return type takes any "?" after it, so a Func that can be Null is written
-    /// "(Func(): Int)?". After `sendable`, the "Sendable" before it, it's a Sendable Func. As a
-    /// `function_result`, a Throws after its own result is the function's too.
+    /// "(Func(): Int)?". After `sendable`, the "Sendable" before it, it's a Sendable Func. A Throws
+    /// after its result is its own, "Func(A): R Throws E", as a function header's is, so a Task's
+    /// or a Func's there goes in parentheses; as a `function_result`, it's the function's. As a
+    /// `parameter` of a Func type, its Throws ends at a ','.
     type_expr_id_t parse_function_type(const token_t* const sendable = nullptr,
-                                       const bool function_result = false) {
+                                       const bool function_result = false,
+                                       const bool parameter = false) {
         if (!enter()) {
             return add_type(point(peek().span.begin), error_type_t{});
         }
@@ -4026,15 +4029,24 @@ private:
 
         std::optional<type_expr_id_t> result;
         if (accept(token_kind_t::COLON)) {
-            m_function_result = function_result;
+            m_function_result = true;
             result = parse_type();
         }
 
-        // "Func(A): R Throws E", for the Methods a For Method loop goes over, unless it's a
-        // function's result, whose Throws is the function's.
+        // "Func(A): R Throws E" or "Func(A) Throws E", for the Methods a For Method loop goes
+        // over, unless it's a function's result, whose Throws is the function's. A C function
+        // can't throw.
         std::vector<type_expr_id_t> thrown;
-        if (result && !function_result && accept(token_kind_t::KW_THROWS)) {
-            thrown = parse_task_throws(false);
+        if (!function_result && at(token_kind_t::KW_THROWS)) {
+            const token_t& throws = advance();
+            if (callback) {
+                error(throws.span, "a Callback can't throw, since C code takes no errors");
+            }
+
+            thrown = parse_task_throws(parameter);
+            if (callback) {
+                thrown.clear();
+            }
         }
 
         --m_nesting;

@@ -62,3 +62,78 @@ Async Function Run()
 End Function
 
 Await Run()
+
+// A Method that throws and gives nothing, and one whose header's Throws follows a Func result,
+// which a loop's Func type writes the same way.
+Class Store
+    Method Drop(id: Int) Throws Missing
+        If id < 0 Then Throw Missing("no {id}")
+        Print("dropped {id}")
+    End Method
+
+    Method Make(id: Int): Func(): Int Throws Missing
+        If id < 0 Then Throw Missing("bad {id}")
+        Return Function() => id
+    End Method
+End Class
+
+For Method m: M In Store
+    Where M: Func(Int) Throws E
+    Where E: Error
+    Try
+        m.Call(Store(), 1)
+        m.Call(Store(), -1)
+    Catch e As Error
+        Print("{m.Name} threw: {e.Message}")
+    End Try
+End For
+
+For Method m: M In Store
+    Where M: Func(Int): Func(): Int Throws E
+    Where E: Error
+    Try
+        Print("{m.Name} gives {m.Call(Store(), 5)()}")
+    Catch e As Error
+        Print("{m.Name} threw")
+    End Try
+End For
+
+// An Override that doesn't throw takes its base's place only in the loops for Methods that
+// don't, and goes by its own attributes.
+Class Base
+    @Get("/find")
+    Method Find(n: Int): Int Throws Missing
+        If n < 0 Then Throw Missing("neg")
+        Return n
+    End Method
+End Class
+
+Class Derived Extends Base
+    Override Method Find(n: Int): Int => n * 2
+End Class
+
+For Method m: M In Derived
+    Where M: Func(Int): Int Throws E
+    Where E: Error
+    Print("throwing {m.Name}")
+End For
+
+For Method m: M In Derived
+    Where M: Func(Int): Int
+    Print("plain {m.Name}: {m.Call(Derived(), 5)}")
+End For
+
+// A loop's Where E: Error needs nothing of a caller, since what a Method throws is an error.
+Function Throwing<T>()
+    For Method m: M In T
+        Where M: Func(Int) Throws E
+        Where E: Error
+        Print("throws: {m.Name}")
+    End For
+End Function
+
+Function Forward<T>()
+    Throwing<T>()
+End Function
+
+Forward<Store>()

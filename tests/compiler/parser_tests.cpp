@@ -913,7 +913,11 @@ TEST_CASE("a Task's type takes a Throws, unless it's a function's result", "[par
           "(function F -> Task<Int> Throws A (block))");
     CHECK(parse_text("Function F(): (Task<Int> Throws A) Throws B\nEnd Function").dump ==
           "(function F -> (Task<Int> Throws A) Throws B (block))");
+    // A Func type's result is the same: a Throws after it is the Func's, so a Task there that
+    // throws goes in parentheses.
     CHECK(parse_text("Local f: Func(): Task<Int> Throws A").dump ==
+          "(local f: (Func(): Task<Int> Throws A))");
+    CHECK(parse_text("Local f: Func(): (Task<Int> Throws A)").dump ==
           "(local f: Func(): (Task<Int> Throws A))");
 
     // A Func that's a function's result leaves a Throws after its own result to the function.
@@ -1278,10 +1282,24 @@ TEST_CASE("For Field and For Method go over a type's members", "[parser]") {
                      "    Where m Has Get Or Web.Post\n"
                      "    Where m Has Logged\n"
                      "End For")
-              .dump == "(for-method m: M T (where M: Func(Int): String Throws E, F) (where-has Get "
-                       "(. Web Post)) (where-has Logged) (block))");
+              .dump ==
+          "(for-method m: M T (where M: (Func(Int): String Throws E, F)) (where-has Get "
+          "(. Web Post)) (where-has Logged) (block))");
     CHECK(parse_text("Function Make(): Func(): Int Throws A, B\nEnd Function").dump ==
           "(function Make -> Func(): Int Throws A B (block))");
+    // Without a result too; a result Func's Throws is the outer Func's, as a header's is; in a
+    // Func type's parameters, a ',' goes on to the next one; and a Callback can't throw.
+    CHECK(parse_text("For Method m: M In T\n    Where M: Func(Int) Throws E\nEnd For").dump ==
+          "(for-method m: M T (where M: (Func(Int) Throws E)) (block))");
+    CHECK(parse_text("Local f: Func(Int): Func(): Int Throws E").dump ==
+          "(local f: (Func(Int): Func(): Int Throws E))");
+    CHECK(parse_text("Local f: Func(Int): (Func(): Int Throws E)").dump ==
+          "(local f: Func(Int): (Func(): Int Throws E))");
+    CHECK(parse_text("Local f: Func(Func(): Int Throws E, Int): String").dump ==
+          "(local f: Func((Func(): Int Throws E), Int): String)");
+    CHECK(
+        parse_text("Local f: Callback(Int): Int Throws E").errors ==
+        std::vector<std::string>{ "28-34: a Callback can't throw, since C code takes no errors" });
     CHECK(parse_text("For Method m: M In T\n    Where k Has Get\nEnd For").errors ==
           std::vector<std::string>{
               "31-32: a Where line picks by attributes on the loop's variable, 'm'" });

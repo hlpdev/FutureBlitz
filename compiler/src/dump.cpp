@@ -324,12 +324,15 @@ private:
             kind = "Sendable Func";
         }
 
+        // A Func type that throws is in parentheses, as a Task that does is, so which one throws
+        // shows.
         for (std::size_t i = 0; i < node.throws.size(); ++i) {
             result += i == 0 ? " Throws " : ", ";
             result += type_text(node.throws[i]);
         }
 
-        return std::format("{}({}){}", kind, parameters, result);
+        const std::string text = std::format("{}({}){}", kind, parameters, result);
+        return node.throws.empty() ? text : std::format("({})", text);
     }
 
     /// "(Int, String)"

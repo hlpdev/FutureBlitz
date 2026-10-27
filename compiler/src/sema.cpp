@@ -9226,6 +9226,13 @@ private:
     /// another type in the code being checked.
     [[nodiscard]] std::string name_among(const type_id_t shown,
                                          const std::span<const type_id_t> others) const {
+        // Error in "Where E: Error", and Class, are only constraints, written so, and belong
+        // to no module.
+        if (shown != type_id_t::INVALID && (shown == m_analysis.interfaces.any_error ||
+                                            shown == m_analysis.interfaces.any_class)) {
+            return std::string(name_of(shown));
+        }
+
         if (std::ranges::none_of(others,
                                  [&](const type_id_t other) { return alike(shown, other); }) &&
             !means_another(shown)) {
@@ -10345,9 +10352,11 @@ private:
             return false;
         }
 
+        // A loop that picks by attributes says it of the Methods it picks.
         const std::vector<type_id_t>& theirs = known->second.fresh;
         const std::vector<type_id_t>& ours = wanted->second.fresh;
-        return substitute(known->second.signature, theirs, ours) == wanted->second.signature &&
+        return known->second.picks == wanted->second.picks &&
+               substitute(known->second.signature, theirs, ours) == wanted->second.signature &&
                std::ranges::find(theirs, other.field) - theirs.begin() ==
                    std::ranges::find(ours, bound.field) - ours.begin() &&
                substitute(other.interface, theirs, ours) == interface;
@@ -10547,6 +10556,13 @@ private:
         const std::size_t mark = enter_type_scope(pattern.fresh);
         for (const bound_t& bound :
              quietly([&] { return resolve_constraints(fresh_constraints(loop), pattern.fresh); })) {
+            // What a Method throws is always an error, so "Where E: Error" on it holds for every
+            // Method, and a call has nothing to check.
+            if (bound.interface == m_analysis.interfaces.any_error &&
+                thrown_in(pattern.signature, bound.parameter)) {
+                continue;
+            }
+
             constraints.push_back({
                 .parameter = *parameter,
                 .interface = bound.interface,
@@ -10556,6 +10572,23 @@ private:
         }
 
         m_type_scope.resize(mark);
+    }
+
+    /// Whether `parameter` is among what a For Method loop's Func type throws, or the Task it
+    /// gives does.
+    [[nodiscard]] bool thrown_in(const type_id_t signature, const type_id_t parameter) const {
+        if (signature == type_id_t::INVALID) {
+            return false;
+        }
+
+        const type_t& func = m_analysis.types.get(signature);
+        if (std::ranges::contains(func.throws, parameter)) {
+            return true;
+        }
+
+        return func.inner != type_id_t::INVALID && func.inner != type_id_t::NONE &&
+               m_analysis.types.get(func.inner).kind == type_kind_t::TASK &&
+               std::ranges::contains(m_analysis.types.get(func.inner).throws, parameter);
     }
 
     /// Calls `visit` with each block a statement holds, like an If's branches.
@@ -12877,6 +12910,9 @@ private:
         }
 
         if (const auto* function = std::get_if<function_type_t>(&type.node)) {
+            // Only a For Method loop's own Func type throws, for its Methods, not one in it: a
+            // function value can't.
+            const bool pattern = std::exchange(m_method_pattern, false);
             std::vector<type_id_t> parameters;
             parameters.reserve(function->parameters.size());
             for (const type_expr_id_t parameter : function->parameters) {
@@ -12888,10 +12924,8 @@ private:
                 return callback_of(*function, parameters, result);
             }
 
-            // Only a For Method loop's Func type throws, for its Methods: a function value
-            // can't.
             std::vector<type_id_t> throws;
-            if (!function->throws.empty() && !std::exchange(m_method_pattern, false)) {
+            if (!function->throws.empty() && !pattern) {
                 error(type.span,
                       "a Func value can't throw; only a For Method loop's Func type says that "
                       "its Methods do");
@@ -16550,6 +16584,12 @@ private:
             const type_id_t signature =
                 m_analysis.stmts[index(found.declaration.value_or(stmt_id_t{}))].type_arguments.at(
                     2);
+            // A Func type that has an error was reported, and says nothing of what m.Call takes.
+            if (signature == type_id_t::INVALID) {
+                check_alone(arguments);
+                return type_id_t::INVALID;
+            }
+
             const std::vector<type_id_t> parameters = m_analysis.types.get(signature).parameters;
             if (takes(parameters.size() + 1)) {
                 value_of_owner(arguments[0]);
@@ -26485,15 +26525,21 @@ loop_methods(const ast_t& ast, const analysis_t& analysis, type_table_t& types,
             }
 
             const type_id_t func = types.function(takes, gives, false, throws);
+            // An Override takes its base's place, or where it doesn't fit, as one that throws
+            // what its base doesn't, leaves it.
+            const auto overridden = method.overrides ? std::ranges::find(methods, *method.overrides,
+                                                                         &loop_method_t::symbol)
+                                                     : methods.end();
             std::optional<std::vector<type_id_t>> bound = types.match(signature, func, fresh);
             if (!bound) {
+                if (overridden != methods.end()) {
+                    methods.erase(overridden);
+                }
+
                 continue;
             }
 
             loop_method_t found{ .symbol = member, .type = func, .arguments = std::move(*bound) };
-            const auto overridden = method.overrides ? std::ranges::find(methods, *method.overrides,
-                                                                         &loop_method_t::symbol)
-                                                     : methods.end();
             if (overridden != methods.end()) {
                 *overridden = std::move(found);
             } else {

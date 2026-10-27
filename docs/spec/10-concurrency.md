@@ -118,7 +118,9 @@ End Function
   After a function's result, Throws is the function's, so a Task's type there goes in
   parentheses, `Function Start(): (Task<Level> Throws FileError)`, and so it does at the end of
   a Func that's the result: `Function Make(): Func(): Task<Int> Throws FileError` can throw
-  itself. Its Throws lists Classes as a function's does, so it goes in parentheses before a `?`
+  itself. A Func type's result is the same, so a Func value that gives a throwing Task is
+  `Func(): (Task<Int> Throws FileError)`. Its Throws lists Classes as a function's does, so it
+  goes in parentheses before a `?`
   or `[]` too, and where a `,` goes on to anything but a parameter, like a tuple's next element
   or the next type argument; in a Func type's or a lambda's parameters, a `,` always goes on to
   the next parameter.

@@ -202,15 +202,19 @@ End Function
   its Task, which `Await` waits for.
 - A typed loop takes Methods that throw when its Func type throws: `Func(A): R Throws E`, with
   `Where E: Error`, goes over the Methods that take an A, give an R, and throw one error, which
-  E is in each copy, and `m.Call` can throw E, so it needs Try, as a call does. An Async
-  Method's errors are in its Task, so it's `Func(A): (Task<R> Throws E)`, whose Await re-throws
-  them. Without a Throws, the loop goes over Methods that don't throw. Only a For Method loop's
-  Func type throws: a Func value can't.
+  E is in each copy, and `m.Call` can throw E, so it needs Try, as a call does; `Func(A) Throws
+  E` is the Methods that give nothing. A Throws after the Func type's result is the Func type's,
+  as a header's is, so `Func(A): Func(): R Throws E` goes over Methods that throw and give a
+  Func. An Async Method's errors are in its Task, so it's `Func(A): (Task<R> Throws E)`, whose
+  Await re-throws them. Without a Throws, the loop goes over Methods that don't throw, and an
+  Override that throws what its base doesn't takes the base's place in neither. Only the loop's
+  own Func type throws, not a Func type in it: a Func value can't, nor a Callback.
 - A Where line on the loop's variable picks Methods by attribute: `Where m Has Get Or Post`
   goes over only the Methods with one of those Attributes, so no other Method gets a copy, or
   is checked against the loop's other Where lines. Each such line picks again, and an Override
-  goes by its own attributes. `Has` and `Or` are words only there. Only a For Method loop picks;
-  the other loops' bodies test `f.Has(A)`.
+  goes by its own attributes. Over a type parameter, another loop says its Where lines are met
+  only when it picks the same way. `Has` and `Or` are words only there. Only a For Method loop
+  picks; the other loops' bodies test `f.Has(A)`.
 - `For Property p: P In T` goes over a Struct's or Class's Properties (inherited ones first),
   with `p.Name`, `p.Get(value)`, `p.Has(A)`, and `p.Attribute(A)`, and `For Static Field s: S In
   T` over its own Static Fields, with `s.Get()`. They read; a Property without a Set and a
