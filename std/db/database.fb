@@ -936,8 +936,9 @@ Public Class Statement
 
     // The rows it reads, with its parameters as they're bound, each a T that Load<T> makes of an
     // Object of its columns by their names, each an integer, a Double, text, bytes, or Null, so
-    // a T's Fields of numbers, Strings, UInt8[]s, Enums by their names, and T?s take them. Throws
-    // a ParseError for a row that doesn't make a T, whose Path starts with the row's index, as
+    // a T's Fields of numbers, Bools as 0 or 1, Strings, UInt8[]s, Enums by their names, and T?s
+    // take them, and a Field no column has takes its default, or else its zero. Throws a
+    // ParseError for a row that doesn't make a T, whose Path starts with the row's index, as
     // "[2].Age" does.
     @PanicsAtCaller
     Public Method Query<T>(): T[] Throws DatabaseError, ParseError

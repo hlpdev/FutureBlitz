@@ -1418,10 +1418,11 @@ Built in step 23, and `Query<T>` over step 17's `Load<T>`. `Import std.db` bring
   `db.Query<Player, Int>(sql, id)`. `Load<T>` makes the T of an Object of the row's columns by
   their names, each an integer, a Double, text, bytes, or Null for NULL, as many as `Rows`
   reads: a Struct's or Class's Fields take the columns of their names, or of the keys `@Rename`
-  gives them, as `SELECT name AS Name` or `@Rename("name")` does, and a column a T has no Field
-  for, or the second of a name, is left alone. A row that doesn't make a T throws a ParseError,
-  whose Path starts with the row's index, as `[2].Level`. `Query<T>(sql)`, like `Rows(sql)`,
-  panics for SQL that takes parameters. No query builder and no server databases.
+  gives them, as `SELECT name AS Name` or `@Rename("name")` does, a Bool Field takes 0 or 1, as
+  SQLite keeps one, and a Field no column has takes its default, or else its zero; a column a T
+  has no Field for, or the second of a name, is left alone. A row that doesn't make a T throws a
+  ParseError, whose Path starts with the row's index, as `[2].Level`. `Query<T>(sql)`, like
+  `Rows(sql)`, panics for SQL that takes parameters. No query builder and no server databases.
 
 #### std.image
 

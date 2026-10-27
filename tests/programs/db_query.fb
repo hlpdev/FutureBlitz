@@ -1,8 +1,9 @@
 // std.db's Query<T> reads each row as a T, which Load<T> makes of an Object of its columns by
 // their names: an integer, a real, text, a blob, or NULL each, into a Struct's or Class's Fields
-// of their names, or of the keys @Rename gives them, an Enum by its member's name, and a T? as
-// Null for NULL; a Statement's after its parameters are bound. A row that doesn't make a T throws
-// a ParseError at its index and its Field.
+// of their names, or of the keys @Rename gives them, an Enum by its member's name, a Bool by 0 or
+// 1, and a T? as Null for NULL, and a Field no column has its default or its zero; a Statement's
+// after its parameters are bound. A row that doesn't make a T throws a ParseError at its index
+// and its Field.
 Import std.core
 Import std.collections
 Import std.db
@@ -17,6 +18,7 @@ Struct Player
     Field Score: Double
     Field Role: Role
     Field Note: String?
+    Field Active: Bool
     Field Badge: UInt8[]
 End Struct
 
@@ -32,17 +34,23 @@ Class Summary
 End Class
 
 Const Everything = "SELECT name AS Name, level AS Level, score AS Score, role AS Role, " +
-                   "note AS Note, badge AS Badge FROM players"
+                   "note AS Note, active AS Active, badge AS Badge FROM players"
 
 Function Run() Throws DatabaseError, ParseError
     Local db = Try Database.Open(":memory:")
     Try db.Execute("CREATE TABLE players (name TEXT, level INTEGER, score REAL, role TEXT, " +
-                   "note TEXT, badge BLOB)")
-    Try db.Execute("INSERT INTO players VALUES ('ada', 3, 1.5, 'ADMIN', NULL, x'0aff'), " +
-                   "('bob', 1, 2, 'guest', 'new', x'01')")
+                   "note TEXT, active INTEGER, badge BLOB)")
+    Try db.Execute("INSERT INTO players VALUES ('ada', 3, 1.5, 'ADMIN', NULL, 1, x'0aff'), " +
+                   "('bob', 1, 2, 'guest', 'new', 0, x'01')")
     For player In Try db.Query<Player>(Everything)
         Print(player.Name, player.Level, player.Score, player.Role, player.Note ?? "none",
-              player.Badge)
+              player.Active, player.Badge)
+    End For
+
+    // A Field no column has takes its default, or else its zero.
+    For player In Try db.Query<Player>("SELECT name AS Name, badge AS Badge FROM players")
+        Print(player.Name, player.Level, player.Score, player.Role, player.Note ?? "none",
+              player.Active, player.Badge)
     End For
 
     Local summary = Try db.Query<Summary>("SELECT count(*) AS Players, max(score) AS best " +
