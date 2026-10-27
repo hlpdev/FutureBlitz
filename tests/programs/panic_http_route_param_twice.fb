@@ -1,0 +1,12 @@
+// A route's parameters have names of their own, its group's prefix's too, so a second :id
+// panics where the route is added.
+Import std.core
+Import std.net.http
+
+Function Ok(request: HttpRequest): Task<HttpResponse> => Done()
+Async Function Done(): HttpResponse => HttpResponse.Of(204)
+
+Local server = HttpServer()
+server.Get("/users/:id/posts/:post", Function(request: HttpRequest) => Ok(request))
+Local teams = server.Group("/teams/:id")
+teams.Get("/members/:id", Function(request: HttpRequest) => Ok(request))

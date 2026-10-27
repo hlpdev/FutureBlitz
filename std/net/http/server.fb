@@ -29,13 +29,9 @@ Public Alias HttpHandler = Func(HttpRequest): Task<HttpResponse>
 // calls, or doesn't, to give the response.
 Public Alias HttpMiddleware = Func(HttpRequest, HttpHandler): Task<HttpResponse>
 
-// The methods a route can have, as Route takes them.
-Const METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-
 // A request a server read: its method, its Verb, as the client wrote it, like "GET" (Method is
-// a keyword); its target, and the
-// target's path, percent-encoded, without dot segments, and query; its headers and body; the path
-// parameters its route bound; and the client's address.
+// a keyword); its target, and the target's path, percent-encoded, without dot segments, and
+// query; its headers and body; the path parameters its route bound; and the client's address.
 Public Class HttpRequest
     Public ReadOnly Field Verb: String
     Public ReadOnly Field Target: String
@@ -101,8 +97,15 @@ End Class
 
 // Responses a handler gives.
 Extend HttpResponse
-    // A response of status, with body's bytes and its Content-Type, or an empty one.
+    // A response of status, with body's bytes and its Content-Type, or an empty one. The status
+    // is a final response's, from 200 to 599, or it panics: a 1xx's response comes before the
+    // one that answers, and a WebSocket's 101 comes from its AcceptAsync.
+    @PanicsAtCaller
     Public Static Method Of(status: Int, body: Body? = Null): HttpResponse
+        If status < 200 || status > 599
+            Panic("a response's status is from 200 to 599, not {status}")
+        End If
+
         Local headers = NewHeaders()
         Local bytes: UInt8[] = []
         If body != Null
@@ -117,10 +120,14 @@ Extend HttpResponse
     // A 200 with body.
     Public Static Method Of(body: Body): HttpResponse => Of(StatusCode.OK, body)
 
-    // A redirect to url, a 302 Found unless status says another, which a header's value can
-    // hold, or a panic.
+    // A redirect to url, which a header's value can hold, a 302 Found unless status says another
+    // from 300 to 399, or it panics.
     @PanicsAtCaller
     Public Static Method Redirect(url: String, status: Int = 302): HttpResponse
+        If status < 300 || status > 399
+            Panic("a redirect's status is from 300 to 399, not {status}")
+        End If
+
         Local response = Of(status)
         response.Headers.Set("Location", url)
         Return response
@@ -243,6 +250,17 @@ Public Class HttpRouter
     @PanicsAtCaller
     Method Add(method: String, path: String, handler: HttpHandler)
         Local segments = Joined(Prefix, SegmentsOf(path))
+        Local names: String[] = []
+        For segment In segments
+            If KindOf(segment) == 0 Then Continue
+            Local name = segment.Slice(1, segment.Length)
+            If names.Contains(name)
+                Panic("\"{path}\", in its group, has two parameters named {name}")
+            End If
+
+            names.Add(name)
+        End For
+
         Local table = Routes()
         For other In table.Routes
             If other.Verb == method && SameShape(other.Segments, segments)
@@ -384,8 +402,9 @@ End Class
 
 // A server: routes and middleware, as HttpRouter has them, answering the requests that come to
 // where Listen has it listen, as Serve runs. A request that breaks HTTP/1.1's rules is answered
-// as wire.fb has it (400, 413, 414, 431, 501, or 505) and its connection closed; one without a
-// Host, or with two, is a 400; an Expect other than 100-continue is a 417. A response has its
+// as wire.fb has it (400, 413, 414, 431, 501, or 505) and its connection closed; an HTTP/1.1
+// one without a Host, or any with two, is a 400; an Expect other than 100-continue is a 417.
+// A response has its
 // Content-Length and Date set, and a Connection: close when its connection closes after it.
 Public Class HttpServer Extends HttpRouter
     // Its routes, which its groups hold weakly.
@@ -541,7 +560,7 @@ Public Class HttpServer Extends HttpRouter
             If name.EqualsIgnoreCase("Host") Then hosts += 1
         End For
 
-        If hosts != 1 && head.Parts[2] == "HTTP/1.1"
+        If hosts > 1 || (hosts == 0 && head.Parts[2] == "HTTP/1.1")
             Throw WireError(400, "a request has {hosts} Hosts, not 1")
         End If
 
@@ -567,7 +586,7 @@ Public Class HttpServer Extends HttpRouter
         Local url: Url? = Null
         If target.StartsWith("/")
             url = Url.Parse("http://host" + target)
-        ElseIf target.StartsWith("http://") || target.StartsWith("https://")
+        ElseIf target.ToLower().StartsWith("http://") || target.ToLower().StartsWith("https://")
             url = Url.Parse(target)
         ElseIf target == "*" && head.Parts[0] == "OPTIONS"
             url = Url.Parse("http://host/*")

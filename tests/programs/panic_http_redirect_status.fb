@@ -1,0 +1,6 @@
+// A redirect's status is one of 300 to 399, so a 200 panics where it's given.
+Import std.core
+Import std.net.http
+
+Print(HttpResponse.Redirect("/a", 301).Status, HttpResponse.Redirect("/b", 308).Status)
+HttpResponse.Redirect("/c", 200)

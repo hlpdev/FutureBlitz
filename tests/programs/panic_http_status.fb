@@ -1,0 +1,7 @@
+// A handler's response is a final one, from 200 to 599, so a 1xx or a status that isn't three
+// digits panics where it's made.
+Import std.core
+Import std.net.http
+
+Print(HttpResponse.Of(204).Status, HttpResponse.Of(599).Status)
+HttpResponse.Of(103, Body.Text("early"))
