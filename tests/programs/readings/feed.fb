@@ -1,0 +1,123 @@
+// readings.fb's feed: the readings as a JSON document, served over HTTPS by a server of its own,
+// on std's TlsListener with the test certificate for 127.0.0.1, which answers each GET with the
+// document, a request to a connection.
+
+Import std.core
+Import std.crypto
+Import std.data
+Import std.ffi
+Import std.io
+Import std.net
+Import "./certificates"
+Import "./source"
+
+// A reading in the document: its hour, and how warm it was.
+Public Struct Hourly
+    Public Field Hour: Int
+    Public Field Celsius: Double
+End Struct
+
+// A city's readings in the document.
+Public Struct CityFeed
+    Public Field Name: String
+    Public Field Hours: Hourly[]
+End Struct
+
+// The document: each city's readings.
+Public Struct Feed
+    Public Field Cities: CityFeed[]
+End Struct
+
+// The document of readings, each city's in the order they come.
+Public Function FeedOf(readings: Reading[]): Feed
+    Local cities: CityFeed[] = []
+    For reading In readings
+        If cities.Count == 0 || cities[cities.Count - 1].Name != reading.City
+            cities.Add(CityFeed(reading.City, []))
+        End If
+
+        cities[cities.Count - 1].Hours.Add(Hourly(reading.Hour, reading.Celsius))
+    End For
+
+    Return Feed(cities)
+End Function
+
+// The readings in a document, one after another.
+Public Function ReadingsOf(feed: Feed): Reading[]
+    Local readings: Reading[] = []
+    For city In feed.Cities
+        For hourly In city.Hours
+            readings.Add(Reading(city.Name, hourly.Hour, hourly.Celsius))
+        End For
+    End For
+
+    Return readings
+End Function
+
+// The test CA's certificate, which a client trusts to fetch the feed.
+Public Function TestRoots(): Certificate[]
+    Return (Try? Certificate.AllFromPem(ca_pem)).Expect("the test CA's certificate reads")
+End Function
+
+// The feed's HTTPS server, at 127.0.0.1, on a port the OS picks.
+Public Class FeedServer
+    Field Listener: TlsListener
+    Field Document: String
+    // How many connections it's answered, and how many failed.
+    Public Field Served: Int
+    Public Field Refused: Int
+
+    New(listener: TlsListener, document: String)
+        Listener = listener
+        Document = document
+    End New
+
+    // A server of feed's JSON.
+    Public Static Method Start(feed: Feed): FeedServer Throws NetError
+        Local chain = (Try? Certificate.AllFromPem(localhost_pem)).Expect("the certificate reads")
+        Local key = (Try? Key.FromPem(localhost_key)).Expect("the test's key reads")
+        Local address = SocketAddress(IpAddress.Loopback, 0)
+        Local listener = Try TlsListener.Listen(address, TlsServer(chain, key))
+        Return FeedServer(listener, Json.Write(feed))
+    End Method
+
+    // Where the document is.
+    Public Property Url: String
+        Get => "https://127.0.0.1:{Listener.LocalAddress.Port}/readings.json"
+    End Property
+
+    // Answers count connections, each with the document: it reads the request's head, writes
+    // the response, and closes the connection. One whose handshake fails, as a client that
+    // doesn't trust the test CA's makes it, is counted refused.
+    Public Async Method Answer(count: Int)
+        For i = 0 Until count
+            Try
+                Local tls = Try Await Listener.AcceptAsync()
+                Local reader = BufferedReader(tls)
+                Loop
+                    Local line = Try Await reader.ReadLineAsync()
+                    If line == Null || line == "" Then Break
+                End Loop
+
+                Local body = Document.Bytes
+                Local head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
+                             "Content-Length: {body.Count}\r\nConnection: close\r\n\r\n"
+                Local response = head.Bytes
+                For b In body
+                    response.Add(b)
+                End For
+
+                Try Await tls.WriteAsync(Buffer<UInt8>.From(response))
+                Try Await tls.CloseAsync()
+                Served += 1
+            Catch e As Error
+                Refused += 1
+            End Try
+        End For
+    End Method
+
+    // Stops listening.
+    Public Method Close()
+        Listener.Close()
+    End Method
+End Class

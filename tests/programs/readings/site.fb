@@ -1,0 +1,94 @@
+// readings.fb's site: an HttpServer at 127.0.0.1 that serves the summary as JSON at
+// /summary.json, the chart and the summary as static files from a folder of their own under
+// /files, and both to a WebSocket at /live, the summary as text and then the chart as bytes.
+
+Import std.core
+Import std.data
+Import std.io
+Import std.net
+Import std.net.http
+Import std.net.ws
+Import "./store"
+
+// How many WebSockets the site's served, which its route counts, apart from the site, which
+// holds the route.
+Class Count
+    Field Value: Int
+End Class
+
+// The site, and its folder of files.
+Public Class Site
+    Field Server: HttpServer
+    Field Folder: TempDir
+    Field Served: Count
+
+    New(server: HttpServer, folder: TempDir, served: Count)
+        Server = server
+        Folder = folder
+        Served = served
+    End New
+
+    // A site serving summaries and chart, a PNG's bytes, listening at 127.0.0.1 on a port the OS
+    // picks.
+    Public Static Method Start(summaries: Summary[], chart: UInt8[]): Site Throws NetError, IOError
+        Local summary = Json.Write(summaries)
+        Local folder = Try TempDir("readings-")
+        Try File.WriteText(folder.Path / Path("summary.json"), summary)
+        Try File.WriteBytes(folder.Path / Path("chart.png"), chart)
+        Local server = HttpServer()
+        Local served = Count()
+        server.Get("/summary.json",
+                   Function(request: HttpRequest) => Answer(HttpResponse.Of(Body.Json(summary))))
+        server.Files("/files", folder.Path)
+        server.Get("/live", Function(request: HttpRequest) => Live(request, summary, chart, served))
+        Try server.Listen(SocketAddress(IpAddress.Loopback, 0))
+        Return Site(server, folder, served)
+    End Method
+
+    // How many WebSockets it's served.
+    Public Property Lives: Int
+        Get => Served.Value
+    End Property
+
+    // Where it serves, as "http://127.0.0.1:<port>".
+    Public Property Url: String
+        Get => "http://127.0.0.1:{Server.LocalAddress.Port}"
+    End Property
+
+    // Serves until Stop.
+    Public Async Method Serve()
+        Await Server.Serve()
+    End Method
+
+    // Stops serving, and removes its folder.
+    Public Method Stop() Throws IOError
+        Server.Stop()
+        Try Folder.Close()
+    End Method
+
+    // Whether it's still serving.
+    Public Property IsRunning: Bool
+        Get => Server.IsRunning
+    End Property
+End Class
+
+// A WebSocket's request: the summary, then the chart, then a close.
+Async Function Live(request: HttpRequest, summary: String, chart: UInt8[],
+                    served: Count): HttpResponse
+    Try
+        Local ws = Try Await WebSocket.AcceptAsync(request)
+        Try Await ws.SendAsync(summary)
+        Try Await ws.SendAsync(chart)
+        Await ws.CloseAsync()
+        served.Value += 1
+    Catch e As NetError
+        Return HttpResponse.Of(StatusCode.BAD_REQUEST, Body.Text(e.Message))
+    End Try
+
+    Return HttpResponse.Of(StatusCode.OK)
+End Function
+
+// A response, as a handler gives it.
+Async Function Answer(response: HttpResponse): HttpResponse
+    Return response
+End Function

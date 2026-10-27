@@ -1,0 +1,40 @@
+// The test CA's certificate, and the certificate and key it signed for localhost, 127.0.0.1,
+// and ::1, which readings.fb's HTTPS feed serves with: net_tls/certificates.fb's, made by
+// net_tls/make_certificates.sh.
+
+Public Const ca_pem = """
+    -----BEGIN CERTIFICATE-----
+    MIIBozCCAUmgAwIBAgIUYYz8r6QK8IhmcKL5OM8uPuvwLJswCgYIKoZIzj0EAwIw
+    HjEcMBoGA1UEAwwTRnV0dXJlQmxpdHogVGVzdCBDQTAgFw0yMDAxMDEwMDAwMDBa
+    GA8yMTIwMDEwMTAwMDAwMFowHjEcMBoGA1UEAwwTRnV0dXJlQmxpdHogVGVzdCBD
+    QTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABIyPGd9A/XybK8nPkZEXYWA/WAiY
+    +HVr/sCuiIwCZNCDl5k+e1ay629HNVZigJzWauF2jIp0wxZH3854lGOodQWjYzBh
+    MB0GA1UdDgQWBBTk45n6jin5tvLss88NORqhRUX0RDAfBgNVHSMEGDAWgBTk45n6
+    jin5tvLss88NORqhRUX0RDAPBgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIB
+    BjAKBggqhkjOPQQDAgNIADBFAiAbFinsUHjK5pYtcRnf5WgTqpT8PxKfDgBdqbty
+    CAZFLQIhALa6+c7pcWiSmQe9eUOFdCKvhpbBXZUWRT1hQmTPeMsa
+    -----END CERTIFICATE-----
+    """
+
+Public Const localhost_pem = """
+    -----BEGIN CERTIFICATE-----
+    MIIB2zCCAYGgAwIBAgIUedQoeu28tAH+KsyVFoglnoyivrAwCgYIKoZIzj0EAwIw
+    HjEcMBoGA1UEAwwTRnV0dXJlQmxpdHogVGVzdCBDQTAgFw0yMDAxMDEwMDAwMDBa
+    GA8yMTIwMDEwMTAwMDAwMFowFDESMBAGA1UEAwwJbG9jYWxob3N0MFkwEwYHKoZI
+    zj0CAQYIKoZIzj0DAQcDQgAE78GeMXEYbFNB0NflZo2AbNjdaly601Pq5+B2qal4
+    tWw1mDyx877K3XqgZgiN9qcNH3+LtWlPuex/aRcV8GTPAKOBpDCBoTAMBgNVHRMB
+    Af8EAjAAMA4GA1UdDwEB/wQEAwIFoDATBgNVHSUEDDAKBggrBgEFBQcDATAsBgNV
+    HREEJTAjgglsb2NhbGhvc3SHBH8AAAGHEAAAAAAAAAAAAAAAAAAAAAEwHQYDVR0O
+    BBYEFH5Ip73s1qX3QT7V3Y+RK5k5EoTmMB8GA1UdIwQYMBaAFOTjmfqOKfm28uyz
+    zw05GqFFRfREMAoGCCqGSM49BAMCA0gAMEUCIQDNw36/1Nx7N2/C7YB43g8XurAM
+    f8uuIxHawT14iT+SIgIgUjV1euZcD9ka2BeT9SXpJE6DFxUlLWO0x421CztzH84=
+    -----END CERTIFICATE-----
+    """
+
+Public Const localhost_key = """
+    -----BEGIN PRIVATE KEY-----
+    MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgwSq6ch29gVt0kPGc
+    B3MlKevgUpI+uSyrqIVmZX+JjU+hRANCAATvwZ4xcRhsU0HQ1+VmjYBs2N1qXLrT
+    U+rn4HapqXi1bDWYPLHzvsrdeqBmCI32pw0ff4u1aU+57H9pFxXwZM8A
+    -----END PRIVATE KEY-----
+    """

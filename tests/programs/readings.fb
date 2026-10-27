@@ -1,15 +1,21 @@
-// M6's integration program, which uses std alone: readings of three cities' temperatures, kept in
-// a SQLite database, summed up in SQL, and drawn as a chart, a PNG image. As the steps it needs
-// land, it fetches the readings as JSON over HTTPS from its own server (std.data.json, step 19;
-// TlsStream's listener, step 29; HttpServer, step 30), and serves the chart and the summary to
-// its own WebSocket client (step 30).
+// M6's integration program, which uses std alone. It fetches three cities' temperatures as JSON
+// over HTTPS, from a feed of its own on std's TLS with the test CA's certificate, keeps them in a
+// SQLite database, sums them up in SQL, and draws them as a chart, a PNG. Then it serves the
+// summary and the chart from an HttpServer, as JSON, as static files, and to a WebSocket, and
+// its own HttpClient and WebSocket client check that what they get is what it made.
 Import std.core
 Import std.crypto
-Import std.text
+Import std.data
 Import std.image
+Import std.net
+Import std.net.http
+Import std.net.ws
+Import std.text
 Import "./readings/source"
 Import "./readings/store"
 Import "./readings/chart"
+Import "./readings/feed"
+Import "./readings/site"
 
 // The hex of bytes.
 Function HexOf(bytes: UInt8[]): String
@@ -21,31 +27,103 @@ Function HexOf(bytes: UInt8[]): String
     Return text
 End Function
 
-Function Run() Throws DatabaseError, IOError
-    // The readings, as the server will give them.
+// Whether two runs of readings are the same, reading for reading.
+Function Same(a: Reading[], b: Reading[]): Bool
+    If a.Count != b.Count Then Return False
+    For i = 0 Until a.Count
+        If a[i].City != b[i].City || a[i].Hour != b[i].Hour || a[i].Celsius != b[i].Celsius
+            Return False
+        End If
+    End For
+
+    Return True
+End Function
+
+// Whether two runs of summaries are the same.
+Function SameSummaries(a: Summary[], b: Summary[]): Bool
+    If a.Count != b.Count Then Return False
+    For i = 0 Until a.Count
+        If a[i].City != b[i].City || a[i].Low != b[i].Low || a[i].High != b[i].High ||
+           a[i].Mean != b[i].Mean || a[i].Count != b[i].Count
+            Return False
+        End If
+    End For
+
+    Return True
+End Function
+
+Async Function Run() Throws Error
+    // The feed, over HTTPS: a client that trusts only the OS's roots is refused, and one that
+    // trusts the test CA gets the document.
     Local readings = Readings(26, 36)
-    Print("readings:", readings.Count, "first", readings[0].City, readings[0].Hour, readings[0].Celsius)
+    Local feed = Try FeedServer.Start(FeedOf(readings))
+    Local answering = feed.Answer(2)
+    Local refused = "fetched"
+    Try
+        Try Await HttpClient().GetAsync(feed.Url)
+    Catch e As NetError
+        refused = "refused, {e.Kind}"
+    End Try
+
+    Local client = HttpClient()
+    client.TrustOnly(TestRoots())
+    Local fetched = Try Await client.GetAsync(feed.Url)
+    Await answering
+    feed.Close()
+    Print("feed: untrusted", refused, "| trusted", fetched.Status, fetched.Headers.Get("Content-Type") ?? "-",
+          fetched.Bytes.Count, "bytes, answered", feed.Served, "and refused", feed.Refused)
+
+    // The JSON, read into the document's Structs, is the readings it was written from.
+    Local document = Try Json.Read<Feed>(fetched.Text)
+    Local taken = ReadingsOf(document)
+    Print("json:", document.Cities.Count, "cities,", taken.Count, "readings, the same", Same(taken, readings))
 
     // Kept in SQLite: a reading again takes the place of the one before it.
     Local store = Try Store.Open()
-    Try store.Add(readings)
-    Try store.Add(readings[0..5])
+    Try store.Add(taken)
+    Try store.Add(taken[0..5])
     Print("stored:", Try store.Count(), "cities", Try store.Cities())
-    For summary In Try store.Summaries()
+    Local summaries = Try store.Summaries()
+    For summary In summaries
         Print("  {summary.City}: low {summary.Low:.1}, high {summary.High:.1}, mean {summary.Mean:.2}, {summary.Count} readings")
     End For
 
     // Drawn as a chart, and written as a PNG, which reads back as the same pixels.
     Local image = Try Chart(store, 480, 270)
+    Local pixels = image.ToBytes()
     Local png = Png.Encode(image)
-    Local back = Try Image.Decode(png)
     Print("chart:", image.Width, image.Height, "png", Image.FormatOf(png) ?? ImageFormat.PNG,
-          "reads back the same", back.ToBytes() == image.ToBytes())
-    Print("pixels:", HexOf(Sha256.Hash(image.ToBytes())))
+          "reads back the same", (Try Image.Decode(png)).ToBytes() == pixels)
+    Print("pixels:", HexOf(Sha256.Hash(pixels)))
+
+    // Served: the summary as JSON, and both as static files.
+    Local site = Try Site.Start(summaries, png)
+    Local serving = site.Serve()
+    Local web = HttpClient()
+    Local summary = Try Await web.GetAsync("{site.Url}/summary.json")
+    Local read = Try Json.Read<Summary[]>(summary.Text)
+    Print("summary.json:", summary.Status, summary.Headers.Get("Content-Type") ?? "-", "the same", SameSummaries(read, summaries))
+    Local file = Try Await web.GetAsync("{site.Url}/files/chart.png")
+    Print("files/chart.png:", file.Status, file.Headers.Get("Content-Type") ?? "-", "the same", file.Bytes == png)
+    Local text = Try Await web.GetAsync("{site.Url}/files/summary.json")
+    Local missing = Try Await web.GetAsync("{site.Url}/files/missing.png")
+    Print("files/summary.json:", text.Status, "the same", text.Text == Json.Write(summaries), "| missing.png:", missing.Status)
+
+    // To its own WebSocket client: the summary as text, the chart as bytes, then the close.
+    Local live = Try Await WebSocket.ConnectAsync("ws://127.0.0.1:{site.Url.Split(":")[2]}/live")
+    Local first = Try Await live.ReceiveAsync()
+    Local second = Try Await live.ReceiveAsync()
+    Local last = Try Await live.ReceiveAsync()
+    Local sentSummary = first != Null && first.IsText && SameSummaries(Try Json.Read<Summary[]>(first.Text), summaries)
+    Local sentChart = second != Null && !second.IsText && (Try Image.Decode(second.Bytes)).ToBytes() == pixels
+    Print("websocket: summary", sentSummary, "chart", sentChart, "then closed", last == Null, live.CloseCode ?? 0)
+    Try site.Stop()
+    Await serving
+    Print("served:", site.Lives, "websocket, and stopped", !site.IsRunning)
 End Function
 
 Try
-    Run()
+    Await Run()
 Catch e As Error
     Print("failed:", e.Message)
 End Try
