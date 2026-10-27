@@ -1420,7 +1420,33 @@ discovery. `Import std.net` brings in std/net/.
   `@Post`, and the rest, registered with `server.Routes<T>(instance)`, binding path parameters
   and JSON bodies to typed parameters; middleware; static files; and automatic HTTPS, getting
   and renewing Let's Encrypt certificates (ACME).
-- std.net.ws: WebSocket client and server (the server from an HttpServer handler).
+- std.net.ws: WebSocket client and server, per RFC 6455, built in step 30 but for the server
+  from an HttpServer handler, which comes with HttpServer, and wss://, with HTTPS.
+  `Import std.net.ws` brings in std/net/ws/. `WebSocket.Connect(url, protocols, timeout)` and
+  `ConnectAsync` open a client at a ws:// URL, asking for the subprotocols in the order it would
+  have them (each a token, or a panic), with `timeout` for connecting and for each read of the
+  answer; `WebSocket.Accept(stream, protocols)` and `AcceptAsync` read a client's handshake
+  from a TcpStream a TcpListener accepted, and choose the first of the client's subprotocols
+  that it has. A request that isn't a WebSocket's is answered with 400, 405, or 426 (with
+  `Sec-WebSocket-Version: 13`), or as HTTP/1.1's rules refuse its head (400, 431, or 505), and
+  closed, and throws a NetError of OTHER; a client's answer that isn't a 101 with the key's
+  Sec-WebSocket-Accept, or chooses a subprotocol or extensions it wasn't offered, throws one
+  too. `Send(text)`, `Send(bytes)`, and `Ping(bytes)`, of 125 bytes at most, and their Async
+  twins send a frame each, masked with a random key from a client. `Receive()` and
+  `ReceiveAsync()` give the next `WebSocketMessage` (`IsText`, `Bytes`, `Text`), whole from
+  its fragments, answering a Ping with a Pong and the other side's Close with its own, and then
+  Null; one Receive reads at a time, or a panic. `Close(code, reason)` sends a Close, of 1000,
+  1001 to 1003, 1007 to 1014, or 3000 to 4999, with a reason of 123 bytes at most, or a panic,
+  and is CLOSING until the other side's comes; `Abort()` closes the connection at once.
+  `State` (OPEN, CLOSING, CLOSED), `CloseCode` (1005 for a Close without one, 1006 for a
+  connection that ended without one), `CloseReason`, `Protocol`, and `MaxMessageSize`, 16 MiB
+  unless it's set. A frame that breaks the RFC closes it with 1002, a text message or Close
+  reason that isn't UTF-8 with 1007, and a message past MaxMessageSize with 1009, and throws a
+  NetError of OTHER; a connection that ends without a Close throws one of CLOSED. No extensions
+  (permessage-deflate). The HTTP/1.1 that its handshake and HttpServer speak reads heads as
+  RFC 9112 has them: lines of 8 KiB at most, heads of 64 KiB and 100 fields, no folded lines
+  or space before a field's colon, obs-text read as Latin-1, and empty lines before a request's
+  skipped; and bodies of a Content-Length, whose values all agree, or chunks, and never both.
 - std.net.game (built in step 31; `Import std.net.game` brings in std/net/game/): reliable UDP
   for games, ENet-style. A `GameHost` is one end of any number of connections over a
   `GameLink`: a UdpSocket's, through `GameHost.Bind(address, settings)`, or any Class of a
