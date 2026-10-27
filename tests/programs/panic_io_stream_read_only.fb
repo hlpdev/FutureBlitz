@@ -1,0 +1,13 @@
+// Writing a FileStream opened only to read panics at the program's line.
+Import std.core
+Import std.ffi
+Import std.io
+
+Local temp = Try TempDir("fb-stream-")
+Try File.WriteText(temp.Path / "three.txt", "abc")
+Local stream = Try File.Open(temp.Path / "three.txt")
+Print("{stream.IsWritable}")
+// The folder goes while the stream is open, which every OS lets it.
+Try temp.Close()
+Print("{Dir.Exists(temp.Path)} {stream.IsOpen()}")
+Try stream.Write(Buffer<UInt8>.From([100]))

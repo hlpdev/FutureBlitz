@@ -1,0 +1,3 @@
+False
+False True
+panic: the FileStream of new.txt wasn't opened to read at panic_io_stream_write_only.fb:11:5

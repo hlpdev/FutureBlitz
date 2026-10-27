@@ -1,0 +1,36 @@
+False True False 8 8
+False [1, 2, 3, 4, 5, 104, 195, 169]
+[1, 2, 3] 3
+1 [2, 3]
+2 [3]
+6 [195, 169]
+[] 108 []
+OTHER: a Seek of -1 from 0 is before the stream's start
+108
+[hé]
+[5] 5
+[1, 2, 30, 40, 5, 104, 195, 169, 0, 99]
+True True 0
+4
+8
+[one
+two
+]
+0
+opened
+ALREADY_EXISTS
+NOT_FOUND
+NOT_FOUND
+NOT_FOUND
+IS_A_DIRECTORY
+IS_A_DIRECTORY
+False
+opened PERMISSION_DENIED
+0
+-2 513 0.5 14
+14 [255, 255, 255, 254, 2, 1, 63, 224, 0, 0, 0, 0, 0, 0]
+14 [255, 255, 255, 254, 2, 1, 63, 224, 0, 0, 0, 0, 0, 0]
+left open
+3 cde fgh 0 abcdefgh
+NOT_FOUND
+False

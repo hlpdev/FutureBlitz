@@ -1,0 +1,11 @@
+// Reading a FileStream opened only to write panics at the program's line.
+Import std.core
+Import std.ffi
+Import std.io
+
+Local temp = Try TempDir("fb-stream-")
+Local stream = Try File.Create(temp.Path / "new.txt")
+Print("{stream.IsReadable}")
+Try temp.Close()
+Print("{Dir.Exists(temp.Path)} {stream.IsOpen()}")
+Try stream.Read(Buffer<UInt8>(1))

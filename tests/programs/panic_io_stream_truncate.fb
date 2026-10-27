@@ -1,0 +1,6 @@
+// Opening a file to append to and empty it panics at the program's line, before the file is
+// looked for.
+Import std.core
+Import std.io
+
+Try File.Open("missing.txt", OpenOptions(Append: True, Truncate: True))

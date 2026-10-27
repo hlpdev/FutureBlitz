@@ -1,0 +1,3 @@
+2
+False
+panic: the FileStream of three.txt is closed at panic_io_stream_closed.fb:13:13

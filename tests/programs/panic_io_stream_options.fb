@@ -1,0 +1,7 @@
+// Opening a file with options that say neither to read nor to write panics at the program's
+// line, before the file is looked for.
+Import std.core
+Import std.io
+
+Print("{OpenOptions().Create}")
+Try File.Open("missing.txt", OpenOptions(Create: True))

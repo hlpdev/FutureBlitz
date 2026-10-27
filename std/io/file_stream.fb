@@ -1,0 +1,285 @@
+// std.io's open files: File.Open gives a FileStream, a Reader, Writer, and Seeker over a file,
+// which reads and writes where it is, as Seek moves it, with Async twins that libuv's thread
+// pool does while the main thread goes on.
+
+Import std.core
+Import std.ffi
+Import std.io.memory
+Import std.io.path
+Import std.io.request
+Import std.io.streams
+
+Extern "runtime"
+    Function fb_io_file_open(request: Ptr<Void>, path: String, how: Int32): Int64
+    Function fb_io_file_open_async(request: Ptr<Void>, path: String, how: Int32): Task<Int64>
+    Function fb_io_request_stream(request: Ptr<Void>): Ptr<Void>
+    Function fb_io_request_copy(request: Ptr<Void>, into: Ptr<UInt8>)
+    Function fb_io_stream_open(stream: Ptr<Void>): Int32
+    Function fb_io_stream_read(stream: Ptr<Void>, data: Ptr<UInt8>, count: Int64,
+                               offset: Int64): Int64
+    Function fb_io_stream_read_async(request: Ptr<Void>, stream: Ptr<Void>, count: Int64,
+                                     offset: Int64): Task<Int64>
+    Function fb_io_stream_write(stream: Ptr<Void>, data: Ptr<UInt8>, count: Int64,
+                                offset: Int64): Int64
+    Function fb_io_stream_write_async(request: Ptr<Void>, stream: Ptr<Void>, data: Ptr<UInt8>,
+                                      count: Int64, offset: Int64): Task<Int64>
+    Function fb_io_stream_size(stream: Ptr<Void>): Int64
+    Function fb_io_stream_sync(stream: Ptr<Void>): Int64
+    Function fb_io_stream_sync_async(request: Ptr<Void>, stream: Ptr<Void>): Task<Int64>
+    Function fb_io_stream_close(stream: Ptr<Void>)
+    Function fb_io_stream_free(stream: Ptr<Void>)
+End Extern
+
+// How File.Open opens a file: to read, to write, or both, and, for one it writes, whether each
+// write goes at its end, whether it's made when it isn't there, or only then, and whether what it
+// held is gone first.
+Public Struct OpenOptions
+    Public Field Read: Bool = False
+    Public Field Write: Bool = False
+    // Each write goes at the file's end, wherever the stream is, which is a write too.
+    Public Field Append: Bool = False
+    // The file is made, empty, when it isn't there.
+    Public Field Create: Bool = False
+    // The file is made, and one that's there is an IOError of ALREADY_EXISTS.
+    Public Field CreateNew: Bool = False
+    // What the file held is gone once it's open.
+    Public Field Truncate: Bool = False
+
+    // A number for the runtime: the sum of 1 to read, 2 to write, 4 to write at the end, 8 to
+    // make the file, 16 to make it only when it isn't there, and 32 to empty it.
+    Package Method How(): Int32
+        Return (Read ? 1 : 0) + (Write ? 2 : 0) + (Append ? 4 : 0) + (Create ? 8 : 0) +
+               (CreateNew ? 16 : 0) + (Truncate ? 32 : 0)
+    End Method
+
+    // Panics for options no file can be opened with.
+    @PanicsAtCaller
+    Package Method Check()
+        If !Read && !Write && !Append
+            Panic("a file is opened to read, write, or append to it, and these options say none")
+        End If
+
+        If (Create || CreateNew || Truncate) && !Write && !Append
+            Panic("only a file opened to write or append to is made or emptied")
+        End If
+
+        If Truncate && Append Then Panic("a file opened to append to isn't emptied")
+    End Method
+End Struct
+
+// A file opened to read, write, or both, at a place in it that each read and write moves on, and
+// Seek moves anywhere, until it's closed, or its last reference goes. It holds nothing back, so
+// Flush has nothing to do, and Sync puts what's been written onto the disk. A BufferedReader or a
+// BufferedWriter around it takes fewer calls for small reads and writes. One call at a time goes
+// on it: a call while an Async one is under way panics, and so does using it once it's closed,
+// reading one not opened to read, and writing one not opened to write.
+Public Class FileStream Implements Reader, Writer, Seeker
+    Public ReadOnly Field Path: Path
+    Public ReadOnly Field IsReadable: Bool
+    Public ReadOnly Field IsWritable: Bool
+    // Whether each write goes at the end.
+    Public ReadOnly Field IsAppending: Bool
+    // The runtime's stream, which keeps whether it's open.
+    ReadOnly Field Native: Ptr<Void>
+    // Where the next read or write goes, from the start, which Seek moves, and whether an Async
+    // call is under way.
+    Field At: Int64
+    Field Busy: Bool
+
+    New(path: Path, options: OpenOptions, native: Ptr<Void>)
+        Path = path
+        IsReadable = options.Read
+        IsWritable = options.Write || options.Append
+        IsAppending = options.Append
+        Native = native
+    End New
+
+    // The file at the path, opened as the options say.
+    @PanicsAtCaller
+    Package Static Method Opened(path: Path, options: OpenOptions): FileStream Throws IOError
+        options.Check()
+        Local request = Request()
+        Try Checked(fb_io_file_open(request.Native, path.Text, options.How()), "open", path)
+        Return Try Made(path, options, request)
+    End Method
+
+    @PanicsAtCaller
+    Package Static Async Method OpenedAsync(path: Path,
+                                            options: OpenOptions): FileStream Throws IOError
+        options.Check()
+        Local request = Request()
+        Try Checked(Await fb_io_file_open_async(request.Native, path.Text, options.How()), "open",
+                    path)
+        Return Try Made(path, options, request)
+    End Method
+
+    // The stream the request opened, at the file's end when it appends.
+    Static Method Made(path: Path, options: OpenOptions,
+                       request: Request): FileStream Throws IOError
+        Local stream = FileStream(path, options, fb_io_request_stream(request.Native))
+        If options.Append Then stream.At = Try stream.SizeNow()
+        Return stream
+    End Method
+
+    // Whether it's still open.
+    Public Method IsOpen(): Bool => fb_io_stream_open(Native) != 0
+
+    // Reads up to into.Count bytes from where it is, and moves on past them.
+    @PanicsAtCaller
+    Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+        CheckUsable(True)
+        If into.Count == 0 Then Return 0
+        Local count: Int64 = 0
+        Unsafe
+            count = Try Checked(fb_io_stream_read(Native, into.Pointer(), into.Count, At), "read",
+                                Path)
+        End Unsafe
+
+        At += count
+        Return count
+    End Method
+
+    @PanicsAtCaller
+    Public Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
+        CheckUsable(True)
+        If into.Count == 0 Then Return 0
+        Local request = Request()
+        Busy = True
+        Defer Busy = False
+        Local count = Try Checked(Await fb_io_stream_read_async(request.Native, Native,
+                                                                into.Count, At), "read", Path)
+        Unsafe
+            fb_io_request_copy(request.Native, into.Pointer())
+        End Unsafe
+
+        At += count
+        Return count
+    End Method
+
+    // Writes all of from's bytes where it is, or at the end when it appends, and moves on past
+    // them.
+    @PanicsAtCaller
+    Public Method Write(from: Buffer<UInt8>) Throws IOError
+        CheckUsable(False)
+        If from.Count == 0 Then Return
+        Unsafe
+            Try Checked(fb_io_stream_write(Native, from.Pointer(), from.Count, WriteOffset()),
+                        "write", Path)
+        End Unsafe
+
+        Try Wrote(from.Count)
+    End Method
+
+    @PanicsAtCaller
+    Public Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
+        CheckUsable(False)
+        If from.Count == 0 Then Return
+        Local request = Request()
+        Busy = True
+        Defer Busy = False
+        // The runtime copies the bytes before the call returns.
+        Unsafe
+            Try Checked(Await fb_io_stream_write_async(request.Native, Native, from.Pointer(),
+                                                       from.Count, WriteOffset()), "write", Path)
+        End Unsafe
+
+        Try Wrote(from.Count)
+    End Method
+
+    // Holds nothing back, so there's nothing to send on, but it panics once it's closed too.
+    @PanicsAtCaller
+    Public Method Flush() Throws IOError
+        CheckOpen()
+    End Method
+
+    @PanicsAtCaller
+    Public Async Method FlushAsync() Throws IOError
+        CheckOpen()
+    End Method
+
+    // Puts what's been written to the file onto the disk, as File's atomic writes do theirs, so
+    // it's there even if the machine stops. One not opened to write has nothing to put there.
+    @PanicsAtCaller
+    Public Method Sync() Throws IOError
+        CheckOpen()
+        If IsWritable Then Try Checked(fb_io_stream_sync(Native), "write", Path)
+    End Method
+
+    @PanicsAtCaller
+    Public Async Method SyncAsync() Throws IOError
+        CheckOpen()
+        If !IsWritable Then Return
+        Local request = Request()
+        Busy = True
+        Defer Busy = False
+        Try Checked(Await fb_io_stream_sync_async(request.Native, Native), "write", Path)
+    End Method
+
+    // Moves to `offset` bytes from `origin`, as Seeker says, where the next read reads and the
+    // next write writes, unless it appends. A place past the end is where a write makes the file
+    // longer, with 0s before it.
+    @PanicsAtCaller
+    Public Method Seek(offset: Int64, origin: SeekOrigin): Int64 Throws IOError
+        CheckOpen()
+        Local size: Int64 = 0
+        If origin == SeekOrigin.END Then size = Try SizeNow()
+        At = Try SeekIn(At, size, offset, origin)
+        Return At
+    End Method
+
+    // How many bytes the file has now.
+    @PanicsAtCaller
+    Public Method Size(): Int64 Throws IOError
+        CheckOpen()
+        Return Try SizeNow()
+    End Method
+
+    // Closes the file, which a second Close leaves alone. What was written stays in the file, for
+    // the OS to put onto the disk.
+    @PanicsAtCaller
+    Public Method Close()
+        If Busy Then Panic("the FileStream of {Path.FileName()} can't close while a call is on it")
+        fb_io_stream_close(Native)
+    End Method
+
+    Method Destroy()
+        fb_io_stream_free(Native)
+    End Method
+
+    Method SizeNow(): Int64 Throws IOError
+        Return Try Checked(fb_io_stream_size(Native), "find the size of", Path)
+    End Method
+
+    // Where a write goes: the end, -1 to the runtime, when it appends.
+    Method WriteOffset(): Int64 => IsAppending ? -1 : At
+
+    // Moves on past `count` bytes written, to the end when it appends, where they went.
+    Method Wrote(count: Int64) Throws IOError
+        If IsAppending
+            At = Try SizeNow()
+        Else
+            At += count
+        End If
+    End Method
+
+    // Panics unless it's open, and opened to read, or to write.
+    @PanicsAtCaller
+    Method CheckUsable(reading: Bool)
+        CheckOpen()
+        If reading && !IsReadable
+            Panic("the FileStream of {Path.FileName()} wasn't opened to read")
+        End If
+
+        If !reading && !IsWritable
+            Panic("the FileStream of {Path.FileName()} wasn't opened to write")
+        End If
+    End Method
+
+    @PanicsAtCaller
+    Method CheckOpen()
+        If Busy Then Panic("the FileStream of {Path.FileName()} has an Async call under way")
+        If fb_io_stream_open(Native) == 0
+            Panic("the FileStream of {Path.FileName()} is closed")
+        End If
+    End Method
+End Class

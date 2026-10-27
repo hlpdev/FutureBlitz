@@ -1,0 +1,168 @@
+// std.io's open files: File.Open and File.Create give FileStreams, Readers, Writers, and Seekers
+// over a file, which read and write where they are, as Seek moves them, append at the end, make,
+// empty, and refuse files as their OpenOptions say, and have Async twins. They work with the
+// streams around them, and failures come as IOErrors with their Kinds. Everything is in a
+// temporary folder, which goes at the end.
+Import std.core
+Import std.ffi
+Import std.io
+Import std.text
+
+Local temp = Try TempDir("fb-stream-")
+Local root = temp.Path
+
+// What a read of up to `count` bytes gives, as an array.
+Function ReadSome(stream: FileStream, count: Int64): UInt8[] Throws IOError
+    Local into = Buffer<UInt8>(count)
+    Local read = Try stream.Read(into)
+    Return into.Slice(0, read).ToArray()
+End Function
+
+// The Kind of the IOError opening the file as the options say throws, or "opened".
+Function OpenKind(path: Path, options: OpenOptions): String
+    Try
+        Local stream = Try File.Open(path, options)
+        stream.Close()
+    Catch e As IOError
+        Return "{e.Kind}"
+    End Try
+
+    Return "opened"
+End Function
+
+// File.Create makes the file, and writes from its start.
+Local made = Try File.Create(root / "dätä.bin")
+Try made.WriteBytes([1, 2, 3, 4, 5])
+Try made.WriteText("hé")
+Print("{made.IsReadable} {made.IsWritable} {made.IsAppending} {Try made.Position()} {Try made.Size()}")
+made.Close()
+made.Close()
+Print("{made.IsOpen()} {Try File.ReadBytes(root / "dätä.bin")}")
+
+// File.Open reads from the start, and Seek moves it from the start, where it is, and the end.
+Local reading = Try File.Open(root / "dätä.bin")
+Print("{Try ReadSome(reading, 3)} {Try reading.Position()}")
+Print("{Try reading.Seek(1, SeekOrigin.START)} {Try ReadSome(reading, 2)}")
+Print("{Try reading.Seek(-1, SeekOrigin.CURRENT)} {Try ReadSome(reading, 1)}")
+Print("{Try reading.Seek(-2, SeekOrigin.END)} {Try ReadSome(reading, 10)}")
+// At the end, and past it, a read gives nothing.
+Print("{Try ReadSome(reading, 4)} {Try reading.Seek(100, SeekOrigin.END)} {Try ReadSome(reading, 4)}")
+Try
+    reading.Seek(-1, SeekOrigin.START)
+Catch e As IOError
+    Print("{e.Kind}: {e.Message}")
+End Try
+
+Print("{Try reading.Position()}")
+Local rest = Try File.Open(root / "dätä.bin")
+Try rest.Seek(5, SeekOrigin.START)
+Print("[{Try ReadAllText(rest)}]")
+reading.Close()
+
+// Read and Write together, and a write past the end fills what's before it with 0s.
+Local both = Try File.Open(root / "dätä.bin", OpenOptions(Read: True, Write: True))
+Try both.Seek(2, SeekOrigin.START)
+Try both.WriteBytes([30, 40])
+Print("{Try ReadSome(both, 1)} {Try both.Position()}")
+Try both.Seek(9, SeekOrigin.START)
+Try both.WriteBytes([99])
+both.Close()
+Print("{Try File.ReadBytes(root / "dätä.bin")}")
+
+// Append writes at the end wherever it's moved to, and starts there.
+Local adding = Try File.Open(root / "log.txt", OpenOptions(Append: True, Create: True))
+Print("{adding.IsAppending} {adding.IsWritable} {Try adding.Position()}")
+Try adding.WriteText("one\n")
+adding.Close()
+adding = Try File.Open(root / "log.txt", OpenOptions(Read: True, Append: True))
+Print("{Try adding.Position()}")
+Try adding.Seek(0, SeekOrigin.START)
+Try adding.WriteText("two\n")
+Print("{Try adding.Position()}")
+Try adding.Seek(0, SeekOrigin.START)
+Print("[{TextOf(Try ReadSome(adding, 100))}]")
+Try adding.Sync()
+Try adding.Flush()
+adding.Close()
+
+// Truncate empties the file, Create makes one only when it isn't there, and CreateNew refuses
+// one that is.
+Local emptied = Try File.Open(root / "log.txt", OpenOptions(Write: True, Truncate: True))
+Print("{Try emptied.Size()}")
+emptied.Close()
+Print("{OpenKind(root / "new.txt", OpenOptions(Write: True, CreateNew: True))}")
+Print("{OpenKind(root / "new.txt", OpenOptions(Write: True, CreateNew: True))}")
+Print("{OpenKind(root / "missing.txt", OpenOptions(Read: True))}")
+Print("{OpenKind(root / "missing.txt", OpenOptions(Write: True))}")
+Print("{OpenKind(root / "nö" / "deeper.txt", OpenOptions(Write: True, Create: True))}")
+Try Dir.Create(root / "folder")
+Print("{OpenKind(root / "folder", OpenOptions(Read: True))}")
+Print("{OpenKind(root / "folder", OpenOptions(Write: True))}")
+Print("{File.Exists(root / "missing.txt")}")
+
+// A read-only file opens to read, and not to write.
+Try File.WriteText(root / "fixed.txt", "fixed")
+Try File.SetReadOnly(root / "fixed.txt", True)
+Print("{OpenKind(root / "fixed.txt", OpenOptions(Read: True))} {OpenKind(root / "fixed.txt", OpenOptions(Write: True))}")
+Try File.SetReadOnly(root / "fixed.txt", False)
+
+// The streams around it: a BufferedWriter and a BinaryWriter write through it, a BufferedReader
+// and a BinaryReader read through it, and Copy and ReadAll go to its end.
+Local binary = Try File.Create(root / "numbers.bin")
+Local buffered = BufferedWriter(binary)
+Local writer = BinaryWriter(buffered, ByteOrder.BIG)
+Try writer.WriteInt32(-2)
+Try writer.WriteUInt16(513)
+Try writer.WriteFloat64(0.5)
+Print("{Try binary.Size()}")
+Try buffered.Flush()
+binary.Close()
+Local numbers = BinaryReader(BufferedReader(Try File.Open(root / "numbers.bin")), ByteOrder.BIG)
+Print("{Try numbers.ReadInt32()} {Try numbers.ReadUInt16()} {Try numbers.ReadFloat64()} {Try File.Size(root / "numbers.bin")}")
+Local memory = MemoryStream()
+Print("{Try Copy(Try File.Open(root / "numbers.bin"), memory)} {memory.ToArray()}")
+Local copied = Try File.Create(root / "copied.bin")
+Try memory.Seek(0, SeekOrigin.START)
+Print("{Try Copy(memory, copied)} {Try ReadAll(Try File.Open(root / "copied.bin"))}")
+copied.Close()
+
+// Its last reference closes it, so the folder can go.
+Function WriteAndLeave(path: Path) Throws IOError
+    Local left = Try File.Create(path)
+    Try left.WriteText("left open")
+End Function
+
+Try WriteAndLeave(root / "left.txt")
+Print("{Try File.ReadText(root / "left.txt")}")
+
+// The Async twins.
+Async Function Twins(folder: Path): String Throws IOError
+    Local stream = Try Await File.CreateAsync(folder / "äsync.txt")
+    Try Await stream.WriteAsync(Buffer<UInt8>.From("abcdef".Bytes))
+    Try Await stream.SyncAsync()
+    Try Await stream.FlushAsync()
+    stream.Close()
+    stream = Try Await File.OpenAsync(folder / "äsync.txt", OpenOptions(Read: True, Append: True))
+    Try Await stream.WriteAsync(Buffer<UInt8>.From("gh".Bytes))
+    Try stream.Seek(2, SeekOrigin.START)
+    Local into = Buffer<UInt8>(3)
+    Local read = Try Await stream.ReadAsync(into)
+    Local all = Try Await ReadAllAsync(stream)
+    Local empty = Try Await stream.ReadAsync(Buffer<UInt8>(0))
+    stream.Close()
+    Local whole = Try Await File.OpenAsync(folder / "äsync.txt")
+    Local text = Try Await ReadAllAsync(whole)
+    Return "{read} {TextOf(into.ToArray())} {TextOf(all)} {empty} {TextOf(text)}"
+End Function
+
+Print(Try Await Twins(root))
+Try
+    Await File.OpenAsync(root / "missing.txt")
+Catch e As IOError
+    Print("{e.Kind}")
+End Try
+
+Function TextOf(bytes: UInt8[]): String => String.FromUtf8(bytes) ?? "not UTF-8"
+
+Try temp.Close()
+Print("{Dir.Exists(root)}")

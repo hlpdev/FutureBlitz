@@ -2,8 +2,10 @@
 // adding to one, writing one atomically, what's at a path, and copying, moving, and deleting.
 // Each has an Async twin, which libuv's thread pool does while the main thread goes on, and
 // whose Await resumes there. A file that can't be used throws an IOError whose Kind says why.
+// Open and Create give a FileStream, for reading and writing a file a part at a time.
 
 Import std.core
+Import std.io.file_stream
 Import std.io.path
 Import std.io.request
 Import std.time.timestamp
@@ -351,6 +353,39 @@ Public Class File
         Local deleted = Try Checked(Await fb_io_file_delete_async(request.Native, path.Text),
                                     "delete", path)
         Return deleted == 1
+    End Method
+
+    // The file opened to read, as a FileStream from its start.
+    Public Static Method Open(path: Path): FileStream Throws IOError
+        Return Try FileStream.Opened(path, OpenOptions(Read: True))
+    End Method
+
+    Public Static Async Method OpenAsync(path: Path): FileStream Throws IOError
+        Return Try Await FileStream.OpenedAsync(path, OpenOptions(Read: True))
+    End Method
+
+    // The file opened as the options say, as a FileStream from its start, or at its end when it
+    // appends. Panics for options no file opens with: none of Read, Write, and Append, or Create,
+    // CreateNew, or Truncate without Write or Append, or Truncate with Append.
+    @PanicsAtCaller
+    Public Static Method Open(path: Path, options: OpenOptions): FileStream Throws IOError
+        Return Try FileStream.Opened(path, options)
+    End Method
+
+    @PanicsAtCaller
+    Public Static Async Method OpenAsync(path: Path,
+                                         options: OpenOptions): FileStream Throws IOError
+        Return Try Await FileStream.OpenedAsync(path, options)
+    End Method
+
+    // A FileStream to write the file, made when it isn't there, and emptied when it is.
+    Public Static Method Create(path: Path): FileStream Throws IOError
+        Return Try FileStream.Opened(path, OpenOptions(Write: True, Create: True, Truncate: True))
+    End Method
+
+    Public Static Async Method CreateAsync(path: Path): FileStream Throws IOError
+        Return Try Await FileStream.OpenedAsync(path, OpenOptions(Write: True, Create: True,
+                                                                  Truncate: True))
     End Method
 
     // Makes the file read-only, or, when `readOnly` is False, writable by its owner.

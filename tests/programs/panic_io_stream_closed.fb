@@ -1,0 +1,13 @@
+// Reading a FileStream once it's closed panics at the program's line.
+Import std.core
+Import std.ffi
+Import std.io
+
+Local temp = Try TempDir("fb-stream-")
+Try File.WriteText(temp.Path / "three.txt", "abc")
+Local stream = Try File.Open(temp.Path / "three.txt")
+Print("{Try stream.Read(Buffer<UInt8>(2))}")
+stream.Close()
+Print("{stream.IsOpen()}")
+Try temp.Close()
+Print("{Try stream.Read(Buffer<UInt8>(2))}")

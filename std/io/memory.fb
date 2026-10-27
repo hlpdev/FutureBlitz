@@ -128,7 +128,7 @@ Public Class StringWriter Implements Writer
 End Class
 
 // Where a Seek of `offset` from `origin` goes in `count` bytes, from `at`.
-Function SeekIn(at: Int64, count: Int64, offset: Int64, origin: SeekOrigin): Int64 Throws IOError
+Package Function SeekIn(at: Int64, count: Int64, offset: Int64, origin: SeekOrigin): Int64 Throws IOError
     Local start = at
     If origin == SeekOrigin.START
         start = 0

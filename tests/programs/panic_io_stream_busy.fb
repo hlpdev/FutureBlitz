@@ -1,0 +1,13 @@
+// Reading a FileStream while an Async read is under way on it panics at the program's line.
+Import std.core
+Import std.ffi
+Import std.io
+
+Local temp = Try TempDir("fb-stream-")
+Try File.WriteText(temp.Path / "three.txt", "abc")
+Local stream = Try File.Open(temp.Path / "three.txt")
+Print("{Try Await stream.ReadAsync(Buffer<UInt8>(1))}")
+Try temp.Close()
+Local reading = stream.ReadAsync(Buffer<UInt8>(1))
+Print("{Dir.Exists(temp.Path)}")
+Try stream.Read(Buffer<UInt8>(1))
