@@ -18,6 +18,10 @@ STRING at 3:3
 STRING at 3:8
 BOOL at 4:3
 END_ARRAY at 5:1
+STRING at 50000:8, 50000:8; ParseError at 50000:13
+ParseError at 1:2 ParseError at 1:2 ParseError at 1:2 BEGIN_ARRAY at 1:1
+KEY name
+True KEY name
 == skip
 skipped skip, at depth 1
 keep = 1

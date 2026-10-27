@@ -86,6 +86,54 @@ Catch e As ParseError
     Print("ParseError {e.Message}")
 End Try
 
+// A place asked for at every token is counted on from the one before, so a long document's
+// places cost no more than reading it, and one asked for twice is the same.
+Local lines: String[] = []
+For i = 1 To 50000
+    lines.Add("{i}")
+End For
+
+Local long = JsonReader("[" + lines.Join(",\n") + ", \"é\", x]")
+Local last = ""
+Try
+    While long.Next() != JsonToken.END
+        last = "{long.Token} at {long.Line}:{long.Column}, {long.Line}:{long.Column}"
+    End While
+Catch e As ParseError
+    Print("{last}; ParseError at {e.Line}:{e.Column}")
+End Try
+
+// A byte order mark, which the reader leaves out, isn't a column either.
+Function Place(reader: JsonReader): String
+    Try
+        reader.Next()
+        Local first = "{reader.Token} at {reader.Line}:{reader.Column}"
+        reader.Next()
+        Return first
+    Catch e As ParseError
+        Return "ParseError at {e.Line}:{e.Column}"
+    End Try
+End Function
+
+Print(Place(JsonReader([91, 120, 93] As UInt8[])),
+      Place(JsonReader([239, 187, 191, 91, 120, 93] As UInt8[])),
+      Place(JsonReader("\u{FEFF}[x]")), Place(JsonReader([239, 187, 191, 91, 49, 93] As UInt8[])))
+
+// A string that isn't JSON leaves the token before it with its own text.
+Local refused = JsonReader(r"""
+    {"name": "bc\q"}
+    """)
+Try? refused.Next()
+Try? refused.Next()
+Print("{refused.Token} {refused.GetString()}")
+Local threw = False
+Try
+    refused.Next()
+Catch e As ParseError
+    threw = True
+End Try
+Print("{threw} {refused.Token} {refused.GetString()}")
+
 Print("== skip")
 Local skipping = JsonReader(r"""
     {"skip": {"a": [1, [2, 3]], "b": {}}, "keep": 1, "also": [true], "last": 2}

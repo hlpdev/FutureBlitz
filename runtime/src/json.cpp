@@ -73,6 +73,12 @@ struct reader_t {
     std::uint64_t unsigned_integer = 0;
     double number = 0.0;
     std::string error;
+    /// Where the text after a byte order mark starts, and the line and column (from 0) of
+    /// `counted`, the last place asked for, so a place is counted on from there, not the start.
+    std::size_t first = 0;
+    std::size_t counted = 0;
+    std::int64_t line = 0;
+    std::int64_t column = 0;
 };
 
 std::string_view view_of(const fb_string_t* text) {
@@ -217,7 +223,9 @@ std::int32_t hex4(const std::string_view text, const std::size_t at) {
 std::int32_t read_string(reader_t& reader, const std::int32_t token) {
     const std::string_view text = reader.text;
     reader.start = reader.at;
-    reader.string.clear();
+    // The text goes in reader.string once it's all read, so a string that isn't JSON
+    // leaves the token before it with its own.
+    std::string decoded;
     std::size_t at = reader.at + 1;
     while (true) {
         if (at >= text.size()) {
@@ -228,6 +236,7 @@ std::int32_t read_string(reader_t& reader, const std::int32_t token) {
         const char c = text[at];
         if (c == '"') {
             reader.at = at + 1;
+            reader.string = std::move(decoded);
             return token;
         }
 
@@ -241,7 +250,7 @@ std::int32_t read_string(reader_t& reader, const std::int32_t token) {
                 return fail(reader, TOKEN_SYNTAX, at, "a string's bytes aren't UTF-8");
             }
 
-            reader.string.append(text.substr(at, length));
+            decoded.append(text.substr(at, length));
             at += length;
             continue;
         }
@@ -256,22 +265,22 @@ std::int32_t read_string(reader_t& reader, const std::int32_t token) {
         case '"':
         case '\\':
         case '/':
-            reader.string += escaped;
+            decoded += escaped;
             continue;
         case 'b':
-            reader.string += '\b';
+            decoded += '\b';
             continue;
         case 'f':
-            reader.string += '\f';
+            decoded += '\f';
             continue;
         case 'n':
-            reader.string += '\n';
+            decoded += '\n';
             continue;
         case 'r':
-            reader.string += '\r';
+            decoded += '\r';
             continue;
         case 't':
-            reader.string += '\t';
+            decoded += '\t';
             continue;
         case 'u':
             break;
@@ -301,7 +310,7 @@ std::int32_t read_string(reader_t& reader, const std::int32_t token) {
             point = 0xFFFD;
         }
 
-        append_utf8(reader.string, point);
+        append_utf8(decoded, point);
     }
 }
 
@@ -509,9 +518,11 @@ std::int32_t next(reader_t& reader) {
 reader_t* make_reader(const std::string_view text, const std::int64_t depth) {
     auto* reader =
         new reader_t{ .text = std::string(text), .most = static_cast<std::size_t>(depth) };
-    // A byte order mark before the JSON is left out, as RFC 8259 allows.
+    // A byte order mark before the JSON is left out, as RFC 8259 allows, and isn't a column.
     if (reader->text.starts_with("\xEF\xBB\xBF")) {
         reader->at = 3;
+        reader->first = 3;
+        reader->counted = 3;
     }
 
     return reader;
@@ -519,6 +530,31 @@ reader_t* make_reader(const std::string_view text, const std::int64_t depth) {
 
 reader_t& reader_of(void* reader) {
     return *static_cast<reader_t*>(reader);
+}
+
+/// The reader, with its line and column counted up to where its token, or what's wrong, starts:
+/// on from the last place asked for, since a reader only goes forward, so asking at each token
+/// costs no more than reading. Each code point is a column, the bytes that aren't continuation
+/// bytes.
+const reader_t& place_of(reader_t& reader) {
+    if (reader.start < reader.counted) {
+        reader.counted = reader.first;
+        reader.line = 0;
+        reader.column = 0;
+    }
+
+    for (const std::size_t end = std::min(reader.start, reader.text.size()); reader.counted < end;
+         ++reader.counted) {
+        const auto byte = static_cast<unsigned char>(reader.text[reader.counted]);
+        if (byte == '\n') {
+            ++reader.line;
+            reader.column = 0;
+        } else if ((byte & 0xC0U) != 0x80U) {
+            ++reader.column;
+        }
+    }
+
+    return reader;
 }
 
 } // namespace
@@ -563,22 +599,11 @@ std::int64_t fb_json_depth(void* reader) {
 }
 
 std::int64_t fb_json_line(void* reader) {
-    const reader_t& given = reader_of(reader);
-    const std::string_view before = std::string_view(given.text).substr(0, given.start);
-    return static_cast<std::int64_t>(std::ranges::count(before, '\n')) + 1;
+    return place_of(reader_of(reader)).line + 1;
 }
 
 std::int64_t fb_json_column(void* reader) {
-    const reader_t& given = reader_of(reader);
-    const std::string_view before = std::string_view(given.text).substr(0, given.start);
-    const std::size_t line = before.rfind('\n');
-    const std::string_view on_line =
-        line == std::string_view::npos ? before : before.substr(line + 1);
-    // Each code point is a column: the bytes that aren't continuation bytes.
-    return static_cast<std::int64_t>(std::ranges::count_if(
-               on_line,
-               [](const char c) { return (static_cast<unsigned char>(c) & 0xC0U) != 0x80U; })) +
-           1;
+    return place_of(reader_of(reader)).column + 1;
 }
 
 fb_string_t* fb_json_error(void* reader) {
