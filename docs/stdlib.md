@@ -166,6 +166,7 @@ So far, std/ holds:
 | std/net/http/server.fb | `HttpServer`, `HttpRouter`, `HttpRequest`, `HttpHandler`, `HttpMiddleware`, and `HttpResponse.Of` and `Redirect` |
 | std/net/http/files.fb | `HttpRouter.Files`, a folder's static files |
 | std/net/http/work.fb | `WorkHandler`, `WorkRequest`, and the Workers threads that work routes run on |
+| std/net/http/routes.fb | `HttpRouter.Routes<T>`, and the `Get`, `Post`, `Put`, `Patch`, `Delete`, and `JsonBody` attributes |
 | std/net/ws/handshake.fb | A WebSocket's opening handshake, the client's request and the server's answer (Package) |
 | std/net/ws/websocket.fb | `WebSocket`, `WebSocketMessage`, and `WebSocketState`, RFC 6455's frames over a Duplex |
 | std/net/socket.fb | What the sockets share: the runtime's `fb_io_net_` functions, an address's bytes, the errors their codes mean, and the streams' and listeners' sockets |
@@ -1561,9 +1562,16 @@ discovery. `Import std.net` brings in std/net/.
   and the connections it was answering have ended, so a work route's request being answered as
   Stop comes is answered, as an Async route's is; a call while `MaxQueuedWork` calls (1024 unless
   it's set, 1 at least, and fixed once the threads start) wait for a thread already is a 503.
-  Still to come: Classes whose Methods carry `@Get` and the rest,
-  registered with `server.Routes<T>(instance)` and binding a Struct of path parameters, the query,
-  and a JSON body (lane 2's For Method over a Func with type parameters of its own).
+  `server.Routes(instance)`, or a group's, adds a route for each
+  Async Method of instance's type with `@Get(path)`, `@Post`, `@Put`, `@Patch`, or `@Delete`, or
+  several, that takes one Struct or Class, or that and the HttpRequest, and gives an
+  HttpResponse; each call's argument is made by `Load<T>` (spec 13's For Method binding the
+  Method's parameter type) from an Object of its Fields' values: a path parameter or, failing
+  that, a query parameter, by the Field's name or `@Rename`, whatever the letters' case, as text,
+  which Load reads as a number, a Bool, or an Enum's name where the Field is one; and the body's
+  JSON for a `@JsonBody` Field. A Field the request doesn't give keeps its default, or zero, and
+  one with neither, a value that doesn't fit, or a body that isn't JSON, is a 400 that says why.
+  Load's reading of text made a separate Parsable Interface unnecessary.
 - std.net.ws: WebSocket client and server, per RFC 6455, built in step 30.
   `Import std.net.ws` brings in std/net/ws/. `WebSocket.Connect(url, protocols, timeout, tls)`
   and `ConnectAsync` open a client at a ws:// URL, or a wss:// one over TLS as `tls`, a
