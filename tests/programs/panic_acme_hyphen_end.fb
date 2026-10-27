@@ -1,0 +1,17 @@
+// A certificate signing request's name has no label that ends with a hyphen, as RFC 1123's host
+// names don't. It panics where Acme.CertificateRequest is called.
+Import std.core
+Import std.collections
+Import std.crypto
+Import std.net.acme
+Import std.text
+
+Local bytes: UInt8[] = []
+For i = 1 To 32
+    bytes.Add(i As UInt8)
+End For
+
+Local key = Key(KeyKind.ECDSA_P256, True, bytes)
+Print(Acme.CertificateRequest(key, ["example.com", "a-b.example", "x1.example.com"]).Count)
+Acme.CertificateRequest(key, ["example-.com"])
+Print("unreachable")

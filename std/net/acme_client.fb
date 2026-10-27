@@ -61,12 +61,19 @@ Public Class AcmeClient
     Field Kid: String?
 
     // A client of the CA whose directory is at `directory`. Panics unless accountKey is an ECDSA
-    // P-256 private key.
+    // P-256 private key, of 32 bytes that are one.
     @PanicsAtCaller
     Public New(directory: String, accountKey: Key)
-        If accountKey.Kind != KeyKind.ECDSA_P256 || !accountKey.IsPrivate
+        If accountKey.Kind != KeyKind.ECDSA_P256
             Panic("an ACME account's key is an ECDSA P-256 private key, not {accountKey.Kind}")
         End If
+
+        If !accountKey.IsPrivate
+            Panic("an ACME account's key is a private key, not a public one")
+        End If
+
+        // What signs each request, which panics here for bytes that aren't a key.
+        EcdsaP256.PublicKeyOf(accountKey.Bytes)
 
         DirectoryUrl = directory
         AccountKey = accountKey
@@ -94,8 +101,9 @@ Public Class AcmeClient
         End For
 
         payload["contact"] = contacts
+        // newAccount's JWS names the key by its JWK, an account or not (RFC 8555 7.3).
         Local response = Try Await PostAsync(Try Await UrlOfAsync("newAccount"),
-                                             Json.Write(payload))
+                                             Json.Write(payload), True)
         Local location = response.Headers.Get("Location")
         If location == Null
             Throw NetError(NetErrorKind.OTHER, "the CA's new account has no Location",
@@ -187,13 +195,15 @@ Public Class AcmeClient
         Throw NetError(NetErrorKind.OTHER, "{what} isn't {wanted} after {POLL_LIMIT} tries", url)
     End Method
 
-    // A JWS of `payload` to `url`, POSTed, or a POST-as-GET for a Null one, and the CA's answer.
-    // A refused nonce is tried again, once, with the nonce that came with the refusal.
-    Async Method PostAsync(url: String, payload: String?): HttpResponse Throws NetError,
-                                                                           TimeoutError
+    // A JWS of `payload` to `url`, POSTed, or a POST-as-GET for a Null one, and the CA's answer,
+    // naming the key by its JWK when `byKey` says, or there's no account yet. A refused nonce is
+    // tried again, once, with the nonce that came with the refusal.
+    Async Method PostAsync(url: String, payload: String?,
+                           byKey: Bool = False): HttpResponse Throws NetError, TimeoutError
         For attempt = 1 To 2
             Local nonce = Try Await NextNonceAsync()
-            Local body = Body(Signed(url, nonce, payload ?? "").Bytes, "application/jose+json")
+            Local signed = Signed(url, nonce, payload ?? "", byKey)
+            Local body = Body(signed.Bytes, "application/jose+json")
             Local response = Try Await Client.SendAsync(HttpMethod.POST, url, body)
             Nonce = response.Headers.Get("Replay-Nonce")
             If response.IsSuccess Then Return response
@@ -238,12 +248,12 @@ Public Class AcmeClient
     End Method
 
     // A flattened JWS (RFC 7515) of `payload` to `url`, with `nonce`: its protected header names
-    // the account by its kid, or before there's one, by its key's JWK.
-    Method Signed(url: String, nonce: String, payload: String): String
+    // the account by its kid, or by its key's JWK when `byKey` says, or before there's one.
+    Method Signed(url: String, nonce: String, payload: String, byKey: Bool): String
         Local header = Value.Object()
         header["alg"] = Value("ES256")
         Local kid = Kid
-        If kid != Null
+        If kid != Null && !byKey
             header["kid"] = Value(kid)
         Else
             header["jwk"] = Acme.Jwk(AccountKey)

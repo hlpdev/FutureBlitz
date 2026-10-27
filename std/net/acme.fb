@@ -68,13 +68,17 @@ Public Struct Acme
     // it, for `names`, DNS names, which its subjectAltName lists, in order, where ACME's CAs read
     // them, and whose subject's common name is the first name that fits in one, 64 bytes, as
     // certbot's is, since some readers, mbedTLS's among them, don't take an empty subject. Panics
-    // for a key of another kind, no names, or a name that isn't a DNS name of ASCII letters,
-    // digits, and hyphens, as an IDN's A-label is, maybe with "*." first, for a wildcard.
+    // for a key of another kind or a public one, no names, or a name that isn't a DNS name of
+    // ASCII letters, digits, and hyphens, as an IDN's A-label is, maybe with "*." first, for a
+    // wildcard, whose labels neither start nor end with a hyphen, and whose last isn't all
+    // digits, as an IPv4 address's is.
     @PanicsAtCaller
     Public Static Method CertificateRequest(key: Key, names: String[]): UInt8[]
-        If key.Kind != KeyKind.ECDSA_P256 || !key.IsPrivate
+        If key.Kind != KeyKind.ECDSA_P256
             Panic("an ACME certificate's key is an ECDSA P-256 private key, not {key.Kind}")
         End If
+
+        If !key.IsPrivate Then Panic("an ACME certificate's key is a private key, not a public one")
 
         If names.Count == 0 Then Panic("a certificate signing request is for one name at least")
         Local alternatives: UInt8[] = []
@@ -130,7 +134,9 @@ End Struct
 // `bytes` in base64url, without padding, as JOSE has them.
 Package Function Base64Url(bytes: UInt8[]): String => Base64.Encode(bytes, True, False)
 
-// Panics where it's called unless `name` is a DNS name a certificate can be for.
+// Panics where it's called unless `name` is a DNS name a certificate can be for: a host name's
+// labels, as RFC 1123 has them, of letters, digits, and hyphens, but not first or last, whose
+// last isn't all digits, since an IP address isn't a DNS name.
 @PanicsAtCaller
 Function CheckName(name: String)
     Local bytes = name.Bytes
@@ -142,11 +148,13 @@ Function CheckName(name: String)
     End If
 
     Local label = 0
+    Local digits = True
     For at = start Until bytes.Count
         Local byte = bytes[at]
         If byte == ('.' As UInt8)
-            If label == 0 Then Panic("\"{name}\" has an empty label")
+            CheckLabel(name, label, label == 0 ? 0 : bytes[at - 1])
             label = 0
+            digits = True
             Continue
         End If
 
@@ -158,11 +166,25 @@ Function CheckName(name: String)
                   "international one goes as its A-label, \"xn--...\"")
         End If
 
+        If label == 0 && byte == ('-' As UInt8)
+            Panic("\"{name}\" has a label that starts with a hyphen")
+        End If
+
+        digits = digits && digit
         label += 1
         If label > LABEL_LIMIT Then Panic("\"{name}\" has a label of more than {LABEL_LIMIT} bytes")
     End For
 
-    If label == 0 Then Panic("\"{name}\" has an empty label")
+    CheckLabel(name, label, bytes[bytes.Count - 1])
+    If digits Then Panic("\"{name}\" is an IP address, or ends as one, not a DNS name")
+End Function
+
+// Panics where it's called for a label of `name`, `length` bytes long, that's empty, or whose
+// `last` byte is a hyphen.
+@PanicsAtCaller
+Function CheckLabel(name: String, length: Int, last: UInt8)
+    If length == 0 Then Panic("\"{name}\" has an empty label")
+    If last == ('-' As UInt8) Then Panic("\"{name}\" has a label that ends with a hyphen")
 End Function
 
 // The parts, one after another.

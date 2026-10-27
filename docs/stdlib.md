@@ -1444,24 +1444,32 @@ discovery. `Import std.net` brings in std/net/.
   over nghttp2, and HTTP/1.1 otherwise. A program
   that only makes Headers or a Body links no libcurl.
 - ACME (step 30), RFC 8555, as Let's Encrypt speaks it: `AcmeClient(directory, accountKey)`, an
-  ECDSA P-256 private key or a panic, whose `RegisterAsync(contact)` makes the account, agreeing
-  to the CA's terms, with mailto: contacts, or finds the key's, and gives its URL, `Account`; and
-  `ObtainAsync(names, certificateKey, tokens)`, which orders a certificate for DNS names,
+  ECDSA P-256 private key of 32 bytes that are one, or a panic, whose `RegisterAsync(contact)`
+  makes the account, agreeing to the CA's terms, with mailto: contacts, or finds the key's, as
+  often as it's called, and gives its URL, `Account`; and `ObtainAsync(names, certificateKey,
+  tokens)`, which registers first when the client hasn't, orders a certificate for DNS names,
   publishes each HTTP-01 key authorization through `tokens`, an `AcmeTokens`, while the CA checks
   it, waits as its Retry-After says, 1 to 59 seconds, or a second, 30 times at most, finalizes
   the order with a CSR, and gives the chain the CA issued, as PEM. `AcmeTokens` is Shared, and
   its `Answer(path)` gives what a server on port 80 answers for
   /.well-known/acme-challenge/<token>, or Null. Each request is a flattened JWS, ES256, of the
-  account's key, by its JWK until it has a kid, with the CA's nonce, and a refused nonce is tried
-  again, once. `Http` is the client's HttpClient, which can trust a test CA's roots. A CA's
-  refusal is a NetError of HTTP_STATUS with its detail and type, like "the ACME CA answered 400:
-  a contact is a mailto: URL (unsupportedContact)", and an authorization or order it finds
-  invalid, or that isn't done in time, is one of OTHER. `Acme`'s `Jwk(key)`, `Thumbprint(key)`
-  (RFC 7638), `KeyAuthorization(token, key)`, and `CertificateRequest(key, names)`, the DER of a
-  CSR signed by a P-256 key, for DNS names of ASCII letters, digits, and hyphens, maybe with
-  "*." first, in its subjectAltName, with the first that fits in 64 bytes as its common name,
-  are what it's built on; each panics for another kind of key or a name that isn't one. Its
-  tests run against tests/native/acme_ca, a CA as Pebble is, which the HTTP test server hosts.
+  account's key, by its JWK for newAccount and until it has a kid, and by the kid after, with
+  the CA's nonce, as application/jose+json, and a refused nonce is tried again, once. `Http` is
+  the client's HttpClient, which can trust a test CA's roots. A CA's refusal is a NetError of
+  HTTP_STATUS with its detail and type, like "the ACME CA answered 400: a contact is a mailto:
+  URL (unsupportedContact)", and an authorization or order it finds invalid, or that isn't done
+  in time, is one of OTHER. `Acme`'s `Jwk(key)`, `Thumbprint(key)` (RFC 7638),
+  `KeyAuthorization(token, key)`, and `CertificateRequest(key, names)`, the DER of a CSR signed
+  by a P-256 private key, for DNS names in its subjectAltName, with the first that fits in 64
+  bytes as its common name, are what it's built on. Each panics for another kind of key, and
+  CertificateRequest for a public one, or a name that isn't a host name of RFC 1123's: of ASCII
+  letters, digits, and hyphens, maybe with "*." first, for a wildcard, in labels of 1 to 63
+  bytes that neither start nor end with a hyphen, 253 bytes at most, whose last isn't all
+  digits, since an IP address isn't a DNS name; an IDN goes as its A-label. Its tests run
+  against tests/native/acme_ca, a CA as Pebble is, which the HTTP test server hosts: it checks a
+  challenge after a POST of {} and a Retry-After, reading the answer as an HTTP client does, by
+  its Content-Length, in chunks, or to its end, and with whitespace after it, refuses a POST
+  that isn't application/jose+json, and issues for up to 100 names.
 - std.net.http's server (step 30): `HttpServer`, HTTP/1.1 over TCP, whose handlers are Async
   code on the main thread (no data races, and Globals work). An `HttpHandler` is a
   `Func(HttpRequest): Task<HttpResponse>`, an Async lambda or Function, and its response is the

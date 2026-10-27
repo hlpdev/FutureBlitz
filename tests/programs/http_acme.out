@@ -1,5 +1,7 @@
 account True True
 issued 2: CN=localhost, by CN=FutureBlitz Test ACME CA
+registered again: True
+ordered first: True, True
 over HTTPS as TLS 1.3
 NetError OTHER: the CA found the authorization of localhost invalid: localhost didn't answer the challenge
 NetError HTTP_STATUS: the ACME CA answered 400: a contact is a mailto: URL (unsupportedContact)

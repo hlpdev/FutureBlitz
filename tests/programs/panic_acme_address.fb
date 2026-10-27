@@ -1,0 +1,17 @@
+// A certificate signing request's name isn't an IP address, whose last label is all digits, as no
+// DNS name's is. It panics where Acme.CertificateRequest is called.
+Import std.core
+Import std.collections
+Import std.crypto
+Import std.net.acme
+Import std.text
+
+Local bytes: UInt8[] = []
+For i = 1 To 32
+    bytes.Add(i As UInt8)
+End For
+
+Local key = Key(KeyKind.ECDSA_P256, True, bytes)
+Print(Acme.CertificateRequest(key, ["example.com", "a-b.example", "x1.example.com"]).Count)
+Acme.CertificateRequest(key, ["127.0.0.1"])
+Print("unreachable")

@@ -1,0 +1,2 @@
+283
+panic: "example-.com" has a label that ends with a hyphen at panic_acme_hyphen_end.fb:16:1

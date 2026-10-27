@@ -5,7 +5,8 @@
 // challenge on its second look, after a Retry-After, so the client waits for it, and refuses a
 // nonce when /acme/refuse-nonce says, which the client tries again after, once. A challenge no
 // responder answers, a contact the CA doesn't take, and a nonce refused twice fail with a
-// NetError of what the CA said.
+// NetError of what the CA said. The responder answers in chunks, as a server streaming its body
+// does. A client registers again, and after an order it registered for, as the key's account.
 Import std.core
 Import std.collections
 Import std.crypto
@@ -41,7 +42,8 @@ Function KeyOf(first: Int): Key
     Return Key(KeyKind.ECDSA_P256, True, bytes)
 End Function
 
-// Answers each HTTP-01 check at the challenge port from `tokens`, as a server answers on port 80.
+// Answers each HTTP-01 check at the challenge port from `tokens`, as a server answers on port 80,
+// its body in chunks.
 Async Function Respond(listener: TcpListener, tokens: AcmeTokens)
     Loop
         Try
@@ -57,7 +59,12 @@ Async Function Respond(listener: TcpListener, tokens: AcmeTokens)
             Local answer = parts.Count > 1 ? tokens.Answer(parts[1]) : Null
             Local response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
             If answer != Null
-                response = "HTTP/1.1 200 OK\r\nContent-Length: {answer.Bytes.Count}\r\n\r\n{answer}"
+                Local half = answer.Bytes.Count / 2
+                Local first = answer.Slice(0, half)
+                Local second = answer.Slice(half, answer.Length)
+                response = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n" +
+                           "{first.Bytes.Count:x}\r\n{first}\r\n" +
+                           "{second.Bytes.Count:x}\r\n{second}\r\n0\r\n\r\n"
             End If
             Try Await connection.WriteAsync(Buffer<UInt8>.From(response.Bytes))
             connection.Close()
@@ -82,6 +89,13 @@ Async Function Run()
         Local pem = Try Await acme.ObtainAsync(["localhost"], certificateKey, tokens)
         Local chain = Try Certificate.AllFromPem(pem)
         Print("issued {chain.Count}: {chain[0].Subject}, by {chain[0].Issuer}")
+        Print("registered again: {Try Await acme.RegisterAsync() == account}")
+
+        // A client that orders first registers then, and finds that account when it registers.
+        Local later = AcmeClient("{base}/acme/dir", KeyOf(160))
+        Local issued = Try Await later.ObtainAsync(["localhost"], certificateKey, tokens)
+        Local found = Try Await later.RegisterAsync(["mailto:later@example.com"])
+        Print("ordered first: {issued.Length > 0}, {later.Account == found}")
 
         // Automatic HTTPS: a TLS listener with what was issued, which a client that trusts the
         // CA's root reaches as localhost.
