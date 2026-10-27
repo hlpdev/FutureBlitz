@@ -997,6 +997,134 @@ Step 13's review (13 findings, 3 medium) fixed, each with a test, but the doc-on
 docs/review/step13.md has their Status lines. When steps 5, 6, 7, and 13 landed together,
 io_streams.out's Doubles became step 5's text (1e300), and math_units.out's infinity step 5's Inf.
 
+Step 8 (lane 5's Markdown half): std.text.markdown over md4c 0.5.2, its own archive and notice, with
+`MarkdownToHtml` and `ParseMarkdown`, a tree of `MarkdownNode`s with each kind's details and
+`PlainText()`, and `MarkdownExtensions` (tables and task lists by default; None; GitHub's
+strikethrough and autolinks); all 652 of CommonMark 0.31.2's spec examples pass as its spec_tests.py
+compares them, with spec.json committed as test data; and two md4c bugs worked around, a NUL in code
+and an indented code block's empty detail; the review's fixes, PlainText's blocks on lines of their
+own however deep, md4c patched for a cell's `\|` and surrogates, and md4c's own rules documented.
+std.text.template: Mustache-style templates in Handlebars' spelling, from a Value or a Map, with
+partials, HTML escaping, and Mustache's whitespace rules; the review's fixes, padded and multi-line
+block tags, `{{this.name}}` as the scope's own name, a .html partial that escapes inside a text
+template, and indented partials kept apart from templates' names.
+
+Phase 1's review, lane 2's lowering findings (P1-lowering-1 to -6) and step 18's S18-tasks-events-2:
+store() puts the new value in first, through replace() (a local for the old value, the assign, then
+its release), and so does a Channel's TryReceive; codegen's holds_fixed_array(), copy_bytes()
+(memmove), put_zero() (memset, or each element's and field's zero), and put() build and copy a value
+that holds a fixed array a part at a time, and a For ... In over one larger than max_stack_copy (64
+KiB, by size_bound()) holds an array_of() copy, a T[] filled with ARRAY_RESERVE and ARRAY_ADD;
+each_element() and element_count_of() take a place; global_t's `order` (lowering's m_item_order)
+sets the order codegen lets go of the Globals in; outliving() copies a place through_reference()
+reaches; zero_t's and mir_function_t's spans, and the evaluator's limit_place(); lane2-lowering.md's
+second-batch Status lines name master's commits. Tests: store_destroy, for_in_large_fixed,
+return_through_reference, release_globals_released, release_panic_global_released, cases in
+globals_released, evaluate_tests.cpp, and mir_tests.cpp, whose store sequences now assign before
+they release.
+
+Step 20's formats: TOML 1.0, CSV, INI, XML 1.0 (a streaming reader with the internal subset's
+entities and defaults, a tree, a writer, XmlPath, and xmltodict's Values), and YAML 1.2's core
+schema, each reading into std.core's Value and writing from one; toml-test's 700 TOML 1.0 cases and
+yaml-test-suite's 367 core cases pass and are committed, and the W3C XML conformance suite's 1627
+applicable cases pass outside the repo, its terms not allowing a copy.
+
+Step 20's review fixes (39): XML's entities capped at ten times the document and a MiB, and 64 deep
+in attributes too; XML's trees, TOML's tables, and Values read, written, and queried however deep,
+and TOML's arrays and inline tables 256 deep at most; mixed content and CDATA written back as read;
+XmlPath's '|', text nodes, and string() as XPath has them; every reader's ParseError with its line
+and column, a lone CR a line's end, and a byte order mark not a column; the writers panicking at
+what wouldn't read back; and YAML's byte order marks, quoted characters, long keys, flows that don't
+end, tags, directives, and big integers as YAML 1.2 has them.
+
+M6 step 20's Protocol Buffers (lane 11): `Import "game.proto"` reads a .proto file, proto2 or
+proto3, at compile time into a module named by its path, under its stem, through
+compiler/src/proto.cpp's `parse_proto` (a hand-written lexer and parser of protobuf's grammar:
+syntax, package, public and weak imports, options checked against descriptor.proto's names, messages
+with nested types, every label, maps, oneofs, groups, reserved and extension ranges, extends read
+past, enums with allow_alias, services with streams, and protoc's checks, each an error at its line
+and column), `resolve_proto` (protoc's scoping rules over the file, its imports, and their public
+imports; map keys, proto3's open enums, a map's enum starting at 0, packed, defaults by type, and
+FutureBlitz names that clash), and `generate_proto`, which writes the module's source: a Struct per
+message, Equatable, Printable, and Cloneable, with a New of its fields by name, Encode, Decode,
+Merge, MergeFrom, Clone, IsInitialized, ToString in text format, WriteTo, ReadFrom, WriteText, and
+FindMissing; presence as T?, repeated as T[], maps as Map; oneofs as Properties and an Enum of which
+holds one; a message that holds itself in a ProtoBox behind a Property; proto2 defaults as
+xOrDefault; an Enum per enum, proto3's @Open, a closed one's FromNumber and its aliases; and an
+Interface of Async Methods per service. The driver's loader reads each .proto once, finds its
+imports from its folder up to its package's and google/protobuf's in std, reports cycles, and leaves
+a module empty after errors. std/data/ protobuf.fb has ProtoWriter, ProtoReader (protobuf's 100-deep
+and length limits, ParseErrors at their bytes, unknown fields kept as written), ProtoText, and
+ProtoBox; std/data/proto/google/ protobuf/ has protoc 36.2's eleven well-known types. The language
+got `@Open Enum`, and an Extend's Static Property is reached through its Enum. tools/proto_golden.py
+makes the programs' golden bytes with protoc 36.2 and checks with it the bytes they write;
+proto_tests.cpp, and the programs proto_scalars, proto_messages, proto_proto2, proto_errors,
+proto_imports, proto_names, panic_proto_required, panic_proto_oneof, and enums_open.
+
+Step 26 added std.term, the console's tools. The runtime's new term.cpp has the `fb_term_`
+functions: whether each stream is a terminal, the terminal's size, its colors from the environment
+(`fb::term::color_level`: NO_COLOR, TERM, COLORTERM, and Windows' console), raw mode, and stdin read
+with a timeout and a resize between, over Windows' console API with virtual terminal sequences, its
+key and mouse records written as a terminal would send them where it gives those, and over termios
+elsewhere, with SIGWINCH through a pipe and Ctrl+Z putting the terminal back while the program is
+stopped. What the program changed, the screen too, is put back however it ends, and before a panic's
+or an uncaught error's message, through runtime.cpp's new `before_report`. std/term/ has
+console.fb's `StandardStream`, `IsTerminal`, `TerminalSize`, `ReadKey`, and `ReadPassword`;
+style.fb's `TermColor` (16, 256, or 24-bit, each shown as the nearest a terminal has),
+`TextAttributes`, `Style`, `ColorLevel`, `ConsoleColors`, `Paint`, `StripStyles`, and
+`VisibleWidth`; input.fb's `KeyEvent`, `MouseEvent`, `InputEvent`, and `InputParser`, which reads
+xterm's and the kitty protocol's keys, Alt before any of them, SGR's and X10's mouse reports, and
+bracketed pastes; terminal.fb's `Terminal`, the console's for stdout or stderr, and `FakeTerminal`,
+which keeps what's written and gives what it's fed, with resizes and pauses between; widgets.fb's
+`Table`, `Box`, `ProgressBar`, and `Spinner`; prompts.fb's `Confirm`, `Ask`, and `Choose`, live on a
+terminal and a line at a time on a pipe; region.fb's `Region` and `Constraint`; screen.fb's `Cell`,
+`Canvas`, and `Screen`, whose `Present` writes only the cells that changed; and views.fb's
+`TextInput` and `ListView`. Tests: tests/programs' term_style, term_input, term_widgets,
+term_prompts, term_screen, and term_console (with its .in), the panic_term_ programs, and
+uncaught_term_screen; and tests/runtime/term_tests.cpp, which runs tests/native's term probe in a
+pseudoconsole on Windows and a pty elsewhere.
+
+Two compiler items on their own branch. A-new-6, found by lane 7 in step 13: overload resolution
+checks an array, tuple, or Map literal as each overload's parameter type, as a lone Function's call
+does, so with `F()` and `F(bytes: UInt8[])`, `F([1, 2, 3])` and `F([])` take the second; a literal
+of its own type is exact, two overloads that convert it are ambiguous, and untyped lambdas in one
+take the parameter's Func type (step 7's S7-compiler-3 case) (sema's is_shaped_literal(), in match()
+and choose_overload()). And step 32's Deferred work row: `For x In 0 Until n`, over a range written
+there, counts as the For loop with those bounds does, without making a Range
+(lower_range_iteration(), sharing lower_counting() with the For loop). Tests: a sema case, a mir
+case, for_in_ranges.fb, and panic_for_in_range_step.fb and its unsigned twin.
+
+Step 24, std.image I (lane 6's, finished by lane 1): third_party fetches stb_image 2.30 and
+stb_image_write 1.16 (built with zeroing allocations), libwebp 1.6.0 with sharpyuv, and nanosvg,
+each its own archive beside a runtime part (fb_runtime_stb with the APNG decoder, fb_runtime_webp,
+fb_runtime_svg; PNG's and APNG's encoders in fb_runtime_zlib), and runtime/include/fb/image.hpp. The
+runtime's own: QOI, GIF's decoder (browsers' disposal) and encoder (median cut, Floyd-Steinberg),
+PNG and APNG encoders (libpng's filter heuristic), and the transforms (Pillow's resampling in
+Doubles, alpha-weighted, without fused multiply-adds; crop, flips, quarter turns, draw, paste,
+fill). std/image: `Image` (RGBA8, straight alpha, a UInt8[] until step 12's Buffer), `HdrImage`,
+`Animation` and `Frame` (delays to 65535 s), `ImageFormat`, `ResizeFilter`, and `Png`, `Jpeg`,
+`Bmp`, `Tga`, `Gif`, `Qoi`, `WebP`, `Hdr`, and `Svg`, each Decode(data, limit) an IOError of
+INVALID_DATA, UNEXPECTED_END, or OTHER. Tests: image_codecs, image_tools (files from Pillow,
+ImageMagick, cwebp, and others), image_transforms (Pillow 12.3's resizes within 1), image_threads,
+and 34 panic_image_ programs. Lane 1's review of it: an OS/2 BMP isn't taken for RLE; stb_image's
+undecoded JPEG pixels are zeros, not the heap's; GIF's dithering keeps the average; Hdr.Encode
+clamps what RGBE can't hold; the animation encoders panic for a resized frame, and APNG's long
+delays decode; libwebp codes on one thread at a time, as its SIMD setup races on Windows (it hung
+image_threads).
+
+Lane 3's fixes: the CLI test of the console's code page and mode no longer races other tests for the
+console, and a String past its 2147483647-byte cap panics at the place that made it. Lane 8's fixes:
+a Property's type is resolved once, so its errors show once, and an overloaded Function's name given
+to an overloaded callee picks the overload whose Func type fits.
+
+M6 lands on Windows from 2026-10-26 (the user's call): a stack lands once the whole of
+tools/verify.py passes on it on the user's machine, and a lane checks its unit with the new
+`verify.py --quick` (the unit tests and only the programs that changed); CI still runs on Windows,
+Linux, and macOS, and lane 7 fixes what fails on Linux and macOS as it lands. Landing fixes along
+the way: codegen numbers the Globals with std::iota (Apple's clang has no ranges::iota), std.data
+reads Doubles with fast_float (Apple's libc++ has no from_chars for them), and math_units' and
+io_streams' expected text is step 5's (Inf, 1e300).
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished

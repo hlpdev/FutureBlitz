@@ -30,8 +30,7 @@ exe)
 
 ## Current step
 M6 (the full standard library), planned 2026-10-20 and 2026-10-21 in 32 steps (docs/milestones.md;
-design in docs/stdlib.md). Its lanes were wound down on 2026-10-24 for the weekly usage limit, each
-unit pushed with a handover note; they resume on 2026-10-26 from the coordinator's notes.
+design in docs/stdlib.md), lands on Windows, with Linux and macOS fixed as it lands.
 docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
 The whole-codebase review's fixes and the rest of M6 run as docs/m6-plan.md describes.
 M7, libraries and packages, is planned in docs/libraries.md; tooling is M8; futureblitz.dev
@@ -51,10 +50,11 @@ docs/history.md; a landed step's notes go there, newest milestone first.
 - M5 (2026-10-18 to 20): modules, Import and From, visibility, Extern and CString,
   project.toml and packages, native libraries, pointers and Unsafe, @CLayout and the C ABI,
   Callback, and bindgen.
-- M6 so far: step 0 (CI on Windows, Linux, and macOS), 1 (std's foundation), 2 (indexing,
-  iteration, and ranges), 3 (collections I), 4 (collections II), 5 (formatting, parsing, and the
-  debug form), 6 (text I, Char), 7 (text II, regex), 9 (math I), 10 (math II, ThreadLocal
-  Global), 11 (big math and units), 12 (ffi: CData and Buffer), 13 (streams), 16 (time), 21
-  (crypto), 22 (compression), 23 (uuid and SQLite), 27 (algo); parts of 17 (Value), 18
-  (concurrency, events, Sendable Func, Where T: Class, Task<T> Throws E), 28 (addresses, URLs,
-  DNS), and 32 (std.debug); and every one of the whole-codebase review's fixes.
+- M6 so far: step 0 (CI on Windows, Linux, and macOS), 1 (std's foundation), 2 (indexing, iteration,
+  and ranges), 3 (collections I), 4 (collections II), 5 (formatting, parsing, and the debug form), 6
+  (text I, Char), 7 (text II, regex), 8 (Markdown and templates), 9 (math I), 10 (math II,
+  ThreadLocal Global), 11 (big math and units), 12 (ffi: CData and Buffer), 13 (streams), 16 (time),
+  20 (TOML, CSV, INI, XML, YAML, Protocol Buffers), 21 (crypto), 22 (compression), 23 (uuid and
+  SQLite), 24 (images), 26 (terminal), 27 (algo); parts of 17 (Value), 18 (concurrency, events,
+  Sendable Func, Where T: Class, Task<T> Throws E), 28 (addresses, URLs, DNS), and 32 (std.debug);
+  and every one of the whole-codebase review's fixes.

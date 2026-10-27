@@ -820,6 +820,38 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | The compiler checks a Regex's pattern known at compile time (a literal or a Const passed to std.text.regex's Regex, Parse, or a String shortcut), by its module as it knows std's Map; Regex(pattern) panics at its caller and Regex.Parse throws; matching throws RegexError at its limits; PCRE2 runs without its JIT and \C; an empty match is found once at each place; the shortcuts' cache is the runtime's, one per thread (step 7) | a literal's mistake is the program's; a match counts the same steps on every OS |
 | An Interface's Async Method can be required, a default, or Static, and implementing matches Async-ness both ways; Read gives at least one byte until its end (0), Write writes everything or throws; the Async twins are defaults a file or socket replaces; Seeker has no Async twin; BufferedWriter's Destroy writes what's kept and loses an error, as Rust's does (step 13) | every file, console, socket, and compressor is one of these streams |
 | M6 lands on Windows: a stack lands once the whole of verify.py passes on it on the user's machine, and a lane checks its unit with verify.py --quick; CI still runs on Windows, Linux, and macOS, and what fails on Linux or macOS is fixed in one pass, with tests, once M6's steps are merged (the user's call, 2026-10-26) | testing on the user's machine is far faster than CI, and twelve lanes' full checks at once took an hour each |
+| std.text.markdown's HTML is md4c-html's, HTML5's (`<br>`, `<hr>`, md4c's whitespace), and it passes CommonMark's spec examples as spec_tests.py compares them, after normalize.py, all 652 of 0.31.2's (step 8) | that's how CommonMark itself checks a parser; byte for byte, 111 differ only in whitespace and `<br />` |
+| Markdown's extensions default to tables and task lists; `MarkdownExtensions.None` is CommonMark alone and `GitHub` adds strikethrough and autolinks (step 8) | stdlib.md's "CommonMark with tables and task lists"; a bare URL becoming a link surprises text that isn't GitHub's |
+| ParseMarkdown's tree is std's: the runtime keeps md4c's callbacks as events, and std makes the MarkdownNodes from them (step 8) | the runtime makes no objects, and the tree is a plain Class std can grow |
+| A NUL in Markdown is U+FFFD before md4c reads it, as cmark does (step 8) | md4c 0.5.2 keeps a code span's NUL and repeats a code block's |
+| md4c is patched at fetch time (third_party/patch_md4c.cmake) where its HTML would differ from its tree: a surrogate reference is U+FFFD, and a cell's code span takes `\|` as `|` (step 8's review) | the tree and HTML agree, and GitHub's tables write `\|` in code |
+| std.text.markdown documents md4c's tables and autolinks as they are rather than calling them GitHub's (step 8's review) | md4c's rules are narrower, and patching its parser is a fork to keep |
+| Templates are Mustache's semantics in Handlebars' spelling ({{#each}}, {{#if}}, {{#unless}}, {{else}}), with Mustache's standalone lines and partial indentation, missing names as nothing, and FormatError for what can't be read or filled (step 8) | Handlebars' blocks read as their names say, and Mustache's spec settles the whitespace |
+| A template's value prints as Print shows it, a Bool as True (step 8) | a template is fb's text, and Print's form is fb's |
+| A template's `{{this.name}}` is the innermost scope's own name, not looked up outward, as Handlebars has it (step 8's review) | it's Handlebars' usual way to name an each item's field, and it gave nothing |
+| A template of Templates named .html or .htm escapes as a partial too, whatever renders it (step 8's review) | an HTML fragment a text template shares went out unescaped |
+| A store puts the new value in, then lets go of the old one (spec 08) (phase 1's review) |  |
+| A value holding a fixed array is copied, zeroed, and built a part at a time, as bytes (phase 1's review) |  |
+| A For ... In over a fixed array of more than 64 KiB holds its copy in a T[], a smaller one's on the stack (phase 1's review) |  |
+| Globals are let go of in the reverse of the order main sets them, a Static Field at its Class's place and a generic Class's Statics at the generic Class's (spec 02, 06) (phase 1's review) |  |
+| A Const Function's limit points at the last call, operation, or Local's declaration it got to, or else the function's name (spec 13) (phase 1's review) |  |
+| `Import "game.proto"` reads a .proto file at compile time into a module named by its path, under its file's stem, not its package (step 20) |  |
+| A .proto's imports are found from its folder up to its package's, the nearest first, then among std's copies of protobuf's well-known types (step 20) |  |
+| protobuf messages are Structs, holding a message of their own type in a ProtoBox behind a Property; oneofs are Properties with an Enum of which holds one (step 20) |  |
+| An `@Open` Enum holds any value of its integer type, and a Select on one needs a Default; proto3's enums are @Open (step 20) |  |
+| A proto2 required field is a T? that Decode throws without and Encode panics without; a default is `xOrDefault`'s value (step 20) |  |
+| A protobuf message's ToString is protobuf's text format on one line (step 20) |  |
+| A protobuf service is an Interface of Async Methods that can throw any Error, a stream's side an array (step 20) |  |
+| protobuf strings are UTF-8 in proto2 too, and reading one that isn't is a ParseError (step 20) |  |
+| A .proto's extensions are read as unknown fields, and editions and message sets aren't read (step 20) |  |
+| std.term has the console's ReadKey, ReadPassword, IsTerminal, TerminalSize, and styled output, beside its widgets and full-screen apps (step 26) |  |
+| A Terminal writes Strings and never throws, so std.term doesn't go through std.io's Writer; a FakeTerminal keeps the bytes for tests (step 26) |  |
+| Colors go by NO_COLOR, TERM, COLORTERM, and Windows' console, and a terminal without colors gets no styles at all (step 26) |  |
+| Raw mode keeps Ctrl+C ending the program unless a program asks for it as a key (step 26) |  |
+| The runtime puts the terminal back before a panic's or an uncaught error's message, and at any end (step 26) |  |
+| An escape alone is ESCAPE after 50 ms; a paste waits a second for its end (step 26) |  |
+| Progress bars and spinners draw to stderr, in place where it's a terminal and once where it isn't (step 26) |  |
+| A Screen's Present writes only the cells that changed (step 26) |  |
 
 ## Libraries and packages (M7)
 
