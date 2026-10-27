@@ -69,6 +69,31 @@ Catch e As IOError
 End Try
 
 Print("{Try reading.Position()}")
+// Up at the last place an Int64 counts, a read gives nothing too, as a MemoryStream's does.
+Local top: Int64 = 9223372036854775807
+Try reading.Seek(top - 1, SeekOrigin.START)
+Print("{Try reading.Read(Buffer<UInt8>(4))} {Try Await reading.ReadAsync(Buffer<UInt8>(4))}")
+Try reading.Seek(top, SeekOrigin.START)
+Print("{Try reading.Read(Buffer<UInt8>(4))} {Try reading.Position()}")
+
+// A write the file system can't put so far out isn't the path's fault.
+Function FarWrite(path: Path): Bool
+    Try
+        Local far = Try File.Open(path, OpenOptions(Read: True, Write: True))
+        Defer far.Close()
+        Local place: Int64 = 9223372036854775807
+        Try far.Seek(place - 2, SeekOrigin.START)
+        Try far.Write(Buffer<UInt8>.From([1]))
+    Catch e As IOError
+        Return e.Kind != IOErrorKind.INVALID_PATH
+    End Try
+
+    Return True
+End Function
+
+Try File.WriteText(root / "far.bin", "far")
+Print("{FarWrite(root / "far.bin")}")
+Try File.Delete(root / "far.bin")
 Local rest = Try File.Open(root / "dätä.bin")
 Try rest.Seek(5, SeekOrigin.START)
 Print("[{Try ReadAllText(rest)}]")

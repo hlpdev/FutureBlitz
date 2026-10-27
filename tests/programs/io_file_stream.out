@@ -7,6 +7,9 @@ False [1, 2, 3, 4, 5, 104, 195, 169]
 [] 108 []
 OTHER: a Seek of -1 from 0 is before the stream's start
 108
+0 0
+0 9223372036854775807
+True
 [hé]
 [5] 5
 [1, 2, 30, 40, 5, 104, 195, 169, 0, 99]

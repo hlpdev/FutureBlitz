@@ -1065,8 +1065,15 @@ std::int64_t open_request(request_t& request) {
 /// many, 0 at the end, or an error.
 std::int64_t read_at(const uv_file file, char* data, const std::int64_t count,
                      const std::int64_t offset) {
+    // Nothing is past the last place an Int64 counts, which the OS refuses to read up to.
+    const std::int64_t most =
+        offset < 0 ? count : std::min<std::int64_t>(count, INT64_MAX - offset);
+    if (most <= 0) {
+        return 0;
+    }
+
     // libuv takes a buffer's size as an unsigned int.
-    const std::size_t size = std::min<std::uint64_t>(static_cast<std::uint64_t>(count), 1U << 30U);
+    const std::size_t size = std::min<std::uint64_t>(static_cast<std::uint64_t>(most), 1U << 30U);
     const uv_buf_t buffer = uv_buf_init(data, static_cast<unsigned int>(size));
     fs_t call;
     return uv_fs_read(nullptr, call.get(), file, &buffer, 1, offset, nullptr);
@@ -1081,6 +1088,12 @@ std::int64_t write_at(const uv_file file, std::string_view bytes, std::int64_t o
             uv_buf_init(const_cast<char*>(bytes.data()), static_cast<unsigned int>(size));
         fs_t call;
         const int written = uv_fs_write(nullptr, call.get(), file, &buffer, 1, offset, nullptr);
+        // A place the file system can't make a file reach is EINVAL on Windows and EFBIG on
+        // POSIX, which is no fault of the path.
+        if (written == UV_EINVAL && offset >= 0) {
+            return UV_EFBIG;
+        }
+
         if (written < 0) {
             return known_error(call.get(), written);
         }
