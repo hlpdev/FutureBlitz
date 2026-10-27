@@ -39,12 +39,16 @@ std::int32_t fb_tls_config_chain(void* config, const fb_array_t* der);
 /// Its own private key, as PEM, which its chain's first certificate is for: 0, -1 when mbedTLS
 /// can't read it, or -2 when it isn't that certificate's.
 std::int32_t fb_tls_config_key(void* config, const fb_string_t* pem);
+/// Whether its chain's first certificate is for a TLS server's signatures, or a client's when
+/// `server` is 0, as its key usage and extended key usage say: 0, or -1 when it isn't.
+std::int32_t fb_tls_config_usable(void* config, std::int32_t server);
 /// Adds an application protocol it offers through ALPN, after those it prefers.
 void fb_tls_config_offer(void* config, const fb_string_t* protocol);
 
 /// A new connection of `config`'s, which fb_tls_free lets go of: a client's to `host`, which its
-/// server's certificate has to be for, or a server's, whose `host` is "".
-void* fb_tls_new(void* config, const fb_string_t* host);
+/// server's certificate has to be for, or a server's, whose `host` is "". `address` is the host's
+/// bytes when it's an IP address, which goes as no server_name, or empty.
+void* fb_tls_new(void* config, const fb_string_t* host, const fb_array_t* address);
 void fb_tls_free(void* tls);
 /// Why its last step that failed did.
 fb_string_t* fb_tls_message(void* tls);

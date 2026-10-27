@@ -1306,21 +1306,35 @@ discovery. `Import std.net` brings in std/net/.
   a Reader and a Writer, blocking or Async: `TlsClient`, trusting the OS's roots, as std.net.http
   reads them, or `TrustOnly(roots)` and `TrustOsRoots()`, with `Offer(protocols)` for ALPN and
   `Identify(chain, key)` for a server that asks; `Connect(stream, host)` and `ConnectAsync`,
-  whose server's certificate has to be for the host, a name or an IP address. `TlsServer(chain,
-  key)`, with `Offer` and `RequireClients(roots)`; `Accept(stream)` and `AcceptAsync`. Each gives
-  a `TlsStream<S>`, a Reader and a Writer, with `Version` ("TLS 1.2" or "TLS 1.3"), `Protocol`,
-  `PeerCertificate`, `Stream`, and `Close` and `CloseAsync`, which send close_notify. A TLS
-  identity's key is ECDSA P-256 or RSA, and its certificates are ones mbedTLS reads, or it
-  panics. `TlsListener.Listen(address, server)`, with `Accept` and `AcceptAsync`, gives TLS over
-  TCP. A handshake that fails is a NetError of TLS that says why, like "the server's certificate
-  has expired", or of CLOSED for a stream that ends first, or the stream's own failure: a
-  socket's NetError or TimeoutError, or else a NetError of OTHER. Past the handshake, a failure
-  is an IOError whose Cause is a NetError of TLS, or of UNEXPECTED_END for a stream that ends
-  without close_notify. A program over a stream that isn't a socket links no libuv.
+  whose server's certificate has to be for the host, a name, which goes as the server_name, or
+  an IP address, which goes as none (RFC 6066) and has to be in the certificate's
+  subjectAltName. `TlsServer(chain, key)`, with `Offer` and `RequireClients(roots)`;
+  `Accept(stream)` and `AcceptAsync`. Each gives a `TlsStream<S>`, a Reader and a Writer, with
+  `Version` ("TLS 1.2" or "TLS 1.3"), `Protocol`, `PeerCertificate`, `Stream`, and `Close` and
+  `CloseAsync`, which send close_notify the first time, after which a write throws an IOError
+  whose Cause is a NetError of CLOSED, and what the other side sends can still be read. A TLS
+  identity's key is ECDSA P-256 or RSA, its certificates are ones mbedTLS reads, and its first
+  certificate's key usage and extended key usage are for its side's signatures, or it panics;
+  a host is 1 to 255 bytes without a NUL, and the protocols offered are 1 to 255 bytes each,
+  8192 in all with a byte each for its length, which a ClientHello has room for, or they panic.
+  `TlsListener.Listen(address, server)`, with `Accept` and `AcceptAsync`, gives TLS over TCP,
+  whose timeout covers the TCP connection and its handshake, so a client that says nothing
+  holds it no longer; a backlog below 1 panics. A handshake that fails is a NetError of TLS that
+  says why, like "the server's certificate has expired" or "the client's certificate isn't for a
+  TLS client", or of CLOSED for a stream that ends first, or the stream's own failure: a
+  socket's NetError or TimeoutError, or else a NetError of OTHER; the alert that tells the other
+  side why is flushed through a stream that holds what's written. Past the handshake, TLS that
+  fails is an IOError whose Cause is a NetError of TLS, or an IOError of UNEXPECTED_END for a
+  stream that ends without close_notify, and the stream's own failure is thrown as it was. On
+  Windows, whose ROOT store holds only the roots Windows has fetched so far of those it trusts,
+  a chain whose one flaw is that none of the store's roots signed it is checked as Windows
+  checks one for Schannel, by CertGetCertificateChain and its SSL policy, which fetch the root
+  it needs, so a server Windows trusts is trusted whatever the machine has run before; the HTTP
+  client's TLS does the same. A program over a stream that isn't a socket links no libuv.
 - std.net.http's client (step 29), over libcurl, whose TLS is mbedTLS's, trusting the OS's roots:
-  Windows' ROOT store, each that's valid now and for servers, macOS's system anchors, or the
-  first of the bundle files Linux distributions and the BSDs keep, or the one `SSL_CERT_FILE`
-  names. `HttpMethod` (GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS); `StatusCode`, its named
+  Windows' ROOT store, each that's valid now and for servers, and what Windows trusts besides,
+  as std.net.tls has it, macOS's system anchors, or the first of the bundle files Linux
+  distributions and the BSDs keep, or the one `SSL_CERT_FILE` names. `HttpMethod` (GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS); `StatusCode`, its named
   statuses as Ints, `StatusCode.NOT_FOUND`, with `Reason`, `IsSuccess`, and `IsRedirect`;
   `Headers` (`Add`, `Set`, `Get`, `GetAll`, `Contains`, `Remove`, `Clear`, `Count`, and
   `For name, value In`), whose names keep their letter cases but match in any, and which panic

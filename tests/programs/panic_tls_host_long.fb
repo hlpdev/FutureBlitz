@@ -1,0 +1,11 @@
+// A TLS client's host is 255 bytes at most, as a server_name is. It panics where Connect is
+// called.
+Import std.core
+Import std.io
+Import std.net
+Import std.text
+
+Local fits = "a".Repeated(255)
+Print(fits.Length)
+Try TlsClient().Connect(MemoryStream(), "a".Repeated(256))
+Print("unreachable")

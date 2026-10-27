@@ -1,0 +1,23 @@
+// The application protocols a TLS client offers come to 8192 bytes at most, each with 1 more,
+// which a ClientHello has room for. It panics where Offer is called.
+Import std.core
+Import std.collections
+Import std.net
+Import std.text
+
+Local names: String[] = []
+For i = 0 Until 32
+    Local name = "{i}"
+    While name.Bytes.Count < 255
+        name += "x"
+    End While
+
+    names.Add(name)
+End For
+
+Local client = TlsClient()
+client.Offer(names)
+Print("offered {names.Count} of 255 bytes")
+names.Add("one more")
+client.Offer(names)
+Print("unreachable")

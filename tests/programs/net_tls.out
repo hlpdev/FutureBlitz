@@ -4,7 +4,9 @@ served hello over TLS 1.3, no protocol, from no certificate
 == RSA
 client got you said hello, then the end, from CN=localhost
 served hello over TLS 1.3, no protocol, from no certificate
-== an IP address the certificate names
+== IP addresses the certificate names
+client got you said hello, then the end, from CN=localhost
+served hello over TLS 1.3, no protocol, from no certificate
 client got you said hello, then the end, from CN=localhost
 served hello over TLS 1.3, no protocol, from no certificate
 == ALPN
@@ -26,6 +28,9 @@ client: NetError TLS: the server's certificate has expired
 server: NetError TLS: the client refused the handshake, or sent a record that doesn't authenticate
 client got you said hello, then the end, from CN=localhost
 served hello over TLS 1.3, no protocol, from no certificate
+== through a stream that holds what's written until Flush
+client: NetError TLS: the server's certificate isn't signed by a root this side trusts
+server: NetError TLS: the client refused the handshake, or sent a record that doesn't authenticate
 == the OS's roots, which don't have the test CA
 client: NetError TLS: the server's certificate isn't signed by a root this side trusts
 server: NetError TLS: the client refused the handshake, or sent a record that doesn't authenticate
@@ -34,3 +39,10 @@ the client wrote 100000 bytes
 the server read 100000 bytes, the last 7
 == a stream that ends
 client: NetError CLOSED: the stream ended before the TLS handshake did
+== a stream that fails
+client: NetError OTHER: the stream under TLS failed: the pipe's other end is closed
+== past the handshake
+wrote 6 bytes; a second Close sent 0; then IOError OTHER: the TlsStream is closed, with a NetError of CLOSED
+the server read 6 bytes, the last 10
+IOError OTHER: the pipe's other end is closed, with no Cause
+server: IOError UNEXPECTED_END: the stream ended without TLS's close_notify, so what came may be cut short

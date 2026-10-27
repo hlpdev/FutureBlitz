@@ -10,17 +10,19 @@
 // A handshake that fails throws a NetError: of TLS, which says why, like "the server's
 // certificate has expired", or of CLOSED when the stream ends first. One the stream under it
 // fails throws what that stream's failure was for: a TcpStream's NetError or TimeoutError, or
-// for a stream that isn't a socket, a NetError of OTHER. After the handshake, a TlsStream that
-// fails throws an IOError, whose Cause is a NetError of TLS, or of UNEXPECTED_END for a stream
-// that ends without the close_notify a TLS connection ends with, since what came may be cut
-// short.
+// for a stream that isn't a socket, a NetError of OTHER. After the handshake, TLS that fails
+// throws an IOError, whose Cause is a NetError of TLS, or an IOError of UNEXPECTED_END for a
+// stream that ends without the close_notify a TLS connection ends with, since what came may be
+// cut short; the stream's own failure is thrown as that stream threw it.
 
 Import std.core
 Import std.crypto.pem
 Import std.ffi
 Import std.io.streams
+Import std.time.clock
 Import std.time.duration
 Import std.net.address
+Import std.net.socket
 Import std.net.tcp
 
 Extern "runtime"
@@ -31,8 +33,9 @@ Extern "runtime"
     Function fb_tls_config_require_clients(config: Ptr<Void>)
     Function fb_tls_config_chain(config: Ptr<Void>, der: UInt8[]): Int32
     Function fb_tls_config_key(config: Ptr<Void>, pem: String): Int32
+    Function fb_tls_config_usable(config: Ptr<Void>, server: Int32): Int32
     Function fb_tls_config_offer(config: Ptr<Void>, protocol: String)
-    Function fb_tls_new(config: Ptr<Void>, host: String): Ptr<Void>
+    Function fb_tls_new(config: Ptr<Void>, host: String, address: UInt8[]): Ptr<Void>
     Function fb_tls_free(tls: Ptr<Void>)
     Function fb_tls_message(tls: Ptr<Void>): String
     Function fb_tls_feed(tls: Ptr<Void>, from: Ptr<UInt8>, count: Int64)
@@ -62,6 +65,12 @@ Const RECORD_SIZE: Int64 = 16384
 // How many TCP connections a TlsListener keeps that aren't taken yet, unless it's told, as a
 // TcpListener does.
 Const BACKLOG = 511
+
+// The most bytes a host's name has, as a TLS server_name.
+Const HOST_LIMIT = 255
+// The most bytes the application protocols offered come to, each with a byte for its length,
+// which a ClientHello holds with what else it says, in mbedTLS's buffer of 16384 bytes.
+Const PROTOCOLS_LIMIT = 8192
 
 // What a TlsClient or a TlsServer is set to, which the runtime's configuration for its
 // connections is made of when one needs it, and made again after something changes.
@@ -126,9 +135,9 @@ Function Identify(config: Ptr<Void>, chain: Certificate[], key: Key)
 End Function
 
 // Panics where it's called unless `chain`, from its own certificate up, and `key`, its own
-// certificate's private key, are what TLS can use.
+// certificate's private key, are what TLS can use, for a server's side, or a client's.
 @PanicsAtCaller
-Function CheckIdentity(chain: Certificate[], key: Key)
+Function CheckIdentity(chain: Certificate[], key: Key, server: Bool)
     If !key.IsPrivate Then Panic("a TLS identity's key is its certificate's private key")
     If key.Kind != KeyKind.ECDSA_P256 && key.Kind != KeyKind.RSA
         Panic("a TLS identity's key is an ECDSA P-256 or an RSA key, not {key.Kind}")
@@ -147,11 +156,18 @@ Function CheckIdentity(chain: Certificate[], key: Key)
         Panic("the key isn't the private key of the chain's first certificate, " +
               "{chain[0].Subject}")
     End If
+
+    // The other side refuses a certificate whose usages aren't for its side's signatures.
+    If fb_tls_config_usable(config, server ? 1 : 0) != 0
+        Local side = server ? "server" : "client"
+        Panic("the chain's first certificate, {chain[0].Subject}, isn't for a TLS {side}")
+    End If
 End Function
 
 // Panics where it's called for an application protocol ALPN can't offer.
 @PanicsAtCaller
 Function CheckProtocols(protocols: String[])
+    Local total = 0
     For protocol In protocols
         Local bytes = protocol.Bytes
         If bytes.Count == 0 || bytes.Count > 255
@@ -159,7 +175,13 @@ Function CheckProtocols(protocols: String[])
         End If
 
         If HasNul(bytes) Then Panic("an application protocol's name has no NUL")
+        total += bytes.Count + 1
     End For
+
+    If total > PROTOCOLS_LIMIT
+        Panic("the application protocols offered come to {total} bytes, each with 1 more, " +
+              "past the {PROTOCOLS_LIMIT} a handshake has room for")
+    End If
 End Function
 
 // Whether `bytes` have a NUL, where C's strings end.
@@ -204,7 +226,7 @@ Public Class TlsClient
 
     // Offers the application protocols, like "h2" and "http/1.1", most wanted first, of which
     // the server picks one, which the TlsStream's Protocol says. Panics for a name that isn't 1
-    // to 255 bytes, or has a NUL.
+    // to 255 bytes, or has a NUL, or names that come to more than 8192 bytes, each with 1 more.
     @PanicsAtCaller
     Public Method Offer(protocols: String[])
         CheckProtocols(protocols)
@@ -214,17 +236,20 @@ Public Class TlsClient
 
     // Gives a server that asks for a certificate `chain`, its own certificate first, and `key`,
     // its private key. Panics when the chain is empty, or a certificate is one mbedTLS can't
-    // read, or the key isn't the first certificate's private key, of ECDSA P-256 or RSA.
+    // read, or the key isn't the first certificate's private key, of ECDSA P-256 or RSA, or the
+    // first certificate's usages aren't a TLS client's.
     @PanicsAtCaller
     Public Method Identify(chain: Certificate[], key: Key)
-        CheckIdentity(chain, key)
+        CheckIdentity(chain, key, False)
         Setup.Chain = chain.Clone()
         Setup.Key = key
         Setup.Change()
     End Method
 
     // TLS over `stream` to `host`, a name or an IP address, which the server's certificate has
-    // to be for, once the handshake is done. Panics for an empty host, or one with a NUL.
+    // to be for, once the handshake is done. A name goes to the server as its server_name, and
+    // an address as none, as RFC 6066 has it. Panics for an empty host, one with a NUL, or one
+    // of more than 255 bytes.
     @PanicsAtCaller
     Public Method Connect<S>(stream: S, host: String): TlsStream<S> Throws NetError, TimeoutError
         Where S: Reader & Writer
@@ -251,6 +276,9 @@ End Class
 Function CheckHost(host: String)
     If host == "" Then Panic("a TLS client connects to a host, by its name or address")
     If HasNul(host.Bytes) Then Panic("a host's name has no NUL")
+    If host.Bytes.Count > HOST_LIMIT
+        Panic("a host's name is {HOST_LIMIT} bytes at most, not {host.Bytes.Count}")
+    End If
 End Function
 
 // A server of TLS, which accepts connections over streams with its certificate chain and key,
@@ -261,10 +289,10 @@ Public Class TlsServer
     // A server whose certificate is chain's first, which the others signed, up to one a
     // client's root signed, and whose private key is `key`. Panics when the chain is empty, or a
     // certificate is one mbedTLS can't read, or the key isn't the first certificate's private
-    // key, of ECDSA P-256 or RSA.
+    // key, of ECDSA P-256 or RSA, or the first certificate's usages aren't a TLS server's.
     @PanicsAtCaller
     Public New(chain: Certificate[], key: Key)
-        CheckIdentity(chain, key)
+        CheckIdentity(chain, key, True)
         Setup = TlsSetup(True)
         Setup.Chain = chain.Clone()
         Setup.Key = key
@@ -272,7 +300,8 @@ Public Class TlsServer
 
     // Picks the first of the application protocols, most wanted first, that a client offers,
     // which the TlsStream's Protocol says, and refuses a client that offers only others. Panics
-    // for a name that isn't 1 to 255 bytes, or has a NUL.
+    // for a name that isn't 1 to 255 bytes, or has a NUL, or names that come to more than 8192
+    // bytes, each with 1 more.
     @PanicsAtCaller
     Public Method Offer(protocols: String[])
         CheckProtocols(protocols)
@@ -306,20 +335,23 @@ Public Class TlsServer
 End Class
 
 // TLS over `S`, a stream: what's written goes to the other side through TLS's records, and what's
-// read came from it. A failure after the handshake throws an IOError, whose Cause is a NetError
-// of TLS. Close sends close_notify, which a read on the other side ends at; one that ends
-// without it throws an IOError of UNEXPECTED_END. Neither closes the stream it's on, which
-// Stream gives.
+// read came from it. A failure of TLS after the handshake throws an IOError, whose Cause is a
+// NetError of TLS, and the stream's own failure is thrown as it was. Close sends close_notify,
+// which a read on the other side ends at; one that ends without it throws an IOError of
+// UNEXPECTED_END. Neither closes the stream it's on, which Stream gives.
 Public Class TlsStream<S> Implements Reader, Writer
     Where S: Reader & Writer
     ReadOnly Field Inner: S
     ReadOnly Field State: Ptr<Void>
     // What a read takes from the other stream, which only reads use.
     ReadOnly Field Incoming: Buffer<UInt8>
+    // Whether Close sent close_notify, after which nothing's written.
+    Field Closed: Bool
 
     New(inner: S, config: Ptr<Void>, host: String)
         Inner = inner
-        State = fb_tls_new(config, host)
+        Local address = IpAddress.Parse(host)
+        State = fb_tls_new(config, host, address == Null ? [] : address.Bytes)
         Incoming = Buffer<UInt8>(RECORD_SIZE)
     End New
 
@@ -359,8 +391,8 @@ Public Class TlsStream<S> Implements Reader, Writer
             Try
                 If step == HANDSHAKE_FAILED
                     // The alert that says why goes to the other side, whose handshake fails at
-                    // it.
-                    Try? Send()
+                    // it, through a stream that holds it until Flush too.
+                    If Try? Send() == True Then Try? Inner.Flush()
                     Throw NetError(NetErrorKind.TLS, fb_tls_message(State))
                 End If
 
@@ -382,7 +414,7 @@ Public Class TlsStream<S> Implements Reader, Writer
             Local step = fb_tls_handshake(State)
             Try
                 If step == HANDSHAKE_FAILED
-                    Try? Await SendAsync()
+                    If Try? Await SendAsync() == True Then Try? Await Inner.FlushAsync()
                     Throw NetError(NetErrorKind.TLS, fb_tls_message(State))
                 End If
 
@@ -485,8 +517,10 @@ Public Class TlsStream<S> Implements Reader, Writer
         End Loop
     End Method
 
-    // Writes from's bytes to the other side, a record at a time.
+    // Writes from's bytes to the other side, a record at a time. After Close, it throws an
+    // IOError whose Cause is a NetError of CLOSED.
     Public Method Write(from: Buffer<UInt8>) Throws IOError
+        Try CheckOpen()
         For start = 0 Until from.Count Step RECORD_SIZE
             Try Seal(from.Slice(start, Min(start + RECORD_SIZE, from.Count)))
             Try Send()
@@ -494,10 +528,18 @@ Public Class TlsStream<S> Implements Reader, Writer
     End Method
 
     Public Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
+        Try CheckOpen()
         For start = 0 Until from.Count Step RECORD_SIZE
             Try Seal(from.Slice(start, Min(start + RECORD_SIZE, from.Count)))
             Try Await SendAsync()
         End For
+    End Method
+
+    // Throws an IOError whose Cause is a NetError of CLOSED once Close has sent close_notify.
+    Method CheckOpen() Throws IOError
+        If !Closed Then Return
+        Local error = ClosedError("TlsStream", Null)
+        Throw IOError(IOErrorKind.OTHER, error.Message, Null, error)
     End Method
 
     // Makes a record of `part`, which Send then writes.
@@ -520,13 +562,18 @@ Public Class TlsStream<S> Implements Reader, Writer
     End Method
 
     // Sends close_notify, which tells the other side nothing more comes, and flushes the other
-    // stream. It doesn't close that stream, which Stream gives.
+    // stream, the first time; a write after it throws. It doesn't close that stream, which Stream
+    // gives, and what the other side sends can still be read.
     Public Method Close() Throws IOError
+        If Closed Then Return
+        Closed = True
         fb_tls_close(State)
         If Try Send() Then Try Inner.Flush()
     End Method
 
     Public Async Method CloseAsync() Throws IOError
+        If Closed Then Return
+        Closed = True
         fb_tls_close(State)
         If Try Await SendAsync() Then Try Await Inner.FlushAsync()
     End Method
@@ -543,13 +590,15 @@ Public Class TlsListener
         Server = server
     End New
 
-    // Listens at `address` as `server`, as TcpListener.Listen does.
+    // Listens at `address` as `server`, as TcpListener.Listen does. Panics for a backlog below 1.
+    @PanicsAtCaller
     Public Static Method Listen(address: SocketAddress, server: TlsServer,
                                 backlog: Int = BACKLOG): TlsListener Throws NetError
         Return TlsListener(Try TcpListener.Listen(address, backlog), server)
     End Method
 
-    // Listens at `host`'s first address and `port` as `server`.
+    // Listens at `host`'s first address and `port` as `server`. Panics for a backlog below 1.
+    @PanicsAtCaller
     Public Static Method Listen(host: String, port: UInt16, server: TlsServer,
                                 backlog: Int = BACKLOG): TlsListener Throws NetError
         Return TlsListener(Try TcpListener.Listen(host, port, backlog), server)
@@ -561,19 +610,28 @@ Public Class TlsListener
     End Property
 
     // The next connection, once its handshake is done, waiting up to `timeout` for a TCP
-    // connection, or as long as it takes for a Null one. A client whose handshake fails throws
-    // here, as a NetError, after which the listener takes the next one.
+    // connection and its handshake, or as long as they take for a Null one. A client whose
+    // handshake fails throws here, as a NetError, or as a TimeoutError when it's too slow for
+    // `timeout`, after which the listener takes the next one.
     Public Method Accept(timeout: Duration? = Null): TlsStream<TcpStream> Throws NetError,
                                                                                TimeoutError
+        Local started = Instant.Now()
         Local tcp = Try Listener.Accept(timeout)
-        Return Try Server.Accept(tcp)
+        tcp.ReadTimeout = Left(timeout, started)
+        Local tls = Try Server.Accept(tcp)
+        tcp.ReadTimeout = Null
+        Return tls
     End Method
 
     // Accept's Async twin, which waits on the main thread.
     Public Async Method AcceptAsync(
         timeout: Duration? = Null): TlsStream<TcpStream> Throws NetError, TimeoutError
+        Local started = Instant.Now()
         Local tcp = Try Await Listener.AcceptAsync(timeout)
-        Return Try Await Server.AcceptAsync(tcp)
+        tcp.ReadTimeout = Left(timeout, started)
+        Local tls = Try Await Server.AcceptAsync(tcp)
+        tcp.ReadTimeout = Null
+        Return tls
     End Method
 
     // Closes it at once, as a TcpListener closes.
@@ -581,3 +639,10 @@ Public Class TlsListener
         Listener.Close()
     End Method
 End Class
+
+// What's left of `timeout` since `started`, and none once it's past, or Null for no timeout.
+Function Left(timeout: Duration?, started: Instant): Duration?
+    If timeout == Null Then Return Null
+    Local left = timeout - started.Elapsed
+    Return left < Duration.Zero() ? Duration.Zero() : left
+End Function

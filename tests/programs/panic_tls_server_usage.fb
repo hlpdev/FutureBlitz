@@ -1,0 +1,57 @@
+// A TLS server's certificate is for a TLS server, as its usages say, or a client refuses it,
+// which net_tls/make_certificates.sh made of the test client's. It panics where the TlsServer is
+// made.
+Import std.core
+Import std.crypto
+Import std.net
+
+Const localhost_pem = """
+    -----BEGIN CERTIFICATE-----
+    MIIB2zCCAYGgAwIBAgIUedQoeu28tAH+KsyVFoglnoyivrAwCgYIKoZIzj0EAwIw
+    HjEcMBoGA1UEAwwTRnV0dXJlQmxpdHogVGVzdCBDQTAgFw0yMDAxMDEwMDAwMDBa
+    GA8yMTIwMDEwMTAwMDAwMFowFDESMBAGA1UEAwwJbG9jYWxob3N0MFkwEwYHKoZI
+    zj0CAQYIKoZIzj0DAQcDQgAE78GeMXEYbFNB0NflZo2AbNjdaly601Pq5+B2qal4
+    tWw1mDyx877K3XqgZgiN9qcNH3+LtWlPuex/aRcV8GTPAKOBpDCBoTAMBgNVHRMB
+    Af8EAjAAMA4GA1UdDwEB/wQEAwIFoDATBgNVHSUEDDAKBggrBgEFBQcDATAsBgNV
+    HREEJTAjgglsb2NhbGhvc3SHBH8AAAGHEAAAAAAAAAAAAAAAAAAAAAEwHQYDVR0O
+    BBYEFH5Ip73s1qX3QT7V3Y+RK5k5EoTmMB8GA1UdIwQYMBaAFOTjmfqOKfm28uyz
+    zw05GqFFRfREMAoGCCqGSM49BAMCA0gAMEUCIQDNw36/1Nx7N2/C7YB43g8XurAM
+    f8uuIxHawT14iT+SIgIgUjV1euZcD9ka2BeT9SXpJE6DFxUlLWO0x421CztzH84=
+    -----END CERTIFICATE-----
+    """
+
+Const localhost_key = """
+    -----BEGIN PRIVATE KEY-----
+    MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgwSq6ch29gVt0kPGc
+    B3MlKevgUpI+uSyrqIVmZX+JjU+hRANCAATvwZ4xcRhsU0HQ1+VmjYBs2N1qXLrT
+    U+rn4HapqXi1bDWYPLHzvsrdeqBmCI32pw0ff4u1aU+57H9pFxXwZM8A
+    -----END PRIVATE KEY-----
+    """
+
+Const client_pem = """
+    -----BEGIN CERTIFICATE-----
+    MIIBuTCCAV+gAwIBAgIUGr/0bcD9h+3trkbAh9tlX+n60NYwCgYIKoZIzj0EAwIw
+    HjEcMBoGA1UEAwwTRnV0dXJlQmxpdHogVGVzdCBDQTAgFw0yMDAxMDEwMDAwMDBa
+    GA8yMTIwMDEwMTAwMDAwMFowIjEgMB4GA1UEAwwXRnV0dXJlQmxpdHogVGVzdCBD
+    bGllbnQwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATj3/1ZqfFdGzrRCiBNZ5Y1
+    8ipbwQETO+/gLHp+eWu7Oq/TtyS47jMm+jC7rHynJqIkJMh1PdADanu6lHEQmgna
+    o3UwczAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIFoDATBgNVHSUEDDAKBggr
+    BgEFBQcDAjAdBgNVHQ4EFgQUdUg7P3CkhRBW0FeZtaPf9+kJ6WcwHwYDVR0jBBgw
+    FoAU5OOZ+o4p+bby7LPPDTkaoUVF9EQwCgYIKoZIzj0EAwIDSAAwRQIgT6scoH8W
+    EcK3Yt4YCMs05IDSiTkRok333lYkM2Pxqj8CIQC2PdoepUp+/YfXIVozLk3nbDv8
+    z8CxMAXbfA11A7Li0A==
+    -----END CERTIFICATE-----
+    """
+
+Const client_key = """
+    -----BEGIN PRIVATE KEY-----
+    MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgHTTtpF5dmVyApoz6
+    7NRooSx8eOWF7gOTtLpLi2QWLjyhRANCAATj3/1ZqfFdGzrRCiBNZ5Y18ipbwQET
+    O+/gLHp+eWu7Oq/TtyS47jMm+jC7rHynJqIkJMh1PdADanu6lHEQmgna
+    -----END PRIVATE KEY-----
+    """
+
+TlsServer(Try Certificate.AllFromPem(localhost_pem), Try Key.FromPem(localhost_key))
+Print("a server's certificate")
+TlsServer(Try Certificate.AllFromPem(client_pem), Try Key.FromPem(client_key))
+Print("unreachable")

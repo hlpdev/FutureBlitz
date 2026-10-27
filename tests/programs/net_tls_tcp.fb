@@ -1,9 +1,10 @@
 // std.net.tls over TCP, through the test certificates net_tls/make_certificates.sh made: a
 // TlsListener on a Thread of its own answers a blocking client, then one on the main thread
-// answers Async clients, the first of which it refuses, and goes on to the next; a server that
-// closes at once ends the handshake with a NetError of CLOSED, and one that never answers with a
-// TimeoutError, when the TcpStream's ReadTimeout passes. Nothing leaves the machine, and the
-// ports are the OS's to pick.
+// answers Async clients, the first of which refuses its certificate, and goes on to the next;
+// a client that connects and says nothing holds Accept and AcceptAsync only until their timeout;
+// a server that closes at once ends the handshake with a NetError of CLOSED, and one that never
+// answers with a TimeoutError, when the TcpStream's ReadTimeout passes. Nothing leaves the
+// machine, and the ports are the OS's to pick.
 Import std.core
 Import std.crypto
 Import std.ffi
@@ -95,6 +96,42 @@ Try
     Local answered = Answer(listener)
     Print(Ask(Client(), port).Wait())
     Print(answered.Wait())
+    listener.Close()
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// A client that connects and says nothing, which Accept gives up on at its timeout, handshake
+// and all, and AcceptAsync too, after which the listener takes the next.
+Async Function Quiet(listener: TlsListener): String
+    Try
+        Try Await listener.AcceptAsync(300.Milliseconds)
+        Return "AcceptAsync accepted the silent client"
+    Catch e As TimeoutError
+        Return "AcceptAsync: TimeoutError"
+    Catch e As NetError
+        Return "AcceptAsync: NetError {e.Kind}"
+    End Try
+End Function
+
+Try
+    Local listener = TlsListener.Listen("127.0.0.1", 0, Server())
+    Local silent = TcpStream.Connect(listener.LocalAddress)
+    Local watch = Stopwatch.StartNew()
+    Try
+        listener.Accept(300.Milliseconds)
+        Print("Accept accepted the silent client")
+    Catch e As TimeoutError
+        Print("Accept: TimeoutError, within a second {watch.Elapsed < 1.Seconds}")
+    End Try
+
+    Local alsoSilent = TcpStream.Connect(listener.LocalAddress)
+    Print(Quiet(listener).Wait())
+    Local answered = Answer(listener)
+    Print(Ask(Client(), listener.LocalAddress.Port).Wait())
+    Print(answered.Wait())
+    silent.Close()
+    alsoSilent.Close()
     listener.Close()
 Catch e As Error
     Print("failed: {e.Message}")

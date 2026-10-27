@@ -1,9 +1,12 @@
 // A TLS client and server in one program, each Async, over a pipe in memory, through the test
 // certificates net_tls/certificates.fb has, which net_tls/make_certificates.sh made: a handshake
-// and bytes both ways, an RSA server, an IP address, ALPN, a client's certificate, and
+// and bytes both ways, an RSA server, IP addresses, ALPN, a client's certificate, and
 // close_notify; and a server whose certificate a root the client doesn't trust signed, one for
 // another host, and one that has expired, which the client refuses with a NetError of TLS, as the
-// server sees.
+// server sees, through a stream that holds what's written until Flush too. Past the handshake, a
+// write after Close throws, a second Close sends nothing, the stream's own failure is thrown as
+// it was, and an end without close_notify is UNEXPECTED_END; a stream that fails in the
+// handshake is a NetError of OTHER.
 Import std.core
 Import std.collections
 Import std.crypto
@@ -24,14 +27,19 @@ Class Pipe
 End Class
 
 // An end of a Pipe: what the other end writes, it reads, a frame later at least, as a socket's
-// bytes come. A blocking read, which would wait for the other end forever, panics.
+// bytes come, or, when it's Held, once it's flushed, as a buffered stream's do. A blocking read,
+// which would wait for the other end forever, panics.
 Class PipeEnd Implements Reader, Writer
     Field Joined: Pipe
     Field Side: Int
+    Field Held: Bool
+    // What it holds until Flush.
+    Field Pending: UInt8[]
 
     New(joined: Pipe, side: Int)
         Joined = joined
         Side = side
+        Pending = []
     End New
 
     // The other end.
@@ -67,7 +75,16 @@ Class PipeEnd Implements Reader, Writer
             Throw IOError(IOErrorKind.OTHER, "the pipe's other end is closed")
         End If
 
-        Joined.Waiting[1 - Side].AddAll(from.ToArray())
+        If Held
+            Pending.AddAll(from.ToArray())
+        Else
+            Joined.Waiting[1 - Side].AddAll(from.ToArray())
+        End If
+    End Method
+
+    Method Flush() Throws IOError
+        Joined.Waiting[1 - Side].AddAll(Pending)
+        Pending = []
     End Method
 
     // Ends what the other end reads, as a socket's closing does.
@@ -163,9 +180,12 @@ Async Function Send(client: TlsClient, pipe: PipeEnd, count: Int64): String
     End Try
 End Function
 
-// A client and a server talking through a new pipe: what each says, the client's first.
-Function Run(client: TlsClient, server: TlsServer, host: String = "localhost")
+// A client and a server talking through a new pipe, whose client's end is `held`: what each
+// says, the client's first.
+Function Run(client: TlsClient, server: TlsServer, host: String = "localhost",
+             held: Bool = False)
     Local near = NewPipe()
+    near.Held = held
     Local served = Serve(server, near.Other())
     Local talked = Talk(client, near, host)
     Local said = talked.Wait()
@@ -181,8 +201,9 @@ Run(Client(), Server(localhost_pem, localhost_key))
 Print("== RSA")
 Run(Client(), Server(rsa_pem, rsa_key))
 
-Print("== an IP address the certificate names")
+Print("== IP addresses the certificate names")
 Run(Client(), Server(localhost_pem, localhost_key), "127.0.0.1")
+Run(Client(), Server(localhost_pem, localhost_key), "::1")
 
 Print("== ALPN")
 Local offering = Client()
@@ -210,6 +231,9 @@ Local trusting = TlsClient()
 trusting.TrustOnly(Certificates(rogue_ca_pem))
 Run(trusting, Server(rogue_pem, rogue_key))
 
+Print("== through a stream that holds what's written until Flush")
+Run(Client(), Server(rogue_pem, rogue_key), "localhost", True)
+
 Print("== the OS's roots, which don't have the test CA")
 Local again = Client()
 again.TrustOsRoots()
@@ -225,3 +249,58 @@ Print("== a stream that ends")
 Local alone = NewPipe()
 alone.Other().Hang()
 Print(Talk(Client(), alone, "localhost").Wait())
+
+Print("== a stream that fails")
+Local failing = NewPipe()
+failing.Hang()
+Print(Talk(Client(), failing, "localhost").Wait())
+
+// What writing `text` to `tls` threw, or that it wrote it.
+Async Function WriteOf(tls: TlsStream<PipeEnd>, text: String): String
+    Try
+        Try Await tls.WriteAsync(Buffer<UInt8>.From(text.Bytes))
+        Return "wrote {text.Bytes.Count} bytes"
+    Catch e As IOError
+        Local cause = e.Cause As? NetError
+        Local why = "no Cause"
+        If cause != Null Then why = "a NetError of {cause.Kind}"
+        Return "IOError {e.Kind}: {e.Message}, with {why}"
+    End Try
+End Function
+
+// The client's side, past the handshake: a write, Close twice, and a write after.
+Async Function CloseTwice(client: TlsClient, pipe: PipeEnd): String
+    Try
+        Local tls = Try Await client.ConnectAsync(pipe, "localhost")
+        Local wrote = Await WriteOf(tls, "hello\n")
+        Try Await tls.CloseAsync()
+        Local sent = pipe.Joined.Waiting[1].Count
+        Try Await tls.CloseAsync()
+        tls.Close()
+        Local again = pipe.Joined.Waiting[1].Count - sent
+        Return "{wrote}; a second Close sent {again}; then {Await WriteOf(tls, "more\n")}"
+    Catch e As Error
+        Return "the client failed: {e.Message}"
+    End Try
+End Function
+
+// The client's side of a stream that fails past the handshake.
+Async Function FailAfter(client: TlsClient, pipe: PipeEnd): String
+    Try
+        Local tls = Try Await client.ConnectAsync(pipe, "localhost")
+        pipe.Hang()
+        Return Await WriteOf(tls, "hello\n")
+    Catch e As Error
+        Return "the client failed: {e.Message}"
+    End Try
+End Function
+
+Print("== past the handshake")
+Local closing = NewPipe()
+Local closed = Count(Server(localhost_pem, localhost_key), closing.Other())
+Print(CloseTwice(Client(), closing).Wait())
+Print(closed.Wait())
+Local breaking = NewPipe()
+Local broken = Serve(Server(localhost_pem, localhost_key), breaking.Other())
+Print(FailAfter(Client(), breaking).Wait())
+Print(broken.Wait())

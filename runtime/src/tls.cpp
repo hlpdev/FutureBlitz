@@ -16,6 +16,7 @@
 #include <format>
 #include <limits>
 #include <mbedtls/error.h>
+#include <mbedtls/oid.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509.h>
@@ -34,6 +35,10 @@ constexpr std::int32_t handshake_done = 0;
 constexpr std::int32_t handshake_wants_input = 1;
 constexpr std::int32_t handshake_failed = -1;
 constexpr std::int32_t handshake_ended = -2;
+
+/// The range of PSA's statuses, negated.
+constexpr int psa_lowest = 128;
+constexpr int psa_highest = 255;
 
 /// What fb_tls_read gives besides a count, and 0 for close_notify.
 constexpr std::int64_t read_wants_input = -1;
@@ -153,6 +158,8 @@ int set_up(config_t& config) {
 struct tls_t {
     config_t* config = nullptr;
     std::string host;
+    /// The host's bytes when it's an IP address, which the server's certificate has to name.
+    std::vector<std::uint8_t> address;
     mbedtls_ssl_context ssl{};
     /// What making it gave: 0, or mbedTLS's error, which its handshake fails with.
     int setup = 0;
@@ -235,6 +242,47 @@ std::vector<std::string> reasons(const tls_t& tls, const std::uint32_t flags) {
     return found;
 }
 
+/// Whether `certificate` is for `address`, an IP address's bytes, which its subjectAltName lists.
+bool names_address(const mbedtls_x509_crt& certificate,
+                   const std::span<const std::uint8_t> address) {
+    for (const mbedtls_x509_sequence* entry = &certificate.subject_alt_names;
+         entry != nullptr && entry->buf.p != nullptr; entry = entry->next) {
+        mbedtls_x509_subject_alternative_name name{};
+        if (mbedtls_x509_parse_subject_alt_name(&entry->buf, &name) != 0) {
+            continue;
+        }
+
+        const bool same =
+            name.type == MBEDTLS_X509_SAN_IP_ADDRESS &&
+            std::ranges::equal(
+                std::span(name.san.unstructured_name.p, name.san.unstructured_name.len), address);
+        mbedtls_x509_free_subject_alt_name(&name);
+        if (same) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/// mbedTLS's check of each certificate of the other side's chain, from the root's end to its own
+/// at depth 0: whether that's for the IP address a client connects to, which mbedTLS leaves to
+/// it, since an address goes as no server_name (RFC 6066), and, for the OS's roots, the OS's own
+/// check (tls_roots.hpp).
+int verify(void* context, mbedtls_x509_crt* certificate, const int depth, std::uint32_t* flags) {
+    const tls_t& tls = *static_cast<const tls_t*>(context);
+    if (depth == 0 && !tls.address.empty() && !names_address(*certificate, tls.address)) {
+        *flags |= static_cast<std::uint32_t>(MBEDTLS_X509_BADCERT_CN_MISMATCH);
+    }
+
+    if (tls.config->own_roots) {
+        return 0;
+    }
+
+    return fb::runtime::os_verify(tls.config->server ? context : nullptr, certificate, depth,
+                                  flags);
+}
+
 /// Why `result`, mbedTLS's error, came of a step of `tls`.
 std::string describe(const tls_t& tls, const int result) {
     const std::string_view other = tls.config->server ? "client" : "server";
@@ -248,7 +296,10 @@ std::string describe(const tls_t& tls, const int result) {
         return std::format("the {} sent no certificate", other);
     }
 
-    if (result == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED) {
+    // mbedTLS checks a certificate's usages after its chain, and refuses one for them as a bad
+    // certificate.
+    if (result == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED ||
+        result == MBEDTLS_ERR_SSL_BAD_CERTIFICATE) {
         const std::vector<std::string> found = reasons(tls, flags);
         std::string message = std::format("the {}'s certificate", other);
         for (std::size_t i = 0; i < found.size(); ++i) {
@@ -281,8 +332,18 @@ std::string describe(const tls_t& tls, const int result) {
     case MBEDTLS_ERR_SSL_DECODE_ERROR:
     case MBEDTLS_ERR_SSL_UNEXPECTED_MESSAGE:
         return std::format("what the {} sent isn't TLS", other);
+    case MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL:
+        return "a handshake message this side made is bigger than mbedTLS's buffer";
+    case MBEDTLS_ERR_SSL_ALLOC_FAILED:
+        return "mbedTLS ran out of memory";
     default:
         break;
+    }
+
+    // mbedTLS 4's own errors from -128 to -255 are PSA's statuses, which mbedtls_strerror reads as
+    // two codes of its own.
+    if (result <= -psa_lowest && result >= -psa_highest) {
+        return std::format("mbedTLS failed with PSA's status {}", result);
     }
 
     std::array<char, 256> text{};
@@ -358,27 +419,44 @@ std::int32_t fb_tls_config_key(void* config, const fb_string_t* pem) {
     return 0;
 }
 
+std::int32_t fb_tls_config_usable(void* config, const std::int32_t server) {
+    const mbedtls_x509_crt& own = configuration(config).chain;
+    const std::string_view usage =
+        server != 0
+            ? std::string_view(MBEDTLS_OID_SERVER_AUTH, MBEDTLS_OID_SIZE(MBEDTLS_OID_SERVER_AUTH))
+            : std::string_view(MBEDTLS_OID_CLIENT_AUTH, MBEDTLS_OID_SIZE(MBEDTLS_OID_CLIENT_AUTH));
+    return mbedtls_x509_crt_check_key_usage(&own, MBEDTLS_X509_KU_DIGITAL_SIGNATURE) == 0 &&
+                   mbedtls_x509_crt_check_extended_key_usage(&own, usage.data(), usage.size()) == 0
+               ? 0
+               : -1;
+}
+
 void fb_tls_config_offer(void* config, const fb_string_t* protocol) {
     configuration(config).protocols.emplace_back(view_of(protocol));
 }
 
-void* fb_tls_new(void* config, const fb_string_t* host) {
+void* fb_tls_new(void* config, const fb_string_t* host, const fb_array_t* address) {
     config_t& settings = configuration(config);
     std::call_once(settings.set_up, [&] { settings.setup = set_up(settings); });
     auto* tls = new tls_t();
     tls->config = &settings;
     retain(&settings);
     tls->host = view_of(host);
+    const auto* bytes = static_cast<const std::uint8_t*>(address->data);
+    tls->address.assign(bytes, bytes + address->count);
     mbedtls_ssl_init(&tls->ssl);
     tls->setup = settings.setup;
     if (tls->setup == 0) {
         tls->setup = mbedtls_ssl_setup(&tls->ssl, &settings.ssl);
     }
 
+    // An IP address isn't a server_name, so it goes as none, and verify checks it.
     if (tls->setup == 0 && !settings.server) {
-        tls->setup = mbedtls_ssl_set_hostname(&tls->ssl, tls->host.c_str());
+        tls->setup =
+            mbedtls_ssl_set_hostname(&tls->ssl, tls->address.empty() ? tls->host.c_str() : nullptr);
     }
 
+    mbedtls_ssl_set_verify(&tls->ssl, verify, tls);
     mbedtls_ssl_set_bio(&tls->ssl, tls, send, receive, nullptr);
     return tls;
 }

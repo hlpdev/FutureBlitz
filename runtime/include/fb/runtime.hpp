@@ -796,7 +796,8 @@ std::int32_t fb_io_net_interfaces(fb_array_t* output);
 fb_string_t* fb_io_net_host_name();
 /// Puts a socket's address into `output`, its remote one when `remote` isn't 0.
 std::int32_t fb_io_net_address(void* handle, std::int32_t remote, fb_array_t* output);
-/// What libuv's error `code` means to std.net: a NetErrorKind's ordinal, or 7 for a timeout.
+/// What libuv's error `code` means to std.net: a NetErrorKind's ordinal, or 8 for a timeout,
+/// past them, as net.cpp's meaning_t and socket.fb's TIMED_OUT have it.
 std::int32_t fb_io_net_error_kind(std::int32_t code);
 
 /// Prints "panic: <message> at <file>:<line>:<column>" to stderr and exits with code 101.
