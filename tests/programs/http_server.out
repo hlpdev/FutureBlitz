@@ -40,6 +40,7 @@ HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 8 | 
 HTTP/1.1 204 No Content |  | 
 HTTP/1.1 100 Continue |  | HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 27 |  | POST 5 bytes of none: hello
 HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 29 |  | POST 7 bytes of none: abcdefg
+HTTP/1.1 413 Content Too Large | Content-Length: 0 | Connection: close |  | 
 HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close |  | 
 HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close |  | 
 HTTP/1.1 417 Expectation Failed | Content-Length: 0 | Connection: close |  | 

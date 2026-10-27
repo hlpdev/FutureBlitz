@@ -209,6 +209,9 @@ Try
                           "Content-Length: 5\r\n\r\nhello"))
     Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Transfer-Encoding: chunked\r\n\r\n" +
                           "3\r\nabc\r\n4;ext=1\r\ndefg\r\n0\r\nX-Trailer: t\r\n\r\n"))
+    // A body too long for MaxBodySize is refused before it's sent, with no 100 Continue.
+    Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Expect: 100-continue\r\n" +
+                          "Content-Length: 5000\r\n\r\n"))
 
     // What the rules refuse: its status, and the connection closed.
     Print(Await Raw(port, "GET /users/1 HTTP/1.1\r\n\r\n"))

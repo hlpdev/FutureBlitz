@@ -550,8 +550,13 @@ Public Class HttpServer Extends HttpRouter
                 Throw WireError(417, "a request expects {expect}")
             End If
 
-            If head.Parts[2] == "HTTP/1.1" && (head.Contains("Content-Length") ||
-                                               head.Contains("Transfer-Encoding"))
+            // A body too long is refused before the client sends it, not after.
+            Local framing, length = Try head.BodyFraming()
+            If framing == Framing.LENGTH && length > BodyLimit
+                Throw WireError(413, "a body is longer than {BodyLimit} bytes")
+            End If
+
+            If head.Parts[2] == "HTTP/1.1" && framing != Framing.NONE
                 Try Await connection.Stream.WriteAsync(
                     Buffer<UInt8>.From("HTTP/1.1 100 Continue\r\n\r\n".Bytes))
             End If
