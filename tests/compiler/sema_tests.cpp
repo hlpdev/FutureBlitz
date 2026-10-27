@@ -14903,3 +14903,27 @@ TEST_CASE("overloads: a literal is checked as a parameter's type only where it c
                 "Of(1)])])])])])])") == "Json");
     CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(15));
 }
+
+TEST_CASE("overloads that differ in count give an untyped lambda and a literal of Tasks their "
+          "types",
+          "[sema]") {
+    // std.events' Subscribe, with and without an owner: the lambda's w and n come from the one
+    // overload that takes two arguments.
+    CHECK(errors_of("Import std.core\n"
+                    "Class Widget\n    Field Name: String\nEnd Class\n"
+                    "Function Subscribe(handler: Func(Widget, Int))\nEnd Function\n"
+                    "Function Subscribe(owner: Widget, handler: Func(Widget, Int))\nEnd Function\n"
+                    "Subscribe(Widget(), Function(w, n) => Print(w.Name, n))")
+              .empty());
+    // And std.concurrent's WhenAll, over Tasks that throw or don't: type arguments pick the one
+    // of two, and the literal of Tasks takes its parameter's type.
+    const std::string_view all =
+        "Import std.core\n"
+        "Class Oops Extends Error\nEnd Class\n"
+        "Async Function One(): Int Throws Oops\n    Return 1\nEnd Function\n"
+        "Function All<T>(tasks: Task<T>[]): Int => 1\n"
+        "Function All<T, E: Error>(tasks: (Task<T> Throws E)[]): Int8 => 2\n"
+        "Local a = One()\nLocal b = One()\n";
+    CHECK(probe(std::format("{}Local n = All<Int, Oops>([a, b])", all)) == "Int8");
+    CHECK(probe(std::format("{}Local n = All([a, b])", all)) == "Int8");
+}
