@@ -1,0 +1,6 @@
+// Image.Load panics for a negative limit, as Decode does, before it reads the file.
+Import std.core
+Import std.image
+
+Print(Try? Image.Load("missing.png", 0) == Null)
+Try Image.Load("missing.png", -1)

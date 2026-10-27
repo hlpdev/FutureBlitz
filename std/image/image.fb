@@ -1,11 +1,14 @@
 // Image: a picture's pixels, in rows from the top, each RGBA, 8 bits a channel, its alpha
 // straight, in a Buffer<UInt8>, which C code can read and write through its Pointer, and which
 // the formats' Decodes give and their Encodes take. Image.Decode reads any format std.image
-// knows, by how its bytes start, but HDR's, whose pixels are an HdrImage's. Its transforms,
-// Resize, Crop, the flips and turns, Draw, Paste, and Fill, change it in place.
+// knows, by how its bytes start, but HDR's, whose pixels are an HdrImage's, and Image.Load a file
+// of one. Its transforms, Resize, Crop, the flips and turns, Draw, Paste, and Fill, change it in
+// place.
 
 Import std.core
 Import std.ffi
+Import std.io.file
+Import std.io.path
 Import std.math.color
 Import std.image.codec
 
@@ -138,6 +141,24 @@ Public Class Image
         If format == 8 Then Return Try Decoded(fb_webp_decode(data, most), "WebP")
         If format == 5 Then Return Try Decoded(fb_image_gif_decode(data, 1, most), "GIF")
         Return Try Decoded(fb_stb_decode(data, format, most), FormatName(format))
+    End Method
+
+    // The image in the file at `path`, which Decode reads from its bytes. Throws the IOError
+    // File.ReadBytes does for a file that can't be read, and Decode's, its Path the file's, for
+    // one it can't read an image of. Panics when the limit is negative.
+    @PanicsAtCaller
+    Public Static Method Load(path: Path, limit: Int = MOST_PIXELS): Image Throws IOError
+        CheckLimit(limit)
+        Return Try LoadedFrom(Try File.ReadBytes(path), path, limit)
+    End Method
+
+    // Load's Async twin, which reads the file on libuv's thread pool while the thread that called
+    // it goes on, and decodes it there once the Await resumes.
+    @PanicsAtCaller
+    Public Static Async Method LoadAsync(path: Path,
+                                         limit: Int = MOST_PIXELS): Image Throws IOError
+        CheckLimit(limit)
+        Return Try LoadedFrom(Try Await File.ReadBytesAsync(path), path, limit)
     End Method
 
     // The format the data's bytes start as, or Null when they start as none of std.image's. A TGA
@@ -283,6 +304,15 @@ Package Function Decoded(image: Ptr<Void>, format: String): Image Throws IOError
                              PixelsOf(image, 0))
     fb_image_free(image)
     Return decoded
+End Function
+
+// The image Decode reads from the file's bytes, its IOError naming the file.
+Function LoadedFrom(data: UInt8[], path: Path, limit: Int): Image Throws IOError
+    Try
+        Return Image.Decode(data, limit)
+    Catch e As IOError
+        Throw IOError(e.Kind, "can't load {path}: {e.Message}", path.Text, e)
+    End Try
 End Function
 
 // A copy of the Buffer, in one of its own.

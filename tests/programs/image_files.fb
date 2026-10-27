@@ -1,0 +1,77 @@
+// std.image's files: Image.Load and Font.Load read a file's image or font as Decode and Parse read
+// its bytes, and their Async twins read it on libuv's thread pool while the main thread goes on. A
+// file that can't be read throws File.ReadBytes's IOError, and one that isn't an image or a font
+// what Decode or Parse throws, its message and Path naming the file. Everything is in a temporary
+// folder, which goes at the end.
+Import std.core
+Import std.io
+Import std.math.color
+Import std.text
+Import std.image
+Import "./image_files/font"
+
+Local temp = Try TempDir("fb-image-files-")
+Local root = temp.Path
+
+Local drawn = Image(3, 2)
+drawn[2, 1] = Color32(10, 20, 30, 255)
+Try File.WriteBytes(root / "picture.png", Png.Encode(drawn))
+Try File.WriteBytes(root / "font.ttf", FontBytes())
+Try File.WriteText(root / "notes.txt", "not an image")
+
+Local picture = Try Image.Load(root / "picture.png")
+Print("{picture.Width} {picture.Height} {picture[2, 1]}")
+Print((Try Font.Load(root / "font.ttf")).UnitsPerEm)
+
+// What loading the file throws: its Kind, whether its Path is the file's, and its message, the
+// path in it as <path>.
+Function Thrown(path: Path, font: Bool, limit: Int = 1000): String
+    Try
+        If font
+            Font.Load(path)
+        Else
+            Image.Load(path, limit)
+        End If
+        Return "no error"
+    Catch e As IOError
+        Return "{e.Kind} {e.Path == path.Text} {e.Message.Replace(path.Text, "<path>")}"
+    End Try
+End Function
+
+Print(Thrown(root / "notes.txt", False))
+Print(Thrown(root / "notes.txt", True))
+Print(Thrown(root / "font.ttf", False))
+Print(Thrown(root / "picture.png", True))
+Print(Thrown(root / "picture.png", False, 5))
+// A file that isn't there says so as File.ReadBytes does, in the OS's words.
+Print(Thrown(root / "missing.png", False).Split(" ")[0..2])
+Print(Thrown(root / "missing.ttf", True).Split(" ")[0..2])
+
+// Both files at once, awaited in turn.
+Async Function LoadedAsync(folder: Path): String Throws IOError
+    Local image = Image.LoadAsync(folder / "picture.png")
+    Local font = Font.LoadAsync(folder / "font.ttf")
+    Local loaded = Try Await image
+    Return "{loaded.Width} {loaded[2, 1]} {(Try Await font).UnitsPerEm}"
+End Function
+
+// What awaiting a load of the file throws, as Thrown says it.
+Async Function ThrownAsync(path: Path, font: Bool): String
+    Try
+        If font
+            Await Font.LoadAsync(path)
+        Else
+            Await Image.LoadAsync(path)
+        End If
+        Return "no error"
+    Catch e As IOError
+        Return "{e.Kind} {e.Path == path.Text} {e.Message.Replace(path.Text, "<path>")}"
+    End Try
+End Function
+
+Print(Try Await LoadedAsync(root))
+Print(Await ThrownAsync(root / "notes.txt", False))
+Print(Await ThrownAsync(root / "notes.txt", True))
+Print((Await ThrownAsync(root / "missing.png", False)).Split(" ")[0..2])
+
+Try temp.Close()

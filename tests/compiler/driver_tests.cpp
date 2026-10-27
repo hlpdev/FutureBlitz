@@ -810,6 +810,10 @@ TEST_CASE("std.image's formats link the C libraries they're over, with their not
               .empty());
     // Image.Decode reads every format, so it links each decoder's library.
     CHECK(bundled("Print((Try Image.Decode(none)).Width)") == names_t{ "stb_image", "libwebp" });
+    // Loading a file reads it through std.io, over libuv, which nothing else in std.image needs.
+    CHECK(bundled("Print((Try Image.Load(\"a.png\")).Width)") ==
+          names_t{ "libuv", "stb_image", "libwebp" });
+    CHECK(bundled("Print((Try Font.Load(\"a.ttf\")).UnitsPerEm)") == names_t{ "libuv" });
 
     const auto notice = [](const std::string_view name) {
         for (const fb::build_config::bundled_library_t& library :

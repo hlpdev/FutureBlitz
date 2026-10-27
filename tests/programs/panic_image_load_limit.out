@@ -1,0 +1,2 @@
+True
+panic: a limit of pixels can't be negative, like -1 at panic_image_load_limit.fb:6:5

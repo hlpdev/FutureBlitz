@@ -1,10 +1,12 @@
 // Font: a TrueType or OpenType font, read by the runtime itself, which checks each offset in it
 // before it follows it, so a broken font or one made to mislead is an IOError, or draws boxes,
 // but never reads past its bytes: its glyphs' outlines, TrueType's, simple and composite, or
-// CFF's, cmap's formats 4 and 12, and kern's kerning. Its sizes are in pixels an em; a Canvas's
-// FillText draws its text.
+// CFF's, cmap's formats 4 and 12, and kern's kerning, from bytes or a file. Its sizes are in
+// pixels an em; a Canvas's FillText draws its text.
 
 Import std.core
+Import std.io.file
+Import std.io.path
 Import std.math.scalar
 Import std.image.codec
 
@@ -44,6 +46,19 @@ Public Class Font
         End If
 
         Return Font(state)
+    End Method
+
+    // The font in the file at `path`, which Parse reads from its bytes. Throws the IOError
+    // File.ReadBytes does for a file that can't be read, and Parse's, its Path the file's, for one
+    // it can't read a font of.
+    Public Static Method Load(path: Path): Font Throws IOError
+        Return Try FontFrom(Try File.ReadBytes(path), path)
+    End Method
+
+    // Load's Async twin, which reads the file on libuv's thread pool while the thread that called
+    // it goes on, and parses it there once the Await resumes.
+    Public Static Async Method LoadAsync(path: Path): Font Throws IOError
+        Return Try FontFrom(Try Await File.ReadBytesAsync(path), path)
     End Method
 
     // The units its glyphs are in, an em of them.
@@ -112,4 +127,13 @@ Package Function CheckSize(size: Float)
     If !IsFinite(size) || size < 0
         Panic("a font's size is finite and not negative, not {size}")
     End If
+End Function
+
+// The font Parse reads from the file's bytes, its IOError naming the file.
+Function FontFrom(data: UInt8[], path: Path): Font Throws IOError
+    Try
+        Return Font.Parse(data)
+    Catch e As IOError
+        Throw IOError(e.Kind, "can't load {path}: {e.Message}", path.Text, e)
+    End Try
 End Function

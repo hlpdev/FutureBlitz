@@ -196,7 +196,7 @@ So far, std/ holds:
 | std/term/screen.fb | `Cell`, `Canvas`, and `Screen` |
 | std/term/views.fb | `TextInput` and `ListView` |
 | std/image/codec.fb | What the formats share: a Decode's limit, the runtime's images, and the IOErrors their results mean |
-| std/image/image.fb | `Image`, `ImageFormat`, and `ResizeFilter`, with `Image.Decode` of any format, `FormatOf`, and the transforms, through `fb_image_` |
+| std/image/image.fb | `Image`, `ImageFormat`, and `ResizeFilter`, with `Image.Decode` of any format, `Image.Load` of a file, `FormatOf`, and the transforms, through `fb_image_` |
 | std/image/animation.fb | `Animation` and `Frame` |
 | std/image/png.fb | `Png`, PNG and APNG, over stb_image through `fb_stb_` and the runtime's encoders over zlib-ng through `fb_zlib_png_` and `fb_zlib_apng_` |
 | std/image/jpeg.fb | `Jpeg`, over stb_image and stb_image_write through `fb_stb_` |
@@ -206,7 +206,7 @@ So far, std/ holds:
 | std/image/webp.fb | `WebP`, over libwebp through `fb_webp_` |
 | std/image/svg.fb | `Svg`, over nanosvg through `fb_svg_` |
 | std/image/canvas.fb | `Canvas`, `LineCap`, and `LineJoin`, drawing through the runtime's `fb_image_` functions |
-| std/image/font.fb | `Font`, TrueType and OpenType fonts the runtime reads itself, through `fb_font_` |
+| std/image/font.fb | `Font`, TrueType and OpenType fonts the runtime reads itself, through `fb_font_`, from bytes or a file |
 | std/io/path.fb | `Path` and `PathStyle` |
 | std/io/file.fb | `File`'s one-call Static Methods and their Async twins, `Metadata`, `FileKind`, and `LineEnding`, over libuv through the runtime's `fb_io_file_` functions |
 | std/io/dir.fb | `Dir`'s Static Methods and their Async twins, and `DirEntry` |
@@ -1444,7 +1444,8 @@ Built in step 23, and `Query<T>` over step 17's `Load<T>`. `Import std.db` bring
 #### std.image
 
 Step 24 built the codecs over bytes, into an `Image`, and its transforms, and step 25 drawing and
-fonts; an Image's pixels are a `Buffer<UInt8>`. `Import std.image` brings in all of std/image/.
+fonts; an Image's pixels are a `Buffer<UInt8>`, and images and fonts load from files through
+std.io. `Import std.image` brings in all of std/image/.
 
 - `Image(width, height)`: pixels in rows from the top, each RGBA, 8 bits a channel, its alpha
   straight, all transparent black at first: `Width`, `Height`, `[x, y]` and `[x, y] = color` as
@@ -1473,6 +1474,14 @@ fonts; an Image's pixels are a `Buffer<UInt8>`. `Import std.image` brings in all
   `Image.Decode(data, limit)` reads any of them but HDR by how its bytes start, and
   `Image.FormatOf(data)` gives the `ImageFormat` they start as, or Null; a TGA has no signature,
   so it's what starts as a TGA's header does once no other format matches.
+- `Image.Load(path, limit)` reads a file's image as Image.Decode reads its bytes, and
+  `Font.Load(path)` a file's font as Font.Parse does, each through std.io's `File.ReadBytes`;
+  `Image.LoadAsync` and `Font.LoadAsync` are their Async twins, which read the file on libuv's
+  thread pool and decode or parse it once the Await resumes. A file that can't be read throws
+  File.ReadBytes's IOError, and one that isn't an image or a font what Decode or Parse throws,
+  after "can't load" and the path, its `Path` the file's. A file is written by encoding the
+  image and handing the bytes to `File.WriteBytes`. Only a program that loads a file links
+  libuv.
 - stb_image reads PNG, of every color type and bit depth, interlaced or not, 16 bits a channel
   kept to their top 8, JPEG, baseline and progressive, but not 12-bit or arithmetic, BMP, of 1 to
   32 bits a pixel, but not run-length encoded, TGA, and HDR; libwebp reads still WebPs, lossy and
@@ -1574,8 +1583,7 @@ fonts; an Image's pixels are a `Buffer<UInt8>`. `Import std.image` brings in all
   but the project's, and image_text/make_data.py draws their text from those glyphs apart from
   the runtime; tests/runtime/font_tests.cpp breaks them, cut short and changed at random. A size
   that isn't finite or is negative panics at the caller.
-- Planned: reading and writing image and font files, on step 14's. The engine's 2D (M11) shares
-  the image and font code.
+- The engine's 2D (M11) will share the image and font code.
 
 #### std.term
 

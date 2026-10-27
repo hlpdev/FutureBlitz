@@ -1,0 +1,13 @@
+3 2 (10, 20, 30, 255)
+1000
+INVALID_DATA True can't load <path>: the data isn't an image std.image reads
+INVALID_DATA True can't load <path>: the font isn't valid: it isn't a TrueType or OpenType font
+INVALID_DATA True can't load <path>: the data isn't an image std.image reads
+INVALID_DATA True can't load <path>: the font isn't valid: it isn't a TrueType or OpenType font
+OTHER True can't load <path>: the PNG image is too large: its 6 pixels are more than 5
+[NOT_FOUND, True]
+[NOT_FOUND, True]
+3 (10, 20, 30, 255) 1000
+INVALID_DATA True can't load <path>: the data isn't an image std.image reads
+INVALID_DATA True can't load <path>: the font isn't valid: it isn't a TrueType or OpenType font
+[NOT_FOUND, True]
