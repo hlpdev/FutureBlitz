@@ -1490,6 +1490,32 @@ findings were fixed (docs/review/args.md), and the built-in Defaults<T>() (spec 
 form of a T at its defaults without OnLoaded, which the help reads. With the process half and its
 review's fixes (docs/review/step17-process.md), step 17 is done.
 
+Step 30's Workers (lane 6), as the user chose: Async handlers stay on the main thread, and
+server.Work routes take a Sendable Func(WorkRequest): HttpResponse, which runs blocking on one of
+Workers = n threads while the main thread awaits it; a WorkRequest is a Sendable copy of the
+request, its Params too, and MaxQueuedWork (1024) calls wait before a 503. Two compiler changes came
+with it: any thread reads a Static ReadOnly Field of a Sendable type, as it does a Sendable Const,
+and a Struct's New starts a Func Field at a null function value. Its review's five findings were
+fixed (docs/review/workers.md): the work threads last while the connections a stopped server answers
+do, and a non-Sendable Static ReadOnly says its type is why.
+
+The compiler part of step 30's Routes<T> (lane 2), as the user chose: a typed `For Method m: M In T`
+whose Where line is a Func type can name type parameters of its own, which each Method that fits
+binds, so the copy's body sees that Method's own parameter type, checked as generic code over it;
+Async Methods count when the Func gives a Task (spec 13). Its review's nine findings were fixed
+(docs/review/for-method.md): sema and lowering share one Method list (overloads and an instance's
+Extend members included), a Method bound is met only by a loop of its Func type, nested loops see
+the outer ones' type parameters, and the Where lines hold in the Func type.
+
+Step 32's integration program (lane 12), tests/programs/readings: it fetches readings as JSON over
+HTTPS from a feed of its own, keeps them in SQLite, sums them in SQL, draws a PNG chart, and serves
+them as JSON, static files, and to its own WebSocket client, with no internet. Its review's seven
+findings were fixed (docs/review/readings.md): a chart of a flat line, of nothing, or of hours
+apart; a replace that really changes a value; honest labels; the WebSocket's close awaited; and
+std's Hex and == in place of its own. Lane 7's fixes came with it: net_tests count HTTP_STATUS, the
+nested-overloads sema test allows 30 seconds on Linux's CI, and CI gives a job three hours, as
+macOS's runner needs more than two.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished

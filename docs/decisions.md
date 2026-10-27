@@ -931,6 +931,10 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | Process.OnInterrupt and OnTerminate take Sendable Funcs that run on threads of their own until the program's code is done; Ctrl+Break and a console closing count on Windows (step 17) | a handler can't run on the main thread while it's blocked, and every OS has the two |
 | HttpRouter.Files serves nothing whose real path, links followed and names the disk's own, isn't inside the folder or has a dot name there, so links out and Windows' 8.3 short names are 404s (step 30's review) | nothing outside the folder is reached, as the docs say |
 | ACME is RFC 8555's with HTTP-01, an ECDSA P-256 account key, and a PKCS #10 CSR; newAccount is always signed with the JWK; names are LDH host names, not addresses; tests run against tests/native/acme_ca, a CA as Pebble is (step 30) | Let's Encrypt's flow, testable with no internet |
+| server.Work routes run a blocking Sendable Func(WorkRequest) on one of Workers = n threads, Async handlers staying on the main thread; a WorkRequest is a Sendable copy of the request, and MaxQueuedWork calls wait before a 503 (step 30; the user's call) | CPU-bound handlers get threads without changing Async's one-thread rule |
+| Any thread reads a Static ReadOnly Field of a Sendable type, as a Sendable Const (spec 10, step 30) | it never changes once its initializer runs, in source order with the Globals |
+| A typed For Method's Where Func type can bind type parameters of its own per Method, and takes Async Methods when it gives a Task; sema and lowering go over one list of Methods (spec 13, step 30; the user's call) | Routes<T> binds each route's own argument type, and what sema checks is what lowering copies |
+| Step 32's integration program is a test program with its own HTTPS feed and site, so it runs with no internet and leaves nothing behind (step 32) | std working together is checked by ctest on every OS |
 
 ## Libraries and packages (M7)
 
