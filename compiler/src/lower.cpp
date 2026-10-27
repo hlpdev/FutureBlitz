@@ -2574,8 +2574,10 @@ private:
     /// What a variable holds before it's assigned. The zero of a Struct, tuple, Mutex, Class, or
     /// array needs a temporary, and a T?'s is Null. `span` is the Local's declaration.
     operand_t zero_value(const type_id_t type, const span_t span = {}) {
-        if (has_fields(type) || is_object(type) || is_array(type) || is_fixed_array(type) ||
-            types().get(type).kind == type_kind_t::MUTEX) {
+        // A function value is a reference to its closure, so its zero is a null one, as an
+        // object's is, which a Struct's New starts a Func Field with.
+        if (has_fields(type) || is_object(type) || is_func(type) || is_array(type) ||
+            is_fixed_array(type) || types().get(type).kind == type_kind_t::MUTEX) {
             return temporary(zero_t{ .type = type, .span = span }, type, has_references(type));
         }
 

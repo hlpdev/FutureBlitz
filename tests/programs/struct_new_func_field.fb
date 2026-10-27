@@ -1,0 +1,41 @@
+// A Struct's New starts each Field at its zero before it assigns them, a Func's and a Sendable
+// Func's beside a Class's and a Struct's too, in either order.
+
+Import std.core
+
+Class Box
+    Field N: Int
+End Class
+
+Struct Point
+    Field X: Int
+End Struct
+
+Struct Job
+    Field Run: Func(Int): Int
+    Field Done: Box
+
+    New(run: Func(Int): Int, done: Box)
+        Run = run
+        Done = done
+    End New
+End Struct
+
+Struct Later
+    Field Done: Box
+    Field Spot: Point
+    Field Run: Sendable Func(Int): Int
+
+    New(run: Sendable Func(Int): Int, done: Box)
+        Done = done
+        Spot = Point(7)
+        Run = run
+    End New
+End Struct
+
+Local box = Box()
+box.N = 3
+Local job = Job(Function(n: Int) => n * 2, box)
+Print(job.Run(job.Done.N))
+Local later = Later(Function(n: Int) => n + 1, box)
+Print(later.Run(later.Spot.X), later.Done.N)
