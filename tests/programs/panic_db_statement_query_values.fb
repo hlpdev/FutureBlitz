@@ -1,0 +1,17 @@
+// A Statement's Query<T>(values...) binds one value to each of its parameters, so it panics where
+// it's called with another number of values.
+Import std.core
+Import std.db
+
+Struct Named
+    Field Name: String?
+End Struct
+
+Try
+    Local db = Database.Open(":memory:")
+    Local statement = db.Prepare("SELECT ? AS Name")
+    Print(statement.Query<Named>("a")[0].Name ?? "none")
+    Print(statement.Query<Named>(1, 2).Count)
+Catch e As Error
+    Print(e.Message)
+End Try
