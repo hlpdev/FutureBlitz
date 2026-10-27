@@ -155,8 +155,8 @@ void* fb_stb_decode_apng(const fb_array_t* data, std::int64_t limit);
 /// out, 3 BMP, with alpha, or 4 TGA, with alpha, run-length encoded.
 void fb_stb_encode(const std::uint8_t* pixels, std::int64_t width, std::int64_t height,
                    std::int32_t format, std::int32_t quality, fb_array_t* output);
-/// Radiance's RGBE, run-length encoded, of `pixels`, a Float32[] as fb_image_hdr_pixels gives
-/// them, whose alpha it leaves out.
+/// Radiance's RGBE, run-length encoded, of the width * height * 4 floats at `pixels`, as
+/// fb_image_hdr_pixels gives them, whose alpha it leaves out.
 void fb_stb_encode_hdr(const float* pixels, std::int64_t width, std::int64_t height,
                        fb_array_t* output);
 
