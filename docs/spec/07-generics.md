@@ -64,10 +64,19 @@ A call can leave out its type arguments when the compiler can tell them:
    Function(x) => "{x}")` takes `T` from `xs` and `U` from the lambda's result;
 4. from the type expected: `Local s: Stack<Int> = Stack()`.
 
+A call can also write a generic Function's or Method's first type arguments and leave the rest
+to inference, as a `_` for each of them does in Rust: `db.Query<Player>(sql, id)` gives
+`Query<T, A>` its `T`, and its `A` comes from `id`. What's written is taken as given, so an
+argument that doesn't fit it is an error, not inferred instead: `Two<Int>("s", 2)` wants an Int.
+A Method that an Extend of `T[]` adds counts only its own type parameters, since the array gives
+T. A type's New still writes all of a type's: `Box<Int>()` for a `Box<A, B>` is an error.
+
 The arguments of a generic type's Method come from the object it's called on. When something
-can't be told, the call is an error that asks for the type arguments. A Function used as a value
-takes its type arguments from the Func expected, or from what's written: `Local f: Func(Int[]):
-Int = First`.
+can't be told, the call is an error that names what it can't, and asks for the type arguments,
+with what it wrote and what it told: "can't tell what A is in this call; write the type
+arguments, like db.Query<Player, Int>(...)". A Function used as a value takes its type arguments
+from the Func expected, or from what's written, all of them or the first ones: `Local f:
+Func(Int[]): Int = First`, or `Local g: Func(Int, String): Int = Two<Int>`.
 
 When a generic overload and one that isn't generic fit a call equally well, the one that isn't
 generic is chosen.
