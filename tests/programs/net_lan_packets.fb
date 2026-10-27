@@ -3,7 +3,7 @@
 // address alone; it doesn't answer with what a query says it knows; and its goodbye takes back
 // the service's own records alone, at a TTL of 0. A finder puts the address an answer came from
 // first, and keeps a text's key once, whatever its letters' case. Each part keeps to a discovery
-// port of its own.
+// port the OS picks for it, so another run at once keeps to its own.
 
 Import std.core
 Import std.collections
@@ -143,6 +143,15 @@ Function V4(): IpAddress[]
     Return addresses
 End Function
 
+// A discovery port of the run's own, which the OS picks, since a port is the machine's, and
+// another run at once would answer at it too.
+Function FreePort(): UInt16 Throws NetError
+    Local probe = Try UdpSocket.Bind(SocketAddress(IpAddress.Any, 0))
+    Local port = probe.LocalAddress.Port
+    probe.Close()
+    Return port
+End Function
+
 // A socket on the discovery port `port`, in mDNS's group on each interface, as another machine's
 // mDNS is.
 Function Listener(port: UInt16): UdpSocket Throws NetError
@@ -192,11 +201,12 @@ End Function
 // alone, and what it answers a query that knows its records with half their TTL left at least
 // leaves those out.
 Try
-    Local lone = LanAnnouncer.Start(type, "Lone", 4242, Null, 55360)
+    Local port = FreePort()
+    Local lone = LanAnnouncer.Start(type, "Lone", 4242, Null, port)
     Local alone = True
     For address In V4()
         Local querier = UdpSocket.Bind(SocketAddress(address, 0))
-        querier.Send(Query(TypeName(), 12, []), SocketAddress(address, 55360))
+        querier.Send(Query(TypeName(), 12, []), SocketAddress(address, port))
         alone = alone && AddressCount(Records((Await querier.ReceiveAsync(2.Seconds)).Bytes)) == 1
         querier.Close()
     End For
@@ -204,7 +214,7 @@ Try
     Print("an answer to each network gives one address:", alone)
 
     Local querier = UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0))
-    Local at = SocketAddress(IpAddress.Loopback, 55360)
+    Local at = SocketAddress(IpAddress.Loopback, port)
     Local pointer = Wire(InstanceName("Lone"))
     querier.Send(Query(TypeName(), 12, [Record(TypeName(), 12, 4500, pointer)]), at)
     Print("knowing the PTR:", Types(Try? Await querier.ReceiveAsync(500.Milliseconds)))
@@ -228,8 +238,9 @@ End Try
 // PTR, SRV, and TXT alone, at a TTL of 0: not its host's addresses or its type's place in
 // DNS-SD's enumeration, which other services can still have.
 Try
-    Local cache = Listener(55361)
-    Local leaving = LanAnnouncer.Start(type, "Leaving", 4343, Null, 55361)
+    Local port = FreePort()
+    Local cache = Listener(port)
+    Local leaving = LanAnnouncer.Start(type, "Leaving", 4343, Null, port)
     Local alone = True
     Loop
         Local datagram = Try? Await cache.ReceiveAsync(500.Milliseconds)
@@ -263,9 +274,10 @@ End Try
 // A finder puts the address an answer came from first, before those it gives for its host, and
 // keeps a text's key once, as it's first written.
 Try
-    Local responder = Listener(55362)
+    Local port = FreePort()
+    Local responder = Listener(port)
     Local responding = Respond(responder)
-    For service In Await Lan.FindAsync(type, 1500.Milliseconds, 55362)
+    For service In Await Lan.FindAsync(type, 1500.Milliseconds, port)
         Print(service.Name, service.Port, service.Addresses, service.Text.Count,
               service.Text.Get("Map") ?? "none")
     End For

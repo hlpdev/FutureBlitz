@@ -1,18 +1,26 @@
 // std.net's LAN discovery: a program offers services with LanAnnouncers and finds them with Lan,
 // over mDNS's records, Async and from another thread, and what stopped isn't found after;
 // net_lan_packets.fb looks at the packets, the goodbye's among them. It keeps to a discovery port
-// of its own, so what else on the machine answers mDNS doesn't answer it, and what isn't a DNS
-// message, sent there, is let be. A Find that has to find something waits a second and a half,
-// since its answers come from the main thread's Async code, which a busy machine can be slow to
-// run.
+// the OS picks for it, so what else on the machine answers mDNS doesn't answer it, nor does
+// another run of it at once, and what isn't a DNS message, sent there, is let be. A Find that
+// has to find something waits a second and a half, since its answers come from the main
+// thread's Async code, which a busy machine can be slow to run.
 
 Import std.core
 Import std.collections
 Import std.net
 Import std.time
 
-Const port: UInt16 = 55353
 Const type = "_fbtest._udp"
+
+// A discovery port of the run's own, which the OS picks, since a port is the machine's, and
+// another run at once would answer at it too.
+Function FreePort(): UInt16 Throws NetError
+    Local probe = Try UdpSocket.Bind(SocketAddress(IpAddress.Any, 0))
+    Local port = probe.LocalAddress.Port
+    probe.Close()
+    Return port
+End Function
 
 // The names of what Find found, in order, since two can answer in either.
 Function Names(services: LanService[]): String
@@ -26,6 +34,7 @@ Function Names(services: LanService[]): String
 End Function
 
 Try
+    Local port = FreePort()
     Print(Lan.HostName() != "", Lan.LocalAddresses().Count > 0)
 
     Local text = Map<String, String>()
@@ -64,9 +73,11 @@ Try
 
     // Blocking, on a Thread, while the main thread goes on answering.
     Const counts = Channel<Int>(1)
+    Const ports = Channel<UInt16>(1)
+    ports.Send(port)
     Local finder = Thread.Start(Function()
         Try
-            counts.Send(Lan.Find("_fbtest._udp", 1500.Milliseconds, 55353).Count)
+            counts.Send(Lan.Find("_fbtest._udp", 1500.Milliseconds, ports.Receive() ?? 0).Count)
         Catch e As NetError
             counts.Send(-1)
         End Try
