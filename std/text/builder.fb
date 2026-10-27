@@ -1,21 +1,26 @@
 // StringBuilder: text built up a piece at a time, in a buffer of its UTF-8 bytes that grows as
 // pieces come, so building a String of many pieces takes time in proportion to its length, where
 // joining them one by one would copy it each time. Positions are byte offsets, as a String's are,
-// and one inside a character panics.
+// and one inside a character panics. It's a std.io Writer too, whose bytes it adds as text.
 
 Import std.core
 Import std.collections
+Import std.ffi
+Import std.io.streams
 Import std.text.char
 Import std.text.string
 
 Extern "runtime"
     Function fb_text_append(into: UInt8[], text: String)
     Function fb_text_from_utf8(bytes: UInt8[], start: Int64, count: Int64): String?
+    Function fb_string_from_array(bytes: UInt8[]): String
 End Extern
 
-Public Class StringBuilder Implements Printable
+Public Class StringBuilder Implements Printable, Writer
     // The text's UTF-8, which only ever holds whole characters.
     Field Bytes: UInt8[] = []
+    // The first bytes of a character that Write has had, which wait for the rest of it.
+    Field Pending: UInt8[] = []
 
     // An empty one.
     Public New()
@@ -35,6 +40,7 @@ Public Class StringBuilder Implements Printable
     // AppendLine, Insert, and [] that makes the text longer than a String holds panics.
     @PanicsAtCaller
     Public Method Append(text: String): StringBuilder
+        Settle()
         CheckRoom(text.Length)
         fb_text_append(Bytes, text)
         Return Self
@@ -51,6 +57,7 @@ Public Class StringBuilder Implements Printable
     // Adds text, then a line break, "\n", at the end.
     @PanicsAtCaller
     Public Method AppendLine(text: String = ""): StringBuilder
+        Settle()
         CheckRoom(text.Length)
         fb_text_append(Bytes, text)
         CheckRoom(1)
@@ -62,6 +69,7 @@ Public Class StringBuilder Implements Printable
     // characters.
     @PanicsAtCaller
     Public Method Insert(at: Int, text: String): StringBuilder
+        Settle()
         CheckPosition(at, "Insert")
         CheckRoom(text.Length)
         Bytes.InsertAll(at, text.Bytes)
@@ -72,6 +80,7 @@ Public Class StringBuilder Implements Printable
     // between characters, with start no later than finish.
     @PanicsAtCaller
     Public Method Remove(start: Int, finish: Int): StringBuilder
+        Settle()
         CheckPosition(start, "Remove")
         CheckPosition(finish, "Remove")
         If start > finish Then Panic("Remove({start}, {finish}) ends before it starts")
@@ -82,16 +91,50 @@ Public Class StringBuilder Implements Printable
     // Replaces each old, from the start, with replacement. An empty old panics.
     @PanicsAtCaller
     Public Method Replace(old: String, replacement: String): StringBuilder
+        Settle()
         Local replaced = ToString().Replace(old, replacement)
         Bytes.Clear()
         fb_text_append(Bytes, replaced)
         Return Self
     End Method
 
-    // Takes out all its text.
+    // Takes out all its text, and the first bytes of a character Write has had.
     Public Method Clear(): StringBuilder
         Bytes.Clear()
+        Pending.Clear()
         Return Self
+    End Method
+
+    // Adds from's bytes as text, U+FFFD for each one that doesn't start well-formed UTF-8, as
+    // std.io's StringWriter reads them. A character whose bytes two Writes split is added once its
+    // last byte comes; until then, Flush, or a change of another kind, adds what came of it as
+    // U+FFFD. Throws an IOError past the most a String holds, adding none of it.
+    Public Method Write(from: Buffer<UInt8>) Throws IOError
+        Local bytes = Pending.Clone()
+        For i = 0 Until from.Count
+            bytes.Add(from[i])
+        End For
+
+        Local waiting: UInt8[] = []
+        For i = bytes.Count - Unfinished(bytes) Until bytes.Count
+            waiting.Add(bytes[i])
+        End For
+
+        bytes.RemoveRange(bytes.Count - waiting.Count, waiting.Count)
+        Local text = fb_string_from_array(bytes)
+        Local finish = (Bytes.Count As Int64) + text.Length
+        If finish > 2147483647
+            Throw IOError(IOErrorKind.OTHER, "a StringBuilder holds up to 2147483647 bytes, not " +
+                                             "{finish}")
+        End If
+
+        fb_text_append(Bytes, text)
+        Pending = waiting
+    End Method
+
+    // Adds what Write has had of a character whose last bytes haven't come, as U+FFFD.
+    Public Method Flush() Throws IOError
+        Settle()
     End Method
 
     // Makes room for bytes bytes of text in all, so adding up to that many needs no more memory.
@@ -117,6 +160,7 @@ Public Class StringBuilder Implements Printable
     // unless at is a position in the text, between characters, before its end.
     @PanicsAtCaller
     Operator []=(at: Int, value: Char)
+        Settle()
         CheckCharacter(at)
         Local old = CharIn(Bytes, at)
         CheckRoom(value.Utf8Length - old.Utf8Length)
@@ -135,6 +179,17 @@ Public Class StringBuilder Implements Printable
         If at < Bytes.Count && (Bytes[at] & 0xC0) == 0x80
             Panic("{what} takes a position between characters, not {at}")
         End If
+    End Method
+
+    // Adds the first bytes of a character that Write has had as U+FFFD, so what changes the text
+    // next comes after them.
+    @PanicsAtCaller
+    Method Settle()
+        If Pending.Count == 0 Then Return
+        Local text = fb_string_from_array(Pending)
+        Pending = []
+        CheckRoom(text.Length)
+        fb_text_append(Bytes, text)
     End Method
 
     // Panics unless the text has room for more bytes, as a String holds at most 2147483647.
@@ -166,4 +221,26 @@ Function CharIn(bytes: UInt8[], at: Int): Char
     End For
 
     Return code As Char
+End Function
+
+// How many bytes at the end of bytes start a character whose last bytes haven't come: a lead
+// byte and the continuation bytes after it, fewer than it takes.
+Function Unfinished(bytes: UInt8[]): Int
+    For back = 1 To Min(3, bytes.Count)
+        Local byte = bytes[bytes.Count - back] As Int
+        If (byte & 0xC0) != 0x80
+            Local length = 1
+            If byte >= 0xC2 && byte <= 0xDF
+                length = 2
+            ElseIf byte >= 0xE0 && byte <= 0xEF
+                length = 3
+            ElseIf byte >= 0xF0 && byte <= 0xF4
+                length = 4
+            End If
+
+            Return length > back ? back : 0
+        End If
+    End For
+
+    Return 0
 End Function

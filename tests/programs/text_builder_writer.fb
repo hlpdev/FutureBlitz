@@ -1,0 +1,49 @@
+// A StringBuilder is a std.io Writer: what's written to it is text, a character whose bytes two
+// Writes split comes whole, and bytes that aren't UTF-8 are U+FFFD, as a StringWriter has them.
+Import std.core
+Import std.ffi
+Import std.io
+Import std.text
+
+Local builder = StringBuilder("¡")
+Try builder.WriteText("héllo ")
+Try builder.WriteBytes([0xF0, 0x9F])
+Print(builder, builder.Length)
+Try builder.WriteBytes([0x98])
+Try builder.WriteBytes([0x80, 0xD0])
+Try builder.WriteBytes([0xB6, 0x21])
+Print(builder, builder.Length)
+
+// Copy reads a stream into it, and a BufferedWriter of 2 bytes splits each character but ASCII.
+Local copied = StringBuilder()
+Print(Try Copy(StringReader("e\u{301} 😀 wörld"), copied), copied, copied.Length)
+Local buffered = StringBuilder()
+Local through = BufferedWriter(buffered, 2)
+Try through.WriteText("👨‍👩‍👧 ж é")
+Try through.Flush()
+Print(buffered, buffered.Length, "{buffered}".GraphemeCount)
+
+// Bytes that don't start well-formed UTF-8 are each U+FFFD: a stray continuation byte, a lead
+// byte with too few after it, and 0xFF.
+Local broken = StringBuilder()
+Try broken.WriteBytes([0x61, 0x80, 0xE2, 0x82, 0x62, 0xFF, 0x63])
+Print(broken, broken.Length)
+
+// Flush, and a change of another kind, add what came of an unfinished character as U+FFFD, so
+// what comes next is after it. Clear takes it out with the rest.
+Local unfinished = StringBuilder()
+Try unfinished.WriteBytes([0x61, 0xE2, 0x82])
+Print(unfinished, unfinished.Length)
+Try unfinished.Flush()
+Print(unfinished, unfinished.Length)
+Try unfinished.WriteBytes([0xC3])
+unfinished.Append("b")
+Print(unfinished, unfinished.Length)
+Try unfinished.WriteBytes([0xE2])
+unfinished.Clear()
+Try unfinished.WriteBytes([0x82, 0xAC])
+Print(unfinished, unfinished.Length)
+Try unfinished.WriteBytes([0xE2, 0x82])
+unfinished.Insert(0, "€")
+Try unfinished.WriteBytes([0xAC])
+Print(unfinished, unfinished.Length)
