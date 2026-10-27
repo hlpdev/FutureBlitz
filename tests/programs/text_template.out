@@ -13,6 +13,10 @@ FTFTFTFFFTF U
 01|ab
 Hello, &lt;world&gt;!
 3 of them
+&lt;Ann&gt; (VETERAN): pen 1.50, ink 12.00
+&lt;Ann&gt; (VETERAN) gift: pen 1.50, ink 12.00
+cap at 3
+007 8
 a&amp;b&lt;c&gt;d&quot;e&#39;f a&b<c>d"e'f
 a&b<c>d"e'f
 <ul>
@@ -34,6 +38,7 @@ other
 
 &lt;me&gt; [&lt;me&gt;]some
 &lt;you&gt; [&lt;you&gt;]some
+&lt;Ann&gt;'s [pen][ink]
 True
 BAD_TEMPLATE: line 1, column 3: this {{ has no }} after it
 BAD_TEMPLATE: line 1, column 3: this {{{ has no }}} after it

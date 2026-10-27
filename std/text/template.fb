@@ -1,9 +1,10 @@
-// std.text.template: Mustache-style templates, which a Value or a Map fills. A template is text
-// with tags in "{{ }}", each filled in when it's rendered: {{name}} gives a value, the blocks
-// {{#each name}}, {{#if name}}, and {{#unless name}} go over or test one, with an {{else}} for
-// when there's nothing, {{> name}} renders another template there, and {{! }} is a comment. A
-// value can take a format spec, as {{price:.2}} does, as interpolation's "{price:.2}" would. A
-// block's tag alone on its line takes the line with it. A template for HTML escapes its values.
+// std.text.template: Mustache-style templates, which a Value fills, or a Struct, a Class, or a
+// Map, through the Value that Save makes of it. A template is text with tags in "{{ }}", each
+// filled in when it's rendered: {{name}} gives a value, the blocks {{#each name}}, {{#if name}},
+// and {{#unless name}} go over or test one, with an {{else}} for when there's nothing,
+// {{> name}} renders another template there, and {{! }} is a comment. A value can take a format
+// spec, as {{price:.2}} does, as interpolation's "{price:.2}" would. A block's tag alone on its
+// line takes the line with it. A template for HTML escapes its values.
 
 Import std.core
 Import std.collections
@@ -31,14 +32,9 @@ Public Class Template
         Return Try Rendered(Parts, data, Html, Null)
     End Method
 
-    // The template, filled from a Map's keys and values.
-    Public Method Render(data: Map<String, Value>): String Throws FormatError
-        Return Try Render(Value(data))
-    End Method
-
-    Public Method Render(data: Map<String, String>): String Throws FormatError
-        Return Try Render(Texts(data))
-    End Method
+    // The template, filled from the Value that Save makes of data: a Struct's or Class's Fields
+    // by name, a Map's keys, and the rest as Save has them.
+    Public Method Render<T>(data: T): String Throws FormatError => Try Render(Save(data))
 End Class
 
 // Templates by name, which render each other as partials: {{> header}} is the template named
@@ -77,14 +73,9 @@ Public Class Templates
         Return Try Rendered(Try PartsOf(name, ""), data, IsHtml(name), Self)
     End Method
 
-    // The template of the name, filled from a Map's keys and values.
-    Public Method Render(name: String, data: Map<String, Value>): String Throws FormatError
-        Return Try Render(name, Value(data))
-    End Method
-
-    Public Method Render(name: String, data: Map<String, String>): String Throws FormatError
-        Return Try Render(name, Texts(data))
-    End Method
+    // The template of the name, filled from the Value that Save makes of data.
+    Public Method Render<T>(name: String, data: T): String Throws FormatError =>
+        Try Render(name, Save(data))
 
     // A template's parts, as a partial indented on its line by `indent` has them, with each of
     // its lines indented, read the first time they're needed.
@@ -516,16 +507,6 @@ Function EndsWith(bytes: UInt8[], suffix: String): Bool
     End For
 
     Return True
-End Function
-
-// A Value of a Map's keys and its values as Strings.
-Function Texts(data: Map<String, String>): Value
-    Local made = Value.Object()
-    For key, text In data
-        made[key] = Value(text)
-    End For
-
-    Return made
 End Function
 
 // A scope names are looked up in: a Value, and for an {{#each}}'s item, where it is in what the

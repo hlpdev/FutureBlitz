@@ -114,6 +114,38 @@ Local values = Map<String, Value>()
 values["count"] = Value(3)
 Print(Try Template(r"{{#if count}}{{count}} of them{{/if}}").Render(values))
 
+// So do a Struct, a Class, and a Map of other values, through the Value Save makes: a Field by
+// its name, or the key @Rename gives it, an Enum by its member's name, a T? as Null or its
+// value, and an array of Structs for an {{#each}}.
+Enum Rank
+    ROOKIE, VETERAN
+End Enum
+
+Struct Item
+    Field Name: String
+    Field Price: Double
+End Struct
+
+Class Order
+    Field Who = ""
+    @Rename("rank") Field Level = Rank.ROOKIE
+    Field Note: String? = Null
+    Field Items: Item[] = []
+End Class
+
+Local order = Order()
+order.Who = "<Ann>"
+order.Level = Rank.VETERAN
+order.Items = [Item("pen", 1.5), Item("ink", 12)]
+Local receipt = Try Template(r"{{Who}} ({{rank}}){{#if Note}} {{Note}}{{/if}}: {{#each Items}}" +
+                             r"{{Name}} {{Price:.2}}{{#unless @last}}, {{/unless}}{{/each}}",
+                             html: True)
+Print(Try receipt.Render(order))
+order.Note = "gift"
+Print(Try receipt.Render(order))
+Print(Try Template(r"{{Name}} at {{Price}}").Render(Item("cap", 3)))
+Print(Try Template(r"{{a:03}} {{b}}").Render({"a": 7, "b": 8}))
+
 // HTML escapes &, <, >, ", and ', but not in {{{ }}} or {{& }}.
 Local quote = Value.Object()
 quote["text"] = Value("a&b<c>d\"e'f")
@@ -153,6 +185,9 @@ Print(Try cards.Render("page.html", texts))
 Local valued = Map<String, Value>()
 valued["who"] = Value("<you>")
 Print(Try cards.Render("page.html", valued))
+Try cards.Add("order.html", r"{{Who}}'s {{#each Items}}{{> item.txt}}{{/each}}")
+Try cards.Add("item.txt", r"[{{Name}}]")
+Print(Try cards.Render("order.html", order))
 // A line break of "\r\n" ends a line, and the first and last lines need none.
 Local crlf = Try Template(r"{{#if title}}" + "\r\n" + r"yes" + "\r\n" + r"{{/if}}").Render(data)
 Print(crlf == "yes\r\n")

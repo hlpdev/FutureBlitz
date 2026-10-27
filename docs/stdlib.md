@@ -441,10 +441,11 @@ file or URL in the default app.
   - Each thread keeps the last 16 patterns it compiled, which a Regex of one shares, so the
     shortcuts compile a pattern once.
 - std.text.template: Mustache-style templates. `Template(text, html)` reads one, and
-  `Render(data)` fills it from a `Value`, whose Object's keys are the names, a
-  `Map<String, Value>`, or a `Map<String, String>`; `Templates` holds them by name, with
-  `Add(name, text)`, `Contains(name)`, and `Render(name, data)`, and they render each other as
-  partials. Its tags:
+  `Render(data)` fills it from a `Value`, whose Object's keys are the names, or from the Value
+  `Save` makes of any other data, so a Struct's or Class's Fields are names, by the keys Save
+  gives them, a Map's keys are, and an Enum is its member's name; `Templates` holds them by
+  name, with `Add(name, text)`, `Contains(name)`, and `Render(name, data)`, and they render each
+  other as partials. Its tags:
   - `{{name}}` is a value, the first step of a path like `{{user.name}}` looked up in the scopes
     from the innermost out, then each step from what the last gave; `{{this}}` or `{{.}}` is the
     scope itself, and `{{this.name}}` the innermost scope's own name, not looked up outward. A
@@ -475,7 +476,6 @@ file or URL in the default app.
     name, its line, and its column; Render throws one of MISSING_VALUE for a partial there's no
     template of, and of OTHER for partials more than 1000 deep inside each other. A template
     and its data nest however deep, since neither is read or rendered with calls.
-  - A Struct's or Class's data, and a Map of other values, come with `Save<T>`.
 - std.text.markdown (md4c): CommonMark, which it passes all 652 of 0.31.2's spec examples of, as
   CommonMark's spec_tests.py compares them, with tables and task lists unless it's told other
   `MarkdownExtensions`: `None` for CommonMark alone, `Tables`, `TaskLists`, `Strikethrough`,
