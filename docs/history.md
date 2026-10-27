@@ -1333,6 +1333,59 @@ stack merged Embed's sema with Load and Save's (both sides' declarations, and th
 examples together), and lane 11's fix to NetErrorKind's ordinals, where step 29's HTTP_STATUS met
 the sockets, came with them.
 
+Step 29's TLS half (lane 11): std.net.tls over mbedTLS 4.1.1. The runtime's fb_tls_ functions
+(runtime/src/tls.cpp, fb/tls.hpp, the archive fb_runtime_tls, a bundled entry of mbedTLS's without
+notices of its own) run TLS through memory buffers, so TlsClient's Connect and TlsServer's Accept,
+with Async twins, give a TlsStream<S> over any stream that's a Reader and a Writer, and TlsListener
+takes TLS over TCP; a client trusts the OS's roots, read once by tls_roots.cpp, or roots of its own,
+checks the host name and IP SANs, offers ALPN, and can give a client certificate. A handshake fails
+with a NetError of TLS that says why. Its review's 18 findings were fixed (docs/review/tls.md): on
+Windows a chain the ROOT store doesn't cover is checked as Windows checks it (os_verify), for
+libcurl too through CURLOPT_SSL_CTX_FUNCTION; key usages and PSA's statuses have their own messages;
+an address gets no server_name; a listener's timeout covers the handshake; a failed handshake's
+alert is flushed; a write after Close throws; and hosts and ALPN lists past their limits panic at
+the caller. Tests: net_tls, net_tls_tcp, tls_tests, tls_roots_tests, and panic programs.
+
+Step 29's Download to a file (lane 9): files.cpp's atomic write became fb::runtime::atomic_file_t,
+which fb_http_to_file opens before the transfer, so an unwritable target is an IOError with nothing
+sent; on_data writes a 2xx's body to it as it comes, and the transfer commits it, renaming over the
+target, only on success. HttpClient's and Http's Download(url, path, progress) and DownloadAsync.
+Its review's finding, an empty path, was fixed. With TLS, step 29 is done.
+
+Step 31, std.net.game (lane 12): reliable UDP for games in std/net/game/*.fb, with no runtime C++:
+packet.fb's wire format ("FG", a version, CONNECT, ACCEPT, REFUSE, DATA, DISCONNECT; 16-bit
+sequences compared as RFC 1982 does); link.fb's GameLink, which a UdpSocket is through GameHost.Bind
+and any Class can be, as the tests' lossy network is; channel.fb's RELIABLE_ORDERED,
+RELIABLE_UNORDERED, and UNRELIABLE channels, fragments, and a window of 1024; settings.fb's
+GameSettings and DisconnectReason; peer.fb's GamePeer, with an ack bitfield, RFC 6298's RTT and RTO,
+loss stats, and resends that back off; and host.fb's GameHost, with its handshake, Broadcast,
+Update(now), Service, and ServiceAsync. Its review's 15 findings were fixed (docs/review/step31.md):
+parts refused for MaxBuffered stay unacked and a sender keeps to its own, each channel keeps its
+leftovers, keepalives time round trips, MaxPeers counts incoming peers, simultaneous connects
+finish, unreliable ids survive outages, and Broadcast's and GameSettings' checks panic at the
+caller. Tests: net_game (a seeded lossy link), net_game_udp, and panic programs.
+
+Steps 8's and 23's rest (lane 5): a template renders a Struct, a Class, or a Map through what Save
+makes of it, panicking at the caller past Save's 256 levels; std.db's Query<T>, of no values or one
+to eight, on a Database or a Statement, reads each row as a T through Load<T>, a Bool from 0 or 1
+and a missing column at its Field's default or zero, its type argument inferred where the values say
+it. Its review's four findings were fixed (docs/review/template-query.md). With it, steps 8 and 23
+are done.
+
+std.image over a Buffer (lane 1): an Image's pixels are a Buffer<UInt8> and an HdrImage's a
+Buffer<Float32>, with Pixels and Over, and the runtime's pixel functions (draw.cpp, image.cpp, the
+codecs, transform.cpp) take pointers; Paste and Draw between images that share memory draw from a
+copy; Image.Load, Font.Load, and their Async twins read files through std.io. Its review's finding
+was fixed (docs/review/image-buffer.md).
+
+Step 17's std.os part (lane 4): std/os/env.fb's Env (Get, Set, Unset, All, Expand, and Load, which
+sets what a .env file names), system.fb's System (Platform, Arch, CpuCount, TotalMemory, Hostname,
+UserName), folders.fb's Folders (Executable, Home, Config, Data, Cache, Temp, Documents) and
+OpenDefault, and process.fb's Process.Id and Exit, over libuv through the runtime's fb_os_ functions
+(os.cpp), whose environment lock starting a process will share. Lane 7 made value.cpp read doubles
+with fast_float, as Apple's C++ library's from_chars doesn't, and the stack merged TLS's bundled
+entry with std.os's renamed `prefixes` and TLS's http.cpp with Download's.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished

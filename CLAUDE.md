@@ -55,8 +55,9 @@ docs/history.md; a landed step's notes go there, newest milestone first.
   (text I, Char), 7 (text II, regex), 8 (Markdown and templates), 9 (math I), 10 (math II,
   ThreadLocal Global), 11 (big math and units), 12 (ffi: CData and Buffer), 13 (streams), 14
   (files), 15 (Embed, the VFS, and Preferences), 16 (time), 20 (TOML, CSV, INI, XML, YAML, Protocol
-  Buffers), 21 (crypto), 22 (compression), 23 (uuid and SQLite), 24 (images), 25 (drawing and
-  fonts), 26 (terminal), 27 (algo); 18 (concurrency, events, std.log, Sendable Func, Where T: Class,
-  Task<T> Throws E); 28 (addresses, URLs, DNS, sockets, LAN discovery); parts of 17 (Value, Load and
-  Save), 29 (the HTTP client), and 32 (std.debug); and every one of the whole-codebase review's
-  fixes.
+  Buffers), 21 (crypto), 22 (compression), 23 (uuid, SQLite, and Query<T>), 24 (images), 25 (drawing
+  and fonts), 26 (terminal), 27 (algo); 18 (concurrency, events, std.log, Sendable Func, Where T:
+  Class, Task<T> Throws E); 28 (addresses, URLs, DNS, sockets, LAN discovery), 29 (TLS, the HTTP
+  client, and Download), 31 (game networking); parts of 17 (Value, Load and Save, std.os's
+  environment, system, and folders) and 32 (std.debug, and the audit's gaps in std.text,
+  std.compress, and std.image); and every one of the whole-codebase review's fixes.
