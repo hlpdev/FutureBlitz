@@ -186,6 +186,15 @@ End Function
   type instead, and `m.Call(value, 5)` passes their arguments. Its Where line picks the Methods;
   it isn't a constraint to meet. A Func type has no ByRef, so a Method with a ByRef parameter is
   never among them.
+- A name in that Func type that isn't a type is a type parameter of the loop's own, which each
+  Method binds: `Where M: Func(A): Task<Response>` goes over the Methods that take one argument,
+  of any type, and give a `Task<Response>`, and in each copy `A` is what that Method takes. The
+  body is checked once, generic over `A`, which the loop's other Where lines constrain, like
+  `Where A: Defaultable`. What each Method binds meets them, over a concrete type at the loop and
+  over the code's type parameter at each call, as a For Field's `F` does.
+- Async Methods are among a typed loop's Methods when its Func type gives a Task: an Async
+  Method that gives a T has the Func type `Func(...): Task<T>`, and `m.Call` starts it and gives
+  its Task, which `Await` waits for.
 - `For Property p: P In T` goes over a Struct's or Class's Properties (inherited ones first),
   with `p.Name`, `p.Get(value)`, `p.Has(A)`, and `p.Attribute(A)`, and `For Static Field s: S In
   T` over its own Static Fields, with `s.Get()`. They read; a Property without a Set and a
