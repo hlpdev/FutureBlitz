@@ -18,7 +18,7 @@ def f32(value):
 # Ellipses and strokes, as draw.cpp makes them.
 
 TOLERANCE = 0.01
-MOST_SIDES = 1024
+MOST_SIDES = 32768
 HALF_PI = math.pi / 2
 
 

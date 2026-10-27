@@ -1,7 +1,7 @@
-// What's drawn from far outside the image keeps its pixels: a shape whose corners are 1e20 pixels
-// away is cut where it crosses near the image, to twice a Double's bits, so it draws the
-// staircase its corners at 1e9 do, and a line from that far is stroked as it runs across the
-// image.
+// What's drawn from far outside the image, or far larger than it, keeps its pixels: a shape whose
+// corners are 1e20 pixels away is cut where it crosses near the image, to twice a Double's bits,
+// so it draws the staircase its corners at 1e9 do; a line from that far is stroked as it runs
+// across the image; and a circle of radius 100000 is a polygon within a hundredth of a pixel.
 Import std.core
 Import std.math.color
 Import std.math.vector
@@ -36,3 +36,11 @@ frame.StrokePolygon([Vec2(4, 4), Vec2(1e20, 4), Vec2(1e20, 1e20), Vec2(4, 1e20)]
 Print("frame's (5, 4), (4, 5), and (2, 2):", frame.Image[5, 4].a, frame.Image[4, 5].a,
       frame.Image[2, 2].a)
 
+// A circle of radius 100000 whose top runs along y = 8: at x = 76 the circle is at
+// 100008 - Sqrt(1e10 - 76 * 76), 8.0289, so it covers 0.9711 of pixel (76, 8), and a polygon
+// within a hundredth of a pixel of it from 0.9611 to 0.9811, 245 to 250 of 255. With 1024 sides a
+// quarter, 0.029 of a pixel from it there, it was 240.
+Local big = Canvas(Image(100, 16))
+big.FillCircle(Vec2(0, 100008), 100000, Color32.Black)
+Local alpha = big.Image[76, 8].a
+Print("big circle's (76, 8):", alpha, alpha >= 245 && alpha <= 250)

@@ -1,9 +1,9 @@
 // std.image's drawing: regions of straight edges filled by the nonzero rule, each pixel by the
 // exact part of its square the region covers, or, without antialiasing, by whether its center is
-// in it; ellipses as polygons within a hundredth of a pixel of them; and strokes as the region
-// their pieces cover together, a rectangle along each segment, a join at each corner, and a cap
-// at each end. It computes in doubles, without fused multiply-adds, with sines of its own, so
-// every target gives the same pixels.
+// in it; ellipses as polygons within a hundredth of a pixel of them, up to a radius of 34 million
+// pixels; and strokes as the region their pieces cover together, a rectangle along each segment,
+// a join at each corner, and a cap at each end. It computes in doubles, without fused
+// multiply-adds, with sines of its own, so every target gives the same pixels.
 //
 // A row of pixels is swept across, a pixel at a time, with the winding of what's wholly to the
 // pixel's left kept as it changes down the row. In the pixel, its edges' pieces and those changes
@@ -70,8 +70,9 @@ enum join_t : std::uint8_t { JOIN_MITER = 0, JOIN_ROUND = 1, JOIN_BEVEL = 2 };
 
 /// How far an ellipse's polygon is from it at most, in pixels.
 constexpr double tolerance = 0.01;
-/// The most sides a quarter of an ellipse has.
-constexpr int most_sides = 1024;
+/// The most sides a quarter of an ellipse has: as many as keep one of a radius up to 34 million
+/// pixels within the tolerance.
+constexpr int most_sides = 32768;
 
 /// sin(angle), from 0 to pi / 2, by its series to the 19th power, within 3e-16 there, as
 /// transform.cpp's sines are, rather than the C library's, which can differ from one OS to

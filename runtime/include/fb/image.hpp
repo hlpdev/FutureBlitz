@@ -96,7 +96,7 @@ void fb_image_fill(const fb_array_t* target, std::uint32_t rgba);
 /// through is measured along 16 lines across it. Rings are `coords`' points, a
 /// Float64[] of x then y, `counts`' of them each, an Int32[]. A region is filled by the nonzero
 /// rule. An ellipse is a polygon within a hundredth of a pixel of it, from its rightmost point,
-/// of 4 times the fewest sides from 2 up that keep it so, at most 1024, by sines of the
+/// of 4 times the fewest sides from 2 up that keep it so, at most 32768, by sines of the
 /// runtime's own. A stroke is what its pieces cover together: a rectangle along each segment,
 /// half `line_width` either side, a join at each corner on its outside, by `join`, 0 a miter,
 /// past `miter_limit` times the width a bevel, 1 the line width's circle, or 2 a bevel, and,
