@@ -1,5 +1,5 @@
 Count: expected Int32, found "x"
-Thing: missing, and Box's Field Thing isn't @Optional
+Thing: missing, and Box's Field Thing has no default or zero
 loaded 2
 destroying 2 thing
 destroying -1 bad

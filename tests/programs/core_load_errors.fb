@@ -36,16 +36,31 @@ Class Checked
     End Method
 End Class
 
+// A Field with no default or zero, which an Object can't leave out.
+Class Person
+    Field Name: String
+End Class
+
+Struct Owned
+    Field Who: Person
+End Struct
+
 Class Options
     Field Name: String
     @Rename("dims") Field Sizes: Size[] = []
     Field Color: Color
-    @Optional Field Layer: Layer
-    @Optional Field Grade: Grade
-    @Optional Field Extra: Map<String, Checked>?
-    @Optional Field Bytes: UInt8[] = []
-    @Optional Field Big: UInt64
-    @Optional Field Ratio: Float
+    Field Layer: Layer
+    Field Grade: Grade
+    Field Extra: Map<String, Checked>?
+    Field Bytes: UInt8[] = []
+    Field Big: UInt64
+    Field Ratio: Float
+    Field Owner: Owned
+
+    // Load makes Options without it.
+    New()
+        Owner = Owned(Person())
+    End New
 End Class
 
 Function Good(): Value
@@ -54,6 +69,7 @@ Function Good(): Value
     value["dims"] = Value([Value({"Width": Value(1), "Height": Value(2)}),
                            Value({"Width": Value(3), "Height": Value(4)})])
     value["Color"] = Value("RED")
+    value["Owner"] = Value({"Who": Value({"Name": Value("ann")})})
     Return value
 End Function
 
@@ -114,12 +130,17 @@ changed = Good()
 changed["Color"] = Value(2147483648 As Int64)
 Tried(changed)
 
-// A Field the Object has no key for, by the key it's missing.
+// A Field the Object has no key for keeps its default, or its zero, and without either it's
+// missing, by the key it's missing.
 changed = Good()
 changed.Remove("dims")
+changed.Remove("Color")
 Tried(changed)
 changed = Good()
-changed["dims"].Expect("dims")[1].Expect("dims[1]").Remove("Width")
+changed["Owner"] = Value.Object()
+Tried(changed)
+changed = Good()
+changed.Remove("Owner")
 Tried(changed)
 
 // What a type's own FromValue and OnLoaded throw, at where in the Value it was loading, and a
@@ -231,7 +252,11 @@ Print("[{ParseError(ParseErrorKind.OTHER, "made with a path", path: "a.b").Messa
 
 // A @Renamed Field the Object has under neither key is missing at its own key.
 Class Painted
-    @Renamed("colour") Field Color: String
+    @Renamed("colour") Field Color: Person
+
+    New()
+        Color = Person()
+    End New
 End Class
 
 Try

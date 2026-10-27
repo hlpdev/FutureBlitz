@@ -2829,9 +2829,6 @@ TEST_CASE("lowering reports an instance's type that Load<T> or Save can't conver
     CHECK(stopped(std::format("Import std.core\n{}    @Skip Field Item: T\n{}", held, made)) ==
           "Load<Held<Node>>(Value()): Load can't make Held<Node> here, whose @Skip leaves 'Item' "
           "at its default, and Node has no zero, so it needs a default of its own");
-    CHECK(stopped(std::format("Import std.core\n{}    @Optional Field Item: T\n{}", held, made)) ==
-          "Load<Held<Node>>(Value()): Load can't make Held<Node> here, whose @Optional leaves "
-          "'Item' at its default, and Node has no zero, so it needs a default of its own");
     const std::string keys = " here; a Map's keys are an Object's, which are Strings";
     CHECK(stopped("Import std.core\n"
                   "Import std.collections\n"

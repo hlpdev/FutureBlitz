@@ -1403,7 +1403,6 @@ private:
             .map = m_map,
             .rename = find("Rename", true),
             .skip = find("Skip", true),
-            .optional = find("Optional", true),
             .flatten = find("Flatten", true),
             .renamed = find("Renamed", true),
             .loadable = find("Loadable", false),
@@ -7306,7 +7305,7 @@ private:
     void check_load_attributes(const symbol_id_t id, const std::vector<span_t>& spans) {
         const load_support_t& loading = m_analysis.loading;
         const symbol_t& declared = symbol(id);
-        const std::array keyed{ loading.rename, loading.optional, loading.renamed };
+        const std::array keyed{ loading.rename, loading.renamed };
         std::optional<type_id_t> alone;
         for (std::size_t i = 0; i < declared.attributes.size(); ++i) {
             const type_id_t type = declared.attributes[i].type;
@@ -7342,9 +7341,9 @@ private:
             // when the Field gives it.
             std::vector<type_id_t> inside;
             parameters_in(declared.type, inside);
-            if ((type == loading.optional || type == loading.skip) && !declared.value &&
-                !declared.empty_default && inside.empty() &&
-                !m_analysis.types.has_zero(declared.type) && declared.type != type_id_t::INVALID) {
+            if (type == loading.skip && !declared.value && !declared.empty_default &&
+                inside.empty() && !m_analysis.types.has_zero(declared.type) &&
+                declared.type != type_id_t::INVALID) {
                 error(spans[i],
                       "@{} leaves '{}' at its default when Load makes {}, and {} has no "
                       "zero, so it needs a default of its own",
@@ -25535,10 +25534,10 @@ private:
         }
 
         const bool keeps = field.value || field.empty_default || m_types.has_zero(declared.type);
-        if (m_declared && !m_saving && !keeps && (skip || has(id, loading.optional))) {
-            return std::format(", whose @{} leaves '{}' at its default, and {} has no zero, so it "
-                               "needs a default of its own",
-                               skip ? "Skip" : "Optional", name, m_types.name(declared.type));
+        if (m_declared && !m_saving && !keeps && skip) {
+            return std::format(", whose @Skip leaves '{}' at its default, and {} has no zero, so "
+                               "it needs a default of its own",
+                               name, m_types.name(declared.type));
         }
 
         if (skip) {

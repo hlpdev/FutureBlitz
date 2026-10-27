@@ -20,8 +20,6 @@ End Extern
 Public Attribute Rename(Name: String)
 // A Field that Load leaves at its default, and Save leaves out.
 Public Attribute Skip
-// A Field that a Value can leave out, which Load then leaves at its default.
-Public Attribute Optional
 // A Struct's or Class's Field whose own Fields go in the Object with the others, not in an Object
 // of their own.
 Public Attribute Flatten
@@ -319,10 +317,10 @@ Package Function LoadEntry(value: Value, key: String): Value? => value[key]
 // Whether LoadElements reads a Value as an Array of it alone.
 Package Function LoadAlone(value: Value): Bool => !value.IsArray && !value.IsNull
 
-// A Field that the Object has no key for, and that isn't @Optional or a T?.
+// A Field that the Object has no key for, with no default or zero to keep.
 Package Function LoadMissing(type: String, field: String, ByRef error: Error?)
     error = ParseError(ParseErrorKind.MISSING,
-                       "missing, and {type}'s Field {field} isn't @Optional", path: "")
+                       "missing, and {type}'s Field {field} has no default or zero", path: "")
 End Function
 
 // What Load's code does with an error on its way out of an Object's entry or an Array's

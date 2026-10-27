@@ -7622,8 +7622,8 @@ private:
 
     /// A Struct's or Class's Load: one made without its New, its Fields at their defaults, then
     /// each from the Object's entry for its key, one level deeper, and a @Flatten one from the
-    /// Object itself. A Field without an entry keeps its default when it's @Optional or a T?, and
-    /// is missing otherwise. Then its OnLoaded runs.
+    /// Object itself. A Field without an entry keeps its default, or its zero, and is missing
+    /// without either. Then its OnLoaded runs.
     std::optional<operand_t> load_fields(const type_id_t type, const conversion_t& conversion,
                                          const operand_t& name) {
         const load_support_t& loading = m_analysis.loading;
@@ -7719,12 +7719,11 @@ private:
         finish_statement();
         jump(done);
         start(absent);
-        // One without a default or a zero to keep is missing, @Optional or not, as only an
-        // instance's can be: analysis reports the others.
+        // It keeps its default, or its zero, and without either it's missing.
         const symbol_t& written = m_analysis.symbol(field);
         const bool keeps =
             written.value || written.empty_default || types().has_zero(declared.type);
-        if (!(has_attribute(field, loading.optional) && keeps) && !is_nullable(declared.type)) {
+        if (!keeps) {
             const symbol_id_t missing = loading.helpers.at("LoadMissing");
             if (old) {
                 emit(assign_t{ .target = step, .value = use_t{ .value = make_string(key) } });

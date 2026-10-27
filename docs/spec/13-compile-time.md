@@ -213,7 +213,7 @@ End Function
 ```vb
 Class Settings
     @Rename("player_name") Field Name: String
-    @Optional Field Volume: Double = 0.8
+    Field Volume: Double = 0.8
     @Skip Field Cache: Int[] = []
     Field Keys: Map<String, Key>
 
@@ -243,24 +243,24 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   which Load also takes as an Array of integers, as JSON has them, and a `Map<String, V>` an
   Object. A Value is copied, so the T and the Value don't share one.
 - A Struct or Class is an Object of its Fields, the inherited ones first, by name, but not
-  Properties. Load makes one without running its New: each Field starts at its default, then
-  takes the Object's entry for its key, and keys the type has no Field for are left alone. Then
+  Properties. Load makes one without running its New: each Field takes the Object's entry for
+  its key, else its default, else its zero, else it's missing, and keys the type has no Field for
+  are left alone. Then
   its `OnLoaded()` runs, which can check what was loaded, or work out what wasn't, and throw a
   ParseError. A Class whose Load fails before every Field is filled is let go of without its
   Destroy, which could see a Field with no zero that's still null. A Class is saved as its own
-  type's Fields, whatever Class extends it, and an Abstract one can't be loaded. A Func, an Interface's object, a tuple, a fixed array, a
-  Weak, a Ptr, a Task, and the other types like them can't be converted.
+  type's Fields, whatever Class extends it, and an Abstract one can't be loaded. A Func, an
+  Interface's object, a tuple, a fixed array, a Weak, a Ptr, a Task, and the other types like
+  them can't be converted.
 - Load also reads a number or a Bool from a String that reads as one, like "8080" or "true", as
   a command line's and an environment's values are; and an integer from a whole Double, and a
   Double from an integer.
 - std.core's attributes on a Field change it: `@Rename("key")` gives it another key, `@Skip`
-  leaves it out (Load leaves it at its default), `@Optional` lets the Object leave it out, which
-  Load leaves at its default too, as it does a `T?` Field, which is Null without one, and
-  `@Renamed("old")` reads an older key when the Object doesn't have its own, so what an earlier
-  version of a program saved still loads. `@Flatten` puts a Struct's or Class's Field's own
+  leaves it out (Load leaves it at its default), and `@Renamed("old")` reads an older key when
+  the Object doesn't have its own, so what an earlier version of a program saved still loads. `@Flatten` puts a Struct's or Class's Field's own
   Fields in the Object with the others, not in an Object of their own; a Map or a Value, which
-  Load and Save convert whole, can't be flattened. A Field that @Skip or @Optional leaves at its
-  default has one, a type with a zero or a default of its own; two Fields can't have one key, a
+  Load and Save convert whole, can't be flattened. A Field that @Skip leaves at its default has
+  one, a type with a zero or a default of its own; two Fields can't have one key, a
   @Flatten Field's own Fields' keys among them, and a Field's old key is no other's.
 - A type that converts itself implements std.core's `Loadable`, with `Static Method
   FromValue(value: Value): Self Throws ParseError`, which Load calls in its place, or
@@ -271,7 +271,7 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   Struct's copy of it isn't ByRef.
 - Load throws a ParseError, of `WRONG_TYPE` for a Value of another kind, `OUT_OF_RANGE` for a
   number too big for its type, and `MISSING` for a Field that the Object has no entry for, and
-  that isn't @Optional or a `T?`. Its `Path` says where in the Value it is, like
+  that has no default or zero. Its `Path` says where in the Value it is, like
   `"options.sizes[2]"`, or `""` for the Value itself, and its Message starts with it:
   `options.sizes[2]: expected Int32, found "big"`. A Value alone read as a T[] has no index in
   it. A key that a path's steps can't tell apart from the rest, like one with a dot in it, is

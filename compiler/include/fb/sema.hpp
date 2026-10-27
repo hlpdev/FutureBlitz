@@ -387,7 +387,6 @@ struct load_support_t { // NOLINT(bugprone-exception-escape)
     type_id_t map = type_id_t::INVALID;
     type_id_t rename = type_id_t::INVALID;
     type_id_t skip = type_id_t::INVALID;
-    type_id_t optional = type_id_t::INVALID;
     type_id_t flatten = type_id_t::INVALID;
     type_id_t renamed = type_id_t::INVALID;
     type_id_t loadable = type_id_t::INVALID;
@@ -476,7 +475,7 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
 /// keys among them, and for Load, a @Renamed Field's old key is no Field's. With `declared`, the
 /// rules analysis checks where a Field is declared are checked too, for an instance of generic
 /// code, whose Fields' types only it has: an Atomic or Mutex Field is @Skip, one that @Skip or
-/// @Optional leaves at its default has one, and a @Flatten Field is a Struct or Class of Fields.
+/// leaves at its default has one, and a @Flatten Field is a Struct or Class of Fields.
 /// `field_of` gives the symbol of a type's Field at a position.
 [[nodiscard]] std::optional<std::string>
 fields_problem(const analysis_t& analysis, const type_table_t& types, type_id_t type, bool saving,

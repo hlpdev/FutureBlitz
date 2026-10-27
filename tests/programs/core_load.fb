@@ -84,7 +84,7 @@ Local kept = Try Load<Value>(raw)
 raw["list"].Expect("list").Add(Value(3))
 Print(kept, raw, Save(kept) == kept)
 
-// A Struct's and a Class's Fields, the inherited ones first; their defaults, @Optional ones, a
+// A Struct's and a Class's Fields, the inherited ones first; their defaults and zeros, a
 // T? left out, which is Null, and keys the Object has that no Field takes.
 Struct Size
     Field Width: Int = 4
@@ -97,13 +97,13 @@ End Class
 
 Class Player Extends Named
     @Rename("hp") Field Health: Int
-    @Optional Field Speed: Double = 1.5
-    @Optional Field Size: Size
+    Field Speed: Double = 1.5
+    Field Size: Size
     @Skip Field Cache: Int = 99
     @Renamed("colour") Field Color: Color
     Field Layers: Layer
     Field Nick: String?
-    @Optional Field Tags: String[] = []
+    Field Tags: String[] = []
     Field Bag: Map<String, Int>
     Field Save: Value
 
@@ -221,7 +221,7 @@ Print(Save<Int64>(3), Save<Double?>(2))
 // which is saved in each.
 Class Node
     Field Name: String
-    @Optional Field Kids: Node[] = []
+    Field Kids: Node[] = []
 End Class
 
 Local leaf = Try Load<Node>(Value({"Name": Value("leaf")}))

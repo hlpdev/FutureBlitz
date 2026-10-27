@@ -8,7 +8,7 @@ End Enum
 
 Class Settings
     @Rename("player_name") Field Name: String
-    @Optional Field Volume: Double = 0.8
+    Field Volume: Double = 0.8
     @Skip Field Cache: Int[] = []
     Field Keys: Map<String, Key>
 

@@ -466,7 +466,7 @@ Skeptic: Ran s4.fb. Save(Holder()) printed {"Name": "h", "a": 1}, and Load<Holde
 
 ## sema-5 (medium): A missing Field with a default or zero throws MISSING, against decisions.md and milestones row 17
 
-Status: open: the rule is the user's call (asked)
+Status: fixed in COMMIT: the user chose decisions.md 635's rule, so a Field the Object leaves out takes its default, else its zero, else it's MISSING, and @Optional, which that rule makes needless, is gone; spec 13 and stdlib.md say so, core_load_errors loads an Object without a Field with a default and one with a zero, and is MISSING a Class Field with neither, nested and at the top
 
 Where: docs/spec/13-compile-time.md:262
 

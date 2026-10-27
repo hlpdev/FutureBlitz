@@ -52,7 +52,7 @@ So far, std/ holds:
 | std/core/parse.fb | `Parse` on each integer type, each Float type, and Bool, in an Extend of each, over the runtime's `fb_parse_int`, `fb_parse_uint`, and `fb_parse_float` |
 | std/core/values.fb | `Min`, `Max`, `Clamp`, `Swap`, and `HashCombine` |
 | std/core/value.fb | `Value`, data of any shape, and `ValueKind`, over the runtime's `fb_value_` functions for its text and paths |
-| std/core/load.fb | The attributes Load<T> and Save read, `Rename`, `Skip`, `Optional`, `Flatten`, and `Renamed`; `Loadable` and `Saveable`, for a type that converts itself; and the Package Functions the compiler's code for each type's Load and Save calls |
+| std/core/load.fb | The attributes Load<T> and Save read, `Rename`, `Skip`, `Flatten`, and `Renamed`; `Loadable` and `Saveable`, for a type that converts itself; and the Package Functions the compiler's code for each type's Load and Save calls |
 | std/collections/array.fb | `T[]`'s `Remove`, `Sort`, `SortUnstable`, `SortBy`, `SortByDescending` (with `Sorting<T>`'s `ThenBy` and `ThenByDescending`), `Filter`, `Map`, `Find`, `FindLast`, `FindIndex`, `IndexOf`, `LastIndexOf`, `BinarySearch`, `Any`, `All`, `First`, `Last`, `RemoveLast`, `TryRemoveLast`, `AddAll`, `InsertAll`, `RemoveRange`, `RemoveAll`, `Resize`, `Fill`, `Reverse`, `Swap`, `Distinct`, `Join`, `Fold`, and `Reduce`; `Iterate()`, which makes a `T[]` an `Iterable<T>`, through `ArrayIterator<T>` |
 | std/collections/view.fb | `ArrayView<T>`, which `items.View(a, b)` gives, and `ReadOnlyArray<T>`, `ReadOnlyMap<K, V>`, and `ReadOnlySet<T>`, which `AsReadOnly()` gives |
 | std/collections/map.fb | `Map<K, V>`, which `{key: value}` makes |
@@ -952,9 +952,10 @@ Step 18 built `Event<T>`, `Subscription`, and `Subscribe(owner, handler)`, in st
   T and back (see [spec 13](spec/13-compile-time.md#load-and-save)), for the numbers, Bool,
   String, Enums (by name), `T?`, `T[]`, `UInt8[]` as bytes, `Map<String, V>`, Values, and
   Structs and Classes, by compile-time reflection, every Field included, Private ones too,
-  Properties not. Load makes a Struct or Class Field by Field without running its New, and
-  then its `OnLoaded()`. std.core's `@Rename("key")`, `@Skip`, `@Optional` (since `Default` is
-  Select's keyword), `@Flatten`, and `@Renamed("old")` adjust it, and a type can give its own
+  Properties not. Load makes a Struct or Class Field by Field without running its New, each
+  from the data's value, else its default, else its zero, else a MISSING error naming it, and
+  then its `OnLoaded()`. std.core's `@Rename("key")`, `@Skip`, `@Flatten`, and
+  `@Renamed("old")` adjust it, and a type can give its own
   conversion as a `Loadable` or `Saveable`. A format is then a Value's reader and writer, as
   `Json.Write(save, indent: 2)` and `Json.Read<Save>(text)` are Save and Load around it. Load
   takes a number or a Bool from a String that reads as one, as a command line's are, and throws
@@ -962,8 +963,8 @@ Step 18 built `Event<T>`, `Subscription`, and `Subscribe(owner, handler)`, in st
   value doesn't fit.
 - Formats: JSON (with a streaming reader and writer), TOML, CSV, INI, XML (a tree, a streaming
   reader and writer, and XPath-lite), YAML (1.2's core schema, no arbitrary tags), and
-  MessagePack. `@Renamed("old")` and `@Optional` keep old saves loading after a game changes, and
-  OnLoaded can fill in what an older save didn't have.
+  MessagePack. `@Renamed("old")`, and a Field's default or zero for what an older save didn't
+  have, keep old saves loading after a game changes, and OnLoaded can work out the rest.
 - Protocol Buffers: `Import "game.proto"` reads a .proto file, proto2 or proto3, as the program
   builds, into a module of its types (see spec 11), which read and write protobuf's wire format
   through std/data/protobuf.fb.

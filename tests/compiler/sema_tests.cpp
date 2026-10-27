@@ -7503,37 +7503,33 @@ TEST_CASE("std.core's attributes for Load and Save go on Fields, each where it m
     const std::string flatten = "Flatten: @Flatten goes on a Struct's or Class's Field whose own "
                                 "type is a Struct or Class, whose Fields join the others; ";
     const std::string no_zero = "has no zero, so it needs a default of its own";
-    CHECK(
-        errors_of("Import std.core\n"
-                  "Class Node\nEnd Class\n"
-                  "Struct Size\n    Field W: Int\nEnd Struct\n"
-                  "@Rename(\"f\") Function F()\nEnd Function\n"
-                  "Struct A\n"
-                  "    @Optional Static Field Count: Int = 0\n"
-                  "    @Skip @Rename(\"b\") Field B: Int\n"
-                  "    @Rename(\"c\") @Skip Field C: Int\n"
-                  "    @Flatten @Optional Field D: Size\n"
-                  "    @Renamed(\"old\") @Flatten Field E: Size\n"
-                  "    @Flatten Field F: Int\n"
-                  "    @Flatten Field G: Size?\n"
-                  "    @Optional Field H: Node\n"
-                  "    @Skip Field I: Int[]\n"
-                  "    @Optional Field J: Node?\n"
-                  "    @Skip Field K: Int[] = []\n"
-                  "    @Flatten Field L: Node\n"
-                  "End Struct") ==
-        errors_t{
-            "Rename: @Rename goes on a Struct's or Class's Field, which Load and Save read",
-            "Optional: @Optional goes on a Struct's or Class's Field, which Load and Save read",
-            "Rename: @Skip leaves the Field out, so @Rename doesn't go with it",
-            "Skip: @Skip leaves the Field out, so @Rename doesn't go with it",
-            "Optional: " + no_key + "Optional",
-            "Flatten: " + no_key + "Renamed",
-            flatten + "'F' is Int32",
-            flatten + "'G' is Size?",
-            "Optional: @Optional leaves 'H' at its default when Load makes A, and Node " + no_zero,
-            "Skip: @Skip leaves 'I' at its default when Load makes A, and Int32[] " + no_zero,
-        });
+    CHECK(errors_of("Import std.core\n"
+                    "Class Node\nEnd Class\n"
+                    "Struct Size\n    Field W: Int\nEnd Struct\n"
+                    "@Rename(\"f\") Function F()\nEnd Function\n"
+                    "Struct A\n"
+                    "    @Renamed(\"c\") Static Field Count: Int = 0\n"
+                    "    @Skip @Rename(\"b\") Field B: Int\n"
+                    "    @Rename(\"c\") @Skip Field C: Int\n"
+                    "    @Flatten @Rename(\"d\") Field D: Size\n"
+                    "    @Renamed(\"old\") @Flatten Field E: Size\n"
+                    "    @Flatten Field F: Int\n"
+                    "    @Flatten Field G: Size?\n"
+                    "    @Skip Field I: Int[]\n"
+                    "    @Skip Field K: Int[] = []\n"
+                    "    @Flatten Field L: Node\n"
+                    "End Struct") ==
+          errors_t{
+              "Rename: @Rename goes on a Struct's or Class's Field, which Load and Save read",
+              "Renamed: @Renamed goes on a Struct's or Class's Field, which Load and Save read",
+              "Rename: @Skip leaves the Field out, so @Rename doesn't go with it",
+              "Skip: @Skip leaves the Field out, so @Rename doesn't go with it",
+              "Rename: " + no_key + "Rename",
+              "Flatten: " + no_key + "Renamed",
+              flatten + "'F' is Int32",
+              flatten + "'G' is Size?",
+              "Skip: @Skip leaves 'I' at its default when Load makes A, and Int32[] " + no_zero,
+          });
 
     // Each Field has a key of its own, inherited ones too, and an old key is no other's, which a
     // type that's never loaded or saved needn't have.
