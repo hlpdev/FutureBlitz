@@ -55,7 +55,9 @@ quiet=False no commit push remote=upstream
 quiet=False no commit no push
 MISSING missing --message | Usage: git commit [options]
 UNKNOWN unknown command 'comit'; did you mean 'commit'? | Usage: git [options] [command]
-help: Usage: git send [remote]
+help: Sends commits
+
+Usage: git send [remote]
 
 Arguments:
   <remote>    Where to
@@ -73,6 +75,56 @@ Options:
 Commands:
   commit       Records changes
   send         Sends commits
+UNKNOWN unknown option '-é'
+UNKNOWN unknown option '-é'
+ok True é
+Usage: app [options]
+
+Options:
+  -h, --human  Prints sizes for people
+      --help   Prints this help
+True
+Usage: taken [options]
+
+Options:
+  -h, --help     Hides it
+      --version  Shows the old one
+  -V             Prints the version
+{"Verbose": true, "Out": "x"}
+UNKNOWN unknown option '--'
+Usage: tool <command>
+error: missing a command: a, b
+Usage: tool <command>
+error: missing a command: a, b
+ok 2 [none]
+ok -1 [a, b]
+Usage: t [options]
+
+Options:
+  -v, --verbose        More output
+      --tag <tag>      Tags to add
+      --ratio <ratio>
+      --count <count>
+  -h, --help           Prints this help
+Manages remotes.
+
+Usage: git remote [command]
+
+Options:
+  -h, --help  Prints this help
+
+Commands:
+  add         Adds one
+  remove      Takes one out
+Takes one out
+
+Usage: git remote remove <name>
+
+Arguments:
+  <name>      Its name
+
+Options:
+  -h, --help  Prints this help
 0 [to=out files=[a] jobs=4 verbose=1 dry=False exclude=[] mode=NEWER log=Null
 ] []
 0 [Copies files somewhere.

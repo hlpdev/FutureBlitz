@@ -50,6 +50,8 @@ Struct ArgSpec
     Field Required: Bool
     // An option or positional that takes more than one value, each of which goes in an Array.
     Field Repeated: Bool
+    // A Repeated one is an empty Array when it isn't given, but for a T[]? Field, which is Null.
+    Field Fills: Bool
     // What it is without its argument, for the help, or "".
     Field Fallback: String
 
@@ -63,6 +65,7 @@ Struct ArgSpec
         ValueName = valueName
         Required = required
         Repeated = repeated
+        Fills = repeated
         Fallback = fallback
     End New
 
@@ -116,7 +119,7 @@ Public Class ArgsParser
     Field Version: String
     Field Specs: ArgSpec[]
     Field Commands: CommandSpec[]
-    // A command has to be given, when there are any.
+    // A command has to be given, which any Command but an optional one says.
     Field CommandRequired: Bool
 
     Public New(name: String, about: String = "", version: String = "")
@@ -128,8 +131,8 @@ Public Class ArgsParser
     End New
 
     // A flag, "--long" or "-s", which is True once given, or with counts, how many times it was.
-    // Panics for a key, long name, or short name another has, or a short name that isn't one
-    // ASCII letter or digit.
+    // Panics for a key, long name, or short name another has, a short name that isn't one ASCII
+    // letter or digit, or neither name.
     @PanicsAtCaller
     Public Method Flag(key: String, long: String = "", short: String = "", help: String = "",
                        counts: Bool = False): ArgsParser
@@ -170,8 +173,8 @@ Public Class ArgsParser
     End Method
 
     // A command, which reads the rest of the command line after its name, into an Object at its
-    // key. One of the commands has to be given, unless optional. Panics beside positional
-    // arguments, or for a name another command has.
+    // key. One of the commands has to be given, unless every one is optional. Panics beside
+    // positional arguments, or for a name another command has.
     @PanicsAtCaller
     Public Method Command(name: String, key: String, parser: ArgsParser, help: String = "",
                           optional: Bool = False): ArgsParser
@@ -186,7 +189,7 @@ Public Class ArgsParser
         End For
 
         Commands.Add(CommandSpec(name, key, help, parser))
-        CommandRequired = !optional
+        CommandRequired = CommandRequired || !optional
         Return Self
     End Method
 
@@ -218,8 +221,10 @@ Public Class ArgsParser
                 // Short flags go together, as -abc, and an option's value can follow its letter.
                 Local at = 1
                 While at < word.Length
-                    Local letter = word.Slice(at, at + 1)
-                    at += 1
+                    // A letter may take more than one byte, though no short name does.
+                    Local next = at + word.CharAt(at).Utf8Length
+                    Local letter = word.Slice(at, next)
+                    at = next
                     Try Asked("", letter)
                     Local spec = Try Lettered(letter)
                     If spec.Kind == ArgKind.OPTION
@@ -294,8 +299,10 @@ Public Class ArgsParser
             options.Add((shown, help))
         End For
 
-        options.Add(("-h, --help", "Prints this help"))
-        If Version != "" Then options.Add(("-V, --version", "Prints the version"))
+        Local help = Builtin("help", "h")
+        If help != "" Then options.Add((help, "Prints this help"))
+        Local version = Version != "" ? Builtin("version", "V") : ""
+        If version != "" Then options.Add((version, "Prints the version"))
         Local commands: (String, String)[] = []
         For command In Commands
             commands.Add((command.Name, command.Help))
@@ -318,6 +325,10 @@ Public Class ArgsParser
     Method Add(spec: ArgSpec)
         If spec.Short.Length > 1 || (spec.Short != "" && !IsAsciiWord(spec.Short))
             Panic("a short name is one ASCII letter or digit, not '{spec.Short}'")
+        End If
+
+        If spec.Kind != ArgKind.POSITIONAL && spec.Long == "" && spec.Short == ""
+            Panic("'{spec.Key}' has neither a long name nor a short one, so nothing can give it")
         End If
 
         For other In Specs
@@ -347,6 +358,14 @@ Public Class ArgsParser
         End If
     End Method
 
+    // The help's row for --help or --version: the names of the two no option has, or "" when
+    // options have both.
+    Method Builtin(long: String, short: String): String
+        Local shortFree = !Has("", short)
+        If Has(long, "") Then Return shortFree ? "-{short}" : ""
+        Return (shortFree ? "-{short}, " : "    ") + "--{long}"
+    End Method
+
     Method Has(long: String, short: String): Bool
         Return Specs.Any(Function(spec: ArgSpec) => (long != "" && spec.Long == long) ||
                                                     (short != "" && spec.Short == short))
@@ -354,7 +373,7 @@ Public Class ArgsParser
 
     Method Named(long: String): ArgSpec Throws ArgumentError
         For spec In Specs
-            If spec.Long == long && spec.Kind != ArgKind.POSITIONAL Then Return spec
+            If long != "" && spec.Long == long && spec.Kind != ArgKind.POSITIONAL Then Return spec
         End For
 
         Local names: String[] = ["help"]
@@ -481,7 +500,7 @@ Public Class ArgsParser
 
     Method Fill(read: Value)
         For spec In Specs
-            If spec.Repeated && !read.Contains(spec.Key) Then read[spec.Key] = Value.Array()
+            If spec.Fills && !read.Contains(spec.Key) Then read[spec.Key] = Value.Array()
         End For
     End Method
 
@@ -491,6 +510,17 @@ Public Class ArgsParser
         Local read = Value.Object()
         Fill(read)
         Return read
+    End Method
+
+    // Leaves the argument at `key` out when it isn't given, where Parse would give an empty
+    // Array, as for a T[]? Field, which is Null then.
+    Package Method Unfilled(key: String)
+        For i = 0 Until Specs.Count
+            If Specs[i].Key != key Then Continue
+            Local spec = Specs[i]
+            spec.Fills = False
+            Specs[i] = spec
+        End For
     End Method
 
     // Each option's default, for the help, from what Load made of a command line with nothing on
@@ -600,22 +630,30 @@ End Function
 
 // The ArgsParser of a T's Fields: a @Positional's, @Option's, and @Flag's each, and a Field
 // without one an option, or a flag for a Bool. Load's @Skip leaves one out, and its @Rename
-// gives the key, and the option's long name too.
-Function ParserOf<T>(command: String = ""): ArgsParser
+// gives the key, and the option's long name too. A command's parser has its name, and its
+// @Subcommand's Help where its own @Program has no About.
+Function ParserOf<T>(command: String = "", about: String = ""): ArgsParser
     Local program = T.Attribute(Program)
     Local name = Given(program?.Name, command != "" ? command : ExecutableName())
-    Local parser = ArgsParser(name, program?.About ?? "", program?.Version ?? "")
+    Local parser = ArgsParser(name, Given(program?.About, about), program?.Version ?? "")
     For Field f: F In T
         If f.Has(Skip) Then Continue
         Local key = f.Attribute(Rename)?.Name ?? f.Name
         Local type = TypeName<F>()
         Local long = Humanize.KebabCase(key)
         Local optional = type.EndsWith("?")
-        Local many = type.EndsWith("[]")
+        // What it is under its T?s, as a T[]? is a T[] when it's given.
+        Local bare = type
+        While bare.EndsWith("?")
+            bare = bare.Slice(0, bare.Length - 1)
+        End While
+
+        Local many = bare.EndsWith("[]")
         Local subcommand = f.Attribute(Subcommand)
         If subcommand != Null
             Local called = Given(subcommand.Name, long)
-            parser.Command(called, key, ParserOf<F>("{name} {called}"), subcommand.Help, True)
+            parser.Command(called, key, ParserOf<F>("{name} {called}", subcommand.Help),
+                           subcommand.Help, True)
             Continue
         End If
 
@@ -623,12 +661,13 @@ Function ParserOf<T>(command: String = ""): ArgsParser
         If positional != Null
             parser.Positional(key, positional.Help, Given(positional.Name, long),
                               !optional && !many && !positional.Optional, many)
+            If many && optional Then parser.Unfilled(key)
             Continue
         End If
 
         Local flag = f.Attribute(Flag)
-        Local counts = IsInteger(type)
-        If flag != Null || (type == "Bool" && !f.Has(Option))
+        Local counts = IsInteger(bare)
+        If flag != Null || (bare == "Bool" && !f.Has(Option))
             parser.Flag(key, Given(flag?.Long, long), flag?.Short ?? "", flag?.Help ?? "", counts)
             Continue
         End If
@@ -636,6 +675,7 @@ Function ParserOf<T>(command: String = ""): ArgsParser
         Local option = f.Attribute(Option)
         parser.Option(key, Given(option?.Long, long), option?.Short ?? "", option?.Help ?? "",
                       Given(option?.Name, long), option?.Required ?? False, many)
+        If many && optional Then parser.Unfilled(key)
     End For
 
     // What the Fields are without their arguments, to show in the help, when Load can make a T of
@@ -660,10 +700,11 @@ Function DefaultsOf<T>(nothing: Value): Value?
     End Try
 End Function
 
-// A default's text for the help, or "" for nothing worth showing: Null, False, 0, "", or an
-// empty Array.
+// A default's text for the help, or "" for nothing worth showing: Null, False, a zero of any
+// kind, "", or an empty Array.
 Function DefaultText(value: Value?): String
-    If value == Null || value.IsNull || value == Value(False) || value == Value(0) || value == Value("") Then Return ""
+    If value == Null || value.IsNull || value == Value(False) || value == Value("") Then Return ""
+    If value.IsNumber && (value.AsDouble() ?? 1.0) == 0.0 Then Return ""
     If value.IsArray && value.Count == 0 Then Return ""
     Return value.AsString() ?? value.ToString()
 End Function

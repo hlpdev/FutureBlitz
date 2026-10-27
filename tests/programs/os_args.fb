@@ -51,6 +51,52 @@ Struct Git
     Field Push: PushArgs?
 End Struct
 
+// A short flag beside a positional argument that can be left out.
+Struct Named
+    @Flag(Short: "v")
+    Field Verbose: Bool
+    @Positional(Optional: True)
+    Field Name: String
+End Struct
+
+// An option that takes -h for itself.
+@Program(Name: "app")
+Struct Sizes
+    @Flag(Help: "Prints sizes for people", Short: "h")
+    Field Human: Bool
+End Struct
+
+// T? Fields, and zeros, which the help doesn't show as defaults.
+@Program(Name: "t")
+Struct Maybe
+    @Flag(Help: "More output", Short: "v")
+    Field Verbose: Int?
+    @Option(Help: "Tags to add")
+    Field Tag: String[]?
+    Field Ratio: Double = 0.0
+    Field Count: Int = 0
+End Struct
+
+// Commands whose help says what they do, by @Program or by @Subcommand.
+Struct AddArgs
+    @Positional(Help: "Its name")
+    Field Name: String
+End Struct
+
+@Program(About: "Manages remotes.")
+Struct RemoteArgs
+    @Subcommand(Help: "Adds one")
+    Field Add: AddArgs?
+    @Subcommand(Help: "Takes one out")
+    Field Remove: AddArgs?
+End Struct
+
+@Program(Name: "git")
+Struct Remotes
+    @Subcommand(Help: "Remotes")
+    Field Remote: RemoteArgs?
+End Struct
+
 Function ShowGit(arguments: String[])
     Try
         Local git = Try Args.Parse<Git>(arguments)
@@ -146,6 +192,66 @@ ShowGit(["commit"])
 ShowGit(["comit"])
 ShowGit(["send", "--help"])
 Print(Args.Help<Git>())
+
+// A short group goes a letter at a time, one of more than one byte too.
+For arguments In [["-é"], ["-vé"], ["-v", "é"]]
+    Try
+        Local named = Try Args.Parse<Named>(arguments)
+        Print("ok", named.Verbose, named.Name)
+    Catch e As ArgsError
+        Print("{e.Kind} {e.Message}")
+    End Try
+End For
+
+// An option can take -h, --help, -V, or --version, which the help then leaves out.
+Print(Args.Help<Sizes>())
+Print((Try Args.Parse<Sizes>(["-h"])).Human)
+Local taken = ArgsParser("taken", version: "1.0").Flag("Hidden", "help", "h", "Hides it")
+taken.Flag("Old", "version", help: "Shows the old one")
+Print(taken.Help())
+
+// A name that's only short isn't '--', which '--=x' gives.
+Local short = ArgsParser("tool").Flag("Verbose", short: "v").Option("Out", short: "o")
+Print(Try short.Parse(["-v", "-o", "x"]))
+Try
+    Print(Try short.Parse(["--=x"]))
+Catch e As ArgsError
+    Print("{e.Kind} {e.Message}")
+End Try
+
+// A command has to be given when any Command says so, before or after an optional one.
+For first In [False, True]
+    Local p = ArgsParser("tool").Command("a", "A", ArgsParser("a"), optional: first)
+    p.Command("b", "B", ArgsParser("b"), optional: !first)
+    Print(p.Usage())
+    Try
+        Print(Try p.Parse([]))
+    Catch e As ArgsError
+        Print("error:", e.Message)
+    End Try
+End For
+
+// A T? Field reads as its T: an Int? flag counts, a String[]? option takes each, and either is
+// Null when it isn't given.
+For arguments In [["-vv"], ["--tag", "a", "--tag", "b"]]
+    Try
+        Local maybe = Try Args.Parse<Maybe>(arguments)
+        Print("ok {maybe.Verbose ?? -1} {maybe.Tag ?? ["none"]}")
+    Catch e As ArgsError
+        Print("{e.Kind} {e.Message}")
+    End Try
+End For
+
+Print(Args.Help<Maybe>())
+
+// A command's help says what it does: its @Program's About, or else its @Subcommand's Help.
+For arguments In [["remote", "--help"], ["remote", "remove", "--help"]]
+    Try
+        Try Args.Parse<Remotes>(arguments)
+    Catch e As ArgsHelp
+        Print(e.Message)
+    End Try
+End For
 
 // Args.Parse<T>() prints the help or the error itself, and ends the program with 0 or 2.
 Local self = Folders.Executable.Expect("the program's path")
