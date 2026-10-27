@@ -6,13 +6,14 @@
 #include "internal.hpp"
 
 #include <cstdint>
-#include <cstdlib>
+#include <optional>
+#include <string>
 
 extern "C" {
 
 fb_string_t* fb_log_setting() {
-    const char* setting = std::getenv("FB_LOG");
-    return setting == nullptr ? nullptr : fb_string_from_cstring(setting);
+    const std::optional<std::string> setting = fb::runtime::environment("FB_LOG");
+    return setting ? fb_string_from_cstring(setting->c_str()) : nullptr;
 }
 
 std::int32_t fb_log_colors() {

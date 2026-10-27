@@ -200,9 +200,32 @@ std::array<std::atomic<void (*)()>, 8>& restorers() {
 
 } // namespace
 
+std::optional<std::string> fb::runtime::environment(const char* name) {
+#ifdef _WIN32
+    const std::wstring wide_name(name, name + std::strlen(name));
+    const wchar_t* value = _wgetenv(wide_name.c_str());
+    if (value == nullptr) {
+        return std::nullopt;
+    }
+
+    const int wide = static_cast<int>(std::wcslen(value));
+    const int size = WideCharToMultiByte(CP_UTF8, 0, value, wide, nullptr, 0, nullptr, nullptr);
+    std::string text(static_cast<std::size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value, wide, text.data(), size, nullptr, nullptr);
+    return text;
+#else
+    const char* value = std::getenv(name);
+    if (value == nullptr) {
+        return std::nullopt;
+    }
+
+    return std::string(value);
+#endif
+}
+
 bool fb::runtime::stderr_colors() {
-    const char* no_color = std::getenv("NO_COLOR");
-    if (no_color != nullptr && *no_color != '\0') {
+    const std::optional<std::string> no_color = environment("NO_COLOR");
+    if (no_color && !no_color->empty()) {
         return false;
     }
 

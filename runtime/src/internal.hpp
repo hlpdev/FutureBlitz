@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -94,6 +95,10 @@ struct decoded_t {
 
 /// `point`, a Unicode scalar value, in UTF-8.
 [[nodiscard]] std::string encode_utf8(std::uint32_t point);
+
+/// An environment variable's value as UTF-8, or nullopt when it isn't set. Windows's getenv gives
+/// the ANSI code page's bytes, so there it's read as UTF-16.
+[[nodiscard]] std::optional<std::string> environment(const char* name);
 
 /// Whether stderr is a terminal that shows colors, and NO_COLOR isn't set, so panics and std.log's
 /// lines are colored.

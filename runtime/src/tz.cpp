@@ -5,6 +5,7 @@
 
 #include "fb/runtime.hpp"
 #include "fb/time.hpp"
+#include "internal.hpp"
 #include "tz_data.hpp"
 
 #include <algorithm>
@@ -492,8 +493,9 @@ std::string os_zone_name() {
         return std::string(at == std::string_view::npos ? path : path.substr(at + 9));
     };
 
-    if (const char* zone = std::getenv("TZ"); zone != nullptr && *zone != '\0') {
-        std::string_view name(zone);
+    if (const std::optional<std::string> zone = fb::runtime::environment("TZ");
+        zone && !zone->empty()) {
+        std::string_view name(*zone);
         if (name.front() == ':') {
             name.remove_prefix(1);
         }
