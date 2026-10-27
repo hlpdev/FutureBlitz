@@ -1420,23 +1420,27 @@ discovery. `Import std.net` brings in std/net/.
 - std.net.http's server (step 30): `HttpServer`, HTTP/1.1 over TCP, whose handlers are Async
   code on the main thread (no data races, and Globals work). An `HttpHandler` is a
   `Func(HttpRequest): Task<HttpResponse>`, an Async lambda or Function, and its response is the
-  client's own `HttpResponse`, made with `HttpResponse.Of(status, body)`, `Of(body)` for a 200,
-  or `Redirect(url, status)`, whose `Headers` it can add to. An `HttpRequest` has its `Verb`
+  client's own `HttpResponse`, made with `HttpResponse.Of(status, body)`, of a final status
+  from 200 to 599 or a panic, `Of(body)` for a 200, or `Redirect(url, status)`, of 300 to 399 or
+  a panic, whose `Headers` it can add to. An `HttpRequest` has its `Verb`
   (Method is a keyword) as the client wrote it, `Target`, `Path` (percent-encoded, without dot
   segments), `Query`, `Headers`, `Bytes` and `Text`, `Version`, `RemoteAddress`, `Param(name)`
   and `Params` of its route, and `Form()` of an application/x-www-form-urlencoded body.
   `server.Get(path, handler)`, `Post`, `Put`, `Patch`, `Delete`, and `Route(method, path,
   handler)` for any token add routes, whose paths are segments of text, `:name`, which binds one
   segment, and, last, `*name`, which binds the rest; of the routes a path matches, the one with
-  text first, segment by segment, takes it; a path no route matches is a 404, one whose method
-  none has a 405 with Allow, and a HEAD goes to a GET's route without its body; a bad path, or a
-  second route of a method for the same paths, panics. `Use(middleware)`, an `HttpMiddleware`,
+  text first, segment by segment, and when one starts the other, the one that matches the whole
+  path, not one whose `*name` matches none of it, takes it; a path no route matches is a 404, one
+  whose method none has a 405 with Allow, and a HEAD goes to a GET's route without its body; a
+  bad path, one with two parameters of a name, its group's prefix's included, or a second route
+  of a method for the same paths, panics. `Use(middleware)`, an `HttpMiddleware`,
   `Func(HttpRequest, HttpHandler): Task<HttpResponse>`, runs around the requests in the order
   it was given, the server's around every request, and `Group(prefix)`'s inside its parent's,
   around its own routes. `Listen(address)` or `Listen(host, port)`, `LocalAddress`, `Serve()`,
   which answers until `Stop()`, `IsRunning`, `MaxBodySize` (16 MiB, past which a 413), and
   `IdleTimeout` (a minute). Connections stay open for the next request as RFC 9112 has it,
-  pipelined requests too; a request without one Host is a 400, an Expect other than
+  pipelined requests too; an HTTP/1.1 request without a Host, or any with two, is a 400, a
+  target's scheme can be in any case, an Expect other than
   100-continue a 417, and one with it gets a 100 Continue before its body is read; responses
   get Content-Length, Date, and Connection. `WebSocket.AcceptAsync(request)` takes a handler's
   connection over (std.net.ws). Still to come: static files (with step 14's files), `Workers =
@@ -1454,7 +1458,8 @@ discovery. `Import std.net` brings in std/net/.
   that it has, or `AcceptAsync(request, protocols)` takes over the connection of an HttpServer
   handler's request, after which the server sends nothing of the handler's response, and
   doesn't close it as it stops; a request there that isn't a WebSocket's throws, and the
-  handler's response answers it. Otherwise a request that isn't a WebSocket's is answered with 400, 405, or 426 (with
+  handler's response answers it. Otherwise a request that isn't a WebSocket's is answered with
+  400 (a body is one, a Content-Length of 0 isn't), 405 (with `Allow: GET`), or 426 (with
   `Sec-WebSocket-Version: 13`), or as HTTP/1.1's rules refuse its head (400, 431, or 505), and
   closed, and throws a NetError of OTHER; a client's answer that isn't a 101 with the key's
   Sec-WebSocket-Accept, or chooses a subprotocol or extensions it wasn't offered, throws one
@@ -1466,14 +1471,21 @@ discovery. `Import std.net` brings in std/net/.
   1001 to 1003, 1007 to 1014, or 3000 to 4999, with a reason of 123 bytes at most, or a panic,
   and is CLOSING until the other side's comes; `Abort()` closes the connection at once.
   `State` (OPEN, CLOSING, CLOSED), `CloseCode` (1005 for a Close without one, 1006 for a
-  connection that ended without one), `CloseReason`, `Protocol`, and `MaxMessageSize`, 16 MiB
+  connection that ended without one, or that this side failed, as RFC 6455's 7.1.5 has it),
+  `CloseReason`, `Protocol`, and `MaxMessageSize`, 16 MiB
   unless it's set. A frame that breaks the RFC closes it with 1002, a text message or Close
   reason that isn't UTF-8 with 1007, and a message past MaxMessageSize with 1009, and throws a
-  NetError of OTHER; a connection that ends without a Close throws one of CLOSED. No extensions
+  NetError of OTHER; a connection that ends without the other side's Close throws one of
+  CLOSED, after this side's Close too. No extensions
   (permessage-deflate). The HTTP/1.1 that its handshake and HttpServer speak reads heads as
   RFC 9112 has them: lines of 8 KiB at most, heads of 64 KiB and 100 fields, no folded lines
   or space before a field's colon, obs-text read as Latin-1, and empty lines before a request's
-  skipped; and bodies of a Content-Length, whose values all agree, or chunks, and never both.
+  skipped, with a later HTTP/1.x read as 1.1; and bodies of a Content-Length, each of whose
+  items is digits and all agree, leading zeros past its 18 digits too, or chunks, whose size and
+  data lines end with CR LF and whose extensions are RFC 9112's, of 15 hex digits past leading
+  zeros, the last coding chunked (a 400 otherwise, and a 501 for another before it), and never
+  both, nor a Transfer-Encoding in HTTP/1.0. A refused request's connection lingers a second in
+  all for what the client still sends.
 - std.net.game (built in step 31; `Import std.net.game` brings in std/net/game/): reliable UDP
   for games, ENet-style. A `GameHost` is one end of any number of connections over a
   `GameLink`: a UdpSocket's, through `GameHost.Bind(address, settings)`, or any Class of a
