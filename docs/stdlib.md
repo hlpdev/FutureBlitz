@@ -165,6 +165,7 @@ So far, std/ holds:
 | std/net/http/wire.fb | HTTP/1.1's messages as RFC 9112 has them: `Wire`, which reads heads and bodies, `Head`, `WireError`, `HeadBytes`, `Linger`, and `Duplex`, a connection a TLS stream can be too (all Package) |
 | std/net/http/server.fb | `HttpServer`, `HttpRouter`, `HttpRequest`, `HttpHandler`, `HttpMiddleware`, and `HttpResponse.Of` and `Redirect` |
 | std/net/http/files.fb | `HttpRouter.Files`, a folder's static files |
+| std/net/http/work.fb | `WorkHandler`, `WorkRequest`, and the Workers threads that work routes run on |
 | std/net/ws/handshake.fb | A WebSocket's opening handshake, the client's request and the server's answer (Package) |
 | std/net/ws/websocket.fb | `WebSocket`, `WebSocketMessage`, and `WebSocketState`, RFC 6455's frames over a Duplex |
 | std/net/socket.fb | What the sockets share: the runtime's `fb_io_net_` functions, an address's bytes, the errors their codes mean, and the streams' and listeners' sockets |
@@ -1519,17 +1520,24 @@ discovery. `Import std.net` brings in std/net/.
   Content-Type by extension, an ETag and Last-Modified, a 304 for an If-None-Match or
   If-Modified-Since its copy meets, and a 206 for one range of bytes, or a 416 past the end (an
   If-Range that isn't current, or more ranges than one, gets the whole file; the range unit's
-  letters can be in any case, and a position of more digits than an Int64 holds is past the
-  end); If-Modified-Since in each of HTTP's three date forms. A segment that starts with a '.',
-  has a backslash, a ':', or a control character, ends with a '.' or a space, or is one of
-  Windows' device names, is a 404 on every OS, and so is a file whose path on the disk, with its
-  links followed and its names the disk's own, isn't inside the folder's or has such a name
-  there, as a link out of the folder or Windows' 8.3 short name for a dot file would; so nothing
-  outside the folder is reached. A file is read whole, 2 GiB at most, and a bigger one is a 500. Still to come: `Workers = n` (once handlers can run on
-  other threads' loops), Classes whose Methods carry `@Get` and
-  the rest, registered with `server.Routes<T>(instance)` and binding path parameters and JSON
-  bodies to typed parameters (which needs reflection over a Method's parameters), and HTTPS
-  with ACME (lane 11's, through wire.fb's Duplex).
+  letters can be in any case, and a position of more digits than an Int64 holds is past the end);
+  If-Modified-Since in each of HTTP's three date forms. A segment that starts with a '.', has a
+  backslash, a ':', or a control character, ends with a '.' or a space, or is one of Windows' device
+  names, is a 404 on every OS, and so is a file whose path on the disk, with its links followed and
+  its names the disk's own, isn't inside the folder's or has such a name there, as a link out of the
+  folder or Windows' 8.3 short name for a dot file would; so nothing outside the folder is reached.
+  A file is read whole, 2 GiB at most, and a bigger one is a 500. `Work(path, handler)` and
+  `Work(method, path, handler)` add work routes, whose `WorkHandler`, a `Sendable Func(WorkRequest):
+  HttpResponse`, blocks, computing or waiting, and runs on one of the server's `Workers` threads
+  (the job pool's size unless it's set, 1 at least, or a panic, and fixed once they start), at most
+  that many at once, while the main thread goes on answering the others; it's given a `WorkRequest`,
+  a Sendable copy of the request (its `Verb`, `Target`, `Path`, `Version`, `RemoteAddress`, `Bytes`,
+  `Headers`, `Query`, `Text`, `Param(name)`, and `Form()`), and the middleware runs around it on the
+  main thread. The threads start at the first call, and end once Serve gives; a call after, or with
+  1024 waiting already, is a 503. Still to come: Classes whose Methods carry `@Get` and the rest,
+  registered with `server.Routes<T>(instance)` and binding a Struct of path parameters, the query,
+  and a JSON body (lane 2's For Method over a Func with type parameters of its own), and HTTPS with
+  ACME (lane 11's, through wire.fb's Duplex).
 - std.net.ws: WebSocket client and server, per RFC 6455, built in step 30 but for wss://,
   which comes with HTTPS.
   `Import std.net.ws` brings in std/net/ws/. `WebSocket.Connect(url, protocols, timeout)` and
