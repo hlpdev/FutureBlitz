@@ -52,8 +52,8 @@ certificate client "FutureBlitz Test Client" ca "extendedKeyUsage=clientAuth" \
     20200101000000Z 21200101000000Z ec
 certificate rogue localhost rogue_ca "$server" 20200101000000Z 21200101000000Z ec
 
-# Each as a Const of certificates.fb, a certificate's PEM and its key's, which net_tls_tcp's
-# folder has too, since a test program reads only its own.
+# Each as a Const of certificates.fb, a certificate's PEM and its key's, which net_tls_tcp's and
+# http_server_tls's folders have too, since a test program reads only its own.
 {
     echo "// Made by make_certificates.sh with OpenSSL: the TLS tests' certificates and keys, as PEM."
     echo "// Make them again with that script."
@@ -70,5 +70,7 @@ certificate rogue localhost rogue_ca "$server" 20200101000000Z 21200101000000Z e
         fi
     done
 } > certificates.fb
-mkdir -p ../net_tls_tcp
-cp certificates.fb ../net_tls_tcp/certificates.fb
+for folder in net_tls_tcp http_server_tls; do
+    mkdir -p "../$folder"
+    cp certificates.fb "../$folder/certificates.fb"
+done

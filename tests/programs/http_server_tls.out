@@ -1,0 +1,6 @@
+one client: 100
+a client each, fifty at once: 50
+the OS's roots: NetError TLS
+HTTP: a NetError
+with a silent client: True
+the silent client was closed: True

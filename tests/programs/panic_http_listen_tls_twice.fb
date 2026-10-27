@@ -1,0 +1,38 @@
+// A server listens at one address, so a ListenTls after Listen panics where it's called, as a
+// second Listen does, with the test certificates net_tls/make_certificates.sh made.
+Import std.core
+Import std.crypto
+Import std.net
+Import std.net.http
+
+Const localhost_pem = """
+    -----BEGIN CERTIFICATE-----
+    MIIB2zCCAYGgAwIBAgIUedQoeu28tAH+KsyVFoglnoyivrAwCgYIKoZIzj0EAwIw
+    HjEcMBoGA1UEAwwTRnV0dXJlQmxpdHogVGVzdCBDQTAgFw0yMDAxMDEwMDAwMDBa
+    GA8yMTIwMDEwMTAwMDAwMFowFDESMBAGA1UEAwwJbG9jYWxob3N0MFkwEwYHKoZI
+    zj0CAQYIKoZIzj0DAQcDQgAE78GeMXEYbFNB0NflZo2AbNjdaly601Pq5+B2qal4
+    tWw1mDyx877K3XqgZgiN9qcNH3+LtWlPuex/aRcV8GTPAKOBpDCBoTAMBgNVHRMB
+    Af8EAjAAMA4GA1UdDwEB/wQEAwIFoDATBgNVHSUEDDAKBggrBgEFBQcDATAsBgNV
+    HREEJTAjgglsb2NhbGhvc3SHBH8AAAGHEAAAAAAAAAAAAAAAAAAAAAEwHQYDVR0O
+    BBYEFH5Ip73s1qX3QT7V3Y+RK5k5EoTmMB8GA1UdIwQYMBaAFOTjmfqOKfm28uyz
+    zw05GqFFRfREMAoGCCqGSM49BAMCA0gAMEUCIQDNw36/1Nx7N2/C7YB43g8XurAM
+    f8uuIxHawT14iT+SIgIgUjV1euZcD9ka2BeT9SXpJE6DFxUlLWO0x421CztzH84=
+    -----END CERTIFICATE-----
+    """
+
+Const localhost_key = """
+    -----BEGIN PRIVATE KEY-----
+    MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgwSq6ch29gVt0kPGc
+    B3MlKevgUpI+uSyrqIVmZX+JjU+hRANCAATvwZ4xcRhsU0HQ1+VmjYBs2N1qXLrT
+    U+rn4HapqXi1bDWYPLHzvsrdeqBmCI32pw0ff4u1aU+57H9pFxXwZM8A
+    -----END PRIVATE KEY-----
+    """
+
+Local server = HttpServer()
+Local tls = TlsServer(Try Certificate.AllFromPem(localhost_pem), Try Key.FromPem(localhost_key))
+Try
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+    server.ListenTls(SocketAddress(IpAddress.Loopback, 0), tls)
+Catch e As NetError
+    Print("failed: {e.Message}")
+End Try

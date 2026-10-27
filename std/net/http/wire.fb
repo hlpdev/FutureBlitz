@@ -10,6 +10,7 @@ Import std.text
 Import std.time.duration
 Import std.time.timers
 Import std.net.tcp
+Import std.net.tls
 
 // The longest line a head has, its CR LF included, a request's line or a field's.
 Package Const MAX_LINE: Int = 8192
@@ -28,6 +29,86 @@ End Interface
 
 Extend TcpStream Implements Duplex
 End Extend
+
+// TLS over a TCP connection as a Duplex: a server's, whose handshake HandshakeAsync runs, or a
+// client's, made once its handshake is done. It ends what it writes, and closes, with TLS's
+// close_notify first, and its ReadTimeout is the TCP connection's.
+Package Class TlsDuplex Implements Duplex
+    ReadOnly Field Tcp: TcpStream
+    Field Tls: TlsStream<TcpStream>? = Null
+
+    // A server's, over `tcp`, before its handshake.
+    Package New(tcp: TcpStream)
+        Tcp = tcp
+    End New
+
+    // A client's, whose handshake is done.
+    Package New(tls: TlsStream<TcpStream>)
+        Tcp = tls.Stream
+        Tls = tls
+    End New
+
+    // Runs a server's handshake as `server`, and tells whether it's done; one that fails, or
+    // takes longer than the ReadTimeout, closes the connection.
+    Package Async Method HandshakeAsync(server: TlsServer): Bool
+        Try
+            Tls = Try Await server.AcceptAsync(Tcp)
+            Return True
+        Catch e As NetError
+        Catch e As TimeoutError
+        End Try
+
+        Tcp.Close()
+        Return False
+    End Method
+
+    Public Property ReadTimeout: Duration?
+        Get => Tcp.ReadTimeout
+        Set(value)
+            Tcp.ReadTimeout = value
+        End Set
+    End Property
+
+    Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError => Try Shaken().Read(into)
+
+    Public Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
+        Return Try Await Shaken().ReadAsync(into)
+    End Method
+
+    Public Method Write(from: Buffer<UInt8>) Throws IOError
+        Try Shaken().Write(from)
+    End Method
+
+    Public Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
+        Try Await Shaken().WriteAsync(from)
+    End Method
+
+    Public Method ShutdownWrite() Throws IOError
+        Try Shaken().Close()
+        Try Tcp.ShutdownWrite()
+    End Method
+
+    Public Async Method ShutdownWriteAsync() Throws IOError
+        Try Await Shaken().CloseAsync()
+        Try Await Tcp.ShutdownWriteAsync()
+    End Method
+
+    // Sends close_notify, unless the handshake isn't done or the connection has failed, and
+    // closes the TCP connection.
+    Public Method Close()
+        Local tls = Tls
+        If tls != Null && !Tcp.IsClosed Then Try? tls.Close()
+        Tcp.Close()
+    End Method
+
+    // The TLS stream, once the handshake is done.
+    @PanicsAtCaller
+    Method Shaken(): TlsStream<TcpStream>
+        Local tls = Tls
+        If tls == Null Then Panic("a TLS connection is used before its handshake")
+        Return tls
+    End Method
+End Class
 
 // A message that breaks HTTP/1.1's rules, or goes past a limit, with the status a server answers
 // it with.

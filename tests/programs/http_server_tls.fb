@@ -1,0 +1,98 @@
+// HTTPS through a program's own HttpServer, as ListenTls has it, with the test certificates
+// net_tls/make_certificates.sh made: requests through an HttpClient that trusts the test CA, on
+// its connections kept open, and through a client each, fifty at once; a client that trusts
+// only the OS's roots, which refuses the server, one that speaks HTTP to it, and one that
+// connects and says nothing, after which the server still answers. The server holds nothing of
+// them after it stops, which the leak report at the end would show.
+
+Import std.core
+Import std.collections
+Import std.concurrent
+Import std.crypto
+Import std.ffi
+Import std.net
+Import std.net.http
+Import std.time
+Import "./http_server_tls/certificates"
+
+// The certificates in pem, which make_certificates.sh made, so they read.
+Function Certificates(pem: String): Certificate[]
+    Return (Try? Certificate.AllFromPem(pem)).Expect("the test's certificates read")
+End Function
+
+// A client that trusts only the test CA.
+Function Trusting(): HttpClient
+    Local client = HttpClient()
+    client.TrustOnly(Certificates(ca_pem))
+    Return client
+End Function
+
+// Whether a request through a client of its own to `url` gets the route's answer.
+Async Function Fetched(url: String): Bool
+    Try
+        Return (Try Await Trusting().GetAsync(url)).Text == "hello over HTTP/1.1"
+    Catch e As Error
+        Return False
+    End Try
+End Function
+
+Function Count(results: Bool[]): Int
+    Local count = 0
+    For result In results
+        If result Then count += 1
+    End For
+    Return count
+End Function
+
+Local server = HttpServer()
+server.IdleTimeout = 1.Seconds
+server.Get("/hello", Async Function(request: HttpRequest): HttpResponse
+    Return HttpResponse.Of(Body.Text("hello over {request.Version}"))
+End Function)
+Try
+    Local key = (Try? Key.FromPem(localhost_key)).Expect("the test's keys read")
+    server.ListenTls(SocketAddress(IpAddress.Loopback, 0),
+                     TlsServer(Certificates(localhost_pem), key))
+    Local serving = server.Serve()
+    Local port = server.LocalAddress.Port
+    Local url = "https://127.0.0.1:{port}/hello"
+
+    Local client = Trusting()
+    Local same = 0
+    For n = 1 To 100
+        If (Try Await client.GetAsync(url)).Text == "hello over HTTP/1.1" Then same += 1
+    End For
+    Print("one client:", same)
+
+    Local tasks: Task<Bool>[] = []
+    For n = 1 To 50
+        tasks.Add(Fetched(url))
+    End For
+    Print("a client each, fifty at once:", Count(Await WhenAll(tasks)))
+
+    Try
+        Try Await HttpClient().GetAsync(url)
+        Print("the OS's roots took the test CA")
+    Catch e As NetError
+        Print("the OS's roots: NetError {e.Kind}")
+    End Try
+
+    Try
+        Try Await HttpClient().GetAsync("http://127.0.0.1:{port}/hello")
+        Print("HTTP was answered")
+    Catch e As NetError
+        Print("HTTP: a NetError")
+    End Try
+
+    // A client that connects and says nothing holds no one else up, and is closed after the
+    // IdleTimeout.
+    Local silent = Try Await TcpStream.ConnectAsync("127.0.0.1", port)
+    Print("with a silent client:", Await Fetched(url))
+    silent.ReadTimeout = 5.Seconds
+    Print("the silent client was closed:", (Try? Await silent.ReadAsync(Buffer<UInt8>(16))) == 0)
+
+    server.Stop()
+    Await serving
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

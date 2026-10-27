@@ -1,8 +1,9 @@
-// HttpServer: HTTP/1.1 over TCP, whose handlers are Async code on the main thread, so they share
-// its Globals without data races. A request goes through the server's middleware, in the order
-// Use gave it, to the handler of the route that fits its method and path best, through the
-// middleware of the groups that route is in; the response goes back on a connection kept open
-// for the next request, unless the request or the response says to close it.
+// HttpServer: HTTP/1.1 over TCP, or HTTPS, over TLS, whose handlers are Async code on the main
+// thread, so they share its Globals without data races. A request goes through the server's
+// middleware, in the order Use gave it, to the handler of the route that fits its method and path
+// best, through the middleware of the groups that route is in; the response goes back on a
+// connection kept open for the next request, unless the request or the response says to close
+// it.
 
 Import std.core
 Import std.collections
@@ -11,6 +12,7 @@ Import std.io.streams
 Import std.time
 Import std.net.address
 Import std.net.tcp
+Import std.net.tls
 Import std.net.url
 Import std.net.http.headers
 Import std.net.http.status
@@ -435,7 +437,7 @@ Package Class ServerConnection
 End Class
 
 // A server: routes and middleware, as HttpRouter has them, answering the requests that come to
-// where Listen has it listen, as Serve runs. A request that breaks HTTP/1.1's rules is answered
+// where Listen has it listen, or ListenTls over TLS, as Serve runs. A request that breaks HTTP/1.1's rules is answered
 // as wire.fb has it (400, 413, 414, 431, 501, or 505) and its connection closed; an HTTP/1.1
 // one without a Host, or any with two, is a 400; an Expect other than 100-continue is a 417.
 // A response has its
@@ -444,6 +446,8 @@ Public Class HttpServer Extends HttpRouter
     // Its routes, which its groups hold weakly.
     ReadOnly Field Own: RouteTable
     Field Listener: TcpListener? = Null
+    // What its connections' TLS is, for ListenTls.
+    Field Tls: TlsServer? = Null
     Field Connections: Map<Int, ServerConnection>
     Field NextId: Int
     Field Stopping: Bool
@@ -532,6 +536,24 @@ Public Class HttpServer Extends HttpRouter
         Listener = Try TcpListener.Listen(host, port)
     End Method
 
+    // Listens at `address` as Listen does, for HTTPS: each connection is TLS, as `tls` accepts
+    // it, with its certificate chain and key; a handshake that fails, or takes longer than
+    // IdleTimeout, closes its connection, and the server goes on.
+    @PanicsAtCaller
+    Public Method ListenTls(address: SocketAddress, tls: TlsServer) Throws NetError
+        If Listener != Null Then Panic("the HttpServer listens already")
+        Listener = Try TcpListener.Listen(address)
+        Tls = tls
+    End Method
+
+    // Listens at `host`'s first address and `port`, for HTTPS, as `tls` accepts connections.
+    @PanicsAtCaller
+    Public Method ListenTls(host: String, port: UInt16, tls: TlsServer) Throws NetError
+        If Listener != Null Then Panic("the HttpServer listens already")
+        Listener = Try TcpListener.Listen(host, port)
+        Tls = tls
+    End Method
+
     // Where it listens, the port the OS picked included. Panics before Listen.
     @PanicsAtCaller
     Public Property LocalAddress: SocketAddress
@@ -548,7 +570,9 @@ Public Class HttpServer Extends HttpRouter
             Try
                 Local stream = Try Await listener.AcceptAsync()
                 Local peer = stream.RemoteAddress.ToString()
-                Local connection = ServerConnection(stream, peer)
+                Local duplex: Duplex = stream
+                If Tls != Null Then duplex = TlsDuplex(stream)
+                Local connection = ServerConnection(duplex, peer)
                 NextId += 1
                 Connections[NextId] = connection
                 Answer(NextId, connection)
@@ -581,10 +605,18 @@ Public Class HttpServer Extends HttpRouter
         Return listener
     End Method
 
-    // Answers a connection's requests, one after another, until one side closes it.
+    // Answers a connection's requests, one after another, until one side closes it, once its
+    // TLS handshake is done, for HTTPS.
     Async Method Answer(id: Int, connection: ServerConnection)
         Defer Left(id)
         Local stream = connection.Stream
+        Local secure = stream As? TlsDuplex
+        Local tls = Tls
+        If secure != Null && tls != Null
+            stream.ReadTimeout = Idle
+            If !Await secure.HandshakeAsync(tls) Then Return
+        End If
+
         Local open = True
         While open && !Stopping
             stream.ReadTimeout = Idle

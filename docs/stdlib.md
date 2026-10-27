@@ -1508,7 +1508,11 @@ discovery. `Import std.net` brings in std/net/.
   of a method for the same paths, panics. `Use(middleware)`, an `HttpMiddleware`,
   `Func(HttpRequest, HttpHandler): Task<HttpResponse>`, runs around the requests in the order
   it was given, the server's around every request, and `Group(prefix)`'s inside its parent's,
-  around its own routes. `Listen(address)` or `Listen(host, port)`, `LocalAddress`, `Serve()`,
+  around its own routes. `Listen(address)` or `Listen(host, port)`, or for HTTPS
+  `ListenTls(address, tls)` or `ListenTls(host, port, tls)`, whose connections a `TlsServer`
+  accepts, each handshake in its connection's own time, so a slow one holds no other up, and a
+  handshake that fails or takes longer than `IdleTimeout` closes its connection; `LocalAddress`,
+  `Serve()`,
   which answers until `Stop()`, `IsRunning`, `MaxBodySize` (16 MiB, past which a 413), and
   `IdleTimeout` (a minute). Connections stay open for the next request as RFC 9112 has it,
   pipelined requests too; an HTTP/1.1 request without a Host, or any with two, is a 400, a
