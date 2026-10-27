@@ -1,15 +1,28 @@
 the account's key kept: True
-first: 10:00:00:00:00:00:00:00:01, HTTP/1.1 200 OK
-log: INFO net.http: renewed the certificate for localhost, valid until 2120-01-01T00:00:00Z
-renewed as it runs: 10:00:00:00:00:00:00:00:02, True
-the connection before: 10:00:00:00:00:00:00:00:01, HTTP/1.1 200 OK
-log: INFO net.http: renewed the certificate for localhost, valid until 2120-01-01T00:00:00Z
-renewed at once: 10:00:00:00:00:00:00:00:03, HTTP/1.1 200 OK
+before HTTPS listens: HTTP/1.1 503 Service Unavailable, -
+first: 01, HTTP/1.1 200 OK
+log: INFO net.http: renewed the certificate for localhost
+renewed as it starts: True
+then: 02, True
+log: INFO net.http: renewed the certificate for localhost
+renewed with RenewalCheck set meanwhile: True
+then: 03
+the connection before: 01, HTTP/1.1 200 OK
+log: INFO net.http: renewed the certificate for localhost
+renewed at once: 04, HTTP/1.1 200 OK
 log: ERROR net.http: the certificate for localhost wasn't renewed: the ACME CA answered 400: the CA refused the nonce (badNonce)
 NetError HTTP_STATUS: True
-still: 10:00:00:00:00:00:00:00:03
+still: 04
 HTTP: 308, True
+absolute-form: True
+an empty Host: True
 an unknown challenge: 404
-the same account: True
 made again: True, HTTP/1.1 200 OK
+the same account: True
+log: INFO net.http: renewed the certificate for localhost
+log: INFO net.http: renewed the certificate for localhost
+a kept certificate that's due, renewed as it starts: True, 06
+a kept key that isn't the certificate's: 07
 a broken account.pem: ParseError
+a validity that isn't seconds: NetError HTTP_STATUS
+the test server goes on: True

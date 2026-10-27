@@ -2,7 +2,8 @@
 // net_tls/make_certificates.sh made: requests through an HttpClient that trusts the test CA, on
 // its connections kept open, and through a client each, fifty at once; a client that trusts
 // only the OS's roots, which refuses the server, one that speaks HTTP to it, and one that
-// connects and says nothing, after which the server still answers; and WebSockets at wss://,
+// connects and says nothing, after which the server still answers, and one that sends its
+// handshake a byte at a time, which the IdleTimeout closes; and WebSockets at wss://,
 // Async and blocking on a Thread of their own, which a handler takes over, and one that trusts
 // only the OS's roots. The server holds nothing of them after it stops, which the leak report at
 // the end would show.
@@ -117,6 +118,31 @@ Try
     Print("with a silent client:", Await Fetched(url))
     silent.ReadTimeout = 5.Seconds
     Print("the silent client was closed:", (Try? Await silent.ReadAsync(Buffer<UInt8>(16))) == 0)
+
+    // One that sends a handshake's record a byte at a time, each well inside the IdleTimeout, is
+    // closed once the IdleTimeout has passed for the whole handshake.
+    Local trickling = Try Await TcpStream.ConnectAsync("127.0.0.1", port)
+    trickling.ReadTimeout = Duration.Zero()
+    Local watch = Stopwatch.StartNew()
+    Local record: UInt8[] = [0x16, 0x03, 0x01, 0x00, 0x40]
+    For i = 0 Until 64
+        record.Add(i As UInt8)
+    End For
+
+    Local closed = False
+    For byte In record
+        If (Try? Await trickling.ReadAsync(Buffer<UInt8>(16))) == 0
+            closed = True
+            Break
+        End If
+
+        Try? Await trickling.WriteAsync(Buffer<UInt8>.From([byte]))
+        Await Timer.After(300.Milliseconds)
+    End For
+
+    Print("a client that sends a byte at a time was closed in time:",
+          closed && watch.Elapsed < 3.Seconds)
+    trickling.Close()
 
     // WebSockets over TLS: Async on the main thread, and blocking on a Thread of their own.
     Local wss = "wss://127.0.0.1:{port}/ws"

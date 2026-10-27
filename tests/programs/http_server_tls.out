@@ -4,6 +4,7 @@ the OS's roots: NetError TLS
 HTTP: a NetError
 with a silent client: True
 the silent client was closed: True
+a client that sends a byte at a time was closed in time: True
 Async: hello over wss
 closed: True CLOSED
 blocking: hello from a Thread, True

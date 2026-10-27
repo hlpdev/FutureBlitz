@@ -1,12 +1,16 @@
 // Automatic HTTPS against the test server's CA (tests/native/acme_ca): a server's ListenAutoAsync
 // gets a certificate for localhost, proved by HTTP-01 on the port the test server checks, which
-// its own server on HTTP answers, redirecting everything else to HTTPS. A certificate that's a
-// third of its lifetime from expiring is renewed as the server runs, and RenewAsync renews one at
-// once; a connection made after gets the new one, and one made before keeps its own. A renewal
-// that fails says why, and the certificate before goes on; std.log logs both, which a sink of
-// the program's own prints without their times. AcmeClient.InFolder keeps the account's key in
-// the same folder, and a client and a server made again with the folder use what it keeps; an
-// account.pem that isn't a key's is a ParseError.
+// its own server on HTTP answers, with a 503 for anything else until HTTPS listens and a redirect
+// to HTTPS after, of an absolute-form target's path and query too, at the first name for an empty
+// Host. A certificate that's a third of its lifetime from expiring is renewed as the server
+// starts, and as it runs, with a RenewalCheck set meanwhile counting at once, and RenewAsync
+// renews one at once; a connection made after gets the new one, and one made before keeps its
+// own. A renewal that fails says why, and the certificate before goes on; std.log logs both,
+// which a sink of the program's own prints without their times. AcmeClient.InFolder keeps the
+// account's key in the same folder, and a client and a server made again with the folder use what
+// it keeps, renewing a kept certificate that's due as it starts, and ordering another when the
+// kept key isn't its certificate's; an account.pem that isn't a key's is a ParseError. The test
+// CA's validity hook refuses a value that isn't seconds.
 Import std.core
 Import std.collections
 Import std.crypto
@@ -43,7 +47,15 @@ Async Function Connected(port: UInt16, root: Certificate[]): TlsStream<TcpStream
     Return Try Await client.ConnectAsync(tcp, "localhost")
 End Function
 
-Function SerialOf(tls: TlsStream<TcpStream>): String => tls.PeerCertificate?.SerialNumber ?? "-"
+// The last byte of the serial number of the certificate a new connection to `port` gets.
+Async Function SerialAt(port: UInt16, root: Certificate[]): String Throws NetError, TimeoutError
+    Return SerialOf(Try Await Connected(port, root))
+End Function
+
+Function SerialOf(tls: TlsStream<TcpStream>): String
+    Local serial = tls.PeerCertificate?.SerialNumber ?? "-"
+    Return serial.Slice(serial.Length - 2, serial.Length)
+End Function
 
 // The status line a GET of /hello on `tls` is answered with.
 Async Function Hello(tls: TlsStream<TcpStream>): String Throws IOError
@@ -51,15 +63,58 @@ Async Function Hello(tls: TlsStream<TcpStream>): String Throws IOError
     Return Try Await BufferedReader(tls).ReadLineAsync() ?? "-"
 End Function
 
-// The route both servers have.
+// The route each server has.
 Async Function Hello(request: HttpRequest): HttpResponse
     Return HttpResponse.Of(Body.Text("hello"))
 End Function
 
-// std.log's records, printed without their times, which change each run.
+// Waits until `server`'s certificate expires at another time than `before`, 20 seconds at most,
+// and tells whether it does.
+Async Function Renewed(server: HttpServer, before: Timestamp?): Bool
+    For i = 1 To 200
+        If server.CertificateNotAfter != before Then Return True
+        Await Timer.After(100.Milliseconds)
+    End For
+
+    Return False
+End Function
+
+// The status line and Location of what the HTTP port answers `request`, written as it is.
+Async Function Raw(request: String): String Throws NetError, IOError, TimeoutError
+    Local tcp = Try Await TcpStream.ConnectAsync("127.0.0.1", challengePort)
+    Try Await tcp.WriteAsync(Buffer<UInt8>.From(request.Bytes))
+    Local reader = BufferedReader(tcp)
+    Local status = Try Await reader.ReadLineAsync() ?? "-"
+    Local location = "-"
+    Loop
+        Local field = Try Await reader.ReadLineAsync() ?? ""
+        If field == "" Then Break
+        If field.StartsWith("Location: ") Then location = field.Slice(10, field.Length)
+    End Loop
+
+    tcp.Close()
+    Return "{status}, {location}"
+End Function
+
+// A server with the route, made again with the folder.
+Async Function Again(folder: TempDir): HttpServer Throws NetError, TimeoutError, IOError, ParseError
+    Local server = HttpServer()
+    server.Get("/hello", Function(request: HttpRequest) => Hello(request))
+    Try Await server.ListenAutoAsync(Try AcmeClient.InFolder("{base}/acme/dir", folder.Path),
+                                     ["localhost"], folder.Path,
+                                     SocketAddress(IpAddress.Loopback, 0),
+                                     SocketAddress(IpAddress.Loopback, challengePort))
+    Return server
+End Function
+
+// std.log's records, printed without their times, which change each run, nor when a
+// certificate expires, which does for those valid for seconds.
 DefaultLogOutput().Clear()
 DefaultLogOutput().Add(Function(record: LogRecord)
-    Print("log: {record.Level} {record.Module}: {record.Message}")
+    Local message = record.Message
+    Local cut = message.Find(", valid until")
+    If cut != Null Then message = message.Slice(0, cut)
+    Print("log: {record.Level} {record.Module}: {message}")
 End Function)
 
 Async Function Run()
@@ -67,33 +122,35 @@ Async Function Run()
         Local folder = Try TempDir()
         Local root = Try Certificate.AllFromPem(Try Http.GetText("{base}/acme/root"))
         Local server = HttpServer()
-        server.RenewalCheck = 500.Milliseconds
+        server.RenewalCheck = 1.Hours
         server.Get("/hello", Function(request: HttpRequest) => Hello(request))
 
-        // The first certificate is due for renewal at once: valid from 100 seconds ago to 40
-        // from now. Those after are valid for a century.
+        // Certificates due for renewal at once: valid from 100 seconds ago to 40 from now.
         Try Http.GetText("{base}/acme/validity?before=100&after=40")
         Local acme = Try AcmeClient.InFolder("{base}/acme/dir", folder.Path)
         Print("the account's key kept: {File.Exists(folder.Path / Path("account.pem"))}")
-        Try Await server.ListenAutoAsync(acme, ["localhost"], folder.Path,
-                                         SocketAddress(IpAddress.Loopback, 0),
-                                         SocketAddress(IpAddress.Loopback, challengePort))
-        Try Http.GetText("{base}/acme/validity")
+        Local listening = server.ListenAutoAsync(acme, ["localhost"], folder.Path,
+                                                 SocketAddress(IpAddress.Loopback, 0),
+                                                 SocketAddress(IpAddress.Loopback, challengePort))
+        Print("before HTTPS listens: {Try Await Raw("GET /page HTTP/1.1\r\nHost: localhost\r\n\r\n")}")
+        Try Await listening
         Local serving = server.Serve()
         Local port = server.LocalAddress.Port
         Local first = server.CertificateNotAfter
         Local before = Try Await Connected(port, root)
         Print("first: {SerialOf(before)}, {Try Await Hello(before)}")
 
-        // Renewed as the server runs.
-        Local waited = 0
-        While server.CertificateNotAfter == first && waited < 200
-            Await Timer.After(100.Milliseconds)
-            waited += 1
-        End While
+        // Renewed as it starts, since it's due, though RenewalCheck is an hour.
+        Print("renewed as it starts: {Await Renewed(server, first)}")
+        Print("then: {Try Await SerialAt(port, root)}, {server.RenewalError == Null}")
 
-        Local after = Try Await Connected(port, root)
-        Print("renewed as it runs: {SerialOf(after)}, {server.RenewalError == Null}")
+        // A RenewalCheck set during the hour's wait counts at once. Certificates from then on are
+        // valid for a century.
+        Try Http.GetText("{base}/acme/validity")
+        Local due = server.CertificateNotAfter
+        server.RenewalCheck = 500.Milliseconds
+        Print("renewed with RenewalCheck set meanwhile: {Await Renewed(server, due)}")
+        Print("then: {Try Await SerialAt(port, root)}")
         Print("the connection before: {SerialOf(before)}, {Try Await Hello(before)}")
 
         // Renewed at once.
@@ -110,15 +167,21 @@ Async Function Run()
             Print("NetError {e.Kind}: {server.RenewalError?.Message == e.Message}")
         End Try
 
-        Local still = Try Await Connected(port, root)
-        Print("still: {SerialOf(still)}")
+        Print("still: {Try Await SerialAt(port, root)}")
 
-        // HTTP: challenges, and a redirect to HTTPS for the rest.
+        // HTTP: challenges, and a redirect to HTTPS for the rest, of an origin-form target, an
+        // absolute-form one, and one with an empty Host.
         Local plain = HttpClient()
         plain.FollowRedirects = False
         Local redirected = Try Await plain.GetAsync("http://127.0.0.1:{challengePort}/page?x=1")
         Local location = redirected.Headers.Get("Location") ?? "-"
         Print("HTTP: {redirected.Status}, {location == "https://127.0.0.1:{port}/page?x=1"}")
+        Local absolute = Try Await Raw("GET http://localhost/page?x=1 HTTP/1.1\r\nHost: " +
+                                       "localhost\r\n\r\n")
+        Local moved = "HTTP/1.1 308 Permanent Redirect, https://localhost:{port}"
+        Print("absolute-form: {absolute == moved + "/page?x=1"}")
+        Local empty = Try Await Raw("GET /page HTTP/1.1\r\nHost: \r\n\r\n")
+        Print("an empty Host: {empty == moved + "/page"}")
         Local unknown = Try Await plain.GetAsync("http://127.0.0.1:{challengePort}" +
                                                  "/.well-known/acme-challenge/none")
         Print("an unknown challenge: {unknown.Status}")
@@ -126,20 +189,44 @@ Async Function Run()
         server.Stop()
         Await serving
 
-        // A server made again with the folder uses what it keeps, and orders nothing.
-        Local again = HttpServer()
-        again.Get("/hello", Function(request: HttpRequest) => Hello(request))
-        Local acmeAgain = Try AcmeClient.InFolder("{base}/acme/dir", folder.Path)
-        Local account = Try Await acmeAgain.RegisterAsync()
-        Print("the same account: {account == acme.Account}")
-        Try Await again.ListenAutoAsync(acmeAgain, ["localhost"],
-                                        folder.Path, SocketAddress(IpAddress.Loopback, 0),
-                                        SocketAddress(IpAddress.Loopback, challengePort))
+        // A server made again with the folder uses what it keeps, the account and the
+        // certificate, and orders nothing.
+        Local again = Try Await Again(folder)
         Local servingAgain = again.Serve()
         Local kept = Try Await Connected(again.LocalAddress.Port, root)
         Print("made again: {SerialOf(kept) == SerialOf(now)}, {Try Await Hello(kept)}")
+        Local account = Try Await (Try AcmeClient.InFolder("{base}/acme/dir", folder.Path)).RegisterAsync()
+        Print("the same account: {account == acme.Account}")
+
+        // One that keeps a certificate that's due renews it as it starts, though RenewalCheck is
+        // 12 hours.
+        Try Http.GetText("{base}/acme/validity?before=100&after=40")
+        Try Await again.RenewAsync()
+        Try Http.GetText("{base}/acme/validity")
         again.Stop()
         Await servingAgain
+        Local third = Try Await Again(folder)
+        Local servingThird = third.Serve()
+        Local keptUntil = third.CertificateNotAfter
+        Local renewedAtStart = Await Renewed(third, keptUntil)
+        Local serial = Try Await SerialAt(third.LocalAddress.Port, root)
+        Print("a kept certificate that's due, renewed as it starts: {renewedAtStart}, {serial}")
+        third.Stop()
+        Await servingThird
+
+        // One whose kept key isn't its certificate's, as a renewal that stopped could leave,
+        // orders another, and doesn't panic.
+        Local file = folder.Path / Path("certificate.pem")
+        Local text = Try File.ReadText(file)
+        Local other = Key(KeyKind.ECDSA_P256, True, EcdsaP256.NewPrivateKey()).ToPem()
+        Local chain = text.Slice(text.Find("-----BEGIN CERTIFICATE-----") ?? 0, text.Length)
+        Try File.WriteText(file, other + chain)
+        Local fourth = Try Await Again(folder)
+        Local servingFourth = fourth.Serve()
+        Local ordered = Try Await SerialAt(fourth.LocalAddress.Port, root)
+        Print("a kept key that isn't the certificate's: {ordered}")
+        fourth.Stop()
+        Await servingFourth
         Try folder.Close()
 
         // An account.pem that isn't a key's.
@@ -152,6 +239,15 @@ Async Function Run()
         End Try
 
         Try broken.Close()
+
+        // The validity hook refuses what isn't seconds, and the test server goes on.
+        Try
+            Try Http.GetText("{base}/acme/validity?before=soon&after=1")
+        Catch e As NetError
+            Print("a validity that isn't seconds: NetError {e.Kind}")
+        End Try
+
+        Print("the test server goes on: {(Try Http.GetText("{base}/acme/validity")).Length > 0}")
     Catch e As Error
         Print("failed: {e.Message}")
     End Try

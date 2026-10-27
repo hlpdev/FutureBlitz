@@ -445,11 +445,11 @@ Package Class ServerConnection
 End Class
 
 // A server: routes and middleware, as HttpRouter has them, answering the requests that come to
-// where Listen has it listen, or ListenTls over TLS, as Serve runs. A request that breaks HTTP/1.1's rules is answered
-// as wire.fb has it (400, 413, 414, 431, 501, or 505) and its connection closed; an HTTP/1.1
-// one without a Host, or any with two, is a 400; an Expect other than 100-continue is a 417.
-// A response has its
-// Content-Length and Date set, and a Connection: close when its connection closes after it.
+// where Listen has it listen, or ListenTls over TLS, as Serve runs. A request that breaks
+// HTTP/1.1's rules is answered as wire.fb has it (400, 413, 414, 431, 501, or 505) and its
+// connection closed; an HTTP/1.1 one without a Host, or any with two, is a 400; an Expect other
+// than 100-continue is a 417. A response has its Content-Length and Date set, and a Connection:
+// close when its connection closes after it.
 Public Class HttpServer Extends HttpRouter
     // Its routes, which its groups hold weakly.
     ReadOnly Field Own: RouteTable
@@ -571,11 +571,12 @@ Public Class HttpServer Extends HttpRouter
     // Listens for HTTPS at `https` with a certificate for `names`, DNS names, which `acme` gets
     // from its CA, or which `folder` keeps from a run before, while it's valid for those names.
     // On `http`, where the CA checks HTTP-01's challenges, a server of its own answers them, and
-    // redirects every other request to HTTPS, with a 308. `folder` keeps the certificate's key,
-    // as key.pem, its chain, as chain.pem, and its names, each written atomically. Serve renews
-    // the certificate as it runs, as RenewAsync does, once less than a third of its lifetime is
-    // left, which it checks every RenewalCheck; connections from then on get the renewed one,
-    // and those before keep theirs. Throws what ObtainAsync, Listen, and writing the folder do.
+    // redirects every other request to HTTPS, with a 308, once HTTPS listens, and until then
+    // answers a 503. `folder` keeps the certificate's key and chain, as certificate.pem, and its
+    // names, each written atomically. Serve renews the certificate as it runs, as RenewAsync
+    // does, once less than a third of its lifetime is left, which it checks as it starts, as a
+    // kept one can be due, and then every RenewalCheck; connections from then on get the renewed
+    // one, and those before keep theirs. Throws what ObtainAsync, Listen, and writing the folder do.
     // Panics when it listens already, and as ObtainAsync does for the names.
     @PanicsAtCaller
     Public Async Method ListenAutoAsync(acme: AcmeClient, names: String[], folder: Path,
@@ -585,6 +586,7 @@ Public Class HttpServer Extends HttpRouter
         If Listener != Null || Auto != Null Then Panic("the HttpServer listens already")
         If names.Count == 0 Then Panic("automatic HTTPS gets a certificate for a name at least")
         Local auto = AutoHttps(acme, names, folder)
+        auto.Secure.Port = https.Port
         Try auto.Plain.Listen(http)
         auto.Serving = auto.Plain.Serve()
         Try
@@ -594,6 +596,7 @@ Public Class HttpServer Extends HttpRouter
             auto.Tls = tls
             auto.Use(identity)
             auto.Secure.Port = LocalAddress.Port
+            auto.Secure.Ready = True
         Catch e As NetError
             auto.Stop()
             Throw e
@@ -621,7 +624,8 @@ Public Class HttpServer Extends HttpRouter
     End Method
 
     // How often automatic HTTPS checks whether its certificate is due to renew: 12 hours unless
-    // it's set. Panics when it's set to 0 or less.
+    // it's set, which counts from the check before even while a wait is under way. Panics when
+    // it's set to 0 or less.
     @PanicsAtCaller
     Public Property RenewalCheck: Duration
         Get => Check
@@ -708,8 +712,7 @@ Public Class HttpServer Extends HttpRouter
         Local secure = stream As? TlsDuplex
         Local tls = Tls
         If secure != Null && tls != Null
-            stream.ReadTimeout = Idle
-            If !Await secure.HandshakeAsync(tls) Then Return
+            If !Await secure.HandshakeAsync(tls, Idle) Then Return
         End If
 
         Local open = True
@@ -957,9 +960,10 @@ End Function
 // Where HTTP-01's challenges are.
 Const CHALLENGES = "/.well-known/acme-challenge/"
 
-// The port HTTPS listens at, which automatic HTTPS's redirects go to once it's listening.
+// The port HTTPS listens at, which automatic HTTPS's redirects go to once it's Ready, listening.
 Package Class HttpsPort
     Package Field Port: UInt16
+    Package Field Ready: Bool
 End Class
 
 // A certificate chain and its key, and when its certificate is valid.
@@ -976,6 +980,23 @@ Package Class Identity
         NotAfter = notAfter
     End New
 End Class
+
+// Whether `key` is the private key of `certificate`'s, both of ECDSA P-256.
+Function IsKeyOf(key: Key, certificate: Certificate): Bool
+    Local own = certificate.PublicKey
+    If own == Null || own.Kind != KeyKind.ECDSA_P256 || key.Kind != KeyKind.ECDSA_P256 ||
+       !key.IsPrivate || key.Bytes.Count != 32
+        Return False
+    End If
+
+    Local point = EcdsaP256.PublicKeyOf(key.Bytes)
+    If point.Count != own.Bytes.Count Then Return False
+    For i = 0 Until point.Count
+        If point[i] != own.Bytes[i] Then Return False
+    End For
+
+    Return True
+End Function
 
 // `chain`, its certificate first, and `key`, or Null for no certificate, or one whose times
 // don't read.
@@ -1018,7 +1039,7 @@ Package Class AutoHttps
         Local secure = Secure
         Local fallback = names[0]
         Plain.Use(Async Function(request: HttpRequest, next: HttpHandler): HttpResponse
-            Return Challenged(request, tokens, secure.Port, fallback)
+            Return Challenged(request, tokens, secure, fallback)
         End Function)
     End New
 
@@ -1035,10 +1056,14 @@ Package Class AutoHttps
         Try
             Local names = Try File.ReadText(Folder / Path("names.txt"))
             If names != NamesText() Then Return Null
-            Local chain = Try Certificate.AllFromPem(Try File.ReadText(Folder / Path("chain.pem")))
-            Local key = Try Key.FromPem(Try File.ReadText(Folder / Path("key.pem")))
+            Local text = Try File.ReadText(Folder / Path("certificate.pem"))
+            Local split = text.Find("-----BEGIN CERTIFICATE-----")
+            If split == Null Then Return Null
+            Local key = Try Key.FromPem(text.Slice(0, split))
+            Local chain = Try Certificate.AllFromPem(text.Slice(split, text.Length))
             Local identity = IdentityOf(chain, key)
             If identity == Null || identity.NotAfter <= Timestamp.Now() Then Return Null
+            If !IsKeyOf(key, chain[0]) Then Return Null
             Return identity
         Catch e As IOError
             Return Null
@@ -1057,9 +1082,9 @@ Package Class AutoHttps
             Throw NetError(NetErrorKind.OTHER, "the ACME CA's certificate doesn't read")
         End If
 
+        // The key and its chain go in one file, so a write that stops leaves both as they were.
         Try Await Dir.CreateAllAsync(Folder)
-        Try Await File.WriteTextAtomicAsync(Folder / Path("key.pem"), key.ToPem())
-        Try Await File.WriteTextAtomicAsync(Folder / Path("chain.pem"), pem)
+        Try Await File.WriteTextAtomicAsync(Folder / Path("certificate.pem"), key.ToPem() + pem)
         Try Await File.WriteTextAtomicAsync(Folder / Path("names.txt"), NamesText())
         Return identity
     End Method
@@ -1090,19 +1115,21 @@ Package Class AutoHttps
         Log.Error("the certificate for {NamesText()} wasn't renewed: {e.Message}")
     End Method
 
-    // Renews the certificate once less than a third of its lifetime is left, checking every
-    // `check()`, until Stop; it waits a second at a time, so Stop ends it soon.
+    // Renews the certificate once less than a third of its lifetime is left, checking at once,
+    // as a kept one can be due, and then every `check()`, until Stop. It waits a second at a
+    // time, so Stop ends it soon, and a RenewalCheck set meanwhile counts from the check before.
     Package Async Method Renewing(check: Func(): Duration)
         While !Stopped
-            Local deadline = Deadline.After(check())
-            While !Stopped && !deadline.HasPassed
-                Local wait = deadline.Remaining
-                Await Timer.After(wait < 1.Seconds ? wait : 1.Seconds)
-            End While
-
-            If !Stopped && ValidUntil - Timestamp.Now() < (ValidUntil - ValidFrom) / 3
+            If ValidUntil - Timestamp.Now() < (ValidUntil - ValidFrom) / 3
                 Try? Await RenewAsync()
             End If
+
+            Local started = Instant.Now()
+            While !Stopped
+                Local left = check() - started.Elapsed
+                If left <= Duration.Zero() Then Break
+                Await Timer.After(left < 1.Seconds ? left : 1.Seconds)
+            End While
         End While
     End Method
 
@@ -1121,9 +1148,10 @@ Package Class AutoHttps
 End Class
 
 // What automatic HTTPS's server on HTTP answers `request` with: a challenge's key authorization
-// from `tokens`, or a 404 for a token it hasn't, and for anything else, a 308 to the same target
-// over HTTPS, at its Host, or `fallback` without one, and `port`.
-Function Challenged(request: HttpRequest, tokens: AcmeTokens, port: UInt16,
+// from `tokens`, or a 404 for a token it hasn't, and for anything else, a 308 to the same path
+// and query over HTTPS, at its Host, or `fallback` for none, and `secure`'s port, or a 503 until
+// HTTPS listens.
+Function Challenged(request: HttpRequest, tokens: AcmeTokens, secure: HttpsPort,
                     fallback: String): HttpResponse
     If request.Path.StartsWith(CHALLENGES)
         Local answer = tokens.Answer(request.Path)
@@ -1131,10 +1159,28 @@ Function Challenged(request: HttpRequest, tokens: AcmeTokens, port: UInt16,
         Return HttpResponse.Of(Body.Text(answer))
     End If
 
-    Local host = HostOf(request.Headers.Get("Host") ?? fallback)
+    If !secure.Ready
+        Local waiting = HttpResponse.Of(StatusCode.SERVICE_UNAVAILABLE)
+        waiting.Headers.Set("Retry-After", "5")
+        Return waiting
+    End If
+
+    Local host = HostOf(request.Headers.Get("Host") ?? "")
+    If host == "" Then host = fallback
+    Local port = secure.Port
     Local authority = port == 443 ? host : "{host}:{port}"
-    Local target = request.Target.StartsWith("/") ? request.Target : request.Path
-    Return HttpResponse.Redirect("https://{authority}{target}", 308)
+    Return HttpResponse.Redirect("https://{authority}{TargetOf(request)}", 308)
+End Function
+
+// A request's target as a path and query: an origin-form one as it is, and an absolute-form
+// one's, which RFC 9112 has a server take too.
+Function TargetOf(request: HttpRequest): String
+    Local target = request.Target
+    If target.StartsWith("/") Then Return target
+    Local url = Url.Parse(target)
+    If url == Null Then Return request.Path
+    Local query = url.Query
+    Return query == Null ? url.Path : "{url.Path}?{query}"
 End Function
 
 // A Host field's host, without its port: a name, an IPv4 address, or an IPv6 one in brackets.

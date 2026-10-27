@@ -30,29 +30,70 @@ End Interface
 Extend TcpStream Implements Duplex
 End Extend
 
+// A TCP connection that TLS reads and writes through, each of whose reads waits only as long as
+// what's left of its Limit, once one's set, so a client that sends its handshake a byte at a time
+// can't hold it open past that.
+Package Class Paced Implements Reader, Writer
+    Package ReadOnly Field Tcp: TcpStream
+    Package Field Limit: Deadline? = Null
+
+    Package New(tcp: TcpStream)
+        Tcp = tcp
+    End New
+
+    Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+        Bound()
+        Return Try Tcp.Read(into)
+    End Method
+
+    Public Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
+        Bound()
+        Return Try Await Tcp.ReadAsync(into)
+    End Method
+
+    Public Method Write(from: Buffer<UInt8>) Throws IOError
+        Try Tcp.Write(from)
+    End Method
+
+    Public Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
+        Try Await Tcp.WriteAsync(from)
+    End Method
+
+    // Has the next read wait for what's left of the Limit at most.
+    Method Bound()
+        Local limit = Limit
+        If limit != Null Then Tcp.ReadTimeout = limit.Remaining
+    End Method
+End Class
+
 // TLS over a TCP connection as a Duplex: a server's, whose handshake HandshakeAsync runs, or a
 // client's, made once its handshake is done. It ends what it writes, and closes, with TLS's
 // close_notify first, and its ReadTimeout is the TCP connection's.
 Package Class TlsDuplex Implements Duplex
     ReadOnly Field Tcp: TcpStream
-    Field Tls: TlsStream<TcpStream>? = Null
+    ReadOnly Field Through: Paced
+    Field Tls: TlsStream<Paced>? = Null
 
     // A server's, over `tcp`, before its handshake.
     Package New(tcp: TcpStream)
         Tcp = tcp
+        Through = Paced(tcp)
     End New
 
     // A client's, whose handshake is done.
-    Package New(tls: TlsStream<TcpStream>)
-        Tcp = tls.Stream
+    Package New(tls: TlsStream<Paced>)
+        Through = tls.Stream
+        Tcp = Through.Tcp
         Tls = tls
     End New
 
-    // Runs a server's handshake as `server`, and tells whether it's done; one that fails, or
-    // takes longer than the ReadTimeout, closes the connection.
-    Package Async Method HandshakeAsync(server: TlsServer): Bool
+    // Runs a server's handshake as `server`, and tells whether it's done within `limit`, all of
+    // it, however the client sends it; one that fails, or takes longer, closes the connection.
+    Package Async Method HandshakeAsync(server: TlsServer, limit: Duration): Bool
+        Through.Limit = Deadline.After(limit)
         Try
-            Tls = Try Await server.AcceptAsync(Tcp)
+            Tls = Try Await server.AcceptAsync(Through)
+            Through.Limit = Null
             Return True
         Catch e As NetError
         Catch e As TimeoutError
@@ -103,7 +144,7 @@ Package Class TlsDuplex Implements Duplex
 
     // The TLS stream, once the handshake is done.
     @PanicsAtCaller
-    Method Shaken(): TlsStream<TcpStream>
+    Method Shaken(): TlsStream<Paced>
         Local tls = Tls
         If tls == Null Then Panic("a TLS connection is used before its handshake")
         Return tls

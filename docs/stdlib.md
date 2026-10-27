@@ -1516,17 +1516,21 @@ discovery. `Import std.net` brings in std/net/.
   around its own routes. `Listen(address)` or `Listen(host, port)`, or for HTTPS
   `ListenTls(address, tls)` or `ListenTls(host, port, tls)`, whose connections a `TlsServer`
   accepts, each handshake in its connection's own time, so a slow one holds no other up, and a
-  handshake that fails or takes longer than `IdleTimeout` closes its connection; or automatic
-  HTTPS, `ListenAutoAsync(acme, names, folder, https, http)`, which listens for HTTPS at `https`
-  with a certificate for `names` that `acme`, an AcmeClient, gets from its CA, as Caddy does,
-  or that `folder` keeps from a run before while it's valid for those names (its key.pem,
-  chain.pem, and names.txt, each written atomically), while a server of its own at `http`, where
-  the CA checks HTTP-01, answers the challenges and redirects everything else to HTTPS with a
-  308; Serve renews the certificate once less than a third of its lifetime is left, which it
-  checks every `RenewalCheck` (12 hours unless it's set, more than 0 or a panic), `RenewAsync()`
-  renews it at once, and connections from then on get the renewed one while those before keep
-  theirs; a renewal that fails logs its error through std.log, as one that works logs that it
-  did, and the certificate before goes on; `CertificateNotAfter` and `RenewalError` (Null once
+  handshake that fails, or isn't done within `IdleTimeout`, all of it, however the client sends
+  it, closes its connection; or automatic HTTPS, `ListenAutoAsync(acme, names, folder, https,
+  http)`, which listens for HTTPS at `https` with a certificate for `names` that `acme`, an
+  AcmeClient, gets from its CA, as Caddy does, or that `folder` keeps from a run before while
+  it's valid for those names and its key is its own (certificate.pem, its key and chain in one
+  file, and names.txt, each written atomically), while a server of its own at `http`, where the
+  CA checks HTTP-01, answers the challenges, and everything else with a 503 and a Retry-After
+  until HTTPS listens, and after, a 308 to the same path and query over HTTPS, at the request's
+  Host, or the first name for an empty one; Serve renews the certificate once less than a third
+  of its lifetime is left, which it checks as it starts, as a kept one can be due, and then
+  every `RenewalCheck` (12 hours unless it's set, more than 0 or a panic, a change counting from
+  the check before), `RenewAsync()` renews it at once, and connections from then on get the
+  renewed one while those before keep theirs; a renewal that fails logs its error through
+  std.log, as one that works logs that it did, and the certificate before goes on;
+  `CertificateNotAfter` and `RenewalError` (Null once
   a renewal works) say how it stands; `LocalAddress`, `Serve()`,
   which answers until `Stop()`, `IsRunning`, `MaxBodySize` (16 MiB, past which a 413), and
   `IdleTimeout` (a minute). Connections stay open for the next request as RFC 9112 has it,

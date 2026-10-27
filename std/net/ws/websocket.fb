@@ -113,7 +113,7 @@ Public Class WebSocket
         If target.Secure
             tcp.ReadTimeout = timeout
             Try
-                stream = TlsDuplex(Try (tls ?? TlsClient()).Connect(tcp, target.Host))
+                stream = TlsDuplex(Try (tls ?? TlsClient()).Connect(Paced(tcp), target.Host))
             Catch e As NetError
                 tcp.Close()
                 Throw e
@@ -152,7 +152,8 @@ Public Class WebSocket
         If target.Secure
             tcp.ReadTimeout = timeout
             Try
-                stream = TlsDuplex(Try Await (tls ?? TlsClient()).ConnectAsync(tcp, target.Host))
+                stream = TlsDuplex(
+                    Try Await (tls ?? TlsClient()).ConnectAsync(Paced(tcp), target.Host))
             Catch e As NetError
                 tcp.Close()
                 Throw e
