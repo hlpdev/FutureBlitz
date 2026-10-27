@@ -1,0 +1,8 @@
+// A zip's modes are Unix permissions, from 0 to 0o7777, and AddFolder panics where it's called
+// for one past them.
+Import std.core
+Import std.compress
+
+Local zip = ZipWriter()
+zip.Add("fine.txt", "fine".Bytes, mode: 0o7777)
+zip.AddFolder("past", mode: 0o10000)

@@ -1136,32 +1136,39 @@ std.io's bytes through a codec. `Import std.compress` brings in all of std/compr
   `SevenZip.Read(data)` a `SevenZipReader`, of a copy of the bytes, with `Entries`, `Count`,
   `Find(name)`, `Contains(name)`, `Read(name)`, which gives the last entry of the name, or Null for
   none, and `ReadAt(index)`, which panics out of range. Each `ArchiveEntry` has its `Name`, with '/'
-  between folders and none at its end, its `Kind` (`FILE`, `FOLDER`, or `LINK`), its `Size`, and a
-  link's `Target`; reading a folder or a link gives no bytes. A name is as the archive has it, so a
-  program that makes files of them checks them first. A `ZipWriter` adds files by a `ZipMethod`
-  (`STORE`, `DEFLATE`, `LZMA`, `XZ`, or `ZSTD`) at a level, and folders, and a `TarWriter` files and
-  folders, and each one's `Finish()` gives the archive and starts again, panicking for one of more
-  bytes than a UInt8[] holds. Names are UTF-8: a zip's that don't say so, and aren't, are read as
+  between folders and none at its end, its `Kind` (`FILE`, `FOLDER`, or `LINK`), its `Size`, a
+  link's `Target`, when it was `Modified`, a `Timestamp?`, and its `Mode`, its Unix permissions,
+  like `0o644`, an `Int?`, each Null where the archive doesn't say, as a 7z's aren't read and a zip
+  made on Windows has no mode; reading a folder or a link gives no bytes. A name is as the archive
+  has it, so a program that makes files of them checks them first. A `ZipWriter` adds files by a
+  `ZipMethod` (`STORE`, `DEFLATE`, `LZMA`, `XZ`, or `ZSTD`) at a level, and folders, and a
+  `TarWriter` files and folders, each at a `modified` time and with a `mode`, from 0 to `0o7777`,
+  which panics past them, or else a fixed one, and each one's `Finish()` gives the archive and
+  starts again, panicking for one of more bytes than a UInt8[] holds. Names are UTF-8: a zip's that don't say so, and aren't, are read as
   code page 437, and each byte of a tar's that isn't is U+FFFD. Every entry is checked against its
   CRC-32 where the archive has one.
 - Zip, over minizip-ng: Zip64 where sizes need it, and no encryption; what a ZipWriter makes was
-  made by Unix, with modes 644 and 755, and last changed on 1980-01-01, so every program and OS
-  makes the same bytes. Its names have '/' between folders, and a '\' panics; its LZMA and XZ levels
-  go from 1 to 9, as minizip-ng stores an entry at 0. An LZMA or XZ entry is decoded over liblzma,
-  with no more memory than XZ.Decompress takes, and only a Unix, macOS, or RISC OS entry's mode, or
-  an extra field naming a target, makes a link. Tar: ustar, pax's extended headers, GNU's long names
-  and base-256 numbers, and old tars, whose folders are names ending with '/', leaving out devices
-  and FIFOs. A type it doesn't know is a file, as POSIX says, and GNU's 'D', an incremental tar's, a
-  folder; GNU's sparse files, old and in pax, are listed, and their reads are IOErrors. `Tar.Read`
-  decompresses a .tar.gz, .tar.zst, .tar.xz, or .tar.lz4 first, after skippable frames too, and a
-  TarWriter's tar compresses to one, as `Gzip.Compress(writer.Finish())` does. A TarWriter writes
-  ustar, with a pax header for a name ustar can't hold or that isn't ASCII, owned by root, at 1970's
-  start. 7z, read over liblzma: its coders stored, LZMA, with or without its end marker, LZMA2,
-  Delta, and the branch filters for x86, PowerPC, IA-64, ARM, ARM Thumb, ARM64, SPARC, and RISC-V,
-  in chains, as 7-Zip writes them; BCJ2, PPMd, BZip2, and encryption are IOErrors. A solid folder is
-  decoded once for the files read from it in turn, and its links' targets, but one of more bytes
-  than an array holds is decoded up to each file read, and kept for none. Writing 7z isn't std's.
-- Planned: entries' times and permissions, with std.time and std.io's files.
+  made by Unix, with modes 644 and 755, and last changed on 1980-01-01, unless it's told otherwise,
+  so every program and OS makes the same bytes. An entry's time is its extra fields', NTFS's,
+  Info-ZIP's extended timestamp, or PKWARE's Unix field, each UTC, or else its DOS date's, read as
+  UTC, as nothing says its zone. A ZipWriter's time is a DOS date, an even second from 1980 to 2107,
+  and an extended timestamp's exact second from 1970 to 2106. Its names have '/' between folders,
+  and a '\' panics; its LZMA and XZ levels go from 1 to 9, as minizip-ng stores an entry at 0. An
+  LZMA or XZ entry is decoded over liblzma, with no more memory than XZ.Decompress takes, and only a
+  Unix, macOS, or RISC OS entry's mode, or an extra field naming a target, makes a link. Tar: ustar,
+  pax's extended headers, GNU's long names and base-256 numbers, and old tars, whose folders are
+  names ending with '/', leaving out devices and FIFOs. A type it doesn't know is a file, as POSIX
+  says, and GNU's 'D', an incremental tar's, a folder; GNU's sparse files, old and in pax, are
+  listed, and their reads are IOErrors. `Tar.Read` decompresses a .tar.gz, .tar.zst, .tar.xz, or
+  .tar.lz4 first, after skippable frames too, and a TarWriter's tar compresses to one, as
+  `Gzip.Compress(writer.Finish())` does. A TarWriter writes ustar, with a pax header for a name
+  ustar can't hold or that isn't ASCII, or a time, which pax's has to the nanosecond, before 1970 or
+  past 2242, owned by root, and at 1970's start unless it's told otherwise. 7z, read over liblzma:
+  its coders stored, LZMA, with or without its end marker, LZMA2, Delta, and the branch filters for
+  x86, PowerPC, IA-64, ARM, ARM Thumb, ARM64, SPARC, and RISC-V, in chains, as 7-Zip writes them;
+  BCJ2, PPMd, BZip2, and encryption are IOErrors. A solid folder is decoded once for the files read
+  from it in turn, and its links' targets, but one of more bytes than an array holds is decoded up
+  to each file read, and kept for none. Writing 7z isn't std's.
 
 #### std.net
 

@@ -3,12 +3,14 @@
 // and a TarWriter's tar compresses to one, as Gzip.Compress(writer.Finish()) does. It reads
 // POSIX's ustar, with pax's extended headers, GNU's long names and large numbers, and old tars
 // without a magic, and leaves out devices and FIFOs. Names are UTF-8, with U+FFFD for each byte of
-// one that isn't. A TarWriter writes ustar, with a pax header for a name ustar can't hold or that
-// isn't ASCII, owned by root, with times and permissions left for later: a file's mode is 644 and
-// a folder's 755, at 1970's start, so every program and OS makes the same bytes.
+// one that isn't. An entry's time is a pax header's, which can be before 1970 and has a fraction,
+// or else its header's. A TarWriter writes ustar, with a pax header for a name ustar can't hold
+// or that isn't ASCII, or a time it can't, owned by root: unless it's told otherwise, a file's
+// mode is 644 and a folder's 755, at 1970's start, so every program and OS makes the same bytes.
 
 Import std.core
 Import std.collections.view
+Import std.time.timestamp
 Import std.compress.archive
 Import std.compress.codec
 Import std.compress.deflate
@@ -24,11 +26,15 @@ Extern "runtime"
     Function fb_tar_reader_size(reader: Ptr<Void>, index: Int64): Int64
     Function fb_tar_reader_kind(reader: Ptr<Void>, index: Int64): Int32
     Function fb_tar_reader_target(reader: Ptr<Void>, index: Int64): String
+    Function fb_tar_reader_seconds(reader: Ptr<Void>, index: Int64): Int64
+    Function fb_tar_reader_nanos(reader: Ptr<Void>, index: Int64): Int32
+    Function fb_tar_reader_mode(reader: Ptr<Void>, index: Int64): Int32
     Function fb_tar_reader_read(reader: Ptr<Void>, index: Int64, output: UInt8[]): Int32
     Function fb_tar_reader_message(reader: Ptr<Void>): String
     Function fb_tar_reader_free(reader: Ptr<Void>)
     Function fb_tar_writer_new(): Ptr<Void>
-    Function fb_tar_writer_add(writer: Ptr<Void>, name: String, data: UInt8[], folder: Int32)
+    Function fb_tar_writer_add(writer: Ptr<Void>, name: String, data: UInt8[], folder: Int32,
+                               timed: Int32, seconds: Int64, nanos: Int32, mode: Int32)
     Function fb_tar_writer_finish(writer: Ptr<Void>, output: UInt8[], limit: Int64): Int32
     Function fb_tar_writer_free(writer: Ptr<Void>)
 End Extern
@@ -55,20 +61,31 @@ Public Class TarWriter
         State = fb_tar_writer_new()
     End New
 
-    // Adds a file named name of data. Panics when the name is "", holds a NUL, or ends with '/',
-    // as a folder's does.
+    // Adds a file named name of data, last changed at modified, or at 1970's start when that's
+    // Null, and with mode, or 644 when that's Null. Panics when the mode isn't from 0 to 0o7777,
+    // or when the name is "", holds a NUL, or ends with '/', as a folder's does.
     @PanicsAtCaller
-    Public Method Add(name: String, data: UInt8[])
+    Public Method Add(name: String, data: UInt8[], modified: Timestamp? = Null, mode: Int? = Null)
         CheckFileName(name, MOST_BYTES, "tar")
-        fb_tar_writer_add(State, name, data, 0)
+        CheckMode(mode, "tar")
+        Added(name, data, 0, modified, mode)
     End Method
 
-    // Adds a folder named name, with '/' after it unless it has one. Panics when the name is ""
-    // or holds a NUL.
+    // Adds a folder named name, with '/' after it unless it has one, last changed at modified, as
+    // Add's are, with mode, or 755 when that's Null. Panics when the mode isn't from 0 to 0o7777,
+    // or when the name is "" or holds a NUL.
     @PanicsAtCaller
-    Public Method AddFolder(name: String)
+    Public Method AddFolder(name: String, modified: Timestamp? = Null, mode: Int? = Null)
         CheckName(name, MOST_BYTES, "tar")
-        fb_tar_writer_add(State, name, [], 1)
+        CheckMode(mode, "tar")
+        Added(name, [], 1, modified, mode)
+    End Method
+
+    // Adds an entry the runtime's way.
+    Method Added(name: String, data: UInt8[], folder: Int32, modified: Timestamp?, mode: Int?)
+        fb_tar_writer_add(State, name, data, folder, modified == Null ? 0 : 1,
+                          modified?.UnixSeconds ?? 0, (modified?.Nanosecond ?? 0) As Int32,
+                          (mode ?? -1) As Int32)
     End Method
 
     // The tar, of the entries added since it started, and then it starts again, empty. Panics
@@ -132,7 +149,9 @@ Public Class TarReader
         List.Reserve(count)
         For i = 0 Until count
             List.Add(ArchiveEntry(fb_tar_reader_name(state, i), fb_tar_reader_kind(state, i),
-                                  fb_tar_reader_size(state, i), fb_tar_reader_target(state, i)))
+                                  fb_tar_reader_size(state, i), fb_tar_reader_target(state, i),
+                                  fb_tar_reader_seconds(state, i), fb_tar_reader_nanos(state, i),
+                                  fb_tar_reader_mode(state, i)))
         End For
     End New
 

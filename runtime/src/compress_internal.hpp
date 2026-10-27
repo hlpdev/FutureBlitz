@@ -39,6 +39,13 @@ enum entry_kind_t : std::uint8_t {
     KIND_LINK = 2,
 };
 
+/// When an archive's entry was last changed: its seconds since 1970-01-01T00:00:00Z, below 0
+/// before it, and the nanoseconds after those, from 0 to 999999999.
+struct moment_t {
+    std::int64_t seconds;
+    std::int32_t nanos;
+};
+
 /// The most bytes a UInt8[] holds, which an Int counts.
 constexpr std::int64_t most_bytes = std::numeric_limits<std::int32_t>::max();
 

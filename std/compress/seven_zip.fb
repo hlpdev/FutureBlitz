@@ -44,7 +44,8 @@ Public Class SevenZipReader
         List.Reserve(count)
         For i = 0 Until count
             List.Add(ArchiveEntry(fb_xz_7z_reader_name(state, i), fb_xz_7z_reader_kind(state, i),
-                                  fb_xz_7z_reader_size(state, i), fb_xz_7z_reader_target(state, i)))
+                                  fb_xz_7z_reader_size(state, i), fb_xz_7z_reader_target(state, i),
+                                  0, -1, -1))
         End For
     End New
 

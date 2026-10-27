@@ -2,11 +2,13 @@
 // makes a new zip of entries stored or compressed by Deflate, LZMA, XZ, or Zstd; every zip tool
 // reads Deflate's, and newer ones the rest. Zip64 comes in where sizes need it. Names are UTF-8:
 // a zip's that don't say so, and aren't, are read as code page 437, as MS-DOS wrote them. A zip's
-// encryption isn't supported, nor are times and permissions yet: what a ZipWriter makes was last
-// changed on 1980-01-01, so every program and OS makes the same bytes.
+// encryption isn't supported. An entry's time is its extra fields', which say it in UTC, or else
+// its DOS date's, read as UTC, as nothing says its zone; what a ZipWriter makes was last changed
+// on 1980-01-01 unless it's told otherwise, so every program and OS makes the same bytes.
 
 Import std.core
 Import std.collections.view
+Import std.time.timestamp
 Import std.compress.archive
 Import std.compress.codec
 
@@ -18,12 +20,16 @@ Extern "runtime"
     Function fb_zip_reader_size(reader: Ptr<Void>, index: Int64): Int64
     Function fb_zip_reader_kind(reader: Ptr<Void>, index: Int64): Int32
     Function fb_zip_reader_target(reader: Ptr<Void>, index: Int64): String
+    Function fb_zip_reader_seconds(reader: Ptr<Void>, index: Int64): Int64
+    Function fb_zip_reader_nanos(reader: Ptr<Void>, index: Int64): Int32
+    Function fb_zip_reader_mode(reader: Ptr<Void>, index: Int64): Int32
     Function fb_zip_reader_read(reader: Ptr<Void>, index: Int64, output: UInt8[]): Int32
     Function fb_zip_reader_message(reader: Ptr<Void>): String
     Function fb_zip_reader_free(reader: Ptr<Void>)
     Function fb_zip_writer_new(): Ptr<Void>
     Function fb_zip_writer_add(writer: Ptr<Void>, name: String, data: UInt8[], method: Int32,
-                               level: Int32, folder: Int32)
+                               level: Int32, folder: Int32, timed: Int32, seconds: Int64,
+                               mode: Int32)
     Function fb_zip_writer_finish(writer: Ptr<Void>, output: UInt8[], limit: Int64): Int32
     Function fb_zip_writer_free(writer: Ptr<Void>)
 End Extern
@@ -54,14 +60,18 @@ Public Class ZipWriter
 
     // Adds a file named name of data, compressed by method, at level, or its default when level
     // is Null: 6 for DEFLATE, from 0 to 9, and for LZMA and XZ, which a zip has from 1 to 9, as
-    // minizip-ng stores an entry at 0, and 3 for ZSTD, from 1 to 22. Panics when the level isn't
-    // one of method's, or when the name is "", holds a NUL or a '\', ends with '/', as a folder's
+    // minizip-ng stores an entry at 0, and 3 for ZSTD, from 1 to 22. It was last changed at
+    // modified, or on 1980-01-01 when that's Null, a DOS date of an even second from 1980 to
+    // 2107, which one from 1970 to 2106 is exact to the second beside, and its mode is mode, or
+    // 644 when that's Null. Panics when the level isn't one of method's, when the mode isn't from
+    // 0 to 0o7777, or when the name is "", holds a NUL or a '\', ends with '/', as a folder's
     // does, or is longer than 65535 bytes.
     @PanicsAtCaller
     Public Method Add(name: String, data: UInt8[], method: ZipMethod = ZipMethod.DEFLATE,
-                      level: Int? = Null)
+                      level: Int? = Null, modified: Timestamp? = Null, mode: Int? = Null)
         CheckFileName(name, 65535, "zip")
         CheckSlashes(name)
+        CheckMode(mode, "zip")
         Local used = level ?? (method == ZipMethod.ZSTD ? 3 : 6)
         If method == ZipMethod.ZSTD
             CheckLevel(used, 1, 22, "Zstd")
@@ -71,16 +81,21 @@ Public Class ZipWriter
             CheckLevel(used, 1, 9, "a zip's {method}")
         End If
 
-        fb_zip_writer_add(State, name, data, MethodNumber(method), used, 0)
+        fb_zip_writer_add(State, name, data, MethodNumber(method), used, 0, modified == Null ? 0 : 1,
+                          modified?.UnixSeconds ?? 0, (mode ?? -1) As Int32)
     End Method
 
     // Adds a folder named name, with '/' after it unless it has one, which takes 1 of a name's
-    // 65535 bytes. Panics when the name is "", holds a NUL or a '\', or is longer than that.
+    // 65535 bytes, last changed at modified, as Add's are, with mode, or 755 when that's Null.
+    // Panics when the mode isn't from 0 to 0o7777, or when the name is "", holds a NUL or a '\',
+    // or is longer than 65534 bytes.
     @PanicsAtCaller
-    Public Method AddFolder(name: String)
+    Public Method AddFolder(name: String, modified: Timestamp? = Null, mode: Int? = Null)
         CheckName(name, 65534, "zip")
         CheckSlashes(name)
-        fb_zip_writer_add(State, name, [], 0, 0, 1)
+        CheckMode(mode, "zip")
+        fb_zip_writer_add(State, name, [], 0, 0, 1, modified == Null ? 0 : 1,
+                          modified?.UnixSeconds ?? 0, (mode ?? -1) As Int32)
     End Method
 
     // The zip, of the entries added since it started, and then it starts again, empty. Panics
@@ -140,7 +155,9 @@ Public Class ZipReader
         List.Reserve(count)
         For i = 0 Until count
             List.Add(ArchiveEntry(fb_zip_reader_name(state, i), fb_zip_reader_kind(state, i),
-                                  fb_zip_reader_size(state, i), fb_zip_reader_target(state, i)))
+                                  fb_zip_reader_size(state, i), fb_zip_reader_target(state, i),
+                                  fb_zip_reader_seconds(state, i), fb_zip_reader_nanos(state, i),
+                                  fb_zip_reader_mode(state, i)))
         End For
     End New
 

@@ -1,7 +1,7 @@
 // std.compress's Tar: a reader of a tar's entries, POSIX's ustar with pax's extended headers and
 // GNU's long names and big numbers, and old tars without a magic, and a writer of ustar, with a
-// pax header for a name ustar can't hold. It needs no library, so it's in the runtime's own
-// archive, which links it only for a program that uses it.
+// pax header for a name or a time ustar can't hold. It needs no library, so it's in the runtime's
+// own archive, which links it only for a program that uses it.
 
 #include "compress_internal.hpp"
 #include "fb/compress.hpp"
@@ -20,6 +20,7 @@
 using fb::compress::KIND_FILE;
 using fb::compress::KIND_FOLDER;
 using fb::compress::KIND_LINK;
+using fb::compress::moment_t;
 using fb::compress::most_bytes;
 using fb::compress::output_t;
 using fb::compress::RESULT_DONE;
@@ -132,12 +133,13 @@ bool checksum_matches(const std::span<const std::uint8_t> header) {
 }
 
 /// The values of a pax extended header's records, "<length> <key>=<value>\n", that the reader
-/// uses: a name, a link's target, and a size, and whether it's one of GNU's sparse files, with the
-/// name and the size they really have, which GNU's GNU.sparse records give.
+/// uses: a name, a link's target, a size, and a time, and whether it's one of GNU's sparse files,
+/// with the name and the size they really have, which GNU's GNU.sparse records give.
 struct pax_t {
     std::optional<std::string> path;
     std::optional<std::string> link;
     std::optional<std::int64_t> size;
+    std::optional<moment_t> mtime;
     bool sparse = false;
     std::optional<std::string> sparse_name;
     std::optional<std::int64_t> sparse_size;
@@ -160,7 +162,85 @@ std::optional<std::int64_t> number_in(const std::string_view value) {
     return number;
 }
 
-/// Reads pax records into `pax`, or gives false when they aren't well-formed.
+/// A record's time: seconds since 1970, with a sign or not and a fraction or not, like "-12.5",
+/// or nothing when it isn't one an Int64 of seconds holds.
+std::optional<moment_t> time_in(std::string_view value) {
+    const bool negative = value.starts_with('-');
+    if (negative) {
+        value.remove_prefix(1);
+    }
+
+    const std::size_t point = value.find('.');
+    const std::optional<std::int64_t> whole = number_in(value.substr(0, point));
+    if (!whole) {
+        return std::nullopt;
+    }
+
+    // Digits past nanoseconds' are left out.
+    std::int32_t nanos = 0;
+    if (point != std::string_view::npos) {
+        const std::string_view fraction = value.substr(point + 1);
+        if (fraction.empty()) {
+            return std::nullopt;
+        }
+
+        for (std::size_t i = 0; i < 9; ++i) {
+            const char digit = i < fraction.size() ? fraction[i] : '0';
+            if (digit < '0' || digit > '9') {
+                return std::nullopt;
+            }
+
+            nanos = (nanos * 10) + (digit - '0');
+        }
+
+        if (!std::ranges::all_of(fraction.substr(std::min<std::size_t>(fraction.size(), 9)),
+                                 [](const char digit) { return digit >= '0' && digit <= '9'; })) {
+            return std::nullopt;
+        }
+    }
+
+    if (!negative) {
+        return moment_t{ .seconds = *whole, .nanos = nanos };
+    }
+
+    if (nanos == 0) {
+        return moment_t{ .seconds = -*whole, .nanos = 0 };
+    }
+
+    return moment_t{ .seconds = -*whole - 1, .nanos = 1000000000 - nanos };
+}
+
+/// A time as a pax record has it, as time_in() reads it: "-12.5" for 12.5 seconds before 1970.
+std::string pax_time(const moment_t time) {
+    std::int64_t whole = time.seconds;
+    std::int32_t nanos = time.nanos;
+    std::string text;
+    if (whole < 0) {
+        text = "-";
+        if (nanos > 0) {
+            whole += 1;
+            nanos = 1000000000 - nanos;
+        }
+
+        whole = -whole;
+    }
+
+    text += std::to_string(whole);
+    if (nanos > 0) {
+        std::string digits = std::to_string(nanos);
+        digits.insert(0, 9 - digits.size(), '0');
+        while (digits.back() == '0') {
+            digits.pop_back();
+        }
+
+        text += "." + digits;
+    }
+
+    return text;
+}
+
+/// Reads pax records into `pax`, or gives false when they aren't well-formed. A time that isn't
+/// one is left out, as the header's then says it.
 bool read_pax(std::string_view records, pax_t& pax) {
     while (!records.empty()) {
         const std::size_t space = records.find(' ');
@@ -199,6 +279,8 @@ bool read_pax(std::string_view records, pax_t& pax) {
             if (!pax.size) {
                 return false;
             }
+        } else if (key == "mtime") {
+            pax.mtime = time_in(value);
         } else if (key.starts_with("GNU.sparse.")) {
             // GNU tar's sparse formats 0.0, 0.1, and 1.0, which say the file's real name and size.
             pax.sparse = true;
@@ -227,6 +309,9 @@ struct entry_t {
     std::int64_t size;
     std::int32_t kind;
     std::string target;
+    /// When it was last changed, and its Unix permissions, or -1 when the tar doesn't say.
+    std::optional<moment_t> modified;
+    std::int32_t mode;
     /// Where its bytes start, in the reader's bytes, and whether it's GNU's sparse file, which
     /// the reader doesn't put together.
     std::size_t data;
@@ -363,6 +448,16 @@ std::int32_t open(reader_t& reader) {
             whole = std::max(size, number_of(header, { .at = 483, .size = 12 }).value_or(0));
         }
 
+        // A time is a pax record's, which can be before 1970 and has a fraction, or else the
+        // header's, which can be neither.
+        std::optional<moment_t> modified = pax.mtime;
+        if (!modified) {
+            if (const std::optional<std::int64_t> seconds = number_of(header, time_field)) {
+                modified = moment_t{ .seconds = *seconds, .nanos = 0 };
+            }
+        }
+
+        const std::optional<std::int64_t> mode = number_of(header, mode_field);
         pax = {};
         long_name.reset();
         long_link.reset();
@@ -384,6 +479,9 @@ std::int32_t open(reader_t& reader) {
             .size = kind == KIND_FOLDER ? 0 : whole,
             .kind = kind,
             .target = kind == KIND_LINK ? fb::compress::utf8_or_replaced(target) : "",
+            .modified = modified,
+            .mode =
+                mode ? static_cast<std::int32_t>(static_cast<std::uint64_t>(*mode) & 07777U) : -1,
             .data = data,
             .sparse = sparse,
         });
@@ -405,16 +503,21 @@ void put_number(header_t& header, const field_t field, std::uint64_t value) {
     }
 }
 
-/// A ustar header of an entry, with its checksum.
+/// The most seconds a ustar header's time holds: 11 octal digits, into 2242.
+constexpr std::int64_t last_time = 077777777777;
+
+/// A ustar header of an entry, with its checksum, last changed `time` seconds after 1970's
+/// start, from 0 to last_time.
 header_t header_of(const std::string_view name, const std::string_view prefix,
-                   const std::uint64_t size, const char type, const std::uint64_t mode) {
+                   const std::uint64_t size, const char type, const std::uint64_t mode,
+                   const std::int64_t time) {
     header_t header{};
     put_text(header, name_field, name);
     put_number(header, mode_field, mode);
     put_number(header, uid_field, 0);
     put_number(header, gid_field, 0);
     put_number(header, size_field, size);
-    put_number(header, time_field, 0);
+    put_number(header, time_field, static_cast<std::uint64_t>(time));
     header[type_at] = static_cast<std::uint8_t>(type);
     put_text(header, magic_field, "ustar");
     put_text(header, version_field, "00");
@@ -517,6 +620,20 @@ fb_string_t* fb_tar_reader_target(const void* reader, const std::int64_t index) 
     return fb::compress::string_of(entry_of(reader, index).target);
 }
 
+std::int64_t fb_tar_reader_seconds(const void* reader, const std::int64_t index) {
+    const std::optional<moment_t>& modified = entry_of(reader, index).modified;
+    return modified ? modified->seconds : 0;
+}
+
+std::int32_t fb_tar_reader_nanos(const void* reader, const std::int64_t index) {
+    const std::optional<moment_t>& modified = entry_of(reader, index).modified;
+    return modified ? modified->nanos : -1;
+}
+
+std::int32_t fb_tar_reader_mode(const void* reader, const std::int64_t index) {
+    return entry_of(reader, index).mode;
+}
+
 std::int32_t fb_tar_reader_read(void* reader, const std::int64_t index, fb_array_t* output) {
     reader_t& state = reader_of(reader);
     const entry_t& entry = entry_of(reader, index);
@@ -547,7 +664,9 @@ void* fb_tar_writer_new() {
 }
 
 void fb_tar_writer_add(void* writer, const fb_string_t* name, const fb_array_t* data,
-                       const std::int32_t folder) {
+                       const std::int32_t folder, const std::int32_t timed,
+                       const std::int64_t seconds, const std::int32_t nanos,
+                       const std::int32_t mode) {
     auto& state = *static_cast<writer_t*>(writer);
     std::string path(fb::compress::text_of(name));
     if (folder != 0 && !path.ends_with('/')) {
@@ -566,17 +685,32 @@ void fb_tar_writer_add(void* writer, const fb_string_t* name, const fb_array_t* 
     }
 
     // A name ustar can't hold, or that isn't ASCII, goes in a pax header before it, which says
-    // it's UTF-8, and the ustar header has as much of it as fits.
+    // it's UTF-8, and the ustar header has as much of it as fits. So does a time it can't hold,
+    // before 1970, past 2242, or with a fraction, and the ustar header has the nearest it can.
+    std::string records;
     if (!split) {
-        const std::string records = pax_record("path", path);
-        const header_t pax = header_of("././@PaxHeader", "", records.size(), 'x', 0644);
-        append(state, pax);
-        append(state, { reinterpret_cast<const std::uint8_t*>(records.data()), records.size() });
+        records += pax_record("path", path);
         rest = std::string_view(path).substr(0, name_field.size);
     }
 
+    const std::int64_t time = timed != 0 ? std::clamp<std::int64_t>(seconds, 0, last_time) : 0;
+    if (timed != 0 && (time != seconds || nanos != 0)) {
+        records += pax_record("mtime", pax_time({ .seconds = seconds, .nanos = nanos }));
+    }
+
+    if (!records.empty()) {
+        const header_t pax = header_of("././@PaxHeader", "", records.size(), 'x', 0644, 0);
+        append(state, pax);
+        append(state, { reinterpret_cast<const std::uint8_t*>(records.data()), records.size() });
+    }
+
+    std::uint64_t permissions = folder != 0 ? 0755 : 0644;
+    if (mode >= 0) {
+        permissions = static_cast<std::uint64_t>(mode);
+    }
+
     const header_t header = header_of(rest, prefix, folder != 0 ? 0 : bytes.size(),
-                                      folder != 0 ? '5' : '0', folder != 0 ? 0755 : 0644);
+                                      folder != 0 ? '5' : '0', permissions, time);
     append(state, header);
     if (folder == 0) {
         append(state, bytes);

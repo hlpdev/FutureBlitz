@@ -1,5 +1,6 @@
 // std.compress reads what common tools wrote: GNU gzip's and xz's files, lz4's frame, Git's Zlib,
-// bsdtar's zstd frame, zip, and 7z archives, and GNU tar's and bsdtar's tars, compressed and not.
+// bsdtar's zstd frame, zip, and 7z archives, and GNU tar's and bsdtar's tars, compressed and not,
+// with the times and modes their entries have.
 // compress_tools/make_data.py says how each was made.
 
 Import std.core
@@ -36,11 +37,15 @@ Function Matched(name: String, bytes: UInt8[]): String
     Return bytes == expected ? "right" : "wrong, {bytes.Count} bytes"
 End Function
 
+// Each entry's name, what it is, whether its bytes are right, when it was last changed, and its
+// mode, which a 7z's are left out of.
 Function Show(entry: ArchiveEntry, bytes: UInt8[])
+    Local mode = entry.Mode
+    Local changed = " {entry.Modified?.ToString() ?? "-"} {mode == Null ? "-" : "0o{mode:o}"}"
     If entry.Kind == ArchiveEntryKind.FILE
-        Print("  {entry.Name}: {entry.Size} bytes, {Matched(entry.Name, bytes)}")
+        Print("  {entry.Name}: {entry.Size} bytes, {Matched(entry.Name, bytes)},{changed}")
     Else
-        Print("  {entry.Name}: {entry.Kind}")
+        Print("  {entry.Name}: {entry.Kind},{changed}")
     End If
 End Function
 

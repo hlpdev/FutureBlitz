@@ -1,7 +1,9 @@
 // What Zip's, Tar's, and SevenZip's readers share: an ArchiveEntry for each of an archive's
-// entries, in the order the archive has them, and how a name's checked before it's written.
+// entries, in the order the archive has them, and how a name and a mode are checked before
+// they're written.
 
 Import std.core
+Import std.time.timestamp
 
 // What an entry is: a file, a folder, or a link, whose Target is where it points, as a symbolic
 // link or a tar's hard link does.
@@ -11,22 +13,36 @@ End Enum
 
 // One of an archive's entries: its Name, its path in the archive, with '/' between folders and
 // none at its end, its Kind, its Size, the bytes a file's read gives, which is 0 for a folder or
-// a link, and a link's Target, which is "" for the rest. A name is as the archive has it, which
-// can be anything: a program that makes files of them checks them first, for one like
-// "../../x".
+// a link, a link's Target, which is "" for the rest, when it was Modified, and its Mode, its
+// Unix permissions, like 0o644. Either is Null when the archive doesn't say, as a 7z's aren't
+// read, and a zip made on Windows has no mode. A name is as the archive has it, which can be
+// anything: a program that makes files of them checks them first, for one like "../../x".
 Public Struct ArchiveEntry
     Public ReadOnly Field Name: String
     Public ReadOnly Field Kind: ArchiveEntryKind
     Public ReadOnly Field Size: Int64
     Public ReadOnly Field Target: String
+    Public ReadOnly Field Modified: Timestamp?
+    Public ReadOnly Field Mode: Int?
 
-    Package New(name: String, kind: Int32, size: Int64, target: String)
+    // An entry of the runtime's numbers, whose time is none when nanos is -1, or when it's past
+    // the years a Timestamp holds, and whose mode is none when it's -1.
+    Package New(name: String, kind: Int32, size: Int64, target: String, seconds: Int64,
+                nanos: Int32, mode: Int32)
         Name = name
         Kind = ArchiveEntryKind.FILE
         If kind == 1 Then Kind = ArchiveEntryKind.FOLDER
         If kind == 2 Then Kind = ArchiveEntryKind.LINK
         Size = kind == 0 ? size : 0
         Target = target
+        Modified = Null
+        If nanos >= 0 && seconds >= Timestamp.MinValue().UnixSeconds &&
+           seconds <= Timestamp.MaxValue().UnixSeconds
+            Modified = Timestamp.FromUnixSeconds(seconds, nanos)
+        End If
+
+        Mode = Null
+        If mode >= 0 Then Mode = mode As Int
     End New
 End Struct
 
@@ -48,6 +64,16 @@ Package Function CheckName(name: String, most: Int, format: String)
     For byte In bytes
         If byte == 0 Then Panic("a {format}'s names can't hold a NUL")
     End For
+End Function
+
+// Panics when a mode, unless it's Null, isn't Unix permissions, from 0 to 0o7777, as `format`
+// says.
+@PanicsAtCaller
+Package Function CheckMode(mode: Int?, format: String)
+    If mode != Null && (mode < 0 || mode > 0o7777)
+        Panic("a {format}'s modes are from 0o0 to 0o7777, not " +
+              (mode < 0 ? "{mode}" : "0o{mode:o}"))
+    End If
 End Function
 
 // Panics as CheckName does, and when name ends with '/', as only a folder's does.

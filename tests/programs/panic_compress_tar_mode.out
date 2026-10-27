@@ -1,0 +1,1 @@
+panic: a tar's modes are from 0o0 to 0o7777, not -1 at panic_compress_tar_mode.fb:8:1

@@ -80,8 +80,11 @@ void fb_xz_decoder_free(void* decoder);
 
 /// A zip, which names its entries in UTF-8 or, when they don't say so and aren't UTF-8, code page
 /// 437. Its writer adds each entry, a file of `data` by `method` (0 stored, 1 Deflate, 2 LZMA, 3
-/// XZ, or 4 Zstd) at `level`, or a folder when `folder` isn't 0, made by Unix on 1980-01-01, and
-/// finishing gives the zip and starts again.
+/// XZ, or 4 Zstd) at `level`, or a folder when `folder` isn't 0, made by Unix, last changed on
+/// 1980-01-01 or, when `timed` isn't 0, at `seconds`, with mode 644 or 755 or else `mode`, unless
+/// it's -1, and finishing gives the zip and starts again. Each entry's last change is in its
+/// extra fields' UTC, or else its DOS date's, read as UTC, as seconds and nanoseconds, which are
+/// -1 for none, and its mode is a Unix-like OS's, or -1 for another's.
 void* fb_zip_reader_new(const fb_array_t* data);
 std::int32_t fb_zip_reader_result(const void* reader);
 std::int64_t fb_zip_reader_count(const void* reader);
@@ -89,19 +92,27 @@ fb_string_t* fb_zip_reader_name(const void* reader, std::int64_t index);
 std::int64_t fb_zip_reader_size(const void* reader, std::int64_t index);
 std::int32_t fb_zip_reader_kind(const void* reader, std::int64_t index);
 fb_string_t* fb_zip_reader_target(const void* reader, std::int64_t index);
+std::int64_t fb_zip_reader_seconds(const void* reader, std::int64_t index);
+std::int32_t fb_zip_reader_nanos(const void* reader, std::int64_t index);
+std::int32_t fb_zip_reader_mode(const void* reader, std::int64_t index);
 std::int32_t fb_zip_reader_read(void* reader, std::int64_t index, fb_array_t* output);
 fb_string_t* fb_zip_reader_message(const void* reader);
 void fb_zip_reader_free(void* reader);
 void* fb_zip_writer_new();
 void fb_zip_writer_add(void* writer, const fb_string_t* name, const fb_array_t* data,
-                       std::int32_t method, std::int32_t level, std::int32_t folder);
+                       std::int32_t method, std::int32_t level, std::int32_t folder,
+                       std::int32_t timed, std::int64_t seconds, std::int32_t mode);
 std::int32_t fb_zip_writer_finish(void* writer, fb_array_t* output, std::int64_t limit);
 void fb_zip_writer_free(void* writer);
 
 /// A tar: POSIX's ustar, with pax's extended headers and GNU's long names read, of names that
-/// aren't UTF-8 read with U+FFFD for each byte that isn't. Its writer adds each entry, a file of
+/// aren't UTF-8 read with U+FFFD for each byte that isn't. Each entry's last change is a pax
+/// record's or else its header's, as seconds and nanoseconds, which are -1 for none, and its mode
+/// is its header's, or -1 for one that isn't a number. Its writer adds each entry, a file of
 /// `data` or a folder when `folder` isn't 0, as ustar, with a pax header for a name too long for
-/// ustar's, owned by root, at 1970's start, and finishing gives the tar and starts again.
+/// ustar's, or a time it can't hold, owned by root, last changed at 1970's start or, when `timed`
+/// isn't 0, at `seconds` and `nanos`, with mode 644 or 755 or else `mode`, unless it's -1, and
+/// finishing gives the tar and starts again.
 void* fb_tar_reader_new(const fb_array_t* data);
 std::int32_t fb_tar_reader_result(const void* reader);
 std::int64_t fb_tar_reader_count(const void* reader);
@@ -109,12 +120,16 @@ fb_string_t* fb_tar_reader_name(const void* reader, std::int64_t index);
 std::int64_t fb_tar_reader_size(const void* reader, std::int64_t index);
 std::int32_t fb_tar_reader_kind(const void* reader, std::int64_t index);
 fb_string_t* fb_tar_reader_target(const void* reader, std::int64_t index);
+std::int64_t fb_tar_reader_seconds(const void* reader, std::int64_t index);
+std::int32_t fb_tar_reader_nanos(const void* reader, std::int64_t index);
+std::int32_t fb_tar_reader_mode(const void* reader, std::int64_t index);
 std::int32_t fb_tar_reader_read(void* reader, std::int64_t index, fb_array_t* output);
 fb_string_t* fb_tar_reader_message(const void* reader);
 void fb_tar_reader_free(void* reader);
 void* fb_tar_writer_new();
 void fb_tar_writer_add(void* writer, const fb_string_t* name, const fb_array_t* data,
-                       std::int32_t folder);
+                       std::int32_t folder, std::int32_t timed, std::int64_t seconds,
+                       std::int32_t nanos, std::int32_t mode);
 std::int32_t fb_tar_writer_finish(void* writer, fb_array_t* output, std::int64_t limit);
 void fb_tar_writer_free(void* writer);
 

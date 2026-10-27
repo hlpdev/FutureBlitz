@@ -7,11 +7,13 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -32,6 +34,7 @@ using fb::compress::chunk_size;
 using fb::compress::KIND_FILE;
 using fb::compress::KIND_FOLDER;
 using fb::compress::KIND_LINK;
+using fb::compress::moment_t;
 using fb::compress::most_bytes;
 using fb::compress::output_t;
 using fb::compress::RESULT_DONE;
@@ -66,10 +69,11 @@ constexpr std::array<std::uint16_t, 5> methods = {
 /// Made by Unix, by version 6.3 of the format, which has every method above.
 constexpr std::uint16_t made_by = (static_cast<std::uint32_t>(MZ_HOST_SYSTEM_UNIX) << 8U) | 63U;
 
-/// A Unix file's and folder's modes, in the top half of an entry's external attributes, which
-/// MS-DOS's folder bit is in the bottom half of.
-constexpr std::uint32_t file_mode = 0100644U << 16U;
-constexpr std::uint32_t folder_mode = (040755U << 16U) | 0x10U;
+/// The Unix mode's bits that say a file and a folder are, which go in the top half of an
+/// entry's external attributes, with its permissions, and MS-DOS's folder bit, in the bottom half.
+constexpr std::uint32_t mode_file = 0100000U;
+constexpr std::uint32_t mode_folder = 040000U;
+constexpr std::uint32_t dos_folder = 0x10U;
 /// A Unix mode's bits that say what kind of file it is, and a link's.
 constexpr std::uint32_t mode_kind = 0170000U;
 constexpr std::uint32_t mode_link = 0120000U;
@@ -90,14 +94,117 @@ std::string name_of(const std::string_view name, const std::uint16_t flag) {
     return made;
 }
 
-/// The time minizip-ng writes as 1980-01-01 00:00, the first an entry's date can be, in local
-/// time, as it writes dates, so the bytes are the same everywhere.
-std::time_t first_date() {
-    std::tm date{};
-    date.tm_year = 80;
-    date.tm_mday = 1;
-    date.tm_isdst = -1;
-    return std::mktime(&date);
+/// The first and last moments a DOS date and time hold, 1980-01-01T00:00:00 and
+/// 2107-12-31T23:59:58, which a zip's entries are dated in.
+constexpr std::int64_t first_dos = 315532800;
+constexpr std::int64_t last_dos = 4354819198;
+/// The seconds from 1601, which NTFS counts its times from, to 1970.
+constexpr std::int64_t ntfs_epoch = 11644473600;
+
+/// The number in `bytes`, little-endian, as a zip's are.
+std::uint64_t little_endian(const std::span<const std::uint8_t> bytes) {
+    std::uint64_t value = 0;
+    for (std::size_t i = bytes.size(); i-- > 0;) {
+        value = (value << 8U) | bytes[i];
+    }
+
+    return value;
+}
+
+/// When an entry was last changed, by its extra fields, which say it in UTC: NTFS's, to 100
+/// nanoseconds, then Info-ZIP's extended timestamp, then PKWARE's Unix field, to the second, each
+/// read unsigned, as Go reads them, to 2106. Nothing when none of them has one.
+std::optional<moment_t> extra_time(const std::span<const std::uint8_t> extra) {
+    std::optional<moment_t> ntfs;
+    std::optional<moment_t> extended;
+    std::optional<moment_t> unix;
+    for (std::size_t at = 0; at + 4 <= extra.size();) {
+        const std::uint64_t id = little_endian(extra.subspan(at, 2));
+        const std::uint64_t size = little_endian(extra.subspan(at + 2, 2));
+        if (at + 4 + size > extra.size()) {
+            break;
+        }
+
+        const std::span<const std::uint8_t> field = extra.subspan(at + 4, size);
+        at += 4 + size;
+        if (id == 0x000a) {
+            // Four reserved bytes, then attributes, each a tag, a size, and its bytes: tag 1's are
+            // three times in 100 nanoseconds since 1601, the last change's first.
+            for (std::size_t in = 4; in + 4 <= field.size();) {
+                const std::uint64_t tag = little_endian(field.subspan(in, 2));
+                const std::uint64_t length = little_endian(field.subspan(in + 2, 2));
+                if (in + 4 + length > field.size()) {
+                    break;
+                }
+
+                if (tag == 1 && length >= 8) {
+                    const std::uint64_t ticks = little_endian(field.subspan(in + 4, 8));
+                    ntfs = moment_t{
+                        .seconds = static_cast<std::int64_t>(ticks / 10000000) - ntfs_epoch,
+                        .nanos = static_cast<std::int32_t>(ticks % 10000000) * 100,
+                    };
+                }
+
+                in += 4 + length;
+            }
+        } else if (id == 0x5455 && field.size() >= 5 && (field[0] & 1U) != 0) {
+            // Flags, whose first bit says the last change's time is next.
+            extended = moment_t{
+                .seconds = static_cast<std::int64_t>(little_endian(field.subspan(1, 4))),
+                .nanos = 0,
+            };
+        } else if (id == 0x000d && field.size() >= 8) {
+            // The time it was last read, then last changed.
+            unix = moment_t{
+                .seconds = static_cast<std::int64_t>(little_endian(field.subspan(4, 4))),
+                .nanos = 0,
+            };
+        }
+    }
+
+    if (ntfs) {
+        return ntfs;
+    }
+
+    return extended ? extended : unix;
+}
+
+/// The moment a DOS date and time say, as `(date << 16) | time`, read as UTC, as nothing says
+/// their zone, or nothing when the date isn't one.
+std::optional<moment_t> dos_time(const std::uint32_t dos) {
+    const std::uint32_t day = (dos >> 16U) & 31U;
+    const std::uint32_t month = (dos >> 21U) & 15U;
+    if (day == 0 || month == 0 || month > 12) {
+        return std::nullopt;
+    }
+
+    const std::chrono::sys_days date =
+        std::chrono::year_month_day(std::chrono::year(static_cast<int>(1980 + (dos >> 25U))),
+                                    std::chrono::month(month), std::chrono::day(day));
+    const std::int64_t clock =
+        (((dos >> 11U) & 31U) * 3600) + (((dos >> 5U) & 63U) * 60) + ((dos & 31U) * 2);
+    const std::int64_t days = date.time_since_epoch().count();
+    return moment_t{ .seconds = (days * 86400) + clock, .nanos = 0 };
+}
+
+/// The time minizip-ng writes as the DOS date and time of `seconds`' UTC, kept from 1980 to 2107,
+/// which they hold. It writes a time's local date and time, so it's those of the UTC's read as
+/// local time, which are the same bytes everywhere but for an hour a change to summer time skips.
+std::time_t dos_date_of(const std::int64_t seconds) {
+    const std::chrono::sys_seconds kept{ std::chrono::seconds(
+        std::clamp(seconds, first_dos, last_dos)) };
+    const std::chrono::sys_days days = std::chrono::floor<std::chrono::days>(kept);
+    const std::chrono::year_month_day date(days);
+    const std::chrono::hh_mm_ss clock(kept - days);
+    std::tm local{};
+    local.tm_year = static_cast<int>(date.year()) - 1900;
+    local.tm_mon = static_cast<int>(static_cast<unsigned>(date.month())) - 1;
+    local.tm_mday = static_cast<int>(static_cast<unsigned>(date.day()));
+    local.tm_hour = static_cast<int>(clock.hours().count());
+    local.tm_min = static_cast<int>(clock.minutes().count());
+    local.tm_sec = static_cast<int>(clock.seconds().count());
+    local.tm_isdst = -1;
+    return std::mktime(&local);
 }
 
 struct entry_t {
@@ -105,6 +212,9 @@ struct entry_t {
     std::int64_t size;
     std::int32_t kind;
     std::string target;
+    /// When it was last changed, and its Unix permissions, or -1 when the zip doesn't say.
+    std::optional<moment_t> modified;
+    std::int32_t mode;
     /// Where its record is in the central directory.
     std::int64_t position;
 };
@@ -443,11 +553,22 @@ std::int32_t open(reader_t& reader) {
             name.pop_back();
         }
 
+        // Its time is UTC in an extra field, or else its DOS date's, which minizip-ng read as
+        // local time, and so gives back. A Unix-like OS's entry has a Unix mode.
+        std::optional<moment_t> modified =
+            extra_time({ info->extrafield, static_cast<std::size_t>(info->extrafield_size) });
+        if (!modified) {
+            modified = dos_time(mz_zip_time_t_to_dos_date(info->modified_date));
+        }
+
+        const std::uint32_t mode = info->external_fa >> 16U;
         reader.entries.push_back({
             .name = std::move(name),
             .size = kind == KIND_FOLDER ? 0 : info->uncompressed_size,
             .kind = kind,
             .target = info->linkname != nullptr ? info->linkname : "",
+            .modified = modified,
+            .mode = unix_like && mode != 0 ? static_cast<std::int32_t>(mode & 07777U) : -1,
             .position = mz_zip_get_entry(reader.zip),
         });
     }
@@ -559,6 +680,20 @@ fb_string_t* fb_zip_reader_target(const void* reader, const std::int64_t index) 
     return fb::compress::string_of(entry_of(reader, index).target);
 }
 
+std::int64_t fb_zip_reader_seconds(const void* reader, const std::int64_t index) {
+    const std::optional<moment_t>& modified = entry_of(reader, index).modified;
+    return modified ? modified->seconds : 0;
+}
+
+std::int32_t fb_zip_reader_nanos(const void* reader, const std::int64_t index) {
+    const std::optional<moment_t>& modified = entry_of(reader, index).modified;
+    return modified ? modified->nanos : -1;
+}
+
+std::int32_t fb_zip_reader_mode(const void* reader, const std::int64_t index) {
+    return entry_of(reader, index).mode;
+}
+
 std::int32_t fb_zip_reader_read(void* reader, const std::int64_t index, fb_array_t* output) {
     reader_t& state = reader_of(reader);
     output_t out(output, entry_of(reader, index).size);
@@ -592,7 +727,8 @@ void* fb_zip_writer_new() {
 
 void fb_zip_writer_add(void* writer, const fb_string_t* name, const fb_array_t* data,
                        const std::int32_t method, const std::int32_t level,
-                       const std::int32_t folder) {
+                       const std::int32_t folder, const std::int32_t timed,
+                       const std::int64_t seconds, const std::int32_t mode) {
     auto& state = *static_cast<writer_t*>(writer);
     const std::string filename(fb::compress::text_of(name));
     const bool ascii = std::ranges::all_of(
@@ -602,9 +738,28 @@ void fb_zip_writer_add(void* writer, const fb_string_t* name, const fb_array_t* 
     info.flag = ascii ? 0 : MZ_ZIP_FLAG_UTF8;
     info.compression_method =
         folder != 0 ? MZ_COMPRESS_METHOD_STORE : methods[static_cast<std::size_t>(method)];
-    info.modified_date = first_date();
+    // A time is its DOS date's, and, where it's from 1970 to 2106, exact to the second in
+    // Info-ZIP's extended timestamp, which tools read as UTC.
+    info.modified_date = dos_date_of(timed != 0 ? seconds : first_dos);
+    std::array<std::uint8_t, 9> extended{ 0x55, 0x54, 5, 0, 1 };
+    if (timed != 0 && seconds >= 0 && std::cmp_less_equal(seconds, UINT32_MAX)) {
+        for (std::size_t i = 0; i < 4; ++i) {
+            extended.at(5 + i) =
+                static_cast<std::uint8_t>(static_cast<std::uint64_t>(seconds) >> (8U * i));
+        }
+
+        info.extrafield = extended.data();
+        info.extrafield_size = extended.size();
+    }
+
     info.filename = filename.c_str();
-    info.external_fa = folder != 0 ? folder_mode : file_mode;
+    std::uint32_t permissions = folder != 0 ? 0755U : 0644U;
+    if (mode >= 0) {
+        permissions = static_cast<std::uint32_t>(mode);
+    }
+
+    info.external_fa = folder != 0 ? ((mode_folder | permissions) << 16U) | dos_folder
+                                   : (mode_file | permissions) << 16U;
     // Its size, known first, lets minizip-ng leave Zip64 out, which no UInt8[]'s sizes need.
     info.uncompressed_size = data->count;
     info.zip64 = MZ_ZIP64_AUTO;

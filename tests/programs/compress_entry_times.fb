@@ -1,0 +1,60 @@
+// Zip's and Tar's entries keep when they were last changed and their modes: a ZipWriter's dates
+// are DOS's, even seconds from 1980 to 2107, exact to the second beside them from 1970 to 2106,
+// and a TarWriter's are exact to the nanosecond, before 1970 and past 2242 too; and each one
+// left out is the same as before, 1980's start for a zip and 1970's for a tar.
+
+Import std.core
+Import std.collections
+Import std.time
+Import std.compress
+
+// When each entry was last changed, and its mode.
+Function Show(entries: ReadOnlyArray<ArchiveEntry>)
+    For entry In entries
+        Local mode = entry.Mode
+        Print("  {entry.Name} {entry.Kind} {entry.Modified?.ToString() ?? "-"}",
+              mode == Null ? "-" : "0o{mode:o}")
+    End For
+End Function
+
+Function At(text: String): Timestamp => Timestamp.Parse(text) ?? Timestamp.MinValue()
+
+// Each written at its time, the first two with none, and each with a mode, the first two none.
+Local times = [At("2026-10-26T12:34:57.5Z"), At("2026-10-26T12:34:56Z"),
+               At("1969-07-20T20:17:40Z"), At("1979-12-31T23:59:59Z"),
+               At("2106-02-07T06:28:15Z"), At("2106-02-07T06:28:16Z"), At("2150-06-01T00:00:00Z"),
+               At("2242-03-16T12:56:31Z"), At("2242-03-16T12:56:32Z"), At("1900-01-01T00:00:00.25Z")]
+Local modes = [0o600, 0o755, 0o4755, 0o7777, 0, 0o640, 0o444, 0o700, 0o644, 0o1777]
+
+Local zip = ZipWriter()
+zip.Add("plain.txt", "a".Bytes)
+zip.AddFolder("plain")
+For i = 0 Until times.Count
+    zip.Add("file{i}.txt", "{i}".Bytes, ZipMethod.STORE, modified: times[i], mode: modes[i])
+End For
+
+zip.AddFolder("folder", modified: times[0], mode: 0o700)
+Print("zip:")
+Show((Try Zip.Read(zip.Finish())).Entries)
+
+Local tar = TarWriter()
+tar.Add("plain.txt", "a".Bytes)
+tar.AddFolder("plain")
+For i = 0 Until times.Count
+    tar.Add("file{i}.txt", "{i}".Bytes, modified: times[i], mode: modes[i])
+End For
+
+tar.AddFolder("folder", modified: times[0], mode: 0o700)
+Print("tar:")
+Show((Try Tar.Read(tar.Finish())).Entries)
+
+// The same entries make the same bytes, and a time left out the same as before.
+Local again = ZipWriter()
+again.Add("plain.txt", "a".Bytes)
+Local before = ZipWriter()
+before.Add("plain.txt", "a".Bytes, modified: Null, mode: Null)
+Print(again.Finish() == before.Finish())
+Local tars = [TarWriter(), TarWriter()]
+tars[0].Add("x", [1, 2], At("2026-10-26T12:34:57.5Z"), 0o600)
+tars[1].Add("x", [1, 2], At("2026-10-26T12:34:57.5Z"), 0o600)
+Print(tars[0].Finish() == tars[1].Finish())
