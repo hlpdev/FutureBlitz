@@ -15569,7 +15569,8 @@ TEST_CASE("overloads: a literal is checked as a parameter's type only where it c
     // Overloaded calls nested six deep in array literals: each overload whose parameter no array
     // can be, or that the literal's own type converts to, is settled without checking the
     // literal again, which would check what's inside it again, at every level. That took ten
-    // times as long, about 37 seconds in a debug build, where this takes about 4.
+    // times as long, about 37 seconds in a debug build, where this takes about 4, and 17 on CI's
+    // Linux runner with three other tests at once, so 30 seconds is room for that and not for it.
     const auto start = std::chrono::steady_clock::now();
     CHECK(probe("Import std.core\n"
                 "Class Json\n"
@@ -15584,7 +15585,7 @@ TEST_CASE("overloads: a literal is checked as a parameter's type only where it c
                 "Function Of(values: Json[]): Json => Json(values.Count)\n"
                 "Local x = Of([Of(5), Of([Of(4), Of([Of(3), Of([Of(2), Of([Of(1), Of([Of(0), "
                 "Of(1)])])])])])])") == "Json");
-    CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(15));
+    CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(30));
 }
 
 TEST_CASE("overloads that differ in count give an untyped lambda and a literal of Tasks their "
