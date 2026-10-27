@@ -38,6 +38,20 @@ fb_set_warnings(fb_compiler_tests)
 fb_set_stack(fb_compiler_tests)
 fb_copy_llvm(fb_compiler_tests)
 catch_discover_tests(fb_compiler_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})
+# The test programs, over a thousand, are built and run in shards that ctest runs side by side:
+# shard i of n checks every n-th program from the i-th.
+set(FB_PROGRAM_SHARDS 32)
+math(EXPR FB_LAST_PROGRAM_SHARD "${FB_PROGRAM_SHARDS} - 1")
+foreach(shard RANGE ${FB_LAST_PROGRAM_SHARD})
+  set(test "programs print what they should ${shard}/${FB_PROGRAM_SHARDS}")
+  add_test(NAME "${test}" COMMAND fb_compiler_tests "programs print what they should")
+  set_tests_properties("${test}" PROPERTIES
+    ENVIRONMENT "FB_PROGRAM_SHARD=${shard}/${FB_PROGRAM_SHARDS}")
+  if(FB_TEST_DLL_PATHS)
+    set_tests_properties("${test}" PROPERTIES
+      ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${FB_TEST_DLL_PATHS}")
+  endif()
+endforeach()
 
 # CLI tests, which run the real fb.
 file(GLOB_RECURSE FB_CLI_TEST_SOURCES CONFIGURE_DEPENDS cli/*.cpp)

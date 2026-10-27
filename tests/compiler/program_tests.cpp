@@ -215,6 +215,37 @@ run_with_open_stdin(const std::filesystem::path& program, const std::chrono::sec
     return { std::move(result), took };
 }
 
+/// The tests/programs that this run checks, in order: every one, or with FB_PROGRAM_SHARD set to
+/// "<i>/<n>", every n-th from the i-th, a shard of n that ctest runs beside the others.
+std::vector<std::filesystem::path> shard_of_programs() {
+    std::vector<std::filesystem::path> sources;
+    for (const std::filesystem::directory_entry& entry :
+         std::filesystem::directory_iterator(FB_TEST_PROGRAMS)) {
+        if (entry.path().extension() == ".fb") {
+            sources.push_back(entry.path());
+        }
+    }
+
+    std::ranges::sort(sources);
+    std::size_t shard = 0;
+    std::size_t shards = 1;
+    if (const char* setting = std::getenv("FB_PROGRAM_SHARD")) {
+        const std::string_view text(setting);
+        const std::size_t slash = text.find('/');
+        REQUIRE(slash != std::string_view::npos);
+        shard = std::stoul(std::string(text.substr(0, slash)));
+        shards = std::stoul(std::string(text.substr(slash + 1)));
+        REQUIRE(shard < shards);
+    }
+
+    std::vector<std::filesystem::path> chosen;
+    for (std::size_t i = shard; i < sources.size(); i += shards) {
+        chosen.push_back(sources[i]);
+    }
+
+    return chosen;
+}
+
 /// A copy of tests/packages in the build folder, so building writes nothing into the source
 /// tree, with the vecmath C library in libs/ for each package whose project.toml links it.
 std::filesystem::path staged_packages() {
@@ -236,14 +267,10 @@ std::filesystem::path staged_packages() {
 
 } // namespace
 
-TEST_CASE("programs print what they should", "[programs]") {
-    for (const std::filesystem::directory_entry& entry :
-         std::filesystem::directory_iterator(FB_TEST_PROGRAMS)) {
-        if (entry.path().extension() != ".fb") {
-            continue;
-        }
-
-        const std::string name = entry.path().stem().string();
+// Hidden, as ctest runs it in shards that tests/CMakeLists.txt registers, each a ctest test.
+TEST_CASE("programs print what they should", "[programs][.]") {
+    for (const std::filesystem::path& source : shard_of_programs()) {
+        const std::string name = source.stem().string();
         DYNAMIC_SECTION(name) {
             // A release_ program builds in release mode, and the rest of its name says how it
             // ends, as "release_panic_..." does.
@@ -252,11 +279,11 @@ TEST_CASE("programs print what they should", "[programs]") {
             const fb::build_mode_t mode =
                 release ? fb::build_mode_t::RELEASE : fb::build_mode_t::DEBUG;
             const std::expected<fb::process_result_t, std::string> result =
-                build_and_run(entry.path(), mode);
+                build_and_run(source, mode);
             INFO((result ? result->output : result.error()));
             REQUIRE(result);
 
-            std::filesystem::path expected = entry.path();
+            std::filesystem::path expected = source;
             expected.replace_extension(".out");
             CHECK(result->output == read_file(expected));
             const std::string_view ending =
