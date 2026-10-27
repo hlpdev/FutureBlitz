@@ -7035,6 +7035,33 @@ TEST_CASE("For Field goes over a type's fields, with a type parameter for each o
                     "needs" });
 }
 
+TEST_CASE("For Field over a T? goes over its T's fields", "[sema]") {
+    // Each call checks the Where lines against the T's fields, through any number of T?s.
+    const std::string_view numbers = "Import std.core\n"
+                                     "Function Names<T>(): String\n"
+                                     "    Local text = \"\"\n"
+                                     "    For Field f: F In T\n"
+                                     "        Where F: Numeric\n"
+                                     "        text += f.Name\n"
+                                     "    End For\n"
+                                     "    Return text\n"
+                                     "End Function\n"
+                                     "Struct P\n    Field X: Int\n    Field Y: Double\nEnd Struct\n"
+                                     "Struct Q\n    Field Name: String\nEnd Struct\n";
+    CHECK(errors_of(std::format("{}Local n = Names<P?>()\n"
+                                "For Field f: F In P??\n    Where F: Numeric\nEnd For",
+                                numbers))
+              .empty());
+    CHECK(errors_of(std::format("{}Local n = Names<Q?>()", numbers)) ==
+          errors_t{ "Names<Q?>: 'Names' needs each field of Q? to implement Numeric, but its "
+                    "field 'Name' is String, which doesn't" });
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Q\n    Field Name: String\nEnd Struct\n"
+                    "For Field f: F In Q?\n    Where F: Numeric\nEnd For") ==
+          errors_t{ "Q?: Q?'s field 'Name' is String, which doesn't implement Numeric, as this "
+                    "loop needs" });
+}
+
 TEST_CASE("Set changes a field, and For Method calls Methods that take nothing", "[sema]") {
     CHECK(errors_of("Import std.core\n"
                     "Function Clear<T>(ByRef value: T)\n"

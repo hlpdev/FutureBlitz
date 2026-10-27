@@ -160,6 +160,10 @@ End Function
   tuple ("0", "1", and so on), in order, but not an Atomic or Mutex, which can't be copied. The
   compiler makes a copy of the body for each field, in which `F` is that field's type. `: F` can be
   left out when nothing names it.
+- Over a `T?`, through any number of `?`s, it goes over its T's fields, so generic code reads the
+  declarations of a Field like `Build: BuildArgs?`, as std.os's Args does for subcommands: each
+  has its Name, Index, Has, Attribute, and type, but a `T?` may hold no T, so `f.Get` and `f.Set`
+  in a copy over one are an error that says so.
 - The body is checked once, with `F` a type parameter that only its Where lines, at the top of
   the body, say anything about. Over a concrete type, each field's type must meet them. Over
   the function's own type parameter `T`, they're constraints on `T`'s fields, which each call

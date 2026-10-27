@@ -12479,6 +12479,15 @@ private:
     }
 
     /// The T of a T?, and any other type as it is.
+    /// A type without any of the T?s around it.
+    [[nodiscard]] type_id_t all_non_null(type_id_t type) const {
+        while (is_nullable(type)) {
+            type = m_analysis.types.get(type).inner;
+        }
+
+        return type;
+    }
+
     [[nodiscard]] type_id_t non_null(const type_id_t type) const {
         return is_nullable(type) ? m_analysis.types.get(type).inner : type;
     }
@@ -16038,15 +16047,17 @@ private:
         return reflected.member == "Has" ? type_id_t::BOOL : nullable_of(attribute);
     }
 
-    /// The fields a For Field loop goes over: a Struct's, a Class's, or a tuple's. Other types
-    /// have none.
+    /// The fields a For Field loop goes over: a Struct's, a Class's, or a tuple's, or a T?'s T's,
+    /// whose declarations it reads. Other types have none.
     [[nodiscard]] std::vector<field_t> reflected_fields(const type_id_t type) const {
-        if (type == type_id_t::INVALID || !(is_struct(type) || is_class(type) || is_tuple(type))) {
+        const type_id_t inner = all_non_null(type);
+        if (inner == type_id_t::INVALID ||
+            !(is_struct(inner) || is_class(inner) || is_tuple(inner))) {
             return {};
         }
 
         // An Atomic or Mutex can't be copied, so f.Get(value) can't give one.
-        std::vector<field_t> fields = m_analysis.types.get(type).fields;
+        std::vector<field_t> fields = m_analysis.types.get(inner).fields;
         std::erase_if(fields, [this](const field_t& field) { return in_place(field.type); });
         return fields;
     }

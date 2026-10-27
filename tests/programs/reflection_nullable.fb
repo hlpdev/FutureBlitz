@@ -1,0 +1,35 @@
+// For Field over a T? goes over its T's fields, as a command line's subcommand Fields need:
+// their names, places, attributes, and types, through any number of T?s, in generic code too.
+Import std.core
+
+Attribute Note(Text: String)
+
+Struct Build
+    @Note("ships it") Field Release: Bool
+    Field Output: String
+    Field Pair: (Int, String)
+End Struct
+
+Struct Top
+    Field Name: String
+    Field Build: Build?
+    Field Twice: Build??
+End Struct
+
+Function Names<T>(depth: Int): String
+    Local text = ""
+    For Field f: F In T
+        text += "{f.Index}:{f.Name}:{TypeName<F>()}"
+        If f.Has(Note) Then text += "({f.Attribute(Note)?.Text ?? ""})"
+        If depth < 2 Then text += "[" + Names<F>(depth + 1) + "]"
+        text += " "
+    End For
+    Return text
+End Function
+
+Print(Names<Top>(0))
+Print(Names<Build?>(1))
+Print("[" + Names<Int?>(1) + "]")
+For Field f: F In Build?
+    Print(f.Name)
+End For

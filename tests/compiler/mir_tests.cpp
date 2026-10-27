@@ -3187,6 +3187,38 @@ TEST_CASE("a Ptr at an instance's T steps only by a size an Int64 counts", "[mir
           "doesn't step");
 }
 
+TEST_CASE("For Field over a T? reads its T's fields, but f.Get and f.Set can't reach them",
+          "[mir]") {
+    const auto error_of = [](const std::string_view access) {
+        const fb::compilation_t compilation =
+            fb::compile("test.fb", std::format("Import std.core\n"
+                                               "Struct Box\n    Field Size: Int\nEnd Struct\n"
+                                               "Function Touch<T>(ByRef value: T, other: T)\n"
+                                               "    For Field f: F In T\n"
+                                               "        {}\n"
+                                               "    End For\n"
+                                               "End Function\n"
+                                               "Local box: Box? = Box(1)\n"
+                                               "Touch<Box?>(ByRef box, Box(2))",
+                                               access));
+        REQUIRE(compilation.diagnostics.diagnostics().empty());
+        const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+        const fb::mir_error_t error = module.error.value_or(fb::mir_error_t{});
+        return module.error
+                   ? std::string(compilation.sources.get(error.span.file).slice(error.span)) +
+                         ": " + error.message
+                   : std::string("no error");
+    };
+
+    CHECK(error_of("Print(f.Name, f.Index)") == "no error");
+    CHECK(error_of("Local size = f.Get(other)") ==
+          "f.Get(other): the loop goes over the fields of Box?, a T?, which may be Null, so f.Get "
+          "can't reach 'Size'");
+    CHECK(error_of("f.Set(ByRef value, f.Get(other))") ==
+          "f.Set(ByRef value, f.Get(other)): the loop goes over the fields of Box?, a T?, which "
+          "may be Null, so f.Set can't reach 'Size'");
+}
+
 TEST_CASE("For Field's f.Set can't change a ReadOnly Field", "[mir]") {
     const fb::compilation_t compilation =
         fb::compile("test.fb", "Import std.core\n"

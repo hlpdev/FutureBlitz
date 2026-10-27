@@ -3925,8 +3925,17 @@ private:
                      types().substitute(declared.type, type_parameters_of(declared),
                                         owner_arguments(type, declared.owner)));
             }
-        } else if (is_struct(type) || is_class(type) || is_tuple(type)) {
-            const std::vector<field_t> fields = types().get(type).fields;
+        } else {
+            // A T?'s copies are its T's fields, whose declarations they read.
+            type_id_t fielded = type;
+            while (is_nullable(fielded)) {
+                fielded = types().get(fielded).inner;
+            }
+
+            const std::vector<field_t> fields =
+                is_struct(fielded) || is_class(fielded) || is_tuple(fielded)
+                    ? types().get(fielded).fields
+                    : std::vector<field_t>{};
             for (std::uint32_t i = 0; i < fields.size(); ++i) {
                 // An Atomic or Mutex can't be copied, so the loop leaves it out.
                 const type_kind_t kind = types().get(fields[i].type).kind;
@@ -3935,7 +3944,7 @@ private:
                 }
 
                 reflected_t member{ .name = fields[i].name, .index = i };
-                member.symbol = field_symbol(type, i);
+                member.symbol = field_symbol(fielded, i);
                 copy(std::move(member), fields[i].type);
             }
         }
@@ -9357,6 +9366,21 @@ private:
         if (name == "Get" && declared != nullptr && declared->kind == symbol_kind_t::PROPERTY) {
             const operand_t object = lower_value(node.arguments[0].value);
             return get_property(*member.symbol, object, type_of(object));
+        }
+
+        // A loop over a T? reads its T's declarations, but a T? may hold no T to read or change.
+        if ((name == "Get" || name == "Set") && is_nullable(member.owner)) {
+            if (!m_module.error) {
+                m_module.error = mir_error_t{
+                    .message = std::format("the loop goes over the fields of {}, a T?, which may "
+                                           "be Null, so f.{} can't reach '{}'",
+                                           types().name(member.owner), name, member.name),
+                    .span = span_of(id),
+                };
+            }
+
+            // The module isn't built, but a Get's value is still used meanwhile.
+            return name == "Get" ? std::optional<operand_t>(zero(expr_type(id))) : std::nullopt;
         }
 
         // A ReadOnly Field changes only in its Class's New, which a loop's copy can't tell it's
