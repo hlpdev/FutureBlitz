@@ -1,0 +1,54 @@
+// A refused handshake lingers for what the client still sends for a second in all, not a second
+// for each read, so a client that trickles bytes doesn't keep the accepting thread.
+
+Import std.core
+Import std.collections
+Import std.ffi
+Import std.io
+Import std.net
+Import std.net.ws
+Import std.text
+Import std.time
+
+Const ports = Channel<UInt16>(1)
+Const took = Channel<String>(1)
+Local server = Thread.Start(Function()
+    Try
+        Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+        ports.Send(listener.LocalAddress.Port)
+        Local stream = listener.Accept()
+        Local watch = Stopwatch.StartNew()
+        Try
+            WebSocket.Accept(stream)
+        Catch e As NetError
+            took.Send("refused, and lingered under 2.5 seconds: {watch.Elapsed.TotalSeconds < 2.5}")
+            Return
+        End Try
+
+        took.Send("opened")
+    Catch e As Error
+        took.Send("server failed: {e.Message}")
+    End Try
+End Function)
+
+// The client sends a request that isn't a WebSocket's, and then a byte every 300 milliseconds
+// for 3.6 seconds, or until its connection's closed.
+Try
+    Local stream = TcpStream.Connect(SocketAddress(IpAddress.Loopback, ports.Receive() ?? 0))
+    stream.WriteBytes("POST / HTTP/1.1\r\nHost: a\r\n\r\n".Bytes)
+    For i = 1 To 12
+        Sleep(300.Milliseconds)
+        Try
+            stream.WriteBytes("x".Bytes)
+        Catch e As IOError
+            Break
+        End Try
+    End For
+
+    stream.Close()
+Catch e As Error
+    Print("client failed: {e.Message}")
+End Try
+
+server.Join()
+Print(took.Receive() ?? "")

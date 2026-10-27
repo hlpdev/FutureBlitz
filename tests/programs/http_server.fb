@@ -43,6 +43,7 @@ server.Put("/echo", Async Function(request: HttpRequest) => Text("PUT {request.T
 server.Patch("/echo", Async Function(request: HttpRequest) => Text("PATCH {request.Text}"))
 server.Delete("/echo", Async Function(request: HttpRequest) => Text("DELETE"))
 server.Route("PROPFIND", "/echo", Async Function(request: HttpRequest) => Text("PROPFIND"))
+server.Get("/version", Async Function(request: HttpRequest) => Text(request.Version))
 server.Get("/search", Async Function(request: HttpRequest): HttpResponse
     Return Text("q={request.Query.Get("q") ?? "?"} n={request.Query.Get("n") ?? "?"}")
 End Function)
@@ -230,6 +231,38 @@ Try
     Print(Await Raw(port, "GET users/1 HTTP/1.1\r\n{host}\r\n"))
     Print(Await Raw(port, "BAD REQUEST\r\n\r\n"))
     Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Content-Length: 10\r\n\r\nshort"))
+
+    // A body's framing that a proxy in front could read another way: a Transfer-Encoding with no
+    // codings beside a Content-Length, an empty Content-Length beside another, or an item of one
+    // that's empty; a chunked body whose lines end with a bare LF, whose size line has more than
+    // its size, or an extension with a CR; an HTTP/1.0 request with a Transfer-Encoding, whose
+    // pipelined request after isn't answered; and a last coding that isn't chunked.
+    Local post = "POST /echo HTTP/1.1\r\n{host}"
+    Print(Await Raw(port, post + "Transfer-Encoding: ,\r\nContent-Length: 3\r\n\r\nabc"))
+    Print(Await Raw(port, post + "Transfer-Encoding:\r\nContent-Length: 3\r\n\r\nabc"))
+    Print(Await Raw(port, post + "Content-Length: 3\r\nContent-Length: \r\n\r\nabc"))
+    Print(Await Raw(port, post + "Content-Length: 3,\r\n\r\nabc"))
+    Local chunked = post + "Transfer-Encoding: chunked\r\n\r\n"
+    Print(Await Raw(port, chunked + "3\nabc\n0\n\n"))
+    Print(Await Raw(port, chunked + "3\r\nabc\n0\r\n\r\n"))
+    Print(Await Raw(port, chunked + "3 junk\r\nabc\r\n0\r\n\r\n"))
+    Print(Await Raw(port, chunked + "3;a\rb\r\nabc\r\n0\r\n\r\n"))
+    Print(Await Raw(port, chunked + "3;a=\"open\r\nabc\r\n0\r\n\r\n"))
+    Print(Await Raw(port, "POST /echo HTTP/1.0\r\nConnection: keep-alive\r\nTransfer-Encoding: " +
+                          "chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\nGET /users/1 HTTP/1.0\r\n\r\n"))
+    Print(Await Raw(port, post + "Transfer-Encoding: chunked, gzip\r\n\r\n"))
+    Print(Await Raw(port, post + "Transfer-Encoding: chunked, chunked\r\n\r\n"))
+    Print(Await Raw(port, "GET /users/1 HTTP/1.0\r\nHost: a\r\nHost: b\r\n\r\n"))
+
+    // What the rules allow: extensions, leading zeros, a later 1.x, HTTP/1.0 without a Host, and
+    // a scheme in capitals.
+    Print(Await Raw(port, chunked + "3 ; a ; b = c ; d=\"x \\\" y\"\r\nabc\r\n0\r\n\r\n"))
+    Print(Await Raw(port, chunked + "0000000000000003\r\nabc\r\n0\r\n\r\n"))
+    Print(Await Raw(port, post + "Content-Length: 0000000000000000003\r\n\r\nabc"))
+    Print(Await Raw(port, post + "Content-Length: 3, 3\r\n\r\nabc"))
+    Print(Await Raw(port, "GET /version HTTP/1.2\r\n{host}\r\n"))
+    Print(Await Raw(port, "GET /version HTTP/1.0\r\n\r\n"))
+    Print(Await Raw(port, "GET HTTP://localhost/users/caps HTTP/1.1\r\n{host}\r\n"))
 
     // A connection that sends nothing is closed once the IdleTimeout has gone by.
     server.IdleTimeout = 50.Milliseconds

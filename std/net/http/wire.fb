@@ -8,6 +8,7 @@ Import std.ffi
 Import std.io.streams
 Import std.text
 Import std.time.duration
+Import std.time.timers
 Import std.net.tcp
 
 // The longest line a head has, its CR LF included, a request's line or a field's.
@@ -83,37 +84,51 @@ Package Class Head
     // How a request's body comes, per RFC 9112's section 6.3: chunks when its last transfer
     // coding is chunked, or Content-Length's bytes, all of its values the same. Both at once is
     // how a request smuggles another past a proxy, so it's refused, as other codings are.
+    // A Transfer-Encoding is refused in an HTTP/1.0 request, whose framing RFC 9112's section 6.1
+    // has a server take as faulty, and so is one with no codings, or whose last isn't chunked,
+    // and a Content-Length that's empty, or has an item that's empty or not digits.
     Package Method BodyFraming(): (Framing, Int64) Throws WireError
-        Local codings = Items("Transfer-Encoding")
-        If codings.Count > 0
+        If Contains("Transfer-Encoding")
+            If Parts[2] == "HTTP/1.0"
+                Throw WireError(400, "an HTTP/1.0 request has a Transfer-Encoding")
+            End If
+
             If Contains("Content-Length")
                 Throw WireError(400, "a request has a Transfer-Encoding and a Content-Length")
             End If
 
-            For i = 0 Until codings.Count
-                If codings[i] != "chunked"
-                    Throw WireError(501, "a request's transfer coding \"{codings[i]}\" isn't " +
-                                    "chunked")
-                End If
+            Local codings = Items("Transfer-Encoding")
+            If codings.Count == 0 Then Throw WireError(400, "a Transfer-Encoding has no codings")
+            If codings[codings.Count - 1] != "chunked"
+                Throw WireError(400, "a request's last transfer coding isn't chunked")
+            End If
+
+            For i = 0 Until codings.Count - 1
+                If codings[i] == "chunked" Then Throw WireError(400, "a request is chunked twice")
+                Throw WireError(501, "a request's transfer coding \"{codings[i]}\" isn't one " +
+                                "the server reads")
             End For
 
-            If codings.Count > 1 Then Throw WireError(400, "a request is chunked more than once")
             Return (Framing.CHUNKED, 0)
         End If
 
-        Local lengths = Items("Content-Length")
-        If lengths.Count == 0
-            If Contains("Content-Length") Then Throw WireError(400, "a Content-Length is empty")
-            Return (Framing.NONE, 0)
-        End If
+        Local length: Int64? = Null
+        For i = 0 Until Names.Count
+            If !Names[i].EqualsIgnoreCase("Content-Length") Then Continue
+            For item In Values[i].Split(",")
+                Local value = DigitsOf(TrimSpace(item))
+                If value == Null Then Throw WireError(400, "a Content-Length isn't a length")
+                If length != Null && value != length
+                    Throw WireError(400, "Content-Lengths differ")
+                End If
 
-        Local length = DigitsOf(lengths[0])
-        If length == Null Then Throw WireError(400, "a Content-Length isn't a length")
-        For i = 1 Until lengths.Count
-            If lengths[i] != lengths[0] Then Throw WireError(400, "Content-Lengths differ")
+                length = value
+            End For
         End For
 
-        Return (Framing.LENGTH, length)
+        Local found = length
+        If found == Null Then Return (Framing.NONE, 0)
+        Return (Framing.LENGTH, found)
     End Method
 End Class
 
@@ -131,13 +146,13 @@ Package Class HeadParser
         Built = Head()
     End New
 
-    // Whether it has nothing yet but empty lines.
     // The status a line too long for MAX_LINE is answered with: a request's line's is 414's, as
     // its target is too long, and a request's field's 431's.
     Package Property LongLine: Int
         Get => !Request ? 400 : Started ? 431 : 414
     End Property
 
+    // Whether it has nothing yet but empty lines.
     Package Property IsEmpty: Bool
         Get => !Started
     End Property
@@ -200,16 +215,16 @@ Function RequestLine(line: UInt8[]): String[] Throws WireError
         End If
     End For
 
-    If parts[2] != "HTTP/1.1" && parts[2] != "HTTP/1.0"
-        Local version = parts[2]
-        If version.StartsWith("HTTP/") && version.Length == 8 && IsDigit(version.Bytes[5]) &&
-           version.Bytes[6] == 0x2E && IsDigit(version.Bytes[7])
-            Throw WireError(505, "HTTP/{version.Slice(5, 8)} isn't 1.0 or 1.1")
-        End If
-
+    Local version = parts[2]
+    Local bytes = version.Bytes
+    If !version.StartsWith("HTTP/") || version.Length != 8 || !IsDigit(bytes[5]) ||
+       bytes[6] != 0x2E || !IsDigit(bytes[7])
         Throw WireError(400, "a request's version isn't HTTP's")
     End If
 
+    // A later 1.x is read as 1.1, the latest the server has, as RFC 9110's section 2.5 has it.
+    If bytes[5] != 0x31 Then Throw WireError(505, "HTTP/{version.Slice(5, 8)} isn't 1.0 or 1.1")
+    If bytes[7] > 0x31 Then parts[2] = "HTTP/1.1"
     Return parts
 End Function
 
@@ -291,50 +306,112 @@ Function IsDigit(c: UInt8): Bool => c >= 0x30 && c <= 0x39
 Package Function IsToken(text: String): Bool
     If text == "" Then Return False
     For c In text.Bytes
-        Local letter = (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)
-        If !letter && !IsDigit(c) && "!#$%&'*+-.^_`|~".Bytes.IndexOf(c) == Null Then Return False
+        If !IsTokenByte(c) Then Return False
     End For
     Return True
 End Function
 
-// The number decimal digits write, a length's, or Null for none, other characters, or one past
-// what 18 digits hold.
+Function IsTokenByte(c: UInt8): Bool
+    Local letter = (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)
+    Return letter || IsDigit(c) || "!#$%&'*+-.^_`|~".Bytes.IndexOf(c) != Null
+End Function
+
+// The number decimal digits write, a length's, or Null for no digits, other characters, or more
+// than 18 digits past any leading zeros, which an Int64 holds.
 Package Function DigitsOf(text: String): Int64?
-    If text == "" || text.Length > 18 Then Return Null
+    If text == "" Then Return Null
     Local value: Int64 = 0
+    Local digits = 0
     For c In text.Bytes
         If !IsDigit(c) Then Return Null
+        If digits == 0 && c == 0x30 Then Continue
+        digits += 1
+        If digits > 18 Then Return Null
         value = value * 10 + ((c - 0x30) As Int64)
     End For
     Return value
 End Function
 
-// A chunk's size line's size, its hex digits before any extension, which it reads past.
+// A chunk's size line's size: its hex digits, 15 at most past any leading zeros, and then the
+// extensions RFC 9112's section 7.1.1 has, which it reads past, `;name` or `;name=value`, a
+// value a token or a quoted string, with spaces and tabs around the ';' and '='.
 Function ChunkSize(line: UInt8[]): Int64 Throws WireError
     Local value: Int64 = 0
     Local digits = 0
-    For c In line
-        Local digit = -1
-        If IsDigit(c)
-            digit = (c - 0x30) As Int
-        ElseIf c >= 0x61 && c <= 0x66
-            digit = ((c - 0x61) As Int) + 10
-        ElseIf c >= 0x41 && c <= 0x46
-            digit = ((c - 0x41) As Int) + 10
-        End If
-
-        If digit < 0
-            If digits > 0 && (c == 0x3B || c == 0x20 || c == 0x09) Then Break
-            Throw WireError(400, "a chunk's size isn't hex digits")
-        End If
-
+    Local at = 0
+    While at < line.Count
+        Local digit = HexDigit(line[at])
+        If digit < 0 Then Break
+        at += 1
+        If digits == 0 && digit == 0 Then Continue
         digits += 1
         If digits > 15 Then Throw WireError(413, "a chunk is too big")
         value = value * 16 + digit
-    End For
+    End While
 
-    If digits == 0 Then Throw WireError(400, "a chunk has no size")
-    Return value
+    If at == 0 Then Throw WireError(400, "a chunk has no size")
+    Loop
+        at = PastSpace(line, at)
+        If at == line.Count Then Return value
+        If line[at] != 0x3B Then Throw WireError(400, "a chunk's size line has more than its size")
+        at = PastSpace(line, at + 1)
+        Local name = at
+        at = PastToken(line, at)
+        If at == name Then Throw WireError(400, "a chunk's extension has no name")
+        Local after = PastSpace(line, at)
+        If after == line.Count || line[after] != 0x3D Then Continue
+        at = PastSpace(line, after + 1)
+        If at < line.Count && line[at] == 0x22
+            at = Try PastQuoted(line, at)
+        Else
+            Local start = at
+            at = PastToken(line, at)
+            If at == start Then Throw WireError(400, "a chunk's extension has no value")
+        End If
+    End Loop
+End Function
+
+// A hex digit's value, or -1.
+Function HexDigit(c: UInt8): Int
+    If IsDigit(c) Then Return (c - 0x30) As Int
+    If c >= 0x61 && c <= 0x66 Then Return ((c - 0x61) As Int) + 10
+    If c >= 0x41 && c <= 0x46 Then Return ((c - 0x41) As Int) + 10
+    Return -1
+End Function
+
+// Where a line's spaces and tabs from `at` end.
+Function PastSpace(line: UInt8[], at: Int): Int
+    Local i = at
+    While i < line.Count && (line[i] == 0x20 || line[i] == 0x09)
+        i += 1
+    End While
+    Return i
+End Function
+
+// Where a token from `at` ends, at `at` for none.
+Function PastToken(line: UInt8[], at: Int): Int
+    Local i = at
+    While i < line.Count && IsTokenByte(line[i])
+        i += 1
+    End While
+    Return i
+End Function
+
+// Where a quoted string from its quote at `at` ends, past its closing quote, or a 400 when it
+// doesn't close, or has a control character.
+Function PastQuoted(line: UInt8[], at: Int): Int Throws WireError
+    Local i = at + 1
+    While i < line.Count
+        Local c = line[i]
+        If c == 0x22 Then Return i + 1
+        If c == 0x5C Then i += 1
+        If i < line.Count && ((line[i] < 0x20 && line[i] != 0x09) || line[i] == 0x7F)
+            Throw WireError(400, "a chunk's extension has a control character")
+        End If
+
+        i += 1
+    End While
+    Throw WireError(400, "a chunk's extension's quoted value doesn't end")
 End Function
 
 // A head's bytes: its line, then each field as "Name: value", each line ended with CR LF, and an
@@ -352,16 +429,17 @@ Const LINGER_SECONDS: Int64 = 1
 Const LINGER_BYTES = 1048576
 
 // Closes a connection a server refused once its answer is written: it ends what it writes, and
-// reads past what the client still sends, for a second at most, as RFC 9112's section 9.6 has a
-// server linger, since closing a connection with bytes it hasn't read resets it on some OSes,
-// and the client then loses the answer.
+// reads past what the client still sends, for a second at most in all, as RFC 9112's section
+// 9.6 has a server linger, since closing a connection with bytes it hasn't read resets it on
+// some OSes, and the client then loses the answer.
 Package Function Linger(stream: Duplex)
     Try
         stream.ShutdownWrite()
-        stream.ReadTimeout = LINGER_SECONDS.Seconds
+        Local deadline = Deadline.After(LINGER_SECONDS.Seconds)
         Local into = Buffer<UInt8>(16384)
         Local total: Int64 = 0
-        While total < LINGER_BYTES
+        While total < LINGER_BYTES && !deadline.HasPassed
+            stream.ReadTimeout = deadline.Remaining
             Local count = stream.Read(into)
             If count == 0 Then Break
             total += count
@@ -375,10 +453,11 @@ End Function
 Package Async Function LingerAsync(stream: Duplex)
     Try
         Await stream.ShutdownWriteAsync()
-        stream.ReadTimeout = LINGER_SECONDS.Seconds
+        Local deadline = Deadline.After(LINGER_SECONDS.Seconds)
         Local into = Buffer<UInt8>(16384)
         Local total: Int64 = 0
-        While total < LINGER_BYTES
+        While total < LINGER_BYTES && !deadline.HasPassed
+            stream.ReadTimeout = deadline.Remaining
             Local count = Await stream.ReadAsync(into)
             If count == 0 Then Break
             total += count
@@ -452,9 +531,9 @@ Package Class Wire
         Local body: UInt8[] = []
         Loop
             Local line: UInt8[] = []
-            If Try Await ReadLineAsync(line, 400) < 0
-                Throw WireError(400, "the connection ended in a chunked body")
-            End If
+            Local ending = Try Await ReadLineAsync(line, 400)
+            If ending < 0 Then Throw WireError(400, "the connection ended in a chunked body")
+            If ending != 2 Then Throw WireError(400, "a chunk's size line doesn't end with CR LF")
 
             Local size = Try ChunkSize(line)
             If size == 0 Then Break
@@ -469,7 +548,7 @@ Package Class Wire
 
             body.AddAll(chunk.ToArray())
             Local after: UInt8[] = []
-            If Try Await ReadLineAsync(after, 400) < 0 || after.Count != 0
+            If Try Await ReadLineAsync(after, 400) != 2 || after.Count != 0
                 Throw WireError(400, "a chunk doesn't end with CR LF")
             End If
         End Loop
