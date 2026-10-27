@@ -53,7 +53,11 @@ Function MadeLink(link: Path, target: Path, folder: Bool): Bool
 End Function
 
 Function MadeSparse(path: Path, size: Int64): Bool
-    If Try? File.WriteText(path, "") == Null Then Return False
+    Try
+        Try File.WriteText(path, "")
+    Catch e As IOError
+        Return False
+    End Try
     Return truncate(path.Text, size) == 0
 End Function
 #End If
