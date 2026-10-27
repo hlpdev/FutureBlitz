@@ -7037,7 +7037,7 @@ TEST_CASE("For Field goes over a type's fields, with a type parameter for each o
 
 TEST_CASE("For Field over a T? goes over its T's fields", "[sema]") {
     // Each call checks the Where lines against the T's fields, through any number of T?s.
-    const std::string_view numbers = "Import std.core\n"
+    const std::string_view fielded = "Import std.core\n"
                                      "Function Names<T>(): String\n"
                                      "    Local text = \"\"\n"
                                      "    For Field f: F In T\n"
@@ -7050,9 +7050,9 @@ TEST_CASE("For Field over a T? goes over its T's fields", "[sema]") {
                                      "Struct Q\n    Field Name: String\nEnd Struct\n";
     CHECK(errors_of(std::format("{}Local n = Names<P?>()\n"
                                 "For Field f: F In P??\n    Where F: Numeric\nEnd For",
-                                numbers))
+                                fielded))
               .empty());
-    CHECK(errors_of(std::format("{}Local n = Names<Q?>()", numbers)) ==
+    CHECK(errors_of(std::format("{}Local n = Names<Q?>()", fielded)) ==
           errors_t{ "Names<Q?>: 'Names' needs each field of Q? to implement Numeric, but its "
                     "field 'Name' is String, which doesn't" });
     CHECK(errors_of("Import std.core\n"
@@ -7060,6 +7060,26 @@ TEST_CASE("For Field over a T? goes over its T's fields", "[sema]") {
                     "For Field f: F In Q?\n    Where F: Numeric\nEnd For") ==
           errors_t{ "Q?: Q?'s field 'Name' is String, which doesn't implement Numeric, as this "
                     "loop needs" });
+    // A loop written over a T? or T?? bounds the T's fields as one over the T does.
+    for (const std::string_view over : { "T?", "T??" }) {
+        const std::string twos = std::format("Import std.core\n"
+                                             "Function Twos<T>(): String\n"
+                                             "    Local text = \"\"\n"
+                                             "    For Field f: F In {}\n"
+                                             "        Where F: Numeric\n"
+                                             "        Where F: Printable\n"
+                                             "        text += \"{{f.Name}}={{F.One() + F.One()}}\"\n"
+                                             "    End For\n"
+                                             "    Return text\n"
+                                             "End Function\n"
+                                             "Struct P\n    Field X: Int\nEnd Struct\n"
+                                             "Struct Q\n    Field Name: String\nEnd Struct\n",
+                                             over);
+        CHECK(errors_of(twos + "Local p = Twos<P>()").empty());
+        CHECK(errors_of(twos + "Local q = Twos<Q>()") ==
+              errors_t{ "Twos<Q>: 'Twos' needs each field of Q to implement Numeric, but its "
+                        "field 'Name' is String, which doesn't" });
+    }
 }
 
 TEST_CASE("Set changes a field, and For Method calls Methods that take nothing", "[sema]") {

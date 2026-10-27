@@ -10394,7 +10394,13 @@ private:
                 loop->type_name ? std::string(loop->type_name->text)
                                 : std::format("{}{}", unnamed_member_type, loop->variable.text));
             m_loop_fields[id] = field;
-            const auto* named = std::get_if<named_type_t>(&m_ast.get(loop->type).node);
+            // A loop over a T? goes over the T's fields, so its Where lines bound them too.
+            type_expr_id_t over = loop->type;
+            while (const auto* nullable = std::get_if<nullable_type_t>(&m_ast.get(over).node)) {
+                over = nullable->inner;
+            }
+
+            const auto* named = std::get_if<named_type_t>(&m_ast.get(over).node);
             const auto parameter =
                 named == nullptr || !named->arguments.empty()
                     ? own.end()
@@ -12478,7 +12484,6 @@ private:
                (node.name.text == "[]" || node.name.text == "[]=");
     }
 
-    /// The T of a T?, and any other type as it is.
     /// A type without any of the T?s around it.
     [[nodiscard]] type_id_t all_non_null(type_id_t type) const {
         while (is_nullable(type)) {
@@ -12488,6 +12493,7 @@ private:
         return type;
     }
 
+    /// The T of a T?, and any other type as it is.
     [[nodiscard]] type_id_t non_null(const type_id_t type) const {
         return is_nullable(type) ? m_analysis.types.get(type).inner : type;
     }
