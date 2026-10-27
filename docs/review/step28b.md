@@ -4,7 +4,7 @@
 
 ## lan-1 (high): Every answer and announcement carries the A records of every interface, so a found service's Address can be one the finder can't reach
 
-Status: fixed in 1de61f1d and 0a77e3cf
+Status: fixed in d940a1b2 and 55d0a4b3
 
 Where: std/net/lan.fb:311
 
@@ -81,7 +81,7 @@ Skeptic: Ran the reviewer's program (scratchpad/rv-net/lanrefute/lan1.fb), debug
 
 ## runtime-1 (high): On Linux, a write to a connection the other side closed kills the program with SIGPIPE instead of throwing RESET
 
-Status: fixed in 0498f8af
+Status: fixed in 9abc22bc
 
 Where: runtime/src/net.cpp:739
 
@@ -133,7 +133,7 @@ Skeptic: I built rev-5's net.cpp and the bundled libuv 1.52.1 on WSL Ubuntu, wit
 
 ## streams-1 (high): On Linux, writing to a TCP or IPC connection the other side closed kills the program with SIGPIPE instead of throwing RESET
 
-Status: fixed in 0498f8af
+Status: fixed in 9abc22bc
 
 Where: runtime/src/net.cpp:739
 
@@ -184,7 +184,7 @@ Skeptic: I read the code first. Nothing in runtime/ ignores or blocks SIGPIPE (g
 
 ## runtime-2 (medium): TcpListener.Listen with a backlog of 0 or less crashes on Windows with libuv's assertion
 
-Status: fixed in 19950238 and 0a77e3cf
+Status: fixed in e1cfd3b1 and 55d0a4b3
 
 Where: runtime/src/net.cpp:1118
 
@@ -215,7 +215,7 @@ Skeptic: I ran rt-refute/backlog0.fb, TcpListener.Listen(SocketAddress(IpAddress
 
 ## runtime-3 (medium): A ReadTimeout of zero never reads: a blocking Read never starts libuv reading, so the bytes that came are never taken
 
-Status: fixed in 134219b2 and e2b6732f
+Status: fixed in ed3edc1f and 77f03f84
 
 Where: runtime/src/net.cpp:1173
 
@@ -263,7 +263,7 @@ Skeptic: rt-refute/zeroread.fb, in debug and --release on Windows: the server wr
 
 ## runtime-5 (medium): On macOS, IPC names longer than 50 bytes fail with NetError OTHER, though 1 to 64 bytes are allowed
 
-Status: fixed in 72f15bd2 and 0a77e3cf
+Status: fixed in 2d77ccb1 and 55d0a4b3
 
 Where: runtime/src/net.cpp:372
 
@@ -294,7 +294,7 @@ Skeptic: The Linux harness's long-name scenario, with TMPDIR=/tmp/folders/3l/l8s
 
 ## streams-2 (medium): A blocking Read with a zero (or negative) ReadTimeout never starts reading, and stalls for good after 64 KiB
 
-Status: fixed in 134219b2, 72f15bd2, and 0a77e3cf
+Status: fixed in ed3edc1f, 2d77ccb1, and 55d0a4b3
 
 Where: runtime/src/net.cpp:1173
 
@@ -339,7 +339,7 @@ Skeptic: On Windows, s2.fb (the finding's program) prints -1 in debug and releas
 
 ## streams-3 (medium): TcpListener.Listen with a backlog of 0 or less aborts the process on Windows (libuv assert)
 
-Status: fixed in 19950238 and 0a77e3cf
+Status: fixed in e1cfd3b1 and 55d0a4b3
 
 Where: std/net/tcp.fb:160
 
@@ -370,7 +370,7 @@ Skeptic: On Windows, TcpListener.Listen(address, 0) (s3.fb) prints "Assertion fa
 
 ## streams-4 (medium): On Linux and macOS, a failed IpcListener.Listen at a live name gives that listener a phantom connection
 
-Status: fixed in aad3d823, 72f15bd2, and 0a77e3cf
+Status: fixed in ca94653c, 2d77ccb1, and 55d0a4b3
 
 Where: runtime/src/net.cpp:890
 
@@ -411,7 +411,7 @@ Skeptic: My WSL mirror of bind_pipe and left_behind (rv-net/streams-v/posix/phan
 
 ## streams-5 (medium): IPC names of up to 64 bytes are promised, but on macOS (and on Linux with a long TMPDIR) names over about 50 bytes fail
 
-Status: fixed in 72f15bd2 and 0a77e3cf
+Status: fixed in 2d77ccb1 and 55d0a4b3
 
 Where: std/net/ipc.fb:18
 
@@ -443,7 +443,7 @@ Skeptic: pipe_path is uv_os_tmpdir() + '/' + name + '.sock'. uv_pipe_bind2 and u
 
 ## lan-2 (low): Stop says goodbye to the host's A records and the type's enumeration PTR, which other announcers still have
 
-Status: fixed in 1de61f1d and 0a77e3cf
+Status: fixed in d940a1b2 and 55d0a4b3
 
 Where: std/net/lan.fb:257
 
@@ -549,7 +549,7 @@ Skeptic: Ran lan2.fb: after second.Stop() a socket on the discovery port, joined
 
 ## lan-3 (low): A text too big for one datagram gets past Start's checks, and the service is then silently never announced or found
 
-Status: fixed in 5e2d7d08 and 0a77e3cf
+Status: fixed in cbf83719 and 55d0a4b3
 
 Where: std/net/lan.fb:711
 
@@ -592,7 +592,7 @@ Skeptic: Ran lan3.fb (300 pairs of 254 bytes, about 76 KB of TXT data), debug an
 
 ## lan-4 (low): The announcer answers queries that already list its answer (no known-answer suppression)
 
-Status: fixed in 1de61f1d and 0a77e3cf
+Status: fixed in d940a1b2 and 55d0a4b3
 
 Where: std/net/lan.fb:268
 
@@ -663,7 +663,7 @@ Skeptic: Ran lan4.fb: a PTR query for _fbka._udp.local whose answer section alre
 
 ## lan-5 (low): TXT keys are case-sensitive, so keys that differ only by case both survive and lookups miss
 
-Status: fixed in 1de61f1d and 0a77e3cf
+Status: fixed in d940a1b2 and 55d0a4b3
 
 Where: std/net/lan.fb:692
 
@@ -700,7 +700,7 @@ Skeptic: Ran lan5.fb (text 'Map'='dust' then 'map'='fields') in debug and releas
 
 ## lan-6 (low): The goodbye is never tested: Find can't hear one, though net_lan.fb's header and Stop's comment say it has the service forgotten
 
-Status: fixed in 1de61f1d
+Status: fixed in d940a1b2
 
 Where: tests/programs/net_lan.fb:79
 
@@ -735,7 +735,7 @@ Skeptic: Ran lan6.fb: a FindAsync that is listening while Stop's goodbye goes ou
 
 ## lan-7 (low): Start's name and text panics have no tests
 
-Status: fixed in ae4ad80c
+Status: fixed in d81e00c1
 
 Where: std/net/lan.fb:759
 
@@ -771,7 +771,7 @@ Skeptic: Ran lan7.fb, lan7b.fb, and lan7c.fb: each exits 101 with the right @Pan
 
 ## runtime-7 (low): A Write after the stream's own ShutdownWrite throws RESET ("broken pipe") rather than CLOSED
 
-Status: fixed in cdef6d6a, 134219b2, and 0a77e3cf
+Status: fixed in 0b72220b, ed3edc1f, and 55d0a4b3
 
 Where: runtime/src/net.cpp:1420
 
@@ -816,7 +816,7 @@ Skeptic: rt-refute/shutwrite.fb in debug and --release on Windows printed 'RESET
 
 ## runtime-8 (low): The Unix-socket takeover runs in a test only if panic_net_ipc_name.fb happened to run earlier on that machine
 
-Status: fixed in 72f15bd2
+Status: fixed in 2d77ccb1
 
 Where: tests/programs/net_ipc.fb:26
 
@@ -847,7 +847,7 @@ Skeptic: By reading: net_ipc.fb's first section passes only if Listen('fb-test-n
 
 ## streams-10 (low): net_udp.fb never sends a broadcast or tests the datagram size limit, and udp.fb's LARGEST is unused
 
-Status: fixed in e2b6732f and 0a77e3cf
+Status: fixed in 77f03f84 and 55d0a4b3
 
 Where: tests/programs/net_udp.fb:55
 
@@ -908,7 +908,7 @@ Skeptic: udp.fb:17 declares `Const LARGEST = 65507`, and grep finds no other use
 
 ## streams-6 (low): IpcListener.Listen on POSIX deletes any non-socket file at $TMPDIR/<name>.sock
 
-Status: fixed in a3d16880, 72f15bd2, and 0a77e3cf
+Status: fixed in 1d25c3d7, 2d77ccb1, and 55d0a4b3
 
 Where: runtime/src/net.cpp:891
 
@@ -938,7 +938,7 @@ Skeptic: My WSL mirror (rv-net/streams-v/posix/regular.c) writes a regular file,
 
 ## streams-7 (low): SetMulticastTtl doesn't check the 1-to-255 range its comment gives, and out-of-range values act differently on each OS
 
-Status: fixed in b9fdf617 and 0a77e3cf
+Status: fixed in b94fd1a7 and 55d0a4b3
 
 Where: std/net/udp.fb:137
 
@@ -975,7 +975,7 @@ Skeptic: On Windows, s7.fb prints "1 set / 255 set / 0 set / 256 OTHER setting t
 
 ## streams-8 (low): IPC names that differ only in case are one name on Windows (and macOS) but two on Linux, and the docs don't say so
 
-Status: fixed in 72f15bd2 and 0a77e3cf
+Status: fixed in 2d77ccb1 and 55d0a4b3
 
 Where: std/net/ipc.fb:155
 
@@ -1004,7 +1004,7 @@ Skeptic: On Windows, s8.fb prints "OTHER listening at fb-review-game failed: add
 
 ## streams-9 (low): TcpStream.Close's and IpcStream.Close's comments say a waiting read throws a NetError, but it throws an IOError whose Cause is the NetError
 
-Status: fixed in 87934987
+Status: fixed in 463a36b8
 
 Where: std/net/tcp.fb:138
 
@@ -1048,7 +1048,7 @@ Skeptic: s9.fb prints "IOError, Cause CLOSED" for a ReadAsync waiting when Close
 
 ## landing-1 (medium): net_connections fails when another run of it is going at the same time on the machine
 
-Status: fixed in 6965c04f
+Status: fixed in fb07bef0
 
 Where: tests/programs/net_connections.fb:75
 
@@ -1056,7 +1056,7 @@ Found by the landing's verify.py, in the concurrent repeats, not by the review. 
 
 ## landing-2 (medium): net_lan's Finds see the services of another run of it at the same time on the machine
 
-Status: fixed in 1e1b37a9
+Status: fixed in 2e396c42
 
 Where: tests/programs/net_lan.fb:14
 

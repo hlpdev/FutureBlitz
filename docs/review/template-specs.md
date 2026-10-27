@@ -4,7 +4,7 @@
 
 ## specs-1 (medium): An integer formatted by a Double's spec loses its exact value past 2^53
 
-Status: fixed in b87240b3: an integer whose own Format doesn't take the spec goes to the runtime's new fb_format_exact, fb::format_exact in text_format.hpp, which writes it as a float of its value would be written but from its own digits: fixed with the precision's zeros, '%' with two zeros more, and 'e' and 'E' rounded half to even, as to_chars rounds, so UInt64's largest and 2^53 + 1 keep every digit; text_format_tests checks those, the halves, a carry, and that each small integer comes out as its float does by eleven specs, and text_template prints the review's cases
+Status: fixed in 73abbb35: an integer whose own Format doesn't take the spec goes to the runtime's new fb_format_exact, fb::format_exact in text_format.hpp, which writes it as a float of its value would be written but from its own digits: fixed with the precision's zeros, '%' with two zeros more, and 'e' and 'E' rounded half to even, as to_chars rounds, so UInt64's largest and 2^53 + 1 keep every digit; text_format_tests checks those, the halves, a carry, and that each small integer comes out as its float does by eleven specs, and text_template prints the review's cases
 
 Where: std/text/template.fb:711
 
@@ -31,7 +31,7 @@ Skeptic: Ran the finding's program (scratchpad/rv-tplspec/refute/s1.fb) in debug
 
 ## specs-2 (low): A spec's BAD_VALUE at Render doesn't say the line, column, or template
 
-Status: fixed in 22a24f87: the reader keeps the line and column it has read to, and a VALUE with a spec keeps where its tag is, as BAD_TEMPLATE says it, which BAD_VALUE's message starts with; an indented partial's columns leave out its indentation; text_template checks a lone Template's, a named template's on its second line, and an indented partial's
+Status: fixed in 3be05740: the reader keeps the line and column it has read to, and a VALUE with a spec keeps where its tag is, as BAD_TEMPLATE says it, which BAD_VALUE's message starts with; an indented partial's columns leave out its indentation; text_template checks a lone Template's, a named template's on its second line, and an indented partial's
 
 Where: std/text/template.fb:723
 

@@ -4,7 +4,7 @@
 
 ## lower-1 (high): A failed Load runs the half-made Class's Destroy, which crashes on a Field Load never filled
 
-Status: fixed in 01edbb23: load_fields keeps a half-made Class in its scope as a discard_t, a new cleanup that lets go of its fields without its Destroy (OBJECT_DISCARD), until every Field is filled; core_load_destroy fails a Load before and after the Field with no zero, and its OnLoaded's error, which runs Destroy on the whole object
+Status: fixed in a70f76c5: load_fields keeps a half-made Class in its scope as a discard_t, a new cleanup that lets go of its fields without its Destroy (OBJECT_DISCARD), until every Field is filled; core_load_destroy fails a Load before and after the Field with no zero, and its OnLoaded's error, which runs Destroy on the whole object
 
 Where: compiler/src/lower.cpp:
 
@@ -50,7 +50,7 @@ Skeptic: I ran the program in debug and release, and both segfault (0xC0000005).
 
 ## lower-2 (high): Load of a non-@Flags Enum from an integer makes a value that is no member
 
-Status: fixed in 01edbb23: LoadEnum takes an integer for an Enum without @Flags only when it's a member's, else WRONG_TYPE naming the members; core_load_errors loads Value(1), Value(7), and Value(-1) as a Color
+Status: fixed in a70f76c5: LoadEnum takes an integer for an Enum without @Flags only when it's a member's, else WRONG_TYPE naming the members; core_load_errors loads Value(1), Value(7), and Value(-1) as a Color
 
 Where: std/core/load.fb:228
 
@@ -77,7 +77,7 @@ Skeptic: Debug and release both print '7 False False'. With a Select that covers
 
 ## sema-1 (high): A generic @Skip (or @Optional) Field whose instance's T has no zero isn't checked, and Load leaves it Null, which crashes
 
-Status: fixed in 01edbb23: lowering checks each instance's Struct or Class with fields_problem(), analysis's rules shared, which says a @Skip or @Optional Field needs a default when its type has no zero, at the Load<T> call; mir_tests has Held<Node> with each
+Status: fixed in a70f76c5: lowering checks each instance's Struct or Class with fields_problem(), analysis's rules shared, which says a @Skip or @Optional Field needs a default when its type has no zero, at the Load<T> call; mir_tests has Held<Node> with each
 
 Where: compiler/src/sema.cpp:299
 
@@ -114,7 +114,7 @@ Skeptic: Ran the program in rv-load/sema/s1.fb. It compiles, then exits with 0xC
 
 ## data-1 (medium): A @Flatten Field's keys aren't checked against the other Fields' keys, so Save drops data with no error
 
-Status: fixed in 01edbb23, with sema-3: fields_problem() expands a @Flatten Field into its type's keys, so Marker's 'X' and 'At.X' clash; a sema test has it
+Status: fixed in a70f76c5, with sema-3: fields_problem() expands a @Flatten Field into its type's keys, so Marker's 'X' and 'At.X' clash; a sema test has it
 
 Where: compiler/src/sema.cpp:7290
 
@@ -152,7 +152,7 @@ Skeptic: I ran rv-load/data/d1.fb in debug. It printed {"X": 2, "Y": 3} and then
 
 ## data-2 (medium): @Flatten is accepted on a Map or Value Field, and Load gives it every key, the other Fields' too
 
-Status: fixed in 01edbb23, with sema-4: @Flatten on a Map or a Value is an error that they're converted whole; a sema test has each, and their T?s
+Status: fixed in a70f76c5, with sema-4: @Flatten on a Map or a Value is an error that they're converted whole; a sema test has each, and their T?s
 
 Where: compiler/src/sema.cpp:7254
 
@@ -188,7 +188,7 @@ Skeptic: I ran d2.fb. It printed {"Name": "a", "k": "v"} and then a {Name: a, k:
 
 ## data-3 (medium): Save of a @Flags value with bits no member has writes only the member names, so the bits are lost
 
-Status: fixed in 01edbb23, with lower-3: Save writes a @Flags value with bits no member has as its integer; core_load round-trips 9 As Layer
+Status: fixed in a70f76c5, with lower-3: Save writes a @Flags value with bits no member has as its integer; core_load round-trips 9 As Layer
 
 Where: compiler/src/lower.cpp:7750
 
@@ -218,7 +218,7 @@ Skeptic: I ran d3.fb. It printed 9 "WORLD" and then 1, so a value Load accepts d
 
 ## data-5 (medium): A ParseError thrown with path: from FromValue or OnLoaded loses its Message on the way out of Load
 
-Status: fixed in 01edbb23, with lower-5: ParseError's New keeps its message as Plain, and a path given to it starts its Message, so Within keeps the text; core_load_errors has a FromValue's error with path: "inner", which comes out as "T.inner: bad tag"
+Status: fixed in a70f76c5, with lower-5: ParseError's New keeps its message as Plain, and a path given to it starts its Message, so Within keeps the text; core_load_errors has a FromValue's error with path: "inner", which comes out as "T.inner: bad tag"
 
 Where: std/core/error.fb:104
 
@@ -256,7 +256,7 @@ Skeptic: I ran d5.fb. It printed [T.inner] T.inner: with the user's text "bad ta
 
 ## lower-3 (medium): Save of a @Flags value with bits outside its named flags loses them, so Load gives back another value
 
-Status: fixed in 01edbb23, with data-3: core_load round-trips ~Layer.WORLD, which is saved as -2
+Status: fixed in a70f76c5, with data-3: core_load round-trips ~Layer.WORLD, which is saved as -2
 
 Where: compiler/src/lower.cpp:
 
@@ -284,7 +284,7 @@ Skeptic: Debug and release both print '"PLAYER | ENEMY" -2 6 False'. With 9 As L
 
 ## lower-4 (medium): Load<Int64> takes "-9223372036854775809" (and down to about -9223372036854776832) as Int64's least
 
-Status: fixed in 01edbb23: fb_value_scalar gives integer text past every integer type's range its own code, 5, which LoadSigned and LoadUnsigned throw OUT_OF_RANGE for; core_load_errors loads "-9223372036854775809" as an Int64 and "-18446744073709551616" as a UInt64, and the runtime's test has the code
+Status: fixed in a70f76c5: fb_value_scalar gives integer text past every integer type's range its own code, 5, which LoadSigned and LoadUnsigned throw OUT_OF_RANGE for; core_load_errors loads "-9223372036854775809" as an Int64 and "-18446744073709551616" as a UInt64, and the runtime's test has the code
 
 Where: std/core/load.fb:136
 
@@ -312,7 +312,7 @@ Skeptic: Debug and release both print '-9223372036854775808' for "-9223372036854
 
 ## lower-5 (medium): ParseError.Within drops the Message of a ParseError made with a path
 
-Status: fixed in 01edbb23, with data-5
+Status: fixed in a70f76c5, with data-5
 
 Where: std/core/error.fb:104
 
@@ -350,7 +350,7 @@ Skeptic: Debug and release both print '[Grade.mark] Grade.mark: ' with the text 
 
 ## sema-2 (medium): Generic code converts what sema rejects: Map<Int, V> as the Map's internal Fields, and a @Flatten T instanced as Int
 
-Status: fixed in 01edbb23: lowering's instance check, with sema-1, says a Map's keys are Strings, that an Abstract Class can't be loaded, and that a @Flatten Field is a Struct or Class; mir_tests saves and loads a Map<Int32, Int32> through generic code, saves a Wrap<Int32> with a @Flatten T, and loads an Abstract Shape
+Status: fixed in a70f76c5: lowering's instance check, with sema-1, says a Map's keys are Strings, that an Abstract Class can't be loaded, and that a @Flatten Field is a Struct or Class; mir_tests saves and loads a Map<Int32, Int32> through generic code, saves a Wrap<Int32> with a @Flatten T, and loads an Abstract Shape
 
 Where: compiler/src/sema.cpp:558
 
@@ -384,7 +384,7 @@ Skeptic: Ran s2.fb. Put(m) printed Map's internal Fields ({"Entries": [...], "Bu
 
 ## sema-3 (medium): Keys of a @Flatten Field's Fields aren't checked against the others, so two Fields share a key and Save drops one
 
-Status: fixed in 01edbb23, with data-1: the sema test has an outer/flattened clash, two @Flatten Fields of one type, a @Rename onto a flattened key, and a @Renamed key that's a flattened one's
+Status: fixed in a70f76c5, with data-1: the sema test has an outer/flattened clash, two @Flatten Fields of one type, a @Rename onto a flattened key, and a @Renamed key that's a flattened one's
 
 Where: compiler/src/sema.cpp:321
 
@@ -422,7 +422,7 @@ Skeptic: Ran s3.fb. It compiles and prints {"Name": "inner"}, then inner, then i
 
 ## sema-4 (medium): @Flatten is accepted on a Map<String, V> or Value Field, which isn't a Struct or Class of Fields, and round trips fail or panic
 
-Status: fixed in 01edbb23, with data-2
+Status: fixed in a70f76c5, with data-2
 
 Where: compiler/src/sema.cpp:309
 
@@ -466,7 +466,7 @@ Skeptic: Ran s4.fb. Save(Holder()) printed {"Name": "h", "a": 1}, and Load<Holde
 
 ## sema-5 (medium): A missing Field with a default or zero throws MISSING, against decisions.md and milestones row 17
 
-Status: fixed in ee712511: the user chose decisions.md 635's rule, so a Field the Object leaves out takes its default, else its zero, else it's MISSING, and @Optional, which that rule makes needless, is gone; spec 13 and stdlib.md say so, core_load_errors loads an Object without a Field with a default and one with a zero, and is MISSING a Class Field with neither, nested and at the top
+Status: fixed in d417272a: the user chose decisions.md 635's rule, so a Field the Object leaves out takes its default, else its zero, else it's MISSING, and @Optional, which that rule makes needless, is gone; spec 13 and stdlib.md say so, core_load_errors loads an Object without a Field with a default and one with a zero, and is MISSING a Class Field with neither, nested and at the top
 
 Where: docs/spec/13-compile-time.md:262
 
@@ -495,7 +495,7 @@ Skeptic: Ran s5.fb. It throws 'uncaught ParseError: Speed: missing, and Player's
 
 ## data-6 (low): An error from a top-level type's OnLoaded or FromValue has Path Null, though the docs say "" for the Value itself
 
-Status: fixed in 01edbb23: Load<T>'s own error path gives a ParseError with no path the path "" (LoadAtTop); core_load_errors has a top-level FromValue's and OnLoaded's
+Status: fixed in a70f76c5: Load<T>'s own error path gives a ParseError with no path the path "" (LoadAtTop); core_load_errors has a top-level FromValue's and OnLoaded's
 
 Where: compiler/src/lower.cpp:7110
 
@@ -545,7 +545,7 @@ Skeptic: I ran d6.fb. It printed [Null] Count is below 0 and then [Null] no grad
 
 ## data-7 (low): A missing @Renamed Field is reported at its old key, not its own
 
-Status: fixed in 01edbb23, with lower-7: a @Renamed Field the Object has under neither key is missing at its own key; core_load_errors has one
+Status: fixed in a70f76c5, with lower-7: a @Renamed Field the Object has under neither key is missing at its own key; core_load_errors has one
 
 Where: compiler/src/lower.cpp:7616
 
@@ -575,7 +575,7 @@ Skeptic: I ran d7.fb. It printed [colour] colour: missing, and Player's Field Co
 
 ## data-9 (low): Spec 13's Load and Save example doesn't compile
 
-Status: fixed in 01edbb23: spec 13's Settings has a New that sets Keys, and core_load_spec runs the example as written
+Status: fixed in a70f76c5: spec 13's Settings has a New that sets Keys, and core_load_spec runs the example as written
 
 Where: docs/spec/13-compile-time.md:211
 
@@ -616,7 +616,7 @@ Skeptic: I ran d9.fb, which is spec 13's Settings class as written, plus a Key E
 
 ## lower-6 (low): Save's depth panic reports std/core/load.fb's line, not the Save call
 
-Status: fixed in 01edbb23: Save's helpers hand a depth past MostDepth, and a @Flatten Field's ToValue that isn't an Object, back as an Error, which the generated code passes out, and Save(x) panics with its Message at the call; panic_save_deep and panic_save_flattened now say their programs' lines
+Status: fixed in a70f76c5: Save's helpers hand a depth past MostDepth, and a @Flatten Field's ToValue that isn't an Object, back as an Error, which the generated code passes out, and Save(x) panics with its Message at the call; panic_save_deep and panic_save_flattened now say their programs' lines
 
 Where: std/core/load.fb:343
 
@@ -644,7 +644,7 @@ Skeptic: Debug and release both panic with '... can't be saved at std/core/load.
 
 ## lower-7 (low): A MISSING @Renamed Field's Path names its old key, not its key
 
-Status: fixed in 01edbb23, with data-7
+Status: fixed in a70f76c5, with data-7
 
 Where: compiler/src/lower.cpp:
 
@@ -674,7 +674,7 @@ Skeptic: Debug and release both print '[colour] colour: missing, and Settings's 
 
 ## lower-8 (low): For one Value alone read as a T[], the error's Path has an [0] that isn't in the Value
 
-Status: fixed in 01edbb23: LoadWithinIndex leaves out the index of a Value alone read as a T[] (LoadAlone), in load_array and LoadBytes; core_load_errors checks the path finds the Value for a lone Object, a lone byte, and an element of a real Array
+Status: fixed in a70f76c5: LoadWithinIndex leaves out the index of a Value alone read as a T[] (LoadAlone), in load_array and LoadBytes; core_load_errors checks the path finds the Value for a lone Object, a lone byte, and an element of a real Array
 
 Where: compiler/src/lower.cpp:
 
@@ -711,7 +711,7 @@ Skeptic: Debug and release both print 'Sizes[0].Height True', so v.Path(e.Path) 
 
 ## lower-9 (low): An Enum on UInt64 can't be loaded from an integer past Int64's largest, and the error gives the wrong range
 
-Status: fixed in 01edbb23: LoadEnum reads an Enum on a UInt64 with LoadUnsigned; core_load loads Big.HUGE from its integer
+Status: fixed in a70f76c5: LoadEnum reads an Enum on a UInt64 with LoadUnsigned; core_load loads Big.HUGE from its integer
 
 Where: compiler/src/lower.cpp:
 
@@ -741,7 +741,7 @@ Skeptic: Debug and release both print 'expected Big, from 0 to 92233720368547758
 
 ## sema-6 (low): An OnLoaded that a Class or Struct gets from an Interface isn't checked: one with parameters is silently never run
 
-Status: fixed in 01edbb23: an Interface's OnLoaded is checked as a Struct's or Class's is, but a Struct's copy of it needn't be ByRef, as spec 13 now says; a sema test has one with a parameter
+Status: fixed in a70f76c5: an Interface's OnLoaded is checked as a Struct's or Class's is, but a Struct's copy of it needn't be ByRef, as spec 13 now says; a sema test has one with a parameter
 
 Where: compiler/src/sema.cpp:3804
 
@@ -775,7 +775,7 @@ Skeptic: Ran s6.fb. It compiles and prints 1, and the Interface's OnLoaded(x: In
 
 ## sema-7 (low): An Interface's OnLoaded that throws a non-ParseError is reported once per type that implements it
 
-Status: fixed in 01edbb23: check_loaded_type skips an OnLoaded a type got from an Interface, which the Interface's own check reports once; the sema test has two Classes implementing one
+Status: fixed in a70f76c5: check_loaded_type skips an OnLoaded a type got from an Interface, which the Interface's own check reports once; the sema test has two Classes implementing one
 
 Where: compiler/src/sema.cpp:402
 

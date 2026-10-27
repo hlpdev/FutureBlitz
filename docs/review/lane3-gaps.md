@@ -4,7 +4,7 @@
 
 ## compress-1 (medium): CoderReader gives bytes it already gave again after its Coder throws
 
-Status: fixed in 0b3e25c (a coderreader whose coder throws doesn't give what it gave again), with compress_streams cases: each format's stream cut 6 bytes short, read five times, gives its first bytes and then UNEXPECTED_END each time, and Gzip's past a limit of 100000 gives 65506 bytes and then OTHER each time, where before it gave the first bytes again; the Coder's bytes replace Coded, and At goes back to 0, only once the Coder gives them
+Status: fixed in 5e7b27f (a coderreader whose coder throws doesn't give what it gave again), with compress_streams cases: each format's stream cut 6 bytes short, read five times, gives its first bytes and then UNEXPECTED_END each time, and Gzip's past a limit of 100000 gives 65506 bytes and then OTHER each time, where before it gave the first bytes again; the Coder's bytes replace Coded, and At goes back to 0, only once the Coder gives them
 
 Where: std/compress/stream.fb:72
 
@@ -56,7 +56,7 @@ Skeptic: Ran the finding's program, plus a truncated-gzip case (I copied the byt
 
 ## compress-3 (medium): A GNU-format tar's pre-1970 mtime (negative base-256) reads as Modified Null
 
-Status: fixed in 128768a (a gnu tar's time before 1970, a negative base-256 number, is its entry's), with compress_entry_times cases of a tar whose header's time is GNU's negative base-256: -1000000000 is 1938-04-24T22:13:20Z and all 0xff a second before 1970, one an Int64 can't hold is none, and a positive one still reads; signed_number_of() reads the header's time, and stdlib.md and open()'s comment say a header's time can be before 1970
+Status: fixed in 7a9df95 (a gnu tar's time before 1970, a negative base-256 number, is its entry's), with compress_entry_times cases of a tar whose header's time is GNU's negative base-256: -1000000000 is 1938-04-24T22:13:20Z and all 0xff a second before 1970, one an Int64 can't hold is none, and a positive one still reads; signed_number_of() reads the header's time, and stdlib.md and open()'s comment say a header's time can be before 1970
 
 Where: runtime/src/tar.cpp:73
 
@@ -106,7 +106,7 @@ Skeptic: Ran the program and it printed 'a.txt -' instead of 1938-04-24T22:13:20
 
 ## compress-2 (low): Zip DOS dates go through local time, so an hour skipped for summer time reads and writes an hour early, depending on the machine's zone
 
-Status: fixed in b0efe68 (a zip's dos dates are read and written as utc without local time, in an hour summer time skips too), with a runtime test in EST5EDT of 2107-03-13T02:30:00Z, which only a DOS date holds, in the hour US summer time skips: a zip made in UTC0 reads back right in EST5EDT, and one made in EST5EDT is the same bytes and reads back right too, where each was an hour early; the reader takes the DOS date from the central directory record, and the writer patches each entry's, made from UTC, into the finished zip, so no local time is involved
+Status: fixed in 996c9c5 (a zip's dos dates are read and written as utc without local time, in an hour summer time skips too), with a runtime test in EST5EDT of 2107-03-13T02:30:00Z, which only a DOS date holds, in the hour US summer time skips: a zip made in UTC0 reads back right in EST5EDT, and one made in EST5EDT is the same bytes and reads back right too, where each was an hour early; the reader takes the DOS date from the central directory record, and the writer patches each entry's, made from UTC, into the finished zip, so no local time is involved
 
 Where: runtime/src/zip.cpp:561
 
@@ -161,7 +161,7 @@ Skeptic: Ran the program. On this machine (Eastern) it printed 2026-03-08T01:30:
 
 ## compress-4 (low): No test checks NTFS or PKWARE Unix extra-field times, a DOS-date-only foreign zip's time, or a non-Unix zip's Mode Null
 
-Status: fixed in dea3f5f (compress_entry_times reads zips made by hand with ntfs's, info-zip's, and pkware's times, and one with none), with the finding's zips made by hand in compress_entry_times: NTFS's time to 100 ns, Info-ZIP's extended timestamp, PKWARE's Unix field, NTFS's taking precedence over UT, and an MS-DOS zip with no extra field, read from its DOS date as UTC, with Mode Null; the code was right, so the cases pass with it as it was
+Status: fixed in 782d28d (compress_entry_times reads zips made by hand with ntfs's, info-zip's, and pkware's times, and one with none), with the finding's zips made by hand in compress_entry_times: NTFS's time to 100 ns, Info-ZIP's extended timestamp, PKWARE's Unix field, NTFS's taking precedence over UT, and an MS-DOS zip with no extra field, read from its DOS date as UTC, with Mode Null; the code was right, so the cases pass with it as it was
 
 Where: tests/programs/compress_tools.fb:40
 
@@ -294,7 +294,7 @@ Skeptic: Ran the handmade-zip program. It prints the expected lines, so the code
 
 ## text-1 (low): StringBuilder.Flush panics past the cap instead of throwing IOError, and no test checks the cap
 
-Status: fixed in 9a68656 (a stringbuilder's flush throws past a string's most bytes, as its write does, and keeps what it holds), with release_text_builder_cap, built in release for the 2 GiB it fills: a Write past the cap throws and adds nothing, a Flush whose U+FFFD would pass it throws OTHER and keeps the unfinished character, and the rest of it then makes a 3-byte character, not two U+FFFDs, where Flush panicked inside std; Write and Flush share CheckRoomFor()
+Status: fixed in 7fc8847 (a stringbuilder's flush throws past a string's most bytes, as its write does, and keeps what it holds), with release_text_builder_cap, built in release for the 2 GiB it fills: a Write past the cap throws and adds nothing, a Flush whose U+FFFD would pass it throws OTHER and keeps the unfinished character, and the rest of it then makes a 3-byte character, not two U+FFFDs, where Flush panicked inside std; Write and Flush share CheckRoomFor()
 
 Where: std/text/builder.fb:136
 

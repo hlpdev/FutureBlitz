@@ -4,7 +4,7 @@
 
 ## codegen-1 (medium): An Embed passed to an overloaded call reads the file again for every overload tried, and nested calls multiply the reads
 
-Status: fixed in 2d465282 (the loader reads each file once and keeps its bytes, by its path in the program, as a shared_ptr<const std::string> that embedded_file_t holds, and sema's embed_index() gives each distinct file or folder one place in analysis_t::embeds, however many times an overloaded call checks the argument), with driver_tests' "an embedded file is read once, and its embeds share its bytes": F(F(F(Embed(...)))) over three overloads, and another Embed and an EmbedFolder of the file, give two places in analysis_t::embeds (127 before) with the same bytes. The finding's shape with an 8 MiB file and 16 more Embeds builds in 1.44 s (463 s before)
+Status: fixed in dd496695 (the loader reads each file once and keeps its bytes, by its path in the program, as a shared_ptr<const std::string> that embedded_file_t holds, and sema's embed_index() gives each distinct file or folder one place in analysis_t::embeds, however many times an overloaded call checks the argument), with driver_tests' "an embedded file is read once, and its embeds share its bytes": F(F(F(Embed(...)))) over three overloads, and another Embed and an EmbedFolder of the file, give two places in analysis_t::embeds (127 before) with the same bytes. The finding's shape with an 8 MiB file and 16 more Embeds builds in 1.44 s (463 s before)
 
 Where: compiler/src/sema.cpp:20755
 
@@ -32,7 +32,7 @@ Skeptic: I put a 1 MiB one.txt in rv-embed/codegen/c1 and ran the finding's prog
 
 ## codegen-2 (medium): Each Embed call keeps its own copy of the file's bytes in the compiler, so memory grows with the number of calls
 
-Status: fixed in 2d465282 (as codegen-1, and lowering puts each file's bytes in one Global String, embedded_text(), which every embed of the file makes its UInt8[] from), with mir_tests' "an embedded file is one Global String, whose bytes that aren't UTF-8 print by value": two Embeds of the file, one as "./logo.bin", read @Embedded, which the module has once
+Status: fixed in dd496695 (as codegen-1, and lowering puts each file's bytes in one Global String, embedded_text(), which every embed of the file makes its UInt8[] from), with mir_tests' "an embedded file is one Global String, whose bytes that aren't UTF-8 print by value": two Embeds of the file, one as "./logo.bin", read @Embedded, which the module has once
 
 Where: compiler/src/sema.cpp:20758
 
@@ -71,7 +71,7 @@ Skeptic: In rv-embed/codegen/c2 I made a 64 MiB big.bin, a program with one `n +
 
 ## paths-1 (medium): EmbedFolder's 'holds the program's own code' check compares spellings, so other letter case or a junction inside the package gets the code in
 
-Status: fixed in 2d465282 (on disk, embed_folder() compares real_path() of each loaded file with the folder's, by is_under(), so letter case and links count as the disk has them), with driver_tests' "EmbedFolder on disk leaves hidden files out, and refuses code, links, and packages in its folder, wherever they really are": EmbedFolder("code") for a link to sub/, and on a disk that ignores letter cases, EmbedFolder("SUB"), each "holds the program's own code, app/sub/mod.fb"
+Status: fixed in dd496695 (on disk, embed_folder() compares real_path() of each loaded file with the folder's, by is_under(), so letter case and links count as the disk has them), with driver_tests' "EmbedFolder on disk leaves hidden files out, and refuses code, links, and packages in its folder, wherever they really are": EmbedFolder("code") for a link to sub/, and on a disk that ignores letter cases, EmbedFolder("SUB"), each "holds the program's own code, app/sub/mod.fb"
 
 Where: compiler/src/driver.cpp:388
 
@@ -97,7 +97,7 @@ Skeptic: Ran under rv-embed/paths-v/p1 on Windows, debug build. sub/mod.fb holds
 
 ## paths-2 (medium): EmbedFolder embeds the files of a nested package inside its folder, which Embed refuses
 
-Status: fixed in 2d465282 (EmbedFolder refuses a folder with another package's folder in it: "store" holds the package in 'app/store/inner', whose files only its own code embeds), in the same disk test
+Status: fixed in dd496695 (EmbedFolder refuses a folder with another package's folder in it: "store" holds the package in 'app/store/inner', whose files only its own code embeds), in the same disk test
 
 Where: compiler/src/driver.cpp:520
 
@@ -123,7 +123,7 @@ Skeptic: Built rv-embed/paths-v/p2/app with project.toml (app), data/kept.txt, d
 
 ## paths-3 (medium): On Windows, EmbedFolder follows junctions inside the folder: a cycle repeats files silently or hangs the compiler
 
-Status: fixed in 2d465282 (embed_folder()'s walk checks each entry with is_link() and doesn't go into one; a link in the folder is an error on every system, the one leading out with its message as before, and one inside: "again" in "loops" is a link, which EmbedFolder doesn't follow, so the program is the same wherever it's built), with the disk test's loops/again, a link to loops itself, and the earlier disk test's file link leading out. The same test also covers codegen-3's refuted gap: a folder on disk gives a.txt and deep/b.txt, by '/', in order, without .hidden or .drafts/
+Status: fixed in dd496695 (embed_folder()'s walk checks each entry with is_link() and doesn't go into one; a link in the folder is an error on every system, the one leading out with its message as before, and one inside: "again" in "loops" is a link, which EmbedFolder doesn't follow, so the program is the same wherever it's built), with the disk test's loops/again, a link to loops itself, and the earlier disk test's file link leading out. The same test also covers codegen-3's refuted gap: a folder on disk gives a.txt and deep/b.txt, by '/', in order, without .hidden or .drafts/
 
 Where: compiler/src/driver.cpp:409
 
@@ -146,7 +146,7 @@ Skeptic: On Windows, with data/a.txt plus the junction data/loop -> data (rv-emb
 
 ## paths-4 (low): An embed path in other letter cases than the disk's gets no warning, unlike a quoted Import
 
-Status: fixed in 2d465282 (warn_respelled_embed() checks the path's parts against the disk, as warn_respelled_proto() does, and warns at the path once, however many times analysis checks it; embed_reader_t now takes the path's span), with the disk test's Embed("DATA/A.TXT") and EmbedFolder("SUB") warning on a disk that ignores letter cases
+Status: fixed in dd496695 (warn_respelled_embed() checks the path's parts against the disk, as warn_respelled_proto() does, and warns at the path once, however many times analysis checks it; embed_reader_t now takes the path's span), with the disk test's Embed("DATA/A.TXT") and EmbedFolder("SUB") warning on a disk that ignores letter cases
 
 Where: compiler/src/driver.cpp:474
 
