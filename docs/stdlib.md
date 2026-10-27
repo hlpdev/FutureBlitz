@@ -1573,9 +1573,12 @@ discovery. `Import std.net` brings in std/net/.
   and the body's JSON for a `@JsonBody` Field. A Field the request doesn't give keeps its
   default, or zero, and one with neither, a value that doesn't fit, or a body that isn't JSON, is
   a 400 that says why. Its loops pick the Methods with those attributes (spec 13's `Where m
-  Has`), so a Method without one, a helper, is left alone, whatever it takes; and one of up to
+  Has`), so a Method without one, a helper, is left alone, whatever it takes, as are Static
+  Methods and those with a ByRef parameter, which no For Method loop goes over; and one of up to
   four arguments with one that isn't a route's shape (not Async, throwing, giving something
-  else, or taking the request first) panics at Routes.
+  else, taking the request first, or taking what Load doesn't make from an Object, like a number
+  or an `HttpRequest?`) panics at Routes. std's request and response are told apart from a
+  program's own types of their names by the Methods its route loops took, not by TypeName.
   Load's reading of text made a separate Parsable Interface unnecessary.
 - std.net.ws: WebSocket client and server, per RFC 6455, built in step 30.
   `Import std.net.ws` brings in std/net/ws/. `WebSocket.Connect(url, protocols, timeout, tls)`

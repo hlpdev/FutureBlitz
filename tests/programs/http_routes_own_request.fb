@@ -1,0 +1,35 @@
+// A routes Class's Method that takes a program's own Struct named HttpRequest takes it as any
+// Struct a route takes, which Load makes from the request's values, not as std's request.
+
+Import std.core
+Import std.net
+Import std.net.http
+
+Struct HttpRequest
+    Field Text: String = ""
+End Struct
+
+Class Own
+    @Get("/own")
+    Async Method Show(request: HttpRequest): HttpResponse
+        Return HttpResponse.Of(Body.Text("own {request.Text}"))
+    End Method
+End Class
+
+Local server = HttpServer()
+server.Routes(Own())
+Try
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local serving = server.Serve()
+    Local base = "http://127.0.0.1:{server.LocalAddress.Port}"
+    Local client = HttpClient()
+    For path In ["/own?text=hi", "/own"]
+        Local response = Await client.GetAsync(base + path)
+        Print(path, "->", response.Status, response.Text)
+    End For
+
+    server.Stop()
+    Await serving
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

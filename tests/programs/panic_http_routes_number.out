@@ -1,0 +1,1 @@
+panic: Numbered.Show has a route's attribute, but isn't an Async Method that throws nothing, gives an HttpResponse, and takes nothing, the request, one Struct or Class, or that and the request at panic_http_routes_number.fb:13:1

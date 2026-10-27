@@ -1,0 +1,13 @@
+// A routes Class's Method with a route's attribute that takes an HttpRequest?, which isn't the
+// request a route takes, nor what Load makes, so every request would be a 400, isn't a route, so
+// Routes panics where it's called.
+Import std.core
+Import std.net.http
+
+Class Maybe
+    @Get("/maybe")
+    Async Method Show(request: HttpRequest?): HttpResponse => HttpResponse.Of(204)
+End Class
+
+Local server = HttpServer()
+server.Routes(Maybe())

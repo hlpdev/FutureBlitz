@@ -1,0 +1,2 @@
+/own?text=hi -> 200 own hi
+/own -> 200 own 

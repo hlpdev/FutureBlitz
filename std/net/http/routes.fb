@@ -43,9 +43,11 @@ Extend HttpRouter
     // own Fields, as Load reads them; and for a @JsonBody Field, the body's JSON. A Field the
     // request doesn't give keeps its default, or zero, and one with neither, or a value that
     // doesn't fit, or a body that isn't JSON, is a 400 that says why. Methods without one of
-    // those attributes are left alone. Panics as Get does for a path, or a route with its paths
-    // already, and for a Method of up to four arguments with one that isn't a route's shape: one
-    // that isn't Async, throws, gives something else, or takes the request first.
+    // those attributes are left alone, and so are Static Methods and those with a ByRef
+    // parameter, which no For Method loop goes over. Panics as Get does for a path, or a route
+    // with its paths already, and for a Method of up to four arguments with one that isn't a
+    // route's shape: one that isn't Async, throws, gives something else, takes the request
+    // first, or takes what Load doesn't make from an Object, like a number or an HttpRequest?.
     @PanicsAtCaller
     Public Method Routes<T>(instance: T)
         Register(Self, instance)
@@ -55,12 +57,15 @@ End Extend
 // Adds instance's Methods' routes to router.
 @PanicsAtCaller
 Function Register<T>(router: HttpRouter, instance: T)
+    // Each route's Method, by its name and Func type, which tells its overloads apart.
+    Local routed = Set<String>()
     For Method m: M In T
         Where M: Func(): Task<HttpResponse>
         Where m Has Get Or Post Or Put Or Patch Or Delete
         Local handler: HttpHandler = Function(request: HttpRequest) => m.Call(instance)
         AddRoutes(router, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
                   m.Attribute(Patch), m.Attribute(Delete), handler)
+        routed.Add("{m.Name} {TypeName<M>()}")
     End For
 
     For Method m: M In T
@@ -69,13 +74,19 @@ Function Register<T>(router: HttpRouter, instance: T)
         Local handler: HttpHandler = Function(request: HttpRequest) => m.Call(instance, request)
         AddRoutes(router, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
                   m.Attribute(Patch), m.Attribute(Delete), handler)
+        routed.Add("{m.Name} {TypeName<M>()}")
     End For
 
     // The request alone is the loop's above, which doesn't Load it.
     For Method m: M In T
         Where M: Func(A): Task<HttpResponse>
         Where m Has Get Or Post Or Put Or Patch Or Delete
-        If TypeName<A>() == "HttpRequest" Then Continue
+        If routed.Contains("{m.Name} {TypeName<M>()}") Then Continue
+        If !FromObject<A>()
+            Misshapen("{TypeName<T>()}.{m.Name}")
+            Continue
+        End If
+
         Local handler: HttpHandler = Async Function(request: HttpRequest): HttpResponse
             Local args: A? = Null
             Local refusal = Bound<A>(request, ByRef args)
@@ -85,11 +96,17 @@ Function Register<T>(router: HttpRouter, instance: T)
         End Function
         AddRoutes(router, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
                   m.Attribute(Patch), m.Attribute(Delete), handler)
+        routed.Add("{m.Name} {TypeName<M>()}")
     End For
 
     For Method m: M In T
         Where M: Func(A, HttpRequest): Task<HttpResponse>
         Where m Has Get Or Post Or Put Or Patch Or Delete
+        If !FromObject<A>()
+            Misshapen("{TypeName<T>()}.{m.Name}")
+            Continue
+        End If
+
         Local handler: HttpHandler = Async Function(request: HttpRequest): HttpResponse
             Local args: A? = Null
             Local refusal = Bound<A>(request, ByRef args)
@@ -99,28 +116,30 @@ Function Register<T>(router: HttpRouter, instance: T)
         End Function
         AddRoutes(router, m.Attribute(Get), m.Attribute(Post), m.Attribute(Put),
                   m.Attribute(Patch), m.Attribute(Delete), handler)
+        routed.Add("{m.Name} {TypeName<M>()}")
     End For
 
-    // Methods with a route's attribute that aren't a route's shape: not Async, giving something
-    // else, taking the request first, or more, or throwing, which an Async one's Task does in R.
+    // Methods with a route's attribute that aren't a route's shape, so aren't routed: not Async,
+    // giving something else, taking the request first, or more, or throwing, which an Async
+    // one's Task does in R.
     For Method m: M In T
         Where M: Func(): R
         Where m Has Get Or Post Or Put Or Patch Or Delete
-        If TypeName<R>() == "Task<HttpResponse>" Then Continue
+        If routed.Contains("{m.Name} {TypeName<M>()}") Then Continue
         Misshapen("{TypeName<T>()}.{m.Name}")
     End For
 
     For Method m: M In T
         Where M: Func(A): R
         Where m Has Get Or Post Or Put Or Patch Or Delete
-        If TypeName<R>() == "Task<HttpResponse>" Then Continue
+        If routed.Contains("{m.Name} {TypeName<M>()}") Then Continue
         Misshapen("{TypeName<T>()}.{m.Name}")
     End For
 
     For Method m: M In T
         Where M: Func(A, B): R
         Where m Has Get Or Post Or Put Or Patch Or Delete
-        If TypeName<R>() == "Task<HttpResponse>" && TypeName<B>() == "HttpRequest" Then Continue
+        If routed.Contains("{m.Name} {TypeName<M>()}") Then Continue
         Misshapen("{TypeName<T>()}.{m.Name}")
     End For
 
@@ -181,6 +200,17 @@ Function Misshapen(name: String)
           "the request")
 End Function
 
+// Whether Load makes an A from an Object, as a route's Struct or Class is made, which it doesn't
+// for a number, a String, an array, or an HttpRequest, whatever the Object has.
+Function FromObject<A>(): Bool
+    Try
+        Local made = Load<A>(Value.Object())
+    Catch e As ParseError
+        Return e.Kind != ParseErrorKind.WRONG_TYPE
+    End Try
+    Return True
+End Function
+
 // Adds a route for each attribute a Method has.
 @PanicsAtCaller
 Function AddRoutes(router: HttpRouter, get: Get?, post: Post?, put: Put?, patch: Patch?,
@@ -209,7 +239,8 @@ Function Bound<A>(request: HttpRequest, ByRef args: A?): HttpResponse?
             Try
                 fields[key] = Json.Read(request.Bytes)
             Catch e As ParseError
-                Return Refused("the body isn't JSON: {e.Message}")
+                Return Refused("the body isn't JSON: " +
+                               e.Message.TrimPrefix("the text isn't JSON: "))
             End Try
 
             Continue

@@ -1,0 +1,16 @@
+// A routes Class's Method with a route's attribute that gives a program's own HttpResponse, not
+// std's, isn't a route, though its type has std's name, so Routes panics where it's called.
+Import std.core
+Import std.net.http
+
+Struct HttpResponse
+    Field Text: String = ""
+End Struct
+
+Class Own
+    @Get("/own")
+    Async Method Show(): HttpResponse => HttpResponse()
+End Class
+
+Local server = HttpServer()
+server.Routes(Own())

@@ -3,7 +3,8 @@
 // each read as its Field's type, a @Flatten Field's own Fields too, and a @Renamed one by its old
 // name; one a request doesn't give keeps its default, and a request whose values don't fit is a
 // 400 that says why. A route can take nothing, or the request alone, and an Async Method with no
-// attribute, a helper, is no route, whatever it takes.
+// attribute, a helper, is no route, whatever it takes, nor is a Static Method or one with a ByRef
+// parameter, which no For Method loop goes over.
 
 Import std.core
 Import std.collections
@@ -114,6 +115,13 @@ Class Users
     // A helper of what Load doesn't make, which isn't a route either.
     Async Method Wrapped(make: Func(): HttpResponse): HttpResponse => make()
 
+    // Methods no loop goes over, so their attributes do nothing.
+    @Get("/static")
+    Static Async Method Common(): HttpResponse => Text("static")
+
+    @Get("/byref")
+    Method Changed(ByRef args: ShowUser): HttpResponse => Text("byref")
+
     // Neither an Async Method with an attribute, nor one at all: no routes.
     Method Plain(args: ShowUser): HttpResponse => Text("plain")
 
@@ -159,7 +167,8 @@ Try
     // Field by its name and its old one, and a helper that isn't a route.
     For path In ["/ping", "/api/ping", "/raw/x?a=1&b=2", "/list",
                  "/list?page=2&SIZE=5&tag=new&seen=3", "/list?size=big", "/hello?name=Ada",
-                 "/hello?HANDLE=Bob", "/hello?name=Ada&handle=Bob", "/hello", "/helper"]
+                 "/hello?HANDLE=Bob", "/hello?name=Ada&handle=Bob", "/hello", "/helper",
+                 "/static", "/byref"]
         Print(path, "->", Shown(Await client.GetAsync(base + path)))
     End For
 

@@ -9,7 +9,7 @@
 /users/7?order=height -> 400 Order: expected Sort, one of NAME or AGE, found "height"
 /search -> 200 words= page=1
 {"Name":"Ada","Age":36} -> 201 Ada 36 red POST
-not json -> 400 the body isn't JSON: the text isn't JSON: there's a word JSON doesn't have 
+not json -> 400 the body isn't JSON: there's a word JSON doesn't have 
 {"Name":"Ada"} -> 201 Ada 0 red POST
 {"Name":"Ada","Age":"old"} -> 400 User.Age: expected Int32, found "old" 
  -> 400 User: missing, and CreateUser's Field User has no default or zero 
@@ -29,3 +29,5 @@ calls: 3
 /hello?name=Ada&handle=Bob -> 200 hello Ada
 /hello -> 200 hello 
 /helper -> 404 
+/static -> 404 
+/byref -> 404 
