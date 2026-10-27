@@ -7,6 +7,7 @@
 #include "fb/http.hpp"
 
 #include "fb/runtime.hpp"
+#include "files_internal.hpp"
 #include "internal.hpp"
 #include "io_internal.hpp"
 #include "tls_roots.hpp"
@@ -21,6 +22,7 @@
 #include <curl/curl.h>
 #include <format>
 #include <initializer_list>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -51,6 +53,7 @@ enum outcome_t : std::int8_t {
     OUTCOME_REDIRECTS = 10,
     OUTCOME_ENDED = 11,
     OUTCOME_BAD_REDIRECT = 12,
+    OUTCOME_FILE = 13,
 };
 
 /// Sets up libcurl, once, before its first handle.
@@ -144,8 +147,11 @@ struct transfer_t {
     std::string target;
     std::string user_agent;
     std::string proxy;
-    /// The response's body, as it comes.
+    /// The response's body, as it comes, or, for a download to a file, the file a success's
+    /// body is written to, and libuv's error for a write to it that failed.
     std::vector<std::uint8_t> received;
+    std::unique_ptr<fb::runtime::atomic_file_t> file;
+    std::int64_t file_error = 0;
     /// What failed, in libcurl's words, or in the runtime's when it refused the transfer itself.
     std::array<char, CURL_ERROR_SIZE> error{};
     std::string message;
@@ -221,10 +227,29 @@ std::optional<std::string> set_text(CURL* easy, const CURLoption option, const s
     return std::nullopt;
 }
 
-std::size_t on_data(char* data, const std::size_t size, const std::size_t count, void* transfer) {
+bool is_success(CURL* easy) {
+    long status = 0;
+    curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &status);
+    return status >= 200 && status <= 299;
+}
+
+std::size_t on_data(char* data, const std::size_t size, const std::size_t count, void* given) {
     const std::size_t length = size * count;
-    auto& received = static_cast<transfer_t*>(transfer)->received;
-    received.insert(received.end(), data, data + length);
+    auto& transfer = *static_cast<transfer_t*>(given);
+    if (!transfer.file) {
+        transfer.received.insert(transfer.received.end(), data, data + length);
+        return length;
+    }
+
+    // A download to a file keeps only a success's body, as it gives no other: a redirect's or an
+    // error's is dropped. A write that fails stops the transfer.
+    if (is_success(transfer.easy)) {
+        transfer.file_error = transfer.file->write({ data, length });
+        if (transfer.file_error != 0) {
+            return CURL_WRITEFUNC_ERROR;
+        }
+    }
+
     return length;
 }
 
@@ -559,6 +584,10 @@ next_t redirect(transfer_t& transfer) {
 template <typename GoOn>
 std::optional<std::int32_t> outcome_after(transfer_t& transfer, const CURLcode result,
                                           const GoOn& go_on) {
+    if (result == CURLE_WRITE_ERROR && transfer.file_error != 0) {
+        return OUTCOME_FILE;
+    }
+
     if (result != CURLE_OK) {
         const outcome_t outcome = outcome_of(transfer.easy, result);
         // A URL a redirect gave that isn't HTTP's or HTTPS's is the redirect's, not the request's.
@@ -589,6 +618,23 @@ std::optional<std::int32_t> outcome_after(transfer_t& transfer, const CURLcode r
     return OUTCOME_RESPONSE;
 }
 
+/// The outcome of a transfer that ended with `outcome`, once the file it downloads to, if it has
+/// one, is renamed over the one it replaces, for a success, or else removed. That puts it onto
+/// the disk, which for an Async transfer the I/O thread waits for.
+std::int32_t finish_file(transfer_t& transfer, const std::int32_t outcome) {
+    if (!transfer.file) {
+        return outcome;
+    }
+
+    if (outcome != OUTCOME_RESPONSE || !is_success(transfer.easy)) {
+        transfer.file->discard();
+        return outcome;
+    }
+
+    transfer.file_error = transfer.file->commit();
+    return transfer.file_error == 0 ? outcome : OUTCOME_FILE;
+}
+
 /// Ends each of a client's blocking transfers that's done, with its outcome.
 void settle_blocking(CURLM* multi) {
     int left = 0;
@@ -608,8 +654,9 @@ void settle_blocking(CURLM* multi) {
             return done.added;
         });
         if (outcome) {
+            const std::int32_t finished = finish_file(done, *outcome);
             const std::scoped_lock lock(done.mutex);
-            done.outcome = *outcome;
+            done.outcome = finished;
             done.done = true;
         }
     }
@@ -731,7 +778,7 @@ void settle(io_part_t& part) {
             *transfer, result, [&] { return curl_multi_add_handle(part.multi, easy) == CURLM_OK; });
         if (outcome) {
             std::erase(part.running, transfer);
-            end(transfer, *outcome);
+            end(transfer, finish_file(*transfer, *outcome));
         }
     }
 }
@@ -1123,6 +1170,21 @@ void fb_http_response_headers(void* transfer, fb_array_t* names, fb_array_t* val
         *static_cast<fb_string_t**>(fb_array_push(values, sizeof(fb_string_t*), nullptr)) =
             fb_string_from_cstring(header->value);
     }
+}
+
+std::int64_t fb_http_to_file(void* transfer, const fb_string_t* path) {
+    auto& given = *static_cast<transfer_t*>(transfer);
+    auto file = std::make_unique<fb::runtime::atomic_file_t>();
+    const std::int64_t opened = file->open(std::string(view_of(path)));
+    if (opened == 0) {
+        given.file = std::move(file);
+    }
+
+    return opened;
+}
+
+std::int64_t fb_http_file_error(void* transfer) {
+    return static_cast<transfer_t*>(transfer)->file_error;
 }
 
 void fb_http_take_body(void* transfer, fb_array_t* output) {

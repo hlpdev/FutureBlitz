@@ -16,8 +16,8 @@
 // 1 a host that wasn't found, 2 a refused connection, 3 an unreachable network or host, 4 a
 // connection reset, 5 one closed before the whole response came, 6 TLS, 7 a timeout, 8 another
 // failure of the network or of the server, or of what the transfer was given, 9 a URL that can't
-// be used, 10 too many redirects, 11 a program that ended before the transfer did, and 12 a
-// redirect to a URL that can't be used.
+// be used, 10 too many redirects, 11 a program that ended before the transfer did, 12 a
+// redirect to a URL that can't be used, and 13 a file a download couldn't write.
 
 extern "C" {
 
@@ -49,6 +49,11 @@ void fb_http_options(void* transfer, std::int64_t timeout, std::int64_t connect_
 void fb_http_proxy(void* transfer, const fb_string_t* proxy);
 /// The User-Agent header it sends unless it was given one.
 void fb_http_user_agent(void* transfer, const fb_string_t* agent);
+/// Has the transfer write its response's body, if it's a success's, to a new temporary file
+/// beside the file at `path`, as it comes, and rename it over that file once it's all come,
+/// onto the disk, as std.io's atomic writes do; any other body is dropped. Gives 0, or libuv's
+/// error for a temporary file that can't be made there, when the transfer writes none.
+std::int64_t fb_http_to_file(void* transfer, const fb_string_t* path);
 
 /// Runs the transfer to its end, on the calling thread, and gives its outcome.
 std::int32_t fb_http_perform(void* transfer);
@@ -74,6 +79,8 @@ fb_string_t* fb_http_url(void* transfer);
 void fb_http_response_headers(void* transfer, fb_array_t* names, fb_array_t* values);
 void fb_http_take_body(void* transfer, fb_array_t* output);
 fb_string_t* fb_http_message(void* transfer);
+/// libuv's error for the file a download couldn't write, once it ended with outcome 13.
+std::int64_t fb_http_file_error(void* transfer);
 /// Lets go of the transfer, stopping it if it's still under way.
 void fb_http_free(void* transfer);
 
