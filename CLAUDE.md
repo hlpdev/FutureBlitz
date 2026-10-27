@@ -59,6 +59,6 @@ docs/history.md; a landed step's notes go there, newest milestone first.
   and fonts), 26 (terminal), 27 (algo); 18 (concurrency, events, std.log, Sendable Func, Where T:
   Class, Task<T> Throws E); 28 (addresses, URLs, DNS, sockets, LAN discovery), 29 (TLS, the HTTP
   client, and Download), 31 (game networking); parts of 17 (Value, Load and Save, std.os's
-  environment, system, and folders) 30 (the HTTP server and WebSockets), and 32 (std.debug, and the
+  environment, system, and folders), 30 (the HTTP server and WebSockets), and 32 (std.debug, and the
   audit's gaps in std.text, std.compress, std.image, and std.io); and every one of the
   whole-codebase review's fixes.
