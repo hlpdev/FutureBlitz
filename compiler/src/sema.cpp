@@ -25473,8 +25473,11 @@ public:
         const load_support_t& loading = m_analysis.loading;
         for (const load_key_t& entry : m_keys) {
             const std::optional<std::string> old = text(entry.symbol, loading.renamed);
-            const auto other =
-                old ? std::ranges::find(m_keys, *old, &load_key_t::key) : m_keys.end();
+            if (!old) {
+                continue;
+            }
+
+            const auto other = std::ranges::find(m_keys, *old, &load_key_t::key);
             if (other == m_keys.end()) {
                 continue;
             }

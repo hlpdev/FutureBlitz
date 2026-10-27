@@ -7629,8 +7629,8 @@ TEST_CASE("A @Flatten Field's Fields' keys are among the others, and it isn't a 
             "Class, whose Fields join the others; 'Extra' is Map<String, String>?",
             "Flatten: @Flatten goes on a Struct's or Class's Field whose own type is a Struct or "
             "Class, whose Fields join the others; 'Data' is Value?",
-            joined + "'Items' is Map<String, Int32>" + whole,
-            joined + "'Raw' is Value" + whole,
+            std::format("{}'Items' is Map<String, Int32>{}", joined, whole),
+            std::format("{}'Raw' is Value{}", joined, whole),
         });
 }
 

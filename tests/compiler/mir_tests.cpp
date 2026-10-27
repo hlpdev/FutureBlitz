@@ -2826,10 +2826,10 @@ TEST_CASE("lowering reports an instance's type that Load<T> or Save can't conver
                              "Class Held<T>\n    Field Label: String = \"b\"\n";
     const std::string made = "    New(item: T)\n        Item = item\n    End New\nEnd Class\n"
                              "Local h = Try Load<Held<Node>>(Value())\n";
-    CHECK(stopped("Import std.core\n" + held + "    @Skip Field Item: T\n" + made) ==
+    CHECK(stopped(std::format("Import std.core\n{}    @Skip Field Item: T\n{}", held, made)) ==
           "Load<Held<Node>>(Value()): Load can't make Held<Node> here, whose @Skip leaves 'Item' "
           "at its default, and Node has no zero, so it needs a default of its own");
-    CHECK(stopped("Import std.core\n" + held + "    @Optional Field Item: T\n" + made) ==
+    CHECK(stopped(std::format("Import std.core\n{}    @Optional Field Item: T\n{}", held, made)) ==
           "Load<Held<Node>>(Value()): Load can't make Held<Node> here, whose @Optional leaves "
           "'Item' at its default, and Node has no zero, so it needs a default of its own");
     const std::string keys = " here; a Map's keys are an Object's, which are Strings";
