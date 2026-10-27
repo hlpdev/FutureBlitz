@@ -24,6 +24,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
+#include <iterator>
 #include <map>
 #include <numbers>
 #include <span>
@@ -750,6 +752,26 @@ private:
 
 /// The most chords a quadratic or a cubic of a glyph's is cut into.
 constexpr int most_chords = 1024;
+/// The most points a glyph's rings have, its curves cut into chords: a glyph of more, which only
+/// a font made to be slow to draw has, isn't drawn.
+constexpr std::size_t most_glyph_points = std::size_t{ 1 } << 16U;
+
+/// The image's pixels and one more around them. A curve whose control points are all on one side
+/// of it, and so the curve too, is one chord, which covers nothing of the image the curve doesn't.
+struct box_t {
+    double left = 0;
+    double top = 0;
+    double right = 0;
+    double bottom = 0;
+
+    [[nodiscard]] bool misses(const std::initializer_list<point_t> points) const {
+        const auto all = [&](const auto& outside) { return std::ranges::all_of(points, outside); };
+        return all([&](const point_t point) { return point.x < left; }) ||
+               all([&](const point_t point) { return point.x > right; }) ||
+               all([&](const point_t point) { return point.y < top; }) ||
+               all([&](const point_t point) { return point.y > bottom; });
+    }
+};
 
 /// Adds the chords from p0 to p1 of the quadratic through c, but p0's point: as many as keep
 /// them within the tolerance, which its second difference over 4 times their count squared is.
@@ -797,45 +819,67 @@ void add_cubic(const point_t p0, const point_t p1, const point_t p2, const point
 }
 
 /// A glyph's outline as rings, `place` putting each of its points in the image: a ring from each
-/// start, its lines, and its curves as chords, without its last point when that's back at its
-/// first, as each ring closes itself.
+/// start, its lines, and its curves as chords, but one for a curve `box` misses, without its last
+/// point when that's back at its first, as each ring closes itself. None when they'd have more
+/// than most_glyph_points.
 template <typename Place>
-void add_glyph_rings(const fb::image::font_path_t& path, const Place& place,
+void add_glyph_rings(const fb::image::font_path_t& path, const Place& place, const box_t& box,
                      std::vector<ring_t>& rings) {
     using fb::image::font_segment_t;
+    std::vector<ring_t> glyph;
     const auto close = [&] {
-        if (!rings.empty() && rings.back().size() > 1 &&
-            rings.back().front().x == rings.back().back().x &&
-            rings.back().front().y == rings.back().back().y) {
-            rings.back().pop_back();
+        if (!glyph.empty() && glyph.back().size() > 1 &&
+            glyph.back().front().x == glyph.back().back().x &&
+            glyph.back().front().y == glyph.back().back().y) {
+            glyph.back().pop_back();
         }
     };
 
     point_t current{};
     bool open = false;
+    std::size_t points = 0;
     for (const font_segment_t& segment : path) {
         const point_t end = place(segment.x, segment.y);
         if (segment.kind == font_segment_t::MOVE) {
             if (open) {
                 close();
             }
-            rings.push_back({ end });
+            glyph.push_back({ end });
             open = true;
         } else if (!open) {
             continue;
         } else if (segment.kind == font_segment_t::LINE) {
-            rings.back().push_back(end);
+            glyph.back().push_back(end);
         } else if (segment.kind == font_segment_t::QUADRATIC) {
-            add_quadratic(current, place(segment.x1, segment.y1), end, rings.back());
+            const point_t control = place(segment.x1, segment.y1);
+            if (box.misses({ current, control, end })) {
+                glyph.back().push_back(end);
+            } else {
+                const std::size_t before = glyph.back().size();
+                add_quadratic(current, control, end, glyph.back());
+                points += glyph.back().size() - before - 1;
+            }
         } else {
-            add_cubic(current, place(segment.x1, segment.y1), place(segment.x2, segment.y2), end,
-                      rings.back());
+            const point_t first = place(segment.x1, segment.y1);
+            const point_t second = place(segment.x2, segment.y2);
+            if (box.misses({ current, first, second, end })) {
+                glyph.back().push_back(end);
+            } else {
+                const std::size_t before = glyph.back().size();
+                add_cubic(current, first, second, end, glyph.back());
+                points += glyph.back().size() - before - 1;
+            }
         }
         current = end;
+        if (++points > most_glyph_points) {
+            return;
+        }
     }
     if (open) {
         close();
     }
+    rings.insert(rings.end(), std::make_move_iterator(glyph.begin()),
+                 std::make_move_iterator(glyph.end()));
 }
 
 /// The next code point of the text's UTF-8, which a String's always is, from `at`, which it
@@ -956,6 +1000,12 @@ void fb_image_fill_text(const fb_array_t* pixels, const std::int64_t width,
                         const double size, const double x, const double y, const std::uint32_t rgba,
                         const std::int32_t antialias) {
     const auto& face = *static_cast<const fb::image::font_t*>(font);
+    const box_t box{
+        .left = -1,
+        .top = -1,
+        .right = static_cast<double>(width) + 1,
+        .bottom = static_cast<double>(height) + 1,
+    };
     std::vector<ring_t> rings;
     lay_out(
         face, text_of(text), size, x, y,
@@ -964,7 +1014,7 @@ void fb_image_fill_text(const fb_array_t* pixels, const std::int64_t width,
             const auto place = [&](const double unit_x, const double unit_y) {
                 return point_t{ .x = at_x + (unit_x * scale), .y = at_y - (unit_y * scale) };
             };
-            add_glyph_rings(face.outline(glyph), place, rings);
+            add_glyph_rings(face.outline(glyph), place, box, rings);
         });
     fill(pixels, width, height, rings, rgba, antialias != 0);
 }

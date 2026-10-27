@@ -31,6 +31,9 @@ constexpr std::size_t most_transient = 32;
 /// How far from the origin a glyph's points may be, in font units, as its arithmetic could put
 /// them anywhere: far past any em, but near enough that drawing them can't overflow a Double.
 constexpr double most_units = 0x1p24;
+/// The most pieces a glyph's path has, as many as a TrueType glyph's points, and as drawing one
+/// takes.
+constexpr std::size_t most_segments = std::size_t{ 1 } << 16U;
 /// The most numbers and operators one glyph's charstring runs, its subroutines' counted.
 constexpr std::size_t most_steps = std::size_t{ 1 } << 20U;
 
@@ -588,6 +591,9 @@ private:
     }
 
     bool move(const double dx, const double dy) {
+        if (m_path.size() >= most_segments) {
+            return false;
+        }
         m_x += dx;
         m_y += dy;
         m_path.push_back({ .kind = font_segment_t::MOVE, .x = m_x, .y = m_y });
@@ -596,7 +602,7 @@ private:
     }
 
     bool line(const double dx, const double dy) {
-        if (!m_open) {
+        if (!m_open || m_path.size() >= most_segments) {
             return false;
         }
         m_x += dx;
@@ -607,7 +613,7 @@ private:
 
     bool curve(const double dx1, const double dy1, const double dx2, const double dy2,
                const double dx3, const double dy3) {
-        if (!m_open) {
+        if (!m_open || m_path.size() >= most_segments) {
             return false;
         }
         const double x1 = m_x + dx1;

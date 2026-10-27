@@ -33,8 +33,9 @@ constexpr std::uint32_t tag(const std::string_view name) {
 
 /// How deep composite glyphs go, the parts of parts, which also ends a cycle of them.
 constexpr int most_depth = 8;
-/// The most points one glyph's outline has, all its parts' counted.
-constexpr std::size_t most_points = std::size_t{ 1 } << 20U;
+/// The most points one glyph's outline has, all its parts' counted: as many as drawing one takes,
+/// more than any glyph a font draws has.
+constexpr std::size_t most_points = std::size_t{ 1 } << 16U;
 /// The most glyphs one glyph's outline visits, its parts and theirs, so a font whose composites
 /// each have many parts, of parts of many, takes no longer than that.
 constexpr std::size_t most_visits = std::size_t{ 1 } << 16U;

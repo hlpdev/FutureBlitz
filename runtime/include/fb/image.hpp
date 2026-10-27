@@ -142,7 +142,8 @@ double fb_font_width(const void* font, const fb_string_t* text, double size);
 /// a code point the font has no glyph for its .notdef; each glyph's quadratics and cubics cut
 /// into the chords that keep them within the tolerance, a quadratic's second difference over 4
 /// times the count squared, and three quarters of the larger of a cubic's two over the count
-/// squared, at most 1024.
+/// squared, at most 1024, but a curve wholly outside the image, which is one chord; a glyph of
+/// more than 65536 points so cut isn't drawn.
 void fb_image_fill_text(const fb_array_t* pixels, std::int64_t width, std::int64_t height,
                         const void* font, const fb_string_t* text, double size, double x, double y,
                         std::uint32_t rgba, std::int32_t antialias);

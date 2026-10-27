@@ -1220,11 +1220,13 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   font, size, position, color)` fills the text as one region, its first line's baseline from
   the position: each glyph after the last's advance and the kerning between them, unrounded,
   each line feed a line's height down, a code point with no glyph the font's .notdef, and each
-  quadratic or cubic cut into the chords that keep it within a hundredth of a pixel. It neither
-  shapes (no ligatures, marks, or right-to-left) nor reads GPOS's kerning or hints. image_text's
-  fonts are made by image_text/font.py and cff_font.py, so they're under no license but the
-  project's, and image_text/make_data.py draws their text from those glyphs apart from the
-  runtime; tests/runtime/font_tests.cpp breaks them, cut short and changed at random. A size
+  quadratic or cubic cut into the chords that keep it within a hundredth of a pixel, but one
+  wholly outside the image, which is one chord. A glyph of more than 65536 pieces, or 65536
+  points once its curves are cut, which only a font made to be slow to draw has, isn't drawn.
+  It neither shapes (no ligatures, marks, or right-to-left) nor reads GPOS's kerning or hints.
+  image_text's fonts are made by image_text/font.py and cff_font.py, so they're under no license
+  but the project's, and image_text/make_data.py draws their text from those glyphs apart from
+  the runtime; tests/runtime/font_tests.cpp breaks them, cut short and changed at random. A size
   that isn't finite or is negative panics at the caller.
 - Planned: an Image over a Buffer; and reading and writing image and font files, on step 14's.
   The engine's 2D (M11) shares the image and font code.
