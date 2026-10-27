@@ -1,0 +1,44 @@
+// std.os's Folders.Temp: the first of the variables its OS looks at that's set, in their order,
+// and what it falls back to when none is.
+
+Import std.core
+Import std.text
+Import std.os
+
+// Whether Temp is the folder of the first of `set`, with each in `set` set to a folder of its
+// own and the rest of `names` unset.
+Function TempIs(names: String[], set: String[], folder: String): Bool
+    For name In names
+        If set.Contains(name) Then Env.Set(name, folder + "-" + name) Else Env.Unset(name)
+    End For
+    Return Folders.Temp == folder + "-" + set[0]
+End Function
+
+#If PLATFORM_WINDOWS
+Local names = ["TMP", "TEMP", "USERPROFILE"]
+Local folder = (Folders.Temp ?? "") + "\\fb"
+#Else
+Local names = ["TMPDIR", "TMP", "TEMP", "TEMPDIR"]
+Local folder = (Folders.Temp ?? "") + "/fb"
+#End If
+
+// Each variable is looked at only when those before it aren't set.
+Local ordered = True
+For i = 0 Until names.Count
+    Local set: String[] = []
+    For j = i Until names.Count
+        set.Add(names[j])
+    End For
+    ordered = ordered && TempIs(names, set, folder)
+End For
+Print(ordered)
+
+// Without any, it's the Windows folder, or /tmp.
+For name In names
+    Env.Unset(name)
+End For
+#If PLATFORM_WINDOWS
+Print((Folders.Temp ?? "").EqualsIgnoreCase(Env.Get("SystemRoot") ?? "?"))
+#Else
+Print(Folders.Temp == "/tmp")
+#End If

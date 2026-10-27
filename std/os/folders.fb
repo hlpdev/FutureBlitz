@@ -53,7 +53,9 @@ Public Struct Folders
         Get => fb_os_folder(CACHE)
     End Property
 
-    // Where programs keep files for a while: TMPDIR, TEMP, or TMP, or the OS's own.
+    // Where programs keep files for a while: the first of TMPDIR, TMP, TEMP, and TEMPDIR that's
+    // set, or /tmp, on Linux and macOS, and of TMP, TEMP, and USERPROFILE, or the Windows folder,
+    // on Windows.
     Public Static Property Temp: String?
         Get => fb_os_folder(TEMP)
     End Property
