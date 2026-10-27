@@ -1,0 +1,7 @@
+// Opening a file to make it, but only to read it, panics at the program's line, before the file
+// is looked for.
+Import std.core
+Import std.io
+
+Print("{OpenOptions(Read: True, Create: True).Write}")
+Try File.Open("missing.txt", OpenOptions(Read: True, Create: True))

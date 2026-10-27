@@ -1,0 +1,2 @@
+False
+panic: the FileStream of new.txt can't close while a call is on it at panic_io_stream_close_busy.fb:11:1

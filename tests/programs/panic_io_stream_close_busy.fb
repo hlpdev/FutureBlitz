@@ -1,0 +1,11 @@
+// Closing a FileStream while an Async write is under way on it panics at the program's line.
+Import std.core
+Import std.ffi
+Import std.io
+
+Local temp = Try TempDir("fb-stream-")
+Local stream = Try File.Create(temp.Path / "new.txt")
+Try temp.Close()
+Local writing = stream.WriteAsync(Buffer<UInt8>.From([1, 2, 3]))
+Print("{Dir.Exists(temp.Path)}")
+stream.Close()

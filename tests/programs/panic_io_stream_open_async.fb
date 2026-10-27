@@ -1,0 +1,13 @@
+// Opening a file without blocking, with options no file opens with, panics at the program's
+// line, as the blocking Open does.
+Import std.core
+Import std.io
+
+Async Function Opened(): Bool Throws IOError
+    Local options = OpenOptions(Write: True, Append: True, Truncate: True)
+    Local stream = Try Await File.OpenAsync("missing.txt", options)
+    Return stream.IsOpen()
+End Function
+
+Print("opening")
+Print("{Try Await Opened()}")
