@@ -341,7 +341,7 @@ file or URL in the default app.
   `INVALID_PATH`, `OTHER`, and `Path: String?`), `ParseError` (`SYNTAX`, `UNEXPECTED_END`,
   `WRONG_TYPE`, `OUT_OF_RANGE`, `MISSING`, `OTHER`, and `Line`, `Column`, and for Load's,
   `Path: String?`, where in the Value it is), `FormatError` (`BAD_TEMPLATE`, `MISSING_VALUE`,
-  `BAD_VALUE`, `OTHER`), `TimeoutError` and `CancelledError` (one kind each), `NetError`
+  `BAD_VALUE`, `OTHER`), `TimeoutError` and `CancelledError` (no Kind), `NetError`
   (`REFUSED`, `RESET`, `UNREACHABLE`, `HOST_NOT_FOUND`, `CLOSED`, `TLS`, `OTHER`, and
   `Address: String?`), `DatabaseError` (`CONSTRAINT`, `BUSY`, `QUERY`, `CORRUPT`, `OTHER`).
   Each Kind is an Enum named for its Error, like `IOErrorKind`, and a later step can add to
@@ -667,8 +667,9 @@ the rest is planned.
   (his improved noise), `Simplex` (Gustavson's), `Value`, and `Worley` in 2D and 3D, of Double
   coordinates, giving Floats, and `Fbm`, octaves of Perlin noise, by its `Octaves`, `Lacunarity`,
   and `Gain` Fields.
-- Easing (easing.fb): `EaseIn`, `EaseOut`, and `EaseInOut` of Sine, Quad, Cubic, Quart, Quint,
-  Expo, Circ, Back, Elastic, and Bounce, as easings.net has them, each from 0 at 0 to 1 at 1.
+- Easing (easing.fb): `EaseInSine`, `EaseOutSine`, and `EaseInOutSine`, and the same of Quad,
+  Cubic, Quart, Quint, Expo, Circ, Back, Elastic, and Bounce, as easings.net has them, each from 0
+  at 0 to 1 at 1.
 - Stats (stats.fb), over any Bounded type, in Doubles: `Mean`, `Median`, `Variance` and `StdDev`
   of a sample (over n - 1, as Python's statistics module), `PopulationVariance` and
   `PopulationStdDev` (over n), `Percentile` (NumPy's, between the two nearest), and
@@ -1376,14 +1377,15 @@ discovery. `Import std.net` brings in std/net/.
   offers a service of a type like `"_mygame._udp"`, answering on the main thread until `Stop()`,
   or until it goes; `Lan.Find(type, timeout)` and `FindAsync` give the `LanService`s that answer
   (`Type`, `Name`, `Host`, `Port`, `Addresses`, `Text`), asking twice; `Lan.LocalAddresses()`
-  and `Lan.HostName()`. Each takes a discovery port of its own in place of mDNS's 5353, which
-  keeps it from other responders. What a LanAnnouncer sends through an interface, or answers a
-  querier on that interface's network, gives that interface's address alone, and it doesn't
-  answer with what a query says it knows, as RFC 6762 has it; a LanService's Addresses start
+  and `Lan.HostName()`. Each answers or asks at mDNS's port, 5353, unless it's given a
+  `discoveryPort`, which a Find needs too, and which keeps it from other responders, as the
+  tests' is. What a LanAnnouncer sends through an interface, or answers a querier on that
+  interface's network, gives that interface's address alone, and it doesn't answer with what a
+  query says it knows, as RFC 6762 has it; a LanService's Addresses start
   with the one its answer came from, which the finder can reach. Stop's goodbye has other mDNS
   caches drop the service's PTR, SRV, and TXT, but not its host's addresses or its type's place
-  in DNS-SD's enumeration, which other services can have. A text has each key and value 255
-  bytes at most, 8192 in all, so a response fits in one of mDNS's packets, and each key once
+  in DNS-SD's enumeration, which other services can have. A text has each key with its value
+  255 bytes at most, 8192 in all, so a response fits in one of mDNS's packets, and each key once
   whatever its letters' case, or a panic; a Find keeps a key's first, as it's written. A
   LanAnnouncer doesn't probe for a name another has, and a blocking Find doesn't find what its
   own thread announces, which only answers while that thread runs Async code. When nothing
