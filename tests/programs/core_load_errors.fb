@@ -114,6 +114,10 @@ End For
 
 Print(Try Load<UInt8[]>(Value("YWI=")), Try Load<UInt8[]>(Value("")),
       Try Load<UInt8[]>(Value("/+8A")), Try Load<UInt8[]>(Value("AAAAAA==")))
+// A String that's both base64 and a number is base64 for a UInt8[], as Json.Write gives the
+// bytes [211, 77, 118], and one byte for a UInt8; one that's only a number is one byte alone.
+Print(Try Load<UInt8[]>(Value("0012")), Try Load<UInt8>(Value("0012")),
+      Try Load<UInt8[]>(Value("12")), Try Load<UInt8[]>(Value("012")))
 
 // A number past its type's range.
 changed = Good()

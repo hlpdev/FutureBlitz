@@ -241,7 +241,10 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   which for an Enum without @Flags is a member's. A `T?` is Null or a T, a `T[]` an Array, which
   Load also takes as one Value alone, as XML and a command line give one item, a `UInt8[]` bytes,
   which Load also takes as a String of their standard base64, with its '=' padding, as JSON
-  writes them, or as an Array of integers, and a `Map<String, V>` an Object. A Value is copied, so the T and the Value don't share one.
+  writes them, or as an Array of integers, and a `Map<String, V>` an Object. A String that's
+  base64 is bytes before it's one Value alone, so any bytes JSON writes read back, though "0012",
+  which is both, is 3 bytes and not [12]. A Value is copied, so the T and the Value don't share
+  one.
 - A Struct or Class is an Object of its Fields, the inherited ones first, by name, but not
   Properties. Load makes one without running its New: each Field takes the Object's entry for
   its key, else its default, else its zero, else it's missing, and keys the type has no Field for
@@ -257,11 +260,12 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   Double from an integer; and a Bool from the integer 0 or 1, as SQLite and others keep one.
 - std.core's attributes on a Field change it: `@Rename("key")` gives it another key, `@Skip`
   leaves it out (Load leaves it at its default), and `@Renamed("old")` reads an older key when
-  the Object doesn't have its own, so what an earlier version of a program saved still loads. `@Flatten` puts a Struct's or Class's Field's own
-  Fields in the Object with the others, not in an Object of their own; a Map or a Value, which
-  Load and Save convert whole, can't be flattened. A Field that @Skip leaves at its default has
-  one, a type with a zero or a default of its own; two Fields can't have one key, a
-  @Flatten Field's own Fields' keys among them, and a Field's old key is no other's.
+  the Object doesn't have its own, so what an earlier version of a program saved still loads.
+  `@Flatten` puts a Struct's or Class's Field's own Fields in the Object with the others, not in
+  an Object of their own; a Map or a Value, which Load and Save convert whole, can't be
+  flattened. A Field that @Skip leaves at its default has one, a type with a zero or a default of
+  its own; two Fields can't have one key, a @Flatten Field's own Fields' keys among them, and a
+  Field's old key is no other's.
 - A type that converts itself implements std.core's `Loadable`, with `Static Method
   FromValue(value: Value): Self Throws ParseError`, which Load calls in its place, or
   `Saveable`, with `Method ToValue(): Value`, which Save does.

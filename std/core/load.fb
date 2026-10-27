@@ -211,8 +211,9 @@ Package Function LoadString(value: Value, ByRef error: Error?): String
     Return text
 End Function
 
-// Load's UInt8[]: bytes; a String of their standard base64, as JSON writes them; or an Array of
-// integers from 0 to 255, or one alone.
+// Load's UInt8[]: bytes; a String of their standard base64, as JSON writes them, before it's one
+// Value alone, so any bytes JSON writes read back; or an Array of integers from 0 to 255, or one
+// alone.
 Package Function LoadBytes(value: Value, ByRef error: Error?): UInt8[]
     Local bytes = value.AsBytes()
     If bytes != Null Then Return bytes
