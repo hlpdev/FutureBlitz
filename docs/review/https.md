@@ -4,7 +4,7 @@
 
 ## auto-1 (medium): A kept certificate that's due, or about to expire, isn't checked until a whole RenewalCheck has passed, so it's served expired
 
-Status: fixed in 5e9dd08d (Renewing checks once before its first wait, so a certificate that's due, kept or new, is renewed as the server starts while it serves the one it has), with http_acme_auto: a first certificate that's due is renewed as the server starts though RenewalCheck is an hour, and a server made again with a folder that keeps a due certificate renews it as it starts though RenewalCheck is 12 hours
+Status: fixed in 17c36556 (Renewing checks once before its first wait, so a certificate that's due, kept or new, is renewed as the server starts while it serves the one it has), with http_acme_auto: a first certificate that's due is renewed as the server starts though RenewalCheck is an hour, and a server made again with a folder that keeps a due certificate renews it as it starts though RenewalCheck is 12 hours
 
 Where: std/net/http/server.fb:1095
 
@@ -99,7 +99,7 @@ Skeptic: I built refute-auto/a1.fb (the finding's program) and ran it under fb_h
 
 ## auto-2 (medium): A renewal that stops between key.pem and chain.pem leaves a folder that panics every run after
 
-Status: fixed in 5e9dd08d (the folder keeps the key and its chain in one file, certificate.pem, written atomically, so a write that stops leaves both as they were; and Stored() uses a kept identity only when the key is the private key of the chain's first certificate, through IsKeyOf, and otherwise orders another), with http_acme_auto: a folder whose certificate.pem has another key before the chain gets a new order, serial 07, and no panic
+Status: fixed in 17c36556 (the folder keeps the key and its chain in one file, certificate.pem, written atomically, so a write that stops leaves both as they were; and Stored() uses a kept identity only when the key is the private key of the chain's first certificate, through IsKeyOf, and otherwise orders another), with http_acme_auto: a folder whose certificate.pem has another key before the chain gets a new order, serial 07, and no panic
 
 Where: std/net/http/server.fb:1061
 
@@ -172,7 +172,7 @@ Skeptic: I ran refute-auto/a2.fb. Debug and release both print 'panic: the key i
 
 ## auto-3 (medium): While ListenAutoAsync is still getting its first certificate, the HTTP listener sends 308s to port 0
 
-Status: fixed in 5e9dd08d (the redirects' port is `https`'s from the start, and the server on HTTP answers what isn't a challenge with a 503 and Retry-After: 5 until HTTPS listens, through HttpsPort's Ready), with http_acme_auto: a request to the HTTP port while ListenAutoAsync is getting its first certificate gets "HTTP/1.1 503 Service Unavailable"
+Status: fixed in 17c36556 (the redirects' port is `https`'s from the start, and the server on HTTP answers what isn't a challenge with a 503 and Retry-After: 5 until HTTPS listens, through HttpsPort's Ready), with http_acme_auto: a request to the HTTP port while ListenAutoAsync is getting its first certificate gets "HTTP/1.1 503 Service Unavailable"
 
 Where: std/net/http/server.fb:962
 
@@ -251,7 +251,7 @@ Skeptic: I ran refute-auto/a3.fb with https at 8443. Debug and release both prin
 
 ## auto-4 (low): Setting RenewalCheck after ListenAutoAsync has no effect until the 12-hour wait it began with ends
 
-Status: fixed in 5e9dd08d (Renewing reads check() on each one-second tick, against the time since the check before, so a RenewalCheck set meanwhile counts at once), with http_acme_auto: with RenewalCheck an hour, setting it to 500 ms has a due certificate renewed within seconds
+Status: fixed in 17c36556 (Renewing reads check() on each one-second tick, against the time since the check before, so a RenewalCheck set meanwhile counts at once), with http_acme_auto: with RenewalCheck an hour, setting it to 500 ms has a due certificate renewed within seconds
 
 Where: std/net/http/server.fb:1097
 
@@ -320,7 +320,7 @@ Skeptic: I ran refute-auto/a4.fb. Debug and release both print 'renewed: False'.
 
 ## auto-5 (low): A 308 for an absolute-form request target drops the query
 
-Status: fixed in 5e9dd08d (TargetOf gives an absolute-form target's path and query, from Url.Parse), with http_acme_auto: "GET http://localhost/page?x=1" is redirected to https://localhost:<port>/page?x=1
+Status: fixed in 17c36556 (TargetOf gives an absolute-form target's path and query, from Url.Parse), with http_acme_auto: "GET http://localhost/page?x=1" is redirected to https://localhost:<port>/page?x=1
 
 Where: std/net/http/server.fb:1136
 
@@ -412,7 +412,7 @@ Skeptic: I ran refute-auto/a5.fb. Debug and release both answer 'GET http://loca
 
 ## auto-6 (low): An empty Host field makes the 308's Location 'https://:port/...'
 
-Status: fixed in 5e9dd08d (an empty Host's host is the first name, as a missing one's is), with http_acme_auto: a request with "Host: " is redirected to https://localhost:<port>/page
+Status: fixed in 17c36556 (an empty Host's host is the first name, as a missing one's is), with http_acme_auto: a request with "Host: " is redirected to https://localhost:<port>/page
 
 Where: std/net/http/server.fb:1134
 
@@ -491,7 +491,7 @@ Skeptic: The same run of refute-auto/a5.fb (debug and release) answers 'Host:' w
 
 ## auto-7 (low): The test CA's /acme/validity hook kills the test server for a value that isn't a number
 
-Status: fixed in b3cf0f73 (the test server's /acme/validity reads before and after with std::from_chars, a century at most either way, and answers a 400 otherwise; the CA checks mbedtls_x509write_crt_set_validity's result, and answers a 500 serverInternal for a validity mbedTLS can't write), with http_acme_auto (before=soon is a NetError of HTTP_STATUS, and the test server goes on) and acme_ca_tests (a validity 9000 years long fails the finalize with "the validity isn't X.509's", and the order is finalized after)
+Status: fixed in 43bc4150 (the test server's /acme/validity reads before and after with std::from_chars, a century at most either way, and answers a 400 otherwise; the CA checks mbedtls_x509write_crt_set_validity's result, and answers a 500 serverInternal for a validity mbedTLS can't write), with http_acme_auto (before=soon is a NetError of HTTP_STATUS, and the test server goes on) and acme_ca_tests (a validity 9000 years long fails the finalize with "the validity isn't X.509's", and the order is finalized after)
 
 Where: tests/native/http_server/http_server.cpp:540
 
@@ -533,7 +533,7 @@ Skeptic: I ran refute-auto/a7.fb. It printed "terminate called after throwing an
 
 ## tls-1 (low): ListenTls's handshake is limited per read, not to IdleTimeout overall, so a client that trickles bytes keeps it open indefinitely
 
-Status: fixed in 5e9dd08d (wire.fb's Paced, a TcpStream that TLS goes through, sets each read's ReadTimeout to what's left of a Deadline while one's set; TlsDuplex.HandshakeAsync sets one of IdleTimeout over the whole handshake, and clears it after; wss:// goes through a Paced without one), with http_server_tls: a client that sends a handshake record a byte every 300 ms, inside the IdleTimeout of a second, is closed within 3 seconds
+Status: fixed in 17c36556 (wire.fb's Paced, a TcpStream that TLS goes through, sets each read's ReadTimeout to what's left of a Deadline while one's set; TlsDuplex.HandshakeAsync sets one of IdleTimeout over the whole handshake, and clears it after; wss:// goes through a Paced without one), with http_server_tls: a client that sends a handshake record a byte every 300 ms, inside the IdleTimeout of a second, is closed within 3 seconds
 
 Where: std/net/http/server.fb:711
 
@@ -607,7 +607,7 @@ Skeptic: I ran the reviewer's program, with a silent-client control added, at sc
 
 ## tls-3 (low): HttpServer's class comment was badly rewrapped when ListenTls was added
 
-Status: fixed in 5e9dd08d (HttpServer's class comment rewrapped to 100 columns, its text as it was); comment formatting, which no program shows
+Status: fixed in 17c36556 (HttpServer's class comment rewrapped to 100 columns, its text as it was); comment formatting, which no program shows
 
 Where: std/net/http/server.fb:448
 
