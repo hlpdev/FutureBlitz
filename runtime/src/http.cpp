@@ -22,9 +22,9 @@
 #include <curl/curl.h>
 #include <format>
 #include <initializer_list>
-#include <memory>
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <span>
