@@ -59,7 +59,8 @@ End For
 Print("rounds wrong:", wrong)
 
 // Receive takes what another thread sends, gives Null once it's closed and empty, and stops when
-// it's cancelled, while it waits or before.
+// it's cancelled, while it waits or before. The thread that waits says it's about to, and the
+// Cancel comes a moment after, so it's waiting by then.
 Function Receiving(): String
     Const values = Channel<Int>(2)
     Const cancel = Cancellation()
@@ -69,7 +70,7 @@ Function Receiving(): String
             Loop
                 Local value = Try Receive(values, cancel)
                 If value == Null Then Break
-                totals.Sum.Add((value ?? 0) As Int64)
+                totals.Sum.Add(value As Int64)
                 totals.Count.Add(1)
             End Loop
         Catch e As CancelledError
@@ -84,13 +85,17 @@ Function Receiving(): String
     Local closed = "closed: {totals.Sum.Load()} from {totals.Count.Load()}"
 
     Const waiting = Channel<Int>(2)
+    Const ready = Channel<Bool>(1)
     Local stopped = Thread.Start(Function()
+        ready.Send(cancel.IsCancelled)
         Try
             Receive(waiting, cancel)
         Catch e As CancelledError
             totals.Count.Add(1000)
         End Try
     End Function)
+    Local early = ready.Receive() ?? True
+    Sleep(20.Milliseconds)
     cancel.Cancel()
     stopped.Join()
     waiting.Send(5)
@@ -100,12 +105,13 @@ Function Receiving(): String
     Catch e As CancelledError
         already = e.Message
     End Try
-    Return "{closed}; cancelled: {totals.Count.Load() - 100}, {already}, {waiting.TryReceive() ?? -1} left"
+    Local left = waiting.TryReceive() ?? -1
+    Return "{closed}; cancelled: {totals.Count.Load() - 100}, early {early}, {already}, {left} left"
 End Function
 
 Print(Receiving())
 
-// Send waits while the Channel is full, until a value is taken, or it's cancelled.
+// Send waits while the Channel is full, until a value is taken, or it's cancelled while it waits.
 Function Sending(): String
     Const full = Channel<Int>(1)
     full.Send(1)
@@ -123,7 +129,9 @@ Function Sending(): String
     Local second = full.Receive() ?? -1
 
     full.Send(3)
+    Const ready = Channel<Bool>(1)
     Local blocked = Spawn(Function(): String
+        ready.Send(cancel.IsCancelled)
         Try
             Send(full, 4, cancel)
             Return "sent"
@@ -131,8 +139,12 @@ Function Sending(): String
             Return e.Message
         End Try
     End Function)
+    Local early = ready.Receive() ?? True
+    Sleep(20.Milliseconds)
     cancel.Cancel()
-    Return "{first} {result} {second}; {blocked.Wait()}, {full.TryReceive() ?? -1} {full.TryReceive() ?? -1}"
+    Local stopped = blocked.Wait()
+    Local kept = "{full.TryReceive() ?? -1} {full.TryReceive() ?? -1}"
+    Return "{first} {result} {second}; early {early}, {stopped}, {kept}"
 End Function
 
 Print(Sending())
