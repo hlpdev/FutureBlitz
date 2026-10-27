@@ -4,7 +4,7 @@
 
 ## files-1 (high): Dot files and dot folders are served on Windows by their 8.3 short names
 
-Status: fixed in df6a52c3: once a file is found, its real path, through the runtime's new fb_io_real_path (libuv's uv_fs_realpath, which gives each name as the disk has it, the long one on Windows), must be inside the folder's, with every name past it one Servable takes, so SECRET~1, which is .secret, is a 404; http_files asks for SECRET~1, GIT~1/config, GIT~1/, and .git/config, each a 404
+Status: fixed in 284abdf3: once a file is found, its real path, through the runtime's new fb_io_real_path (libuv's uv_fs_realpath, which gives each name as the disk has it, the long one on Windows), must be inside the folder's, with every name past it one Servable takes, so SECRET~1, which is .secret, is a 404; http_files asks for SECRET~1, GIT~1/config, GIT~1/, and .git/config, each a 404
 
 Where: std/net/http/files.fb:168
 
@@ -61,7 +61,7 @@ Skeptic: Ran rv-files/v4/f1.fb in debug and release with the rev-4 fb.exe. Both 
 
 ## files-2 (medium): Symbolic links and junctions in the folder are followed outside it, though the docs say nothing outside is reached
 
-Status: fixed in df6a52c3: by the same check, as the coordinator called it, a file whose real path isn't inside the folder's is a 404, so a link out of the folder, to a file or to a folder, reaches nothing; http_files makes both kinds of link (CreateSymbolicLinkA on Windows, symlink elsewhere) and asks for each, a 404
+Status: fixed in 284abdf3: by the same check, as the coordinator called it, a file whose real path isn't inside the folder's is a 404, so a link out of the folder, to a file or to a folder, reaches nothing; http_files makes both kinds of link (CreateSymbolicLinkA on Windows, symlink elsewhere) and asks for each, a 404
 
 Where: std/net/http/files.fb:56
 
@@ -125,7 +125,7 @@ Skeptic: Ran rv-files/v4/f2.fb in debug and release. mklink made a file symlink 
 
 ## files-4 (low): A folder's 301 rebuilds the query from QueryParams and changes it
 
-Status: fixed in df6a52c3: the folder's redirect keeps the query as the request's target has it; http_files asks for docs with ?flag, ?a&b=1, ?x=1;y=2, and ?
+Status: fixed in 284abdf3: the folder's redirect keeps the query as the request's target has it; http_files asks for docs with ?flag, ?a&b=1, ?x=1;y=2, and ?
 
 Where: std/net/http/files.fb:61
 
@@ -186,7 +186,7 @@ Skeptic: Ran rv-files/v4/f4.fb with a raw TCP request. It printed '?flag -> Loca
 
 ## files-5 (low): Valid Range headers are ignored: a range unit in another case, and a last-pos or suffix of more than 18 digits
 
-Status: fixed in df6a52c3: RangeOf reads the unit before the '=' whatever its letters' case, and a position of more digits than an Int64 holds as past the end; http_files asks for Bytes=2-3, BYTES=2-3, bytes=7-99999999999999999999, bytes=-99999999999999999999 (206s), and bytes=99999999999999999999- (a 416)
+Status: fixed in 284abdf3: RangeOf reads the unit before the '=' whatever its letters' case, and a position of more digits than an Int64 holds as past the end; http_files asks for Bytes=2-3, BYTES=2-3, bytes=7-99999999999999999999, bytes=-99999999999999999999 (206s), and bytes=99999999999999999999- (a 416)
 
 Where: std/net/http/files.fb:144
 
@@ -247,7 +247,7 @@ Skeptic: Ran rv-files/v4/f5.fb in debug and release. 'bytes=2-3' got 206, but 'B
 
 ## files-6 (low): If-Modified-Since in RFC 850 or asctime form is ignored
 
-Status: fixed in df6a52c3: ParseHttpDate reads IMF-fixdate, RFC 850's form, with RFC 9110's rule for its two-digit year, and asctime's; http_files sends each, the future ones 304s and the older ones 200s
+Status: fixed in 284abdf3: ParseHttpDate reads IMF-fixdate, RFC 850's form, with RFC 9110's rule for its two-digit year, and asctime's; http_files sends each, the future ones 304s and the older ones 200s
 
 Where: std/net/http/files.fb:257
 
@@ -303,7 +303,7 @@ Skeptic: Ran rv-files/v4/f6.fb. It printed 'Wed, 01 Jan 2070 00:00:00 GMT 304', 
 
 ## files-7 (low): A file over the 2 GiB read limit gets a 404, as if it weren't there
 
-Status: fixed in df6a52c3: a file past 2 GiB is a 500 before it's read, and a read that fails other than for a file that's gone is a 500 too; http_files makes a sparse 2,200,000,000-byte file and asks for a range of it, a 500; stdlib.md says so
+Status: fixed in 284abdf3: a file past 2 GiB is a 500 before it's read, and a read that fails other than for a file that's gone is a 500 too; http_files makes a sparse 2,200,000,000-byte file and asks for a range of it, a 500; stdlib.md says so
 
 Where: std/net/http/files.fb:89
 
@@ -359,7 +359,7 @@ Skeptic: Ran rv-files/v4/f7.fb, which made a 2,200,000,000-byte file with fsutil
 
 ## files-8 (low): stdlib.md lost the backslash in the list of refused characters
 
-Status: fixed in a3db0356: stdlib.md says "a backslash"; docs only, so no test
+Status: fixed in 9e788d9e: stdlib.md says "a backslash"; docs only, so no test
 
 Where: docs/stdlib.md:1376
 

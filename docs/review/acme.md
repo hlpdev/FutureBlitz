@@ -4,7 +4,7 @@
 
 ## client-1 (medium): A second RegisterAsync on a client (or RegisterAsync after ObtainAsync) signs newAccount with kid, which the CA rejects
 
-Status: fixed in f0bd3255 (RegisterAsync's newAccount POST is signed with the key's JWK whether the client has a kid or not, through PostAsync's and Signed's byKey), with http_acme: a client registers again after its order and gets the same account ("registered again: True"), and a client that orders first, registering then, registers after and finds that account ("ordered first: True, True"); both were 400 malformed before
+Status: fixed in 97f61f4e (RegisterAsync's newAccount POST is signed with the key's JWK whether the client has a kid or not, through PostAsync's and Signed's byKey), with http_acme: a client registers again after its order and gets the same account ("registered again: True"), and a client that orders first, registering then, registers after and finds that account ("ordered first: True, True"); both were 400 malformed before
 
 Where: std/net/acme_client.fb:245
 
@@ -58,7 +58,7 @@ Skeptic: I ran rv-acme/refute-client/http_c1.fb, which calls RegisterAsync twice
 
 ## csr-1 (medium): CheckName accepts names that aren't DNS host names: a label that starts or ends with a hyphen, and a dotted-decimal IP address
 
-Status: fixed in f0bd3255 (CheckName panics for a label that starts or ends with a hyphen, and for a name whose last label is all digits, as an IPv4 address's is), with panic_acme_hyphen_start ("-example.com"), panic_acme_hyphen_end ("example-.com"), and panic_acme_address ("127.0.0.1"), each after a request for names with inner hyphens and digits; stdlib.md and CertificateRequest's comment give the rule
+Status: fixed in 97f61f4e (CheckName panics for a label that starts or ends with a hyphen, and for a name whose last label is all digits, as an IPv4 address's is), with panic_acme_hyphen_start ("-example.com"), panic_acme_hyphen_end ("example-.com"), and panic_acme_address ("127.0.0.1"), each after a request for names with inner hyphens and digits; stdlib.md and CertificateRequest's comment give the rule
 
 Where: std/net/acme.fb:135
 
@@ -94,7 +94,7 @@ Skeptic: Ran the finding's program as C:/Users/Hunter/AppData/Local/Temp/claude/
 
 ## ca-1 (low): A POST-as-GET to a challenge URL starts the CA's check; real CAs only do that for a POST of {}
 
-Status: fixed in bbc3fac2 (a challenge's check starts only for a POST whose payload is an object, and a POST-as-GET only gives the challenge), with acme_ca_tests: a POST-as-GET of each challenge leaves it pending, and its authorization pending with no Retry-After, before the POST of {}
+Status: fixed in f7879c12 (a challenge's check starts only for a POST whose payload is an object, and a POST-as-GET only gives the challenge), with acme_ca_tests: a POST-as-GET of each challenge leaves it pending, and its authorization pending with no Retry-After, before the POST of {}
 
 Where: tests/native/acme_ca/acme_ca.cpp:866
 
@@ -249,7 +249,7 @@ Skeptic: Built http_ca1_pag.fb (same as the finding's program) in debug and rele
 
 ## ca-2 (low): fetch_challenge isn't an HTTP client: a chunked body or an HTTP/1.0 status line fails a correct answer
 
-Status: fixed in bbc3fac2 (acme_ca's body_of_ok reads an HTTP/1.0 or 1.1 200 by its Content-Length, in chunks for Transfer-Encoding: chunked, with chunk extensions, or to the end, and refuses another status or a response cut short; fetch_challenge uses it), with acme_ca_tests' "the CA's check reads an HTTP-01 answer as an HTTP client does" and http_acme, whose responder now answers in chunks (f0bd3255), which issued only after the fix. Redirects aren't followed: the fetch is to the program's own port
+Status: fixed in f7879c12 (acme_ca's body_of_ok reads an HTTP/1.0 or 1.1 200 by its Content-Length, in chunks for Transfer-Encoding: chunked, with chunk extensions, or to the end, and refuses another status or a response cut short; fetch_challenge uses it), with acme_ca_tests' "the CA's check reads an HTTP-01 answer as an HTTP client does" and http_acme, whose responder now answers in chunks (97f61f4e), which issued only after the fix. Redirects aren't followed: the fetch is to the program's own port
 
 Where: tests/native/http_server/http_server.cpp:510
 
@@ -382,7 +382,7 @@ Skeptic: I ran http_ca2_respond in debug and release. Both printed 'plain: issue
 
 ## ca-3 (low): The CA's key-authorization check is byte-exact; RFC 8555 8.3 has a CA ignore trailing whitespace
 
-Status: fixed in bbc3fac2 (the CA trims spaces, tabs, CRs, and LFs after the fetched key authorization before comparing it), with acme_ca_tests: the second name's responder answers with " \r\n" after its key authorization, and its authorization turns valid
+Status: fixed in f7879c12 (the CA trims spaces, tabs, CRs, and LFs after the fetched key authorization before comparing it), with acme_ca_tests: the second name's responder answers with " \r\n" after its key authorization, and its authorization turns valid
 
 Where: tests/native/acme_ca/acme_ca.cpp:831
 
@@ -402,7 +402,7 @@ Skeptic: The 'newline' line of the ca-2 run, debug and release: a key authorizat
 
 ## ca-4 (low): The CA never checks a POST's Content-Type (application/jose+json); acme_request_t carries no headers
 
-Status: fixed in bbc3fac2 (acme_request_t has the request's content_type, which the test server passes from its Content-Type header, and a POST that isn't application/jose+json is a 415 malformed problem, with a Replay-Nonce), with acme_ca_tests' text/plain newAccount: 415, malformed, with a nonce; every other test's POST says application/jose+json, as AcmeClient's do in http_acme
+Status: fixed in f7879c12 (acme_request_t has the request's content_type, which the test server passes from its Content-Type header, and a POST that isn't application/jose+json is a 415 malformed problem, with a Replay-Nonce), with acme_ca_tests' text/plain newAccount: 415, malformed, with a nonce; every other test's POST says application/jose+json, as AcmeClient's do in http_acme
 
 Where: tests/native/acme_ca/acme_ca.hpp:21
 
@@ -504,7 +504,7 @@ Skeptic: I ran http_ca4_ctype in debug. It printed 'text/plain new account: 201 
 
 ## ca-6 (low): Certificate serials are 0x10 then one byte of the order number, so they repeat after 256 orders
 
-Status: fixed in bbc3fac2 (a serial is 0x10 and then the order's number in 8 bytes, big-endian), with acme_ca_tests: the first certificate's serial is 10 00 00 00 00 00 00 00 01
+Status: fixed in f7879c12 (a serial is 0x10 and then the order's number in 8 bytes, big-endian), with acme_ca_tests: the first certificate's serial is 10 00 00 00 00 00 00 00 01
 
 Where: tests/native/acme_ca/acme_ca.cpp:941
 
@@ -660,7 +660,7 @@ Skeptic: I ran http_ca6_serial in debug. It printed '1st 10:01, 256th 10:00, 257
 
 ## ca-7 (low): The CA writes the certificate into a fixed 4096-byte buffer, so an order with many names can't be issued
 
-Status: fixed in bbc3fac2 (the certificate's buffer doubles, up to 64 KiB, while mbedTLS says it's too small, and an order of more than 100 names is refused as rejectedIdentifier, as Let's Encrypt's are), with acme_ca_tests' "an order of 100 names is issued, and one of more is refused": 101 names of 59 bytes are refused, and 100 are issued, a certificate of more than 4096 bytes that verifies for its first and last names
+Status: fixed in f7879c12 (the certificate's buffer doubles, up to 64 KiB, while mbedTLS says it's too small, and an order of more than 100 names is refused as rejectedIdentifier, as Let's Encrypt's are), with acme_ca_tests' "an order of 100 names is issued, and one of more is refused": 101 names of 59 bytes are refused, and 100 are issued, a certificate of more than 4096 bytes that verifies for its first and last names
 
 Where: tests/native/acme_ca/acme_ca.cpp:953
 
@@ -824,7 +824,7 @@ Skeptic: I ran http_ca7_names in debug. It printed '100 names of 59 bytes' and t
 
 ## ca-9 (low): acme_ca_tests says 'The same key finds its account again' but uses a new key; the CA's existing-account path (200) is never tested
 
-Status: fixed in bbc3fac2: acme_ca_tests' first client asks for its account again with onlyReturnExisting, signed by its JWK, and gets 200 and its own Location; the new key's accountDoesNotExist has its own comment
+Status: fixed in f7879c12: acme_ca_tests' first client asks for its account again with onlyReturnExisting, signed by its JWK, and gets 200 and its own Location; the new key's accountDoesNotExist has its own comment
 
 Where: tests/native/acme_ca/acme_ca_tests.cpp:311
 
@@ -871,7 +871,7 @@ Skeptic: In acme_ca_tests.cpp:311-316, under the comment '// The same key finds 
 
 ## client-2 (low): AcmeClient's New doesn't panic for a malformed P-256 private key; the panic comes later, inside std
 
-Status: fixed in f0bd3255 (AcmeClient's New takes the key's public key, which panics at the caller for bytes that aren't a P-256 private key), with panic_acme_client_key_bytes: a client of a 16-byte key panics where it's made
+Status: fixed in 97f61f4e (AcmeClient's New takes the key's public key, which panics at the caller for bytes that aren't a P-256 private key), with panic_acme_client_key_bytes: a client of a 16-byte key panics where it's made
 
 Where: std/net/acme_client.fb:67
 
@@ -918,7 +918,7 @@ Skeptic: I ran rv-acme/refute-client/http_c2.fb, which makes an AcmeClient from 
 
 ## client-4 (low): AcmeClient's panic for a public P-256 key says "not ECDSA_P256"
 
-Status: fixed in f0bd3255 (AcmeClient's New says "an ACME account's key is a private key, not a public one" for a public P-256 key, and the kind only for another kind), with panic_acme_client_key's new message
+Status: fixed in 97f61f4e (AcmeClient's New says "an ACME account's key is a private key, not a public one" for a public P-256 key, and the kind only for another kind), with panic_acme_client_key's new message
 
 Where: std/net/acme_client.fb:68
 
@@ -949,7 +949,7 @@ Skeptic: I ran rv-acme/refute-client/p4.fb, which makes an AcmeClient with a pub
 
 ## csr-2 (low): A public P-256 key's panic reads "... a P-256 private key, not ECDSA_P256", and no test covers it
 
-Status: fixed in f0bd3255 (CertificateRequest says "an ACME certificate's key is a private key, not a public one" for a public P-256 key), with panic_acme_public_key
+Status: fixed in 97f61f4e (CertificateRequest says "an ACME certificate's key is a private key, not a public one" for a public P-256 key), with panic_acme_public_key
 
 Where: std/net/acme.fb:76
 

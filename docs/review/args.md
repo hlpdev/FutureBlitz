@@ -4,7 +4,7 @@
 
 ## args-1 (high): Every Parse runs T's OnLoaded on an empty command line, for the help's defaults, so a valid command line can panic
 
-Status: fixed in b631c471 and cb7f662b: the built-in Defaults<T>() (the user's call) gives Save's form of a T's Fields at their defaults, or zeros, leaving out a Field with neither, made without New, OnLoaded, or a Class's Destroy; a T? is its T, and a type without Fields of its own gives its zero's Value, or a Null, so ParserOf's copies for every Field can ask it (spec 13). Args reads the help's defaults from Defaults<T>(), so OnLoaded runs only on the T a command line gives. sema_tests' "Defaults<T> makes a Value of what a T is when nothing sets it", mir_tests' "lowering reports an instance's type that Defaults<T> can't write, and runs no OnLoaded", tests/programs/load_defaults.fb, and tests/programs/os_args.fb's Sized, whose OnLoaded divides by its Path's length and prints once
+Status: fixed in a8f6f64a and 1d64d496: the built-in Defaults<T>() (the user's call) gives Save's form of a T's Fields at their defaults, or zeros, leaving out a Field with neither, made without New, OnLoaded, or a Class's Destroy; a T? is its T, and a type without Fields of its own gives its zero's Value, or a Null, so ParserOf's copies for every Field can ask it (spec 13). Args reads the help's defaults from Defaults<T>(), so OnLoaded runs only on the T a command line gives. sema_tests' "Defaults<T> makes a Value of what a T is when nothing sets it", mir_tests' "lowering reports an instance's type that Defaults<T> can't write, and runs no OnLoaded", tests/programs/load_defaults.fb, and tests/programs/os_args.fb's Sized, whose OnLoaded divides by its Path's length and prints once
 
 Where: std/os/args.fb:643
 
@@ -39,7 +39,7 @@ Skeptic: Ran the finding's program (a1.fb). Debug and release both print 'panic:
 
 ## args-2 (medium): A non-ASCII letter in a short-option group panics in Slice
 
-Status: fixed in be880b85: Parse steps through a short group a character at a time, by CharAt(at).Utf8Length, so '-é' and '-vé' are an unknown option '-é'. tests/programs/os_args.fb's -é, -vé, and '-v é' cases
+Status: fixed in 2c2bcc8d: Parse steps through a short group a character at a time, by CharAt(at).Utf8Length, so '-é' and '-vé' are an unknown option '-é'. tests/programs/os_args.fb's -é, -vé, and '-v é' cases
 
 Where: std/os/args.fb:221
 
@@ -77,7 +77,7 @@ Skeptic: Ran a2.fb with ["-é"] and ["-vé"]. Debug and release both print 'pani
 
 ## compiler-1 (medium): Where lines on a For Field loop over a type parameter's T? aren't checked at the call, and the compiler crashes or emits invalid IR
 
-Status: fixed in ba78a218: collect_field_bounds() peels the T?s off a loop's type before matching it to the function's own type parameters, so `In T?` and `In T??` put their Where lines on T's fields at each call. sema_tests' "For Field over a T? goes over its T's fields" (Twos<P> and Twos<Q> over T? and T??), and tests/programs/reflection_nullable.fb's Twos<Point>
+Status: fixed in 8291c69b: collect_field_bounds() peels the T?s off a loop's type before matching it to the function's own type parameters, so `In T?` and `In T??` put their Where lines on T's fields at each call. sema_tests' "For Field over a T? goes over its T's fields" (Twos<P> and Twos<Q> over T? and T??), and tests/programs/reflection_nullable.fb's Twos<Point>
 
 Where: compiler/src/sema.cpp:10320
 
@@ -118,7 +118,7 @@ Skeptic: I put the programs under scratchpad/rv-args/forfield-nn. c1.fb is the f
 
 ## args-10 (low): No tests for ArgsParser's documented panics
 
-Status: fixed in f06b747a: tests/programs/panic_os_args_*.fb, one for each of ArgsParser's documented panics (key, long, short, short_name, nameless, after_rest, required_after, positional_commands, command_positionals, command_name), each at its caller's line
+Status: fixed in e499ae3a: tests/programs/panic_os_args_*.fb, one for each of ArgsParser's documented panics (key, long, short, short_name, nameless, after_rest, required_after, positional_commands, command_positionals, command_name), each at its caller's line
 
 Where: tests/programs/os_args.fb:122
 
@@ -142,7 +142,7 @@ Skeptic: Ran a10.fb. It prints "panic: an ArgsParser has one option named '-a' a
 
 ## args-4 (low): The help lists '-h, --help' and '-V, --version' even when an option has taken -h or -V
 
-Status: fixed in be880b85: Help() builds the --help and --version rows with Builtin(), from the names no option has, and leaves a row out when options have both. tests/programs/os_args.fb's Sizes (an -h flag) and taken (options with --help and --version)
+Status: fixed in 2c2bcc8d: Help() builds the --help and --version rows with Builtin(), from the names no option has, and leaves a row out when options have both. tests/programs/os_args.fb's Sizes (an -h flag) and taken (options with --help and --version)
 
 Where: std/os/args.fb:297
 
@@ -182,7 +182,7 @@ Skeptic: Ran a4.fb. The help prints '-h, --human  Prints sizes for people' and t
 
 ## args-5 (low): '--=x' reaches a flag or option with no long name; ArgsParser accepts one with neither name
 
-Status: fixed in be880b85: Named() matches no spec for an empty long name, so '--=x' is an unknown option '--', and Add() panics for a flag or option with neither name. tests/programs/os_args.fb's short parser and tests/programs/panic_os_args_nameless.fb
+Status: fixed in 2c2bcc8d: Named() matches no spec for an empty long name, so '--=x' is an unknown option '--', and Add() panics for a flag or option with neither name. tests/programs/os_args.fb's short parser and tests/programs/panic_os_args_nameless.fb
 
 Where: std/os/args.fb:357
 
@@ -210,7 +210,7 @@ Skeptic: Ran a5.fb. ArgsParser("tool").Flag("Verbose", short: "v").Option("Out",
 
 ## args-6 (low): ArgsParser.Command's optional: the last call decides for every command
 
-Status: fixed in be880b85: CommandRequired = CommandRequired || !optional, so a command is required when any Command says so, which its comment now says. tests/programs/os_args.fb's two orders of a required and an optional command
+Status: fixed in 2c2bcc8d: CommandRequired = CommandRequired || !optional, so a command is required when any Command says so, which its comment now says. tests/programs/os_args.fb's two orders of a required and an optional command
 
 Where: std/os/args.fb:189
 
@@ -243,7 +243,7 @@ Skeptic: Ran a6.fb. Command("a", optional: False) followed by Command("b", optio
 
 ## args-7 (low): Type checks on TypeName miss T? wrappers: @Flag on an Int? doesn't count, and a String[]? option isn't repeatable
 
-Status: fixed in be880b85: ParserOf reads a Field's type under its T?s, so an Int? @Flag counts and a String[]? option takes each; ArgSpec's Fills, which ParserOf's Unfilled() clears for a T[]?, keeps one that isn't given out, so it's Null. tests/programs/os_args.fb's Maybe
+Status: fixed in 2c2bcc8d: ParserOf reads a Field's type under its T?s, so an Int? @Flag counts and a String[]? option takes each; ArgSpec's Fills, which ParserOf's Unfilled() clears for a T[]?, keeps one that isn't given out, so it's Null. tests/programs/os_args.fb's Maybe
 
 Where: std/os/args.fb:630
 
@@ -283,7 +283,7 @@ Skeptic: Ran a7.fb. An @Flag on an Int? Field with -vv gives 'INVALID --verbose:
 
 ## args-8 (low): A subcommand's help leaves out what it does: @Program on its Struct is ignored and @Subcommand's Help isn't used
 
-Status: fixed in 689a5ba0 and be880b85: T.Attribute and T.Has on a T? read its T's declaration (spec 13 says so, as For Field over a T? does), so a subcommand's @Program is read, and ParserOf gives a command's parser its @Subcommand's Help where its @Program has no About. tests/programs/reflection_nullable.fb's Noted<Build?> and Noted<Top?>, and tests/programs/os_args.fb's Remotes
+Status: fixed in 9c44c730 and 2c2bcc8d: T.Attribute and T.Has on a T? read its T's declaration (spec 13 says so, as For Field over a T? does), so a subcommand's @Program is read, and ParserOf gives a command's parser its @Subcommand's Help where its @Program has no About. tests/programs/reflection_nullable.fb's Noted<Build?> and Noted<Top?>, and tests/programs/os_args.fb's Remotes
 
 Where: std/os/args.fb:605
 
@@ -336,7 +336,7 @@ Skeptic: Ran a8.fb. 'git remote --help' prints 'Usage: git remote [command]' and
 
 ## args-9 (low): DefaultText shows '(default: 0.0)' for a Double, though its comment says a 0 isn't shown
 
-Status: fixed in be880b85: DefaultText hides a number whose AsDouble() is 0, of any kind. tests/programs/os_args.fb's Maybe help, with Ratio: Double = 0.0 and Count: Int = 0
+Status: fixed in 2c2bcc8d: DefaultText hides a number whose AsDouble() is 0, of any kind. tests/programs/os_args.fb's Maybe help, with Ratio: Double = 0.0 and Count: Int = 0
 
 Where: std/os/args.fb:666
 
@@ -372,7 +372,7 @@ Skeptic: Ran a9.fb. The help shows '--ratio <ratio>  (default: 0.0)', while '--c
 
 ## compiler-2 (low): non_null's doc comment was left above the new all_non_null
 
-Status: fixed in ba78a218: non_null's comment sits above it again, and all_non_null has only its own (a comment; no test)
+Status: fixed in 8291c69b: non_null's comment sits above it again, and all_non_null has only its own (a comment; no test)
 
 Where: compiler/src/sema.cpp:12402
 

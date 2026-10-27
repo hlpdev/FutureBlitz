@@ -4,7 +4,7 @@
 
 ## overloads-1 (high): Extend T[] Methods: written type arguments are counted against the array's T too, so the wrong overload runs
 
-Status: fixed in c3825a86 (m6-next's partial inference, which this rebased onto, already counts an
+Status: fixed in 67e1512b (m6-next's partial inference, which this rebased onto, already counts an
 Extend of T[]'s own type parameters in rank() and in the count error; overload_type_count and a sema
 test pin Pick() and Pick<U>() on an array)
 
@@ -38,7 +38,7 @@ Skeptic: I ran the finding's program (o1.fb). Debug and --release both printed '
 
 ## json-1 (medium): JsonReader.Line and Column count the whole text before the token on every call, so using them per token is quadratic
 
-Status: fixed in 9213bebd (the reader counts its line and column on from the last place asked for,
+Status: fixed in e6b119dd (the reader counts its line and column on from the last place asked for,
 so asking at every token costs no more than reading; data_json_stream reads the places of a
 50000-line document at every token)
 
@@ -93,7 +93,7 @@ Skeptic: Ran the finding's program, unchanged, as j1.fb in C:/Users/Hunter/AppDa
 
 ## overloads-2 (medium): A Class's inherited Method and a generic one of the same parameters in a derived Class are taken as an override, not two overloads (and Override crashes the compiler)
 
-Status: fixed in c3825a86 (same_parameters() compares the counts of own type parameters too, so a
+Status: fixed in 67e1512b (same_parameters() compares the counts of own type parameters too, so a
 derived Class's Get<T>() is an overload beside an inherited Get(), and Override on one of another
 count says the base has no Method like it, where it crashed; a sema test and overload_type_count,
 both ways round)
@@ -131,7 +131,7 @@ Skeptic: The finding's program (o2.fb) gives "'Get' overrides Base's; write 'Ove
 
 ## overloads-3 (medium): A Class's Method is refused as 'taking the place of' an Interface's generic default that differs only by its type-parameter count
 
-Status: fixed in c3825a86 (a Class's Method takes no generic default's place when a call's arguments
+Status: fixed in 67e1512b (a Class's Method takes no generic default's place when a call's arguments
 can't tell one of the default's type parameters, which only a call that writes it picks; a default a
 call can tell, like Put<T>(x: T), still is, in a sema test; overload_type_count calls both)
 
@@ -166,7 +166,7 @@ Skeptic: The finding's program (o3.fb) is refused: "Plain's 'Read' would take th
 
 ## overloads-4 (medium): Function values ignore written type arguments and the count rule: Name<Int> with a Func type is 'ambiguous'
 
-Status: fixed in c3825a86 (a function value's written type arguments are an overload's first ones,
+Status: fixed in 67e1512b (a function value's written type arguments are an overload's first ones,
 and without any, a generic one the Func expected can't tell doesn't fit; a sema test and
 overload_type_count)
 
@@ -198,7 +198,7 @@ Skeptic: The finding's program (o4.fb) reports "the function value 'Name' is amb
 
 ## overloads-5 (medium): Spec 13's base64 reading of a UInt8[] overrides 'one Value alone' for 4-character numbers, so "0012" no longer loads as [12]
 
-Status: fixed in a5fd012e (base64 comes first for a UInt8[], so any bytes Json.Write writes read
+Status: fixed in b09da5b2 (base64 comes first for a UInt8[], so any bytes Json.Write writes read
 back, and spec 13 says so, with "0012" as the String that's both; decisions.md's row says what goes
 on as before, the line is wrapped, and core_load_errors loads "0012" as a UInt8[] and as a UInt8.
 Both rules can't hold for a String like "0012"; reading a number first would break JSON's round trip
@@ -230,7 +230,7 @@ Skeptic: The finding's program (o5.fb) printed '12', '[12]', '[211, 77, 118]' in
 
 ## json-2 (low): A leading byte order mark counts as a column, so every place on line 1 is off by one
 
-Status: fixed in 9213bebd (a byte order mark isn't counted: places start after it; data_json_stream
+Status: fixed in e6b119dd (a byte order mark isn't counted: places start after it; data_json_stream
 reads places after one, in bytes and in a String)
 
 Where: runtime/src/json.cpp:571
@@ -272,7 +272,7 @@ Skeptic: Ran j2.fb, the finding's program plus a valid '[1]' case, in debug and 
 
 ## json-3 (low): After a Next that throws partway through a string, GetString gives the refused string's partial text for the earlier token
 
-Status: fixed in 9213bebd (read_string decodes into a local string and gives it to the reader only
+Status: fixed in e6b119dd (read_string decodes into a local string and gives it to the reader only
 once the string ends; data_json_stream)
 
 Where: std/data/json.fb:109
@@ -312,7 +312,7 @@ Skeptic: Ran j3.fb, the finding's program, in debug and release. Both printed 'K
 
 ## msgpack-1 (low): MessagePack.Read's depth leaves out an empty array or map, so it allows one level more than JSON does
 
-Status: fixed in 322145e2 (an empty array or map counts toward the depth; data_msgpack reads [[[]]],
+Status: fixed in fad6f9b1 (an empty array or map counts toward the depth; data_msgpack reads [[[]]],
 [[]], and [{}] at the depths JSON refuses them at)
 
 Where: std/data/msgpack.fb:293
@@ -359,7 +359,7 @@ Skeptic: Ran the program (plus [[1]] at depth 1) in debug and release: 'OUT_OF_R
 
 ## msgpack-2 (low): Step 19's milestones row and a decisions.md row still promise @Since and @Default, which don't exist
 
-Status: fixed in b6c21913 (step 19's milestones row says what was built: Load and Save with @Rename,
+Status: fixed in 46e0063b (step 19's milestones row says what was built: Load and Save with @Rename,
 @Skip, @Flatten, Loadable and Saveable, and versioned saves through @Renamed, a Field's default, and
 OnLoaded; decisions.md's MessagePack row and Value row no longer name @Since or @Default)
 
