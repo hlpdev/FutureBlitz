@@ -1434,6 +1434,62 @@ a 400 in HTTP/1.0 too; leading zeros and a later 1.x minor version are read as R
 lingering takes a second in all; and a WebSocket's 405 has an Allow, a Content-Length of 0 isn't a
 body, and a close that isn't answered, or a failure, throws with 1006.
 
+Step 30's static files (lane 6): HttpRouter.Files(prefix, folder) serves a folder's files for GET
+and HEAD, an index.html at a folder's path, a Content-Type by extension, an ETag and Last-Modified,
+304s for If-None-Match and If-Modified-Since in HTTP's three date forms, and a 206 for one range.
+Its review's seven findings were fixed (docs/review/files.md): Windows' 8.3 short names and links
+out of the folder are 404s, a redirect keeps its raw query, a range unit can be in any case, and a
+file past 2 GiB is a 500.
+
+Step 19, std.data's JSON and MessagePack (lane 9, finished by lane 13): the runtime's JSON tokens
+(fb_json_reader_new, fb_json_next, and the rest, in runtime/src/json.cpp, with exact integers and
+fast_float's Doubles), and std/data/json.fb's `JsonReader`, `JsonWriter`, and `JsonToken`, and
+`Json.Read(text)` and `Read(bytes)` of a Value and `Json.Write(value, indent)`, which go through
+arrays and objects with no call for each; std/data/msgpack.fb's `MessagePack.Read` and `Write` of a
+Value, in the fewest bytes. `Json.Read<T>`, `Json.Write(x)`, `MessagePack.Read<T>`, and
+`MessagePack.Write(x)` read and write any type through Load<T> and Save. JSONTestSuite's parsing
+cases are in tests/programs/data_json_suite. Overloads may now differ by their count of type
+parameters (sema's declaration checks and `rank()`, which a call's written type arguments narrow),
+and Load reads a String of base64 as a UInt8[], so bytes round-trip through JSON.
+
+Step 19's review's ten findings were fixed (docs/review/step19.md): overloads by count of type
+parameters work in an Extend of T[], through inheritance and Interface defaults, and as function
+values; Load's base64 comes before one Value alone for a UInt8[]; JSON's places count on from the
+last one; MessagePack counts an empty array or map toward its depth; and step 19's milestones row
+and decisions say what was built. With it, step 19 is done.
+
+Step 30's ACME (lane 11): std/net/acme.fb's Acme (Jwk, Thumbprint, KeyAuthorization,
+CertificateRequest, a P-256 PKCS #10 CSR) and std/net/acme_client.fb's AcmeClient (RegisterAsync,
+ObtainAsync, through AcmeTokens, with nonces, a badNonce retry, and Retry-After polling) over
+std.net.http's client; tests/native/acme_ca, a CA as Pebble is, which the HTTP test server hosts.
+Its review's twelve findings were fixed (docs/review/acme.md).
+
+Step 17's process half: std/os/process_command.fb's `Stdio` (INHERIT, PIPED, NONE), `ProcessOutput`
+(Status, Stdout, Stderr, Text, ErrorText), and `Command` (Arg, Args, Env, Unset, ClearEnv, Folder,
+Stdin, Stdout, Stderr, Spawn, Output, OutputAsync, Status, StatusAsync; no shell; a NUL, or a
+variable's name that's empty or has an '=', panics at the caller), and `Process.Arguments()`
+(CommandLineToArgvW, _NSGetArgv, /proc/self/cmdline); process_child.fb's `ExitStatus` (Code: Int64?,
+Signal: Int?, Success), `Child` (Id, Wait and WaitAsync, which close a piped stdin first, TryWait,
+and Kill, signal 9 on every OS), `ChildInput` (a Writer) and `ChildOutput` (a Reader), and
+ProcessError (IOError kinds from libuv's errors, by a Select); process_signals.fb's
+`Process.OnInterrupt` and `Process.OnTerminate`, each a Sendable Func() run on a Thread.Start thread
+of its own that waits in fb_os_signal_wait for a count past what it saw. runtime/src/process.cpp's
+fb_os_process_ and fb_os_signal_ functions run on a libuv loop of their own (processes_t, in
+fb_runtime_io); a pipe is read only while a read waits, or drained (Output's stderr);
+fb_os_process_spawn takes `fb::os::environment_lock()` (out of os.cpp) and builds a changed
+environment from uv_os_environ, case-insensitively on Windows; SIGPIPE is blocked on its thread.
+`fb::runtime::at_code_end()` and run_code_end(), which fb_scheduler_finish calls once the coroutines
+are done, end the signal waits before fb_pool_finish. Tests: os_process (the program runs itself as
+its child), os_signals, panic_os_command_nul and panic_os_command_name, and the CLI test of
+Ctrl+Break on Windows and SIGINT and SIGTERM on Linux and macOS.
+
+Step 17's Args (lane 8): For Field over a T? goes over its T's Fields; std/os/args.fb's
+Args.Parse<T> fills a Struct through Load<T>, with @Program, @Positional, @Option, @Flag, and
+@Subcommand, generated help and errors, and ArgsParser, the builder underneath. Its review's eleven
+findings were fixed (docs/review/args.md), and the built-in Defaults<T>() (spec 13) gives Save's
+form of a T at its defaults without OnLoaded, which the help reads. With the process half and its
+review's fixes (docs/review/step17-process.md), step 17 is done.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished

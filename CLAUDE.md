@@ -54,11 +54,11 @@ docs/history.md; a landed step's notes go there, newest milestone first.
   and ranges), 3 (collections I), 4 (collections II), 5 (formatting, parsing, and the debug form), 6
   (text I, Char), 7 (text II, regex), 8 (Markdown and templates), 9 (math I), 10 (math II,
   ThreadLocal Global), 11 (big math and units), 12 (ffi: CData and Buffer), 13 (streams), 14
-  (files), 15 (Embed, the VFS, and Preferences), 16 (time), 20 (TOML, CSV, INI, XML, YAML, Protocol
+  (files), 15 (Embed, the VFS, and Preferences), 16 (time), 17 (Value, Load and Save, std.os,
+  processes and signals, Args), 19 (JSON and MessagePack), 20 (TOML, CSV, INI, XML, YAML, Protocol
   Buffers), 21 (crypto), 22 (compression), 23 (uuid, SQLite, and Query<T>), 24 (images), 25 (drawing
   and fonts), 26 (terminal), 27 (algo); 18 (concurrency, events, std.log, Sendable Func, Where T:
   Class, Task<T> Throws E); 28 (addresses, URLs, DNS, sockets, LAN discovery), 29 (TLS, the HTTP
-  client, and Download), 31 (game networking); parts of 17 (Value, Load and Save, std.os's
-  environment, system, and folders), 30 (the HTTP server and WebSockets), and 32 (std.debug, and the
-  audit's gaps in std.text, std.compress, std.image, and std.io); and every one of the
-  whole-codebase review's fixes.
+  client, and Download), 31 (game networking); parts of 30 (the HTTP server, WebSockets, static
+  files, and ACME), and 32 (std.debug, and the audit's gaps in std.text, std.compress, std.image,
+  and std.io); and every one of the whole-codebase review's fixes.
