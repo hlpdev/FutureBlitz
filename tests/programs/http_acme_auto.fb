@@ -34,8 +34,7 @@ Loop
     End If
 End Loop
 
-// A TLS connection to localhost at `port`, trusting only the CA's `root`, and its certificate's
-// serial number.
+// A TLS connection to localhost at `port`, trusting only the CA's `root`.
 Async Function Connected(port: UInt16, root: Certificate[]): TlsStream<TcpStream> Throws NetError,
                                                                                        TimeoutError
     Local client = TlsClient()
