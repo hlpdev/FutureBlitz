@@ -355,9 +355,9 @@ void fb_os_env_all(fb_array_t* names, fb_array_t* values) {
         }
 
         const std::string_view value = items[i].value;
-        *static_cast<fb_string_t**>(fb_array_push(names, sizeof(fb_string_t*))) =
+        *static_cast<fb_string_t**>(fb_array_push(names, sizeof(fb_string_t*), nullptr)) =
             fb_string_from_bytes(name.data(), static_cast<std::int64_t>(name.size()));
-        *static_cast<fb_string_t**>(fb_array_push(values, sizeof(fb_string_t*))) =
+        *static_cast<fb_string_t**>(fb_array_push(values, sizeof(fb_string_t*), nullptr)) =
             fb_string_from_bytes(value.data(), static_cast<std::int64_t>(value.size()));
     }
 
