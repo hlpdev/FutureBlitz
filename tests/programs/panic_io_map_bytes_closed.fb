@@ -1,0 +1,12 @@
+// Asking a MappedFile for its bytes once it's closed panics at the program's line.
+Import std.core
+Import std.io
+
+Local temp = Try TempDir("fb-map-")
+Try File.WriteBytes(temp.Path / "two.bin", [1, 2])
+Local map = Try MappedFile(temp.Path / "two.bin")
+Print("{(Try map.Bytes()).Count}")
+map.Close()
+Try temp.Close()
+Print("{Dir.Exists(temp.Path)}")
+Print("{(Try map.Bytes()).Count}")

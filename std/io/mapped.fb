@@ -2,6 +2,7 @@
 // copying the file in, which the OS pages in as they're used.
 
 Import std.core
+Import std.ffi
 Import std.io.path
 Import std.io.request
 
@@ -14,6 +15,9 @@ Extern "runtime"
     Function fb_io_map_read(map: Ptr<Void>, start: Int64, count: Int64, output: UInt8[])
     Function fb_io_map_write(map: Ptr<Void>, start: Int64, bytes: UInt8[])
     Function fb_io_map_flush(map: Ptr<Void>): Int64
+    Function fb_io_map_hold(map: Ptr<Void>): Int64
+    Function fb_io_map_held(map: Ptr<Void>): Ptr<UInt8>
+    Function fb_io_map_drop(map: Ptr<Void>)
     Function fb_io_map_close(map: Ptr<Void>)
     Function fb_io_map_free(map: Ptr<Void>)
 End Extern
@@ -98,8 +102,23 @@ Public Class MappedFile
         If error != 0 Then Throw ErrorOf(error, "write", Path)
     End Method
 
-    // Unmaps it, and closes the file, which a second Close leaves alone. What was written stays
-    // in the file, for the OS to put onto the disk.
+    // Its bytes as a Buffer<UInt8>, without copying them, for streams and C code to read in
+    // place. The Buffer, and each view of it, keeps them mapped while it is, even once this is
+    // closed. A writable one's Buffer is its bytes, so writing it changes the file, as []= does. A
+    // read-only one's is a view of its own, which copies a page of the file's as it's first
+    // written, so writing it changes only that Buffer, and the Buffers this gives after, never the
+    // file. Throws an IOError when that view can't be made, the first time, and panics when it's
+    // closed.
+    @PanicsAtCaller
+    Public Method Bytes(): Buffer<UInt8> Throws IOError
+        CheckOpen()
+        Local error = fb_io_map_hold(Native)
+        If error != 0 Then Throw ErrorOf(error, "map", Path)
+        Return MappedBytes(Self, fb_io_map_held(Native), fb_io_map_size(Native))
+    End Method
+
+    // Unmaps it, and closes the file, which a second Close leaves alone, once no Buffer from Bytes
+    // is left. What was written stays in the file, for the OS to put onto the disk.
     Public Method Close()
         fb_io_map_close(Native)
     End Method
@@ -136,6 +155,21 @@ Public Class MappedFile
     @PanicsAtCaller
     Method CheckWritable()
         If !IsWritable Then Panic("the MappedFile of {Path.FileName()} is read-only")
+    End Method
+End Class
+
+// A MappedFile's bytes as a Buffer, which holds them mapped until it goes, and keeps the
+// MappedFile, whose map they are, until then too.
+Class MappedBytes Extends Buffer<UInt8>
+    ReadOnly Field Map: MappedFile
+
+    New(map: MappedFile, first: Ptr<UInt8>, count: Int64)
+        Map = map
+        Super.New(first, count, Null)
+    End New
+
+    Method Destroy()
+        fb_io_map_drop(Map.Native)
     End Method
 End Class
 

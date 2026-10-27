@@ -1,0 +1,73 @@
+// A MappedFile's bytes as a Buffer<UInt8>, without copying them: a writable one's Buffer is the
+// file's bytes, and a read-only one's a copy of the pages it writes. A Buffer, and its views, keep
+// the bytes mapped after the MappedFile is closed, and after its last reference goes, and the file
+// is closed once none is left. Everything is in a temporary folder, which goes at the end.
+Import std.core
+Import std.ffi
+Import std.io
+
+Local temp = Try TempDir("fb-mapped-")
+Local root = temp.Path
+Try File.WriteBytes(root / "six.bin", [1, 2, 3, 4, 5, 6])
+
+// A writable one's Buffer reads and writes the file's bytes, as [] and []= do.
+Local map = Try MappedFile(root / "six.bin", True)
+Local bytes = Try map.Bytes()
+Print("{bytes.Count} {bytes[0]} {bytes[5]}")
+bytes[0] = 10
+map[1] = 20
+Print("{map[0]} {bytes[1]} {bytes.ToArray()}")
+Local middle = bytes.Slice(2, 4)
+middle[0] = 30
+Print("{map[2]} {middle.ToArray()}")
+Try map.Flush()
+Print("{Try File.ReadBytes(root / "six.bin")}")
+
+// Closed, the MappedFile has nothing, but the Buffer and its views still have the bytes, and
+// write the file.
+map.Close()
+Print("{map.IsOpen()} {map.Count()} {bytes[0]} {middle[1]}")
+middle[1] = 40
+bytes = Buffer<UInt8>(0)
+Print("{middle.ToArray()}")
+middle = Buffer<UInt8>(0)
+Print("{Try File.ReadBytes(root / "six.bin")}")
+
+// A Buffer keeps the MappedFile it's from, which has no other reference.
+Function BytesOf(path: Path): Buffer<UInt8> Throws IOError
+    Return Try (Try MappedFile(path, True)).Bytes()
+End Function
+
+Local kept = Try BytesOf(root / "six.bin")
+kept[5] = 60
+Print("{kept.ToArray()}")
+kept = Buffer<UInt8>(0)
+Print("{Try File.ReadBytes(root / "six.bin")}")
+
+// A read-only one's Buffer copies a page as it's written, so the file and the MappedFile keep
+// what they had, and its later Buffers see what the first wrote.
+Local reading = Try MappedFile(root / "six.bin")
+Local copy = Try reading.Bytes()
+copy[0] = 99
+Local again = Try reading.Bytes()
+Print("{copy[0]} {again[0]} {reading[0]} {reading.ReadBytes(0, 2)}")
+reading.Close()
+Print("{copy.ToArray()}")
+copy = Buffer<UInt8>(0)
+again = Buffer<UInt8>(0)
+Print("{Try File.ReadBytes(root / "six.bin")}")
+
+// An empty file's Buffer has nothing, read-only or writable.
+Try File.WriteBytes(root / "empty.bin", [])
+Local empty = Try MappedFile(root / "empty.bin")
+Local writableEmpty = Try MappedFile(root / "empty.bin", True)
+Print("{(Try empty.Bytes()).Count} {(Try writableEmpty.Bytes()).Count}")
+empty.Close()
+writableEmpty.Close()
+
+// A file the MappedFile no longer holds can be replaced, once its Buffers are gone too.
+Try File.WriteBytes(root / "six.bin", [7])
+Print("{Try File.ReadBytes(root / "six.bin")}")
+
+Try temp.Close()
+Print("{Dir.Exists(root)}")
