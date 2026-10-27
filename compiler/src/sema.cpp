@@ -10578,9 +10578,9 @@ private:
 
     /// What a use of a symbol means for the main-thread rules: a mutable Global or Static Field,
     /// a top-level Const that isn't Sendable, or a @MainThread function is the main thread's,
-    /// and a function's, Method's, or Property's code runs from here. A Static ReadOnly Field of a
-    /// Sendable type keeps the value it starts with, before any work starts, so any thread reads
-    /// it, as it does a Sendable Const.
+    /// and a function's, Method's, or Property's code runs from here. A Static ReadOnly Field
+    /// never changes once its initializer runs, in source order with the Globals, so one of a
+    /// Sendable type is read from any thread, as a Sendable Const is.
     void note_thread_use(const symbol_id_t id, const span_t span) {
         const std::optional<symbol_id_t> code = current_code();
         if (!code) {
@@ -10611,9 +10611,18 @@ private:
         switch (used.kind) {
         case symbol_kind_t::GLOBAL: {
             // Each thread has its own ThreadLocal Global.
-            const bool fixed = used.owner != type_id_t::INVALID && used.modifiers.is_read_only &&
-                               !unsendable(used.type);
-            if (!in_place(used.type) && !used.modifiers.is_thread_local && !fixed) {
+            const bool read_only = used.owner != type_id_t::INVALID && used.modifiers.is_read_only;
+            if (in_place(used.type) || used.modifiers.is_thread_local ||
+                (read_only && !unsendable(used.type))) {
+                break;
+            }
+
+            // A Static ReadOnly Field's error says its type is why, as a Const's does.
+            if (read_only) {
+                main_only(std::format("uses the Static Field '{}.{}', which holds ",
+                                      name_of(used.owner), used.name),
+                          used.type, ", which isn't Sendable");
+            } else {
                 names(used.owner != type_id_t::INVALID ? "uses the Static Field"
                                                        : "uses the Global",
                       "which only the main thread can, unless it's an Atomic or a Mutex");

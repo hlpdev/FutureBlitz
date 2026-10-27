@@ -10266,8 +10266,12 @@ TEST_CASE("work on another thread reaches nothing only the main thread may", "[s
                     "Struct Boss\n    Static ReadOnly Field Main: Enemy = Enemy()\nEnd Struct\n"
                     "Local t = Spawn(Function() => Boss.Main.HP)") ==
           errors_t{ "Spawn: this work runs on another thread, but it uses the Static Field "
-                    "'Boss.Main', which only the main thread can, unless it's an Atomic or a "
-                    "Mutex" });
+                    "'Boss.Main', which holds Enemy, which isn't Sendable" });
+    CHECK(errors_of("Struct Status\n    Static ReadOnly Field Codes: Int[] = [200, 201]\n"
+                    "End Struct\n"
+                    "Local t = Spawn(Function() => Status.Codes[0])") ==
+          errors_t{ "Spawn: this work runs on another thread, but it uses the Static Field "
+                    "'Status.Codes', which holds Int32[], which isn't Sendable" });
 
     // @MainThread
     const std::string_view render = "@MainThread Function Render()\nEnd Function\n";
