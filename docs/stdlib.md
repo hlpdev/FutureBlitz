@@ -164,6 +164,7 @@ So far, std/ holds:
 | std/net/http/client.fb | `HttpMethod`, `Body`, `HttpResponse`, `HttpClient`, and `Http`'s one-call requests, over libcurl through the runtime's `fb_http_` functions |
 | std/net/http/wire.fb | HTTP/1.1's messages as RFC 9112 has them: `Wire`, which reads heads and bodies, `Head`, `WireError`, `HeadBytes`, `Linger`, and `Duplex`, a connection a TLS stream can be too (all Package) |
 | std/net/http/server.fb | `HttpServer`, `HttpRouter`, `HttpRequest`, `HttpHandler`, `HttpMiddleware`, and `HttpResponse.Of` and `Redirect` |
+| std/net/http/files.fb | `HttpRouter.Files`, a folder's static files |
 | std/net/ws/handshake.fb | A WebSocket's opening handshake, the client's request and the server's answer (Package) |
 | std/net/ws/websocket.fb | `WebSocket`, `WebSocketMessage`, and `WebSocketState`, RFC 6455's frames over a Duplex |
 | std/net/socket.fb | What the sockets share: the runtime's `fb_io_net_` functions, an address's bytes, the errors their codes mean, and the streams' and listeners' sockets |
@@ -1443,8 +1444,15 @@ discovery. `Import std.net` brings in std/net/.
   target's scheme can be in any case, an Expect other than
   100-continue a 417, and one with it gets a 100 Continue before its body is read; responses
   get Content-Length, Date, and Connection. `WebSocket.AcceptAsync(request)` takes a handler's
-  connection over (std.net.ws). Still to come: static files (with step 14's files), `Workers =
-  n` (once handlers can run on other threads' loops), Classes whose Methods carry `@Get` and
+  connection over (std.net.ws). `Files(prefix, folder)` serves a folder's files for GET and
+  HEAD, a folder's index.html at its path with a '/' (and a redirect to it without), with a
+  Content-Type by extension, an ETag and Last-Modified, a 304 for an If-None-Match or
+  If-Modified-Since its copy meets, and a 206 for one range of bytes, or a 416 past the end (an
+  If-Range that isn't current, or more ranges than one, gets the whole file); a segment that
+  starts with a '.', has a '', a ':', or a control character, ends with a '.' or a space, or is
+  one of Windows' device names, is a 404 on every OS, so nothing outside the folder is reached.
+  A file is read whole, 2 GiB at most. Still to come: `Workers = n` (once handlers can run on
+  other threads' loops), Classes whose Methods carry `@Get` and
   the rest, registered with `server.Routes<T>(instance)` and binding path parameters and JSON
   bodies to typed parameters (which needs reflection over a Method's parameters), and HTTPS
   with ACME (lane 11's, through wire.fb's Duplex).
