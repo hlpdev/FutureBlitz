@@ -19,6 +19,7 @@ a polygon's edges: same
 a rectangle's edges: same
 a circle's edge: same
 an ellipse's edge: same
+a thick ring: same
 a dot: same
 translucent colors: same
 outside and empty: [255, 239, 0, 0, 255, 239, 0, 0, 255, 145, 0, 0]

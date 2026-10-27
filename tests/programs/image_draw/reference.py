@@ -40,8 +40,8 @@ def quarter_sides(radius):
     return sides
 
 
-def ellipse(cx, cy, rx, ry):
-    sides = quarter_sides(max(rx, ry))
+def ellipse(cx, cy, rx, ry, reach=0):
+    sides = quarter_sides(max(rx, ry) + reach)
     sines = [sine(HALF_PI * k / sides) for k in range(sides + 1)]
     ring = []
     for quarter in range(4):

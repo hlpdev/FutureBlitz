@@ -101,10 +101,11 @@ int quarter_sides(const double radius) {
     return sides;
 }
 
-/// The ellipse's polygon, from its rightmost point, by quarters that are each the last turned.
-ring_t ellipse(const point_t center, const double rx, const double ry) {
+/// The ellipse's polygon, from its rightmost point, by quarters that are each the last turned, of
+/// the sides for its larger radius and `reach` more, as far as a stroke of it goes.
+ring_t ellipse(const point_t center, const double rx, const double ry, const double reach = 0) {
     constexpr double half_pi = std::numbers::pi / 2;
-    const int sides = quarter_sides(std::max(rx, ry));
+    const int sides = quarter_sides(std::max(rx, ry) + reach);
     std::vector<double> sines(static_cast<std::size_t>(sides) + 1);
     for (int k = 0; k <= sides; ++k) {
         sines[static_cast<std::size_t>(k)] = sine(half_pi * k / sides);
@@ -1219,12 +1220,12 @@ void fb_image_stroke_ellipse(const fb_array_t* pixels, const std::int64_t width,
         return;
     }
 
-    // Its polygon turns a little at each corner, where a miter is the curve's offset within the
-    // tolerance.
+    // Its polygon, of the sides for its stroke's outer radius, turns a little at each corner,
+    // where a miter is the curve's offset within the tolerance.
     stroker_t stroker(line_width / 2, CAP_BUTT, JOIN_MITER, 4);
     std::vector<ring_t> pieces;
-    add_stroke(stroker, ellipse({ .x = x, .y = y }, rx, ry), true, line_width / 2, 4, width, height,
-               pieces);
+    add_stroke(stroker, ellipse({ .x = x, .y = y }, rx, ry, line_width / 2), true, line_width / 2,
+               4, width, height, pieces);
     fill(pixels, width, height, pieces, rgba, antialias != 0);
 }
 

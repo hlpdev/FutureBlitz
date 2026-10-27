@@ -1202,7 +1202,7 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   more than 2^20 pixels past the image is cut where it crosses that far, worked out to twice a
   Double's bits, so what it draws keeps its pixels however far its points are. An ellipse is a
   polygon within a hundredth of a pixel of it, and an ellipse's stroke its polygon's, with
-  miters. The drawing is the runtime's own, in Doubles, without fused multiply-adds, with sines
+  miters, of the sides for its stroke's outer radius. The drawing is the runtime's own, in Doubles, without fused multiply-adds, with sines
   of its own, so every target gives the same pixels; image_draw/make_data.py works out the same
   drawings in Python's Fractions, and image_draw.fb gets their bytes exactly. A coordinate that isn't
   finite, a rectangle whose far corner isn't, a negative size or radius, a negative line width,

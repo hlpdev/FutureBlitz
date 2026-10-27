@@ -132,6 +132,13 @@ canvas.LineWidth = 2
 canvas.StrokeEllipse(Vec2(12, 8), Vec2(10, 5), Color32.Black)
 Check("an ellipse's edge", canvas, StrokeEllipse())
 
+// A circle's stroke wider than its radius is the polygon of its stroke's outer radius, so it's
+// within the tolerance of the disk it covers.
+canvas = Fresh()
+canvas.LineWidth = 12
+canvas.StrokeCircle(Vec2(12, 8), 0.5, Color32.Black)
+Check("a thick ring", canvas, ThickRing())
+
 // A line of one point is its round cap's dot.
 canvas = Fresh()
 canvas.LineWidth = 5
