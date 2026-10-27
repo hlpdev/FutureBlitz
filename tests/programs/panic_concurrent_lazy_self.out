@@ -1,2 +1,2 @@
 1
-panic: this thread holds the Mutex already, so Lock would wait for itself forever at panic_concurrent_lazy_self.fb:13:12
+panic: the Lazy's maker reads its own Value, which would wait for itself forever at panic_concurrent_lazy_self.fb:13:12

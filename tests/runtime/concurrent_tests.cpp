@@ -279,3 +279,13 @@ TEST_CASE("the pool's generation wait goes on at a change, a Cancel, or its time
     CHECK(fb_pool_wait(fb_pool_generation(), cancel, 3600000000000) == 2);
     fb_cancel_free(cancel);
 }
+
+TEST_CASE("a thread's number is its own while it runs, and never 0", "[runtime][concurrent]") {
+    const std::uint32_t mine = fb_thread_number();
+    CHECK(mine != 0);
+    CHECK(fb_thread_number() == mine);
+    std::uint32_t other = 0;
+    std::thread([&other] { other = fb_thread_number(); }).join();
+    CHECK(other != 0);
+    CHECK(other != mine);
+}

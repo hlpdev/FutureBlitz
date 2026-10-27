@@ -5,11 +5,17 @@
 
 Import std.core
 
+Extern "runtime"
+    Function fb_thread_number(): UInt32
+End Extern
+
 Public Shared Class Lazy<T: Sendable>
     ReadOnly Field Maker: Sendable Func(): T
     // The value, once it's made, behind the lock its maker runs in.
     Field Made: Mutex<T?>
     Field Done: Atomic<Bool>
+    // The number of the thread whose maker is making the value, or 0.
+    Field Making: Atomic<UInt32>
 
     // A Lazy whose value maker makes, the first time Value is read.
     Public New(maker: Sendable Func(): T)
@@ -22,10 +28,18 @@ Public Shared Class Lazy<T: Sendable>
     @PanicsAtCaller
     Public Property Value: T
         Get
+            // Only the thread making the value writes its own number here, so seeing it means
+            // this thread's maker reads its own Lazy.
+            If Making.Load() == fb_thread_number()
+                Panic("the Lazy's maker reads its own Value, which would wait for itself forever")
+            End If
+
             Lock Made As made
                 Local value = made
                 If value == Null
+                    Making.Store(fb_thread_number())
                     value = Maker()
+                    Making.Store(0)
                     made = value
                     Done.Store(True)
                 End If

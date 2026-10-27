@@ -107,4 +107,7 @@ void fb_pool_signal();
 /// is set first, for `nanoseconds` at most, which fb_time_sleep's limits bound: 1 once it changed,
 /// 2 once `cancel` is set, and 0 when the time's up.
 std::int32_t fb_pool_wait(std::uint64_t seen, std::uint64_t cancel, std::int64_t nanoseconds);
+
+/// The calling thread's number, which no other thread has while it runs, and never 0.
+std::uint32_t fb_thread_number();
 }

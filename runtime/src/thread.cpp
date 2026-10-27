@@ -949,6 +949,10 @@ std::int32_t fb_pool_wait(const std::uint64_t seen, const std::uint64_t cancel,
     return changed ? 1 : 0;
 }
 
+std::uint32_t fb_thread_number() {
+    return thread_number();
+}
+
 void fb_thread_local_making() {
     pool().begin_making();
 }
