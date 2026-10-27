@@ -6,6 +6,7 @@
 #include "fb/files.hpp"
 
 #include "fb/runtime.hpp"
+#include "files_internal.hpp"
 #include "internal.hpp"
 #include "io_internal.hpp"
 
@@ -374,7 +375,7 @@ std::pair<std::string, std::string> split_path(const std::string& path) {
 }
 
 /// A name for a temporary file beside `path`'s: ".fb-" and 12 letters and digits mixed from the
-/// process, a count, and the clock, which write_atomic opens only if no file has it. It's short,
+/// process, a count, and the clock, which atomic_file_t opens only if no file has it. It's short,
 /// so a file whose own name is long can still be written atomically.
 std::string temporary_beside(const std::string& path) {
     static std::atomic<std::uint64_t> made = 0;
@@ -433,52 +434,15 @@ std::string linked_file(std::string path) {
 }
 
 /// Writes `bytes` to a new temporary file beside `path`'s, onto the disk, and renames it over
-/// that file, which is the one a link at `path` leads to, so the link stays. On POSIX it takes
-/// the permissions of the file it replaces.
-std::int64_t write_atomic(const std::string& given, const std::string_view bytes) {
-    const std::string path = linked_file(given);
-    // A rename over a folder fails differently on each OS.
-    if (uv_stat_t found{}; stat_path(path, true, found) == 0 && is_directory(found)) {
-        return UV_EISDIR;
-    }
-
-    std::string temporary;
-    std::int64_t opened = UV_EEXIST;
-    for (int tries = 0; opened == UV_EEXIST && tries < 100; ++tries) {
-        temporary = temporary_beside(path);
-        opened = open_file(temporary, UV_FS_O_WRONLY | UV_FS_O_CREAT | UV_FS_O_EXCL, 0666);
-    }
-
-    if (opened < 0) {
-        return opened;
-    }
-
-    const auto file = static_cast<uv_file>(opened);
-    std::int64_t result = write_all(file, bytes);
-#ifndef _WIN32
-    if (uv_stat_t replaced{}; result == 0 && stat_path(path, true, replaced) == 0) {
-        fs_t call;
-        uv_fs_fchmod(nullptr, call.get(), file, static_cast<int>(replaced.st_mode & 07777U),
-                     nullptr);
-    }
-#endif
+/// that file, as atomic_file_t does.
+std::int64_t write_atomic(const std::string& path, const std::string_view bytes) {
+    fb::runtime::atomic_file_t file;
+    std::int64_t result = file.open(path);
     if (result == 0) {
-        fs_t call;
-        result = uv_fs_fsync(nullptr, call.get(), file, nullptr);
+        result = file.write(bytes);
     }
 
-    close_file(file);
-    if (result == 0) {
-        fs_t call;
-        result = uv_fs_rename(nullptr, call.get(), temporary.c_str(), path.c_str(), nullptr);
-    }
-
-    if (result < 0) {
-        fs_t call;
-        uv_fs_unlink(nullptr, call.get(), temporary.c_str(), nullptr);
-    }
-
-    return result;
+    return result == 0 ? file.commit() : result;
 }
 
 /// Writes the request's input to its path, as its number says: replacing, adding to the end, or
@@ -1108,6 +1072,93 @@ std::string joined(const fb_array_t* lines, const bool crlf) {
 }
 
 } // namespace
+
+namespace fb::runtime {
+
+atomic_file_t::~atomic_file_t() {
+    discard();
+}
+
+std::int64_t atomic_file_t::open(const std::string& path) {
+    discard();
+    if (has_nul(path)) {
+        return UV_EINVAL;
+    }
+
+    m_path = linked_file(path);
+    // A rename over a folder fails differently on each OS.
+    if (uv_stat_t found{}; stat_path(m_path, true, found) == 0 && is_directory(found)) {
+        return UV_EISDIR;
+    }
+
+    std::int64_t opened = UV_EEXIST;
+    for (int tries = 0; opened == UV_EEXIST && tries < 100; ++tries) {
+        m_temporary = temporary_beside(m_path);
+        opened = open_file(m_temporary, UV_FS_O_WRONLY | UV_FS_O_CREAT | UV_FS_O_EXCL, 0666);
+    }
+
+    if (opened < 0) {
+        m_temporary.clear();
+        return opened;
+    }
+
+    m_file = static_cast<uv_file>(opened);
+    return 0;
+}
+
+std::int64_t atomic_file_t::write(const std::string_view bytes) const {
+    if (m_file < 0) {
+        return UV_EBADF;
+    }
+
+    return write_all(m_file, bytes);
+}
+
+std::int64_t atomic_file_t::commit() {
+    if (m_file < 0) {
+        return UV_EBADF;
+    }
+
+    std::int64_t result = 0;
+#ifndef _WIN32
+    if (uv_stat_t replaced{}; stat_path(m_path, true, replaced) == 0) {
+        fs_t call;
+        uv_fs_fchmod(nullptr, call.get(), m_file, static_cast<int>(replaced.st_mode & 07777U),
+                     nullptr);
+    }
+#endif
+    {
+        fs_t call;
+        result = uv_fs_fsync(nullptr, call.get(), m_file, nullptr);
+    }
+
+    close_file(std::exchange(m_file, -1));
+    if (result == 0) {
+        fs_t call;
+        result = uv_fs_rename(nullptr, call.get(), m_temporary.c_str(), m_path.c_str(), nullptr);
+    }
+
+    if (result == 0) {
+        m_temporary.clear();
+    }
+
+    discard();
+    return result;
+}
+
+void atomic_file_t::discard() {
+    if (m_file >= 0) {
+        close_file(std::exchange(m_file, -1));
+    }
+
+    if (!m_temporary.empty()) {
+        fs_t call;
+        uv_fs_unlink(nullptr, call.get(), m_temporary.c_str(), nullptr);
+        m_temporary.clear();
+    }
+}
+
+} // namespace fb::runtime
 
 extern "C" {
 
