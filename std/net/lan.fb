@@ -1,7 +1,9 @@
 // std.net's LAN discovery: LanAnnouncer, which offers a service to the LAN, and Lan.Find, which
 // finds those of a type there, over mDNS and DNS-SD (RFCs 6762 and 6763), as Bonjour and Avahi
 // have them, so the dns-sd and avahi-browse tools find what a program offers, and it finds what
-// they offer. It goes over IPv4, through each of the machine's interfaces but loopback's.
+// they offer. It goes over IPv4, through each of the machine's interfaces but loopback's, or
+// through loopback's when nothing reaches the LAN, so programs on the machine still find each
+// other.
 
 Import std.core
 Import std.collections.array
@@ -950,8 +952,9 @@ Function AddressesFor(querier: IpAddress): IpAddress[]
     Return V4Addresses()
 End Function
 
-// Joins mDNS's group on each interface, or the one the OS picks, when that can't, and says what
-// it sends goes to TTL 255, as mDNS has it.
+// Joins mDNS's group on each interface, or the one the OS picks, when that can't, and on
+// loopback's, which SendEverywhere sends through when nothing reaches the LAN, and says what it
+// sends goes to TTL 255, as mDNS has it.
 Function JoinEverywhere(socket: UdpSocket) Throws NetError
     Local joined = False
     For address In V4Addresses()
@@ -963,13 +966,21 @@ Function JoinEverywhere(socket: UdpSocket) Throws NetError
     End For
 
     If !joined Then Try socket.JoinMulticast(Group())
+    Try
+        Try socket.JoinMulticast(Group(), IpAddress.Loopback)
+    Catch e As NetError
+    End Try
+
     Try socket.SetMulticastTtl(255)
     Try socket.SetMulticastLoopback(True)
 End Function
 
 // Multicasts to mDNS's group at `port` through each interface what `message` gives with that
 // interface's address, as what goes through one gives only its own, or, when none can, through
-// the one the OS picks what it gives with all of them. What it gives empty isn't sent.
+// the one the OS picks what it gives with all of them, or through loopback's when nothing
+// reaches the LAN, so programs on the machine still find each other: macOS's Local Network
+// privacy has every send to the LAN unreachable for a program it doesn't allow, and a machine
+// can have no network. What it gives empty isn't sent.
 Function SendEverywhere(socket: UdpSocket, port: UInt16,
                         message: Func(IpAddress[]): UInt8[]) Throws NetError
     Local target = SocketAddress(Group(), port)
@@ -991,7 +1002,13 @@ Function SendEverywhere(socket: UdpSocket, port: UInt16,
 
     If sent Then Return
     Local bytes = message(V4Addresses())
-    If bytes.Count > 0 Then Try socket.Send(bytes, target)
+    If bytes.Count == 0 Then Return
+    Try
+        Try socket.Send(bytes, target)
+    Catch e As NetError
+        Try socket.SetMulticastInterface(IpAddress.Loopback)
+        Try socket.Send(bytes, target)
+    End Try
 End Function
 
 // Answers the queries that come to the socket, until it closes.

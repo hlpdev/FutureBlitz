@@ -1279,8 +1279,11 @@ discovery. `Import std.net` brings in std/net/.
   bytes at most, 8192 in all, so a response fits in one of mDNS's packets, and each key once
   whatever its letters' case, or a panic; a Find keeps a key's first, as it's written. A
   LanAnnouncer doesn't probe for a name another has, and a blocking Find doesn't find what its
-  own thread announces, which only answers while that thread runs Async code. UDP broadcast is
-  UdpSocket's.
+  own thread announces, which only answers while that thread runs Async code. When nothing
+  reaches the LAN, as macOS's Local Network privacy has it for a program it doesn't allow (every
+  send to the LAN is UNREACHABLE then, broadcasts too), or on a machine without a network,
+  discovery goes through loopback's interface, so programs on the machine still find each
+  other. UDP broadcast is UdpSocket's.
 - `TlsStream` over any stream (mbedTLS, the OS's roots by default), and a TLS listener.
 - std.net.http's client (step 29), over libcurl, whose TLS is mbedTLS's, trusting the OS's roots:
   Windows' ROOT store, each that's valid now and for servers, macOS's system anchors, or the

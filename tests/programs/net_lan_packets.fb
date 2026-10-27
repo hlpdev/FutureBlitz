@@ -153,7 +153,8 @@ Function FreePort(): UInt16 Throws NetError
 End Function
 
 // A socket on the discovery port `port`, in mDNS's group on each interface, as another machine's
-// mDNS is.
+// mDNS is, and on loopback's, which what's sent goes through when nothing reaches the LAN, as on
+// a macOS that doesn't let the program reach it.
 Function Listener(port: UInt16): UdpSocket Throws NetError
     Local socket = Try UdpSocket.Bind(SocketAddress(IpAddress.Any, port), True)
     Local joined = False
@@ -166,6 +167,11 @@ Function Listener(port: UInt16): UdpSocket Throws NetError
     End For
 
     If !joined Then Try socket.JoinMulticast(Group())
+    Try
+        Try socket.JoinMulticast(Group(), IpAddress.Loopback)
+    Catch e As NetError
+    End Try
+
     Return socket
 End Function
 
