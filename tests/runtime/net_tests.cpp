@@ -42,11 +42,11 @@ public:
     }
 };
 
-/// NetErrorKind's ordinals, as fb_io_net_error_kind gives them.
+/// NetErrorKind's ordinals, as fb_io_net_error_kind gives them, HTTP_STATUS's before OTHER.
 #ifdef __APPLE__
 constexpr std::int32_t unreachable_kind = 2;
 #endif
-constexpr std::int32_t other_kind = 6;
+constexpr std::int32_t other_kind = 7;
 
 /// An IPv4 address and port as SocketBytes gives them, in a UInt8[] the test owns, or room for
 /// fb_io_net_address's. Its array points at its own bytes, so it isn't copied.
