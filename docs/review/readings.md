@@ -4,7 +4,7 @@
 
 ## program-1 (medium): Chart panics when every reading is the same multiple of 5, or the store is empty
 
-Status: fixed in 6768b448 (readings: "flat", 916 colored pixels, and "empty", 0, none outside the plot): Chart's band of degrees is 5 at least, high = Max(Ceil(max / 5) * 5, low + 5), so a flat line, or a store with none, draws inside it.
+Status: fixed in dc38bec4 (readings: "flat", 916 colored pixels, and "empty", 0, none outside the plot): Chart's band of degrees is 5 at least, high = Max(Ceil(max / 5) * 5, low + 5), so a flat line, or a store with none, draws inside it.
 
 Where: tests/programs/readings/chart.fb:28
 
@@ -48,7 +48,7 @@ Skeptic: Ran the finding's program (rv-readings/v/p1.fb) with a copy of tests/pr
 
 ## program-2 (low): Chart scales x by how many readings there are, not by the hours, so sparse or offset hours are drawn off the plot
 
-Status: fixed in 6768b448 (readings: "every 12 hours" and "from hour 30", none outside the plot): Chart maps an hour from the store's first to its last, which Store.Hours gives from SQL, and puts the grid's lines at the hours that are a multiple of 6 between them. The main chart's pixels, and their hash, didn't change.
+Status: fixed in dc38bec4 (readings: "every 12 hours" and "from hour 30", none outside the plot): Chart maps an hour from the store's first to its last, which Store.Hours gives from SQL, and puts the grid's lines at the hours that are a multiple of 6 between them. The main chart's pixels, and their hash, didn't change.
 
 Where: tests/programs/readings/chart.fb:35
 
@@ -98,7 +98,7 @@ Skeptic: Ran p2.fb in debug and release. Both printed 'hourly: 0' and 'every 12 
 
 ## program-3 (low): The "stored:" line calls the reading count cities: "108 cities"
 
-Status: fixed in 6768b448 (readings: "stored: 108 readings of [Cairo, Lisbon, Oslo]"): the line calls the count readings.
+Status: fixed in dc38bec4 (readings: "stored: 108 readings of [Cairo, Lisbon, Oslo]"): the line calls the count readings.
 
 Where: tests/programs/readings.fb:85
 
@@ -133,7 +133,7 @@ Skeptic: p3.fb printed 'stored: 108 cities [Cairo, Lisbon, Oslo]' and 'cities re
 
 ## program-4 (low): The "a reading again takes the place of the one before it" check can't tell REPLACE from IGNORE
 
-Status: fixed in 6768b448 (readings: "again, warmer: True then back: True"): the program adds the first reading again 10 degrees warmer, sees the series has it, then adds the first readings back, so the summaries stay; an INSERT OR IGNORE would print False.
+Status: fixed in dc38bec4 (readings: "again, warmer: True then back: True"): the program adds the first reading again 10 degrees warmer, sees the series has it, then adds the first readings back, so the summaries stay; an INSERT OR IGNORE would print False.
 
 Where: tests/programs/readings.fb:84
 
@@ -181,7 +181,7 @@ Skeptic: p4.fb printed 'REPLACE: 108 14.303703703703704' and 'IGNORE:  108 14.30
 
 ## program-5 (low): `Image.FormatOf(png) ?? ImageFormat.PNG` prints PNG even when FormatOf doesn't recognize the bytes
 
-Status: fixed in 6768b448 (readings: "a png True"): the line prints Image.FormatOf(png) == ImageFormat.PNG, which is False for bytes FormatOf doesn't know.
+Status: fixed in dc38bec4 (readings: "a png True"): the line prints Image.FormatOf(png) == ImageFormat.PNG, which is False for bytes FormatOf doesn't know.
 
 Where: tests/programs/readings.fb:95
 
@@ -209,7 +209,7 @@ Skeptic: p5.fb printed 'png PNG' and 'FormatOf itself: True'. So `Image.FormatOf
 
 ## program-6 (low): The /live handler drops the connection while its WebSocket is still CLOSING, without waiting for the client's Close
 
-Status: fixed in 6768b448 (readings: "served: 1 websocket"): Live reads after its CloseAsync until the client's Close comes back and ReceiveAsync gives Null, and counts the WebSocket served only once it's CLOSED; the program waits for that count before it stops the site.
+Status: fixed in dc38bec4 (readings: "served: 1 websocket"): Live reads after its CloseAsync until the client's Close comes back and ReceiveAsync gives Null, and counts the WebSocket served only once it's CLOSED; the program waits for that count before it stops the site.
 
 Where: tests/programs/readings/site.fb:82
 
@@ -268,7 +268,7 @@ Skeptic: p6.fb printed 'server, as the handler returns: CLOSING' and 'client: su
 
 ## program-7 (low): readings.fb writes its own HexOf, Same, and SameSummaries, but Hex.Encode and == already do the same
 
-Status: fixed in 6768b448 (readings): HexOf, Same, and SameSummaries are gone, for Hex.Encode, taken == readings, and read == summaries, the WebSocket's summary too.
+Status: fixed in dc38bec4 (readings): HexOf, Same, and SameSummaries are gone, for Hex.Encode, taken == readings, and read == summaries, the WebSocket's summary too.
 
 Where: tests/programs/readings.fb:21
 

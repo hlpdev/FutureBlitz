@@ -4,7 +4,7 @@
 
 ## lower-1 (high): Overloaded Methods: sema checks only the first of a name, lowering copies all, and the compiler asserts
 
-Status: fixed in 1239a4ff (sema and lowering now share one Method list, fb::loop_methods() in sema.hpp, which lowering's reflected_methods() and sema's loop_methods() call: it drops a Method only where one found overrides it, so each overload is checked), with sema_tests' "a typed For Method checks each Method it copies, overloads and Extends' too": Put(Plain) before and after Put(Args), over a concrete type at the loop and through Routes<T> at the call
+Status: fixed in bcf36d1f (sema and lowering now share one Method list, fb::loop_methods() in sema.hpp, which lowering's reflected_methods() and sema's loop_methods() call: it drops a Method only where one found overrides it, so each overload is checked), with sema_tests' "a typed For Method checks each Method it copies, overloads and Extends' too": Put(Plain) before and after Put(Args), over a concrete type at the loop and through Routes<T> at the call
 
 Where: compiler/src/sema.cpp:16164
 
@@ -44,7 +44,7 @@ Skeptic: Ran the finding's program (rv-formethod/v3/l1.fb) in debug: 'Assertion 
 
 ## sema-1 (high): A type parameter's Method constraint is taken as met by any of its own For Method loops, whatever their Func pattern, so the compiler asserts in lowering
 
-Status: fixed in 1239a4ff (field_misfit()'s check of a type parameter counts another Method bound as met only through same_method_bound(): a loop of the same Func type, with its own type parameters lined up, constraining the same one with the same Interface), with the same sema case's Outer<U>: its Func(A) loop says nothing for Inner's Func(B, Int) loop, nor its Func(A, B) loop's Where A for Second's Where B, so both calls are errors, while Routes(api), whose loop is Outer's own, isn't
+Status: fixed in bcf36d1f (field_misfit()'s check of a type parameter counts another Method bound as met only through same_method_bound(): a loop of the same Func type, with its own type parameters lined up, constraining the same one with the same Interface), with the same sema case's Outer<U>: its Func(A) loop says nothing for Inner's Func(B, Int) loop, nor its Func(A, B) loop's Where A for Second's Where B, so both calls are errors, while Routes(api), whose loop is Outer's own, isn't
 
 Where: compiler/src/sema.cpp:10260
 
@@ -98,7 +98,7 @@ Skeptic: Ran the finding's program as rv-formethod/v-sema/s1.fb with fb run (deb
 
 ## sema-2 (high): Sema's loop_methods() keeps only the first of a set of overloaded Methods, while lowering copies them all, so an overload that breaks the Where lines goes unchecked and the compiler asserts
 
-Status: fixed in 1239a4ff (as lower-1, the shared list), with the same sema case's two overload orders
+Status: fixed in bcf36d1f (as lower-1, the shared list), with the same sema case's two overload orders
 
 Where: compiler/src/sema.cpp:16164
 
@@ -143,7 +143,7 @@ Skeptic: s2.fb (over a type parameter) and s2b.fb (the loop written directly ove
 
 ## sema-3 (high): Sema's loop_methods() leaves out what an Extend of one instance, like Extend Box<Int>, adds, which lowering copies, so its Methods go unchecked and the compiler asserts
 
-Status: fixed in 1239a4ff (sema and lowering now share one Method list, fb::loop_methods() in sema.hpp, which lowering's reflected_methods() and sema's loop_methods() call, which adds analysis_t::instance_members as lowering's member_chain() did), with the same sema case's Routes(Box<Int>()), whose Extend Box<Int> adds Two(Plain), and Routes(Box<String>()), which has no Two and is fine
+Status: fixed in bcf36d1f (sema and lowering now share one Method list, fb::loop_methods() in sema.hpp, which lowering's reflected_methods() and sema's loop_methods() call, which adds analysis_t::instance_members as lowering's member_chain() did), with the same sema case's Routes(Box<Int>()), whose Extend Box<Int> adds Two(Plain), and Routes(Box<String>()), which has no Two and is fine
 
 Where: compiler/src/sema.cpp:16154
 
@@ -191,7 +191,7 @@ Skeptic: s3a.fb, which has no Where on A, prints 'One Args' and 'Two Plain', so 
 
 ## lower-2 (medium): In a Function, a nested typed For Method treats an outer loop's type parameter as a new one of its own
 
-Status: fixed in 1239a4ff (collect_field_bounds() enters each loop's own type parameters, a For Method's or a For Field's, before going into its body, as checking does, through collect_loop_bounds(); and check_stmt() now runs method_signature() itself, reusing the pre-pass's type parameters by name, so a loop in a function reports its own mistakes too), with tests/programs/reflection_bound_methods.fb's nested loops at the top and in Function Nested, which print the same two pairs
+Status: fixed in bcf36d1f (collect_field_bounds() enters each loop's own type parameters, a For Method's or a For Field's, before going into its body, as checking does, through collect_loop_bounds(); and check_stmt() now runs method_signature() itself, reusing the pre-pass's type parameters by name, so a loop in a function reports its own mistakes too), with tests/programs/reflection_bound_methods.fb's nested loops at the top and in Function Nested, which print the same two pairs
 
 Where: compiler/src/sema.cpp:10452
 
@@ -247,7 +247,7 @@ Skeptic: Ran the finding's program (v3/l2.fb). In debug and --release the top-le
 
 ## lower-3 (medium): A loop's own type parameter's Where lines aren't in force when its Func type is resolved, so Weak<A>, maps, and the like can't be written
 
-Status: fixed in 1239a4ff (method_signature() puts the loop's other Where lines, resolved quietly, in m_bounds while it resolves the Func type), with the sema case's and the program's Func(Weak<A>): String under Where A: Class, which prints "Watch Node"
+Status: fixed in bcf36d1f (method_signature() puts the loop's other Where lines, resolved quietly, in m_bounds while it resolves the Func type), with the sema case's and the program's Func(Weak<A>): String under Where A: Class, which prints "Watch Node"
 
 Where: compiler/src/sema.cpp:16059
 
@@ -282,7 +282,7 @@ Skeptic: Ran v3/l3.fb (Where M: Func(Weak<A>): String plus Where A: Class): 'l3.
 
 ## sema-4 (medium): Sema checks Extend Methods that the loop's file can't see, so it reports an error about a Method the loop doesn't go over
 
-Status: fixed in 1239a4ff (sema and lowering now share one Method list, fb::loop_methods() in sema.hpp, which lowering's reflected_methods() and sema's loop_methods() call, which leaves out what an Extend the loop's file doesn't see adds, by the loop's file, which method_pattern_t keeps, over a type parameter too), with tests/programs/reflection_bound_modules.fb and its folder, the finding's layout, which prints "plain 9" and "One args 1"
+Status: fixed in bcf36d1f (sema and lowering now share one Method list, fb::loop_methods() in sema.hpp, which lowering's reflected_methods() and sema's loop_methods() call, which leaves out what an Extend the loop's file doesn't see adds, by the loop's file, which method_pattern_t keeps, over a type parameter too), with tests/programs/reflection_bound_modules.fb and its folder, the finding's layout, which prints "plain 9" and "One args 1"
 
 Where: compiler/src/sema.cpp:16154
 
@@ -344,7 +344,7 @@ Skeptic: I built the module layout (mod/api.fb, mod/ext.fb, mod/user.fb, main.fb
 
 ## sema-5 (low): Using the loop's own M in its Func type, as in `Where M: Func(M): String`, silently makes M a fresh parameter that hides the Func type
 
-Status: fixed in 1239a4ff (add_new_names() reports the loop's own M: "M is the Methods' Func type, so it can't be one of the types in it", and the loop goes on as an untyped one, without a second error), in the sema case
+Status: fixed in bcf36d1f (add_new_names() reports the loop's own M: "M is the Methods' Func type, so it can't be one of the types in it", and the loop goes on as an untyped one, without a second error), in the sema case
 
 Where: compiler/src/sema.cpp:16057
 
@@ -374,7 +374,7 @@ Skeptic: s5.fb prints 'One Int32' and reports no error. method_signature() calls
 
 ## sema-6 (low): A second Where line on M in a typed For Method is silently ignored
 
-Status: fixed in 1239a4ff (method_signature() reports each Where line on M after the first: "a For Method loop says which Methods it goes over with one Where line on M; this is another"), in the sema case
+Status: fixed in bcf36d1f (method_signature() reports each Where line on M after the first: "a For Method loop says which Methods it goes over with one Where line on M; this is another"), in the sema case
 
 Where: compiler/src/sema.cpp:16124
 

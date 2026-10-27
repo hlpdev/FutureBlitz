@@ -4,7 +4,7 @@
 
 ## compiler-1 (low): sema's comment says a Static ReadOnly Field has its value before any work starts, but work started from an earlier Global's initializer can reach it first
 
-Status: fixed in 425583e1: note_thread_use's comment says the field never changes once its initializer runs, in source order with the Globals; comment only, so no test
+Status: fixed in 85a3ff1c: note_thread_use's comment says the field never changes once its initializer runs, in source order with the Globals; comment only, so no test
 
 Where: compiler/src/sema.cpp:10541
 
@@ -41,7 +41,7 @@ Skeptic: I ran the reviewer's i2.fb (in scratchpad/rv-workers/cf/). In debug it 
 
 ## compiler-2 (low): The error for a Static ReadOnly Field that isn't Sendable doesn't say why the new exception doesn't apply
 
-Status: fixed in 425583e1: worker code's use of a Static ReadOnly Field whose type isn't Sendable says "which holds T, which isn't Sendable", as a Const's does; the sema test's Boss.Main case says so, and a new one reads a Static ReadOnly Int[]
+Status: fixed in 85a3ff1c: worker code's use of a Static ReadOnly Field whose type isn't Sendable says "which holds T, which isn't Sendable", as a Const's does; the sema test's Boss.Main case says so, and a new one reads a Static ReadOnly Int[]
 
 Where: compiler/src/sema.cpp:10574
 
@@ -68,7 +68,7 @@ Skeptic: I ran the reviewer's c2.fb (Static ReadOnly Field Codes: Int[] read ins
 
 ## work-1 (low): A work-route request already being answered when Stop comes gets a 503, while an Async route's request is answered
 
-Status: fixed in b70d4ea5: Serve no longer closes the Workers threads as it gives; they end once Serve has given and the last connection it was answering has ended (Ended and Left), and a work call no longer refuses for Stopping; http_server_work_limits holds an Async route's request and a work route's in middleware until Stop has come, and both are 200s
+Status: fixed in b3a3ed28: Serve no longer closes the Workers threads as it gives; they end once Serve has given and the last connection it was answering has ended (Ended and Left), and a work call no longer refuses for Stopping; http_server_work_limits holds an Async route's request and a work route's in middleware until Stop has come, and both are 200s
 
 Where: std/net/http/server.fb:526
 
@@ -123,7 +123,7 @@ Skeptic: I ran the finding's program, rv-workers/refute/w1.fb, and it printed 'a
 
 ## work-2 (low): WorkRequest has no Params, though its comment says it has what HttpRequest has but the connection
 
-Status: fixed in b70d4ea5: WorkRequest has Params, a new Map each time; http_server_work's echo prints its Count
+Status: fixed in b3a3ed28: WorkRequest has Params, a new Map each time; http_server_work's echo prints its Count
 
 Where: std/net/http/work.fb:23
 
@@ -150,7 +150,7 @@ Skeptic: I ran rv-workers/refute/w2.fb and it failed to compile with 'w2.fb:6:95
 
 ## work-3 (low): Neither of the documented 503s (1024 waiting, or after Serve gives) is tested
 
-Status: fixed in b70d4ea5: the queue's length is a server's MaxQueuedWork (1024 unless it's set; panics below 1 or once the threads start: panic_http_max_queued_work and panic_http_max_queued_work_started), so http_server_work_limits holds one thread's call, queues two, and the fourth is a 503; the 503 after Serve gives can't come any more, as work-1's fix keeps the threads while connections are answered, and no request comes once they've all ended; http_server_many makes a hundred work calls, fifty at once, with no leaks
+Status: fixed in b3a3ed28: the queue's length is a server's MaxQueuedWork (1024 unless it's set; panics below 1 or once the threads start: panic_http_max_queued_work and panic_http_max_queued_work_started), so http_server_work_limits holds one thread's call, queues two, and the fourth is a 503; the 503 after Serve gives can't come any more, as work-1's fix keeps the threads while connections are answered, and no request comes once they've all ended; http_server_many makes a hundred work calls, fifty at once, with no leaks
 
 Where: tests/programs/http_server_work.fb:1
 
