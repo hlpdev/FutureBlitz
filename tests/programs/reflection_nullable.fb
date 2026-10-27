@@ -1,9 +1,11 @@
 // For Field over a T? goes over its T's fields, as a command line's subcommand Fields need:
 // their names, places, attributes, and types, through any number of T?s, in generic code too.
+// T.Attribute on a T? reads its T's, and a loop written over a T? reads the T's fields.
 Import std.core
 
 Attribute Note(Text: String)
 
+@Note("makes the program")
 Struct Build
     @Note("ships it") Field Release: Bool
     Field Output: String
@@ -33,3 +35,23 @@ Print("[" + Names<Int?>(1) + "]")
 For Field f: F In Build?
     Print(f.Name)
 End For
+
+Struct Point
+    Field X: Int
+    Field Y: Double
+End Struct
+
+Function Noted<T>(): String => T.Attribute(Note)?.Text ?? "none"
+
+Function Twos<T>(): String
+    Local text = ""
+    For Field f: F In T?
+        Where F: Numeric
+        Where F: Printable
+        text += "{f.Name}={F.One() + F.One()} "
+    End For
+    Return text
+End Function
+
+Print(Noted<Build>(), Noted<Build?>(), Noted<Top?>())
+Print(Twos<Point>())

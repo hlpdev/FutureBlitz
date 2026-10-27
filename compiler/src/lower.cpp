@@ -9276,10 +9276,15 @@ private:
             return lower_reflection(id, node, m_reflected.at(*variable));
         }
 
-        // A type's own attributes, of its declaration.
+        // A type's own attributes, of its declaration, or a T?'s T's.
         if (const type_id_t reflected = m_analysis.expr(id).reflected;
             reflected != type_id_t::INVALID) {
-            const auto declared = m_declared_types.find(definition_of(concrete(reflected)));
+            type_id_t type = concrete(reflected);
+            while (is_nullable(type)) {
+                type = types().get(type).inner;
+            }
+
+            const auto declared = m_declared_types.find(definition_of(type));
             const bool has =
                 std::get<member_expr_t>(m_ast.get(node.callee).node).member.text == "Has";
             return attribute_of(id,

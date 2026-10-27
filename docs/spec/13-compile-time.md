@@ -163,7 +163,8 @@ End Function
 - Over a `T?`, through any number of `?`s, it goes over its T's fields, so generic code reads the
   declarations of a Field like `Build: BuildArgs?`, as std.os's Args does for subcommands: each
   has its Name, Index, Has, Attribute, and type, but a `T?` may hold no T, so `f.Get` and `f.Set`
-  in a copy over one are an error that says so.
+  in a copy over one are an error that says so. A loop written over a type parameter's `T?`
+  puts its Where lines on the T's fields, as one over `T` does.
 - The body is checked once, with `F` a type parameter that only its Where lines, at the top of
   the body, say anything about. Over a concrete type, each field's type must meet them. Over
   the function's own type parameter `T`, they're constraints on `T`'s fields, which each call
@@ -203,7 +204,8 @@ End Function
 - A lambda in the loop's body is one for each copy. A lambda in code with type parameters can
   loop over them too, since each instance of the code has its own copy of the lambda.
 - `T.Has(A)` and `T.Attribute(A)` read the attributes on a type's own declaration, for a type or
-  a type parameter, unless it has a Static member by that name.
+  a type parameter, unless it has a Static member by that name. On a `T?`, through any number of
+  `?`s, they read its T's, as For Field does.
 - `TypeName<T>()` is a built-in, like SizeOf: a String of T's declared name, without its module,
   like `"Map<String, Int32>"` or `"(Int32, String?)"`, the same wherever it's asked for, known at
   compile time, and in generic code the
