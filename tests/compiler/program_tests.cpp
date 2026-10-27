@@ -771,3 +771,39 @@ TEST_CASE("TOML's array of tables reads in time in proportion to its length", "[
     CHECK(result->exit_code == 0);
     CHECK(took < std::chrono::seconds(10));
 }
+
+TEST_CASE("a Channel's change doesn't wake every idle worker of the pool", "[programs]") {
+    // Each Send and Receive woke every idle worker, which all took the pool's lock, so 320,000 of
+    // them took about 11 seconds in release with the workers idle; waking only the threads
+    // waiting on Channels, and a worker for each job, they take well under one.
+    const fb::compilation_t compilation =
+        fb::compile("main.fb",
+                    "Import std.core\n"
+                    "Spawn(Function() => 1).Wait()\n"
+                    "Const ch = Channel<Int>(2000)\n"
+                    "Local total = 0\n"
+                    "For round = 1 To 100\n"
+                    "    For i = 1 To 1600\n"
+                    "        ch.TrySend(i)\n"
+                    "    End For\n"
+                    "    Local value = 0\n"
+                    "    While ch.TryReceive(ByRef value)\n"
+                    "        total += 1\n"
+                    "    End While\n"
+                    "End For\n"
+                    "Print(total)\n",
+                    fb::standard_library().value_or(std::vector<fb::library_file_t>{}));
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / "channel_idle_pool";
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(fb::build_program(module, compilation, program, fb::build_mode_t::DEBUG));
+
+    const auto start = std::chrono::steady_clock::now();
+    const std::expected<fb::process_result_t, std::string> result = fb::run_process(program, {});
+    const std::chrono::steady_clock::duration took = std::chrono::steady_clock::now() - start;
+    REQUIRE(result);
+    CHECK(result->output == "160000\n");
+    CHECK(result->exit_code == 0);
+    CHECK(took < std::chrono::seconds(5));
+}
