@@ -137,6 +137,7 @@ So far, std/ holds:
 | std/log/level.fb | `LogLevel`, `ParseLogLevel`, and `LogFilter` |
 | std/log/output.fb | `LogField`, `LogRecord`, and `LogOutput` |
 | std/log/sinks.fb | `ConsoleSink`, `JsonLinesSink`, `LogLine`, and `JsonLine`, with the runtime's `fb_log_colors` |
+| std/log/files.fb | `FileSink` and `RotatingFileSink` |
 | std/log/logger.fb | `Logger` and `DefaultLogOutput`, which reads FB_LOG through `fb_log_setting` |
 | std/time/duration.fb | `Duration`, and the numbers' `Nanoseconds` to `Days`, as in `2.Seconds` |
 | std/time/clock.fb | `Instant`, `Stopwatch`, `Measure`, and `Sleep`, on the monotonic clock |
@@ -152,6 +153,7 @@ So far, std/ holds:
 | std/compress/archive.fb | `ArchiveEntry` and `ArchiveEntryKind` |
 | std/compress/zip.fb | `Zip`, `ZipReader`, `ZipWriter`, and `ZipMethod`, over minizip-ng through `fb_zip_` |
 | std/compress/tar.fb | `Tar`, `TarReader`, and `TarWriter`, through `fb_tar_` |
+| std/compress/vfs.fb | `ZipSource`, a zip as std.io's `VfsSource`, and Vfs's `MountZip` |
 | std/compress/seven_zip.fb | `SevenZip` and `SevenZipReader`, over liblzma through `fb_xz_7z_` |
 | std/debug/debugger.fb | `Breakpoint` and `IsDebuggerAttached`, through the runtime's `fb_debug_` functions |
 | std/net/address.fb | `IpFamily`, `IpAddress`, and `SocketAddress` |
@@ -209,6 +211,7 @@ So far, std/ holds:
 | std/image/font.fb | `Font`, TrueType and OpenType fonts the runtime reads itself, through `fb_font_`, from bytes or a file |
 | std/io/path.fb | `Path` and `PathStyle` |
 | std/io/file.fb | `File`'s one-call Static Methods and their Async twins, `Metadata`, `FileKind`, and `LineEnding`, over libuv through the runtime's `fb_io_file_` functions |
+| std/io/file_stream.fb | `FileStream`, the Reader, Writer, and Seeker `File.Open` gives, and `OpenOptions`, through the runtime's `fb_io_stream_` functions |
 | std/io/dir.fb | `Dir`'s Static Methods and their Async twins, and `DirEntry` |
 | std/io/temp.fb | `TempFile` and `TempDir` |
 | std/io/lock.fb | `FileLock` |
@@ -710,8 +713,9 @@ the rest is planned.
 
 Step 14 built `Path`, `File`'s one-call reads and writes, `FileLock`, `MappedFile`, `Dir`,
 `TempFile` and `TempDir`, `FileWatcher`, and IOError's Kinds, and step 15 the virtual file system
-and `Preferences`; the streams, `File.Open`, and the console come with step 13. `Import std.io`
-brings in all of std/io/.
+and `Preferences`; step 13 the streams, and the gaps step 32's audit found `File.Open`, a
+MappedFile's `Buffer<UInt8>`, the Zip mount, and typed Preferences. `Import std.io` brings in all of
+std/io/.
 
 - `Reader`, `Writer`, and `Seeker` Interfaces, with Async twins, and `Copy`, `ReadAll`,
   `ReadExact`; buffered, memory, and string readers and writers; `BinaryReader` and
@@ -745,8 +749,22 @@ brings in all of std/io/.
   loop, whose Await resumes on the main thread. Text reads as UTF-8, with U+FFFD for a byte that
   doesn't start well-formed UTF-8, and stays as it was, its line breaks and a byte order mark
   too. Reading lines splits them on `\n` and `\r\n`, and writing them puts `\n` after each on
-  every OS, unless asked for `LineEnding.CRLF`. `File.Open` with options, `Seek`, `Flush`, and
-  `Sync` come with step 13's streams.
+  every OS, unless asked for `LineEnding.CRLF`.
+- `File.Open(path)` opens a file to read, `File.Open(path, options)` as an `OpenOptions` says
+  (`Read`, `Write`, `Append`, which writes too, `Create`, `CreateNew`, which refuses a file that's
+  there with ALREADY_EXISTS, and `Truncate`, all False unless given, as in
+  `OpenOptions(Write: True, Create: True)`), and `File.Create(path)` to write, made or emptied;
+  each with an Async twin. They give a `FileStream`, a Reader, Writer, and Seeker, with
+  `ReadAsync`, `WriteAsync`, and `FlushAsync` that libuv's thread pool does, `Seek` and `Position`
+  from where it is, which each read and write moves on, `Size`, `Sync` and `SyncAsync`, which put
+  what's been written onto the disk, `IsReadable`, `IsWritable`, `IsAppending`, `IsOpen`, and
+  `Close`, which its last reference does too. An appending one writes at the end wherever it's
+  moved to, and a write past the end fills what's before it with 0s. It holds nothing back, so
+  Flush has nothing to do, and a BufferedReader or BufferedWriter around it takes fewer calls.
+  Options no file opens with panic (none of Read, Write, and Append; Create, CreateNew, or
+  Truncate without a write; Truncate with Append), and so do a call while an Async one is under
+  way, using it once it's closed, reading one not opened to read, and writing one not opened to
+  write, at the caller.
 - `FileLock.Acquire`, `AcquireShared`, `TryAcquire`, `TryAcquireShared` (a `FileLock?`), and
   `AcquireAsync` and `AcquireSharedAsync`: a lock on a file, made when it isn't there, which other
   FileLocks, in this program or another, wait for or are refused, until `Close` or its last
@@ -754,8 +772,10 @@ brings in all of std/io/.
   or writing the file, on Windows too.
 - `MappedFile(path, writable)` maps a file into memory whole: `Count`, `[]` and `[]=`,
   `ReadBytes`, `WriteBytes`, `Flush`, `IsOpen`, and `Close`, which unmaps it; misuse panics at the
-  caller. Once step 12's Buffer lands, it gives its bytes as a `Buffer<UInt8>` that keeps it
-  mapped.
+  caller. `Bytes()` gives its bytes as a `Buffer<UInt8>`, without copying them, which, with each
+  view of it, keeps them mapped until it goes, though the MappedFile is closed or gone: a writable
+  one's Buffer is the file's bytes, and a read-only one's a copy-on-write view of its own, made
+  the first time, so writing it never changes the file.
 - `Dir`: `Create`, `CreateAll`, `Remove` and `RemoveAll` (which give whether there was one, and
   don't follow links), `Exists`, `Entries`, `Walk`, and `Glob`, which give `DirEntry`s (`Path`,
   `Relative` from the folder listed, `Kind`, `Name`) in the order of their names' bytes, each
@@ -788,8 +808,11 @@ brings in all of std/io/.
   reads and a source that changes them wraps one; `EmbeddedSource` the `Map<String, UInt8[]>`
   EmbedFolder gives, a copy at each read, and panics for paths that aren't files' or make a place
   a file and a folder too; and a program can write its own. An Async read reads the mounts there
-  were when it began. Zips will mount through std.compress's `Zip.Read` once it's on master. The
-  engine's pak files build on it.
+  were when it began. A zip mounts through std.compress: `vfs.MountZip(at, data)`, or a
+  `ZipSource` of a ZipReader, whose files are its file entries and whose folders are the ones they
+  name or go through, with the last of a name's entries the file; an entry whose name goes above
+  the zip's root, and a link, aren't in it, and a zip that makes a place a file and a folder too
+  is an IOError of INVALID_DATA. The engine's pak files build on it.
 - `Embed("path")`, `EmbedText("path")`, and `EmbedFolder("path")`: built-ins, checked at compile
   time, that put a file's bytes (a new `UInt8[]`), its text (a String known at compile time), or
   a folder's files (a new `Map<String, UInt8[]>` by their paths in it), in the program (spec 13).
@@ -804,8 +827,10 @@ brings in all of std/io/.
   `\\`, `\n`, and `\r` escaped, and `\=` and a leading `\#` in a key; a byte order mark before
   it is skipped, and a file where the app's folder goes holds no settings. An app's name that
   can't be a file's on every OS panics: Windows' device names, like `nul` or `COM1.txt`, a name
-  ending with a dot or a space, and one over 255 bytes too. Values are Strings until step 5's
-  Parse is on master, and then the numbers and Bools get their own Get and Set.
+  ending with a dot or a space, and one over 255 bytes too. Values are Strings, and `GetInt`,
+  `GetDouble`, and `GetBool`, with a fallback or giving Null, read them as step 5's Parse does,
+  which `SetInt`, `SetDouble`, and `SetBool` write them for: a Double as the shortest text that
+  reads back as it, NaN and the infinities too, and a Bool as "True" or "False".
 - The console's `ReadKey`, `ReadPassword`, `IsTerminal`, `TerminalSize`, and styled output that
   turns itself off when it isn't a terminal or `NO_COLOR` is set are std.term's (see below), with
   what else reads keys and draws on a terminal. (`Input` is std.core's.)
@@ -936,7 +961,12 @@ Step 18 built `Logger`, its levels, filters, outputs, and sinks, in std/log/; `I
   `Sendable Func(LogRecord)`, so a program's own is a lambda: `ConsoleSink()` writes `LogLine`s
   to stderr, colored when it's a terminal that shows colors and NO_COLOR isn't set, and
   `ConsoleSink(colors, times)` as it says; `JsonLinesSink(write)` gives write each `JsonLine`.
-  Lines from threads at once don't mix. Files and rotating files wait for std.io's.
+  Lines from threads at once don't mix. `FileSink(path)` adds each `LogLine`, with its time and
+  without colors, to a file's end, made with its folders, each line in one write that no other
+  thread's or program's comes into; `RotatingFileSink(path, maxBytes, keep)` does until a line
+  would make the file hold more than maxBytes, and then moves it to `<path>.1`, that one to `.2`,
+  and so on, the oldest of keep going, and a file that can't be moved aside gets the lines
+  meanwhile. A line that can't be written is lost, and the first since one was says so on stderr.
 - `LogFilter.Parse(text)` reads FB_LOG's text: parts between commas, each a level for every
   module, or `module=level`, like "info,net=trace,net.http=off", a later part winning, every
   module at INFO unless a part says otherwise; Null for anything else. A module gets its own
