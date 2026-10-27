@@ -1,0 +1,46 @@
+// Which of an HttpServer's routes takes a request: text before a :name, a :name before a *name,
+// segment by segment, and a route that matches the whole path before one whose *name matches
+// none of it, whatever order they were added in.
+
+Import std.core
+Import std.collections
+Import std.net
+Import std.net.http
+
+Function Text(text: String): HttpResponse => HttpResponse.Of(Body.Text(text))
+
+// What a route answers: its name, and what its parameters bound.
+Function Named(name: String, request: HttpRequest): HttpResponse
+    Local bound: String[] = []
+    For key, value In request.Params
+        bound.Add("{key}={value}")
+    End For
+    bound.Sort()
+    Return Text("{name} [{bound.Join(", ")}]")
+End Function
+
+Local server = HttpServer()
+server.Get("/*all", Async Function(request: HttpRequest) => Named("/*all", request))
+server.Get("/", Async Function(request: HttpRequest) => Named("/", request))
+server.Get("/files/*path", Async Function(request: HttpRequest) => Named("/files/*path", request))
+server.Get("/files", Async Function(request: HttpRequest) => Named("/files", request))
+server.Get("/a/:b/*rest", Async Function(request: HttpRequest) => Named("/a/:b/*rest", request))
+server.Get("/a/:b", Async Function(request: HttpRequest) => Named("/a/:b", request))
+server.Get("/a/fixed", Async Function(request: HttpRequest) => Named("/a/fixed", request))
+server.Get("/x/:y/z", Async Function(request: HttpRequest) => Named("/x/:y/z", request))
+server.Get("/x/*rest", Async Function(request: HttpRequest) => Named("/x/*rest", request))
+Try
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local serving = server.Serve()
+    Local base = "http://127.0.0.1:{server.LocalAddress.Port}"
+    Local client = HttpClient()
+    For path In ["/", "/other", "/deep/er", "/files", "/files/", "/files/a/b", "/a/q", "/a/q/",
+                 "/a/q/r/s", "/a/fixed", "/a/fixed/more", "/x/1/z", "/x/1/w", "/x"]
+        Print(path, "->", (Await client.GetAsync(base + path)).Text)
+    End For
+
+    server.Stop()
+    Await serving
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

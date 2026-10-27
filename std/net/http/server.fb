@@ -357,12 +357,13 @@ Function MatchOf(route: String[], path: String[]): Int[]?
 End Function
 
 // Whether one match is better than another: text before a parameter, a parameter before the
-// rest, at the first segment where they differ, and the longer one when one starts the other.
+// rest, at the first segment where they differ, and the shorter one when one starts the other,
+// since the longer one's last segment can only be a *name that matched none of the path.
 Function Better(a: Int[], b: Int[]): Bool
     For i = 0 Until Min(a.Count, b.Count)
         If a[i] != b[i] Then Return a[i] < b[i]
     End For
-    Return a.Count > b.Count
+    Return a.Count < b.Count
 End Function
 
 // What a server keeps of a connection: its stream, what it's read of it, the client's address,
