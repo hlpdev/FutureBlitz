@@ -53,6 +53,15 @@ foreach(shard RANGE ${FB_LAST_PROGRAM_SHARD})
   endif()
 endforeach()
 
+# tools/verify.py's own tests, in Python, which ask ctest about the shards above.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+  add_test(NAME "verify.py's own tests" COMMAND Python3::Interpreter -m unittest -v verify_tests
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+  set_tests_properties("verify.py's own tests" PROPERTIES ENVIRONMENT
+    "FB_TEST_BUILD=${CMAKE_BINARY_DIR};PYTHONDONTWRITEBYTECODE=1")
+endif()
+
 # CLI tests, which run the real fb.
 file(GLOB_RECURSE FB_CLI_TEST_SOURCES CONFIGURE_DEPENDS cli/*.cpp)
 add_executable(fb_cli_tests ${FB_CLI_TEST_SOURCES})

@@ -18,6 +18,7 @@ import argparse
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -83,6 +84,27 @@ def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProc
 
 def tool(variable: str, name: str) -> str | None:
     return os.environ.get(variable) or shutil.which(name)
+
+
+def run_limited(command: list[str], cwd: Path, stdin: bytes | None,
+                limit: float) -> tuple[int | None, bytes]:
+    """Runs a command, and gives its exit code and what it printed, or None for the code when it
+    was still running after `limit` seconds. Then it's killed with every process it started, which
+    an http_ program's test server does, and which would hold the output open till it ended."""
+    process = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               stdin=subprocess.PIPE if stdin is not None else None,
+                               start_new_session=os.name != "nt")
+    try:
+        output, _ = process.communicate(stdin, timeout=limit)
+        return process.returncode, output
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            os.killpg(process.pid, signal.SIGKILL)
+        output, _ = process.communicate()
+        return None, output
 
 
 def executable(path: Path) -> Path:
@@ -151,21 +173,17 @@ class programs_t:
             command.insert(0, str(http_server))
             stdin = stdin or b""
         folder = self.folder()
-        try:
-            ran = subprocess.run(command, cwd=folder, stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT, input=stdin, timeout=RUN_LIMIT)
-        except subprocess.TimeoutExpired as hung:
-            shutil.rmtree(folder, ignore_errors=True)
-            printed = (hung.stdout or b"").decode(errors="replace")
+        code, output = run_limited(command, folder, stdin, RUN_LIMIT)
+        shutil.rmtree(folder, ignore_errors=True)
+        printed = output.decode(errors="replace")
+        if code is None:
             problems.append(f"{name} ({label}) was still running after {RUN_LIMIT} seconds, "
                             f"having printed:\n{printed}")
             return False
-        shutil.rmtree(folder, ignore_errors=True)
-        expected = (PROGRAMS / f"{name}.out").read_bytes()
-        if ran.stdout == expected and ran.returncode == expected_code(name):
+        if output == (PROGRAMS / f"{name}.out").read_bytes() and code == expected_code(name):
             return True
-        problems.append(f"{name} ({label}) printed:\n{ran.stdout.decode(errors='replace')}"
-                        f"(exit code {ran.returncode}, expected {expected_code(name)})")
+        problems.append(f"{name} ({label}) printed:\n{printed}"
+                        f"(exit code {code}, expected {expected_code(name)})")
         return False
 
 
