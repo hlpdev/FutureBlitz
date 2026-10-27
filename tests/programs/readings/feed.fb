@@ -1,13 +1,11 @@
-// readings.fb's feed: the readings as a JSON document, served over HTTPS by a server of its own,
-// on std's TlsListener with the test certificate for 127.0.0.1, which answers each GET with the
-// document, a request to a connection.
+// readings.fb's feed: the readings as a JSON document, served over HTTPS by an HttpServer of its
+// own, through ListenTls with the test certificate for 127.0.0.1.
 
 Import std.core
 Import std.crypto
 Import std.data
-Import std.ffi
-Import std.io
 Import std.net
+Import std.net.http
 Import "./certificates"
 Import "./source"
 
@@ -59,65 +57,63 @@ Public Function TestRoots(): Certificate[]
     Return (Try? Certificate.AllFromPem(ca_pem)).Expect("the test CA's certificate reads")
 End Function
 
-// The feed's HTTPS server, at 127.0.0.1, on a port the OS picks.
-Public Class FeedServer
-    Field Listener: TlsListener
-    Field Document: String
-    // How many connections it's answered, and how many failed.
-    Public Field Served: Int
-    Public Field Refused: Int
+// The test certificate for 127.0.0.1 and its key, which the program's servers serve HTTPS with.
+Public Function TestServer(): TlsServer
+    Local chain = (Try? Certificate.AllFromPem(localhost_pem)).Expect("the certificate reads")
+    Local key = (Try? Key.FromPem(localhost_key)).Expect("the test's key reads")
+    Return TlsServer(chain, key)
+End Function
 
-    New(listener: TlsListener, document: String)
-        Listener = listener
-        Document = document
+// How many requests the feed has answered, which its route counts, apart from the server, which
+// holds the route.
+Class Answered
+    Field Value: Int
+End Class
+
+// The feed's HTTPS server, at 127.0.0.1, on a port the OS picks, which answers a GET of
+// /readings.json with the document.
+Public Class FeedServer
+    Field Server: HttpServer
+    Field Counted: Answered
+
+    New(server: HttpServer, counted: Answered)
+        Server = server
+        Counted = counted
     End New
 
-    // A server of feed's JSON.
+    // A server of feed's JSON, listening.
     Public Static Method Start(feed: Feed): FeedServer Throws NetError
-        Local chain = (Try? Certificate.AllFromPem(localhost_pem)).Expect("the certificate reads")
-        Local key = (Try? Key.FromPem(localhost_key)).Expect("the test's key reads")
-        Local address = SocketAddress(IpAddress.Loopback, 0)
-        Local listener = Try TlsListener.Listen(address, TlsServer(chain, key))
-        Return FeedServer(listener, Json.Write(feed))
+        Local document = Json.Write(feed)
+        Local counted = Answered()
+        Local server = HttpServer()
+        server.Get("/readings.json", Function(request: HttpRequest) => Answer(document, counted))
+        Try server.ListenTls(SocketAddress(IpAddress.Loopback, 0), TestServer())
+        Return FeedServer(server, counted)
     End Method
 
     // Where the document is.
     Public Property Url: String
-        Get => "https://127.0.0.1:{Listener.LocalAddress.Port}/readings.json"
+        Get => "https://127.0.0.1:{Server.LocalAddress.Port}/readings.json"
     End Property
 
-    // Answers count connections, each with the document: it reads the request's head, writes
-    // the response, and closes the connection. One whose handshake fails, as a client that
-    // doesn't trust the test CA's makes it, is counted refused.
-    Public Async Method Answer(count: Int)
-        For i = 0 Until count
-            Try
-                Local tls = Try Await Listener.AcceptAsync()
-                Local reader = BufferedReader(tls)
-                Loop
-                    Local line = Try Await reader.ReadLineAsync()
-                    If line == Null || line == "" Then Break
-                End Loop
+    // How many requests it's answered.
+    Public Property Served: Int
+        Get => Counted.Value
+    End Property
 
-                Local body = Document.Bytes
-                Local head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
-                             "Content-Length: {body.Count}\r\nConnection: close\r\n\r\n"
-                Local response = head.Bytes
-                For b In body
-                    response.Add(b)
-                End For
-
-                Try Await tls.WriteAsync(Buffer<UInt8>.From(response))
-                Try Await tls.CloseAsync()
-                Served += 1
-            Catch e As Error
-                Refused += 1
-            End Try
-        End For
+    // Serves until Stop.
+    Public Async Method Serve()
+        Await Server.Serve()
     End Method
 
-    // Stops listening.
-    Public Method Close()
-        Listener.Close()
+    // Stops serving.
+    Public Method Stop()
+        Server.Stop()
     End Method
 End Class
+
+// The document's response, counted.
+Async Function Answer(document: String, counted: Answered): HttpResponse
+    counted.Value += 1
+    Return HttpResponse.Of(Body.Json(document))
+End Function

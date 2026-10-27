@@ -1,12 +1,15 @@
 // M6's integration program, which uses std alone. It fetches three cities' temperatures as JSON
-// over HTTPS, from a feed of its own on std's TLS with the test CA's certificate, keeps them in a
-// SQLite database, sums them up in SQL, and draws them as a chart, a PNG. Then it serves the
-// summary and the chart from an HttpServer, as JSON, as static files, and to a WebSocket, and
-// its own HttpClient and WebSocket client check that what they get is what it made.
+// over HTTPS, from a feed of its own, an HttpServer over ListenTls with the test certificate for
+// 127.0.0.1, keeps them in a SQLite database, sums them up in SQL, and draws them as a chart, a
+// PNG. Then it serves the summary and the chart from another HttpServer over HTTPS, as JSON, as
+// static files, and to a WebSocket at wss://, and its own HttpClient and WebSocket client, which
+// trust only the test CA, check that what they get is what it made; clients that trust only the
+// OS's roots are refused.
 Import std.core
 Import std.crypto
 Import std.data
 Import std.image
+Import std.io
 Import std.net
 Import std.net.http
 Import std.net.ws
@@ -49,7 +52,7 @@ Async Function Run() Throws Error
     // trusts the test CA gets the document.
     Local readings = Readings(26, 36)
     Local feed = Try FeedServer.Start(FeedOf(readings))
-    Local answering = feed.Answer(2)
+    Local feeding = feed.Serve()
     Local refused = "fetched"
     Try
         Try Await HttpClient().GetAsync(feed.Url)
@@ -60,10 +63,10 @@ Async Function Run() Throws Error
     Local client = HttpClient()
     client.TrustOnly(TestRoots())
     Local fetched = Try Await client.GetAsync(feed.Url)
-    Await answering
-    feed.Close()
+    feed.Stop()
+    Await feeding
     Print("feed: untrusted", refused, "| trusted", fetched.Status, fetched.Headers.Get("Content-Type") ?? "-",
-          fetched.Bytes.Count, "bytes, answered", feed.Served, "and refused", feed.Refused)
+          fetched.Bytes.Count, "bytes, answered", feed.Served)
 
     // The JSON, read into the document's Structs, is the readings it was written from.
     Local document = Try Json.Read<Feed>(fetched.Text)
@@ -103,6 +106,7 @@ Async Function Run() Throws Error
     Local site = Try Site.Start(summaries, png)
     Local serving = site.Serve()
     Local web = HttpClient()
+    web.TrustOnly(TestRoots())
     Local summary = Try Await web.GetAsync("{site.Url}/summary.json")
     Local read = Try Json.Read<Summary[]>(summary.Text)
     Print("summary.json:", summary.Status, summary.Headers.Get("Content-Type") ?? "-", "the same", read == summaries)
@@ -113,22 +117,34 @@ Async Function Run() Throws Error
     Print("files/summary.json:", text.Status, "the same", text.Text == Json.Write(summaries), "| missing.png:", missing.Status)
 
     // To its own WebSocket client: the summary as text, the chart as bytes, then the close.
-    Local live = Try Await WebSocket.ConnectAsync("ws://127.0.0.1:{site.Url.Split(":")[2]}/live")
+    Local untrusted = "opened"
+    Try
+        Try Await WebSocket.ConnectAsync(site.LiveUrl)
+    Catch e As NetError
+        untrusted = "refused, {e.Kind}"
+    End Try
+
+    Local tls = TlsClient()
+    tls.TrustOnly(TestRoots())
+    Local live = Try Await WebSocket.ConnectAsync(site.LiveUrl, [], Null, tls)
     Local first = Try Await live.ReceiveAsync()
     Local second = Try Await live.ReceiveAsync()
     Local last = Try Await live.ReceiveAsync()
     Local sentSummary = first != Null && first.IsText && (Try Json.Read<Summary[]>(first.Text)) == summaries
     Local sentChart = second != Null && !second.IsText && (Try Image.Decode(second.Bytes)).ToBytes() == pixels
-    Print("websocket: summary", sentSummary, "chart", sentChart, "then closed", last == Null, live.CloseCode ?? 0)
+    Print("websocket: untrusted", untrusted, "| summary", sentSummary, "chart", sentChart, "then closed", last == Null, live.CloseCode ?? 0)
     // The server counts it served once the client's close has come back to it.
     For i = 0 Until 5000
         If site.Lives > 0 Then Break
         Await Wait(1.Milliseconds)
     End For
 
+    Local folder = site.FolderPath
+    Local had = Dir.Exists(folder)
     Try site.Stop()
     Await serving
-    Print("served:", site.Lives, "websocket, and stopped", !site.IsRunning)
+    Print("served:", site.Lives, "websocket, and stopped", !site.IsRunning, "| its folder there", had,
+          "then removed", !Dir.Exists(folder))
 End Function
 
 Try

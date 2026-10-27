@@ -1,4 +1,4 @@
-feed: untrusted refused, TLS | trusted 200 application/json 2943 bytes, answered 1 and refused 1
+feed: untrusted refused, TLS | trusted 200 application/json 2943 bytes, answered 1
 json: 3 cities, 108 readings, the same True
 stored: 108 readings of [Cairo, Lisbon, Oslo] | again, warmer: True then back: True
   Cairo: low 15.9, high 31.9, mean 23.13, 36 readings
@@ -13,5 +13,5 @@ from hour 30: 1558 colored, 0 outside the plot
 summary.json: 200 application/json the same True
 files/chart.png: 200 image/png the same True
 files/summary.json: 200 the same True | missing.png: 404
-websocket: summary True chart True then closed True 1000
-served: 1 websocket, and stopped True
+websocket: untrusted refused, TLS | summary True chart True then closed True 1000
+served: 1 websocket, and stopped True | its folder there True then removed True

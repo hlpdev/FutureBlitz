@@ -1,6 +1,7 @@
-// readings.fb's site: an HttpServer at 127.0.0.1 that serves the summary as JSON at
-// /summary.json, the chart and the summary as static files from a folder of their own under
-// /files, and both to a WebSocket at /live, the summary as text and then the chart as bytes.
+// readings.fb's site: an HttpServer at 127.0.0.1, over HTTPS with the test certificate, that
+// serves the summary as JSON at /summary.json, the chart and the summary as static files from a
+// folder of their own under /files, and both to a WebSocket at /live, wss://, the summary as
+// text and then the chart as bytes.
 
 Import std.core
 Import std.data
@@ -8,6 +9,7 @@ Import std.io
 Import std.net
 Import std.net.http
 Import std.net.ws
+Import "./feed"
 Import "./store"
 
 // How many WebSockets the site's served, which its route counts, apart from the site, which
@@ -38,10 +40,10 @@ Public Class Site
         Local server = HttpServer()
         Local served = Count()
         server.Get("/summary.json",
-                   Function(request: HttpRequest) => Answer(HttpResponse.Of(Body.Json(summary))))
+                   Function(request: HttpRequest) => Given(HttpResponse.Of(Body.Json(summary))))
         server.Files("/files", folder.Path)
         server.Get("/live", Function(request: HttpRequest) => Live(request, summary, chart, served))
-        Try server.Listen(SocketAddress(IpAddress.Loopback, 0))
+        Try server.ListenTls(SocketAddress(IpAddress.Loopback, 0), TestServer())
         Return Site(server, folder, served)
     End Method
 
@@ -50,9 +52,19 @@ Public Class Site
         Get => Served.Value
     End Property
 
-    // Where it serves, as "http://127.0.0.1:<port>".
+    // Where it serves, as "https://127.0.0.1:<port>".
     Public Property Url: String
-        Get => "http://127.0.0.1:{Server.LocalAddress.Port}"
+        Get => "https://127.0.0.1:{Server.LocalAddress.Port}"
+    End Property
+
+    // Where its WebSocket is, as "wss://127.0.0.1:<port>/live".
+    Public Property LiveUrl: String
+        Get => "wss://127.0.0.1:{Server.LocalAddress.Port}/live"
+    End Property
+
+    // The folder its files are in, until Stop removes it.
+    Public Property FolderPath: Path
+        Get => Folder.Path
     End Property
 
     // Serves until Stop.
@@ -93,6 +105,6 @@ Async Function Live(request: HttpRequest, summary: String, chart: UInt8[],
 End Function
 
 // A response, as a handler gives it.
-Async Function Answer(response: HttpResponse): HttpResponse
+Async Function Given(response: HttpResponse): HttpResponse
     Return response
 End Function
