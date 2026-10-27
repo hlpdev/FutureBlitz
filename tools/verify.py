@@ -4,10 +4,12 @@ release mode, the concurrent programs many times over, and clang-format and clan
 changed since the base. CI runs it without the last two.
 
     python tools/verify.py --build <build folder> [--base origin/master] [--no-format] [--no-tidy]
-                           [--quick]
+                           [--quick] [--jobs N]
 
 --quick is a lane's own check: the unit tests, and only the test programs that changed since the
-base, in debug, release, and many times over; the landing CI runs the whole of it.
+base, in debug, release, and many times over; the landing CI runs the whole of it. The programs
+build and run --jobs at a time, each run in an empty folder of its own, and each step's failures
+come out by program once it's done.
 
 clang-format and clang-tidy come from $CLANG_FORMAT and $CLANG_TIDY, or else from PATH.
 """
@@ -19,6 +21,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -54,6 +59,9 @@ REPEATS = 10
 # The HTTP test server an http_ program runs under, in the build folder.
 http_server: Path | None = None
 
+# How many programs build and run at once.
+jobs = 1
+
 failures: list[str] = []
 
 
@@ -88,37 +96,79 @@ def expected_code(name: str) -> int:
     return 0
 
 
-def build_program(fb: Path, name: str, release: bool, folder: Path) -> Path | None:
-    """Builds tests/programs/<name>.fb from its own folder, so its panics name it as the
-    program tests do."""
-    output = executable(folder / name)
-    command = [str(fb), "build", f"{name}.fb", "-o", str(output)]
-    if release:
-        command.insert(2, "--release")
-    built = run(command, cwd=PROGRAMS)
-    if built.returncode != 0:
-        fail(f"{name} ({'release' if release else 'debug'}) doesn't build:\n"
-             + built.stdout.decode(errors="replace"))
-        return None
-    return output
+class programs_t:
+    """The test programs' builds, in a scratch folder, each made once and kept for the steps
+    after, and the empty folder each run is in, so a program that writes a file where it runs
+    doesn't meet another run's, or write into tests/programs."""
+
+    def __init__(self, fb: Path, scratch: Path) -> None:
+        self.fb = fb
+        self.scratch = scratch
+        self.lock = threading.Lock()
+        self.builds: dict[tuple[str, bool], Path | None] = {}
+        self.runs = 0
+
+    def build(self, name: str, release: bool, problems: list[str]) -> Path | None:
+        """Builds tests/programs/<name>.fb from its own folder, so its panics name it as the
+        program tests do, or gives the build made already. A build that fails adds a problem."""
+        with self.lock:
+            if (name, release) in self.builds:
+                return self.builds[(name, release)]
+        output = executable(self.scratch / ("release" if release else "debug") / name)
+        output.parent.mkdir(exist_ok=True)
+        command = [str(self.fb), "build", f"{name}.fb", "-o", str(output)]
+        if release:
+            command.insert(2, "--release")
+        built = run(command, cwd=PROGRAMS)
+        program = output if built.returncode == 0 else None
+        if program is None:
+            problems.append(f"{name} ({'release' if release else 'debug'}) doesn't build:\n"
+                            + built.stdout.decode(errors="replace"))
+        with self.lock:
+            self.builds[(name, release)] = program
+        return program
+
+    def folder(self) -> Path:
+        """A new empty folder for a run."""
+        with self.lock:
+            self.runs += 1
+            folder = self.scratch / "runs" / str(self.runs)
+        folder.mkdir(parents=True)
+        return folder
+
+    def check(self, program: Path, name: str, label: str, problems: list[str]) -> bool:
+        """Runs a program, and gives whether it printed its .out and exited as its name says,
+        adding a problem when it didn't."""
+        # A program with a .in file reads it as its input, as the program tests give it. An
+        # http_ one runs under the HTTP test server, which gives it the server's URLs first.
+        given = PROGRAMS / f"{name}.in"
+        command = [str(program)]
+        stdin = given.read_bytes() if given.exists() else None
+        if name.removeprefix("release_").startswith("http_"):
+            command.insert(0, str(http_server))
+            stdin = stdin or b""
+        folder = self.folder()
+        ran = subprocess.run(command, cwd=folder, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, input=stdin)
+        shutil.rmtree(folder, ignore_errors=True)
+        expected = (PROGRAMS / f"{name}.out").read_bytes()
+        if ran.stdout == expected and ran.returncode == expected_code(name):
+            return True
+        problems.append(f"{name} ({label}) printed:\n{ran.stdout.decode(errors='replace')}"
+                        f"(exit code {ran.returncode}, expected {expected_code(name)})")
+        return False
 
 
-def check_run(program: Path, name: str, expected: bytes, label: str) -> bool:
-    # A program with a .in file reads it as its input, as the program tests give it. An http_
-    # one runs under the HTTP test server, which gives it the server's URLs first.
-    given = PROGRAMS / f"{name}.in"
-    command = [str(program)]
-    stdin = given.read_bytes() if given.exists() else None
-    if name.removeprefix("release_").startswith("http_"):
-        command.insert(0, str(http_server))
-        stdin = stdin or b""
-    ran = subprocess.run(command, cwd=PROGRAMS, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                         input=stdin)
-    if ran.stdout == expected and ran.returncode == expected_code(name):
-        return True
-    fail(f"{name} ({label}) printed:\n{ran.stdout.decode(errors='replace')}"
-         f"(exit code {ran.returncode}, expected {expected_code(name)})")
-    return False
+def each_program(names: list[str], work: Callable[[str, list[str]], None]) -> None:
+    """Does `work` for each program, jobs at a time, and then fails with what each one found,
+    in the programs' order."""
+    problems: dict[str, list[str]] = {name: [] for name in names}
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        for done in [pool.submit(work, name, problems[name]) for name in names]:
+            done.result()
+    for name in names:
+        for problem in problems[name]:
+            fail(problem)
 
 
 # The programs checked: every one, or with --quick those that changed since the base.
@@ -129,48 +179,52 @@ def programs() -> list[str]:
     return sorted(path.stem for path in PROGRAMS.glob("*.fb") if only is None or path.stem in only)
 
 
-def check_debug(fb: Path, scratch: Path) -> None:
+def check_debug(built: programs_t) -> None:
     step("changed test programs built in debug mode")
-    for name in programs():
-        if name.startswith("release_"):
-            continue
-        program = build_program(fb, name, False, scratch)
+    names = [name for name in programs() if not name.startswith("release_")]
+
+    def work(name: str, problems: list[str]) -> None:
+        program = built.build(name, False, problems)
         if program is not None:
-            check_run(program, name, (PROGRAMS / f"{name}.out").read_bytes(), "debug")
-    print(f"{len(programs())} programs")
+            built.check(program, name, "debug", problems)
+
+    each_program(names, work)
+    print(f"{len(names)} programs")
 
 
-def check_release(fb: Path, scratch: Path) -> None:
+def check_release(built: programs_t) -> None:
     step("test programs built in release mode")
-    checked = 0
-    for name in programs():
-        if name.startswith("release_") or name.startswith("leak_") or name in RELEASE_DIFFERS:
-            continue
-        program = build_program(fb, name, True, scratch)
+    names = [name for name in programs() if not name.startswith("release_")
+             and not name.startswith("leak_") and name not in RELEASE_DIFFERS]
+
+    def work(name: str, problems: list[str]) -> None:
+        program = built.build(name, True, problems)
         if program is not None:
-            check_run(program, name, (PROGRAMS / f"{name}.out").read_bytes(), "release")
-        checked += 1
-    print(f"{checked} programs")
+            built.check(program, name, "release", problems)
+
+    each_program(names, work)
+    print(f"{len(names)} programs")
 
 
-def check_concurrent(fb: Path, scratch: Path) -> None:
+def check_concurrent(built: programs_t) -> None:
     step(f"concurrent programs, {REPEATS} times each way")
-    checked = 0
-    for name in programs():
-        if not CONCURRENT.search((PROGRAMS / f"{name}.fb").read_text(encoding="utf-8")):
-            continue
-        checked += 1
-        expected = (PROGRAMS / f"{name}.out").read_bytes()
+    names = [name for name in programs()
+             if CONCURRENT.search((PROGRAMS / f"{name}.fb").read_text(encoding="utf-8"))]
+
+    # A program's runs are one after another, and the programs side by side.
+    def work(name: str, problems: list[str]) -> None:
         modes = [False] if name.startswith("leak_") or name in RELEASE_DIFFERS else [False, True]
         if name.startswith("release_"):
             modes = [True]
         for release in modes:
-            program = build_program(fb, f"{name}", release, scratch)
+            program = built.build(name, release, problems)
             label = "release" if release else "debug"
             for _ in range(REPEATS):
-                if program is None or not check_run(program, name, expected, label):
+                if program is None or not built.check(program, name, label, problems):
                     break
-    print(f"{checked} programs")
+
+    each_program(names, work)
+    print(f"{len(names)} programs")
 
 
 def changed_files(base: str) -> list[Path]:
@@ -247,8 +301,9 @@ def main() -> int:
                 and (PROGRAMS / f"{path.stem}.fb").exists()}
     build = options.build.resolve()
     fb = executable(build / "cli" / "fb")
-    global http_server
+    global http_server, jobs
     http_server = executable(build / "tests" / "native" / "fb_http_test_server")
+    jobs = max(options.jobs, 1)
 
     # A base git doesn't know would give an empty diff, which lint would pass.
     if (not options.no_format or not options.no_tidy) and \
@@ -275,10 +330,11 @@ def main() -> int:
 
     if not options.no_programs:
         with tempfile.TemporaryDirectory(prefix="fb-verify-") as scratch:
+            built = programs_t(fb, Path(scratch))
             if options.quick:
-                check_debug(fb, Path(scratch))
-            check_release(fb, Path(scratch))
-            check_concurrent(fb, Path(scratch))
+                check_debug(built)
+            check_release(built)
+            check_concurrent(built)
 
     if not options.no_format:
         check_format(options.base)
