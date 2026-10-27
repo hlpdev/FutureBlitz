@@ -12,6 +12,7 @@
 #include <deque>
 #include <expected>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -236,10 +237,11 @@ struct closure_t {
 };
 
 /// A file that Embed or EmbedFolder puts in the program: its path from the folder EmbedFolder
-/// names, with '/' between folders, or Embed's, which is empty, and its bytes.
+/// names, with '/' between folders, or Embed's, which is empty, and its bytes, which every
+/// embed of the file shares.
 struct embedded_file_t {
     std::string path;
-    std::string bytes;
+    std::shared_ptr<const std::string> bytes;
 };
 
 /// What analysis found out about one expression.
@@ -498,13 +500,15 @@ fields_problem(const analysis_t& analysis, const type_table_t& types, type_id_t 
                const std::function<std::optional<symbol_id_t>(type_id_t, std::uint32_t)>& field_of);
 
 /// What the driver reads for Embed, EmbedText, and EmbedFolder: a file's bytes, or a folder's
-/// files in path order, at a path written in the file `from`, which goes from that file's
-/// folder. Each fails with why, which analysis reports at the path. Without a driver, nothing
-/// reads files, and every one fails.
+/// files in path order, at a path written at `at`, which goes from its file's folder. Each
+/// fails with why, which analysis reports at the path; the driver warns at `at` itself where
+/// the path spells a name in other letter cases than the disk has it. Without a driver,
+/// nothing reads files, and every one fails.
 struct embed_reader_t {
-    std::function<std::expected<std::string, std::string>(file_id_t from, std::string_view path)>
+    std::function<std::expected<std::shared_ptr<const std::string>, std::string>(
+        span_t at, std::string_view path)>
         file;
-    std::function<std::expected<std::vector<embedded_file_t>, std::string>(file_id_t from,
+    std::function<std::expected<std::vector<embedded_file_t>, std::string>(span_t at,
                                                                            std::string_view path)>
         folder;
 };

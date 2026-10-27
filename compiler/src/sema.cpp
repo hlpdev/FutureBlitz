@@ -458,6 +458,8 @@ private:
     build_mode_t m_mode;
     /// What reads the files Embed, EmbedText, and EmbedFolder name.
     const embed_reader_t* m_embeds;
+    /// Each embed's place in analysis_t::embeds, by its files' paths and shared bytes.
+    std::map<std::vector<std::pair<std::string, const std::string*>>, std::size_t> m_embed_indices;
     diagnostic_bag_t* m_diagnostics; // swapped out while trying overloads
     /// The diagnostics that are kept, for work done on demand inside quietly().
     diagnostic_bag_t* m_bag;
@@ -21118,6 +21120,11 @@ private:
             result = m_analysis.types.instance(m_map, { type_id_t::STRING, bytes });
         }
 
+        // Checked already, it has its files, or its text.
+        if (info(id).embedded || info(id).value) {
+            return result;
+        }
+
         const std::string_view example = folder ? "levels" : "data/logo.png";
         if (!name.type_arguments.empty() || node.arguments.size() != 1 ||
             node.arguments.front().name || node.arguments.front().by_ref) {
@@ -21143,10 +21150,9 @@ private:
         }
 
         const auto& written = std::get<std::string>(path->data);
-        const file_id_t from = span_of(id).file;
         if (folder) {
             std::expected<std::vector<embedded_file_t>, std::string> files =
-                m_embeds->folder ? m_embeds->folder(from, written)
+                m_embeds->folder ? m_embeds->folder(span_of(argument), written)
                                  : std::unexpected("nothing reads files for this compilation");
             if (!files) {
                 error(span_of(argument), "{}", files.error());
@@ -21160,13 +21166,12 @@ private:
             }
 
             info(id).symbol = *add;
-            info(id).embedded = m_analysis.embeds.size();
-            m_analysis.embeds.push_back(std::move(*files));
+            info(id).embedded = embed_index(std::move(*files));
             return result;
         }
 
-        std::expected<std::string, std::string> read =
-            m_embeds->file ? m_embeds->file(from, written)
+        const std::expected<std::shared_ptr<const std::string>, std::string> read =
+            m_embeds->file ? m_embeds->file(span_of(argument), written)
                            : std::unexpected("nothing reads files for this compilation");
         if (!read) {
             error(span_of(argument), "{}", read.error());
@@ -21174,14 +21179,14 @@ private:
         }
 
         if (!text) {
-            info(id).embedded = m_analysis.embeds.size();
-            m_analysis.embeds.push_back({ { .bytes = std::move(*read) } });
+            info(id).embedded = embed_index({ { .bytes = *read } });
             return result;
         }
 
         // A String is UTF-8, always.
-        for (std::size_t at = 0; at < read->size();) {
-            const decoded_t decoded = decode_utf8(*read, at);
+        const std::string& bytes_read = **read;
+        for (std::size_t at = 0; at < bytes_read.size();) {
+            const decoded_t decoded = decode_utf8(bytes_read, at);
             if (!decoded.valid()) {
                 error(span_of(argument),
                       "\"{}\" isn't UTF-8 text, at byte {}, so it can't be a String; Embed gives "
@@ -21193,8 +21198,27 @@ private:
             at += decoded.length;
         }
 
-        info(id).value = make_string(std::move(*read));
+        info(id).value = make_string(bytes_read);
         return result;
+    }
+
+    /// Where analysis_t::embeds has what an embed puts in the program: one place for each file
+    /// or folder, however many calls name it, or how many times a call is checked, as an
+    /// argument is for each overload a call tries.
+    std::size_t embed_index(std::vector<embedded_file_t> files) {
+        std::vector<std::pair<std::string, const std::string*>> key;
+        key.reserve(files.size());
+        for (const embedded_file_t& file : files) {
+            key.emplace_back(file.path, file.bytes.get());
+        }
+
+        const auto [found, added] =
+            m_embed_indices.try_emplace(std::move(key), m_analysis.embeds.size());
+        if (added) {
+            m_analysis.embeds.push_back(std::move(files));
+        }
+
+        return found->second;
     }
 
     /// A Map type's Add(key, value), which a Map literal and EmbedFolder call for each entry.

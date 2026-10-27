@@ -301,14 +301,21 @@ Local first = levels["one.txt"]
   `/` (or `\`) between folders. It stays in that file's package's folder, as an Import's path
   does: the main file's folder without a project.toml, and std/ for std's own files. It can't go
   through a link or a junction that leads out of it, or into another package's folder inside it,
-  and without a project.toml, it can't start with a folder called std.
+  and without a project.toml, it can't start with a folder called std. A path that spells a name
+  in other letter cases than the disk has it gets a warning, as an Import's does, since only a
+  disk that ignores them finds it.
 - It's an error at the path when there's no such file or folder, when it names a folder for
   Embed or EmbedText or a file for EmbedFolder, when EmbedFolder's folder holds the program's own
-  code, which isn't data (its own folder would bring the last build's executable along), when
-  EmbedText's file isn't UTF-8, or when one call would put more than 64 MiB in the program: a
-  file that large is better read when the program runs.
-- Each build reads the files again, as it does the program's source files, and `fb build -o`
-  doesn't write over one.
+  code, which isn't data (its own folder would bring the last build's executable along), where
+  that code really is, whatever letter case or link names the folder, when EmbedText's file
+  isn't UTF-8, or when one call would put more than 64 MiB in the program: a file that large is
+  better read when the program runs.
+- EmbedFolder's folder can't hold a link or a junction, which some systems follow and others
+  don't, and which can lead back to the folder, so the program would differ by where it's built;
+  nor another package's folder, whose files only its own code embeds.
+- Each build reads the files again, as it does the program's source files, each file once
+  however many embeds name it, and the program holds its bytes once. `fb build -o` doesn't write
+  over one.
 
 ## Conditional compilation
 

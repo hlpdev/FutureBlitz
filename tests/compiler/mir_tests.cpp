@@ -456,19 +456,25 @@ TEST_CASE("a generic Async Function's Task has its instance's errors", "[mir]") 
     CHECK(!dumped.contains("Throws E"));
 }
 
-TEST_CASE("an embedded file is a String constant, whose bytes that aren't UTF-8 print by value",
+TEST_CASE("an embedded file is one Global String, whose bytes that aren't UTF-8 print by value",
           "[mir]") {
     std::vector<fb::library_file_t> library =
         fb::standard_library().value_or(std::vector<fb::library_file_t>{});
     library.push_back({ .path = "logo.bin", .text = "A\xFF\xC3\xA9" });
-    const fb::compilation_t compilation =
-        fb::compile("test.fb", "Local logo = Embed(\"logo.bin\")\n", library);
+    const fb::compilation_t compilation = fb::compile("test.fb",
+                                                      "Local logo = Embed(\"logo.bin\")\n"
+                                                      "Local again = Embed(\"./logo.bin\")\n",
+                                                      library);
     REQUIRE(compilation.diagnostics.diagnostics().empty());
     const std::string mir = fb::dump(fb::lower(compilation.ast, compilation.analysis));
     INFO(mir);
-    // A new UInt8[] each time, of the bytes, where é is UTF-8 and 0xFF isn't.
+    // One Global holds the bytes, where é is UTF-8 and 0xFF isn't, for every embed of the file,
+    // and each makes a new UInt8[] of them.
+    CHECK(mir.starts_with("global Embedded: String = \"A\\xFF\xC3\xA9\"\n\nfunction main\n"));
     CHECK(mir.contains("    _0 = UInt8[] []\n"
-                       "    string_bytes(\"A\\xFF\xC3\xA9\", _0)\n"));
+                       "    string_bytes(@Embedded, _0)\n"));
+    CHECK(mir.contains("    _2 = UInt8[] []\n"
+                       "    string_bytes(@Embedded, _2)\n"));
 }
 
 TEST_CASE("a Struct is built from its fields, and copies count its Strings", "[mir]") {

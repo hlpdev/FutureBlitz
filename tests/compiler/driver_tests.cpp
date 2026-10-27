@@ -2376,3 +2376,105 @@ TEST_CASE("an embed doesn't reach outside its package through a link, nor into a
     std::filesystem::remove(packages / "app/data/secret.txt", ignored);
     packages.remove();
 }
+
+TEST_CASE("EmbedFolder on disk leaves hidden files out, and refuses code, links, and packages in "
+          "its folder, wherever they really are",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n");
+    packages.write("app/sub/mod.fb", "Public Function F(): Int => 1\n");
+    packages.write("app/data/a.txt", "a");
+    packages.write("app/data/deep/b.txt", "bb");
+    packages.write("app/data/.hidden", "h");
+    packages.write("app/data/.drafts/c.txt", "c");
+    packages.write("app/loops/a.txt", "a");
+    packages.write("app/store/kept.txt", "k");
+    packages.write("app/store/inner/project.toml",
+                   "[project]\nname = \"inner\"\nversion = \"1.0.0\"\n");
+    packages.write("app/store/inner/notes.txt", "n");
+    packages.write("app/main.fb", "Import \"./sub/mod\"\n"
+                                  "Local a = EmbedFolder(\"data\")\n"
+                                  "Local b = EmbedFolder(\"store\")\n"
+                                  "Local c = EmbedFolder(\"loops\")\n"
+                                  "Local d = EmbedFolder(\"code\")\n");
+    const auto remove = [&] {
+        std::error_code ignored;
+        std::filesystem::remove(packages / "app/loops/again", ignored);
+        std::filesystem::remove(packages / "app/code", ignored);
+        packages.remove();
+    };
+    // A link back to its own folder is a cycle, and one to code is code.
+    if (!make_link(packages / "app/loops", packages / "app/loops/again") ||
+        !make_link(packages / "app/sub", packages / "app/code")) {
+        remove();
+        SKIP("this system makes no links here");
+    }
+
+    const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
+    REQUIRE(app);
+    const std::vector<std::string> messages = packages.messages(*app);
+    REQUIRE(messages.size() == 3);
+    CHECK(messages[0] ==
+          "app/main.fb: \"store\": \"store\" holds the package in 'app/store/inner', "
+          "whose files only its own code embeds");
+    CHECK(messages[1] == "app/main.fb: \"loops\": \"again\" in \"loops\" is a link, which "
+                         "EmbedFolder doesn't follow, so the program is the same wherever it's "
+                         "built; embed what it leads to by its own path");
+    CHECK(messages[2] == "app/main.fb: \"code\": \"code\" holds the program's own code, "
+                         "app/sub/mod.fb; EmbedFolder puts a folder of data in the program");
+    // The folder that's data has its files by their paths in it, with '/', in order.
+    REQUIRE(app->analysis.embeds.size() == 1);
+    const std::vector<fb::embedded_file_t>& data = app->analysis.embeds.front();
+    REQUIRE(data.size() == 2);
+    CHECK(data[0].path == "a.txt");
+    CHECK(*data[0].bytes == "a");
+    CHECK(data[1].path == "deep/b.txt");
+    CHECK(*data[1].bytes == "bb");
+
+    // A disk that ignores letter cases finds a path spelled in others, which gets a warning, as
+    // an Import's does, and still finds the code in a folder so spelled.
+    if (std::filesystem::exists(packages / "app/DATA")) {
+        packages.write("app/main.fb", "Import \"./sub/mod\"\n"
+                                      "Local a = Embed(\"DATA/A.TXT\")\n"
+                                      "Local b = EmbedFolder(\"SUB\")\n");
+        const std::expected<fb::compilation_t, std::string> respelled =
+            fb::compile_file(packages / "app");
+        REQUIRE(respelled);
+        CHECK(packages.messages(*respelled) ==
+              std::vector<std::string>{
+                  "app/main.fb: \"DATA/A.TXT\": the disk spells it \"data/a.txt\", in other "
+                  "letter cases, which only a disk that ignores them finds",
+                  "app/main.fb: \"SUB\": the disk spells it \"sub\", in other letter cases, "
+                  "which only a disk that ignores them finds",
+                  "app/main.fb: \"SUB\": \"SUB\" holds the program's own code, app/sub/mod.fb; "
+                  "EmbedFolder puts a folder of data in the program",
+              });
+    }
+
+    remove();
+}
+
+TEST_CASE("an embedded file is read once, and its embeds share its bytes", "[driver]") {
+    const std::vector<fb::library_file_t> library = with_std({
+        { .path = "data/one.bin", .text = "one" },
+    });
+    // An argument is checked again for each overload a call tries, and an outer call's tries
+    // check the inner ones again.
+    const fb::compilation_t compilation = fb::compile(
+        "main.fb",
+        "Function F(a: UInt8[], b: Int8): UInt8[] => a\n"
+        "Function F(a: UInt8[], b: Int16): UInt8[] => a\n"
+        "Function F(a: UInt8[], b: Int64): UInt8[] => a\n"
+        "Local x = F(F(F(Embed(\"data/one.bin\"), 1 As Int64), 1 As Int64), 1 As Int64)\n"
+        "Local y = Embed(\"data/one.bin\")\n"
+        "Local z = EmbedFolder(\"data\")\n",
+        library);
+    REQUIRE(errors_of(compilation).empty());
+    const std::vector<std::vector<fb::embedded_file_t>>& embeds = compilation.analysis.embeds;
+    // Both Embeds have one place, and the folder's file has the same bytes.
+    REQUIRE(embeds.size() == 2);
+    CHECK(embeds[0].front().path.empty());
+    CHECK(embeds[1].front().path == "one.bin");
+    CHECK(embeds[0].front().bytes == embeds[1].front().bytes);
+    CHECK(compilation.embedded == std::vector<std::string>{ "data/one.bin" });
+}

@@ -339,6 +339,8 @@ private:
     mir_module_t m_module;
     std::unordered_map<symbol_id_t, function_id_t> m_functions;
     std::unordered_map<symbol_id_t, global_id_t> m_globals;
+    /// The Global that holds each embedded file's bytes, by the bytes analysis shares.
+    std::unordered_map<const std::string*, global_id_t> m_embedded;
     /// Each ThreadLocal Global whose initializer runs, by its declaration.
     std::unordered_map<global_id_t, stmt_id_t> m_thread_local_declarations;
     /// The ThreadLocal Globals whose initializers' functions code has needed, in that order,
@@ -5554,16 +5556,33 @@ private:
     operand_t lower_embed(const expr_id_t id, const std::vector<embedded_file_t>& files) {
         const type_id_t bytes = types().array(type_id_t::UINT8);
         if (is_array(expr_type(id))) {
-            return string_parts(make_string(files.front().bytes), "Bytes", bytes);
+            return string_parts(embedded_text(files.front()), "Bytes", bytes);
         }
 
         const operand_t map = new_map(id);
         for (const embedded_file_t& file : files) {
             add_to_map(id, map, make_string(file.path),
-                       string_parts(make_string(file.bytes), "Bytes", bytes));
+                       string_parts(embedded_text(file), "Bytes", bytes));
         }
 
         return map;
+    }
+
+    /// A Global String that holds an embedded file's bytes, one for each file however many
+    /// embeds name it, so the module holds them once.
+    place_t embedded_text(const embedded_file_t& file) {
+        if (const auto found = m_embedded.find(file.bytes.get()); found != m_embedded.end()) {
+            return found->second;
+        }
+
+        const auto global = static_cast<global_id_t>(m_module.globals.size());
+        m_module.globals.push_back({
+            .name = "Embedded",
+            .type = type_id_t::STRING,
+            .initial = const_value_t{ .type = type_id_t::STRING, .data = *file.bytes },
+        });
+        m_embedded.emplace(file.bytes.get(), global);
+        return global;
     }
 
     /// A new array of `type` made of the elements, holding their references, or a fixed array's

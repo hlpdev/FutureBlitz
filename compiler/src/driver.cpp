@@ -28,6 +28,7 @@
 #include <optional>
 #include <random>
 #include <ranges>
+#include <set>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -338,13 +339,15 @@ public:
         add_std_names();
     }
 
-    /// The bytes of the file that Embed or EmbedText names with `target` in the file `from`.
-    std::expected<std::string, std::string> embed_file(const file_id_t from,
-                                                       const std::string_view target) {
-        const std::expected<std::string, std::string> path = embedded_path(from, target, false);
+    /// The bytes of the file that Embed or EmbedText names with `target`, written at `at`.
+    std::expected<std::shared_ptr<const std::string>, std::string>
+    embed_file(const span_t at, const std::string_view target) {
+        const std::expected<std::string, std::string> path = embedded_path(at.file, target, false);
         if (!path) {
             return std::unexpected(path.error());
         }
+
+        warn_respelled_embed(at, target);
 
         if (is_folder(*path)) {
             return std::unexpected(std::format(
@@ -368,11 +371,13 @@ public:
     /// their paths in it, in order. Hidden ones, whose names start with '.', and those in hidden
     /// folders, are left out.
     std::expected<std::vector<embedded_file_t>, std::string>
-    embed_folder(const file_id_t from, const std::string_view target) {
-        const std::expected<std::string, std::string> path = embedded_path(from, target, true);
+    embed_folder(const span_t at, const std::string_view target) {
+        const std::expected<std::string, std::string> path = embedded_path(at.file, target, true);
         if (!path) {
             return std::unexpected(path.error());
         }
+
+        warn_respelled_embed(at, target);
 
         if (!is_folder(*path)) {
             std::uint64_t size = 0;
@@ -385,9 +390,18 @@ public:
         }
 
         // Data only: the program's own folder would bring its code along, and its executable
-        // from the build before, each build's in the next.
+        // from the build before, each build's in the next. On disk, it's where the files really
+        // are that counts, whatever letter case or link names the folder.
+        const std::optional<std::filesystem::path> real_folder =
+            m_files.root ? real_path(disk_path(m_files, *path)) : std::nullopt;
         const auto code = std::ranges::find_if(m_loaded, [&](const loaded_t& loaded) {
-            return loaded.path.starts_with(within(*path, ""));
+            if (!m_files.root) {
+                return loaded.path.starts_with(within(*path, ""));
+            }
+
+            const std::optional<std::filesystem::path> real =
+                real_path(disk_path(m_files, loaded.path));
+            return real && real_folder && is_under(*real, *real_folder);
         });
         if (code != m_loaded.end()) {
             return std::unexpected(std::format(
@@ -396,6 +410,10 @@ public:
         }
 
         std::vector<std::string> inside;
+        // On disk, the links and junctions in it, which aren't followed, and the folders of
+        // other packages.
+        std::vector<std::string> links;
+        std::vector<std::string> packages;
         if (!m_files.root) {
             const std::string prefix = within(*path, "");
             for (const library_file_t& file : m_files.files) {
@@ -410,10 +428,19 @@ public:
                  !error && entry != std::filesystem::recursive_directory_iterator();
                  entry.increment(error)) {
                 std::error_code ignored;
+                const std::string relative = to_utf8(entry->path().lexically_relative(folder));
                 if (to_utf8(entry->path().filename()).starts_with('.')) {
                     entry.disable_recursion_pending();
+                } else if (is_link(entry->path())) {
+                    entry.disable_recursion_pending();
+                    links.push_back(relative);
+                } else if (entry->is_directory(ignored) &&
+                           std::filesystem::is_regular_file(entry->path() / "project.toml",
+                                                            ignored)) {
+                    entry.disable_recursion_pending();
+                    packages.push_back(relative);
                 } else if (entry->is_regular_file(ignored)) {
-                    inside.push_back(to_utf8(entry->path().lexically_relative(folder)));
+                    inside.push_back(relative);
                 }
             }
 
@@ -429,19 +456,37 @@ public:
                 return part.starts_with('.');
             });
         });
-        // The order the folder lists them in varies, and the program shouldn't.
+        // The order the folder lists them in varies, and the program shouldn't, nor which of
+        // its links or packages is reported.
         std::ranges::sort(inside);
+        std::ranges::sort(links);
+        std::ranges::sort(packages);
+        // A link is followed on some systems and not others, and one in a cycle never ends, so
+        // the program would differ by where it's built.
+        if (!links.empty()) {
+            const std::string file = within(*path, links.front());
+            if (const std::optional<std::filesystem::path> real = linked_away(file)) {
+                return std::unexpected(
+                    std::format(R"("{}" in "{}" is a link to '{}', outside {})", links.front(),
+                                target, to_utf8(shown_disk_path(*real)), folder_of(file)));
+            }
+
+            return std::unexpected(std::format(
+                R"("{}" in "{}" is a link, which EmbedFolder doesn't follow, so the program is the same wherever it's built; embed what it leads to by its own path)",
+                links.front(), target));
+        }
+
+        if (!packages.empty()) {
+            return std::unexpected(std::format(
+                R"("{}" holds the package in '{}', whose files only its own code embeds)", target,
+                to_utf8(shown_disk_path(disk_path(m_files, within(*path, packages.front()))))));
+        }
+
         // Every file is checked before any is read, so a folder that can't be embedded puts no
         // file in the compilation's list.
         std::uint64_t total = 0;
         for (const std::string& relative : inside) {
             const std::string file = within(*path, relative);
-            if (const std::optional<std::filesystem::path> real = linked_away(file)) {
-                return std::unexpected(
-                    std::format(R"("{}" in "{}" is a link to '{}', outside {})", relative, target,
-                                to_utf8(shown_disk_path(*real)), folder_of(file)));
-            }
-
             std::uint64_t size = 0;
             if (!file_size(file, size)) {
                 return std::unexpected(std::format("can't read {}", shown_path(m_files, file)));
@@ -455,7 +500,8 @@ public:
 
         std::vector<embedded_file_t> files;
         for (const std::string& relative : inside) {
-            std::expected<std::string, std::string> bytes = read_embedded(within(*path, relative));
+            std::expected<std::shared_ptr<const std::string>, std::string> bytes =
+                read_embedded(within(*path, relative));
             if (!bytes) {
                 return std::unexpected(bytes.error());
             }
@@ -568,20 +614,24 @@ private:
         return !error;
     }
 
-    /// The bytes of the file at `path` in the program, which the compilation then lists among
-    /// the files it embeds.
-    std::expected<std::string, std::string> read_embedded(const std::string& path) {
+    /// The bytes of the file at `path` in the program, read once, which every embed of it
+    /// shares, and the compilation lists among the files it embeds.
+    std::expected<std::shared_ptr<const std::string>, std::string>
+    read_embedded(const std::string& path) {
+        if (const auto found = m_embedded.find(path); found != m_embedded.end()) {
+            return found->second;
+        }
+
         std::optional<std::string> bytes = read_file(m_files, path);
         const std::string shown = shown_path(m_files, path);
         if (!bytes) {
             return std::unexpected(std::format("can't read {}", shown));
         }
 
-        if (!std::ranges::contains(m_compilation.embedded, shown)) {
-            m_compilation.embedded.push_back(shown);
-        }
-
-        return std::move(*bytes);
+        m_compilation.embedded.push_back(shown);
+        auto shared = std::make_shared<const std::string>(std::move(*bytes));
+        m_embedded.emplace(path, shared);
+        return shared;
     }
 
     /// Why what an embed names, `what`, is too large to put in the program.
@@ -607,6 +657,10 @@ private:
     std::vector<std::vector<stmt_id_t>> m_items;
     /// How messages name each package's folder.
     std::vector<std::string> m_folders;
+    /// The bytes of each file an embed read, by its path in the program.
+    std::map<std::string, std::shared_ptr<const std::string>, std::less<>> m_embedded;
+    /// The embeds' paths warn_respelled_embed() has looked at, by their file and place.
+    std::set<std::pair<std::uint32_t, std::uint32_t>> m_respelled_embeds;
     /// The .proto files read, which stay put while more are read.
     std::vector<std::unique_ptr<proto_entry_t>> m_protos;
     /// The keys of the .proto files being read, each importing the next, for a cycle's error.
@@ -1037,6 +1091,44 @@ private:
 
         if (differs) {
             m_compilation.diagnostics.warning(imported.span,
+                                              "the disk spells it \"{}\", in other letter cases, "
+                                              "which only a disk that ignores them finds",
+                                              written);
+        }
+    }
+
+    /// Warns where an embed's path, `target` written at `at`, spells a folder or file in other
+    /// letter cases than the disk has it, as warn_respelled does for an Import. Once for each
+    /// path, however many times analysis checks it.
+    void warn_respelled_embed(const span_t at, const std::string_view target) {
+        if (!m_files.root ||
+            !m_respelled_embeds.emplace(std::to_underlying(at.file), at.begin).second) {
+            return;
+        }
+
+        const std::string& from = std::ranges::find(m_loaded, at.file, &loaded_t::file)->path;
+        std::filesystem::path real = disk_path(m_files, from).parent_path();
+        std::string written = target.starts_with("./") ? "." : "";
+        bool differs = false;
+        for (const std::string_view part : path_parts(target)) {
+            if (part == "..") {
+                real = real.parent_path();
+                written += written.empty() ? ".." : "/..";
+                continue;
+            }
+
+            const std::optional<std::string> spelled = on_disk(real, part);
+            if (!spelled) {
+                return; // nothing there, which the embed reports
+            }
+
+            differs = differs || *spelled != part;
+            real /= path_from_utf8(*spelled);
+            written += std::format("{}{}", written.empty() ? "" : "/", *spelled);
+        }
+
+        if (differs) {
+            m_compilation.diagnostics.warning(at,
                                               "the disk spells it \"{}\", in other letter cases, "
                                               "which only a disk that ignores them finds",
                                               written);
@@ -1513,13 +1605,11 @@ void run_front_end(compilation_t& compilation, file_set_t files, const std::stri
     loader_t loader(compilation, std::move(files), mode);
     loader.run(path);
     const embed_reader_t embeds{
-        .file =
-            [&loader](const file_id_t from, const std::string_view target) {
-                return loader.embed_file(from, target);
-            },
+        .file = [&loader](const span_t at,
+                          const std::string_view target) { return loader.embed_file(at, target); },
         .folder =
-            [&loader](const file_id_t from, const std::string_view target) {
-                return loader.embed_folder(from, target);
+            [&loader](const span_t at, const std::string_view target) {
+                return loader.embed_folder(at, target);
             },
     };
     compilation.analysis =
