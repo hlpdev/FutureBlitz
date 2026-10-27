@@ -26,14 +26,19 @@
 namespace {
 
 /// A mapped file: the file, open until it's closed, and its bytes' memory, which an empty file
-/// has none of.
+/// has none of. A read-only one's Buffers are a view of their own, copied as they're written,
+/// made the first time one's asked for. The views and the file stay while a Buffer holds them,
+/// though it's closed.
 struct map_t {
     std::int64_t error = 0;
     uv_file file = -1;
     std::uint8_t* data = nullptr;
+    std::uint8_t* copied = nullptr;
     std::int64_t size = 0;
+    std::int64_t holds = 0;
     bool writable = false;
     bool open = false;
+    bool mapped = false;
 };
 
 void close_file(const uv_file file) {
@@ -42,32 +47,76 @@ void close_file(const uv_file file) {
     uv_fs_req_cleanup(&call);
 }
 
-/// Maps the open file's `size` bytes: 0, or the OS's error.
-std::int64_t map_bytes(map_t& map) {
+/// How a view is made: shared with the file, read-only or writable, or a copy of its pages made
+/// as they're written.
+enum class view_t : std::uint8_t {
+    READ,
+    WRITE,
+    COPY,
+};
+
+/// A view of the open file's `size` bytes, into `view`: 0, or the OS's error.
+std::int64_t map_view(const map_t& map, const view_t how, std::uint8_t*& view) {
 #ifdef _WIN32
+    DWORD protection = PAGE_READONLY;
+    DWORD access = FILE_MAP_READ;
+    if (how == view_t::WRITE) {
+        protection = PAGE_READWRITE;
+        access = FILE_MAP_WRITE;
+    } else if (how == view_t::COPY) {
+        protection = PAGE_WRITECOPY;
+        access = FILE_MAP_COPY;
+    }
+
     HANDLE mapping =
-        CreateFileMappingW(uv_get_osfhandle(map.file), nullptr,
-                           map.writable ? PAGE_READWRITE : PAGE_READONLY, 0, 0, nullptr);
+        CreateFileMappingW(uv_get_osfhandle(map.file), nullptr, protection, 0, 0, nullptr);
     if (mapping == nullptr) {
         return uv_translate_sys_error(static_cast<int>(GetLastError()));
     }
 
     // The view keeps the mapping, which can go now.
-    void* view = MapViewOfFile(mapping, map.writable ? FILE_MAP_WRITE : FILE_MAP_READ, 0, 0, 0);
+    void* made = MapViewOfFile(mapping, access, 0, 0, 0);
     const DWORD error = GetLastError();
     CloseHandle(mapping);
-    if (view == nullptr) {
+    if (made == nullptr) {
         return uv_translate_sys_error(static_cast<int>(error));
     }
 #else
-    void* view = mmap(nullptr, static_cast<std::size_t>(map.size),
-                      PROT_READ | (map.writable ? PROT_WRITE : 0), MAP_SHARED, map.file, 0);
-    if (view == MAP_FAILED) {
+    const int protection = how == view_t::READ ? PROT_READ : PROT_READ | PROT_WRITE;
+    void* made = mmap(nullptr, static_cast<std::size_t>(map.size), protection,
+                      how == view_t::COPY ? MAP_PRIVATE : MAP_SHARED, map.file, 0);
+    if (made == MAP_FAILED) {
         return uv_translate_sys_error(errno);
     }
 #endif
-    map.data = static_cast<std::uint8_t*>(view);
+    view = static_cast<std::uint8_t*>(made);
     return 0;
+}
+
+void unmap_view(std::uint8_t* view, [[maybe_unused]] const std::int64_t size) {
+    if (view == nullptr) {
+        return;
+    }
+
+#ifdef _WIN32
+    UnmapViewOfFile(view);
+#else
+    munmap(view, static_cast<std::size_t>(size));
+#endif
+}
+
+/// Unmaps the views and closes the file, once it's closed and no Buffer holds them.
+void unmap(map_t& map) {
+    if (map.open || map.holds > 0 || !map.mapped) {
+        return;
+    }
+
+    map.mapped = false;
+    unmap_view(map.data, map.size);
+    unmap_view(map.copied, map.size);
+    map.data = nullptr;
+    map.copied = nullptr;
+    close_file(map.file);
 }
 
 std::int64_t open_map(map_t& map, const std::string& path) {
@@ -95,7 +144,7 @@ std::int64_t open_map(map_t& map, const std::string& path) {
     // An empty file has no bytes to map.
     std::int64_t mapped = found;
     if (mapped == 0 && map.size > 0) {
-        mapped = map_bytes(map);
+        mapped = map_view(map, map.writable ? view_t::WRITE : view_t::READ, map.data);
     }
 
     if (mapped < 0) {
@@ -105,6 +154,7 @@ std::int64_t open_map(map_t& map, const std::string& path) {
     }
 
     map.open = true;
+    map.mapped = true;
     return 0;
 }
 
@@ -136,11 +186,36 @@ std::int32_t fb_io_map_open(const void* map) {
 }
 
 std::uint8_t* fb_io_map_data(const void* map) {
-    return map_of(map).data;
+    const map_t& self = map_of(map);
+    return self.open ? self.data : nullptr;
 }
 
 std::int64_t fb_io_map_size(const void* map) {
-    return map_of(map).size;
+    const map_t& self = map_of(map);
+    return self.open ? self.size : 0;
+}
+
+std::int64_t fb_io_map_hold(void* map) {
+    map_t& self = map_of(map);
+    if (!self.writable && self.copied == nullptr && self.size > 0) {
+        if (const std::int64_t mapped = map_view(self, view_t::COPY, self.copied); mapped < 0) {
+            return mapped;
+        }
+    }
+
+    ++self.holds;
+    return 0;
+}
+
+std::uint8_t* fb_io_map_held(const void* map) {
+    const map_t& self = map_of(map);
+    return self.writable ? self.data : self.copied;
+}
+
+void fb_io_map_drop(void* map) {
+    map_t& self = map_of(map);
+    --self.holds;
+    unmap(self);
 }
 
 void fb_io_map_read(const void* map, const std::int64_t start, const std::int64_t count,
@@ -178,22 +253,8 @@ std::int64_t fb_io_map_flush(void* map) {
 
 void fb_io_map_close(void* map) {
     map_t& self = map_of(map);
-    if (!self.open) {
-        return;
-    }
-
     self.open = false;
-    if (self.data != nullptr) {
-#ifdef _WIN32
-        UnmapViewOfFile(self.data);
-#else
-        munmap(self.data, static_cast<std::size_t>(self.size));
-#endif
-    }
-
-    self.data = nullptr;
-    self.size = 0;
-    close_file(self.file);
+    unmap(self);
 }
 
 void fb_io_map_free(void* map) {

@@ -192,7 +192,16 @@ void fb_io_map_read(const void* map, std::int64_t start, std::int64_t count, fb_
 void fb_io_map_write(void* map, std::int64_t start, const fb_array_t* bytes);
 /// Writes what was changed in a writable one onto the disk: 0, or an error.
 std::int64_t fb_io_map_flush(void* map);
+/// Holds an open one's bytes for a Buffer, which keeps them mapped, though it's closed, until it
+/// drops them: 0, or the error a read-only one's view couldn't be made with, a copy of the file's
+/// pages as they're written, the first time. fb_io_map_held is where the held bytes are: a
+/// writable one's own, or that view, null for an empty file.
+std::int64_t fb_io_map_hold(void* map);
+std::uint8_t* fb_io_map_held(const void* map);
+void fb_io_map_drop(void* map);
+/// Closes it, unmapping it and closing the file once no Buffer holds its bytes.
 void fb_io_map_close(void* map);
+/// Gives it back, once no Buffer holds its bytes.
 void fb_io_map_free(void* map);
 
 /// A watcher of the file or folder at `path`, which the I/O thread has started, and which
