@@ -1,0 +1,19 @@
+// Templates renders a Class's data through Save, so a Class that holds itself panics where Render
+// is called, as Save does.
+Import std.core
+Import std.text.template
+
+Class Node
+    Field Label = "self"
+    Field Next: Node? = Null
+End Class
+
+Local node = Node()
+node.Next = node
+Try
+    Local set = Templates()
+    set.Add("node", r"{{Label}}")
+    Print(set.Render("node", node))
+Catch e As FormatError
+    Print(e.Message)
+End Try

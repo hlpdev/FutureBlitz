@@ -33,7 +33,9 @@ Public Class Template
     End Method
 
     // The template, filled from the Value that Save makes of data: a Struct's or Class's Fields
-    // by name, a Map's keys, and the rest as Save has them.
+    // by name, a Map's keys, and the rest as Save has them. Panics, as Save does, for data that
+    // nests more than 256 levels deep.
+    @PanicsAtCaller
     Public Method Render<T>(data: T): String Throws FormatError => Try Render(Save(data))
 End Class
 
@@ -73,7 +75,9 @@ Public Class Templates
         Return Try Rendered(Try PartsOf(name, ""), data, IsHtml(name), Self)
     End Method
 
-    // The template of the name, filled from the Value that Save makes of data.
+    // The template of the name, filled from the Value that Save makes of data. Panics, as Save
+    // does, for data that nests more than 256 levels deep.
+    @PanicsAtCaller
     Public Method Render<T>(name: String, data: T): String Throws FormatError =>
         Try Render(name, Save(data))
 
