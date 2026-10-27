@@ -1,0 +1,9 @@
+workers: 2
+two running: True
+pong
+still two: 2
+slow 1, slow 2, slow 3, slow 4
+most at once: 2
+201 POST /echo/7 id=7 q=find name=Ada body=hi 2 bytes, HTTP/1.1 yes
+HEAD: 200 0
+GET /ping, GET /slow/1, GET /slow/2, GET /slow/3, GET /slow/4, HEAD /slow/9, POST /echo/7

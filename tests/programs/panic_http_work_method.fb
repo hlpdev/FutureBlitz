@@ -1,0 +1,7 @@
+// A work route's method is a token, so one with a space panics where it's added.
+Import std.core
+Import std.net.http
+
+Local server = HttpServer()
+server.Work("PUT", "/a", Function(request: WorkRequest) => HttpResponse.Of(204))
+server.Work("NOT ONE", "/b", Function(request: WorkRequest) => HttpResponse.Of(204))

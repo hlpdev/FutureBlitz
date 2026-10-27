@@ -16,10 +16,12 @@ Import std.net.http.headers
 Import std.net.http.status
 Import std.net.http.client
 Import std.net.http.wire
+Import std.net.http.work
 Import std.text
 
 Extern "runtime"
     Function fb_string_from_utf8(bytes: UInt8[]): String
+    Function fb_pool_size(): Int64
 End Extern
 
 // What a route runs: an Async Function of the request, which gives the response.
@@ -93,6 +95,19 @@ Public Class HttpRequest
     Package Method Bind(name: String, value: String)
         Bound[name] = value
     End Method
+
+    // A Sendable copy of it, for a work route's handler on another thread.
+    Package Method Copy(): WorkRequest
+        Local names: String[] = []
+        Local values: String[] = []
+        For name, value In Headers
+            names.Add(name)
+            values.Add(value)
+        End For
+
+        Return WorkRequest(Verb, Target, Path, Version, RemoteAddress, Bytes, names, values, Bound,
+                           Query.ToString())
+    End Method
 End Class
 
 // Responses a handler gives.
@@ -139,23 +154,26 @@ Function NewHeaders(): Headers => Headers()
 
 // A route: its method, its pattern's segments, its handler, and the middleware of the groups
 // it's in, outermost first, which are their own stacks, so what Use adds later runs too.
+// A work route has its WorkHandler instead of a handler, which the server makes as it's called.
 Package Class RouteEntry
     Package ReadOnly Field Verb: String
     Package ReadOnly Field Segments: String[]
-    Package ReadOnly Field Handler: HttpHandler
+    Package ReadOnly Field Handler: HttpHandler?
+    Package ReadOnly Field Work: WorkHandler?
     Package ReadOnly Field Stacks: HttpMiddleware[][]
 
-    Package New(verb: String, segments: String[], handler: HttpHandler,
+    Package New(verb: String, segments: String[], handler: HttpHandler?, work: WorkHandler?,
                 stacks: HttpMiddleware[][])
         Verb = verb
         Segments = segments
         Handler = handler
+        Work = work
         Stacks = stacks
     End New
 
-    // The handler inside its groups' middleware.
-    Package Method Wrapped(): HttpHandler
-        Local wrapped = Handler
+    // A handler inside its groups' middleware.
+    Package Method Wrapped(handler: HttpHandler): HttpHandler
+        Local wrapped = handler
         For i = Stacks.Count - 1 To 0 Step -1
             wrapped = Stacked(Stacks[i], wrapped)
         End For
@@ -227,6 +245,22 @@ Public Class HttpRouter
         Add(method, path, handler)
     End Method
 
+    // Adds a work route for GET and the path, as Get does, whose handler blocks, computing or
+    // waiting, and so runs on one of the server's Workers threads, given a Sendable copy of the
+    // request, while the main thread goes on answering others. The server's and groups'
+    // middleware runs around it on the main thread, as it does around any route.
+    @PanicsAtCaller
+    Public Method Work(path: String, handler: WorkHandler)
+        Add("GET", path, Null, handler)
+    End Method
+
+    // Adds a work route for method, as Route does.
+    @PanicsAtCaller
+    Public Method Work(method: String, path: String, handler: WorkHandler)
+        If !IsToken(method) Then Panic("\"{method}\" isn't an HTTP method")
+        Add(method, path, Null, handler)
+    End Method
+
     // Adds middleware, which runs around each of its routes' handlers, after what Use gave it
     // before, a server's around every request, the ones no route takes too.
     Public Method Use(middleware: HttpMiddleware)
@@ -248,7 +282,7 @@ Public Class HttpRouter
     End Method
 
     @PanicsAtCaller
-    Method Add(method: String, path: String, handler: HttpHandler)
+    Method Add(method: String, path: String, handler: HttpHandler?, work: WorkHandler? = Null)
         Local segments = Joined(Prefix, SegmentsOf(path))
         Local names: String[] = []
         For segment In segments
@@ -270,7 +304,7 @@ Public Class HttpRouter
 
         Local stacks = Stacks.Clone()
         If !(Self Is HttpServer) Then stacks.Add(Stack)
-        table.Routes.Add(RouteEntry(method, segments, handler, stacks))
+        table.Routes.Add(RouteEntry(method, segments, handler, work, stacks))
     End Method
 
     // The server's routes, or a panic once the server's gone.
@@ -415,10 +449,14 @@ Public Class HttpServer Extends HttpRouter
     Field Stopping: Bool
     Field BodyLimit: Int64 = 16777216
     Field Idle: Duration
+    // How many Workers threads its work routes have, and the threads, once one is called.
+    Field Count: Int
+    Field Pool: WorkPool? = Null
 
     Public New()
         Connections = Map<Int, ServerConnection>()
         Idle = 60.Seconds
+        Count = fb_pool_size() As Int
         Own = RouteTable()
         Super.New(Own, [], [])
     End New
@@ -431,6 +469,22 @@ Public Class HttpServer Extends HttpRouter
         Set(value)
             If value < 0 Then Panic("a server's MaxBodySize is 0 at least, not {value}")
             BodyLimit = value
+        End Set
+    End Property
+
+    // How many threads its work routes' handlers run on, at most that many at once, the job
+    // pool's size, a core fewer than the machine's, unless it's set; the threads start when a
+    // work route is first called, and end once Serve gives. Panics when it's set below 1, or once
+    // the threads have started.
+    @PanicsAtCaller
+    Public Property Workers: Int
+        Get => Count
+        Set(value)
+            If value < 1 Then Panic("a server's Workers is 1 at least, not {value}")
+            If Pool != Null
+                Panic("a server's Workers can't change once its threads have started")
+            End If
+            Count = value
         End Set
     End Property
 
@@ -469,6 +523,7 @@ Public Class HttpServer Extends HttpRouter
     @PanicsAtCaller
     Public Async Method Serve()
         Local listener = Listening()
+        Defer Pool?.Close()
         While !Stopping
             Try
                 Local stream = Try Await listener.AcceptAsync()
@@ -604,6 +659,22 @@ Public Class HttpServer Extends HttpRouter
         Return Await Around(routed)(request)
     End Method
 
+    // A work route's response: its handler's, from a Workers thread, which the first call starts
+    // them for, or a 503 Service Unavailable once Serve has given, or while 1024 calls wait for a
+    // thread already.
+    Async Method Worked(request: HttpRequest, work: WorkHandler): HttpResponse
+        Local pool = Pool
+        If pool == Null
+            If Stopping Then Return HttpResponse.Of(StatusCode.SERVICE_UNAVAILABLE)
+            pool = WorkPool(Count)
+            Pool = pool
+        End If
+
+        Local task = pool.Run(work, request.Copy())
+        If task == Null Then Return HttpResponse.Of(StatusCode.SERVICE_UNAVAILABLE)
+        Return (Await task).Response()
+    End Method
+
     // The response of the route that takes the request, or a 404 or a 405; an OPTIONS of *, the
     // server's own, is a 204.
     Async Method Routed(request: HttpRequest): HttpResponse
@@ -652,7 +723,15 @@ Public Class HttpServer Extends HttpRouter
             End If
         End For
 
-        Return Await chosen.Wrapped()(request)
+        Local work = chosen.Work
+        Local handler = chosen.Handler
+        If handler == Null && work != Null
+            Local worker = work
+            handler = Function(asked: HttpRequest) => Worked(asked, worker)
+        End If
+
+        Local run = handler.Expect("a route has a handler or a work handler")
+        Return Await chosen.Wrapped(run)(request)
     End Method
 End Class
 

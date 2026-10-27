@@ -1,0 +1,8 @@
+// A server's work routes have one thread at least, so Workers of 0 panics where it's set.
+Import std.core
+Import std.net.http
+
+Local server = HttpServer()
+server.Workers = 1
+Print(server.Workers)
+server.Workers = 0

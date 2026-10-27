@@ -1,0 +1,123 @@
+// An HttpServer's work routes: blocking handlers that run on its Workers threads, no more of them
+// at once than it has, while the main thread goes on answering its other routes; each gets a
+// copy of its request, and the middleware runs around it on the main thread, as around any.
+
+Import std.core
+Import std.collections
+Import std.concurrent
+Import std.net
+Import std.net.http
+Import std.text
+Import std.time
+
+// How many handlers run at once, and the most that have.
+Shared Class Gauge
+    Field Counts: Mutex<(Int, Int)>
+End Class
+
+Const gauge = Gauge()
+// What lets a waiting handler go on.
+Const release = Channel<Bool>(16)
+
+// What the middleware saw, on the main thread.
+Global seen: String[] = []
+
+Function Running(): Int
+    Local running = 0
+    Lock gauge.Counts As counts
+        running = counts.0
+    End Lock
+    Return running
+End Function
+
+Local server = HttpServer()
+server.Workers = 2
+server.Use(Async Function(request: HttpRequest, next: HttpHandler): HttpResponse
+    seen.Add("{request.Verb} {request.Path}")
+    Return Await next(request)
+End Function)
+
+// A handler that blocks until it's released.
+server.Work("/slow/:n", Function(request: WorkRequest): HttpResponse
+    Lock gauge.Counts As counts
+        counts = (counts.0 + 1, Max(counts.1, counts.0 + 1))
+    End Lock
+
+    release.Receive()
+    Lock gauge.Counts As counts
+        counts = (counts.0 - 1, counts.1)
+    End Lock
+    Return HttpResponse.Of(Body.Text("slow {request.Param("n") ?? "?"}"))
+End Function)
+
+// A handler that reads its copy of the request, and sets a header of its response.
+server.Work("POST", "/echo/:id", Function(request: WorkRequest): HttpResponse
+    Local text = "{request.Verb} {request.Path} id={request.Param("id") ?? "?"} " +
+                 "q={request.Query.Get("q") ?? "?"} name={request.Headers.Get("X-Name") ?? "?"} " +
+                 "body={request.Text} {request.Bytes.Count} bytes, {request.Version}"
+    Local response = HttpResponse.Of(StatusCode.CREATED, Body.Text(text))
+    response.Headers.Set("X-Worked", "yes")
+    Return response
+End Function)
+
+server.Get("/ping", Async Function(request: HttpRequest) => HttpResponse.Of(Body.Text("pong")))
+
+// Waits on the main thread, letting its coroutines run, until `count` handlers are running, or
+// ten seconds have gone by.
+Async Function UntilRunning(count: Int): Bool
+    Local deadline = Deadline.After(10.Seconds)
+    While Running() < count && !deadline.HasPassed
+        Await RealWait(1.Milliseconds)
+    End While
+    Return Running() == count
+End Function
+
+Try
+    Print("workers:", server.Workers)
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local serving = server.Serve()
+    Local base = "http://127.0.0.1:{server.LocalAddress.Port}"
+    Local client = HttpClient()
+
+    // Four slow calls: two run, on the two threads, and two wait; the main thread still answers.
+    Local slow: (Task<HttpResponse> Throws NetError, TimeoutError)[] = []
+    For n = 1 To 4
+        slow.Add(client.GetAsync("{base}/slow/{n}"))
+    End For
+
+    Print("two running:", Await UntilRunning(2))
+    Print((Await client.GetAsync("{base}/ping")).Text)
+    Print("still two:", Running())
+    For n = 1 To 4
+        release.Send(True)
+    End For
+
+    Local answers: String[] = []
+    For task In slow
+        answers.Add((Await task).Text)
+    End For
+    answers.Sort()
+    Print(answers.Join(", "))
+    Local most = 0
+    Lock gauge.Counts As counts
+        most = counts.1
+    End Lock
+    Print("most at once:", most)
+
+    // A copy of the request, and the response's status and headers back.
+    Local headers = Headers()
+    headers.Add("X-Name", "Ada")
+    Local echoed = Await client.SendAsync(HttpMethod.POST, "{base}/echo/7?q=find", Body.Text("hi"),
+                                          headers)
+    Print(echoed.Status, echoed.Text, echoed.Headers.Get("X-Worked") ?? "none")
+    release.Send(True)
+    Local head = Await client.HeadAsync("{base}/slow/9")
+    Print("HEAD:", head.Status, head.Bytes.Count)
+
+    seen.Sort()
+    Print(seen.Join(", "))
+    server.Stop()
+    Await serving
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
