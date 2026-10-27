@@ -187,24 +187,48 @@ std::optional<moment_t> dos_time(const std::uint32_t dos) {
     return moment_t{ .seconds = (days * 86400) + clock, .nanos = 0 };
 }
 
-/// The time minizip-ng writes as the DOS date and time of `seconds`' UTC, kept from 1980 to 2107,
-/// which they hold. It writes a time's local date and time, so it's those of the UTC's read as
-/// local time, which are the same bytes everywhere but for an hour a change to summer time skips.
-std::time_t dos_date_of(const std::int64_t seconds) {
+/// The DOS date and time of `seconds`' UTC, as `(date << 16) | time`, kept from 1980 to 2107,
+/// which they hold, and rounded down to an even second, as they are.
+std::uint32_t dos_of(const std::int64_t seconds) {
     const std::chrono::sys_seconds kept{ std::chrono::seconds(
         std::clamp(seconds, first_dos, last_dos)) };
     const std::chrono::sys_days days = std::chrono::floor<std::chrono::days>(kept);
     const std::chrono::year_month_day date(days);
     const std::chrono::hh_mm_ss clock(kept - days);
-    std::tm local{};
-    local.tm_year = static_cast<int>(date.year()) - 1900;
-    local.tm_mon = static_cast<int>(static_cast<unsigned>(date.month())) - 1;
-    local.tm_mday = static_cast<int>(static_cast<unsigned>(date.day()));
-    local.tm_hour = static_cast<int>(clock.hours().count());
-    local.tm_min = static_cast<int>(clock.minutes().count());
-    local.tm_sec = static_cast<int>(clock.seconds().count());
-    local.tm_isdst = -1;
-    return std::mktime(&local);
+    const auto year = static_cast<std::uint32_t>(static_cast<int>(date.year()) - 1980);
+    const std::uint32_t day = (year << 9U) | (static_cast<unsigned>(date.month()) << 5U) |
+                              static_cast<unsigned>(date.day());
+    const std::uint32_t time = (static_cast<std::uint32_t>(clock.hours().count()) << 11U) |
+                               (static_cast<std::uint32_t>(clock.minutes().count()) << 5U) |
+                               (static_cast<std::uint32_t>(clock.seconds().count()) / 2);
+    return (day << 16U) | time;
+}
+
+/// The DOS date and time of the central directory record at `at` in `bytes`, as
+/// `(date << 16) | time`, or 0, which isn't a date, when there's no record there. minizip-ng
+/// gives them as a time it made of them in local time, which doesn't hold one an hour of summer
+/// time skips, so they're read from the record itself.
+std::uint32_t dos_at(const std::span<const std::uint8_t> bytes, const std::int64_t at) {
+    if (at < 0 || std::cmp_greater(at + 16, bytes.size())) {
+        return 0;
+    }
+
+    const std::span<const std::uint8_t> record = bytes.subspan(static_cast<std::size_t>(at), 16);
+    if (little_endian(record.first(4)) != 0x02014b50) {
+        return 0;
+    }
+
+    return static_cast<std::uint32_t>((little_endian(record.subspan(14, 2)) << 16U) |
+                                      little_endian(record.subspan(12, 2)));
+}
+
+/// Puts `value` in `bytes` at `at`, little-endian, in `size` bytes.
+void put_little_endian(std::vector<std::uint8_t>& bytes, const std::size_t at, std::uint64_t value,
+                       const std::size_t size) {
+    for (std::size_t i = 0; i < size; ++i) {
+        bytes[at + i] = static_cast<std::uint8_t>(value & 0xffU);
+        value >>= 8U;
+    }
 }
 
 struct entry_t {
@@ -321,7 +345,57 @@ struct writer_t {
     std::vector<std::uint8_t> bytes;
     vector_t stream{};
     void* zip = nullptr;
+    /// Each entry's DOS date and time, in the order they're added.
+    std::vector<std::uint32_t> dates;
 };
+
+/// Puts each entry's DOS date and time in the finished zip, in its local header and its central
+/// directory record: minizip-ng writes a time's local date and time, which can't be one an hour of
+/// summer time skips, so the same entries make the same bytes in every time zone. One of more
+/// bytes than a UInt8[] holds is too large to give anyway, and is left as it is.
+void put_dates(writer_t& writer) {
+    std::vector<std::uint8_t>& bytes = writer.bytes;
+    const std::span<const std::uint8_t> all(bytes);
+    if (bytes.size() < 22 || std::cmp_greater(bytes.size(), most_bytes)) {
+        return;
+    }
+
+    // The end of the central directory, which has no comment, says where it starts, unless it's
+    // Zip64's, as many entries make it, whose locator is before it.
+    const std::size_t end = bytes.size() - 22;
+    if (little_endian(all.subspan(end, 4)) != 0x06054b50) {
+        return;
+    }
+
+    std::uint64_t at = little_endian(all.subspan(end + 16, 4));
+    if (at == UINT32_MAX) {
+        if (end < 20 || little_endian(all.subspan(end - 20, 4)) != 0x07064b50) {
+            return;
+        }
+
+        const std::uint64_t zip64 = little_endian(all.subspan(end - 12, 8));
+        if (zip64 + 56 > end || little_endian(all.subspan(zip64, 4)) != 0x06064b50) {
+            return;
+        }
+
+        at = little_endian(all.subspan(zip64 + 48, 8));
+    }
+
+    for (const std::uint32_t dos : writer.dates) {
+        if (at + 46 > bytes.size() || little_endian(all.subspan(at, 4)) != 0x02014b50) {
+            return;
+        }
+
+        put_little_endian(bytes, at + 12, dos, 4);
+        const std::uint64_t local = little_endian(all.subspan(at + 42, 4));
+        if (local + 30 <= bytes.size() && little_endian(all.subspan(local, 4)) == 0x04034b50) {
+            put_little_endian(bytes, local + 10, dos, 4);
+        }
+
+        at += 46 + little_endian(all.subspan(at + 28, 2)) + little_endian(all.subspan(at + 30, 2)) +
+              little_endian(all.subspan(at + 32, 2));
+    }
+}
 
 std::int32_t fail(reader_t& reader, const std::int32_t result, const std::string_view message) {
     reader.message = message;
@@ -553,12 +627,13 @@ std::int32_t open(reader_t& reader) {
             name.pop_back();
         }
 
-        // Its time is UTC in an extra field, or else its DOS date's, which minizip-ng read as
-        // local time, and so gives back. A Unix-like OS's entry has a Unix mode.
+        // Its time is UTC in an extra field, or else its DOS date's, read as UTC. A Unix-like
+        // OS's entry has a Unix mode.
+        const std::int64_t position = mz_zip_get_entry(reader.zip);
         std::optional<moment_t> modified =
             extra_time({ info->extrafield, static_cast<std::size_t>(info->extrafield_size) });
         if (!modified) {
-            modified = dos_time(mz_zip_time_t_to_dos_date(info->modified_date));
+            modified = dos_time(dos_at(reader.bytes, position));
         }
 
         const std::uint32_t mode = info->external_fa >> 16U;
@@ -569,7 +644,7 @@ std::int32_t open(reader_t& reader) {
             .target = info->linkname != nullptr ? info->linkname : "",
             .modified = modified,
             .mode = unix_like && mode != 0 ? static_cast<std::int32_t>(mode & 07777U) : -1,
-            .position = mz_zip_get_entry(reader.zip),
+            .position = position,
         });
     }
 
@@ -604,6 +679,7 @@ std::int32_t open(reader_t& reader) {
 
 void start(writer_t& writer) {
     writer.bytes.clear();
+    writer.dates.clear();
     writer.stream = {
         .stream = { .vtbl = &vector_table, .base = nullptr },
         .bytes = &writer.bytes,
@@ -738,9 +814,10 @@ void fb_zip_writer_add(void* writer, const fb_string_t* name, const fb_array_t* 
     info.flag = ascii ? 0 : MZ_ZIP_FLAG_UTF8;
     info.compression_method =
         folder != 0 ? MZ_COMPRESS_METHOD_STORE : methods[static_cast<std::size_t>(method)];
-    // A time is its DOS date's, and, where it's from 1970 to 2106, exact to the second in
-    // Info-ZIP's extended timestamp, which tools read as UTC.
-    info.modified_date = dos_date_of(timed != 0 ? seconds : first_dos);
+    // A time is its DOS date's, which put_dates() writes, and, where it's from 1970 to 2106,
+    // exact to the second in Info-ZIP's extended timestamp, which tools read as UTC.
+    state.dates.push_back(dos_of(timed != 0 ? seconds : first_dos));
+    info.modified_date = first_dos;
     std::array<std::uint8_t, 9> extended{ 0x55, 0x54, 5, 0, 1 };
     if (timed != 0 && seconds >= 0 && std::cmp_less_equal(seconds, UINT32_MAX)) {
         for (std::size_t i = 0; i < 4; ++i) {
@@ -788,6 +865,7 @@ std::int32_t fb_zip_writer_finish(void* writer, fb_array_t* output, const std::i
         fb_panic("std.compress's Zip couldn't finish a zip", nullptr);
     }
 
+    put_dates(state);
     output_t out(output, limit);
     const bool fits = out.add(state.bytes);
     stop(state);
