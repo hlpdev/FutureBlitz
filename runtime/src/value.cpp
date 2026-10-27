@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <fast_float/fast_float.h>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -239,7 +240,7 @@ std::int32_t fb_value_scalar(const fb_string_t* text, std::uint64_t* bits, doubl
     // leaves unread. An integer past every integer type's is told apart, since its Double may
     // round to an Int64's least.
     double value = 0;
-    const auto [stop, error] = std::from_chars(first, end, value);
+    const auto [stop, error] = fast_float::from_chars(first, end, value);
     if (stop != end || (error != std::errc() && error != std::errc::result_out_of_range)) {
         return 0;
     }
@@ -288,7 +289,7 @@ double fb_value_float(const float value) {
     const auto [end, error] = std::to_chars(text.data(), text.data() + text.size(), value);
     double wide = value;
     if (error == std::errc()) {
-        std::from_chars(text.data(), end, wide);
+        fast_float::from_chars(text.data(), end, wide);
     }
 
     return wide;
