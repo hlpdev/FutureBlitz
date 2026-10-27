@@ -1,0 +1,27 @@
+// Acme.CertificateRequest makes the CSR an ACME order is finalized with: for a fixed key, whose
+// ECDSA signatures are deterministic, as RFC 6979 makes them, its DER is the same each time, and
+// `openssl req -verify -text` reads each request here as signed by the key, for the names listed,
+// a wildcard's too. Forty names make one whose lengths take two bytes of DER.
+Import std.core
+Import std.collections
+Import std.crypto
+Import std.text
+Import std.net.acme
+
+Local bytes: UInt8[] = []
+For i = 1 To 32
+    bytes.Add(i As UInt8)
+End For
+
+Local key = Key(KeyKind.ECDSA_P256, True, bytes)
+Local request = Acme.CertificateRequest(key, ["example.com", "*.example.com", "xn--bcher-kva.example"])
+Print(Base64.Encode(request))
+
+Local names: String[] = []
+For i = 1 To 40
+    names.Add("host-{i}.example.org")
+End For
+
+Local many = Acme.CertificateRequest(key, names)
+Print(many.Count, many[1], many[2], many[3])
+Print(Base64.Encode(many))

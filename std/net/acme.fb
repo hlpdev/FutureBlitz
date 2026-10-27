@@ -1,0 +1,157 @@
+// std.net.acme: what automatic HTTPS needs of ACME (RFC 8555), as Let's Encrypt speaks it. Acme's
+// CertificateRequest makes the certificate signing request an order is finalized with, as DER,
+// for a P-256 key and the DNS names it's for.
+
+Import std.core
+Import std.collections
+Import std.crypto
+
+// A name's most bytes, and a label's, as DNS has them.
+Const NAME_LIMIT = 253
+Const LABEL_LIMIT = 63
+
+// DER's tags, of what a request holds.
+Const DER_INTEGER: UInt8 = 0x02
+Const DER_BIT_STRING: UInt8 = 0x03
+Const DER_OCTET_STRING: UInt8 = 0x04
+Const DER_SEQUENCE: UInt8 = 0x30
+Const DER_SET: UInt8 = 0x31
+// A request's attributes, [0], and a subjectAltName's dNSName, [2].
+Const DER_ATTRIBUTES: UInt8 = 0xA0
+Const DER_DNS_NAME: UInt8 = 0x82
+
+// What ACME needs that isn't a request to a CA. Acme isn't made: it's only its Static Methods.
+Public Struct Acme
+    New()
+    End New
+
+    // A certificate signing request (PKCS #10) of `key`, an ECDSA P-256 private key, which signs
+    // it, for `names`, DNS names, which its subjectAltName lists, in order, and its subject
+    // doesn't: ACME's CAs read the names there. Panics for a key of another kind, no names, or a
+    // name that isn't a DNS name of ASCII letters, digits, and hyphens, as an IDN's A-label is,
+    // maybe with "*." first, for a wildcard.
+    @PanicsAtCaller
+    Public Static Method CertificateRequest(key: Key, names: String[]): UInt8[]
+        If key.Kind != KeyKind.ECDSA_P256 || !key.IsPrivate
+            Panic("an ACME certificate's key is an ECDSA P-256 private key, not {key.Kind}")
+        End If
+
+        If names.Count == 0 Then Panic("a certificate signing request is for one name at least")
+        Local alternatives: UInt8[] = []
+        For name In names
+            CheckName(name)
+            alternatives.AddAll(Der(DER_DNS_NAME, name.Bytes))
+        End For
+
+        // 1.2.840.10045.2.1, an EC public key, on 1.2.840.10045.3.1.7, P-256.
+        Local algorithm = Der(DER_SEQUENCE, [0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01,
+                                             0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01,
+                                             0x07])
+        Local point: UInt8[] = [0]
+        point.AddAll(EcdsaP256.PublicKeyOf(key.Bytes))
+        Local publicKey = Der(DER_SEQUENCE, Joined([algorithm, Der(DER_BIT_STRING, point)]))
+        // 2.5.29.17, subjectAltName, in 1.2.840.113549.1.9.14, the extensions requested.
+        Local altName: UInt8[] = [0x06, 0x03, 0x55, 0x1D, 0x11]
+        altName.AddAll(Der(DER_OCTET_STRING, Der(DER_SEQUENCE, alternatives)))
+        Local requested: UInt8[] = [0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09,
+                                    0x0E]
+        requested.AddAll(Der(DER_SET, Der(DER_SEQUENCE, Der(DER_SEQUENCE, altName))))
+        // Version 0, an empty subject, the key, and the extensions.
+        Local info: UInt8[] = [DER_INTEGER, 0x01, 0x00]
+        info.AddAll(Der(DER_SEQUENCE, []))
+        info.AddAll(publicKey)
+        info.AddAll(Der(DER_ATTRIBUTES, Der(DER_SEQUENCE, requested)))
+        Local signed = Der(DER_SEQUENCE, info)
+
+        // 1.2.840.10045.4.3.2, ECDSA with SHA-256, and the signature as DER's r and s.
+        Local signature = EcdsaP256.Sign(key.Bytes, signed)
+        Local integers = Joined([DerInteger(signature[0..32]), DerInteger(signature[32..64])])
+        Local value: UInt8[] = [0]
+        value.AddAll(Der(DER_SEQUENCE, integers))
+        Local request = signed.Clone()
+        request.AddAll(Der(DER_SEQUENCE, [0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03,
+                                          0x02]))
+        request.AddAll(Der(DER_BIT_STRING, value))
+        Return Der(DER_SEQUENCE, request)
+    End Method
+End Struct
+
+// Panics where it's called unless `name` is a DNS name a certificate can be for.
+@PanicsAtCaller
+Function CheckName(name: String)
+    Local bytes = name.Bytes
+    Local start = 0
+    // A wildcard's "*." stands for one label.
+    If bytes.Count > 2 && bytes[0] == ('*' As UInt8) && bytes[1] == ('.' As UInt8) Then start = 2
+    If bytes.Count == start || bytes.Count > NAME_LIMIT
+        Panic("a certificate's DNS name is 1 to {NAME_LIMIT} bytes, not \"{name}\"")
+    End If
+
+    Local label = 0
+    For at = start Until bytes.Count
+        Local byte = bytes[at]
+        If byte == ('.' As UInt8)
+            If label == 0 Then Panic("\"{name}\" has an empty label")
+            label = 0
+            Continue
+        End If
+
+        Local letter = (byte >= ('a' As UInt8) && byte <= ('z' As UInt8)) ||
+                       (byte >= ('A' As UInt8) && byte <= ('Z' As UInt8))
+        Local digit = byte >= ('0' As UInt8) && byte <= ('9' As UInt8)
+        If !letter && !digit && byte != ('-' As UInt8)
+            Panic("\"{name}\" isn't a DNS name of ASCII letters, digits, and hyphens; an " +
+                  "international one goes as its A-label, \"xn--...\"")
+        End If
+
+        label += 1
+        If label > LABEL_LIMIT Then Panic("\"{name}\" has a label of more than {LABEL_LIMIT} bytes")
+    End For
+
+    If label == 0 Then Panic("\"{name}\" has an empty label")
+End Function
+
+// The parts, one after another.
+Function Joined(parts: UInt8[][]): UInt8[]
+    Local joined: UInt8[] = []
+    For part In parts
+        joined.AddAll(part)
+    End For
+
+    Return joined
+End Function
+
+// `content` as DER of `tag`: the tag, its length, and it.
+Function Der(tag: UInt8, content: UInt8[]): UInt8[]
+    Local der: UInt8[] = [tag]
+    Local length = content.Count
+    If length < 0x80
+        der.Add(length As UInt8)
+    Else
+        Local bytes: UInt8[] = []
+        While length > 0
+            bytes.Insert(0, (length & 0xFF) As UInt8)
+            length = length >> 8
+        End While
+
+        der.Add((0x80 | bytes.Count) As UInt8)
+        der.AddAll(bytes)
+    End If
+
+    der.AddAll(content)
+    Return der
+End Function
+
+// An unsigned integer of big-endian bytes, as DER's INTEGER: without its leading zeros, and with
+// one zero first when its first bit is set, so it isn't negative.
+Function DerInteger(magnitude: UInt8[]): UInt8[]
+    Local start = 0
+    While start < magnitude.Count - 1 && magnitude[start] == 0
+        start += 1
+    End While
+
+    Local content: UInt8[] = []
+    If magnitude[start] >= 0x80 Then content.Add(0)
+    content.AddAll(magnitude[start..magnitude.Count])
+    Return Der(DER_INTEGER, content)
+End Function
