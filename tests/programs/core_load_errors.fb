@@ -101,6 +101,19 @@ Tried(changed)
 changed = Good()
 changed["Bytes"] = Value("ab")
 Tried(changed)
+// A String of standard base64, as JSON writes bytes, is them; one without its padding, with a
+// '=' inside it or too many at its end, or with a character base64 doesn't have, isn't.
+changed = Good()
+changed["Bytes"] = Value("YWI=")
+Tried(changed)
+For text In ["YWI", "YW=I", "Y===", "YWI*"]
+    changed = Good()
+    changed["Bytes"] = Value(text)
+    Tried(changed)
+End For
+
+Print(Try Load<UInt8[]>(Value("YWI=")), Try Load<UInt8[]>(Value("")),
+      Try Load<UInt8[]>(Value("/+8A")), Try Load<UInt8[]>(Value("AAAAAA==")))
 
 // A number past its type's range.
 changed = Good()

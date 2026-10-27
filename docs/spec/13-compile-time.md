@@ -240,8 +240,8 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   @Flags value with bits no member has. Load also takes a name in another case, or an integer,
   which for an Enum without @Flags is a member's. A `T?` is Null or a T, a `T[]` an Array, which
   Load also takes as one Value alone, as XML and a command line give one item, a `UInt8[]` bytes,
-  which Load also takes as an Array of integers, as JSON has them, and a `Map<String, V>` an
-  Object. A Value is copied, so the T and the Value don't share one.
+  which Load also takes as a String of their standard base64, with its '=' padding, as JSON
+  writes them, or as an Array of integers, and a `Map<String, V>` an Object. A Value is copied, so the T and the Value don't share one.
 - A Struct or Class is an Object of its Fields, the inherited ones first, by name, but not
   Properties. Load makes one without running its New: each Field takes the Object's entry for
   its key, else its default, else its zero, else it's missing, and keys the type has no Field for

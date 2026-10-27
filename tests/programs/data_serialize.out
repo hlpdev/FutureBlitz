@@ -1,8 +1,8 @@
-{"Player":"Ada \"the\" Brave ✓","Level":-9223372036854775808,"Seed":18446744073709551615,"Speed":0.1,"Hardcore":true,"Position":{"X":-3,"Y":4},"Home":{"X":0,"Y":0},"Status":"POISONED | HIDDEN","Items":[{"Name":"Blade","Kind":"SWORD","Weight":2.5,"Charges":null},{"Name":"Tonic","Kind":"POTION","Weight":0.1,"Charges":3}],"Grid":[[1,-128],[],[127]],"Stash":{"chest":{"Name":"Wall","Kind":"SHIELD","Weight":1e+300,"Charges":0}},"Notes":["first",null,""],"Best":{"run":12.75,"jump":-0.0},"Last":"SHIELD"}
+{"Player":"Ada \"the\" Brave ✓","Level":-9223372036854775808,"Seed":18446744073709551615,"Speed":0.1,"Hardcore":true,"Position":{"X":-3,"Y":4},"Home":{"X":0,"Y":0},"Status":"POISONED | HIDDEN","Items":[{"Name":"Blade","Kind":"SWORD","Weight":2.5,"Charges":null},{"Name":"Tonic","Kind":"POTION","Weight":0.1,"Charges":3}],"Grid":[[1,-128],[],[127]],"Stash":{"chest":{"Name":"Wall","Kind":"SHIELD","Weight":1e+300,"Charges":0}},"Notes":["first",null,""],"Best":{"run":12.75,"jump":-0.0},"Last":"SHIELD","Icon":"AP8Q"}
 True True
 Ada "the" Brave ✓ -9223372036854775808 18446744073709551615 0.1 POISONED | HIDDEN SHIELD {"X":0,"Y":0}
 POTION 3 -1 [[1, -128], [], [127]] ["first",null,""]
-1e300 {run: 12.75, jump: -0}
+1e300 {run: 12.75, jump: -0} [0, 255, 16]
 {
   "Player": "Ada \"the\" Brave ✓",
   "Level": -9223372036854775808,
@@ -59,13 +59,14 @@ POTION 3 -1 [[1, -128], [], [127]] ["first",null,""]
     "run": 12.75,
     "jump": -0.0
   },
-  "Last": "SHIELD"
+  "Last": "SHIELD",
+  "Icon": "AP8Q"
 }
 True
-373
+383
 True True
 True
-{"Player":"","Level":0,"Seed":0,"Speed":0.0,"Hardcore":false,"Position":{"X":0,"Y":0},"Home":null,"Status":"0","Items":[],"Grid":[],"Stash":{},"Notes":[],"Best":null,"Last":null}
+{"Player":"","Level":0,"Seed":0,"Speed":0.0,"Hardcore":false,"Position":{"X":0,"Y":0},"Home":null,"Status":"0","Items":[],"Grid":[],"Stash":{},"Notes":[],"Best":null,"Last":null,"Icon":""}
 True
 True
 7 [{"X":1,"Y":2}] {"a":["SWORD"]} "HASTED"

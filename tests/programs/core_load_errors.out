@@ -5,6 +5,12 @@ loaded box
 WRONG_TYPE [dims[1].Height] dims[1].Height: expected Int8, found "tall" (78)
 WRONG_TYPE [dims[0]] dims[0]: expected an Object, for Size, found "wide" (78)
 WRONG_TYPE [Bytes] Bytes: expected UInt8, found "ab" (78)
+loaded box
+WRONG_TYPE [Bytes] Bytes: expected UInt8, found "YWI" (78)
+WRONG_TYPE [Bytes] Bytes: expected UInt8, found "YW=I" (78)
+WRONG_TYPE [Bytes] Bytes: expected UInt8, found "Y===" (78)
+WRONG_TYPE [Bytes] Bytes: expected UInt8, found "YWI*" (78)
+[97, 98] [] [255, 239, 0] [0, 0, 0, 0]
 OUT_OF_RANGE [dims[0].Width] dims[0].Width: expected Int8, from -128 to 127, found 128 (78)
 WRONG_TYPE [dims[0].Width] dims[0].Width: expected Int8, found 1.5 (78)
 OUT_OF_RANGE [Big] Big: expected UInt64, from 0 to 18446744073709551615, found -1 (78)

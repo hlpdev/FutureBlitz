@@ -1,7 +1,7 @@
 // Json.Write(x) and MessagePack.Write(x) write anything Save converts, and Json.Read<T> and
 // MessagePack.Read<T> read it back through Load<T>: step 19's Struct, of nested Structs, arrays,
-// Maps, Enums, and T?s, round-trips through both, and what version 1 of a program saved loads
-// into version 2's type.
+// Maps, Enums, T?s, and bytes, round-trips through both, and what version 1 of a program saved
+// loads into version 2's type.
 
 Import std.core
 Import std.collections
@@ -43,6 +43,7 @@ Class Game
     Field Notes: String?[] = []
     Field Best: Map<String, Double>?
     Field Last: Kind?
+    Field Icon: UInt8[] = []
 
     New()
         Stash = {}
@@ -65,6 +66,7 @@ Function Full(): Game
     game.Notes = ["first", Null, ""]
     game.Best = {"run": 12.75, "jump": -0.0}
     game.Last = Kind.SHIELD
+    game.Icon = [0, 255, 16]
     Return game
 End Function
 
@@ -79,7 +81,7 @@ Print(back.Player, back.Level, back.Seed, back.Speed, back.Status, back.Last ?? 
       Json.Write(back.Home))
 Print(back.Items[1].Kind, back.Items[1].Charges ?? -1, back.Items[0].Charges ?? -1, back.Grid,
       Json.Write(back.Notes))
-Print(back.Stash["chest"].Weight, back.Best ?? {})
+Print(back.Stash["chest"].Weight, back.Best ?? {}, back.Icon)
 
 Local indented = Json.Write(game, 2)
 Print(indented)

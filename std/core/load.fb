@@ -211,10 +211,17 @@ Package Function LoadString(value: Value, ByRef error: Error?): String
     Return text
 End Function
 
-// Load's UInt8[]: bytes, or an Array of integers from 0 to 255, as JSON has them, or one alone.
+// Load's UInt8[]: bytes; a String of their standard base64, as JSON writes them; or an Array of
+// integers from 0 to 255, or one alone.
 Package Function LoadBytes(value: Value, ByRef error: Error?): UInt8[]
     Local bytes = value.AsBytes()
     If bytes != Null Then Return bytes
+    Local text = value.AsString()
+    If text != Null
+        Local decoded = Base64Bytes(text)
+        If decoded != Null Then Return decoded
+    End If
+
     Local elements = value.AsArray()
     If elements == Null && !value.IsNull Then elements = [value]
     If elements == Null
@@ -233,6 +240,48 @@ Package Function LoadBytes(value: Value, ByRef error: Error?): UInt8[]
         End If
 
         made.Add(byte As UInt8)
+    End For
+
+    Return made
+End Function
+
+// The bytes that text's standard base64 holds, RFC 4648's, with '=' filling out its last 4
+// characters, or Null when it isn't that.
+Function Base64Bytes(text: String): UInt8[]?
+    Local source = text.Bytes
+    If source.Count % 4 != 0 Then Return Null
+    Local count = source.Count
+    While count > 0 && source[count - 1] == 61
+        count -= 1
+    End While
+
+    If source.Count - count > 2 Then Return Null
+    Local made: UInt8[] = []
+    made.Reserve(count * 3 / 4)
+    Local buffer = 0
+    Local held = 0
+    For i = 0 Until count
+        Local symbol = source[i] As Int
+        If symbol >= 65 && symbol <= 90
+            symbol -= 65
+        ElseIf symbol >= 97 && symbol <= 122
+            symbol -= 71
+        ElseIf symbol >= 48 && symbol <= 57
+            symbol += 4
+        ElseIf symbol == 43
+            symbol = 62
+        ElseIf symbol == 47
+            symbol = 63
+        Else
+            Return Null
+        End If
+
+        buffer = ((buffer << 6) | symbol) & 0xFFFF
+        held += 6
+        If held >= 8
+            held -= 8
+            made.Add(((buffer >> held) & 0xFF) As UInt8)
+        End If
     End For
 
     Return made
