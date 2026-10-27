@@ -1,0 +1,6 @@
+plain a generic b
+plain c generic d
+plain generic one two
+base plain derived generic derived plain base generic
+base plain base generic
+plain default generic default generic

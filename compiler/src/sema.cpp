@@ -4280,9 +4280,7 @@ private:
             }
 
             const bool overloads = is_callable_member(declared) && is_callable_member(other);
-            if (overloads &&
-                (!same_parameters(declared, other) ||
-                 own_type_parameters(declared).size() != own_type_parameters(other).size())) {
+            if (overloads && !same_parameters(declared, other)) {
                 continue;
             }
 
@@ -4590,8 +4588,9 @@ private:
                             [&](const symbol_id_t id) {
                                 return std::pair(seen(symbol(id).type), symbol(id).by_ref);
                             });
-                    if (!same && !takes_instance_of(added, instance, copy,
-                                                    own_type_parameters(copy), seen)) {
+                    if (!same && (!all_told(copy, false) ||
+                                  !takes_instance_of(added, instance, copy,
+                                                     own_type_parameters(copy), seen))) {
                         continue;
                     }
 
@@ -5189,10 +5188,11 @@ private:
                 const symbol_t& method = symbol(id);
                 return method.default_method != required_id &&
                        (matches_required(method, required, interface, type, false) ||
-                        takes_instance_of(method, type, required, required.type_parameters,
-                                          [&, self = type](const type_id_t written) {
-                                              return as_implemented(written, interface, self);
-                                          }));
+                        (all_told(required, false) &&
+                         takes_instance_of(method, type, required, required.type_parameters,
+                                           [&, self = type](const type_id_t written) {
+                                               return as_implemented(written, interface, self);
+                                           })));
             });
             // Another Interface's default the type has from a Class it extends says so.
             if (own != methods.end() && symbol(*own).default_method) {
@@ -5611,6 +5611,25 @@ private:
         return true;
     }
 
+    /// Whether what's given without type arguments tells all of a generic Function's or Method's
+    /// own type parameters: a call's arguments, each in a parameter's type, or in a Where line,
+    /// like Flatten<U>'s "T: Iterable<U>", or, with `returned`, a Func expected, in what it
+    /// returns too. One that isn't told, like Read<T>(): String's T, only what writes it can
+    /// pick, so it's an overload of a Read() without it, never in its place.
+    [[nodiscard]] bool all_told(const symbol_t& function, const bool returned) {
+        return std::ranges::all_of(own_type_parameters(function), [&](const type_id_t own) {
+            const std::vector<type_id_t> one{ own };
+            return (returned && mentions(function.type, one)) ||
+                   std::ranges::any_of(function.parameters,
+                                       [&](const symbol_id_t parameter) {
+                                           return mentions(symbol(parameter).type, one);
+                                       }) ||
+                   std::ranges::any_of(function.constraints, [&](const bound_t& bound) {
+                       return bound.parameter == own || mentions(bound.interface, one);
+                   });
+        });
+    }
+
     /// A Method's own type parameters. One that an Extend of T[] adds takes T first, which is
     /// the array's.
     [[nodiscard]] std::vector<type_id_t> own_type_parameters(const symbol_t& method) const {
@@ -5934,7 +5953,8 @@ private:
                         [&](const symbol_id_t parameter) { return seen(symbol(parameter).type); });
                 return id != held_id && copy.name == kept.name && from != interface &&
                        !refines(from, interface) && !refines(interface, from) &&
-                       (same || takes_instance_of(copy, type, kept, free, seen));
+                       (same ||
+                        (all_told(kept, false) && takes_instance_of(copy, type, kept, free, seen)));
             });
             if (other == own.end()) {
                 continue;
@@ -5995,6 +6015,7 @@ private:
             };
             return candidate.extended && !candidate.default_method &&
                    candidate.name == generic.name && candidate.kind == symbol_kind_t::METHOD &&
+                   all_told(generic, false) &&
                    takes_instance_of(candidate, type, generic, own, given);
         });
         if (covered != members.end()) {
@@ -6191,7 +6212,7 @@ private:
                 const symbol_t& copy = symbol(other);
                 return copy.kind == symbol_kind_t::METHOD && copy.default_method &&
                        outside_table(symbol(*copy.default_method)) &&
-                       can_use(copy, member.span, member.owner) &&
+                       can_use(copy, member.span, member.owner) && all_told(copy, false) &&
                        takes_instance_of(member, member.owner, copy, own_type_parameters(copy),
                                          [&](const type_id_t written) {
                                              return member_type(base, copy, written);
@@ -8194,13 +8215,15 @@ private:
                symbol.kind == symbol_kind_t::BUILTIN_FUNCTION;
     }
 
-    /// Overloads differ by parameter types only, not by names or ByRef. Members compare this way:
-    /// each generic Method's type parameters are its own, so two generic Methods of one shape
-    /// are two overloads, which a call that fits both finds ambiguous. Generic Methods aren't
-    /// in the Method table, so one can't override or hide another.
+    /// Overloads differ by parameter types, or by how many type parameters of their own they
+    /// have, which a call's type arguments tell apart, not by names or ByRef. Members compare
+    /// this way: each generic Method's type parameters are its own, so two generic Methods of one
+    /// shape are two overloads, which a call that fits both finds ambiguous. Generic Methods
+    /// aren't in the Method table, so one can't override or hide another.
     [[nodiscard]] bool same_parameters(const symbol_t& a, const symbol_t& b) {
         const auto type_of = [this](const symbol_id_t id) { return symbol(id).type; };
-        return std::ranges::equal(a.parameters, b.parameters, {}, type_of, type_of);
+        return own_type_parameters(a).size() == own_type_parameters(b).size() &&
+               std::ranges::equal(a.parameters, b.parameters, {}, type_of, type_of);
     }
 
     /// The same, for two top-level Functions, which can be in different modules: two generic
@@ -8272,10 +8295,11 @@ private:
     /// The same, with b's types as `base`, a Class that a's extends, has them: Base<Int32>'s
     /// for a Method of Base<T>.
     [[nodiscard]] bool same_parameters(const symbol_t& a, const symbol_t& b, const type_id_t base) {
-        return std::ranges::equal(
-            a.parameters, b.parameters, {},
-            [this](const symbol_id_t id) { return symbol(id).type; },
-            [&](const symbol_id_t id) { return member_type(base, b, symbol(id).type); });
+        return own_type_parameters(a).size() == own_type_parameters(b).size() &&
+               std::ranges::equal(
+                   a.parameters, b.parameters, {},
+                   [this](const symbol_id_t id) { return symbol(id).type; },
+                   [&](const symbol_id_t id) { return member_type(base, b, symbol(id).type); });
     }
 
     /// Whether `method` overrides `other`, directly or through others.
@@ -18146,11 +18170,31 @@ private:
             }
         }
 
+        // As in a call, type arguments written after the name are an overload's first ones, so
+        // one with fewer of its own doesn't fit them, and without any, a generic one whose type
+        // parameters the Func expected can't tell doesn't fit.
+        std::vector<symbol_id_t> candidates = overloads;
+        if (candidates.size() > 1) {
+            std::erase_if(candidates, [&](const symbol_id_t overload) {
+                const symbol_t& function = symbol(overload);
+                if (function.kind == symbol_kind_t::BUILTIN_FUNCTION) {
+                    return false;
+                }
+
+                return type_arguments.empty()
+                           ? !all_told(function, true)
+                           : own_type_parameters(function).size() < type_arguments.size();
+            });
+            if (candidates.empty()) {
+                candidates = overloads;
+            }
+        }
+
         std::vector<symbol_id_t> fitting;
-        if (overloads.size() == 1) {
-            fitting = overloads;
+        if (candidates.size() == 1) {
+            fitting = candidates;
         } else {
-            for (const symbol_id_t overload : overloads) {
+            for (const symbol_id_t overload : candidates) {
                 if (func_of(overload) == wanted) {
                     fitting.push_back(overload);
                 }

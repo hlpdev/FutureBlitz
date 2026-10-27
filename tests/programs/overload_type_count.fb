@@ -1,0 +1,55 @@
+// Overloads that differ only by their count of type parameters: written type arguments pick the
+// one with as many, and none picks one whose type arguments the call can't tell only if it
+// writes them; in an Extend of T[], through inheritance and an Interface's default, and as a
+// function value.
+
+Import std.core
+Import std.collections
+
+Function Name(text: String): String => "plain " + text
+Function Name<T>(text: String): String => "generic " + text
+
+Print(Name("a"), Name<Int>("b"))
+Local f: Func(String): String = Name
+Local h: Func(String): String = Name<Int>
+Print(f("c"), h("d"))
+
+// An Extend of T[] counts only its own type parameters, since the array gives T.
+Extend T[]
+    Method Pick(): String => "plain"
+    Method Pick<U>(): String => "generic"
+    Method Pair<U>(): String => "one"
+    Method Pair<U, V>(): String => "two"
+End Extend
+
+Local xs = [1, 2, 3]
+Print(xs.Pick(), xs.Pick<String>(), xs.Pair<String>(), xs.Pair<String, Int>())
+
+// A derived Class's Method of another count is an overload beside the one it inherits.
+Class Base
+    Method Get(): String => "base plain"
+    Method Put<T>(): String => "base generic"
+End Class
+
+Class Derived Extends Base
+    Method Get<T>(): String => "derived generic"
+    Method Put(): String => "derived plain"
+End Class
+
+Local d = Derived()
+Print(d.Get(), d.Get<Int>(), d.Put(), d.Put<Int>())
+Local b: Base = d
+Print(b.Get(), b.Put<Int>())
+
+// So is a Class's Method beside an Interface's default whose type argument a call can't tell.
+Interface Reader
+    Method Read<T>(): String => "default generic"
+End Interface
+
+Class Plain Implements Reader
+    Method Read(): String => "plain"
+End Class
+
+Local p = Plain()
+Local r: Reader = p
+Print(p.Read(), p.Read<Int>(), r.Read<Int>())

@@ -821,6 +821,68 @@ TEST_CASE("overloads: an exact match beats a conversion", "[sema]") {
                     "    Static Method Read<U>(line: String): U[] => []\n"
                     "End Struct") ==
           errors_t{ "Read: 'Read' is already declared with the same parameter types" });
+
+    // An Extend of T[] counts only its own type parameters, since the array gives T.
+    constexpr std::string_view picks = "Extend T[]\n"
+                                       "    Method Pick(): Bool => True\n"
+                                       "    Method Pick<U>(): U[] => []\n"
+                                       "End Extend\n"
+                                       "Local xs = [1, 2]\n";
+    CHECK(probe(std::format("{}Local x = xs.Pick()", picks)) == "Bool");
+    CHECK(probe(std::format("{}Local x = xs.Pick<String>()", picks)) == "String[]");
+
+    // A Class's Method of another count than one it inherits is an overload beside it, which
+    // neither overrides nor hides it, either way round.
+    constexpr std::string_view inherits = "Class Base\n"
+                                          "    Method Get(): Bool => True\n"
+                                          "    Method Put<T>(): T[] => []\n"
+                                          "End Class\n"
+                                          "Class Derived Extends Base\n"
+                                          "    Method Get<T>(): T[] => []\n"
+                                          "    Method Put(): Bool => True\n"
+                                          "End Class\n"
+                                          "Local d = Derived()\n";
+    CHECK(probe(std::format("{}Local x = d.Get()", inherits)) == "Bool");
+    CHECK(probe(std::format("{}Local x = d.Get<Int>()", inherits)) == "Int32[]");
+    CHECK(probe(std::format("{}Local x = d.Put()", inherits)) == "Bool");
+    CHECK(probe(std::format("{}Local x = d.Put<Int>()", inherits)) == "Int32[]");
+    CHECK(errors_of("Class Base\n"
+                    "    Method Get<T>(): T[] => []\n"
+                    "End Class\n"
+                    "Class Derived Extends Base\n"
+                    "    Override Method Get(): Bool => True\n"
+                    "End Class") ==
+          errors_t{ "Get: 'Get' has Override, but Base has no Method like it" });
+
+    // And beside an Interface's generic default whose type argument a call can't tell, which
+    // only a call that writes it picks; one a call can tell is still the default's place.
+    constexpr std::string_view reader = "Interface Reader\n"
+                                        "    Method Read<T>(): T[] => []\n"
+                                        "End Interface\n"
+                                        "Class Plain Implements Reader\n"
+                                        "    Method Read(): Bool => True\n"
+                                        "End Class\n"
+                                        "Local p = Plain()\n";
+    CHECK(probe(std::format("{}Local x = p.Read()", reader)) == "Bool");
+    CHECK(probe(std::format("{}Local x = p.Read<Int>()", reader)) == "Int32[]");
+    CHECK(errors_of("Interface Writer\n"
+                    "    Method Put<T>(x: T): Bool => True\n"
+                    "End Interface\n"
+                    "Class Plain Implements Writer\n"
+                    "    Method Put(x: Int): Bool => False\n"
+                    "End Class") ==
+          errors_t{ "Writer: Plain's 'Put' would take the place of Writer's generic default, "
+                    "which is what a call through Writer runs; give it another name" });
+
+    // A function value picks the same way: what's written gives a generic one its first type
+    // arguments, and without any, one whose type arguments the Func expected can't tell
+    // doesn't fit.
+    constexpr std::string_view names = "Function Name(text: String): String => text\n"
+                                       "Function Name<T>(text: String): String => text\n";
+    CHECK(errors_of(std::format("{}Local f: Func(String): String = Name\n"
+                                "Local g: Func(String): String = Name<Int>",
+                                names))
+              .empty());
 }
 
 TEST_CASE("std's Print and the built-ins can be overloaded, and a module's own hides them",

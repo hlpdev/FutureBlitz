@@ -85,8 +85,11 @@ generic is chosen.
 
 Overloads that take the same parameter types can still differ in how many type parameters of
 their own they have, as `Json.Read(text)`, which gives a Value, and `Json.Read<T>(text)`, which
-gives a T, do. Type arguments written after the name pick the overload with that many, and a call
-with none takes a generic one only where its type arguments can be inferred.
+gives a T, do. A call that writes type arguments can't pick one with fewer, as above, and a call
+that writes none takes a generic one only where its arguments tell its type arguments. A
+Function used as a value picks the same way, with the Func expected telling them. A Class's
+Method with another count than one it inherits, or than an Interface's default, is an overload
+beside it, not its Override or its replacement, since a generic Method is in no Method table.
 
 ## Constraints: inline and `Where`
 
