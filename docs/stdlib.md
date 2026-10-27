@@ -162,6 +162,10 @@ So far, std/ holds:
 | std/net/http/headers.fb | `Headers`, a request's or response's header fields, whose names ASCII's letter cases don't change, with `HeadersIterator` |
 | std/net/http/status.fb | `StatusCode`, the named statuses, with `Reason`, `IsSuccess`, and `IsRedirect` |
 | std/net/http/client.fb | `HttpMethod`, `Body`, `HttpResponse`, `HttpClient`, and `Http`'s one-call requests, over libcurl through the runtime's `fb_http_` functions |
+| std/net/http/wire.fb | HTTP/1.1's messages as RFC 9112 has them: `Wire`, which reads heads and bodies, `Head`, `WireError`, `HeadBytes`, `Linger`, and `Duplex`, a connection a TLS stream can be too (all Package) |
+| std/net/http/server.fb | `HttpServer`, `HttpRouter`, `HttpRequest`, `HttpHandler`, `HttpMiddleware`, and `HttpResponse.Of` and `Redirect` |
+| std/net/ws/handshake.fb | A WebSocket's opening handshake, the client's request and the server's answer (Package) |
+| std/net/ws/websocket.fb | `WebSocket`, `WebSocketMessage`, and `WebSocketState`, RFC 6455's frames over a Duplex |
 | std/net/socket.fb | What the sockets share: the runtime's `fb_io_net_` functions, an address's bytes, the errors their codes mean, and the streams' and listeners' sockets |
 | std/net/tcp.fb | `TcpListener` and `TcpStream` |
 | std/net/udp.fb | `UdpSocket` and `Datagram` |
@@ -1413,21 +1417,44 @@ discovery. `Import std.net` brings in std/net/.
   connecting may; past either is a TimeoutError. It speaks HTTP/2 where TLS's ALPN agrees on it,
   over nghttp2, and HTTP/1.1 otherwise. A program
   that only makes Headers or a Body links no libcurl.
-- std.net.http's server: `HttpServer`, whose handlers are Async code on its own loop (no data
-  races, and Globals work), with `Workers = n` to spread them over threads once they're
-  Sendable-safe; routes as
-  `server.Get(path, handler)` and router groups, or as a Class whose Methods carry `@Get`,
-  `@Post`, and the rest, registered with `server.Routes<T>(instance)`, binding path parameters
-  and JSON bodies to typed parameters; middleware; static files; and automatic HTTPS, getting
-  and renewing Let's Encrypt certificates (ACME).
-- std.net.ws: WebSocket client and server, per RFC 6455, built in step 30 but for the server
-  from an HttpServer handler, which comes with HttpServer, and wss://, with HTTPS.
+- std.net.http's server (step 30): `HttpServer`, HTTP/1.1 over TCP, whose handlers are Async
+  code on the main thread (no data races, and Globals work). An `HttpHandler` is a
+  `Func(HttpRequest): Task<HttpResponse>`, an Async lambda or Function, and its response is the
+  client's own `HttpResponse`, made with `HttpResponse.Of(status, body)`, `Of(body)` for a 200,
+  or `Redirect(url, status)`, whose `Headers` it can add to. An `HttpRequest` has its `Verb`
+  (Method is a keyword) as the client wrote it, `Target`, `Path` (percent-encoded, without dot
+  segments), `Query`, `Headers`, `Bytes` and `Text`, `Version`, `RemoteAddress`, `Param(name)`
+  and `Params` of its route, and `Form()` of an application/x-www-form-urlencoded body.
+  `server.Get(path, handler)`, `Post`, `Put`, `Patch`, `Delete`, and `Route(method, path,
+  handler)` for any token add routes, whose paths are segments of text, `:name`, which binds one
+  segment, and, last, `*name`, which binds the rest; of the routes a path matches, the one with
+  text first, segment by segment, takes it; a path no route matches is a 404, one whose method
+  none has a 405 with Allow, and a HEAD goes to a GET's route without its body; a bad path, or a
+  second route of a method for the same paths, panics. `Use(middleware)`, an `HttpMiddleware`,
+  `Func(HttpRequest, HttpHandler): Task<HttpResponse>`, runs around the requests in the order
+  it was given, the server's around every request, and `Group(prefix)`'s inside its parent's,
+  around its own routes. `Listen(address)` or `Listen(host, port)`, `LocalAddress`, `Serve()`,
+  which answers until `Stop()`, `IsRunning`, `MaxBodySize` (16 MiB, past which a 413), and
+  `IdleTimeout` (a minute). Connections stay open for the next request as RFC 9112 has it,
+  pipelined requests too; a request without one Host is a 400, an Expect other than
+  100-continue a 417, and one with it gets a 100 Continue before its body is read; responses
+  get Content-Length, Date, and Connection. `WebSocket.AcceptAsync(request)` takes a handler's
+  connection over (std.net.ws). Still to come: static files (with step 14's files), `Workers =
+  n` (once handlers can run on other threads' loops), Classes whose Methods carry `@Get` and
+  the rest, registered with `server.Routes<T>(instance)` and binding path parameters and JSON
+  bodies to typed parameters (which needs reflection over a Method's parameters), and HTTPS
+  with ACME (lane 11's, through wire.fb's Duplex).
+- std.net.ws: WebSocket client and server, per RFC 6455, built in step 30 but for wss://,
+  which comes with HTTPS.
   `Import std.net.ws` brings in std/net/ws/. `WebSocket.Connect(url, protocols, timeout)` and
   `ConnectAsync` open a client at a ws:// URL, asking for the subprotocols in the order it would
   have them (each a token, or a panic), with `timeout` for connecting and for each read of the
   answer; `WebSocket.Accept(stream, protocols)` and `AcceptAsync` read a client's handshake
   from a TcpStream a TcpListener accepted, and choose the first of the client's subprotocols
-  that it has. A request that isn't a WebSocket's is answered with 400, 405, or 426 (with
+  that it has, or `AcceptAsync(request, protocols)` takes over the connection of an HttpServer
+  handler's request, after which the server sends nothing of the handler's response, and
+  doesn't close it as it stops; a request there that isn't a WebSocket's throws, and the
+  handler's response answers it. Otherwise a request that isn't a WebSocket's is answered with 400, 405, or 426 (with
   `Sec-WebSocket-Version: 13`), or as HTTP/1.1's rules refuse its head (400, 431, or 505), and
   closed, and throws a NetError of OTHER; a client's answer that isn't a 101 with the key's
   Sec-WebSocket-Accept, or chooses a subprotocol or extensions it wasn't offered, throws one
