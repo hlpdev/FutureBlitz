@@ -15,3 +15,4 @@ files/chart.png: 200 image/png the same True
 files/summary.json: 200 the same True | missing.png: 404
 websocket: untrusted refused, TLS | summary True chart True then closed True 1000
 served: 1 websocket, and stopped True | its folder there True then removed True
+failing: TLS, then its servers stopped, and its folder removed True

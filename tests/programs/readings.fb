@@ -52,6 +52,9 @@ Async Function Run() Throws Error
     // trusts the test CA gets the document.
     Local readings = Readings(26, 36)
     Local feed = Try FeedServer.Start(FeedOf(readings))
+    // Each server stops however Run ends, or a failure partway would leave it serving, and the
+    // program running.
+    Defer feed.Stop()
     Local feeding = feed.Serve()
     Local refused = "fetched"
     Try
@@ -104,6 +107,7 @@ Async Function Run() Throws Error
 
     // Served: the summary as JSON, and both as static files.
     Local site = Try Site.Start(summaries, png)
+    Defer Try? site.Stop()
     Local serving = site.Serve()
     Local web = HttpClient()
     web.TrustOnly(TestRoots())
@@ -147,8 +151,38 @@ Async Function Run() Throws Error
           "then removed", !Dir.Exists(folder))
 End Function
 
+// Where a run that fails partway had its site's folder.
+Class Left
+    Field Folder: Path? = Null
+End Class
+
+// A run that fails partway, at a fetch from a client that doesn't trust the test CA, with its feed
+// and its site serving: it stops both as it ends, so the program ends, and the site's folder goes.
+Async Function Failing(left: Left) Throws Error
+    Local feed = Try FeedServer.Start(FeedOf(Readings(1, 2)))
+    Defer feed.Stop()
+    Local feeding = feed.Serve()
+    Local site = Try Site.Start([], Png.Encode(Image(1, 1)))
+    Defer Try? site.Stop()
+    Local serving = site.Serve()
+    left.Folder = site.FolderPath
+    Try Await HttpClient().GetAsync(feed.Url)
+    Await feeding
+    Await serving
+End Function
+
 Try
     Await Run()
 Catch e As Error
     Print("failed:", e.Message)
+End Try
+
+Local left = Left()
+Try
+    Await Failing(left)
+    Print("failing: didn't fail")
+Catch e As NetError
+    Local folder = left.Folder
+    Print("failing: {e.Kind}, then its servers stopped, and its folder removed",
+          folder != Null && !Dir.Exists(folder))
 End Try
