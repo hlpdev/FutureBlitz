@@ -1198,7 +1198,9 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   it up; not, it's drawn wholly when the region holds its center, which on the region's edge is
   in it on the edge's right, and on its top but not its bottom. A pixel more than 32 edges pass
   through, which only a font made to be slow has, is measured along 16 lines across it instead,
-  so drawing takes time for each pixel's edges, never all of a row's at once. An ellipse is a
+  so drawing takes time for each pixel's edges, never all of a row's at once. A shape or a line
+  more than 2^20 pixels past the image is cut where it crosses that far, worked out to twice a
+  Double's bits, so what it draws keeps its pixels however far its points are. An ellipse is a
   polygon within a hundredth of a pixel of it, and an ellipse's stroke its polygon's, with
   miters. The drawing is the runtime's own, in Doubles, without fused multiply-adds, with sines
   of its own, so every target gives the same pixels; image_draw/make_data.py works out the same

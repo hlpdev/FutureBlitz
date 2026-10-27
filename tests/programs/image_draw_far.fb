@@ -1,0 +1,38 @@
+// What's drawn from far outside the image keeps its pixels: a shape whose corners are 1e20 pixels
+// away is cut where it crosses near the image, to twice a Double's bits, so it draws the
+// staircase its corners at 1e9 do, and a line from that far is stroked as it runs across the
+// image.
+Import std.core
+Import std.math.color
+Import std.math.vector
+Import std.image
+
+Function Rows(image: Image)
+    For y = 0 Until image.Height
+        Local row: Int[] = []
+        For x = 0 Until image.Width
+            row.Add(image[x, y].a As Int)
+        End For
+        Print(row)
+    End For
+End Function
+
+// The region left of and below the diagonal y = x: each pixel on the diagonal half covered, those
+// below it wholly, whether its corners are 1e9 or 1e20 away.
+For far In [1e9, 1e20]
+    Local canvas = Canvas(Image(8, 8))
+    canvas.FillPolygon([Vec2(-far, -far), Vec2(far, far), Vec2(-far, far)], Color32.Black)
+    Print("corners {far} away:")
+    Rows(canvas.Image)
+End For
+
+// The line along that diagonal, 2 wide, from as far, and a closed polygon whose corners are too.
+Local line = Canvas(Image(8, 8))
+line.LineWidth = 2
+line.StrokeLine(Vec2(-1e20, -1e20), Vec2(1e20, 1e20), Color32.Black)
+Print("line's (3, 3) and (0, 7):", line.Image[3, 3].a, line.Image[0, 7].a)
+Local frame = Canvas(Image(8, 8))
+frame.StrokePolygon([Vec2(4, 4), Vec2(1e20, 4), Vec2(1e20, 1e20), Vec2(4, 1e20)], Color32.Black)
+Print("frame's (5, 4), (4, 5), and (2, 2):", frame.Image[5, 4].a, frame.Image[4, 5].a,
+      frame.Image[2, 2].a)
+

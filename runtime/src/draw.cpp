@@ -500,10 +500,221 @@ void center_row(const std::span<const edge_t* const> edges, const double top,
     }
 }
 
-/// Draws `rgba` over the pixels by the region the rings fill, by the nonzero rule.
+/// A double and what's left of it: their sum, kept exactly to twice a double's bits, so where a
+/// line from far outside the image crosses near it keeps its pixels.
+struct wide_t {
+    double high = 0;
+    double low = 0;
+};
+
+wide_t exact_sum(const double a, const double b) {
+    const double sum = a + b;
+    const double rest = sum - a;
+    return { .high = sum, .low = (a - (sum - rest)) + (b - rest) };
+}
+
+wide_t normalized(const double high, const double low) {
+    const double sum = high + low;
+    return { .high = sum, .low = low - (sum - high) };
+}
+
+wide_t operator+(const wide_t a, const wide_t b) {
+    const wide_t high = exact_sum(a.high, b.high);
+    const wide_t low = exact_sum(a.low, b.low);
+    const wide_t first = normalized(high.high, high.low + low.high);
+    return normalized(first.high, first.low + low.low);
+}
+
+wide_t operator-(const wide_t a) {
+    return { .high = -a.high, .low = -a.low };
+}
+
+/// A double's high and low halves, each of 26 bits, whose products are exact.
+std::pair<double, double> halves(const double a) {
+    const double scaled = 134217729.0 * a;
+    const double high = scaled - (scaled - a);
+    return { high, a - high };
+}
+
+wide_t exact_product(const double a, const double b) {
+    const double product = a * b;
+    const auto [a_high, a_low] = halves(a);
+    const auto [b_high, b_low] = halves(b);
+    const double rest =
+        (((a_high * b_high) - product) + (a_high * b_low) + (a_low * b_high)) + (a_low * b_low);
+    return { .high = product, .low = rest };
+}
+
+wide_t operator*(const wide_t a, const wide_t b) {
+    const wide_t product = exact_product(a.high, b.high);
+    return normalized(product.high, product.low + ((a.high * b.low) + (a.low * b.high)));
+}
+
+wide_t operator/(const wide_t a, const wide_t b) {
+    const double first = a.high / b.high;
+    const wide_t rest = a + -b * wide_t{ .high = first };
+    const double second = rest.high / b.high;
+    const wide_t last = rest + -b * wide_t{ .high = second };
+    const wide_t sum = normalized(first, second);
+    return sum + wide_t{ .high = last.high / b.high };
+}
+
+/// How far past the image a point is kept as it is: a ring or a line past it is cut where it
+/// crosses the box this far around the image, near enough that what's drawn of the cut part
+/// keeps its pixels, and far enough that nothing an image draws is cut at all.
+constexpr double kept_past = 0x1p20;
+
+/// A box around the image: what's left of `left`, right of `right`, and above and below `top`
+/// and `bottom` is cut away.
+struct clip_t {
+    double left = 0;
+    double top = 0;
+    double right = 0;
+    double bottom = 0;
+
+    [[nodiscard]] bool holds(const point_t point) const {
+        return point.x >= left && point.x <= right && point.y >= top && point.y <= bottom;
+    }
+};
+
+/// Where the line from a to b crosses the side `side` of a box, along `across` (0 for x, 1 for
+/// y), worked out to twice a double's bits, then rounded.
+point_t crossing(const point_t a, const point_t b, const double side, const int across) {
+    const auto along = [&](const point_t point) { return across == 0 ? point.x : point.y; };
+    const auto other = [&](const point_t point) { return across == 0 ? point.y : point.x; };
+    const wide_t part = exact_sum(side, -along(a));
+    const wide_t length = exact_sum(along(b), -along(a));
+    const wide_t rise = exact_sum(other(b), -other(a));
+    const wide_t at = wide_t{ .high = other(a) } + part * rise / length;
+    const double value = at.high + at.low;
+    return across == 0 ? point_t{ .x = side, .y = value } : point_t{ .x = value, .y = side };
+}
+
+/// Whether the point is on the inside of the box's side `which`: left, top, right, bottom.
+bool inside_of(const clip_t& box, const int which, const point_t point) {
+    switch (which) {
+    case 0:
+        return point.x >= box.left;
+    case 1:
+        return point.y >= box.top;
+    case 2:
+        return point.x <= box.right;
+    default:
+        return point.y <= box.bottom;
+    }
+}
+
+point_t crossing_of(const clip_t& box, const int which, const point_t a, const point_t b) {
+    switch (which) {
+    case 0:
+        return crossing(a, b, box.left, 0);
+    case 1:
+        return crossing(a, b, box.top, 1);
+    case 2:
+        return crossing(a, b, box.right, 0);
+    default:
+        return crossing(a, b, box.bottom, 1);
+    }
+}
+
+/// The ring, cut to the box a side at a time, as Sutherland and Hodgman cut a polygon, so what
+/// it fills in the box, by the nonzero rule, is what the ring does: itself when the box holds it.
+ring_t clipped_ring(const ring_t& ring, const clip_t& box) {
+    if (std::ranges::all_of(ring, [&](const point_t point) { return box.holds(point); })) {
+        return ring;
+    }
+
+    ring_t from = ring;
+    ring_t to;
+    for (int which = 0; which < 4 && !from.empty(); ++which) {
+        to.clear();
+        for (std::size_t i = 0; i < from.size(); ++i) {
+            const point_t point = from[i];
+            const point_t before = from[(i + from.size() - 1) % from.size()];
+            const bool in = inside_of(box, which, point);
+            if (in != inside_of(box, which, before)) {
+                to.push_back(crossing_of(box, which, before, point));
+            }
+            if (in) {
+                to.push_back(point);
+            }
+        }
+        std::swap(from, to);
+    }
+    return from;
+}
+
+/// The line through `points`, closed back to its first or not, cut to the box: the lines of its
+/// parts in it, each open, whose caps where they're cut are outside it. A closed line the box
+/// holds is itself, and one it doesn't is opened at a point outside it, so each of its parts in
+/// the box keeps its joins.
+std::vector<ring_t> clipped_lines(ring_t points, const bool closed, const clip_t& box,
+                                  bool& still_closed) {
+    still_closed = closed;
+    const auto outside =
+        std::ranges::find_if_not(points, [&](const point_t point) { return box.holds(point); });
+    if (outside == points.end()) {
+        return { std::move(points) };
+    }
+
+    still_closed = false;
+    if (closed) {
+        std::ranges::rotate(points, outside);
+        points.push_back(points.front());
+    }
+
+    std::vector<ring_t> lines;
+    bool open = false;
+    for (std::size_t i = 0; i + 1 < points.size(); ++i) {
+        // The segment, cut to each side in turn.
+        point_t a = points[i];
+        point_t b = points[i + 1];
+        bool kept = true;
+        for (int which = 0; which < 4 && kept; ++which) {
+            const bool a_in = inside_of(box, which, a);
+            const bool b_in = inside_of(box, which, b);
+            if (!a_in && !b_in) {
+                kept = false;
+            } else if (!a_in) {
+                a = crossing_of(box, which, points[i], points[i + 1]);
+            } else if (!b_in) {
+                b = crossing_of(box, which, points[i], points[i + 1]);
+            }
+        }
+        if (!kept) {
+            open = false;
+            continue;
+        }
+
+        const bool starts_here = a.x != points[i].x || a.y != points[i].y;
+        if (!open || starts_here) {
+            lines.push_back({ a });
+        }
+        lines.back().push_back(b);
+        open = b.x == points[i + 1].x && b.y == points[i + 1].y;
+    }
+    if (points.size() == 1 && box.holds(points.front())) {
+        lines.push_back(points);
+    }
+    return lines;
+}
+
+/// Draws `rgba` over the pixels by the region the rings fill, by the nonzero rule, each ring cut
+/// first to a box kept_past the image.
 void fill(const fb_array_t* pixels, const std::int64_t width, const std::int64_t height,
           const std::span<const ring_t> rings, const std::uint32_t rgba, const bool antialias) {
-    std::vector<edge_t> edges = edges_of(rings);
+    const clip_t box{
+        .left = -kept_past,
+        .top = -kept_past,
+        .right = static_cast<double>(width) + kept_past,
+        .bottom = static_cast<double>(height) + kept_past,
+    };
+    std::vector<ring_t> cut;
+    cut.reserve(rings.size());
+    for (const ring_t& ring : rings) {
+        cut.push_back(clipped_ring(ring, box));
+    }
+    std::vector<edge_t> edges = edges_of(cut);
     if (edges.empty() || width <= 0 || height <= 0) {
         return;
     }
@@ -941,6 +1152,27 @@ double lay_out(const fb::image::font_t& font, const std::string_view text, const
     return std::max(widest, pen_x - x);
 }
 
+/// Adds the pieces of the line's stroke, `half` its width either side, to `pieces`: the line cut
+/// first to a box kept_past the image and as far again as its joins and caps reach, so nothing
+/// it draws in the image is cut.
+void add_stroke(stroker_t& stroker, ring_t line, const bool closed, const double half,
+                const double miter_limit, const std::int64_t width, const std::int64_t height,
+                std::vector<ring_t>& pieces) {
+    const double reach = kept_past + (half * (std::max(miter_limit, 1.0) + 2)) + 2;
+    const clip_t box{
+        .left = -reach,
+        .top = -reach,
+        .right = static_cast<double>(width) + reach,
+        .bottom = static_cast<double>(height) + reach,
+    };
+    bool still_closed = closed;
+    for (ring_t& part : clipped_lines(std::move(line), closed, box, still_closed)) {
+        std::vector<ring_t> stroked = stroker.stroke(std::move(part), still_closed);
+        pieces.insert(pieces.end(), std::make_move_iterator(stroked.begin()),
+                      std::make_move_iterator(stroked.end()));
+    }
+}
+
 } // namespace
 
 extern "C" {
@@ -973,9 +1205,8 @@ void fb_image_stroke(const fb_array_t* pixels, const std::int64_t width, const s
                       miter_limit);
     std::vector<ring_t> pieces;
     for (ring_t& line : rings_of(coords, counts)) {
-        std::vector<ring_t> stroked = stroker.stroke(std::move(line), closed != 0);
-        pieces.insert(pieces.end(), std::make_move_iterator(stroked.begin()),
-                      std::make_move_iterator(stroked.end()));
+        add_stroke(stroker, std::move(line), closed != 0, line_width / 2, miter_limit, width,
+                   height, pieces);
     }
     fill(pixels, width, height, pieces, rgba, antialias != 0);
 }
@@ -991,7 +1222,9 @@ void fb_image_stroke_ellipse(const fb_array_t* pixels, const std::int64_t width,
     // Its polygon turns a little at each corner, where a miter is the curve's offset within the
     // tolerance.
     stroker_t stroker(line_width / 2, CAP_BUTT, JOIN_MITER, 4);
-    const std::vector<ring_t> pieces = stroker.stroke(ellipse({ .x = x, .y = y }, rx, ry), true);
+    std::vector<ring_t> pieces;
+    add_stroke(stroker, ellipse({ .x = x, .y = y }, rx, ry), true, line_width / 2, 4, width, height,
+               pieces);
     fill(pixels, width, height, pieces, rgba, antialias != 0);
 }
 
