@@ -4,7 +4,7 @@
 
 ## concurrent-1 (medium): ParallelSort panics on an array of a nullable type when a Null lands in a right-hand part
 
-Status: fixed in 260dd4a2: Merged merges by index, so no item goes through a T?; concurrent_parallel.fb ParallelSorts 20000 Int? items with Nulls among them against Sort
+Status: fixed in 15308c5e: Merged merges by index, so no item goes through a T?; concurrent_parallel.fb ParallelSorts 20000 Int? items with Nulls among them against Sort
 
 Where: std/concurrent/parallel.fb:131
 
@@ -33,15 +33,15 @@ Actual: panic: the right part has a value here at std/concurrent/parallel.fb:131
 
 Suggested fix: Stop going through T? in Merged. Merge by index instead (i < first.Count, j < second.Count, take first[i] unless before(second[j], first[i])) so no element is ever wrapped and unwrapped. Add a test to concurrent_parallel.fb that ParallelSorts 4096 or more Int? items with Nulls in them and compares against Sort(before).
 
-Skeptic: The suggested build-rev2/cli/fb.exe is stale: it was built at 18:17, but the rev-crypto sources were checked out at 20:11, and it fails to compile std/concurrent/channels.fb (no IsClosed or TryReceive(): T?). So I used C:/Users/Hunter/Projects/FutureBlitz/.claude/worktrees/build-lane6-verify/cli/fb.exe instead. It was built from lane6-verify, which is at 33e24764, and its std, compiler and runtime have no diff against 33e24764. The finding's program (rv-step18b/v2/p1.fb) printed 'panic: the right part has a value here at std/concurrent/parallel.fb:131:24' and exited 101 in both debug and --release. The program's expected line has a small mistake: index 4095 holds 1 before it's set to Null, so expected[1] is 2, not 1. That doesn't affect the point. A control (p2.fb) showed items.Sort(before) on the same 4096 Int? items working ('True 2 4096'), and ParallelSort of 3 Int? items, which falls back to Sort, working too ('True 1 3'). The code matches the finding: in Merged (std/concurrent/parallel.fb:117-135), x and y are T? from Iterate().Next(). In the Else branch, y is narrowed by the failed `y == Null ||` test, so for T = Int? y.Expect is the inner Int?'s Expect and panics on a Null element. ParallelSort accepts any Sendable T, and Int? is one, so this is a real crash on valid input.
+Skeptic: The suggested build-rev2/cli/fb.exe is stale: it was built at 18:17, but the rev-crypto sources were checked out at 20:11, and it fails to compile std/concurrent/channels.fb (no IsClosed or TryReceive(): T?). So I used C:/Users/Hunter/Projects/FutureBlitz/.claude/worktrees/build-lane6-verify/cli/fb.exe instead. It was built from lane6-verify, which is at 817fdbbc, and its std, compiler and runtime have no diff against 817fdbbc. The finding's program (rv-step18b/v2/p1.fb) printed 'panic: the right part has a value here at std/concurrent/parallel.fb:131:24' and exited 101 in both debug and --release. The program's expected line has a small mistake: index 4095 holds 1 before it's set to Null, so expected[1] is 2, not 1. That doesn't affect the point. A control (p2.fb) showed items.Sort(before) on the same 4096 Int? items working ('True 2 4096'), and ParallelSort of 3 Int? items, which falls back to Sort, working too ('True 1 3'). The code matches the finding: in Merged (std/concurrent/parallel.fb:117-135), x and y are T? from Iterate().Next(). In the Else branch, y is narrowed by the failed `y == Null ||` test, so for T = Int? y.Expect is the inner Int?'s Expect and panics on a Null element. ParallelSort accepts any Sendable T, and Int? is one, so this is a real crash on valid input.
 
 ## log-1 (medium): Logger.With rejects most integer types: UInt8, Int16, and UInt32 are ambiguous, and UInt64 has no overload
 
-Status: fixed in 6dc0e8da: With has an overload for each of the eight integer types; log_output.fb logs the widest of each, UInt64's 18446744073709551615 too
+Status: fixed in 90fe3708: With has an overload for each of the eight integer types; log_output.fb logs the widest of each, UInt64's 18446744073709551615 too
 
 Where: std/log/logger.fb:230
 
-docs/stdlib.md says With(name, value) takes "a String, an integer, a Double, or a Bool", but only Int (32 bits) and Int64 overloads exist beside Float64. A UInt8, Int8, Int16, UInt16, or UInt32 argument widens equally well to Int, Int64, and Float64, so the call is ambiguous, and a UInt64 matches no overload. Int32 is the only narrow type that compiles. (Note for the run: build-rev2's fb.exe is from 5cb051e8 and has no runtime/src/log.cpp, so every std.log program fails to link there with undefined fb_log_setting and fb_log_colors. I ran everything with C:/Users/Hunter/Projects/FutureBlitz/.claude/worktrees/build-lane6-verify/cli/fb.exe, which was built at 33e24764 and passes log_filter and log_output in debug and release.)
+docs/stdlib.md says With(name, value) takes "a String, an integer, a Double, or a Bool", but only Int (32 bits) and Int64 overloads exist beside Float64. A UInt8, Int8, Int16, UInt16, or UInt32 argument widens equally well to Int, Int64, and Float64, so the call is ambiguous, and a UInt64 matches no overload. Int32 is the only narrow type that compiles. (Note for the run: build-rev2's fb.exe is from 5cb051e8 and has no runtime/src/log.cpp, so every std.log program fails to link there with undefined fb_log_setting and fb_log_colors. I ran everything with C:/Users/Hunter/Projects/FutureBlitz/.claude/worktrees/build-lane6-verify/cli/fb.exe, which was built at 817fdbbc and passes log_filter and log_output in debug and release.)
 
 ```
 Import std.core
@@ -62,15 +62,15 @@ Actual: error: the call to 'With' is ambiguous (could be With(String, Int64) or 
 
 Suggested fix: Add an overload for each integer type, or at least UInt64 plus overloads that make the narrow types resolve (e.g. Int8/Int16/UInt8/UInt16/UInt32 widening to Int64), each writing "{value}" as a number. Add a log_output case for each type.
 
-Skeptic: I used build-lane6-verify's fb.exe, built at 33e24764, because build-rev2's has no log.cpp. A UInt32 passed to With fails with "the call to 'With' is ambiguous", with notes pointing at the Int64 overload (logger.fb:88). A UInt64 fails with "no overload of 'With' takes (String, UInt64)". UInt8 and Int16 fail as ambiguous too, with notes pointing at the Int overload (logger.fb:84). std/log/logger.fb:80-108 has With overloads for String, Int, Int64, Float64 and Bool only. docs/stdlib.md's std.log bullet says With takes "a String, an integer, a Double, or a Bool", so the code contradicts the doc for most integer types.
+Skeptic: I used build-lane6-verify's fb.exe, built at 817fdbbc, because build-rev2's has no log.cpp. A UInt32 passed to With fails with "the call to 'With' is ambiguous", with notes pointing at the Int64 overload (logger.fb:88). A UInt64 fails with "no overload of 'With' takes (String, UInt64)". UInt8 and Int16 fail as ambiguous too, with notes pointing at the Int overload (logger.fb:84). std/log/logger.fb:80-108 has With overloads for String, Int, Int64, Float64 and Bool only. docs/stdlib.md's std.log bullet says With takes "a String, an integer, a Double, or a Bool", so the code contradicts the doc for most integer types.
 
 ## channels-1 (low): TryReceive's new overload loses the 'write ByRef' hint, and spec 10's own example doesn't compile
 
-Status: fixed in 08cfce10: when no overload fits, the one that would fit but for a ByRef the call leaves off or adds is the one meant, so its call says to write or remove ByRef, as a lone function's does; sema tests for TryReceive(value), and for an overloaded function either way; spec 10's example reads `ch.TryReceive(ByRef pkt)`
+Status: fixed in 81b39cf7: when no overload fits, the one that would fit but for a ByRef the call leaves off or adds is the one meant, so its call says to write or remove ByRef, as a lone function's does; sema tests for TryReceive(value), and for an overloaded function either way; spec 10's example reads `ch.TryReceive(ByRef pkt)`
 
 Where: compiler/src/sema.cpp:11315
 
-Adding the no-argument TryReceive() overload turned ch.TryReceive into an overload set. When the ByRef is left off, the error no longer says what to fix. The pre-change compiler (build-rev2's fb.exe, at 5cb051e8) said "parameter 'value' is ByRef; write 'ByRef pkt'". 33e24764 only says "no overload of 'TryReceive' takes (Int32)". The Communication example in docs/spec/10-concurrency.md (line 242, `While ch.TryReceive(pkt)`) is just above the Channel list this change edits. It leaves the ByRef off, so it hits exactly this error.
+Adding the no-argument TryReceive() overload turned ch.TryReceive into an overload set. When the ByRef is left off, the error no longer says what to fix. The pre-change compiler (build-rev2's fb.exe, at 5cb051e8) said "parameter 'value' is ByRef; write 'ByRef pkt'". 817fdbbc only says "no overload of 'TryReceive' takes (Int32)". The Communication example in docs/spec/10-concurrency.md (line 242, `While ch.TryReceive(pkt)`) is just above the Channel list this change edits. It leaves the ByRef off, so it hits exactly this error.
 
 ```
 Import std.core
@@ -88,11 +88,11 @@ Actual: t4.fb:5:7: error: no overload of 'TryReceive' takes (Int32)
 
 Suggested fix: When no overload matches by arity and types, but one would match if a plain variable argument were passed ByRef, give the ByRef hint as before. A Channel-specific check in channel_methods' call path also works. Add a sema test for it, and change spec 10's example to `ch.TryReceive(ByRef pkt)`.
 
-Skeptic: build-rev2's fb.exe turned out to be stale: it was built at 18:17, before rev-crypto moved to 33e24764, and it fails on std/concurrent/channels.fb. So I used the scratchpad's b18c/cli/fb.exe, which is configured from rev-crypto and was built at 20:20, after the commit. The finding's program, debug and release: the stale build says "t1.fb:5:21: error: parameter 'value' is ByRef; write 'ByRef pkt'", and 33e24764 says "t1.fb:5:7: error: no overload of 'TryReceive' takes (Int32)". The cause is the second method("TryReceive", nullable(element), {}) in sema.cpp's channel_methods (around line 11315), which makes TryReceive an overload set, so the ByRef hint at sema.cpp:22928 is never reached. Spec 10:242 still reads `While ch.TryReceive(pkt)`, which hits this error. Its missing ByRef predates the change, but the diff edits the Channel list right below it, and the regressed message no longer says how to fix it.
+Skeptic: build-rev2's fb.exe turned out to be stale: it was built at 18:17, before rev-crypto moved to 817fdbbc, and it fails on std/concurrent/channels.fb. So I used the scratchpad's b18c/cli/fb.exe, which is configured from rev-crypto and was built at 20:20, after the commit. The finding's program, debug and release: the stale build says "t1.fb:5:21: error: parameter 'value' is ByRef; write 'ByRef pkt'", and 817fdbbc says "t1.fb:5:7: error: no overload of 'TryReceive' takes (Int32)". The cause is the second method("TryReceive", nullable(element), {}) in sema.cpp's channel_methods (around line 11315), which makes TryReceive an overload set, so the ByRef hint at sema.cpp:22928 is never reached. Spec 10:242 still reads `While ch.TryReceive(pkt)`, which hits this error. Its missing ByRef predates the change, but the diff edits the Channel list right below it, and the regressed message no longer says how to fix it.
 
 ## channels-2 (low): concurrent_channels.fb never cancels a Receive or Send while it waits
 
-Status: fixed in 205d575d: the thread that receives, and the one that sends to a full Channel, say they're about to wait, and the Cancel comes 20 ms after, so each is waiting by then; the output says neither found it cancelled before
+Status: fixed in e2002841: the thread that receives, and the one that sends to a full Channel, say they're about to wait, and the Cancel comes 20 ms after, so each is waiting by then; the output says neither found it cancelled before
 
 Where: tests/programs/concurrent_channels.fb:82
 
@@ -136,7 +136,7 @@ Skeptic: I ran the finding's program, which copies the test's pattern (Thread.St
 
 ## channels-3 (low): concurrent_channels.fb compiles with a warning
 
-Status: fixed in 205d575d: the dead '?? 0' is gone, and the test builds without a warning
+Status: fixed in e2002841: the dead '?? 0' is gone, and the test builds without a warning
 
 Where: tests/programs/concurrent_channels.fb:72
 
@@ -168,11 +168,11 @@ Actual: warning: 'value' can't be Null here, so '??' always gives it (the test i
 
 Suggested fix: Write `totals.Sum.Add(value As Int64)` on line 72.
 
-Skeptic: I copied tests/programs/concurrent_channels.fb and ran it with the 33e24764 build. It prints "cc.fb:72:33: warning: 'value' can't be Null here, so '??' always gives it" and then the expected output. The finding's smaller program prints the same warning, then 4, in debug and release. Line 72 comes after `If value == Null Then Break`, so the `?? 0` is dead.
+Skeptic: I copied tests/programs/concurrent_channels.fb and ran it with the 817fdbbc build. It prints "cc.fb:72:33: warning: 'value' can't be Null here, so '??' always gives it" and then the expected output. The finding's smaller program prints the same warning, then 4, in debug and release. Line 72 comes after `If value == Null Then Break`, so the `?? 0` is dead.
 
 ## concurrent-2 (low): A Lazy maker that reads its own Value panics with the internal Mutex's message
 
-Status: fixed in c9ac1d06: the maker's thread writes its number (the runtime's new fb_thread_number) while it makes the value, and a read on that thread panics with "the Lazy's maker reads its own Value, which would wait for itself forever"; panic_concurrent_lazy_self.out has it, and a runtime test checks the numbers
+Status: fixed in df7ae745: the maker's thread writes its number (the runtime's new fb_thread_number) while it makes the value, and a read on that thread panics with "the Lazy's maker reads its own Value, which would wait for itself forever"; panic_concurrent_lazy_self.out has it, and a runtime test checks the numbers
 
 Where: std/concurrent/lazy.fb:24
 
@@ -205,11 +205,11 @@ Actual: panic: this thread holds the Mutex already, so Lock would wait for itsel
 
 Suggested fix: In Value, check whether this thread is already making the Lazy before taking the Lock, for example with a maker-thread Atomic set inside the lock or a TryLock-style check, and Panic with a Lazy-specific message as Once.Do does. Update panic_concurrent_lazy_self.out to match.
 
-Skeptic: Ran the finding's program (rv-step18b/v2/l1.fb) with build-lane6-verify/cli/fb.exe, which is at 33e24764. Debug and --release both printed 'panic: this thread holds the Mutex already, so Lock would wait for itself forever at l1.fb:11:13' and exited 101. It does panic at the caller's line as docs/stdlib.md:690-693 says. But the message is the built-in Lock's, about the Lazy's private Mutex field (std/concurrent/lazy.fb:24, `Lock Made As made`), and nothing checks for a maker reading its own Value first. That leaks an internal detail, and it misleads when the program has its own Mutex, as this one does (`self`). std.concurrent's other types each give a message of their own for the same case (Once.Do at locks.fb:188, RwLock.Read and Write at locks.fb:229/243). tests/.../panic_concurrent_lazy_self.out locks in the Mutex text. The behavior is right, so this is a diagnostics defect: low.
+Skeptic: Ran the finding's program (rv-step18b/v2/l1.fb) with build-lane6-verify/cli/fb.exe, which is at 817fdbbc. Debug and --release both printed 'panic: this thread holds the Mutex already, so Lock would wait for itself forever at l1.fb:11:13' and exited 101. It does panic at the caller's line as docs/stdlib.md:690-693 says. But the message is the built-in Lock's, about the Lazy's private Mutex field (std/concurrent/lazy.fb:24, `Lock Made As made`), and nothing checks for a maker reading its own Value first. That leaks an internal detail, and it misleads when the program has its own Mutex, as this one does (`self`). std.concurrent's other types each give a message of their own for the same case (Once.Do at locks.fb:188, RwLock.Read and Write at locks.fb:229/243). tests/.../panic_concurrent_lazy_self.out locks in the Mutex text. The behavior is right, so this is a diagnostics defect: low.
 
 ## log-3 (low): The console line writes field names raw, so a name with a newline splits the line and an ESC reaches the terminal
 
-Status: fixed in 6dc0e8da: LogLine quotes and escapes a field's name as it does a value; log_output.fb has a name with a space and a line break
+Status: fixed in 90fe3708: LogLine quotes and escapes a field's name as it does a value; log_output.fb has a name with a space and a line break
 
 Where: std/log/sinks.fb:156
 
@@ -239,7 +239,7 @@ Skeptic: The program prints "INFO  m: x a b", then "c=v", then "end", so the rec
 
 ## log-4 (low): On Windows FB_LOG is read with getenv in the ANSI code page, so a non-ASCII module name never matches
 
-Status: fixed in 24960463: the runtime reads environment variables through one helper, _wgetenv and UTF-8 on Windows, for FB_LOG, NO_COLOR, and tz.cpp's TZ; log_tests.cpp sets FB_LOG to "café=debug" with _wputenv_s and reads it back as UTF-8
+Status: fixed in 3f78972b: the runtime reads environment variables through one helper, _wgetenv and UTF-8 on Windows, for FB_LOG, NO_COLOR, and tz.cpp's TZ; log_tests.cpp sets FB_LOG to "café=debug" with _wputenv_s and reads it back as UTF-8
 
 Where: runtime/src/log.cpp:14
 
