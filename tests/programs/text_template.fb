@@ -54,6 +54,11 @@ kinds["name"] = Value("<b>")
 Print(Try Template(r"{{price:.2}} {{count:.1}} {{count:03}} {{big:,}} {{int:+}} [{{name:>6}}] " +
                    r"[{{yes:^7}}] [{{list:.4}}] [{{none:.2}}] [{{gone:>4}}] {{{price:08.3}}} " +
                    r"{{& name:<5}}|", html: True).Render(kinds))
+// An integer by a Double's spec keeps every digit, past 2^53 too.
+kinds["exact"] = Value(9007199254740993 As Int64)
+kinds["below"] = Value(-9007199254740993 As Int64)
+Print(Try Template(r"[{{big:.0}}] [{{exact:.1}}] [{{exact:%}}] [{{big:e}}] [{{below:,.1}}] " +
+                   r"[{{exact:.3e}}]").Render(kinds))
 
 // What makes an {{#if}} true: anything but Null, False, 0, NaN, "", and an empty Array or Object.
 Local tests = Value.Object()

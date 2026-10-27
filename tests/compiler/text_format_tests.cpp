@@ -177,6 +177,45 @@ TEST_CASE("'%' moves the point two digits, which multiplying the float doesn't",
     CHECK(number(std::numeric_limits<double>::quiet_NaN(), "%") == "NaN%");
 }
 
+TEST_CASE("an integer by a float's spec keeps every digit, as a float past 2^53 can't",
+          "[text_format]") {
+    const auto exact = [](const std::uint64_t magnitude, const bool negative,
+                          const std::string_view text) {
+        return fb::format_exact(magnitude, negative, spec(text));
+    };
+
+    constexpr std::uint64_t largest = std::numeric_limits<std::uint64_t>::max();
+    constexpr std::uint64_t past = 9007199254740993;
+    CHECK(exact(largest, false, ".0") == "18446744073709551615");
+    CHECK(exact(past, false, ".1") == "9007199254740993.0");
+    CHECK(exact(past, false, "%") == "900719925474099300%");
+    CHECK(exact(past, true, ",.2f") == "-9,007,199,254,740,993.00");
+    CHECK(exact(largest, false, "e") == "1.8446744073709551615e19");
+    CHECK(exact(largest, false, ".3E") == "1.845E19");
+    CHECK(exact(3, false, ".2%") == "300.00%");
+    CHECK(exact(0, false, "%") == "0%");
+    CHECK(exact(0, false, ".2e") == "0.00e0");
+    CHECK(exact(5, true, "010.1") == "-0000005.0");
+    CHECK(exact(7, false, "*^9.1") == "***7.0***");
+
+    // Halves round to even, as to_chars rounds a float's exact value, and a carry adds a digit.
+    CHECK(exact(25, false, ".0e") == "2e1");
+    CHECK(exact(35, false, ".0e") == "4e1");
+    CHECK(exact(251, false, ".0e") == "3e2");
+    CHECK(exact(99, false, ".0e") == "1e2");
+    CHECK(exact(9995, false, ".2e") == "1.00e4");
+
+    // Where a float holds the integer, the text is the float's.
+    for (const std::string_view text : { ".0"sv, ".3"sv, "e"sv, ".2e"sv, ".1E"sv, "%"sv, ".1%"sv,
+                                         ",.2"sv, "+010.1"sv, "f"sv, "_.1f"sv }) {
+        for (const std::uint64_t value : { 0ULL, 1ULL, 7ULL, 25ULL, 99ULL, 125ULL, 1234567ULL }) {
+            INFO(text << " " << value);
+            CHECK(exact(value, false, text) == number(static_cast<double>(value), text));
+            CHECK(exact(value, true, text) == number(-static_cast<double>(value), text));
+        }
+    }
+}
+
 TEST_CASE("grouping and zeros write a round float's digits, not its exponent", "[text_format]") {
     CHECK(number(2000000, ",") == "2,000,000");
     CHECK(number(2000001, ",") == "2,000,001");

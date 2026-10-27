@@ -242,6 +242,10 @@ fb_string_t* fb_format_int(std::int64_t value, const fb_string_t* spec);
 fb_string_t* fb_format_uint(std::uint64_t value, const fb_string_t* spec);
 /// The same, for a float, a Float32 when `float32` isn't 0.
 fb_string_t* fb_format_float(double value, std::int32_t float32, const fb_string_t* spec);
+/// An integer, `magnitude` and minus when `negative` isn't 0, by a float's spec, with every digit
+/// kept, as a Float64 past 2^53 can't. Null when `spec` doesn't fit a float.
+fb_string_t* fb_format_exact(std::uint64_t magnitude, std::int32_t negative,
+                             const fb_string_t* spec);
 /// `text` padded and cut by a format spec, a String's (with a precision, and its debug form in
 /// quotes) when `string` isn't 0, or other text's. Null when `spec` doesn't fit it.
 fb_string_t* fb_format_text(const fb_string_t* text, const fb_string_t* spec, std::int32_t string);

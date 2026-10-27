@@ -754,4 +754,87 @@ inline std::string format_float(double value, const bool float32, const format_s
     return format_detail::pad_number(sign, "", body + suffix, spec, true);
 }
 
+namespace format_detail {
+
+/// An integer's decimal digits as scientific text, "1.2e3": `precision` digits after the point,
+/// rounded half to even, as to_chars rounds, or without one, every digit up to its last that
+/// isn't 0.
+inline std::string exact_scientific(std::string digits,
+                                    const std::optional<std::uint32_t> precision) {
+    std::size_t exponent = digits.size() - 1;
+    if (!precision) {
+        digits.erase(std::max<std::size_t>(digits.find_last_not_of('0') + 1, 1));
+    } else if (digits.size() <= *precision + 1) {
+        digits.resize(*precision + 1, '0');
+    } else {
+        const std::size_t keep = *precision + 1;
+        const bool past_half = digits.find_first_not_of('0', keep + 1) != std::string::npos;
+        const bool odd = (digits[keep - 1] - '0') % 2 == 1;
+        const bool up = digits[keep] > '5' || (digits[keep] == '5' && (past_half || odd));
+        digits.resize(keep);
+        std::size_t at = keep;
+        while (up && at > 0 && digits[at - 1] == '9') {
+            digits[at - 1] = '0';
+            --at;
+        }
+
+        if (up && at == 0) {
+            digits.insert(0, 1, '1');
+            digits.pop_back();
+            ++exponent;
+        } else if (up) {
+            ++digits[at - 1];
+        }
+    }
+
+    const std::string point = digits.size() > 1 ? "." + digits.substr(1) : "";
+    return digits.substr(0, 1) + point + "e" + std::to_string(exponent);
+}
+
+} // namespace format_detail
+
+/// An integer's text by a float's spec, as a float of its value has it, but with every digit,
+/// where a Float64 rounds an integer past 2^53: fixed text with a precision's zeros, '%' its
+/// digits and two zeros, and 'e' and 'E' its digits rounded half to even.
+inline std::string format_exact(const std::uint64_t magnitude, const bool negative,
+                                const format_spec_t& spec) {
+    const std::string_view sign = format_detail::sign_of(negative, spec);
+    const std::string digits = std::to_string(magnitude);
+    // Its whole digits, with the point and the precision's zeros after them.
+    const auto fixed = [&](const std::string& whole) {
+        return spec.precision && *spec.precision > 0
+                   ? whole + "." + std::string(*spec.precision, '0')
+                   : whole;
+    };
+
+    std::string body;
+    std::string suffix;
+    switch (spec.kind) {
+    case 'e':
+    case 'E':
+        body = format_detail::exact_scientific(digits, spec.precision);
+        if (spec.kind == 'E') {
+            std::ranges::replace(body, 'e', 'E');
+        }
+
+        break;
+    case '%':
+        body = fixed(magnitude == 0 ? digits : digits + "00");
+        suffix = "%";
+        break;
+    default:
+        body = fixed(digits);
+        break;
+    }
+
+    if (spec.grouping != 0) {
+        const std::size_t end = std::min(body.find_first_of(".eE"), body.size());
+        const std::size_t after = body.size() - end + suffix.size();
+        body = format_detail::zero_grouped(body.substr(0, end), sign.size() + after, spec, 3) +
+               body.substr(end);
+    }
+
+    return format_detail::pad_number(sign, "", body + suffix, spec, true);
+}
+
 } // namespace fb

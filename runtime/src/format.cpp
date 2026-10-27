@@ -122,6 +122,17 @@ fb_string_t* fb_format_uint(const std::uint64_t value, const fb_string_t* spec) 
     return make(fb::format_integer(value, false, read->kind == '?' ? padding_of(*read) : *read));
 }
 
+fb_string_t* fb_format_exact(const std::uint64_t magnitude, const std::int32_t negative,
+                             const fb_string_t* spec) {
+    const std::optional<fb::format_spec_t> read = spec_for(spec, fb::format_subject_t::FLOAT);
+    if (!read) {
+        return nullptr;
+    }
+
+    return make(
+        fb::format_exact(magnitude, negative != 0, read->kind == '?' ? padding_of(*read) : *read));
+}
+
 fb_string_t* fb_format_float(const double value, const std::int32_t float32,
                              const fb_string_t* spec) {
     const std::optional<fb::format_spec_t> read = spec_for(spec, fb::format_subject_t::FLOAT);

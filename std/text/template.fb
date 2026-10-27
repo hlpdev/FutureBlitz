@@ -10,6 +10,7 @@ Import std.collections
 
 Extern "runtime"
     Function fb_string_from_array(bytes: UInt8[]): String
+    Function fb_format_exact(magnitude: UInt64, negative: Int32, spec: String): String?
 End Extern
 
 // A template, read once, which Render fills from what it's given each time.
@@ -696,9 +697,10 @@ Function TextOf(value: Value): String
 End Function
 
 // A value's text by a VALUE's format spec, as "{x:spec}" gives it: a number's, an integer's by a
-// Double's spec where an integer's doesn't take it, as {{count:.1}} gives 3.0 for 3; a String's
-// or Bool's; an Array's or Object's ToString as a String's; and nothing for Null. Throws a
-// FormatError of BAD_VALUE for a value the spec doesn't fit.
+// Double's spec where an integer's doesn't take it, as {{count:.1}} gives 3.0 for 3, with every
+// digit, as a Double past 2^53 wouldn't have; a String's or Bool's; an Array's or Object's
+// ToString as a String's; and nothing for Null. Throws a FormatError of BAD_VALUE for a value the
+// spec doesn't fit, which says where the tag is.
 Function SpecText(value: Value, part: Part): String Throws FormatError
     Local text: String? = Null
     Select value.Kind
@@ -708,10 +710,12 @@ Function SpecText(value: Value, part: Part): String Throws FormatError
         text = (value.AsBool() ?? False).Format(part.Spec)
     Case ValueKind.INT
         Local number = value.AsInt64() ?? 0
-        text = number.Format(part.Spec) ?? (number As Double).Format(part.Spec)
+        Local magnitude = number < 0 ? ((-(number + 1)) As UInt64) + 1 : number As UInt64
+        text = number.Format(part.Spec) ??
+               fb_format_exact(magnitude, number < 0 ? 1 : 0, part.Spec)
     Case ValueKind.UINT
         Local number = value.AsUInt64() ?? 0
-        text = number.Format(part.Spec) ?? (number As Double).Format(part.Spec)
+        text = number.Format(part.Spec) ?? fb_format_exact(number, 0, part.Spec)
     Case ValueKind.DOUBLE
         text = (value.AsDouble() ?? 0.0).Format(part.Spec)
     Default
