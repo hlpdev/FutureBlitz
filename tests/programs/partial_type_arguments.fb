@@ -1,0 +1,40 @@
+Import std.core
+
+// A call writes a generic function's first type arguments, and the rest come from its arguments.
+Function Rows<T, A: Printable>(sql: String, argument: A): T[]
+    Print("{sql} with {argument}, {TypeName<A>()}")
+    Return []
+End Function
+
+Function Both<A, B>(a: A, b: B): String
+    Where A: Printable
+    Where B: Printable
+    Return "{a} ({TypeName<A>()}) and {b} ({TypeName<B>()})"
+End Function
+
+Function Apply<T, U>(value: T, f: Func(T): U): U => f(value)
+
+Class Db
+    Method Query<T, A: Printable>(sql: String, argument: A): T[]
+        Print("query {sql} with {argument}, {TypeName<T>()}")
+        Return []
+    End Method
+End Class
+
+Extend T[]
+    Method Paired<U, V>(u: U, v: V): String => "{Self.Count} {TypeName<U>()} {TypeName<V>()}"
+End Extend
+
+Local rows = Rows<String>("select name", 7)
+Print(rows.Count)
+Print(Both<Float>(1, 2))
+Print(Both<Int64>(1, "two"))
+// What's written is taken as given, and a lambda's parameter has it.
+Print(Apply<Float>(3, Function(x) => x / 2))
+Local db = Db()
+Local found = db.Query<Int>("select id", "ada")
+Print(found.Count)
+Print([1, 2, 3].Paired<UInt8>(1, 2.5))
+// A function value takes the rest from the Func expected.
+Local f: Func(Int, String): String = Both<Int>
+Print(f(4, "four"))

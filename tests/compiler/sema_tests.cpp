@@ -4107,6 +4107,61 @@ TEST_CASE("arrays are Cloneable, and the numbers, Bool, String, and Enums Defaul
                     "'Made' needs for T" });
 }
 
+TEST_CASE("a call writes a generic function's first type arguments, and infers the rest",
+          "[sema]") {
+    const std::string generic = "Function Two<A, B>(a: A, b: B): A => a\n"
+                                "Function Query<T, A>(sql: String, a: A): T[] => []\n"
+                                "Function Apply<T, U>(value: T, f: Func(T): U): U => f(value)\n"
+                                "Class Db\n"
+                                "    Method Query<T, A>(sql: String, a: A): T[] => []\n"
+                                "End Class\n"
+                                "Extend T[]\n"
+                                "    Method Pick<U, V>(u: U, v: V): V => v\n"
+                                "End Extend\n";
+    // The rest come from the arguments, and a lambda's parameter has what's written.
+    CHECK(errors_of(generic + "Local rows: String[] = Query<String>(\"sql\", 1)\n"
+                              "Local more: Int[] = Db().Query<Int>(\"sql\", \"id\")\n"
+                              "Local half: Float = Apply<Float>(3, Function(x) => x / 2)\n"
+                              "Local v: Float = [1, 2].Pick<String>(\"u\", 2.5)\n"
+                              "Local w: Float = [1, 2].Pick<String, Float>(\"u\", 2)\n"
+                              "Local f: Func(Int, String): Int = Two<Int>")
+              .empty());
+    // What's written is taken as given: an argument that doesn't fit it isn't inferred instead.
+    CHECK(errors_of(generic + "Local x = Two<Int>(\"s\", 2)\n"
+                              "Local y: String = Two<Float>(1, 2)") ==
+          errors_t{
+              "\"s\": expected Int32, found String",
+              "Two<Float>(1, 2): expected String, found Float32",
+          });
+    // Too many, counting only a Method's own, not the T of the T[] an Extend adds it to; what
+    // can't be inferred is named, its lambda not told again that it needs a type; and a type's
+    // New, or a function value without a Func that tells the rest, writes them all.
+    const errors_t errors =
+        errors_of(generic + "Local a = Two<Int, Int, Int>(1, 2)\n"
+                            "Local b = [1, 2].Pick<String, Int, Int>(\"u\", 2)\n"
+                            "Local c = Db().Query<Int>(\"sql\")\n"
+                            "Local d = Apply<Int>(1)\n"
+                            "Local e = [1].Pick<Int>(Function(x) => x)\n"
+                            "Class Box<A, B>\n"
+                            "    Field a: A?\n"
+                            "End Class\n"
+                            "Local box = Box<Int>()\n"
+                            "Local g: Func(Int): Int = Query<Int>");
+    REQUIRE(errors.size() == 7);
+    CHECK(errors[0] == "Two<Int, Int, Int>: 'Two<Int, Int, Int>' takes 2 type arguments, not 3");
+    CHECK(errors[1] == "[1, 2].Pick<String, Int, Int>: '[1, 2].Pick<String, Int, Int>' takes 2 "
+                       "type arguments, not 3");
+    CHECK(errors[2] == "Db().Query<Int>: can't tell what A is in this call; write the type "
+                       "arguments, like Db().Query<Int, Int>(...)");
+    CHECK(errors[3] == "Apply<Int>: can't tell what U is in this call; write the type arguments, "
+                       "like Apply<Int, Int>(...)");
+    CHECK(errors[4] == "[1].Pick<Int>: can't tell what V is in this call; write the type "
+                       "arguments, like [1].Pick<Int, Int>(...)");
+    CHECK(errors[5] == "Box<Int>: 'Box<Int>' takes 2 type arguments, not 1");
+    CHECK(errors[6] == "Query<Int>: 'Query' is generic, so it needs a Func type to say what A "
+                       "is, or type arguments, like Query<Int>");
+}
+
 TEST_CASE("generic mistakes", "[sema]") {
     // In Zero itself, the type expected, its own T, says what T is.
     CHECK(errors_of("Function Zero<T>(): T => Zero()\nLocal z = Zero()") ==
@@ -4132,8 +4187,8 @@ TEST_CASE("generic mistakes", "[sema]") {
               "(1 To 3).Map: can't tell what U is in this call; write the type arguments, like "
               "(1 To 3).Map<Int>(...)",
           });
-    // The example writes every type argument, with what the call told; and a call that wrote
-    // too few is told that alone.
+    // The example writes every type argument, with what the call told, and what it wrote as it
+    // wrote it.
     CHECK(errors_of("Function Pair<A, B>(a: A): B[] => []\n"
                     "Function Make<T>(): T[] => []\n"
                     "Local p = Pair(1)\n"
@@ -4142,7 +4197,8 @@ TEST_CASE("generic mistakes", "[sema]") {
           errors_t{
               "Pair: can't tell what B is in this call; write the type arguments, like "
               "Pair<Int32, Int>(...)",
-              "Pair<Int>: 'Pair<Int>' takes 2 type arguments, not 1",
+              "Pair<Int>: can't tell what B is in this call; write the type arguments, like "
+              "Pair<Int, Int>(...)",
               "Make: can't tell what T is in this call; write the type arguments, like "
               "Make<Int>(...)",
           });
@@ -10765,14 +10821,12 @@ TEST_CASE("a Task's Throws, written out, is checked, inferred, and named as a fu
               "String: Throws lists Classes that extend Error, not String",
           });
 
-    // An E still being inferred tells a lambda's parameter nothing.
+    // An E still being inferred tells a lambda's parameter nothing, which the call's error
+    // says once.
     CHECK(with_oops("Function Run<E: Error>(f: Func(Task<Int> Throws E): Int): Int => 1\n"
                     "Local x = Run(Function(t) => 0)") ==
-          errors_t{
-              "Run: can't tell what E is in this call; write the type arguments, like "
-              "Run<Error>(...)",
-              "t: 't' needs a type, since nothing here says what this lambda takes",
-          });
+          errors_t{ "Run: can't tell what E is in this call; write the type arguments, like "
+                    "Run<Error>(...)" });
 
     // And a type that grows only through a Throws grows all the same.
     CHECK(with_oops("Class Wrapped<T> Extends Error\nEnd Class\n"

@@ -18192,21 +18192,33 @@ private:
             return type_id_t::INVALID;
         }
 
-        // A generic Function's type arguments are written, or come from the Func expected.
+        // A generic Function's type arguments are written, or come from the Func expected: all
+        // of them, or those after the first ones written.
         const std::vector<type_id_t> parameters = symbol(*chosen).type_parameters;
-        std::vector<type_id_t> arguments = resolve_arguments(type_arguments, parameters, span);
-        if (arguments.empty() && !parameters.empty()) {
-            std::vector<std::optional<type_id_t>> inferred(parameters.size());
+        std::vector<type_id_t> arguments =
+            resolve_arguments(type_arguments, parameters, span, true);
+        // A written one that isn't a type was reported.
+        if (std::ranges::contains(arguments, type_id_t::INVALID)) {
+            return type_id_t::INVALID;
+        }
+
+        if (arguments.size() < parameters.size()) {
+            std::vector<std::optional<type_id_t>> inferred(arguments.begin(), arguments.end());
+            inferred.resize(parameters.size());
             unify(func_of(*chosen), expected, parameters, inferred);
+            arguments.clear();
             for (const std::optional<type_id_t> argument : inferred) {
                 arguments.push_back(argument.value_or(type_id_t::INVALID));
             }
 
-            if (std::ranges::contains(arguments, type_id_t::INVALID)) {
+            if (const auto unknown = std::ranges::find(arguments, type_id_t::INVALID);
+                unknown != arguments.end()) {
                 error(span,
                       "'{}' is generic, so it needs a Func type to say what {} is, or type "
                       "arguments, like {}<Int>",
-                      name, shown_name(parameters.front()), name);
+                      name,
+                      shown_name(parameters[static_cast<std::size_t>(unknown - arguments.begin())]),
+                      name);
                 return type_id_t::INVALID;
             }
         }
@@ -20805,7 +20817,16 @@ private:
         const std::optional<std::vector<type_id_t>> arguments = infer(*function, node, hint);
         if (!arguments) {
             report_uninferred(id, *function, node, hint);
-            check_alone(node.arguments);
+            // A lambda's parameters can need the type arguments the call couldn't tell, so it
+            // isn't told that again.
+            for (const argument_t& argument : node.arguments) {
+                if (std::holds_alternative<lambda_expr_t>(m_ast.get(argument.value).node)) {
+                    (void)quietly([&] { return check(argument.value, type_id_t::NONE); });
+                } else {
+                    check(argument.value, type_id_t::NONE);
+                }
+            }
+
             return type_id_t::INVALID;
         }
 
@@ -22216,11 +22237,16 @@ private:
             }
         }
 
+        // A function's own can be the first ones, the rest inferred, as a type's can't. What an
+        // Extend adds to T[] has the array's T first, which isn't written.
         if (declared.kind != symbol_kind_t::CONSTRUCTOR) {
+            const std::vector<type_id_t> parameters = own_type_parameters(declared);
+            const std::size_t first =
+                owner_parameters.size() + declared.type_parameters.size() - parameters.size();
             const std::vector<type_id_t> own =
-                resolve_arguments(written, declared.type_parameters, span_of(node.callee));
+                resolve_arguments(written, parameters, span_of(node.callee), true);
             for (std::size_t i = 0; i < own.size(); ++i) {
-                arguments[owner_parameters.size() + i] = own[i];
+                arguments[first + i] = own[i];
             }
         }
 
@@ -22233,17 +22259,18 @@ private:
         return arguments;
     }
 
-    /// Type arguments written after a name, which must be one for each of the type parameters.
-    /// Empty when none are written.
+    /// Type arguments written after a name, which must be one for each of the type parameters,
+    /// or with `leading`, for the first ones, whose rest a call infers. Empty when none are
+    /// written.
     std::vector<type_id_t> resolve_arguments(const std::vector<type_expr_id_t>& written,
                                              const std::vector<type_id_t>& parameters,
-                                             const span_t span) {
+                                             const span_t span, const bool leading = false) {
         if (written.empty()) {
             return {};
         }
 
         const std::size_t count = parameters.size();
-        if (written.size() != count) {
+        if (written.size() > count || (written.size() < count && !leading)) {
             if (count == 0) {
                 error(span, "'{}' isn't generic", text(span));
             } else {
@@ -22404,12 +22431,20 @@ private:
     /// is for an O that's no Iterator, or else which ones can't be told.
     void report_uninferred(const expr_id_t /*id*/, const symbol_id_t function,
                            const call_expr_t& node, const type_id_t hint) {
-        // A call that wrote type arguments has them all, or was told how many it takes.
+        // A call that wrote all its type arguments has them, or was told how many it takes; one
+        // that wrote a function's first ones is told which of the rest it can't infer.
         const expr_node_t& callee = m_ast.get(node.callee).node;
         const auto* named = std::get_if<name_expr_t>(&callee);
         const auto* member = std::get_if<member_expr_t>(&callee);
-        if ((named != nullptr && !named->type_arguments.empty()) ||
-            (member != nullptr && !member->type_arguments.empty())) {
+        std::vector<type_expr_id_t> wrote;
+        if (named != nullptr) {
+            wrote = named->type_arguments;
+        } else if (member != nullptr) {
+            wrote = member->type_arguments;
+        }
+
+        if (!wrote.empty() && (symbol(function).kind == symbol_kind_t::CONSTRUCTOR ||
+                               wrote.size() >= own_type_parameters(symbol(function)).size())) {
             return;
         }
 
@@ -22492,13 +22527,16 @@ private:
             called.kind == symbol_kind_t::CONSTRUCTOR ? parameters : own_type_parameters(called);
         std::string example;
         bool fits = true;
-        for (const type_id_t parameter : written) {
+        for (std::size_t i = 0; i < written.size(); ++i) {
+            const type_id_t parameter = written[i];
             const auto place = std::ranges::find(parameters, parameter);
             const auto index = static_cast<std::size_t>(place - parameters.begin());
             const std::optional<type_id_t> known = index < told.size() ? told[index] : std::nullopt;
-            // A Const type parameter takes a value.
+            // What the call wrote is as it wrote it, and a Const type parameter takes a value.
             example += example.empty() ? "" : ", ";
-            if (known) {
+            if (i < wrote.size()) {
+                example += text(m_ast.get(wrote[i]).span);
+            } else if (known) {
                 example += name_of(*known);
             } else if (is_value_parameter(parameter)) {
                 example += '1';
@@ -22510,8 +22548,16 @@ private:
             }
         }
 
+        // The example's name is the callee's without the type arguments it wrote.
+        span_t shown = span_of(node.callee);
+        if (named != nullptr) {
+            shown.end = shown.begin + static_cast<std::uint32_t>(named->name.size());
+        } else if (member != nullptr) {
+            shown.end = member->member.span.end;
+        }
+
         const std::string like =
-            fits ? std::format(", like {}<{}>(...)", text(node.callee), example) : std::string();
+            fits ? std::format(", like {}<{}>(...)", text(shown), example) : std::string();
         error(span_of(node.callee),
               "can't tell what {} {} in this call; write the type arguments{}", names,
               unknown.size() == 1 ? "is" : "are", like);
