@@ -52,6 +52,12 @@ literal_t literal(const std::string_view text) {
     return made;
 }
 
+/// The tests' folder in /tmp, and a name in it, of this process's own, since another run of the
+/// tests at once on the machine has its own.
+std::string own(const std::string_view name) {
+    return std::string(name) + "-" + std::to_string(::getpid());
+}
+
 /// Makes `path` the folder IPC listeners keep their files in, as TMPDIR, and gives it.
 std::string folder(const std::string& path) {
     std::filesystem::create_directories(path);
@@ -77,7 +83,7 @@ bool connects(void* listener, const literal_t& name) {
 CATCH_REGISTER_LISTENER(finish_runtime_t)
 
 TEST_CASE("an IPC listener takes over a Unix socket's file that nothing listens at") {
-    const std::string path = folder("/tmp/fb-net-tests") + "/fb-net-stale.sock";
+    const std::string path = folder(own("/tmp/fb-net-tests")) + "/fb-net-stale.sock";
     ::unlink(path.c_str());
 
     // The file a listener leaves when its program ends without closing it.
@@ -97,7 +103,7 @@ TEST_CASE("an IPC listener takes over a Unix socket's file that nothing listens 
 }
 
 TEST_CASE("an IPC listener leaves a file at its path that isn't a socket") {
-    const std::string path = folder("/tmp/fb-net-tests") + "/fb-net-notes.sock";
+    const std::string path = folder(own("/tmp/fb-net-tests")) + "/fb-net-notes.sock";
     std::ofstream{ path } << "notes";
 
     const literal_t name = literal("fb-net-notes");
@@ -116,8 +122,9 @@ TEST_CASE("an IPC listener leaves a file at its path that isn't a socket") {
 TEST_CASE("an IPC name of 64 bytes works under a TMPDIR too long for its socket's path") {
     // TMPDIR's path to the name's file is longer than a Unix socket's address holds, on Linux
     // and macOS, so the file goes in /tmp.
-    folder("/tmp/fb-net-tests/" + std::string(48, 'f'));
-    const std::string text = "fb-net-long-" + std::string(52, 'n');
+    folder(own("/tmp/fb-net-tests") + "/" + std::string(48, 'f'));
+    std::string text = own("fb-net-long");
+    text.resize(64, 'n');
     const literal_t name = literal(text);
     void* listener = fb_io_net_new(3);
     CHECK(fb_io_net_listen_pipe(listener, &name.header, 1) == 0);

@@ -1,2 +1,1 @@
-fb-test-net-left-behind
-panic: an IPC name is 1 to 64 ASCII letters, digits, '.', '-', and '_', not "../elsewhere" at panic_net_ipc_name.fb:8:5
+panic: an IPC name is 1 to 64 ASCII letters, digits, '.', '-', and '_', not "../elsewhere" at panic_net_ipc_name.fb:6:5

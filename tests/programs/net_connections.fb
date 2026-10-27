@@ -1,11 +1,14 @@
 // Many connections, one after another and at once, over TCP and IPC, and many datagrams: each
 // socket goes with its object, so none is left over, and the leak report says nothing. A
-// socket's file descriptor left open would run past macOS's 256 long before the end.
+// socket's file descriptor left open would run past macOS's 256 long before the end. The IPC
+// name is the run's own, with a random Uuid in it, since another run at once would have a name
+// of its own.
 
 Import std.core
 Import std.ffi
 Import std.io
 Import std.net
+Import std.uuid
 
 Const rounds = 1000
 
@@ -73,11 +76,12 @@ End Try
 
 // IPC, one after another.
 Try
-    Local listener = IpcListener.Listen("fb-test-net-connections")
+    Local name = "fb-test-net-connections-{Uuid.V4()}"
+    Local listener = IpcListener.Listen(name)
     Local total = 0
     Local into = Buffer<UInt8>(1)
     For i = 1 To rounds / 2
-        Local client = IpcStream.Connect("fb-test-net-connections")
+        Local client = IpcStream.Connect(name)
         client.WriteBytes([(i % 256) As UInt8])
         Local server = listener.Accept()
         ReadExact(server, into)

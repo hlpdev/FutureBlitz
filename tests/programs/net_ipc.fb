@@ -1,14 +1,18 @@
 // std.net's IPC: a program talks to itself through an IpcListener and IpcStreams, a named pipe
 // on Windows and a Unix socket elsewhere, blocking and Async; a name nothing listens at refuses a
 // connection, one something listens at can't be listened at again, and what's closed says so.
+// Its names are the run's own, with a random Uuid in them, since a name is the machine's, and
+// another run at once would have it.
 
 Import std.core
 Import std.ffi
 Import std.io
 Import std.net
+Import std.text
 Import std.time
+Import std.uuid
 
-Const name = "fb-test-net-ipc"
+Local name = "fb-test-net-ipc-{Uuid.V4()}"
 
 Function Text(bytes: Buffer<UInt8>): String Throws IOError
     Return Try ReadAllText(MemoryStream(bytes.ToArray()))
@@ -23,23 +27,13 @@ Async Function Echo(listener: IpcListener): String Throws NetError, TimeoutError
     Return Try Text(into)
 End Function
 
-// panic_net_ipc_name.fb's panic leaves its listener's Unix socket file behind, where nothing
-// listens, which a listener takes over, when that program ran first.
-Try
-    Local taken = IpcListener.Listen("fb-test-net-left-behind")
-    Local connected = IpcStream.Connect(taken.Name)
-    Print(taken.Accept().Name)
-Catch e As Error
-    Print("failed: {e.Message}")
-End Try
-
 Try
     // Blocking, on one thread.
     Local listener = IpcListener.Listen(name)
     Local client = IpcStream.Connect(name)
     client.WriteText("over a pipe")
     Local server = listener.Accept()
-    Print(listener.Name, client.Name, server.Name)
+    Print(listener.Name == name, client.Name == name, server.Name == name)
     Local into = Buffer<UInt8>(11)
     ReadExact(server, into)
     server.Write(into)
@@ -86,13 +80,13 @@ Try
     Try
         IpcListener.Listen(name)
     Catch e As NetError
-        Print(e.Kind, e.Address ?? "")
+        Print(e.Kind, e.Address == name)
     End Try
 
     Try
-        IpcListener.Listen("FB-Test-Net-IPC")
+        IpcListener.Listen(name.ToUpper())
     Catch e As NetError
-        Print(e.Kind, e.Address ?? "")
+        Print(e.Kind, e.Address == name.ToUpper())
     End Try
 
     Try
@@ -113,7 +107,7 @@ Try
     Try
         IpcStream.Connect(name)
     Catch e As NetError
-        Print(e.Kind, e.Address ?? "")
+        Print(e.Kind, e.Address == name)
     End Try
 
     Try
@@ -124,7 +118,7 @@ Try
 
     Local again = IpcListener.Listen(name)
     Local last = IpcStream.Connect(name)
-    Print(again.Accept().Name, last.Name)
+    Print(again.Accept().Name == name, last.Name == name)
 Catch e As Error
     Print("failed: {e.Message}")
 End Try
@@ -132,10 +126,9 @@ End Try
 // A name of 64 bytes, the most there is, works wherever the OS keeps its sockets, and a name is
 // the same whatever its letters' case. A ReadTimeout of zero takes what's come without waiting.
 Try
-    Local long = "fb-test-net-ipc-012345678901234567890123456789012345678901234567"
-    Local upper = "FB-TEST-NET-IPC-012345678901234567890123456789012345678901234567"
+    Local long = name + "-0123456789a"
     Local listener = IpcListener.Listen(long)
-    Local client = IpcStream.Connect(upper)
+    Local client = IpcStream.Connect(long.ToUpper())
     Local server = listener.Accept()
     Print(long.Bytes.Count)
     server.WriteText("polled")

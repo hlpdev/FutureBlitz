@@ -1,17 +1,16 @@
-fb-test-net-left-behind
-fb-test-net-ipc fb-test-net-ipc fb-test-net-ipc
+True True True
 over a pipe
 and back and back
 0
 True
 True
 Accept: timeout
-OTHER fb-test-net-ipc
-OTHER FB-Test-Net-IPC
+OTHER True
+OTHER True
 Accept: timeout
 True True
-REFUSED fb-test-net-ipc
+REFUSED True
 REFUSED
-fb-test-net-ipc fb-test-net-ipc
+True True
 64
 polled
