@@ -114,24 +114,20 @@ End Function
 // Two sorted parts as one, the first's value first where neither goes before the other.
 Function Merged<T: Sendable>(first: ImmutableArray<T>, second: ImmutableArray<T>,
                              before: Sendable Func(T, T): Bool): ImmutableArray<T>
+    // By index, so a T that's nullable itself isn't wrapped in another T? and taken out again.
     Local values: T[] = []
     values.Reserve(first.Count + second.Count)
-    Local left = first.Iterate()
-    Local right = second.Iterate()
-    Local a = left.Next()
-    Local b = right.Next()
-    Loop
-        Local x = a
-        Local y = b
-        If x == Null && y == Null Then Break
-        If y == Null || (x != Null && !before(y, x))
-            values.Add(x.Expect("the left part has a value here"))
-            a = left.Next()
+    Local i = 0
+    Local j = 0
+    While i < first.Count || j < second.Count
+        If j == second.Count || (i < first.Count && !before(second[j], first[i]))
+            values.Add(first[i])
+            i += 1
         Else
-            values.Add(y.Expect("the right part has a value here"))
-            b = right.Next()
+            values.Add(second[j])
+            j += 1
         End If
-    End Loop
+    End While
     Return ImmutableArray<T>.From(values)
 End Function
 

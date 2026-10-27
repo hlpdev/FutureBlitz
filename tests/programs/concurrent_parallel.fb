@@ -101,3 +101,13 @@ Print("stable:", inOrder)
 Local descending = numbers.Clone()
 ParallelSort(descending, Function(a: Int, b: Int) => a > b)
 Print(descending[0], descending[descending.Count - 1])
+
+// Items of a nullable type sort as Sort sorts them, a Null in any part of a merge too.
+Local maybes: Int?[] = []
+For i = 0 Until 20000
+    maybes.Add(i % 7 == 0 ? Null : Next(1000))
+End For
+Local sortedMaybes = maybes.Clone()
+sortedMaybes.Sort(Function(a: Int?, b: Int?) => (a ?? -1) < (b ?? -1))
+ParallelSort(maybes, Function(a: Int?, b: Int?) => (a ?? -1) < (b ?? -1))
+Print("nullable:", maybes == sortedMaybes, maybes[0] == Null, maybes[maybes.Count - 1] != Null)
