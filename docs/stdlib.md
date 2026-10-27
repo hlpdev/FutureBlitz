@@ -1308,8 +1308,13 @@ discovery. `Import std.net` brings in std/net/.
   `IsSuccess`, `EnsureSuccess`). `HttpClient`: `Get`, `Head`,
   `Post`, `Put`, `Patch`, `Delete`, `Send(method, url, body, headers)`, and `Download(url,
   progress)`, the body's bytes, which tells `progress` of how many came and how many the response
-  said, or -1 when it didn't say, and nothing of a redirect's own body, each with an Async twin
-  that the I/O thread runs, telling progress on the main thread;
+  said, or -1 when it didn't say, and nothing of a redirect's own body, and `Download(url, path,
+  progress)`, which writes the body to the file at `path` as it comes, atomically, as
+  `File.WriteBytesAtomic` does: into a new temporary file in its folder, renamed over the file,
+  onto the disk, once all of it came, so the file holds all of it or what it held before, which a
+  status that isn't success, a transfer that fails, and an IOError for a file that can't be
+  written (a folder that isn't there before anything's sent) leave; each with an Async twin that
+  the I/O thread runs, telling progress on the main thread, and writing the file there;
   `DefaultHeaders`, which the request's own replace by name; `UserAgent`, checked as a header's
   value is; `FollowRedirects` and `MaxRedirects` (10), which the runtime follows as the fetch
   standard says, a 301 or 302 changing a POST to a GET and a 303 any method but HEAD, without the
@@ -1330,7 +1335,7 @@ discovery. `Import std.net` brings in std/net/.
   through a client of their own. A client's `Timeout`, a Duration, or Null for none, as it is to
   start, is how long a request may take, and `ConnectTimeout` (30 seconds) how long its
   connecting may; past either is a TimeoutError. It speaks HTTP/2 where TLS's ALPN agrees on it,
-  over nghttp2, and HTTP/1.1 otherwise. A Download to a file waits for step 14's files. A program
+  over nghttp2, and HTTP/1.1 otherwise. A program
   that only makes Headers or a Body links no libcurl.
 - std.net.http's server: `HttpServer`, whose handlers are Async code on its own loop (no data
   races, and Globals work), with `Workers = n` to spread them over threads once they're
