@@ -1,0 +1,123 @@
+// A zip mounted in a Vfs, through std.compress's ZipSource and MountZip: its files and folders
+// read as a folder's do, under another mount and over one, with its names' "."s and ".."s taken
+// out, what goes above its root and links left out, and the last of a name's entries the file.
+// A zip whose entries make a place a file and a folder too, and data that isn't a zip, are
+// IOErrors of INVALID_DATA.
+Import std.collections
+Import std.compress
+Import std.core
+Import std.io
+
+// link.zip, 214 bytes, of compress_archives: a link to target.txt, and target.txt.
+Function LinkZip(): UInt8[]
+    Return [
+        0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x5c,
+        0x49, 0xba, 0xa4, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x04, 0x00,
+        0x00, 0x00, 0x6c, 0x69, 0x6e, 0x6b, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x2e, 0x74,
+        0x78, 0x74, 0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x21, 0x5c, 0x1f, 0x08, 0xea, 0x46, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+        0x0a, 0x00, 0x00, 0x00, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x2e, 0x74, 0x78, 0x74,
+        0x78, 0x0a, 0x50, 0x4b, 0x01, 0x02, 0x14, 0x03, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x21, 0x5c, 0x49, 0xba, 0xa4, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x0a, 0x00,
+        0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0xff, 0xa1, 0x00, 0x00, 0x00, 0x00, 0x6c, 0x69, 0x6e, 0x6b, 0x50, 0x4b, 0x01, 0x02,
+        0x14, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x5c, 0x1f, 0x08,
+        0xea, 0x46, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x01, 0x2c, 0x00, 0x00, 0x00,
+        0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x2e, 0x74, 0x78, 0x74, 0x50, 0x4b, 0x05, 0x06,
+        0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x02, 0x00, 0x6a, 0x00, 0x00, 0x00, 0x56, 0x00,
+        0x00, 0x00, 0x00, 0x00
+    ]
+End Function
+
+Function Zipped(files: (String, String)[], folders: String[]): UInt8[]
+    Local writer = ZipWriter()
+    For file In files
+        writer.Add(file.0, file.1.Bytes)
+    End For
+
+    For folder In folders
+        writer.AddFolder(folder)
+    End For
+
+    Return writer.Finish()
+End Function
+
+Function Listed(vfs: Vfs, path: String): String Throws IOError
+    Local names: String[] = []
+    For entry In Try vfs.Entries(path)
+        names.Add("{entry.Name()}{entry.Kind == FileKind.DIRECTORY ? "/" : ""}")
+    End For
+
+    Return "{names}"
+End Function
+
+Function Failure(vfs: Vfs, path: String): String
+    Try
+        vfs.ReadText(path)
+    Catch e As IOError
+        Return "{e.Kind}"
+    End Try
+
+    Return "read"
+End Function
+
+Local pak = Zipped([("readme.txt", "first"), ("data/levels/one.txt", "level one"),
+                    ("./data/./two.txt", "level two"), ("data/../top.txt", "top"),
+                    ("../outside.txt", "outside"), ("readme.txt", "last")],
+                   ["empty", "data/levels"])
+Local vfs = Vfs()
+Try vfs.MountZip("game", pak)
+Print(Try Listed(vfs, ""))
+Print(Try Listed(vfs, "game"))
+Print(Try Listed(vfs, "game/data"))
+Print(Try Listed(vfs, "game/data/levels"))
+Print(Try Listed(vfs, "game/empty"))
+Print("[{Try vfs.ReadText("game/readme.txt")}] [{Try vfs.ReadText("game/data/two.txt")}]")
+Print("[{Try vfs.ReadText("game\\data\\two.txt")}] [{Try vfs.ReadText("game/top.txt")}]")
+Print("{Try vfs.KindOf("game/data") ?? FileKind.OTHER} {Try vfs.KindOf("game/data/levels/one.txt") ?? FileKind.OTHER} {(Try vfs.KindOf("outside.txt")) == Null}")
+Print("{vfs.Exists("game/readme.txt")} {vfs.DirExists("game/empty")} {vfs.Exists("game/empty")}")
+Print("{Failure(vfs, "game/data")} {Failure(vfs, "game/missing.txt")} {Failure(vfs, "outside.txt")}")
+Print("{Try vfs.ReadLines("game/data/levels/one.txt")} {(Try Await vfs.ReadTextAsync("game/readme.txt"))}")
+For entry In Try vfs.Glob("game", "**/*.txt")
+    Print("{entry.Relative}")
+End For
+
+// A folder mounted after the zip comes first where they both have a file.
+Local temp = Try TempDir("fb-vfs-zip-")
+Try File.WriteText(temp.Path / "readme.txt", "modded")
+vfs.MountFolder("game", temp.Path)
+Print("[{Try vfs.ReadText("game/readme.txt")}] [{Try vfs.ReadText("game/top.txt")}] {Try Listed(vfs, "game")}")
+Print("{vfs.Unmount("game")} [{Try vfs.ReadText("game/readme.txt")}]")
+
+// A ZipSource of a ZipReader, mounted at the root.
+Local root = Vfs()
+root.Mount("", Try ZipSource(Try Zip.Read(Zipped([("a/b/c.txt", "deep")], []))))
+Print("{Try Listed(root, "")} {Try Listed(root, "a")} [{Try root.ReadText("a/b/c.txt")}]")
+
+// A zip's link isn't in it, though the file it points to is.
+Local linked = Vfs()
+Try linked.MountZip("", LinkZip())
+Print("{Try Listed(linked, "")} {linked.Exists("link")} {(Try linked.ReadBytes("target.txt")).Count}")
+
+// A file and a folder at one place, and data that isn't a zip.
+Try
+    vfs.MountZip("bad", Zipped([("x", "file"), ("x/y", "under it")], []))
+Catch e As IOError
+    Print("{e.Kind}: {e.Message}")
+End Try
+
+Try
+    vfs.MountZip("bad", Zipped([("x.txt", "file")], ["x.txt"]))
+Catch e As IOError
+    Print("{e.Kind}: {e.Message}")
+End Try
+
+Try
+    vfs.MountZip("bad", "not a zip".Bytes)
+Catch e As IOError
+    Print("{e.Kind}")
+End Try
+
+Print("{vfs.DirExists("bad")}")
+Try temp.Close()

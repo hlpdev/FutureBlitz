@@ -1,0 +1,94 @@
+// std.compress's zips in std.io's virtual file system: a ZipSource reads a zip's files as a
+// VfsSource, and a Vfs's MountZip mounts one, as a game mounts its pak files.
+
+Import std.collections.map
+Import std.compress.archive
+Import std.compress.zip
+Import std.core
+Import std.io.file
+Import std.io.path
+Import std.io.vfs
+
+// A zip's files as a source, by their names: each file's name is its path, with '/' (or '\')
+// between folders, and the folders are the ones its entries name or go through. An entry whose
+// name goes above the zip's root, or has no names once its "."s and ".."s are taken out, isn't in
+// it, so a zip can't reach past where it's mounted, and neither is a link. Of the entries a name
+// has, the last is the file, as ZipReader.Read takes it. A read decompresses the file from the
+// zip each time.
+Public Class ZipSource Implements VfsSource
+    Field Reader: ZipReader
+    // Each file's entry, by its path, and each folder's names, "" for the root's, and whether
+    // each is a folder.
+    Field Files: Map<String, Int>
+    Field Folders: Map<String, Map<String, Bool>>
+
+    // A source of the zip a ZipReader reads, which it keeps. Throws an IOError of INVALID_DATA
+    // when the zip's entries make one place a file and a folder too.
+    Public New(reader: ZipReader) Throws IOError
+        Reader = reader
+        Files = Map<String, Int>()
+        Folders = Map<String, Map<String, Bool>>()
+        Folders[""] = Map<String, Bool>()
+        For i = 0 Until reader.Count
+            Local entry = reader.Entries[i]
+            If entry.Kind == ArchiveEntryKind.LINK Then Continue
+            Local names = NamesOf(entry.Name)
+            If names == Null || names.Count == 0 Then Continue
+            // A folder's entry makes it a folder, and a file's makes each folder it's in one.
+            Local folders = entry.Kind == ArchiveEntryKind.FOLDER ? names.Count : names.Count - 1
+            Local path = ""
+            For j = 0 Until folders
+                Local parent = path
+                path = j == 0 ? names[j] : path + "/" + names[j]
+                If !Folders.Contains(path) Then Folders[path] = Map<String, Bool>()
+                Folders[parent][names[j]] = True
+            End For
+
+            If entry.Kind == ArchiveEntryKind.FILE Then Files[Joined(names)] = i
+        End For
+
+        For path, index In Files
+            If Folders.Contains(path)
+                Throw IOError(IOErrorKind.INVALID_DATA,
+                              "'{path}' is both a file and a folder in the zip", path)
+            End If
+
+            Local names = NamesOf(path).Expect("a file's path has names")
+            Local parent = Joined(names[0..names.Count - 1])
+            Folders[parent][names[names.Count - 1]] = False
+        End For
+    End New
+
+    Public Method Read(path: String): UInt8[]? Throws IOError
+        Local index = Files.Get(path)
+        If index == Null Then Return Null
+        Return Try Reader.ReadAt(index)
+    End Method
+
+    Public Method KindAt(path: String): FileKind? Throws IOError
+        If Folders.Contains(path) Then Return FileKind.DIRECTORY
+        If Files.Contains(path) Then Return FileKind.FILE
+        Return Null
+    End Method
+
+    Public Method List(path: String): (String, FileKind)[]? Throws IOError
+        Local names = Folders.Get(path)
+        If names == Null Then Return Null
+        Local items: (String, FileKind)[] = []
+        For name, isFolder In names
+            items.Add((name, isFolder ? FileKind.DIRECTORY : FileKind.FILE))
+        End For
+
+        Return items
+    End Method
+End Class
+
+Extend Vfs
+    // Mounts the zip in `data`, which it copies, at `at`, as a ZipSource. Throws an IOError of
+    // INVALID_DATA when the data isn't a zip, or ends too soon, or as a ZipSource does, and panics
+    // for a path that goes above the root, as Mount does.
+    @PanicsAtCaller
+    Public Method MountZip(at: Path, data: UInt8[]) Throws IOError
+        Mount(at, Try ZipSource(Try Zip.Read(data)))
+    End Method
+End Extend

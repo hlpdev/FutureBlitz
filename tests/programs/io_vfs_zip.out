@@ -1,0 +1,23 @@
+[game/]
+[data/, empty/, readme.txt, top.txt]
+[levels/, two.txt]
+[one.txt]
+[]
+[last] [level two]
+[level two] [top]
+DIRECTORY FILE True
+True True False
+IS_A_DIRECTORY NOT_FOUND NOT_FOUND
+[level one] last
+data/levels/one.txt
+data/two.txt
+readme.txt
+top.txt
+[modded] [top] [data/, empty/, readme.txt, top.txt]
+True [last]
+[a/] [b/] [deep]
+[target.txt] False 2
+INVALID_DATA: 'x' is both a file and a folder in the zip
+INVALID_DATA: 'x.txt' is both a file and a folder in the zip
+INVALID_DATA
+False

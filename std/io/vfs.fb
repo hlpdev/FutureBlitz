@@ -426,7 +426,7 @@ End Function
 
 // A Vfs path's names, split at '/' and '\', without empty ones or ".", each ".." taking out the
 // name before it; Null when one goes above the root.
-Function NamesOf(text: String): String[]?
+Package Function NamesOf(text: String): String[]?
     Local names: String[] = []
     Local name: UInt8[] = []
     Local bytes = text.Bytes
@@ -469,7 +469,7 @@ Function Starts(names: String[], prefix: String[]): Bool
 End Function
 
 // The names with '/' between them.
-Function Joined(names: String[]): String
+Package Function Joined(names: String[]): String
     Local text = ""
     For i = 0 Until names.Count
         text = i == 0 ? names[i] : text + "/" + names[i]
