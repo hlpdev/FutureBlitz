@@ -324,6 +324,11 @@ private:
             kind = "Sendable Func";
         }
 
+        for (std::size_t i = 0; i < node.throws.size(); ++i) {
+            result += i == 0 ? " Throws " : ", ";
+            result += type_text(node.throws[i]);
+        }
+
         return std::format("{}({}){}", kind, parameters, result);
     }
 
@@ -951,6 +956,15 @@ private:
                  tone_t::NAME));
         out.items.push_back(type(node.type));
         add_where_lines(out, node.constraints);
+        for (const std::vector<expr_id_t>& attributes : node.picks) {
+            node_t has = list("where-has");
+            for (const expr_id_t attribute : attributes) {
+                has.items.push_back(expr(attribute));
+            }
+
+            out.items.push_back(std::move(has));
+        }
+
         out.items.push_back(block(node.body));
         return out;
     }

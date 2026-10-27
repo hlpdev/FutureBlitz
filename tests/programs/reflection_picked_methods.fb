@@ -1,0 +1,64 @@
+Import std.core
+
+Attribute Get(path: String)
+Attribute Post(path: String)
+
+Class Missing Extends Error
+End Class
+
+Class Api
+    @Get("/users/:id")
+    Method Find(id: Int): String Throws Missing
+        If id < 0 Then Throw Missing("no user {id}")
+        Return "user {id}"
+    End Method
+
+    @Post("/users")
+    Async Method Save(id: Int): String Throws Missing
+        If id < 0 Then Throw Missing("can't save {id}")
+        Return "saved {id}"
+    End Method
+
+    @Get("/plain")
+    Method Plain(id: Int): String => "plain {id}"
+
+    // No attribute, so no Where m Has line picks it.
+    Method Helper(id: Int): String => "helper"
+
+    Async Method Later(id: Int): String => "later {id}"
+End Class
+
+// Only Methods with Get or Post, which throw an E or don't.
+For Method m: M In Api
+    Where M: Func(Int): String Throws E
+    Where E: Error
+    Where m Has Get Or Post
+    Try
+        Print(m.Call(Api(), 1))
+        Print(m.Call(Api(), -1))
+    Catch e As Error
+        Print("{m.Name} threw: {e.Message}")
+    End Try
+End For
+
+For Method m: M In Api
+    Where M: Func(Int): String
+    Where m Has Get Or Post
+    Print("{m.Name}: {m.Call(Api(), 2)}")
+End For
+
+// An Async Method's errors are in its Task, which Await re-throws.
+Async Function Run()
+    For Method m: M In Api
+        Where M: Func(Int): (Task<String> Throws E)
+        Where E: Error
+        Try
+            Print(Await m.Call(Api(), 3))
+            Print(Await m.Call(Api(), -3))
+        Catch e As Error
+            Print("{m.Name} threw: {e.Message}")
+        End Try
+    End For
+End Function
+
+Await Run()

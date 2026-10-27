@@ -345,6 +345,9 @@ struct stmt_info_t {
     /// `symbol`: the type it goes over, then the type parameter for each member's type, then for
     /// a For Method, the Func type of the Methods it goes over.
     std::vector<type_id_t> type_arguments;
+    /// For a For Method: the Attributes each "Where m Has" line names, one of which each Method
+    /// it goes over has.
+    std::vector<std::vector<type_id_t>> picks;
 };
 
 /// An Interface that an Extend makes a type implement: a built-in type, an Enum, every T[], or
@@ -534,13 +537,16 @@ struct loop_method_t {
 /// The Methods a For Method loop in `file` goes over in `type`, which analysis checks and
 /// lowering copies: a Struct's or Class's own and inherited ones, the base Class's first, each in
 /// the place of what it overrides, with what an Extend of that one instance adds, whose Func type
-/// is `signature` with the loop's own type parameters, `fresh`, bound to what each has there.
-/// Destroy and Unsafe Methods aren't among them, nor ones with a ByRef parameter, which no Func
-/// type has, nor generic or throwing ones, nor what the instance's type arguments don't meet the
-/// Where lines of, as `implements` decides, nor what an Extend that `file` doesn't see adds.
+/// is `signature` with the loop's own type parameters, `fresh`, bound to what each has there. A
+/// throwing Method's Func type throws what it does, and an Async one's Task does. With `picks`,
+/// a Method has one of each list's Attributes. Destroy and Unsafe Methods aren't among them, nor
+/// ones with a ByRef parameter, which no Func type has, nor generic ones, nor what the
+/// instance's type arguments don't meet the Where lines of, as `implements` decides, nor what
+/// an Extend that `file` doesn't see adds.
 [[nodiscard]] std::vector<loop_method_t>
 loop_methods(const ast_t& ast, const analysis_t& analysis, type_table_t& types, type_id_t type,
              type_id_t signature, const std::vector<type_id_t>& fresh, file_id_t file,
+             const std::vector<std::vector<type_id_t>>& picks,
              const std::function<bool(type_id_t type, type_id_t interface)>& implements);
 
 /// Resolves names, checks types and that variables are assigned before they're read, folds

@@ -3942,7 +3942,7 @@ private:
             // The loop's own type parameters stay in the pattern, for each Method to bind.
             const type_id_t signature = concrete(info.type_arguments.at(2));
             for (const loop_method_t& method :
-                 reflected_methods(type, signature, fresh, span.file)) {
+                 reflected_methods(type, signature, fresh, span.file, info.picks)) {
                 reflected_t member{ .name = std::string(m_analysis.symbol(method.symbol).name) };
                 member.symbol = method.symbol;
                 copy(std::move(member), method.type, method.arguments);
@@ -4087,12 +4087,13 @@ private:
     }
 
     /// The Methods a For Method loop goes over, which analysis checked: loop_methods(), with the
-    /// loop's own type parameters, `fresh`, in `signature` bound for each.
-    [[nodiscard]] std::vector<loop_method_t> reflected_methods(const type_id_t type,
-                                                               const type_id_t signature,
-                                                               const std::vector<type_id_t>& fresh,
-                                                               const file_id_t file) {
-        return loop_methods(m_ast, m_analysis, types(), type, signature, fresh, file,
+    /// loop's own type parameters, `fresh`, in `signature` bound for each, and the Attributes its
+    /// "Where m Has" lines pick them by.
+    [[nodiscard]] std::vector<loop_method_t>
+    reflected_methods(const type_id_t type, const type_id_t signature,
+                      const std::vector<type_id_t>& fresh, const file_id_t file,
+                      const std::vector<std::vector<type_id_t>>& picks) {
+        return loop_methods(m_ast, m_analysis, types(), type, signature, fresh, file, picks,
                             [this](const type_id_t argument, const type_id_t interface) {
                                 return fb::implements(m_analysis, types(), argument, interface);
                             });
@@ -9596,15 +9597,31 @@ private:
                 return start_async_member(id, std::move(call), true);
             }
 
-            // A reflected Method doesn't throw, so its error variable is never set.
-            give_error_variable(call, method);
-            const type_id_t result = types().get(method_type(type, method)).inner;
-            if (result == type_id_t::NONE) {
-                emit(evaluate_t{ .value = std::move(call) });
-                return std::nullopt;
+            // A Method that throws, which a loop whose Func type throws goes over, takes the
+            // error variable, and its call raises what it holds.
+            std::optional<local_id_t> error;
+            if (takes_error(method)) {
+                error = error_variable();
+                call.arguments.push_back({ .value = place_t{ *error }, .by_ref = true });
             }
 
-            return temporary(std::move(call), result, has_references(result));
+            const type_id_t result = types().get(method_type(type, method)).inner;
+            std::optional<operand_t> made;
+            if (result == type_id_t::NONE) {
+                emit(evaluate_t{ .value = std::move(call) });
+            } else {
+                made = temporary(std::move(call), result);
+            }
+
+            if (error) {
+                check_error(*error, span_of(id));
+            }
+
+            if (made && has_references(result)) {
+                m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(*made).root));
+            }
+
+            return made;
         }
 
         return attribute_of(id, declared != nullptr ? &declared->attributes : nullptr,

@@ -500,14 +500,15 @@ type_id_t type_table_t::tuple(const std::vector<type_id_t>& elements) {
 }
 
 type_id_t type_table_t::function(const std::vector<type_id_t>& parameters, const type_id_t result,
-                                 const bool sendable) {
-    if (result == type_id_t::INVALID || std::ranges::contains(parameters, type_id_t::INVALID)) {
+                                 const bool sendable, const std::vector<type_id_t>& throws) {
+    if (result == type_id_t::INVALID || std::ranges::contains(parameters, type_id_t::INVALID) ||
+        std::ranges::contains(throws, type_id_t::INVALID)) {
         return type_id_t::INVALID;
     }
 
     for (const type_id_t made : m_functions) {
         if (get(made).parameters == parameters && get(made).inner == result &&
-            get(made).sendable == sendable) {
+            get(made).sendable == sendable && get(made).throws == throws) {
             return made;
         }
     }
@@ -522,11 +523,16 @@ type_id_t type_table_t::function(const std::vector<type_id_t>& parameters, const
         text += std::format(": {}", name(result));
     }
 
+    for (std::size_t i = 0; i < throws.size(); ++i) {
+        text += std::format("{}{}", i == 0 ? " Throws " : ", ", name(throws[i]));
+    }
+
     const type_id_t id = add({
         .kind = type_kind_t::FUNCTION,
         .name = std::move(text),
         .inner = result,
         .parameters = parameters,
+        .throws = throws,
         .sendable = sendable,
     });
     m_functions.push_back(id);
@@ -966,6 +972,13 @@ type_table_t::match(const type_id_t pattern, const type_id_t actual,
         }
 
         self(self, wanted.inner, had.inner);
+        // What a throwing Method's Func type, or a Task, throws, in order.
+        if (wanted.throws.size() == had.throws.size()) {
+            for (std::size_t i = 0; i < wanted.throws.size(); ++i) {
+                self(self, wanted.throws[i], had.throws[i]);
+            }
+        }
+
         if (wanted.kind == type_kind_t::FUNCTION &&
             wanted.parameters.size() == had.parameters.size()) {
             for (std::size_t i = 0; i < wanted.parameters.size(); ++i) {
@@ -1090,7 +1103,7 @@ type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_
     }
     case type_kind_t::FUNCTION:
         return function(each(info.parameters), substitute(info.inner, parameters, arguments),
-                        info.sendable);
+                        info.sendable, each(info.throws));
     case type_kind_t::CALLBACK:
         return callback(each(info.parameters), substitute(info.inner, parameters, arguments));
     case type_kind_t::STRUCT:
@@ -1408,10 +1421,12 @@ std::string type_table_t::qualified_name(const type_id_t id, const std::string_v
     }
     case type_kind_t::FUNCTION: {
         const std::string_view func = type.sendable ? "Sendable Func" : "Func";
+        const std::string throws =
+            type.throws.empty() ? std::string() : std::format(" Throws {}", list(type.throws));
         return type.inner == type_id_t::NONE
-                   ? std::format("{}({})", func, list(type.parameters))
-                   : std::format("{}({}): {}", func, list(type.parameters),
-                                 qualified_name(type.inner, main));
+                   ? std::format("{}({}){}", func, list(type.parameters), throws)
+                   : std::format("{}({}): {}{}", func, list(type.parameters),
+                                 qualified_name(type.inner, main), throws);
     }
     case type_kind_t::CALLBACK:
         return type.inner == type_id_t::NONE

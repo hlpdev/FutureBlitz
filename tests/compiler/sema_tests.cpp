@@ -9903,6 +9903,96 @@ TEST_CASE("a typed For Method checks each Method it copies, overloads and Extend
           });
 }
 
+TEST_CASE("a typed For Method picks Methods by attribute, and takes throwing ones its Func type "
+          "says throw",
+          "[sema]") {
+    const std::string api = "Import std.core\n"
+                            "Attribute Get(Path: String)\n"
+                            "Attribute Post(Path: String)\n"
+                            "Class Missing Extends Error\n"
+                            "End Class\n"
+                            "Struct Args Implements Defaultable\n"
+                            "    Field Id: Int\n"
+                            "    Static Method DefaultValue(): Args => Args(1)\n"
+                            "End Struct\n"
+                            "Struct Socket\n"
+                            "    Field Id: Int\n"
+                            "End Struct\n"
+                            "Class Api\n"
+                            "    @Get(\"/a\") Method Find(a: Args): String Throws Missing\n"
+                            "        Return \"found\"\n"
+                            "    End Method\n"
+                            "    @Post(\"/a\") Async Method Save(a: Args): String Throws Missing\n"
+                            "        Return \"saved\"\n"
+                            "    End Method\n"
+                            "    @Get(\"/b\") Method Show(a: Args): String => \"shown\"\n"
+                            "    Method Log(s: Socket): String => \"log\"\n"
+                            "End Class\n";
+    // Log, which no Where m Has line picks, has a Socket for A, which isn't Defaultable, so
+    // without the line it'd be an error; m.Call of a throwing Method throws E, which a Try takes,
+    // and an Async one's Task does.
+    CHECK(errors_of(api + "Function Routes<T>(api: T)\n"
+                          "    For Method m: M In T\n"
+                          "        Where M: Func(A): String\n"
+                          "        Where A: Defaultable\n"
+                          "        Where m Has Get Or Post\n"
+                          "        Print(m.Call(api, A.DefaultValue()))\n"
+                          "    End For\n"
+                          "    For Method m: M In T\n"
+                          "        Where M: Func(A): String Throws E\n"
+                          "        Where A: Defaultable\n"
+                          "        Where E: Error\n"
+                          "        Print(Try? m.Call(api, A.DefaultValue()) ?? \"none\")\n"
+                          "    End For\n"
+                          "End Function\n"
+                          "Async Function Later<T>(api: T)\n"
+                          "    For Method m: M In T\n"
+                          "        Where M: Func(Args): (Task<String> Throws E)\n"
+                          "        Where E: Error\n"
+                          "        Print(Try? Await m.Call(api, Args(2)) ?? \"none\")\n"
+                          "    End For\n"
+                          "End Function\n"
+                          "Routes(Api())\n"
+                          "Local later = Later(Api())\n")
+              .empty());
+    // Without the Where m Has line, Log is checked too; a Func value can't throw; a Throws needs
+    // an error; m.Call of throwing Methods needs Try; an Attribute is named; and only a For
+    // Method loop picks.
+    const errors_t errors = errors_of(api + "Function Routes<T>(api: T)\n"
+                                            "    For Method m: M In T\n"
+                                            "        Where M: Func(A): String\n"
+                                            "        Where A: Defaultable\n"
+                                            "    End For\n"
+                                            "End Function\n"
+                                            "Routes(Api())\n"
+                                            "Local f: Func(Int): String Throws Missing\n"
+                                            "For Method m: M In Api\n"
+                                            "    Where M: Func(Args): String Throws E\n"
+                                            "End For\n"
+                                            "For Method m: M In Api\n"
+                                            "    Where M: Func(Args): String Throws E\n"
+                                            "    Where E: Error\n"
+                                            "    Where m Has Gett\n"
+                                            "    Local s = m.Call(Api(), Args(1))\n"
+                                            "End For\n"
+                                            "For Field g: G In Api\n"
+                                            "    Where g Has Get\n"
+                                            "End For");
+    REQUIRE(errors.size() == 6);
+    CHECK(errors[0] == "Routes: 'Routes' needs what each Method of Api has for A to implement "
+                       "Defaultable, but its Method 'Log' has Socket for A, which doesn't");
+    CHECK(errors[1] == "Func(Int): String Throws Missing: a Func value can't throw; only a For "
+                       "Method loop's Func type says that its Methods do");
+    CHECK(errors[2] == "E: E is in a Throws, so it needs a constraint that says it's an error, "
+                       "like Where E: Error");
+    CHECK(errors[3] ==
+          "Gett: 'Gett' isn't an Attribute, which a Where line on 'm' picks its Methods by");
+    CHECK(errors[4] == "m.Call(Api(), Args(1)): 'm.Call' can throw E, so calling it needs Try, "
+                       "Try?, or a Try block");
+    CHECK(errors[5] == "Get: a For Field loop's body tests 'g.Has(A)'; only a For Method loop "
+                       "picks its members with a Where line");
+}
+
 TEST_CASE("a type's own attributes", "[sema]") {
     CHECK(probe("Attribute Saved\n@Saved Struct P\nEnd Struct\nLocal x = P.Has(Saved)") == "Bool");
     CHECK(probe("Attribute Label(Text: String)\nStruct P\nEnd Struct\n"

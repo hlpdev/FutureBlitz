@@ -644,6 +644,8 @@ private:
         type_id_t signature = type_id_t::INVALID;
         std::vector<type_id_t> fresh;
         file_id_t file{};
+        /// The Attributes each "Where m Has" line names.
+        std::vector<std::vector<type_id_t>> picks;
     };
 
     /// Work that runs on another thread: a Spawn's or Thread.Start's, or a Shared Class's
@@ -778,6 +780,8 @@ private:
     /// While inferring a call's type arguments: the type parameters not known yet. A lambda
     /// argument doesn't take its types from them.
     std::vector<type_id_t> m_inferring;
+    /// While a For Method loop's Func type is resolved, which can throw, for its Methods.
+    bool m_method_pattern = false;
     bool m_initializing = false; // checking Global and Const initializers
     /// The ThreadLocal Global whose initializer is being checked. It stands for that code in the
     /// thread checks, since the initializer runs on whichever thread uses the Global first.
@@ -9334,6 +9338,7 @@ private:
         case type_kind_t::FUNCTION:
         case type_kind_t::CALLBACK:
             each(info.parameters);
+            each(info.throws);
             declared_parts(info.inner, found);
             break;
         case type_kind_t::TASK:
@@ -11424,7 +11429,7 @@ private:
             return any(info.throws) || mentions(info.inner, parameters);
         case type_kind_t::FUNCTION:
         case type_kind_t::CALLBACK:
-            return any(info.parameters) || mentions(info.inner, parameters);
+            return any(info.parameters) || any(info.throws) || mentions(info.inner, parameters);
         case type_kind_t::TUPLE:
             return std::ranges::any_of(info.fields, [&](const field_t& field) {
                 return mentions(field.type, parameters);
@@ -12883,7 +12888,30 @@ private:
                 return callback_of(*function, parameters, result);
             }
 
-            return m_analysis.types.function(parameters, result, function->sendable);
+            // Only a For Method loop's Func type throws, for its Methods: a function value
+            // can't.
+            std::vector<type_id_t> throws;
+            if (!function->throws.empty() && !std::exchange(m_method_pattern, false)) {
+                error(type.span,
+                      "a Func value can't throw; only a For Method loop's Func type says that "
+                      "its Methods do");
+                return type_id_t::INVALID;
+            }
+
+            for (const type_expr_id_t thrown : function->throws) {
+                const type_id_t error_type = part(thrown);
+                if (is_parameter(error_type) && !is_error(error_type)) {
+                    error(m_ast.get(thrown).span,
+                          "{} is in a Throws, so it needs a constraint that says it's an error, "
+                          "like Where {}: Error",
+                          shown_name(error_type), shown_name(error_type));
+                    return type_id_t::INVALID;
+                }
+
+                throws.push_back(error_type);
+            }
+
+            return m_analysis.types.function(parameters, result, function->sendable, throws);
         }
 
         // A Weak<T> belongs in a field, which a check can't narrow.
@@ -15426,11 +15454,23 @@ private:
             throws.push_back(substitute(type, m_substitution.parameters, m_substitution.arguments));
         }
 
+        // A New is called by its Class's name.
+        check_throws(id,
+                     function.kind == symbol_kind_t::CONSTRUCTOR ? shown_name(function.owner)
+                                                                 : std::string(function.name),
+                     throws);
+    }
+
+    /// A call of `name`, which can throw `throws`, needs Try, Try?, or a Try block around it,
+    /// and each error it can throw is caught, or let out of the function: a function's call, or
+    /// a For Method's m.Call of Methods that throw.
+    void check_throws(const expr_id_t id, const std::string_view name,
+                      const std::vector<type_id_t>& throws) {
+        if (throws.empty()) {
+            return;
+        }
+
         if (untried()) {
-            // A New is called by its Class's name.
-            const std::string name = function.kind == symbol_kind_t::CONSTRUCTOR
-                                         ? shown_name(function.owner)
-                                         : std::string(function.name);
             if (!m_handlers.empty() && m_handlers.back().kind == handler_kind_t::SEALED) {
                 error(span_of(id),
                       "{} can't throw, so calling '{}', which can throw {}, needs Try?, or a Try "
@@ -16020,6 +16060,15 @@ private:
             }
         }
 
+        if (!methods && !node.picks.empty()) {
+            constexpr auto loops =
+                std::to_array<std::string_view>({ "Field", "Method", "Property", "Static Field" });
+            error(span_of(node.picks.front().front()),
+                  "a For {} loop's body tests '{}.Has(A)'; only a For Method loop picks its "
+                  "members with a Where line",
+                  loops[std::to_underlying(node.kind)], node.variable.text);
+        }
+
         std::vector<type_id_t> fresh;
         if (methods) {
             // The pre-pass made the type parameters a function's constraints name, quietly, so
@@ -16028,6 +16077,7 @@ private:
             const method_pattern_t pattern = method_signature(
                 node, made != m_loop_methods.end() ? made->second.fresh : std::vector<type_id_t>{});
             m_loop_methods[id] = pattern;
+            m_analysis.stmts[index(id)].picks = pattern.picks;
             for (const type_id_t parameter : pattern.fresh) {
                 m_method_patterns[parameter] = pattern;
             }
@@ -16137,6 +16187,25 @@ private:
     method_pattern_t method_signature(const for_member_stmt_t& node,
                                       const std::vector<type_id_t>& made = {}) {
         const type_id_t plain = m_analysis.types.function({}, type_id_t::NONE);
+        const file_id_t file = m_ast.get(node.type).span.file;
+        // "Where m Has Get Or Post" picks the Methods with one of those Attributes.
+        std::vector<std::vector<type_id_t>> picks;
+        for (const std::vector<expr_id_t>& line : node.picks) {
+            std::vector<type_id_t>& attributes = picks.emplace_back();
+            for (const expr_id_t name : line) {
+                bool reported = false;
+                const type_id_t attribute = attribute_argument(name, reported);
+                if (attribute == type_id_t::INVALID && !reported) {
+                    error(span_of(name),
+                          "'{}' isn't an Attribute, which a Where line on '{}' "
+                          "picks its Methods by",
+                          text(span_of(name)), node.variable.text);
+                }
+
+                attributes.push_back(attribute);
+            }
+        }
+
         if (!node.type_name) {
             if (!node.constraints.empty()) {
                 error(node.constraints.front().parameter.span,
@@ -16144,7 +16213,7 @@ private:
                       "to give it a Where line");
             }
 
-            return { .signature = plain };
+            return { .signature = plain, .file = file, .picks = picks };
         }
 
         const auto said = std::ranges::find_if(node.constraints, [&](const constraint_t& line) {
@@ -16168,12 +16237,11 @@ private:
             }
         }
 
-        const file_id_t file = m_ast.get(node.type).span.file;
         std::vector<type_id_t> fresh;
         const std::size_t errors = m_diagnostics->error_count();
         add_new_names(said->interfaces.front(), node.type_name->text, made, fresh);
         if (m_diagnostics->error_count() != errors) {
-            return { .signature = plain, .file = file };
+            return { .signature = plain, .file = file, .picks = picks };
         }
 
         // The loop's other Where lines are in force in its Func type, as a function's are in
@@ -16185,17 +16253,20 @@ private:
             m_bounds.push_back(bound);
         }
 
+        // Only this Func type can throw, for the Methods that do.
+        const bool outer_pattern = std::exchange(m_method_pattern, true);
         const type_id_t signature = resolve_type(said->interfaces.front());
+        m_method_pattern = outer_pattern;
         m_bounds = outer_bounds;
         m_type_scope.resize(mark);
         if (signature != type_id_t::INVALID && !is_func(signature)) {
             error(m_ast.get(said->interfaces.front()).span,
                   "{} is the Methods' Func type, like Func(Int): String, not {}",
                   node.type_name->text, shown_name(signature));
-            return { .signature = plain, .file = file };
+            return { .signature = plain, .file = file, .picks = picks };
         }
 
-        return { .signature = signature, .fresh = fresh, .file = file };
+        return { .signature = signature, .fresh = fresh, .file = file, .picks = picks };
     }
 
     /// Adds to `fresh` a type parameter for each name in the type at `id` that isn't a type,
@@ -16238,6 +16309,8 @@ private:
             if (function->result) {
                 each(*function->result);
             }
+
+            std::ranges::for_each(function->throws, each);
         }
     }
 
@@ -16263,7 +16336,7 @@ private:
     [[nodiscard]] std::vector<loop_method_t> loop_methods(const type_id_t type,
                                                           const method_pattern_t& pattern) const {
         return fb::loop_methods(m_ast, m_analysis, *m_types, type, pattern.signature, pattern.fresh,
-                                pattern.file,
+                                pattern.file, pattern.picks,
                                 [this](const type_id_t argument, const type_id_t interface) {
                                     return implements(argument, interface);
                                 });
@@ -16491,6 +16564,8 @@ private:
                 }
             }
 
+            check_throws(id, std::format("{}.Call", found.name),
+                         m_analysis.types.get(signature).throws);
             return m_analysis.types.get(signature).inner;
         }
 
@@ -26288,7 +26363,7 @@ bool implements(const analysis_t& analysis, type_table_t& types, const type_id_t
 std::vector<loop_method_t>
 loop_methods(const ast_t& ast, const analysis_t& analysis, type_table_t& types,
              const type_id_t type, const type_id_t signature, const std::vector<type_id_t>& fresh,
-             const file_id_t file,
+             const file_id_t file, const std::vector<std::vector<type_id_t>>& picks,
              const std::function<bool(type_id_t type, type_id_t interface)>& implements) {
     const auto definition_of = [&](const type_id_t at) {
         const type_id_t generic = types.get(at).generic;
@@ -26372,8 +26447,8 @@ loop_methods(const ast_t& ast, const analysis_t& analysis, type_table_t& types,
             if (method.kind != symbol_kind_t::METHOD || method.modifiers.is_static ||
                 method.modifiers.is_unsafe || method.by_ref ||
                 std::ranges::any_of(method.parameters, by_ref) || !method.type_parameters.empty() ||
-                !method.throws.empty() || method.name == "Destroy" || method.name == "[]" ||
-                method.name == "[]=" || !seen(method)) {
+                method.name == "Destroy" || method.name == "[]" || method.name == "[]=" ||
+                !seen(method)) {
                 continue;
             }
 
@@ -26396,12 +26471,20 @@ loop_methods(const ast_t& ast, const analysis_t& analysis, type_table_t& types,
                     types.substitute(analysis.symbol(parameter).type, parameters, arguments));
             }
 
-            type_id_t gives = types.substitute(method.type, parameters, arguments);
-            if (method.modifiers.is_async) {
-                gives = types.task(gives);
+            // What it throws: what its Func type says, or an Async Method's Task.
+            std::vector<type_id_t> throws;
+            throws.reserve(method.throws.size());
+            for (const type_id_t thrown : method.throws) {
+                throws.push_back(types.substitute(thrown, parameters, arguments));
             }
 
-            const type_id_t func = types.function(takes, gives);
+            type_id_t gives = types.substitute(method.type, parameters, arguments);
+            if (method.modifiers.is_async) {
+                gives = types.task(gives, throws, analysis.nullable_error);
+                throws.clear();
+            }
+
+            const type_id_t func = types.function(takes, gives, false, throws);
             std::optional<std::vector<type_id_t>> bound = types.match(signature, func, fresh);
             if (!bound) {
                 continue;
@@ -26419,6 +26502,16 @@ loop_methods(const ast_t& ast, const analysis_t& analysis, type_table_t& types,
         }
     }
 
+    // Each "Where m Has" line picks the Methods with one of its Attributes, an Override by its
+    // own.
+    std::erase_if(methods, [&](const loop_method_t& found) {
+        const std::vector<attribute_value_t>& attributes = analysis.symbol(found.symbol).attributes;
+        return std::ranges::any_of(picks, [&](const std::vector<type_id_t>& line) {
+            return std::ranges::none_of(line, [&](const type_id_t attribute) {
+                return std::ranges::contains(attributes, attribute, &attribute_value_t::type);
+            });
+        });
+    });
     return methods;
 }
 

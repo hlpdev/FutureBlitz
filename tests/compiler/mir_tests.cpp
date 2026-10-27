@@ -514,6 +514,59 @@ TEST_CASE("a typed For Method's copies have what each Method binds, and start an
                           "    goto bb3\n"));
 }
 
+TEST_CASE("a For Method's picked copies, and a throwing Method's m.Call raises its error",
+          "[mir]") {
+    const std::string dumped = lower_text("Import std.core\n"
+                                          "Attribute Get\n"
+                                          "Class Oops Extends Error\n"
+                                          "End Class\n"
+                                          "Class Api\n"
+                                          "    @Get Method Find(n: Int): Int Throws Oops\n"
+                                          "        Return n\n"
+                                          "    End Method\n"
+                                          "    Method Other(n: Int): Int Throws Oops\n"
+                                          "        Return n\n"
+                                          "    End Method\n"
+                                          "End Class\n"
+                                          "Function Run(api: Api): Int Throws Error\n"
+                                          "    Local total = 0\n"
+                                          "    For Method m: M In Api\n"
+                                          "        Where M: Func(Int): Int Throws E\n"
+                                          "        Where E: Error\n"
+                                          "        Where m Has Get\n"
+                                          "        total += Try m.Call(api, 1)\n"
+                                          "    End For\n"
+                                          "    Return total\n"
+                                          "End Function\n");
+    // Only Find has Get, so it's the one copy, and its call takes the error variable, which the
+    // Try lets out of Run.
+    CHECK(dumped.contains("function Run(Api) -> Int32\n"
+                          "    _0 api: Api\n"
+                          "    _1 ByRef error: std.core.error.Error?\n"
+                          "    _2 total: Int32\n"
+                          "    _3: Int32\n"
+                          "    _4: std.core.error.Error?\n"
+                          "    _5: Int32\n"
+                          "    _6: Bool\n"
+                          "bb0:\n"
+                          "    _2 = 0\n"
+                          "    _3 = _2\n"
+                          "    _4 = Null\n"
+                          "    _5 = call virtual Api.Find(Int32)(_0, 1, ByRef _4)\n"
+                          "    _6 = _4 != Null\n"
+                          "    branch _6, bb1, bb2\n"
+                          "bb1:\n"
+                          "    _1 = _4\n"
+                          "    return 0\n"
+                          "bb2:\n"
+                          "    _2 = _3 + _5\n"
+                          "    goto bb3\n"
+                          "bb3:\n"
+                          "    goto bb4\n"
+                          "bb4:\n"
+                          "    return _2\n"));
+}
+
 TEST_CASE("an embedded file is one Global String, whose bytes that aren't UTF-8 print by value",
           "[mir]") {
     std::vector<fb::library_file_t> library =

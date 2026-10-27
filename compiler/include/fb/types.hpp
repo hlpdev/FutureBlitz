@@ -247,7 +247,7 @@ struct type_t {
     std::int64_t number = 0;
     /// TASK: the Classes that its Async Function's errors extend, which Wait and Await re-throw.
     /// Its last field, "error", holds the error, or Null. A type parameter among them stands for
-    /// one.
+    /// one. FUNCTION: what a For Method loop's Methods throw, in its Where line's Func type.
     std::vector<type_id_t> throws;
     /// FUNCTION: a Sendable Func, which other threads can call: its closure captures only
     /// Sendable values and counts its owners atomically.
@@ -335,9 +335,11 @@ public:
     [[nodiscard]] type_id_t tuple(const std::vector<type_id_t>& elements);
 
     /// "Func(A, B): R", with a `result` of NONE for one that returns nothing, or "Sendable Func(A,
-    /// B): R". With an INVALID part, it's INVALID.
+    /// B): R", or with `throws`, "Func(A): R Throws E", which only a For Method loop's Where line
+    /// writes. With an INVALID part, it's INVALID.
     [[nodiscard]] type_id_t function(const std::vector<type_id_t>& parameters, type_id_t result,
-                                     bool sendable = false);
+                                     bool sendable = false,
+                                     const std::vector<type_id_t>& throws = {});
 
     /// "Callback(A, B): R", or "Callback(A)" for one that gives nothing.
     [[nodiscard]] type_id_t callback(const std::vector<type_id_t>& parameters, type_id_t result);

@@ -2461,7 +2461,8 @@ private:
         const type_expr_id_t type = parse_type();
         finish_line(start);
         std::vector<constraint_t> constraints;
-        parse_where_lines(constraints);
+        std::vector<std::vector<expr_id_t>> picks;
+        parse_member_where_lines(variable, constraints, picks);
         block_t body = parse_body(keyword);
         return add_stmt(span_from(begin_of(label, keyword)),
                         for_member_stmt_t{
@@ -2471,8 +2472,57 @@ private:
                             .type_name = type_name,
                             .type = type,
                             .constraints = std::move(constraints),
+                            .picks = std::move(picks),
                             .body = std::move(body),
                         });
+    }
+
+    /// A loop over members' Where lines: on its type parameters, or "Where m Has Get Or Post",
+    /// on its variable, which picks the members with one of those attributes. "Has" and "Or"
+    /// are words only there.
+    void parse_member_where_lines(const name_t& variable, std::vector<constraint_t>& constraints,
+                                  std::vector<std::vector<expr_id_t>>& picks) {
+        while (at(token_kind_t::KW_WHERE)) {
+            const std::size_t line = m_pos;
+            advance();
+            const name_t name = expect_name();
+            const bool has = at(token_kind_t::IDENTIFIER) && text(peek()) == "Has";
+            if (has && name.text != variable.text) {
+                error(name.span, "a Where line picks by attributes on the loop's variable, '{}'",
+                      variable.text);
+            } else if (has) {
+                advance();
+                std::vector<expr_id_t> attributes{ parse_attribute_name() };
+                while (at(token_kind_t::IDENTIFIER) && text(peek()) == "Or") {
+                    advance();
+                    attributes.push_back(parse_attribute_name());
+                }
+
+                picks.push_back(std::move(attributes));
+            } else if (expect(token_kind_t::COLON)) {
+                constraints.push_back(
+                    { .parameter = name, .interfaces = parse_constraint(), .where = true });
+            }
+
+            finish_line(line);
+        }
+    }
+
+    /// An Attribute's name in a "Where m Has" line, which an imported module's name can qualify:
+    /// "Get", or "Web.Get".
+    expr_id_t parse_attribute_name() {
+        const name_t first = expect_name();
+        expr_id_t name = add_expr(first.span, name_expr_t{ .name = first.text });
+        while (accept(token_kind_t::DOT)) {
+            const name_t member = expect_name();
+            name = add_expr(span_from(first.span.begin), member_expr_t{
+                                                             .object = name,
+                                                             .member = member,
+                                                             .null_safe = false,
+                                                         });
+        }
+
+        return name;
     }
 
     stmt_id_t parse_select() {
@@ -3980,6 +4030,13 @@ private:
             result = parse_type();
         }
 
+        // "Func(A): R Throws E", for the Methods a For Method loop goes over, unless it's a
+        // function's result, whose Throws is the function's.
+        std::vector<type_expr_id_t> thrown;
+        if (result && !function_result && accept(token_kind_t::KW_THROWS)) {
+            thrown = parse_task_throws(false);
+        }
+
         --m_nesting;
         const std::uint32_t begin = sendable != nullptr ? sendable->span.begin : keyword.span.begin;
         return add_type(span_from(begin), function_type_t{
@@ -3987,6 +4044,7 @@ private:
                                               .result = result,
                                               .callback = callback,
                                               .sendable = sendable != nullptr,
+                                              .throws = std::move(thrown),
                                           });
     }
 

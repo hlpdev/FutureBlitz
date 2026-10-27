@@ -1271,6 +1271,20 @@ TEST_CASE("For Field and For Method go over a type's members", "[parser]") {
           "(for-method Outer: m T (block (continue Outer)))");
     CHECK(parse_text("For Method m: M In T\n    Where M: Func(Int): String\nEnd For").dump ==
           "(for-method m: M T (where M: Func(Int): String) (block))");
+    // Its Func type can throw, a Where line on its variable picks by attributes, with "Has" and
+    // "Or" words only there, and a function's result keeps its Throws.
+    CHECK(parse_text("For Method m: M In T\n"
+                     "    Where M: Func(Int): String Throws E, F\n"
+                     "    Where m Has Get Or Web.Post\n"
+                     "    Where m Has Logged\n"
+                     "End For")
+              .dump == "(for-method m: M T (where M: Func(Int): String Throws E, F) (where-has Get "
+                       "(. Web Post)) (where-has Logged) (block))");
+    CHECK(parse_text("Function Make(): Func(): Int Throws A, B\nEnd Function").dump ==
+          "(function Make -> Func(): Int Throws A B (block))");
+    CHECK(parse_text("For Method m: M In T\n    Where k Has Get\nEnd For").errors ==
+          std::vector<std::string>{
+              "31-32: a Where line picks by attributes on the loop's variable, 'm'" });
     CHECK(parse_text("For Property p: P In T\nEnd For").dump == "(for-property p: P T (block))");
     CHECK(parse_text("Async Function F(): Int\n    Return Await G()\nEnd Function").dump ==
           "(function Async F -> Int (block (return (await (call G)))))");

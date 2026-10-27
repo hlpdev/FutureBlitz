@@ -358,6 +358,9 @@ struct function_type_t {
     bool callback = false;
     /// "Sendable Func(A, B): R": a function value that other threads can call.
     bool sendable = false;
+    /// "Func(A): R Throws E", which only a For Method loop's Where line writes, for the Methods
+    /// that throw.
+    std::vector<type_expr_id_t> throws;
 };
 
 /// A value where a type argument goes, for a Const type parameter: the 64 in
@@ -644,6 +647,9 @@ struct for_member_stmt_t {
     type_expr_id_t type;
     /// The Where lines at the top of the body, on the member's type.
     std::vector<constraint_t> constraints;
+    /// "Where m Has Get Or Post" lines among them: each picks the Methods that have one of its
+    /// attributes, named by their Attributes.
+    std::vector<std::vector<expr_id_t>> picks;
     block_t body;
 };
 
