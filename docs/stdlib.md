@@ -1545,12 +1545,13 @@ discovery. `Import std.net` brings in std/net/.
   registered with `server.Routes<T>(instance)` and binding a Struct of path parameters, the query,
   and a JSON body (lane 2's For Method over a Func with type parameters of its own), and HTTPS with
   ACME (lane 11's, through wire.fb's Duplex).
-- std.net.ws: WebSocket client and server, per RFC 6455, built in step 30 but for wss://,
-  which comes with HTTPS.
-  `Import std.net.ws` brings in std/net/ws/. `WebSocket.Connect(url, protocols, timeout)` and
-  `ConnectAsync` open a client at a ws:// URL, asking for the subprotocols in the order it would
-  have them (each a token, or a panic), with `timeout` for connecting and for each read of the
-  answer; `WebSocket.Accept(stream, protocols)` and `AcceptAsync` read a client's handshake
+- std.net.ws: WebSocket client and server, per RFC 6455, built in step 30.
+  `Import std.net.ws` brings in std/net/ws/. `WebSocket.Connect(url, protocols, timeout, tls)`
+  and `ConnectAsync` open a client at a ws:// URL, or a wss:// one over TLS as `tls`, a
+  `TlsClient`, connects (one that trusts the OS's roots when it's Null), port 443 unless the URL
+  says, asking for the subprotocols in the order it would have them (each a token, or a panic),
+  with `timeout` for connecting and for each read of the TLS handshake and the answer; a server's
+  wss:// is an HttpServer's that `ListenTls` has listen; `WebSocket.Accept(stream, protocols)` and `AcceptAsync` read a client's handshake
   from a TcpStream a TcpListener accepted, and choose the first of the client's subprotocols
   that it has, or `AcceptAsync(request, protocols)` takes over the connection of an HttpServer
   handler's request, after which the server sends nothing of the handler's response, and

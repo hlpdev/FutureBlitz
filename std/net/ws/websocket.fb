@@ -1,5 +1,6 @@
 // std.net.ws's WebSocket, per RFC 6455: messages of text or bytes both ways over one connection,
-// a client's from Connect, or a server's from Accept, which answers the client's handshake.
+// a client's from Connect, at a ws:// URL, or a wss:// one over TLS, or a server's from Accept,
+// which answers the client's handshake.
 // Each is blocking or Async, and a Ping gets its Pong while a Receive reads.
 
 Import std.core
@@ -9,6 +10,7 @@ Import std.crypto
 Import std.io.streams
 Import std.time.duration
 Import std.net.tcp
+Import std.net.tls
 Import std.net.url
 Import std.net.http.server
 Import std.net.http.status
@@ -94,17 +96,33 @@ Public Class WebSocket
         Status = WebSocketState.OPEN
     End New
 
-    // Connects to a ws:// URL and opens a WebSocket there, asking for the subprotocols, if any,
-    // in the order it would have them, waiting up to `timeout` to connect and as long for each
-    // read of the server's answer, or as long as it takes for a Null one. Throws a NetError as
-    // TcpStream.Connect does, and of OTHER for a URL that isn't ws:// and an answer that isn't a
-    // WebSocket's. Panics when a subprotocol isn't a token.
+    // Connects to a ws:// URL, or a wss:// one over TLS as `tls` connects, or for a Null one, a
+    // TlsClient that trusts the OS's roots, and opens a WebSocket there, asking for the
+    // subprotocols, if any, in the order it would have them, waiting up to `timeout` to connect
+    // and as long for each read of the TLS handshake and the server's answer, or as long as it
+    // takes for a Null one. Throws a NetError as TcpStream.Connect and TlsClient.Connect do, and
+    // of OTHER for a URL that isn't ws:// or wss:// and an answer that isn't a WebSocket's.
+    // Panics when a subprotocol isn't a token.
     @PanicsAtCaller
-    Public Static Method Connect(url: String, protocols: String[] = [],
-                                 timeout: Duration? = Null): WebSocket Throws NetError, TimeoutError
+    Public Static Method Connect(url: String, protocols: String[] = [], timeout: Duration? = Null,
+                                 tls: TlsClient? = Null): WebSocket Throws NetError, TimeoutError
         CheckProtocols(protocols)
         Local target = Try TargetOf(url)
-        Local stream = Try TcpStream.Connect(target.Host, target.Port, timeout)
+        Local tcp = Try TcpStream.Connect(target.Host, target.Port, timeout)
+        Local stream: Duplex = tcp
+        If target.Secure
+            tcp.ReadTimeout = timeout
+            Try
+                stream = TlsDuplex(Try (tls ?? TlsClient()).Connect(tcp, target.Host))
+            Catch e As NetError
+                tcp.Close()
+                Throw e
+            Catch e As TimeoutError
+                tcp.Close()
+                Throw e
+            End Try
+        End If
+
         Local key = NewKey()
         Local wire = Wire(stream)
         Try
@@ -125,11 +143,25 @@ Public Class WebSocket
     // Connect's Async twin, which waits on the main thread.
     @PanicsAtCaller
     Public Static Async Method ConnectAsync(
-            url: String, protocols: String[] = [],
-            timeout: Duration? = Null): WebSocket Throws NetError, TimeoutError
+            url: String, protocols: String[] = [], timeout: Duration? = Null,
+            tls: TlsClient? = Null): WebSocket Throws NetError, TimeoutError
         CheckProtocols(protocols)
         Local target = Try TargetOf(url)
-        Local stream = Try Await TcpStream.ConnectAsync(target.Host, target.Port, timeout)
+        Local tcp = Try Await TcpStream.ConnectAsync(target.Host, target.Port, timeout)
+        Local stream: Duplex = tcp
+        If target.Secure
+            tcp.ReadTimeout = timeout
+            Try
+                stream = TlsDuplex(Try Await (tls ?? TlsClient()).ConnectAsync(tcp, target.Host))
+            Catch e As NetError
+                tcp.Close()
+                Throw e
+            Catch e As TimeoutError
+                tcp.Close()
+                Throw e
+            End Try
+        End If
+
         Local key = NewKey()
         Local wire = Wire(stream)
         Try
@@ -632,23 +664,25 @@ Public Class WebSocket
     End Method
 End Class
 
-// A ws:// URL's host and port to connect to, and its Host field and target.
+// A ws:// or wss:// URL's host and port to connect to, whether it's over TLS, and its Host
+// field and target.
 Class Target
     Field Host: String
     Field Port: UInt16
+    Field Secure: Bool
     Field HostField: String
     Field Path: String
     // Host and port, for errors.
     Field Address: String
 End Class
 
-// Where a ws:// URL is, or a NetError of OTHER when it isn't one.
+// Where a ws:// or wss:// URL is, or a NetError of OTHER when it isn't one.
 Function TargetOf(text: String): Target Throws NetError
     Local url = Url.Parse(text)
     If url == Null Then Throw NetError(NetErrorKind.OTHER, "\"{text}\" isn't a URL", text)
-    If url.Scheme != "ws"
-        Throw NetError(NetErrorKind.OTHER, "a WebSocket connects to a ws:// URL, not \"{text}\"",
-                       text)
+    If url.Scheme != "ws" && url.Scheme != "wss"
+        Throw NetError(NetErrorKind.OTHER, "a WebSocket connects to a ws:// or wss:// URL, not " +
+                       "\"{text}\"", text)
     End If
 
     If url.Fragment != Null
@@ -659,7 +693,8 @@ Function TargetOf(text: String): Target Throws NetError
     Local host = url.Host ?? ""
     If host == "" Then Throw NetError(NetErrorKind.OTHER, "\"{text}\" has no host", text)
     Local target = Target()
-    target.Port = (url.PortOrDefault ?? 80) As UInt16
+    target.Secure = url.Scheme == "wss"
+    target.Port = (url.PortOrDefault ?? (target.Secure ? 443 : 80)) As UInt16
     target.Host = host.StartsWith("[") ? host.Slice(1, host.Length - 1) : host
     target.HostField = url.Port == Null ? host : "{host}:{target.Port}"
     target.Address = "{host}:{target.Port}"
@@ -669,7 +704,7 @@ Function TargetOf(text: String): Target Throws NetError
 End Function
 
 // The WebSocket a client's handshake opens, once its answer is a WebSocket's.
-Function Opened(stream: TcpStream, wire: Wire, head: Head?, key: String, protocols: String[],
+Function Opened(stream: Duplex, wire: Wire, head: Head?, key: String, protocols: String[],
                 address: String): WebSocket Throws NetError
     If head == Null
         stream.Close()
@@ -687,7 +722,7 @@ Function Opened(stream: TcpStream, wire: Wire, head: Head?, key: String, protoco
 End Function
 
 // What a handshake's IOError throws: its TimeoutError, or a NetError.
-Function Handshaking(stream: TcpStream, e: IOError,
+Function Handshaking(stream: Duplex, e: IOError,
                      address: String): NetError Throws TimeoutError
     stream.Close()
     Local cause = e.Cause

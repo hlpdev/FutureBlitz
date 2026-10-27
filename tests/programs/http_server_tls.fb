@@ -2,8 +2,10 @@
 // net_tls/make_certificates.sh made: requests through an HttpClient that trusts the test CA, on
 // its connections kept open, and through a client each, fifty at once; a client that trusts
 // only the OS's roots, which refuses the server, one that speaks HTTP to it, and one that
-// connects and says nothing, after which the server still answers. The server holds nothing of
-// them after it stops, which the leak report at the end would show.
+// connects and says nothing, after which the server still answers; and WebSockets at wss://,
+// Async and blocking on a Thread of their own, which a handler takes over, and one that trusts
+// only the OS's roots. The server holds nothing of them after it stops, which the leak report at
+// the end would show.
 
 Import std.core
 Import std.collections
@@ -12,6 +14,7 @@ Import std.crypto
 Import std.ffi
 Import std.net
 Import std.net.http
+Import std.net.ws
 Import std.time
 Import "./http_server_tls/certificates"
 
@@ -25,6 +28,29 @@ Function Trusting(): HttpClient
     Local client = HttpClient()
     client.TrustOnly(Certificates(ca_pem))
     Return client
+End Function
+
+// A TLS client that trusts only the test CA, for a WebSocket.
+Function TlsTrusting(): TlsClient
+    Local client = TlsClient()
+    client.TrustOnly(Certificates(ca_pem))
+    Return client
+End Function
+
+// Echoes each message of a WebSocket the request opens until the client's Close.
+Async Function Echo(request: HttpRequest): HttpResponse
+    Try
+        Local ws = Try Await WebSocket.AcceptAsync(request)
+        Loop
+            Local message = Try Await ws.ReceiveAsync()
+            If message == Null Then Break
+            Try Await ws.SendAsync(message.Text)
+        End Loop
+    Catch e As NetError
+        Return HttpResponse.Of(StatusCode.BAD_REQUEST)
+    End Try
+
+    Return HttpResponse.Of(StatusCode.OK)
 End Function
 
 // Whether a request through a client of its own to `url` gets the route's answer.
@@ -49,6 +75,7 @@ server.IdleTimeout = 1.Seconds
 server.Get("/hello", Async Function(request: HttpRequest): HttpResponse
     Return HttpResponse.Of(Body.Text("hello over {request.Version}"))
 End Function)
+server.Get("/ws", Function(request: HttpRequest) => Echo(request))
 Try
     Local key = (Try? Key.FromPem(localhost_key)).Expect("the test's keys read")
     server.ListenTls(SocketAddress(IpAddress.Loopback, 0),
@@ -90,6 +117,47 @@ Try
     Print("with a silent client:", Await Fetched(url))
     silent.ReadTimeout = 5.Seconds
     Print("the silent client was closed:", (Try? Await silent.ReadAsync(Buffer<UInt8>(16))) == 0)
+
+    // WebSockets over TLS: Async on the main thread, and blocking on a Thread of their own.
+    Local wss = "wss://127.0.0.1:{port}/ws"
+    Local ws = Try Await WebSocket.ConnectAsync(wss, [], 5.Seconds, TlsTrusting())
+    Try Await ws.SendAsync("hello over wss")
+    Print("Async:", (Try Await ws.ReceiveAsync())?.Text ?? "-")
+    Await ws.CloseAsync()
+    Print("closed:", (Try Await ws.ReceiveAsync()) == Null, ws.State)
+
+    // The Thread gets the URL, and gives what it said, through Channels.
+    Const urls = Channel<String>(1)
+    Const said = Channel<String>(1)
+    urls.Send(wss)
+    Local blocking = Thread.Start(Function()
+        Try
+            Local socket = WebSocket.Connect(urls.Receive() ?? "", [], 5.Seconds, TlsTrusting())
+            socket.Send("hello from a Thread")
+            Local back = socket.Receive()?.Text ?? "-"
+            socket.Close()
+            said.Send("{back}, {socket.Receive() == Null}")
+        Catch e As Error
+            said.Send("failed: {e.Message}")
+        End Try
+    End Function)
+    Loop
+        Local back = said.TryReceive()
+        If back != Null
+            Print("blocking:", back)
+            Break
+        End If
+
+        Await Timer.After(10.Milliseconds)
+    End Loop
+
+    blocking.Join()
+    Try
+        Try Await WebSocket.ConnectAsync(wss)
+        Print("the OS's roots took the test CA")
+    Catch e As NetError
+        Print("wss with the OS's roots: NetError {e.Kind}")
+    End Try
 
     server.Stop()
     Await serving

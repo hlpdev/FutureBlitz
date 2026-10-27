@@ -306,9 +306,9 @@ Catch e As Error
     Print("failed: {e.Message}")
 End Try
 
-// A URL that isn't a ws:// one's throws a NetError of OTHER, and one nothing listens at a NetError
-// of REFUSED; a server that doesn't answer in time throws a TimeoutError.
-For url In ["http://127.0.0.1/", "ws://127.0.0.1/#part", "not a url", "wss://127.0.0.1/"]
+// A URL that isn't a ws:// or wss:// one's throws a NetError of OTHER, and one nothing listens at
+// a NetError of REFUSED; a server that doesn't answer in time throws a TimeoutError.
+For url In ["http://127.0.0.1/", "ws://127.0.0.1/#part", "not a url", "ftp://127.0.0.1/"]
     Try
         WebSocket.Connect(url)
     Catch e As NetError

@@ -38,10 +38,10 @@ two subprotocols: OTHER, <server> chose a subprotocol it wasn't offered
 extensions: OTHER, <server> answered with extensions it wasn't asked for
 closing, and no Close back: threw CLOSED, 1006, CLOSED
 a masked frame: threw OTHER, 1006, CLOSED
-OTHER a WebSocket connects to a ws:// URL, not "http://127.0.0.1/"
+OTHER a WebSocket connects to a ws:// or wss:// URL, not "http://127.0.0.1/"
 OTHER a WebSocket's URL can't have a fragment, as "ws://127.0.0.1/#part" does
 OTHER "not a url" isn't a URL
-OTHER a WebSocket connects to a ws:// URL, not "wss://127.0.0.1/"
+OTHER a WebSocket connects to a ws:// or wss:// URL, not "ftp://127.0.0.1/"
 closed port: REFUSED
 quiet server: timeout
 quiet server, blocking: timeout
