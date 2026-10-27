@@ -288,13 +288,14 @@ Class Unpacking
     End Method
 
     // Opens read, the array or map whose header started at start, to read its values into,
-    // unless it has none.
+    // unless it has none. An empty one counts toward the depth too, as JSON's does.
     Method Opened(read: Value, start: Int64) Throws ParseError
-        If (!read.IsArray && !read.IsObject) || Pending == 0 Then Return
+        If !read.IsArray && !read.IsObject Then Return
         If Open.Count >= Most
             Throw Fail(ParseErrorKind.OUT_OF_RANGE, "arrays and maps are nested too deep", start)
         End If
 
+        If Pending == 0 Then Return
         Open.Add(Unpacked(read, Pending))
     End Method
 

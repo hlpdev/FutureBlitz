@@ -90,5 +90,10 @@ ParseError UNEXPECTED_END: the data isn't MessagePack: the data ends before the 
 ParseError UNEXPECTED_END: the data isn't MessagePack: the data ends before the 4294967295 it says come, at byte 0
 ParseError OUT_OF_RANGE: the data isn't MessagePack: arrays and maps are nested too deep, at byte 2
 ARRAY [[[null]]]
+ParseError OUT_OF_RANGE: the data isn't MessagePack: arrays and maps are nested too deep, at byte 2
+ARRAY [[[]]]
+ParseError OUT_OF_RANGE: the data isn't MessagePack: arrays and maps are nested too deep, at byte 1
+ParseError OUT_OF_RANGE: the data isn't MessagePack: arrays and maps are nested too deep, at byte 1
+ARRAY []
 ParseError OUT_OF_RANGE: the data isn't MessagePack: arrays and maps are nested too deep, at byte 1000
 2012

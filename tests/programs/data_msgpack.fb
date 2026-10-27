@@ -142,6 +142,12 @@ Print(Read([223, 255, 255, 255, 255] As UInt8[]))
 Print(Read([198, 255, 255, 255, 255] As UInt8[]))
 Print(Read([145, 145, 145, 192] As UInt8[], 2))
 Print(Read([145, 145, 145, 192] As UInt8[], 3))
+// An empty array or map counts toward the depth too, as in JSON.
+Print(Read([145, 145, 144] As UInt8[], 2))
+Print(Read([145, 145, 144] As UInt8[], 3))
+Print(Read([145, 144] As UInt8[], 1))
+Print(Read([145, 128] As UInt8[], 1))
+Print(Read([144] As UInt8[], 1))
 Local deep: UInt8[] = []
 For i = 1 To 1001
     deep.Add(145)
