@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <optional>
 #include <string_view>
 #include <unordered_map>
@@ -468,6 +469,19 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
         return stmts[std::to_underlying(id)];
     }
 };
+
+/// Why Load<T>() can't make the Struct or Class `type`, or Save() write one, as its Fields are:
+/// what follows its name in the error, like ", whose Fields 'X' and 'At.X' both have the key
+/// "X"", or nullopt when it can. Two Fields can't have one key, a @Flatten Field's own Fields'
+/// keys among them, and for Load, a @Renamed Field's old key is no Field's. With `declared`, the
+/// rules analysis checks where a Field is declared are checked too, for an instance of generic
+/// code, whose Fields' types only it has: an Atomic or Mutex Field is @Skip, one that @Skip or
+/// @Optional leaves at its default has one, and a @Flatten Field is a Struct or Class of Fields.
+/// `field_of` gives the symbol of a type's Field at a position.
+[[nodiscard]] std::optional<std::string>
+fields_problem(const analysis_t& analysis, const type_table_t& types, type_id_t type, bool saving,
+               bool declared,
+               const std::function<std::optional<symbol_id_t>(type_id_t, std::uint32_t)>& field_of);
 
 /// Whether `type`, with no type parameters in it, implements `interface`: by listing it or
 /// one that extends it, through a Class it extends, as a built-in type, or through an Extend

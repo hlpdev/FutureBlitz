@@ -3608,6 +3608,7 @@ private:
                       "values");
             } else if (function != nullptr && function->kind != function_kind_t::FUNCTION) {
                 check_interface_method(*function);
+                check_on_loaded(*function, true);
                 const symbol_id_t declared = declare_function(member_id, *function, owner);
                 symbol(declared).modifiers.is_abstract = function->required;
                 add_member(members, declared);
@@ -7351,6 +7352,16 @@ private:
                       shown_name(declared.type));
             }
 
+            const bool special = declared.type == loading.value ||
+                                 (loading.map != type_id_t::INVALID &&
+                                  m_analysis.types.get(declared.type).generic == loading.map);
+            if (type == loading.flatten && special) {
+                error(spans[i],
+                      "@Flatten goes on a Struct's or Class's Field whose Fields join the others; "
+                      "'{}' is {}, which Load and Save convert whole",
+                      declared.name, shown_name(declared.type));
+            }
+
             if (type == loading.flatten && !is_struct(declared.type) && !is_class(declared.type) &&
                 !is_parameter(declared.type) && declared.type != type_id_t::INVALID) {
                 error(spans[i],
@@ -7370,55 +7381,6 @@ private:
         }
 
         return attribute_text(id, loading.rename).value_or(std::string(m_analysis.symbol(id).name));
-    }
-
-    /// Why Load can't tell a Struct's or Class's Fields apart in a Value's Object, or Save keep
-    /// them apart: two have one key, inherited ones too, which happens where a Private one of
-    /// another file's Class has a name of its own, or for Load, a @Renamed Field's old key is
-    /// another's key, or its own. nullopt when each Field has a key of its own.
-    [[nodiscard]] std::optional<std::string> clashing_keys(const type_id_t type,
-                                                           const bool saving) const {
-        const std::vector<field_t>& fields = m_analysis.types.get(type).fields;
-        std::vector<std::pair<std::string, symbol_id_t>> keys;
-        const auto key_of = [&keys](const std::string& key) {
-            return std::ranges::find(keys, key, &std::pair<std::string, symbol_id_t>::first);
-        };
-        for (std::uint32_t i = 0; i < fields.size(); ++i) {
-            const std::optional<symbol_id_t> field = field_symbol(type, i);
-            const std::optional<std::string> key = field ? load_key(*field) : std::nullopt;
-            if (!key) {
-                continue;
-            }
-
-            if (const auto taken = key_of(*key); taken != keys.end()) {
-                return std::format(", whose Fields '{}' and '{}' both have the key \"{}\"; "
-                                   "@Rename gives one another",
-                                   m_analysis.symbol(taken->second).name,
-                                   m_analysis.symbol(*field).name, *key);
-            }
-
-            keys.emplace_back(*key, *field);
-        }
-
-        for (const auto& [key, field] : keys) {
-            const std::optional<std::string> old =
-                saving ? std::nullopt : attribute_text(field, m_analysis.loading.renamed);
-            if (!old) {
-                continue;
-            }
-
-            if (const auto other = key_of(*old); other != keys.end()) {
-                return std::format(
-                    ", whose Field '{}' was \"{}\" before, which is {} now, so "
-                    "Load can't tell the two apart",
-                    m_analysis.symbol(field).name, *old,
-                    other->second == field
-                        ? std::string("its own key")
-                        : std::format("the key of '{}'", m_analysis.symbol(other->second).name));
-            }
-        }
-
-        return std::nullopt;
     }
 
     /// The first value of an attribute with a String, like @Rename's, on a declaration.
@@ -7446,8 +7408,10 @@ private:
 
         for (const symbol_id_t member : symbol(*owner).members) {
             const symbol_t& method = symbol(member);
+            // An Interface's default is checked once, as its own member.
             if (method.kind != symbol_kind_t::METHOD || method.name != "OnLoaded" ||
-                method.extended || loading.parse_error == type_id_t::INVALID) {
+                method.extended || method.default_method || method.owner != symbol(*owner).type ||
+                loading.parse_error == type_id_t::INVALID) {
                 continue;
             }
 
@@ -21315,7 +21279,11 @@ private:
                 return report(part, ", which is Abstract, so there's no object of it to make");
             }
 
-            if (const std::optional<std::string> clash = clashing_keys(part.type, saving)) {
+            if (const std::optional<std::string> clash =
+                    fb::fields_problem(m_analysis, m_analysis.types, part.type, saving, false,
+                                       [this](const type_id_t at, const std::uint32_t index) {
+                                           return field_symbol(at, index);
+                                       })) {
                 return report(part, *clash);
             }
 
@@ -25455,6 +25423,167 @@ private:
 };
 
 } // namespace
+
+namespace {
+
+/// A Field's key in a Value's Object, and how an error names the Field: 'Name', or 'At.X' for one
+/// a @Flatten Field brings in.
+struct load_key_t {
+    std::string key;
+    std::string field;
+    symbol_id_t symbol;
+};
+
+/// fields_problem()'s walk: each Field's key in `keys`, a @Flatten Field's own Fields' too, and
+/// the first problem found.
+class fields_walk_t {
+public:
+    using field_of_t = std::function<std::optional<symbol_id_t>(type_id_t, std::uint32_t)>;
+
+    fields_walk_t(const analysis_t& analysis, const type_table_t& types, const bool saving,
+                  const bool declared, const field_of_t& field_of)
+        : m_analysis(analysis), m_types(types), m_saving(saving), m_declared(declared),
+          m_field_of(field_of) {}
+
+    std::optional<std::string> walk(const type_id_t type, const std::string& prefix) {
+        if (std::ranges::contains(m_inside, type)) {
+            return std::format(", whose @Flatten Fields hold {} inside itself, which has no end",
+                               m_types.name(type));
+        }
+
+        m_inside.push_back(type);
+        const std::vector<field_t>& fields = m_types.get(type).fields;
+        for (std::uint32_t i = 0; i < fields.size(); ++i) {
+            const std::optional<symbol_id_t> field = m_field_of(type, i);
+            if (!field) {
+                continue;
+            }
+
+            if (std::optional<std::string> problem = add(*field, fields[i], prefix)) {
+                return problem;
+            }
+        }
+
+        m_inside.pop_back();
+        return std::nullopt;
+    }
+
+    /// For Load, a @Renamed Field's old key that's a Field's key.
+    [[nodiscard]] std::optional<std::string> renamed() const {
+        const load_support_t& loading = m_analysis.loading;
+        for (const load_key_t& entry : m_keys) {
+            const std::optional<std::string> old = text(entry.symbol, loading.renamed);
+            const auto other =
+                old ? std::ranges::find(m_keys, *old, &load_key_t::key) : m_keys.end();
+            if (other == m_keys.end()) {
+                continue;
+            }
+
+            return std::format(", whose Field '{}' was \"{}\" before, which is {} now, so Load "
+                               "can't tell the two apart",
+                               entry.field, *old,
+                               other->symbol == entry.symbol
+                                   ? std::string("its own key")
+                                   : std::format("the key of '{}'", other->field));
+        }
+
+        return std::nullopt;
+    }
+
+private:
+    const analysis_t& m_analysis;
+    const type_table_t& m_types;
+    bool m_saving;
+    bool m_declared;
+    const field_of_t& m_field_of;
+    std::vector<load_key_t> m_keys;
+    std::vector<type_id_t> m_inside;
+
+    [[nodiscard]] bool has(const symbol_id_t id, const type_id_t attribute) const {
+        return attribute != type_id_t::INVALID &&
+               std::ranges::contains(m_analysis.symbol(id).attributes, attribute,
+                                     &attribute_value_t::type);
+    }
+
+    [[nodiscard]] std::optional<std::string> text(const symbol_id_t id,
+                                                  const type_id_t attribute) const {
+        for (const attribute_value_t& value : m_analysis.symbol(id).attributes) {
+            if (value.type == attribute && attribute != type_id_t::INVALID &&
+                !value.values.empty()) {
+                return std::get<std::string>(value.values.front().data);
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    std::optional<std::string> add(const symbol_id_t id, const field_t& declared,
+                                   const std::string& prefix) {
+        const load_support_t& loading = m_analysis.loading;
+        const symbol_t& field = m_analysis.symbol(id);
+        const std::string name = prefix + std::string(field.name);
+        const type_t& info = m_types.get(declared.type);
+        const bool skip = has(id, loading.skip);
+        if (m_declared && !skip &&
+            (info.kind == type_kind_t::ATOMIC || info.kind == type_kind_t::MUTEX)) {
+            return std::format(", whose Field '{}' is {}, which can't be copied; @Skip leaves it "
+                               "out",
+                               name, m_types.name(declared.type));
+        }
+
+        const bool keeps = field.value || field.empty_default || m_types.has_zero(declared.type);
+        if (m_declared && !m_saving && !keeps && (skip || has(id, loading.optional))) {
+            return std::format(", whose @{} leaves '{}' at its default, and {} has no zero, so it "
+                               "needs a default of its own",
+                               skip ? "Skip" : "Optional", name, m_types.name(declared.type));
+        }
+
+        if (skip) {
+            return std::nullopt;
+        }
+
+        if (has(id, loading.flatten)) {
+            const bool fields =
+                (info.kind == type_kind_t::STRUCT || info.kind == type_kind_t::CLASS) &&
+                declared.type != loading.value &&
+                (loading.map == type_id_t::INVALID || info.generic != loading.map);
+            if (!fields) {
+                return m_declared ? std::optional(std::format(
+                                        ", whose @Flatten Field '{}' is {}, not a Struct or Class "
+                                        "whose Fields join the others",
+                                        name, m_types.name(declared.type)))
+                                  : std::nullopt;
+            }
+
+            return walk(declared.type, name + ".");
+        }
+
+        const std::string key = text(id, loading.rename).value_or(std::string(field.name));
+        if (const auto taken = std::ranges::find(m_keys, key, &load_key_t::key);
+            taken != m_keys.end()) {
+            return std::format(", whose Fields '{}' and '{}' both have the key \"{}\"; @Rename "
+                               "gives one another",
+                               taken->field, name, key);
+        }
+
+        m_keys.push_back({ .key = key, .field = name, .symbol = id });
+        return std::nullopt;
+    }
+};
+
+} // namespace
+
+std::optional<std::string> fields_problem(
+    const analysis_t& analysis, const type_table_t& types, const type_id_t type, const bool saving,
+    const bool declared,
+    const std::function<std::optional<symbol_id_t>(type_id_t, std::uint32_t)>& field_of) {
+    fields_walk_t walk(analysis, types, saving, declared, field_of);
+    if (std::optional<std::string> problem = walk.walk(type, "")) {
+        return problem;
+    }
+
+    return saving ? std::nullopt : walk.renamed();
+}
 
 bool implements(const analysis_t& analysis, type_table_t& types, const type_id_t type,
                 const type_id_t interface) {

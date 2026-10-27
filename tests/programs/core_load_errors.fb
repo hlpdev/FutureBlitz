@@ -164,3 +164,98 @@ Try
 Catch e As ParseError
     Print(e.Kind, e.Message.Bytes.Count, (e.Path ?? "").Bytes.Count)
 End Try
+
+// An Enum without @Flags takes an integer only when it's a member's, and an integer past every
+// type's range is out of it, not its nearest Double.
+Function Shown(value: Value)
+    Try
+        Print(Load<Color>(value))
+    Catch e As ParseError
+        Print("{e.Kind} [{e.Path ?? "Null"}] {e.Message}")
+    End Try
+End Function
+
+Shown(Value(1))
+Shown(Value(7))
+Shown(Value(-1))
+Try
+    Print(Load<Int64>(Value("-9223372036854775809")))
+Catch e As ParseError
+    Print(e.Kind, e.Message)
+End Try
+
+Try
+    Print(Load<UInt64>(Value("-18446744073709551616")))
+Catch e As ParseError
+    Print(e.Kind, e.Message)
+End Try
+
+// A type's own error keeps its text, and its path: the path of where it was loading before it,
+// or "" for the Value itself, and its own path when it gives one.
+Struct Tagged Implements Loadable
+    Field N: Int
+
+    Static Method FromValue(value: Value): Tagged Throws ParseError
+        If value.IsNull Then Throw ParseError(ParseErrorKind.OTHER, "no tag")
+        Throw ParseError(ParseErrorKind.OTHER, "bad tag", path: "inner")
+    End Method
+End Struct
+
+Class Holder
+    Field T: Tagged
+End Class
+
+Function Paths(value: Value)
+    Try
+        Local holder = Load<Holder>(value)
+    Catch e As ParseError
+        Print("[{e.Path ?? "Null"}] {e.Message}")
+    End Try
+End Function
+
+Paths(Value({"T": Value(1)}))
+Paths(Value({"T": Value()}))
+Try
+    Local alone = Load<Tagged>(Value())
+Catch e As ParseError
+    Print("[{e.Path ?? "Null"}] {e.Message}")
+End Try
+
+Try
+    Local checked = Load<Checked>(Value({"Count": Value(-1)}))
+Catch e As ParseError
+    Print("[{e.Path ?? "Null"}] {e.Message}")
+End Try
+
+Print("[{ParseError(ParseErrorKind.OTHER, "made with a path", path: "a.b").Message}]")
+
+// A @Renamed Field the Object has under neither key is missing at its own key.
+Class Painted
+    @Renamed("colour") Field Color: String
+End Class
+
+Try
+    Local painted = Load<Painted>(Value.Object())
+Catch e As ParseError
+    Print("[{e.Path ?? "Null"}] {e.Message}")
+End Try
+
+// A Value alone, read as an Array of it, has no index in the path.
+Class Sized
+    Field Sizes: Size[] = []
+    Field Bytes: UInt8[] = []
+End Class
+
+Function Alone(value: Value)
+    Try
+        Local sized = Load<Sized>(value)
+    Catch e As ParseError
+        Local path = e.Path ?? ""
+        Print("[{path}]", value.Path(path) != Null, e.Message)
+    End Try
+End Function
+
+Alone(Value({"Sizes": Value({"Width": Value(1), "Height": Value("x")}), "Bytes": Value([Value(1)])}))
+Alone(Value({"Sizes": Value.Array(), "Bytes": Value(300)}))
+Alone(Value({"Sizes": Value([Value({"Width": Value(1), "Height": Value(2)}), Value(5)]),
+             "Bytes": Value.Array()}))

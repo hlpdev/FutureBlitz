@@ -217,6 +217,10 @@ Class Settings
     @Skip Field Cache: Int[] = []
     Field Keys: Map<String, Key>
 
+    New()
+        Keys = {}
+    End New
+
     Method OnLoaded() Throws ParseError
         If Volume > 1.0 Then Throw ParseError(ParseErrorKind.OUT_OF_RANGE, "Volume is past 1")
     End Method
@@ -229,20 +233,22 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
 - The built-ins `Load<T>(value)` and `Save(x)`, or `Save<T>(x)` for an x that converts to a T,
   convert between std.core's `Value` and a T, which the compiler checks it can, Field by Field
   through what T is made of, by compile-time reflection. In generic code, each instance's T is
-  checked. A module's own Load or Save, or an imported one, takes the name's place.
+  checked, by the same rules, where Load<T> or Save is called. A module's own Load or Save, or an
+  imported one, takes the name's place.
 - The numbers are integers and Doubles, a Bool a BOOL, a String a STRING, and an Enum its member's
-  name, as its text has it ("WORLD | PLAYER" for a @Flags Enum's flags, and an integer for a value
-  that isn't a member's), which Load also takes in another case, or as an integer. A `T?` is
-  Null or a T, a `T[]` an Array, which Load also takes as one Value alone, as XML and a command
-  line give one item, a `UInt8[]` bytes, which Load also takes as an Array of integers, as JSON
-  has them, and a `Map<String, V>` an Object. A Value is copied, so the T and
-  the Value don't share one.
+  name, as its text has it, "WORLD | PLAYER" for a @Flags Enum's flags, or an integer for a
+  @Flags value with bits no member has. Load also takes a name in another case, or an integer,
+  which for an Enum without @Flags is a member's. A `T?` is Null or a T, a `T[]` an Array, which
+  Load also takes as one Value alone, as XML and a command line give one item, a `UInt8[]` bytes,
+  which Load also takes as an Array of integers, as JSON has them, and a `Map<String, V>` an
+  Object. A Value is copied, so the T and the Value don't share one.
 - A Struct or Class is an Object of its Fields, the inherited ones first, by name, but not
   Properties. Load makes one without running its New: each Field starts at its default, then
   takes the Object's entry for its key, and keys the type has no Field for are left alone. Then
   its `OnLoaded()` runs, which can check what was loaded, or work out what wasn't, and throw a
-  ParseError. A Class is saved as its own type's Fields, whatever Class extends it, and an
-  Abstract one can't be loaded. A Func, an Interface's object, a tuple, a fixed array, a
+  ParseError. A Class whose Load fails before every Field is filled is let go of without its
+  Destroy, which could see a Field with no zero that's still null. A Class is saved as its own
+  type's Fields, whatever Class extends it, and an Abstract one can't be loaded. A Func, an Interface's object, a tuple, a fixed array, a
   Weak, a Ptr, a Task, and the other types like them can't be converted.
 - Load also reads a number or a Bool from a String that reads as one, like "8080" or "true", as
   a command line's and an environment's values are; and an integer from a whole Double, and a
@@ -252,26 +258,29 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   Load leaves at its default too, as it does a `T?` Field, which is Null without one, and
   `@Renamed("old")` reads an older key when the Object doesn't have its own, so what an earlier
   version of a program saved still loads. `@Flatten` puts a Struct's or Class's Field's own
-  Fields in the Object with the others, not in an Object of their own. A Field that @Skip or
-  @Optional leaves at its default has one, a type with a zero or a default of its own; two
-  Fields can't have one key, and a Field's old key is no other's.
+  Fields in the Object with the others, not in an Object of their own; a Map or a Value, which
+  Load and Save convert whole, can't be flattened. A Field that @Skip or @Optional leaves at its
+  default has one, a type with a zero or a default of its own; two Fields can't have one key, a
+  @Flatten Field's own Fields' keys among them, and a Field's old key is no other's.
 - A type that converts itself implements std.core's `Loadable`, with `Static Method
   FromValue(value: Value): Self Throws ParseError`, which Load calls in its place, or
   `Saveable`, with `Method ToValue(): Value`, which Save does.
 - `OnLoaded()` is a Method of a Struct or Class that takes and gives nothing, a ByRef Method in a
   Struct, and throws only ParseErrors. It isn't generic, Static, or Async, and an Extend can't
-  add one.
+  add one. An Interface's, which a type gets as a default, follows the same rules, but a
+  Struct's copy of it isn't ByRef.
 - Load throws a ParseError, of `WRONG_TYPE` for a Value of another kind, `OUT_OF_RANGE` for a
   number too big for its type, and `MISSING` for a Field that the Object has no entry for, and
   that isn't @Optional or a `T?`. Its `Path` says where in the Value it is, like
   `"options.sizes[2]"`, or `""` for the Value itself, and its Message starts with it:
-  `options.sizes[2]: expected Int32, found "big"`. A key that a path's steps can't tell apart
-  from the rest, like one with a dot in it, is quoted in brackets: `["a.b"]`. Its Place is the
-  Load<T> call's, and an error that FromValue or OnLoaded throws keeps its own, with the path to
-  where it was thrown.
+  `options.sizes[2]: expected Int32, found "big"`. A Value alone read as a T[] has no index in
+  it. A key that a path's steps can't tell apart from the rest, like one with a dot in it, is
+  quoted in brackets: `["a.b"]`. Its Place is the Load<T> call's, and an error that FromValue or
+  OnLoaded throws keeps its own Place and text, with the path to where it was thrown before its
+  own, "" for the Value itself.
 - Load goes 256 levels deep into a Value's Arrays and Objects, and throws a ParseError of
-  `OUT_OF_RANGE` past that, and Save goes as deep into Fields and elements, and panics past that,
-  as for a Class that holds itself, whose Save would never end.
+  `OUT_OF_RANGE` past that, and Save goes as deep into Fields and elements, and panics past that
+  where it's called, as for a Class that holds itself, whose Save would never end.
 
 ## Conditional compilation
 

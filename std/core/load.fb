@@ -57,11 +57,19 @@ Function Read(value: Value): Value
             Return Value(bits As Int64)
         Case 3
             Return Value(bits)
-        Case 4
+        Case 4, 5
             Return Value(real)
         Default
             Return value
     End Select
+End Function
+
+// Whether a String is an integer past every integer type's range, which a Double only comes near.
+Function Huge(value: Value): Bool
+    Local text = value.AsString()
+    Local bits: UInt64 = 0
+    Local real: Double = 0
+    Return text != Null && fb_value_scalar(text, ByRef bits, ByRef real) == 5
 End Function
 
 // What Load<T> says it found: a short scalar's text, or what kind of Value it is.
@@ -126,6 +134,11 @@ End Function
 // OUT_OF_RANGE, and one with a fraction is of the WRONG_TYPE.
 Package Function LoadSigned(value: Value, least: Int64, most: Int64, type: String,
                             ByRef error: Error?): Int64
+    If Huge(value)
+        error = OutOfRange(value, type, "{least}", "{most}")
+        Return 0
+    End If
+
     Local read = Read(value)
     Local whole = read.AsInt64()
     Local real = read.AsDouble()
@@ -142,6 +155,11 @@ Package Function LoadSigned(value: Value, least: Int64, most: Int64, type: Strin
 End Function
 
 Package Function LoadUnsigned(value: Value, type: String, ByRef error: Error?): UInt64
+    If Huge(value)
+        error = OutOfRange(value, type, "0", "18446744073709551615")
+        Return 0
+    End If
+
     Local read = Read(value)
     Local whole = read.AsUInt64()
     Local real = read.AsDouble()
@@ -211,7 +229,7 @@ Package Function LoadBytes(value: Value, ByRef error: Error?): UInt8[]
         Local byte = LoadSigned(elements[i], 0, 255, "UInt8", ByRef error)
         Local failed = error
         If failed != Null
-            LoadWithinIndex(failed, i)
+            LoadWithinIndex(failed, i, !value.IsArray)
             Return []
         End If
 
@@ -223,28 +241,41 @@ End Function
 
 // Load's Enum: a member's name, as Save writes it, or the same name in another case; for a
 // @Flags Enum, names joined by "|", like "WORLD | PLAYER"; or an integer of the Enum's type, from
-// least to most.
+// least to most, or for one on a UInt64 (wide) up to its largest, which an Enum without @Flags
+// takes only when it's a member's.
 Package Function LoadEnum(value: Value, names: String[], values: UInt64[], flags: Bool,
-                          least: Int64, most: Int64, type: String, ByRef error: Error?): UInt64
+                          least: Int64, most: Int64, wide: Bool, type: String,
+                          ByRef error: Error?): UInt64
     Local text = value.AsString()
     Local bits: UInt64 = 0
     If text != Null && fb_value_enum(text, names, values, flags ? 1 : 0, ByRef bits) == 1
         Return bits
     End If
 
-    If Read(value).IsNumber
-        Return LoadSigned(value, least, most, type, ByRef error) As UInt64
+    If Huge(value) || Read(value).IsNumber
+        bits = (wide ? LoadUnsigned(value, type, ByRef error)
+                     : LoadSigned(value, least, most, type, ByRef error) As UInt64)
+        If error != Null || flags Then Return bits
+        For member In values
+            If member == bits Then Return bits
+        End For
     End If
 
+    error = Mismatch(value, (flags ? "{type}, its flags, {Listed(names)}, joined by |"
+                                   : "{type}, one of {Listed(names)}"))
+    Return 0
+End Function
+
+// Names in a list, like "A, B, or C", or "A or B".
+Function Listed(names: String[]): String
+    If names.Count == 2 Then Return "{names[0]} or {names[1]}"
     Local listed = ""
     For i = 0 Until names.Count
         If i > 0 Then listed = listed + (i == names.Count - 1 ? ", or " : ", ")
         listed = listed + names[i]
     End For
 
-    error = Mismatch(value, (flags ? "{type}, its flags, {listed}, joined by |"
-                                   : "{type}, one of {listed}"))
-    Return 0
+    Return listed
 End Function
 
 // A copy of a Value, which a Value's Field gets, so changing one doesn't change the other.
@@ -253,7 +284,7 @@ Package Function LoadValue(value: Value): Value => value.Clone()
 Package Function LoadNull(value: Value): Bool => value.IsNull
 
 // An Array's elements, for a T[], each of which Load goes into. Another Value but Null is an
-// Array of it alone, as XML and a command line give one item.
+// Array of it alone, as XML and a command line give one item, whose path has no index.
 Package Function LoadElements(value: Value, depth: Int, type: String,
                               ByRef error: Error?): Value[]
     If Deep(depth, ByRef error) Then Return []
@@ -285,6 +316,9 @@ End Function
 
 Package Function LoadEntry(value: Value, key: String): Value? => value[key]
 
+// Whether LoadElements reads a Value as an Array of it alone.
+Package Function LoadAlone(value: Value): Bool => !value.IsArray && !value.IsNull
+
 // A Field that the Object has no key for, and that isn't @Optional or a T?.
 Package Function LoadMissing(type: String, field: String, ByRef error: Error?)
     error = ParseError(ParseErrorKind.MISSING,
@@ -298,9 +332,16 @@ Package Function LoadWithinKey(error: Error, key: String)
     If parse != Null Then parse.Within(KeyStep(key))
 End Function
 
-Package Function LoadWithinIndex(error: Error, index: Int)
+// An element that was a Value alone has no index in the path.
+Package Function LoadWithinIndex(error: Error, index: Int, alone: Bool)
     Local parse = error As? ParseError
-    If parse != Null Then parse.Within("[{index}]")
+    If parse != Null && !alone Then parse.Within("[{index}]")
+End Function
+
+// An error from the Value itself, a type's own, has the path "".
+Package Function LoadAtTop(error: Error)
+    Local parse = error As? ParseError
+    If parse != Null Then parse.AtTop()
 End Function
 
 Package Function LoadMap<V>(count: Int): Map<String, V>
@@ -332,15 +373,16 @@ Package Function SaveValue(x: Value): Value => x.Clone()
 
 Package Function SaveNull(): Value => Value()
 
-// An empty Array or Object, for the elements or Fields at that depth. Past MostDepth, it panics:
-// a value nested that deep is most likely a Class that holds itself.
-Package Function SaveArray(depth: Int): Value
-    If depth >= MostDepth Then Panic(TooDeep())
+// An empty Array or Object, for the elements or Fields at that depth. Past MostDepth, it's an
+// error, which Save panics with where it's called: a value nested that deep is most likely a
+// Class that holds itself.
+Package Function SaveArray(depth: Int, ByRef error: Error?): Value
+    If depth >= MostDepth Then error = Error(TooDeep())
     Return Value.Array()
 End Function
 
-Package Function SaveObject(depth: Int): Value
-    If depth >= MostDepth Then Panic(TooDeep())
+Package Function SaveObject(depth: Int, ByRef error: Error?): Value
+    If depth >= MostDepth Then error = Error(TooDeep())
     Return Value.Object()
 End Function
 
@@ -357,11 +399,12 @@ Package Function SaveEntry(object: Value, key: String, entry: Value)
     object.Put(key, entry)
 End Function
 
-// A @Flatten Field's entries, in the Object with the others.
-Package Function SaveFlattened(object: Value, inner: Value, type: String)
+// A @Flatten Field's entries, in the Object with the others, or an error, which Save panics with.
+Package Function SaveFlattened(object: Value, inner: Value, type: String, ByRef error: Error?)
     If !inner.IsObject
-        Panic("a @Flatten Field's {type} is saved as an Object, and its ToValue gave " +
-              Found(inner))
+        error = Error("a @Flatten Field's {type} is saved as an Object, and its ToValue gave " +
+                      Found(inner))
+        Return
     End If
 
     For key In inner.Keys()

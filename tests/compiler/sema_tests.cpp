@@ -7581,6 +7581,59 @@ TEST_CASE("std.core's attributes for Load and Save go on Fields, each where it m
           errors_t{ twice("m: Save can't write Mine", "'hidden' and 'hidden'", "hidden") });
 }
 
+TEST_CASE("A @Flatten Field's Fields' keys are among the others, and it isn't a Map or Value",
+          "[sema]") {
+    const std::string clash = "; @Rename gives one another";
+    CHECK(
+        errors_of("Import std.core\n"
+                  "Import std.collections\n"
+                  "Struct Place\n    Field X: Int\n    Field Y: Int\nEnd Struct\n"
+                  "Struct Size\n    Field Width: Int\n    Field Height: Int\nEnd Struct\n"
+                  "Class Marker\n    Field X: Int\n    @Flatten Field At: Place\nEnd Class\n"
+                  "Class Twice\n    @Flatten Field A: Size\n    @Flatten Field B: Size\nEnd Class\n"
+                  "Class Titled\n    @Rename(\"Width\") Field Title: String\n"
+                  "    @Flatten Field Inner: Size\nEnd Class\n"
+                  "Class Old\n    @Renamed(\"Y\") Field Z: Int\n    @Flatten Field At: Place\n"
+                  "End Class\n"
+                  "Local v = Value()\n"
+                  "Local a = Save(Marker())\n"
+                  "Local b = Try Load<Twice>(v)\n"
+                  "Local c = Try Load<Titled>(v)\n"
+                  "Local d = Try Load<Old>(v)\n"
+                  "Local e = Save(Old())") ==
+        errors_t{
+            "Marker(): Save can't write Marker, whose Fields 'X' and 'At.X' both have the key "
+            "\"X\"" +
+                clash,
+            "Twice: Load can't make Twice, whose Fields 'A.Width' and 'B.Width' both have the "
+            "key \"Width\"" +
+                clash,
+            "Titled: Load can't make Titled, whose Fields 'Title' and 'Inner.Width' both have "
+            "the key \"Width\"" +
+                clash,
+            "Old: Load can't make Old, whose Field 'Z' was \"Y\" before, which is the key of "
+            "'At.Y' now, so Load can't tell the two apart",
+        });
+    const std::string whole = ", which Load and Save convert whole";
+    const std::string joined =
+        "Flatten: @Flatten goes on a Struct's or Class's Field whose Fields join the others; ";
+    CHECK(
+        errors_of("Import std.core\n"
+                  "Import std.collections\n"
+                  "Class Bag\n    @Flatten Field Extra: Map<String, String>?\n"
+                  "    @Flatten Field Data: Value?\n    @Flatten Field Items: Map<String, Int>\n"
+                  "    @Flatten Field Raw: Value\n"
+                  "    New()\n        Items = {}\n        Raw = Value()\n    End New\nEnd Class") ==
+        errors_t{
+            "Flatten: @Flatten goes on a Struct's or Class's Field whose own type is a Struct or "
+            "Class, whose Fields join the others; 'Extra' is Map<String, String>?",
+            "Flatten: @Flatten goes on a Struct's or Class's Field whose own type is a Struct or "
+            "Class, whose Fields join the others; 'Data' is Value?",
+            joined + "'Items' is Map<String, Int32>" + whole,
+            joined + "'Raw' is Value" + whole,
+        });
+}
+
 TEST_CASE("OnLoaded is a Method that Load<T> runs, which takes and gives nothing", "[sema]") {
     const std::string throws = "OnLoaded: OnLoaded throws only ParseErrors, which Load<T>, which "
                                "runs it, throws; IOError isn't one";
@@ -7632,6 +7685,25 @@ TEST_CASE("OnLoaded is a Method that Load<T> runs, which takes and gives nothing
               "OnLoaded: a Struct's OnLoaded is a ByRef Method, so it can change what was loaded",
               throws,
               "OnLoaded: an Extend can't add an OnLoaded; Load<T> runs a type's own",
+          });
+
+    // An Interface's OnLoaded, which a type gets as a default, follows the same rules, and is
+    // reported once, however many types implement it.
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Checked\n"
+                    "    Method OnLoaded(x: Int): Int\n        Return x\n    End Method\n"
+                    "End Interface\n"
+                    "Interface Strict\n"
+                    "    Method OnLoaded() Throws IOError\n"
+                    "        Throw IOError(IOErrorKind.OTHER, \"no\")\n"
+                    "    End Method\n"
+                    "End Interface\n"
+                    "Class C Implements Strict\n    Field X: Int\nEnd Class\n"
+                    "Class D Implements Strict\n    Field X: Int\nEnd Class") ==
+          errors_t{
+              "OnLoaded: OnLoaded takes no parameters and returns nothing; Load<T> runs it",
+              "OnLoaded: OnLoaded throws only ParseErrors, which Load<T>, which runs it, throws; "
+              "IOError isn't one",
           });
 }
 

@@ -2821,6 +2821,39 @@ TEST_CASE("lowering reports an instance's type that Load<T> or Save can't conver
                         "Try Load<Box<T>>(value)\n"
                         "Local b = Try Loaded<(Int, Int)>(Value())") ==
           "Load<Box<T>>(value): Load can't make (Int32, Int32) here" + makes);
+    // An instance's Fields, and its Map's keys, follow the rules analysis has for the others.
+    const std::string held = "Class Node\n    Field Name: String = \"n\"\nEnd Class\n"
+                             "Class Held<T>\n    Field Label: String = \"b\"\n";
+    const std::string made = "    New(item: T)\n        Item = item\n    End New\nEnd Class\n"
+                             "Local h = Try Load<Held<Node>>(Value())\n";
+    CHECK(stopped("Import std.core\n" + held + "    @Skip Field Item: T\n" + made) ==
+          "Load<Held<Node>>(Value()): Load can't make Held<Node> here, whose @Skip leaves 'Item' "
+          "at its default, and Node has no zero, so it needs a default of its own");
+    CHECK(stopped("Import std.core\n" + held + "    @Optional Field Item: T\n" + made) ==
+          "Load<Held<Node>>(Value()): Load can't make Held<Node> here, whose @Optional leaves "
+          "'Item' at its default, and Node has no zero, so it needs a default of its own");
+    const std::string keys = " here; a Map's keys are an Object's, which are Strings";
+    CHECK(stopped("Import std.core\n"
+                  "Import std.collections\n"
+                  "Function Put<T>(x: T): Value => Save(x)\n"
+                  "Local m: Map<Int, Int> = {1: 2}\n"
+                  "Local v = Put(m)") == "Save(x): Save can't write Map<Int32, Int32>" + keys);
+    CHECK(stopped("Import std.core\n"
+                  "Import std.collections\n"
+                  "Function Get<T>(v: Value): T Throws ParseError => Try Load<T>(v)\n"
+                  "Local m = Try Get<Map<Int, Int>>(Value())") ==
+          "Load<T>(v): Load can't make Map<Int32, Int32>" + keys);
+    CHECK(
+        stopped("Import std.core\n"
+                "Struct Wrap<T>\n    Field Label: String\n    @Flatten Field Inner: T\nEnd Struct\n"
+                "Local v = Save(Wrap<Int>(\"b\", 5))") ==
+        "Save(Wrap<Int>(\"b\", 5)): Save can't write Wrap<Int32> here, whose @Flatten Field "
+        "'Inner' is Int32, not a Struct or Class whose Fields join the others");
+    CHECK(stopped(box + "Abstract Class Shape\nEnd Class\n"
+                        "Function Get<T>(v: Value): T Throws ParseError => Try Load<T>(v)\n"
+                        "Local s = Try Get<Shape>(Value())") ==
+          "Load<T>(v): Load can't make Shape here, which is Abstract, so there's no object of it "
+          "to make");
     CHECK(stopped(box + "Function Saved<T>(x: Box<T>): Value => Save(x)\n"
                         "Local v = Saved(Box<Weak<Box<Int>>>())") ==
           "Save(x): Save can't write Weak<Box<Int32>> here" + writes);

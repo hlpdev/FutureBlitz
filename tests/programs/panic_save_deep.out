@@ -1,2 +1,2 @@
 "n"
-panic: Save goes 256 levels deep into Fields and elements, and no further; a Class that holds itself, inside it, can't be saved at std/core/load.fb:343:32
+panic: Save goes 256 levels deep into Fields and elements, and no further; a Class that holds itself, inside it, can't be saved at panic_save_deep.fb:12:7

@@ -165,9 +165,12 @@ TEST_CASE("Load<T> reads a String as a Bool or a number, as a command line's are
     CHECK(read("+12").bits == 12);
     CHECK(read("9223372036854775808").kind == 3);
     CHECK(read("18446744073709551615").bits == UINT64_MAX);
-    // An integer past a UInt64's largest, or below an Int64's smallest, is a Double.
-    CHECK(read("18446744073709551616").kind == 4);
-    CHECK(read("-9223372036854775809").kind == 4);
+    // An integer past a UInt64's largest, or below an Int64's smallest, is its nearest Double,
+    // told apart from another number's, since it can round to an Int64's least.
+    CHECK(read("18446744073709551616").kind == 5);
+    CHECK(read("-9223372036854775809").kind == 5);
+    CHECK(read("-9223372036854775809").real == -9223372036854775808.0);
+    CHECK(read("-9223372036854775808.5").kind == 4);
     CHECK(read("2.5").kind == 4);
     CHECK(read("2.5").real == 2.5);
     CHECK(read("-1e3").real == -1000.0);

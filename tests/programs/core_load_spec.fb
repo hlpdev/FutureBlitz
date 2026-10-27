@@ -1,0 +1,27 @@
+// Spec 13's Load and Save example, as it's written there.
+Import std.core
+Import std.collections
+
+Enum Key
+    UP, DOWN
+End Enum
+
+Class Settings
+    @Rename("player_name") Field Name: String
+    @Optional Field Volume: Double = 0.8
+    @Skip Field Cache: Int[] = []
+    Field Keys: Map<String, Key>
+
+    New()
+        Keys = {}
+    End New
+
+    Method OnLoaded() Throws ParseError
+        If Volume > 1.0 Then Throw ParseError(ParseErrorKind.OUT_OF_RANGE, "Volume is past 1")
+    End Method
+End Class
+
+Local settings = Try Load<Settings>(Value({"player_name": Value("a"), "Keys": Value.Object()}))
+Local saved = Save(settings)
+Local loaded = Try Load<Settings>(saved)
+Print(saved)

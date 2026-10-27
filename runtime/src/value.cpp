@@ -236,7 +236,8 @@ std::int32_t fb_value_scalar(const fb_string_t* text, std::uint64_t* bits, doubl
     }
 
     // A number past a Double's range is an infinity, or 0, as strtod reads it, which from_chars
-    // leaves unread.
+    // leaves unread. An integer past every integer type's is told apart, since its Double may
+    // round to an Int64's least.
     double value = 0;
     const auto [stop, error] = std::from_chars(first, end, value);
     if (stop != end || (error != std::errc() && error != std::errc::result_out_of_range)) {
@@ -244,7 +245,10 @@ std::int32_t fb_value_scalar(const fb_string_t* text, std::uint64_t* bits, doubl
     }
 
     *real = error == std::errc() ? value : std::strtod(std::string(number).c_str(), nullptr);
-    return 4;
+    const bool integer = !digits.empty() && std::ranges::all_of(digits, [](const char c) {
+        return c >= '0' && c <= '9';
+    });
+    return integer ? 5 : 4;
 }
 
 std::int32_t fb_value_enum(const fb_string_t* text, const fb_array_t* names,

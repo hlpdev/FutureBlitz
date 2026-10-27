@@ -231,3 +231,18 @@ tree.Kids = [leaf, leaf]
 Print(Save(tree))
 Local copy = Try Load<Node>(Save(tree))
 Print(copy.Kids.Count, RefEquals(copy.Kids[0], copy.Kids[1]), copy.Kids[1].Name)
+
+// A @Flags value with bits no member has is saved as its integer, which keeps them, and one of
+// only named flags as their names.
+Local others = ~Layer.WORLD
+Local odd = Try Load<Layer>(Value(9))
+Print(Save(others), Save(odd), Save(Layer.PLAYER | Layer.ENEMY))
+Print((Try Load<Layer>(Save(others))) == others, ((Try Load<Layer>(Save(odd))) As Int))
+
+// An Enum on a UInt64 loads every member from its integer.
+Enum Big: UInt64
+    SMALL = 1, HUGE = 18446744073709551615
+End Enum
+
+Print(Try Load<Big>(Value(18446744073709551615 As UInt64)), Try Load<Big>(Value("1")),
+      Save(Big.HUGE))

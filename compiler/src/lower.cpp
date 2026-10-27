@@ -124,17 +124,24 @@ struct unlock_t {
     place_t mutex;
 };
 
-/// What leaving a scope does: releases a variable, runs a Defer's statement or a Finally, or
-/// unlocks a Lock's Mutex.
-struct cleanup_t {
-    std::variant<local_id_t, stmt_id_t, const block_t*, unlock_t> action;
+/// An object that leaving its scope discards, letting go of its fields without running its
+/// Destroy, as for one that Load gave up on before it filled every Field.
+struct discard_t {
+    local_id_t object;
+};
 
-    // Implicit, so a variable, a deferred statement, a Finally, or a Lock's Mutex can be put in
-    // a scope directly.
+/// What leaving a scope does: releases a variable, runs a Defer's statement or a Finally,
+/// unlocks a Lock's Mutex, or discards an object.
+struct cleanup_t {
+    std::variant<local_id_t, stmt_id_t, const block_t*, unlock_t, discard_t> action;
+
+    // Implicit, so a variable, a deferred statement, a Finally, a Lock's Mutex, or an object to
+    // discard can be put in a scope directly.
     cleanup_t(const local_id_t local) : action(local) {}
     cleanup_t(const stmt_id_t deferred) : action(deferred) {}
     cleanup_t(const block_t* finally) : action(finally) {}
     cleanup_t(unlock_t unlock) : action(std::move(unlock)) {}
+    cleanup_t(const discard_t discard) : action(discard) {}
 };
 
 /// A loop being lowered. Break and Continue end their blocks without a target, and the loop
@@ -3154,6 +3161,17 @@ private:
                 continue;
             }
 
+            if (const auto* discard = std::get_if<discard_t>(&cleanup.action)) {
+                emit(evaluate_t{
+                    .value =
+                        runtime_call_t{
+                            .function = runtime_function_t::OBJECT_DISCARD,
+                            .arguments = { place_t{ discard->object } },
+                        },
+                });
+                continue;
+            }
+
             // An Await in it that never comes back lets go of only what's still held.
             m_leaving.push_back({ .scope = depth, .position = i, .scopes = m_scopes.size() });
             if (const auto* deferred = std::get_if<stmt_id_t>(&cleanup.action)) {
@@ -3186,7 +3204,8 @@ private:
     [[nodiscard]] bool defers_from(const std::size_t depth) const {
         return std::ranges::any_of(m_scopes | std::views::drop(depth), [](const auto& scope) {
             return std::ranges::any_of(scope, [](const cleanup_t& cleanup) {
-                return !std::holds_alternative<local_id_t>(cleanup.action);
+                return !std::holds_alternative<local_id_t>(cleanup.action) &&
+                       !std::holds_alternative<discard_t>(cleanup.action);
             });
         });
     }
@@ -7113,7 +7132,9 @@ private:
             },
         };
         const operand_t made = temporary(std::move(call), type);
-        check_load_error(error, [](const operand_t& /*thrown*/) {}, span_of(id));
+        check_load_error(
+            error, [&](const operand_t& thrown) { load_helper("LoadAtTop", { thrown }); },
+            span_of(id));
         if (has_references(type)) {
             m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(made).root));
         }
@@ -7121,16 +7142,36 @@ private:
         return made;
     }
 
-    /// "Save(x)": a new Value of x, from its type's Save, at depth 0.
+    /// "Save(x)": a new Value of x, from its type's Save, at depth 0. What it can't write, like
+    /// a Class that holds itself, puts an Error in the call's error variable, which panics here,
+    /// with the Error's Message.
     operand_t lower_save(const expr_id_t id) {
         const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
         const type_id_t type = concrete(expect(m_analysis.expr(id).saved));
         const operand_t value = lower_value(node.arguments.front().value);
+        const local_id_t error = error_variable();
         call_t call{
             .function = generated(generated_kind_t::SAVE, type, span_of(id)),
-            .arguments = { { .value = value }, { .value = zero(type_id_t::INT32) } },
+            .arguments = {
+                { .value = value },
+                { .value = zero(type_id_t::INT32) },
+                { .value = place_t{ error }, .by_ref = true },
+            },
         };
-        return temporary(std::move(call), m_analysis.loading.value, true);
+        const operand_t made = temporary(std::move(call), m_analysis.loading.value, true);
+        const block_id_t failed = new_block();
+        const block_id_t ok = new_block();
+        terminate(branch_t{
+            .condition = has_value(place_t{ error }, span_of(id)),
+            .if_true = failed,
+            .if_false = ok,
+        });
+        start(failed);
+        place_t message = std::get<place_t>(unwrap(place_t{ error }));
+        message.steps.push_back({ .field = 0 }); // Error's Message
+        terminate(panic_t{ .message = "Save failed", .span = span_of(id), .text = message });
+        start(ok);
+        return made;
     }
 
     /// An error that a call of a Load, or of what it calls, put in `error` goes on out of the
@@ -7208,9 +7249,7 @@ private:
         const local_id_t subject =
             saving ? add_local(type, "x") : add_local(m_analysis.loading.value, "value");
         const local_id_t depth = add_local(type_id_t::INT32, "depth");
-        if (!saving) {
-            m_error_slot = add_local(m_analysis.nullable_error, "error", true);
-        }
+        m_error_slot = add_local(m_analysis.nullable_error, "error", true);
 
         current().parameter_count = current().locals.size();
         const conversion_t conversion{
@@ -7262,6 +7301,45 @@ private:
         }
 
         return std::nullopt;
+    }
+
+    /// Reports, once, why a Load or Save can't convert an instance's Struct or Class, or Map:
+    /// `why` follows its name.
+    std::nullopt_t cannot_convert(const type_id_t type, const bool saving, const span_t span,
+                                  const std::string_view why) {
+        if (!m_module.error) {
+            m_module.error = mir_error_t{
+                .message =
+                    std::format("{} {} here{}", saving ? "Save can't write" : "Load can't make",
+                                types().name(type), why),
+                .span = span,
+            };
+        }
+
+        return std::nullopt;
+    }
+
+    /// Why a Load or Save can't convert an instance's Struct or Class, its Fields as they are, or
+    /// a Map whose keys aren't Strings, or nullopt when it can. Analysis checked the types
+    /// without type parameters in them.
+    std::optional<std::string> instance_problem(const type_id_t type, const bool saving) {
+        if (m_analysis.loading.map != type_id_t::INVALID &&
+            types().get(type).generic == m_analysis.loading.map) {
+            return types().get(type).arguments.front() == type_id_t::STRING
+                       ? std::nullopt
+                       : std::optional<std::string>(
+                             "; a Map's keys are an Object's, which are Strings");
+        }
+
+        if (!saving && is_class(type) &&
+            m_analysis.symbol(m_declared_types.at(definition_of(type))).modifiers.is_abstract) {
+            return ", which is Abstract, so there's no object of it to make";
+        }
+
+        return fb::fields_problem(m_analysis, types(), type, saving, true,
+                                  [this](const type_id_t at, const std::uint32_t index) {
+                                      return field_symbol(at, index);
+                                  });
     }
 
     /// What `type` implements std.core's Loadable's FromValue or Saveable's ToValue with, when it
@@ -7366,8 +7444,9 @@ private:
                 temporary(std::move(values), types().array(type_id_t::UINT64), true);
             const const_value_t low{ .type = type_id_t::INT64, .data = least };
             const const_value_t high{ .type = type_id_t::INT64, .data = most };
+            const operand_t wide = make_bool(info.inner == type_id_t::UINT64);
             const operand_t read = expect(load_helper(
-                "LoadEnum", { value, listed, bits, make_bool(info.flags), low, high, name }));
+                "LoadEnum", { value, listed, bits, make_bool(info.flags), low, high, wide, name }));
             return cast(read, type, {});
         }
 
@@ -7383,15 +7462,14 @@ private:
             return load_array(type, conversion, name);
         }
 
-        if (loading.map != type_id_t::INVALID && types().get(type).generic == loading.map &&
-            types().get(type).arguments.front() == type_id_t::STRING) {
-            return load_map(type, conversion, name);
-        }
+        if ((is_struct(type) || is_class(type)) && !types().get(type).made) {
+            if (const std::optional<std::string> problem = instance_problem(type, false)) {
+                return cannot_convert(type, false, conversion.span, *problem);
+            }
 
-        if ((is_struct(type) || is_class(type)) && !types().get(type).made &&
-            !(is_class(type) &&
-              m_analysis.symbol(m_declared_types.at(definition_of(type))).modifiers.is_abstract)) {
-            return load_fields(type, conversion, name);
+            return types().get(type).generic == loading.map && loading.map != type_id_t::INVALID
+                       ? load_map(type, conversion, name)
+                       : load_fields(type, conversion, name);
         }
 
         return cannot_convert(type, false, conversion.span);
@@ -7466,6 +7544,7 @@ private:
         initialize(elements, expect(load_helper("LoadElements",
                                                 { conversion.subject, conversion.depth, name })));
         m_scopes.back().emplace_back(elements);
+        const operand_t alone = expect(load_helper("LoadAlone", { conversion.subject }));
         const local_id_t made = add_local(type);
         initialize(made, temporary(array_t{ .type = type }, type, true));
         m_scopes.back().emplace_back(made);
@@ -7481,7 +7560,7 @@ private:
         each_element(elements, value_array, [&](const place_t& item, const local_id_t counter) {
             const operand_t loaded =
                 load_part(inner, item, conversion, [&](const operand_t& thrown) {
-                    load_helper("LoadWithinIndex", { thrown, place_t{ counter } });
+                    load_helper("LoadWithinIndex", { thrown, place_t{ counter }, alone });
                 });
             take(loaded);
             emit(evaluate_t{
@@ -7552,7 +7631,14 @@ private:
         const local_id_t made = add_local(type);
         initialize(made, is_class(type) ? new_object(type)
                                         : temporary(defaults_of(type), type, has_references(type)));
-        m_scopes.back().emplace_back(made);
+        // A Class whose Load fails before its Fields are filled is discarded, without its Destroy,
+        // which could read a Field with no zero that's still null.
+        if (is_class(type)) {
+            m_scopes.back().emplace_back(discard_t{ .object = made });
+        } else {
+            m_scopes.back().emplace_back(made);
+        }
+
         finish_statement();
         const std::vector<field_t> fields = types().get(type).fields;
         for (std::uint32_t i = 0; i < fields.size(); ++i) {
@@ -7572,6 +7658,14 @@ private:
             }
 
             load_field(target, field, fields[i], type, conversion);
+        }
+
+        // Filled, it's an object like any other, which an error in OnLoaded lets go of.
+        for (cleanup_t& cleanup : m_scopes.back()) {
+            if (const auto* discard = std::get_if<discard_t>(&cleanup.action);
+                discard != nullptr && discard->object == made) {
+                cleanup = made;
+            }
         }
 
         call_on_loaded(place_t{ made }, type);
@@ -7632,6 +7726,10 @@ private:
             written.value || written.empty_default || types().has_zero(declared.type);
         if (!(has_attribute(field, loading.optional) && keeps) && !is_nullable(declared.type)) {
             const symbol_id_t missing = loading.helpers.at("LoadMissing");
+            if (old) {
+                emit(assign_t{ .target = step, .value = use_t{ .value = make_string(key) } });
+            }
+
             const local_id_t error = error_variable();
             emit(evaluate_t{
                 .value =
@@ -7737,10 +7835,7 @@ private:
         }
 
         if (is_enum(type)) {
-            const operand_t text = temporary(
-                call_t{ .function = text_function(type), .arguments = { { .value = x } } },
-                type_id_t::STRING, true);
-            return load_helper("SaveString", { text });
+            return save_enum(type, x);
         }
 
         if (is_nullable(type)) {
@@ -7755,28 +7850,90 @@ private:
             return save_array(type, conversion);
         }
 
-        if (loading.map != type_id_t::INVALID && types().get(type).generic == loading.map &&
-            types().get(type).arguments.front() == type_id_t::STRING) {
-            return save_map(type, conversion);
-        }
-
         if ((is_struct(type) || is_class(type)) && !types().get(type).made) {
-            return save_fields(type, conversion);
+            if (const std::optional<std::string> problem = instance_problem(type, true)) {
+                return cannot_convert(type, true, conversion.span, *problem);
+            }
+
+            return types().get(type).generic == loading.map && loading.map != type_id_t::INVALID
+                       ? save_map(type, conversion)
+                       : save_fields(type, conversion);
         }
 
         return cannot_convert(type, true, conversion.span);
+    }
+
+    /// An Enum's Save: its text, its member's name or a @Flags value's names, or for a @Flags
+    /// value with bits no member has, its integer, which keeps them.
+    std::optional<operand_t> save_enum(const type_id_t type, const operand_t& x) {
+        const type_t& info = types().get(type);
+        const local_id_t made = add_local(m_analysis.loading.value);
+        const auto as_text = [&] {
+            const operand_t text = temporary(
+                call_t{ .function = text_function(type), .arguments = { { .value = x } } },
+                type_id_t::STRING, true);
+            initialize(made, expect(load_helper("SaveString", { text })));
+            finish_statement();
+        };
+        if (!info.flags) {
+            as_text();
+            m_scopes.back().emplace_back(made);
+            return place_t{ made };
+        }
+
+        std::uint64_t named = 0;
+        for (const enum_value_t& member : info.values) {
+            named |= member.bits;
+        }
+
+        const operand_t bits = cast(x, type_id_t::UINT64, {});
+        const const_value_t others{ .type = type_id_t::UINT64, .data = ~named };
+        const binary_t extra{ .op = binary_op_t::BIT_AND, .left = bits, .right = others };
+        const operand_t unnamed =
+            compare(binary_op_t::NOT_EQUAL, temporary(extra, type_id_t::UINT64),
+                    zero(type_id_t::UINT64), {});
+        const block_id_t integer = new_block();
+        const block_id_t text = new_block();
+        const block_id_t done = new_block();
+        terminate(branch_t{ .condition = unnamed, .if_true = integer, .if_false = text });
+        start(integer);
+        const bool wide = info.inner == type_id_t::UINT64 || !is_signed(info.inner);
+        const type_id_t to = wide ? type_id_t::UINT64 : type_id_t::INT64;
+        initialize(made,
+                   expect(load_helper(wide ? "SaveUnsigned" : "SaveSigned", { cast(x, to, {}) })));
+        finish_statement();
+        jump(done);
+        start(text);
+        as_text();
+        jump(done);
+        start(done);
+        m_scopes.back().emplace_back(made);
+        return place_t{ made };
     }
 
     /// A Value of a part of the value, from its type's Save, one level deeper, with its own
     /// reference.
     operand_t save_part(const type_id_t type, const operand_t& part,
                         const conversion_t& conversion) {
-        return temporary(
+        return save_call(type, part, deeper(conversion), conversion);
+    }
+
+    /// A call of `type`'s Save at `depth`, whose error goes on out of this one.
+    operand_t save_call(const type_id_t type, const operand_t& part, const operand_t& depth,
+                        const conversion_t& conversion) {
+        const local_id_t error = error_variable();
+        const operand_t saved = temporary(
             call_t{
                 .function = generated(generated_kind_t::SAVE, type, conversion.span),
-                .arguments = { { .value = part }, { .value = deeper(conversion) } },
+                .arguments = {
+                    { .value = part },
+                    { .value = depth },
+                    { .value = place_t{ error }, .by_ref = true },
+                },
             },
             m_analysis.loading.value, true);
+        check_error(error, {});
+        return saved;
     }
 
     /// A T?'s Save: a NULL for Null, and else what T's gives.
@@ -7798,15 +7955,7 @@ private:
         start(full);
         const type_id_t inner = types().get(type).inner;
         initialize(made,
-                   temporary(
-                       call_t{
-                           .function = generated(generated_kind_t::SAVE, inner, conversion.span),
-                           .arguments = {
-                               { .value = unwrap(conversion.subject) },
-                               { .value = conversion.depth },
-                           },
-                       },
-                       value, true));
+                   save_call(inner, unwrap(conversion.subject), conversion.depth, conversion));
         finish_statement();
         jump(done);
         start(done);
@@ -8464,8 +8613,11 @@ private:
         for (std::size_t depth = m_scopes.size(); depth-- > 0;) {
             for (std::size_t position = m_scopes[depth].size(); position-- > 0;) {
                 const auto* local = std::get_if<local_id_t>(&m_scopes[depth][position].action);
+                const auto* discard = std::get_if<discard_t>(&m_scopes[depth][position].action);
                 if (local != nullptr && !left(depth, position)) {
                     emit(release_t{ .target = *local });
+                } else if (discard != nullptr && !left(depth, position)) {
+                    emit(release_t{ .target = discard->object });
                 }
             }
         }

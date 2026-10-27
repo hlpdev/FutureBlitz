@@ -25,3 +25,6 @@ p [1] {"First": "p", "Second": [1]}
 3 2.0
 {"Name": "root", "Kids": [{"Name": "leaf", "Kids": []}, {"Name": "leaf", "Kids": []}]}
 2 False leaf
+-2 9 "PLAYER | ENEMY"
+True 9
+HUGE SMALL "HUGE"

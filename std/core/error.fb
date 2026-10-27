@@ -97,6 +97,8 @@ Public Class ParseError Extends Error
         Line = line
         Column = column
         At = path
+        Plain = message
+        If path != Null && path != "" Then Message = "{path}: {message}"
     End New
 
     // For Load<T>'s: where in the Value it's from, the Field's path, like "options.sizes[2]", or
@@ -113,6 +115,12 @@ Public Class ParseError Extends Error
         Local path = at == "" || at.Chars[0] == '[' ? step + at : step + "." + at
         At = path
         Message = "{path}: {Plain}"
+    End Method
+
+    // Load's error from the Value itself, which a type's own FromValue or OnLoaded threw there:
+    // its path is "".
+    Package Method AtTop()
+        If At == Null Then At = ""
     End Method
 End Class
 

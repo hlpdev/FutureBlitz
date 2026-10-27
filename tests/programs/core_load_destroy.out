@@ -1,0 +1,7 @@
+Count: expected Int32, found "x"
+Thing: missing, and Box's Field Thing isn't @Optional
+loaded 2
+destroying 2 thing
+destroying -1 bad
+Count is below 0
+done
