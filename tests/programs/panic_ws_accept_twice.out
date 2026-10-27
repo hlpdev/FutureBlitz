@@ -1,0 +1,1 @@
+panic: the request's connection is a WebSocket's already at panic_ws_accept_twice.fb:11:19

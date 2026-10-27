@@ -1,0 +1,15 @@
+// A group adds routes to its server, so one whose server has gone panics where it adds one.
+Import std.core
+Import std.net
+Import std.net.http
+
+Function Ok(request: HttpRequest): Task<HttpResponse> => Done()
+Async Function Done(): HttpResponse => HttpResponse.Of(204)
+
+Function Orphan(): HttpRouter
+    Local server = HttpServer()
+    Return server.Group("/api")
+End Function
+
+Local group = Orphan()
+group.Get("/items", Function(request: HttpRequest) => Ok(request))

@@ -1,0 +1,10 @@
+// A route's method is a token, so one with a space panics where it's added.
+Import std.core
+Import std.net
+Import std.net.http
+
+Function Ok(request: HttpRequest): Task<HttpResponse> => Done()
+Async Function Done(): HttpResponse => HttpResponse.Of(204)
+
+Local server = HttpServer()
+server.Route("NOT ONE", "/", Function(request: HttpRequest) => Ok(request))

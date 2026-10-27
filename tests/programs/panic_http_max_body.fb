@@ -1,0 +1,8 @@
+// A body has 0 bytes at least, so a MaxBodySize below panics where it's set.
+Import std.core
+Import std.net
+Import std.net.http
+
+Local server = HttpServer()
+server.MaxBodySize = 0
+server.MaxBodySize = -1

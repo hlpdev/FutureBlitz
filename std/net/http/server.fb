@@ -1,0 +1,693 @@
+// HttpServer: HTTP/1.1 over TCP, whose handlers are Async code on the main thread, so they share
+// its Globals without data races. A request goes through the server's middleware, in the order
+// Use gave it, to the handler of the route that fits its method and path best, through the
+// middleware of the groups that route is in; the response goes back on a connection kept open
+// for the next request, unless the request or the response says to close it.
+
+Import std.core
+Import std.collections
+Import std.ffi
+Import std.io.streams
+Import std.time
+Import std.net.address
+Import std.net.tcp
+Import std.net.url
+Import std.net.http.headers
+Import std.net.http.status
+Import std.net.http.client
+Import std.net.http.wire
+Import std.text
+
+Extern "runtime"
+    Function fb_string_from_utf8(bytes: UInt8[]): String
+End Extern
+
+// What a route runs: an Async Function of the request, which gives the response.
+Public Alias HttpHandler = Func(HttpRequest): Task<HttpResponse>
+
+// What runs around a handler: an Async Function of the request and the next handler, which it
+// calls, or doesn't, to give the response.
+Public Alias HttpMiddleware = Func(HttpRequest, HttpHandler): Task<HttpResponse>
+
+// The methods a route can have, as Route takes them.
+Const METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+
+// A request a server read: its method, its Verb, as the client wrote it, like "GET" (Method is
+// a keyword); its target, and the
+// target's path, percent-encoded, without dot segments, and query; its headers and body; the path
+// parameters its route bound; and the client's address.
+Public Class HttpRequest
+    Public ReadOnly Field Verb: String
+    Public ReadOnly Field Target: String
+    Public ReadOnly Field Path: String
+    Public ReadOnly Field Query: QueryParams
+    Public ReadOnly Field Headers: Headers
+    Public ReadOnly Field Bytes: UInt8[]
+    // "HTTP/1.1" or "HTTP/1.0".
+    Public ReadOnly Field Version: String
+    Public ReadOnly Field RemoteAddress: String
+    Field Bound: Map<String, String>
+    // The connection it came on, and its head, which a WebSocket's Accept takes.
+    Package ReadOnly Field Connection: ServerConnection
+    Package ReadOnly Field Started: Head
+
+    Package New(head: Head, path: String, query: QueryParams, bytes: UInt8[],
+                connection: ServerConnection)
+        Verb = head.Parts[0]
+        Target = head.Parts[1]
+        Version = head.Parts[2]
+        Path = path
+        Query = query
+        Headers = NewHeaders()
+        For i = 0 Until head.Names.Count
+            Headers.Received(head.Names[i], head.Values[i])
+        End For
+
+        Bytes = bytes
+        RemoteAddress = connection.Peer
+        Bound = Map<String, String>()
+        Connection = connection
+        Started = head
+    End New
+
+    // The body as text, its UTF-8, with U+FFFD for each byte that doesn't start well-formed
+    // UTF-8.
+    Public Property Text: String
+        Get => fb_string_from_utf8(Bytes)
+    End Property
+
+    // A path parameter its route bound, percent-decoded, like `:id`'s, or Null when it has none
+    // of that name.
+    Public Method Param(name: String): String? => Bound.Get(name)
+
+    // Each path parameter its route bound, by name.
+    Public Property Params: Map<String, String>
+        Get => Bound.Clone()
+    End Property
+
+    // A form's fields, when the body is application/x-www-form-urlencoded, as a browser sends
+    // them, or none.
+    Public Method Form(): QueryParams
+        Local kind = TrimSpace((Headers.Get("Content-Type") ?? "").Split(";")[0]).ToLower()
+        If kind != "application/x-www-form-urlencoded" Then Return QueryParams()
+
+        Return QueryParams(Text)
+    End Method
+
+    Package Method Bind(name: String, value: String)
+        Bound[name] = value
+    End Method
+End Class
+
+// Responses a handler gives.
+Extend HttpResponse
+    // A response of status, with body's bytes and its Content-Type, or an empty one.
+    Public Static Method Of(status: Int, body: Body? = Null): HttpResponse
+        Local headers = NewHeaders()
+        Local bytes: UInt8[] = []
+        If body != Null
+            bytes = body.Bytes
+            Local kind = body.ContentType
+            If kind != Null Then headers.Set("Content-Type", kind)
+        End If
+
+        Return HttpResponse(status, headers, bytes, "")
+    End Method
+
+    // A 200 with body.
+    Public Static Method Of(body: Body): HttpResponse => Of(StatusCode.OK, body)
+
+    // A redirect to url, a 302 Found unless status says another, which a header's value can
+    // hold, or a panic.
+    @PanicsAtCaller
+    Public Static Method Redirect(url: String, status: Int = 302): HttpResponse
+        Local response = Of(status)
+        response.Headers.Set("Location", url)
+        Return response
+    End Method
+End Extend
+
+// Headers with none, which code with a Headers Field of its own can't make by the type's name.
+Function NewHeaders(): Headers => Headers()
+
+// A route: its method, its pattern's segments, its handler, and the middleware of the groups
+// it's in, outermost first, which are their own stacks, so what Use adds later runs too.
+Package Class RouteEntry
+    Package ReadOnly Field Verb: String
+    Package ReadOnly Field Segments: String[]
+    Package ReadOnly Field Handler: HttpHandler
+    Package ReadOnly Field Stacks: HttpMiddleware[][]
+
+    Package New(verb: String, segments: String[], handler: HttpHandler,
+                stacks: HttpMiddleware[][])
+        Verb = verb
+        Segments = segments
+        Handler = handler
+        Stacks = stacks
+    End New
+
+    // The handler inside its groups' middleware.
+    Package Method Wrapped(): HttpHandler
+        Local wrapped = Handler
+        For i = Stacks.Count - 1 To 0 Step -1
+            wrapped = Stacked(Stacks[i], wrapped)
+        End For
+        Return wrapped
+    End Method
+End Class
+
+// The routes of a server and its groups, in the order they were added.
+Package Class RouteTable
+    Package Field Routes: RouteEntry[] = []
+End Class
+
+// Routes, and the middleware around them: a server's own, or a group's, whose routes' paths
+// start with its prefix and whose middleware runs inside its parent's. A path is segments after
+// a '/' each: text, which the request's segment matches when it's the same once it's
+// percent-decoded, `:name`, which matches any one segment and binds it to name, or, last,
+// `*name`, which matches the rest of the path, empty too, and binds it. Of the routes whose
+// paths match a request's, the one whose segments are text first, segment by segment, takes it,
+// and of those its method fits, the first added; a request whose path some route matches but
+// whose method none has is a 405 Method Not Allowed, and one whose path none matches a 404. A
+// HEAD goes to a GET's route when there's no HEAD's, and its response's body isn't sent.
+Public Class HttpRouter
+    // The server's routes, which its server keeps: a route holds its groups' middleware, so a
+    // group holding the table too would be a cycle.
+    ReadOnly Field Table: Weak<RouteTable>
+    ReadOnly Field Prefix: String[]
+    // The middleware of the groups it's in, outermost first, and its own, but for a server's,
+    // which goes around all of routing.
+    ReadOnly Field Stacks: HttpMiddleware[][]
+    Field Stack: HttpMiddleware[] = []
+
+    Package New(table: RouteTable, prefix: String[], stacks: HttpMiddleware[][])
+        Table = table
+        Prefix = prefix
+        Stacks = stacks
+    End New
+
+    // Adds a route for GET and the path, which panics unless it's a path as HttpRouter has
+    // them, or another route has the method and a path that matches what it matches.
+    @PanicsAtCaller
+    Public Method Get(path: String, handler: HttpHandler)
+        Add("GET", path, handler)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Post(path: String, handler: HttpHandler)
+        Add("POST", path, handler)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Put(path: String, handler: HttpHandler)
+        Add("PUT", path, handler)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Patch(path: String, handler: HttpHandler)
+        Add("PATCH", path, handler)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Delete(path: String, handler: HttpHandler)
+        Add("DELETE", path, handler)
+    End Method
+
+    // Adds a route for method, any token, like "PROPFIND", as Get does.
+    @PanicsAtCaller
+    Public Method Route(method: String, path: String, handler: HttpHandler)
+        If !IsToken(method) Then Panic("\"{method}\" isn't an HTTP method")
+        Add(method, path, handler)
+    End Method
+
+    // Adds middleware, which runs around each of its routes' handlers, after what Use gave it
+    // before, a server's around every request, the ones no route takes too.
+    Public Method Use(middleware: HttpMiddleware)
+        Stack.Add(middleware)
+    End Method
+
+    // A group of routes whose paths start with prefix, a path as routes have them, but without
+    // a `*name`, or it panics, and whose middleware runs inside this one's.
+    @PanicsAtCaller
+    Public Method Group(prefix: String): HttpRouter
+        Local segments = SegmentsOf(prefix)
+        If segments.Count > 0 && KindOf(segments[segments.Count - 1]) == 2
+            Panic("a group's prefix \"{prefix}\" ends with a *name, which only a route's path can")
+        End If
+
+        Local stacks = Stacks.Clone()
+        If !(Self Is HttpServer) Then stacks.Add(Stack)
+        Return HttpRouter(Routes(), Joined(Prefix, segments), stacks)
+    End Method
+
+    @PanicsAtCaller
+    Method Add(method: String, path: String, handler: HttpHandler)
+        Local segments = Joined(Prefix, SegmentsOf(path))
+        Local table = Routes()
+        For other In table.Routes
+            If other.Verb == method && SameShape(other.Segments, segments)
+                Panic("there's a {method} route for \"{path}\"'s paths already")
+            End If
+        End For
+
+        Local stacks = Stacks.Clone()
+        If !(Self Is HttpServer) Then stacks.Add(Stack)
+        table.Routes.Add(RouteEntry(method, segments, handler, stacks))
+    End Method
+
+    // The server's routes, or a panic once the server's gone.
+    @PanicsAtCaller
+    Package Method Routes(): RouteTable
+        Local table = Table
+        If table == Null Then Panic("the group's HttpServer is gone")
+        Return table
+    End Method
+
+    // Its own middleware, around a handler.
+    Package Method Around(handler: HttpHandler): HttpHandler => Stacked(Stack, handler)
+End Class
+
+// The handler that runs a stack of middleware around another, the first outermost.
+Function Stacked(stack: HttpMiddleware[], handler: HttpHandler): HttpHandler
+    Local wrapped = handler
+    For i = stack.Count - 1 To 0 Step -1
+        wrapped = Around(stack[i], wrapped)
+    End For
+    Return wrapped
+End Function
+
+// The handler that runs middleware around next.
+Function Around(middleware: HttpMiddleware, next: HttpHandler): HttpHandler
+    Return Function(request: HttpRequest) => middleware(request, next)
+End Function
+
+Function Joined(first: String[], second: String[]): String[]
+    Local all = first.Clone()
+    all.AddAll(second)
+    Return all
+End Function
+
+// A route's path's segments, after the '/' each starts with, or a panic for a path that isn't
+// one: "/" is none.
+@PanicsAtCaller
+Function SegmentsOf(path: String): String[]
+    If !path.StartsWith("/") Then Panic("a route's path starts with '/', and \"{path}\" doesn't")
+    If path == "/" Then Return []
+    Local segments = path.Slice(1, path.Length).Split("/")
+    For i = 0 Until segments.Count
+        Local segment = segments[i]
+        Local kind = KindOf(segment)
+        If kind != 0 && !IsName(segment.Slice(1, segment.Length))
+            Panic("\"{segment}\" in \"{path}\" isn't a :name or a *name")
+        End If
+
+        If kind == 2 && i != segments.Count - 1
+            Panic("a *name goes last in a path, and \"{path}\" has one before")
+        End If
+    End For
+    Return segments
+End Function
+
+// Whether name is a parameter's: letters, digits, and '_', not starting with a digit.
+Function IsName(name: String): Bool
+    If name == "" Then Return False
+    For i = 0 Until name.Bytes.Count
+        Local c = name.Bytes[i]
+        Local letter = (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A) || c == 0x5F
+        If !letter && (i == 0 || c < 0x30 || c > 0x39) Then Return False
+    End For
+    Return True
+End Function
+
+// What a segment of a route's path is: 0 for text, 1 for a :name, 2 for a *name.
+Function KindOf(segment: String): Int
+    If segment.StartsWith("*") Then Return 2
+    If segment.StartsWith(":") Then Return 1
+    Return 0
+End Function
+
+// Whether two routes' paths match the same paths: the same segments, but for parameters' names.
+Function SameShape(a: String[], b: String[]): Bool
+    If a.Count != b.Count Then Return False
+    For i = 0 Until a.Count
+        If KindOf(a[i]) != KindOf(b[i]) Then Return False
+        If KindOf(a[i]) == 0 && a[i] != b[i] Then Return False
+    End For
+    Return True
+End Function
+
+// How well a route's path matches a request's segments, percent-decoded: Null when it doesn't,
+// and otherwise each segment's kind, which Better compares.
+Function MatchOf(route: String[], path: String[]): Int[]?
+    Local kinds: Int[] = []
+    For i = 0 Until route.Count
+        Local kind = KindOf(route[i])
+        If kind == 2
+            kinds.Add(2)
+            Return kinds
+        End If
+
+        If i >= path.Count Then Return Null
+        If kind == 0 && route[i] != path[i] Then Return Null
+        kinds.Add(kind)
+    End For
+
+    If route.Count != path.Count Then Return Null
+    Return kinds
+End Function
+
+// Whether one match is better than another: text before a parameter, a parameter before the
+// rest, at the first segment where they differ, and the longer one when one starts the other.
+Function Better(a: Int[], b: Int[]): Bool
+    For i = 0 Until Min(a.Count, b.Count)
+        If a[i] != b[i] Then Return a[i] < b[i]
+    End For
+    Return a.Count > b.Count
+End Function
+
+// What a server keeps of a connection: its stream, what it's read of it, the client's address,
+// and whether a request is being answered on it, or a WebSocket took it over.
+Package Class ServerConnection
+    Package ReadOnly Field Stream: Duplex
+    Package ReadOnly Field Input: Wire
+    Package ReadOnly Field Peer: String
+    Package Field Busy: Bool
+    Package Field Upgraded: Bool
+
+    Package New(stream: Duplex, peer: String)
+        Stream = stream
+        Input = Wire(stream)
+        Peer = peer
+    End New
+End Class
+
+// A server: routes and middleware, as HttpRouter has them, answering the requests that come to
+// where Listen has it listen, as Serve runs. A request that breaks HTTP/1.1's rules is answered
+// as wire.fb has it (400, 413, 414, 431, 501, or 505) and its connection closed; one without a
+// Host, or with two, is a 400; an Expect other than 100-continue is a 417. A response has its
+// Content-Length and Date set, and a Connection: close when its connection closes after it.
+Public Class HttpServer Extends HttpRouter
+    // Its routes, which its groups hold weakly.
+    ReadOnly Field Own: RouteTable
+    Field Listener: TcpListener? = Null
+    Field Connections: Map<Int, ServerConnection>
+    Field NextId: Int
+    Field Stopping: Bool
+    Field BodyLimit: Int64 = 16777216
+    Field Idle: Duration
+
+    Public New()
+        Connections = Map<Int, ServerConnection>()
+        Idle = 60.Seconds
+        Own = RouteTable()
+        Super.New(Own, [], [])
+    End New
+
+    // The most bytes a request's body can have, 16 MiB unless it's set, past which it's a 413.
+    // Panics when it's set below 0.
+    @PanicsAtCaller
+    Public Property MaxBodySize: Int64
+        Get => BodyLimit
+        Set(value)
+            If value < 0 Then Panic("a server's MaxBodySize is 0 at least, not {value}")
+            BodyLimit = value
+        End Set
+    End Property
+
+    // How long a connection waits for its next request, or for more of one, before it's closed:
+    // a minute unless it's set.
+    Public Property IdleTimeout: Duration
+        Get => Idle
+        Set(value)
+            Idle = value
+        End Set
+    End Property
+
+    // Listens at `address`, whose port 0 has the OS pick one, which LocalAddress tells. Throws a
+    // NetError as TcpListener.Listen does. Panics when it listens already.
+    @PanicsAtCaller
+    Public Method Listen(address: SocketAddress) Throws NetError
+        If Listener != Null Then Panic("the HttpServer listens already")
+        Listener = Try TcpListener.Listen(address)
+    End Method
+
+    // Listens at `host`'s first address and `port`.
+    @PanicsAtCaller
+    Public Method Listen(host: String, port: UInt16) Throws NetError
+        If Listener != Null Then Panic("the HttpServer listens already")
+        Listener = Try TcpListener.Listen(host, port)
+    End Method
+
+    // Where it listens, the port the OS picked included. Panics before Listen.
+    @PanicsAtCaller
+    Public Property LocalAddress: SocketAddress
+        Get => Listening().LocalAddress
+    End Property
+
+    // Takes connections and answers their requests until Stop, and gives once it stops taking
+    // them; requests being answered then are answered. Panics before Listen.
+    @PanicsAtCaller
+    Public Async Method Serve()
+        Local listener = Listening()
+        While !Stopping
+            Try
+                Local stream = Try Await listener.AcceptAsync()
+                Local peer = stream.RemoteAddress.ToString()
+                Local connection = ServerConnection(stream, peer)
+                NextId += 1
+                Connections[NextId] = connection
+                Answer(NextId, connection)
+            Catch e As NetError
+                If listener.IsClosed Then Return
+            Catch e As TimeoutError
+            End Try
+        End While
+    End Method
+
+    // Stops taking connections, closes those waiting for a request, and has those answering one
+    // close once it's answered.
+    Public Method Stop()
+        Stopping = True
+        Listener?.Close()
+        For id, connection In Connections.Clone()
+            If !connection.Busy Then connection.Stream.Close()
+        End For
+    End Method
+
+    // Whether it's listening and hasn't been stopped.
+    Public Property IsRunning: Bool
+        Get => Listener != Null && !Stopping
+    End Property
+
+    @PanicsAtCaller
+    Method Listening(): TcpListener
+        Local listener = Listener
+        If listener == Null Then Panic("the HttpServer isn't listening; call Listen first")
+        Return listener
+    End Method
+
+    // Answers a connection's requests, one after another, until one side closes it.
+    Async Method Answer(id: Int, connection: ServerConnection)
+        Defer Connections.Remove(id)
+        Local stream = connection.Stream
+        Local open = True
+        While open && !Stopping
+            stream.ReadTimeout = Idle
+            Local response: HttpResponse? = Null
+            Local request: HttpRequest? = Null
+            Try
+                Local head = Try Await connection.Input.ReadHeadAsync(True)
+                If head == Null
+                    stream.Close()
+                    Return
+                End If
+
+                connection.Busy = True
+                request = Try Await Read(head, connection)
+            Catch e As WireError
+                Try? Await stream.WriteAsync(Buffer<UInt8>.From(ErrorBytes(e.Status)))
+                Await LingerAsync(stream)
+                Return
+            Catch e As IOError
+                stream.Close()
+                Return
+            End Try
+
+            Local asked = request
+            Local answered = Await Dispatch(asked)
+            If connection.Upgraded Then Return
+            open = KeepsOpen(asked, answered) && !Stopping
+            Try
+                Local bytes = ResponseBytes(asked, answered, open)
+                Try Await stream.WriteAsync(Buffer<UInt8>.From(bytes))
+            Catch e As IOError
+                stream.Close()
+                Return
+            End Try
+
+            connection.Busy = False
+        End While
+
+        Await LingerAsync(stream)
+    End Method
+
+    // The request a head starts: its body read, once a 100 Continue is sent when it asks for
+    // one, and its target's path and query.
+    Async Method Read(head: Head, connection: ServerConnection): HttpRequest Throws IOError,
+                                                                                 WireError
+        Local hosts = 0
+        For name In head.Names
+            If name.EqualsIgnoreCase("Host") Then hosts += 1
+        End For
+
+        If hosts != 1 && head.Parts[2] == "HTTP/1.1"
+            Throw WireError(400, "a request has {hosts} Hosts, not 1")
+        End If
+
+        Local expect = head.Get("Expect")
+        If expect != Null
+            If !expect.EqualsIgnoreCase("100-continue")
+                Throw WireError(417, "a request expects {expect}")
+            End If
+
+            If head.Parts[2] == "HTTP/1.1" && (head.Contains("Content-Length") ||
+                                               head.Contains("Transfer-Encoding"))
+                Try Await connection.Stream.WriteAsync(
+                    Buffer<UInt8>.From("HTTP/1.1 100 Continue\r\n\r\n".Bytes))
+            End If
+        End If
+
+        Local target = head.Parts[1]
+        Local url: Url? = Null
+        If target.StartsWith("/")
+            url = Url.Parse("http://host" + target)
+        ElseIf target.StartsWith("http://") || target.StartsWith("https://")
+            url = Url.Parse(target)
+        ElseIf target == "*" && head.Parts[0] == "OPTIONS"
+            url = Url.Parse("http://host/*")
+        End If
+
+        If url == Null Then Throw WireError(400, "a request's target \"{target}\" isn't a path")
+        Local bytes = Try Await connection.Input.ReadBodyAsync(head, BodyLimit)
+        Local query = url.Query
+        Return HttpRequest(head, url.Path, QueryParams(query ?? ""), bytes, connection)
+    End Method
+
+    // The response the server's middleware and the route's handler give.
+    Async Method Dispatch(request: HttpRequest): HttpResponse
+        Local routed: HttpHandler = Function(asked: HttpRequest) => Routed(asked)
+        Return Await Around(routed)(request)
+    End Method
+
+    // The response of the route that takes the request, or a 404 or a 405; an OPTIONS of *, the
+    // server's own, is a 204.
+    Async Method Routed(request: HttpRequest): HttpResponse
+        If request.Target == "*" Then Return HttpResponse.Of(StatusCode.NO_CONTENT)
+        Local path: String[] = []
+        If request.Path != "/"
+            For segment In request.Path.Slice(1, request.Path.Length).Split("/")
+                path.Add(Url.Decode(segment))
+            End For
+        End If
+
+        Local best: RouteEntry? = Null
+        Local bestMatch: Int[] = []
+        Local allowed: String[] = []
+        For method In [request.Verb, request.Verb == "HEAD" ? "GET" : request.Verb]
+            For route In Own.Routes
+                Local found = MatchOf(route.Segments, path)
+                If found == Null Then Continue
+                If !allowed.Contains(route.Verb) Then allowed.Add(route.Verb)
+                If route.Verb != method Then Continue
+                If best == Null || Better(found, bestMatch)
+                    best = route
+                    bestMatch = found
+                End If
+            End For
+
+            If best != Null Then Break
+        End For
+
+        Local chosen = best
+        If chosen == Null
+            If allowed.Count == 0 Then Return HttpResponse.Of(StatusCode.NOT_FOUND)
+            If allowed.Contains("GET") && !allowed.Contains("HEAD") Then allowed.Add("HEAD")
+            Local response = HttpResponse.Of(StatusCode.METHOD_NOT_ALLOWED)
+            response.Headers.Set("Allow", allowed.Join(", "))
+            Return response
+        End If
+
+        For i = 0 Until chosen.Segments.Count
+            Local segment = chosen.Segments[i]
+            Local kind = KindOf(segment)
+            If kind == 1 Then request.Bind(segment.Slice(1, segment.Length), path[i])
+            If kind == 2
+                Local rest = i < path.Count ? path[i..].Join("/") : ""
+                request.Bind(segment.Slice(1, segment.Length), rest)
+            End If
+        End For
+
+        Return Await chosen.Wrapped()(request)
+    End Method
+End Class
+
+// Whether a connection stays open after a response: HTTP/1.1's do unless the request or the
+// response says Connection: close, and HTTP/1.0's only when the request says keep-alive.
+Function KeepsOpen(request: HttpRequest, response: HttpResponse): Bool
+    If HasToken(response.Headers, "Connection", "close") Then Return False
+    If HasToken(request.Headers, "Connection", "close") Then Return False
+    If request.Version != "HTTP/1.0" Then Return True
+    Return HasToken(request.Headers, "Connection", "keep-alive")
+End Function
+
+Function HasToken(headers: Headers, name: String, token: String): Bool
+    For value In headers.GetAll(name)
+        For item In value.Split(",")
+            If TrimSpace(item).EqualsIgnoreCase(token) Then Return True
+        End For
+    End For
+    Return False
+End Function
+
+// A response's bytes: its status line, its headers with Content-Length, Date, and Connection
+// as the server sets them, and its body, unless it's a HEAD's, or a status that has none.
+Function ResponseBytes(request: HttpRequest, response: HttpResponse, open: Bool): UInt8[]
+    Local status = response.Status
+    Local names: String[] = []
+    Local values: String[] = []
+    For name, value In response.Headers
+        If name.EqualsIgnoreCase("Content-Length") || name.EqualsIgnoreCase("Transfer-Encoding") ||
+           name.EqualsIgnoreCase("Date") || name.EqualsIgnoreCase("Connection")
+            Continue
+        End If
+
+        names.Add(name)
+        values.Add(value)
+    End For
+
+    Local bodiless = status < 200 || status == 204 || status == 304
+    If !bodiless
+        names.Add("Content-Length")
+        values.Add("{response.Bytes.Count}")
+    End If
+
+    names.Add("Date")
+    values.Add(Timestamp.Now().Format("EEE, dd MMM yyyy HH:mm:ss 'GMT'"))
+    If !open
+        names.Add("Connection")
+        values.Add("close")
+    ElseIf request.Version == "HTTP/1.0"
+        names.Add("Connection")
+        values.Add("keep-alive")
+    End If
+
+    Local bytes = HeadBytes("HTTP/1.1 {status} {StatusCode.Reason(status)}", names, values)
+    If !bodiless && request.Verb != "HEAD" Then bytes.AddAll(response.Bytes)
+    Return bytes
+End Function
+
+// The answer to a request HTTP/1.1's rules refuse.
+Function ErrorBytes(status: Int): UInt8[]
+    Return HeadBytes("HTTP/1.1 {status} {StatusCode.Reason(status)}",
+                     ["Content-Length", "Connection"], ["0", "close"])
+End Function

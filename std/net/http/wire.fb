@@ -16,8 +16,12 @@ Package Const MAX_LINE: Int = 8192
 Package Const MAX_HEAD: Int = 65536
 Package Const MAX_FIELDS: Int = 100
 
-// A connection's bytes both ways, which it closes: a TcpStream, or a TLS stream over one.
+// A connection's bytes both ways, which it ends and closes: a TcpStream, or a TLS stream over one.
 Package Interface Duplex Extends Reader, Writer
+    // How long a read waits, or Null for as long as it takes.
+    Property ReadTimeout: Duration?
+    Method ShutdownWrite() Throws IOError
+    Async Method ShutdownWriteAsync() Throws IOError
     Method Close()
 End Interface
 
@@ -351,7 +355,7 @@ Const LINGER_BYTES = 1048576
 // reads past what the client still sends, for a second at most, as RFC 9112's section 9.6 has a
 // server linger, since closing a connection with bytes it hasn't read resets it on some OSes,
 // and the client then loses the answer.
-Package Function Linger(stream: TcpStream)
+Package Function Linger(stream: Duplex)
     Try
         stream.ShutdownWrite()
         stream.ReadTimeout = LINGER_SECONDS.Seconds
@@ -368,7 +372,7 @@ Package Function Linger(stream: TcpStream)
     stream.Close()
 End Function
 
-Package Async Function LingerAsync(stream: TcpStream)
+Package Async Function LingerAsync(stream: Duplex)
     Try
         Await stream.ShutdownWriteAsync()
         stream.ReadTimeout = LINGER_SECONDS.Seconds
@@ -383,16 +387,6 @@ Package Async Function LingerAsync(stream: TcpStream)
     End Try
 
     stream.Close()
-End Function
-
-// The reason a status that HTTP/1.1's rules answer with has.
-Package Function ReasonOf(status: Int): String
-    If status == 413 Then Return "Content Too Large"
-    If status == 414 Then Return "URI Too Long"
-    If status == 431 Then Return "Request Header Fields Too Large"
-    If status == 501 Then Return "Not Implemented"
-    If status == 505 Then Return "HTTP Version Not Supported"
-    Return "Bad Request"
 End Function
 
 // Reads a connection a buffer at a time: a head's lines, and bodies' and frames' bytes after.

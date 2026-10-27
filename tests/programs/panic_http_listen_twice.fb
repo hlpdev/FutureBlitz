@@ -1,0 +1,12 @@
+// A server listens at one address, so a second Listen panics where it's called.
+Import std.core
+Import std.net
+Import std.net.http
+
+Local server = HttpServer()
+Try
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+Catch e As NetError
+    Print("failed: {e.Message}")
+End Try

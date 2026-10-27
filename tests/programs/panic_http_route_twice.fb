@@ -1,0 +1,13 @@
+// Two routes of one method whose paths match the same paths, but for their parameters' names,
+// panic where the second is added.
+Import std.core
+Import std.net
+Import std.net.http
+
+Function Ok(request: HttpRequest): Task<HttpResponse> => Done()
+Async Function Done(): HttpResponse => HttpResponse.Of(204)
+
+Local server = HttpServer()
+server.Get("/users/:id", Function(request: HttpRequest) => Ok(request))
+server.Post("/users/:id", Function(request: HttpRequest) => Ok(request))
+server.Get("/users/:name", Function(request: HttpRequest) => Ok(request))

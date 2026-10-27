@@ -1,0 +1,5 @@
+protocol: other
+echo: hi
+400 OTHER
+echo: after the stop
+True 1000

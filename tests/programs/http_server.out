@@ -1,0 +1,58 @@
+True
+200 hello, ada
+server GET /hello/ada, server 200
+200 hello, café
+200 me
+200 user 7
+200 file "a/b/c.txt"
+200 file ""
+200 hello, dots
+404 0
+405 GET, HEAD
+server GET /nowhere, server 404, server POST /hello/ada, server 405
+200 POST 7 bytes of application/json: {"a":1}
+200 PUT put body
+200 PATCH patch body
+200 DELETE
+200 0 10
+200 q=two words n=3
+200 name=Ada Lovelace city=London & more
+200 X-Name was Grace 42
+200 hello, again
+302 /hello/again
+204 no Content-Length
+200 item 5
+server GET /api/items/5, api GET /api/items/5, api 200, server 200
+200 v2 item 6
+server GET /api/v2/items/6, api GET /api/v2/items/6, v2 GET /api/v2/items/6, v2 200, api 200, server 200
+401 no key
+server GET /api/secret, api GET /api/secret, api 401, server 401
+200 the secret
+server GET /api/secret, api GET /api/secret, api 200, server 200
+HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 6 |  | user 1HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 6 |  | user 2
+HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 6 | Connection: close |  | user 3
+HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 7 | Connection: close |  | closing
+HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 6 | Connection: close |  | user 6
+HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 6 | Connection: keep-alive |  | user 8HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 6 | Connection: close |  | user 9
+HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 6 |  | 
+HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 8 |  | PROPFIND
+HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 8 |  | user abs
+HTTP/1.1 204 No Content |  | 
+HTTP/1.1 100 Continue |  | HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 27 |  | POST 5 bytes of none: hello
+HTTP/1.1 200 OK | Content-Type: text/plain; charset=utf-8 | Content-Length: 29 |  | POST 7 bytes of none: abcdefg
+HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close |  | 
+HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close |  | 
+HTTP/1.1 417 Expectation Failed | Content-Length: 0 | Connection: close |  | 
+HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close |  | 
+HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close |  | 
+HTTP/1.1 501 Not Implemented | Content-Length: 0 | Connection: close |  | 
+HTTP/1.1 413 Content Too Large | Content-Length: 0 | Connection: close |  | 
+HTTP/1.1 413 Content Too Large | Content-Length: 0 | Connection: close |  | 
+HTTP/1.1 505 HTTP Version Not Supported | Content-Length: 0 | Connection: close |  | 
+HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close |  | 
+HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close |  | 
+HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close |  | 
+idle: 0
+True
+False
+stopped: REFUSED

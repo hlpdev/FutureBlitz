@@ -10,6 +10,8 @@ Import std.io.streams
 Import std.time.duration
 Import std.net.tcp
 Import std.net.url
+Import std.net.http.server
+Import std.net.http.status
 Import std.net.http.wire
 Import std.net.ws.handshake
 Import std.text
@@ -200,6 +202,35 @@ Public Class WebSocket
             stream.Close()
             Throw LostWith(e, peer)
         End Try
+    End Method
+
+    // Opens a WebSocket over the connection of a request that an HttpServer's handler was given,
+    // answering its handshake as AcceptAsync of a TcpStream does, and takes the connection from
+    // the server, which then sends nothing of the handler's response, and doesn't close it as it
+    // stops. A request that isn't a WebSocket's throws a NetError of OTHER, and the server sends
+    // the handler's response to it. Panics when a subprotocol isn't a token, or the request's
+    // connection is a WebSocket's already.
+    @PanicsAtCaller
+    Public Static Async Method AcceptAsync(request: HttpRequest,
+                                           protocols: String[] = []): WebSocket Throws NetError
+        CheckProtocols(protocols)
+        Local connection = request.Connection
+        If connection.Upgraded Then Panic("the request's connection is a WebSocket's already")
+        Local peer = connection.Peer
+        Local answer = AnswerOf(request.Started, protocols)
+        Local problem = answer.Problem
+        If problem != Null Then Throw NetError(NetErrorKind.OTHER, "{peer} {problem}", peer)
+        connection.Upgraded = True
+        Local stream = connection.Stream
+        stream.ReadTimeout = Null
+        Try
+            Try Await stream.WriteAsync(Buffer<UInt8>.From(answer.Bytes()))
+        Catch e As IOError
+            stream.Close()
+            Throw LostWith(e, peer)
+        End Try
+
+        Return WebSocket(stream, connection.Input, False, peer, answer.Protocol)
     End Method
 
     // Where it is: OPEN, CLOSING, or CLOSED.
@@ -672,8 +703,8 @@ End Function
 
 // The answer to a request HTTP/1.1 refuses.
 Function RefusalBytes(e: WireError): UInt8[]
-    Return HeadBytes("HTTP/1.1 {e.Status} {ReasonOf(e.Status)}", ["Content-Length", "Connection"],
-                     ["0", "close"])
+    Return HeadBytes("HTTP/1.1 {e.Status} {StatusCode.Reason(e.Status)}",
+                     ["Content-Length", "Connection"], ["0", "close"])
 End Function
 
 Function Refused(e: WireError, peer: String): NetError

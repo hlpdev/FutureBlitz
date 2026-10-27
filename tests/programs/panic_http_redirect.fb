@@ -1,0 +1,7 @@
+// A redirect's URL is a header's value, so one with a line break panics where it's given.
+Import std.core
+Import std.net
+Import std.net.http
+
+Print(HttpResponse.Redirect("/fine").Status)
+HttpResponse.Redirect("/a\nb")

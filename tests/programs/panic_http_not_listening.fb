@@ -1,0 +1,8 @@
+// A server that hasn't listened has no address, so LocalAddress panics where it's read.
+Import std.core
+Import std.net
+Import std.net.http
+
+Local server = HttpServer()
+Print(server.IsRunning)
+Print(server.LocalAddress)

@@ -1,0 +1,10 @@
+// A group's prefix starts its routes' paths, so a *name at its end panics where it's given.
+Import std.core
+Import std.net
+Import std.net.http
+
+Function Ok(request: HttpRequest): Task<HttpResponse> => Done()
+Async Function Done(): HttpResponse => HttpResponse.Of(204)
+
+Local server = HttpServer()
+server.Group("/files/*path")

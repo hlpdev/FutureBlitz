@@ -1,0 +1,28 @@
+// A handler's request's connection is a WebSocket's once AcceptAsync takes it, so a second
+// AcceptAsync of the request panics where it's called.
+Import std.core
+Import std.net
+Import std.net.http
+Import std.net.ws
+
+Async Function Twice(request: HttpRequest): HttpResponse
+    Try
+        Try Await WebSocket.AcceptAsync(request)
+        Try Await WebSocket.AcceptAsync(request)
+    Catch e As NetError
+        Print("failed: {e.Message}")
+    End Try
+
+    Return HttpResponse.Of(StatusCode.OK)
+End Function
+
+Local server = HttpServer()
+server.Get("/ws", Function(request: HttpRequest) => Twice(request))
+Try
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local serving = server.Serve()
+    Local ws = Await WebSocket.ConnectAsync("ws://127.0.0.1:{server.LocalAddress.Port}/ws")
+    Await ws.ReceiveAsync()
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

@@ -1,0 +1,250 @@
+// std.net.http's HttpServer: a program's HttpClient talks to its own server, whose routes bind
+// path parameters, whose groups and middleware run in their order, and whose responses come back
+// as the client asked; and requests written by hand show HTTP/1.1's rules: connections kept open
+// for the requests after, pipelined ones answered in order, a 100 Continue, chunked bodies, and
+// each request the rules refuse answered with its status. Nothing leaves the machine.
+
+Import std.core
+Import std.collections
+Import std.ffi
+Import std.io
+Import std.net
+Import std.net.http
+Import std.text
+Import std.time
+
+// What the middleware saw, in order.
+Global seen: String[] = []
+
+Function Text(text: String): HttpResponse => HttpResponse.Of(Body.Text(text))
+
+// A path parameter of the request's route, or "?", after what it is when that's given.
+Function Named(request: HttpRequest, name: String, what: String = ""): String
+    Local value = request.Param(name) ?? "?"
+    Return what == "" ? value : "{what} {value}"
+End Function
+
+Local server = HttpServer()
+server.MaxBodySize = 1000
+server.Use(Function(request: HttpRequest, next: HttpHandler) => Logged("server", request, next))
+server.Get("/hello/:name", Async Function(request: HttpRequest): HttpResponse
+    Return Text("hello, {request.Param("name") ?? "?"}")
+End Function)
+server.Get("/users/me", Async Function(request: HttpRequest) => Text("me"))
+server.Get("/users/:id", Async Function(request: HttpRequest) => Text(Named(request, "id", "user")))
+server.Get("/files/*path", Async Function(request: HttpRequest): HttpResponse
+    Return Text("file \"{Named(request, "path")}\"")
+End Function)
+server.Post("/echo", Async Function(request: HttpRequest): HttpResponse
+    Local kind = request.Headers.Get("Content-Type") ?? "none"
+    Return Text("{request.Verb} {request.Bytes.Count} bytes of {kind}: {request.Text}")
+End Function)
+server.Put("/echo", Async Function(request: HttpRequest) => Text("PUT {request.Text}"))
+server.Patch("/echo", Async Function(request: HttpRequest) => Text("PATCH {request.Text}"))
+server.Delete("/echo", Async Function(request: HttpRequest) => Text("DELETE"))
+server.Route("PROPFIND", "/echo", Async Function(request: HttpRequest) => Text("PROPFIND"))
+server.Get("/search", Async Function(request: HttpRequest): HttpResponse
+    Return Text("q={request.Query.Get("q") ?? "?"} n={request.Query.Get("n") ?? "?"}")
+End Function)
+server.Post("/form", Async Function(request: HttpRequest): HttpResponse
+    Local form = request.Form()
+    Return Text("name={form.Get("name") ?? "?"} city={form.Get("city") ?? "?"}")
+End Function)
+server.Get("/moved", Async Function(request: HttpRequest) => HttpResponse.Redirect("/hello/again"))
+server.Get("/header", Async Function(request: HttpRequest): HttpResponse
+    Local response = Text("X-Name was {request.Headers.Get("X-Name") ?? "none"}")
+    response.Headers.Set("X-Answer", "42")
+    Return response
+End Function)
+server.Get("/empty", Async Function(request: HttpRequest) => HttpResponse.Of(StatusCode.NO_CONTENT))
+server.Post("/close", Async Function(request: HttpRequest): HttpResponse
+    Local response = Text("closing")
+    response.Headers.Set("Connection", "close")
+    Return response
+End Function)
+
+// A group's routes start with its prefix, and its middleware runs inside the server's, around its
+// routes only; a group in a group runs inside both, and middleware can answer without its next.
+Local api = server.Group("/api")
+api.Use(Function(request: HttpRequest, next: HttpHandler) => Logged("api", request, next))
+api.Get("/items/:id", Async Function(request: HttpRequest) => Text("item {Named(request, "id")}"))
+Local v2 = api.Group("/v2")
+v2.Get("/items/:id", Async Function(request: HttpRequest) => Text("v2 item {Named(request, "id")}"))
+v2.Use(Function(request: HttpRequest, next: HttpHandler) => Logged("v2", request, next))
+api.Get("/secret", Async Function(request: HttpRequest) => Text("the secret"))
+api.Use(Function(request: HttpRequest, next: HttpHandler) => Guarded(request, next))
+
+Async Function Logged(name: String, request: HttpRequest, next: HttpHandler): HttpResponse
+    seen.Add("{name} {request.Verb} {request.Path}")
+    Local response = Await next(request)
+    seen.Add("{name} {response.Status}")
+    Return response
+End Function
+
+// Lets a request to /api/secret through only with its key.
+Async Function Guarded(request: HttpRequest, next: HttpHandler): HttpResponse
+    If request.Path == "/api/secret" && request.Headers.Get("X-Key") != "open"
+        Return HttpResponse.Of(StatusCode.UNAUTHORIZED, Body.Text("no key"))
+    End If
+
+    Return Await next(request)
+End Function
+
+// The middleware's lines since the last call.
+Function Seen(): String
+    Local text = seen.Join(", ")
+    seen.Clear()
+    Return text
+End Function
+
+Function Shown(response: HttpResponse): String
+    Return "{response.Status} {response.Text}"
+End Function
+
+// A connection written by hand: the request's bytes, the end of what it writes, and what comes
+// back until the server closes it, without the Date it sets, which changes.
+Async Function Raw(port: UInt16, request: String): String Throws Error
+    Local stream = Try Await TcpStream.ConnectAsync(SocketAddress(IpAddress.Loopback, port))
+    Try Await stream.WriteAsync(Buffer<UInt8>.From(request.Bytes))
+    Try Await stream.ShutdownWriteAsync()
+    Local answer = Try Await ReadAllTextAsync(stream)
+    Local lines: String[] = []
+    For line In answer.Split("\r\n")
+        If !line.StartsWith("Date: ") Then lines.Add(line)
+    End For
+    Return lines.Join(" | ")
+End Function
+
+Async Function ReadAllTextAsync(stream: TcpStream): String Throws IOError
+    Return String.FromUtf8(Try Await ReadAllAsync(stream)) ?? "?"
+End Function
+
+Try
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Print(server.IsRunning)
+    Local serving = server.Serve()
+    Local port = server.LocalAddress.Port
+    Local base = "http://127.0.0.1:{port}"
+    Local client = HttpClient()
+
+    // Routes and their parameters, percent-decoded; text beats a parameter, and a *name takes the
+    // rest of the path, or none of it.
+    Print(Shown(Await client.GetAsync("{base}/hello/ada")))
+    Print(Seen())
+    Print(Shown(Await client.GetAsync("{base}/hello/caf%C3%A9")))
+    Print(Shown(Await client.GetAsync("{base}/users/me")))
+    Print(Shown(Await client.GetAsync("{base}/users/7")))
+    Print(Shown(Await client.GetAsync("{base}/files/a/b/c.txt")))
+    Print(Shown(Await client.GetAsync("{base}/files/")))
+    Print(Shown(Await client.GetAsync("{base}/a/../hello/dots")))
+    Seen()
+
+    // None fits: a 404, or a 405 that says which methods a path has.
+    Local missing = Await client.GetAsync("{base}/nowhere")
+    Print(missing.Status, missing.Bytes.Count)
+    Local wrong = Await client.PostAsync("{base}/hello/ada", Body.Text("x"))
+    Print(wrong.Status, wrong.Headers.Get("Allow") ?? "no Allow")
+    Print(Seen())
+
+    // Methods, bodies, the query, a form, headers both ways, a redirect, and a 204.
+    Print(Shown(Await client.PostAsync("{base}/echo", Body.Json("{{\"a\":1}}"))))
+    Print(Shown(Await client.PutAsync("{base}/echo", Body.Text("put body"))))
+    Print(Shown(Await client.PatchAsync("{base}/echo", Body.Text("patch body"))))
+    Print(Shown(Await client.DeleteAsync("{base}/echo")))
+    Local head = Await client.HeadAsync("{base}/hello/ada")
+    Print(head.Status, head.Bytes.Count, head.Headers.Get("Content-Length") ?? "none")
+    Print(Shown(Await client.GetAsync("{base}/search?q=two+words&n=3")))
+    Local form = Map<String, String>()
+    form["name"] = "Ada Lovelace"
+    form["city"] = "London & more"
+    Print(Shown(Await client.PostAsync("{base}/form", Body.Form(form))))
+    Local headers = Headers()
+    headers.Add("X-Name", "Grace")
+    Local answered = Await client.SendAsync(HttpMethod.GET, "{base}/header", Null, headers)
+    Print(Shown(answered), answered.Headers.Get("X-Answer") ?? "none")
+    Print(Shown(Await client.GetAsync("{base}/moved")))
+    Local plain = HttpClient()
+    plain.FollowRedirects = False
+    Local moved = Await plain.GetAsync("{base}/moved")
+    Print(moved.Status, moved.Headers.Get("Location") ?? "none")
+    Local empty = Await client.GetAsync("{base}/empty")
+    Print(empty.Status, empty.Headers.Get("Content-Length") ?? "no Content-Length")
+    Seen()
+
+    // Groups and middleware: the server's runs outermost, then each group's, around their own
+    // routes, the middleware a group gets after its routes too; the guard answers without them.
+    Print(Shown(Await client.GetAsync("{base}/api/items/5")))
+    Print(Seen())
+    Print(Shown(Await client.GetAsync("{base}/api/v2/items/6")))
+    Print(Seen())
+    Print(Shown(Await client.GetAsync("{base}/api/secret")))
+    Print(Seen())
+    Local keyed = Headers()
+    keyed.Add("X-Key", "open")
+    Print(Shown(Await client.SendAsync(HttpMethod.GET, "{base}/api/secret", Null, keyed)))
+    Print(Seen())
+
+    // A connection stays open for the requests after, and pipelined requests are answered in
+    // order; a request or response with Connection: close ends it, and so does HTTP/1.0's without
+    // keep-alive.
+    Local host = "Host: localhost\r\n"
+    Print(Await Raw(port, "GET /users/1 HTTP/1.1\r\n{host}\r\nGET /users/2 HTTP/1.1\r\n{host}\r\n"))
+    Print(Await Raw(port, "GET /users/3 HTTP/1.1\r\n{host}Connection: close\r\n\r\n" +
+                          "GET /users/4 HTTP/1.1\r\n{host}\r\n"))
+    Print(Await Raw(port, "POST /close HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n" +
+                          "GET /users/5 HTTP/1.1\r\n{host}\r\n"))
+    Print(Await Raw(port, "GET /users/6 HTTP/1.0\r\n\r\nGET /users/7 HTTP/1.0\r\n\r\n"))
+    Print(Await Raw(port, "GET /users/8 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n" +
+                          "GET /users/9 HTTP/1.0\r\n\r\n"))
+
+    // A HEAD's response has the GET's Content-Length but not its body, a custom method has its
+    // route, a target can be a whole URL, and OPTIONS * is the server's own.
+    Print(Await Raw(port, "HEAD /users/1 HTTP/1.1\r\n{host}\r\n"))
+    Print(Await Raw(port, "PROPFIND /echo HTTP/1.1\r\n{host}\r\n"))
+    Print(Await Raw(port, "GET http://localhost/users/abs HTTP/1.1\r\n{host}\r\n"))
+    Print(Await Raw(port, "OPTIONS * HTTP/1.1\r\n{host}\r\n"))
+
+    // A 100 Continue before a body that asks for one, and a chunked body, its trailer read past.
+    Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Expect: 100-continue\r\n" +
+                          "Content-Length: 5\r\n\r\nhello"))
+    Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Transfer-Encoding: chunked\r\n\r\n" +
+                          "3\r\nabc\r\n4;ext=1\r\ndefg\r\n0\r\nX-Trailer: t\r\n\r\n"))
+
+    // What the rules refuse: its status, and the connection closed.
+    Print(Await Raw(port, "GET /users/1 HTTP/1.1\r\n\r\n"))
+    Print(Await Raw(port, "GET /users/1 HTTP/1.1\r\n{host}{host}\r\n"))
+    Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Expect: tea\r\nContent-Length: 1\r\n\r\nx"))
+    Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Content-Length: 3\r\n" +
+                          "Transfer-Encoding: chunked\r\n\r\n0\r\n\r\n"))
+    Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Content-Length: 3\r\nContent-Length: 4" +
+                          "\r\n\r\nabcd"))
+    Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Transfer-Encoding: gzip, chunked\r\n\r\n"))
+    Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Content-Length: 1001\r\n\r\n" +
+                          "x".Repeated(1001)))
+    Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Transfer-Encoding: chunked\r\n\r\n" +
+                          "3e9\r\n" + "x".Repeated(1001) + "\r\n0\r\n\r\n"))
+    Print(Await Raw(port, "GET /users/1 HTTP/2.0\r\n{host}\r\n"))
+    Print(Await Raw(port, "GET users/1 HTTP/1.1\r\n{host}\r\n"))
+    Print(Await Raw(port, "BAD REQUEST\r\n\r\n"))
+    Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Content-Length: 10\r\n\r\nshort"))
+
+    // A connection that sends nothing is closed once the IdleTimeout has gone by.
+    server.IdleTimeout = 50.Milliseconds
+    Local quiet = Await TcpStream.ConnectAsync(SocketAddress(IpAddress.Loopback, port))
+    Print("idle:", (Await ReadAllAsync(quiet)).Count)
+    server.IdleTimeout = 60.Seconds
+    Print(Seen().Count("server GET") > 0)
+
+    // Stop: Serve gives, and nothing listens after.
+    server.Stop()
+    Await serving
+    Print(server.IsRunning)
+    Try
+        Await TcpStream.ConnectAsync(SocketAddress(IpAddress.Loopback, port))
+        Print("still listening")
+    Catch e As NetError
+        Print("stopped:", e.Kind)
+    End Try
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

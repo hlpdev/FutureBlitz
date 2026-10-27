@@ -1,0 +1,10 @@
+// A route's path starts with '/', so one that doesn't panics where it's added.
+Import std.core
+Import std.net
+Import std.net.http
+
+Function Ok(request: HttpRequest): Task<HttpResponse> => Done()
+Async Function Done(): HttpResponse => HttpResponse.Of(204)
+
+Local server = HttpServer()
+server.Get("hello", Function(request: HttpRequest) => Ok(request))

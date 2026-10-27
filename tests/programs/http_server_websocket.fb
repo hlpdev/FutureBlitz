@@ -1,0 +1,51 @@
+// A WebSocket from an HttpServer's handler: the handler's AcceptAsync answers the handshake and
+// takes the connection from the server, which then sends nothing of the handler's response and
+// doesn't close it as it stops; a request that isn't a WebSocket's throws, and the handler's
+// response answers it.
+
+Import std.core
+Import std.net
+Import std.net.http
+Import std.net.ws
+Import std.text
+
+Async Function Chat(request: HttpRequest): HttpResponse
+    Try
+        Local ws = Try Await WebSocket.AcceptAsync(request, ["chat", "other"])
+        Loop
+            Local message = Try Await ws.ReceiveAsync()
+            If message == Null Then Break
+            Try Await ws.SendAsync("echo: {message}")
+        End Loop
+    Catch e As NetError
+        Return HttpResponse.Of(StatusCode.BAD_REQUEST, Body.Text(e.Kind.ToString()))
+    End Try
+
+    Return HttpResponse.Of(StatusCode.OK, Body.Text("never sent"))
+End Function
+
+Local server = HttpServer()
+server.Get("/chat", Function(request: HttpRequest) => Chat(request))
+Try
+    server.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local serving = server.Serve()
+    Local url = "ws://127.0.0.1:{server.LocalAddress.Port}/chat"
+    Local ws = Await WebSocket.ConnectAsync(url, ["other", "chat"])
+    Print("protocol:", ws.Protocol)
+    Await ws.SendAsync("hi")
+    Print((Await ws.ReceiveAsync())?.Text ?? "Null")
+
+    // A request that isn't a WebSocket's gets the handler's response.
+    Local plain = Await HttpClient().GetAsync("http://127.0.0.1:{server.LocalAddress.Port}/chat")
+    Print(plain.Status, plain.Text)
+
+    // The server stops, and the WebSocket it handed over goes on.
+    server.Stop()
+    Await serving
+    Await ws.SendAsync("after the stop")
+    Print((Await ws.ReceiveAsync())?.Text ?? "Null")
+    Await ws.CloseAsync()
+    Print(Await ws.ReceiveAsync() == Null, ws.CloseCode ?? 0)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
