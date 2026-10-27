@@ -2,6 +2,7 @@
 // with tags in "{{ }}", each filled in when it's rendered: {{name}} gives a value, the blocks
 // {{#each name}}, {{#if name}}, and {{#unless name}} go over or test one, with an {{else}} for
 // when there's nothing, {{> name}} renders another template there, and {{! }} is a comment. A
+// value can take a format spec, as {{price:.2}} does, as interpolation's "{price:.2}" would. A
 // block's tag alone on its line takes the line with it. A template for HTML escapes its values.
 
 Import std.core
@@ -130,6 +131,8 @@ Class Part
     Field Path: String[] = []
     // A VALUE that's never escaped, as {{{name}}} and {{& name}} are.
     Field Raw: Bool
+    // A VALUE's format spec, what's after the ':' in {{price:.2}}, or "" for none.
+    Field Spec = ""
     // A block's parts, and those after its {{else}}.
     Field Body: Part[] = []
     Field Otherwise: Part[] = []
@@ -224,10 +227,7 @@ Function Tag(open: Part[], triple: Bool, content: UInt8[], indent: String, name:
     Local block = open[open.Count - 1]
     Local text = Text(content)
     If triple
-        Local value = Part(PartKind.VALUE)
-        value.Path = Try PathOf(content, 0, name, bytes, at)
-        value.Raw = True
-        Into(block).Add(value)
+        Into(block).Add(Try ValuePart(content, True, name, bytes, at))
         Return
     End If
 
@@ -246,10 +246,7 @@ Function Tag(open: Part[], triple: Bool, content: UInt8[], indent: String, name:
 
     // {{& name}}, never escaped.
     If first == 38
-        Local value = Part(PartKind.VALUE)
-        value.Path = Try PathOf(Trimmed(content, 1, content.Count), 0, name, bytes, at)
-        value.Raw = True
-        Into(block).Add(value)
+        Into(block).Add(Try ValuePart(Trimmed(content, 1, content.Count), True, name, bytes, at))
         Return
     End If
 
@@ -309,9 +306,36 @@ Function Tag(open: Part[], triple: Bool, content: UInt8[], indent: String, name:
         Return
     End If
 
+    Into(block).Add(Try ValuePart(content, False, name, bytes, at))
+End Function
+
+// A VALUE of a tag's name, and of the format spec after its ':', as "price:.2" is, which has to
+// be one that a number, a String, or a Bool takes.
+Function ValuePart(written: UInt8[], raw: Bool, name: String, bytes: UInt8[],
+                   at: Int): Part Throws FormatError
     Local value = Part(PartKind.VALUE)
-    value.Path = Try PathOf(content, 0, name, bytes, at)
-    Into(block).Add(value)
+    value.Raw = raw
+    Local colon = 0
+    While colon < written.Count && written[colon] != Colon
+        colon += 1
+    End While
+
+    value.Path = Try PathOf(Trimmed(written, 0, colon), 0, name, bytes, at)
+    If colon == written.Count Then Return value
+    Local spec = written[colon + 1..written.Count]
+    value.Spec = Text(spec)
+    For c In spec
+        If c == OpenBrace || c == CloseBrace
+            Throw Bad(name, bytes, at, "a format spec can't hold a brace, as \"{value.Spec}\" does")
+        End If
+    End For
+
+    If (0 As Int64).Format(value.Spec) == Null && (0.0).Format(value.Spec) == Null &&
+       "".Format(value.Spec) == Null && False.Format(value.Spec) == Null
+        Throw Bad(name, bytes, at, "\"{value.Spec}\" isn't a format spec, like \".2\" or \">8\"")
+    End If
+
+    Return value
 End Function
 
 // A name's steps, from `from` in `name`'s bytes: "user.name" is ["user", "name"], "this" or "."
@@ -335,7 +359,7 @@ Function PathOf(written: UInt8[], from: Int, name: String, bytes: UInt8[],
 
             If c == Colon
                 Throw Bad(name, bytes, at,
-                          r"a value's format, like {{price:.2}}, isn't supported yet")
+                          r"a value takes a format, like {{price:.2}}, but a block's name doesn't")
             End If
 
             Continue
@@ -526,7 +550,8 @@ Function Rendered(parts: Part[], data: Value, html: Bool,
             Case PartKind.TEXT
                 out.Add(part.Text)
             Case PartKind.VALUE
-                Local text = TextOf(Lookup(scopes, part.Path))
+                Local found = Lookup(scopes, part.Path)
+                Local text = part.Spec == "" ? TextOf(found) : Try SpecText(found, part)
                 out.Add(frame.Html && !part.Raw ? Escaped(text) : text)
             Case PartKind.IF, PartKind.UNLESS
                 Local holds = Holds(Lookup(scopes, part.Path)) != (part.Kind == PartKind.UNLESS)
@@ -668,6 +693,39 @@ Function TextOf(value: Value): String
     Default
         Return value.ToString()
     End Select
+End Function
+
+// A value's text by a VALUE's format spec, as "{x:spec}" gives it: a number's, an integer's by a
+// Double's spec where an integer's doesn't take it, as {{count:.1}} gives 3.0 for 3; a String's
+// or Bool's; an Array's or Object's ToString as a String's; and nothing for Null. Throws a
+// FormatError of BAD_VALUE for a value the spec doesn't fit.
+Function SpecText(value: Value, part: Part): String Throws FormatError
+    Local text: String? = Null
+    Select value.Kind
+    Case ValueKind.NULL
+        Return ""
+    Case ValueKind.BOOL
+        text = (value.AsBool() ?? False).Format(part.Spec)
+    Case ValueKind.INT
+        Local number = value.AsInt64() ?? 0
+        text = number.Format(part.Spec) ?? (number As Double).Format(part.Spec)
+    Case ValueKind.UINT
+        Local number = value.AsUInt64() ?? 0
+        text = number.Format(part.Spec) ?? (number As Double).Format(part.Spec)
+    Case ValueKind.DOUBLE
+        text = (value.AsDouble() ?? 0.0).Format(part.Spec)
+    Default
+        text = TextOf(value).Format(part.Spec)
+    End Select
+
+    If text == Null
+        Local name = part.Path.Count == 0 ? "this" : part.Path.Join(".")
+        Throw FormatError(FormatErrorKind.BAD_VALUE,
+                          "{name}'s value, {TextOf(value)}, doesn't take the format spec " +
+                          "\"{part.Spec}\"")
+    End If
+
+    Return text
 End Function
 
 // Whether a value makes an {{#if}} true: anything but Null, False, 0, NaN, "", and an empty Array,

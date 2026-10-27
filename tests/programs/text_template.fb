@@ -46,6 +46,15 @@ kinds["inner"] = nested
 Print(Try Template(r"{{int}} {{big}} {{real}} {{yes}} [{{none}}] [{{gone}}] {{list}} " +
                    r"{{inner.deep}} [{{inner.gone.x}}] {{inner}}").Render(kinds))
 
+// A format spec after a ':', as interpolation's: an integer takes a Double's too, an Array or
+// Object its ToString's, nothing stays nothing, and HTML escapes what the spec gives.
+kinds["price"] = Value(3.14159)
+kinds["count"] = Value(3)
+kinds["name"] = Value("<b>")
+Print(Try Template(r"{{price:.2}} {{count:.1}} {{count:03}} {{big:,}} {{int:+}} [{{name:>6}}] " +
+                   r"[{{yes:^7}}] [{{list:.4}}] [{{none:.2}}] [{{gone:>4}}] {{{price:08.3}}} " +
+                   r"{{& name:<5}}|", html: True).Render(kinds))
+
 // What makes an {{#if}} true: anything but Null, False, 0, NaN, "", and an empty Array or Object.
 Local tests = Value.Object()
 tests["zero"] = Value(0)
@@ -164,7 +173,11 @@ Print(Failure(r"{{#for x}}{{/for}}", nothing))
 Print(Failure(r"{{#each}}{{/each}}", nothing))
 Print(Failure(r"{{first name}}", nothing))
 Print(Failure(r"{{a..b}}", nothing))
-Print(Failure(r"{{price:.2}}", nothing))
+Print(Failure(r"{{price:zz}}", nothing))
+Print(Failure(r"a {{x:}<3}}", nothing))
+Print(Failure(r"{{#if x:.2}}{{/if}}", nothing))
+Print(Failure(r"{{:.2}}", nothing))
+Print(Failure(r"{{name:x}}", kinds))
 Print(Failure(r"{{@size}}", nothing))
 Print(Failure(r"{{x.@index}}", nothing))
 Print(Failure(r"{{}}", nothing))

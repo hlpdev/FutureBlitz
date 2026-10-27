@@ -4,6 +4,7 @@
 nothing here
 Fruit & <veg> Fruit & <veg> {{x}}
 -42 18446744073709551615 0.1 True [] [] [1, "a"] down [] {"deep": "down"}
+3.14 3.0 003 18,446,744,073,709,551,615 -42 [   &lt;b&gt;] [ True  ] [[1, ] [] [] 0003.142 <b>  |
 FTFTFTFFFTF U
 |=|applepear|-|
 [ann=3 in chess, bo=5 in chess] ab
@@ -44,7 +45,11 @@ BAD_TEMPLATE: line 1, column 1: {{#for}} isn't a block; they're {{#each}}, {{#if
 BAD_TEMPLATE: line 1, column 1: a tag needs a name, like "title" or "this"
 BAD_TEMPLATE: line 1, column 1: "first name" isn't a name, which has no spaces or braces
 BAD_TEMPLATE: line 1, column 1: "a..b" has a step with no name
-BAD_TEMPLATE: line 1, column 1: a value's format, like {{price:.2}}, isn't supported yet
+BAD_TEMPLATE: line 1, column 1: "zz" isn't a format spec, like ".2" or ">8"
+BAD_TEMPLATE: line 1, column 3: a format spec can't hold a brace, as "}<3" does
+BAD_TEMPLATE: line 1, column 1: a value takes a format, like {{price:.2}}, but a block's name doesn't
+BAD_TEMPLATE: line 1, column 1: a tag needs a name, like "title" or "this"
+BAD_VALUE: name's value, <b>, doesn't take the format spec "x"
 BAD_TEMPLATE: line 1, column 1: "@size" isn't a name; an {{#each}}'s are @index, @key, @first, and @last, alone
 BAD_TEMPLATE: line 1, column 1: "x.@index" isn't a name; an {{#each}}'s are @index, @key, @first, and @last, alone
 BAD_TEMPLATE: line 1, column 1: this {{}} has no name in it
