@@ -381,6 +381,12 @@ Public Struct Json
         WriteValue(writer, value)
         Return writer.ToString()
     End Method
+
+    // x as JSON: Save's Value of it, written as Write writes a Value.
+    @PanicsAtCaller
+    Public Static Method Write<T>(x: T, indent: Int = 0): String
+        Return Write(Save(x), indent)
+    End Method
 End Struct
 
 // Reads a document's tokens into its Value, holding the arrays and objects open as it goes, so

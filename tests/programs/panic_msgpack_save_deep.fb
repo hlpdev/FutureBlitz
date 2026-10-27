@@ -1,0 +1,11 @@
+// MessagePack.Write(x) of a Class that holds itself panics where it's called, as Save does.
+Import std.core
+Import std.data
+
+Class Node
+    Field Next: Node?
+End Class
+
+Local node = Node()
+node.Next = node
+Local bytes = MessagePack.Write(node)

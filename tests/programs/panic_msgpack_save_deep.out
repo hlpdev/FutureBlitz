@@ -1,0 +1,1 @@
+panic: Save goes 256 levels deep into Fields and elements, and no further; a Class that holds itself, inside it, can't be saved at panic_msgpack_save_deep.fb:11:15

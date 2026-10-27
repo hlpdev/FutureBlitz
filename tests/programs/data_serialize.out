@@ -1,0 +1,83 @@
+{"Player":"Ada \"the\" Brave ✓","Level":-9223372036854775808,"Seed":18446744073709551615,"Speed":0.1,"Hardcore":true,"Position":{"X":-3,"Y":4},"Home":{"X":0,"Y":0},"Status":"POISONED | HIDDEN","Items":[{"Name":"Blade","Kind":"SWORD","Weight":2.5,"Charges":null},{"Name":"Tonic","Kind":"POTION","Weight":0.1,"Charges":3}],"Grid":[[1,-128],[],[127]],"Stash":{"chest":{"Name":"Wall","Kind":"SHIELD","Weight":1e+300,"Charges":0}},"Notes":["first",null,""],"Best":{"run":12.75,"jump":-0.0},"Last":"SHIELD"}
+True True
+Ada "the" Brave ✓ -9223372036854775808 18446744073709551615 0.1 POISONED | HIDDEN SHIELD {"X":0,"Y":0}
+POTION 3 -1 [[1, -128], [], [127]] ["first",null,""]
+1e300 {run: 12.75, jump: -0}
+{
+  "Player": "Ada \"the\" Brave ✓",
+  "Level": -9223372036854775808,
+  "Seed": 18446744073709551615,
+  "Speed": 0.1,
+  "Hardcore": true,
+  "Position": {
+    "X": -3,
+    "Y": 4
+  },
+  "Home": {
+    "X": 0,
+    "Y": 0
+  },
+  "Status": "POISONED | HIDDEN",
+  "Items": [
+    {
+      "Name": "Blade",
+      "Kind": "SWORD",
+      "Weight": 2.5,
+      "Charges": null
+    },
+    {
+      "Name": "Tonic",
+      "Kind": "POTION",
+      "Weight": 0.1,
+      "Charges": 3
+    }
+  ],
+  "Grid": [
+    [
+      1,
+      -128
+    ],
+    [],
+    [
+      127
+    ]
+  ],
+  "Stash": {
+    "chest": {
+      "Name": "Wall",
+      "Kind": "SHIELD",
+      "Weight": 1e+300,
+      "Charges": 0
+    }
+  },
+  "Notes": [
+    "first",
+    null,
+    ""
+  ],
+  "Best": {
+    "run": 12.75,
+    "jump": -0.0
+  },
+  "Last": "SHIELD"
+}
+True
+373
+True True
+True
+{"Player":"","Level":0,"Seed":0,"Speed":0.0,"Hardcore":false,"Position":{"X":0,"Y":0},"Home":null,"Status":"0","Items":[],"Grid":[],"Stash":{},"Notes":[],"Best":null,"Last":null}
+True
+True
+7 [{"X":1,"Y":2}] {"a":["SWORD"]} "HASTED"
+[7] [162, 104, 105] [146, 195, 194]
+[1,"two"] [192]
+Grace 150 1 [] veteran
+Grace 150 1 [] veteran
+{"Name":"Lin","Points":7,"Level":3,"Friends":["Grace"]}
+Lin 7 3 [Grace] rookie
+WRONG_TYPE [Player] Player: expected String, found 5
+WRONG_TYPE [Items[0].Kind] Items[0].Kind: expected Kind, one of SWORD, SHIELD, or POTION, found "AXE"
+OUT_OF_RANGE [Grid[0][1]] Grid[0][1]: expected Int8, from -128 to 127, found 200
+MISSING [Stash] Stash: missing, and Game's Field Stash has no default or zero
+WRONG_TYPE [Stash["a.b"].Weight] Stash["a.b"].Weight: expected Float64, found "heavy"
+UNEXPECTED_END [Null] the text isn't JSON: the JSON ends too soon

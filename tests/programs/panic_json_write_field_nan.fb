@@ -1,0 +1,11 @@
+// Json.Write(x) panics for a Field that's NaN, which JSON doesn't have, where it's called.
+Import std.core
+Import std.data
+Import std.math
+
+Struct Shot
+    Field Speed: Double
+End Struct
+
+Print(Json.Write(Shot(2.5)))
+Local text = Json.Write(Shot(NaN As Double))
