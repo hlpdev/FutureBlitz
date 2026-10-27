@@ -1,6 +1,7 @@
 // The ACME tests' CA, driven by a client of its own here: an ES256 key through PSA, JWSes, an
-// order proved by HTTP-01, and a CSR, whose certificate chains to the CA's root; and the
-// requests it refuses, with RFC 8555's errors.
+// order proved by HTTP-01, and a CSR, whose certificate chains to the CA's root; an order of as
+// many names as Let's Encrypt takes; the requests it refuses, with RFC 8555's errors; and how its
+// check reads an HTTP-01 answer.
 
 #include "acme_ca.hpp"
 
@@ -19,11 +20,13 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
 
 constexpr std::string_view base = "http://127.0.0.1:4001";
+constexpr std::string_view jose = "application/jose+json";
 
 std::string base64url(const std::span<const std::uint8_t> bytes) {
     static constexpr std::string_view digits =
@@ -137,11 +140,20 @@ public:
 
     /// The CA's answer to a POST of `payload` to `path`, which keeps the nonce it gives.
     fb::test::acme_response_t post(const std::string_view path, const std::string_view payload) {
-        fb::test::acme_response_t response =
-            m_ca.handle({ .method = "POST",
-                          .path = std::string(path),
-                          .body = jws(path, payload, m_nonce, "") });
+        fb::test::acme_response_t response = m_ca.handle({ .method = "POST",
+                                                           .path = std::string(path),
+                                                           .body = jws(path, payload, m_nonce, ""),
+                                                           .content_type = std::string(jose) });
         m_nonce = header(response, "Replay-Nonce");
+        return response;
+    }
+
+    /// What post gives, signed with its key's JWK even once it has an account.
+    fb::test::acme_response_t post_by_key(const std::string_view path,
+                                          const std::string_view payload) {
+        const std::string account = std::exchange(m_account, {});
+        fb::test::acme_response_t response = post(path, payload);
+        m_account = account;
         return response;
     }
 
@@ -183,7 +195,7 @@ public:
         mbedtls_x509write_csr_set_md_alg(&writer, MBEDTLS_MD_SHA256);
         REQUIRE(mbedtls_x509write_csr_set_subject_name(&writer, "CN=test") == 0);
         REQUIRE(mbedtls_x509write_csr_set_subject_alternative_name(&writer, sans.data()) == 0);
-        std::vector<std::uint8_t> der(2048);
+        std::vector<std::uint8_t> der(16384);
         const int written = mbedtls_x509write_csr_der(&writer, der.data(), der.size());
         mbedtls_x509write_csr_free(&writer);
         mbedtls_pk_free(&pk);
@@ -224,7 +236,7 @@ std::map<std::string, std::string>& responses() {
 }
 
 std::optional<std::string> fetch(const std::string& name, const std::string& token) {
-    if (name != "localhost" && name != "www.localhost") {
+    if (name != "localhost" && !name.ends_with(".localhost")) {
         return std::nullopt;
     }
 
@@ -262,8 +274,14 @@ TEST_CASE("an account orders a certificate, proves its names by HTTP-01, and get
         REQUIRE(authorization.status == 200);
         CHECK(header(authorization, "Retry-After").empty());
         const std::string token = member(authorization.body, "token");
-        responses()[token] = client.key_authorization(token);
+        // Whitespace after it is the responder's to send (RFC 8555 8.3).
+        responses()[token] = client.key_authorization(token) + (path == "/authz/2" ? " \r\n" : "");
         const std::string url = member(authorization.body, "url");
+        // A POST-as-GET only asks about the challenge, and a POST of {} has it checked.
+        CHECK(member(client.post(url.substr(base.size()), "").body, "status") == "pending");
+        const fb::test::acme_response_t asked = client.post(path, "");
+        CHECK(member(asked.body, "status") == "pending");
+        CHECK(header(asked, "Retry-After").empty());
         const fb::test::acme_response_t challenge = client.post(url.substr(base.size()), "{}");
         CHECK(challenge.status == 200);
         CHECK(member(challenge.body, "status") == "processing");
@@ -298,6 +316,10 @@ TEST_CASE("an account orders a certificate, proves its names by HTTP-01, and get
     const std::string& root_pem = fb::test::acme_ca_t::root_pem();
     REQUIRE(mbedtls_x509_crt_parse(&root, reinterpret_cast<const unsigned char*>(root_pem.c_str()),
                                    root_pem.size() + 1) == 0);
+    // Its serial is 0x10, then the order's number in 8 bytes.
+    const std::vector<std::uint8_t> serial(certificates.serial.p,
+                                           certificates.serial.p + certificates.serial.len);
+    CHECK(serial == std::vector<std::uint8_t>{ 0x10, 0, 0, 0, 0, 0, 0, 0, 1 });
     std::uint32_t flags = 0;
     CHECK(mbedtls_x509_crt_verify(&certificates, &root, nullptr, "www.localhost", &flags, nullptr,
                                   nullptr) == 0);
@@ -308,12 +330,86 @@ TEST_CASE("an account orders a certificate, proves its names by HTTP-01, and get
     mbedtls_x509_crt_free(&root);
     mbedtls_x509_crt_free(&certificates);
 
-    // The same key finds its account again.
+    // The same key finds its account again, signing with its JWK, as newAccount's JWS does.
+    const fb::test::acme_response_t found =
+        client.post_by_key("/account", R"({"onlyReturnExisting":true})");
+    CHECK(found.status == 200);
+    CHECK(header(found, "Location") == client.account());
+
+    // Another key has none.
     client_t again(ca);
     const fb::test::acme_response_t existing =
         again.post("/account", R"({"onlyReturnExisting":true})");
     CHECK(existing.status == 400);
     CHECK(member(existing.body, "type") == "urn:ietf:params:acme:error:accountDoesNotExist");
+}
+
+TEST_CASE("an order of 100 names is issued, and one of more is refused", "[acme]") {
+    REQUIRE(psa_crypto_init() == PSA_SUCCESS);
+    fb::test::acme_ca_t ca{ std::string(base), fetch };
+    client_t client(ca);
+    client.join();
+    // 100 names of 59 bytes, whose certificate is more than 4096 bytes.
+    std::vector<std::string> names;
+    std::string identifiers;
+    for (int i = 0; i < 101; ++i) {
+        names.push_back(std::format("name-{:03}-{}.localhost", i, std::string(40, 'n')));
+        identifiers += std::format(R"({}{{"type":"dns","value":"{}"}})",
+                                   identifiers.empty() ? "" : ",", names.back());
+    }
+
+    CHECK(names.front().size() == 59);
+    const fb::test::acme_response_t refused =
+        client.post("/order", std::format(R"({{"identifiers":[{}]}})", identifiers));
+    CHECK(member(refused.body, "type") == "urn:ietf:params:acme:error:rejectedIdentifier");
+    names.pop_back();
+    identifiers = identifiers.substr(0, identifiers.rfind(",{"));
+    REQUIRE(client.post("/order", std::format(R"({{"identifiers":[{}]}})", identifiers)).status ==
+            201);
+    for (std::size_t i = 1; i <= names.size(); ++i) {
+        const std::string path = std::format("/authz/{}", i);
+        const std::string token = member(client.post(path, "").body, "token");
+        responses()[token] = client.key_authorization(token);
+        (void)client.post(std::format("/challenge/{}", i), "{}");
+        (void)client.post(path, "");
+        REQUIRE(member(client.post(path, "").body, "status") == "valid");
+    }
+
+    const fb::test::acme_response_t finalized =
+        client.post("/order/1/finalize", std::format(R"({{"csr":"{}"}})", client_t::csr(names)));
+    CHECK(finalized.status == 200);
+    CHECK(member(finalized.body, "status") == "valid");
+    const fb::test::acme_response_t chain = client.post("/certificate/1", "");
+    REQUIRE(chain.status == 200);
+    mbedtls_x509_crt certificate;
+    mbedtls_x509_crt_init(&certificate);
+    REQUIRE(mbedtls_x509_crt_parse(&certificate,
+                                   reinterpret_cast<const unsigned char*>(chain.body.c_str()),
+                                   chain.body.size() + 1) == 0);
+    CHECK(certificate.raw.len > 4096);
+    std::uint32_t flags = 0;
+    for (const std::string& name : { names.front(), names.back() }) {
+        CHECK(mbedtls_x509_crt_verify(&certificate, certificate.next, nullptr, name.c_str(), &flags,
+                                      nullptr, nullptr) == 0);
+    }
+
+    mbedtls_x509_crt_free(&certificate);
+}
+
+TEST_CASE("the CA's check reads an HTTP-01 answer as an HTTP client does", "[acme]") {
+    using fb::test::body_of_ok;
+    CHECK(body_of_ok("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nabcdefg") == "abcde");
+    CHECK(body_of_ok("HTTP/1.1 200 OK\r\ncontent-length: 7\r\n\r\nabc") == std::nullopt);
+    CHECK(body_of_ok("HTTP/1.0 200 OK\r\nServer: old\r\n\r\nto the end") == "to the end");
+    CHECK(body_of_ok("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+                     "3\r\nabc\r\nA;name=value\r\n0123456789\r\n0\r\n\r\n") == "abc0123456789");
+    CHECK(body_of_ok("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabc") ==
+          std::nullopt);
+    CHECK(body_of_ok("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n") ==
+          std::nullopt);
+    CHECK(body_of_ok("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n") == std::nullopt);
+    CHECK(body_of_ok("HTTP/2 200\r\n\r\nbody") == std::nullopt);
+    CHECK(body_of_ok("HTTP/1.1 200 OK\r\n") == std::nullopt);
 }
 
 TEST_CASE("the CA refuses what RFC 8555 has it refuse", "[acme]") {
@@ -331,33 +427,52 @@ TEST_CASE("the CA refuses what RFC 8555 has it refuse", "[acme]") {
     const fb::test::acme_response_t unknown =
         ca.handle({ .method = "POST",
                     .path = "/account",
-                    .body = client.jws("/account", "{}", "made-up", "") });
+                    .body = client.jws("/account", "{}", "made-up", ""),
+                    .content_type = std::string(jose) });
     CHECK(unknown.status == 400);
     CHECK(type(unknown) == "badNonce");
     const std::string terms = R"({"termsOfServiceAgreed":true})";
     CHECK(ca.handle({ .method = "POST",
                       .path = "/account",
-                      .body = client.jws("/account", terms, nonce, "") })
+                      .body = client.jws("/account", terms, nonce, ""),
+                      .content_type = std::string(jose) })
               .status == 201);
     CHECK(type(ca.handle({ .method = "POST",
                            .path = "/account",
-                           .body = client.jws("/account", terms, nonce, "") })) == "badNonce");
+                           .body = client.jws("/account", terms, nonce, ""),
+                           .content_type = std::string(jose) })) == "badNonce");
     const std::string fresh =
         header(ca.handle({ .method = "HEAD", .path = "/nonce" }), "Replay-Nonce");
-    CHECK(type(ca.handle({ .method = "POST",
-                           .path = "/account",
-                           .body = client.jws("/account", terms, fresh,
-                                              std::format("{}/elsewhere", base)) })) ==
-          "unauthorized");
+    CHECK(type(ca.handle(
+              { .method = "POST",
+                .path = "/account",
+                .body = client.jws("/account", terms, fresh, std::format("{}/elsewhere", base)),
+                .content_type = std::string(jose) })) == "unauthorized");
     const std::string another =
         header(ca.handle({ .method = "HEAD", .path = "/nonce" }), "Replay-Nonce");
     CHECK(type(ca.handle({ .method = "POST",
                            .path = "/account",
-                           .body = client.jws("/account", terms, another, "", true) })) ==
-          "unauthorized");
+                           .body = client.jws("/account", terms, another, "", true),
+                           .content_type = std::string(jose) })) == "unauthorized");
     client_t stranger(ca);
     CHECK(type(stranger.post("/account", "{}")) == "userActionRequired");
-    CHECK(ca.handle({ .method = "POST", .path = "/account", .body = "not json" }).status == 400);
+    CHECK(ca.handle({ .method = "POST",
+                      .path = "/account",
+                      .body = "not json",
+                      .content_type = std::string(jose) })
+              .status == 400);
+
+    // A POST whose Content-Type isn't JOSE's, as RFC 8555 6.2 has it.
+    const std::string plain =
+        header(ca.handle({ .method = "HEAD", .path = "/nonce" }), "Replay-Nonce");
+    const fb::test::acme_response_t typed =
+        ca.handle({ .method = "POST",
+                    .path = "/account",
+                    .body = client.jws("/account", terms, plain, ""),
+                    .content_type = "text/plain" });
+    CHECK(typed.status == 415);
+    CHECK(type(typed) == "malformed");
+    CHECK(!header(typed, "Replay-Nonce").empty());
 
     // A nonce it refuses, though it gave it, once, after which the nonce that came with the
     // refusal works.

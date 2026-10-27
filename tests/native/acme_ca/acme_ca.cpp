@@ -377,6 +377,11 @@ std::string random_text(const std::size_t count) {
     return base64url(bytes);
 }
 
+/// The most names an order has, as Let's Encrypt has, and the most bytes a certificate's DER
+/// takes.
+constexpr std::size_t most_names = 100;
+constexpr std::size_t most_certificate = 65536;
+
 // The CA's records.
 
 struct account_t {
@@ -555,6 +560,89 @@ std::optional<std::size_t> index_after(const std::string_view path, const std::s
 
 } // namespace
 
+std::optional<std::string> body_of_ok(const std::string_view response) {
+    const std::size_t end = response.find("\r\n\r\n");
+    // "HTTP/1.0 200" or "HTTP/1.1 200", and a reason.
+    if (end == std::string_view::npos || !response.starts_with("HTTP/1.") || response.size() < 12 ||
+        response.substr(8, 4) != " 200") {
+        return std::nullopt;
+    }
+
+    std::optional<std::size_t> length;
+    bool chunked = false;
+    for (std::size_t at = response.find("\r\n") + 2; at < end;) {
+        const std::size_t next = response.find("\r\n", at);
+        const std::string_view line = response.substr(at, next - at);
+        at = next + 2;
+        const std::size_t colon = line.find(':');
+        if (colon == std::string_view::npos) {
+            continue;
+        }
+
+        std::string name(line.substr(0, colon));
+        std::ranges::transform(name, name.begin(), [](const char c) {
+            return static_cast<char>(c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c);
+        });
+        std::string_view value = line.substr(colon + 1);
+        while (value.starts_with(' ')) {
+            value.remove_prefix(1);
+        }
+
+        if (name == "content-length") {
+            std::size_t count = 0;
+            const auto [stop, error] =
+                std::from_chars(value.data(), value.data() + value.size(), count);
+            if (error != std::errc{} || stop != value.data() + value.size()) {
+                return std::nullopt;
+            }
+
+            length = count;
+        } else if (name == "transfer-encoding") {
+            chunked = value.contains("chunked");
+        }
+    }
+
+    std::string_view rest = response.substr(end + 4);
+    if (chunked) {
+        // Each chunk's size in hex, maybe with extensions after a ';', its bytes, and CRLF, to
+        // one of 0.
+        std::string body;
+        while (true) {
+            const std::size_t line_end = rest.find("\r\n");
+            if (line_end == std::string_view::npos) {
+                return std::nullopt;
+            }
+
+            const std::string_view size_text = rest.substr(0, std::min(line_end, rest.find(';')));
+            std::size_t size = 0;
+            const auto [stop, error] =
+                std::from_chars(size_text.data(), size_text.data() + size_text.size(), size, 16);
+            if (error != std::errc{} || stop == size_text.data()) {
+                return std::nullopt;
+            }
+
+            rest.remove_prefix(line_end + 2);
+            if (size == 0) {
+                return body;
+            }
+
+            if (rest.size() < size + 2 || rest.substr(size, 2) != "\r\n") {
+                return std::nullopt;
+            }
+
+            body += rest.substr(0, size);
+            rest.remove_prefix(size + 2);
+        }
+    }
+
+    if (length) {
+        return rest.size() >= *length ? std::optional(std::string(rest.substr(0, *length)))
+                                      : std::nullopt;
+    }
+
+    return std::string(rest);
+}
+
 acme_ca_t::acme_ca_t(std::string base, acme_fetch_t fetch)
     : m_base(std::move(base)), m_fetch(std::move(fetch)), m_state(std::make_unique<state_t>()) {
     (void)psa_crypto_init();
@@ -650,6 +738,11 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
 
     if (request.method != "POST") {
         return problem(405, "malformed", "the CA takes a POST here");
+    }
+
+    if (request.content_type != "application/jose+json") {
+        return with_nonce(
+            problem(415, "malformed", "a POST's Content-Type is application/jose+json"));
     }
 
     // A flattened JWS: its protected header, which names the request's URL, a nonce of the CA's,
@@ -791,6 +884,11 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
             return with_nonce(problem(400, "malformed", "an order has identifiers"));
         }
 
+        if (identifiers->items.size() > most_names) {
+            return with_nonce(problem(400, "rejectedIdentifier",
+                                      std::format("an order has {} names at most", most_names)));
+        }
+
         order_t order{ .account = account };
         for (const json_t& identifier : identifiers->items) {
             if (identifier.string("type") != "dns" || !identifier.string("value")) {
@@ -826,8 +924,13 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
         if (authorization.challenge_status == "processing" && ++authorization.looks > 1) {
             const std::string expected =
                 std::format("{}.{}", authorization.token, state.accounts[account].thumbprint);
-            const std::optional<std::string> fetched =
-                m_fetch(authorization.name, authorization.token);
+            // RFC 8555 8.3: whitespace after the key authorization is the server's to send.
+            std::optional<std::string> fetched = m_fetch(authorization.name, authorization.token);
+            while (fetched && !fetched->empty() &&
+                   std::string_view(" \t\r\n").contains(fetched->back())) {
+                fetched->pop_back();
+            }
+
             const bool good = fetched && *fetched == expected;
             authorization.status = good ? "valid" : "invalid";
             authorization.challenge_status = authorization.status;
@@ -862,8 +965,10 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
             return with_nonce(problem(403, "unauthorized", "the challenge isn't the account's"));
         }
 
-        // The CA checks it later, as Pebble does: see the authorization's.
-        if (authorization.challenge_status == "pending") {
+        // A POST of {} has the CA check it, later, as Pebble does: see the authorization's. A
+        // POST-as-GET only asks about it.
+        if (authorization.challenge_status == "pending" && !request_signed.payload.empty() &&
+            payload->kind == json_t::kind_t::OBJECT) {
             authorization.challenge_status = "processing";
         }
 
@@ -938,7 +1043,12 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
         mbedtls_x509write_cert writer;
         mbedtls_x509write_crt_init(&writer);
         mbedtls_x509write_crt_set_version(&writer, MBEDTLS_X509_CRT_VERSION_3);
-        const std::array<std::uint8_t, 2> serial{ 0x10, static_cast<std::uint8_t>(*index + 1) };
+        // 0x10, then the order's number in 8 bytes, big-endian, so no two are the same.
+        std::array<std::uint8_t, 9> serial{ 0x10 };
+        for (std::size_t i = 0; i < 8; ++i) {
+            serial[8 - i] = static_cast<std::uint8_t>((*index + 1) >> (8 * i));
+        }
+
         (void)mbedtls_x509write_crt_set_serial_raw(&writer, serial.data(), serial.size());
         (void)mbedtls_x509write_crt_set_validity(&writer, "20200101000000", "21200101000000");
         (void)mbedtls_x509write_crt_set_issuer_name(&writer, std::string(root_name).c_str());
@@ -950,8 +1060,14 @@ acme_response_t acme_ca_t::handle(const acme_request_t& request) {
         (void)mbedtls_x509write_crt_set_basic_constraints(&writer, 0, -1);
         (void)mbedtls_x509write_crt_set_key_usage(&writer, MBEDTLS_X509_KU_DIGITAL_SIGNATURE);
         (void)mbedtls_x509write_crt_set_subject_alternative_name(&writer, sans.data());
+        // A buffer twice as big again for a certificate of many names.
         std::vector<std::uint8_t> der(4096);
-        const int written = mbedtls_x509write_crt_der(&writer, der.data(), der.size());
+        int written = mbedtls_x509write_crt_der(&writer, der.data(), der.size());
+        while (written == MBEDTLS_ERR_ASN1_BUF_TOO_SMALL && der.size() < most_certificate) {
+            der.resize(der.size() * 2);
+            written = mbedtls_x509write_crt_der(&writer, der.data(), der.size());
+        }
+
         mbedtls_x509write_crt_free(&writer);
         mbedtls_x509_csr_free(&csr);
         if (written <= 0) {

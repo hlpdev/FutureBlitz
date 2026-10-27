@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -17,11 +18,13 @@
 // makes.
 namespace fb::test {
 
-/// A request to the CA: its method, its path from the CA's base URL, and its body.
+/// A request to the CA: its method, its path from the CA's base URL, its body, and its
+/// Content-Type, which a POST's JWS has as application/jose+json.
 struct acme_request_t {
     std::string method;
     std::string path;
     std::string body;
+    std::string content_type;
 };
 
 struct acme_response_t {
@@ -35,6 +38,11 @@ struct acme_response_t {
 /// that doesn't answer.
 using acme_fetch_t =
     std::function<std::optional<std::string>(const std::string& name, const std::string& token)>;
+
+/// The body of `response`, an HTTP/1.x response of 200, as an HTTP-01 check reads it: by its
+/// Content-Length, in chunks for Transfer-Encoding: chunked, or else to the end; or nothing for
+/// another status or a response cut short.
+[[nodiscard]] std::optional<std::string> body_of_ok(std::string_view response);
 
 class acme_ca_t {
 public:

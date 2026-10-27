@@ -474,8 +474,8 @@ std::mutex acme_lock;
 std::uint16_t challenge_port = 0;
 
 /// The body of what 127.0.0.1's challenge port answers for a challenge's well-known path, as the
-/// CA's check of `name` reads it, with `name` as its Host, or nothing for no answer of 200 within
-/// 5 seconds.
+/// CA's check of `name` reads it, with `name` as its Host, as body_of_ok reads an HTTP/1.x
+/// response, or nothing for no answer of 200 within 5 seconds.
 std::optional<std::string> fetch_challenge(const std::string& name, const std::string& token) {
     const socket_t socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (socket == no_socket) {
@@ -506,12 +506,7 @@ std::optional<std::string> fetch_challenge(const std::string& name, const std::s
     }
 
     close_socket(socket);
-    const std::size_t body = response.find("\r\n\r\n");
-    if (!response.starts_with("HTTP/1.1 200") || body == std::string::npos) {
-        return std::nullopt;
-    }
-
-    return response.substr(body + 4);
+    return fb::test::body_of_ok(response);
 }
 
 /// The CA's answer to a request of `path` under /acme/, or its root at /acme/root; a GET of
@@ -531,8 +526,10 @@ response_t acme_answer(const request_t& request, const std::string& path) {
             return text("refusing\n");
         }
 
-        answered =
-            acme_ca->handle({ .method = request.method, .path = path, .body = request.body });
+        answered = acme_ca->handle({ .method = request.method,
+                                     .path = path,
+                                     .body = request.body,
+                                     .content_type = request.header("content-type").value_or("") });
     }
 
     static const std::map<int, std::string> reasons{
@@ -544,6 +541,7 @@ response_t acme_answer(const request_t& request, const std::string& path) {
         { 403, "Forbidden" },
         { 404, "Not Found" },
         { 405, "Method Not Allowed" },
+        { 415, "Unsupported Media Type" },
         { 500, "Internal Server Error" },
     };
     const auto reason = reasons.find(answered.status);
