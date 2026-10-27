@@ -208,13 +208,16 @@ def programs() -> list[str]:
 
 
 def check_debug(built: programs_t) -> None:
-    step("changed test programs built in debug mode")
-    names = [name for name in programs() if not name.startswith("release_")]
+    step("changed test programs built as the program tests build them")
+    names = programs()
 
+    # A release_ program is built in release mode, as the program tests build it, and the rest
+    # in debug.
     def work(name: str, problems: list[str]) -> None:
-        program = built.build(name, False, problems)
+        release = name.startswith("release_")
+        program = built.build(name, release, problems)
         if program is not None:
-            built.check(program, name, "debug", problems)
+            built.check(program, name, "release" if release else "debug", problems)
 
     each_program(names, work)
     print(f"{len(names)} programs")

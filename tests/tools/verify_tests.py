@@ -80,6 +80,36 @@ class limit_tests_t(unittest.TestCase):
             self.assertIn("was still running after 3 seconds", problems[0])
 
 
+class quick_tests_t(unittest.TestCase):
+    def setUp(self) -> None:
+        self.folder = tempfile.TemporaryDirectory()
+        self.saved = verify.PROGRAMS, verify.only
+        verify.PROGRAMS = Path(self.folder.name)
+        for name in ["embed", "plain", "release_wrap"]:
+            (verify.PROGRAMS / f"{name}.fb").write_text("Import std.core\n")
+        (verify.PROGRAMS / "embed").mkdir()
+        (verify.PROGRAMS / "embed" / "hello.txt").write_text("hello\n")
+
+    def tearDown(self) -> None:
+        verify.PROGRAMS, verify.only = self.saved
+        self.folder.cleanup()
+
+    def test_a_changed_release_program_is_checked_in_release_mode(self) -> None:
+        # What the steps build, without building it.
+        class built_t:
+            def __init__(self) -> None:
+                self.builds: list[tuple[str, bool]] = []
+
+            def build(self, name: str, release: bool, problems: list[str]) -> None:
+                self.builds.append((name, release))
+                return None
+
+        built = built_t()
+        verify.only = {"release_wrap", "plain"}
+        verify.check_debug(built)  # type: ignore[arg-type]
+        self.assertEqual(sorted(built.builds), [("plain", False), ("release_wrap", True)])
+
+
 class shard_tests_t(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("FB_TEST_BUILD"), "needs FB_TEST_BUILD")
     def test_each_shard_of_the_programs_test_has_a_time_limit(self) -> None:
