@@ -4,7 +4,7 @@
 
 ## console-1 (high): A paste whose start mark ends a read loses its end mark: the text includes \e[201~ and swallows keys typed for the next second
 
-Status: fixed in 5087f815 (term_input, "paste's mark alone"): Parse sets PasteScan back to 0 where it clears Bytes, so a paste's start mark at the end of one read, and its text and end mark in the next, give paste "hi"; without it, the parser waited and flushed paste "hi\x1B[201~".
+Status: fixed in 8516dbd7 (term_input, "paste's mark alone"): Parse sets PasteScan back to 0 where it clears Bytes, so a paste's start mark at the end of one read, and its text and end mark in the next, give paste "hi"; without it, the parser waited and flushed paste "hi\x1B[201~".
 
 Where: std/term/input.fb:247
 
@@ -56,7 +56,7 @@ Skeptic: The given build-rev2 fb.exe is stale: it was built 22:01, before the 01
 
 ## screen-1 (high): TextInput keeps its sideways scroll after its text gets shorter, so text that fits is hidden and the input looks empty
 
-Status: fixed in 05a2dbaa (term_screen, the input whose text gets shorter): TextInput.Draw scrolls no further than its text's end needs, Min(Scroll, Max(width of the text - width + 1, 0)), so Backspace, Ctrl+W, and the Text setter bring what it scrolled past back into view ("7 [ghijk l]" down to "7 [abcdefg]", and "2 [hi]"). Ask's line in prompts.fb scrolled the same way and is fixed alike, in 9af7c5ac (term_prompts' "scrolled ask").
+Status: fixed in 1dc0c798 (term_screen, the input whose text gets shorter): TextInput.Draw scrolls no further than its text's end needs, Min(Scroll, Max(width of the text - width + 1, 0)), so Backspace, Ctrl+W, and the Text setter bring what it scrolled past back into view ("7 [ghijk l]" down to "7 [abcdefg]", and "2 [hi]"). Ask's line in prompts.fb scrolled the same way and is fixed alike, in 6e01555a (term_prompts' "scrolled ask").
 
 Where: std/term/views.fb:220
 
@@ -115,7 +115,7 @@ Skeptic: I ran rv-term/fullscreen-v/s1.fb (the finding's program) with the fb bu
 
 ## console-2 (medium): On Linux and macOS, Ctrl+\ in raw mode kills the program with SIGQUIT and leaves the terminal raw
 
-Status: fixed in 27842876 (term_tests: "raw mode reads each key as it's typed, Ctrl+\ too", and the pty's keys test types Ctrl+\ and reads 1c): raw mode, now fb::term::raw_mode(), sets VQUIT to _POSIX_VDISABLE, so Ctrl+\ is a key on Linux and macOS as on Windows; checked in WSL Ubuntu's pty.
+Status: fixed in 877cf4e5 (term_tests: "raw mode reads each key as it's typed, Ctrl+\ too", and the pty's keys test types Ctrl+\ and reads 1c): raw mode, now fb::term::raw_mode(), sets VQUIT to _POSIX_VDISABLE, so Ctrl+\ is a key on Linux and macOS as on Windows; checked in WSL Ubuntu's pty.
 
 Where: runtime/src/term.cpp:173
 
@@ -148,7 +148,7 @@ Skeptic: I built term.cpp and runtime.cpp at 2dc3d44f in WSL Ubuntu (~/rvcv), wi
 
 ## console-3 (medium): A ReadKey or PollEvent timeout near Duration.MaxValue() panics in debug and returns Null at once in release
 
-Status: fixed in 5087f815 and 27842876 (term_input's "forever", and term_tests' pipe read with Int64's most as its timeout, sent 50 ms later): NextEvent and KeyWithin work their deadline out through DeadlineOf, which gives none for a timeout past what the clock reaches, and fb_term_read through fb::term::deadline_of(), which does the same.
+Status: fixed in 8516dbd7 and 877cf4e5 (term_input's "forever", and term_tests' pipe read with Int64's most as its timeout, sent 50 ms later): NextEvent and KeyWithin work their deadline out through DeadlineOf, which gives none for a timeout past what the clock reaches, and fb_term_read through fb::term::deadline_of(), which does the same.
 
 Where: std/term/terminal.fb:282
 
@@ -177,7 +177,7 @@ Skeptic: I ran c3.fb (ReadKey(Duration.MaxValue())) and c3b.fb (console PollEven
 
 ## console-4 (medium): The console's ReadEvent and PollEvent without StartRawMode read keys as typed, without echo, on Windows, but a line at a time, echoed, on Linux and macOS
 
-Status: fixed in 5087f815 (term_input's "read in raw mode", a Terminal of the program's own that keeps each read's input mode): ReadEvent and PollEvent start raw mode while they wait, as ReadKey does, so the console reads keys as they're typed, without echo, on every OS.
+Status: fixed in 8516dbd7 (term_input's "read in raw mode", a Terminal of the program's own that keeps each read's input mode): ReadEvent and PollEvent start raw mode while they wait, as ReadKey does, so the console reads keys as they're typed, without echo, on every OS.
 
 Where: std/term/terminal.fb:147
 
@@ -210,7 +210,7 @@ Skeptic: Windows: c4t.fb calls Terminal.Console().ReadEvent() without StartRawMo
 
 ## console-5 (medium): Modified F1 to F4 in SS3 form (Konsole's \eO2P) and the Linux console's F1 to F5 (\e[[A) are read as a typed letter
 
-Status: fixed in 5087f815 (term_input's "konsole's f keys" and "linux console's f keys"): Sequence takes digits after "\eO" as xterm's modifier number, so "\eO2P" is Shift+F1, and Csi takes "\e[[" and A to E as F1 to F5, and skips "\e[[" and any other final byte whole.
+Status: fixed in 8516dbd7 (term_input's "konsole's f keys" and "linux console's f keys"): Sequence takes digits after "\eO" as xterm's modifier number, so "\eO2P" is Shift+F1, and Csi takes "\e[[" and A to E as F1 to F5, and skips "\e[[" and any other final byte whole.
 
 Where: std/term/input.fb:508
 
@@ -254,7 +254,7 @@ Skeptic: c5.fb printed "konsole shift+f1: [key P] ctrl+f2: [key Q]" and "linux f
 
 ## screen-2 (medium): Canvas.Fill takes any text: a wide character, several characters, or "" break the cell grid that Present relies on
 
-Status: fixed in 05a2dbaa (term_screen's "wide fill", and panic_term_fill): Fill panics at the caller for text that isn't one grapheme cluster one or two columns wide, "" too, and fills two cells with a wide one, with a space in a last column without room for it.
+Status: fixed in 1dc0c798 (term_screen's "wide fill", and panic_term_fill): Fill panics at the caller for text that isn't one grapheme cluster one or two columns wide, "" too, and fills two cells with a wide one, with a space in a last column without room for it.
 
 Where: std/term/screen.fb:129
 
@@ -292,7 +292,7 @@ Skeptic: I ran rv-term/fullscreen-v/s2.fb, debug and release. Both print `8 \e[1
 
 ## screen-3 (medium): At a panic or uncaught error, a Screen on stderr is put back on stdout, so the terminal stays on the alternate screen
 
-Status: fixed in 27842876 (term_tests: "what puts the screen back goes to the stream it was changed on", the probe's panic on stderr with its stdout going nowhere): fb_term_set_screen takes the stream the screen was changed on, which ConsoleTerminal gives, and what puts it back, at the end, a panic, an uncaught error, or Ctrl+Z, goes to that stream.
+Status: fixed in 877cf4e5 (term_tests: "what puts the screen back goes to the stream it was changed on", the probe's panic on stderr with its stdout going nowhere): fb_term_set_screen takes the stream the screen was changed on, which ConsoleTerminal gives, and what puts it back, at the end, a panic, an uncaught error, or Ctrl+Z, goes to that stream.
 
 Where: runtime/src/term.cpp:277
 
@@ -320,7 +320,7 @@ Skeptic: I built rv-term/fullscreen-v/s3.fb (Screen(Terminal.Console(StandardStr
 
 ## screen-4 (medium): After Ctrl+Z and fg, the re-sent enter text hides the cursor, but the Screen still counts it as shown and never shows it again
 
-Status: fixed in 05a2dbaa (term_screen's "resumed"): Track's RESIZE sets ShownRow to -1, as the enter text written again after Ctrl+Z hides the cursor, so the next Present shows it again with \e[?25h.
+Status: fixed in 1dc0c798 (term_screen's "resumed"): Track's RESIZE sets ShownRow to -1, as the enter text written again after Ctrl+Z hides the cursor, so the next Present shows it again with \e[?25h.
 
 Where: std/term/screen.fb:441
 
@@ -362,7 +362,7 @@ Skeptic: I ran rv-term/fullscreen-v/s4.fb, debug and release. after: `\e[?1049h\
 
 ## widgets-1 (medium): ProgressBar's percent is one too low for many values (29/100 shows 28%)
 
-Status: fixed in 9af7c5ac (term_widgets: 28, 29, 57, 58, and 100 of 100): ProgressBar works its percent out in Int64s, done * 100 / Total, or done / (Total / 100) past what that holds, so 29 of 100 is 29%.
+Status: fixed in 6e01555a (term_widgets: 28, 29, 57, 58, and 100 of 100): ProgressBar works its percent out in Int64s, done * 100 / Total, or done / (Total / 100) past what that holds, so 29 of 100 is 29%.
 
 Where: std/term/widgets.fb:511
 
@@ -400,7 +400,7 @@ Skeptic: build-rev2's fb.exe is stale (std/core/format.fb fails to compile), so 
 
 ## widgets-2 (medium): A styled cell or box line that wraps is split by its escape codes' bytes, and its color runs into the borders
 
-Status: fixed in 9af7c5ac (term_widgets' styled table cell and box): Table and Box wrap through style.fb's WrapStyled, which wraps as WordWrap does but by the columns text shows in, codes taking none, and ends a style that's on at a break with \e[0m and starts it again on the next line, so no border shows in it. Plain text wraps as before.
+Status: fixed in 6e01555a (term_widgets' styled table cell and box): Table and Box wrap through style.fb's WrapStyled, which wraps as WordWrap does but by the columns text shows in, codes taking none, and ends a style that's on at a break with \e[0m and starts it again on the next line, so no border shows in it. Plain text wraps as before.
 
 Where: std/term/widgets.fb:263
 
@@ -445,7 +445,7 @@ Skeptic: w2.fb gave the reported table ('│ \e[31mfail     │' / '│ ed      
 
 ## widgets-3 (medium): Ask on a line too narrow for its question never shows what's typed
 
-Status: fixed in 9af7c5ac (term_prompts' "narrow ask" and "long default"): Ask keeps a third of the line, from 2 to 20 columns, for what's typed and a column for the cursor, cutting the question, and the default's hint first, down to half of what's left for the question, so what's typed shows.
+Status: fixed in 6e01555a (term_prompts' "narrow ask" and "long default"): Ask keeps a third of the line, from 2 to 20 columns, for what's typed and a column for the cursor, cutting the question, and the default's hint first, down to half of what's left for the question, so what's typed shows.
 
 Where: std/term/prompts.fb:178
 
@@ -488,7 +488,7 @@ Skeptic: w3.fb on 30 columns: every frame while 'hello' is typed is '? What is t
 
 ## widgets-4 (medium): A Spinner's line isn't cut to the terminal's width, so it wraps and can't be redrawn in place
 
-Status: fixed in 9af7c5ac (term_widgets' spinner on 20 columns): Tick cuts its frame and message a column short of the edge, as ProgressBar does, so its line doesn't wrap and is drawn again in place.
+Status: fixed in 6e01555a (term_widgets' spinner on 20 columns): Tick cuts its frame and message a column short of the edge, as ProgressBar does, so its line doesn't wrap and is drawn again in place.
 
 Where: std/term/widgets.fb:648
 
@@ -531,7 +531,7 @@ Skeptic: w4.fb: on a 20-column FakeTerminal the spinner wrote '\r⠋ Downloading
 
 ## widgets-5 (medium): Ask's sideways scroll puts the cursor a column past the text when it cuts a wide character
 
-Status: fixed in 9af7c5ac (term_prompts' "straddled ask", "中文字符" on 10 columns): LineOf draws a space for the half of a wide character that's in view, so what's after it and the cursor are where they'd be.
+Status: fixed in 6e01555a (term_prompts' "straddled ask", "中文字符" on 10 columns): LineOf draws a space for the half of a wide character that's in view, so what's after it and the cursor are where they'd be.
 
 Where: std/term/prompts.fb:224
 
@@ -568,7 +568,7 @@ Skeptic: w5.fb (9 columns, 'a中b') gave a last frame of '? Q? b\e[K\r\e[7C': b 
 
 ## widgets-9 (medium): StripStyles takes quadratic time on long styled text
 
-Status: fixed in 9af7c5ac (term_style's "long log", 400,000 styled words stripped in under 5 seconds): StripStyles keeps what it takes in a StringBuilder. It takes 136 ms in a debug build, and the old one 1 minute 53 seconds.
+Status: fixed in 6e01555a (term_style's "long log", 400,000 styled words stripped in under 5 seconds): StripStyles keeps what it takes in a StringBuilder. It takes 136 ms in a debug build, and the old one 1 minute 53 seconds.
 
 Where: std/term/style.fb:341
 
@@ -607,7 +607,7 @@ Skeptic: w9.fb --release: 40000 words, 200000 chars, 73 ms; 80000, 335 ms; 16000
 
 ## console-10 (low): The leak report prints while a leaked Screen still has the alternate screen, so it vanishes on a terminal
 
-Status: fixed in 27842876 (leak_term_screen): fb_finish calls run_before_report() before a leak report's first line, as fb_panic and fb_error_uncaught do, so a leaked Screen's leave text comes before the report.
+Status: fixed in 877cf4e5 (leak_term_screen): fb_finish calls run_before_report() before a leak report's first line, as fb_panic and fb_error_uncaught do, so a leaked Screen's leave text comes before the report.
 
 Where: runtime/src/term.cpp:307
 
@@ -652,7 +652,7 @@ Skeptic: `c10.exe 2>&1 | cat -v` printed "^[[?1049h...^[[?1006hdrawn", then all 
 
 ## console-11 (low): Alt+[ ("\e[" alone) comes as ESCAPE and '[', unlike Alt+O and every other Alt+key
 
-Status: fixed in 5087f815 (term_input's "alt+[", and "alt cut short" now Alt+[): Csi gives Alt and [ for "\e[" with nothing after it, or before a byte that can't go on with a sequence, as Sequence does for "\eO".
+Status: fixed in 8516dbd7 (term_input's "alt+[", and "alt cut short" now Alt+[): Csi gives Alt and [ for "\e[" with nothing after it, or before a byte that can't go on with a sequence, as Sequence does for "\eO".
 
 Where: std/term/input.fb:382
 
@@ -691,7 +691,7 @@ Skeptic: c11.fb printed "alt+a: [key Alt+a] alt+O: [key Alt+O] alt+[: [key Escap
 
 ## console-12 (low): SGR mouse reports for buttons 8 to 11 (back and forward, codes 128 to 131) are read as LEFT, MIDDLE or RIGHT presses
 
-Status: fixed in 5087f815 (term_input's "other buttons", SGR's 128, 129, and 131, and X10's): a mouse report for buttons 8 to 11, its code's 128 bit set, is skipped, and MouseButton's doc says so.
+Status: fixed in 8516dbd7 (term_input's "other buttons", SGR's 128, 129, and 131, and X10's): a mouse report for buttons 8 to 11, its code's 128 bit set, is skipped, and MouseButton's doc says so.
 
 Where: std/term/input.fb:555
 
@@ -730,7 +730,7 @@ Skeptic: c12.fb printed "back: [mouse PRESS LEFT at 4, 2] forward: [mouse PRESS 
 
 ## console-13 (low): A "\n" typed after Enter in a later read (Ctrl+J, after a pause) is dropped as if it were part of "\r\n"
 
-Status: fixed in 5087f815 (term_input's "returns", Enter and Ctrl+J a second apart): after a "\r", NextEvent waits ESCAPE_WAIT at most for a "\n" that's part of it, and a read that gets nothing ends the pairing (InputParser.Paused). FakeTerminal's Pause now leaves what's left of it after a shorter read, as time going by would.
+Status: fixed in 8516dbd7 (term_input's "returns", Enter and Ctrl+J a second apart): after a "\r", NextEvent waits ESCAPE_WAIT at most for a "\n" that's part of it, and a read that gets nothing ends the pairing (InputParser.Paused). FakeTerminal's Pause now leaves what's left of it after a shorter read, as time going by would.
 
 Where: std/term/input.fb:263
 
@@ -767,7 +767,7 @@ Skeptic: c13.fb (Feed "\r", Pause(1s), Feed "\n", Feed "x") printed "key Enter /
 
 ## console-14 (low): InputParser.Feed(bytes, count) panics inside input.fb for a count past the array, and accepts a negative count silently
 
-Status: fixed in 5087f815 (panic_term_feed_count): Feed(bytes, count) is @PanicsAtCaller and panics for a count below 0 or past bytes.Count.
+Status: fixed in 8516dbd7 (panic_term_feed_count): Feed(bytes, count) is @PanicsAtCaller and panics for a count below 0 or past bytes.Count.
 
 Where: std/term/input.fb:203
 
@@ -797,7 +797,7 @@ Skeptic: c14.fb printed "negative count fed: False", then "panic: index 2 is out
 
 ## console-6 (low): A UTF-8 lead byte without its continuation bytes swallows the bytes after it, such as the Enter after Latin-1 text
 
-Status: fixed in 5087f815 (term_input's "cut short characters"): KeyAt checks the bytes after a lead byte as they come, and a character cut short by one that doesn't go on with it is U+FFFD at once, taking only its own bytes, so [0xE4, 0x61] gives U+FFFD and a, and "caf\xe9\n" its Enter.
+Status: fixed in 8516dbd7 (term_input's "cut short characters"): KeyAt checks the bytes after a lead byte as they come, and a character cut short by one that doesn't go on with it is U+FFFD at once, taking only its own bytes, so [0xE4, 0x61] gives U+FFFD and a, and "caf\xe9\n" its Enter.
 
 Where: std/term/input.fb:332
 
@@ -834,7 +834,7 @@ Skeptic: `printf 'caf\xe9\n' | c6.exe` gave c, a, f, U+FFFD and no Enter, in bot
 
 ## console-7 (low): A resize during a paste cuts the paste short, and the rest of it comes as typed keys
 
-Status: fixed in 5087f815 (term_input's "resized pasting"): a resize while a paste is coming is given at once, without flushing the paste, which goes on to its end mark: resize 100x40, then paste "abcdef".
+Status: fixed in 8516dbd7 (term_input's "resized pasting"): a resize while a paste is coming is given at once, without flushing the paste, which goes on to its end mark: resize 100x40, then paste "abcdef".
 
 Where: std/term/terminal.fb:261
 
@@ -872,7 +872,7 @@ Skeptic: c7.fb printed "paste \"abc\" / resize 100x40 / key d / key e / key f". 
 
 ## console-8 (low): On Windows, TerminalSize() ignores stdin, unlike its docs and POSIX
 
-Status: fixed in 27842876 (term_tests: "the terminal's size is the console's, wherever stdout and stderr go", the probe in a pseudoconsole with its stdout and stderr on NUL): fb_term_size and the mouse's rows read the console's window through console_window(), which opens CONOUT$ when only stdin is the console's.
+Status: fixed in 877cf4e5 (term_tests: "the terminal's size is the console's, wherever stdout and stderr go", the probe in a pseudoconsole with its stdout and stderr on NUL): fb_term_size and the mouse's rows read the console's window through console_window(), which opens CONOUT$ when only stdin is the console's.
 
 Where: runtime/src/term.cpp:719
 
@@ -900,7 +900,7 @@ Skeptic: In ConPTY at 100x30, I ran `cmd /c c8.exe > c8out.txt 2>&1`. c8out.txt 
 
 ## console-9 (low): On Windows, ConsoleColors(StandardStream.INPUT) reads stdin's echo bit as VT processing: NONE in raw mode, and it can turn echo on
 
-Status: fixed in 27842876 (the same probe's "input 1 1", fb_term_start(0) before raw mode and in it): fb_term_start gives 1 for a stdin that's a console, without testing or setting an output's flags on it.
+Status: fixed in 877cf4e5 (the same probe's "input 1 1", fb_term_start(0) before raw mode and in it): fb_term_start gives 1 for a stdin that's a console, without testing or setting an output's flags on it.
 
 Where: runtime/src/term.cpp:748
 
@@ -933,7 +933,7 @@ Skeptic: c9.fb in ConPTY (TERM=xterm-256color) printed "terminal: True before: I
 
 ## screen-5 (low): Negative sizes don't panic: Canvas(-3, 2), Resize(4, -1), and Constraint.Fixed/Min/Fill(-n) are quietly clamped
 
-Status: fixed in 05a2dbaa (panic_term_canvas_size and panic_term_constraint): Canvas's New and Resize, and Constraint's Fixed, Min, and Fill, panic at the caller for a negative size, and Percent for one below 0 or past 100. term_screen's cases of those now use sizes that are allowed.
+Status: fixed in 1dc0c798 (panic_term_canvas_size and panic_term_constraint): Canvas's New and Resize, and Constraint's Fixed, Min, and Fill, panic at the caller for a negative size, and Percent for one below 0 or past 100. term_screen's cases of those now use sizes that are allowed.
 
 Where: std/term/screen.fb:36
 
@@ -963,7 +963,7 @@ Skeptic: I ran rv-term/fullscreen-v/s5.fb, debug and release: `0 2`, `4 0`, `Fix
 
 ## screen-6 (low): Region splits add Fill weights in an Int: large weights panic inside std in debug and give negative sizes in release
 
-Status: fixed in 05a2dbaa (term_screen: Fill(2000000000) twice, and Fill of Int's most around a Min(1), on 10 columns): Sizes adds the weights in an Int64, and scales them down to 2^31 in all past that, so a share's arithmetic can't overflow: [(0, 0) 5x1, (5, 0) 5x1].
+Status: fixed in 1dc0c798 (term_screen: Fill(2000000000) twice, and Fill of Int's most around a Min(1), on 10 columns): Sizes adds the weights in an Int64, and scales them down to 2^31 in all past that, so a share's arithmetic can't overflow: [(0, 0) 5x1, (5, 0) 5x1].
 
 Where: std/term/region.fb:137
 
@@ -988,7 +988,7 @@ Skeptic: I ran rv-term/fullscreen-v/s6.fb (Region(0,0,10,1).SplitColumns(Fill(20
 
 ## screen-7 (low): Canvas.Print at a column near Int's maximum overflows inside std: a debug panic in std, a release index panic
 
-Status: fixed in 05a2dbaa (term_screen's columns near Int's most and least): PutText compares at > stop - width, which can't overflow, so a column past the edge draws nothing.
+Status: fixed in 1dc0c798 (term_screen's columns near Int's most and least): PutText compares at > stop - width, which can't overflow, so a column past the edge draws nothing.
 
 Where: std/term/screen.fb:204
 
@@ -1013,7 +1013,7 @@ Skeptic: I ran rv-term/fullscreen-v/s7.fb (Canvas(4, 2).Print(2147483647, 0, "x"
 
 ## widgets-10 (low): StripStyles leaves a DCS's or an APC's payload in (sixel, kitty graphics)
 
-Status: fixed in 9af7c5ac (term_style's sixel, kitty, PM, and SOS): CodeEnd takes a DCS, an APC, a PM, and an SOS up to their ST or BEL, as it does an OSC.
+Status: fixed in 6e01555a (term_style's sixel, kitty, PM, and SOS): CodeEnd takes a DCS, an APC, a PM, and an SOS up to their ST or BEL, as it does an OSC.
 
 Where: std/term/style.fb:389
 
@@ -1043,7 +1043,7 @@ Skeptic: w10.fb printed '[aq#0;2;0;0;0b] 13' and '[aGf=24;AAAAb] 12'. CodeEnd (s
 
 ## widgets-12 (low): stdlib.md offers Ask with a check on the console, but there's no such overload
 
-Status: fixed in 9af7c5ac (term_console's "checked ask", reading "" then 7): prompts.fb has Ask(question, validate, default) on the console.
+Status: fixed in 6e01555a (term_console's "checked ask", reading "" then 7): prompts.fb has Ask(question, validate, default) on the console.
 
 Where: docs/stdlib.md:826
 
@@ -1069,7 +1069,7 @@ Skeptic: w12.fb: 'error: no overload of 'Ask' takes (String, Func(String): Strin
 
 ## widgets-13 (low): ConsoleColors' comment says any NO_COLOR turns colors off, but an empty one doesn't
 
-Status: fixed in 9af7c5ac: ConsoleColors' comment says "NO_COLOR is set and isn't empty", and stdlib.md says so too; the runtime's own test already checks that an empty NO_COLOR is as if it weren't set.
+Status: fixed in 6e01555a: ConsoleColors' comment says "NO_COLOR is set and isn't empty", and stdlib.md says so too; the runtime's own test already checks that an empty NO_COLOR is as if it weren't set.
 
 Where: std/term/style.fb:313
 
@@ -1095,7 +1095,7 @@ Skeptic: style.fb:313 says NONE where 'NO_COLOR is set to anything'. runtime/src
 
 ## widgets-14 (low): Prompts reading a line from a pipe drop its tabs
 
-Status: fixed in 9af7c5ac (term_prompts' "piped tab"): ReadLine keeps a TAB with no modifiers as "\t".
+Status: fixed in 6e01555a (term_prompts' "piped tab"): ReadLine keeps a TAB with no modifiers as "\t".
 
 Where: std/term/prompts.fb:150
 
@@ -1123,7 +1123,7 @@ Skeptic: w14.fb: a non-interactive FakeTerminal fed 'name\tvalue\n' gave Ask '[n
 
 ## widgets-6 (low): Choose doesn't cut its filter, so the question line wraps and the redraw goes wrong
 
-Status: fixed in 9af7c5ac (term_prompts' "long filter", the widest line 15 on 16 columns): Choose shows a filter too long for the line by its end, after a "…", and cuts the question to what's left.
+Status: fixed in 6e01555a (term_prompts' "long filter", the widest line 15 on 16 columns): Choose shows a filter too long for the line by its end, after a "…", and cuts the question to what's left.
 
 Where: std/term/prompts.fb:281
 
@@ -1168,7 +1168,7 @@ Skeptic: w6.fb on 16 columns: the question line became '?  › abcdefghijklmnop'
 
 ## widgets-7 (low): A Box whose inside is one column wide breaks its borders for wide characters
 
-Status: fixed in 9af7c5ac (term_widgets' narrow boxes of 中文 and 中): Box's inside is at least as wide as its content's widest grapheme cluster, up to 2, so each of its lines is as wide as the others.
+Status: fixed in 6e01555a (term_widgets' narrow boxes of 中文 and 中): Box's inside is at least as wide as its content's widest grapheme cluster, up to 2, so each of its lines is as wide as the others.
 
 Where: std/term/widgets.fb:327
 
@@ -1215,7 +1215,7 @@ Skeptic: w7.fb: Box('中文') with Width 3 renders '╭───╮' / '│ 中 
 
 ## widgets-8 (low): ProgressBar.Render panics when the ETA is too large for an Int64
 
-Status: fixed in 9af7c5ac (term_widgets' bar of Int64's most, 1 done in 10 seconds): TimeText gives "-:--" from 10,000 hours, and for what isn't a number, so the ETA can't overflow an Int64.
+Status: fixed in 6e01555a (term_widgets' bar of Int64's most, 1 done in 10 seconds): TimeText gives "-:--" from 10,000 hours, and for what isn't a number, so the ETA can't overflow an Int64.
 
 Where: std/term/widgets.fb:690
 

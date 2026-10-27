@@ -4,7 +4,7 @@
 
 ## decode-1 (medium): GIF decoder reserves memory by a frame descriptor's size, which the limit doesn't check
 
-Status: fixed in 4044cfb (each index is drawn on the canvas as it's decoded, with no buffer sized by the frame's descriptor, and a frame that isn't interlaced stops at its first row past the screen, so a frame holds no more memory than the screen; tests/runtime/image_tests.cpp, whose operator new counts the heap held, decodes the finding's 35-byte GIF holding under 1 MB, 4294836399 bytes before)
+Status: fixed in db7c79b (each index is drawn on the canvas as it's decoded, with no buffer sized by the frame's descriptor, and a frame that isn't interlaced stops at its first row past the screen, so a frame holds no more memory than the screen; tests/runtime/image_tests.cpp, whose operator new counts the heap held, decodes the finding's 35-byte GIF holding under 1 MB, 4294836399 bytes before)
 
 Where: runtime/src/gif_decode.cpp:137
 
@@ -40,7 +40,7 @@ Skeptic: I read runtime/src/gif_decode.cpp. decode() checks only the screen's si
 
 ## encode-1 (medium): Gif.EncodeAnimation drops the delay and plays of a one-frame animation
 
-Status: fixed in f643fb2 (the GIF encoder writes an animation's NETSCAPE2.0 and Graphic Control Extensions when it has more than one frame, plays other than once, or a delay, so a one-frame Animation keeps both, and a still image is as it was; image_codecs' one-frame animation, opaque so no transparency writes the extension anyway, gives 1 0 [500] and 1 3 [500], 1 1 [0] before)
+Status: fixed in 38ba6b1 (the GIF encoder writes an animation's NETSCAPE2.0 and Graphic Control Extensions when it has more than one frame, plays other than once, or a delay, so a one-frame Animation keeps both, and a still image is as it was; image_codecs' one-frame animation, opaque so no transparency writes the extension anyway, gives 1 0 [500] and 1 3 [500], 1 1 [0] before)
 
 Where: runtime/src/gif_encode.cpp:372
 
@@ -78,7 +78,7 @@ Skeptic: I ran the finding's program in debug and release. It printed 'GIF one f
 
 ## encode-2 (medium): PNG, APNG, BMP, and HDR files std.image writes with a side over 2^24 can't be read back by std.image
 
-Status: fixed in 8b4607a (stb.c defines STBI_MAX_DIMENSIONS as 0x7fffffff; stb_image also reads no PNG of more than 2^30 bytes of pixels, nor an HDR image of more than an int's bytes of floats, so Png.Encode and Png.EncodeAnimation panic past 268435456 pixels, and an HdrImage holds 134217727 at most, as many as stb_image reads, so what std.image writes it reads back; and stb.c's fb_stbi_info_of asks the one format the data starts as, so a PNG too large is OTHER rather than INVALID_DATA's "not of any known type", and a BMP whose headers end too soon is UNEXPECTED_END; tests: image_wide, a 16777217 by 1 PNG and BMP round trip, and a PNG header of 16385 by 16384 is OTHER; panic_image_apng_pixels and panic_image_hdr_size; image_codecs' 4-byte BMP)
+Status: fixed in 86f3a1b (stb.c defines STBI_MAX_DIMENSIONS as 0x7fffffff; stb_image also reads no PNG of more than 2^30 bytes of pixels, nor an HDR image of more than an int's bytes of floats, so Png.Encode and Png.EncodeAnimation panic past 268435456 pixels, and an HdrImage holds 134217727 at most, as many as stb_image reads, so what std.image writes it reads back; and stb.c's fb_stbi_info_of asks the one format the data starts as, so a PNG too large is OTHER rather than INVALID_DATA's "not of any known type", and a BMP whose headers end too soon is UNEXPECTED_END; tests: image_wide, a 16777217 by 1 PNG and BMP round trip, and a PNG header of 16385 by 16384 is OTHER; panic_image_apng_pixels and panic_image_hdr_size; image_codecs' 4-byte BMP)
 
 Where: third_party/stb.c:20
 
@@ -130,7 +130,7 @@ Skeptic: I ran the finding's program. The output was 'PNG INVALID_DATA the PNG d
 
 ## transform-1 (medium): An image with zero area and a huge side crashes Resize (bad_alloc) and makes Crop spin for a minute
 
-Status: fixed in ccdcc5e (resizing to no pixels, cropping to none, and flipping or turning an image of none return at once, before any taps or rows; image_no_pixels resizes by three filters, crops, flips, and turns Image(0, 2147483647) and Image(2147483647, 0), a bad_alloc before)
+Status: fixed in d3a32e0 (resizing to no pixels, cropping to none, and flipping or turning an image of none return at once, before any taps or rows; image_no_pixels resizes by three filters, crops, flips, and turns Image(0, 2147483647) and Image(2147483647, 0), a bad_alloc before)
 
 Where: runtime/src/transform.cpp:174
 
@@ -159,7 +159,7 @@ Skeptic: Ran tall.fb (Image(0, 2147483647).Resize(5, 0, BILINEAR)) in debug. It 
 
 ## encode-3 (low): Docs say a GIF's median-cut palette has 255 colors, but an opaque image gets 256
 
-Status: fixed in 90ad627 (gif.fb's comment and stdlib.md say median cut picks 256 colors for an opaque image, and 255 and the transparent one when a pixel is; image_codecs pins it: GIF's palettes: 256 255)
+Status: fixed in d526060 (gif.fb's comment and stdlib.md say median cut picks 256 colors for an opaque image, and 255 and the transparent one when a pixel is; image_codecs pins it: GIF's palettes: 256 255)
 
 Where: std/image/gif.fb:6
 
@@ -196,7 +196,7 @@ Skeptic: I ran the finding's program, which printed 'opaque, 4096 colors in: 256
 
 ## transform-2 (low): Resize's taps are a separate heap vector for each output pixel, so a long thin result uses about 8x the memory NEAREST does
 
-Status: fixed in 03f8885 (a row's taps down are worked out as it's drawn, and the taps across for a run of columns at a time, at most 65536 weights, which each row uses, by the same arithmetic in the same order, so the pixels are the same; image_tests.cpp resizes a pixel to 1 by 2000000 and 2000000 by 1 by BILINEAR holding under 12 MB and 48 MB, the image and what's between the passes, 108 MB and 123 MB before)
+Status: fixed in 34bc549 (a row's taps down are worked out as it's drawn, and the taps across for a run of columns at a time, at most 65536 weights, which each row uses, by the same arithmetic in the same order, so the pixels are the same; image_tests.cpp resizes a pixel to 1 by 2000000 and 2000000 by 1 by BILINEAR holding under 12 MB and 48 MB, the image and what's between the passes, 108 MB and 123 MB before)
 
 Where: runtime/src/transform.cpp:103
 
@@ -221,7 +221,7 @@ Skeptic: Built thin.fb (Image(1,1).Resize(1, 20000000, BILINEAR)) and thin_n.fb 
 
 ## transform-3 (low): The docs say Resize's bytes are within 1 of Pillow's, but that holds only for opaque images
 
-Status: fixed in eb4c2d6 (stdlib.md says an opaque image's bytes are within 1 of Pillow's, and a translucent one's colors are more exact, as Pillow premultiplies alpha in bytes; image_transforms pins the finding's faint pixels by BILINEAR and BOX, whose BILINEAR red, 2450 / 26, is 94)
+Status: fixed in 8b1eac7 (stdlib.md says an opaque image's bytes are within 1 of Pillow's, and a translucent one's colors are more exact, as Pillow premultiplies alpha in bytes; image_transforms pins the finding's faint pixels by BILINEAR and BOX, whose BILINEAR red, 2450 / 26, is 94)
 
 Where: docs/stdlib.md:924
 

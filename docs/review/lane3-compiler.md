@@ -4,7 +4,7 @@
 
 ## overloads-1 (medium): A literal whose element fails its check still fits every overload of its shape, so valid calls are 'ambiguous' and a typo's error is hidden
 
-Status: fixed in 895d427 (a literal fits an overload's parameter only when nothing in it has an error as that type), with a sema test of [3000000000], a tuple and a Map holding it, and [1e300], each with an overload it fits and one it doesn't, of an untyped lambda whose body checks only as one overload's Func, and of [nope], whose own error is reported: the check as the parameter's type runs quietly on its own and fits only without an error
+Status: fixed in 81214e0 (a literal fits an overload's parameter only when nothing in it has an error as that type), with a sema test of [3000000000], a tuple and a Map holding it, and [1e300], each with an overload it fits and one it doesn't, of an untyped lambda whose body checks only as one overload's Func, and of [nope], whose own error is reported: the check as the parameter's type runs quietly on its own and fits only without an error
 
 Where: compiler/src/sema.cpp:21519
 
@@ -46,7 +46,7 @@ Skeptic: I ran the finding's f1.fb with rev-5's fb run. All four calls fail with
 
 ## overloads-2 (low): Trial checks of an untyped lambda in a literal leave reach edges, giving a false @MainThread error
 
-Status: fixed in 41cea1b (what an overload that isn't chosen made of a call's lambdas goes, so the thread rules don't see it), with a sema test of the finding's program: choose_overload's tries run in on_trial(), which takes back what they added to m_reaches, m_main_only, and m_lambda_code, as quietly() does m_workers; only the tries that are checked again are trials, since some of quietly()'s other callers keep what they checked
+Status: fixed in bcca883 (what an overload that isn't chosen made of a call's lambdas goes, so the thread rules don't see it), with a sema test of the finding's program: choose_overload's tries run in on_trial(), which takes back what they added to m_reaches, m_main_only, and m_lambda_code, as quietly() does m_workers; only the tries that are checked again are trials, since some of quietly()'s other callers keep what they checked
 
 Where: compiler/src/sema.cpp:22352
 
@@ -83,7 +83,7 @@ Skeptic: I ran t7.fb, the finding's program, on rev-5. It fails: "t7.fb:12:14: e
 
 ## overloads-3 (low): Nested overloaded calls through array literals compile about 10x slower: each failing candidate re-checks the whole literal
 
-Status: fixed in 8559f54 (a literal its own type converts to fits as it is, and is checked again only as a type it could become), with a sema test of the finding's six levels, under 15 seconds in a debug build (about 4; 37 without the fix): a literal whose own type converts to the parameter's fits without a second check, and one is checked as the parameter's type only where it could become it, an array literal as an array or an Interface, a tuple literal as a tuple of as many, and a Map literal as a Map or an Interface
+Status: fixed in 6cb9a05 (a literal its own type converts to fits as it is, and is checked again only as a type it could become), with a sema test of the finding's six levels, under 15 seconds in a debug build (about 4; 37 without the fix): a literal whose own type converts to the parameter's fits without a second check, and one is checked as the parameter's type only where it could become it, an array literal as an array or an Interface, a tuple literal as a tuple of as many, and a Map literal as a Map or an Interface
 
 Where: compiler/src/sema.cpp:21519
 
