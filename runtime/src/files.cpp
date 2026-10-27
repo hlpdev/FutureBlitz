@@ -1085,6 +1085,11 @@ std::int64_t atomic_file_t::open(const std::string& path) {
         return UV_EINVAL;
     }
 
+    // An empty path names no file, which only the rename would find.
+    if (path.empty()) {
+        return UV_ENOENT;
+    }
+
     m_path = linked_file(path);
     // A rename over a folder fails differently on each OS.
     if (uv_stat_t found{}; stat_path(m_path, true, found) == 0 && is_directory(found)) {

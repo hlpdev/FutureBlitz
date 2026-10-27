@@ -1,8 +1,9 @@
 // Download to a file, blocking, awaited, and through Http, in a temporary folder of the program's
 // own: the body as it came, decompressed, without a redirect's own, and an empty one; progress
 // told as Download's is; and the file as it was after a status that isn't success, a connection
-// that closes partway, a folder that isn't there, a folder at the path, and a temporary file
-// that's gone before its rename. Nothing's left behind but what was written.
+// that closes partway, a folder that isn't there, an empty path, a folder at the path, and a
+// temporary file that's gone before its rename; the paths that can't be written fail before
+// anything's sent. Nothing's left behind but what was written.
 Import std.core
 Import std.collections
 Import std.io
@@ -10,12 +11,19 @@ Import std.net.http
 Import std.text
 
 Global base = Input() ?? ""
+Global secure = Input() ?? ""
+Global refused = Input() ?? ""
 Global last = ""
+Global told = 0
 Global folder = Path("")
 Global removed = 0
 
 Function Tell(got: Int64, all: Int64)
     last = "{got}/{all}"
+End Function
+
+Function Count(got: Int64, all: Int64)
+    told += 1
 End Function
 
 // Removes the download's temporary file, the first time progress is told of it.
@@ -85,8 +93,15 @@ For awaited In [False, True]
         Local outcome = Await Outcome(client, "{base}{path}", file, awaited, Tell)
         Print("{path}: {outcome} {HoldsBytes(file, 2)}")
     End For
-    Print(Await Outcome(client, "{base}/hello", temp.Path / "missing" / "hello.txt", awaited, Tell))
-    Print(Await Outcome(client, "{base}/hello", temp.Path, awaited, Tell))
+    // A path that can't be written is refused before the request is sent, so progress is told
+    // nothing, and one to where nothing listens isn't refused as a connection.
+    For path In [temp.Path / "missing" / "hello.txt", Path(""), temp.Path]
+        told = 0
+        Local outcome = Await Outcome(client, "{base}/bytes/200000?pause=100000", path, awaited,
+                                      Count)
+        Local unsent = Await Outcome(client, refused, path, awaited, Count)
+        Print("{outcome}, {unsent}, told {told}")
+    End For
     removed = 0
     Print(Await Outcome(client, "{base}/bytes/200000?pause=100000", file, awaited,
                         RemoveTemporary))
