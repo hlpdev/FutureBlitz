@@ -125,7 +125,8 @@ set_source_files_properties(src/transform.cpp src/draw.cpp src/font.cpp src/cff.
 # them links fb_runtime_io and libuv too.
 add_library(fb_runtime_http STATIC src/http.cpp src/tls_roots.cpp)
 target_include_directories(fb_runtime_http PUBLIC include)
-target_link_libraries(fb_runtime_http PRIVATE libcurl_static)
+# The OS's check of a chain its roots don't have (tls_roots.cpp) is mbedTLS's verify callback.
+target_link_libraries(fb_runtime_http PRIVATE libcurl_static mbedtls)
 target_include_directories(fb_runtime_http SYSTEM PRIVATE
   $<TARGET_PROPERTY:uv_a,INTERFACE_INCLUDE_DIRECTORIES>)
 target_compile_definitions(fb_runtime_http PRIVATE

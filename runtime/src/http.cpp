@@ -23,6 +23,8 @@
 #include <format>
 #include <initializer_list>
 #include <memory>
+#include <mbedtls/ssl.h>
+#include <mbedtls/x509_crt.h>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -128,6 +130,12 @@ void unlock_share(CURL* /*easy*/, const curl_lock_data data, void* client) {
 
 /// One request and its response. std.net.http holds it, and so does the I/O thread while it
 /// runs there.
+/// libcurl's own check of a connection's chain, which says why one failed, and its connection.
+struct curl_check_t {
+    int (*check)(void*, mbedtls_x509_crt*, int, std::uint32_t*) = nullptr;
+    void* connection = nullptr;
+};
+
 struct transfer_t {
     std::atomic<std::int64_t> owners = 1;
     client_t* client = nullptr;
@@ -154,6 +162,9 @@ struct transfer_t {
     std::int64_t file_error = 0;
     /// What failed, in libcurl's words, or in the runtime's when it refused the transfer itself.
     std::array<char, CURL_ERROR_SIZE> error{};
+    /// libcurl's check of the chain of the connection it set up last, a proxy's or a server's,
+    /// one after the other, which check_as_os runs after the OS's.
+    curl_check_t curls_check;
     std::string message;
     /// Whether its options are all set, and it's in its client's multi handle, for a blocking
     /// one.
@@ -225,6 +236,26 @@ std::optional<std::string> set_text(CURL* easy, const CURLoption option, const s
     }
 
     return std::nullopt;
+}
+
+/// mbedTLS's check of each certificate of a chain, as the OS checks it (tls_roots.hpp), and then
+/// libcurl's own, which says why it failed.
+int verify_as_os(void* check, mbedtls_x509_crt* certificate, const int depth,
+                 std::uint32_t* flags) {
+    (void)fb::runtime::os_verify(nullptr, certificate, depth, flags);
+    const curl_check_t& curls = *static_cast<const curl_check_t*>(check);
+    return curls.check != nullptr ? curls.check(curls.connection, certificate, depth, flags) : 0;
+}
+
+/// libcurl's mbedTLS configuration of a connection of `transfer`'s, which trusts the OS's roots,
+/// and checks the chain as the OS does where the roots mbedTLS has aren't all of them. mbedTLS
+/// keeps the check libcurl set to itself, so it's read from the configuration.
+CURLcode check_as_os(CURL* /*easy*/, void* config, void* transfer) {
+    auto& ssl = *static_cast<mbedtls_ssl_config*>(config);
+    curl_check_t& curls = static_cast<transfer_t*>(transfer)->curls_check;
+    curls = { .check = ssl.MBEDTLS_PRIVATE(f_vrfy), .connection = ssl.MBEDTLS_PRIVATE(p_vrfy) };
+    mbedtls_ssl_conf_verify(&ssl, verify_as_os, &curls);
+    return CURLE_OK;
 }
 
 bool is_success(CURL* easy) {
@@ -1028,6 +1059,11 @@ void* fb_http_new(void* client, const fb_string_t* method, const fb_string_t* ur
         };
         check(curl_easy_setopt(easy, CURLOPT_CAINFO_BLOB, &blob), "roots");
         check(curl_easy_setopt(easy, CURLOPT_PROXY_CAINFO_BLOB, &blob), "proxy's roots");
+        if (!own) {
+            check(curl_easy_setopt(easy, CURLOPT_SSL_CTX_FUNCTION, check_as_os), "roots' check");
+            check(curl_easy_setopt(easy, CURLOPT_SSL_CTX_DATA, static_cast<void*>(transfer)),
+                  "roots' check");
+        }
     }
 
     return transfer;

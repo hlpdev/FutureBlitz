@@ -1,10 +1,12 @@
 // The OS's trusted roots, for TLS: the certificates in Windows' ROOT store, macOS's system
-// anchors, or a distribution's bundle file, as PEM, which mbedTLS reads.
+// anchors, or a distribution's bundle file, as PEM, which mbedTLS reads, and on Windows, the
+// check of a chain none of them signed as Windows checks it.
 
 #include "tls_roots.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <mbedtls/x509.h>
 #include <mutex>
 #include <span>
 #include <string>
@@ -20,6 +22,7 @@
 #include <windows.h>
 // windows.h first, which wincrypt.h needs.
 #include <cstring>
+#include <utility>
 #include <vector>
 #include <wincrypt.h>
 #elifdef __APPLE__
@@ -91,6 +94,70 @@ std::string read_roots() {
     return pem;
 }
 
+/// Whether Windows trusts `chain`, a certificate and the others its side sent after it, for a
+/// TLS server, or a client: a chain it builds, fetching a root from the list it trusts that the
+/// ROOT store hasn't got yet, as for Schannel, meets its SSL policy. The chain's name is mbedTLS's
+/// to check.
+bool os_trusts(const mbedtls_x509_crt& chain, const bool clients) {
+    HCERTSTORE sent = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, nullptr);
+    if (sent == nullptr) {
+        return false;
+    }
+
+    PCCERT_CONTEXT leaf = nullptr;
+    for (const mbedtls_x509_crt* at = &chain; at != nullptr && at->raw.p != nullptr;
+         at = at->next) {
+        (void)CertAddEncodedCertificateToStore(
+            sent, X509_ASN_ENCODING, at->raw.p, static_cast<DWORD>(at->raw.len),
+            CERT_STORE_ADD_ALWAYS, at == &chain ? &leaf : nullptr);
+    }
+
+    bool trusted = false;
+    if (leaf != nullptr) {
+        // wincrypt.h's usages are char*s, which it only reads.
+        char* usage =
+            const_cast<char*>(clients ? szOID_PKIX_KP_CLIENT_AUTH : szOID_PKIX_KP_SERVER_AUTH);
+        CERT_CHAIN_PARA wanted{};
+        wanted.cbSize = sizeof(wanted);
+        wanted.RequestedUsage.dwType = USAGE_MATCH_TYPE_AND;
+        wanted.RequestedUsage.Usage.cUsageIdentifier = 1;
+        wanted.RequestedUsage.Usage.rgpszUsageIdentifier = &usage;
+        PCCERT_CHAIN_CONTEXT built = nullptr;
+        if (CertGetCertificateChain(nullptr, leaf, nullptr, sent, &wanted, 0, nullptr, &built) !=
+            FALSE) {
+            // With no server name, the policy leaves the name alone.
+            SSL_EXTRA_CERT_CHAIN_POLICY_PARA ssl{};
+            ssl.cbSize = sizeof(ssl);
+            ssl.dwAuthType = clients ? AUTHTYPE_CLIENT : AUTHTYPE_SERVER;
+            CERT_CHAIN_POLICY_PARA policy{};
+            policy.cbSize = sizeof(policy);
+            policy.pvExtraPolicyPara = &ssl;
+            CERT_CHAIN_POLICY_STATUS status{};
+            status.cbSize = sizeof(status);
+            trusted = CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, built, &policy,
+                                                       &status) != FALSE &&
+                      status.dwError == 0;
+            CertFreeCertificateChain(built);
+        }
+
+        CertFreeCertificateContext(leaf);
+    }
+
+    CertCloseStore(sent, 0);
+    return trusted;
+}
+
+/// What os_verify found of the chain it's checking so far, which mbedTLS gives it a certificate
+/// at a time on one thread, from the root's end to depth 0.
+struct checking_t {
+    /// Whether a certificate's flaw was that no root it trusts signed it.
+    bool untrusted = false;
+    /// Whether one had a flaw besides.
+    bool flawed = false;
+};
+
+thread_local checking_t checking;
+
 #elifdef __APPLE__
 
 std::string read_roots() {
@@ -160,6 +227,33 @@ const std::string& os_roots() {
     static std::string roots;
     std::call_once(read, [] { roots = read_roots(); });
     return roots;
+}
+
+int os_verify(void* clients, mbedtls_x509_crt* certificate, const int depth, std::uint32_t* flags) {
+#ifdef _WIN32
+    // mbedTLS's flags are ints. A flag a callback leaves on any certificate fails the chain, so
+    // a root none trusted is let go of until the chain's own certificate, at depth 0, and set
+    // again there unless Windows trusts the chain.
+    const auto not_trusted = static_cast<std::uint32_t>(MBEDTLS_X509_BADCERT_NOT_TRUSTED);
+    if ((*flags & not_trusted) != 0) {
+        checking.untrusted = true;
+        *flags &= ~not_trusted;
+    }
+
+    checking.flawed = checking.flawed || *flags != 0;
+    if (depth == 0) {
+        const checking_t checked = std::exchange(checking, {});
+        if (checked.untrusted && (checked.flawed || !os_trusts(*certificate, clients != nullptr))) {
+            *flags |= not_trusted;
+        }
+    }
+#else
+    (void)clients;
+    (void)certificate;
+    (void)depth;
+    (void)flags;
+#endif
+    return 0;
 }
 
 void append_pem(std::string& pem, const std::span<const std::uint8_t> der) {

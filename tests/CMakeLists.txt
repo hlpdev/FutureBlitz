@@ -98,8 +98,13 @@ endif()
 # image_text's fonts, which std.image's font tests break.
 target_compile_definitions(fb_runtime_tests PRIVATE
   FB_TEST_FONTS="${CMAKE_CURRENT_SOURCE_DIR}/programs/image_text")
-# The OS's roots for TLS, inside the runtime's HTTP part, and mbedTLS's X.509, which reads them.
-target_link_libraries(fb_runtime_tests PRIVATE fb_runtime_http mbedx509)
+# The OS's roots for TLS, inside the runtime's HTTP part, and mbedTLS's X.509, which reads them;
+# and the runtime's TLS, with the HTTP test server's certificates.
+target_link_libraries(fb_runtime_tests PRIVATE fb_runtime_http fb_runtime_tls mbedx509)
+target_compile_definitions(fb_runtime_tests PRIVATE
+  FB_TEST_TLS_CERTIFICATE="${CMAKE_CURRENT_SOURCE_DIR}/native/http_server/server.pem"
+  FB_TEST_TLS_KEY="${CMAKE_CURRENT_SOURCE_DIR}/native/http_server/server_key.pem"
+  FB_TEST_TLS_CA="${CMAKE_CURRENT_SOURCE_DIR}/native/http_server/test_ca.pem")
 target_include_directories(fb_runtime_tests PRIVATE ${PROJECT_SOURCE_DIR}/runtime/src)
 fb_set_warnings(fb_runtime_tests)
 catch_discover_tests(fb_runtime_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})
