@@ -310,10 +310,11 @@ bool is_value_builtin(const std::string_view name) {
     return name == "SizeOf" || name == "TypeName" || name == "AddressOf" || is_embed(name);
 }
 
-/// Whether a name is Load<T>(value) or Save(x), which make a T from a std.core Value and a Value
-/// from an x, when the code doesn't declare one of its own.
+/// Whether a name is Load<T>(value), Save(x), or Defaults<T>(), which make a T from a std.core
+/// Value, a Value from an x, and a Value from a T's Fields' defaults, when the code doesn't
+/// declare one of its own.
 bool is_data_builtin(const std::string_view name) {
-    return name == "Load" || name == "Save";
+    return name == "Load" || name == "Save" || name == "Defaults";
 }
 
 /// Whether a member of a T[] is one of its sizes, Count or Capacity, which aren't Methods.
@@ -18474,8 +18475,14 @@ private:
 
             error(span, "'{}' is called, as in {}", name, example);
         } else if (is_data_builtin(name)) {
-            error(span, "'{}' is called, as in {}", name,
-                  name == "Load" ? "Load<T>(value)" : "Save(x)");
+            std::string_view example = "Defaults<T>()";
+            if (name == "Load") {
+                example = "Load<T>(value)";
+            } else if (name == "Save") {
+                example = "Save(x)";
+            }
+
+            error(span, "'{}' is called, as in {}", name, example);
         } else if (!from_failed_import(name, span) && !m_misplaced_externs.contains(name)) {
             error(span, "'{}' isn't declared", name);
         }
@@ -20845,6 +20852,10 @@ private:
         if (const auto* name = std::get_if<name_expr_t>(&m_ast.get(node.callee).node);
             name != nullptr && is_data_builtin(name->name) &&
             !declared_here(name->name, span_of(node.callee))) {
+            if (name->name == "Defaults") {
+                return check_defaults(id, node, *name);
+            }
+
             return name->name == "Load" ? check_load(id, node, *name) : check_save(id, node, *name);
         }
 
@@ -21464,6 +21475,38 @@ private:
 
         if (type != type_id_t::INVALID && check_converted(type, true, span)) {
             info(id).saved = type;
+        }
+
+        return value;
+    }
+
+    /// "Defaults<T>()": a new std.core Value of a T's Fields at their defaults, or their zeros,
+    /// as Save writes them, but without one that has neither, made without New or OnLoaded, so
+    /// no half-made T is ever seen; for a type without Fields of its own, of its zero, or a Null.
+    /// Lowering builds each type's.
+    type_id_t check_defaults(const expr_id_t id, const call_expr_t& node, const name_expr_t& name) {
+        const type_id_t value = m_analysis.loading.value;
+        if (name.type_arguments.size() != 1 || !node.arguments.empty()) {
+            error(span_of(id), "Defaults takes one type argument, and no arguments, like "
+                               "Defaults<Settings>()");
+            check_alone(node.arguments);
+            return value;
+        }
+
+        if (value == type_id_t::INVALID) {
+            error(span_of(id), "Defaults needs std.core's Value");
+            return type_id_t::INVALID;
+        }
+
+        const type_expr_id_t written = name.type_arguments.front();
+        const span_t span = m_ast.get(written).span;
+        const type_id_t type = resolve_type(written);
+        if (type == type_id_t::INVALID) {
+            return value;
+        }
+
+        if (check_converted(type, true, span)) {
+            info(id).defaulted = type;
         }
 
         return value;

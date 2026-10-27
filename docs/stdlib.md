@@ -1042,13 +1042,14 @@ Step 18 built `Event<T>`, `Subscription`, and `Subscribe(owner, handler)`, in st
   Structs and Classes, by compile-time reflection, every Field included, Private ones too,
   Properties not. Load makes a Struct or Class Field by Field without running its New, each
   from the data's value, else its default, else its zero, else a MISSING error naming it, and
-  then its `OnLoaded()`. std.core's `@Rename("key")`, `@Skip`, `@Flatten`, and
-  `@Renamed("old")` adjust it, and a type can give its own
-  conversion as a `Loadable` or `Saveable`. A format is then a Value's reader and writer, as
-  `Json.Write(save, indent: 2)` and `Json.Read<Save>(text)` are Save and Load around it. Load
-  takes a number or a Bool from a String that reads as one, as a command line's are, and throws
-  a ParseError whose `Path` names where in the Value it is, like `options.sizes[2]`, when a
-  value doesn't fit.
+  then its `OnLoaded()`. `Defaults<T>()` gives Save's form of a T's Fields at their defaults,
+  or zeros, leaving out those with neither, without its New or OnLoaded. std.core's
+  `@Rename("key")`, `@Skip`, `@Flatten`, and `@Renamed("old")` adjust it, and a type can give
+  its own conversion as a `Loadable` or `Saveable`. A format is then a Value's reader and
+  writer, as `Json.Write(save, indent: 2)` and `Json.Read<Save>(text)` are Save and Load around
+  it. Load takes a number or a Bool from a String that reads as one, as a command line's are, and
+  throws a ParseError whose `Path` names where in the Value it is, like `options.sizes[2]`, when
+  a value doesn't fit.
 - Formats: JSON (with a streaming reader and writer), TOML, CSV, INI, XML (a tree, a streaming
   reader and writer, and XPath-lite), YAML (1.2's core schema, no arbitrary tags), and
   MessagePack. `@Renamed("old")`, and a Field's default or zero for what an older save didn't

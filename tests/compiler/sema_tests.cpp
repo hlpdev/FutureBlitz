@@ -7062,19 +7062,20 @@ TEST_CASE("For Field over a T? goes over its T's fields", "[sema]") {
                     "loop needs" });
     // A loop written over a T? or T?? bounds the T's fields as one over the T does.
     for (const std::string_view over : { "T?", "T??" }) {
-        const std::string twos = std::format("Import std.core\n"
-                                             "Function Twos<T>(): String\n"
-                                             "    Local text = \"\"\n"
-                                             "    For Field f: F In {}\n"
-                                             "        Where F: Numeric\n"
-                                             "        Where F: Printable\n"
-                                             "        text += \"{{f.Name}}={{F.One() + F.One()}}\"\n"
-                                             "    End For\n"
-                                             "    Return text\n"
-                                             "End Function\n"
-                                             "Struct P\n    Field X: Int\nEnd Struct\n"
-                                             "Struct Q\n    Field Name: String\nEnd Struct\n",
-                                             over);
+        const std::string twos =
+            std::format("Import std.core\n"
+                        "Function Twos<T>(): String\n"
+                        "    Local text = \"\"\n"
+                        "    For Field f: F In {}\n"
+                        "        Where F: Numeric\n"
+                        "        Where F: Printable\n"
+                        "        text += \"{{f.Name}}={{F.One() + F.One()}}\"\n"
+                        "    End For\n"
+                        "    Return text\n"
+                        "End Function\n"
+                        "Struct P\n    Field X: Int\nEnd Struct\n"
+                        "Struct Q\n    Field Name: String\nEnd Struct\n",
+                        over);
         CHECK(errors_of(twos + "Local p = Twos<P>()").empty());
         CHECK(errors_of(twos + "Local q = Twos<Q>()") ==
               errors_t{ "Twos<Q>: 'Twos' needs each field of Q to implement Numeric, but its "
@@ -7708,6 +7709,43 @@ TEST_CASE("Load<T> and Save say what's wrong with a call", "[sema]") {
               "Save: 'Save' is called, as in Save(x)",
               "Nowhere: 'Nowhere' isn't a type",
           });
+}
+
+TEST_CASE("Defaults<T> makes a Value of what a T is when nothing sets it", "[sema]") {
+    const std::string types =
+        "Import std.core\n"
+        "Struct P\n    Field X: Int = 1\n    Field Names: String[]\nEnd Struct\n"
+        "Abstract Class Shape\n    Field Sides: Int\nEnd Class\n"
+        "Class Holder\n    Field Run: Func(): Int\n"
+        "    New()\n        Run = Function() => 1\n    End New\nEnd Class\n";
+    // Any type Save writes: a Struct's or Class's Fields, or another type's zero, or Null.
+    for (const std::string_view type : { "P", "P?", "Int", "String[]", "Value", "Shape" }) {
+        CHECK(probe(std::format("{}Local x = Defaults<{}>()", types, type)) == "Value");
+    }
+
+    CHECK(errors_of(types + "Function Of<T>(): Value => Defaults<T>()\nLocal v = Of<P>()").empty());
+    const std::string takes =
+        ": Defaults takes one type argument, and no arguments, like Defaults<Settings>()";
+    const std::string func = "Holder: Save can't write Func(): Int32, in Holder's Run; it writes "
+                             "numbers, Bool, String, Enums, Value, T?, T[], Map<String, V>, and "
+                             "Structs and Classes of them, and what implements Saveable";
+    CHECK(errors_of(types + "Local a = Defaults()\n"
+                            "Local b = Defaults<P>(1)\n"
+                            "Local c = Defaults<P, P>()\n"
+                            "Local d = Defaults<Holder>()\n"
+                            "Local e = Defaults\n"
+                            "Local f = Defaults<Nowhere>()") ==
+          errors_t{
+              "Defaults()" + takes,
+              "Defaults<P>(1)" + takes,
+              "Defaults<P, P>()" + takes,
+              func,
+              "Defaults: 'Defaults' is called, as in Defaults<T>()",
+              "Nowhere: 'Nowhere' isn't a type",
+          });
+
+    // A program's own Defaults takes the built-in's place.
+    CHECK(probe("Function Defaults(): Int => 1\nLocal x = Defaults()") == "Int32");
 }
 
 TEST_CASE("Load<T> and Save say which part of a type they can't convert, and where it is",

@@ -279,6 +279,16 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   Struct, and throws only ParseErrors. It isn't generic, Static, or Async, and an Extend can't
   add one. An Interface's, which a type gets as a default, follows the same rules, but a
   Struct's copy of it isn't ByRef.
+- The built-in `Defaults<T>()` gives a new Value of what a T's Fields are when nothing sets them,
+  as Save writes them: an Object of each Field at its default, else its zero, by its key, but
+  without one that has neither, which Load would find missing. It's made without its New, its
+  OnLoaded, or a Class's Destroy, so no code sees a T with a Field that has neither; a @Flatten
+  Field's own Fields are at theirs. A T? is its T, and a type without Fields of its own, like
+  an Int or a T[], gives its zero's Value, or a Null without one, as an Abstract Class, of which
+  there's no object, does; so generic code can ask it of any T that Save writes. It's what a
+  program shows as the defaults of what it loads, as std.os's Args does in its help. Like Load
+  and Save, an instance's T is checked where it's called, and a module's own Defaults takes the
+  name's place.
 - Load throws a ParseError, of `WRONG_TYPE` for a Value of another kind, `OUT_OF_RANGE` for a
   number too big for its type, and `MISSING` for a Field that the Object has no entry for, and
   that has no default or zero. Its `Path` says where in the Value it is, like

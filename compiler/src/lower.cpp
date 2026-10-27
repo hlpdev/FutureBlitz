@@ -434,14 +434,16 @@ private:
         /// Value from one.
         LOAD,
         SAVE,
+        /// A Struct's or Class's, for Defaults<T>(): a Value of its Fields' defaults.
+        DEFAULTS,
     };
 
     struct generated_t {
         generated_kind_t kind;
         type_id_t type;
         function_id_t function;
-        /// For LOAD and SAVE: where the first code that needed it is, which an instance of a type
-        /// it can't convert is reported at.
+        /// For LOAD, SAVE, and DEFAULTS: where the first code that needed it is, which an instance
+        /// of a type it can't convert is reported at.
         span_t span;
     };
 
@@ -7023,6 +7025,9 @@ private:
         } else if (kind == generated_kind_t::SAVE) {
             full = std::format("{}.Save(Int32)", name);
             result = m_analysis.loading.value;
+        } else if (kind == generated_kind_t::DEFAULTS) {
+            full = std::format("{}.Defaults(Int32)", name);
+            result = m_analysis.loading.value;
         } else {
             full = std::format("{}.ToString()", name);
             result = type_id_t::STRING;
@@ -7043,7 +7048,8 @@ private:
     /// equal to the other's; its Hash combines its count and its elements'; and its text is
     /// like "[1, 2, 3]".
     void lower_generated(const generated_t& generated) {
-        if (generated.kind == generated_kind_t::LOAD || generated.kind == generated_kind_t::SAVE) {
+        if (generated.kind == generated_kind_t::LOAD || generated.kind == generated_kind_t::SAVE ||
+            generated.kind == generated_kind_t::DEFAULTS) {
             lower_conversion(generated);
             return;
         }
@@ -7166,6 +7172,7 @@ private:
         }
         case generated_kind_t::LOAD:
         case generated_kind_t::SAVE:
+        case generated_kind_t::DEFAULTS:
             break; // lower_conversion() lowers these
         }
     }
@@ -7212,18 +7219,43 @@ private:
                 { .value = place_t{ error }, .by_ref = true },
             },
         };
+        return saved_or_panic(std::move(call), error, span_of(id));
+    }
+
+    /// "Defaults<T>()": a new Value of T's Fields' defaults, from its Defaults, at depth 0, which
+    /// panics as Save does.
+    operand_t lower_defaults(const expr_id_t id) {
+        type_id_t type = concrete(expect(m_analysis.expr(id).defaulted));
+        while (is_nullable(type)) {
+            type = types().get(type).inner;
+        }
+
+        const local_id_t error = error_variable();
+        call_t call{
+            .function = generated(generated_kind_t::DEFAULTS, type, span_of(id)),
+            .arguments = {
+                { .value = zero(type_id_t::INT32) },
+                { .value = place_t{ error }, .by_ref = true },
+            },
+        };
+        return saved_or_panic(std::move(call), error, span_of(id));
+    }
+
+    /// The Value a Save's or Defaults' call gives, which panics at `span` with the Message of
+    /// the Error it put in `error`, if any.
+    operand_t saved_or_panic(call_t call, const local_id_t error, const span_t span) {
         const operand_t made = temporary(std::move(call), m_analysis.loading.value, true);
         const block_id_t failed = new_block();
         const block_id_t ok = new_block();
         terminate(branch_t{
-            .condition = has_value(place_t{ error }, span_of(id)),
+            .condition = has_value(place_t{ error }, span),
             .if_true = failed,
             .if_false = ok,
         });
         start(failed);
         place_t message = std::get<place_t>(unwrap(place_t{ error }));
         message.steps.push_back({ .field = 0 }); // Error's Message
-        terminate(panic_t{ .message = "Save failed", .span = span_of(id), .text = message });
+        terminate(panic_t{ .message = "Save failed", .span = span, .text = message });
         start(ok);
         return made;
     }
@@ -7294,25 +7326,35 @@ private:
         return value;
     }
 
-    /// The Load or Save of a type: what converts it from a Value, or to one. Its code calls
-    /// std/core/load.fb's Functions, and the other types' Loads and Saves, one level deeper.
+    /// The Load or Save of a type: what converts it from a Value, or to one, or its Defaults,
+    /// which makes a Value of its Fields' defaults. Its code calls std/core/load.fb's Functions,
+    /// and the other types' Loads and Saves, one level deeper.
     void lower_conversion(const generated_t& generated) {
         begin_function(generated.function);
         const bool saving = generated.kind == generated_kind_t::SAVE;
+        const bool defaults = generated.kind == generated_kind_t::DEFAULTS;
         const type_id_t type = generated.type;
-        const local_id_t subject =
-            saving ? add_local(type, "x") : add_local(m_analysis.loading.value, "value");
+        std::optional<local_id_t> subject;
+        if (!defaults) {
+            subject = saving ? add_local(type, "x") : add_local(m_analysis.loading.value, "value");
+        }
+
         const local_id_t depth = add_local(type_id_t::INT32, "depth");
         m_error_slot = add_local(m_analysis.nullable_error, "error", true);
 
         current().parameter_count = current().locals.size();
         const conversion_t conversion{
-            .subject = place_t{ subject },
+            .subject = place_t{ subject.value_or(depth) },
             .depth = place_t{ depth },
             .span = generated.span,
         };
-        const std::optional<operand_t> made =
-            saving ? save_body(type, conversion) : load_body(type, conversion);
+        std::optional<operand_t> made;
+        if (defaults) {
+            made = defaults_body(type, conversion);
+        } else {
+            made = saving ? save_body(type, conversion) : load_body(type, conversion);
+        }
+
         if (!made) {
             terminate(unreachable_t{});
             return;
@@ -8055,9 +8097,67 @@ private:
         return place_t{ made };
     }
 
+    /// A Defaults' code: one of `type` made without its New, its Fields at their defaults, and a
+    /// Value of those with a default or a zero, as Save writes them. Its OnLoaded doesn't run, and
+    /// a Class's Destroy doesn't either, since a Field with neither is still null. A type without
+    /// Fields of its own gives its zero's Value, or a Null.
+    std::optional<operand_t> defaults_body(const type_id_t type, const conversion_t& conversion) {
+        const load_support_t& loading = m_analysis.loading;
+        const bool fielded =
+            (is_struct(type) || is_class(type)) && !types().get(type).made &&
+            type != loading.value &&
+            (loading.map == type_id_t::INVALID || types().get(type).generic != loading.map);
+        const bool abstract =
+            fielded && is_class(type) &&
+            m_analysis.symbol(m_declared_types.at(definition_of(type))).modifiers.is_abstract;
+        if (!fielded || abstract) {
+            // A type without Fields of its own is at its zero, as a Field of it without a default
+            // is, and Null without one, as an Abstract Class, with no object to make, is.
+            // Its Save is made all the same, which reports a type Save can't write, as a Func.
+            generated(generated_kind_t::SAVE, type, conversion.span);
+            const local_id_t made = add_local(loading.value);
+            initialize(made, !abstract && types().has_zero(type)
+                                 ? save_call(type, zero(type), conversion.depth, conversion)
+                                 : expect(load_helper("SaveNull", {})));
+            m_scopes.back().emplace_back(made);
+            finish_statement();
+            return place_t{ made };
+        }
+
+        if (const std::optional<std::string> problem = instance_problem(type, true)) {
+            return cannot_convert(type, true, conversion.span, *problem);
+        }
+
+        const local_id_t made = add_local(type);
+        initialize(made, is_class(type) ? new_object(type)
+                                        : temporary(defaults_of(type), type, has_references(type)));
+        if (is_class(type)) {
+            m_scopes.back().emplace_back(discard_t{ .object = made });
+        } else {
+            m_scopes.back().emplace_back(made);
+        }
+
+        finish_statement();
+        return save_fields(type,
+                           {
+                               .subject = place_t{ made },
+                               .depth = conversion.depth,
+                               .span = conversion.span,
+                           },
+                           true);
+    }
+
+    /// Whether a Field keeps a value when nothing sets it: a default, or its type's zero.
+    [[nodiscard]] bool keeps_default(const symbol_id_t field, const type_id_t type) const {
+        const symbol_t& written = m_analysis.symbol(field);
+        return written.value || written.empty_default || types().has_zero(type);
+    }
+
     /// A Struct's or Class's Save: an Object of a Value for each Field by its key, but a @Skip
-    /// one, and a @Flatten one's entries among them.
-    std::optional<operand_t> save_fields(const type_id_t type, const conversion_t& conversion) {
+    /// one, and a @Flatten one's entries among them. For Defaults, only those at their defaults
+    /// or zeros, and a @Flatten one's own Defaults.
+    std::optional<operand_t> save_fields(const type_id_t type, const conversion_t& conversion,
+                                         const bool defaulted = false) {
         const load_support_t& loading = m_analysis.loading;
         const local_id_t made = add_local(loading.value);
         initialize(made, expect(load_helper("SaveObject", { conversion.depth })));
@@ -8072,8 +8172,33 @@ private:
 
             place_t part = conversion.subject;
             part.steps.push_back({ .field = i });
+            const bool flattened = has_attribute(field, loading.flatten);
+            if (defaulted && flattened) {
+                // Its own Fields at their defaults, as a Load of the Object without them makes.
+                const local_id_t error = error_variable();
+                const operand_t saved = temporary(
+                    call_t{
+                        .function =
+                            generated(generated_kind_t::DEFAULTS, fields[i].type, conversion.span),
+                        .arguments = {
+                            { .value = deeper(conversion) },
+                            { .value = place_t{ error }, .by_ref = true },
+                        },
+                    },
+                    loading.value, true);
+                check_error(error, {});
+                const operand_t type_name = make_string(std::string(types().name(fields[i].type)));
+                load_helper("SaveFlattened", { place_t{ made }, saved, type_name });
+                finish_statement();
+                continue;
+            }
+
+            if (defaulted && !keeps_default(field, fields[i].type)) {
+                continue;
+            }
+
             const operand_t saved = save_part(fields[i].type, part, conversion);
-            if (has_attribute(field, loading.flatten)) {
+            if (flattened) {
                 const operand_t type_name = make_string(std::string(types().name(fields[i].type)));
                 load_helper("SaveFlattened", { place_t{ made }, saved, type_name });
             } else {
@@ -9212,6 +9337,10 @@ private:
 
         if (m_analysis.expr(id).saved) {
             return lower_save(id);
+        }
+
+        if (m_analysis.expr(id).defaulted) {
+            return lower_defaults(id);
         }
 
         // A CString's ToString copies its text, and its NULL has none.

@@ -278,6 +278,9 @@ struct expr_info_t {
     /// type, which it makes a Value of. Either can have type parameters in it.
     std::optional<type_id_t> loaded;
     std::optional<type_id_t> saved;
+    /// For "Defaults<T>()": T, a Struct or Class, or a T? of one, whose Fields' defaults the
+    /// call makes a Value of.
+    std::optional<type_id_t> defaulted;
     /// For a Function's name or a lambda where a Callback is expected: a C function pointer to
     /// its code, the Function `symbol` names or the lambda's `closure`.
     bool callback = false;

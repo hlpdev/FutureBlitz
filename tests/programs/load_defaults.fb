@@ -1,0 +1,66 @@
+// Defaults<T>() makes a Value of a T's Fields at their defaults, or their zeros, without New,
+// OnLoaded, or Destroy, and leaves out those with neither: Inside, whose Inner has no zero, and
+// Keys, which only New assigns. A @Flatten Field's own Fields are at their defaults, and a T? is
+// its T, in generic code too, and a type without Fields of its own is at its zero, or Null.
+
+Import std.core
+Import std.collections
+Import std.text
+
+Enum Mode
+    FAST, SLOW
+End Enum
+
+Struct Inner
+    Field Depth: Int = 3
+    Field Tags: String[]
+End Struct
+
+Struct Opts
+    Field Path: String
+    Field Size: Int = 7
+    Field Ratio: Double = 0.5
+    Field Mode: Mode = Mode.SLOW
+    Field Files: String[]
+    Field Kept: String[] = []
+    Field Name: String?
+    @Rename("in") Field Inside: Inner
+    @Flatten Field Flat: Inner
+    @Skip Field Cache: Int = 9
+
+    ByRef Method OnLoaded()
+        Size = 100 / Path.Length
+    End Method
+End Struct
+
+Class Settings
+    Field Volume: Double = 0.8
+    Field Keys: Map<String, Int>
+    Field Child: Settings?
+
+    New()
+        Keys = {}
+    End New
+
+    Method OnLoaded()
+        Print("never")
+    End Method
+
+    Method Destroy()
+        Print("never either")
+    End Method
+End Class
+
+Function Of<T>(): Value => Defaults<T>()
+
+Print(Defaults<Opts>())
+Print(Defaults<Settings>())
+Print(Of<Opts?>())
+Print(Of<Settings>())
+
+Abstract Class Shape
+    Field Sides: Int = 3
+End Class
+
+// A type without Fields of its own is at its zero, or Null without one, as an Abstract Class is.
+Print(Of<Int>(), Of<String>(), Of<Mode>(), Of<String[]>(), Of<Shape>())

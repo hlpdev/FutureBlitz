@@ -2816,6 +2816,37 @@ TEST_CASE("each type's Load and Save is a function of its own, which calls its p
     }
 }
 
+TEST_CASE("lowering reports an instance's type that Defaults<T> can't write, and runs no OnLoaded",
+          "[mir]") {
+    const std::string types = "Import std.core\n"
+                              "Struct P\n    Field X: Int = 1\n"
+                              "    ByRef Method OnLoaded()\n        X = 2\n    End Method\n"
+                              "End Struct\n"
+                              "Function Of<T>(): Value => Defaults<T>()\n";
+    const fb::compilation_t func = fb::compile("test.fb", types + "Local v = Of<Func(): Int>()");
+    REQUIRE(func.diagnostics.diagnostics().empty());
+    const fb::mir_module_t stopped = fb::lower(func.ast, func.analysis);
+    REQUIRE(stopped.error);
+    const fb::mir_error_t error = stopped.error.value_or(fb::mir_error_t{});
+    CHECK(std::string(func.sources.get(error.span.file).slice(error.span)) + ": " + error.message ==
+          "Defaults<T>(): Save can't write Func(): Int32 here; it writes numbers, Bool, String, "
+          "Enums, Value, T?, T[], Map<String, V>, and Structs and Classes of them, and what "
+          "implements Saveable");
+
+    // A T? is its T, made once, and its OnLoaded isn't called.
+    const fb::compilation_t compilation =
+        fb::compile("test.fb", types + "Local v = Of<P?>()\nLocal w = Defaults<P>()");
+    REQUIRE(compilation.diagnostics.diagnostics().empty());
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(!module.error);
+    const std::string mir = fb::dump(module);
+    const std::string function = "function P.Defaults(Int32) ->";
+    CHECK(mir.contains(function));
+    CHECK(mir.find(function) == mir.rfind(function));
+    CHECK(mir.contains("function P.OnLoaded()"));
+    CHECK(!mir.contains("call P.OnLoaded()"));
+}
+
 TEST_CASE("lowering reports an instance's type that Load<T> or Save can't convert", "[mir]") {
     const auto stopped = [](const std::string_view text) {
         const fb::compilation_t compilation = fb::compile("test.fb", std::string(text));
