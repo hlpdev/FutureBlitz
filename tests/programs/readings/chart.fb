@@ -1,0 +1,71 @@
+// readings.fb's chart: each city's temperatures as a line over the hours, on a grid of a line
+// every 5 degrees and every 6 hours, with a dot at each city's warmest reading, drawn with
+// std.image's Canvas.
+
+Import std.core
+Import std.math.color
+Import std.math.geometry
+Import std.math.scalar
+Import std.math.vector
+Import std.image
+Import "./store"
+
+// The colors the cities' lines are drawn in, in turn.
+Function LineColors(): Color32[]
+    Return [Color32(214, 39, 40), Color32(31, 119, 180), Color32(44, 160, 44)]
+End Function
+
+// The chart of what store has, width by height pixels.
+Public Function Chart(store: Store, width: Int, height: Int): Image Throws DatabaseError
+    Local image = Image(width, height)
+    image.Fill(Color32(255, 255, 255))
+    Local canvas = Canvas(image)
+    Local margin = 24.0
+    Local plot = Rect(margin, margin, (width As Float) - 2 * margin, (height As Float) - 2 * margin)
+    Local range = Try store.Range()
+    // The grid's degrees, a line each 5, from below the lowest to above the highest.
+    Local low = Floor(range.0 / 5.0) * 5.0
+    Local high = Ceil(range.1 / 5.0) * 5.0
+    Local hours = 0
+    For city In Try store.Cities()
+        hours = Max(hours, (Try store.Series(city)).Count)
+    End For
+
+    Local At = Function(hour: Int, celsius: Double): Vec2
+        Local x = plot.X + plot.Width * (hour As Float) / (Max(hours - 1, 1) As Float)
+        Local y = plot.Y + plot.Height * ((high - celsius) / (high - low)) As Float
+        Return Vec2(x, y)
+    End Function
+
+    canvas.LineWidth = 1
+    Local grid = Color32(220, 220, 220)
+    Local degrees = low
+    While degrees <= high
+        canvas.StrokeLine(At(0, degrees), At(hours - 1, degrees), grid)
+        degrees += 5.0
+    End While
+
+    For hour = 0 Until hours Step 6
+        canvas.StrokeLine(At(hour, high), At(hour, low), grid)
+    End For
+
+    canvas.StrokeRect(plot, Color32(80, 80, 80))
+    canvas.LineWidth = 2
+    Local colors = LineColors()
+    Local index = 0
+    For city In Try store.Cities()
+        Local points: Vec2[] = []
+        Local warmest: (Int, Double) = (0, -1000.0)
+        For reading In Try store.Series(city)
+            points.Add(At(reading.0, reading.1))
+            If reading.1 > warmest.1 Then warmest = reading
+        End For
+
+        Local color = colors[index % colors.Count]
+        canvas.StrokePolyline(points, color)
+        canvas.FillCircle(At(warmest.0, warmest.1), 4, color)
+        index += 1
+    End For
+
+    Return image
+End Function

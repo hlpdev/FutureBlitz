@@ -1,0 +1,89 @@
+// readings.fb's store: the readings in a SQLite database, with each city's series and summary
+// worked out in SQL.
+
+Import std.core
+Import std.db
+Import "./source"
+
+// A city's lowest, highest, and mean temperature, and how many readings it has.
+Public Struct Summary
+    Public Field City: String
+    Public Field Low: Double
+    Public Field High: Double
+    Public Field Mean: Double
+    Public Field Count: Int
+End Struct
+
+// The readings, in a database of its own in memory.
+Public Class Store
+    Field Db: Database
+
+    Public New(db: Database)
+        Db = db
+    End New
+
+    // A store with no readings yet.
+    Public Static Method Open(): Store Throws DatabaseError
+        Local db = Try Database.Open(":memory:")
+        Try db.Execute("CREATE TABLE readings (city TEXT NOT NULL, hour INTEGER NOT NULL, " +
+                       "celsius REAL NOT NULL, PRIMARY KEY (city, hour))")
+        Return Store(db)
+    End Method
+
+    // Adds readings, in one transaction, a city's reading at an hour taking the place of the
+    // one before it.
+    Public Method Add(readings: Reading[]) Throws DatabaseError
+        Local transaction = Try Db.Begin()
+        For reading In readings
+            Try Db.Execute("INSERT OR REPLACE INTO readings VALUES (?, ?, ?)", reading.City,
+                           reading.Hour As Int64, reading.Celsius)
+        End For
+
+        Try transaction.Commit()
+    End Method
+
+    // How many readings it has.
+    Public Method Count(): Int Throws DatabaseError
+        Return ((Try Db.Rows("SELECT count(*) FROM readings"))[0].Integer(0) ?? 0) As Int
+    End Method
+
+    // The cities, by name.
+    Public Method Cities(): String[] Throws DatabaseError
+        Local cities: String[] = []
+        For row In Try Db.Rows("SELECT DISTINCT city FROM readings ORDER BY city")
+            cities.Add(row.Text(0) ?? "")
+        End For
+
+        Return cities
+    End Method
+
+    // A city's readings, by hour.
+    Public Method Series(city: String): (Int, Double)[] Throws DatabaseError
+        Local series: (Int, Double)[] = []
+        Local sql = "SELECT hour, celsius FROM readings WHERE city = ? ORDER BY hour"
+        For row In Try Db.Rows(sql, city)
+            series.Add(((row.Integer(0) ?? 0) As Int, row.Real(1) ?? 0.0))
+        End For
+
+        Return series
+    End Method
+
+    // Each city's summary, the warmest first.
+    Public Method Summaries(): Summary[] Throws DatabaseError
+        Local summaries: Summary[] = []
+        Local sql = "SELECT city, min(celsius), max(celsius), avg(celsius), count(*) FROM readings " +
+                    "GROUP BY city ORDER BY avg(celsius) DESC"
+        For row In Try Db.Rows(sql)
+            summaries.Add(Summary(row.Text(0) ?? "", row.Real(1) ?? 0.0, row.Real(2) ?? 0.0,
+                                  row.Real(3) ?? 0.0, (row.Integer(4) ?? 0) As Int))
+        End For
+
+        Return summaries
+    End Method
+
+    // The lowest and highest temperatures of all.
+    Public Method Range(): (Double, Double) Throws DatabaseError
+        Local row = (Try Db.Rows("SELECT min(celsius), max(celsius) FROM readings"))[0]
+        Return (row.Real(0) ?? 0.0, row.Real(1) ?? 0.0)
+    End Method
+End Class

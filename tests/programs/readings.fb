@@ -1,0 +1,51 @@
+// M6's integration program, which uses std alone: readings of three cities' temperatures, kept in
+// a SQLite database, summed up in SQL, and drawn as a chart, a PNG image. As the steps it needs
+// land, it fetches the readings as JSON over HTTPS from its own server (std.data.json, step 19;
+// TlsStream's listener, step 29; HttpServer, step 30), and serves the chart and the summary to
+// its own WebSocket client (step 30).
+Import std.core
+Import std.crypto
+Import std.text
+Import std.image
+Import "./readings/source"
+Import "./readings/store"
+Import "./readings/chart"
+
+// The hex of bytes.
+Function HexOf(bytes: UInt8[]): String
+    Local text = ""
+    For b In bytes
+        text += "{b:02x}"
+    End For
+
+    Return text
+End Function
+
+Function Run() Throws DatabaseError, IOError
+    // The readings, as the server will give them.
+    Local readings = Readings(26, 36)
+    Print("readings:", readings.Count, "first", readings[0].City, readings[0].Hour, readings[0].Celsius)
+
+    // Kept in SQLite: a reading again takes the place of the one before it.
+    Local store = Try Store.Open()
+    Try store.Add(readings)
+    Try store.Add(readings[0..5])
+    Print("stored:", Try store.Count(), "cities", Try store.Cities())
+    For summary In Try store.Summaries()
+        Print("  {summary.City}: low {summary.Low:.1}, high {summary.High:.1}, mean {summary.Mean:.2}, {summary.Count} readings")
+    End For
+
+    // Drawn as a chart, and written as a PNG, which reads back as the same pixels.
+    Local image = Try Chart(store, 480, 270)
+    Local png = Png.Encode(image)
+    Local back = Try Image.Decode(png)
+    Print("chart:", image.Width, image.Height, "png", Image.FormatOf(png) ?? ImageFormat.PNG,
+          "reads back the same", back.ToBytes() == image.ToBytes())
+    Print("pixels:", HexOf(Sha256.Hash(image.ToBytes())))
+End Function
+
+Try
+    Run()
+Catch e As Error
+    Print("failed:", e.Message)
+End Try

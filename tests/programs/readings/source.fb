@@ -1,0 +1,35 @@
+// Where readings.fb's data comes from: a day and a half of hourly temperatures in three cities,
+// from a seeded generator, so each run has the same ones.
+
+Import std.core
+Import std.math.constants
+Import std.math.random
+Import std.math.scalar
+
+// A city's temperature at an hour, from 0.
+Public Struct Reading
+    Public Field City: String
+    Public Field Hour: Int
+    Public Field Celsius: Double
+End Struct
+
+// The cities, each with its mean and the swing of its day.
+Public Function Cities(): (String, Double, Double)[]
+    Return [("Oslo", 4.0, 3.0), ("Lisbon", 17.0, 5.0), ("Cairo", 24.0, 7.0)]
+End Function
+
+// hours of readings for each city, warmest at 14:00, with noise from seed, to a tenth of a
+// degree.
+Public Function Readings(seed: Int64, hours: Int): Reading[]
+    Local random = Random(seed)
+    Local readings: Reading[] = []
+    For city In Cities()
+        For hour = 0 Until hours
+            Local angle = 2.0 * Pi64 * ((hour - 14) As Double) / 24.0
+            Local celsius = city.1 + city.2 * Cos(angle) + random.Normal(0, 0.6)
+            readings.Add(Reading(city.0, hour, Round(celsius * 10.0) / 10.0))
+        End For
+    End For
+
+    Return readings
+End Function
