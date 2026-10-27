@@ -224,7 +224,8 @@ End Try
 
 // The answer to the key the client sends is only known once it's sent, so a server that answers
 // with extensions or a subprotocol that wasn't asked for reads it first.
-Async Function Choosing(listener: TcpListener, extra: String) Throws Error
+Async Function Choosing(listener: TcpListener, extra: String, frames: UInt8[][] = [],
+                        closing: Bool = False) Throws Error
     Local stream = Try Await listener.AcceptAsync()
     Local head: UInt8[] = []
     Local one = Buffer<UInt8>(1)
@@ -242,6 +243,18 @@ Async Function Choosing(listener: TcpListener, extra: String) Throws Error
     Local text = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n" +
                  "Connection: Upgrade\r\nSec-WebSocket-Accept: {answer}\r\n{extra}\r\n"
     Try Await stream.WriteAsync(Buffer<UInt8>.From(text.Bytes))
+    For frame In frames
+        Try Await stream.WriteAsync(Buffer<UInt8>.From(frame))
+    End For
+
+    // A server that drops the connection reads the client's Close, a code's 8 bytes, first, so
+    // the connection ends rather than resets.
+    If closing
+        Try Await ReadExactAsync(stream, Buffer<UInt8>(8))
+        stream.Close()
+        Return
+    End If
+
     Try Await ReadAllAsync(stream)
 End Function
 
@@ -264,6 +277,31 @@ Try
     Await Chose("another subprotocol", "Sec-WebSocket-Protocol: other\r\n")
     Await Chose("two subprotocols", "Sec-WebSocket-Protocol: chat, chat\r\n")
     Await Chose("extensions", "Sec-WebSocket-Extensions: permessage-deflate\r\n")
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// A connection that ends after the client's Close, without the server's, throws a NetError of
+// CLOSED, as one that ends while it's open does; and a frame that breaks the RFC, here a masked
+// one to a client, closes it with 1002 but has a CloseCode of 1006, as no Close came.
+Async Function Misbehaved(name: String, frames: UInt8[][], closing: Bool) Throws Error
+    Local listener = Try TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local served = Choosing(listener, "", frames, closing)
+    Local ws = Try Await WebSocket.ConnectAsync("ws://{listener.LocalAddress}/")
+    If closing Then Await ws.CloseAsync()
+    Try
+        Local message = Try Await ws.ReceiveAsync()
+        Print("{name}: {Shown(message)}, {ws.CloseCode ?? 0}, {ws.State}")
+    Catch e As NetError
+        Print("{name}: threw {e.Kind}, {ws.CloseCode ?? 0}, {ws.State}")
+    End Try
+
+    Try? Await served
+End Function
+
+Try
+    Await Misbehaved("closing, and no Close back", [], True)
+    Await Misbehaved("a masked frame", [[0x81 As UInt8, 0x82, 1, 2, 3, 4, 0x69, 0x6B]], False)
 Catch e As Error
     Print("failed: {e.Message}")
 End Try

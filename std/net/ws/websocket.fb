@@ -239,7 +239,7 @@ Public Class WebSocket
     End Property
 
     // The code of the Close that came, 1005 for one without, or 1006 when the connection ended
-    // without one, or Null while none has.
+    // without one, as one this side failed for breaking RFC 6455 does, or Null while none has.
     Public Property CloseCode: Int?
         Get => Code
     End Property
@@ -529,10 +529,8 @@ Public Class WebSocket
         If Failure != Null Then Return Null
         If frame == Null
             If Code == Null Then Code = 1006
-            If Status == WebSocketState.OPEN
-                Failure = NetError(NetErrorKind.CLOSED, "{Peer} closed the WebSocket without a " +
-                                   "Close frame", Peer)
-            End If
+            Failure = NetError(NetErrorKind.CLOSED, "{Peer} closed the WebSocket without a Close " +
+                               "frame", Peer)
 
             Status = WebSocketState.CLOSED
             Return Null
@@ -615,7 +613,7 @@ Public Class WebSocket
     Method Fail(code: Int, problem: String): Int
         If Status == WebSocketState.OPEN Then Reply = CloseBytes(code, "")
         Failure = NetError(NetErrorKind.OTHER, "{Peer} sent {problem}", Peer)
-        Code = code
+        If Code == Null Then Code = 1006
         Status = WebSocketState.CLOSED
         Return -1
     End Method

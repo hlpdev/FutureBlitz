@@ -276,7 +276,10 @@ Ask("POST", port, UPGRADE.Replace("GET", "POST") + "\r\n", reports)
 Ask("HTTP/1.0", port, UPGRADE.Replace("HTTP/1.1", "HTTP/1.0") + "\r\n", reports)
 Ask("no Host", port, UPGRADE.Replace("Host: localhost\r\n", "") + "\r\n", reports)
 Ask("a short key", port, UPGRADE.Replace("dGhlIHNhbXBsZSBub25jZQ==", "YWJj") + "\r\n", reports)
-Ask("a body", port, UPGRADE + "Content-Length: 0\r\n\r\n", reports)
+Ask("a body", port, UPGRADE + "Content-Length: 5\r\n\r\nhello", reports)
+Ask("a chunked body", port, UPGRADE + "Transfer-Encoding: chunked\r\n\r\n0\r\n\r\n", reports)
+// A Content-Length of 0 is no body, so the handshake opens.
+Ask("an empty body", port, UPGRADE + "Content-Length: 0\r\n\r\n", reports)
 
 // A head HTTP/1.1 refuses is answered with its status too.
 Ask("space before a colon", port, UPGRADE + "Origin : x\r\n\r\n", reports)

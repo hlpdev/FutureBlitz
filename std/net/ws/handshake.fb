@@ -105,6 +105,8 @@ End Class
 Package Function AnswerOf(head: Head, protocols: String[]): Answer
     Local answer = Answer()
     If head.Parts[0] != "GET"
+        answer.Names.Add("Allow")
+        answer.Values.Add("GET")
         Return answer.Refuse(405, "Method Not Allowed",
                              "asked to upgrade with {head.Parts[0]}, not GET")
     End If
@@ -135,7 +137,8 @@ Package Function AnswerOf(head: Head, protocols: String[]): Answer
                              "asked with a Sec-WebSocket-Key that isn't 16 bytes")
     End If
 
-    If head.Contains("Content-Length") || head.Contains("Transfer-Encoding")
+    Local length = head.Get("Content-Length")
+    If head.Contains("Transfer-Encoding") || (length != Null && DigitsOf(TrimSpace(length)) != 0)
         Return answer.Refuse(400, "Bad Request", "asked to upgrade with a body")
     End If
 

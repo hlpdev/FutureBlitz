@@ -130,7 +130,7 @@ version 8
   client: end
   server: OTHER: <peer> asked for a WebSocket version other than 13
 POST
-  answer: HTTP/1.1 405 Method Not Allowed | Content-Length: 0 | Connection: close
+  answer: HTTP/1.1 405 Method Not Allowed | Allow: GET | Content-Length: 0 | Connection: close
   client: end
   server: OTHER: <peer> asked to upgrade with POST, not GET
 HTTP/1.0
@@ -149,6 +149,15 @@ a body
   answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
   client: end
   server: OTHER: <peer> asked to upgrade with a body
+a chunked body
+  answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
+  client: end
+  server: OTHER: <peer> asked to upgrade with a body
+an empty body
+  answer: HTTP/1.1 101 Switching Protocols | Upgrade: websocket | Connection: Upgrade | Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+  client: end
+  server: opened with ""
+  server: CLOSED: <peer> closed the WebSocket without a Close frame
 space before a colon
   answer: HTTP/1.1 400 Bad Request | Content-Length: 0 | Connection: close
   client: end
