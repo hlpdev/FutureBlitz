@@ -1,6 +1,6 @@
-2026-10-24T00:00:00.123Z INFO  net.http: connected host=example.com port=443 note="two words" empty="" eq="a=b" quote="say \"hi\""
-INFO  net.http: connected host=example.com port=443 note="two words" empty="" eq="a=b" quote="say \"hi\""
-{"time":"2026-10-24T00:00:00.123Z","level":"info","module":"net.http","message":"connected","host":"example.com","port":443,"note":"two words","empty":"","eq":"a=b","quote":"say \"hi\""}
+2026-10-24T00:00:00.123Z INFO  net.http: connected host=example.com port=443 note="two words" empty="" eq="a=b" quote="say \"hi\"" "a name\nsplit"=v
+INFO  net.http: connected host=example.com port=443 note="two words" empty="" eq="a=b" quote="say \"hi\"" "a name\nsplit"=v
+{"time":"2026-10-24T00:00:00.123Z","level":"info","module":"net.http","message":"connected","host":"example.com","port":443,"note":"two words","empty":"","eq":"a=b","quote":"say \"hi\"","a name\nsplit":"v"}
 ERROR app: line one\nline two	tabbed \ \u0001
 {"time":"2026-10-24T00:00:00.123Z","level":"error","module":"app","message":"line one\nline two\ttabbed \\ \u0001"}
 [33mWARN[0m  app: colored
@@ -14,6 +14,7 @@ json
 DEBUG db.cache: from db's level
 json
 {"time":"2026-10-24T00:00:00.123Z","level":"info","module":"m","message":"odd","inf":"inf","nan":"nan","n":-2.5}
+{"time":"2026-10-24T00:00:00.123Z","level":"info","module":"m","message":"integers","i8":-128,"i16":-32768,"i32":-2147483648,"i64":-9223372036854775808,"u8":255,"u16":65535,"u32":4294967295,"u64":18446744073709551615}
 ERROR app: after the change
 json
 error

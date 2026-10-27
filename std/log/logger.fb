@@ -81,11 +81,36 @@ Public Shared Class Logger
         Return Logger(Name, Context.Add(LogField(name, value)), Output)
     End Method
 
+    // An integer of each of the eight types, as its number.
+    Public Method With(name: String, value: Int8): Logger
+        Return Logger(Name, Context.Add(LogField(name, "{value}", False)), Output)
+    End Method
+
+    Public Method With(name: String, value: Int16): Logger
+        Return Logger(Name, Context.Add(LogField(name, "{value}", False)), Output)
+    End Method
+
     Public Method With(name: String, value: Int): Logger
         Return Logger(Name, Context.Add(LogField(name, "{value}", False)), Output)
     End Method
 
     Public Method With(name: String, value: Int64): Logger
+        Return Logger(Name, Context.Add(LogField(name, "{value}", False)), Output)
+    End Method
+
+    Public Method With(name: String, value: UInt8): Logger
+        Return Logger(Name, Context.Add(LogField(name, "{value}", False)), Output)
+    End Method
+
+    Public Method With(name: String, value: UInt16): Logger
+        Return Logger(Name, Context.Add(LogField(name, "{value}", False)), Output)
+    End Method
+
+    Public Method With(name: String, value: UInt32): Logger
+        Return Logger(Name, Context.Add(LogField(name, "{value}", False)), Output)
+    End Method
+
+    Public Method With(name: String, value: UInt64): Logger
         Return Logger(Name, Context.Add(LogField(name, "{value}", False)), Output)
     End Method
 

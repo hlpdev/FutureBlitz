@@ -14,7 +14,7 @@ Const at = Timestamp.FromUnixMilliseconds(1792800000123)
 Local fields = ImmutableArray<LogField>().Add(LogField("host", "example.com"))
 fields = fields.Add(LogField("port", "443", False)).Add(LogField("note", "two words"))
 fields = fields.Add(LogField("empty", "")).Add(LogField("eq", "a=b"))
-fields = fields.Add(LogField("quote", "say \"hi\""))
+fields = fields.Add(LogField("quote", "say \"hi\"")).Add(LogField("a name\nsplit", "v"))
 Local record = LogRecord(at, LogLevel.INFO, "net.http", "connected", fields)
 Print(LogLine(record))
 Print(LogLine(record, False))
@@ -57,6 +57,18 @@ Show()
 Local zero = 0.0
 Local odd = Logger("m", output).With("inf", 1 / zero).With("nan", zero / zero).With("n", -2.5)
 Print(JsonLine(LogRecord(at, LogLevel.INFO, "m", "odd", odd.Fields)))
+
+// An integer of each type is a number, the widest of each too.
+Local i8: Int8 = -128
+Local i16: Int16 = -32768
+Local i64: Int64 = -9223372036854775807 - 1
+Local u8: UInt8 = 255
+Local u16: UInt16 = 65535
+Local u32: UInt32 = 4294967295
+Local u64: UInt64 = 18446744073709551615
+Local whole = Logger("m", output).With("i8", i8).With("i16", i16).With("i32", -2147483648)
+whole = whole.With("i64", i64).With("u8", u8).With("u16", u16).With("u32", u32).With("u64", u64)
+Print(JsonLine(LogRecord(at, LogLevel.INFO, "m", "integers", whole.Fields)))
 
 // A new filter goes for the lines after it, and Clear leaves the lines going nowhere.
 output.Filter = LogFilter.At(LogLevel.ERROR)

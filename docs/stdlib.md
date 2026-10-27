@@ -804,8 +804,10 @@ Step 18 built `Logger`, its levels, filters, outputs, and sinks, in std/log/; `I
 - `Logger(module)` or `Logger(module, output)`, a Shared Class, writes lines for a module, a name
   like "net.http" whose dots say what it's in, at `LogLevel`s, `TRACE`, `DEBUG`, `INFO`, `WARN`,
   and `ERROR`: `Trace(message)` to `Error(message)`, `Log(level, message)`, and `IsEnabled(level)`.
-  `With(name, value)`, of a String, an integer, a Double, or a Bool, gives a Logger whose lines
-  have that field too, after its others, so threads never change one another's.
+  `With(name, value)`, of a String, an integer of any of the eight types, a Double, or a Bool,
+  gives a Logger whose lines have that field too, after its others, so threads never change one
+  another's. A console line quotes a field's name, as it does a value, where it has a space, a
+  quote, an '=', or a control character.
 - A `LogOutput(filter)`, a Shared Class, gives each `LogRecord` (`Time`, `Level`, `Module`,
   `Message`, and `Fields`, `LogField`s) its `LogFilter` writes to its sinks, in the order `Add`
   gave them; `Clear()`, and `Filter`, which a program can replace as it runs. A sink is a

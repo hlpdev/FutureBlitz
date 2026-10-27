@@ -28,8 +28,8 @@ Public Function JsonLinesSink(write: Sendable Func(String)): Sendable Func(LogRe
 End Function
 
 // The line as the console's sink writes it: its time in UTC, to the millisecond, its level, its
-// module, its message, and its fields, as name=value, where a value with a space, a quote, an
-// '=', or a control character, or none, is quoted, as JSON quotes it:
+// module, its message, and its fields, as name=value, where a name or a value with a space, a
+// quote, an '=', or a control character, or none, is quoted, as JSON quotes it:
 // "2026-10-24T04:12:00.123Z INFO  net.http: connected host=example.com port=443". The message's
 // control characters but a tab are escaped as JSON escapes them, so a line stays one line.
 Public Function LogLine(record: LogRecord, times: Bool = True, colors: Bool = False): String
@@ -45,9 +45,11 @@ Public Function LogLine(record: LogRecord, times: Bool = True, colors: Bool = Fa
 
     line += " {Escaped(record.Module, False)}: {Escaped(record.Message, False)}"
     For field In record.Fields
+        Local name = field.Name
+        If NeedsQuotes(name) Then name = Escaped(name, True)
         Local value = field.Text
         If NeedsQuotes(value) Then value = Escaped(value, True)
-        line += " {field.Name}={value}"
+        line += " {name}={value}"
     End For
     Return line
 End Function
