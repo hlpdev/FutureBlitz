@@ -94,6 +94,13 @@ class quick_tests_t(unittest.TestCase):
         verify.PROGRAMS, verify.only = self.saved
         self.folder.cleanup()
 
+    def test_a_change_in_a_programs_own_folder_is_a_change_to_it(self) -> None:
+        programs = verify.PROGRAMS
+        changed = [programs / "embed" / "hello.txt", programs / "plain.out",
+                   programs / "notes.txt", programs / "gone" / "data.bin",
+                   programs.parent / "elsewhere.fb"]
+        self.assertEqual(verify.changed_programs(changed), {"embed", "plain"})
+
     def test_a_changed_release_program_is_checked_in_release_mode(self) -> None:
         # What the steps build, without building it.
         class built_t:

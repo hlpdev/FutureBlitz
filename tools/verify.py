@@ -7,9 +7,10 @@ changed since the base. CI runs it without the last two.
                            [--quick] [--jobs N]
 
 --quick is a lane's own check: the unit tests, and only the test programs that changed since the
-base, in debug, release, and many times over; the landing CI runs the whole of it. The programs
-build and run --jobs at a time, each run in an empty folder of its own, and each step's failures
-come out by program once it's done.
+base, or whose own folder did, as the program tests build them (a release_ one in release mode),
+in release, and many times over; the landing CI runs the whole of it. The programs build and run
+--jobs at a time, each run in an empty folder of its own, for at most RUN_LIMIT seconds, and each
+step's failures come out by program once it's done.
 
 clang-format and clang-tidy come from $CLANG_FORMAT and $CLANG_TIDY, or else from PATH.
 """
@@ -207,6 +208,21 @@ def programs() -> list[str]:
     return sorted(path.stem for path in PROGRAMS.glob("*.fb") if only is None or path.stem in only)
 
 
+def changed_programs(paths: list[Path]) -> set[str]:
+    """The test programs that changed paths are of: a program's .fb, .out, or .in, or a file in
+    its own folder, tests/programs/<name>/, which has its modules, what it embeds, and its data."""
+    names: set[str] = set()
+    for path in paths:
+        if not path.is_relative_to(PROGRAMS):
+            continue
+        parts = path.relative_to(PROGRAMS).parts
+        name = Path(parts[0]).stem if len(parts) == 1 else parts[0]
+        if (len(parts) > 1 or Path(parts[0]).suffix in (".fb", ".out", ".in")) \
+                and (PROGRAMS / f"{name}.fb").exists():
+            names.add(name)
+    return names
+
+
 def check_debug(built: programs_t) -> None:
     step("changed test programs built as the program tests build them")
     names = programs()
@@ -327,9 +343,7 @@ def main() -> int:
     options = parser.parse_args()
     if options.quick:
         global only
-        only = {path.stem for path in changed_files(options.base)
-                if path.parent == PROGRAMS and path.suffix in (".fb", ".out", ".in")
-                and (PROGRAMS / f"{path.stem}.fb").exists()}
+        only = changed_programs(changed_files(options.base))
     build = options.build.resolve()
     fb = executable(build / "cli" / "fb")
     global http_server, jobs
