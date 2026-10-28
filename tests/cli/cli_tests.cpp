@@ -2660,6 +2660,70 @@ TEST_CASE("a beside library's own dependencies go in the executable or beside it
     }
 }
 
+TEST_CASE("a generic instance made on both sides of a beside library is one type", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "beside_edge";
+    std::filesystem::remove_all(folder);
+    const folder_writer_t write{ folder };
+    write("lib/project.toml",
+          "[project]\nname = \"lib\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("lib/lib.fb", "Import std.collections\n"
+                        "Public Interface Shape\n"
+                        "    Method Area(): Int\n"
+                        "End Interface\n"
+                        "Public Interface Boxed\n"
+                        "End Interface\n"
+                        "Public Class Box<T> Implements Boxed\n"
+                        "    Public Field Value: T\n"
+                        "    Public New(value: T)\n"
+                        "        Self.Value = value\n"
+                        "    End New\n"
+                        "End Class\n"
+                        "Public Function IntBox(): Box<Int> => Box<Int>(4)\n"
+                        "Public Function StringBox(): Box<String> => Box<String>(\"s\")\n"
+                        "Public Function IsInts(b: Boxed): Bool => b Is Box<Int>\n"
+                        "Public Function Names(): Deque<String>\n"
+                        "    Local names = Deque<String>()\n"
+                        "    names.Add(\"a\")\n"
+                        "    Return names\n"
+                        "End Function\n"
+                        "Public Function Total(items: Deque<String>): Int => items.Count\n"
+                        "Public Function AreaOf(shape: Shape): Int => shape.Area()\n");
+    write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\n"
+                              "lib = { path = \"../lib\", link = \"beside\" }\n");
+    // Box<Int>, Box<String>, and Deque<String> are each made on both sides, and an Interface
+    // that one side declares the other implements.
+    write("app/main.fb", "Import std.core\n"
+                         "Import std.collections\n"
+                         "Import lib\n"
+                         "Class Square Implements Shape\n"
+                         "    Method Area(): Int => 9\n"
+                         "End Class\n"
+                         "Local mine: Boxed = Box<Int>(2)\n"
+                         "Local theirs: Boxed = IntBox()\n"
+                         "Local strings: Boxed = StringBox()\n"
+                         "Print(\"{IsInts(mine)} {IsInts(strings)} {theirs Is Box<Int>} "
+                         "{theirs Is Box<String>} {strings Is Box<String>}\")\n"
+                         "Local names = Names()\n"
+                         "names.Add(\"b\")\n"
+                         "Local more = Deque<String>()\n"
+                         "more.Add(\"c\")\n"
+                         "Print(\"{Total(names)} {Total(more)} {AreaOf(Square())}\")\n"
+                         "Print(\"{IntBox():?} {names:?}\")\n");
+    for (const bool release : { false, true }) {
+        std::vector<std::string> arguments{ "run", fb::to_utf8(folder / "app") };
+        if (release) {
+            arguments.emplace_back("--release");
+        }
+
+        const fb::process_result_t ran = fb_run(arguments);
+        INFO(ran.output);
+        CHECK(ran.output.contains("True False True False True\n"
+                                  "2 1 9\n"
+                                  "Box<Int32> { Value: 4 } Deque<String> [\"a\", \"b\"]\n"));
+        CHECK_FALSE(ran.output.contains("leak"));
+    }
+}
+
 namespace {
 
 /// The file a library beside the executable is, by the OS's names for one.
