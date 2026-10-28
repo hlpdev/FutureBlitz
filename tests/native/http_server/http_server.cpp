@@ -30,6 +30,7 @@
 #include <cwchar>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <map>
 #include <mbedtls/ssl.h>
@@ -92,6 +93,26 @@ void close_socket(const socket_t socket) {
     std::_Exit(2);
 }
 
+/// Where trace() writes, the file FB_HTTP_TEST_LOG names, or none.
+std::FILE* trace_file = nullptr;
+std::mutex trace_lock;
+
+/// Adds a line to the trace, if there is one: the milliseconds since the server started, the
+/// thread, and `what`, as each accept, connection, and request comes, to look into a hang.
+void trace(const std::string& what) {
+    if (trace_file == nullptr) {
+        return;
+    }
+
+    static const auto started = std::chrono::steady_clock::now();
+    const auto since = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+    const std::scoped_lock lock(trace_lock);
+    std::fprintf(trace_file, "%lld %zu %s\n", static_cast<long long>(since.count()),
+                 std::hash<std::thread::id>{}(std::this_thread::get_id()), what.c_str());
+    std::fflush(trace_file);
+}
+
 std::string read_file(const char* path) {
     std::ifstream file(path, std::ios::binary);
     if (!file) {
@@ -108,7 +129,12 @@ public:
     connection_t(const connection_t&) = delete;
     connection_t& operator=(const connection_t&) = delete;
     virtual ~connection_t() {
+        trace("close " + std::to_string(m_socket));
         close_socket(m_socket);
+    }
+
+    [[nodiscard]] socket_t socket() const {
+        return m_socket;
     }
 
     /// Up to `size` bytes, 0 at the end, or below 0 when reading failed.
@@ -772,6 +798,8 @@ std::pair<response_t, after_t> answer(const request_t& request) {
 void serve(std::unique_ptr<connection_t> connection) {
     std::string buffer;
     while (const std::optional<request_t> request = read_request(*connection, buffer)) {
+        trace("request " + std::to_string(connection->socket()) + " " + request->method + " " +
+              request->target);
         auto [response, then] = answer(*request);
         if (then == after_t::RESET) {
             connection->reset();
@@ -1050,10 +1078,13 @@ void accept_all(const socket_t listener, const tls_config_t* tls) {
     while (true) {
         const socket_t socket = accept(listener, nullptr, nullptr);
         if (socket == no_socket) {
+            trace("accept failed on " + std::to_string(listener));
             continue;
         }
 
+        trace("accept " + std::to_string(socket) + " on " + std::to_string(listener));
         std::thread([socket, tls] {
+            trace("serve " + std::to_string(socket));
             if (tls == nullptr) {
                 serve(std::make_unique<plain_t>(socket));
                 return;
@@ -1231,6 +1262,10 @@ int run(const char* program, const std::string& input) {
 int main(const int count, char** arguments) {
     if (count != 2) {
         fail("usage: fb_http_test_server <program>");
+    }
+
+    if (const char* log = std::getenv("FB_HTTP_TEST_LOG"); log != nullptr && *log != '\0') {
+        trace_file = std::fopen(log, "w");
     }
 
 #ifdef _WIN32
