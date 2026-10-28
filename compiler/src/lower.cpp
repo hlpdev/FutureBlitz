@@ -225,8 +225,8 @@ public:
         // A library's build has its own modules' code, and its Classes' debug forms, which the
         // programs that link it can show, as a program that links a library's has every one's.
         m_module.library = library.has_value();
-        m_debug_used =
-            m_module.library || std::ranges::any_of(ast.modules().modules(), is_external);
+        m_links = m_module.library || std::ranges::any_of(ast.modules().modules(), is_external);
+        m_debug_used = m_links;
         for (const module_t& module : ast.modules().modules()) {
             if (library && !module.is_main &&
                 ast.modules().package_name(module.package) == *library &&
@@ -521,6 +521,9 @@ private:
     /// Whether the program shows a debug form, so each Class's objects have one, and each array
     /// type's that goes where an Interface is expected.
     bool m_debug_used = false;
+    /// Whether the build links with other binaries: a library's, or a program that uses one
+    /// prebuilt or beside the executable.
+    bool m_links = false;
 
     /// What an Interface's table runs for a Method that isn't called the way the Interface's
     /// is: one that gives a Struct where the Interface's gives an Iterator<T>, as a collection's
@@ -694,11 +697,18 @@ private:
             .is_thread_local = thread_local_global,
             .order = m_item_order.at(expect(symbol.declaration)),
             .linkage = linkage,
-            .beside =
-                linkage == mir_linkage_t::IMPORTED ? beside_of(module_of(symbol)) : std::nullopt,
         });
+        if (linkage == mir_linkage_t::IMPORTED) {
+            note_beside(module_of(symbol));
+        }
+
         if (runs && thread_local_global) {
             m_thread_local_declarations[global] = expect(symbol.declaration);
+            // What makes a shared one is the same in each build, which may not use it, so the
+            // one kept runs its initializer.
+            if (m_links && linkage == mir_linkage_t::SHARED) {
+                use_thread_local(global);
+            }
         }
 
         return global;
@@ -852,7 +862,7 @@ private:
 
         m_module.functions.push_back(std::move(declared));
         if (m_module.functions.back().linkage == mir_linkage_t::IMPORTED) {
-            m_module.functions.back().beside = beside_of(module_of(symbol));
+            note_beside(module_of(symbol));
             declare_parameters(function, id);
         }
 
@@ -961,21 +971,17 @@ private:
                                    type_parameters_of(symbol).empty()));
     }
 
-    /// The library beside the executable whose file a module's code is in, by its index in the
-    /// MIR module's `beside`, which it's added to.
-    std::optional<std::uint32_t> beside_of(const module_t* module) {
+    /// Adds the library beside the executable whose file a module's code is in, if it is, to the
+    /// MIR module's `beside`.
+    void note_beside(const module_t* module) {
         if (module == nullptr || !module->beside) {
-            return std::nullopt;
+            return;
         }
 
         const std::string& name = m_ast.modules().package_name(module->package);
-        auto found = std::ranges::find(m_module.beside, name);
-        if (found == m_module.beside.end()) {
+        if (!std::ranges::contains(m_module.beside, name)) {
             m_module.beside.push_back(name);
-            found = std::prev(m_module.beside.end());
         }
-
-        return static_cast<std::uint32_t>(found - m_module.beside.begin());
     }
 
     /// How a declared function is linked: a prebuilt library's from its binary, the main module's
@@ -2506,16 +2512,14 @@ private:
     /// the initializer its binary has for its Globals.
     void call_prebuilt_initializer(const module_t& module, const std::uint32_t place) {
         const auto function = static_cast<function_id_t>(m_module.functions.size());
-        const std::optional<std::uint32_t> beside = beside_of(&module);
+        note_beside(&module);
         m_module.functions.push_back({
             .name = std::format("{}.(init)", module.name),
             .linkage = mir_linkage_t::IMPORTED,
-            .beside = beside,
         });
         m_module.modules.push_back({
             .name = module.name,
             .initializer = function,
-            .beside = beside,
             .order = place,
         });
         emit(evaluate_t{ call_t{ .function = function } });

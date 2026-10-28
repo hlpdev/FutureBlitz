@@ -235,10 +235,12 @@ std::expected<void, std::string> move_output(const std::filesystem::path& linked
 std::expected<void, std::string> run_linker(std::vector<std::string> arguments,
                                             const std::filesystem::path& output,
                                             link_folder_t& folder) {
+    // It keeps its name there, which an executable's import library records.
     std::optional<std::filesystem::path> linked;
 #ifdef _WIN32
     if (!is_ascii(to_utf8(output))) {
-        linked = folder.file(output.extension());
+        linked = is_ascii(to_utf8(output.filename())) ? folder.path() / output.filename()
+                                                      : folder.file(output.extension());
     }
 #endif
     arguments.emplace_back("-o");
@@ -314,15 +316,23 @@ void link_system(const native_libraries_t& natives, std::vector<std::string>& ar
     }
 }
 
-/// Where the OS finds a library's dynamic natives: beside it. Windows looks there anyway.
-void find_beside(const native_libraries_t& natives, std::vector<std::string>& arguments) {
-    if (!natives.dynamic.empty()) {
-#ifdef __APPLE__
-        arguments.emplace_back("-Wl,-rpath,@loader_path");
-#elifndef _WIN32
-        arguments.emplace_back("-Wl,-rpath,$ORIGIN");
-#endif
+/// The option by which the OS finds a library's dynamic natives beside it, where it has any.
+/// Windows looks there anyway.
+std::optional<std::string> find_beside(const native_libraries_t& natives) {
+#ifdef _WIN32
+    (void)natives;
+    return std::nullopt;
+#else
+    if (natives.dynamic.empty()) {
+        return std::nullopt;
     }
+
+#ifdef __APPLE__
+    return "-Wl,-rpath,@loader_path";
+#else
+    return "-Wl,-rpath,$ORIGIN";
+#endif
+#endif
 }
 
 } // namespace
@@ -360,13 +370,26 @@ std::expected<void, std::string> link_program(const std::span<const std::filesys
     }
 
     link_system(natives, arguments);
-    find_beside(natives, arguments);
+    if (std::optional<std::string> found = find_beside(natives)) {
+        arguments.push_back(std::move(*found));
+    }
     // The libraries beside it take what they use from its own symbols, the runtime functions
     // they call among them, which it links for them.
+    // On Windows they name it in their imports by its file's name, which has to be ASCII, and
+    // its import library is written in the link's folder, whose path the linker can read.
+    std::optional<std::filesystem::path> import_library;
     if (exports != nullptr) {
 #ifdef _WIN32
+        if (!is_ascii(to_utf8(output.filename()))) {
+            return std::unexpected(std::format(
+                "the executable's name, {}, has to be ASCII, since the libraries beside it "
+                "take their code from it by that name",
+                to_utf8(output.filename())));
+        }
+
+        import_library = folder.file(".a");
         arguments.emplace_back("-Wl,--export-all-symbols");
-        arguments.push_back("-Wl,--out-implib," + linker_path(exports->import_library, folder));
+        arguments.push_back("-Wl,--out-implib," + to_utf8(*import_library));
 #elifdef __APPLE__
         arguments.emplace_back("-Wl,-export_dynamic");
 #else
@@ -384,13 +407,18 @@ std::expected<void, std::string> link_program(const std::span<const std::filesys
         }
     }
 
-    return run_linker(std::move(arguments), output, folder);
+    if (std::expected<void, std::string> linked = run_linker(std::move(arguments), output, folder);
+        !linked || !import_library) {
+        return linked;
+    }
+
+    return move_output(*import_library, exports->import_library);
 }
 
-std::expected<void, std::string> link_beside(const std::span<const std::filesystem::path> objects,
-                                             const native_libraries_t& natives,
-                                             const std::filesystem::path& import_library,
-                                             const std::filesystem::path& written) {
+std::expected<void, std::string>
+link_beside(const std::span<const std::filesystem::path> objects, const native_libraries_t& natives,
+            const std::span<const std::filesystem::path> import_libraries,
+            const std::filesystem::path& written, const std::filesystem::path& import_library) {
     link_folder_t folder;
     std::vector<std::string> arguments;
 #ifdef __APPLE__
@@ -399,6 +427,15 @@ std::expected<void, std::string> link_beside(const std::span<const std::filesyst
     arguments.emplace_back("-Wl,-undefined,dynamic_lookup");
 #else
     arguments.emplace_back("-shared");
+#endif
+#ifdef _WIN32
+    // It exports its own code: a name with ", " in it can't go as an /export directive.
+    const std::filesystem::path written_library = folder.file(".a");
+    arguments.emplace_back("-Wl,--export-all-symbols");
+    arguments.push_back("-Wl,--out-implib," + to_utf8(written_library));
+#elifndef __APPLE__
+    // Its calls of its own code stay its own.
+    arguments.emplace_back("-Wl,-Bsymbolic");
 #endif
     for (const std::filesystem::path& object : objects) {
         arguments.push_back(linker_path(object, folder));
@@ -410,13 +447,27 @@ std::expected<void, std::string> link_beside(const std::span<const std::filesyst
 
     link_dynamic(natives, folder, arguments);
 #ifdef _WIN32
-    arguments.push_back(linker_path(import_library, folder));
+    for (const std::filesystem::path& library : import_libraries) {
+        arguments.push_back(linker_path(library, folder));
+    }
 #else
+    (void)import_libraries;
     (void)import_library;
 #endif
     link_system(natives, arguments);
-    find_beside(natives, arguments);
+    if (std::optional<std::string> found = find_beside(natives)) {
+        arguments.push_back(std::move(*found));
+    }
+#ifdef _WIN32
+    if (std::expected<void, std::string> linked = run_linker(std::move(arguments), written, folder);
+        !linked) {
+        return linked;
+    }
+
+    return move_output(written_library, import_library);
+#else
     return run_linker(std::move(arguments), written, folder);
+#endif
 }
 
 } // namespace fb

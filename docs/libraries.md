@@ -69,6 +69,7 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
   as a package's native DLL of the same name: the build stops with an error naming both.
 - A beside library's own dependencies are in the executable, with std, unless the program lists
   them beside too; either way each package is in one place, and the library uses them from it.
+  Its static natives are in the executable too.
 
 ## The ABI
 
@@ -86,10 +87,14 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
   and the library links against its import library, so the executable keeps its built name; on
   Linux the executable's symbols are dynamic (`-rdynamic`); on macOS the library is linked with
   `-undefined dynamic_lookup` against the executable's exports, since `-bundle_loader` can't build
-  a dylib.
-- A Global crosses a binary's edge as accessor functions, not as data.
-- A generic type's instance made in two binaries is one type: the runtime registers each Class by
-  its full name, so `Is`, casts, and Interface tables agree across binaries.
+  a dylib. The library exports all of its own code, since a name with ", " in it can't go as an
+  /export directive, and one beside library takes another's from that one: on Windows through
+  its import library, and elsewhere as the executable loads that one first, with RTLD_GLOBAL.
+- A Global crosses a binary's edge as accessor functions, not as data, and so does a ThreadLocal
+  of the executable's that a library uses, since Windows can't import one.
+- A generic type's instance made in two binaries is one type: the executable links each beside
+  library's bitcode for the code it shares, so every instance and type record is the
+  executable's, which each binary uses, and `Is`, casts, and Interface tables agree across them.
 - A Class can extend a library's Class across the edge, its base New and Method table coming from
   the library.
 - Debug and release builds of a library differ (panics, checks), so a binary package ships both,

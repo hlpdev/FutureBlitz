@@ -2659,3 +2659,325 @@ TEST_CASE("a beside library's own dependencies go in the executable or beside it
         }
     }
 }
+
+namespace {
+
+/// The file a library beside the executable is, by the OS's names for one.
+std::string library_file(const std::string_view name) {
+#ifdef _WIN32
+    return std::format("{}.dll", name);
+#elifdef __APPLE__
+    return std::format("lib{}.dylib", name);
+#else
+    return std::format("lib{}.so", name);
+#endif
+}
+
+} // namespace
+
+TEST_CASE("a library's code runs beside the executable as it does embedded", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "beside_runs";
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder);
+    const folder_writer_t write{ folder };
+    std::filesystem::copy(std::filesystem::path(FB_TEST_PACKAGES) / "vmath", folder / "vmath",
+                          std::filesystem::copy_options::recursive);
+    const std::filesystem::path archive(FB_TEST_VECMATH);
+    std::filesystem::create_directories(folder / "vmath" / "libs");
+    std::filesystem::copy_file(archive, folder / "vmath" / "libs" / archive.filename());
+    write("ut/project.toml", "[project]\nname = \"ut\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("ut/ut.fb", "Function Seed(): Int => 40 + 2\n"
+                      "Public ThreadLocal Global Tl: Int = Seed()\n");
+    // Functions of two parameters, Methods, and Operators, large results, a Struct Global's
+    // Fields, a ThreadLocal of a package and of std's that only the library uses, a static
+    // library of a package it uses, and a system library's Extern that the program calls.
+    write("lib/project.toml",
+          "[project]\nname = \"lib\"\nversion = \"0.1.0\"\ntype = \"library\"\n\n"
+          "[dependencies]\nut = { path = \"../ut\" }\nvmath = { path = \"../vmath\" }\n\n"
+          "[native]\nm = { system = \"m\" }\n");
+    write("lib/lib.fb", "Import std.math\n"
+                        "Import ut\n"
+                        "Import vmath\n"
+                        "Public Struct Big\n"
+                        "    Public Field A: Int\n"
+                        "    Public Field B: Int\n"
+                        "    Public Field C: Int\n"
+                        "    Public Field D: Int\n"
+                        "    Public Field E: Int\n"
+                        "End Struct\n"
+                        "Public Global Origin: Big = Big(1, 2, 3, 4, 5)\n"
+                        "Public Extern \"C\" Lib \"m\"\n"
+                        "    Function cbrt(x: Float64): Float64\n"
+                        "End Extern\n"
+                        "Public Function Root<T>(x: T): Float64 => cbrt(27.0)\n"
+                        "Public Function Sum(a: Int32, b: Int32): Int32 => Add(a, b)\n"
+                        "Public Function Quad(n: Int): (Int, Int, Int, Int) => (n, n, n, n)\n"
+                        "Public Function Make(n: Int): Big => Big(n, n, n, n, n)\n"
+                        "Public Class Box\n"
+                        "    Public Field N: Int = 1\n"
+                        "    Public Method Total(a: Int, b: Int): Int => a + b + N\n"
+                        "    Operator +(a: Box, b: Box): Int => a.N + b.N\n"
+                        "End Class\n"
+                        "Public Function Roll(): Bool => Rand() != Rand()\n"
+                        "Public Function Run(): Int\n"
+                        "    Tl += 10\n"
+                        "    Return Tl\n"
+                        "End Function\n");
+    write("game/main.fb",
+          "Import std.core\n"
+          "Import lib\n"
+          "Origin.B = 20\n"
+          "Print(\"{Sum(2, 3)} {Quad(3).1} {Make(7).E} {Box().Total(1, 2)} "
+          "{Box() + Box()} {Origin.B} {Origin.E}\")\n"
+          "Print(\"{Roll()} {Run()} {Run()} {Spawn(Function() => Run()).Wait()}\")\n"
+          "Print(\"{cbrt(8.0)} {Root(1)}\")\n");
+    const std::string printed = "5 3 7 4 2 20 5\n"
+                                "True 52 62 52\n"
+                                "2 3\n";
+    prebuild(folder, "lib");
+    for (const std::string_view from : { "lib", "lib-prebuilt" }) {
+        for (const std::string_view link : { "embed", "beside" }) {
+            write("game/project.toml",
+                  std::format("[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n"
+                              "[dependencies]\nlib = {{ path = \"../{}\", link = \"{}\" }}\n",
+                              from, link));
+            // The prebuilt library is a debug build.
+            for (const bool release : { false, true }) {
+                if (release && from == "lib-prebuilt") {
+                    continue;
+                }
+
+                std::vector<std::string> arguments{ "run", fb::to_utf8(folder / "game") };
+                if (release) {
+                    arguments.emplace_back("--release");
+                }
+
+                const fb::process_result_t ran = fb_run(arguments);
+                INFO(from << ' ' << link << ' ' << release << ' ' << ran.output);
+                CHECK(ran.output.contains(printed));
+                CHECK_FALSE(ran.output.contains("leak"));
+            }
+        }
+    }
+
+    // fb build says which files go beside the executable, and the bundled libraries only a
+    // library beside it calls. Its LLVM IR shows the library's functions as declarations.
+    write("hash/project.toml",
+          "[project]\nname = \"hash\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("hash/hash.fb", "Import std.crypto.checksums\n"
+                          "Public Function H(): UInt64 => XxHash.Hash(\"abc\".Bytes)\n");
+    write("hashed/project.toml",
+          "[project]\nname = \"hashed\"\nversion = \"0.1.0\"\n\n"
+          "[dependencies]\nhash = { path = \"../hash\", link = \"beside\" }\n");
+    write("hashed/main.fb", "Import std.core\nImport hash\nPrint(\"{H() > 0}\")\n");
+    const fb::process_result_t built = fb_run({ "build", fb::to_utf8(folder / "hashed") });
+    INFO(built.output);
+    CHECK(built.exit_code == 0);
+    CHECK(built.output.contains(
+        std::format("Built {} beside the executable, which needs it\n", library_file("hash"))));
+    CHECK(built.output.contains("Bundled xxHash "));
+    const fb::process_result_t shown =
+        fb_run({ "build", fb::to_utf8(folder / "hashed"), "--show", "llvm" });
+    INFO(shown.output);
+    CHECK(shown.exit_code == 0);
+    CHECK(shown.output.contains("declare i64 @\"fb.hash.hash.H()\"()"));
+}
+
+TEST_CASE("libraries beside the executable use each other's code and Globals", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "beside_both";
+    std::filesystem::remove_all(folder);
+    const folder_writer_t write{ folder };
+    write("util/project.toml",
+          "[project]\nname = \"util\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("util/util.fb", "Import std.core\n"
+                          "Function Make(): Int\n"
+                          "    Print(\"util init\")\n"
+                          "    Return 7\n"
+                          "End Function\n"
+                          "Public Global Base: Int = Make()\n"
+                          "Global hidden: Int = Make() + 1\n"
+                          "Public ThreadLocal Global Count: Int = Make() * 2\n"
+                          "Public Function Hidden(): Int => hidden\n"
+                          "Public Function Times(a: Int, b: Int): Int => a * b\n");
+    write("engine/project.toml", "[project]\nname = \"engine\"\nversion = \"0.1.0\"\ntype = "
+                                 "\"library\"\n\n[dependencies]\nutil = { path = \"../util\" }\n");
+    write("engine/engine.fb", "Import std.core\n"
+                              "Import util\n"
+                              "Global scaled: Int = Times(Base, 10)\n"
+                              "Public Function Run(): Int\n"
+                              "    Count += 1\n"
+                              "    Return scaled + Hidden() + Count\n"
+                              "End Function\n");
+    write("game/main.fb", "Import std.core\n"
+                          "Import engine\n"
+                          "Import util\n"
+                          "Base += 1\n"
+                          "Print(\"main {Run()} {Run()} {Base} {Count}\")\n");
+    // util's Globals are one copy, set once, wherever each library is listed.
+    for (const std::string_view order : { "util engine", "engine util" }) {
+        for (const std::string_view util : { "beside", "embed" }) {
+            const std::string engine_line =
+                "engine = { path = \"../engine\", link = \"beside\" }\n";
+            const std::string util_line =
+                std::format("util = {{ path = \"../util\", link = \"{}\" }}\n", util);
+            write("game/project.toml",
+                  "[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n[dependencies]\n" +
+                      (order == "util engine" ? util_line + engine_line : engine_line + util_line));
+            for (const bool release : { false, true }) {
+                std::vector<std::string> arguments{ "run", fb::to_utf8(folder / "game") };
+                if (release) {
+                    arguments.emplace_back("--release");
+                }
+
+                const fb::process_result_t ran = fb_run(arguments);
+                INFO(order << ' ' << util << ' ' << release << ' ' << ran.output);
+                CHECK(ran.output.contains("util init\nutil init\nutil init\nmain 93 94 8 16\n"));
+            }
+        }
+    }
+}
+
+TEST_CASE("fb names what keeps a library beside the executable from building or loading", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "beside_names";
+    std::filesystem::remove_all(folder);
+    const folder_writer_t write{ folder };
+    write("lib/project.toml",
+          "[project]\nname = \"lib\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("lib/lib.fb", "Public Function F(n: Int): Int => n + 1\n");
+    const std::string uses_lib = "[dependencies]\nlib = { path = \"../lib\", link = \"beside\" }\n";
+
+    // Two of one name but for letter case, which on Windows can't be two folders either.
+    write("upper/project.toml",
+          "[project]\nname = \"Lib\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("upper/lib.fb", "Public Function G(): Int => 1\n");
+    write("cased/project.toml", "[project]\nname = \"cased\"\nversion = \"0.1.0\"\n\n" + uses_lib +
+                                    "Lib = { path = \"../upper\", link = \"beside\" }\n");
+    write("cased/main.fb", "Import std.core\nImport lib\nImport Lib\nPrint(\"{F(1)} {G()}\")\n");
+    const fb::process_result_t cased = fb_run({ "build", fb::to_utf8(folder / "cased") });
+    CHECK(cased.exit_code == 1);
+    CHECK(cased.output.contains(std::format(
+        "error: the libraries Lib and lib would both go beside the executable as {}; rename one",
+        library_file("lib"))));
+
+    // A library named after a system library of its own.
+#ifdef _WIN32
+    const std::string_view system = "dwmapi";
+#else
+    const std::string_view system = "z";
+#endif
+    write(std::format("{}/project.toml", system),
+          std::format("[project]\nname = \"{0}\"\nversion = \"0.1.0\"\ntype = \"library\"\n\n"
+                      "[native]\n{0} = {{ system = \"{0}\" }}\n",
+                      system));
+    write(std::format("{}/k.fb", system), "Public Function K(): Int => 1\n");
+    write("taken/project.toml",
+          std::format("[project]\nname = \"taken\"\nversion = \"0.1.0\"\n\n[dependencies]\n"
+                      "{0} = {{ path = \"../{0}\", link = \"beside\" }}\n",
+                      system));
+    write("taken/main.fb", std::format("Import std.core\nImport {}\nPrint(\"{{K()}}\")\n", system));
+    const fb::process_result_t taken = fb_run({ "build", fb::to_utf8(folder / "taken") });
+    INFO(taken.output);
+    CHECK(taken.exit_code == 1);
+    CHECK(taken.output.contains(
+        std::format("the library {0} would go beside the executable as {1}, which is the name of "
+                    "{0}, a library of the OS's; rename the package",
+                    system, library_file(system))));
+
+    // A program built from a main file given to it, in a package with none of its own.
+    write("given/project.toml", "[project]\nname = \"given\"\nversion = \"0.1.0\"\n\n" + uses_lib);
+    write("given/app.fb", "Import std.core\nImport lib\nPrint(\"app {F(1)}\")\n");
+    const fb::process_result_t given = fb_run({ "build", fb::to_utf8(folder / "given/app.fb") });
+    INFO(given.output);
+    CHECK(given.exit_code == 0);
+    CHECK_FALSE(given.output.contains("'link' is ignored"));
+    CHECK(std::filesystem::exists(folder / "given/build" / library_file("lib")));
+
+    // An error in a library's build is at its line, which fb check shows too.
+    write("emb/project.toml",
+          "[project]\nname = \"emb\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("emb/data.txt", "data");
+    write("emb/emb.fb", "Public Function Text<T>(x: T): String => EmbedText(\"data.txt\")\n");
+    write("embeds/project.toml",
+          "[project]\nname = \"embeds\"\nversion = \"0.1.0\"\n\n"
+          "[dependencies]\nemb = { path = \"../emb\", link = \"beside\" }\n");
+    write("embeds/main.fb", "Import std.core\nImport emb\nPrint(Text(1))\n");
+    const fb::process_result_t embeds = fb_run({ "run", fb::to_utf8(folder / "embeds") });
+    INFO(embeds.output);
+    CHECK(embeds.exit_code == 1);
+    CHECK(embeds.output.contains("error: emb, the library beside the program, can't be built: "));
+    CHECK(embeds.output.contains("emb.fb:1:42: error: the library's interface file keeps this "
+                                 "code"));
+    const fb::process_result_t checked = fb_run({ "check", fb::to_utf8(folder / "emb") });
+    CHECK(checked.exit_code == 1);
+    CHECK(checked.output.contains("emb.fb:1:42: error: the library's interface file keeps this "
+                                  "code"));
+
+    // A library's file that can't be written leaves no executable that would need it.
+    write("blocked/project.toml",
+          "[project]\nname = \"blocked\"\nversion = \"0.1.0\"\n\n" + uses_lib);
+    write("blocked/main.fb", "Import std.core\nImport lib\nPrint(\"{F(1)}\")\n");
+    std::filesystem::create_directories(folder / "blocked/build" / library_file("lib"));
+    const fb::process_result_t blocked = fb_run({ "build", fb::to_utf8(folder / "blocked") });
+    INFO(blocked.output);
+    CHECK(blocked.exit_code == 1);
+    std::filesystem::path unneeded = folder / "blocked/build/blocked";
+    unneeded += fb::executable_extension;
+    CHECK_FALSE(std::filesystem::exists(unneeded));
+
+    // Two programs of one package share its build folder, and a library built for the other
+    // stops the first by name, on Windows, where it takes its code from it by its name.
+    write("two/project.toml", "[project]\nname = \"two\"\nversion = \"0.1.0\"\n\n" + uses_lib);
+    write("two/main.fb", "Import std.core\nImport lib\nPrint(\"two {F(1)}\")\n");
+    write("two/tool.fb", "Import std.core\nImport lib\nPrint(\"tool {F(2)}\")\n");
+    REQUIRE(fb_run({ "build", fb::to_utf8(folder / "two") }).exit_code == 0);
+    REQUIRE(fb_run({ "build", fb::to_utf8(folder / "two/tool.fb") }).exit_code == 0);
+    std::filesystem::path two = folder / "two/build/two";
+    two += fb::executable_extension;
+    std::filesystem::path tool = folder / "two/build/tool";
+    tool += fb::executable_extension;
+    const std::vector<std::string> none;
+    CHECK(fb::run_process(tool, none).value_or(fb::process_result_t{}).output == "tool 3\n");
+    const fb::process_result_t first =
+        fb::run_process(two, none).value_or(fb::process_result_t{ .exit_code = -1 });
+#ifdef _WIN32
+    CHECK(first.exit_code == 1);
+    CHECK(first.output.contains("lib.dll was built for tool.exe, which it takes its code from, "
+                                "not two.exe; build two.exe again\n"));
+#else
+    CHECK(first.output == "two 2\n");
+#endif
+
+#ifdef _WIN32
+    // A folder whose name isn't ASCII, or isn't in the ANSI code page, holds the program, and the
+    // build's temporary files, and its executable's name has to be ASCII.
+    const std::filesystem::path game = folder / fb::path_from_utf8("игра");
+    write("игра/project.toml", "[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n" + uses_lib);
+    write("игра/main.fb", "Import std.core\nImport lib\nPrint(\"game {F(1)}\")\n");
+    const fb::process_result_t away = fb_run({ "build", fb::to_utf8(game) });
+    INFO(away.output);
+    REQUIRE(away.exit_code == 0);
+    CHECK(fb::run_process(game / "build/game.exe", none).value_or(fb::process_result_t{}).output ==
+          "game 2\n");
+    const fb::process_result_t named = fb_run(
+        { "build", fb::to_utf8(game), "-o", fb::to_utf8(folder / fb::path_from_utf8("out/игра")) });
+    CHECK(named.exit_code == 1);
+    CHECK(named.output.contains("the executable's name, игра.exe, has to be ASCII, since the "
+                                "libraries beside it take their code from it by that name"));
+
+    // Started by its short name, it still has its own.
+    std::wstring shorter(MAX_PATH, L'\0');
+    const std::wstring full = (game / "build/game.exe").wstring();
+    shorter.resize(GetShortPathNameW(full.c_str(), shorter.data(), MAX_PATH));
+    if (!shorter.empty() && shorter != full) {
+        CHECK(fb::run_process(std::filesystem::path(shorter), none)
+                  .value_or(fb::process_result_t{})
+                  .output == "game 2\n");
+    }
+#else
+    // Started through a link, it's beside its own file still.
+    std::filesystem::create_directories(folder / "linked");
+    std::filesystem::create_symlink(tool, folder / "linked/tool");
+    CHECK(fb::run_process(folder / "linked/tool", none).value_or(fb::process_result_t{}).output ==
+          "tool 3\n");
+#endif
+}

@@ -30,6 +30,10 @@ struct beside_binary_t {
     std::string file;
     std::string build;
     std::string code;
+    /// Its own functions and Globals, which its file has and exports, as read_beside_names()
+    /// reads them.
+    std::vector<std::string> functions;
+    std::vector<std::string> globals;
 };
 
 struct codegen_options_t {
@@ -68,11 +72,17 @@ struct codegen_options_t {
 emit_bitcode(const mir_module_t& module, const source_manager_t& sources, file_id_t main,
              const codegen_options_t& options);
 
+/// Reads the names of `binary`'s own functions and Globals from its code, which every binary of
+/// the program takes from its file: another library beside the executable's, and the
+/// executable's too, through the executable. Fails when its code isn't bitcode that fb reads.
+[[nodiscard]] std::expected<void, std::string> read_beside_names(beside_binary_t& binary);
+
 /// A library beside the executable's file, as an object file at `path`: its own code, from
 /// `binary`, which takes the code it shares, the runtime's, std's, and its records, from the
 /// executable, the build it is, which the executable checks, and for each of its Globals the
 /// function that gives its address, which is how the executable reaches it. Gives the names it
-/// takes from the executable.
+/// takes from the executable. The other libraries beside it in `options` it reaches through the
+/// executable.
 [[nodiscard]] std::expected<std::vector<std::string>, std::string>
 emit_beside_object(const beside_binary_t& binary, const codegen_options_t& options,
                    const std::filesystem::path& path);

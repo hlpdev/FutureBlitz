@@ -197,17 +197,14 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
 }
 
 /// "    Finished debug build in 0.31s", then each bundled C library the program links, whose
-/// license notice the program ships: that's its author's job, and each dynamic library copied
-/// beside it, which it needs.
+/// license notice the program ships: that's its author's job, and each library beside it, and
+/// each dynamic library copied beside it, which it needs.
 void report_built(const console_t& console, const options_t& options,
-                  const compilation_t& compilation, const mir_module_t& module,
+                  const compilation_t& compilation, const program_build_t& built,
                   const std::chrono::steady_clock::time_point start) {
     const std::string_view mode = options.mode == build_mode_t::RELEASE ? "release" : "debug";
     console.status("Finished", std::format("{} build in {}", mode, seconds_since(start)));
-    // The prebuilt libraries' code links them too.
-    const std::vector<library_binary_t> binaries =
-        prebuilt_binaries(compilation).value_or(std::vector<library_binary_t>{});
-    for (const build_config::bundled_library_t* library : bundled_libraries(module, binaries)) {
+    for (const build_config::bundled_library_t* library : built.bundled) {
         // A part of another library, as mbedTLS's TLS is, has its notices on that one's line.
         if (library->notice.empty()) {
             continue;
@@ -217,6 +214,10 @@ void report_built(const console_t& console, const options_t& options,
                        std::format("{} {}, under {}; ship its notices with the program: {}",
                                    library->name, library->version, library->license,
                                    library->notice));
+    }
+
+    for (const std::string& file : built.beside) {
+        console.status("Built", std::format("{} beside the executable, which needs it", file));
     }
 
     for (const dynamic_native_t& library : compilation.natives.dynamic) {
@@ -331,12 +332,13 @@ int build(const console_t& console, const options_t& options, const compilation_
         }
     }
 
-    if (auto built = build_program(module, compilation, output, options.mode); !built) {
+    program_build_t report;
+    if (auto built = build_program(module, compilation, output, options.mode, &report); !built) {
         report_build_error(console, compilation, name, built.error());
         return compile_errors_exit_code;
     }
 
-    report_built(console, options, compilation, module, start);
+    report_built(console, options, compilation, report, start);
     return 0;
 }
 
@@ -424,15 +426,16 @@ int run(const console_t& console, const options_t& options, const compilation_t&
     program += executable_extension;
     const std::string name = to_utf8(program.filename());
 
+    program_build_t report;
     const std::expected<void, std::string> built =
-        build_program(module, compilation, program, options.mode);
+        build_program(module, compilation, program, options.mode, &report);
     if (!built) {
         remove_temporary(folder);
         report_build_error(console, compilation, shown, built.error());
         return compile_errors_exit_code;
     }
 
-    report_built(console, options, compilation, module, start);
+    report_built(console, options, compilation, report, start);
     console.status("Running", name);
     const std::expected<int, std::string> exit_code =
         run_attached(program, options.program_arguments);
@@ -548,6 +551,21 @@ int compile_command(const options_t& options) {
         return compile_errors_exit_code;
     }
 
+    // What a library's interface file can't keep, like an Embed in generic code, its build
+    // stops at, so checking it finds that too.
+    if (library && checking && package->interface.empty()) {
+        diagnostic_bag_t kept;
+        if (!write_interface(compilation, options.mode, kept, "")) {
+            for (const diagnostic_t& diagnostic : kept.diagnostics()) {
+                console_t::print_error(render_pretty(diagnostic, compilation.sources,
+                                                     { .color = console.err().color }));
+            }
+
+            console.error(std::format("{} has {}", name, count(kept.error_count(), "error")));
+            return compile_errors_exit_code;
+        }
+    }
+
     // Lowering needs a program without errors, so the MIR and LLVM IR views only print from here.
     const mir_module_t module = lower(compilation.ast, compilation.analysis);
     if (const std::optional<mir_error_t>& error = module.error) {
@@ -564,7 +582,8 @@ int compile_command(const options_t& options) {
     }
 
     if (wants(options, stage_t::LLVM)) {
-        // A prebuilt library's binary is linked into the module the view shows.
+        // A prebuilt library's binary is linked into the module the view shows; one beside the
+        // executable keeps its code in its file, so the view declares it.
         codegen_options_t codegen{ .mode = options.mode };
         const std::expected<std::vector<library_binary_t>, std::string> binaries =
             prebuilt_binaries(compilation);

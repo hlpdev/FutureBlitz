@@ -44,8 +44,9 @@ struct package_info_t {
 };
 
 /// A library the program has beside its executable, as its project.toml's `link = "beside"` says:
-/// its package's name, folder, and interface file when it's prebuilt, and the native libraries of
-/// its own, which its file links, and copies beside the executable.
+/// its package's name, folder, and interface file when it's prebuilt, and the native libraries its
+/// file links: its system and dynamic ones. Its static ones are in the executable, which it takes
+/// them from, and its dynamic ones go beside it.
 struct beside_library_t {
     std::string name;
     std::filesystem::path root;
@@ -194,13 +195,21 @@ build_library(const compilation_t& compilation, build_mode_t mode, diagnostic_ba
 [[nodiscard]] std::expected<std::vector<library_binary_t>, std::string>
 prebuilt_binaries(const compilation_t& compilation);
 
+/// What a program's build links and puts beside its executable, which `fb build` reports: the
+/// bundled C libraries its code and its libraries' call, and its libraries' files beside it.
+struct program_build_t {
+    std::vector<const build_config::bundled_library_t*> bundled;
+    std::vector<std::string> beside;
+};
+
 /// Writes an executable for a module from a compilation without errors, creating the output's
-/// folder if needed, linking the bundled C libraries it uses. The object file in between is
-/// temporary.
+/// folder if needed, linking the bundled C libraries it uses, with each library beside it, and
+/// says what it linked in `built`. The object files in between are temporary.
 [[nodiscard]] std::expected<void, std::string> build_program(const mir_module_t& module,
                                                              const compilation_t& compilation,
                                                              const std::filesystem::path& output,
-                                                             build_mode_t mode);
+                                                             build_mode_t mode,
+                                                             program_build_t* built = nullptr);
 
 /// What a failed link's errors, `failure` as build_program() gave it, are about, at the
 /// program's lines.

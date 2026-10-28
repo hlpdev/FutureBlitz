@@ -221,17 +221,21 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
   executable's exported symbols: its dynamic ones on Linux, and on macOS its exports, which a
   beside library is linked to look up as it loads; on Windows, its exports through its import
   library, by the executable's file name. A Windows executable with beside libraries therefore
-  keeps the name it was built with, and one that's renamed stops as it starts, with an error
-  naming both names.
+  keeps the name it was built with, which has to be ASCII, and one that's renamed stops as it
+  starts, with an error naming both names; a beside library built for another executable, as
+  another main file of the package builds into the same folder, stops it with an error naming
+  both. A beside library reaches another that it uses directly: on Windows through its import
+  library, and elsewhere as the executable loads that one first.
 - Across a binary's edge, code works as it does inside one: a Class can extend a library's Class,
   objects and Tasks pass either way, and a generic type's instance made in two binaries is one
   type, so `Is`, casts, and Interfaces agree. A Global of a library is reached through its
-  library, never copied.
+  library, never copied, and a ThreadLocal through the binary that has it, so each thread has
+  one of each.
 - Only a library's Public declarations are seen by its users' code; its Package ones stay in it.
 - A beside library's file can't have the name, compared ignoring letter case, of another file the
-  build puts beside the executable, such as a package's native library, of a library the
-  executable takes from the OS, or of one of Windows' known DLLs: the build stops with an error
-  naming both.
+  build puts beside the executable, such as a package's native library or another beside
+  library, of a library the executable or any library takes from the OS, or of one of Windows'
+  known DLLs: the build stops with an error naming both.
 - In a library, a main.fb is an ordinary module unless `main` is written, which is an error.
 
 ### Prebuilt libraries
@@ -286,7 +290,8 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
   Each is copied under the name the executable records for it: its SONAME on Linux, and on macOS
   its install name, which has to be `@rpath/lib<name>.dylib` or a name in `@loader_path`, or the
   build stops with an error naming the package and the file. A beside library's dynamic natives
-  are its own, and are copied beside the executable too.
+  are its own, and are copied beside the executable too; its static ones are in the executable,
+  as its dependencies are, which it takes them from, and its system libraries both link.
 - A C++ library is used through a C API (`extern "C"` functions), which fb-bindgen writes bindings
   for; there's no direct C++ interop.
 

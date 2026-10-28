@@ -529,6 +529,15 @@ void fb_load_beside(const char* executable, const char* file, const char* build,
         own.resize(own.size() * 2);
     }
 
+    // Started by its short name, it has its long one still.
+    if (const DWORD size = GetLongPathNameW(own.c_str(), nullptr, 0); size != 0) {
+        std::wstring longer(size, L'\0');
+        longer.resize(GetLongPathNameW(own.c_str(), longer.data(), size));
+        if (!longer.empty()) {
+            own = std::move(longer);
+        }
+    }
+
     const std::size_t slash = own.find_last_of(L"\\/");
     const std::wstring folder = own.substr(0, slash + 1);
     const auto narrow = [](const std::wstring& wide) {
@@ -570,6 +579,11 @@ void fb_load_beside(const char* executable, const char* file, const char* build,
     own.resize(size);
     _NSGetExecutablePath(own.data(), &size);
     own.resize(std::strlen(own.c_str()));
+    // Started through a link, it's beside the file it links to.
+    if (char* real = realpath(own.c_str(), nullptr)) {
+        own = real;
+        std::free(real);
+    }
 #else
     own.resize(4096);
     const ssize_t length = readlink("/proc/self/exe", own.data(), own.size());
@@ -577,7 +591,8 @@ void fb_load_beside(const char* executable, const char* file, const char* build,
 #endif
     (void)executable;
     const std::string shown = own.substr(0, own.find_last_of('/') + 1) + file;
-    void* library = dlopen(shown.c_str(), RTLD_NOW | RTLD_LOCAL);
+    // A library beside it that another uses is loaded first, and gives that one its code.
+    void* library = dlopen(shown.c_str(), RTLD_NOW | RTLD_GLOBAL);
     const auto find = [&](const char* name) { return dlsym(library, name); };
 #endif
     if (library == nullptr) {
@@ -585,13 +600,29 @@ void fb_load_beside(const char* executable, const char* file, const char* build,
                          shown));
     }
 
-    // It has to be the build the program was built against.
-    const auto* built = static_cast<const char*>(find("fb.(build)"));
-    if (built == nullptr || std::string_view(built) != build) {
+    // It has to be the build the program was built against, by its package's name, and on
+    // Windows built for this executable, which it takes its code from.
+    const std::string_view wanted(build);
+    const std::string record = std::format("fb.(build).{}", wanted.substr(0, wanted.find(' ')));
+    const auto* built = static_cast<const char*>(find(record.c_str()));
+    const std::string_view made = built != nullptr ? std::string_view(built) : std::string_view();
+    const std::size_t beside = made.find(" for ");
+    if (built == nullptr || made.substr(0, beside) != wanted) {
         stop(std::format("{} is the build {}, but the program was built against {}", shown,
-                         built != nullptr ? built : "of something other than a FutureBlitz library",
+                         built != nullptr ? made.substr(0, beside)
+                                          : "of something other than a FutureBlitz library",
                          build));
     }
+
+#ifdef _WIN32
+    if (const std::string_view other =
+            beside == std::string_view::npos ? std::string_view() : made.substr(beside + 5);
+        _wcsicmp(widen(other).c_str(), widen(executable).c_str()) != 0) {
+        stop(std::format("{} was built for {}, which it takes its code from, not {}; build {} "
+                         "again",
+                         shown, other, executable, executable));
+    }
+#endif
 
     for (std::int64_t i = 0; i < count; ++i) {
         slots[i] = find(names[i]);
