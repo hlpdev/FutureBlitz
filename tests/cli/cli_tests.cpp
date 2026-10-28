@@ -1000,6 +1000,29 @@ TEST_CASE("a program fb starts gets SIGPIPE at its default, though fb ignores it
 #endif
 }
 
+TEST_CASE("a program started while another runs doesn't keep the other's pipes", "[cli]") {
+#ifdef _WIN32
+    SKIP("this checks the descriptors posix_spawn passes on");
+#else
+    // Two programs started at once each kept the other's, its stdin's write end among them, so
+    // each waited for the end of input the other held, as the HTTP test servers of a test did.
+    const std::vector<std::string> lists{ "-c", "ls /dev/fd" };
+    const std::expected<fb::process_result_t, std::string> alone =
+        fb::run_process("/bin/sh", lists);
+    REQUIRE(alone);
+    std::thread other([] {
+        const std::vector<std::string> sleeps{ "-c", "sleep 1" };
+        std::ignore = fb::run_process("/bin/sh", sleeps, "");
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    const std::expected<fb::process_result_t, std::string> beside =
+        fb::run_process("/bin/sh", lists);
+    other.join();
+    REQUIRE(beside);
+    CHECK(beside->output == alone->output);
+#endif
+}
+
 namespace {
 
 /// What a program that drive() runs is sent: an interrupt, which is Ctrl+Break on Windows and

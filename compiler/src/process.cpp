@@ -27,6 +27,8 @@
 #include <csignal>
 #include <cstddef>
 #include <cstring>
+#include <fcntl.h>
+#include <mutex>
 #include <signal.h>
 #include <spawn.h>
 #include <sys/wait.h>
@@ -251,6 +253,25 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
 
 namespace {
 
+/// Held while a pipe is made and set to close on exec, and while a program starts: a program
+/// another thread starts in between would keep the pipe's ends, as two programs started at once
+/// would each other's, and wait on each other's input for good.
+std::mutex spawning;
+
+/// A pipe whose ends a program this process starts doesn't keep, but for what it dups them to.
+/// It's made under `spawning`.
+bool open_pipe(std::array<int, 2>& ends) {
+    if (pipe(ends.data()) != 0) {
+        return false;
+    }
+
+    for (const int end : ends) {
+        fcntl(end, F_SETFD, FD_CLOEXEC);
+    }
+
+    return true;
+}
+
 /// Starts a program, which isn't looked up on PATH; `actions` can be null. It starts with SIGINT,
 /// SIGQUIT, and SIGPIPE at their defaults, as one a shell starts has them, though this process
 /// ignores the first two while it waits for a program in its terminal, and SIGPIPE once it has
@@ -299,14 +320,15 @@ int wait_for(const pid_t pid) {
 std::expected<process_result_t, std::string>
 run_process(const std::filesystem::path& program, std::span<const std::string> arguments,
             const std::optional<std::string_view> input) {
+    std::unique_lock lock(spawning);
     std::array<int, 2> pipe_ends{};
-    if (pipe(pipe_ends.data()) != 0) {
+    if (!open_pipe(pipe_ends)) {
         return std::unexpected(std::strerror(errno));
     }
 
     // The input goes through a pipe of its own, whose read end is the child's stdin.
     std::array<int, 2> input_ends{ -1, -1 };
-    if (input && pipe(input_ends.data()) != 0) {
+    if (input && !open_pipe(input_ends)) {
         close(pipe_ends[0]);
         close(pipe_ends[1]);
         return std::unexpected(std::strerror(errno));
@@ -328,6 +350,7 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
 
     const std::expected<pid_t, std::string> pid = spawn(program, arguments, &actions);
     posix_spawn_file_actions_destroy(&actions);
+    lock.unlock();
     // Reading only ends once every copy of the write end is closed, and the child has its own.
     close(pipe_ends[1]);
     // The input goes in from a thread of its own while the output is read here, so neither
@@ -408,7 +431,10 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     struct sigaction quit{};
     sigaction(SIGINT, &ignore, &interrupt);
     sigaction(SIGQUIT, &ignore, &quit);
-    std::expected<int, std::string> result = spawn(program, arguments, nullptr).transform(wait_for);
+    std::unique_lock lock(spawning);
+    const std::expected<pid_t, std::string> pid = spawn(program, arguments, nullptr);
+    lock.unlock();
+    std::expected<int, std::string> result = pid.transform(wait_for);
     sigaction(SIGINT, &interrupt, nullptr);
     sigaction(SIGQUIT, &quit, nullptr);
     return result;
