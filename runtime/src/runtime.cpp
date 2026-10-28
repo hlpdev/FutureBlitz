@@ -529,12 +529,29 @@ void fb_load_beside(const char* executable, const char* file, const char* build,
         own.resize(own.size() * 2);
     }
 
-    // Started by its short name, it has its long one still.
-    if (const DWORD size = GetLongPathNameW(own.c_str(), nullptr, 0); size != 0) {
-        std::wstring longer(size, L'\0');
-        longer.resize(GetLongPathNameW(own.c_str(), longer.data(), size));
-        if (!longer.empty()) {
-            own = std::move(longer);
+    // Started through a link, or by its short name, it's its own file, by its long name.
+    if (HANDLE handle =
+            CreateFileW(own.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                        nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+        handle != INVALID_HANDLE_VALUE) {
+        std::wstring real(MAX_PATH, L'\0');
+        DWORD length =
+            GetFinalPathNameByHandleW(handle, real.data(), static_cast<DWORD>(real.size()),
+                                      FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+        if (length >= real.size()) {
+            real.resize(length);
+            length = GetFinalPathNameByHandleW(handle, real.data(), static_cast<DWORD>(real.size()),
+                                               FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+        }
+
+        CloseHandle(handle);
+        real.resize(length < real.size() ? length : 0);
+        if (real.starts_with(LR"(\\?\UNC\)")) {
+            own = LR"(\\)" + real.substr(8);
+        } else if (real.starts_with(LR"(\\?\)")) {
+            own = real.substr(4);
+        } else if (!real.empty()) {
+            own = std::move(real);
         }
     }
 
@@ -567,6 +584,12 @@ void fb_load_beside(const char* executable, const char* file, const char* build,
 
     const std::wstring path = folder + widen(file);
     HMODULE library = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    // One that can't be loaded may be for an executable that isn't there, which its record says.
+    const bool loaded = library != nullptr;
+    if (!loaded) {
+        library = LoadLibraryExW(path.c_str(), nullptr, DONT_RESOLVE_DLL_REFERENCES);
+    }
+
     const auto find = [&](const char* name) {
         return reinterpret_cast<void*>(GetProcAddress(library, name));
     };
@@ -621,6 +644,11 @@ void fb_load_beside(const char* executable, const char* file, const char* build,
         stop(std::format("{} was built for {}, which it takes its code from, not {}; build {} "
                          "again",
                          shown, other, executable, executable));
+    }
+
+    if (!loaded) {
+        stop(std::format("{} isn't there, or can't be loaded; the program needs it beside it",
+                         shown));
     }
 #endif
 

@@ -90,8 +90,10 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
   a dylib. The library exports all of its own code, since a name with ", " in it can't go as an
   /export directive, and one beside library takes another's from that one: on Windows through
   its import library, and elsewhere as the executable loads that one first, with RTLD_GLOBAL.
-- A Global crosses a binary's edge as accessor functions, not as data, and so does a ThreadLocal
-  of the executable's that a library uses, since Windows can't import one.
+- A beside library's Global is reached from the other binaries through accessor functions, not
+  as data, and so is a ThreadLocal of the executable's that a library uses, since Windows can't
+  import one; the executable's other Globals, an embedded package's or std's, a library imports
+  as data.
 - A generic type's instance made in two binaries is one type: the executable links each beside
   library's bitcode for the code it shares, so every instance and type record is the
   executable's, which each binary uses, and `Is`, casts, and Interface tables agree across them.

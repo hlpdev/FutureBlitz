@@ -2514,6 +2514,8 @@ compile_package(const std::filesystem::path& folder,
     }
 
     // The libraries beside the executable, each after those it depends on, which load first.
+    // Each links the program's system and dynamic libraries, which its code, or a dependency's it
+    // has, may call: the executable doesn't pass on what it imports itself.
     std::vector<bool> seen(packages->size());
     std::vector<std::size_t> finished;
     finish(*packages, 0, seen, finished);
@@ -2523,7 +2525,10 @@ compile_package(const std::filesystem::path& folder,
                 .name = package.name,
                 .root = package.root,
                 .interface = package.interface,
-                .natives = { .system = package.linked.system, .dynamic = package.linked.dynamic },
+                .natives = {
+                    .system = compilation.natives.system,
+                    .dynamic = compilation.natives.dynamic,
+                },
             });
         }
     }
@@ -3096,15 +3101,29 @@ std::expected<library_binary_t, std::string> beside_binary(const beside_library_
     diagnostic_bag_t diagnostics;
     const std::expected<library_build_t, std::string> built =
         build_library(*compiled, mode, diagnostics);
+    if (!built && (!built.error().empty() || diagnostics.diagnostics().empty())) {
+        return std::unexpected(built.error());
+    }
+
     if (!built) {
-        return std::unexpected(
-            built.error().empty()
-                ? std::format(
-                      "{}, the library beside the program, can't be built: {}", library.name,
-                      diagnostics.diagnostics().empty()
-                          ? std::string()
-                          : render_short(diagnostics.diagnostics().front(), compiled->sources))
-                : built.error());
+        // "path:line:col: error: message", without its "error", and how many more there are.
+        std::string shown = render_short(diagnostics.diagnostics().front(), compiled->sources);
+        while (shown.ends_with('\n')) {
+            shown.pop_back();
+        }
+
+        if (const std::size_t at = shown.find(": error"); at != std::string::npos) {
+            if (const std::size_t end = shown.find(": ", at + 2); end != std::string::npos) {
+                shown.erase(at, end - at);
+            }
+        }
+
+        const std::size_t errors = diagnostics.error_count();
+        return std::unexpected(std::format(
+            "{}, the library beside the program, can't be built: {}{}", library.name, shown,
+            errors > 1 ? std::format("; it has {} more, which `fb check {}` shows", errors - 1,
+                                     to_utf8(shown_disk_path(library.root)))
+                       : std::string()));
     }
 
     std::optional<library_binary_t> binary = read_binary(built->binary);
@@ -3282,7 +3301,8 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
     }
 
     // Each library beside it, after those it depends on, links against their import libraries
-    // on Windows, and the executable's. An executable whose libraries can't be made isn't left.
+    // on Windows, and the executable's. An executable whose libraries can't all be made isn't
+    // left, nor are those that were.
     std::vector<std::filesystem::path> import_libraries{ exports.import_library };
     std::expected<void, std::string> linked =
         emit_object(module, compilation.sources, compilation.file, options, object)
@@ -3299,6 +3319,12 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
                             output.parent_path() / path_from_utf8(options.beside[i].file), library);
                         !done) {
                         std::filesystem::remove(output.parent_path() / executable, ignored);
+                        for (std::size_t j = 0; j < i; ++j) {
+                            std::filesystem::remove(output.parent_path() /
+                                                        path_from_utf8(options.beside[j].file),
+                                                    ignored);
+                        }
+
                         return done;
                     }
 

@@ -1,6 +1,6 @@
 # The review of M7 step 3 (libraries beside the executable)
 
-42 confirmed findings, each with its Status. The part that reviewed step 4's done-when (across the edge) is here too.
+42 confirmed findings, and 9 from a review of their fixes, each with its Status. The part that reviewed step 4's done-when (across the edge) is here too.
 
 ## drv-1 (high): A beside library with any Public Function or Method of two or more parameters fails to link on Windows
 
@@ -337,3 +337,79 @@ The done-when says a missing or mismatched file stops the program 'with an error
 Fix: Check that missing.output and mismatched.output contain engine.dll. Add a generic Class made in the library and in the program with Is and a Static, a two-parameter Function, Method, and Operator, a Struct Global, a beside library using another beside library's Global, and a static native.
 
 Status: fixed: tests of the cases above, step 4's done-when (a generic instance made on both sides is one type, and a Class extending a library's), and each finding's program
+
+## The fixes' review
+
+A review of the fixes, e3285a03..03202ac0, found 9 more.
+
+### fix-drv-1 (high): A beside library that calls a dependency's Extern bound to a system or dynamic native library doesn't link on Windows
+
+compile_package gives each beside_library_t only its own package's natives, `{ .system = package.linked.system, .dynamic = package.linked.dynamic }`. The natives of the packages it depends on are left out, whether those packages are in the executable or beside it too. When the library's own code calls a dependency's Extern directly (a Public Extern, or an @Inline body), its object imports the C symbol. build_program then passes `-u <symbol>` to the executable and adds the symbol to its exports. But the executable gets that symbol from winmm or from a native DLL's import library, and lld doesn't re-export a symbol the executable itself imports (decisions.md's new row says so). link_beside doesn't link the dependency's library either, so the DLL's link fails. report_build_error then points at the dependency's Extern declaration and says the symbol isn't in the library that does define it. This only happens on Windows: Linux and macOS resolve the symbol from the executable as the library loads. It is a normal setup: an engine beside the executable that uses a bindings package for opengl32 or an SDL DLL.
+
+Fix: Give each beside library's file the system libraries, and the dynamic natives' import libraries, of every package it depends on, transitively: those in the executable and those beside it. Or, on Windows, don't send a C symbol through the executable when the executable only imports it, and link the DLL against that symbol's library. Add a cli test: a beside library that calls an embedded dependency's system-library Extern and dynamic-native Extern, in debug and release.
+
+Status: fixed: each beside library's file links the program's system libraries and dynamic natives, which its code, or a dependency's it has, may call; a build that fails removes the libraries it wrote too
+
+### fix-drv-2 (low): A beside library's build error nests a second 'error:', ends with a blank line, and shows only the first of several errors
+
+beside_binary puts render_short(diagnostics.front()) inside its own message. render_short gives "path:line:col: error: message\n", so the printed line reads "error: emb, the library beside the program, can't be built: C:/.../emb.fb:1:42: error: the library's interface file keeps this code ...". It has a second 'error:', and its trailing newline prints an empty line. Only the first diagnostic is shown. A library with two such errors gives no hint that there's another, and fb check on the program, which the user would run next, passes.
+
+Fix: Strip render_short's trailing newline and drop the inner 'error:' (use the location and message only), and add "and N more" when there are more diagnostics. Or print the library's diagnostics with render_pretty before the summary line, as the program's are printed. Extend the 'fb names what keeps a library...' test to check there's no blank line and that a second error is counted.
+
+Status: fixed: the message is the error's place and text, without a second 'error:' or a blank line, and says how many more there are, which fb check on the library shows
+
+### fix-drv-4 (low): The new tests miss parts of what the review's Status lines say they cover: the file's name in the missing and mismatched errors, a non-ANSI TEMP, tuple Globals, and Struct Static Fields
+
+edge-10's Status says it was fixed with tests, and its Fix asked that missing.output and mismatched.output contain engine.dll, which step 3's done-when needs ('an error naming the file'). The beside test at lines 2551-2569 still checks only "isn't there, or can't be loaded; the program needs it beside it" and "is the build engine 0.3.0 ", which leave out the file name. load-6 was a temporary folder outside the ANSI code page. The new test's comment at line 3015 says the non-ASCII folder 'holds the program, and the build's temporary files', but the test never sets TMP or TEMP. The build's temporary files stay in the default temporary folder, so load-6's case isn't tested; the snowman test at line 2070 sets TEMP, but only for an embedded build. gen-3 named tuple Globals (Pair.1) and load-2 named Struct Static Fields, but the tests only have a Struct Global (Origin). load-1 asked for a two-parameter Private function, which isn't there either. Each of these works when run by hand, so they are gaps in the tests, not bugs.
+
+Fix: Add CHECKs for library.filename() in missing.output and mismatched.output. Run one beside build with TMP and TEMP set to a non-ANSI folder, as the snowman test does. Add a tuple Global and a Struct Static Field to the 'runs beside the executable as it does embedded' test. Fix the comment at line 3015.
+
+Status: fixed: the tests check the file's name in the missing and mismatched errors, a library beside the executable built with TMP and TEMP outside the ANSI code page, a tuple Global, a Static Field, and a two-parameter Private Function
+
+### fix-gen-1 (medium): A program that lists a beside library but doesn't use it fails to build with invalid LLVM IR
+
+gen-7's fix changed m_linking from `!options.beside.empty()` to `!module.beside.empty()`. mir_module_t's `beside` is filled only by note_beside, when lowering meets an IMPORTED symbol or a prebuilt initializer of the library. A program whose project.toml lists a library beside but never imports it (or imports only something that doesn't reach it) has options.beside set and module.beside empty. So link_libraries returns at once, and generate_beside_loads never makes `fb.(load beside)`'s body. main still calls it, though, because the call at codegen.cpp:2734 is guarded by `m_options.beside`, not by m_linking. The result is an internal declaration with no body, and the build stops on LLVM's verifier. The same program with the library embedded builds and runs.
+
+Fix: Make m_linking true whenever options.beside isn't empty, as before. Or guard the `fb.(load beside)` call, and the loads, with the same condition link_libraries uses. Either way, every listed beside library is still loaded and checked. Add a test with a beside dependency that the program never imports.
+
+Status: fixed: a program links whenever it has libraries beside it, which are loaded and checked whether it uses them or not
+
+### fix-gen-2 (medium): A Function's Callback is a different address in the executable than in the beside library, so `==` on Callbacks disagrees across the edge
+
+Spec 12 says a Callback's `==` compares addresses, and that a Function's Callback is 'code that calls it, the same for each use'. Each binary makes its own C-ABI thunk, `fb.callback.<name>`, with internal linkage. A Callback for a library's Function made in the executable (whose thunk calls the executable's beside thunk) is therefore a different address from the one the library's own code makes. Code that compares Callbacks, or a C library that stores one and later compares it to unregister, behaves differently beside than embedded. The cause is not new to beside: a prebuilt library embedded in the program shows the same mismatch. Only the same library embedded from source agrees.
+
+Fix: Make the `fb.callback.<function>` thunk for a function that crosses a binary's edge one definition. For example, give it linkonce_odr/weak_odr linkage like other shared code, or have the binary that owns the function export it, so the executable reaches it through its slot as it reaches the function. Add a test comparing a Callback made on each side.
+
+Status: fixed: the Callback of a Function another binary has, or uses, is shared code, so the program keeps one, beside or prebuilt
+
+### fix-gen-3 (low): On Windows, a program started through a symbolic link looks for its beside library beside the link, and stops as 'renamed'
+
+load-14's fix made macOS take the executable's real path through any link, and Linux's /proc/self/exe already does. On Windows, fb_load_beside uses GetModuleFileNameW and then only GetLongPathNameW. Both keep a symbolic link's own path, so the folder searched and the name compared are the link's. Windows has file symlinks too (mklink, developer mode). The step's test checks the link case only off Windows (the `#else` branch of the last test).
+
+Fix: On Windows, resolve the module's path through links before using it: GetFinalPathNameByHandleW on a handle to the file, stripping the \\?\ prefix. Add the Windows case to the 'Started through a link' test.
+
+Status: fixed: on Windows the loader takes the executable's final path, through links, with GetFinalPathNameByHandleW, which is its long name too
+
+### fix-gen-4 (low): A beside DLL built for another executable that is no longer there is reported as missing, not as built for the other executable
+
+drv-3/load-7's fix records ' for <exe>' in the DLL and checks it after LoadLibraryExW. That load resolves the DLL's imports, which name the other executable. When that executable has been deleted, moved, or renamed, the load itself fails. The program then says the DLL 'isn't there, or can't be loaded' although it is there. It doesn't give spec 11's error naming both executables, which says to rebuild.
+
+Fix: Read the record before resolving imports. For example, map the DLL with LoadLibraryExW(LOAD_LIBRARY_AS_IMAGE_RESOURCE or DONT_RESOLVE_DLL_REFERENCES), check fb.(build).<name> and its ' for ' part, then load it for real. Or, when the real load fails and the file exists, read the export from the mapped image and report the mismatch. Add a test that deletes the other executable.
+
+Status: fixed: a library that can't be loaded is read without its imports, and one built for another executable says so
+
+### fix-gen-5 (low): libraries.md says a Global never crosses the edge as data, but a beside library imports the executable's Globals as data
+
+libraries.md's ABI section says 'A Global crosses a binary's edge as accessor functions, not as data, and so does a ThreadLocal of the executable's that a library uses'. emit_beside_object reaches only two kinds of declared Global through fb.(address) accessors: ThreadLocals, and other beside libraries' Globals (`others`). An ordinary Global of the executable's is left a dllimport declaration and imported as data from the .exe. That covers an embedded package's Global, a std module's, and a generic type's Static instance. It works, and spec 11's wording ('reached through its library, never copied') holds, but the doc's claim is false.
+
+Fix: Reword libraries.md: a library's Global is reached through accessors from the other binaries; the executable's ordinary Globals are imported as data; only its ThreadLocals go through accessors, since Windows can't import one. Or make the code match the doc.
+
+Status: fixed: libraries.md says a beside library's Globals and the executable's ThreadLocals cross the edge as accessors, and the executable's other Globals as data
+
+### fix-gen-6 (low): link_beside's and reach_beside's 'another file calls it through the executable' paths are dead, and their comments describe a route the build never uses
+
+link_beside adds an executable declaration for a beside library's function when its name is in options.exports ('Another library's file may call one of them through the executable, which then needs its declaration for the thunk'). reach_beside makes an accessor thunk for a Global whose fb.(address) name is exported. reach_beside's doc comment also says the thunks serve calls from 'another of their files'. But build_program never puts any beside library's own names in options.exports: it skips every import found in `own`, which holds all beside libraries' functions and fb.(address) names. Each library takes another's code from that library's file instead (its import library on Windows, RTLD_GLOBAL elsewhere). So `exported.contains(name)` and `exported.contains(accessor)` are never true for these names, and the comments contradict the design in spec 11 and libraries.md.
+
+Fix: Remove the `exported` checks in link_beside and reach_beside (or keep them only for a route that's really used), and reword link_beside's and reach_beside's comments to say each library takes another's code from that one's file.
+
+Status: fixed: the paths are gone, and the comments say each library takes another's code from that one's file

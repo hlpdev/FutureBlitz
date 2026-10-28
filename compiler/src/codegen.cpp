@@ -320,7 +320,8 @@ public:
     codegen_t(const mir_module_t& module, const source_manager_t& sources,
               const source_file_t& main, const codegen_options_t& options)
         : m_mir(module), m_sources(sources), m_options(options),
-          m_linking(module.library || !options.linked.empty() || !module.beside.empty()),
+          m_linking(module.library || !options.linked.empty() || !options.beside.empty() ||
+                    !module.beside.empty()),
           m_triple(normalize(options.target_triple.empty()
                                  ? std::string(build_config::target_triple)
                                  : options.target_triple)),
@@ -781,25 +782,12 @@ private:
                                                reported.empty() ? std::string() : ": " + reported));
         }
 
-        // Another library's file may call one of them through the executable, which then needs
-        // its declaration for the thunk.
-        const std::unordered_set<std::string_view> exported(m_options.exports.begin(),
-                                                            m_options.exports.end());
         std::vector<LLVMValueRef> own;
         for (LLVMValueRef function = LLVMGetFirstFunction(library); function != nullptr;
              function = LLVMGetNextFunction(function)) {
-            const char* name = LLVMGetValueName(function);
-            if (!m_beside_functions.contains(name)) {
-                continue;
-            }
-
-            if (LLVMIsDeclaration(function) == 0) {
+            if (LLVMIsDeclaration(function) == 0 &&
+                m_beside_functions.contains(LLVMGetValueName(function))) {
                 own.push_back(function);
-            }
-
-            if (exported.contains(name) && LLVMGetNamedFunction(m_module.get(), name) == nullptr) {
-                declared_like(function, LLVMAddFunction(m_module.get(), name,
-                                                        LLVMGlobalGetValueType(function)));
             }
         }
 
@@ -848,12 +836,11 @@ private:
     }
 
     /// Once every library beside the executable is linked in, each of their own functions that
-    /// the executable's code, or another of their files, calls is a thunk through a slot, which
-    /// main fills as it loads the file, and each of their Globals is reached through the function
-    /// in its file that gives its address, since it's in the file, and may be each thread's own.
+    /// the executable's code calls is a thunk through a slot, which main fills as it loads the
+    /// file, and each of their Globals it uses is reached through the function in its file that
+    /// gives its address, since it's in the file, and may be each thread's own. Another library's
+    /// file takes them from that one's file.
     std::expected<std::vector<beside_slots_t>, std::string> reach_beside() {
-        const std::unordered_set<std::string_view> exported(m_options.exports.begin(),
-                                                            m_options.exports.end());
         std::vector<beside_slots_t> loads;
         for (const beside_binary_t& beside : m_options.beside) {
             beside_slots_t& slots = loads.emplace_back(beside_slots_t{ .library = &beside });
@@ -865,17 +852,13 @@ private:
 
             for (const std::string& name : beside.globals) {
                 LLVMValueRef global = LLVMGetNamedGlobal(m_module.get(), name.c_str());
-                const std::string accessor = std::format("fb.(address).{}", name);
-                if (global == nullptr && !exported.contains(accessor)) {
-                    continue;
-                }
-
-                const function_ref_t address = declare(accessor.c_str(), m_ptr, {});
-                thunk(address.value, accessor, slots);
                 if (global == nullptr) {
                     continue;
                 }
 
+                const std::string accessor = std::format("fb.(address).{}", name);
+                const function_ref_t address = declare(accessor.c_str(), m_ptr, {});
+                thunk(address.value, accessor, slots);
                 if (!reach_through(builder(), global, [&] { return call(address, {}); })) {
                     return std::unexpected(std::format(
                         "{}'s Global {} is used where only its address can go", beside.file, name));
@@ -2200,7 +2183,11 @@ private:
             std::format("fb.callback.{}", m_mir.functions[index(node.function)].name);
         LLVMValueRef thunk =
             LLVMAddFunction(m_module.get(), name.c_str(), callback_type(node.type));
-        LLVMSetLinkage(thunk, LLVMInternalLinkage);
+        // A Function that another binary has, or uses, has one Callback in the program, so its
+        // address is the same in each.
+        const bool shared = !node.closure && m_mir.functions[index(node.function)].linkage !=
+                                                 mir_linkage_t::INTERNAL;
+        set_linkage(thunk, shared ? mir_linkage_t::SHARED : mir_linkage_t::INTERNAL);
         extend_for_c(thunk, 0, info.inner);
         for (std::size_t i = 0; i < info.parameters.size(); ++i) {
             extend_for_c(thunk, static_cast<unsigned>(i + 1), info.parameters[i]);

@@ -45,8 +45,8 @@ struct package_info_t {
 
 /// A library the program has beside its executable, as its project.toml's `link = "beside"` says:
 /// its package's name, folder, and interface file when it's prebuilt, and the native libraries its
-/// file links: its system and dynamic ones. Its static ones are in the executable, which it takes
-/// them from, and its dynamic ones go beside it.
+/// file links: the program's system and dynamic ones, which it may call. Its static ones are in
+/// the executable, which it takes them from, and its dynamic ones go beside it.
 struct beside_library_t {
     std::string name;
     std::filesystem::path root;
