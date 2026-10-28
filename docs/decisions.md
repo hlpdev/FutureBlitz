@@ -964,6 +964,11 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | C++ is called through C APIs and fb-bindgen, never directly | works with any C++ compiler on every platform |
 | A package's native code is prebuilt per target in `native/<target>/`, C++ as DLLs | no C++ compiler on every developer's machine |
 | One version of each package per program, semver ranges resolved and pinned in `fb.lock` | modules are named by package, and the exact-version ABI wants one build of each |
+| A plugin has exactly one `@PluginEntry` Public Function, taking nothing and giving one of its interface package's Interfaces (spec 12; the user's call, 2026-10-28) | explicit, checked by the compiler, and any name |
+| `Plugin.Load<T>(path): T` loads, checks the interface package's ABI hash and that the entry gives a T, calls it, and gives its value; loading a path twice gives it again (spec 12; the user's call) | one call per mod, typed by the host's Interface |
+| A plugin is never unloaded; it stays until the program ends (spec 12; the user's call) | its objects, Methods, and Tasks may be anywhere; hot reload can come later |
+| `FfiError` and `PluginError` are std.core's error areas; `DynamicLibrary` and `Plugin` are std.ffi's (spec 12; the user's call) | any code can catch them without importing std.ffi |
+| A project.toml's `type` is `"executable"`, the default with a main file, or `"library"`, the default without; an executable without a main, or a library with `main`, is an error (spec 11, M7 step 0) | a package says what it is, and a mistake is caught where it's made |
 
 ## futureblitz.dev (M9)
 

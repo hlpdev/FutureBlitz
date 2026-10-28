@@ -113,7 +113,8 @@ joltc = { static = "libs/joltc" }
 
 - Dependencies are versioned.
 - `[native]` declares C libraries for FFI and how to link them. Static linking is the
-  default so games ship as a single binary (M5 step 6; dynamic libraries in M7).
+  default so games ship as a single binary; a package can bring dynamic ones too (see
+  [Native libraries](#native-libraries)).
 - The package manager is part of the `cli` tool (Milestone M8).
 
 Until then (M5), a dependency is a local package, by its folder from the project.toml's:
@@ -130,10 +131,14 @@ physics = { path = "../physics" }
 
 - `[project]` needs `name`, an identifier other than `std`, and `version`, three numbers like
   `"0.1.0"`. `main` is a `.fb` file in the package's folder, `main.fb` unless it says otherwise,
-  and has to be there if it's written; a package without `main` or a main.fb is a library. A
-  key project.toml doesn't use is a warning, and its other mistakes are errors at their lines. A
-  version string for a dependency, like `physics = "1.2"`, waits for the package manager. A
-  project.toml that can't be read stops the command, as a `.fb` file that can't be read does.
+  and has to be there if it's written. `type` is `"executable"` or `"library"`: an executable,
+  the default for a package with a main file, builds a program, and a library, the default for
+  one without, is built only into the programs that use it, or beside them (see
+  [Libraries](#libraries)). An executable without a main file, or a library with `main`
+  written, is an error. A key project.toml doesn't use is a warning, and its other mistakes are
+  errors at their lines. A version string for a dependency, like `physics = "1.2"`, waits for the
+  package manager. A project.toml that can't be read stops the command, as a `.fb` file that
+  can't be read does.
 - A dependency's own project.toml names it as `[dependencies]` does, and so do the packages it
   depends on, each read once, by whatever path reaches its folder, however many packages depend
   on it. Two packages of one name, and packages that depend on each other in a cycle, are
@@ -161,9 +166,10 @@ physics = { path = "../physics" }
   [12](12-ffi.md)): `joltc = "libs/joltc"`, or `joltc = { static = "libs/joltc" }`, is a static
   archive from the package's folder: the file itself, or without its `lib` prefix and its
   extension, libs/libjoltc.a, libs/joltc.a, or libs/joltc.lib, which has to be there and be an
-  archive; `m = { system = "m" }` is one the system's linker finds by its name, as `-lm`.
-  `dynamic` waits for M7. A name is letters, digits, and `_`, `-`, `.`, or `+`, not starting
-  with `-`.
+  archive; `m = { system = "m" }` is one the system's linker finds by its name, as `-lm`; and
+  `engine = { dynamic = "native/{target}/engine" }` is a dynamic library (see
+  [Native libraries](#native-libraries)). A name is letters, digits, and `_`, `-`, `.`, or `+`,
+  not starting with `-`.
 - A path in project.toml, `main`, a dependency's `path`, or a static library's, takes `\` as a
   `/`, as an Import's path does, so a project.toml written on Windows means the same everywhere.
 - A program links every `[native]` library of its packages, statically: its own code, then each
@@ -174,3 +180,75 @@ physics = { path = "../physics" }
 - An Import that names a file or folder in other letter cases than the disk has, like
   `"./UI/Hud"` for ui/hud.fb or `physics.Shapes` for shapes/, gets a warning, since only a disk
   that ignores letter case finds it.
+
+## Libraries
+
+A library package is built into each program that uses it, or beside it as a library file of its
+own, as the program's project.toml says; the library's author doesn't choose.
+
+```toml
+[dependencies]
+physics = { path = "../physics" }                     # built into the executable
+engine = { path = "../engine", link = "beside" }     # engine.dll beside the executable
+```
+
+- `link` is `"embed"`, the default, or `"beside"`. An embedded library's code is linked into the
+  executable. A beside one is its own file, the OS's own kind of dynamic library: `<name>.dll` on
+  Windows, `lib<name>.so` on Linux, and `lib<name>.dylib` on macOS, built only for FutureBlitz
+  programs, which the build puts beside the executable, printing each file the program needs, as
+  it prints the bundled C libraries.
+- A program that uses only std, or embeds every package, is one executable, which needs nothing
+  but the OS's own libraries.
+- A beside library's own dependencies are embedded in it, unless the program lists them beside
+  too. Each package is in one place in a program: the executable, or its own file beside it. A
+  beside library's file can't have the name of another file the build puts beside the executable,
+  such as a package's native library: the build stops with an error naming both.
+- Every binary uses the executable's runtime: one heap, one set of refcounts, one scheduler, and
+  one registry of types. A library beside the executable has no runtime of its own.
+- The executable loads its beside libraries as it starts, before any Global initializes, and
+  checks each one's ABI hash; one that's missing or isn't the build the program was built against
+  stops it with an error naming the file, before any of the program's code runs.
+- Across a binary's edge, code works as it does inside one: a Class can extend a library's Class,
+  objects and Tasks pass either way, and a generic type's instance made in two binaries is one
+  type, so `Is`, casts, and Interfaces agree. A Global of a library is reached through its
+  library, never copied.
+- Only a library's Public declarations are seen by its users; its Package ones stay in it.
+
+### Prebuilt libraries
+
+- A library can be prebuilt, so its users needn't build it, and so it can be closed source. A
+  prebuilt library is a `.fblib` for each target and mode: its compiled code, which links into the
+  executable when it's embedded and into its library file when it's beside, with its interface
+  file.
+- The interface file, `<name>.fbi`, is FutureBlitz source: the library's Public declarations, with
+  the bodies of its generic, `@Inline`, and Const code, which its users compile themselves, and no
+  other bodies. Its first line is its ABI hash. The loader reads a prebuilt library's `.fbi` in
+  place of its source, so a program checks against it as against the source.
+- The ABI hash covers the interface file, the compiler's version, the target, and the mode. A
+  program is built against one exact build of each library, and linking or loading another is an
+  error that names both builds. Between versions a library's layouts and Method tables can change
+  freely.
+- A debug and a release build of a library differ, as their checks and panics do, so a prebuilt
+  package has both, and a build links the one of its own mode.
+
+### Native libraries
+
+- `[native]`'s `dynamic` names a C library the program loads as it starts: `engine = { dynamic =
+  "native/{target}/engine" }` finds engine.dll and its import library on Windows, libengine.so on
+  Linux, and libengine.dylib on macOS, which have to be there. `Lib "engine"` names it as it names
+  a static one (see [12](12-ffi.md)).
+- `{target}` in any of `[native]`'s paths is the target the program is built for:
+  `windows-x64`, `linux-x64`, `linux-arm64`, `macos-arm64`, or `macos-x64`, so a package ships a
+  binary of its natives per target, `native/<target>/`. A target a package has no binary for is an
+  error naming the package.
+- A build copies every dynamic library the program needs beside the executable, which finds them
+  there: on Windows beside it, on Linux through `$ORIGIN`, and on macOS through `@loader_path`.
+- A C++ library is used through a C API (`extern "C"` functions), which fb-bindgen writes bindings
+  for; there's no direct C++ interop.
+
+### Package archives
+
+- A package is shipped as an archive: its project.toml, a license, a readme, and either its `.fb`
+  source, or its prebuilt `.fblib`s per target and mode with the `.fbi`, and its natives per
+  target. The registry and the commands that fetch and publish archives come with the package
+  manager (M8).
