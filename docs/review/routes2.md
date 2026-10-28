@@ -4,7 +4,7 @@
 
 ## routes-1 (medium): An attributed Method taking a scalar or HttpRequest? becomes a route that always answers 400, instead of panicking at Routes
 
-Status: fixed in 2ec3e31e: the one-argument and (A, HttpRequest) loops call Misshapen when Load<A> of an empty Object is a WRONG_TYPE ParseError, as it is for a number, a String, an array, or an HttpRequest?, while a Struct or Class gives a value or a missing Field; panic_http_routes_number (n: Int), panic_http_routes_text_request (text: String, request), and panic_http_routes_maybe_request (HttpRequest?)
+Status: fixed in ab605f38: the one-argument and (A, HttpRequest) loops call Misshapen when Load<A> of an empty Object is a WRONG_TYPE ParseError, as it is for a number, a String, an array, or an HttpRequest?, while a Struct or Class gives a value or a missing Field; panic_http_routes_number (n: Int), panic_http_routes_text_request (text: String, request), and panic_http_routes_maybe_request (HttpRequest?)
 
 Where: std/net/http/routes.fb:75
 
@@ -52,7 +52,7 @@ Skeptic: I ran rv-routes2/refute/r1.fb, the finding's program, in debug and rele
 
 ## routes-2 (low): Matching the request and the result by TypeName drops a user's own type named HttpRequest or HttpResponse without a route or a panic
 
-Status: fixed in 2ec3e31e: each route loop, whose Func type names std's types, adds its Method's name and TypeName<M>() to a Set, and the one-argument loop and the misshapen ones skip what's in it, so no TypeName is compared with std's names; http_routes_own_request routes a program's own Struct HttpRequest as any Struct (200 own hi), and panic_http_routes_own_response and panic_http_routes_own_request panic for a program's own HttpResponse result and its own HttpRequest beside a Struct
+Status: fixed in ab605f38: each route loop, whose Func type names std's types, adds its Method's name and TypeName<M>() to a Set, and the one-argument loop and the misshapen ones skip what's in it, so no TypeName is compared with std's names; http_routes_own_request routes a program's own Struct HttpRequest as any Struct (200 own hi), and panic_http_routes_own_response and panic_http_routes_own_request panic for a program's own HttpResponse result and its own HttpRequest beside a Struct
 
 Where: std/net/http/routes.fb:78
 
@@ -97,7 +97,7 @@ Skeptic: I ran rv-routes2/refute/r2.fb, where the program declares its own Struc
 
 ## routes-3 (low): Attributed Static Methods and ByRef Methods are silently left out; the docs say a misshapen route panics
 
-Status: fixed in 2ec3e31e: Routes' comment and stdlib.md say Static Methods and those with a ByRef parameter, which no For Method loop goes over, are left alone; http_routes' /static and /byref, an attributed Static Async Method and a Method of a ByRef Struct, are 404s
+Status: fixed in ab605f38: Routes' comment and stdlib.md say Static Methods and those with a ByRef parameter, which no For Method loop goes over, are left alone; http_routes' /static and /byref, an attributed Static Async Method and a Method of a ByRef Struct, are 404s
 
 Where: std/net/http/routes.fb:36
 
@@ -135,7 +135,7 @@ Skeptic: I ran rv-routes2/refute/r3.fb. It printed `Routes didn't panic`. Spec 1
 
 ## routes-4 (low): The 400 for a non-JSON body repeats itself: "the body isn't JSON: the text isn't JSON: ..."
 
-Status: fixed in 2ec3e31e: Bound trims Json's "the text isn't JSON: " from the message it puts after its own "the body isn't JSON: "; http_routes.out's not-json line says it once
+Status: fixed in ab605f38: Bound trims Json's "the text isn't JSON: " from the message it puts after its own "the body isn't JSON: "; http_routes.out's not-json line says it once
 
 Where: std/net/http/routes.fb:212
 

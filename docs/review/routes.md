@@ -4,7 +4,7 @@
 
 ## routes-1 (medium): Any one-argument Async Method giving an HttpResponse, attributed or not, must take a type Load can make, or the program won't compile, with the error inside routes.fb
 
-Status: fixed in ee7afaf5 and 7dc7c380: a Method of the HttpRequest alone is a route of its own, whose loop doesn't Load, and HttpRequest implements Loadable, always a ParseError, so the loop of one argument, which a Method of the request is among, compiles for it and leaves it to that one; and Routes' loops pick the Methods with a route's attribute (spec 13's Where m Has), so a helper without one takes what it likes. http_routes has @Get Raw(request), and unattributed Helper(request) and Wrapped(make: Func(): HttpResponse), a 404
+Status: fixed in 15932e30 and b0fff80c: a Method of the HttpRequest alone is a route of its own, whose loop doesn't Load, and HttpRequest implements Loadable, always a ParseError, so the loop of one argument, which a Method of the request is among, compiles for it and leaves it to that one; and Routes' loops pick the Methods with a route's attribute (spec 13's Where m Has), so a helper without one takes what it likes. http_routes has @Get Raw(request), and unattributed Helper(request) and Wrapped(make: Func(): HttpResponse), a 404
 
 Where: std/net/http/routes.fb:115
 
@@ -57,7 +57,7 @@ Skeptic: I ran rv-routes/refute/r1.fb (the finding's program) and it doesn't com
 
 ## routes-3 (medium): A @Flatten Field's own Fields are never bound from the path or the query
 
-Status: fixed in ee7afaf5: Bound looks up a @Flatten Field's own Fields, recursively, by their keys; http_routes' /list?page=2&SIZE=5 binds a flattened Paging, and a @Skip Field is left out
+Status: fixed in 15932e30: Bound looks up a @Flatten Field's own Fields, recursively, by their keys; http_routes' /list?page=2&SIZE=5 binds a flattened Paging, and a @Skip Field is left out
 
 Where: std/net/http/routes.fb:88
 
@@ -109,7 +109,7 @@ Skeptic: r3.fb prints `200 a 10 0` in both debug and release for `/list?name=a&l
 
 ## routes-2 (low): An attributed Method that isn't one of the two shapes is silently not a route (404), with no panic
 
-Status: fixed in ee7afaf5 and 7dc7c380: a Method of no argument is a route (http_routes' /ping), and one of up to four arguments with a route's attribute that isn't a route's shape panics at Routes, naming it: panic_http_routes_shape (not Async), panic_http_routes_request_first, panic_http_routes_result (gives a String), panic_http_routes_arguments (three), and, as a typed For Method takes throwing Methods now, panic_http_routes_throws and panic_http_routes_async_throws
+Status: fixed in 15932e30 and b0fff80c: a Method of no argument is a route (http_routes' /ping), and one of up to four arguments with a route's attribute that isn't a route's shape panics at Routes, naming it: panic_http_routes_shape (not Async), panic_http_routes_request_first, panic_http_routes_result (gives a String), panic_http_routes_arguments (three), and, as a typed For Method takes throwing Methods now, panic_http_routes_throws and panic_http_routes_async_throws
 
 Where: std/net/http/routes.fb:44
 
@@ -176,7 +176,7 @@ Skeptic: r2.fb gives `/health -> 404`, `/plain/1 -> 404`, `/find/1 -> 404` and `
 
 ## routes-4 (low): @Renamed(From) keys are never looked up, so an old query name doesn't bind
 
-Status: fixed in ee7afaf5: a Field with no value by its own key is looked up by its @Renamed old one, whatever the case, and stored under it for Load; http_routes' /hello?HANDLE=Bob binds it, and the new name wins when both come
+Status: fixed in 15932e30: a Field with no value by its own key is looked up by its @Renamed old one, whatever the case, and stored under it for Load; http_routes' /hello?HANDLE=Bob binds it, and the new name wins when both come
 
 Where: std/net/http/routes.fb:89
 

@@ -4,7 +4,7 @@
 
 ## sema-1 (high): A picked loop's constraint vouches for an unpicked loop over the same type parameter, and the compiler hits an assertion
 
-Status: fixed in b015b07e (same_method_bound() also needs the two loops' picks to be the same), with sema_tests' "a picked or throwing For Method vouches only for its own Methods, and only its own Func type throws": Routes<T>'s Get-picked loop no longer vouches for All(api), which is an error
+Status: fixed in 664323cc (same_method_bound() also needs the two loops' picks to be the same), with sema_tests' "a picked or throwing For Method vouches only for its own Methods, and only its own Func type throws": Routes<T>'s Get-picked loop no longer vouches for All(api), which is an error
 
 Where: compiler/src/sema.cpp:10339
 
@@ -60,7 +60,7 @@ Skeptic: Ran the finding's program as rv-picks/sema/s1.fb. Debug and --release b
 
 ## parse-1 (medium): A Func type with no result can't take a Throws, so throwing Methods that give nothing can't be gone over
 
-Status: fixed in b015b07e (parse_function_type() takes a Throws after a Func type without a result too, as Func(A) Throws E), with parser_tests' "For Field and For Method go over a type's members"'s Func(Int) Throws E and tests/programs/reflection_picked_methods.fb's Drop, which prints "dropped 1" and "Drop threw: no -1"; spec 13 writes the form
+Status: fixed in 664323cc (parse_function_type() takes a Throws after a Func type without a result too, as Func(A) Throws E), with parser_tests' "For Field and For Method go over a type's members"'s Func(Int) Throws E and tests/programs/reflection_picked_methods.fb's Drop, which prints "dropped 1" and "Drop threw: no -1"; spec 13 writes the form
 
 Where: compiler/src/parser.cpp:4036
 
@@ -104,7 +104,7 @@ Skeptic: Ran rv-picks/parse/p1.fb (the finding's program) in debug: 'p1.fb:14:24
 
 ## parse-3 (medium): In a loop's `Func(A): Func(): R Throws E`, the Throws goes to the result's Func, so a Method declared with the same text is silently skipped
 
-Status: fixed in b015b07e (a Func type's result is parsed as a function's is, so a Throws after it is the outer Func type's, and a result that throws goes in parentheses), with parser_tests' "For Field and For Method go over a type's members"'s Func(Int): Func(): Int Throws E and Func(Int): (Func(): Int Throws E), which the dump now tells apart, and the program's Make, which the loop goes over. The one parser case that read Func(): Task<Int> Throws A as a Func value giving a throwing Task ("a Task's type takes a Throws, unless it's a function's result") now expects the Func's Throws, and spec 10 says such a Task goes in parentheses
+Status: fixed in 664323cc (a Func type's result is parsed as a function's is, so a Throws after it is the outer Func type's, and a result that throws goes in parentheses), with parser_tests' "For Field and For Method go over a type's members"'s Func(Int): Func(): Int Throws E and Func(Int): (Func(): Int Throws E), which the dump now tells apart, and the program's Make, which the loop goes over. The one parser case that read Func(): Task<Int> Throws A as a Func value giving a throwing Task ("a Task's type takes a Throws, unless it's a function's result") now expects the Func's Throws, and spec 10 says such a Task goes in parentheses
 
 Where: compiler/src/parser.cpp:4029
 
@@ -145,7 +145,7 @@ Skeptic: Ran p3.fb in debug: it printed 'start' then 'end' and compiled with no 
 
 ## parse-4 (medium): A throwing Func nested in a loop's Func type is accepted, and the error lands on the loop's own Func type instead
 
-Status: fixed in b015b07e (each Func type takes the loop's pattern flag before it resolves its parts, so a Func type inside the loop's own sees it cleared), with sema_tests' "a picked or throwing For Method vouches only for its own Methods, and only its own Func type throws": a throwing Func in the parameters, beside the loop's own throwing Func type, and in the result, each reported at the inner Func
+Status: fixed in 664323cc (each Func type takes the loop's pattern flag before it resolves its parts, so a Func type inside the loop's own sees it cleared), with sema_tests' "a picked or throwing For Method vouches only for its own Methods, and only its own Func type throws": a throwing Func in the parameters, beside the loop's own throwing Func type, and in the result, each reported at the inner Func
 
 Where: compiler/src/sema.cpp:12880
 
@@ -180,7 +180,7 @@ Skeptic: Ran p4.fb: 'p4.fb:13:14: error: a Func value can't throw; only a For Me
 
 ## parse-5 (medium): A Callback type's Throws is now parsed and silently dropped
 
-Status: fixed in b015b07e (the parser reports a Throws after a Callback's result: "a Callback can't throw, since C code takes no errors"), with parser_tests' "For Field and For Method go over a type's members"
+Status: fixed in 664323cc (the parser reports a Throws after a Callback's result: "a Callback can't throw, since C code takes no errors"), with parser_tests' "For Field and For Method go over a type's members"
 
 Where: compiler/src/sema.cpp:12873
 
@@ -212,7 +212,7 @@ Skeptic: Ran p5.fb: it compiled and printed 42, with `Callback(Int): Int Throws 
 
 ## sema-2 (medium): A non-throwing Override of a throwing Method keeps the base Method's slot in a throwing loop, so picks use the base Method's attributes
 
-Status: fixed in b015b07e (loop_methods() lets an Override that doesn't fit the loop's Func type take its base's place too, by leaving it out, so a base is never kept for an Override), with tests/programs/reflection_picked_methods.fb's Base and Derived: "plain Find: 10" only
+Status: fixed in 664323cc (loop_methods() lets an Override that doesn't fit the loop's Func type take its base's place too, by leaving it out, so a base is never kept for an Override), with tests/programs/reflection_picked_methods.fb's Base and Derived: "plain Find: 10" only
 
 Where: compiler/src/sema.cpp:26480
 
@@ -270,7 +270,7 @@ Skeptic: Ran rv-picks/sema/s2.fb. Debug and release both print "throwing picked 
 
 ## parse-2 (low): A Func type's Throws inside a Func type's parameters swallows the next parameter as a thrown type
 
-Status: fixed in b015b07e (parse_function_type() takes parse_type()'s `parameter` and ends a Throws at a ',' there, as a Task's does), with parser_tests' "For Field and For Method go over a type's members"'s Func(Func(): Int Throws E, Int): String, whose dump shows the two parameters, and the sema case's error at the inner Func. A Func type with an error no longer says what m.Call takes, so the misleading count error is gone too
+Status: fixed in 664323cc (parse_function_type() takes parse_type()'s `parameter` and ends a Throws at a ',' there, as a Task's does), with parser_tests' "For Field and For Method go over a type's members"'s Func(Func(): Int Throws E, Int): String, whose dump shows the two parameters, and the sema case's error at the inner Func. A Func type with an error no longer says what m.Call takes, so the misleading count error is gone too
 
 Where: compiler/src/parser.cpp:4037
 
@@ -300,7 +300,7 @@ Skeptic: Ran p2.fb (the finding's program): 'p2.fb:10:11: error: 'm.Call' takes 
 
 ## parse-6 (low): Spec 01's table of contextual words doesn't list Has and Or
 
-Status: fixed in b015b07e (spec 01's Contextual table has a row for Has and Or)
+Status: fixed in 664323cc (spec 01's Contextual table has a row for Has and Or)
 
 Where: docs/spec/01-lexical.md:163
 
@@ -338,7 +338,7 @@ Skeptic: Ran p6.fb: it printed 'A' then '3', so Has and Or are keywords only aft
 
 ## sema-3 (low): A throwing Method that gives nothing can't be in any For Method loop: `Func(A) Throws E` doesn't parse
 
-Status: fixed in b015b07e (as parse-1), with parser_tests' "For Field and For Method go over a type's members" and tests/programs/reflection_picked_methods.fb's Drop
+Status: fixed in 664323cc (as parse-1), with parser_tests' "For Field and For Method go over a type's members" and tests/programs/reflection_picked_methods.fb's Drop
 
 Where: compiler/src/parser.cpp:4036
 
@@ -382,7 +382,7 @@ Skeptic: Ran rv-picks/sema/s3.fb. Debug and release both give "14:24: error: exp
 
 ## sema-4 (low): The 'Func value can't throw' check uses one flag for the whole pattern, so a nested throwing Func is accepted and the outer one gets the error
 
-Status: fixed in b015b07e (as parse-4: the flag is taken before a Func type's parts are resolved), with sema_tests' "a picked or throwing For Method vouches only for its own Methods, and only its own Func type throws"'s Func(Int[], Func(Int): Int Throws E): Int, reported at the inner Func
+Status: fixed in 664323cc (as parse-4: the flag is taken before a Func type's parts are resolved), with sema_tests' "a picked or throwing For Method vouches only for its own Methods, and only its own Func type throws"'s Func(Int[], Func(Int): Int Throws E): Int, reported at the inner Func
 
 Where: compiler/src/sema.cpp:12880
 
@@ -416,7 +416,7 @@ Suggested fix: Let only the top-level Func type of the loop's pattern throw. For
 
 Skeptic: Ran rv-picks/sema/s4.fb (`Where M: Func(Int[], Func(Int): Int Throws E): Int`). Debug and release both build and print "built" with no error, though the inner `Func(Int): Int Throws E` is a Func value type, and spec 13 says "Only a For Method loop's Func type throws: a Func value can't." With s4b.fb (`Func(Func(Int): Int Throws E): Int Throws E`), the error is reported at 13:14 and spans the whole outer, allowed Func type. The cause is at sema.cpp:12880: `std::exchange(m_method_pattern, false)` is one flag for the whole pattern, and the first throwing Func resolved, here a nested parameter, uses it up.
 
-## Found by lane 6 (lane6-step30.md's "For lane 2's review"), both fixed in b015b07e
+## Found by lane 6 (lane6-step30.md's "For lane 2's review"), both fixed in 664323cc
 
 - A loop's `Where E: Error` on what its Methods throw, which always holds, was a constraint each
   caller had to vouch for, so `Outer<T>()` calling `Inner<T>()` failed. collect_method_bounds()
