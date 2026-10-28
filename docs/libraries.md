@@ -29,8 +29,8 @@ them is designed here and in [website.md](website.md), and built in M8 and M9.
 6. **Exact-version ABI.** A program is built against one exact build of each library. Each binary
    carries an ABI hash, and linking or loading a mismatched one is an error that names both builds.
    Layouts and Method tables can change freely between versions.
-7. **Plugins.** A program can load a library it doesn't know at build time, a mod, with
-   `Plugin.Load(path)`, built against an interface package of the host's.
+7. **Plugins, later.** Loading a library a program doesn't know at build time, a mod, isn't in
+   M7 (the user's call, 2026-10-28); a program's libraries are its project.toml's dependencies.
 8. **C++ through a C API.** The engine, and any C++ library, exposes `extern "C"` functions;
    fb-bindgen writes the FB bindings, and an FB package wraps them in an idiomatic API. No direct
    C++ interop.
@@ -42,8 +42,9 @@ them is designed here and in [website.md](website.md), and built in M8 and M9.
     dependency: semver ranges, resolved to one version and pinned in a lock file. A package is in
     exactly one place: the executable, or its own library file beside it.
 11. **A program that uses only std, or embeds every package, is one executable**, depending on
-    nothing but the OS's own libraries. Every third-party library std bundles links statically.
-    The toolchain itself (fb with LLVM, fb-bindgen with libclang) may use DLLs.
+    nothing but the OS's own libraries, unless a package brings a dynamic native library. Every
+    third-party library std bundles links statically. The toolchain itself (fb with LLVM,
+    fb-bindgen with libclang) may use DLLs.
 12. **The engine is a separate C++ project**, not part of the runtime or std: a C API in a DLL,
     shipped as a package with prebuilt binaries, wrapped by FB code.
 
@@ -79,10 +80,12 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
   position-independent objects, with its .fbi. Embedding links its objects into the executable;
   `beside` links the same objects into its .dll, .so, or .dylib, so a package ships one
   binary form and its user picks.
-- A library beside the executable takes the runtime, and what else it uses from the executable,
-  from the executable itself: on Windows the executable exports them and the library links against
-  its import library; on Linux the executable's symbols are dynamic (`-rdynamic`); on macOS the
-  library is linked against the executable (`-bundle_loader`).
+- A library beside the executable takes the runtime, std, and what else it uses from the
+  executable itself, which loads it as it starts (spec 11): on Windows the executable exports them
+  and the library links against its import library, so the executable keeps its built name; on
+  Linux the executable's symbols are dynamic (`-rdynamic`); on macOS the library is linked with
+  `-undefined dynamic_lookup` against the executable's exports, since `-bundle_loader` can't build
+  a dylib.
 - A Global crosses a binary's edge as accessor functions, not as data.
 - A generic type's instance made in two binaries is one type: the runtime registers each Class by
   its full name, so `Is`, casts, and Interface tables agree across binaries.
@@ -101,16 +104,6 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
 - A build copies every native DLL the program needs beside the executable, which finds them there
   (`$ORIGIN` on Linux, `@loader_path` on macOS).
 
-## Loading at run time
-
-- A **plugin** is an FB library (a .dll, .so, or .dylib) that depends on an interface package of its
-  host; the host loads it with `Plugin.Load(path)`, which checks its ABI hash against the host's
-  build of the interface package and throws a PluginError naming both when they differ, and gets
-  values of the host's Interfaces from the plugin's entry Function. A plugin uses the host's
-  runtime, as a beside library does.
-- std.ffi's `DynamicLibrary.Open(path)`, for C libraries, throws an FfiError when it can't load;
-  Unsafe `Function<F>(name)` gives a Callback of type F, or Null; `Close()` lets it go.
-
 ## The package manager (built in M8, hosted in M9)
 
 - The registry is at futureblitz.dev, designed in [website.md](website.md), with a sparse index of
@@ -123,6 +116,7 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
 
 ## Not in M7
 
+Plugins and loading libraries at run time, `Plugin.Load` and `DynamicLibrary` (later);
 FutureBlitz called from C or other languages (not planned); a stable ABI across versions (not
 planned); direct C++ interop (not planned); building a package's native code from source (maybe
 later); the registry and downloads (M8 and M9); signing packages (later).

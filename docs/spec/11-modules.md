@@ -170,9 +170,10 @@ physics = { path = "../physics" }
   `engine = { dynamic = "native/{target}/engine" }` is a dynamic library (see
   [Native libraries](#native-libraries)). A name is letters, digits, and `_`, `-`, `.`, or `+`,
   not starting with `-`.
-- A path in project.toml, `main`, a dependency's `path`, or a static library's, takes `\` as a
-  `/`, as an Import's path does, so a project.toml written on Windows means the same everywhere.
-- A program links every `[native]` library of its packages, statically: its own code, then each
+- A path in project.toml, `main`, a dependency's `path`, or a static or dynamic library's, takes
+  `\` as a `/`, as an Import's path does, so a project.toml written on Windows means the same
+  everywhere.
+- A program links every static `[native]` library of its packages: its own code, then each
   package's archives in its project.toml's order, a package's before those of the packages it
   depends on, then the runtime, and then the system libraries, each once. On MinGW, programs
   link the UCRT C runtime, so an archive is built for it too, as with gcc's `-mcrtdll=ucrt`.
@@ -196,59 +197,89 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
   executable. A beside one is its own file, the OS's own kind of dynamic library: `<name>.dll` on
   Windows, `lib<name>.so` on Linux, and `lib<name>.dylib` on macOS, built only for FutureBlitz
   programs, which the build puts beside the executable, printing each file the program needs, as
-  it prints the bundled C libraries.
+  it prints the bundled C libraries. `link` in a library's own `[dependencies]` is a warning that
+  it's ignored, since only the program decides; a dependency whose `type` is `"executable"` is an
+  error naming it.
 - A program that uses only std, or embeds every package, is one executable, which needs nothing
-  but the OS's own libraries.
-- A beside library's own dependencies are embedded in it, unless the program lists them beside
-  too. Each package is in one place in a program: the executable, or its own file beside it. A
-  beside library's file can't have the name of another file the build puts beside the executable,
-  such as a package's native library: the build stops with an error naming both.
-- Every binary uses the executable's runtime: one heap, one set of refcounts, one scheduler, and
-  one registry of types. A library beside the executable has no runtime of its own.
-- The executable loads its beside libraries as it starts, before any Global initializes, and
-  checks each one's ABI hash; one that's missing or isn't the build the program was built against
-  stops it with an error naming the file, before any of the program's code runs.
+  but the OS's own libraries, unless a package brings a dynamic native library (see
+  [Native libraries](#native-libraries)), which goes beside it.
+- Each package is in one place in a program: the executable, or its own file beside it. A beside
+  library's own dependencies are embedded in it, and a package that the executable and a beside
+  library both use, or two beside libraries do, has to be beside itself: the build stops with an
+  error naming the package and its users, until the program lists it with `link = "beside"`.
+- The runtime and std are always in the executable, and every library beside it uses them: one
+  heap, one set of refcounts, one scheduler, one registry of types, and one copy of each of std's
+  modules and their Globals. A library beside the executable has no runtime or std of its own,
+  and the executable links every std module its beside libraries use.
+- The executable loads its beside libraries itself as it starts, before any Global initializes,
+  each after those it depends on, and checks each one's build (see
+  [Prebuilt libraries](#prebuilt-libraries)). One that's missing or isn't the build the program
+  was built against stops it with an error naming the file, before any of the program's code
+  runs.
+- A beside library reaches the runtime, std, and the packages in the executable through the
+  executable's exported symbols: its dynamic ones on Linux, and on macOS its exports, which a
+  beside library is linked to look up as it loads; on Windows, its exports through its import
+  library, by the executable's file name. A Windows executable with beside libraries therefore
+  keeps the name it was built with, and one that's renamed stops as it starts, with an error
+  naming both names.
 - Across a binary's edge, code works as it does inside one: a Class can extend a library's Class,
   objects and Tasks pass either way, and a generic type's instance made in two binaries is one
   type, so `Is`, casts, and Interfaces agree. A Global of a library is reached through its
   library, never copied.
-- Only a library's Public declarations are seen by its users; its Package ones stay in it.
+- Only a library's Public declarations are seen by its users' code; its Package ones stay in it.
+- A beside library's file can't have the name, compared ignoring letter case, of another file the
+  build puts beside the executable, such as a package's native library, of a library the
+  executable takes from the OS, or of one of Windows' known DLLs: the build stops with an error
+  naming both.
+- In a library, a main.fb is an ordinary module unless `main` is written, which is an error.
 
 ### Prebuilt libraries
 
-- A library can be prebuilt, so its users needn't build it, and so it can be closed source. A
-  prebuilt library is a `.fblib` for each target and mode: its compiled code, which links into the
-  executable when it's embedded and into its library file when it's beside, with its interface
-  file.
-- The interface file, `<name>.fbi`, is FutureBlitz source: the library's Public declarations, with
-  the bodies of its generic, `@Inline`, and Const code, which its users compile themselves, and no
-  other bodies. Its first line is its ABI hash. The loader reads a prebuilt library's `.fbi` in
-  place of its source, so a program checks against it as against the source.
-- The ABI hash covers the interface file, the compiler's version, the target, and the mode. A
-  program is built against one exact build of each library, and linking or loading another is an
-  error that names both builds. Between versions a library's layouts and Method tables can change
-  freely.
+- A library can be prebuilt, so its users needn't build it, and so the rest of its code can stay
+  closed. `fb build` on a library writes `<folder>/build/<target>/<mode>/<name>.fblib`, its
+  compiled code, which links into the executable when it's embedded and into its library file when
+  it's beside, and `<name>.fbi`, its interface file, beside it. A package folder with a
+  project.toml and `lib/<target>/<mode>/<name>.fblib` and `.fbi` for the build's target and mode,
+  and no `.fb` source, is prebuilt; one with both is an error naming the package.
+- The interface file is FutureBlitz source, written for one target and mode with every `#If`
+  resolved, holding what a program compiles against: every Public declaration, with the bodies of
+  its generic, `@Inline`, and Const code, which the program compiles itself; the library's Private
+  and Package declarations that those bodies reach, which only those bodies can use, whose symbols
+  the library's binary exports, with bodies only when they're generic or `@Inline` themselves; and
+  every Field of each type it shows, Private ones too, with their visibility, so layouts and
+  `For Field` agree. A Const is written as its value, and an `Embed` in a body the interface file
+  keeps is an error when the library is built.
+- Its first line is the library's build: its name, its version, and its ABI hash, which covers
+  the rest of the interface file, the library's compiled code, the compiler's version, the target,
+  and the mode. A program is built against one exact build of each library, and linking or
+  loading another is an error that names both builds' names, versions, and hashes. Between
+  versions a library's layouts and Method tables can change freely.
 - A debug and a release build of a library differ, as their checks and panics do, so a prebuilt
   package has both, and a build links the one of its own mode.
 
 ### Native libraries
 
 - `[native]`'s `dynamic` names a C library the program loads as it starts: `engine = { dynamic =
-  "native/{target}/engine" }` finds engine.dll and its import library on Windows, libengine.so on
-  Linux, and libengine.dylib on macOS, which have to be there. `Lib "engine"` names it as it names
-  a static one (see [12](12-ffi.md)).
+  "native/{target}/engine" }` finds engine.dll and its import library (engine.lib,
+  libengine.dll.a, or libengine.a beside it) on Windows, libengine.so on Linux, and
+  libengine.dylib on macOS, which have to be there. `Lib "engine"` names it as it names a static
+  one (see [12](12-ffi.md)).
 - `{target}` in any of `[native]`'s paths is the target the program is built for:
   `windows-x64`, `linux-x64`, `linux-arm64`, `macos-arm64`, or `macos-x64`, so a package ships a
   binary of its natives per target, `native/<target>/`. A target a package has no binary for is an
   error naming the package.
 - A build copies every dynamic library the program needs beside the executable, which finds them
   there: on Windows beside it, on Linux through `$ORIGIN`, and on macOS through `@loader_path`.
+  Each is copied under the name the executable records for it: its SONAME on Linux, and on macOS
+  its install name, which has to be `@rpath/lib<name>.dylib` or a name in `@loader_path`, or the
+  build stops with an error naming the package and the file. A beside library's dynamic natives
+  are its own, and are copied beside the executable too.
 - A C++ library is used through a C API (`extern "C"` functions), which fb-bindgen writes bindings
   for; there's no direct C++ interop.
 
 ### Package archives
 
 - A package is shipped as an archive: its project.toml, a license, a readme, and either its `.fb`
-  source, or its prebuilt `.fblib`s per target and mode with the `.fbi`, and its natives per
-  target. The registry and the commands that fetch and publish archives come with the package
+  source, or its prebuilt `lib/<target>/<mode>/`, each `.fblib` with its `.fbi`, and its natives
+  per target. The registry and the commands that fetch and publish archives come with the package
   manager (M8).

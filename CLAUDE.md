@@ -29,11 +29,12 @@ compiler (lib), runtime (lib), cli (exe), lsp (exe), tools/bindgen (fb_bindgen l
 exe)
 
 ## Current step
-M6, the full standard library, is done: all 32 steps (docs/milestones.md; design in
-docs/stdlib.md) landed on Windows by 2026-10-27, with Linux and macOS fixed as CI finds them.
+M7, libraries and packages, steps 0 to 7 of docs/milestones.md's M7 build order, with the design
+in docs/libraries.md and spec 11; plugins and loading at run time are left for later. M6, the full
+standard library, is done: all 32 steps landed by 2026-10-28, on Windows, Linux, and macOS.
 docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
-M7, libraries and packages, is planned in docs/libraries.md; tooling is M8; futureblitz.dev
-(the site, docs, playground, registry, and accounts) is M9, in docs/website.md.
+Tooling is M8; futureblitz.dev (the site, docs, playground, registry, and accounts) is M9, in
+docs/website.md.
 
 ## History
 Each milestone's steps, in detail (what each added, by name, and each review's fixes), are in

@@ -343,9 +343,7 @@ file or URL in the default app.
   `Path: String?`, where in the Value it is), `FormatError` (`BAD_TEMPLATE`, `MISSING_VALUE`,
   `BAD_VALUE`, `OTHER`), `TimeoutError` and `CancelledError` (no Kind), `NetError`
   (`REFUSED`, `RESET`, `UNREACHABLE`, `HOST_NOT_FOUND`, `CLOSED`, `TLS`, `OTHER`, and
-  `Address: String?`), `DatabaseError` (`CONSTRAINT`, `BUSY`, `QUERY`, `CORRUPT`, `OTHER`), and, from
-  M7, `FfiError` (`NOT_FOUND`, `NO_SYMBOL`, `OTHER`) and `PluginError` (`NOT_FOUND`, `MISMATCH`,
-  `NO_ENTRY`, `OTHER`, and `Path: String?`), as spec 12 has them.
+  `Address: String?`), `DatabaseError` (`CONSTRAINT`, `BUSY`, `QUERY`, `CORRUPT`, `OTHER`).
   Each Kind is an Enum named for its Error, like `IOErrorKind`, and a later step can add to
   its area's.
 - Assertions beside Panic and Assert: `AssertEqual(a, b)`, which shows both, `DebugAssert`
@@ -2009,9 +2007,8 @@ Built in step 12, as spec 12 has it.
   alive, `CopyTo`, `ToArray`, `Iterate`, and `Pointer()` for C in Unsafe code.
   `Buffer<T>.View(pointer, count)`, in Unsafe code only, wraps memory C owns, on the promise
   that it outlives the view. std.io reads into and writes from Buffers without copying.
-- Loading at run time (M7 step 5, spec 12): `DynamicLibrary.Open(path)`, its Unsafe
-  `Function<F>(name)`, and `Close()`, for C libraries; and `Plugin.Load<T>(path)`, for FutureBlitz
-  plugins built against an interface package, whose `@PluginEntry` Function gives a T.
+- Loading a library at run time, a C library or a FutureBlitz plugin, comes later (not in M7,
+  by the user's call, 2026-10-28); a program's libraries are its project.toml's dependencies.
 
 ### Not in std
 

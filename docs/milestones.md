@@ -232,21 +232,21 @@ Linux and macOS can't be checked from this machine, so steps there are checked b
 
 ## M7 build order
 
-Planned 2026-10-22 and replanned 2026-10-24, with the design in [libraries.md](libraries.md).
-Every step ends with tests on all three CI runners, and a program that uses only std, or embeds
-every package, stays one executable.
+Planned 2026-10-22 and replanned 2026-10-24, with the design in [libraries.md](libraries.md);
+plugins and loading at run time left for later on 2026-10-28.
+Every step ends with tests on Windows, Linux, and macOS, and a program that uses only std, or
+embeds every package without dynamic natives, stays one executable.
 
 | Step | What | Done when |
 |---|---|---|
-| 0 | The spec and docs: spec 11's project types, `link`, and package archives; spec 12's plugins | the spec says what M7 builds |
+| 0 | The spec and docs: spec 11's project types, `link`, beside and prebuilt libraries, dynamic natives, and package archives | the spec says what M7 builds |
 | 1 | `type` in project.toml; the interface file: fb writes a library's .fbi, and the loader reads it in place of source | a package checks against a library's .fbi as it does against its source |
 | 2 | Prebuilt libraries embedded: the .fblib (position-independent objects and the .fbi), generic instances in the caller, and the ABI hash | an FB program embeds a prebuilt FB library's Classes, generics, and errors; a mismatched build is an error naming both |
 | 3 | Libraries beside the executable: `link = "beside"`, its .dll, .so, or .dylib with FB's metadata, the executable's runtime and exports, loading and checking at start-up | an FB program and a beside library share objects, Tasks, and `Is` checks, with one runtime and no leaks; a missing or mismatched file stops it with an error naming the file |
 | 4 | Across the edge: one type per instance in every binary, Globals' accessors, extending a library's Class | a Class extends a beside library's Class, and a generic instance made on both sides is one type |
-| 5 | Plugins and DynamicLibrary: `Plugin.Load` against a host's interface package, and C libraries at run time | a host loads an FB plugin and a C library at run time; a plugin of another build is a PluginError naming both |
-| 6 | `[native]` dynamic libraries and `{target}` paths; native DLLs copied beside the executable, rpaths | a program calls a C DLL from its package's native/<target>/ and runs from its build folder |
-| 7 | A package with prebuilt natives: a stand-in C++ engine DLL with a C API (tests/native), wrapped by an FB package through fb-bindgen | the package builds and runs on Windows, Linux, and macOS |
-| 8 | Loose ends, and the milestone's review | M7's "done when" |
+| 5 | `[native]` dynamic libraries and `{target}` paths; native DLLs copied beside the executable, rpaths | a program calls a C DLL from its package's native/<target>/ and runs from its build folder |
+| 6 | A package with prebuilt natives: a stand-in C++ engine DLL with a C API (tests/native), wrapped by an FB package through fb-bindgen | the package builds and runs on Windows, Linux, and macOS |
+| 7 | Loose ends, and the milestone's review | M7's "done when" |
 
 ## M9 build order
 

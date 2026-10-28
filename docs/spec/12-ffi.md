@@ -227,52 +227,6 @@ End Unsafe
   values, or the program panics at the call, and a debug build panics on a Null Callback's
   call.
 
-## Loading at run time
-
-A program can load code it doesn't know when it's built: a C library, or a plugin written in
-FutureBlitz.
-
-```vb
-Import std.ffi
-
-Local lib = Try DynamicLibrary.Open("native/sqlite3")    // sqlite3.dll, libsqlite3.so, ...
-Unsafe
-    Local version = lib.Function<Callback(): CString>("sqlite3_libversion")
-    If version != Null Then Print(version().ToString())
-End Unsafe
-lib.Close()
-
-Local mod = Try Plugin.Load<GameMod>("mods/tanks")      // tanks.dll, libtanks.so, ...
-mod.Start()
-```
-
-- `DynamicLibrary.Open(path)` loads a C library through the OS, from a path without the OS's
-  prefix and extension, which it adds, or with them. One it can't load throws an `FfiError` of
-  `NOT_FOUND`, or of `OTHER` with the OS's reason. Its Unsafe `Function<F>(name)`, where F is a
-  Callback type, gives the symbol as an F, or Null when the library has none; nothing checks that
-  the symbol takes and gives what F says, so calling it is Unsafe code's, as any Callback's is.
-  `Close()` lets the library go; a Callback from it, called after, breaks memory, as a freed
-  pointer's does.
-- A **plugin** is a FutureBlitz library built against an interface package of its host: a
-  library package with the Interfaces the host calls and the types they pass, which the host and
-  each plugin depend on. The plugin is built beside, as its own `.dll`, `.so`, or `.dylib`, and
-  uses its host's runtime, as a beside library does (see [11](11-modules.md#libraries)).
-- A plugin has exactly one `@PluginEntry` Function, `Public`, taking nothing and giving one of the
-  interface package's Interfaces, like `@PluginEntry Public Function Load(): GameMod`. A
-  plugin without one, or with two, is an error, and so is the attribute on anything else.
-- `Plugin.Load<T>(path)` loads the plugin at `path`, the OS's prefix and extension optional, checks
-  that it was built against the host's build of the interface package that declares T, by its ABI
-  hash, and that its entry Function gives a T, calls the entry, and gives what it gives. It throws
-  a `PluginError`: `NOT_FOUND` for a file it can't load, `MISMATCH` for another build of the
-  interface package, naming both builds, `NO_ENTRY` for a library without an entry or whose entry
-  gives another type, and `OTHER` with the OS's reason.
-- A plugin stays loaded until the program ends, since its objects, Methods, and Tasks may be
-  anywhere in the program; loading one path twice gives the entry's value again without loading
-  it twice.
-- `FfiError` and `PluginError` are std.core's, beside IOError and the rest (see
-  [stdlib.md](../stdlib.md)), so any code can catch them; `DynamicLibrary` and `Plugin` are
-  std.ffi's.
-
 ## Safety
 
 - Calling FFI functions is allowed in safe code, but not calling a Callback, or an Extern Function

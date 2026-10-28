@@ -3,6 +3,20 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## M7, libraries and packages
+
+Step 0, the spec: spec 11's `type` (`"executable"` or `"library"`), `link` (`"embed"` or
+`"beside"`), and its Libraries section: each package in one place, a package two binaries use
+beside, the runtime and std always in the executable, beside libraries loaded by the executable
+itself as it starts and reaching it through its exported symbols (-rdynamic, -undefined
+dynamic_lookup, and the import library, so a Windows executable keeps its built name), and the
+edge's rules; prebuilt libraries, `build/<target>/<mode>/<name>.fblib` and the `.fbi`, which holds
+every Public declaration, the Private and Package ones generic and @Inline bodies reach, and every
+Field, under a first line with the build's name, version, and ABI hash; dynamic `[native]`
+libraries and `{target}`; and package archives. Its review's 23 findings were fixed or, for the
+plugins and run-time loading the user then left out of M7, dropped (docs/review/m7-step0.md), and
+step 5, plugins and DynamicLibrary, left the build order, so steps 6 to 8 became 5 to 7.
+
 ## M6, the full standard library
 
 Done in M6: step 0, CI: .github/workflows/ci.yml builds Debug and runs ctest on windows-2025
