@@ -2887,8 +2887,14 @@ std::expected<library_build_t, std::string> build_library(const compilation_t& c
 
     const mir_module_t module =
         lower(compilation.ast, compilation.analysis, compilation.package->name);
+    codegen_options_t options{ .mode = mode };
+    for (const module_t& each : compilation.ast.modules().modules()) {
+        options.paths.emplace(each.file, each.path);
+    }
+
+    options.paths[compilation.file] = compilation.package->name;
     const std::expected<std::string, std::string> code =
-        emit_bitcode(module, compilation.sources, compilation.file, { .mode = mode });
+        emit_bitcode(module, compilation.sources, compilation.file, options);
     if (!code) {
         return std::unexpected(code.error());
     }
@@ -3011,8 +3017,10 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
     // The object file is only needed for linking, and is removed even when linking fails.
     const std::filesystem::path object = temporary_path(output.stem(), ".o");
     codegen_options_t options{ .mode = mode };
-    for (const library_binary_t& binary : *binaries) {
-        options.linked.push_back(binary.code);
+    for (std::size_t i = 0; i < binaries->size(); ++i) {
+        std::filesystem::path path = compilation.interfaces[i];
+        path.replace_extension(".fblib");
+        options.linked.emplace_back(to_utf8(shown_disk_path(path)), binaries->at(i).code);
     }
 
     std::expected<void, std::string> built =

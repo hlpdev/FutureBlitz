@@ -2257,3 +2257,185 @@ TEST_CASE("fb builds a program with a prebuilt library's binary in it", "[cli]")
     CHECK(missing.output.contains(
         "geo.fblib, the prebuilt library's binary beside its interface file"));
 }
+
+namespace {
+
+/// Writes files under `folder` by their paths in it.
+struct folder_writer_t {
+    std::filesystem::path folder;
+
+    void operator()(const std::string_view path, const std::string_view text) const {
+        const std::filesystem::path file = folder / fb::path_from_utf8(path);
+        std::filesystem::create_directories(file.parent_path());
+        std::ofstream(file, std::ios::binary) << text;
+    }
+};
+
+/// Builds the library in `folder`/`name` in debug, and copies its build into
+/// `folder`/`name`-prebuilt, with its project.toml.
+void prebuild(const std::filesystem::path& folder, const std::string_view name) {
+    const fb::process_result_t built = fb_run({ "build", fb::to_utf8(folder / name) });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+    const std::filesystem::path target = fb::path_from_utf8(fb::build_target());
+    const std::filesystem::path from = folder / name / "build" / target / "debug";
+    const std::filesystem::path prebuilt = folder / std::format("{}-prebuilt", name);
+    std::filesystem::create_directories(prebuilt / "lib" / target / "debug");
+    std::filesystem::copy_file(folder / name / "project.toml", prebuilt / "project.toml",
+                               std::filesystem::copy_options::overwrite_existing);
+    for (const std::string extension : { ".fbi", ".fblib" }) {
+        const std::string file = std::string(name) + extension;
+        std::filesystem::copy_file(from / file, prebuilt / "lib" / target / "debug" / file,
+                                   std::filesystem::copy_options::overwrite_existing);
+    }
+}
+
+} // namespace
+
+TEST_CASE("a prebuilt library's binary runs its code as its source would", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "prebuilt_runs";
+    std::filesystem::remove_all(folder);
+    const folder_writer_t write{ folder };
+    // A module with nothing the interface file shows still sets its Globals; a module can start
+    // with a Class; a ThreadLocal and a Const whose values are worked out run as the source's do;
+    // and debug forms show the library's Classes and the program's.
+    write("base/project.toml",
+          "[project]\nname = \"base\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("base/base.fb", "Global names: String[] = [\"b1\", \"b2\"]\n"
+                          "Public Function BName(): String => names[1]\n");
+    prebuild(folder, "base");
+    write("lib/project.toml",
+          "[project]\nname = \"lib\"\nversion = \"0.1.0\"\ntype = \"library\"\n\n"
+          "[dependencies]\nbase = { path = \"../base-prebuilt\" }\n");
+    write("lib/a.fb", "Import std.core\n"
+                      "Import lib.b\n"
+                      "Import lib.c\n"
+                      "Import base\n"
+                      "Public Class Thing\n"
+                      "    Public Field N: Int\n"
+                      "    Method Destroy()\n"
+                      "        Print(\"destroy {N}\")\n"
+                      "    End Method\n"
+                      "End Class\n"
+                      "Global made: Int = 0\n"
+                      "Function Make(): Thing\n"
+                      "    made += 1\n"
+                      "    Print(\"making {made}\")\n"
+                      "    Local thing = Thing()\n"
+                      "    thing.N = made\n"
+                      "    Return thing\n"
+                      "End Function\n"
+                      "Public Const First: Thing = Make()\n"
+                      "Function Compute(): Int => 40 + 2\n"
+                      "Public ThreadLocal Global Seed: Int = Compute()\n"
+                      "Public Function Get(): String => Helper() + BName() + \"{Held()}\"\n"
+                      "Public Function Shown(thing: Thing): String => \"{thing:?}\"\n");
+    write("lib/b.fb", "Global names: String[] = [\"start\", \"two\"]\n"
+                      "Package Function Helper(): String => names[1]\n");
+    write("lib/c.fb", "Public Class Holder\n"
+                      "    Public Field V: Int = 5\n"
+                      "End Class\n"
+                      "Global held = Holder()\n"
+                      "Package Function Held(): Int => held.V\n");
+    prebuild(folder, "lib");
+    write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\n"
+                              "lib = { path = \"../lib-prebuilt\" }\n"
+                              "base = { path = \"../base-prebuilt\" }\n");
+    write("app/main.fb", "Import std.core\n"
+                         "Import lib\n"
+                         "Interface Counted\n"
+                         "    Method Count(): Int\n"
+                         "End Interface\n"
+                         "Extend Thing Implements Counted\n"
+                         "    Method Count(): Int => N * 10\n"
+                         "End Extend\n"
+                         "Global classes = 3\n"
+                         "Print(\"{Get()} {First.N} {Seed} {classes}\")\n"
+                         "Print(\"{Spawn(Function() => Seed).Wait()}\")\n"
+                         "Local counted: Counted = First\n"
+                         "Print(\"{counted.Count()} {Shown(First)} {First:?}\")\n");
+    const fb::process_result_t ran = fb_run({ "run", fb::to_utf8(folder / "app") });
+    INFO(ran.output);
+    CHECK(ran.exit_code == 0);
+    CHECK(ran.output.ends_with("making 1\n"
+                               "twob25 1 42 3\n"
+                               "42\n"
+                               "10 Thing { N: 1 } Thing { N: 1 }\n"
+                               "destroy 1\n"));
+
+    // Its view of the LLVM IR is of the program with the library's binary.
+    const fb::process_result_t shown =
+        fb_run({ "check", fb::to_utf8(folder / "app"), "--show", "llvm" });
+    INFO(shown.output);
+    CHECK(shown.exit_code == 0);
+    CHECK(shown.output.contains("lib.a.Get()"));
+
+    // A library's build is the same wherever it's built.
+    std::filesystem::create_directories(folder / "elsewhere");
+    std::filesystem::copy(folder / "lib", folder / "elsewhere" / "lib",
+                          std::filesystem::copy_options::recursive);
+    std::filesystem::copy(folder / "base-prebuilt", folder / "elsewhere" / "base-prebuilt",
+                          std::filesystem::copy_options::recursive);
+    std::filesystem::remove_all(folder / "elsewhere" / "lib" / "build");
+    prebuild(folder / "elsewhere", "lib");
+    const auto first_line = [](const std::filesystem::path& file) {
+        std::ifstream in(file, std::ios::binary);
+        std::string line;
+        std::getline(in, line);
+        return line;
+    };
+    const std::filesystem::path interface =
+        fb::path_from_utf8(std::format("lib/build/{}/debug/lib.fbi", fb::build_target()));
+    CHECK(first_line(folder / interface) == first_line(folder / "elsewhere" / interface));
+
+    // A .fblib whose code isn't bitcode is named.
+    const std::filesystem::path binary = folder / "lib-prebuilt" / "lib" /
+                                         fb::path_from_utf8(fb::build_target()) / "debug" /
+                                         "lib.fblib";
+    std::ifstream in(binary, std::ios::binary);
+    std::string header;
+    std::string bundled;
+    std::getline(in, header);
+    std::getline(in, bundled);
+    in.close();
+    std::ofstream(binary, std::ios::binary) << header << "\n" << bundled << "\nnot bitcode";
+    const fb::process_result_t broken = fb_run({ "build", fb::to_utf8(folder / "app") });
+    INFO(broken.output);
+    CHECK(broken.exit_code == 1);
+    CHECK(broken.output.contains("lib.fblib's code isn't LLVM bitcode that this fb reads"));
+
+    // A Class's record, and a T[]'s, is one in both binaries, so a leak report counts each type
+    // once.
+    write("nodes/project.toml",
+          "[project]\nname = \"nodes\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("nodes/nodes.fb", "Public Class Node\n"
+                            "    Public Field Items: Int[] = []\n"
+                            "    Public Field Next: Node?\n"
+                            "End Class\n"
+                            "Public Function Leak()\n"
+                            "    Local node = Node()\n"
+                            "    node.Next = node\n"
+                            "End Function\n");
+    prebuild(folder, "nodes");
+    write("leaky/project.toml", "[project]\nname = \"leaky\"\nversion = \"0.1.0\"\n\n"
+                                "[dependencies]\nnodes = { path = \"../nodes-prebuilt\" }\n");
+    write("leaky/main.fb", "Import nodes\n"
+                           "Leak()\n"
+                           "Local node = Node()\n"
+                           "node.Next = node\n");
+    const fb::process_result_t leaked = fb_run({ "run", fb::to_utf8(folder / "leaky") });
+    INFO(leaked.output);
+    CHECK(leaked.output.contains("leak: 2 Node objects were never released"));
+    CHECK(leaked.output.contains("leak: 2 Int32[] objects were never released"));
+
+    // Two things one name names can't cross a binary.
+    write("alike/project.toml",
+          "[project]\nname = \"alike\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("alike/a.fb", "Public Class b\n    Public Static Method Z(): Int => 1\nEnd Class\n");
+    write("alike/a/b.fb", "Public Function Z(): Int => 2\n");
+    const fb::process_result_t alike = fb_run({ "build", fb::to_utf8(folder / "alike") });
+    INFO(alike.output);
+    CHECK(alike.exit_code == 1);
+    CHECK(alike.output.contains("'alike.a.b.Z()' names two things, which a library's binary and a "
+                                "program that links it can't tell apart; rename one"));
+}

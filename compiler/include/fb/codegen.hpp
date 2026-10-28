@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fb {
@@ -25,8 +27,12 @@ struct codegen_options_t {
     /// runtime was built for.
     std::string target_triple;
     /// The binaries of the prebuilt libraries the program uses, LLVM bitcode as
-    /// emit_bitcode() gives it, which are linked into its module before it's optimized.
-    std::vector<std::string> linked;
+    /// emit_bitcode() gives it, which are linked into its module before it's optimized, each
+    /// with the path of its .fblib, which an error names.
+    std::vector<std::pair<std::string, std::string>> linked;
+    /// The paths panics name files by, in place of their sources' own: a library's build names
+    /// its modules by their paths in the program, so its binary is the same wherever it's built.
+    std::map<file_id_t, std::string> paths;
 };
 
 /// The module as LLVM IR text, optimized in release builds. `sources` gives panics their path,

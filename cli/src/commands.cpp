@@ -564,8 +564,20 @@ int compile_command(const options_t& options) {
     }
 
     if (wants(options, stage_t::LLVM)) {
-        const auto ir =
-            emit_ir(module, compilation.sources, compilation.file, { .mode = options.mode });
+        // A prebuilt library's binary is linked into the module the view shows.
+        codegen_options_t codegen{ .mode = options.mode };
+        const std::expected<std::vector<library_binary_t>, std::string> binaries =
+            prebuilt_binaries(compilation);
+        if (!binaries) {
+            console.error(binaries.error());
+            return compile_errors_exit_code;
+        }
+
+        for (std::size_t i = 0; i < binaries->size(); ++i) {
+            codegen.linked.emplace_back(to_utf8(compilation.interfaces[i]), binaries->at(i).code);
+        }
+
+        const auto ir = emit_ir(module, compilation.sources, compilation.file, codegen);
         if (!ir) {
             console.error(ir.error());
             return compile_errors_exit_code;

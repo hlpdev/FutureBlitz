@@ -222,8 +222,11 @@ public:
             m_module.main_module = ast.modules().get(*main).name;
         }
 
-        // A library's build has its own modules' code.
+        // A library's build has its own modules' code, and its Classes' debug forms, which the
+        // programs that link it can show, as a program that links a library's has every one's.
         m_module.library = library.has_value();
+        m_debug_used =
+            m_module.library || std::ranges::any_of(ast.modules().modules(), &module_t::prebuilt);
         for (const module_t& module : ast.modules().modules()) {
             if (library && !module.is_main &&
                 ast.modules().package_name(module.package) == *library &&
@@ -269,6 +272,17 @@ public:
         for (const symbol_t& symbol : m_analysis.symbols) {
             if (symbol.kind == symbol_kind_t::TYPE &&
                 (!outside_main(symbol) || in_library(symbol)) &&
+                types().get(symbol.type).parameters.empty()) {
+                use_class(symbol.type);
+            }
+        }
+
+        // A program that links a prebuilt library's binary has its own record of each of its
+        // Classes, with what the program's Extends make them implement, which the binary's
+        // code shares.
+        for (const symbol_t& symbol : m_analysis.symbols) {
+            if (symbol.kind == symbol_kind_t::TYPE && in_prebuilt(symbol) &&
+                types().get(symbol.type).kind == type_kind_t::CLASS &&
                 types().get(symbol.type).parameters.empty()) {
                 use_class(symbol.type);
             }
@@ -346,6 +360,32 @@ public:
 
         for (auto& global : m_module.globals) {
             number(global.name);
+        }
+
+        // A name another binary uses has to be the same there, which a number in this build's
+        // order isn't.
+        if (!m_module.library &&
+            !std::ranges::any_of(m_ast.modules().modules(), &module_t::prebuilt)) {
+            return;
+        }
+
+        std::unordered_map<std::string, bool> crossing;
+        for (const mir_function_t& function : m_module.functions) {
+            crossing[function.name.substr(0, function.name.find('#'))] |=
+                function.linkage != mir_linkage_t::INTERNAL;
+        }
+
+        for (const mir_function_t& function : m_module.functions) {
+            const std::string base = function.name.substr(0, function.name.find('#'));
+            if (base.size() != function.name.size() && crossing[base]) {
+                m_module.error = mir_error_t{
+                    .message = std::format("'{}' names two things, which a library's binary and "
+                                           "a program that links it can't tell apart; rename one",
+                                           base),
+                    .span = function.span,
+                };
+                return;
+            }
         }
     }
 
@@ -574,13 +614,13 @@ private:
     /// instance's, made as it's used, and a Const known at compile time has none until code needs
     /// its place, since its uses read its value.
     void declare_globals() {
+        // A type has a place, where a module's first item can be, and its members after it.
         for (const stmt_id_t id : m_ast.items()) {
+            m_item_order.emplace(id, static_cast<std::uint32_t>(m_item_order.size()));
             if (const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node)) {
                 for (const stmt_id_t member : declared->members) {
                     m_item_order.emplace(member, static_cast<std::uint32_t>(m_item_order.size()));
                 }
-            } else {
-                m_item_order.emplace(id, static_cast<std::uint32_t>(m_item_order.size()));
             }
         }
 
@@ -635,10 +675,11 @@ private:
         const auto global = static_cast<global_id_t>(m_module.globals.size());
         m_globals[id] = global;
         const bool thread_local_global = symbol.modifiers.is_thread_local;
-        const bool runs = node.value && !m_analysis.expr(*node.value).value;
-        // A prebuilt library's binary has its own Globals, and sets them.
+        const bool runs = node.value && !m_analysis.expr(*node.value).value && !in_prebuilt(symbol);
+        // A prebuilt library's binary has its own Globals, and sets them, a Const that the
+        // interface file keeps the code of too.
         mir_linkage_t linkage = mir_linkage_t::SHARED;
-        if (node.prebuilt) {
+        if (node.prebuilt || in_prebuilt(symbol)) {
             linkage = mir_linkage_t::IMPORTED;
         } else if (!outside_main(symbol)) {
             linkage = mir_linkage_t::INTERNAL;
@@ -877,6 +918,17 @@ private:
     [[nodiscard]] bool in_library(const symbol_t& symbol) const {
         return symbol.declaration &&
                m_library_files.contains(m_ast.get(*symbol.declaration).span.file);
+    }
+
+    /// Whether a symbol is declared in a prebuilt library's module.
+    [[nodiscard]] bool in_prebuilt(const symbol_t& symbol) const {
+        if (!symbol.declaration) {
+            return false;
+        }
+
+        const std::optional<module_id_t> module =
+            m_ast.modules().of(m_ast.get(*symbol.declaration).span.file);
+        return module && m_ast.modules().get(*module).prebuilt;
     }
 
     /// Whether a function is a prebuilt library's, whose binary has its code.
@@ -2347,24 +2399,51 @@ private:
     /// the rest of the top-level code runs.
     void lower_top_level() {
         begin_function(m_module.entry);
-        std::optional<file_id_t> module;
+        // The Globals are set module by module, in the modules' order. A library's build sets
+        // its own in its modules' initializers, and a prebuilt library's binary its own, which
+        // main calls, with no items of the module's to set, though it may have none in its
+        // interface file.
+        std::unordered_map<file_id_t, std::vector<stmt_id_t>> items;
         for (const stmt_id_t id : m_ast.items()) {
-            // A library's build sets its Globals in its modules' initializers.
-            if (m_library_files.contains(m_ast.get(id).span.file)) {
+            items[m_ast.get(id).span.file].push_back(id);
+        }
+
+        const std::vector<module_t>& modules = m_ast.modules().modules();
+        // The place of each module's first item, or of the next one's after it, which a
+        // prebuilt module lets go of its Globals at, as main would.
+        std::vector<std::uint32_t> places(modules.size());
+        auto next = static_cast<std::uint32_t>(m_item_order.size());
+        for (std::size_t i = modules.size(); i-- > 0;) {
+            if (const auto found = items.find(modules[i].file);
+                found != items.end() && !found->second.empty()) {
+                next = m_item_order.at(found->second.front());
+            }
+
+            places[i] = next;
+        }
+
+        for (std::size_t i = 0; i < modules.size(); ++i) {
+            const module_t& module = modules[i];
+            if (m_library_files.contains(module.file)) {
                 continue;
             }
 
-            if (const file_id_t file = m_ast.get(id).span.file; file != module) {
-                module = file;
-                call_prebuilt_initializer(file, id);
+            if (module.prebuilt) {
+                if (!m_module.library) {
+                    call_prebuilt_initializer(module, places[i]);
+                }
+
+                continue;
             }
 
-            if (const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node)) {
-                for (const stmt_id_t member : declared->members) {
-                    initialize_global(member);
+            for (const stmt_id_t id : items[module.file]) {
+                if (const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node)) {
+                    for (const stmt_id_t member : declared->members) {
+                        initialize_global(member);
+                    }
+                } else {
+                    initialize_global(id);
                 }
-            } else {
-                initialize_global(id);
             }
         }
 
@@ -2386,15 +2465,9 @@ private:
         finish_function();
     }
 
-    /// Where main reaches a prebuilt library's module, whose first item is `first`: a call of
+    /// Where main reaches a prebuilt library's module, at `place` in the Globals' order: a call of
     /// the initializer its binary has for its Globals.
-    void call_prebuilt_initializer(const file_id_t file, const stmt_id_t first) {
-        const std::optional<module_id_t> id = m_ast.modules().of(file);
-        if (!id || !m_ast.modules().get(*id).prebuilt) {
-            return;
-        }
-
-        const module_t& module = m_ast.modules().get(*id);
+    void call_prebuilt_initializer(const module_t& module, const std::uint32_t place) {
         const auto function = static_cast<function_id_t>(m_module.functions.size());
         m_module.functions.push_back({
             .name = std::format("{}.(init)", module.name),
@@ -2403,7 +2476,7 @@ private:
         m_module.modules.push_back({
             .name = module.name,
             .initializer = function,
-            .order = m_item_order.at(first),
+            .order = place,
         });
         emit(evaluate_t{ call_t{ .function = function } });
     }
@@ -2444,11 +2517,13 @@ private:
             }
 
             finish_function();
+            // Its binary makes each of its ThreadLocals, which programs use too.
             for (const symbol_id_t global : m_analysis.globals) {
                 const symbol_t& symbol = m_analysis.symbol(global);
                 if (symbol.declaration && m_ast.get(*symbol.declaration).span.file == module.file) {
                     if (const auto found = m_globals.find(global); found != m_globals.end()) {
                         part.globals.push_back(found->second);
+                        use_thread_local(found->second);
                     }
                 }
             }
@@ -2463,6 +2538,12 @@ private:
         const auto* node = std::get_if<variable_stmt_t>(&m_ast.get(id).node);
         if (node == nullptr || node->kind == variable_kind_t::LOCAL || !node->value ||
             m_analysis.expr(*node->value).value) {
+            return;
+        }
+
+        // A prebuilt library's binary sets its own.
+        if (const std::optional<module_id_t> module = m_ast.modules().of(m_ast.get(id).span.file);
+            module && m_ast.modules().get(*module).prebuilt) {
             return;
         }
 
@@ -2485,7 +2566,8 @@ private:
             // start, so its uses check nothing.
             use_thread_local(global);
             if (m_thread_local_declarations.contains(global) ||
-                has_references(m_module.globals[index(global)].type)) {
+                has_references(m_module.globals[index(global)].type) ||
+                m_module.globals[index(global)].linkage == mir_linkage_t::IMPORTED) {
                 emit(ready_t{ .global = global, .span = m_ast.get(use).span });
             }
         } else if (m_function != m_module.entry && m_module.globals[index(global)].set_in_main) {

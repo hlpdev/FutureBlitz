@@ -99,6 +99,12 @@ struct c_signature_t {
     std::optional<c_struct_abi_t> result;
 };
 
+/// The path a file is named by: the options' own for it, or its source's.
+std::string path_of(const codegen_options_t& options, const source_file_t& file) {
+    const auto found = options.paths.find(file.id());
+    return found != options.paths.end() ? found->second : file.path();
+}
+
 /// Turns a MIR module into an LLVM module. Build it once, then print its IR or write an object
 /// file.
 class codegen_t {
@@ -111,7 +117,8 @@ public:
                                  ? std::string(build_config::target_triple)
                                  : options.target_triple)),
           m_integers(c_integers_of(m_triple)), m_context(LLVMContextCreate()),
-          m_module(LLVMModuleCreateWithNameInContext(main.path().c_str(), m_context.get())),
+          m_module(
+              LLVMModuleCreateWithNameInContext(path_of(options, main).c_str(), m_context.get())),
           m_builder(LLVMCreateBuilderInContext(m_context.get())) {}
 
     /// Builds the module, verifies it, and optimizes it in release builds.
@@ -486,18 +493,33 @@ private:
             return {};
         }
 
-        for (const std::string& linked : m_options.linked) {
+        // What LLVM reports goes in a message, rather than ending the compiler.
+        std::string reported;
+        LLVMContextSetDiagnosticHandler(
+            context(),
+            [](LLVMDiagnosticInfoRef info, void* context) {
+                if (LLVMGetDiagInfoSeverity(info) == LLVMDSError) {
+                    *static_cast<std::string*>(context) =
+                        take_message(LLVMGetDiagInfoDescription(info));
+                }
+            },
+            &reported);
+        for (const auto& [path, code] : m_options.linked) {
             LLVMMemoryBufferRef buffer =
-                LLVMCreateMemoryBufferWithMemoryRangeCopy(linked.data(), linked.size(), "library");
+                LLVMCreateMemoryBufferWithMemoryRangeCopy(code.data(), code.size(), path.c_str());
             LLVMModuleRef library = nullptr;
             const bool failed = LLVMParseBitcodeInContext2(context(), buffer, &library) != 0;
             LLVMDisposeMemoryBuffer(buffer);
             if (failed) {
-                return std::unexpected("a prebuilt library's .fblib isn't LLVM bitcode fb wrote");
+                return std::unexpected(
+                    std::format("{}'s code isn't LLVM bitcode that this fb reads{}", path,
+                                reported.empty() ? std::string() : ": " + reported));
             }
 
             if (LLVMLinkModules2(m_module.get(), library) != 0) {
-                return std::unexpected("a prebuilt library's .fblib doesn't link with the program");
+                return std::unexpected(
+                    std::format("{} doesn't link with the program{}", path,
+                                reported.empty() ? std::string() : ": " + reported));
             }
         }
 
@@ -1953,7 +1975,7 @@ private:
         const source_file_t& file = m_sources.get(span.file);
         const location_t start = file.location_of(span.begin, column_unit_t::CODEPOINT);
         std::array<LLVMValueRef, 3> fields{
-            c_string(file.path()),
+            c_string(path_of(m_options, file)),
             LLVMConstInt(m_i32, start.line + 1, 0),
             LLVMConstInt(m_i32, start.column + 1, 0),
         };
@@ -2212,7 +2234,7 @@ private:
         const std::string global_name = std::format("fb.{}.class", name);
         LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), global_name.c_str());
         LLVMSetInitializer(global, info);
-        LLVMSetLinkage(global, LLVMInternalLinkage);
+        set_linkage(global, shared_type(type) ? mir_linkage_t::SHARED : mir_linkage_t::INTERNAL);
         m_classes.emplace(type, global);
         m_array_classes.push_back(functions);
         return global;
@@ -2303,7 +2325,7 @@ private:
         // once they're linked.
         const auto [list, count] = add_class_list();
         if (m_linking) {
-            LLVMValueRef counted = LLVMAddGlobal(m_module.get(), m_i64, "fb.class.count");
+            LLVMValueRef counted = LLVMAddGlobal(m_module.get(), m_i64, "fb.(class count)");
             call(m_finish, { list, LLVMBuildLoad2(builder(), m_i64, counted, "") });
         } else {
             call(m_finish, { list, LLVMConstInt(m_i64, count, 0) });
@@ -2339,7 +2361,9 @@ private:
 
         LLVMValueRef array =
             LLVMConstArray2(m_ptr, classes.data(), static_cast<std::uint64_t>(classes.size()));
-        LLVMValueRef list = LLVMAddGlobal(m_module.get(), LLVMTypeOf(array), "fb.classes");
+        // In a build that links, its name is one no FutureBlitz name makes.
+        LLVMValueRef list = LLVMAddGlobal(m_module.get(), LLVMTypeOf(array),
+                                          m_linking ? "fb.(classes)" : "fb.classes");
         LLVMSetInitializer(list, array);
         if (m_linking) {
             LLVMSetLinkage(list, LLVMAppendingLinkage);
@@ -2354,8 +2378,8 @@ private:
     /// Once the libraries' binaries are linked: the list of every binary's Classes, each once,
     /// since a Class that two of them have is one, and how many.
     void finish_class_list() {
-        LLVMValueRef appended = LLVMGetNamedGlobal(m_module.get(), "fb.classes");
-        LLVMValueRef counted = LLVMGetNamedGlobal(m_module.get(), "fb.class.count");
+        LLVMValueRef appended = LLVMGetNamedGlobal(m_module.get(), "fb.(classes)");
+        LLVMValueRef counted = LLVMGetNamedGlobal(m_module.get(), "fb.(class count)");
         if (appended == nullptr || counted == nullptr) {
             return;
         }
@@ -2373,7 +2397,7 @@ private:
         LLVMValueRef unique_array =
             LLVMConstArray2(m_ptr, classes.data(), static_cast<std::uint64_t>(classes.size()));
         LLVMValueRef list =
-            LLVMAddGlobal(m_module.get(), LLVMTypeOf(unique_array), "fb.class.list");
+            LLVMAddGlobal(m_module.get(), LLVMTypeOf(unique_array), "fb.(class list)");
         LLVMSetInitializer(list, unique_array);
         LLVMSetGlobalConstant(list, 1);
         LLVMSetLinkage(list, LLVMPrivateLinkage);
@@ -3635,7 +3659,7 @@ private:
         const std::string global_name = std::format("fb.{}.class", name);
         LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), global_name.c_str());
         LLVMSetInitializer(global, info);
-        LLVMSetLinkage(global, LLVMInternalLinkage);
+        set_linkage(global, shared_type(type) ? mir_linkage_t::SHARED : mir_linkage_t::INTERNAL);
         m_classes.emplace(type, global);
         m_channel_classes.push_back(functions);
         return global;

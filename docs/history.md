@@ -38,6 +38,24 @@ Super.New, Class Field defaults that embed, .proto modules, hidden Imports by pa
 free qualifiers, where `= ...` goes, CRLF, a missing build for the mode, main.fb's letter
 case, and clearer messages.
 
+Step 2, prebuilt libraries embedded: `fb build` on a library writes its binary,
+build/<target>/<mode>/<name>.fblib (write_binary(), read_binary()), beside its .fbi: a line
+naming its build, one naming the bundled C libraries its code calls, and its code as LLVM
+bitcode (emit_bitcode()), from lowering the library's build (lower()'s `library`), all of its
+own code, an initializer and a releaser for each module, and its Classes' debug forms. MIR's
+mir_linkage_t says what's the library's own (EXPORTED), a prebuilt one's (IMPORTED), and what
+every build shares (SHARED, linkonce_odr); a program's build declares a prebuilt function with
+its parameters (declare_parameters()), calls each prebuilt module's initializer in the modules'
+order, links each binary into its module (link_libraries()), merges the Classes' list
+(finish_class_list()), and makes all but main internal before it optimizes; the ABI hash covers
+the bitcode, and a binary that isn't its .fbi's build is an error naming both
+(prebuilt_binaries()). A Field's default is written in the .fbi as its value. Its review's 27
+findings were fixed (docs/review/m7-step2.md): itemless and dependent prebuilt modules'
+initializers, ThreadLocals and worked-out Consts, a module that starts with a type, alike
+names, debug forms, shared T[] and Channel records, the program's Extends on a library's
+objects, fb's own names for the Class list, LLVM's errors as fb's, `--show llvm`, the same
+build wherever it's built, and the docs.
+
 Step 5, dynamic natives (537d4680): `[native]`'s `{ dynamic = "native/{target}/engine" }`
 (native_kind_t::DYNAMIC), a path without the file's "lib" and extension, which finds engine.dll
 and its import library (engine.lib, libengine.dll.a, or libengine.a), libengine.so, or

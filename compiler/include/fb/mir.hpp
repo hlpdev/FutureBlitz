@@ -37,7 +37,6 @@ struct local_t {
     bool by_ref = false;
 };
 
-/// A top-level Global or Const, or a Static Field.
 /// How a function or Global is linked when a prebuilt library's binary and the program that uses it
 /// are linked into one. In a program without one, every one is the module's own.
 enum class mir_linkage_t : std::uint8_t {
@@ -53,6 +52,7 @@ enum class mir_linkage_t : std::uint8_t {
     IMPORTED,
 };
 
+/// A top-level Global or Const, or a Static Field.
 struct global_t {
     /// "score", or "Enemy.count" for a Static Field, with its module first outside the main
     /// module: "std.core.limits.score".
@@ -600,7 +600,6 @@ struct mir_error_t {
 /// must outlive the module. Names outside the main module start with their module, like
 /// "std.collections.map.Map<Int32, String>.Add(Int32, String)", so two modules' names stay apart,
 /// and the few that still come out alike, as module x's Class y's and module x.y's do, are
-/// numbered: "x.y.Z()#2".
 /// A library's module in a build that links one, by its name: in a library's build, one of its
 /// own, whose `initializer` sets its `globals`, which the binary's releaser for it lets go of; in a
 /// program, a prebuilt library's, whose initializer, IMPORTED, main calls at the module's place.
@@ -612,6 +611,11 @@ struct mir_library_module_t {
     std::uint32_t order = 0;
 };
 
+/// A whole program, lowered from its modules' files. Names view the source text, so the files
+/// must outlive the module. Names outside the main module start with their module, like
+/// "std.collections.map.Map<Int32, String>.Add(Int32, String)", so two modules' names stay apart,
+/// and the few that still come out alike, as module x's Class y's and module x.y's do, are
+/// numbered: "x.y.Z()#2".
 struct mir_module_t {
     std::vector<global_t> globals;
     std::vector<mir_class_t> classes;

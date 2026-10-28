@@ -76,10 +76,11 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
 - The interface file is `<name>.fbi`: FutureBlitz source, readable and diffable, with bodies left
   out of what isn't generic, @Inline, or Const, and the ABI hash on its first line. The driver's
   loader reads a prebuilt package's .fbi in place of its source.
-- A prebuilt library is `<name>.fblib` per target and mode: its compiled code as an archive of
-  position-independent objects, with its .fbi. Embedding links its objects into the executable;
-  `beside` links the same objects into its .dll, .so, or .dylib, so a package ships one
-  binary form and its user picks.
+- A prebuilt library is `<name>.fblib` per target and mode: its compiled code as LLVM bitcode,
+  under a line naming its build and one naming the bundled C libraries it calls, with its .fbi,
+  whose ABI hash covers both. Embedding links its bitcode into the program's module, which is then
+  optimized as one; `beside` builds the same bitcode into its .dll, .so, or .dylib, so a package
+  ships one binary form and its user picks.
 - A library beside the executable takes the runtime, std, and what else it uses from the
   executable itself, which loads it as it starts (spec 11): on Windows the executable exports them
   and the library links against its import library, so the executable keeps its built name; on
