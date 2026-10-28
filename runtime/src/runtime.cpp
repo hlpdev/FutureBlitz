@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <format>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -32,8 +33,12 @@
 #include <windows.h>
 #else
 #include <csignal>
+#include <dlfcn.h>
 #include <signal.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #endif
 
 namespace {
@@ -503,6 +508,97 @@ void fb_flush() {
 
 void fb_panic(const char* message, const fb_location_t* location) {
     panic_with(message, location);
+}
+
+void fb_load_beside(const char* executable, const char* file, const char* build,
+                    const char* const* names, void** slots, const std::int64_t count) {
+    const auto stop = [](const std::string& message) {
+        std::fprintf(stderr, "error: %s\n", message.c_str());
+        end_program(error_exit_code);
+    };
+#ifdef _WIN32
+    std::wstring own(MAX_PATH, L'\0');
+    for (;;) {
+        const DWORD length =
+            GetModuleFileNameW(nullptr, own.data(), static_cast<DWORD>(own.size()));
+        if (length < own.size()) {
+            own.resize(length);
+            break;
+        }
+
+        own.resize(own.size() * 2);
+    }
+
+    const std::size_t slash = own.find_last_of(L"\\/");
+    const std::wstring folder = own.substr(0, slash + 1);
+    const auto narrow = [](const std::wstring& wide) {
+        const int size = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()),
+                                             nullptr, 0, nullptr, nullptr);
+        std::string text(static_cast<std::size_t>(size), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), text.data(),
+                            size, nullptr, nullptr);
+        return text;
+    };
+    const auto widen = [](const std::string_view text) {
+        const int size =
+            MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+        std::wstring wide(static_cast<std::size_t>(size), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(),
+                            size);
+        return wide;
+    };
+
+    // The library takes what it uses from the executable by the name it was built with.
+    const std::string named = narrow(own.substr(slash + 1));
+    if (_wcsicmp(widen(named).c_str(), widen(executable).c_str()) != 0) {
+        stop(std::format("{} was built as {}, which the library {} beside it takes its code from; "
+                         "give it that name again",
+                         named, executable, file));
+    }
+
+    const std::wstring path = folder + widen(file);
+    HMODULE library = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    const auto find = [&](const char* name) {
+        return reinterpret_cast<void*>(GetProcAddress(library, name));
+    };
+    const std::string shown = narrow(path);
+#else
+    std::string own;
+#ifdef __APPLE__
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    own.resize(size);
+    _NSGetExecutablePath(own.data(), &size);
+    own.resize(std::strlen(own.c_str()));
+#else
+    own.resize(4096);
+    const ssize_t length = readlink("/proc/self/exe", own.data(), own.size());
+    own.resize(length > 0 ? static_cast<std::size_t>(length) : 0);
+#endif
+    (void)executable;
+    const std::string shown = own.substr(0, own.find_last_of('/') + 1) + file;
+    void* library = dlopen(shown.c_str(), RTLD_NOW | RTLD_LOCAL);
+    const auto find = [&](const char* name) { return dlsym(library, name); };
+#endif
+    if (library == nullptr) {
+        stop(std::format("{} isn't there, or can't be loaded; the program needs it beside it",
+                         shown));
+    }
+
+    // It has to be the build the program was built against.
+    const auto* built = static_cast<const char*>(find("fb.(build)"));
+    if (built == nullptr || std::string_view(built) != build) {
+        stop(std::format("{} is the build {}, but the program was built against {}", shown,
+                         built != nullptr ? built : "of something other than a FutureBlitz library",
+                         build));
+    }
+
+    for (std::int64_t i = 0; i < count; ++i) {
+        slots[i] = find(names[i]);
+        if (slots[i] == nullptr) {
+            stop(std::format("{} has no {}, which the program uses", shown, names[i]));
+        }
+    }
 }
 
 void fb_exit(const std::int32_t code) {

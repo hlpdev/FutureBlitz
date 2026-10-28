@@ -75,6 +75,8 @@ struct package_t {
     std::string name;
     std::string version;
     std::filesystem::path root;
+    /// A library the program has beside its executable, in a file of its own.
+    bool beside = false;
     /// What its files' paths in the program start with: its name and a '/', like "physics/".
     std::string prefix;
     /// Its dependencies, by the names its project.toml gives them.
@@ -743,6 +745,12 @@ private:
     std::vector<std::unique_ptr<proto_entry_t>> m_protos;
     /// The keys of the .proto files being read, each importing the next, for a cycle's error.
     std::vector<std::string> m_reading;
+
+    /// Whether a file of the program is a library's beside its executable.
+    [[nodiscard]] bool beside_package(const std::string_view path) const {
+        const package_t* package = package_named(m_files, path);
+        return package != nullptr && package->beside && !path.starts_with("std/");
+    }
 
     /// The package a file of the program is in, by index in the file set's packages, which is
     /// 0, the main one, for every file of a program without a project.toml. nullopt for the
@@ -1609,6 +1617,7 @@ private:
                                ? std_package
                                : packages[package_of(loaded.path).value_or(0)],
                 .prebuilt = prebuilt_package(m_files, loaded.path) != nullptr,
+                .beside = beside_package(loaded.path),
             };
             if (const auto [taken, added] = names.emplace(module.name, index); !added) {
                 m_compilation.diagnostics.error(
@@ -1969,8 +1978,19 @@ private:
         m_manifests.push_back(std::move(*manifest));
         m_folders.push_back(root);
         chain.push_back(index);
+        // Only the program's own project.toml says which libraries go beside it.
+        const bool program = index == 0 && !m_packages.front().main.empty();
         for (const dependency_t& dependency : dependencies) {
-            (void)load(root / path_from_utf8(dependency.path), &dependency, chain);
+            const std::optional<std::size_t> loaded =
+                load(root / path_from_utf8(dependency.path), &dependency, chain);
+            if (dependency.link_span && !program) {
+                m_compilation.diagnostics.warning(
+                    *dependency.link_span,
+                    "only a program's own project.toml says how a library links, so this 'link' "
+                    "is ignored");
+            } else if (loaded && dependency.beside) {
+                m_packages[*loaded].beside = true;
+            }
         }
 
         chain.pop_back();
@@ -2405,7 +2425,14 @@ native_libraries_t natives_of(const std::vector<package_t>& packages, std::vecto
     finish(packages, 0, seen, finished);
     native_libraries_t natives;
     for (const std::size_t index : std::views::reverse(finished)) {
+        // A beside library's own static libraries link into its file, but its dynamic ones go
+        // beside the executable too.
         const native_libraries_t& linked = packages[index].linked;
+        if (packages[index].beside) {
+            std::ranges::copy(linked.dynamic, std::back_inserter(natives.dynamic));
+            continue;
+        }
+
         std::ranges::copy(linked.archives, std::back_inserter(natives.archives));
         std::ranges::copy(linked.dynamic, std::back_inserter(natives.dynamic));
         for (std::size_t i = 0; i < linked.system.size(); ++i) {
@@ -2482,7 +2509,14 @@ compile_package(const std::filesystem::path& folder,
     const manifest_t& manifest = reader.main();
     compilation.natives = natives_of(*packages, compilation.system_spans);
     for (const package_t& package : *packages) {
-        if (!package.interface.empty()) {
+        if (package.beside) {
+            compilation.beside.push_back({
+                .name = package.name,
+                .root = package.root,
+                .interface = package.interface,
+                .natives = package.linked,
+            });
+        } else if (!package.interface.empty()) {
             compilation.interfaces.push_back(package.interface);
         }
     }
@@ -2878,6 +2912,106 @@ std::expected<void, std::string> copy_beside(const std::vector<dynamic_native_t>
 }
 
 } // namespace
+
+namespace {
+
+/// A prebuilt library's binary, the .fblib beside its interface file, which has to be the same
+/// build.
+std::expected<library_binary_t, std::string>
+read_prebuilt_binary(const std::filesystem::path& interface) {
+    std::filesystem::path path = interface;
+    path.replace_extension(".fblib");
+    const auto read = [](const std::filesystem::path& file) {
+        std::ifstream in(file, std::ios::binary);
+        return in ? std::optional(std::string{ std::istreambuf_iterator<char>(in),
+                                               std::istreambuf_iterator<char>() })
+                  : std::nullopt;
+    };
+    const std::optional<std::string> text = read(interface);
+    const std::optional<std::string> bytes = read(path);
+    const std::string shown = to_utf8(shown_disk_path(path));
+    if (!bytes) {
+        return std::unexpected(std::format("there's no {}, the prebuilt library's binary beside "
+                                           "its interface file",
+                                           shown));
+    }
+
+    std::optional<library_binary_t> binary = read_binary(*bytes);
+    const std::optional<interface_header_t> header =
+        text ? read_interface_header(*text) : std::nullopt;
+    if (!binary || !header) {
+        return std::unexpected(std::format("{} isn't a library's binary that fb writes", shown));
+    }
+
+    // A program is built against one exact build of each library.
+    const interface_header_t& built = binary->header;
+    if (built.name != header->name || built.version != header->version ||
+        built.hash != header->hash) {
+        return std::unexpected(std::format(
+            "{} is the build {} v{} ({}), but its interface file, {}, is {} v{} ({}); a program is "
+            "built against one build of a library",
+            shown, built.name, built.version, built.hash, to_utf8(shown_disk_path(interface)),
+            header->name, header->version, header->hash));
+    }
+
+    return std::move(*binary);
+}
+
+/// The file a library beside the executable is, by the OS's own kind of dynamic library's name.
+std::string beside_file(const std::string_view name) {
+#ifdef _WIN32
+    return std::format("{}.dll", name);
+#elifdef __APPLE__
+    return std::format("lib{}.dylib", name);
+#else
+    return std::format("lib{}.so", name);
+#endif
+}
+
+/// The library of the OS's that a file beside the executable would take the name of, which the
+/// OS would find in its place: one of Windows' known DLLs, the C and C++ libraries, or one of the
+/// program's system libraries. Empty for none.
+std::string system_library_name(const std::string_view file,
+                                const std::vector<std::string>& system) {
+    constexpr auto known = std::to_array<std::string_view>({
+#ifdef _WIN32
+        "advapi32", "bcrypt",   "clbcatq",    "combase", "comctl32", "comdlg32",
+        "crypt32",  "dbghelp",  "gdi32",      "gdiplus", "imagehlp", "imm32",
+        "iphlpapi", "kernel32", "kernelbase", "msvcrt",  "normaliz", "nsi",
+        "ntdll",    "ole32",    "oleaut32",   "psapi",   "rpcrt4",   "sechost",
+        "secur32",  "setupapi", "shcore",     "shell32", "shlwapi",  "ucrtbase",
+        "user32",   "userenv",  "version",    "winmm",   "wldap32",  "ws2_32",
+#elifdef __APPLE__
+        "System",
+        "c++",
+        "objc",
+#else
+        "c",
+        "m",
+        "dl",
+        "pthread",
+        "rt",
+        "stdc++",
+        "gcc_s",
+#endif
+    });
+    for (const std::string_view name : known) {
+        if (folded_name(beside_file(name)) == folded_name(std::string(file))) {
+            return std::string(name);
+        }
+    }
+
+    for (const std::string& name : system) {
+        if (folded_name(beside_file(name)) == folded_name(std::string(file))) {
+            return name;
+        }
+    }
+
+    return {};
+}
+
+} // namespace
+
 std::expected<library_build_t, std::string> build_library(const compilation_t& compilation,
                                                           const build_mode_t mode,
                                                           diagnostic_bag_t& diagnostics) {
@@ -2919,40 +3053,9 @@ std::expected<std::vector<library_binary_t>, std::string>
 prebuilt_binaries(const compilation_t& compilation) {
     std::vector<library_binary_t> binaries;
     for (const std::filesystem::path& interface : compilation.interfaces) {
-        std::filesystem::path path = interface;
-        path.replace_extension(".fblib");
-        const auto read = [](const std::filesystem::path& file) {
-            std::ifstream in(file, std::ios::binary);
-            return in ? std::optional(std::string{ std::istreambuf_iterator<char>(in),
-                                                   std::istreambuf_iterator<char>() })
-                      : std::nullopt;
-        };
-        const std::optional<std::string> text = read(interface);
-        const std::optional<std::string> bytes = read(path);
-        const std::string shown = to_utf8(shown_disk_path(path));
-        if (!bytes) {
-            return std::unexpected(std::format("there's no {}, the prebuilt library's binary "
-                                               "beside its interface file",
-                                               shown));
-        }
-
-        std::optional<library_binary_t> binary = read_binary(*bytes);
-        const std::optional<interface_header_t> header =
-            text ? read_interface_header(*text) : std::nullopt;
-        if (!binary || !header) {
-            return std::unexpected(
-                std::format("{} isn't a library's binary that fb writes", shown));
-        }
-
-        // A program is built against one exact build of each library.
-        const interface_header_t& built = binary->header;
-        if (built.name != header->name || built.version != header->version ||
-            built.hash != header->hash) {
-            return std::unexpected(std::format(
-                "{} is the build {} v{} ({}), but its interface file, {}, is {} v{} ({}); a "
-                "program is built against one build of a library",
-                shown, built.name, built.version, built.hash, to_utf8(shown_disk_path(interface)),
-                header->name, header->version, header->hash));
+        std::expected<library_binary_t, std::string> binary = read_prebuilt_binary(interface);
+        if (!binary) {
+            return std::unexpected(binary.error());
         }
 
         binaries.push_back(std::move(*binary));
@@ -2961,15 +3064,70 @@ prebuilt_binaries(const compilation_t& compilation) {
     return binaries;
 }
 
+namespace {
+
+/// The binary of a library beside the executable: its prebuilt one, or a build of its source.
+std::expected<library_binary_t, std::string> beside_binary(const beside_library_t& library,
+                                                           const build_mode_t mode) {
+    if (!library.interface.empty()) {
+        return read_prebuilt_binary(library.interface);
+    }
+
+    const std::expected<compilation_t, std::string> compiled =
+        compile_package(library.root, std::nullopt, mode);
+    if (!compiled) {
+        return std::unexpected(compiled.error());
+    }
+
+    if (const std::size_t errors = compiled->diagnostics.error_count(); errors > 0) {
+        return std::unexpected(std::format(
+            "{}, the library beside the program, has {} error{}; `fb check {}` shows them",
+            library.name, errors, errors == 1 ? "" : "s", to_utf8(shown_disk_path(library.root))));
+    }
+
+    diagnostic_bag_t diagnostics;
+    const std::expected<library_build_t, std::string> built =
+        build_library(*compiled, mode, diagnostics);
+    if (!built) {
+        return std::unexpected(
+            built.error().empty()
+                ? std::format(
+                      "{}, the library beside the program, can't be built: {}", library.name,
+                      diagnostics.diagnostics().empty() ? std::string()
+                                                        : diagnostics.diagnostics().front().message)
+                : built.error());
+    }
+
+    std::optional<library_binary_t> binary = read_binary(built->binary);
+    if (!binary) {
+        return std::unexpected(std::format("{}'s build isn't one fb reads", library.name));
+    }
+
+    return std::move(*binary);
+}
+
+} // namespace
+
 std::expected<void, std::string> build_program(const mir_module_t& module,
                                                const compilation_t& compilation,
                                                const std::filesystem::path& output,
                                                const build_mode_t mode) {
     // A prebuilt library's code is its binary's, which links into the program's.
-    const std::expected<std::vector<library_binary_t>, std::string> binaries =
+    std::expected<std::vector<library_binary_t>, std::string> binaries =
         prebuilt_binaries(compilation);
     if (!binaries) {
         return std::unexpected(binaries.error());
+    }
+
+    // And a library beside it is a file of its own.
+    std::vector<library_binary_t> beside;
+    for (const beside_library_t& library : compilation.beside) {
+        std::expected<library_binary_t, std::string> binary = beside_binary(library, mode);
+        if (!binary) {
+            return std::unexpected(binary.error());
+        }
+
+        beside.push_back(std::move(*binary));
     }
 
     // A dynamic library beside the executable would go over it.
@@ -2988,6 +3146,34 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
         }
     }
 
+    // A library beside it can't have another file's name there, nor a library's of the OS's.
+    for (const beside_library_t& library : compilation.beside) {
+        const std::string file = beside_file(library.name);
+        if (folded_name(file) == folded_name(to_utf8(executable))) {
+            return std::unexpected(std::format(
+                "the library {} goes beside the executable as {}, which is the executable's own "
+                "name; give it another name",
+                library.name, file));
+        }
+
+        for (const dynamic_native_t& native : compilation.natives.dynamic) {
+            if (folded_name(native.beside) == folded_name(file)) {
+                return std::unexpected(std::format(
+                    "the library {} goes beside the executable as {}, which {} goes beside it "
+                    "as too; rename one",
+                    library.name, file, to_utf8(native.file)));
+            }
+        }
+
+        if (const std::string taken = system_library_name(file, compilation.natives.system);
+            !taken.empty()) {
+            return std::unexpected(std::format(
+                "the library {} would go beside the executable as {}, which is the name of {}, a "
+                "library of the OS's; rename the package",
+                library.name, file, taken));
+        }
+    }
+
     // The output's folder may not exist yet, as with -o or fb run. If it can't be made, linking
     // reports that.
     std::error_code ignored;
@@ -2997,7 +3183,9 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
 
     // A bundled library's system libraries come with it, after the packages' own.
     native_libraries_t natives = compilation.natives;
-    for (const build_config::bundled_library_t* library : bundled_libraries(module, *binaries)) {
+    std::vector<library_binary_t> all = *binaries;
+    std::ranges::copy(beside, std::back_inserter(all));
+    for (const build_config::bundled_library_t* library : bundled_libraries(module, all)) {
         if (!library->runtime.empty()) {
             natives.bundled.push_back(path_from_utf8(library->runtime));
         }
@@ -3014,20 +3202,65 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
         }
     }
 
-    // The object file is only needed for linking, and is removed even when linking fails.
-    const std::filesystem::path object = temporary_path(output.stem(), ".o");
-    codegen_options_t options{ .mode = mode };
+    // The object files are only needed for linking, and are removed even when linking fails.
+    const std::filesystem::path folder = temporary_path(output.stem(), "");
+    std::filesystem::create_directories(folder, ignored);
+    const std::filesystem::path object = folder / "program.o";
+    codegen_options_t options{ .mode = mode, .executable = to_utf8(executable) };
     for (std::size_t i = 0; i < binaries->size(); ++i) {
         std::filesystem::path path = compilation.interfaces[i];
         path.replace_extension(".fblib");
         options.linked.emplace_back(to_utf8(shown_disk_path(path)), binaries->at(i).code);
     }
 
+    // Each library beside it takes what it shares from the executable, which keeps and exports
+    // it, the runtime's functions among it.
+    exports_t exports{ .import_library = folder / "program.lib" };
+    for (std::size_t i = 0; i < beside.size(); ++i) {
+        const interface_header_t& header = beside[i].header;
+        options.beside.push_back({
+            .package = compilation.beside[i].name,
+            .file = beside_file(compilation.beside[i].name),
+            .build = std::format("{} {} {}", header.name, header.version, header.hash),
+            .code = beside[i].code,
+        });
+        const std::expected<std::vector<std::string>, std::string> imports = emit_beside_object(
+            options.beside.back(), options, folder / std::format("beside{}.o", i));
+        if (!imports) {
+            remove_temporary(folder);
+            return std::unexpected(imports.error());
+        }
+
+        for (const std::string& name : *imports) {
+            options.exports.push_back(name);
+            if (!name.starts_with("fb.")) {
+                exports.symbols.push_back(name);
+            }
+        }
+    }
+
     std::expected<void, std::string> built =
         emit_object(module, compilation.sources, compilation.file, options, object)
-            .and_then([&] { return link_program(std::array{ object }, natives, output); })
+            .and_then([&] {
+                return link_program(std::array{ object }, natives, output,
+                                    beside.empty() ? nullptr : &exports);
+            })
+            .and_then([&] -> std::expected<void, std::string> {
+                for (std::size_t i = 0; i < beside.size(); ++i) {
+                    const std::filesystem::path linked = folder / std::format("beside{}.o", i);
+                    if (std::expected<void, std::string> done = link_beside(
+                            std::array{ linked }, compilation.beside[i].natives,
+                            exports.import_library,
+                            output.parent_path() / path_from_utf8(options.beside[i].file));
+                        !done) {
+                        return done;
+                    }
+                }
+
+                return {};
+            })
             .and_then([&] { return copy_beside(natives.dynamic, output); });
-    std::filesystem::remove(object, ignored);
+    remove_temporary(folder);
     return built;
 }
 

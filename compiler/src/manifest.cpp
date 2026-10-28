@@ -308,11 +308,24 @@ private:
             std::optional<std::string> path;
             span_t path_span = name_span;
             bool written = false;
+            bool beside = false;
+            std::optional<span_t> link_span;
             for (const auto& [detail, setting] : in_order(*details)) {
                 if (detail->str() == "path") {
                     written = true;
                     path = string_of(*detail, *setting, "\"../physics\"");
                     path_span = span_of(setting->source());
+                } else if (detail->str() == "link") {
+                    const std::optional<std::string> text =
+                        string_of(*detail, *setting, "\"beside\"");
+                    link_span = span_of(setting->source());
+                    beside = text == "beside";
+                    if (text && *text != "embed" && *text != "beside") {
+                        fail(*link_span,
+                             R"(a dependency's link is "embed", into the executable, or "beside", )"
+                             R"(a file of its own beside it, not "{}")",
+                             *text);
+                    }
                 } else {
                     m_diagnostics.warning(span_of(detail->source()),
                                           "a dependency doesn't use '{}'", detail->str());
@@ -336,6 +349,8 @@ private:
                 .name_span = name_span,
                 .path = with_slashes(std::move(*path)),
                 .path_span = path_span,
+                .beside = beside,
+                .link_span = link_span,
             });
         }
     }

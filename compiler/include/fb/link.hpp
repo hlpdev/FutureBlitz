@@ -36,11 +36,29 @@ struct native_libraries_t {
     std::vector<std::filesystem::path> bundled;
 };
 
+/// What an executable with libraries beside it does for them: it exports what they take from it,
+/// and links each of `symbols`, the runtime's functions they call, though it doesn't call them
+/// itself. On Windows it writes its import library to `import_library`, which they link
+/// against.
+struct exports_t {
+    std::vector<std::string> symbols;
+    std::filesystem::path import_library;
+};
+
 /// Links object files, the native libraries, the runtime library, and the bundled ones into an
 /// executable at `written`, using lld through the C++ compiler that built the runtime, which
-/// finds the dynamic ones beside it. Fails when the linker can't run or reports errors.
+/// finds the dynamic ones beside it. With `exports`, it's one that libraries beside it take
+/// what they use from. Fails when the linker can't run or reports errors.
 [[nodiscard]] std::expected<void, std::string>
 link_program(std::span<const std::filesystem::path> objects, const native_libraries_t& natives,
-             const std::filesystem::path& written);
+             const std::filesystem::path& written, const exports_t* exports = nullptr);
+
+/// Links a library beside an executable, its objects and its own native libraries, into the
+/// OS's dynamic library at `written`, which takes the rest from the executable: on Windows
+/// through its import library, `import_library`, and elsewhere as it loads. Its own dynamic
+/// natives are found beside it.
+[[nodiscard]] std::expected<void, std::string>
+link_beside(std::span<const std::filesystem::path> objects, const native_libraries_t& natives,
+            const std::filesystem::path& import_library, const std::filesystem::path& written);
 
 } // namespace fb

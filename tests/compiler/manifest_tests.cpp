@@ -145,6 +145,35 @@ TEST_CASE("a dependency is a local package's folder for now", "[manifest]") {
           diagnostics_t{ "error: 5: 'path' is text, like \"../physics\"" });
 }
 
+TEST_CASE("a dependency's link says whether it's in the executable or beside it", "[manifest]") {
+    const std::string_view project = "[project]\nname = \"game\"\nversion = \"0.1.0\"\n";
+    const read_t linked =
+        read(std::format("{}[dependencies]\nphysics = {{ path = \"../physics\" }}\n"
+                         "engine = {{ path = \"../engine\", link = \"beside\" }}\n"
+                         "math = {{ path = \"../math\", link = \"embed\" }}\n",
+                         project));
+    CHECK(linked.diagnostics.empty());
+    const fb::manifest_t manifest = linked.manifest.value_or(fb::manifest_t{});
+    REQUIRE(manifest.dependencies.size() == 3);
+    CHECK_FALSE(manifest.dependencies[0].beside);
+    CHECK_FALSE(manifest.dependencies[0].link_span);
+    CHECK(manifest.dependencies[1].beside);
+    CHECK(manifest.dependencies[1].link_span);
+    CHECK_FALSE(manifest.dependencies[2].beside);
+    CHECK(manifest.dependencies[2].link_span);
+
+    CHECK(read(std::format("{}[dependencies]\nengine = {{ path = \"../engine\", link = "
+                           "\"dynamic\" }}\n",
+                           project))
+              .diagnostics ==
+          diagnostics_t{ "error: \"dynamic\": a dependency's link is \"embed\", into the "
+                         "executable, or \"beside\", a file of its own beside it, not "
+                         "\"dynamic\"" });
+    CHECK(read(std::format("{}[dependencies]\nengine = {{ path = \"../engine\", link = true }}\n",
+                           project))
+              .diagnostics == diagnostics_t{ "error: true: 'link' is text, like \"beside\"" });
+}
+
 TEST_CASE("[native] names static archives, system libraries, and dynamic libraries", "[manifest]") {
     const std::string_view project = "[project]\nname = \"game\"\nversion = \"0.1.0\"\n";
     const read_t game = read(std::format("{}[native]\n"

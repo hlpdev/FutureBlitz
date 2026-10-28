@@ -50,6 +50,8 @@ struct module_t {
     package_id_t package{};
     /// From a prebuilt library's interface file, whose code is in the library's binary.
     bool prebuilt = false;
+    /// A library's beside the executable, whose code is in its file of its own.
+    bool beside = false;
 };
 
 /// A name that a standard library module the program doesn't load declares, for an error to

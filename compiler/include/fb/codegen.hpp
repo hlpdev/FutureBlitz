@@ -21,6 +21,17 @@ enum class build_mode_t : std::uint8_t {
     RELEASE,
 };
 
+/// A library beside the executable, which main loads as it starts: its package's name, as MIR's
+/// `beside` has it, its file's name beside the executable, its build, "<name> <version> <hash>",
+/// which the executable checks the file is, and its code, LLVM bitcode as emit_bitcode() gives
+/// it, whose shared code the executable has for it, and whose own its file has.
+struct beside_binary_t {
+    std::string package;
+    std::string file;
+    std::string build;
+    std::string code;
+};
+
 struct codegen_options_t {
     build_mode_t mode = build_mode_t::DEBUG;
     /// An LLVM target triple, like "x86_64-pc-windows-msvc". Empty means the target the
@@ -33,6 +44,13 @@ struct codegen_options_t {
     /// The paths panics name files by, in place of their sources' own: a library's build names
     /// its modules by their paths in the program, so its binary is the same wherever it's built.
     std::map<file_id_t, std::string> paths;
+    /// The libraries beside the executable, and the executable's file's name, which on Windows
+    /// they take what they use from it by.
+    std::vector<beside_binary_t> beside;
+    std::string executable;
+    /// What the libraries beside the executable take from it, by name, which it keeps and
+    /// exports, as emit_beside_object() gives them.
+    std::vector<std::string> exports;
 };
 
 /// The module as LLVM IR text, optimized in release builds. `sources` gives panics their path,
@@ -49,6 +67,15 @@ struct codegen_options_t {
 [[nodiscard]] std::expected<std::string, std::string>
 emit_bitcode(const mir_module_t& module, const source_manager_t& sources, file_id_t main,
              const codegen_options_t& options);
+
+/// A library beside the executable's file, as an object file at `path`: its own code, from
+/// `binary`, which takes the code it shares, the runtime's, std's, and its records, from the
+/// executable, the build it is, which the executable checks, and for each of its Globals the
+/// function that gives its address, which is how the executable reaches it. Gives the names it
+/// takes from the executable.
+[[nodiscard]] std::expected<std::vector<std::string>, std::string>
+emit_beside_object(const beside_binary_t& binary, const codegen_options_t& options,
+                   const std::filesystem::path& path);
 
 /// Like emit_ir(), but writes a native object file to `path`.
 [[nodiscard]] std::expected<void, std::string>

@@ -226,7 +226,7 @@ public:
         // programs that link it can show, as a program that links a library's has every one's.
         m_module.library = library.has_value();
         m_debug_used =
-            m_module.library || std::ranges::any_of(ast.modules().modules(), &module_t::prebuilt);
+            m_module.library || std::ranges::any_of(ast.modules().modules(), is_external);
         for (const module_t& module : ast.modules().modules()) {
             if (library && !module.is_main &&
                 ast.modules().package_name(module.package) == *library &&
@@ -281,7 +281,7 @@ public:
         // Classes, with what the program's Extends make them implement, which the binary's
         // code shares.
         for (const symbol_t& symbol : m_analysis.symbols) {
-            if (symbol.kind == symbol_kind_t::TYPE && in_prebuilt(symbol) &&
+            if (symbol.kind == symbol_kind_t::TYPE && in_external(symbol) &&
                 types().get(symbol.type).kind == type_kind_t::CLASS &&
                 types().get(symbol.type).parameters.empty()) {
                 use_class(symbol.type);
@@ -364,8 +364,7 @@ public:
 
         // A name another binary uses has to be the same there, which a number in this build's
         // order isn't.
-        if (!m_module.library &&
-            !std::ranges::any_of(m_ast.modules().modules(), &module_t::prebuilt)) {
+        if (!m_module.library && !std::ranges::any_of(m_ast.modules().modules(), is_external)) {
             return;
         }
 
@@ -675,11 +674,11 @@ private:
         const auto global = static_cast<global_id_t>(m_module.globals.size());
         m_globals[id] = global;
         const bool thread_local_global = symbol.modifiers.is_thread_local;
-        const bool runs = node.value && !m_analysis.expr(*node.value).value && !in_prebuilt(symbol);
+        const bool runs = node.value && !m_analysis.expr(*node.value).value && !in_external(symbol);
         // A prebuilt library's binary has its own Globals, and sets them, a Const that the
         // interface file keeps the code of too.
         mir_linkage_t linkage = mir_linkage_t::SHARED;
-        if (node.prebuilt || in_prebuilt(symbol)) {
+        if (node.prebuilt || in_external(symbol)) {
             linkage = mir_linkage_t::IMPORTED;
         } else if (!outside_main(symbol)) {
             linkage = mir_linkage_t::INTERNAL;
@@ -695,6 +694,8 @@ private:
             .is_thread_local = thread_local_global,
             .order = m_item_order.at(expect(symbol.declaration)),
             .linkage = linkage,
+            .beside =
+                linkage == mir_linkage_t::IMPORTED ? beside_of(module_of(symbol)) : std::nullopt,
         });
         if (runs && thread_local_global) {
             m_thread_local_declarations[global] = expect(symbol.declaration);
@@ -851,6 +852,7 @@ private:
 
         m_module.functions.push_back(std::move(declared));
         if (m_module.functions.back().linkage == mir_linkage_t::IMPORTED) {
+            m_module.functions.back().beside = beside_of(module_of(symbol));
             declare_parameters(function, id);
         }
 
@@ -920,25 +922,60 @@ private:
                m_library_files.contains(m_ast.get(*symbol.declaration).span.file);
     }
 
-    /// Whether a symbol is declared in a prebuilt library's module.
-    [[nodiscard]] bool in_prebuilt(const symbol_t& symbol) const {
+    /// Whether a module's code is in another binary: a prebuilt library's, or one beside the
+    /// executable.
+    static bool is_external(const module_t& module) {
+        return module.prebuilt || module.beside;
+    }
+
+    /// The module a symbol is declared in, if any.
+    [[nodiscard]] const module_t* module_of(const symbol_t& symbol) const {
         if (!symbol.declaration) {
-            return false;
+            return nullptr;
         }
 
         const std::optional<module_id_t> module =
             m_ast.modules().of(m_ast.get(*symbol.declaration).span.file);
-        return module && m_ast.modules().get(*module).prebuilt;
+        return module ? &m_ast.modules().get(*module) : nullptr;
     }
 
-    /// Whether a function is a prebuilt library's, whose binary has its code.
+    /// Whether a symbol is declared in a module whose code is in another binary.
+    [[nodiscard]] bool in_external(const symbol_t& symbol) const {
+        const module_t* module = module_of(symbol);
+        return module != nullptr && is_external(*module);
+    }
+
+    /// Whether a function's code is in another binary: a prebuilt library's binary, or the file
+    /// of one beside the executable, but for what each program compiles itself, generic,
+    /// @Inline, and Const code, and an Extern Function's, which C has.
     [[nodiscard]] bool is_prebuilt(const symbol_t& symbol) const {
         if (!symbol.declaration) {
             return false;
         }
 
         const auto* node = std::get_if<function_stmt_t>(&m_ast.get(*symbol.declaration).node);
-        return node != nullptr && node->prebuilt;
+        const module_t* module = module_of(symbol);
+        return node != nullptr &&
+               (node->prebuilt || (module != nullptr && module->beside && !node->external &&
+                                   !symbol.modifiers.is_inline && !symbol.modifiers.is_const &&
+                                   type_parameters_of(symbol).empty()));
+    }
+
+    /// The library beside the executable whose file a module's code is in, by its index in the
+    /// MIR module's `beside`, which it's added to.
+    std::optional<std::uint32_t> beside_of(const module_t* module) {
+        if (module == nullptr || !module->beside) {
+            return std::nullopt;
+        }
+
+        const std::string& name = m_ast.modules().package_name(module->package);
+        auto found = std::ranges::find(m_module.beside, name);
+        if (found == m_module.beside.end()) {
+            m_module.beside.push_back(name);
+            found = std::prev(m_module.beside.end());
+        }
+
+        return static_cast<std::uint32_t>(found - m_module.beside.begin());
     }
 
     /// How a declared function is linked: a prebuilt library's from its binary, the main module's
@@ -2428,7 +2465,7 @@ private:
                 continue;
             }
 
-            if (module.prebuilt) {
+            if (is_external(module)) {
                 if (!m_module.library) {
                     call_prebuilt_initializer(module, places[i]);
                 }
@@ -2469,13 +2506,16 @@ private:
     /// the initializer its binary has for its Globals.
     void call_prebuilt_initializer(const module_t& module, const std::uint32_t place) {
         const auto function = static_cast<function_id_t>(m_module.functions.size());
+        const std::optional<std::uint32_t> beside = beside_of(&module);
         m_module.functions.push_back({
             .name = std::format("{}.(init)", module.name),
             .linkage = mir_linkage_t::IMPORTED,
+            .beside = beside,
         });
         m_module.modules.push_back({
             .name = module.name,
             .initializer = function,
+            .beside = beside,
             .order = place,
         });
         emit(evaluate_t{ call_t{ .function = function } });
@@ -2543,7 +2583,7 @@ private:
 
         // A prebuilt library's binary sets its own.
         if (const std::optional<module_id_t> module = m_ast.modules().of(m_ast.get(id).span.file);
-            module && m_ast.modules().get(*module).prebuilt) {
+            module && is_external(m_ast.modules().get(*module))) {
             return;
         }
 

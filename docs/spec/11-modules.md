@@ -204,13 +204,14 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
   but the OS's own libraries, unless a package brings a dynamic native library (see
   [Native libraries](#native-libraries)), which goes beside it.
 - Each package is in one place in a program: the executable, or its own file beside it. A beside
-  library's own dependencies are embedded in it, and a package that the executable and a beside
-  library both use, or two beside libraries do, has to be beside itself: the build stops with an
-  error naming the package and its users, until the program lists it with `link = "beside"`.
+  library's own dependencies that the program doesn't list beside are in the executable, with
+  std, and the library uses them from it, so a package that the executable and beside libraries
+  all use is still one copy.
 - The runtime and std are always in the executable, and every library beside it uses them: one
   heap, one set of refcounts, one scheduler, one registry of types, and one copy of each of std's
   modules and their Globals. A library beside the executable has no runtime or std of its own,
-  and the executable links every std module its beside libraries use.
+  and the executable links every std module and package its beside libraries use, and every
+  generic instance and type record they make, so each is the executable's.
 - The executable loads its beside libraries itself as it starts, before any Global initializes,
   each after those it depends on, and checks each one's build (see
   [Prebuilt libraries](#prebuilt-libraries)). One that's missing or isn't the build the program

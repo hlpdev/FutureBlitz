@@ -79,6 +79,9 @@ struct global_t {
     /// is at its Class's, a generic Class's too. The program lets go of them in the other order.
     std::uint32_t order = 0;
     mir_linkage_t linkage = mir_linkage_t::INTERNAL;
+    /// For an IMPORTED one, the library beside the executable whose file has it, by its index in
+    /// mir_module_t's `beside`. nullopt for a prebuilt library's, which links into the program.
+    std::optional<std::uint32_t> beside;
 };
 
 /// One step inward from a place: into a field, or into an element of an array. From a Ptr,
@@ -565,6 +568,8 @@ struct mir_function_t {
     span_t span;
     /// IMPORTED for a prebuilt library's, which has no blocks, since its binary has its code.
     mir_linkage_t linkage = mir_linkage_t::INTERNAL;
+    /// For an IMPORTED one, the library beside the executable whose file has it, as global_t's.
+    std::optional<std::uint32_t> beside;
 };
 
 /// An Interface that a Class's objects implement, and the Class's table for it: for each of the
@@ -606,6 +611,8 @@ struct mir_error_t {
 struct mir_library_module_t {
     std::string name;
     function_id_t initializer{};
+    /// In a program, the library beside the executable whose module it is, as global_t's.
+    std::optional<std::uint32_t> beside;
     std::vector<global_id_t> globals;
     /// Its place in the order main sets the Globals, as global_t's `order` is.
     std::uint32_t order = 0;
@@ -644,6 +651,8 @@ struct mir_module_t {
     /// The library's own modules, or in a program, the prebuilt ones it uses, in the order their
     /// Globals are set.
     std::vector<mir_library_module_t> modules;
+    /// The packages of the libraries beside the executable that the program uses, by name.
+    std::vector<std::string> beside;
 };
 
 /// The module as text, which `fb --show mir` prints.

@@ -43,6 +43,16 @@ struct package_info_t {
     std::filesystem::path interface;
 };
 
+/// A library the program has beside its executable, as its project.toml's `link = "beside"` says:
+/// its package's name, folder, and interface file when it's prebuilt, and the native libraries of
+/// its own, which its file links, and copies beside the executable.
+struct beside_library_t {
+    std::string name;
+    std::filesystem::path root;
+    std::filesystem::path interface;
+    native_libraries_t natives;
+};
+
 /// Everything the front end makes from a program: its main file, and the files it imports, which
 /// come after it in `sources`. Each file is a module, which the AST's module table names. The
 /// tokens are the main file's, and the AST and analysis cover every file. They refer to the files
@@ -64,8 +74,10 @@ struct compilation_t { // NOLINT(bugprone-exception-escape)
     /// Where a project.toml names each of `natives`' system libraries, in their order.
     std::vector<span_t> system_spans;
     /// The interface files of the prebuilt libraries it compiles against, in place of their
-    /// source.
+    /// source, but for those beside it.
     std::vector<std::filesystem::path> interfaces;
+    /// The libraries beside its executable, in the order its project.toml names them.
+    std::vector<beside_library_t> beside;
     /// The files Embed, EmbedText, and EmbedFolder put in the program, each once, as messages
     /// name them: on disk, where they are. Each build reads them again, as it does `sources`,
     /// and a tool that rebuilds when the program's files change watches them too.

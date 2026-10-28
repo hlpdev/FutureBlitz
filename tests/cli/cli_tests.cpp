@@ -2439,3 +2439,223 @@ TEST_CASE("a prebuilt library's binary runs its code as its source would", "[cli
     CHECK(alike.output.contains("'alike.a.b.Z()' names two things, which a library's binary and a "
                                 "program that links it can't tell apart; rename one"));
 }
+
+TEST_CASE("a library beside the executable shares one runtime with it", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "beside";
+    std::filesystem::remove_all(folder);
+    const folder_writer_t write{ folder };
+    // Objects, Classes a program extends, generic instances, Tasks, ThreadLocals, Globals, and
+    // errors cross between them, and a leak in either is counted once.
+    write("engine/project.toml",
+          "[project]\nname = \"engine\"\nversion = \"0.3.0\"\ntype = \"library\"\n");
+    write("engine/engine.fb", "Import std.core\n"
+                              "Public Class Body\n"
+                              "    Public Field Name: String = \"body\"\n"
+                              "    Public Field Items: Int[] = []\n"
+                              "    Public Field Next: Body?\n"
+                              "    Public Method Mass(): Int => 1\n"
+                              "    Public Method Describe(): String => \"{Name} {Mass()}\"\n"
+                              "End Class\n"
+                              "Public Class EngineError Extends Error\n"
+                              "    Public New(message: String)\n"
+                              "        Super.New(message)\n"
+                              "    End New\n"
+                              "End Class\n"
+                              "Global steps: Int = 0\n"
+                              "Public Global Gravity = 10\n"
+                              "Function Seeded(): Int => 40 + 2\n"
+                              "Public ThreadLocal Global Seed: Int = Seeded()\n"
+                              "Public Function Step(body: Body): Body Throws EngineError\n"
+                              "    If body.Mass() < 0 Then Throw EngineError(\"negative\")\n"
+                              "    steps += 1\n"
+                              "    Return body\n"
+                              "End Function\n"
+                              "Public Function Steps(): Int => steps\n"
+                              "Public Function Pair<T>(a: T, b: T): T[] => [a, b]\n"
+                              "Public Function Count(items: Int[]): Int => items.Count\n"
+                              "Async Function Slowly(n: Int): Int\n"
+                              "    Return Await Spawn(Function() => n * 2)\n"
+                              "End Function\n"
+                              "Public Async Function Simulate(n: Int): Int\n"
+                              "    Return Await Slowly(n) + 1\n"
+                              "End Function\n"
+                              "Public Function Leak()\n"
+                              "    Local body = Body()\n"
+                              "    body.Next = body\n"
+                              "End Function\n");
+    write("game/project.toml", "[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n[dependencies]\n"
+                               "engine = { path = \"../engine\", link = \"beside\" }\n");
+    write("game/main.fb", "Import std.core\n"
+                          "Import engine\n"
+                          "Class Heavy Extends Body\n"
+                          "    Override Method Mass(): Int => 5\n"
+                          "End Class\n"
+                          "Async Function Run(): Int\n"
+                          "    Return Await Simulate(20)\n"
+                          "End Function\n"
+                          "Local heavy: Body = Try Step(Heavy())\n"
+                          "Print(\"{heavy.Describe()} {heavy Is Heavy} {Steps()} {Gravity}\")\n"
+                          "Print(\"{Count(Pair(1, 2))} {Pair(\"a\", \"b\").Count} {Seed}\")\n"
+                          "Print(\"{Spawn(Function() => Seed).Wait()} {Run().Wait()}\")\n"
+                          "Class Light Extends Body\n"
+                          "    Override Method Mass(): Int => -1\n"
+                          "End Class\n"
+                          "Try\n"
+                          "    Local light = Try Step(Light())\n"
+                          "Catch e As EngineError\n"
+                          "    Print(\"caught {e.Message}\")\n"
+                          "End Try\n"
+                          "Leak()\n"
+                          "Local mine = Body()\n"
+                          "mine.Next = mine\n");
+    const std::string printed = "body 5 True 1 10\n"
+                                "2 2 42\n"
+                                "42 41\n"
+                                "caught negative\n";
+    for (const bool release : { false, true }) {
+        std::vector<std::string> arguments{ "run", fb::to_utf8(folder / "game") };
+        if (release) {
+            arguments.emplace_back("--release");
+        }
+
+        const fb::process_result_t ran = fb_run(arguments);
+        INFO(ran.output);
+        CHECK(ran.output.contains(printed));
+        if (!release) {
+            CHECK(ran.output.contains("leak: 2 Body objects were never released"));
+            CHECK(ran.output.contains("leak: 2 Int32[] objects were never released"));
+        }
+    }
+
+    // fb build puts it beside the executable, as the OS's own kind of library.
+    const fb::process_result_t built = fb_run({ "build", fb::to_utf8(folder / "game") });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+    std::filesystem::path executable = folder / "game" / "build" / "game";
+    executable += fb::executable_extension;
+#ifdef _WIN32
+    const std::filesystem::path library = folder / "game" / "build" / "engine.dll";
+#elifdef __APPLE__
+    const std::filesystem::path library = folder / "game" / "build" / "libengine.dylib";
+#else
+    const std::filesystem::path library = folder / "game" / "build" / "libengine.so";
+#endif
+    REQUIRE(std::filesystem::exists(library));
+    const std::vector<std::string> none;
+    const fb::process_result_t direct =
+        fb::run_process(executable, none).value_or(fb::process_result_t{ .exit_code = -1 });
+    CHECK(direct.output.contains(printed));
+
+    // A file that's missing, or another build, stops the program before its code runs.
+    std::filesystem::rename(library, folder / "kept");
+    const fb::process_result_t missing =
+        fb::run_process(executable, none).value_or(fb::process_result_t{ .exit_code = -1 });
+    CHECK(missing.exit_code == 1);
+    CHECK(
+        missing.output.contains("isn't there, or can't be loaded; the program needs it beside it"));
+    CHECK_FALSE(missing.output.contains("body"));
+    std::filesystem::rename(folder / "kept", library);
+    write("engine/more.fb", "Public Function More(): Int => 1\n");
+    const fb::process_result_t rebuilt = fb_run(
+        { "build", fb::to_utf8(folder / "game"), "-o", fb::to_utf8(folder / "other" / "game") });
+    REQUIRE(rebuilt.exit_code == 0);
+    std::filesystem::copy_file(folder / "other" / library.filename(), library,
+                               std::filesystem::copy_options::overwrite_existing);
+    const fb::process_result_t mismatched =
+        fb::run_process(executable, none).value_or(fb::process_result_t{ .exit_code = -1 });
+    INFO(mismatched.output);
+    CHECK(mismatched.exit_code == 1);
+    CHECK(mismatched.output.contains("is the build engine 0.3.0 "));
+    CHECK(mismatched.output.contains(", but the program was built against engine 0.3.0 "));
+#ifdef _WIN32
+    // A Windows executable keeps the name it was built with, which its libraries take its code by.
+    std::filesystem::copy_file(folder / "other" / "game.exe", folder / "other" / "renamed.exe");
+    const fb::process_result_t renamed = fb::run_process(folder / "other" / "renamed.exe", none)
+                                             .value_or(fb::process_result_t{ .exit_code = -1 });
+    CHECK(renamed.exit_code == 1);
+    CHECK(renamed.output.contains("renamed.exe was built as game.exe, which the library "
+                                  "engine.dll beside it takes its code from; give it that name "
+                                  "again"));
+#endif
+
+    // A prebuilt library goes beside it too.
+    prebuild(folder, "engine");
+    write("prebuilt/project.toml", "[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n"
+                                   "[dependencies]\nengine = { path = \"../engine-prebuilt\", "
+                                   "link = \"beside\" }\n");
+    write("prebuilt/main.fb", "Import std.core\n"
+                              "Import engine\n"
+                              "Print(\"{Body().Describe()} {Gravity} {Simulate(3).Wait()}\")\n");
+    const fb::process_result_t prebuilt = fb_run({ "run", fb::to_utf8(folder / "prebuilt") });
+    INFO(prebuilt.output);
+    CHECK(prebuilt.output.contains("body 1 10 7\n"));
+
+    // Only the program says how a library links, and its file can't take another's name.
+    write("engine/project.toml",
+          "[project]\nname = \"engine\"\nversion = \"0.3.0\"\ntype = "
+          "\"library\"\n\n[dependencies]\nkernel32 = { path = \"../kernel32\", "
+          "link = \"beside\" }\n");
+    write("kernel32/project.toml",
+          "[project]\nname = \"kernel32\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("kernel32/k.fb", "Public Function K(): Int => 1\n");
+    const fb::process_result_t ignored = fb_run({ "check", fb::to_utf8(folder / "engine") });
+    CHECK(ignored.output.contains(
+        "only a program's own project.toml says how a library links, so this 'link' is ignored"));
+#ifdef _WIN32
+    write("clash/project.toml", "[project]\nname = \"clash\"\nversion = \"0.1.0\"\n\n"
+                                "[dependencies]\nkernel32 = { path = \"../kernel32\", link = "
+                                "\"beside\" }\n");
+    write("clash/main.fb", "Import std.core\nImport kernel32\nPrint(\"{K()}\")\n");
+    const fb::process_result_t clash = fb_run({ "build", fb::to_utf8(folder / "clash") });
+    CHECK(clash.exit_code == 1);
+    CHECK(clash.output.contains("the library kernel32 would go beside the executable as "
+                                "kernel32.dll, which is the name of kernel32, a library of the "
+                                "OS's; rename the package"));
+#endif
+}
+
+TEST_CASE("a beside library's own dependencies go in the executable or beside it too", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "beside_deps";
+    std::filesystem::remove_all(folder);
+    const folder_writer_t write{ folder };
+    write("util/project.toml",
+          "[project]\nname = \"util\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("util/util.fb", "Global calls: Int = 0\n"
+                          "Public Function Twice(n: Int): Int\n"
+                          "    calls += 1\n"
+                          "    Return n * 2\n"
+                          "End Function\n"
+                          "Public Function Calls(): Int => calls\n"
+                          "Public Class Thing\n"
+                          "End Class\n"
+                          "Public Class Box Extends Thing\n"
+                          "End Class\n");
+    write("engine/project.toml", "[project]\nname = \"engine\"\nversion = \"0.1.0\"\ntype = "
+                                 "\"library\"\n\n[dependencies]\nutil = { path = \"../util\" }\n");
+    write("engine/engine.fb", "Import util\n"
+                              "Public Function Run(): Int => Twice(5)\n"
+                              "Public Function MakeBox(): Thing => Box()\n");
+    write("game/main.fb", "Import std.core\n"
+                          "Import engine\n"
+                          "Import util\n"
+                          "Print(\"{Run()} {Twice(1)} {Calls()} {MakeBox() Is Box}\")\n");
+    // The one copy of util is the executable's, or its own file's, so its Global counts both
+    // calls.
+    for (const std::string_view link : { "embed", "beside" }) {
+        write("game/project.toml",
+              std::format("[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n[dependencies]\n"
+                          "engine = {{ path = \"../engine\", link = \"beside\" }}\n"
+                          "util = {{ path = \"../util\", link = \"{}\" }}\n",
+                          link));
+        for (const bool release : { false, true }) {
+            std::vector<std::string> arguments{ "run", fb::to_utf8(folder / "game") };
+            if (release) {
+                arguments.emplace_back("--release");
+            }
+
+            const fb::process_result_t ran = fb_run(arguments);
+            INFO(link << ' ' << release << ' ' << ran.output);
+            CHECK(ran.output.contains("10 2 2 True\n"));
+        }
+    }
+}

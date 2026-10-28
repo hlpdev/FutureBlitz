@@ -19,6 +19,11 @@ struct dependency_t {
     /// Its folder, from the project.toml's folder, as written.
     std::string path;
     span_t path_span;
+    /// `link = "beside"`: a library built into a file of its own beside the executable, rather
+    /// than into it, which only the program's own project.toml decides.
+    bool beside = false;
+    /// Where `link` is written, if it is.
+    std::optional<span_t> link_span;
 };
 
 /// How a native library links.

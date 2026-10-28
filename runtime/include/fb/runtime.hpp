@@ -113,6 +113,16 @@ struct fb_location_t {
 /// "\n" from becoming "\r\n", and turns on colors for panics.
 void fb_start();
 
+/// Main calls it after fb_start for each library beside the executable, before any Global is
+/// set: it loads `file` from the executable's folder, checks that its build, "<name> <version>
+/// <hash>", is `build`, the one the program was built against, and puts the address of each of
+/// its `count` functions `names` in `slots`. On Windows, a library beside the executable takes
+/// what it uses from it by the name it was built with, `executable`. A file that's missing, or
+/// isn't that build, or one the executable doesn't have that name for, stops the program with
+/// an error that names it.
+void fb_load_beside(const char* executable, const char* file, const char* build,
+                    const char* const* names, void** slots, std::int64_t count);
+
 /// Debug builds call it right after fb_start: the runtime keeps track of every object, so
 /// fb_finish can point out the cycles among the ones left.
 void fb_track_objects();

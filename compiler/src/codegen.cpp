@@ -28,6 +28,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -99,6 +100,86 @@ struct c_signature_t {
     std::optional<c_struct_abi_t> result;
 };
 
+/// LLVM's targets, registered once per process: both of FutureBlitz's, so either's code can be
+/// made on either.
+void initialize_targets() {
+    static std::once_flag initialized;
+    std::call_once(initialized, [] {
+        LLVMInitializeX86TargetInfo();
+        LLVMInitializeX86Target();
+        LLVMInitializeX86TargetMC();
+        LLVMInitializeX86AsmPrinter();
+        LLVMInitializeAArch64TargetInfo();
+        LLVMInitializeAArch64Target();
+        LLVMInitializeAArch64TargetMC();
+        LLVMInitializeAArch64AsmPrinter();
+    });
+}
+
+/// The machine that makes code for `triple` in `mode`: for a "generic" CPU, so programs run on
+/// any machine the triple covers, not just this one.
+std::expected<LLVMTargetMachineRef, std::string> make_machine(const std::string& triple,
+                                                              const build_mode_t mode) {
+    initialize_targets();
+    LLVMTargetRef target = nullptr;
+    char* error = nullptr;
+    if (LLVMGetTargetFromTriple(triple.c_str(), &target, &error) != 0) {
+        std::string message = error != nullptr ? error : "";
+        LLVMDisposeMessage(error);
+        return std::unexpected(message);
+    }
+
+    const LLVMCodeGenOptLevel level =
+        mode == build_mode_t::RELEASE ? LLVMCodeGenLevelDefault : LLVMCodeGenLevelNone;
+    return LLVMCreateTargetMachine(target, triple.c_str(), "generic", "", level, LLVMRelocPIC,
+                                   LLVMCodeModelDefault);
+}
+
+/// The passes a build of `mode` runs: a debug build only inlines what @Inline asks for. Async
+/// Functions' coroutines are split into their pieces in every build. The call graph that
+/// coro-split walks starts from what's visible outside the module, so code nothing calls, like an
+/// Async Function the program never calls, goes first, or it would reach the backend unsplit.
+const char* passes_for(const build_mode_t mode) {
+    return mode == build_mode_t::RELEASE
+               ? "default<O2>"
+               : "always-inline,globaldce,coro-early,cgscc(coro-split),coro-cleanup";
+}
+
+/// Runs `passes` over a module, with SIMD in a release build.
+std::expected<void, std::string> run_passes(LLVMModuleRef module, LLVMTargetMachineRef machine,
+                                            const build_mode_t mode, const char* passes) {
+    LLVMPassBuilderOptionsRef options = LLVMCreatePassBuilderOptions();
+    // A release build turns loops over arrays and straight-line code on several values, like a
+    // Vec4's Operators, into SIMD instructions.
+    if (mode == build_mode_t::RELEASE) {
+        LLVMPassBuilderOptionsSetLoopVectorization(options, 1);
+        LLVMPassBuilderOptionsSetSLPVectorization(options, 1);
+    }
+
+    LLVMErrorRef error = LLVMRunPasses(module, passes, machine, options);
+    LLVMDisposePassBuilderOptions(options);
+    if (error != nullptr) {
+        char* message = LLVMGetErrorMessage(error);
+        const std::string text = message;
+        LLVMDisposeErrorMessage(message);
+        return std::unexpected(text);
+    }
+
+    return {};
+}
+
+/// Makes a function a declaration of itself, with its name and type, for code that another
+/// binary has: a new one takes its place, since the C API can't drop a body.
+LLVMValueRef declaration_of(LLVMModuleRef module, LLVMValueRef function) {
+    const std::string name = LLVMGetValueName(function);
+    LLVMTypeRef type = LLVMGlobalGetValueType(function);
+    LLVMSetValueName2(function, "", 0);
+    LLVMValueRef declared = LLVMAddFunction(module, name.c_str(), type);
+    LLVMReplaceAllUsesWith(function, declared);
+    LLVMDeleteFunction(function);
+    return declared;
+}
+
 /// The path a file is named by: the options' own for it, or its source's.
 std::string path_of(const codegen_options_t& options, const source_file_t& file) {
     const auto found = options.paths.find(file.id());
@@ -112,7 +193,7 @@ public:
     codegen_t(const mir_module_t& module, const source_manager_t& sources,
               const source_file_t& main, const codegen_options_t& options)
         : m_mir(module), m_sources(sources), m_options(options),
-          m_linking(module.library || !options.linked.empty()),
+          m_linking(module.library || !options.linked.empty() || !options.beside.empty()),
           m_triple(normalize(options.target_triple.empty()
                                  ? std::string(build_config::target_triple)
                                  : options.target_triple)),
@@ -180,14 +261,8 @@ public:
             return verified;
         }
 
-        // A debug build only inlines what @Inline asks for.
-        // Async Functions' coroutines are split into their pieces in every build. The call graph
-        // that coro-split walks starts from what's visible outside the module, so code nothing
-        // calls, like an Async Function the program never calls, goes first, or it would reach
-        // the backend unsplit.
-        return optimize(m_options.mode == build_mode_t::RELEASE
-                            ? "default<O2>"
-                            : "always-inline,globaldce,coro-early,cgscc(coro-split),coro-cleanup");
+        return run_passes(m_module.get(), m_machine.get(), m_options.mode,
+                          passes_for(m_options.mode));
     }
 
     [[nodiscard]] std::string ir() const {
@@ -442,32 +517,13 @@ private:
 
     /// Sets up the target machine, and gives the module its triple and data layout.
     std::expected<void, std::string> create_machine() {
-        // LLVM's targets are registered once per process: both of FutureBlitz's, so either's code
-        // can be made on either.
-        static std::once_flag initialized;
-        std::call_once(initialized, [] {
-            LLVMInitializeX86TargetInfo();
-            LLVMInitializeX86Target();
-            LLVMInitializeX86TargetMC();
-            LLVMInitializeX86AsmPrinter();
-            LLVMInitializeAArch64TargetInfo();
-            LLVMInitializeAArch64Target();
-            LLVMInitializeAArch64TargetMC();
-            LLVMInitializeAArch64AsmPrinter();
-        });
-
-        LLVMTargetRef target = nullptr;
-        char* error = nullptr;
-        if (LLVMGetTargetFromTriple(m_triple.c_str(), &target, &error) != 0) {
-            return std::unexpected(take_message(error));
+        const std::expected<LLVMTargetMachineRef, std::string> machine =
+            make_machine(m_triple, m_options.mode);
+        if (!machine) {
+            return std::unexpected(machine.error());
         }
 
-        const LLVMCodeGenOptLevel level = m_options.mode == build_mode_t::RELEASE
-                                              ? LLVMCodeGenLevelDefault
-                                              : LLVMCodeGenLevelNone;
-        // A "generic" CPU, so programs run on any machine the triple covers, not just this one.
-        m_machine.reset(LLVMCreateTargetMachine(target, m_triple.c_str(), "generic", "", level,
-                                                LLVMRelocPIC, LLVMCodeModelDefault));
+        m_machine.reset(*machine);
         LLVMSetTarget(m_module.get(), m_triple.c_str());
         LLVMTargetDataRef layout = LLVMCreateTargetDataLayout(m_machine.get());
         LLVMSetModuleDataLayout(m_module.get(), layout);
@@ -523,23 +579,246 @@ private:
             }
         }
 
+        std::vector<beside_slots_t> loads;
+        for (const beside_binary_t& beside : m_options.beside) {
+            std::expected<beside_slots_t, std::string> slots = link_beside(beside, reported);
+            if (!slots) {
+                return std::unexpected(slots.error());
+            }
+
+            loads.push_back(std::move(*slots));
+        }
+
+        if (!m_options.beside.empty()) {
+            generate_beside_loads(loads);
+        }
+
         finish_class_list();
+        // What the libraries beside the executable take from it stays visible.
+        const std::unordered_set<std::string_view> kept(m_options.exports.begin(),
+                                                        m_options.exports.end());
         for (LLVMValueRef function = LLVMGetFirstFunction(m_module.get()); function != nullptr;
              function = LLVMGetNextFunction(function)) {
-            if (LLVMIsDeclaration(function) == 0 &&
-                std::string_view(LLVMGetValueName(function)) != "main") {
+            const std::string_view name = LLVMGetValueName(function);
+            if (LLVMIsDeclaration(function) == 0 && name != "main" && !kept.contains(name)) {
                 LLVMSetLinkage(function, LLVMInternalLinkage);
+            } else if (LLVMIsDeclaration(function) == 0 && kept.contains(name)) {
+                LLVMSetLinkage(function, LLVMExternalLinkage);
             }
         }
 
         for (LLVMValueRef global = LLVMGetFirstGlobal(m_module.get()); global != nullptr;
              global = LLVMGetNextGlobal(global)) {
-            if (LLVMIsDeclaration(global) == 0 && LLVMGetLinkage(global) != LLVMAppendingLinkage) {
-                LLVMSetLinkage(global, LLVMInternalLinkage);
+            const std::string_view name = LLVMGetValueName(global);
+            if (LLVMIsDeclaration(global) != 0 || LLVMGetLinkage(global) == LLVMAppendingLinkage) {
+                continue;
             }
+
+            LLVMSetLinkage(global, kept.contains(name) ? LLVMExternalLinkage : LLVMInternalLinkage);
         }
 
         return {};
+    }
+
+    /// A library beside the executable, as its loads: its file, its build, and the names of the
+    /// functions in it that the executable calls, with the slot main puts each one's address in.
+    struct beside_slots_t {
+        const beside_binary_t* library = nullptr;
+        std::vector<std::string> names;
+        std::vector<LLVMValueRef> slots;
+    };
+
+    /// Links a library beside the executable's binary into the module for the code it shares,
+    /// which the executable has for it, with its own code left in its file: each of its
+    /// functions that code calls is a thunk through a slot, which main fills as it loads the
+    /// file, and each of its Globals is reached through the function in the file that gives its
+    /// address.
+    std::expected<beside_slots_t, std::string> link_beside(const beside_binary_t& beside,
+                                                           const std::string& reported) {
+        LLVMMemoryBufferRef buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
+            beside.code.data(), beside.code.size(), beside.file.c_str());
+        LLVMModuleRef library = nullptr;
+        const bool failed = LLVMParseBitcodeInContext2(context(), buffer, &library) != 0;
+        LLVMDisposeMemoryBuffer(buffer);
+        if (failed) {
+            return std::unexpected(std::format("{}'s code isn't LLVM bitcode that this fb reads{}",
+                                               beside.file,
+                                               reported.empty() ? std::string() : ": " + reported));
+        }
+
+        // Its own code, what its build exports, stays in its file.
+        std::vector<std::string> functions;
+        std::vector<std::string> globals;
+        std::vector<LLVMValueRef> own;
+        for (LLVMValueRef function = LLVMGetFirstFunction(library); function != nullptr;
+             function = LLVMGetNextFunction(function)) {
+            if (LLVMIsDeclaration(function) == 0 &&
+                LLVMGetLinkage(function) == LLVMExternalLinkage) {
+                functions.emplace_back(LLVMGetValueName(function));
+                own.push_back(function);
+            }
+        }
+
+        for (LLVMValueRef function : own) {
+            (void)declaration_of(library, function);
+        }
+
+        // What it shares, the executable has for it, though nothing of its own uses it: LLVM's
+        // linker brings in shared code only where it's used, so what the executable doesn't
+        // have already is kept. What it has is its own, with its Extends' Interfaces.
+        for (LLVMValueRef function = LLVMGetFirstFunction(library); function != nullptr;
+             function = LLVMGetNextFunction(function)) {
+            LLVMValueRef found = LLVMGetNamedFunction(m_module.get(), LLVMGetValueName(function));
+            if (LLVMIsDeclaration(function) == 0 &&
+                LLVMGetLinkage(function) == LLVMLinkOnceODRLinkage &&
+                (found == nullptr || LLVMIsDeclaration(found) != 0)) {
+                LLVMSetLinkage(function, LLVMWeakODRLinkage);
+            }
+        }
+
+        for (LLVMValueRef global = LLVMGetFirstGlobal(library); global != nullptr;
+             global = LLVMGetNextGlobal(global)) {
+            LLVMValueRef found = LLVMGetNamedGlobal(m_module.get(), LLVMGetValueName(global));
+            if (LLVMIsDeclaration(global) == 0 &&
+                LLVMGetLinkage(global) == LLVMLinkOnceODRLinkage &&
+                (found == nullptr || LLVMIsDeclaration(found) != 0)) {
+                LLVMSetLinkage(global, LLVMWeakODRLinkage);
+            }
+        }
+
+        for (LLVMValueRef global = LLVMGetFirstGlobal(library); global != nullptr;
+             global = LLVMGetNextGlobal(global)) {
+            if (LLVMIsDeclaration(global) == 0 && LLVMGetLinkage(global) == LLVMExternalLinkage) {
+                globals.emplace_back(LLVMGetValueName(global));
+                LLVMSetInitializer(global, nullptr);
+            }
+        }
+
+        if (LLVMLinkModules2(m_module.get(), library) != 0) {
+            return std::unexpected(std::format("{} doesn't link with the program{}", beside.file,
+                                               reported.empty() ? std::string() : ": " + reported));
+        }
+
+        beside_slots_t loads{ .library = &beside };
+        for (const std::string& name : functions) {
+            if (LLVMValueRef function = LLVMGetNamedFunction(m_module.get(), name.c_str())) {
+                thunk(function, name, loads);
+            }
+        }
+
+        // A Global is reached through the function that gives its address, since it's in the
+        // file, and may be each thread's own.
+        for (const std::string& name : globals) {
+            LLVMValueRef global = LLVMGetNamedGlobal(m_module.get(), name.c_str());
+            if (global == nullptr) {
+                continue;
+            }
+
+            const std::string accessor = std::format("fb.(address).{}", name);
+            const function_ref_t address = declare(accessor.c_str(), m_ptr, {});
+            thunk(address.value, accessor, loads);
+            while (LLVMUseRef use = LLVMGetFirstUse(global)) {
+                LLVMValueRef user = LLVMGetUser(use);
+                if (LLVMIsAInstruction(user) == nullptr || LLVMIsAPHINode(user) != nullptr) {
+                    return std::unexpected(std::format(
+                        "{}'s Global {} is used where only its address can go", beside.file, name));
+                }
+
+                LLVMPositionBuilderBefore(builder(), user);
+                LLVMValueRef reached = call(address, {});
+                for (int i = 0; i < LLVMGetNumOperands(user); ++i) {
+                    if (LLVMGetOperand(user, static_cast<unsigned>(i)) == global) {
+                        LLVMSetOperand(user, static_cast<unsigned>(i), reached);
+                    }
+                }
+            }
+
+            LLVMDeleteGlobal(global);
+        }
+
+        return loads;
+    }
+
+    /// Makes `function`, one in a library beside the executable, a thunk through a slot of its
+    /// own, which main fills with its address as it loads the file.
+    void thunk(LLVMValueRef function, const std::string& name, beside_slots_t& loads) {
+        // It isn't a coroutine itself: the one in the file is.
+        constexpr std::string_view coroutine = "presplitcoroutine";
+        LLVMRemoveEnumAttributeAtIndex(
+            function, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex),
+            LLVMGetEnumAttributeKindForName(coroutine.data(), coroutine.size()));
+        LLVMValueRef slot =
+            LLVMAddGlobal(m_module.get(), m_ptr, std::format("fb.(slot).{}", name).c_str());
+        LLVMSetInitializer(slot, LLVMConstNull(m_ptr));
+        LLVMSetLinkage(slot, LLVMInternalLinkage);
+        LLVMTypeRef type = LLVMGlobalGetValueType(function);
+        LLVMPositionBuilderAtEnd(builder(),
+                                 LLVMAppendBasicBlockInContext(context(), function, "entry"));
+        LLVMValueRef target = LLVMBuildLoad2(builder(), m_ptr, slot, "");
+        std::vector<LLVMValueRef> arguments;
+        for (unsigned i = 0; i < LLVMCountParams(function); ++i) {
+            arguments.push_back(LLVMGetParam(function, i));
+        }
+
+        LLVMValueRef result = LLVMBuildCall2(builder(), type, target, arguments.data(),
+                                             static_cast<unsigned>(arguments.size()), "");
+        LLVMSetTailCallKind(result, LLVMTailCallKindMustTail);
+        if (LLVMGetTypeKind(LLVMGetReturnType(type)) == LLVMVoidTypeKind) {
+            LLVMBuildRetVoid(builder());
+        } else {
+            LLVMBuildRet(builder(), result);
+        }
+
+        loads.names.push_back(name);
+        loads.slots.push_back(slot);
+    }
+
+    /// What main calls as it starts: each library beside the executable loaded, checked, and its
+    /// functions' slots filled.
+    void generate_beside_loads(const std::vector<beside_slots_t>& loads) {
+        LLVMValueRef function = LLVMGetNamedFunction(m_module.get(), "fb.(load beside)");
+        const function_ref_t load =
+            declare("fb_load_beside", m_void, { m_ptr, m_ptr, m_ptr, m_ptr, m_ptr, m_i64 });
+        LLVMPositionBuilderAtEnd(builder(),
+                                 LLVMAppendBasicBlockInContext(context(), function, "entry"));
+        for (const beside_slots_t& each : loads) {
+            std::vector<LLVMValueRef> names;
+            names.reserve(each.names.size());
+            for (const std::string& name : each.names) {
+                names.push_back(c_string(name));
+            }
+
+            const auto table = [&](std::vector<LLVMValueRef> values, const char* label) {
+                LLVMValueRef array = LLVMConstArray2(m_ptr, values.data(), values.size());
+                LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(array), label);
+                LLVMSetInitializer(global, array);
+                LLVMSetLinkage(global, LLVMPrivateLinkage);
+                return global;
+            };
+            LLVMValueRef slots = LLVMAddGlobal(
+                m_module.get(), LLVMArrayType2(m_ptr, each.slots.size()), "fb.(beside slots)");
+            LLVMSetInitializer(slots, LLVMConstNull(LLVMArrayType2(m_ptr, each.slots.size())));
+            LLVMSetLinkage(slots, LLVMPrivateLinkage);
+            call(load, {
+                           c_string(m_options.executable),
+                           c_string(each.library->file),
+                           c_string(each.library->build),
+                           table(names, "fb.(beside names)"),
+                           slots,
+                           LLVMConstInt(m_i64, each.names.size(), 0),
+                       });
+            // Each slot takes its address from the list the runtime filled.
+            for (std::size_t i = 0; i < each.slots.size(); ++i) {
+                std::array<LLVMValueRef, 2> at{ LLVMConstInt(m_i64, 0, 0),
+                                                LLVMConstInt(m_i64, i, 0) };
+                LLVMValueRef element = LLVMBuildInBoundsGEP2(
+                    builder(), LLVMArrayType2(m_ptr, each.slots.size()), slots, at.data(), 2, "");
+                LLVMBuildStore(builder(), LLVMBuildLoad2(builder(), m_ptr, element, ""),
+                               each.slots[i]);
+            }
+        }
+
+        LLVMBuildRetVoid(builder());
     }
 
     /// How MIR's linkage links a definition or declaration, in a build that links: otherwise
@@ -579,27 +858,6 @@ private:
                (type.kind != type_kind_t::TUPLE ||
                 std::ranges::all_of(type.fields,
                                     [&](const field_t& field) { return shared_type(field.type); }));
-    }
-
-    std::expected<void, std::string> optimize(const char* passes) {
-        LLVMPassBuilderOptionsRef options = LLVMCreatePassBuilderOptions();
-        // A release build turns loops over arrays and straight-line code on several values, like
-        // a Vec4's Operators, into SIMD instructions.
-        if (m_options.mode == build_mode_t::RELEASE) {
-            LLVMPassBuilderOptionsSetLoopVectorization(options, 1);
-            LLVMPassBuilderOptionsSetSLPVectorization(options, 1);
-        }
-
-        LLVMErrorRef error = LLVMRunPasses(m_module.get(), passes, m_machine.get(), options);
-        LLVMDisposePassBuilderOptions(options);
-        if (error != nullptr) {
-            char* message = LLVMGetErrorMessage(error);
-            const std::string text = message;
-            LLVMDisposeErrorMessage(message);
-            return std::unexpected(text);
-        }
-
-        return {};
     }
 
     void declare_types() {
@@ -2282,6 +2540,10 @@ private:
         call(m_start, {});
         if (checked()) {
             call(m_track_objects, {});
+        }
+
+        if (!m_options.beside.empty()) {
+            call(declare_internal("fb.(load beside)", m_void, {}), {});
         }
 
         call(m_functions[index(m_mir.entry)], {});
@@ -4207,6 +4469,144 @@ std::expected<std::string, std::string> emit_ir(const mir_module_t& module,
     }
 
     return codegen.ir();
+}
+
+std::expected<std::vector<std::string>, std::string>
+emit_beside_object(const beside_binary_t& binary, const codegen_options_t& options,
+                   const std::filesystem::path& path) {
+    const std::unique_ptr<LLVMOpaqueContext, context_deleter_t> context(LLVMContextCreate());
+    LLVMMemoryBufferRef buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
+        binary.code.data(), binary.code.size(), binary.file.c_str());
+    LLVMModuleRef parsed = nullptr;
+    const bool failed = LLVMParseBitcodeInContext2(context.get(), buffer, &parsed) != 0;
+    LLVMDisposeMemoryBuffer(buffer);
+    if (failed) {
+        return std::unexpected(
+            std::format("{}'s code isn't LLVM bitcode that this fb reads", binary.file));
+    }
+
+    const std::unique_ptr<LLVMOpaqueModule, module_deleter_t> module(parsed);
+    const std::string triple =
+        normalize(options.target_triple.empty() ? std::string(build_config::target_triple)
+                                                : options.target_triple);
+    const std::expected<LLVMTargetMachineRef, std::string> made =
+        make_machine(triple, options.mode);
+    if (!made) {
+        return std::unexpected(made.error());
+    }
+
+    const std::unique_ptr<LLVMOpaqueTargetMachine, machine_deleter_t> machine(*made);
+    const bool windows = triple.contains("windows");
+    const auto exported = [&](LLVMValueRef value) {
+        if (windows) {
+            LLVMSetDLLStorageClass(value, LLVMDLLExportStorageClass);
+        }
+    };
+
+    // What every build shares, the executable has, and the file takes from it; its own code is
+    // what it exports.
+    std::vector<LLVMValueRef> shared;
+    for (LLVMValueRef function = LLVMGetFirstFunction(module.get()); function != nullptr;
+         function = LLVMGetNextFunction(function)) {
+        if (LLVMIsDeclaration(function) != 0) {
+            continue;
+        }
+
+        if (LLVMGetLinkage(function) == LLVMLinkOnceODRLinkage) {
+            shared.push_back(function);
+        } else if (LLVMGetLinkage(function) == LLVMExternalLinkage) {
+            exported(function);
+        }
+    }
+
+    for (LLVMValueRef function : shared) {
+        (void)declaration_of(module.get(), function);
+    }
+
+    LLVMBuilderRef builder = LLVMCreateBuilderInContext(context.get());
+    LLVMTypeRef pointer = LLVMPointerTypeInContext(context.get(), 0);
+    std::vector<LLVMValueRef> removed;
+    for (LLVMValueRef global = LLVMGetFirstGlobal(module.get()); global != nullptr;
+         global = LLVMGetNextGlobal(global)) {
+        if (LLVMIsDeclaration(global) != 0) {
+            continue;
+        }
+
+        const LLVMLinkage linkage = LLVMGetLinkage(global);
+        if (linkage == LLVMAppendingLinkage) {
+            // Its Classes are counted in the executable's list.
+            removed.push_back(global);
+        } else if (linkage == LLVMLinkOnceODRLinkage) {
+            LLVMSetInitializer(global, nullptr);
+            LLVMSetLinkage(global, LLVMExternalLinkage);
+        } else if (linkage == LLVMExternalLinkage) {
+            // The executable reaches it through what gives its address.
+            const std::string name = std::format("fb.(address).{}", LLVMGetValueName(global));
+            LLVMTypeRef type = LLVMFunctionType(pointer, nullptr, 0, 0);
+            LLVMValueRef accessor = LLVMAddFunction(module.get(), name.c_str(), type);
+            exported(accessor);
+            LLVMPositionBuilderAtEnd(
+                builder, LLVMAppendBasicBlockInContext(context.get(), accessor, "entry"));
+            LLVMBuildRet(builder, global);
+        }
+    }
+
+    for (LLVMValueRef global : removed) {
+        LLVMDeleteGlobal(global);
+    }
+
+    // The build it is, which the executable checks as it loads it.
+    LLVMValueRef build =
+        LLVMConstStringInContext2(context.get(), binary.build.data(), binary.build.size(), 0);
+    LLVMValueRef built = LLVMAddGlobal(module.get(), LLVMTypeOf(build), "fb.(build)");
+    LLVMSetInitializer(built, build);
+    LLVMSetGlobalConstant(built, 1);
+    exported(built);
+    LLVMDisposeBuilder(builder);
+
+    // What it takes from the executable: on Windows each through its import library's entry.
+    std::vector<std::string> imports;
+    for (LLVMValueRef function = LLVMGetFirstFunction(module.get()); function != nullptr;
+         function = LLVMGetNextFunction(function)) {
+        const std::string_view name = LLVMGetValueName(function);
+        if (LLVMIsDeclaration(function) != 0 && !name.starts_with("llvm.") &&
+            LLVMGetFirstUse(function) != nullptr) {
+            imports.emplace_back(name);
+            if (windows) {
+                LLVMSetDLLStorageClass(function, LLVMDLLImportStorageClass);
+            }
+        }
+    }
+
+    for (LLVMValueRef global = LLVMGetFirstGlobal(module.get()); global != nullptr;
+         global = LLVMGetNextGlobal(global)) {
+        if (LLVMIsDeclaration(global) != 0 && LLVMGetFirstUse(global) != nullptr) {
+            imports.emplace_back(LLVMGetValueName(global));
+            if (windows) {
+                LLVMSetDLLStorageClass(global, LLVMDLLImportStorageClass);
+            }
+        }
+    }
+
+    char* error = nullptr;
+    if (LLVMVerifyModule(module.get(), LLVMReturnStatusAction, &error) != 0) {
+        return std::unexpected("invalid LLVM IR: " + take_message(error));
+    }
+
+    take_message(error);
+    if (std::expected<void, std::string> optimized =
+            run_passes(module.get(), machine.get(), options.mode, passes_for(options.mode));
+        !optimized) {
+        return std::unexpected(optimized.error());
+    }
+
+    std::string name = path.string();
+    if (LLVMTargetMachineEmitToFile(machine.get(), module.get(), name.data(), LLVMObjectFile,
+                                    &error) != 0) {
+        return std::unexpected(take_message(error));
+    }
+
+    return imports;
 }
 
 std::expected<std::string, std::string> emit_bitcode(const mir_module_t& module,

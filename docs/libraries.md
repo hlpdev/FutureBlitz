@@ -67,8 +67,8 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
   hash, and stops with an error naming the file when one is missing or doesn't match its build.
 - A beside library's file name can't be another file's the build puts beside the executable, such
   as a package's native DLL of the same name: the build stops with an error naming both.
-- A beside library's own dependencies are embedded in it unless the program lists them beside too;
-  either way each package is in one place.
+- A beside library's own dependencies are in the executable, with std, unless the program lists
+  them beside too; either way each package is in one place, and the library uses them from it.
 
 ## The ABI
 
