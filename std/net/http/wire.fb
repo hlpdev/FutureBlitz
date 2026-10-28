@@ -88,7 +88,9 @@ Package Class TlsDuplex Implements Duplex
     End New
 
     // Runs a server's handshake as `server`, and tells whether it's done within `limit`, all of
-    // it, however the client sends it; one that fails, or takes longer, closes the connection.
+    // it, however the client sends it; one that fails, or takes longer, closes the connection as
+    // LingerAsync does, so what the client's still sending doesn't reset it, and the client sees
+    // its alert and its end.
     Package Async Method HandshakeAsync(server: TlsServer, limit: Duration): Bool
         Through.Limit = Deadline.After(limit)
         Try
@@ -99,7 +101,7 @@ Package Class TlsDuplex Implements Duplex
         Catch e As TimeoutError
         End Try
 
-        Tcp.Close()
+        Await LingerAsync(Tcp)
         Return False
     End Method
 

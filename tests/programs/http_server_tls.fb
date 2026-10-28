@@ -3,7 +3,8 @@
 // its connections kept open, and through a client each, fifty at once; a client that trusts
 // only the OS's roots, which refuses the server, one that speaks HTTP to it, and one that
 // connects and says nothing, after which the server still answers, and one that sends its
-// handshake a byte at a time, which the IdleTimeout closes; and WebSockets at wss://,
+// handshake a byte at a time, which the IdleTimeout closes, and one refused as it's still
+// sending, which gets the connection's end, not a reset; and WebSockets at wss://,
 // Async and blocking on a Thread of their own, which a handler takes over, and one that trusts
 // only the OS's roots. The server holds nothing of them after it stops, which the leak report at
 // the end would show.
@@ -145,6 +146,24 @@ Try
     Print("a client that sends a byte at a time was closed before it sent its record:",
           left > 50)
     trickling.Close()
+
+    // One whose handshake is refused while it's still sending gets the connection's end, not a
+    // reset, as the server reads past what it sends before it closes.
+    Local refused = Try Await TcpStream.ConnectAsync("127.0.0.1", port)
+    refused.ReadTimeout = 5.Seconds
+    Try? Await refused.WriteAsync(Buffer<UInt8>(262144))
+    Local ended = False
+    Loop
+        Local count = Try? Await refused.ReadAsync(Buffer<UInt8>(4096))
+        If count == Null Then Break
+        If count == 0
+            ended = True
+            Break
+        End If
+    End Loop
+
+    Print("a client whose handshake is refused as it sends got the end, not a reset:", ended)
+    refused.Close()
 
     // WebSockets over TLS: Async on the main thread, and blocking on a Thread of their own.
     Local wss = "wss://127.0.0.1:{port}/ws"
