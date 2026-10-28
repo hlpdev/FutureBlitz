@@ -61,3 +61,4 @@ docs/history.md; a landed step's notes go there, newest milestone first.
   type-argument inference, overloads by type-parameter count, Defaults<T>, and For Method's own type
   parameters, picks, and throwing Methods; a parallel verify; and every one of the whole-codebase
   review's fixes.
+- M7 so far: step 0 (the spec) and 1 (project types and the interface file).
