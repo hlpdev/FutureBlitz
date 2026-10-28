@@ -1657,6 +1657,77 @@ TEST_CASE("fb runs a package that links a C library", "[cli]") {
         "folder\n"));
 }
 
+TEST_CASE("fb copies a package's dynamic library beside the program, which loads it from there",
+          "[cli]") {
+    // tests/native's dyncalc, as its package has it, and as the program records it: by its
+    // SONAME on Linux.
+#ifdef _WIN32
+    constexpr std::string_view file = "dyncalc.dll";
+    constexpr std::string_view beside = "dyncalc.dll";
+#elifdef __APPLE__
+    constexpr std::string_view file = "libdyncalc.dylib";
+    constexpr std::string_view beside = "@rpath/libdyncalc.dylib";
+#else
+    constexpr std::string_view file = "libdyncalc.so";
+    constexpr std::string_view beside = "libdyncalc.so.1";
+#endif
+    const std::filesystem::path packages =
+        std::filesystem::path(FB_TEST_OUTPUT) / "dynamic_packages";
+    std::filesystem::remove_all(packages);
+    const auto write = [&](const std::string_view path, const std::string_view text) {
+        std::filesystem::create_directories((packages / path).parent_path());
+        std::ofstream(packages / path, std::ios::binary) << text;
+    };
+    write("calc/project.toml", "[project]\nname = \"calc\"\nversion = \"0.1.0\"\n\n"
+                               "[native]\ndyncalc = { dynamic = 'native\\{target}\\dyncalc' }\n");
+    write("calc/calc.fb", "Package Extern \"C\" Lib \"dyncalc\"\n"
+                          "    Function dc_add(a: Int32, b: Int32): Int32\n"
+                          "    Function dc_count(): Int64\n"
+                          "End Extern\n"
+                          "Public Function Add(a: Int32, b: Int32): Int32 => dc_add(a, b)\n"
+                          "Public Function Count(): Int64 => dc_count()\n");
+    write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+                              "[dependencies]\ncalc = { path = \"../calc\" }\n");
+    write("app/main.fb",
+          "Import std.core\nImport calc\nPrint(\"{Add(2, 3)} {Count()} {Count()}\")\n");
+    const std::filesystem::path native =
+        packages / "calc/native" / fb::path_from_utf8(fb::build_target());
+    std::filesystem::create_directories(native);
+    std::filesystem::copy_file(std::filesystem::path(FB_TEST_DYNCALC),
+                               native / fb::path_from_utf8(file));
+#ifdef _WIN32
+    const std::filesystem::path import(FB_TEST_DYNCALC_LINKED);
+    std::filesystem::copy_file(import, native / import.filename());
+#endif
+
+    // fb build says what it copied, which is all the program loads but the system's own.
+    const fb::process_result_t built = fb_run({ "build", fb::to_utf8(packages / "app") });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+    const std::string copied = std::string(beside.substr(beside.rfind('/') + 1));
+    CHECK(built.output.contains(
+        std::format("Copied {} beside the executable, which needs it\n", copied)));
+    std::filesystem::path executable = packages / "app/build/app";
+    executable += fb::executable_extension;
+    std::vector<std::string> libraries = loaded_libraries(executable);
+    CHECK(std::ranges::contains(libraries, beside));
+    std::erase(libraries, std::string(beside));
+    CHECK(std::ranges::all_of(libraries, is_system_library));
+
+    // The program runs from its build folder, wherever it's started from.
+    const std::expected<fb::process_result_t, std::string> ran =
+        fb::run_process(executable, {}, "");
+    REQUIRE(ran);
+    CHECK(ran->exit_code == 0);
+    CHECK(ran->output == "5 1 2\n");
+
+    // And from fb run's folder.
+    const fb::process_result_t run = fb_run({ "run", fb::to_utf8(packages / "app") });
+    INFO(run.output);
+    CHECK(run.exit_code == 0);
+    CHECK(run.output.contains("5 1 2\n"));
+}
+
 TEST_CASE("fb bindgen runs fb-bindgen, which writes a C header's module", "[cli]") {
 #ifdef FB_TEST_BINDGEN
     const std::filesystem::path header =

@@ -27,6 +27,8 @@ enum class native_kind_t : std::uint8_t {
     STATIC,
     /// One the system's linker finds by its name, as -lname.
     SYSTEM,
+    /// A dynamic library, which the program loads as it starts, from beside it.
+    DYNAMIC,
 };
 
 /// A C library a project.toml's [native] names, which `Extern "C" Lib "name"` refers to.
@@ -37,7 +39,9 @@ struct native_t {
     native_kind_t kind = native_kind_t::STATIC;
     /// For a static one, its archive from the project.toml's folder, as written, which may
     /// leave out its "lib" prefix and its extension: "libs/joltc" for libs/libjoltc.a. For a
-    /// system one, the name the linker takes, like "m" for -lm.
+    /// dynamic one, its file from there without them, "native/{target}/engine" for engine.dll
+    /// or libengine.so. For a system one, the name the linker takes, like "m" for -lm. A
+    /// static or dynamic one's "{target}" is the build's target.
     std::string path;
     span_t path_span;
 };

@@ -1,6 +1,7 @@
 #include "fb/driver.hpp"
 
 #include "fb/build_config.hpp"
+#include "fb/dynamic_library.hpp"
 #include "fb/interface.hpp"
 #include "fb/lexer.hpp"
 #include "fb/link.hpp"
@@ -1773,6 +1774,9 @@ private:
     std::vector<std::filesystem::path> m_broken;
     std::optional<file_id_t> m_main_file;
     std::optional<std::string> m_unreadable;
+    /// The dynamic libraries' names beside the executable so far, with the package and the
+    /// [native] name of each.
+    std::vector<std::array<std::string, 3>> m_beside;
     bool m_failed = false;
 
     template <typename... Args>
@@ -1904,24 +1908,29 @@ private:
 
         for (const native_t& native : manifest->natives) {
             package.natives.push_back(native.name);
+            // A package ships its natives per target, which {target} names.
+            const std::string path = with_target(native.path);
             if (native.kind == native_kind_t::SYSTEM) {
                 package.linked.system.push_back(native.path);
                 package.system_spans.push_back(native.path_span);
-            } else if (native.path.ends_with('/') || native.path.ends_with('\\')) {
-                // A folder's path, whose archives would have names like "lib.a".
-                fail(native.path_span, "\"{}\" is a folder, not a static library", native.path);
+            } else if (path.ends_with('/') || path.ends_with('\\')) {
+                // A folder's path, whose files would have names like "lib.a".
+                fail(native.path_span, "\"{}\" is a folder, not a {} library", native.path,
+                     native.kind == native_kind_t::DYNAMIC ? "dynamic" : "static");
+            } else if (native.kind == native_kind_t::DYNAMIC) {
+                read_dynamic(root, *manifest, native, path, package);
             } else if (const std::optional<std::filesystem::path> archive =
-                           find_archive(root, native.path)) {
+                           find_archive(root, path)) {
                 if (is_archive(*archive)) {
                     package.linked.archives.push_back(*archive);
                 } else {
                     fail(native.path_span,
                          "\"{}\" names {}, which isn't a static library: it doesn't start as an "
                          "archive does",
-                         native.path, shown(native.path, *archive));
+                         native.path, shown(path, *archive));
                 }
             } else {
-                report_no_archive(root, native);
+                report_no_archive(root, *manifest, native, path);
             }
         }
 
@@ -2035,6 +2044,173 @@ private:
         return false;
     }
 
+    /// A [native] library's path with each "{target}" the build's target.
+    static std::string with_target(std::string path) {
+        constexpr std::string_view target = "{target}";
+        for (std::size_t at = path.find(target); at != std::string::npos;
+             at = path.find(target, at)) {
+            path.replace(at, target.size(), build_target());
+        }
+
+        return path;
+    }
+
+    /// The name a dynamic library's file has on this target: x.dll, libx.so, or libx.dylib.
+    static std::string dynamic_file_name(const std::string& name) {
+        const std::string_view target = build_target();
+        if (target.starts_with("windows")) {
+            return name + ".dll";
+        }
+
+        return "lib" + name + (target.starts_with("macos") ? ".dylib" : ".so");
+    }
+
+    /// What this target's dynamic libraries are called, as in "a DLL".
+    static std::string_view dynamic_kind() {
+        const std::string_view target = build_target();
+        if (target.starts_with("windows")) {
+            return "a DLL";
+        }
+
+        return target.starts_with("macos") ? "a dylib" : "a shared object";
+    }
+
+    /// A [native] dynamic library's files, which `path`, with the build's target, names without
+    /// the "lib" and extension it has: on Windows x.dll and its import library, x.lib,
+    /// libx.dll.a, or libx.a, on Linux libx.so, and on macOS libx.dylib, whose install name the
+    /// executable finds beside it, @rpath/libx.dylib or in @loader_path.
+    void read_dynamic(const std::filesystem::path& root, const manifest_t& manifest,
+                      const native_t& native, const std::string& path, package_t& package) {
+        const std::filesystem::path written = path_from_utf8(path);
+        if (extension_is(written, ".dll") || extension_is(written, ".so") ||
+            extension_is(written, ".dylib")) {
+            fail(native.path_span,
+                 "a dynamic library's path leaves out its file's \"lib\" and extension, so it's "
+                 "the same on every OS, like \"native/{{target}}/{}\"",
+                 to_utf8(written.stem()));
+            return;
+        }
+
+        const std::string_view target = build_target();
+        const std::string name = to_utf8(written.filename());
+        const std::string file_name = dynamic_file_name(name);
+        const std::filesystem::path folder = root / written.parent_path();
+        const std::filesystem::path file = folder / path_from_utf8(file_name);
+        std::error_code ignored;
+        if (!std::filesystem::is_regular_file(file, ignored)) {
+            fail(native.path_span,
+                 "the {} package has no dynamic library \"{}\" for {}: there's no {}{}",
+                 manifest.name, native.name, target, shown(path, file),
+                 written.is_absolute() ? "" : ", from its folder");
+            return;
+        }
+
+        std::ifstream in(file, std::ios::binary);
+        const std::string bytes{ std::istreambuf_iterator<char>(in),
+                                 std::istreambuf_iterator<char>() };
+        const std::expected<std::string, library_problem_t> recorded =
+            dynamic_library_name(bytes, target);
+        const bool windows = target.starts_with("windows");
+        const bool apple = target.starts_with("macos");
+        if (!recorded) {
+            const std::string_view kind = dynamic_kind();
+            if (recorded.error() == library_problem_t::NOT_A_LIBRARY) {
+                fail(native.path_span,
+                     "\"{}\" names {}, which isn't a dynamic library: it doesn't start as {} "
+                     "does",
+                     native.path, shown(path, file), kind);
+            } else {
+                fail(native.path_span, "\"{}\" names {}, which is {} for another CPU than {}'s",
+                     native.path, shown(path, file), kind, target);
+            }
+
+            return;
+        }
+
+        dynamic_native_t library{
+            .linked = std::filesystem::weakly_canonical(file, ignored),
+            .file = std::filesystem::weakly_canonical(file, ignored),
+            .beside = file_name,
+        };
+        if (windows) {
+            // The executable links the DLL's functions through its import library.
+            const std::array<std::string, 3> imports{
+                name + ".lib",
+                "lib" + name + ".dll.a",
+                "lib" + name + ".a",
+            };
+            const auto found = std::ranges::find_if(imports, [&](const std::string& import) {
+                return std::filesystem::is_regular_file(folder / path_from_utf8(import), ignored);
+            });
+            if (found == imports.end()) {
+                fail(native.path_span,
+                     "the {} package's {} has no import library beside it: there's no {}, {}, or "
+                     "{}",
+                     manifest.name, shown(path, file), imports[0], imports[1], imports[2]);
+                return;
+            }
+
+            const std::filesystem::path import = folder / path_from_utf8(*found);
+            if (!is_archive(import)) {
+                fail(native.path_span,
+                     "\"{}\" names {}, whose import library {} isn't one: it doesn't start as "
+                     "an archive does",
+                     native.path, shown(path, file), shown(path, import));
+                return;
+            }
+
+            library.linked = std::filesystem::weakly_canonical(import, ignored);
+        } else if (apple) {
+            // The executable records the install name, and looks for an @rpath one in
+            // @loader_path, beside it.
+            const std::string rpath = "@rpath/" + file_name;
+            constexpr std::string_view loader = "@loader_path/";
+            const std::string_view rest =
+                std::string_view(*recorded).substr(std::min(recorded->size(), loader.size()));
+            if (recorded->starts_with(loader) && !rest.empty() && !rest.contains('/')) {
+                library.beside = std::string(rest);
+            } else if (*recorded != rpath) {
+                fail(native.path_span,
+                     "the {} package's {} has the install name {}, but the program finds it "
+                     "beside the executable, as {} or a name in @loader_path; link it with "
+                     "-install_name {}",
+                     manifest.name, shown(path, file), *recorded, rpath, rpath);
+                return;
+            }
+        } else if (!recorded->empty()) {
+            // The executable records the SONAME, and finds the library by it.
+            if (recorded->contains('/')) {
+                fail(native.path_span,
+                     "the {} package's {} has the SONAME {}, a path, but the program finds it "
+                     "beside the executable, by a file's name",
+                     manifest.name, shown(path, file), *recorded);
+                return;
+            }
+
+            library.beside = *recorded;
+        }
+
+        // Two files of one name can't both go beside it, in any letter case.
+        const auto folded = [](std::string text) {
+            std::ranges::transform(text, text.begin(), [](const unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            return text;
+        };
+        for (const auto& [beside, owner, other] : m_beside) {
+            if (folded(beside) == folded(library.beside)) {
+                fail(native.path_span,
+                     "the {} package's \"{}\" goes beside the executable as {}, as the {} "
+                     "package's \"{}\" does",
+                     manifest.name, native.name, library.beside, owner, other);
+                return;
+            }
+        }
+
+        m_beside.push_back({ library.beside, manifest.name, native.name });
+        package.linked.dynamic.push_back(std::move(library));
+    }
+
     /// Whether a file starts as an archive does, as a static library's .a or .lib.
     static bool is_archive(const std::filesystem::path& file) {
         std::ifstream in(file, std::ios::binary);
@@ -2092,17 +2268,19 @@ private:
     }
 
     /// ""libs/x" names no static library: there's no libs/x, libs/libx.a, libs/x.a, or
-    /// libs/x.lib, from the package's folder", by the paths as written, or that it's a folder,
-    /// or a dynamic library.
-    void report_no_archive(const std::filesystem::path& root, const native_t& native) {
-        const std::filesystem::path written = path_from_utf8(native.path);
+    /// libs/x.lib, from the package's folder", by the paths as written, or with {target} the
+    /// build's target, which makes it one the package doesn't have for the target, or that it's
+    /// a folder, or a dynamic library.
+    void report_no_archive(const std::filesystem::path& root, const manifest_t& manifest,
+                           const native_t& native, const std::string& path) {
+        const std::filesystem::path written = path_from_utf8(path);
         std::error_code ignored;
         if (extension_is(written, ".so") || extension_is(written, ".dylib") ||
             extension_is(written, ".dll")) {
             fail(native.path_span,
-                 "\"{}\" is a dynamic library, and [native] links those in M7; link a static "
-                 "archive, like \"libs/{}\"",
-                 native.path, to_utf8(written.stem()));
+                 "\"{}\" is a dynamic library, which [native] takes as {} = {{ dynamic = "
+                 "\"native/{{target}}/{}\" }}",
+                 native.path, native.name, to_utf8(written.stem()));
             return;
         }
 
@@ -2121,6 +2299,14 @@ private:
         std::string listed = names.front();
         for (std::size_t i = 1; i < names.size(); ++i) {
             listed += std::format("{}{}", i + 1 == names.size() ? ", or " : ", ", names[i]);
+        }
+
+        if (path != native.path) {
+            fail(native.path_span,
+                 "the {} package has no static library \"{}\" for {}: there's no {}{}",
+                 manifest.name, native.name, build_target(), listed,
+                 written.is_absolute() ? "" : ", from its folder");
+            return;
         }
 
         fail(native.path_span, "\"{}\" names no static library: there's no {}{}", native.path,
@@ -2155,6 +2341,7 @@ native_libraries_t natives_of(const std::vector<package_t>& packages, std::vecto
     for (const std::size_t index : std::views::reverse(finished)) {
         const native_libraries_t& linked = packages[index].linked;
         std::ranges::copy(linked.archives, std::back_inserter(natives.archives));
+        std::ranges::copy(linked.dynamic, std::back_inserter(natives.dynamic));
         for (std::size_t i = 0; i < linked.system.size(); ++i) {
             if (!std::ranges::contains(natives.system, linked.system[i])) {
                 natives.system.push_back(linked.system[i]);
@@ -2588,6 +2775,32 @@ std::vector<const build_config::bundled_library_t*> bundled_libraries(const mir_
     return used;
 }
 
+namespace {
+
+/// Copies each dynamic library beside the executable at `output`, under the name it records.
+std::expected<void, std::string> copy_beside(const std::vector<dynamic_native_t>& libraries,
+                                             const std::filesystem::path& output) {
+    for (const dynamic_native_t& library : libraries) {
+        const std::filesystem::path copy = output.parent_path() / path_from_utf8(library.beside);
+        std::error_code error;
+        if (std::filesystem::equivalent(library.file, copy, error)) {
+            continue;
+        }
+
+        std::filesystem::copy_file(library.file, copy,
+                                   std::filesystem::copy_options::overwrite_existing, error);
+        if (error) {
+            return std::unexpected(std::format("cannot copy {} beside the executable, as {}: {}",
+                                               to_utf8(library.file), to_utf8(copy),
+                                               error.message()));
+        }
+    }
+
+    return {};
+}
+
+} // namespace
+
 std::expected<void, std::string> build_program(const mir_module_t& module,
                                                const compilation_t& compilation,
                                                const std::filesystem::path& output,
@@ -2630,7 +2843,8 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
     const std::filesystem::path object = temporary_path(output.stem(), ".o");
     std::expected<void, std::string> built =
         emit_object(module, compilation.sources, compilation.file, { .mode = mode }, object)
-            .and_then([&] { return link_program(std::array{ object }, natives, output); });
+            .and_then([&] { return link_program(std::array{ object }, natives, output); })
+            .and_then([&] { return copy_beside(natives.dynamic, output); });
     std::filesystem::remove(object, ignored);
     return built;
 }

@@ -1,3 +1,4 @@
+#include "binary_images.hpp"
 #include "fb/driver.hpp"
 #include "fb/interface.hpp"
 #include "fb/lower.hpp"
@@ -1867,8 +1868,8 @@ TEST_CASE("a package links its [native] libraries and its dependencies', in orde
     const std::string junk = "c/project.toml: \"junk\": \"junk\" names junk.a, which isn't a "
                              "static library: it doesn't start as an archive does";
     const std::string dynamic = "c/project.toml: \"libs/x.so\": \"libs/x.so\" is a dynamic "
-                                "library, and [native] links those in M7; link a static archive, "
-                                "like \"libs/x\"";
+                                "library, which [native] takes as dynamic = { dynamic = "
+                                "\"native/{target}/x\" }";
     const std::string folder =
         R"(c/project.toml: "libs/folder.a": "libs/folder.a" is a folder, not a static library)";
     // A folder is one whatever its name, and a path that ends in '/' names one.
@@ -1942,6 +1943,304 @@ TEST_CASE("a system library the linker can't find is an error at its project.tom
     const fb::diagnostic_t& error = found.errors.front();
     CHECK(app->sources.get(error.span.file).slice(error.span) == "\"fb_no_such_library\"");
     CHECK(error.message == "the linker can't find the system library 'fb_no_such_library'");
+    packages.remove();
+}
+
+namespace {
+
+/// The file a [native] dynamic library's path names on this target, and the name its build
+/// copies it beside the executable under: tests/native's dyncalc has a SONAME on Linux.
+#ifdef _WIN32
+constexpr std::string_view dyncalc_file = "dyncalc.dll";
+constexpr std::string_view dyncalc_beside = "dyncalc.dll";
+constexpr std::string_view library_kind = "a DLL";
+#elifdef __APPLE__
+constexpr std::string_view dyncalc_file = "libdyncalc.dylib";
+constexpr std::string_view dyncalc_beside = "libdyncalc.dylib";
+constexpr std::string_view library_kind = "a dylib";
+#else
+constexpr std::string_view dyncalc_file = "libdyncalc.so";
+constexpr std::string_view dyncalc_beside = "libdyncalc.so.1";
+constexpr std::string_view library_kind = "a shared object";
+#endif
+
+/// A dynamic library's file for this target, with nothing in it, named `beside` on Linux and
+/// macOS, as an executable records it.
+std::string empty_library(const std::string_view beside) {
+    const std::string_view target = fb::build_target();
+    if (target.starts_with("windows")) {
+        return fb_test::pe_library(fb_test::pe_amd64);
+    }
+
+    if (target.starts_with("macos")) {
+        return fb_test::mach_o_library(
+            target == "macos-arm64" ? fb_test::mach_o_arm64 : fb_test::mach_o_x86_64, beside);
+    }
+
+    return fb_test::elf_library(
+        target == "linux-arm64" ? fb_test::elf_aarch64 : fb_test::elf_x86_64, beside);
+}
+
+/// The file a dynamic library `name` is on this target: name.dll, libname.so, or
+/// libname.dylib.
+std::string library_file(const std::string& name) {
+    const std::string_view target = fb::build_target();
+    if (target.starts_with("windows")) {
+        return name + ".dll";
+    }
+
+    return "lib" + name + (target.starts_with("macos") ? ".dylib" : ".so");
+}
+
+/// A dynamic library's file for another CPU than this target's.
+std::string other_cpu_library() {
+    const std::string_view target = fb::build_target();
+    if (target.starts_with("windows")) {
+        return fb_test::pe_library(fb_test::pe_arm64);
+    }
+
+    if (target.starts_with("macos")) {
+        return fb_test::mach_o_library(target == "macos-arm64" ? fb_test::mach_o_x86_64
+                                                               : fb_test::mach_o_arm64,
+                                       "@rpath/libdyncalc.dylib");
+    }
+
+    return fb_test::elf_library(
+        target == "linux-arm64" ? fb_test::elf_x86_64 : fb_test::elf_aarch64, "");
+}
+
+/// The calc package, whose [native] dyncalc is tests/native's dynamic library in its
+/// native/<target>/ folder, and the app package, a program that uses it.
+void write_calc(const packages_t& packages) {
+    packages.write("calc/project.toml",
+                   "[project]\nname = \"calc\"\nversion = \"0.1.0\"\n\n"
+                   "[native]\ndyncalc = { dynamic = \"native/{target}/dyncalc\" }\n");
+    packages.write("calc/calc.fb",
+                   "Package Extern \"C\" Lib \"dyncalc\"\n"
+                   "    Function dc_add(a: Int32, b: Int32): Int32\n"
+                   "    Function dc_name(): String\n"
+                   "    Function dc_count(): Int64\n"
+                   "End Extern\n"
+                   "Public Function Add(a: Int32, b: Int32): Int32 => dc_add(a, b)\n"
+                   "Public Function Name(): String => dc_name()\n"
+                   "Public Function Count(): Int64 => dc_count()\n");
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+                                       "[dependencies]\ncalc = { path = \"../calc\" }\n");
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Import calc\n"
+                                  "Print(\"{Add(2, 3)} {Name()} {Count()} {Count()}\")\n");
+    const std::filesystem::path folder =
+        packages / ("calc/native/" + std::string(fb::build_target()));
+    std::filesystem::create_directories(folder);
+    std::filesystem::copy_file(std::filesystem::path(FB_TEST_DYNCALC),
+                               folder / fb::path_from_utf8(dyncalc_file));
+#ifdef _WIN32
+    // Its import library, libdyncalc.dll.a, goes beside it.
+    const std::filesystem::path import(FB_TEST_DYNCALC_LINKED);
+    std::filesystem::copy_file(import, folder / import.filename());
+#endif
+}
+
+} // namespace
+
+TEST_CASE("a package's dynamic library goes beside the program, which runs from there",
+          "[driver]") {
+    const packages_t packages;
+    write_calc(packages);
+    const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
+    REQUIRE(app);
+    REQUIRE(packages.messages(*app).empty());
+    REQUIRE(app->natives.dynamic.size() == 1);
+    CHECK(app->natives.dynamic.front().beside == dyncalc_beside);
+
+    // The library is only in its package's folder and beside the program, which finds it there
+    // from anywhere: beside it on Windows, through $ORIGIN on Linux, and @loader_path on macOS.
+    std::filesystem::path program = packages / "app/build/app";
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(app->ast, app->analysis);
+    for (int build = 0; build < 2; ++build) {
+        const std::expected<fb::process_result_t, std::string> ran =
+            fb::build_program(module, *app, program, fb::build_mode_t::DEBUG).and_then([&] {
+                return fb::run_process(program, {});
+            });
+        INFO((ran ? ran->output : ran.error()));
+        REQUIRE(ran);
+        CHECK(ran->exit_code == 0);
+        CHECK(ran->output == "5 dyncalc 1 2\n");
+        CHECK(std::filesystem::is_regular_file(program.parent_path() /
+                                               fb::path_from_utf8(dyncalc_beside)));
+    }
+
+    packages.remove();
+}
+
+TEST_CASE("a package's dynamic library has to be there for the target, as the OS's kind",
+          "[driver]") {
+    const packages_t packages;
+    write_calc(packages);
+    const std::string target(fb::build_target());
+    const std::string folder = "calc/native/" + target + "/";
+    const std::string shown = "native/" + target + "/" + std::string(dyncalc_file);
+    const std::string at = "calc/project.toml: \"native/{target}/dyncalc\": ";
+    const auto messages = [&] {
+        const std::expected<fb::compilation_t, std::string> app =
+            fb::compile_file(packages / "app");
+        return app ? packages.messages(*app) : std::vector<std::string>{ app.error() };
+    };
+
+    // A target the package has no binary for names the package.
+    std::filesystem::remove_all(packages / folder);
+    CHECK(messages() == std::vector<std::string>{ std::format(
+                            "{}the calc package has no dynamic library \"dyncalc\" for {}: "
+                            "there's no {}, from its folder",
+                            at, target, shown) });
+
+    // What's there has to be a dynamic library, for this target's CPU.
+    packages.write(folder + std::string(dyncalc_file), "not a library");
+    packages.write(folder + "libdyncalc.dll.a", "!<arch>\n");
+    CHECK(messages() == std::vector<std::string>{ std::format(
+                            "{}\"native/{{target}}/dyncalc\" names {}, which isn't a dynamic "
+                            "library: it doesn't start as {} does",
+                            at, shown, library_kind) });
+    packages.write(folder + std::string(dyncalc_file), other_cpu_library());
+    CHECK(messages() == std::vector<std::string>{ std::format(
+                            "{}\"native/{{target}}/dyncalc\" names {}, which is {} for another "
+                            "CPU than {}'s",
+                            at, shown, library_kind, target) });
+
+#ifdef _WIN32
+    // A DLL needs its import library, an archive, beside it.
+    packages.write(folder + std::string(dyncalc_file), empty_library(""));
+    std::filesystem::remove(packages / (folder + "libdyncalc.dll.a"));
+    CHECK(messages() == std::vector<std::string>{ std::format(
+                            "{}the calc package's {} has no import library beside it: there's no "
+                            "dyncalc.lib, libdyncalc.dll.a, or libdyncalc.a",
+                            at, shown) });
+    packages.write(folder + "dyncalc.lib", "not an archive");
+    CHECK(messages() == std::vector<std::string>{ std::format(
+                            "{}\"native/{{target}}/dyncalc\" names {}, whose import library "
+                            "native/{}/dyncalc.lib isn't one: it doesn't start as an archive does",
+                            at, shown, target) });
+#elifdef __APPLE__
+    // The executable finds it beside it through its install name.
+    packages.write(folder + std::string(dyncalc_file),
+                   empty_library("/usr/local/lib/libdyncalc.dylib"));
+    CHECK(messages() ==
+          std::vector<std::string>{ std::format(
+              "{}the calc package's {} has the install name /usr/local/lib/libdyncalc.dylib, but "
+              "the program finds it beside the executable, as @rpath/libdyncalc.dylib or a name "
+              "in @loader_path; link it with -install_name @rpath/libdyncalc.dylib",
+              at, shown) });
+    for (const std::string_view name : { "@rpath/libother.dylib", "@loader_path/sub/x.dylib",
+                                         "@loader_path/", "libdyncalc.dylib" }) {
+        packages.write(folder + std::string(dyncalc_file), empty_library(name));
+        CHECK(messages().size() == 1);
+    }
+
+    packages.write(folder + std::string(dyncalc_file),
+                   empty_library("@loader_path/libother.dylib"));
+    const std::expected<fb::compilation_t, std::string> other = fb::compile_file(packages / "app");
+    REQUIRE(other);
+    REQUIRE(other->natives.dynamic.size() == 1);
+    CHECK(other->natives.dynamic.front().beside == "libother.dylib");
+#else
+    // The executable finds it by its SONAME, beside it, or without one by its file's name.
+    packages.write(folder + std::string(dyncalc_file), empty_library("/opt/libdyncalc.so"));
+    CHECK(messages() == std::vector<std::string>{ std::format(
+                            "{}the calc package's {} has the SONAME /opt/libdyncalc.so, a path, "
+                            "but the program finds it beside the executable, by a file's name",
+                            at, shown) });
+    packages.write(folder + std::string(dyncalc_file), empty_library(""));
+    const std::expected<fb::compilation_t, std::string> unnamed =
+        fb::compile_file(packages / "app");
+    REQUIRE(unnamed);
+    REQUIRE(unnamed->natives.dynamic.size() == 1);
+    CHECK(unnamed->natives.dynamic.front().beside == "libdyncalc.so");
+#endif
+
+    packages.remove();
+}
+
+TEST_CASE("a [native] path's {target} is the build's target", "[driver]") {
+    const packages_t packages;
+    const std::string target(fb::build_target());
+    const auto messages = [&] {
+        const std::expected<fb::compilation_t, std::string> app =
+            fb::compile_file(packages / "app");
+        return app ? packages.messages(*app) : std::vector<std::string>{ app.error() };
+    };
+
+    // A static library's too, which a target without one names the package for.
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+                                       "[native]\nvecmath = \"libs/{target}/vecmath\"\n");
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Extern \"C\" Lib \"vecmath\"\n"
+                                  "    Function vm_add(a: Int32, b: Int32): Int32\n"
+                                  "End Extern\n"
+                                  "Print(\"{vm_add(2, 3)}\")\n");
+    CHECK(messages() ==
+          std::vector<std::string>{ std::format(
+              "app/project.toml: \"libs/{{target}}/vecmath\": the app package has no static "
+              "library \"vecmath\" for {}: there's no libs/{}/vecmath, libs/{}/libvecmath.a, "
+              "libs/{}/vecmath.a, or libs/{}/vecmath.lib, from its folder",
+              target, target, target, target, target) });
+    const std::filesystem::path archive(FB_TEST_VECMATH);
+    std::filesystem::create_directories(packages / ("app/libs/" + target));
+    std::filesystem::copy_file(archive, packages / ("app/libs/" + target) / archive.filename());
+    const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
+    REQUIRE(app);
+    REQUIRE(packages.messages(*app).empty());
+    REQUIRE(app->natives.archives.size() == 1);
+    CHECK(app->natives.archives.front().parent_path().filename() == target);
+
+    // A dynamic library's path leaves out what differs by OS, and can't be a folder's.
+    packages.write("app/project.toml",
+                   "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+                   "[native]\nx = { dynamic = \"native/{target}/x.dll\" }\n"
+                   "y = { dynamic = \"native/{target}/\" }\nz = \"libs/z.so\"\n");
+    CHECK(messages() ==
+          std::vector<std::string>{
+              "app/project.toml: \"native/{target}/x.dll\": a dynamic library's path leaves out "
+              "its file's \"lib\" and extension, so it's the same on every OS, like "
+              "\"native/{target}/x\"",
+              R"(app/project.toml: "native/{target}/": "native/{target}/" is a folder, not a )"
+              "dynamic library",
+              "app/project.toml: \"libs/z.so\": \"libs/z.so\" is a dynamic library, which "
+              "[native] takes as z = { dynamic = \"native/{target}/z\" }",
+          });
+    packages.remove();
+}
+
+TEST_CASE("two dynamic libraries can't go beside the program by one name", "[driver]") {
+    const packages_t packages;
+    const std::string target(fb::build_target());
+    const auto library = [&](const std::string& package, const std::string& name) {
+        const std::string folder = package + "/native/" + target + "/";
+        const std::string beside = library_file(name);
+        packages.write(folder + beside,
+                       empty_library(target.starts_with("macos") ? "@rpath/" + beside : ""));
+        packages.write(folder + "lib" + name + ".dll.a", "!<arch>\n");
+    };
+    packages.write("app/project.toml",
+                   "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+                   "[dependencies]\nlib = { path = \"../lib\" }\n\n"
+                   "[native]\nengine = { dynamic = \"native/{target}/engine\" }\n");
+    packages.write("app/main.fb", "Import std.core\nImport lib\nPrint(\"app\")\n");
+    library("app", "engine");
+    // In any letter case, as a Windows or macOS disk has them.
+    packages.write("lib/project.toml",
+                   "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n\n"
+                   "[native]\nother = { dynamic = \"native/{target}/Engine\" }\n");
+    packages.write("lib/lib.fb", "Public Function F(): Int => 1\n");
+    library("lib", "Engine");
+    const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
+    REQUIRE(app);
+    const std::string beside = library_file("Engine");
+    CHECK(packages.messages(*app) ==
+          std::vector<std::string>{ std::format(
+              "lib/project.toml: \"native/{{target}}/Engine\": the lib package's \"other\" goes "
+              "beside the executable as {}, as the app package's \"engine\" does",
+              beside) });
     packages.remove();
 }
 

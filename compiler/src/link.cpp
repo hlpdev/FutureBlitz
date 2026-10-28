@@ -257,6 +257,26 @@ std::expected<void, std::string> link_program(const std::span<const std::filesys
         arguments.push_back(linker_path(archive, folder));
     }
 
+#if defined(_WIN32) || defined(__APPLE__)
+    for (const dynamic_native_t& library : natives.dynamic) {
+        arguments.push_back(linker_path(library.linked, folder));
+    }
+#else
+    // A shared object without a SONAME is recorded by the name the linker found it by, so each
+    // goes by its name beside the executable, from a folder of the link's own.
+    if (!natives.dynamic.empty()) {
+        const std::filesystem::path found = folder.path() / "dynamic";
+        std::error_code ignored;
+        std::filesystem::create_directories(found, ignored);
+        arguments.push_back("-L" + to_utf8(found));
+        for (const dynamic_native_t& library : natives.dynamic) {
+            std::filesystem::create_symlink(library.linked, found / path_from_utf8(library.beside),
+                                            ignored);
+            arguments.push_back("-l:" + library.beside);
+        }
+    }
+#endif
+
     arguments.push_back(linker_path(path_from_utf8(build_config::runtime_library), folder));
     for (const std::filesystem::path& archive : natives.bundled) {
         arguments.push_back(linker_path(archive, folder));
@@ -285,6 +305,15 @@ std::expected<void, std::string> link_program(const std::span<const std::filesys
     arguments.emplace_back("-fuse-ld=lld");
     arguments.push_back(std::format("-B{}/", build_config::lld_directory));
     arguments.emplace_back("-Wl,--error-limit=0");
+    // Windows looks beside the executable first anyway.
+    if (!natives.dynamic.empty()) {
+#ifdef __APPLE__
+        arguments.emplace_back("-Wl,-rpath,@loader_path");
+#elifndef _WIN32
+        arguments.emplace_back("-Wl,-rpath,$ORIGIN");
+#endif
+    }
+
     // Per-platform options from compiler/CMakeLists.txt, like static linking on MinGW.
     for (const std::string_view option : build_config::link_options) {
         arguments.emplace_back(option);

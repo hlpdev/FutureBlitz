@@ -341,7 +341,8 @@ private:
     }
 
     /// [native]: each library by its name, a static archive, as `x = "libs/x"` or
-    /// `x = { static = "libs/x" }`, or a system library, as `x = { system = "x" }`.
+    /// `x = { static = "libs/x" }`, a system library, as `x = { system = "x" }`, or a dynamic
+    /// one, as `x = { dynamic = "native/{target}/x" }`.
     void read_natives(const toml::key& key, const toml::node& node, manifest_t& manifest) {
         const toml::table* table = node.as_table();
         if (table == nullptr) {
@@ -371,7 +372,7 @@ private:
             }
 
             if (native.path.empty()) {
-                fail(native.path_span, "a native library's archive or name can't be empty");
+                fail(native.path_span, "a native library's path or name can't be empty");
                 continue;
             }
 
@@ -383,20 +384,39 @@ private:
                 continue;
             }
 
-            if (native.kind == native_kind_t::STATIC) {
+            if (native.kind != native_kind_t::SYSTEM) {
                 native.path = with_slashes(std::move(native.path));
+                if (!has_only_target(native.path)) {
+                    fail(native.path_span,
+                         "a native library's path takes {{target}} for the build's target, as in "
+                         "\"native/{{target}}/{}\", and no other {{...}}",
+                         name);
+                    continue;
+                }
             }
 
             manifest.natives.push_back(std::move(native));
         }
     }
 
-    /// A native library's table, `{ static = "libs/x" }` or `{ system = "x" }`. False after an
-    /// error.
+    /// Whether a native library's path has no '{' or '}' but those of "{target}"s.
+    static bool has_only_target(const std::string_view path) {
+        std::string rest(path);
+        for (std::size_t at = rest.find("{target}"); at != std::string::npos;
+             at = rest.find("{target}", at)) {
+            rest.erase(at, std::string_view("{target}").size());
+        }
+
+        return !rest.contains('{') && !rest.contains('}');
+    }
+
+    /// A native library's table, `{ static = "libs/x" }`, `{ system = "x" }`, or
+    /// `{ dynamic = "native/{target}/x" }`. False after an error.
     bool read_native(const std::string_view name, const toml::node& value, native_t& native) {
-        const std::string example =
-            std::format(R"({} = "libs/{}" for a static archive, or {} = {{ system = "{}" }})", name,
-                        name, name, name);
+        const std::string example = std::format(
+            R"({} = "libs/{}" for a static archive, {} = {{ system = "{}" }}, or {} = {{ dynamic )"
+            R"(= "native/{{target}}/{}" }})",
+            name, name, name, name, name, name);
         const toml::table* details = value.as_table();
         if (details == nullptr) {
             fail(span_of(value.source()), "a native library is like {}", example);
@@ -421,22 +441,22 @@ private:
             }
 
             kind = written;
-            if (written == "dynamic") {
-                fail(span_of(detail->source()),
-                     "dynamic libraries come in M7; link it statically, like {} = \"libs/{}\"",
-                     name, name);
-                failed = true;
-                continue;
+            native.kind = native_kind_t::SYSTEM;
+            std::string_view like = "\"m\"";
+            if (written == "static") {
+                native.kind = native_kind_t::STATIC;
+                like = "\"libs/x\"";
+            } else if (written == "dynamic") {
+                native.kind = native_kind_t::DYNAMIC;
+                like = "\"native/{target}/x\"";
             }
 
-            const std::optional<std::string> text =
-                string_of(*detail, *setting, written == "static" ? "\"libs/x\"" : "\"m\"");
+            const std::optional<std::string> text = string_of(*detail, *setting, like);
             if (!text) {
                 failed = true;
                 continue;
             }
 
-            native.kind = written == "static" ? native_kind_t::STATIC : native_kind_t::SYSTEM;
             native.path = *text;
             native.path_span = span_of(setting->source());
         }

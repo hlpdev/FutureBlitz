@@ -145,18 +145,25 @@ TEST_CASE("a dependency is a local package's folder for now", "[manifest]") {
           diagnostics_t{ "error: 5: 'path' is text, like \"../physics\"" });
 }
 
-TEST_CASE("[native] names static archives and system libraries", "[manifest]") {
+TEST_CASE("[native] names static archives, system libraries, and dynamic libraries", "[manifest]") {
     const std::string_view project = "[project]\nname = \"game\"\nversion = \"0.1.0\"\n";
     const read_t game = read(std::format("{}[native]\n"
                                          "joltc = \"libs/joltc\"\n"
                                          "sdl = {{ static = \"vendor/SDL3\", notes = 1 }}\n"
-                                         "m = {{ system = \"m\" }}\n",
+                                         "m = {{ system = \"m\" }}\n"
+                                         "engine = {{ dynamic = 'native\\{{target}}\\engine' }}\n"
+                                         "per = \"libs/{{target}}/{{target}}x\"\n",
                                          project));
     CHECK(game.diagnostics ==
           diagnostics_t{ "warning: notes: a native library doesn't use 'notes'" });
     REQUIRE(game.manifest);
     const std::vector<fb::native_t> natives = game.manifest.value_or(fb::manifest_t{}).natives;
-    REQUIRE(natives.size() == 3);
+    REQUIRE(natives.size() == 5);
+    // A dynamic library's path takes '\' as '/', and {target} stays for the build to fill.
+    CHECK(natives[3].name == "engine");
+    CHECK(natives[3].kind == fb::native_kind_t::DYNAMIC);
+    CHECK(natives[3].path == "native/{target}/engine");
+    CHECK(natives[4].path == "libs/{target}/{target}x");
     CHECK(natives[0].name == "joltc");
     CHECK(natives[0].kind == fb::native_kind_t::STATIC);
     CHECK(natives[0].path == "libs/joltc");
@@ -169,13 +176,26 @@ TEST_CASE("[native] names static archives and system libraries", "[manifest]") {
     const auto errors = [&](const std::string_view natives_text) {
         return read(std::format("{}[native]\n{}", project, natives_text)).diagnostics;
     };
-    CHECK(errors("sdl = { dynamic = \"SDL3\" }\n") ==
-          diagnostics_t{ "error: dynamic: dynamic libraries come in M7; link it statically, like "
-                         "sdl = \"libs/sdl\"" });
     CHECK(errors("x = { static = \"libs/x\", system = \"x\" }\n") ==
           diagnostics_t{ "error: system: a native library is static or system, not both" });
-    const std::string like = R"(a native library is like x = "libs/x" for a static archive, or )"
-                             R"(x = { system = "x" })";
+    CHECK(errors("x = { dynamic = \"x\", static = \"x\" }\n") ==
+          diagnostics_t{ "error: static: a native library is dynamic or static, not both" });
+    CHECK(errors("x = { dynamic = 5 }\n") ==
+          diagnostics_t{ "error: 5: 'dynamic' is text, like \"native/{target}/x\"" });
+    // {target} is the only {...} a path takes, in a static or dynamic library's.
+    const std::string braces = "a native library's path takes {target} for the build's target, "
+                               "as in \"native/{target}/x\", and no other {...}";
+    CHECK(errors("x = { dynamic = \"native/{os}/x\" }\ny = \"libs/{target\"\n"
+                 "z = \"libs/target}\"\n") ==
+          diagnostics_t{
+              "error: \"native/{os}/x\": " + braces,
+              "error: \"libs/{target\": " + braces.substr(0, braces.find("\"native")) +
+                  "\"native/{target}/y\", and no other {...}",
+              "error: \"libs/target}\": " + braces.substr(0, braces.find("\"native")) +
+                  "\"native/{target}/z\", and no other {...}",
+          });
+    const std::string like = R"(a native library is like x = "libs/x" for a static archive, )"
+                             R"(x = { system = "x" }, or x = { dynamic = "native/{target}/x" })";
     CHECK(errors("x = 5\n") == diagnostics_t{ "error: 5: " + like });
     CHECK(errors("x = {}\n") == diagnostics_t{ "error: {}: " + like });
     CHECK(errors("\"my lib\" = \"libs/x\"\n") ==
@@ -188,7 +208,7 @@ TEST_CASE("[native] names static archives and system libraries", "[manifest]") {
               "\"m\" for -lm, not \"-static\"",
               "error: \"a b\": a system library is the name the linker takes, like system = "
               "\"m\" for -lm, not \"a b\"",
-              "error: \"\": a native library's archive or name can't be empty",
+              "error: \"\": a native library's path or name can't be empty",
           });
     CHECK(errors("x = { static = 5 }\n") ==
           diagnostics_t{ "error: 5: 'static' is text, like \"libs/x\"" });

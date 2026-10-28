@@ -197,8 +197,10 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
 }
 
 /// "    Finished debug build in 0.31s", then each bundled C library the program links, whose
-/// license notice the program ships: that's its author's job.
-void report_built(const console_t& console, const options_t& options, const mir_module_t& module,
+/// license notice the program ships: that's its author's job, and each dynamic library copied
+/// beside it, which it needs.
+void report_built(const console_t& console, const options_t& options,
+                  const compilation_t& compilation, const mir_module_t& module,
                   const std::chrono::steady_clock::time_point start) {
     const std::string_view mode = options.mode == build_mode_t::RELEASE ? "release" : "debug";
     console.status("Finished", std::format("{} build in {}", mode, seconds_since(start)));
@@ -212,6 +214,11 @@ void report_built(const console_t& console, const options_t& options, const mir_
                        std::format("{} {}, under {}; ship its notices with the program: {}",
                                    library->name, library->version, library->license,
                                    library->notice));
+    }
+
+    for (const dynamic_native_t& library : compilation.natives.dynamic) {
+        console.status("Copied",
+                       std::format("{} beside the executable, which needs it", library.beside));
     }
 }
 
@@ -326,7 +333,7 @@ int build(const console_t& console, const options_t& options, const compilation_
         return compile_errors_exit_code;
     }
 
-    report_built(console, options, module, start);
+    report_built(console, options, compilation, module, start);
     return 0;
 }
 
@@ -413,7 +420,7 @@ int run(const console_t& console, const options_t& options, const compilation_t&
         return compile_errors_exit_code;
     }
 
-    report_built(console, options, module, start);
+    report_built(console, options, compilation, module, start);
     console.status("Running", name);
     const std::expected<int, std::string> exit_code =
         run_attached(program, options.program_arguments);

@@ -13,6 +13,31 @@ if(MINGW)
   target_compile_options(fb_vecmath PRIVATE -mcrtdll=ucrt)
 endif()
 
+# The C library the tests load as a package's [native] dynamic library, which the build copies
+# beside the program: dyncalc.dll and its import library, libdyncalc.dll.a, on Windows,
+# libdyncalc.dylib on macOS, whose install name is @rpath/libdyncalc.dylib, and on Linux
+# libdyncalc.so.1, its SONAME, which the build copies it as. Like vecmath, it's built for UCRT on
+# MinGW, and with its C runtime support inside it, so it needs no DLL of MinGW's.
+add_library(fb_dyncalc SHARED dyncalc/dyncalc.c)
+set_target_properties(fb_dyncalc PROPERTIES OUTPUT_NAME dyncalc C_STANDARD 11
+                      C_VISIBILITY_PRESET hidden)
+if(WIN32)
+  set_target_properties(fb_dyncalc PROPERTIES PREFIX "")
+elseif(NOT APPLE)
+  set_target_properties(fb_dyncalc PROPERTIES SOVERSION 1)
+endif()
+
+if(MSVC)
+  target_compile_options(fb_dyncalc PRIVATE /W4)
+else()
+  target_compile_options(fb_dyncalc PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+endif()
+
+if(MINGW)
+  target_compile_options(fb_dyncalc PRIVATE -mcrtdll=ucrt)
+  target_link_options(fb_dyncalc PRIVATE -mcrtdll=ucrt -static-libgcc)
+endif()
+
 # On Windows, a program that prints the console's output code page, for the tests that check fb
 # and the programs it builds give the console back as they found it.
 if(WIN32)
