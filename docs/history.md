@@ -38,6 +38,26 @@ Super.New, Class Field defaults that embed, .proto modules, hidden Imports by pa
 free qualifiers, where `= ...` goes, CRLF, a missing build for the mode, main.fb's letter
 case, and clearer messages.
 
+Step 5, dynamic natives (537d4680): `[native]`'s `{ dynamic = "native/{target}/engine" }`
+(native_kind_t::DYNAMIC), a path without the file's "lib" and extension, which finds engine.dll
+and its import library (engine.lib, libengine.dll.a, or libengine.a), libengine.so, or
+libengine.dylib; `{target}` in static and dynamic paths (with_target(), build_target()), no
+other `{...}`, and a target without the file an error naming the package; compiler/src/
+dynamic_library.cpp's dynamic_library_name(), which reads a DLL, a shared object's SONAME, or a
+dylib's install name (a universal file's slice for the CPU, not arm64e) without loading it, and
+tells another CPU's, width's, or byte order's file and an executable from a library; the driver's
+read_dynamic(), which records each as a dynamic_native_t under the name the executable records
+(the file's on Windows, the SONAME on Linux, the install name's file on macOS, which has to be
+@rpath/lib<name>.dylib or in @loader_path), and stops two of one name, case-folded through
+utf8proc, and an executable named like one; link_program() linking them, on Linux by
+`-l:<name>` from a link folder of its own inside `--push-state,--no-as-needed`, with
+`-rpath $ORIGIN`, or `@loader_path` on macOS; and build_program's copy_beside(), with fb build's
+"Copied" line. tests/native's dyncalc is the C DLL the tests load. Its review's 12 findings were
+fixed (docs/review/m7-step5.md): every dynamic native recorded on Linux, so one only another
+uses loads, hints that keep the folder written, an executable or a 32-bit, big-endian, or
+arm64e file said to be one, "." and ".." as names, names folded beyond ASCII, -o over a
+library's name, and tests of an uncalled library and a stale copy.
+
 ## M6, the full standard library
 
 Done in M6: step 0, CI: .github/workflows/ci.yml builds Debug and runs ctest on windows-2025
