@@ -4,13 +4,17 @@ release mode, the concurrent programs many times over, and clang-format and clan
 changed since the base. CI runs it without the last two.
 
     python tools/verify.py --build <build folder> [--base origin/master] [--no-format] [--no-tidy]
-                           [--quick] [--jobs N]
+                           [--quick] [--jobs N] [--program NAME]... [--only-concurrent]
 
 --quick is a lane's own check: the unit tests, and only the test programs that changed since the
 base, or whose own folder did, as the program tests build them (a release_ one in release mode),
 in release, and many times over; the landing CI runs the whole of it. The programs build and run
 --jobs at a time, each run in an empty folder of its own, for at most RUN_LIMIT seconds, and each
 step's failures come out by program once it's done.
+
+--program NAME, given once or more, checks just those test programs, as the program tests build
+them and in release, as on another OS where one failed; --only-concurrent runs just the concurrent
+programs, many times over. With --no-build --no-tests --no-format --no-tidy, either is all it does.
 
 clang-format and clang-tidy come from $CLANG_FORMAT and $CLANG_TIDY, or else from PATH.
 """
@@ -224,7 +228,7 @@ def changed_programs(paths: list[Path]) -> set[str]:
 
 
 def check_debug(built: programs_t) -> None:
-    step("changed test programs built as the program tests build them")
+    step("test programs built as the program tests build them")
     names = programs()
 
     # A release_ program is built in release mode, as the program tests build it, and the rest
@@ -340,9 +344,17 @@ def main() -> int:
     parser.add_argument("--no-format", action="store_true")
     parser.add_argument("--no-tidy", action="store_true")
     parser.add_argument("--quick", action="store_true")
+    parser.add_argument("--program", action="append", default=[], metavar="NAME")
+    parser.add_argument("--only-concurrent", action="store_true")
     options = parser.parse_args()
-    if options.quick:
-        global only
+    global only
+    if options.program:
+        missing = [name for name in options.program if not (PROGRAMS / f"{name}.fb").exists()]
+        if missing:
+            print(f"FAIL no test program is named {', '.join(missing)}")
+            return 1
+        only = set(options.program)
+    elif options.quick:
         only = changed_programs(changed_files(options.base))
     build = options.build.resolve()
     fb = executable(build / "cli" / "fb")
@@ -376,10 +388,14 @@ def main() -> int:
     if not options.no_programs:
         with tempfile.TemporaryDirectory(prefix="fb-verify-") as scratch:
             built = programs_t(fb, Path(scratch))
-            if options.quick:
-                check_debug(built)
-            check_release(built)
-            check_concurrent(built)
+            if options.only_concurrent:
+                check_concurrent(built)
+            else:
+                if options.quick or options.program:
+                    check_debug(built)
+                check_release(built)
+                if not options.program:
+                    check_concurrent(built)
 
     if not options.no_format:
         check_format(options.base)
