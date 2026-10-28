@@ -1648,8 +1648,8 @@ TEST_CASE("an interface file says what of its prebuilt code only the main thread
 TEST_CASE("an interface file's '= ...' and '=> ...' go only where code is in the binary",
           "[parser]") {
     const std::string misplaced =
-        "\"= ...\" only follows the type of a Global or a Field, whose value is in the library's "
-        "binary";
+        "\"= ...\" only follows the type of a Global or a Static Field, whose value is in the "
+        "library's binary";
     CHECK(parse_interface("Public Global G = ...\n").errors ==
           std::vector<std::string>{ misplaced });
     CHECK(parse_interface("Public Const C: Int = ...\n").errors ==
@@ -1661,10 +1661,12 @@ TEST_CASE("an interface file's '= ...' and '=> ...' go only where code is in the
               "a Const Function's code is in an interface file, since programs run it" });
     CHECK(parse_interface("Public Global G: Int = ...\n"
                           "Public Class C\n"
-                          "    Field f: Int = ...\n"
                           "    Public Static Field S: Int = ...\n"
                           "End Class\n")
               .errors.empty());
+    // A Field's default is its value, which the code that makes its Class sets.
+    CHECK(parse_interface("Public Class C\n    Field f: Int = ...\nEnd Class\n").errors ==
+          std::vector<std::string>{ misplaced });
 
     // Each first line ends where its type, Implements, or Lib does.
     const interface_parse_t parsed = parse_interface("Extend Int32 Implements Shown\n"

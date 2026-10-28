@@ -5,6 +5,7 @@
 #include "fb/interface.hpp"
 #include "fb/lexer.hpp"
 #include "fb/link.hpp"
+#include "fb/lower.hpp"
 #include "fb/manifest.hpp"
 #include "fb/parser.hpp"
 #include "fb/process.hpp"
@@ -1607,6 +1608,7 @@ private:
                 .package = loaded.path.starts_with("std/")
                                ? std_package
                                : packages[package_of(loaded.path).value_or(0)],
+                .prebuilt = prebuilt_package(m_files, loaded.path) != nullptr,
             };
             if (const auto [taken, added] = names.emplace(module.name, index); !added) {
                 m_compilation.diagnostics.error(
@@ -2794,9 +2796,21 @@ std::expected<std::vector<library_file_t>, std::string> standard_library() {
     return library;
 }
 
-std::vector<const build_config::bundled_library_t*> bundled_libraries(const mir_module_t& module) {
-    // Each the program calls, then those they're built on, in the table's order.
+std::vector<const build_config::bundled_library_t*>
+bundled_libraries(const mir_module_t& module, const std::span<const library_binary_t> binaries) {
+    // Each the program calls, and the prebuilt libraries' code, then those they're built on, in
+    // the table's order.
     std::vector<std::string_view> wanted;
+    for (const library_binary_t& binary : binaries) {
+        for (const std::string& name : binary.bundled) {
+            if (!std::ranges::contains(wanted, name) &&
+                std::ranges::contains(build_config::bundled_libraries, std::string_view(name),
+                                      &build_config::bundled_library_t::name)) {
+                wanted.emplace_back(name);
+            }
+        }
+    }
+
     for (const build_config::bundled_library_t& library : build_config::bundled_libraries) {
         const auto has_prefix = [&](const std::string_view symbol) {
             return std::ranges::any_of(
@@ -2810,7 +2824,7 @@ std::vector<const build_config::bundled_library_t*> bundled_libraries(const mir_
                 return function.external && !function.external->c_abi &&
                        has_prefix(function.external->symbol);
             });
-        if (calls) {
+        if (calls && !std::ranges::contains(wanted, library.name)) {
             wanted.push_back(library.name);
         }
     }
@@ -2864,17 +2878,92 @@ std::expected<void, std::string> copy_beside(const std::vector<dynamic_native_t>
 }
 
 } // namespace
+std::expected<library_build_t, std::string> build_library(const compilation_t& compilation,
+                                                          const build_mode_t mode,
+                                                          diagnostic_bag_t& diagnostics) {
+    if (!compilation.package) {
+        return std::unexpected("only a package is a library");
+    }
+
+    const mir_module_t module =
+        lower(compilation.ast, compilation.analysis, compilation.package->name);
+    const std::expected<std::string, std::string> code =
+        emit_bitcode(module, compilation.sources, compilation.file, { .mode = mode });
+    if (!code) {
+        return std::unexpected(code.error());
+    }
+
+    const std::optional<std::string> interface =
+        write_interface(compilation, mode, diagnostics, *code);
+    const std::optional<interface_header_t> header =
+        interface ? read_interface_header(*interface) : std::nullopt;
+    if (!header) {
+        return std::unexpected("");
+    }
+
+    library_binary_t binary{ .header = *header, .code = *code };
+    for (const build_config::bundled_library_t* library : bundled_libraries(module)) {
+        binary.bundled.emplace_back(library->name);
+    }
+
+    return library_build_t{ .interface = *interface, .binary = write_binary(binary) };
+}
+
+std::expected<std::vector<library_binary_t>, std::string>
+prebuilt_binaries(const compilation_t& compilation) {
+    std::vector<library_binary_t> binaries;
+    for (const std::filesystem::path& interface : compilation.interfaces) {
+        std::filesystem::path path = interface;
+        path.replace_extension(".fblib");
+        const auto read = [](const std::filesystem::path& file) {
+            std::ifstream in(file, std::ios::binary);
+            return in ? std::optional(std::string{ std::istreambuf_iterator<char>(in),
+                                                   std::istreambuf_iterator<char>() })
+                      : std::nullopt;
+        };
+        const std::optional<std::string> text = read(interface);
+        const std::optional<std::string> bytes = read(path);
+        const std::string shown = to_utf8(shown_disk_path(path));
+        if (!bytes) {
+            return std::unexpected(std::format("there's no {}, the prebuilt library's binary "
+                                               "beside its interface file",
+                                               shown));
+        }
+
+        std::optional<library_binary_t> binary = read_binary(*bytes);
+        const std::optional<interface_header_t> header =
+            text ? read_interface_header(*text) : std::nullopt;
+        if (!binary || !header) {
+            return std::unexpected(
+                std::format("{} isn't a library's binary that fb writes", shown));
+        }
+
+        // A program is built against one exact build of each library.
+        const interface_header_t& built = binary->header;
+        if (built.name != header->name || built.version != header->version ||
+            built.hash != header->hash) {
+            return std::unexpected(std::format(
+                "{} is the build {} v{} ({}), but its interface file, {}, is {} v{} ({}); a "
+                "program is built against one build of a library",
+                shown, built.name, built.version, built.hash, to_utf8(shown_disk_path(interface)),
+                header->name, header->version, header->hash));
+        }
+
+        binaries.push_back(std::move(*binary));
+    }
+
+    return binaries;
+}
 
 std::expected<void, std::string> build_program(const mir_module_t& module,
                                                const compilation_t& compilation,
                                                const std::filesystem::path& output,
                                                const build_mode_t mode) {
-    // A prebuilt library's code is in its .fblib, which programs link from M7's step 2.
-    if (!compilation.interfaces.empty()) {
-        return std::unexpected(std::format(
-            "{} is a prebuilt library's interface; programs build with prebuilt libraries once "
-            "fb links their .fblib",
-            to_utf8(shown_disk_path(compilation.interfaces.front()))));
+    // A prebuilt library's code is its binary's, which links into the program's.
+    const std::expected<std::vector<library_binary_t>, std::string> binaries =
+        prebuilt_binaries(compilation);
+    if (!binaries) {
+        return std::unexpected(binaries.error());
     }
 
     // A dynamic library beside the executable would go over it.
@@ -2902,7 +2991,7 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
 
     // A bundled library's system libraries come with it, after the packages' own.
     native_libraries_t natives = compilation.natives;
-    for (const build_config::bundled_library_t* library : bundled_libraries(module)) {
+    for (const build_config::bundled_library_t* library : bundled_libraries(module, *binaries)) {
         if (!library->runtime.empty()) {
             natives.bundled.push_back(path_from_utf8(library->runtime));
         }
@@ -2921,8 +3010,13 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
 
     // The object file is only needed for linking, and is removed even when linking fails.
     const std::filesystem::path object = temporary_path(output.stem(), ".o");
+    codegen_options_t options{ .mode = mode };
+    for (const library_binary_t& binary : *binaries) {
+        options.linked.push_back(binary.code);
+    }
+
     std::expected<void, std::string> built =
-        emit_object(module, compilation.sources, compilation.file, { .mode = mode }, object)
+        emit_object(module, compilation.sources, compilation.file, options, object)
             .and_then([&] { return link_program(std::array{ object }, natives, output); })
             .and_then([&] { return copy_beside(natives.dynamic, output); });
     std::filesystem::remove(object, ignored);

@@ -12,7 +12,10 @@
 #include <filesystem>
 #include <format>
 #include <llvm-c/Analysis.h>
+#include <llvm-c/BitReader.h>
+#include <llvm-c/BitWriter.h>
 #include <llvm-c/Core.h>
+#include <llvm-c/Linker.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
 #include <llvm-c/Transforms/PassBuilder.h>
@@ -103,6 +106,7 @@ public:
     codegen_t(const mir_module_t& module, const source_manager_t& sources,
               const source_file_t& main, const codegen_options_t& options)
         : m_mir(module), m_sources(sources), m_options(options),
+          m_linking(module.library || !options.linked.empty()),
           m_triple(normalize(options.target_triple.empty()
                                  ? std::string(build_config::target_triple)
                                  : options.target_triple)),
@@ -131,7 +135,8 @@ public:
         declare_thread_local_functions();
         declare_classes();
         for (std::size_t i = 0; i < m_mir.functions.size(); ++i) {
-            if (!m_mir.functions[i].external) {
+            if (!m_mir.functions[i].external &&
+                m_mir.functions[i].linkage != mir_linkage_t::IMPORTED) {
                 generate(i);
             }
         }
@@ -144,17 +149,30 @@ public:
         generate_channel_functions();
         generate_scheduler_functions();
         generate_thread_local_functions();
-        generate_main();
+        if (m_mir.library) {
+            generate_releasers();
+            add_class_list();
+        } else {
+            generate_main();
+        }
+
         if (!m_unsupported.empty()) {
             return std::unexpected(m_unsupported);
         }
 
-        char* error = nullptr;
-        if (LLVMVerifyModule(m_module.get(), LLVMReturnStatusAction, &error) != 0) {
-            return std::unexpected("invalid LLVM IR: " + take_message(error));
+        // A library's binary is linked, then optimized, with each program that uses it.
+        if (m_mir.library) {
+            return verify();
         }
 
-        take_message(error);
+        if (std::expected<void, std::string> linked = link_libraries(); !linked) {
+            return linked;
+        }
+
+        if (std::expected<void, std::string> verified = verify(); !verified) {
+            return verified;
+        }
+
         // A debug build only inlines what @Inline asks for.
         // Async Functions' coroutines are split into their pieces in every build. The call graph
         // that coro-split walks starts from what's visible outside the module, so code nothing
@@ -167,6 +185,13 @@ public:
 
     [[nodiscard]] std::string ir() const {
         return take_message(LLVMPrintModuleToString(m_module.get()));
+    }
+
+    [[nodiscard]] std::string bitcode() const {
+        LLVMMemoryBufferRef buffer = LLVMWriteBitcodeToMemoryBuffer(m_module.get());
+        std::string bytes(LLVMGetBufferStart(buffer), LLVMGetBufferSize(buffer));
+        LLVMDisposeMemoryBuffer(buffer);
+        return bytes;
     }
 
     [[nodiscard]] std::expected<void, std::string>
@@ -185,6 +210,9 @@ private:
     const mir_module_t& m_mir;
     const source_manager_t& m_sources;
     const codegen_options_t& m_options;
+    /// A library's build, or a program that links prebuilt libraries' binaries, whose code
+    /// they share by name, as MIR's linkage says.
+    bool m_linking = false;
     /// The options' target, or else the one this compiler was built for, normalized.
     std::string m_triple;
     /// What C's integers are on it, which CLong, CULong, and CWChar are.
@@ -438,6 +466,97 @@ private:
         LLVMSetModuleDataLayout(m_module.get(), layout);
         LLVMDisposeTargetData(layout);
         return {};
+    }
+
+    std::expected<void, std::string> verify() {
+        char* error = nullptr;
+        if (LLVMVerifyModule(m_module.get(), LLVMReturnStatusAction, &error) != 0) {
+            return std::unexpected("invalid LLVM IR: " + take_message(error));
+        }
+
+        take_message(error);
+        return {};
+    }
+
+    /// Links each prebuilt library's binary into the module: what they share by name is one,
+    /// and the rest the program's own once they're linked, but for main, so what nothing uses
+    /// goes. Each binary's Classes join the module's list of them, each once.
+    std::expected<void, std::string> link_libraries() {
+        if (!m_linking) {
+            return {};
+        }
+
+        for (const std::string& linked : m_options.linked) {
+            LLVMMemoryBufferRef buffer =
+                LLVMCreateMemoryBufferWithMemoryRangeCopy(linked.data(), linked.size(), "library");
+            LLVMModuleRef library = nullptr;
+            const bool failed = LLVMParseBitcodeInContext2(context(), buffer, &library) != 0;
+            LLVMDisposeMemoryBuffer(buffer);
+            if (failed) {
+                return std::unexpected("a prebuilt library's .fblib isn't LLVM bitcode fb wrote");
+            }
+
+            if (LLVMLinkModules2(m_module.get(), library) != 0) {
+                return std::unexpected("a prebuilt library's .fblib doesn't link with the program");
+            }
+        }
+
+        finish_class_list();
+        for (LLVMValueRef function = LLVMGetFirstFunction(m_module.get()); function != nullptr;
+             function = LLVMGetNextFunction(function)) {
+            if (LLVMIsDeclaration(function) == 0 &&
+                std::string_view(LLVMGetValueName(function)) != "main") {
+                LLVMSetLinkage(function, LLVMInternalLinkage);
+            }
+        }
+
+        for (LLVMValueRef global = LLVMGetFirstGlobal(m_module.get()); global != nullptr;
+             global = LLVMGetNextGlobal(global)) {
+            if (LLVMIsDeclaration(global) == 0 && LLVMGetLinkage(global) != LLVMAppendingLinkage) {
+                LLVMSetLinkage(global, LLVMInternalLinkage);
+            }
+        }
+
+        return {};
+    }
+
+    /// How MIR's linkage links a definition or declaration, in a build that links: otherwise
+    /// every one is the module's own.
+    void set_linkage(LLVMValueRef value, const mir_linkage_t linkage) const {
+        if (!m_linking) {
+            LLVMSetLinkage(value, LLVMInternalLinkage);
+            return;
+        }
+
+        switch (linkage) {
+        case mir_linkage_t::INTERNAL:
+            LLVMSetLinkage(value, LLVMInternalLinkage);
+            break;
+        case mir_linkage_t::SHARED:
+            LLVMSetLinkage(value, LLVMLinkOnceODRLinkage);
+            break;
+        case mir_linkage_t::EXPORTED:
+        case mir_linkage_t::IMPORTED:
+            LLVMSetLinkage(value, LLVMExternalLinkage);
+            break;
+        }
+    }
+
+    /// Whether every build that has a type names it alike, so what's made for it is shared: one
+    /// without a closure's or cell's Class in it, which only this build has.
+    [[nodiscard]] bool shared_type(const type_id_t id) const {
+        if (id == type_id_t::INVALID || id < type_id_t::BOOL) {
+            return true;
+        }
+
+        const type_t& type = m_mir.types->get(id);
+        const auto shared = [this](const type_id_t each) { return shared_type(each); };
+        return !type.made && shared_type(type.inner) &&
+               std::ranges::all_of(type.arguments, shared) &&
+               std::ranges::all_of(type.parameters, shared) &&
+               (type.kind != type_kind_t::TUPLE ||
+                std::ranges::all_of(type.fields,
+                                    [&](const field_t& field) { return shared_type(field.type); }));
     }
 
     std::expected<void, std::string> optimize(const char* passes) {
@@ -870,7 +989,8 @@ private:
             std::format("fb.{}.interface", m_mir.types->qualified_name(interface)).c_str());
         LLVMSetInitializer(global, value);
         LLVMSetGlobalConstant(global, 1);
-        LLVMSetLinkage(global, LLVMInternalLinkage);
+        set_linkage(global,
+                    shared_type(interface) ? mir_linkage_t::SHARED : mir_linkage_t::INTERNAL);
         return m_interfaces[interface] = global;
     }
 
@@ -995,7 +1115,8 @@ private:
             const std::string name =
                 std::format("fb.{}.class", m_mir.types->qualified_name(info.type));
             LLVMValueRef global = LLVMAddGlobal(m_module.get(), type, name.c_str());
-            LLVMSetLinkage(global, LLVMInternalLinkage);
+            set_linkage(global,
+                        shared_type(info.type) ? mir_linkage_t::SHARED : mir_linkage_t::INTERNAL);
             m_classes.emplace(info.type, global);
         }
 
@@ -1089,9 +1210,13 @@ private:
             const std::string name = std::format("fb.{}", global.name);
             LLVMValueRef value =
                 LLVMAddGlobal(m_module.get(), llvm_type(global.type), name.c_str());
-            LLVMSetInitializer(value, global.initial ? constant(*global.initial)
-                                                     : zero_constant(global.type));
-            LLVMSetLinkage(value, LLVMInternalLinkage);
+            // A prebuilt library's binary has its own.
+            if (global.linkage != mir_linkage_t::IMPORTED) {
+                LLVMSetInitializer(value, global.initial ? constant(*global.initial)
+                                                         : zero_constant(global.type));
+            }
+
+            set_linkage(value, global.linkage);
             m_globals.push_back(value);
             m_thread_states.push_back(global.is_thread_local ? declare_thread_local(global, value)
                                                              : nullptr);
@@ -1104,7 +1229,7 @@ private:
                 const std::string flag_name = std::format("fb.ready.{}", global.name);
                 flag = LLVMAddGlobal(m_module.get(), m_i32, flag_name.c_str());
                 LLVMSetInitializer(flag, LLVMConstInt(m_i32, 0, 0));
-                LLVMSetLinkage(flag, LLVMInternalLinkage);
+                set_linkage(flag, global.linkage);
             }
 
             m_ready.push_back(flag);
@@ -1117,8 +1242,11 @@ private:
         LLVMSetThreadLocal(value, 1);
         const std::string state_name = std::format("fb.state.{}", global.name);
         LLVMValueRef state = LLVMAddGlobal(m_module.get(), m_i32, state_name.c_str());
-        LLVMSetInitializer(state, LLVMConstInt(m_i32, 0, 0));
-        LLVMSetLinkage(state, LLVMInternalLinkage);
+        if (global.linkage != mir_linkage_t::IMPORTED) {
+            LLVMSetInitializer(state, LLVMConstInt(m_i32, 0, 0));
+        }
+
+        set_linkage(state, global.linkage);
         LLVMSetThreadLocal(state, 1);
         return state;
     }
@@ -1132,11 +1260,11 @@ private:
             if (global.is_thread_local) {
                 const std::string make = std::format("fb.make.{}", global.name);
                 maker = declare(make.c_str(), m_void, {});
-                LLVMSetLinkage(maker->value, LLVMInternalLinkage);
+                set_linkage(maker->value, global.linkage);
                 if (m_mir.types->has_references(global.type)) {
                     const std::string release = std::format("fb.release.{}", global.name);
                     releaser = declare(release.c_str(), m_void, {});
-                    LLVMSetLinkage(releaser->value, LLVMInternalLinkage);
+                    set_linkage(releaser->value, global.linkage);
                 }
             }
 
@@ -1151,9 +1279,9 @@ private:
     /// that then uses it panics.
     void generate_thread_local_functions() {
         for (std::size_t i = 0; i < m_mir.globals.size(); ++i) {
-            // Only a ThreadLocal Global has a maker.
+            // Only a ThreadLocal Global has a maker, and a prebuilt library's binary has its own.
             const std::optional<function_ref_t>& maker = m_thread_makers[i];
-            if (!maker) {
+            if (!maker || m_mir.globals[i].linkage == mir_linkage_t::IMPORTED) {
                 continue;
             }
 
@@ -1209,7 +1337,7 @@ private:
             const function_ref_t declared =
                 declare(name.c_str(), function.is_async ? m_ptr : llvm_type(function.return_type),
                         std::move(parameters));
-            LLVMSetLinkage(declared.value, LLVMInternalLinkage);
+            set_linkage(declared.value, function.linkage);
             if (function.is_async) {
                 constexpr std::string_view coroutine = "presplitcoroutine";
                 const unsigned kind =
@@ -2144,12 +2272,21 @@ private:
         // Then the Globals let go of what they hold, the last first, so a Destroy that runs can
         // use the ones above its object's. One that uses a Global already let go of panics where
         // the Global has a ready flag, and reads its zero otherwise.
-        std::vector<std::size_t> releasing(m_mir.globals.size());
-        std::iota(releasing.begin(), releasing.end(), std::size_t{ 0 });
-        std::ranges::stable_sort(releasing, std::ranges::greater{},
-                                 [&](const std::size_t i) { return m_mir.globals[i].order; });
+        // A prebuilt library's binary lets go of its modules' own, at their modules' places.
+        const std::size_t globals = m_mir.globals.size();
+        std::vector<std::size_t> releasing(globals + m_mir.modules.size());
+        std::ranges::iota(releasing, std::size_t{ 0 });
+        std::ranges::stable_sort(releasing, std::ranges::greater{}, [&](const std::size_t i) {
+            return i < globals ? m_mir.globals[i].order : m_mir.modules[i - globals].order;
+        });
         for (const std::size_t i : releasing) {
-            if (m_mir.globals[i].is_thread_local) {
+            if (i >= globals) {
+                call(releaser(m_mir.modules[i - globals]), {});
+                continue;
+            }
+
+            if (m_mir.globals[i].is_thread_local ||
+                m_mir.globals[i].linkage == mir_linkage_t::IMPORTED) {
                 continue;
             }
 
@@ -2162,6 +2299,22 @@ private:
             }
         }
 
+        // Linked with libraries' binaries, the list is all of theirs, which the module counts
+        // once they're linked.
+        const auto [list, count] = add_class_list();
+        if (m_linking) {
+            LLVMValueRef counted = LLVMAddGlobal(m_module.get(), m_i64, "fb.class.count");
+            call(m_finish, { list, LLVMBuildLoad2(builder(), m_i64, counted, "") });
+        } else {
+            call(m_finish, { list, LLVMConstInt(m_i64, count, 0) });
+        }
+
+        LLVMBuildRet(builder(), LLVMConstInt(m_i32, 0, 0));
+    }
+
+    /// The module's Classes, for the runtime's counts: a list of their fb_class_t's, and how
+    /// many. In a build that links, each binary's list goes into one as they're linked.
+    std::pair<LLVMValueRef, std::size_t> add_class_list() {
         std::vector<LLVMValueRef> classes;
         classes.reserve(m_mir.classes.size());
         for (const mir_class_t& info : m_mir.classes) {
@@ -2180,18 +2333,95 @@ private:
             classes.push_back(m_classes.at(m_scheduler_class->type));
         }
 
-        LLVMValueRef list = LLVMConstNull(m_ptr);
-        if (!classes.empty()) {
-            LLVMValueRef array =
-                LLVMConstArray2(m_ptr, classes.data(), static_cast<std::uint64_t>(classes.size()));
-            list = LLVMAddGlobal(m_module.get(), LLVMTypeOf(array), "fb.classes");
-            LLVMSetInitializer(list, array);
+        if (classes.empty() && !m_linking) {
+            return { LLVMConstNull(m_ptr), 0 };
+        }
+
+        LLVMValueRef array =
+            LLVMConstArray2(m_ptr, classes.data(), static_cast<std::uint64_t>(classes.size()));
+        LLVMValueRef list = LLVMAddGlobal(m_module.get(), LLVMTypeOf(array), "fb.classes");
+        LLVMSetInitializer(list, array);
+        if (m_linking) {
+            LLVMSetLinkage(list, LLVMAppendingLinkage);
+        } else {
             LLVMSetGlobalConstant(list, 1);
             LLVMSetLinkage(list, LLVMPrivateLinkage);
         }
 
-        call(m_finish, { list, LLVMConstInt(m_i64, classes.size(), 0) });
-        LLVMBuildRet(builder(), LLVMConstInt(m_i32, 0, 0));
+        return { list, classes.size() };
+    }
+
+    /// Once the libraries' binaries are linked: the list of every binary's Classes, each once,
+    /// since a Class that two of them have is one, and how many.
+    void finish_class_list() {
+        LLVMValueRef appended = LLVMGetNamedGlobal(m_module.get(), "fb.classes");
+        LLVMValueRef counted = LLVMGetNamedGlobal(m_module.get(), "fb.class.count");
+        if (appended == nullptr || counted == nullptr) {
+            return;
+        }
+
+        std::vector<LLVMValueRef> classes;
+        LLVMValueRef array = LLVMGetInitializer(appended);
+        const int size = array != nullptr ? LLVMGetNumOperands(array) : 0;
+        for (int i = 0; i < size; ++i) {
+            LLVMValueRef each = LLVMGetOperand(array, static_cast<unsigned>(i));
+            if (!std::ranges::contains(classes, each)) {
+                classes.push_back(each);
+            }
+        }
+
+        LLVMValueRef unique_array =
+            LLVMConstArray2(m_ptr, classes.data(), static_cast<std::uint64_t>(classes.size()));
+        LLVMValueRef list =
+            LLVMAddGlobal(m_module.get(), LLVMTypeOf(unique_array), "fb.class.list");
+        LLVMSetInitializer(list, unique_array);
+        LLVMSetGlobalConstant(list, 1);
+        LLVMSetLinkage(list, LLVMPrivateLinkage);
+        LLVMReplaceAllUsesWith(appended, list);
+        LLVMDeleteGlobal(appended);
+        LLVMSetInitializer(counted, LLVMConstInt(m_i64, classes.size(), 0));
+        LLVMSetGlobalConstant(counted, 1);
+    }
+
+    /// What lets go of a library's module's Globals, "fb.<module>.(release)", which its binary
+    /// has: in a library's build, made by generate_releasers().
+    function_ref_t releaser(const mir_library_module_t& module) {
+        const std::string name = std::format("fb.{}.(release)", module.name);
+        if (LLVMValueRef found = LLVMGetNamedFunction(m_module.get(), name.c_str())) {
+            return { .type = LLVMFunctionType(m_void, nullptr, 0, 0), .value = found };
+        }
+
+        return declare(name.c_str(), m_void, {});
+    }
+
+    /// A library's build: for each of its modules, what lets go of its Globals, the last first,
+    /// as main would, which a program's main calls where it lets go of the module's.
+    void generate_releasers() {
+        for (const mir_library_module_t& module : m_mir.modules) {
+            const function_ref_t function = releaser(module);
+            LLVMPositionBuilderAtEnd(
+                builder(), LLVMAppendBasicBlockInContext(context(), function.value, "entry"));
+            std::vector<global_id_t> releasing = module.globals;
+            std::ranges::stable_sort(releasing, std::ranges::greater{}, [&](const global_id_t id) {
+                return m_mir.globals[index(id)].order;
+            });
+            for (const global_id_t id : releasing) {
+                const std::size_t i = index(id);
+                if (m_mir.globals[i].is_thread_local) {
+                    continue;
+                }
+
+                if (m_ready[i] != nullptr) {
+                    LLVMBuildStore(builder(), LLVMConstInt(m_i32, released, 0), m_ready[i]);
+                }
+
+                if (m_mir.types->has_references(m_mir.globals[i].type)) {
+                    let_go(m_globals[i], m_mir.globals[i].type);
+                }
+            }
+
+            LLVMBuildRetVoid(builder());
+        }
     }
 
     LLVMValueRef call(const function_ref_t& function, std::vector<LLVMValueRef> arguments) {
@@ -3953,6 +4183,18 @@ std::expected<std::string, std::string> emit_ir(const mir_module_t& module,
     }
 
     return codegen.ir();
+}
+
+std::expected<std::string, std::string> emit_bitcode(const mir_module_t& module,
+                                                     const source_manager_t& sources,
+                                                     const file_id_t main,
+                                                     const codegen_options_t& options) {
+    codegen_t codegen(module, sources, sources.get(main), options);
+    if (std::expected<void, std::string> built = codegen.build(); !built) {
+        return std::unexpected(built.error());
+    }
+
+    return codegen.bitcode();
 }
 
 std::expected<void, std::string> emit_object(const mir_module_t& module,

@@ -2117,3 +2117,143 @@ TEST_CASE("fb takes a .fb file's extension in any letter case", "[cli]") {
     INFO(checked.output);
     CHECK(checked.exit_code == 0);
 }
+
+TEST_CASE("fb builds a program with a prebuilt library's binary in it", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "prebuilt";
+    std::filesystem::remove_all(folder);
+    const auto write = [&](const std::string_view path, const std::string_view text) {
+        const std::filesystem::path file = folder / fb::path_from_utf8(path);
+        std::filesystem::create_directories(file.parent_path());
+        std::ofstream(file, std::ios::binary) << text;
+    };
+
+    // A library's Classes, generics, Globals, and errors, which a program uses from its binary.
+    write("geo/project.toml",
+          "[project]\nname = \"geo\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    // Its code calls xxHash's, which a program links for it.
+    write("geo/shapes.fb", "Import std.core\n"
+                           "Import std.crypto\n"
+                           "Public Class Shape\n"
+                           "    Public Field Name: String = \"shape\"\n"
+                           "    Public Method Area(): Float64 => 0.0\n"
+                           "    Public Method Describe(): String => \"{Name} {Area()}\"\n"
+                           "End Class\n"
+                           "Public Class Circle Extends Shape\n"
+                           "    Public Field R: Float64\n"
+                           "    Public New(r: Float64)\n"
+                           "        R = r\n"
+                           "        Name = \"circle\"\n"
+                           "    End New\n"
+                           "    Override Method Area(): Float64 => 3.0 * R * R\n"
+                           "End Class\n"
+                           "Public Class GeoError Extends Error\n"
+                           "    Public New(message: String)\n"
+                           "        Super.New(message)\n"
+                           "    End New\n"
+                           "End Class\n"
+                           "Global made: Int = 0\n"
+                           "Global names: String[] = [\"start\"]\n"
+                           "Public Global Total = 10\n"
+                           "Public Function Make(r: Float64): Shape Throws GeoError\n"
+                           "    If r < 0.0 Then Throw GeoError(\"negative\")\n"
+                           "    made += 1\n"
+                           "    names.Add(\"made\")\n"
+                           "    Return Circle(r)\n"
+                           "End Function\n"
+                           "Public Function Made(): String => \"{made} {names.Count}\"\n"
+                           "Public Function Digest(text: String): UInt64 => XxHash.Hash(text)\n"
+                           "Public Function Largest<T: Comparable>(items: T[]): T\n"
+                           "    Local best = items[0]\n"
+                           "    For each In items\n"
+                           "        If each > best Then best = each\n"
+                           "    End For\n"
+                           "    Return best\n"
+                           "End Function\n");
+    write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+                              "[dependencies]\ngeo = { path = \"../geo-prebuilt\" }\n");
+    write("app/main.fb",
+          "Import std.core\n"
+          "Import geo\n"
+          "Class Square Extends Shape\n"
+          "    Field S: Float64 = 2.0\n"
+          "    Override Method Area(): Float64 => S * S\n"
+          "End Class\n"
+          "Local c = Try Make(1.0)\n"
+          "Print(c.Describe())\n"
+          "Print(Square().Describe())\n"
+          "Local s: Shape = Square()\n"
+          "Print(\"{c Is Circle} {s Is Circle} {Made()} {Total}\")\n"
+          "Print(\"{Largest([3, 9, 4])} {Largest([\"a\", \"c\", \"b\"])}\")\n"
+          "Print(\"{Digest(\"abc\") == Digest(\"abc\")} {Digest(\"a\") != Digest(\"b\")}\")\n"
+          "Try\n"
+          "    Local bad = Try Make(-1.0)\n"
+          "Catch e As GeoError\n"
+          "    Print(\"caught {e.Message}\")\n"
+          "End Try\n");
+    const std::string geo = fb::to_utf8(folder / "geo");
+    const std::string app = fb::to_utf8(folder / "app");
+    const std::filesystem::path target = fb::path_from_utf8(fb::build_target());
+    for (const bool release : { false, true }) {
+        const std::string mode = release ? "release" : "debug";
+        std::vector<std::string> arguments{ "build", geo };
+        if (release) {
+            arguments.emplace_back("--release");
+        }
+
+        const fb::process_result_t built = fb_run(arguments);
+        INFO(built.output);
+        REQUIRE(built.exit_code == 0);
+        const std::filesystem::path from = folder / "geo" / "build" / target / mode;
+        const std::filesystem::path to = folder / "geo-prebuilt" / "lib" / target / mode;
+        std::filesystem::create_directories(to);
+        for (const std::string_view file : { "geo.fbi", "geo.fblib" }) {
+            CHECK(std::filesystem::exists(from / file));
+            std::filesystem::copy_file(from / file, to / file,
+                                       std::filesystem::copy_options::overwrite_existing);
+        }
+    }
+
+    std::filesystem::copy_file(folder / "geo" / "project.toml",
+                               folder / "geo-prebuilt" / "project.toml");
+    const std::string printed = "circle 3\n"
+                                "shape 4\n"
+                                "True False 1 2 10\n"
+                                "9 c\n"
+                                "True True\n"
+                                "caught negative\n";
+    for (const bool release : { false, true }) {
+        std::vector<std::string> arguments{ "run", app };
+        if (release) {
+            arguments.emplace_back("--release");
+        }
+
+        const fb::process_result_t ran = fb_run(arguments);
+        INFO(ran.output);
+        CHECK(ran.exit_code == 0);
+        CHECK(ran.output.ends_with(printed));
+    }
+
+    // A program is built against one build of a library: its binary has to be its interface
+    // file's.
+    const std::filesystem::path debug = folder / "geo-prebuilt" / "lib" / target / "debug";
+    std::filesystem::copy_file(folder / "geo-prebuilt" / "lib" / target / "release" / "geo.fblib",
+                               debug / "geo.fblib",
+                               std::filesystem::copy_options::overwrite_existing);
+    const fb::process_result_t mismatched = fb_run({ "build", app });
+    INFO(mismatched.output);
+    CHECK(mismatched.exit_code == 1);
+    CHECK(mismatched.output.contains("geo.fblib is the build geo v0.1.0 ("));
+    CHECK(mismatched.output.contains("), but its interface file, "));
+    CHECK(mismatched.output.contains("; a program is built against one build of a library"));
+
+    std::ofstream(debug / "geo.fblib", std::ios::binary) << "not a binary";
+    const fb::process_result_t broken = fb_run({ "build", app });
+    CHECK(broken.exit_code == 1);
+    CHECK(broken.output.contains("geo.fblib isn't a library's binary that fb writes"));
+
+    std::filesystem::remove(debug / "geo.fblib");
+    const fb::process_result_t missing = fb_run({ "build", app });
+    CHECK(missing.exit_code == 1);
+    CHECK(missing.output.contains(
+        "geo.fblib, the prebuilt library's binary beside its interface file"));
+}

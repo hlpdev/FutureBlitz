@@ -32,7 +32,7 @@ if(WIN32)
   set(fb_llvm_include "${CMAKE_BINARY_DIR}/_deps/llvm-c-${FB_LLVM_VERSION}/include")
   set(fb_llvm_headers
     Analysis Core DataTypes Deprecated Error ErrorHandling ExternC Target TargetMachine Types
-    Visibility Transforms/PassBuilder)
+    Visibility Transforms/PassBuilder BitReader BitWriter Linker)
   set(fb_llvm_hashes
     b822af9c7ceb7efc92fa5a467e526c18e7a3fce427ec190d1eae906f85a22b50
     1dc17fcb91c751ee2fc2211d0b53add643ab7e840707401127afe4a35a7572b2
@@ -45,7 +45,10 @@ if(WIN32)
     3cef6abafa88b536b4fd2698d085548c61e38ff97b3be336082b12190db43a84
     c84f1c5043bb828f121a1914fbbea57cf8ff50b0353b553a835606ba41052bf0
     98b41b3b378f68fd345b9de6ff730c068e78a4880fe9c6a5b293b8ea5dce019e
-    42bc1d65b43ce602866a7b6b5445cd19c31bf5be9e48d8828987277280de8d91)
+    42bc1d65b43ce602866a7b6b5445cd19c31bf5be9e48d8828987277280de8d91
+    fefdeb693257ed85e1971048f6526ee30c934e9a92c8b4db87b644499de195dc
+    d51d5b87e3bb5e95d4f399f7c3cc6077e3fe7b88e7e8ab1cc36ea104d5fc494a
+    671876029cb735fc9dca8eaa325c1f548844291acc11bfa8a9af522df018a24e)
   set(fb_llvm_url
     "https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-${FB_LLVM_VERSION}/llvm/include")
   foreach(header hash IN ZIP_LISTS fb_llvm_headers fb_llvm_hashes)
@@ -100,7 +103,8 @@ else()
   if(TARGET LLVM)
     target_link_libraries(fb_llvm INTERFACE LLVM)
   else()
-    llvm_map_components_to_libnames(fb_llvm_libraries core analysis passes target X86 AArch64)
+    llvm_map_components_to_libnames(fb_llvm_libraries core analysis passes target bitreader
+      bitwriter linker X86 AArch64)
     target_link_libraries(fb_llvm INTERFACE ${fb_llvm_libraries})
   endif()
 

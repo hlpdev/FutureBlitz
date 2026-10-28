@@ -1683,9 +1683,9 @@ private:
             const span_t marker = merge(advance().span, advance().span);
             prebuilt = true;
             if (!type || (keyword.kind != token_kind_t::KW_GLOBAL &&
-                          keyword.kind != token_kind_t::KW_FIELD)) {
-                error(marker, "\"= ...\" only follows the type of a Global or a Field, whose "
-                              "value is in the library's binary");
+                          (keyword.kind != token_kind_t::KW_FIELD || !written.is_static))) {
+                error(marker, "\"= ...\" only follows the type of a Global or a Static Field, "
+                              "whose value is in the library's binary");
             }
         } else if (accept(token_kind_t::EQUAL)) {
             skip_continuation_newlines();

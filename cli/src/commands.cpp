@@ -204,7 +204,10 @@ void report_built(const console_t& console, const options_t& options,
                   const std::chrono::steady_clock::time_point start) {
     const std::string_view mode = options.mode == build_mode_t::RELEASE ? "release" : "debug";
     console.status("Finished", std::format("{} build in {}", mode, seconds_since(start)));
-    for (const build_config::bundled_library_t* library : bundled_libraries(module)) {
+    // The prebuilt libraries' code links them too.
+    const std::vector<library_binary_t> binaries =
+        prebuilt_binaries(compilation).value_or(std::vector<library_binary_t>{});
+    for (const build_config::bundled_library_t* library : bundled_libraries(module, binaries)) {
         // A part of another library, as mbedTLS's TLS is, has its notices on that one's line.
         if (library->notice.empty()) {
             continue;
@@ -337,11 +340,12 @@ int build(const console_t& console, const options_t& options, const compilation_
     return 0;
 }
 
-/// `fb build` on a library: writes its interface file, build/<target>/<mode>/<name>.fbi in its
-/// folder, which programs can compile against in place of its source.
-int build_library(const console_t& console, const options_t& options,
-                  const compilation_t& compilation, const std::string_view name,
-                  const std::chrono::steady_clock::time_point start) {
+/// `fb build` on a library: writes its interface file and its binary,
+/// build/<target>/<mode>/<name>.fbi and .fblib in its folder, which programs compile against and
+/// link in place of its source.
+int build_library_files(const console_t& console, const options_t& options,
+                        const compilation_t& compilation, const std::string_view name,
+                        const std::chrono::steady_clock::time_point start) {
     const std::optional<package_info_t>& package = compilation.package;
     if (!package) {
         return usage_exit_code;
@@ -362,20 +366,25 @@ int build_library(const console_t& console, const options_t& options,
     }
 
     diagnostic_bag_t diagnostics;
-    const std::optional<std::string> interface =
-        write_interface(compilation, options.mode, diagnostics);
+    const std::expected<library_build_t, std::string> built =
+        fb::build_library(compilation, options.mode, diagnostics);
     for (const diagnostic_t& diagnostic : diagnostics.diagnostics()) {
         console_t::print_error(
             render_pretty(diagnostic, compilation.sources, { .color = console.err().color }));
     }
 
-    if (!interface) {
+    if (!built && built.error().empty()) {
         console.error(std::format("couldn't build {} because of {}", name,
                                   count(diagnostics.error_count(), "error")));
         return compile_errors_exit_code;
     }
 
-    if (interface_modules(*interface).value_or(std::vector<library_file_t>{}).empty()) {
+    if (!built) {
+        console.error(built.error());
+        return compile_errors_exit_code;
+    }
+
+    if (interface_modules(built->interface).value_or(std::vector<library_file_t>{}).empty()) {
         console.error(
             std::format("{} has no .fb files, so it has no modules to build", package->name));
         return usage_exit_code;
@@ -383,15 +392,18 @@ int build_library(const console_t& console, const options_t& options,
 
     const std::filesystem::path folder = package->root / "build" / path_from_utf8(build_target()) /
                                          path_from_utf8(mode_folder(options.mode));
-    const std::filesystem::path path = folder / path_from_utf8(package->name + ".fbi");
     std::error_code error;
     std::filesystem::create_directories(folder, error);
-    std::ofstream file(path, std::ios::binary);
-    file << *interface;
-    file.close();
-    if (error || !file) {
-        console.error(std::format("can't write {}", to_utf8(path)));
-        return compile_errors_exit_code;
+    for (const auto& [extension, bytes] :
+         { std::pair(".fbi", &built->interface), std::pair(".fblib", &built->binary) }) {
+        const std::filesystem::path path = folder / path_from_utf8(package->name + extension);
+        std::ofstream file(path, std::ios::binary);
+        file << *bytes;
+        file.close();
+        if (error || !file) {
+            console.error(std::format("can't write {}", to_utf8(path)));
+            return compile_errors_exit_code;
+        }
     }
 
     console.status("Finished",
@@ -564,7 +576,7 @@ int compile_command(const options_t& options) {
 
     switch (options.command) {
     case command_t::BUILD:
-        return library ? build_library(console, options, compilation, name, start)
+        return library ? build_library_files(console, options, compilation, name, start)
                        : build(console, options, compilation, name, module, start);
     case command_t::RUN:
         return run(console, options, compilation, name, module, start);

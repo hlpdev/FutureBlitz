@@ -214,10 +214,22 @@ struct reflected_t {
 /// retains and releases. Parameters borrow the caller's.
 class lowerer_t {
 public:
-    lowerer_t(const ast_t& ast, const analysis_t& analysis) : m_ast(ast), m_analysis(analysis) {
+    lowerer_t(const ast_t& ast, const analysis_t& analysis,
+              const std::optional<std::string>& library = std::nullopt)
+        : m_ast(ast), m_analysis(analysis) {
         m_module.types = std::make_shared<type_table_t>(analysis.types);
         if (const std::optional<module_id_t> main = ast.modules().main()) {
             m_module.main_module = ast.modules().get(*main).name;
+        }
+
+        // A library's build has its own modules' code.
+        m_module.library = library.has_value();
+        for (const module_t& module : ast.modules().modules()) {
+            if (library && !module.is_main &&
+                ast.modules().package_name(module.package) == *library &&
+                !ast.modules().is_standard(module.package)) {
+                m_library_files.insert(module.file);
+            }
         }
 
         for (std::size_t i = 0; i < analysis.symbols.size(); ++i) {
@@ -252,11 +264,22 @@ public:
         declare_globals();
         declare_functions();
         // Every Class in the main module is in the MIR module, whether or not the program makes
-        // one. A generic one has one for each instance.
+        // one, and in a library's build, every one of its own. A generic one has one for each
+        // instance.
         for (const symbol_t& symbol : m_analysis.symbols) {
-            if (symbol.kind == symbol_kind_t::TYPE && !outside_main(symbol) &&
+            if (symbol.kind == symbol_kind_t::TYPE &&
+                (!outside_main(symbol) || in_library(symbol)) &&
                 types().get(symbol.type).parameters.empty()) {
                 use_class(symbol.type);
+            }
+        }
+
+        // A library's binary has all of its own code that isn't generic, which programs call.
+        for (const symbol_id_t id : m_analysis.functions) {
+            const symbol_t& function = m_analysis.symbol(id);
+            if (in_library(function) && type_parameters_of(function).empty() &&
+                !function.default_method && external_of(function) == nullptr) {
+                (void)function_of(id);
             }
         }
 
@@ -287,6 +310,10 @@ public:
                     }
                 }
             }
+        }
+
+        if (m_module.library) {
+            lower_initializers();
         }
 
         lower_top_level();
@@ -337,6 +364,8 @@ private:
     const ast_t& m_ast;
     const analysis_t& m_analysis;
     mir_module_t m_module;
+    /// In a library's build, its own modules' files.
+    std::unordered_set<file_id_t> m_library_files;
     std::unordered_map<symbol_id_t, function_id_t> m_functions;
     std::unordered_map<symbol_id_t, global_id_t> m_globals;
     /// The Global that holds each embedded file's bytes, by the bytes analysis shares.
@@ -607,6 +636,16 @@ private:
         m_globals[id] = global;
         const bool thread_local_global = symbol.modifiers.is_thread_local;
         const bool runs = node.value && !m_analysis.expr(*node.value).value;
+        // A prebuilt library's binary has its own Globals, and sets them.
+        mir_linkage_t linkage = mir_linkage_t::SHARED;
+        if (node.prebuilt) {
+            linkage = mir_linkage_t::IMPORTED;
+        } else if (!outside_main(symbol)) {
+            linkage = mir_linkage_t::INTERNAL;
+        } else if (in_library(symbol)) {
+            linkage = mir_linkage_t::EXPORTED;
+        }
+
         m_module.globals.push_back({
             .name = std::move(name),
             .type = symbol.type,
@@ -614,6 +653,7 @@ private:
             .set_in_main = runs && !thread_local_global,
             .is_thread_local = thread_local_global,
             .order = m_item_order.at(expect(symbol.declaration)),
+            .linkage = linkage,
         });
         if (runs && thread_local_global) {
             m_thread_local_declarations[global] = expect(symbol.declaration);
@@ -683,6 +723,8 @@ private:
             .type = type,
             .initial = std::move(initial),
             .order = m_item_order.at(expect(symbol.declaration)),
+            .linkage = outside_main(symbol) && !has_made(owner) ? mir_linkage_t::SHARED
+                                                                : mir_linkage_t::INTERNAL,
         });
         m_instance_globals[key] = global;
         return global;
@@ -738,6 +780,7 @@ private:
             .panics_at_caller = symbol.modifiers.panics_at_caller,
             .is_async = symbol.modifiers.is_async,
             .span = symbol.span,
+            .linkage = linkage_of(symbol),
         };
         // An Extern Function is only its parameters, under its C symbol. C gives a String's text
         // as a CString, which the call copies.
@@ -766,7 +809,47 @@ private:
         }
 
         m_module.functions.push_back(std::move(declared));
+        if (m_module.functions.back().linkage == mir_linkage_t::IMPORTED) {
+            declare_parameters(function, id);
+        }
+
         return function;
+    }
+
+    /// A prebuilt function's parameters, which lower_function() would give its code: Self for a
+    /// Method or a Class's New, an Async Function's Task, the parameters, and the caller's error
+    /// variable for one that throws.
+    void declare_parameters(const function_id_t function, const symbol_id_t id) {
+        const symbol_t& symbol = m_analysis.symbol(id);
+        std::vector<local_t>& locals = m_module.functions[index(function)].locals;
+        const bool sets_up = symbol.kind == symbol_kind_t::CONSTRUCTOR && is_class(symbol.type);
+        if (symbol.self && (symbol.kind == symbol_kind_t::METHOD || sets_up)) {
+            const symbol_t& self = m_analysis.symbol(*symbol.self);
+            locals.push_back({
+                .type = self.type,
+                .name = "Self",
+                .by_ref = self.by_ref && !is_object(self.type),
+            });
+        }
+
+        if (symbol.modifiers.is_async) {
+            locals.push_back({
+                .type = types().task(symbol.type, symbol.throws, m_analysis.nullable_error),
+                .name = "task",
+            });
+        }
+
+        for (const symbol_id_t parameter : symbol.parameters) {
+            const symbol_t& found = m_analysis.symbol(parameter);
+            locals.push_back({ .type = found.type, .name = found.name, .by_ref = found.by_ref });
+        }
+
+        if (takes_error(id)) {
+            locals.push_back(
+                { .type = m_analysis.nullable_error, .name = "error", .by_ref = true });
+        }
+
+        m_module.functions[index(function)].parameter_count = locals.size();
     }
 
     /// A String or String?, which C gives as a CString.
@@ -788,6 +871,59 @@ private:
     /// Whether a symbol is declared outside the main module.
     [[nodiscard]] bool outside_main(const symbol_t& symbol) const {
         return symbol.declaration && m_ast.outside_main(*symbol.declaration);
+    }
+
+    /// Whether a symbol is the library's own, in its build.
+    [[nodiscard]] bool in_library(const symbol_t& symbol) const {
+        return symbol.declaration &&
+               m_library_files.contains(m_ast.get(*symbol.declaration).span.file);
+    }
+
+    /// Whether a function is a prebuilt library's, whose binary has its code.
+    [[nodiscard]] bool is_prebuilt(const symbol_t& symbol) const {
+        if (!symbol.declaration) {
+            return false;
+        }
+
+        const auto* node = std::get_if<function_stmt_t>(&m_ast.get(*symbol.declaration).node);
+        return node != nullptr && node->prebuilt;
+    }
+
+    /// How a declared function is linked: a prebuilt library's from its binary, the main module's
+    /// as its own, a library's own in its build, but for the code its interface file keeps, as
+    /// its binary's, and the rest, std's and the code an interface file keeps, as every build's.
+    [[nodiscard]] mir_linkage_t linkage_of(const symbol_t& symbol) const {
+        if (is_prebuilt(symbol)) {
+            return mir_linkage_t::IMPORTED;
+        }
+
+        if (!outside_main(symbol)) {
+            return mir_linkage_t::INTERNAL;
+        }
+
+        if (in_library(symbol) && !symbol.modifiers.is_inline && !symbol.modifiers.is_const) {
+            return mir_linkage_t::EXPORTED;
+        }
+
+        return mir_linkage_t::SHARED;
+    }
+
+    /// Whether a type has one the compiler makes in it, a closure's or a cell's Class, whose
+    /// name is only this build's.
+    [[nodiscard]] bool has_made(const type_id_t id) const {
+        if (id == type_id_t::INVALID || id < type_id_t::BOOL) {
+            return false;
+        }
+
+        const type_t& type = types().get(id);
+        return type.made || has_made(type.inner) ||
+               std::ranges::any_of(type.arguments,
+                                   [this](const type_id_t each) { return has_made(each); }) ||
+               std::ranges::any_of(type.parameters,
+                                   [this](const type_id_t each) { return has_made(each); }) ||
+               (type.kind == type_kind_t::TUPLE &&
+                std::ranges::any_of(type.fields,
+                                    [this](const field_t& field) { return has_made(field.type); }));
     }
 
     /// The module that a symbol's MIR name starts with: its declaration's, or none in the main
@@ -851,8 +987,8 @@ private:
             return found->second;
         }
 
-        // An Extern Function has no body to lower.
-        if (external_of(m_analysis.symbol(id)) == nullptr) {
+        // An Extern Function has no body to lower, and a prebuilt library's binary has its own.
+        if (external_of(m_analysis.symbol(id)) == nullptr && !is_prebuilt(m_analysis.symbol(id))) {
             m_library_functions.push_back(id);
         }
 
@@ -883,6 +1019,10 @@ private:
         const std::vector<type_id_t> parameters = type_parameters_of(symbol);
         const bool sets_up = symbol.kind == symbol_kind_t::CONSTRUCTOR && is_class(symbol.type);
         const auto function = static_cast<function_id_t>(m_module.functions.size());
+        // Every build that makes an instance makes it alike, but for one of a Class only it
+        // makes, a closure's.
+        const bool made = std::ranges::any_of(
+            arguments, [this](const type_id_t argument) { return has_made(argument); });
         m_module.functions.push_back({
             .name = instance_name(symbol, parameters, arguments),
             .return_type = sets_up || symbol.modifiers.is_async
@@ -892,6 +1032,8 @@ private:
             .panics_at_caller = symbol.modifiers.panics_at_caller,
             .is_async = symbol.modifiers.is_async,
             .span = symbol.span,
+            .linkage =
+                made || !outside_main(symbol) ? mir_linkage_t::INTERNAL : mir_linkage_t::SHARED,
         });
         m_instances.emplace(key, function);
         m_instance_origins.emplace(function, origin);
@@ -2205,7 +2347,18 @@ private:
     /// the rest of the top-level code runs.
     void lower_top_level() {
         begin_function(m_module.entry);
+        std::optional<file_id_t> module;
         for (const stmt_id_t id : m_ast.items()) {
+            // A library's build sets its Globals in its modules' initializers.
+            if (m_library_files.contains(m_ast.get(id).span.file)) {
+                continue;
+            }
+
+            if (const file_id_t file = m_ast.get(id).span.file; file != module) {
+                module = file;
+                call_prebuilt_initializer(file, id);
+            }
+
             if (const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node)) {
                 for (const stmt_id_t member : declared->members) {
                     initialize_global(member);
@@ -2231,6 +2384,77 @@ private:
         }
 
         finish_function();
+    }
+
+    /// Where main reaches a prebuilt library's module, whose first item is `first`: a call of
+    /// the initializer its binary has for its Globals.
+    void call_prebuilt_initializer(const file_id_t file, const stmt_id_t first) {
+        const std::optional<module_id_t> id = m_ast.modules().of(file);
+        if (!id || !m_ast.modules().get(*id).prebuilt) {
+            return;
+        }
+
+        const module_t& module = m_ast.modules().get(*id);
+        const auto function = static_cast<function_id_t>(m_module.functions.size());
+        m_module.functions.push_back({
+            .name = std::format("{}.(init)", module.name),
+            .linkage = mir_linkage_t::IMPORTED,
+        });
+        m_module.modules.push_back({
+            .name = module.name,
+            .initializer = function,
+            .order = m_item_order.at(first),
+        });
+        emit(evaluate_t{ call_t{ .function = function } });
+    }
+
+    /// A library's build: for each of its modules, the initializer that sets its Globals, which
+    /// a program's main calls where it reaches the module, as it would set them itself.
+    void lower_initializers() {
+        for (const module_t& module : m_ast.modules().modules()) {
+            if (!m_library_files.contains(module.file)) {
+                continue;
+            }
+
+            const auto function = static_cast<function_id_t>(m_module.functions.size());
+            m_module.functions.push_back({
+                .name = std::format("{}.(init)", module.name),
+                .linkage = mir_linkage_t::EXPORTED,
+            });
+            m_ending_functions.insert(function);
+            mir_library_module_t part{ .name = module.name, .initializer = function };
+            bool first = true;
+            begin_function(function);
+            for (const stmt_id_t id : m_ast.items()) {
+                if (m_ast.get(id).span.file != module.file) {
+                    continue;
+                }
+
+                if (std::exchange(first, false)) {
+                    part.order = m_item_order.at(id);
+                }
+
+                if (const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node)) {
+                    for (const stmt_id_t member : declared->members) {
+                        initialize_global(member);
+                    }
+                } else {
+                    initialize_global(id);
+                }
+            }
+
+            finish_function();
+            for (const symbol_id_t global : m_analysis.globals) {
+                const symbol_t& symbol = m_analysis.symbol(global);
+                if (symbol.declaration && m_ast.get(*symbol.declaration).span.file == module.file) {
+                    if (const auto found = m_globals.find(global); found != m_globals.end()) {
+                        part.globals.push_back(found->second);
+                    }
+                }
+            }
+
+            m_module.modules.push_back(std::move(part));
+        }
     }
 
     /// A Global's, top-level Const's, or Static Field's initializer, when it isn't known at
@@ -10444,6 +10668,8 @@ private:
         m_module.functions.push_back({
             .name = std::format("{}.Text({})", name, name),
             .return_type = type_id_t::STRING,
+            .linkage = has_made(type) || types().get(type).module.empty() ? mir_linkage_t::INTERNAL
+                                                                          : mir_linkage_t::SHARED,
         });
         m_texts.emplace_back(type, id);
         return id;
@@ -10556,8 +10782,9 @@ private:
 
 } // namespace
 
-mir_module_t lower(const ast_t& ast, const analysis_t& analysis) {
-    return lowerer_t(ast, analysis).run();
+mir_module_t lower(const ast_t& ast, const analysis_t& analysis,
+                   const std::optional<std::string>& library) {
+    return lowerer_t(ast, analysis, library).run();
 }
 
 mir_module_t lower_function(const ast_t& ast, const analysis_t& analysis,

@@ -7,6 +7,7 @@
 #include <expected>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace fb {
 
@@ -23,6 +24,9 @@ struct codegen_options_t {
     /// An LLVM target triple, like "x86_64-pc-windows-msvc". Empty means the target the
     /// runtime was built for.
     std::string target_triple;
+    /// The binaries of the prebuilt libraries the program uses, LLVM bitcode as
+    /// emit_bitcode() gives it, which are linked into its module before it's optimized.
+    std::vector<std::string> linked;
 };
 
 /// The module as LLVM IR text, optimized in release builds. `sources` gives panics their path,
@@ -32,6 +36,13 @@ struct codegen_options_t {
                                                               const source_manager_t& sources,
                                                               file_id_t main,
                                                               const codegen_options_t& options);
+
+/// A library's build, `module` as lower() gives it for the library, as LLVM bitcode: its own code,
+/// and the code it uses that programs share, which a program's build links and optimizes with its
+/// own.
+[[nodiscard]] std::expected<std::string, std::string>
+emit_bitcode(const mir_module_t& module, const source_manager_t& sources, file_id_t main,
+             const codegen_options_t& options);
 
 /// Like emit_ir(), but writes a native object file to `path`.
 [[nodiscard]] std::expected<void, std::string>

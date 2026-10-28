@@ -48,6 +48,8 @@ struct module_t {
     std::vector<module_import_t> imports;
     /// The package it's part of, whose modules see its Package declarations.
     package_id_t package{};
+    /// From a prebuilt library's interface file, whose code is in the library's binary.
+    bool prebuilt = false;
 };
 
 /// A name that a standard library module the program doesn't load declares, for an error to

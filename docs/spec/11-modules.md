@@ -238,7 +238,11 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
 - A library can be prebuilt, so its users needn't build it, and so the rest of its code can stay
   closed. `fb build` on a library writes `<folder>/build/<target>/<mode>/<name>.fblib`, its
   compiled code, which links into the executable when it's embedded and into its library file when
-  it's beside, and `<name>.fbi`, its interface file, beside it. A package folder with a
+  it's beside, and `<name>.fbi`, its interface file, beside it. The .fblib's first line names its
+  build, as the interface file's does, its second the bundled C libraries its code calls, which a
+  program that links it links too, and the rest is its code as LLVM bitcode, which a program's
+  build links with its own and optimizes with it; std's code and the code the interface file keeps,
+  which both have, are one. A package folder with a
   project.toml and `lib/<target>/<mode>/<name>.fblib` and `.fbi` for the build's target and mode,
   and no `.fb` source, is prebuilt; one with both is an error naming the package.
 - The interface file is FutureBlitz source, written for one target and mode with every `#If`
@@ -249,10 +253,10 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
   themselves; every Extend; and every member of each type it shows, Private ones too, with their
   visibility, so layouts, `For Field`, Interfaces, and the names a Class that extends one can use
   agree. A Const is written as its value, and an `Embed` in code the interface file keeps, which a
-  program compiles, is an error when the library is built; a Class's Field defaults, which its
-  New gives, stay in the binary.
+  program compiles, is an error when the library is built; a Field's default, which a program
+  sets as it makes the Field's Struct or Class, is written as its value.
 - In it, a declaration whose code is in the library's binary is its first line and `=> ...`, and
-  a Global, Static Field, or Class's Field whose value the binary gives is `= ...` after its type,
+  a Global or Static Field whose value the binary gives is `= ...` after its type,
   which is written for one that had none; `@MainThreadOnly("why")` before one says that its code
   can only run on the main thread, and why, as [10](10-concurrency.md)'s message would. Only an
   interface file can write them. Each module, a `.proto` file's as the module fb makes from it, is

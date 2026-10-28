@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fb/driver.hpp"
+#include "fb/library.hpp"
 
 #include <optional>
 #include <string>
@@ -8,15 +9,6 @@
 #include <vector>
 
 namespace fb {
-
-/// The build an interface file's first line names, "// fbi physics 0.2.0 <hash>": the library's
-/// name and version, and its ABI hash.
-struct interface_header_t {
-    std::string name;
-    std::string version;
-    /// 32 hex digits.
-    std::string hash;
-};
 
 /// The target a build is for, as `{target}` and lib/<target>/ name it: "windows-x64",
 /// "linux-x64", "linux-arm64", "macos-arm64", or "macos-x64".
@@ -32,8 +24,17 @@ struct interface_header_t {
 /// code stays in the library's binary is its first line and "=> ...", or for a Global or Static
 /// Field, "= ...". nullopt after an error in `diagnostics`, at what can't go in one, like an
 /// Embed in code it keeps.
-[[nodiscard]] std::optional<std::string>
-write_interface(const compilation_t& compilation, build_mode_t mode, diagnostic_bag_t& diagnostics);
+/// Its ABI hash covers `code`, the library's binary's.
+[[nodiscard]] std::optional<std::string> write_interface(const compilation_t& compilation,
+                                                         build_mode_t mode,
+                                                         diagnostic_bag_t& diagnostics,
+                                                         std::string_view code = {});
+
+/// A .fblib's bytes: "// fblib <name> <version> <hash>", "// bundled <names>", and the code.
+[[nodiscard]] std::string write_binary(const library_binary_t& binary);
+
+/// A .fblib, read. nullopt when it isn't one.
+[[nodiscard]] std::optional<library_binary_t> read_binary(std::string_view bytes);
 
 /// An interface file's first line, read. nullopt when it isn't one.
 [[nodiscard]] std::optional<interface_header_t> read_interface_header(std::string_view text);

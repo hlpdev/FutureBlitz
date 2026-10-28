@@ -7065,13 +7065,8 @@ private:
 
     /// Whether a field's declaration gives it a default.
     [[nodiscard]] bool has_written_default(const symbol_t& field) const {
-        if (!field.declaration) {
-            return false;
-        }
-
-        // An interface file's Class Field with "= ..." has its default in the library's New.
-        const auto& node = std::get<variable_stmt_t>(m_ast.get(*field.declaration).node);
-        return node.value.has_value() || node.prebuilt;
+        return field.declaration &&
+               std::get<variable_stmt_t>(m_ast.get(*field.declaration).node).value.has_value();
     }
 
     /// A field's type, in its type's fields and in those of every Class extending it, or one of

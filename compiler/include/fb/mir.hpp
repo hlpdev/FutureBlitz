@@ -38,6 +38,21 @@ struct local_t {
 };
 
 /// A top-level Global or Const, or a Static Field.
+/// How a function or Global is linked when a prebuilt library's binary and the program that uses it
+/// are linked into one. In a program without one, every one is the module's own.
+enum class mir_linkage_t : std::uint8_t {
+    /// Only this module has it, under a name it gives alone, like a lambda's code.
+    INTERNAL,
+    /// Every build that has it makes it alike, under one name, which they share: std's code,
+    /// generic instances, and the code a library's interface file keeps.
+    SHARED,
+    /// A library's own, whose code its binary has for the programs that use it, which its
+    /// interface file declares.
+    EXPORTED,
+    /// In a program, a prebuilt library's EXPORTED one, which its binary has.
+    IMPORTED,
+};
+
 struct global_t {
     /// "score", or "Enemy.count" for a Static Field, with its module first outside the main
     /// module: "std.core.limits.score".
@@ -63,6 +78,7 @@ struct global_t {
     /// Its place in the order main sets the Globals, the program's code's, where a Static Field
     /// is at its Class's, a generic Class's too. The program lets go of them in the other order.
     std::uint32_t order = 0;
+    mir_linkage_t linkage = mir_linkage_t::INTERNAL;
 };
 
 /// One step inward from a place: into a field, or into an element of an array. From a Ptr,
@@ -547,6 +563,8 @@ struct mir_function_t {
     /// Its name where it's declared, which a Const Function's limit points at when the run
     /// reached nothing else with a place. Empty for what the compiler makes.
     span_t span;
+    /// IMPORTED for a prebuilt library's, which has no blocks, since its binary has its code.
+    mir_linkage_t linkage = mir_linkage_t::INTERNAL;
 };
 
 /// An Interface that a Class's objects implement, and the Class's table for it: for each of the
@@ -583,6 +601,17 @@ struct mir_error_t {
 /// "std.collections.map.Map<Int32, String>.Add(Int32, String)", so two modules' names stay apart,
 /// and the few that still come out alike, as module x's Class y's and module x.y's do, are
 /// numbered: "x.y.Z()#2".
+/// A library's module in a build that links one, by its name: in a library's build, one of its
+/// own, whose `initializer` sets its `globals`, which the binary's releaser for it lets go of; in a
+/// program, a prebuilt library's, whose initializer, IMPORTED, main calls at the module's place.
+struct mir_library_module_t {
+    std::string name;
+    function_id_t initializer{};
+    std::vector<global_id_t> globals;
+    /// Its place in the order main sets the Globals, as global_t's `order` is.
+    std::uint32_t order = 0;
+};
+
 struct mir_module_t {
     std::vector<global_t> globals;
     std::vector<mir_class_t> classes;
@@ -606,6 +635,11 @@ struct mir_module_t {
     std::string main_module;
     /// Set when lowering stopped, and the module can't be built.
     std::optional<mir_error_t> error;
+    /// A library's build, for its binary: it has no main, and `modules` are its own.
+    bool library = false;
+    /// The library's own modules, or in a program, the prebuilt ones it uses, in the order their
+    /// Globals are set.
+    std::vector<mir_library_module_t> modules;
 };
 
 /// The module as text, which `fb --show mir` prints.

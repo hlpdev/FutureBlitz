@@ -263,7 +263,8 @@ public:
     /// A copy has the same types at the same ids, and adds its own after them.
     type_table_t(const type_table_t& other);
     type_table_t& operator=(const type_table_t& other);
-    type_table_t(type_table_t&& other) noexcept = default;
+    // Moving its maps can allocate, which clang-tidy reports as an exception escaping.
+    type_table_t(type_table_t&& other) noexcept = default; // NOLINT(bugprone-exception-escape)
     type_table_t& operator=(type_table_t&& other) noexcept = default;
     ~type_table_t() = default;
 

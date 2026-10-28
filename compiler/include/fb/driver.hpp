@@ -4,6 +4,7 @@
 #include "fb/build_config.hpp"
 #include "fb/codegen.hpp"
 #include "fb/diagnostic.hpp"
+#include "fb/library.hpp"
 #include "fb/link.hpp"
 #include "fb/mir.hpp"
 #include "fb/sema.hpp"
@@ -45,8 +46,9 @@ struct package_info_t {
 /// Everything the front end makes from a program: its main file, and the files it imports, which
 /// come after it in `sources`. Each file is a module, which the AST's module table names. The
 /// tokens are the main file's, and the AST and analysis cover every file. They refer to the files
-/// in `sources`, which stay put when the compilation moves.
-struct compilation_t {
+/// in `sources`, which stay put when the compilation moves. Moving it can allocate, which
+/// clang-tidy reports as an exception escaping.
+struct compilation_t { // NOLINT(bugprone-exception-escape)
     source_manager_t sources;
     /// The main file.
     file_id_t file{};
@@ -161,7 +163,24 @@ find_package(const std::filesystem::path& folder);
 /// The C libraries std is built on that a program links, for the runtime's functions it calls
 /// that use them: each whose prefix one of their names starts with.
 [[nodiscard]] std::vector<const build_config::bundled_library_t*>
-bundled_libraries(const mir_module_t& module);
+bundled_libraries(const mir_module_t& module, std::span<const library_binary_t> binaries = {});
+
+/// What `fb build` writes for a library: its interface file and its binary, a .fblib, which name
+/// one build, by its ABI hash.
+struct library_build_t {
+    std::string interface;
+    std::string binary;
+};
+
+/// A library's build, from a compilation that checked it without errors, for `mode`. Fails with
+/// lowering's or codegen's error, or "" after errors in `diagnostics`, the interface file's.
+[[nodiscard]] std::expected<library_build_t, std::string>
+build_library(const compilation_t& compilation, build_mode_t mode, diagnostic_bag_t& diagnostics);
+
+/// The binaries of the prebuilt libraries a compilation uses, each the .fblib beside its .fbi,
+/// which has to be the same build. Fails with why one isn't.
+[[nodiscard]] std::expected<std::vector<library_binary_t>, std::string>
+prebuilt_binaries(const compilation_t& compilation);
 
 /// Writes an executable for a module from a compilation without errors, creating the output's
 /// folder if needed, linking the bundled C libraries it uses. The object file in between is

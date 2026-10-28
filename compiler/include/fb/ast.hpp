@@ -483,7 +483,7 @@ struct variable_stmt_t {
     /// Static and ReadOnly, which only a Field can have.
     modifiers_t modifiers;
     /// In a library's interface file, a Global or Static Field written "= ...", whose value the
-    /// library's binary has, or a Class's Field, whose default its New gives.
+    /// library's binary has.
     bool prebuilt = false;
 };
 

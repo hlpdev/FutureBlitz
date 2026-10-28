@@ -30,6 +30,8 @@ namespace {
 
 /// What an interface file's first line starts with, and each module's part.
 constexpr std::string_view header_start = "// fbi ";
+constexpr std::string_view binary_start = "// fblib ";
+constexpr std::string_view bundled_start = "// bundled";
 constexpr std::string_view module_start = "// module ";
 
 /// One of the library's modules as the interface file writes it: its file's tokens, lexed for
@@ -474,9 +476,12 @@ private:
         }
 
         if (const auto* variable = std::get_if<variable_stmt_t>(&node)) {
-            if (variable->kind == variable_kind_t::FIELD && !variable->modifiers.is_static &&
-                !in_class(index)) {
-                return { { start, stmt.span.end } };
+            // A Field's default, which the code that makes its Struct or Class sets, is written
+            // as its value when it's one, since only that's known at compile time.
+            if (variable->kind == variable_kind_t::FIELD && !variable->modifiers.is_static) {
+                const std::uint32_t written =
+                    variable->type ? m_ast.get(*variable->type).span.end : variable->name.span.end;
+                return { { start, const_literal(id) ? written : stmt.span.end } };
             }
 
             if (variable->kind == variable_kind_t::CONSTANT) {
@@ -492,16 +497,8 @@ private:
         return { { start, stmt.span.end } };
     }
 
-    /// Whether a candidate is a member of a Class, whose Fields' defaults its New gives, so a
-    /// program never runs them.
-    [[nodiscard]] bool in_class(const std::size_t index) const {
-        const std::optional<std::size_t> owner = m_candidates[index].owner;
-        const auto* type =
-            owner ? std::get_if<type_stmt_t>(&m_ast.get(m_candidates[*owner].id).node) : nullptr;
-        return type != nullptr && type->is_class;
-    }
-
-    /// A top-level Const's value as a literal, when it's known and of a built-in type.
+    /// A Const's value, or a Field's default, as a literal, when it's known and of a built-in
+    /// type.
     [[nodiscard]] std::optional<std::string> const_literal(const stmt_id_t id) const {
         const std::optional<symbol_id_t> symbol = m_analysis.stmt(id).symbol;
         if (!symbol) {
@@ -546,8 +543,7 @@ private:
         const auto* variable = std::get_if<variable_stmt_t>(&m_ast.get(id).node);
         const std::optional<symbol_id_t> symbol = m_analysis.stmt(id).symbol;
         if (variable != nullptr && !variable->type && symbol &&
-            (variable->kind == variable_kind_t::GLOBAL || variable->modifiers.is_static ||
-             in_class(index))) {
+            (variable->kind == variable_kind_t::GLOBAL || variable->modifiers.is_static)) {
             note_type_names(m_analysis.symbol(*symbol).type);
         }
     }
@@ -788,18 +784,24 @@ private:
         return text + ") ";
     }
 
-    /// A Global, Static Field, Const, or Field: a Struct's whole, since the Struct that a
-    /// program makes takes its defaults, and a Class's with "= ..." for a default.
+    /// A Global, Static Field, Const, or Field, whose default, which a program sets as it makes
+    /// the Field's Struct or Class, is its value.
     std::string variable_text(const std::size_t index, const variable_stmt_t& node,
                               const std::string& first, module_text_t& module) {
         const stmt_id_t id = m_candidates[index].id;
-        const bool field = node.kind == variable_kind_t::FIELD && !node.modifiers.is_static;
-        if (field && (!in_class(index) || !node.value)) {
-            return first + "\n";
-        }
-
         const std::optional<symbol_id_t> symbol = m_analysis.stmt(id).symbol;
         const type_id_t type = symbol ? m_analysis.symbol(*symbol).type : type_id_t::INVALID;
+        if (node.kind == variable_kind_t::FIELD && !node.modifiers.is_static) {
+            const std::optional<std::string> literal = const_literal(id);
+            if (!literal) {
+                return first + "\n";
+            }
+
+            return node.type
+                       ? std::format("{} = {}\n", first, *literal)
+                       : std::format("{}: {} = {}\n", first, m_analysis.types.name(type), *literal);
+        }
+
         if (node.kind == variable_kind_t::CONSTANT) {
             const std::optional<std::string> literal = const_literal(id);
             return literal
@@ -1010,13 +1012,19 @@ std::vector<std::string_view> lines_of(const std::string_view text) {
 }
 
 /// The ABI hash of an interface file's text after its first line, for the build that writes it.
-std::string abi_hash(const std::string_view body, const build_mode_t mode) {
+/// The ABI hash of a library's build: its interface file's text after its first line, and its
+/// binary's code.
+std::string abi_hash(const std::string_view body, const std::string_view code,
+                     const build_mode_t mode) {
     blake3_hasher hasher;
     blake3_hasher_init(&hasher);
     const std::string build =
         std::format("{}\n{}\n{}\n", build_config::version, build_target(), mode_folder(mode));
     blake3_hasher_update(&hasher, build.data(), build.size());
     blake3_hasher_update(&hasher, body.data(), body.size());
+    const std::string size = std::format("\n{}\n", code.size());
+    blake3_hasher_update(&hasher, size.data(), size.size());
+    blake3_hasher_update(&hasher, code.data(), code.size());
     std::array<std::uint8_t, 16> digest{};
     blake3_hasher_finalize(&hasher, digest.data(), digest.size());
     std::string hex;
@@ -1048,7 +1056,8 @@ std::string_view mode_folder(const build_mode_t mode) {
 }
 
 std::optional<std::string> write_interface(const compilation_t& compilation,
-                                           const build_mode_t mode, diagnostic_bag_t& diagnostics) {
+                                           const build_mode_t mode, diagnostic_bag_t& diagnostics,
+                                           const std::string_view code) {
     if (!compilation.package) {
         return std::nullopt;
     }
@@ -1060,7 +1069,45 @@ std::optional<std::string> write_interface(const compilation_t& compilation,
     }
 
     return std::format("{}{} {} {}\n{}", header_start, package.name, package.version,
-                       abi_hash(*body, mode), *body);
+                       abi_hash(*body, code, mode), *body);
+}
+
+std::string write_binary(const library_binary_t& binary) {
+    std::string bundled(bundled_start);
+    for (const std::string& name : binary.bundled) {
+        bundled += " " + name;
+    }
+
+    return std::format("{}{} {} {}\n{}\n{}", binary_start, binary.header.name,
+                       binary.header.version, binary.header.hash, bundled, binary.code);
+}
+
+std::optional<library_binary_t> read_binary(const std::string_view bytes) {
+    const std::size_t first = bytes.find('\n');
+    const std::size_t second =
+        first == std::string_view::npos ? first : bytes.find('\n', first + 1);
+    if (second == std::string_view::npos || !bytes.starts_with(binary_start)) {
+        return std::nullopt;
+    }
+
+    // Its first line is an interface file's but for its word.
+    const std::optional<interface_header_t> header = read_interface_header(std::format(
+        "{}{}", header_start, bytes.substr(binary_start.size(), first - binary_start.size())));
+    const std::string_view line = bytes.substr(first + 1, second - first - 1);
+    if (!header || !line.starts_with(bundled_start)) {
+        return std::nullopt;
+    }
+
+    library_binary_t binary{ .header = *header, .code = std::string(bytes.substr(second + 1)) };
+    std::string_view rest = line.substr(bundled_start.size());
+    while (!rest.empty()) {
+        rest.remove_prefix(1);
+        const std::size_t end = std::min(rest.find(' '), rest.size());
+        binary.bundled.emplace_back(rest.substr(0, end));
+        rest.remove_prefix(end);
+    }
+
+    return binary;
 }
 
 std::optional<interface_header_t> read_interface_header(const std::string_view text) {

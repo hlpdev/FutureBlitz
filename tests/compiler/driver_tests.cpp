@@ -3018,7 +3018,7 @@ TEST_CASE("a library's interface file holds what programs compile against", "[dr
                   "Public Global Unit: Circle = ...\n"
                   "Public Class Circle\n"
                   "    Public Field Radius: Float64\n"
-                  "    Field secret: Int = ...\n"
+                  "    Field secret: Int = 7\n"
                   "    Public New(r: Float64) => ...\n"
                   "    Public Method Area(): Float64 => ...\n"
                   "    @Inline Public Method Twice(): Float64 => Twofold(Radius)\n"
@@ -3213,7 +3213,7 @@ TEST_CASE("a prebuilt library is its interface file, which has to be fb's and th
         "[project]\nname = \"physics\"\nversion = \"0.2.0\"\ntype = \"library\"\n";
     CHECK(checked(toml, text).empty());
 
-    // Until fb links a prebuilt library's .fblib, a program builds only with its source.
+    // A program checks against the interface file alone, and builds with the binary beside it.
     packages.write("app/main.fb", main);
     const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
     REQUIRE(app);
@@ -3222,8 +3222,8 @@ TEST_CASE("a prebuilt library is its interface file, which has to be fb's and th
     const std::expected<void, std::string> built =
         fb::build_program(module, *app, packages / "app/build/app.exe", fb::build_mode_t::DEBUG);
     REQUIRE_FALSE(built);
-    CHECK(built.error().ends_with("physics.fbi is a prebuilt library's interface; programs build "
-                                  "with prebuilt libraries once fb links their .fblib"));
+    CHECK(built.error().ends_with("physics.fblib, the prebuilt library's binary beside its "
+                                  "interface file"));
 
     // Its first line names the build, which has to be the package's.
     const std::string named = std::format(

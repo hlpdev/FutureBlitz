@@ -17,9 +17,8 @@ namespace fb {
 
 /// Like parse(), but adds the file's nodes and items to `ast`, which may hold other files of the
 /// same program already. In a library's interface file, `interface_file`, a declaration can be
-/// its first line and "=> ...", or for a Global, a Static Field, or a Class's Field, its type and
-/// "= ...", when the library's binary has its code, and @MainThreadOnly says what that code
-/// does.
+/// its first line and "=> ...", or for a Global or a Static Field, its type and "= ...", when the
+/// library's binary has its code, and @MainThreadOnly says what that code does.
 void parse_into(const source_file_t& file, std::span<const token_t> tokens,
                 diagnostic_bag_t& diagnostics, ast_t& ast, bool interface_file = false);
 
