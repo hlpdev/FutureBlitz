@@ -198,6 +198,17 @@ private:
                 } else if (text) {
                     manifest.version = *text;
                 }
+            } else if (name == "type") {
+                const std::optional<std::string> text = string_of(field, value, "\"library\"");
+                manifest.type_span = span_of(value.source());
+                if (text == "executable") {
+                    manifest.type = package_type_t::EXECUTABLE;
+                } else if (text == "library") {
+                    manifest.type = package_type_t::LIBRARY;
+                } else if (text) {
+                    fail(*manifest.type_span,
+                         R"(a package's type is "executable" or "library", not "{}")", *text);
+                }
             } else if (name == "main") {
                 const std::optional<std::string> text = string_of(field, value, "\"main.fb\"");
                 manifest.main_span = span_of(value.source());
@@ -220,6 +231,10 @@ private:
 
         if (!versioned) {
             fail(span_of(key.source()), "[project] needs a version, like version = \"0.1.0\"");
+        }
+
+        if (manifest.type == package_type_t::LIBRARY && manifest.main_span) {
+            fail(*manifest.main_span, "a library has no main file; its files are its modules");
         }
     }
 

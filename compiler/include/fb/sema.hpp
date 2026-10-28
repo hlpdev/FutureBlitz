@@ -289,6 +289,9 @@ struct expr_info_t {
     /// For "Embed(path)" or "EmbedFolder(path)": what it puts in the program, by its index in
     /// analysis_t::embeds.
     std::optional<std::size_t> embedded;
+    /// An Embed, EmbedText, or EmbedFolder call, which reads a file of the program as it's
+    /// built.
+    bool embeds = false;
 
     /// For 'Is': the Class it tests for.
     type_id_t tested = type_id_t::INVALID;

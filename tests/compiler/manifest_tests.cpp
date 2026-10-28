@@ -67,6 +67,27 @@ TEST_CASE("a project.toml names the package, its version, and its dependencies",
                          "warning: badges: project.toml doesn't use 'badges'" });
 }
 
+TEST_CASE("a project.toml's type says whether it's an executable or a library", "[manifest]") {
+    const std::string_view project = "[project]\nname = \"physics\"\nversion = \"0.1.0\"\n";
+    CHECK_FALSE(read(project).manifest.value_or(fb::manifest_t{}).type);
+
+    const read_t library = read(std::string(project) + "type = \"library\"\n");
+    CHECK(library.diagnostics.empty());
+    CHECK(library.manifest.value_or(fb::manifest_t{}).type == fb::package_type_t::LIBRARY);
+    CHECK(read(std::string(project) + "type = \"executable\"\n")
+              .manifest.value_or(fb::manifest_t{})
+              .type == fb::package_type_t::EXECUTABLE);
+
+    CHECK(read(std::string(project) + "type = \"plugin\"\n").diagnostics ==
+          diagnostics_t{ "error: \"plugin\": a package's type is \"executable\" or \"library\", "
+                         "not \"plugin\"" });
+    CHECK(read(std::string(project) + "type = 1\n").diagnostics ==
+          diagnostics_t{ "error: 1: 'type' is text, like \"library\"" });
+    CHECK(read(std::string(project) + "type = \"library\"\nmain = \"main.fb\"\n").diagnostics ==
+          diagnostics_t{ "error: \"main.fb\": a library has no main file; its files are its "
+                         "modules" });
+}
+
 TEST_CASE("a project.toml's mistakes are reported at their lines", "[manifest]") {
     CHECK(read("[project\n").diagnostics.size() == 1);
     CHECK(read("[project\n").diagnostics.front().starts_with("error: "));

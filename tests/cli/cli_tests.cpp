@@ -1,5 +1,6 @@
 #include "fb/build_config.hpp"
 #include "fb/driver.hpp"
+#include "fb/interface.hpp"
 #include "fb/process.hpp"
 #include "fb/utf8.hpp"
 
@@ -1586,6 +1587,23 @@ TEST_CASE("fb runs and builds a package from its folder", "[cli]") {
     const fb::process_result_t library = fb_run({ "run", physics });
     CHECK(library.exit_code == 2);
     CHECK(library.output.contains("error: physics is a library, with no main file to run"));
+
+    // fb build writes a library's interface file, for its build's target and mode.
+    const fb::process_result_t interface = fb_run({ "build", physics, "--release" });
+    INFO(interface.output);
+    CHECK(interface.exit_code == 0);
+    CHECK(interface.output.contains("    Finished release build in "));
+    const std::filesystem::path written = packages / "physics" / "build" /
+                                          fb::path_from_utf8(fb::build_target()) / "release" /
+                                          "physics.fbi";
+    std::ifstream file(written, std::ios::binary);
+    const std::string text{ std::istreambuf_iterator<char>(file),
+                            std::istreambuf_iterator<char>() };
+    CHECK(text.starts_with("// fbi physics 0.2.0 "));
+    CHECK(text.contains("\n// module physics/vector.fb "));
+    check_usage_error({ "build", physics, "-o", "x" },
+                      "physics is a library, whose build goes in its build/ folder; '-o' names an "
+                      "executable");
 
     // A folder that isn't a package's is bad usage.
     check_usage_error({ "check", fb::to_utf8(packages) }, "there's no project.toml in '");

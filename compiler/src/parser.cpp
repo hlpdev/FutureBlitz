@@ -126,8 +126,8 @@ bool is_name(const std::string_view text) {
 class parser_t {
 public:
     parser_t(const source_file_t& file, const std::span<const token_t> tokens,
-             diagnostic_bag_t& diagnostics, ast_t& ast)
-        : m_file(file), m_diagnostics(diagnostics), m_ast(ast) {
+             diagnostic_bag_t& diagnostics, ast_t& ast, const bool interface_file)
+        : m_file(file), m_diagnostics(diagnostics), m_ast(ast), m_interface_file(interface_file) {
         // ">=" comes as '>' then '=', as ">>" comes as two '>', so "Stack<Int>= s" closes its
         // type arguments before the '='. Touching, they make the operator again.
         m_split.reserve(tokens.size());
@@ -204,6 +204,8 @@ private:
     bool m_list_parameter = false;
     /// The Extern block whose Functions are being parsed.
     std::optional<extern_block_t> m_extern;
+    /// Parsing a library's interface file, where "=> ..." stands for code in its binary.
+    bool m_interface_file = false;
 
     // Tokens
 
@@ -359,6 +361,19 @@ private:
     }
 
     /// From `begin` to the end of the last consumed token.
+    /// "=> ..." after a declaration's first line, in a library's interface file, where it
+    /// stands for code in the library's binary.
+    bool accept_prebuilt() {
+        if (!m_interface_file || !at(token_kind_t::ARROW) ||
+            peek(1).kind != token_kind_t::DOT_DOT_DOT) {
+            return false;
+        }
+
+        advance();
+        advance();
+        return true;
+    }
+
     [[nodiscard]] span_t span_from(const std::uint32_t begin) const {
         return { .file = m_file.id(), .begin = begin, .end = std::max(begin, m_previous_end) };
     }
@@ -878,6 +893,7 @@ private:
     /// with only a visibility, an Enum or an Attribute. Analysis checks which ones it can have,
     /// but Shared only goes before a type, and ThreadLocal before a Global.
     stmt_id_t parse_modified(modifiers_t modifiers = {}) {
+        const std::size_t first = m_pos;
         std::optional<span_t> shared;
         std::optional<span_t> thread_local_span;
         std::optional<span_t> async;
@@ -929,6 +945,10 @@ private:
             }
 
             *flag = true;
+        }
+
+        if (m_pos != first && !modifiers.start) {
+            modifiers.start = m_tokens[first].span.begin;
         }
 
         // An attribute after them is the mistake, which the error below says.
@@ -1056,6 +1076,7 @@ private:
         const type_expr_id_t type = expect(token_kind_t::COLON)
                                         ? parse_type()
                                         : add_type(point(peek().span.begin), error_type_t{});
+        const std::uint32_t header_end = m_previous_end;
         if ((modifiers.is_abstract || in_interface()) && !next_line_is_accessor()) {
             // The caller finishes the line.
             return add_stmt(span_from(keyword.span.begin), property_stmt_t{
@@ -1063,6 +1084,7 @@ private:
                                                                .type = type,
                                                                .modifiers = modifiers,
                                                                .required = true,
+                                                               .header_end = header_end,
                                                            });
         }
 
@@ -1102,6 +1124,7 @@ private:
                                                            .getter = getter,
                                                            .setter = setter,
                                                            .modifiers = modifiers,
+                                                           .header_end = header_end,
                                                        });
     }
 
@@ -1182,11 +1205,12 @@ private:
         const std::size_t line = m_pos;
         const token_t& word = advance();
         block_t body;
-        if (accept(token_kind_t::ARROW)) {
+        const bool prebuilt = accept_prebuilt();
+        if (!prebuilt && accept(token_kind_t::ARROW)) {
             skip_continuation_newlines();
             const expr_id_t value = parse_expression();
             body.push_back(add_stmt(span_of(value), return_stmt_t{ .value = value }));
-        } else {
+        } else if (!prebuilt) {
             finish_line(line);
             body = parse_accessor_body(word);
         }
@@ -1197,6 +1221,8 @@ private:
                             .name = { .text = property.text, .span = word.span },
                             .return_type = type,
                             .body = std::move(body),
+                            .header_end = word.span.end,
+                            .prebuilt = prebuilt,
                         });
     }
 
@@ -1207,14 +1233,22 @@ private:
         expect(token_kind_t::LEFT_PAREN);
         const name_t value = expect_name();
         expect(token_kind_t::RIGHT_PAREN);
-        finish_line(line);
-        block_t body = parse_accessor_body(word);
+        const std::uint32_t header_end = m_previous_end;
+        const bool prebuilt = accept_prebuilt();
+        block_t body;
+        if (!prebuilt) {
+            finish_line(line);
+            body = parse_accessor_body(word);
+        }
+
         return add_stmt(span_from(word.span.begin),
                         function_stmt_t{
                             .kind = function_kind_t::METHOD,
                             .name = { .text = property.text, .span = word.span },
                             .parameters = { { .name = value, .by_ref = false, .type = type } },
                             .body = std::move(body),
+                            .header_end = header_end,
+                            .prebuilt = prebuilt,
                         });
     }
 
@@ -1248,7 +1282,7 @@ private:
     /// Analysis checks which declarations can have them.
     stmt_id_t parse_attributed() {
         const std::uint32_t begin = peek().span.begin;
-        modifiers_t modifiers;
+        modifiers_t modifiers{ .start = begin };
         bool flags = false;
         span_t flags_span;
         bool open = false;
@@ -1611,7 +1645,13 @@ private:
         }
 
         std::optional<expr_id_t> value;
-        if (accept(token_kind_t::EQUAL)) {
+        bool prebuilt = false;
+        if (m_interface_file && at(token_kind_t::EQUAL) &&
+            peek(1).kind == token_kind_t::DOT_DOT_DOT) {
+            advance();
+            advance();
+            prebuilt = true;
+        } else if (accept(token_kind_t::EQUAL)) {
             skip_continuation_newlines();
             value = parse_expression();
         }
@@ -1636,6 +1676,7 @@ private:
                                                            .type = type,
                                                            .value = value,
                                                            .modifiers = written,
+                                                           .prebuilt = prebuilt,
                                                        });
     }
 
@@ -1747,10 +1788,12 @@ private:
         }
 
         // "Function F(): Int => x" is short for a body that returns x.
+        const std::uint32_t header_end = m_previous_end;
         block_t body;
         bool required = false;
         std::optional<external_t> external;
         modifiers_t own = modifiers;
+        bool prebuilt = false;
         if (m_extern && kind == function_kind_t::FUNCTION) {
             // An Extern block's Function is its first line alone, maybe with "= "symbol"" after
             // it, and the caller finishes the line.
@@ -1778,6 +1821,8 @@ private:
             }
         } else if (modifiers.is_abstract) {
             // The line ends without a body, and the caller finishes it.
+        } else if (accept_prebuilt()) {
+            prebuilt = true;
         } else if (accept(token_kind_t::ARROW)) {
             skip_continuation_newlines();
             const expr_id_t value = parse_expression();
@@ -1803,6 +1848,8 @@ private:
                                               .modifiers = own,
                                               .required = required,
                                               .external = std::move(external),
+                                              .header_end = header_end,
+                                              .prebuilt = prebuilt,
                                           });
     }
 
@@ -1894,6 +1941,7 @@ private:
             }
         }
 
+        node.header_end = m_previous_end;
         finish_line(start);
         m_blocks.push_back(keyword.kind);
         const std::optional<extern_block_t> outer = std::exchange(
@@ -2076,6 +2124,7 @@ private:
             std::ranges::copy(parse_type_list(), std::back_inserter(interfaces));
         }
 
+        const std::uint32_t header_end = m_previous_end;
         finish_line(start);
         parse_where_lines(constraints);
         block_t members = parse_body(keyword);
@@ -2093,6 +2142,7 @@ private:
                             .base_qualifier = base_qualifier,
                             .interfaces = std::move(interfaces),
                             .modifiers = modifiers,
+                            .header_end = header_end,
                         });
     }
 
@@ -2107,6 +2157,7 @@ private:
             interfaces = parse_type_list();
         }
 
+        const std::uint32_t header_end = m_previous_end;
         finish_line(start);
         std::vector<constraint_t> constraints;
         parse_where_lines(constraints);
@@ -2116,6 +2167,7 @@ private:
                                                            .interfaces = std::move(interfaces),
                                                            .constraints = std::move(constraints),
                                                            .members = std::move(members),
+                                                           .header_end = header_end,
                                                        });
     }
 
@@ -4105,8 +4157,8 @@ ast_t parse(const source_file_t& file, const std::span<const token_t> tokens,
 }
 
 void parse_into(const source_file_t& file, const std::span<const token_t> tokens,
-                diagnostic_bag_t& diagnostics, ast_t& ast) {
-    parser_t(file, tokens, diagnostics, ast).run();
+                diagnostic_bag_t& diagnostics, ast_t& ast, const bool interface_file) {
+    parser_t(file, tokens, diagnostics, ast, interface_file).run();
 }
 
 } // namespace fb

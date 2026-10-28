@@ -5,10 +5,12 @@
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -1540,4 +1542,46 @@ TEST_CASE("code nested deeper than the compiler goes is one error, not a crash",
         CHECK(parsed.errors.size() == 1);
         CHECK(parsed.dump.starts_with("(error)"));
     }
+}
+
+TEST_CASE("an interface file's declarations can leave their code in the library's binary",
+          "[parser]") {
+    const std::string text = "@Inline Public Function Area(r: Float): Float => ...\n"
+                             "Public Global Count: Int = ...\n"
+                             "Public Class Body Extends Shape\n"
+                             "    Public Property Mass: Float\n"
+                             "        Get => ...\n"
+                             "        Set(value) => ...\n"
+                             "    End Property\n"
+                             "End Class\n";
+    const fb::source_file_t file(fb::file_id_t{}, "physics.fbi", text);
+    fb::diagnostic_bag_t bag;
+    const std::vector<fb::token_t> tokens = fb::lex(file, bag);
+    fb::ast_t ast;
+    fb::parse_into(file, tokens, bag, ast, true);
+    CHECK(bag.diagnostics().empty());
+    REQUIRE(ast.items().size() == 3);
+
+    const auto& area = std::get<fb::function_stmt_t>(ast.get(ast.items()[0]).node);
+    CHECK(area.prebuilt);
+    CHECK(area.body.empty());
+    CHECK(area.modifiers.start == 0);
+    CHECK(file.slice({ .begin = 0, .end = area.header_end }) ==
+          "@Inline Public Function Area(r: Float): Float");
+
+    const auto& count = std::get<fb::variable_stmt_t>(ast.get(ast.items()[1]).node);
+    CHECK(count.prebuilt);
+    CHECK_FALSE(count.value);
+
+    const auto& body = std::get<fb::type_stmt_t>(ast.get(ast.items()[2]).node);
+    const std::uint32_t start = *body.modifiers.start;
+    CHECK(file.slice({ .begin = start, .end = body.header_end }) ==
+          "Public Class Body Extends Shape");
+    const auto& mass = std::get<fb::property_stmt_t>(ast.get(body.members.at(0)).node);
+    CHECK(std::get<fb::function_stmt_t>(ast.get(*mass.getter).node).prebuilt);
+    CHECK(std::get<fb::function_stmt_t>(ast.get(*mass.setter).node).prebuilt);
+
+    // Elsewhere, "=> ..." is a mistake.
+    CHECK_FALSE(parse_text("Function Area(r: Float): Float => ...\n").errors.empty());
+    CHECK_FALSE(parse_text("Global Count: Int = ...\n").errors.empty());
 }

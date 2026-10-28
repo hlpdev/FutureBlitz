@@ -14631,6 +14631,11 @@ private:
             return;
         }
 
+        // A prebuilt library's binary has the code of what its interface file declares.
+        if (node->prebuilt) {
+            return;
+        }
+
         // A call that ran a Const Function may have checked its body already.
         if (symbol(*function_id).modifiers.is_const) {
             (void)check_const_body(*function_id);
@@ -15181,6 +15186,11 @@ private:
     /// when it's known at compile time.
     void check_initializer(const variable_stmt_t& node, symbol_t& declared) {
         const bool annotated = node.type.has_value();
+        // A prebuilt library's binary initializes what its interface file declares.
+        if (!node.value && node.prebuilt) {
+            return;
+        }
+
         if (!node.value) {
             if (!annotated) {
                 error(node.name.span, "'{}' needs a type or a value", node.name.text);
@@ -21598,6 +21608,7 @@ private:
     /// UInt8[]> by their paths in it, read when the program is built. The path is a String known
     /// at compile time, from the call's file's folder, which the driver keeps in its package's.
     type_id_t check_embed(const expr_id_t id, const call_expr_t& node, const name_expr_t& name) {
+        info(id).embeds = true;
         const bool text = name.name == "EmbedText";
         const bool folder = name.name == "EmbedFolder";
         const type_id_t bytes = m_analysis.types.array(type_id_t::UINT8);

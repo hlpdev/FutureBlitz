@@ -4,6 +4,7 @@
 #include "fb/diagnostic_render.hpp"
 #include "fb/driver.hpp"
 #include "fb/dump.hpp"
+#include "fb/interface.hpp"
 #include "fb/lexer.hpp"
 #include "fb/lower.hpp"
 #include "fb/process.hpp"
@@ -19,6 +20,7 @@
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -328,6 +330,55 @@ int build(const console_t& console, const options_t& options, const compilation_
     return 0;
 }
 
+/// `fb build` on a library: writes its interface file, build/<target>/<mode>/<name>.fbi in its
+/// folder, which programs can compile against in place of its source.
+int build_library(const console_t& console, const options_t& options,
+                  const compilation_t& compilation, const std::string_view name,
+                  const std::chrono::steady_clock::time_point start) {
+    const std::optional<package_info_t>& package = compilation.package;
+    if (!package) {
+        return usage_exit_code;
+    }
+
+    if (options.output) {
+        console.error(std::format("{} is a library, whose build goes in its build/ folder; '-o' "
+                                  "names an executable",
+                                  package->name));
+        return usage_exit_code;
+    }
+
+    diagnostic_bag_t diagnostics;
+    const std::optional<std::string> interface =
+        write_interface(compilation, options.mode, diagnostics);
+    for (const diagnostic_t& diagnostic : diagnostics.diagnostics()) {
+        console_t::print_error(
+            render_pretty(diagnostic, compilation.sources, { .color = console.err().color }));
+    }
+
+    if (!interface) {
+        console.error(std::format("couldn't build {} because of {}", name,
+                                  count(diagnostics.error_count(), "error")));
+        return compile_errors_exit_code;
+    }
+
+    const std::filesystem::path folder = package->root / "build" / path_from_utf8(build_target()) /
+                                         path_from_utf8(mode_folder(options.mode));
+    const std::filesystem::path path = folder / path_from_utf8(package->name + ".fbi");
+    std::error_code error;
+    std::filesystem::create_directories(folder, error);
+    std::ofstream file(path, std::ios::binary);
+    file << *interface;
+    file.close();
+    if (error || !file) {
+        console.error(std::format("can't write {}", to_utf8(path)));
+        return compile_errors_exit_code;
+    }
+
+    console.status("Finished",
+                   std::format("{} build in {}", mode_folder(options.mode), seconds_since(start)));
+    return 0;
+}
+
 /// `fb run`: builds the program in a temporary folder, runs it in this terminal, and deletes the
 /// folder. Returns the program's exit code, or 1 when it can't be built or started.
 int run(const console_t& console, const options_t& options, const compilation_t& compilation,
@@ -410,7 +461,7 @@ int compile_command(const options_t& options) {
                                                    to_utf8(package->root))
                                      : to_utf8(input);
     console.status(checking ? "Checking" : "Compiling", name);
-    if (package && package->library && !checking) {
+    if (package && package->library && options.command == command_t::RUN) {
         console.error(std::format("{} is a library, with no main file to {}", package->name,
                                   command_name(options.command)));
         return usage_exit_code;
@@ -493,7 +544,8 @@ int compile_command(const options_t& options) {
 
     switch (options.command) {
     case command_t::BUILD:
-        return build(console, options, compilation, name, module, start);
+        return library ? build_library(console, options, compilation, name, start)
+                       : build(console, options, compilation, name, module, start);
     case command_t::RUN:
         return run(console, options, compilation, name, module, start);
     default:

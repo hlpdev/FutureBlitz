@@ -455,6 +455,9 @@ struct modifiers_t {
     std::optional<std::string> deprecated;
     /// The attributes that Attribute declarations declare, which reflection reads.
     std::vector<attribute_t> attributes;
+    /// Where its first attribute or modifier is written, which is where its declaration starts.
+    /// nullopt when it has none written.
+    std::optional<std::uint32_t> start;
 };
 
 /// The keyword that declares a variable: Local, Global, Const, or a Struct's Field.
@@ -474,6 +477,9 @@ struct variable_stmt_t {
     std::optional<expr_id_t> value;
     /// Static and ReadOnly, which only a Field can have.
     modifiers_t modifiers;
+    /// In a library's interface file, a Global or Static Field written "= ...": the library's
+    /// binary has it, and initializes it.
+    bool prebuilt = false;
 };
 
 /// "Local lo, hi = value": takes a tuple apart into new Locals, one for each element, which
@@ -563,6 +569,11 @@ struct function_stmt_t {
     bool required = false;
     /// In an Extern block: what defines it, since it's its first line alone.
     std::optional<external_t> external;
+    /// Where its first line ends: after its parameters, its result, and its Throws.
+    std::uint32_t header_end = 0;
+    /// In a library's interface file, written "=> ..." after its first line: its code is in the
+    /// library's binary.
+    bool prebuilt = false;
 };
 
 /// The If, or one ElseIf: a condition and the code it runs.
@@ -726,6 +737,8 @@ struct type_stmt_t {
     /// The Interfaces after Implements, or for an Interface, after Extends.
     std::vector<type_expr_id_t> interfaces;
     modifiers_t modifiers;
+    /// Where its first line ends: after its name, type parameters, Extends, and Implements.
+    std::uint32_t header_end = 0;
 };
 
 /// "Property Name: Type", with "Get => value" or a Get block, and maybe "Set(value)" and its
@@ -742,6 +755,8 @@ struct property_stmt_t {
     /// the Interface, or Class that extends this one, gives its Get, and its Set unless it's
     /// ReadOnly.
     bool required = false;
+    /// Where its first line ends: after its type.
+    std::uint32_t header_end = 0;
 };
 
 /// "Defer statement": runs the statement when the enclosing block exits, however it exits.
@@ -793,6 +808,8 @@ struct extend_stmt_t {
     /// From the Where lines at the top of its body, which only some instances, or arrays, meet.
     std::vector<constraint_t> constraints;
     block_t members;
+    /// Where its first line ends: after its type and Implements.
+    std::uint32_t header_end = 0;
 };
 
 /// One of an Enum's members: "Name", or "Name = value".
@@ -851,6 +868,8 @@ struct extern_stmt_t {
     /// unless it has its own.
     block_t functions;
     modifiers_t modifiers;
+    /// Where its first line ends: after its convention and Lib.
+    std::uint32_t header_end = 0;
 };
 
 /// "Alias MetersPerSecond = Quantity<1, 0, -1>": another name for a type, which is that type

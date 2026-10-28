@@ -249,6 +249,10 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
   every Field of each type it shows, Private ones too, with their visibility, so layouts and
   `For Field` agree. A Const is written as its value, and an `Embed` in a body the interface file
   keeps is an error when the library is built.
+- In it, a declaration whose code is in the library's binary is its first line and `=> ...`,
+  and a Global or Static Field the binary initializes is `= ...` after its type, which is
+  written for one that had none; only an interface file can write them. Each module is its
+  part of the file, after a line `// module <path> <lines>`, with its Imports.
 - Its first line is the library's build: its name, its version, and its ABI hash, which covers
   the rest of the interface file, the library's compiled code, the compiler's version, the target,
   and the mode. A program is built against one exact build of each library, and linking or

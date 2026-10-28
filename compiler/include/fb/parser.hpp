@@ -16,8 +16,9 @@ namespace fb {
                           diagnostic_bag_t& diagnostics);
 
 /// Like parse(), but adds the file's nodes and items to `ast`, which may hold other files of the
-/// same program already.
+/// same program already. In a library's interface file, `interface_file`, a declaration can be
+/// its first line and "=> ...", or for a Global, "= ...", when the library's binary has it.
 void parse_into(const source_file_t& file, std::span<const token_t> tokens,
-                diagnostic_bag_t& diagnostics, ast_t& ast);
+                diagnostic_bag_t& diagnostics, ast_t& ast, bool interface_file = false);
 
 } // namespace fb

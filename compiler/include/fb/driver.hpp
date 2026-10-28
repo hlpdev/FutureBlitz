@@ -58,6 +58,9 @@ struct compilation_t {
     native_libraries_t natives;
     /// Where a project.toml names each of `natives`' system libraries, in their order.
     std::vector<span_t> system_spans;
+    /// The interface files of the prebuilt libraries it compiles against, in place of their
+    /// source.
+    std::vector<std::filesystem::path> interfaces;
     /// The files Embed, EmbedText, and EmbedFolder put in the program, each once, as messages
     /// name them: on disk, where they are. Each build reads them again, as it does `sources`,
     /// and a tool that rebuilds when the program's files change watches them too.

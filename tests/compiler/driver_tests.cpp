@@ -1,4 +1,5 @@
 #include "fb/driver.hpp"
+#include "fb/interface.hpp"
 #include "fb/lower.hpp"
 #include "fb/process.hpp"
 #include "fb/utf8.hpp"
@@ -1549,7 +1550,8 @@ TEST_CASE("another package's files in a package's folder are only imported by it
 TEST_CASE("a folder Import brings in neither a package's main file nor the program's main module",
           "[driver]") {
     const packages_t packages;
-    // project.toml can spell the main file in its own way.
+    // A package with a main file, however project.toml spells it, is an executable, which can't
+    // be a dependency.
     packages.write("lib/project.toml",
                    "[project]\nname = \"lib\"\nversion = \"0.1.0\"\nmain = \"./run.fb\"\n");
     packages.write("lib/run.fb", "Import std.core\n"
@@ -1558,17 +1560,49 @@ TEST_CASE("a folder Import brings in neither a package's main file nor the progr
     packages.write("app/project.toml", app_toml);
     packages.write("app/main.fb", "Import std.core\n"
                                   "Import lib\nPrint(\"{A()}\")\n");
+    const std::string executable =
+        "app/project.toml: lib: lib is an executable, with a main file, so it can't be a "
+        "dependency; a package that programs use is a library, type = \"library\" in its "
+        "project.toml";
     const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
     REQUIRE(app);
-    CHECK(packages.messages(*app).empty());
+    CHECK(packages.messages(*app) == std::vector<std::string>{ executable });
     if (std::filesystem::exists(packages / "lib/RUN.fb")) {
         packages.write("lib/project.toml",
                        "[project]\nname = \"lib\"\nversion = \"0.1.0\"\nmain = \"RUN.fb\"\n");
         const std::expected<fb::compilation_t, std::string> cased =
             fb::compile_file(packages / "app");
         REQUIRE(cased);
-        CHECK(packages.messages(*cased).empty());
+        CHECK(packages.messages(*cased) == std::vector<std::string>{ executable });
     }
+
+    // As a library, its run.fb is a module like the others.
+    packages.write("lib/project.toml",
+                   "[project]\nname = \"lib\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    packages.write("lib/run.fb", "Public Function Run(): Int => 2\n");
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Import lib\nPrint(\"{A() + Run()}\")\n");
+    const std::expected<fb::compilation_t, std::string> library =
+        fb::compile_file(packages / "app");
+    REQUIRE(library);
+    CHECK(packages.messages(*library).empty());
+
+    // An executable needs its main file.
+    packages.write("lib/project.toml", "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n"
+                                       "type = \"executable\"\nmain = \"start.fb\"\n");
+    const std::expected<fb::compilation_t, std::string> started =
+        fb::compile_file(packages / "lib");
+    REQUIRE(started);
+    CHECK(packages.messages(*started) ==
+          std::vector<std::string>{ "lib/project.toml: \"start.fb\": there's no start.fb in the "
+                                    "package's folder, which 'main' names" });
+    packages.write("lib/project.toml",
+                   "[project]\nname = \"lib\"\nversion = \"0.1.0\"\ntype = \"executable\"\n");
+    const std::expected<fb::compilation_t, std::string> unmain = fb::compile_file(packages / "lib");
+    REQUIRE(unmain);
+    CHECK(packages.messages(*unmain) ==
+          std::vector<std::string>{ "lib/project.toml: \"executable\": an executable needs its "
+                                    "main file, but there's no main.fb in the package's folder" });
 
     // Built from another main file, the program's main module isn't one of its folder's modules
     // either, and neither is project.toml's.
@@ -2488,4 +2522,371 @@ TEST_CASE("an embedded file is read once, and its embeds share its bytes", "[dri
     CHECK(embeds[1].front().path == "one.bin");
     CHECK(embeds[0].front().bytes == embeds[1].front().bytes);
     CHECK(compilation.embedded == std::vector<std::string>{ "data/one.bin" });
+}
+
+namespace {
+
+/// The physics library the interface file tests build: Public declarations, generic, @Inline, and
+/// Const code, which the interface file keeps, and the Private code it reaches.
+void write_physics(const packages_t& packages, const std::string_view folder) {
+    packages.write(std::format("{}/project.toml", folder),
+                   "[project]\nname = \"physics\"\nversion = \"0.2.0\"\ntype = \"library\"\n");
+    packages.write(std::format("{}/shapes.fb", folder),
+                   "Import std.core\n"
+                   "// A comment, which the interface file leaves out.\n"
+                   "Public Const Pi: Float64 = 3.25\n"
+                   "Public Const Label = \"a \\\"{{x}}\\\" \\u{E9}\"\n"
+                   "Public Global Count = 0\n"
+                   "Public Global Unit = Circle(1.0)\n"
+                   "Public Class Circle\n"
+                   "    Public Field Radius: Float64\n"
+                   "    Field secret: Int = 7\n"
+                   "    Public New(r: Float64)\n"
+                   "        Radius = r\n"
+                   "    End New\n"
+                   "    Public Method Area(): Float64 => Pi * Radius * Radius\n"
+                   "    @Inline Public Method Twice(): Float64 => Twofold(Radius)\n"
+                   "    Method Hidden(): Int => secret\n"
+                   "End Class\n"
+                   "Function Twofold(x: Float64): Float64 => x * 2.0\n"
+                   "Function Unused(): Int => 3\n"
+                   "Public Function Larger<T: Comparable>(a: T, b: T): T\n"
+                   "#If DEBUG\n"
+                   "    Return Pick(a > b, a, b)\n"
+                   "#Else\n"
+                   "    Return Secret()\n"
+                   "#End If\n"
+                   "End Function\n"
+                   "Function Pick<T>(first: Bool, a: T, b: T): T => first ? a : b\n");
+    packages.write(std::format("{}/world.fb", folder),
+                   "Import \"./shapes\"\n"
+                   "Public Struct World\n"
+                   "    Public Field Gravity: Float64 = -9.5\n"
+                   "    Public Static Field Worlds: Int\n"
+                   "    Public Property Bodies: Int\n"
+                   "        Get => 1\n"
+                   "    End Property\n"
+                   "End Struct\n"
+                   "Public Function Make(): Circle => Circle(2.0)\n");
+}
+
+/// The diagnostics of app/main.fb, `main`, built in `mode` with the dependency `name` in the
+/// folder `library`. A message names where a declaration is, its file or the interface file, so
+/// each of the library's `files` and its interface file are shown alike, as "<name>".
+std::vector<std::string> app_messages(const packages_t& packages, const std::string_view name,
+                                      const std::string_view library, const std::string_view main,
+                                      const fb::build_mode_t mode,
+                                      const std::vector<std::string_view>& files) {
+    packages.write("app/project.toml",
+                   std::format("[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                               "[dependencies]\n{} = {{ path = \"../{}\" }}\n",
+                               name, library));
+    packages.write("app/main.fb", main);
+    const std::expected<fb::compilation_t, std::string> app =
+        fb::compile_file(packages / "app", mode);
+    if (!app) {
+        return { app.error() };
+    }
+
+    const std::string interface = std::format("{}/lib/{}/{}/{}.fbi", library, fb::build_target(),
+                                              fb::mode_folder(mode), name);
+    std::vector<std::string_view> shown_as_one = files;
+    shown_as_one.emplace_back(interface);
+    std::vector<std::string> shown = packages.messages(*app);
+    for (std::string& message : shown) {
+        for (const std::string_view file : shown_as_one) {
+            for (std::size_t at = message.find(file); at != std::string::npos;
+                 at = message.find(file)) {
+                message.replace(at, file.size(), std::format("<{}>", name));
+            }
+        }
+    }
+
+    return shown;
+}
+
+} // namespace
+
+TEST_CASE("a library's interface file holds what programs compile against", "[driver]") {
+    const packages_t packages;
+    write_physics(packages, "physics");
+    const std::expected<fb::compilation_t, std::string> physics =
+        fb::compile_file(packages / "physics");
+    REQUIRE(physics);
+    CHECK(packages.messages(*physics) == std::vector<std::string>{});
+    fb::diagnostic_bag_t diagnostics;
+    const std::optional<std::string> text =
+        fb::write_interface(*physics, fb::build_mode_t::DEBUG, diagnostics);
+    REQUIRE(text);
+    CHECK(diagnostics.diagnostics().empty());
+
+    const std::optional<fb::interface_header_t> header = fb::read_interface_header(*text);
+    REQUIRE(header);
+    CHECK(header->name == "physics");
+    CHECK(header->version == "0.2.0");
+    // Each module is its Imports and what programs compile against, without comments or the
+    // lines an #If leaves out.
+    const std::string body = text->substr(text->find('\n') + 1);
+    CHECK(body == "// module physics/shapes.fb 17\n"
+                  "Import std.core\n"
+                  "Public Const Pi: Float64 = 3.25\n"
+                  "Public Const Label: String = \"a \\\"{{x}}\\\" \\u{E9}\"\n"
+                  "Public Global Count: Int32 = ...\n"
+                  "Public Global Unit: Circle = ...\n"
+                  "Public Class Circle\n"
+                  "    Public Field Radius: Float64\n"
+                  "    Field secret: Int = 7\n"
+                  "    Public New(r: Float64) => ...\n"
+                  "    Public Method Area(): Float64 => ...\n"
+                  "    @Inline Public Method Twice(): Float64 => Twofold(Radius)\n"
+                  "End Class\n"
+                  "Function Twofold(x: Float64): Float64 => ...\n"
+                  "Public Function Larger<T: Comparable>(a: T, b: T): T\n"
+                  "    Return Pick(a > b, a, b)\n"
+                  "End Function\n"
+                  "Function Pick<T>(first: Bool, a: T, b: T): T => first ? a : b\n"
+                  "// module physics/world.fb 9\n"
+                  "Import \"./shapes\"\n"
+                  "Public Struct World\n"
+                  "    Public Field Gravity: Float64 = -9.5\n"
+                  "    Public Static Field Worlds: Int = ...\n"
+                  "    Public Property Bodies: Int\n"
+                  "        Get => ...\n"
+                  "    End Property\n"
+                  "End Struct\n"
+                  "Public Function Make(): Circle => ...\n");
+
+    // The same library, prebuilt: its interface file in place of its source.
+    packages.write("prebuilt/project.toml",
+                   "[project]\nname = \"physics\"\nversion = \"0.2.0\"\ntype = \"library\"\n");
+    packages.write(std::format("prebuilt/lib/{}/debug/physics.fbi", fb::build_target()), *text);
+    const std::expected<fb::compilation_t, std::string> checked =
+        fb::compile_file(packages / "prebuilt");
+    REQUIRE(checked);
+    CHECK(packages.messages(*checked) == std::vector<std::string>{});
+
+    // A program checks against it as it does against the source.
+    const std::string main =
+        "Import std.core\n"
+        "Import physics\n"
+        "Local c = Circle(3.0)\n"
+        "Print(\"{c.Area()} {c.Twice()} {Larger(1, 2)} {Count} {Pi} {Label}\")\n"
+        "Print(\"{Unit.Radius} {Make().Radius} {World().Gravity}\")\n"
+        "Print(\"{World.Worlds} {World().Bodies}\")\n"
+        "Local h = c.Hidden()\n"
+        "Local d = Twofold(1.0)\n"
+        "Local s = c.secret\n"
+        "Local n: Float64 = Larger(1, 2)\n";
+    // A Private Method the interface file leaves out is one programs can't see at all.
+    const std::vector<std::string_view> files{ "physics/shapes.fb", "physics/world.fb" };
+    std::vector<std::string> from_source =
+        app_messages(packages, "physics", "physics", main, fb::build_mode_t::DEBUG, files);
+    REQUIRE(from_source.size() == 3);
+    CHECK(from_source.front() == "app/main.fb: Hidden: 'Hidden' is private to <physics>");
+    from_source.front() = "app/main.fb: Hidden: Circle has no member named 'Hidden'";
+    CHECK(app_messages(packages, "physics", "prebuilt", main, fb::build_mode_t::DEBUG, files) ==
+          from_source);
+    packages.remove();
+}
+
+TEST_CASE("an interface file keeps each kind of declaration as programs need it", "[driver]") {
+    const packages_t packages;
+    packages.write("kinds/project.toml", "[project]\nname = \"kinds\"\nversion = \"1.2.3\"\n");
+    packages.write("kinds/a.fb", "Import std.core\n"
+                                 "Public Enum Color\n"
+                                 "    RED\n"
+                                 "    GREEN = 5\n"
+                                 "End Enum\n"
+                                 "Public Alias Meters = Float64\n"
+                                 "Public Interface Named\n"
+                                 "    Method Name(): String\n"
+                                 "End Interface\n"
+                                 "Public Attribute Tag(Text: String)\n"
+                                 "Public Class Base Implements Named\n"
+                                 "    Protected Field level: Int\n"
+                                 "    New()\n"
+                                 "        level = 1\n"
+                                 "    End New\n"
+                                 "    Public Method Name(): String => \"base\"\n"
+                                 "    Protected Method Grow()\n"
+                                 "        level++\n"
+                                 "    End Method\n"
+                                 "End Class\n"
+                                 "Public Function MakeBase(): Base => Base()\n"
+                                 "Extend Int32\n"
+                                 "    Public Method Squared(): Int32 => Self * Self\n"
+                                 "    Method Cubed(): Int32 => Self * Self * Self\n"
+                                 "End Extend\n"
+                                 "Public Extern \"C\"\n"
+                                 "    Function abs(x: Int32): Int32\n"
+                                 "End Extern\n"
+                                 "Public Const Mode: String = DebugOrRelease()\n"
+                                 "Const Function DebugOrRelease(): String\n"
+                                 "#If RELEASE\n"
+                                 "    Return \"release\"\n"
+                                 "#Else\n"
+                                 "    Return \"debug\"\n"
+                                 "#End If\n"
+                                 "End Function\n");
+    packages.write("kinds/b.fb", "Import \"./a\"\n"
+                                 "Public Global Home = MakeBase()\n"
+                                 "Public Global Colors = [Color.RED]\n");
+    const std::expected<fb::compilation_t, std::string> kinds =
+        fb::compile_file(packages / "kinds", fb::build_mode_t::RELEASE);
+    REQUIRE(kinds);
+    CHECK(packages.messages(*kinds) == std::vector<std::string>{});
+    fb::diagnostic_bag_t diagnostics;
+    const std::optional<std::string> text =
+        fb::write_interface(*kinds, fb::build_mode_t::RELEASE, diagnostics);
+    REQUIRE(text);
+    CHECK(text->substr(text->find('\n') + 1) == "// module kinds/a.fb 24\n"
+                                                "Import std.core\n"
+                                                "Public Enum Color\n"
+                                                "    RED\n"
+                                                "    GREEN = 5\n"
+                                                "End Enum\n"
+                                                "Public Alias Meters = Float64\n"
+                                                "Public Interface Named\n"
+                                                "    Method Name(): String\n"
+                                                "End Interface\n"
+                                                "Public Attribute Tag(Text: String)\n"
+                                                "Public Class Base Implements Named\n"
+                                                "    Protected Field level: Int\n"
+                                                "    New() => ...\n"
+                                                "    Public Method Name(): String => ...\n"
+                                                "    Protected Method Grow() => ...\n"
+                                                "End Class\n"
+                                                "Public Function MakeBase(): Base => ...\n"
+                                                "Extend Int32\n"
+                                                "    Public Method Squared(): Int32 => ...\n"
+                                                "End Extend\n"
+                                                "Public Extern \"C\"\n"
+                                                "    Function abs(x: Int32): Int32\n"
+                                                "End Extern\n"
+                                                "Public Const Mode: String = \"release\"\n"
+                                                "// module kinds/b.fb 4\n"
+                                                "Import \"./a\"\n"
+                                                "Import kinds.a As __fbi1\n"
+                                                "Public Global Home: __fbi1.Base = ...\n"
+                                                "Public Global Colors: __fbi1.Color[] = ...\n");
+
+    // Programs see the same: a Private New stays one, and so does what an Extend keeps Private.
+    packages.write("prebuilt/project.toml", "[project]\nname = \"kinds\"\nversion = \"1.2.3\"\n");
+    packages.write(std::format("prebuilt/lib/{}/release/kinds.fbi", fb::build_target()), *text);
+    const std::string main = "Import std.core\n"
+                             "Import kinds\n"
+                             "Class Leaf Extends Base\n"
+                             "    Method Bump()\n"
+                             "        Grow()\n"
+                             "        level += 1\n"
+                             "    End Method\n"
+                             "End Class\n"
+                             "Local m: Meters = 2.5\n"
+                             "Print(\"{Color.GREEN} {m} {Home.Name()} {Colors.Count} {Mode}\")\n"
+                             "Print(\"{(3).Squared()} {abs(-2)}\")\n"
+                             "Local b = Base()\n"
+                             "Local c = (3).Cubed()\n";
+    const std::vector<std::string_view> files{ "kinds/a.fb", "kinds/b.fb" };
+    std::vector<std::string> from_source =
+        app_messages(packages, "kinds", "kinds", main, fb::build_mode_t::RELEASE, files);
+    REQUIRE(from_source.size() == 3);
+    CHECK(from_source.back() == "app/main.fb: Cubed: 'Cubed' is private to <kinds>");
+    from_source.back() = "app/main.fb: Cubed: neither Int32 nor Int64 has a member named 'Cubed'";
+    CHECK(app_messages(packages, "kinds", "prebuilt", main, fb::build_mode_t::RELEASE, files) ==
+          from_source);
+    packages.remove();
+}
+
+TEST_CASE("a prebuilt library is its interface file, which has to be fb's and the package's",
+          "[driver]") {
+    const packages_t packages;
+    write_physics(packages, "physics");
+    const std::expected<fb::compilation_t, std::string> physics =
+        fb::compile_file(packages / "physics");
+    REQUIRE(physics);
+    fb::diagnostic_bag_t diagnostics;
+    const std::optional<std::string> text =
+        fb::write_interface(*physics, fb::build_mode_t::DEBUG, diagnostics);
+    REQUIRE(text);
+
+    const std::string interface = std::format("lib/{}/debug/physics.fbi", fb::build_target());
+    const std::string main = "Import std.core\nImport physics\nPrint(\"{Pi}\")\n";
+    const auto checked = [&](const std::string_view toml, const std::string_view written) {
+        packages.write("prebuilt/project.toml", toml);
+        packages.write("prebuilt/" + interface, written);
+        return app_messages(packages, "physics", "prebuilt", main, fb::build_mode_t::DEBUG, {});
+    };
+
+    const std::string toml =
+        "[project]\nname = \"physics\"\nversion = \"0.2.0\"\ntype = \"library\"\n";
+    CHECK(checked(toml, *text).empty());
+
+    // Until fb links a prebuilt library's .fblib, a program builds only with its source.
+    packages.write("app/main.fb", main);
+    const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
+    REQUIRE(app);
+    REQUIRE(app->interfaces.size() == 1);
+    const fb::mir_module_t module = fb::lower(app->ast, app->analysis);
+    const std::expected<void, std::string> built =
+        fb::build_program(module, *app, packages / "app/build/app.exe", fb::build_mode_t::DEBUG);
+    REQUIRE_FALSE(built);
+    CHECK(built.error().ends_with("physics.fbi is a prebuilt library's interface; programs build "
+                                  "with prebuilt libraries once fb links their .fblib"));
+
+    // Its first line names the build, which has to be the package's.
+    const std::string named = std::format(
+        "prebuilt/project.toml: \"physics\": {} is the interface of physics v0.2.0, but "
+        "project.toml says physics v0.3.0",
+        interface);
+    CHECK(checked("[project]\nname = \"physics\"\nversion = \"0.3.0\"\n", *text) ==
+          std::vector<std::string>{ named });
+
+    // A file that isn't one fb writes, or whose modules aren't the package's, isn't used.
+    const std::string broken = std::format(
+        "prebuilt/project.toml: \"physics\": {} isn't an interface file that fb writes", interface);
+    CHECK(checked(toml, "Public Const Pi = 3\n") == std::vector<std::string>{ broken });
+    CHECK(checked(toml, text->substr(0, text->find('\n') + 1) + "// module physics/a.fb 9\n") ==
+          std::vector<std::string>{ broken });
+    std::string other = *text;
+    other.replace(other.find("physics/world.fb"), 7, "chemist");
+    CHECK(checked(toml, other) == std::vector<std::string>{ broken });
+
+    // A package is its source or prebuilt, not both.
+    packages.write("prebuilt/extra.fb", "Public Const E = 1\n");
+    CHECK(checked(toml, *text) ==
+          std::vector<std::string>{ std::format(
+              "prebuilt/project.toml: \"physics\": physics has both .fb source and a prebuilt "
+              "build, {}; a package is one or the other",
+              interface) });
+    packages.remove();
+}
+
+TEST_CASE("code an interface file keeps can't embed the library's files", "[driver]") {
+    const packages_t packages;
+    packages.write("art/project.toml", "[project]\nname = \"art\"\nversion = \"0.1.0\"\n");
+    packages.write("art/logo.txt", "logo");
+    packages.write("art/a.fb",
+                   "Import std.core\n"
+                   "Public Function Logo(): String => EmbedText(\"logo.txt\")\n"
+                   "@Inline Public Function Inlined(): String => EmbedText(\"logo.txt\")\n"
+                   "Public Function Generic<T>(x: T): String => EmbedText(\"logo.txt\")\n");
+    const std::expected<fb::compilation_t, std::string> art = fb::compile_file(packages / "art");
+    REQUIRE(art);
+    CHECK(packages.messages(*art) == std::vector<std::string>{});
+    fb::diagnostic_bag_t diagnostics;
+    CHECK_FALSE(fb::write_interface(*art, fb::build_mode_t::DEBUG, diagnostics));
+    std::vector<std::string> errors;
+    for (const fb::diagnostic_t& diagnostic : diagnostics.diagnostics()) {
+        errors.push_back(
+            std::string(art->sources.get(diagnostic.span.file).slice(diagnostic.span)));
+    }
+
+    // Logo's body stays in the library, where it embeds as it does in a program.
+    CHECK(errors ==
+          std::vector<std::string>{ "EmbedText(\"logo.txt\")", "EmbedText(\"logo.txt\")" });
+    REQUIRE_FALSE(diagnostics.diagnostics().empty());
+    CHECK(diagnostics.diagnostics().front().message ==
+          "the library's interface file keeps this code, which programs compile themselves, so it "
+          "can't embed the library's files; embed them in code that stays in the library");
+    packages.remove();
 }

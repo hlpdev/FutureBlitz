@@ -1,6 +1,7 @@
 #include "fb/driver.hpp"
 
 #include "fb/build_config.hpp"
+#include "fb/interface.hpp"
 #include "fb/lexer.hpp"
 #include "fb/link.hpp"
 #include "fb/manifest.hpp"
@@ -62,6 +63,10 @@ struct package_t {
     native_libraries_t linked;
     /// Where its project.toml names each of `linked`'s system libraries.
     std::vector<span_t> system_spans;
+    /// For a prebuilt library: its interface file, and the modules in it, by their paths in the
+    /// program, which it has in place of .fb files.
+    std::filesystem::path interface;
+    std::vector<library_file_t> modules;
 };
 
 /// Where a program's files come from, by their paths in the program: "std/core/error.fb" for
@@ -93,6 +98,19 @@ const package_t* package_named(const file_set_t& files, const std::string_view p
     }
 
     return nullptr;
+}
+
+/// The prebuilt library whose files `path`, a path in the program, is in, or whose folder it
+/// names. Null for any other.
+const package_t* prebuilt_package(const file_set_t& files, const std::string_view path) {
+    const package_t* package = package_named(files, path);
+    return package != nullptr && !package->interface.empty() ? package : nullptr;
+}
+
+/// A prebuilt library's module at `path`, if it has one.
+const library_file_t* prebuilt_module(const package_t& package, const std::string_view path) {
+    const auto found = std::ranges::find(package.modules, path, &library_file_t::path);
+    return found != package.modules.end() ? &*found : nullptr;
 }
 
 /// Where a file or folder of the program is on disk.
@@ -158,6 +176,12 @@ std::string shown_path(const file_set_t& files, const std::string_view path) {
         return std::string(path);
     }
 
+    // A prebuilt library's modules are in its interface file, at their own lines.
+    if (const package_t* package = prebuilt_package(files, path)) {
+        const std::string interface = to_utf8(shown_disk_path(package->interface));
+        return prebuilt_module(*package, path) != nullptr ? interface : std::format("{} in {}", path, interface);
+    }
+
     return to_utf8(shown_disk_path(disk_path(files, path)));
 }
 
@@ -194,6 +218,11 @@ std::optional<std::string> read_file(const file_set_t& files, const std::string_
         return found != files.files.end() ? std::optional(found->text) : std::nullopt;
     }
 
+    if (const package_t* package = prebuilt_package(files, path)) {
+        const library_file_t* module = prebuilt_module(*package, path);
+        return module != nullptr ? std::optional(module->text) : std::nullopt;
+    }
+
     const std::filesystem::path where = disk_path(files, path);
     std::error_code error;
     if (!std::filesystem::is_regular_file(where, error)) {
@@ -221,6 +250,18 @@ std::vector<std::string> folder_files(const file_set_t& files, const std::string
             }
         }
 
+        return found;
+    }
+
+    if (const package_t* package = prebuilt_package(files, folder)) {
+        for (const library_file_t& module : package->modules) {
+            if (module.path.starts_with(prefix) && module.path.ends_with(".fb") &&
+                module.path.find('/', prefix.size()) == std::string::npos) {
+                found.push_back(module.path);
+            }
+        }
+
+        std::ranges::sort(found);
         return found;
     }
 
@@ -582,6 +623,12 @@ private:
 
     /// Whether there's a folder at `path` in the program.
     [[nodiscard]] bool is_folder(const std::string& path) const {
+        if (const package_t* package = prebuilt_package(m_files, path)) {
+            return std::ranges::any_of(package->modules, [&](const library_file_t& module) {
+                return module.path.starts_with(within(path, ""));
+            });
+        }
+
         if (!m_files.root) {
             return std::ranges::any_of(m_files.files, [&](const library_file_t& file) {
                 return file.path.starts_with(within(path, ""));
@@ -594,6 +641,12 @@ private:
 
     /// The size of the file at `path` in the program, or false when there's none.
     [[nodiscard]] bool file_size(const std::string& path, std::uint64_t& size) const {
+        if (const package_t* package = prebuilt_package(m_files, path)) {
+            const library_file_t* module = prebuilt_module(*package, path);
+            size = module != nullptr ? module->text.size() : 0;
+            return module != nullptr;
+        }
+
         if (!m_files.root) {
             const auto found = std::ranges::find(m_files.files, path, &library_file_t::path);
             if (found == m_files.files.end()) {
@@ -685,7 +738,8 @@ private:
     [[nodiscard]] std::optional<std::filesystem::path>
     nested_package(const import_paths_t& paths) const {
         const std::string& path = paths.file.empty() ? paths.folder.value_or("") : paths.file;
-        if (!m_files.root || path.empty() || path.starts_with("std/")) {
+        if (!m_files.root || path.empty() || path.starts_with("std/") ||
+            prebuilt_package(m_files, path) != nullptr) {
             return std::nullopt;
         }
 
@@ -748,6 +802,11 @@ private:
             return std::string(path);
         }
 
+        // A prebuilt library's modules are in its interface file, by their paths.
+        if (prebuilt_package(m_files, path) != nullptr) {
+            return std::format("prebuilt {}", path);
+        }
+
         const std::filesystem::path where = disk_path(m_files, path);
         if (const std::optional<std::filesystem::path> real = real_path(where)) {
             return to_utf8(*real);
@@ -761,7 +820,7 @@ private:
     /// system gives a real path in the letter case it was asked for, on a disk that ignores
     /// letter case, "UI/Hud.fb" is "ui/hud.fb".
     [[nodiscard]] std::optional<std::size_t> same_file(const std::string_view path) const {
-        if (!m_files.root) {
+        if (!m_files.root || prebuilt_package(m_files, path) != nullptr) {
             return std::nullopt;
         }
 
@@ -812,6 +871,10 @@ private:
 
     /// Whether the program has a file at `path`.
     [[nodiscard]] bool has_file(const std::string_view path) const {
+        if (const package_t* package = prebuilt_package(m_files, path)) {
+            return prebuilt_module(*package, path) != nullptr;
+        }
+
         if (!m_files.root) {
             return std::ranges::contains(m_files.files, path, &library_file_t::path);
         }
@@ -1140,7 +1203,8 @@ private:
         const source_file_t& file = m_compilation.sources.get(m_loaded[index].file);
         std::vector<token_t> lexed = lex(file, m_compilation.diagnostics, m_defined);
         const std::size_t before = m_compilation.ast.items().size();
-        parse_into(file, lexed, m_compilation.diagnostics, m_compilation.ast);
+        parse_into(file, lexed, m_compilation.diagnostics, m_compilation.ast,
+                   prebuilt_package(m_files, m_loaded[index].path) != nullptr);
         m_items.resize(m_loaded.size());
         m_items[index].assign(m_compilation.ast.items().begin() +
                                   static_cast<std::ptrdiff_t>(before),
@@ -1182,7 +1246,9 @@ private:
                 continue;
             }
 
-            if (m_files.root) {
+            const std::string& named =
+                paths->file.empty() ? paths->folder.value_or("") : paths->file;
+            if (m_files.root && prebuilt_package(m_files, named) == nullptr) {
                 warn_respelled(node, importer, *paths);
             }
 
@@ -1252,7 +1318,8 @@ private:
     /// Import reaches another package's files, or any outside its own, by a path that looks like
     /// one of its own.
     [[nodiscard]] std::optional<std::filesystem::path> linked_away(const std::string& path) const {
-        if (!m_files.root || path.empty() || path.starts_with("std/")) {
+        if (!m_files.root || path.empty() || path.starts_with("std/") ||
+            prebuilt_package(m_files, path) != nullptr) {
             return std::nullopt;
         }
 
@@ -1372,7 +1439,7 @@ private:
 
     /// The first file in `folder` on disk, by name, whose extension is .fb in other letter cases.
     [[nodiscard]] std::optional<std::string> respelled_file(const std::string& folder) const {
-        if (!m_files.root) {
+        if (!m_files.root || prebuilt_package(m_files, folder) != nullptr) {
             return std::nullopt;
         }
 
@@ -1618,12 +1685,15 @@ void run_front_end(compilation_t& compilation, file_set_t files, const std::stri
     compilation.diagnostics.sort();
 }
 
+std::vector<std::string> library_files(const package_t& package);
+
 /// Reads the packages a program is made of: the main one's project.toml, then those of the
 /// packages it depends on, and theirs, each once. What's wrong goes in the compilation's
 /// diagnostics, at the project.toml's lines, except a main project.toml that can't be read.
 class package_loader_t {
 public:
-    explicit package_loader_t(compilation_t& compilation) : m_compilation(compilation) {}
+    package_loader_t(compilation_t& compilation, const build_mode_t mode)
+        : m_compilation(compilation), m_mode(mode) {}
 
     /// The packages, the main one, in `folder`, first. nullopt after an error.
     std::optional<std::vector<package_t>> run(const std::filesystem::path& folder) {
@@ -1652,6 +1722,7 @@ public:
 
 private:
     compilation_t& m_compilation;
+    build_mode_t m_mode;
     std::vector<package_t> m_packages;
     std::vector<manifest_t> m_manifests;
     /// Each package's folder, as weakly_canonical() has it.
@@ -1763,14 +1834,29 @@ private:
             package.dependencies.push_back(dependency.name);
         }
 
-        // The main file project.toml names has to be there. Without 'main', a package without
-        // main.fb is a library.
+        // The main file project.toml names has to be there. Without 'main' or 'type', a package
+        // without main.fb is a library, and in one whose type says so, main.fb is a module.
         const std::filesystem::path main = root / path_from_utf8(manifest->main);
-        if (std::filesystem::is_regular_file(main, ignored)) {
+        const bool library = manifest->type == package_type_t::LIBRARY;
+        if (!library && std::filesystem::is_regular_file(main, ignored)) {
             package.main = std::filesystem::weakly_canonical(main, ignored);
-        } else if (manifest->main_span) {
+        } else if (!library && manifest->main_span) {
             fail(*manifest->main_span, "there's no {} in the package's folder, which 'main' names",
                  manifest->main);
+        } else if (manifest->type == package_type_t::EXECUTABLE) {
+            fail(*manifest->type_span,
+                 "an executable needs its main file, but there's no {} in the package's folder",
+                 manifest->main);
+        }
+
+        read_prebuilt(*manifest, package);
+
+        // Only a program's own package builds an executable; the ones it uses are libraries.
+        if (named != nullptr && !package.main.empty()) {
+            fail(named->name_span,
+                 "{} is an executable, with a main file, so it can't be a dependency; a package "
+                 "that programs use is a library, type = \"library\" in its project.toml",
+                 named->name);
         }
 
         for (const native_t& native : manifest->natives) {
@@ -1807,6 +1893,57 @@ private:
 
         chain.pop_back();
         return index;
+    }
+
+    /// A prebuilt library's interface file, lib/<target>/<mode>/<name>.fbi, and its modules,
+    /// when its folder has one for this build: its .fb source is what isn't there.
+    void read_prebuilt(const manifest_t& manifest, package_t& package) {
+        const std::filesystem::path folder = std::filesystem::path("lib") /
+                                             path_from_utf8(build_target()) /
+                                             path_from_utf8(mode_folder(m_mode));
+        const std::filesystem::path interface =
+            package.root / folder / path_from_utf8(manifest.name + ".fbi");
+        std::error_code ignored;
+        if (!std::filesystem::is_regular_file(interface, ignored)) {
+            return;
+        }
+
+        // Named as project.toml's paths are, with '/'s.
+        const std::string shown =
+            std::format("lib/{}/{}/{}.fbi", build_target(), mode_folder(m_mode), manifest.name);
+        if (!library_files(package).empty()) {
+            fail(manifest.name_span,
+                 "{} has both .fb source and a prebuilt build, {}; a package is one or the other",
+                 manifest.name, shown);
+            return;
+        }
+
+        std::ifstream file(interface, std::ios::binary);
+        const std::string text{ std::istreambuf_iterator<char>(file),
+                                std::istreambuf_iterator<char>() };
+        const std::optional<interface_header_t> header = read_interface_header(text);
+        std::optional<std::vector<library_file_t>> modules = interface_modules(text);
+        if (!header || !modules) {
+            fail(manifest.name_span, "{} isn't an interface file that fb writes", shown);
+            return;
+        }
+
+        if (header->name != manifest.name || header->version != manifest.version) {
+            fail(manifest.name_span, "{} is the interface of {} v{}, but project.toml says {} v{}",
+                 shown, header->name, header->version, manifest.name, manifest.version);
+            return;
+        }
+
+        // Its modules are the package's, each under its name.
+        for (const library_file_t& module : *modules) {
+            if (!module.path.starts_with(package.prefix) || !module.path.ends_with(".fb")) {
+                fail(manifest.name_span, "{} isn't an interface file that fb writes", shown);
+                return;
+            }
+        }
+
+        package.interface = std::filesystem::weakly_canonical(interface, ignored);
+        package.modules = std::move(*modules);
     }
 
     /// Whether a file starts as an archive does, as a static library's .a or .lib.
@@ -1983,7 +2120,7 @@ std::expected<compilation_t, std::string>
 compile_package(const std::filesystem::path& folder,
                 const std::optional<std::filesystem::path>& main, const build_mode_t mode) {
     compilation_t compilation;
-    package_loader_t reader(compilation);
+    package_loader_t reader(compilation, mode);
     std::optional<std::vector<package_t>> packages = reader.run(folder);
     if (const std::optional<std::string>& unreadable = reader.unreadable()) {
         return std::unexpected(*unreadable);
@@ -2002,6 +2139,12 @@ compile_package(const std::filesystem::path& folder,
     const package_t& own = packages->front();
     const manifest_t& manifest = reader.main();
     compilation.natives = natives_of(*packages, compilation.system_spans);
+    for (const package_t& package : *packages) {
+        if (!package.interface.empty()) {
+            compilation.interfaces.push_back(package.interface);
+        }
+    }
+
     compilation.package = package_info_t{
         .name = own.name,
         .version = own.version,
@@ -2017,7 +2160,8 @@ compile_package(const std::filesystem::path& folder,
         if (!std::filesystem::equivalent(main_path, written, error)) {
             compilation.package->program = to_utf8(main_path.stem());
         }
-    } else if (!std::filesystem::is_regular_file(written, error)) {
+    } else if (manifest.type == package_type_t::LIBRARY ||
+               (!manifest.type && !std::filesystem::is_regular_file(written, error))) {
         // Without a main file, it's a library, whose files are each checked. The main file is
         // empty, and named unlike any of them.
         compilation.package->library = true;
@@ -2352,6 +2496,14 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
                                                const compilation_t& compilation,
                                                const std::filesystem::path& output,
                                                const build_mode_t mode) {
+    // A prebuilt library's code is in its .fblib, which programs link from M7's step 2.
+    if (!compilation.interfaces.empty()) {
+        return std::unexpected(std::format(
+            "{} is a prebuilt library's interface; programs build with prebuilt libraries once "
+            "fb links their .fblib",
+            to_utf8(shown_disk_path(compilation.interfaces.front()))));
+    }
+
     // The output's folder may not exist yet, as with -o or fb run. If it can't be made, linking
     // reports that.
     std::error_code ignored;

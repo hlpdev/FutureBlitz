@@ -42,6 +42,14 @@ struct native_t {
     span_t path_span;
 };
 
+/// What a package builds, as project.toml's `type` says.
+enum class package_type_t : std::uint8_t {
+    /// A program, from its main file.
+    EXECUTABLE,
+    /// Modules that programs use, built into them or beside them.
+    LIBRARY,
+};
+
 /// A package's project.toml, read.
 struct manifest_t {
     /// An identifier, which messages show and the package's build is named by.
@@ -49,6 +57,10 @@ struct manifest_t {
     span_t name_span;
     /// Three numbers, like "0.1.0".
     std::string version;
+    /// What it builds, when `type` is written. Without it, a package with its main file is an
+    /// executable, and one without is a library.
+    std::optional<package_type_t> type;
+    std::optional<span_t> type_span;
     /// The main file, from the project.toml's folder. A package without it is a library.
     std::string main = "main.fb";
     std::optional<span_t> main_span;
