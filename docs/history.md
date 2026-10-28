@@ -1537,6 +1537,33 @@ its WebSocket client connects with wss://, stopping its servers on every way out
 (docs/review/readings-tls.md). Lane 9's test holds two keep-alive connections to the HTTP test
 server and asks on a third.
 
+Step 30's Routes<T> (lane 6), as the user chose: router.Routes(instance) adds a route for each Async
+Method with @Get, @Post, @Put, @Patch, or @Delete that takes nothing, the request, one Struct or
+Class, or that and the request; the argument is Load<A> of an Object of A's Fields from the path's
+parameters, then the query, by name or @Rename in any case, with a @JsonBody Field read from the
+body's JSON, @Flatten and @Renamed Fields too, and a Field that doesn't load is a 400 naming it; an
+attributed Method of another shape, one that throws, or an argument Load doesn't make from an Object
+panics at Routes, and Static and ByRef Methods aren't routes. Its two reviews' eight findings were
+fixed (docs/review/routes.md, routes2.md). With it, step 30 is done.
+
+For Method's picks (lane 2), as the user chose: `Where m Has Get Or Post` keeps only Methods with
+one of those Attributes, so the rest get no copy and aren't checked, and a typed loop takes throwing
+Methods where its Func type throws, `Func(A): R Throws E` and `Func(A): (Task<R> Throws E)`, a Func
+type's Throws following a header's rules with or without a result (spec 13). Its review's ten
+findings and two from lane 6 were fixed (docs/review/picks.md): a pick must match to vouch for
+another loop, an override always takes its base's place, a nested Func value can't throw, a Callback
+can't, and a thrown E needs no caller's say.
+
+The last fixes (lanes 7, 11, 2, and 5): lowering read an If's, ElseIf's, While's, or Until's
+condition from inside the statement's temporaries after releasing them, so `If Await x Then` read a
+freed Task, which macOS's malloc reuses at once (net_tls hung on macOS's runner); lower_condition
+copies such a condition into a local first (mir_tests, async_conditions). Windows' OS roots are only
+those its SSL policy trusts for servers, so mbedTLS and libcurl trust none Windows distrusts from a
+date or by its properties, and the OS-trust test asks Windows' own policy about each root. CI
+cancels an older run on master too, and http_files' POSIX branch compiles. The five Deferred work
+rows planned for M6 steps 11, 13, 18, 19, and 32 were already done and left the table. stdlib.md's
+TimeoutError, easing, and LAN discovery say what was built.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished

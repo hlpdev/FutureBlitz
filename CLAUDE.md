@@ -29,10 +29,9 @@ compiler (lib), runtime (lib), cli (exe), lsp (exe), tools/bindgen (fb_bindgen l
 exe)
 
 ## Current step
-M6 (the full standard library), planned 2026-10-20 and 2026-10-21 in 32 steps (docs/milestones.md;
-design in docs/stdlib.md), lands on Windows, with Linux and macOS fixed as it lands.
+M6, the full standard library, is done: all 32 steps (docs/milestones.md; design in
+docs/stdlib.md) landed on Windows by 2026-10-27, with Linux and macOS fixed as CI finds them.
 docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
-The whole-codebase review's fixes and the rest of M6 run as docs/m6-plan.md describes.
 M7, libraries and packages, is planned in docs/libraries.md; tooling is M8; futureblitz.dev
 (the site, docs, playground, registry, and accounts) is M9, in docs/website.md.
 
@@ -50,16 +49,14 @@ docs/history.md; a landed step's notes go there, newest milestone first.
 - M5 (2026-10-18 to 20): modules, Import and From, visibility, Extern and CString,
   project.toml and packages, native libraries, pointers and Unsafe, @CLayout and the C ABI,
   Callback, and bindgen.
-- M6 so far: step 0 (CI on Windows, Linux, and macOS), 1 (std's foundation), 2 (indexing, iteration,
-  and ranges), 3 (collections I), 4 (collections II), 5 (formatting, parsing, and the debug form), 6
-  (text I, Char), 7 (text II, regex), 8 (Markdown and templates), 9 (math I), 10 (math II,
-  ThreadLocal Global), 11 (big math and units), 12 (ffi: CData and Buffer), 13 (streams), 14
-  (files), 15 (Embed, the VFS, and Preferences), 16 (time), 17 (Value, Load and Save, std.os,
-  processes and signals, Args), 19 (JSON and MessagePack), 20 (TOML, CSV, INI, XML, YAML, Protocol
-  Buffers), 21 (crypto), 22 (compression), 23 (uuid, SQLite, and Query<T>), 24 (images), 25 (drawing
-  and fonts), 26 (terminal), 27 (algo); 18 (concurrency, events, std.log, Sendable Func, Where T:
-  Class, Task<T> Throws E); 28 (addresses, URLs, DNS, sockets, LAN discovery), 29 (TLS, the HTTP
-  client, and Download), 31 (game networking); parts of 30 (the HTTP server, HTTPS and automatic
-  HTTPS, WebSockets and wss://, static files, ACME, and Workers), and 32 (std.debug, the audit's
-  gaps in std.text, std.compress, std.image, and std.io, and the integration program); and every one
-  of the whole-codebase review's fixes.
+- M6 (2026-10-20 to 27): CI on Windows, Linux, and macOS; std's foundation, indexing and ranges,
+  collections, formatting and parsing, text, Char, and regex, Markdown and templates, math, big math
+  and units, ffi's CData and Buffer, streams, files, Embed, the VFS, and Preferences, time, Value,
+  Load and Save, std.os, processes, signals, and Args, concurrency, events, and std.log, JSON and
+  MessagePack, TOML, CSV, INI, XML, YAML, and Protocol Buffers, crypto, compression, uuid, SQLite,
+  and Query<T>, images, drawing and fonts, the terminal, algo, addresses, URLs, DNS, sockets, and
+  LAN discovery, TLS, the HTTP client, the HTTP server, WebSockets, HTTPS with ACME, game
+  networking, std.debug, and a program that uses them together; in the language, partial
+  type-argument inference, overloads by type-parameter count, Defaults<T>, and For Method's own type
+  parameters, picks, and throwing Methods; a parallel verify; and every one of the whole-codebase
+  review's fixes.

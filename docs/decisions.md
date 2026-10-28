@@ -944,6 +944,10 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | verify.py runs the test programs --jobs at a time, each in a folder of its own, and the programs ctest test is 32 shards with a 20-minute limit each; a run past 600 s fails (the user's call, 2026-10-27) | a full verify took 78 minutes on one core of 32; a hang now names its program |
 | Automatic HTTPS keeps its account and certificate in a folder the program gives, written atomically and reused across runs, as Caddy and certmagic do; the HTTP side answers challenges and 308s everything else; it renews at a third of the lifetime left, at start too, and a failure is logged and readable while the old certificate goes on (step 30) | a restarted server reuses its certificate, and a renewal failure never takes a site down |
 | wss:// takes `tls: TlsClient? = Null`, Null trusting the OS's roots; a renewed chain applies to new connections only, through TlsServer.Identify (step 30) | a test or a private CA can be trusted without a global setting |
+| Routes<T> routes a Class's Async Methods with @Get and the rest, each taking nothing, the request, or one Struct that Load makes from the path, the query, and a @JsonBody Field's JSON; a misshapen or throwing attributed Method panics at Routes (step 30; the user's call) | typed binding with one conversion, Load's, and no silent 404s |
+| `Where m Has A Or B` picks a For Method's Methods by attribute at compile time, and a typed loop takes throwing Methods where its Func type throws (spec 13, step 30; the user's call) | Routes<T>'s helpers aren't constrained, and an attributed Method that throws is refused, not missed |
+| A statement's condition read from inside one of its temporaries is copied to a local before they're released (step 32's Linux and macOS pass) | an Await's result lives in its Task, which the statement releases |
+| Windows' OS roots are only those its SSL policy trusts for servers (step 29's review) | mbedTLS must never trust a root that Schannel wouldn't |
 
 ## Libraries and packages (M7)
 
