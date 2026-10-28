@@ -245,14 +245,18 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
   resolved, holding what a program compiles against: every Public declaration, with the bodies of
   its generic, `@Inline`, and Const code, which the program compiles itself; the library's Private
   and Package declarations that those bodies reach, which only those bodies can use, whose symbols
-  the library's binary exports, with bodies only when they're generic or `@Inline` themselves; and
-  every Field of each type it shows, Private ones too, with their visibility, so layouts and
-  `For Field` agree. A Const is written as its value, and an `Embed` in a body the interface file
-  keeps is an error when the library is built.
-- In it, a declaration whose code is in the library's binary is its first line and `=> ...`,
-  and a Global or Static Field the binary initializes is `= ...` after its type, which is
-  written for one that had none; only an interface file can write them. Each module is its
-  part of the file, after a line `// module <path> <lines>`, with its Imports.
+  the library's binary exports, with bodies only when they're generic, `@Inline`, or Const
+  themselves; every Extend; and every member of each type it shows, Private ones too, with their
+  visibility, so layouts, `For Field`, Interfaces, and the names a Class that extends one can use
+  agree. A Const is written as its value, and an `Embed` in code the interface file keeps, which a
+  program compiles, is an error when the library is built; a Class's Field defaults, which its
+  New gives, stay in the binary.
+- In it, a declaration whose code is in the library's binary is its first line and `=> ...`, and
+  a Global, Static Field, or Class's Field whose value the binary gives is `= ...` after its type,
+  which is written for one that had none; `@MainThreadOnly("why")` before one says that its code
+  can only run on the main thread, and why, as [10](10-concurrency.md)'s message would. Only an
+  interface file can write them. Each module, a `.proto` file's as the module fb makes from it, is
+  its part of the file, after a line `// module <path> <lines>`, with its Imports.
 - Its first line is the library's build: its name, its version, and its ABI hash, which covers
   the rest of the interface file, the library's compiled code, the compiler's version, the target,
   and the mode. A program is built against one exact build of each library, and linking or

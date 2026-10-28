@@ -2,6 +2,7 @@
 
 #include "fb/build_config.hpp"
 #include "fb/lexer.hpp"
+#include "fb/token.hpp"
 #include "fb/utf8.hpp"
 
 #include <algorithm>
@@ -50,9 +51,11 @@ struct candidate_t {
     /// For a member, the candidate it's in.
     std::optional<std::size_t> owner;
     std::string_view name;
-    /// Public, or a Protected member, which other packages see.
+    /// Public, a Protected member, or an Extend, which other packages see.
     bool shown = false;
-    /// What the interface file always keeps of a type it holds: a Field, or what has no body.
+    /// A member of a type or an Extend, which the interface file keeps with it, Private ones
+    /// too, so programs check against them as against the source: a Private New stays one, an
+    /// Interface's Methods stay implemented, and a Method can't take a Private one's name.
     bool always = false;
     bool included = false;
 };
@@ -86,6 +89,26 @@ std::u32string code_points(const std::string_view text) {
     }
 
     return out;
+}
+
+/// Whether a module's name is one an Import takes: identifiers between its dots.
+bool dotted(const std::string_view name) {
+    for (std::size_t begin = 0; begin <= name.size();) {
+        const std::size_t end = std::min(name.find('.', begin), name.size());
+        const std::string_view part = name.substr(begin, end - begin);
+        const auto letter = [](const char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+        };
+        if (part.empty() || !letter(part.front()) || keyword_kind(part) ||
+            !std::ranges::all_of(
+                part, [&](const char c) { return letter(c) || (c >= '0' && c <= '9'); })) {
+            return false;
+        }
+
+        begin = end + 1;
+    }
+
+    return true;
 }
 
 /// A float as the shortest decimal that reads back as it, with a '.', so it's a decimal literal.
@@ -220,6 +243,8 @@ private:
     std::set<std::string_view, std::less<>> m_names;
     /// The Embeds, EmbedTexts, and EmbedFolders of the program.
     std::vector<expr_id_t> m_embeds;
+    /// The Global or Field whose type is being written.
+    name_t m_typed;
     bool m_failed = false;
 
     [[nodiscard]] std::optional<std::size_t> module_index(const file_id_t file) const {
@@ -340,28 +365,20 @@ private:
         std::visit(
             [&](const auto& declared) {
                 using node_t = std::decay_t<decltype(declared)>;
-                if constexpr (std::is_same_v<node_t, function_stmt_t>) {
-                    candidate.name = declared.name.text;
-                    // A Class whose New is Private can't be made elsewhere, as it couldn't
-                    // with its source.
-                    candidate.always = declared.modifiers.is_abstract ||
-                                       declared.modifiers.is_override || declared.required ||
-                                       declared.kind == function_kind_t::CONSTRUCTOR;
-                } else if constexpr (std::is_same_v<node_t, variable_stmt_t>) {
-                    candidate.name = declared.name.text;
-                    candidate.always =
-                        declared.kind == variable_kind_t::FIELD && !declared.modifiers.is_static;
-                } else if constexpr (std::is_same_v<node_t, property_stmt_t>) {
-                    candidate.name = declared.name.text;
-                    candidate.always = declared.required || declared.modifiers.is_abstract ||
-                                       declared.modifiers.is_override;
-                } else if constexpr (std::is_same_v<node_t, type_stmt_t> ||
-                                     std::is_same_v<node_t, enum_stmt_t> ||
-                                     std::is_same_v<node_t, alias_stmt_t>) {
+                if constexpr (std::is_same_v<node_t, function_stmt_t> ||
+                              std::is_same_v<node_t, variable_stmt_t> ||
+                              std::is_same_v<node_t, property_stmt_t> ||
+                              std::is_same_v<node_t, type_stmt_t> ||
+                              std::is_same_v<node_t, enum_stmt_t> ||
+                              std::is_same_v<node_t, alias_stmt_t>) {
                     candidate.name = declared.name.text;
                 }
             },
             node);
+        // An Extend has no visibility of its own: its members do, and what it makes its type
+        // implement is seen everywhere.
+        candidate.shown = candidate.shown || std::holds_alternative<extend_stmt_t>(node);
+        candidate.always = member && !is_block(m_candidates[*owner]);
 
         // An Import isn't a declaration: every one is kept, as other code can need its names.
         if (std::holds_alternative<import_stmt_t>(node) ||
@@ -392,11 +409,9 @@ private:
         }
     }
 
-    /// Whether a block's members, an Extend's or an Extern block's, decide whether it's kept.
+    /// Whether a candidate is an Extern block, whose Functions decide whether it's kept.
     [[nodiscard]] bool is_block(const candidate_t& candidate) const {
-        const stmt_node_t& node = m_ast.get(candidate.id).node;
-        return std::holds_alternative<extend_stmt_t>(node) ||
-               std::holds_alternative<extern_stmt_t>(node);
+        return std::holds_alternative<extern_stmt_t>(m_ast.get(candidate.id).node);
     }
 
     [[nodiscard]] bool wanted(const candidate_t& candidate) const {
@@ -412,8 +427,7 @@ private:
             return false;
         }
 
-        // An Extend's member is seen by other packages when it's Public.
-        return candidate.shown || (candidate.always && !in_block) ||
+        return candidate.shown || candidate.always ||
                (!candidate.name.empty() && m_names.contains(candidate.name));
     }
 
@@ -460,7 +474,8 @@ private:
         }
 
         if (const auto* variable = std::get_if<variable_stmt_t>(&node)) {
-            if (variable->kind == variable_kind_t::FIELD && !variable->modifiers.is_static) {
+            if (variable->kind == variable_kind_t::FIELD && !variable->modifiers.is_static &&
+                !in_class(index)) {
                 return { { start, stmt.span.end } };
             }
 
@@ -475,6 +490,15 @@ private:
         }
 
         return { { start, stmt.span.end } };
+    }
+
+    /// Whether a candidate is a member of a Class, whose Fields' defaults its New gives, so a
+    /// program never runs them.
+    [[nodiscard]] bool in_class(const std::size_t index) const {
+        const std::optional<std::size_t> owner = m_candidates[index].owner;
+        const auto* type =
+            owner ? std::get_if<type_stmt_t>(&m_ast.get(m_candidates[*owner].id).node) : nullptr;
+        return type != nullptr && type->is_class;
     }
 
     /// A top-level Const's value as a literal, when it's known and of a built-in type.
@@ -522,7 +546,8 @@ private:
         const auto* variable = std::get_if<variable_stmt_t>(&m_ast.get(id).node);
         const std::optional<symbol_id_t> symbol = m_analysis.stmt(id).symbol;
         if (variable != nullptr && !variable->type && symbol &&
-            (variable->kind == variable_kind_t::GLOBAL || variable->modifiers.is_static)) {
+            (variable->kind == variable_kind_t::GLOBAL || variable->modifiers.is_static ||
+             in_class(index))) {
             note_type_names(m_analysis.symbol(*symbol).type);
         }
     }
@@ -630,12 +655,13 @@ private:
         return imports + declarations;
     }
 
-    /// What an Import in `module` writes for `target`: a dotted name, or for a .proto file's
-    /// module, its path from the module's folder.
+    /// What an Import in `module` writes for `target`: a module of another package by its
+    /// dotted name, and one of the library's own by its path from the module's folder, which
+    /// any folder's name can be in.
     [[nodiscard]] std::string import_name(const module_text_t& module,
                                           const module_id_t target) const {
         const module_t& imported = m_ast.modules().get(target);
-        if (!imported.path.ends_with(".proto")) {
+        if (imported.package != module.module->package) {
             return imported.name;
         }
 
@@ -647,13 +673,18 @@ private:
             begin = end + 1;
         }
 
+        // From the module's folder up to its package's, the first part of their paths, then
+        // down.
         from.pop_back();
-        std::string path;
-        for (std::size_t i = 0; i < from.size(); ++i) {
+        std::string path = from.size() > 1 ? "" : "./";
+        for (std::size_t i = 1; i < from.size(); ++i) {
             path += "../";
         }
 
-        return std::format("\"{}{}\"", path, imported.path);
+        const std::string_view file =
+            std::string_view(imported.path).substr(imported.path.find('/') + 1);
+        return std::format("\"{}{}\"", path,
+                           file.ends_with(".fb") ? file.substr(0, file.size() - 3) : file);
     }
 
     /// A declaration as the interface file writes it, with its line break.
@@ -686,9 +717,13 @@ private:
             [&](const auto& node) -> std::string {
                 using node_t = std::decay_t<decltype(node)>;
                 if constexpr (std::is_same_v<node_t, function_stmt_t>) {
-                    return first + " => ...\n";
+                    return main_thread_only(indent, { id }) + first.substr(indent.size()) +
+                           " => ...\n";
                 } else if constexpr (std::is_same_v<node_t, property_stmt_t>) {
-                    std::string text = std::format("{}\n{}    Get => ...\n", first, indent);
+                    std::string text =
+                        std::format("{}{}\n{}    Get => ...\n",
+                                    main_thread_only(indent, { node.getter, node.setter }),
+                                    first.substr(indent.size()), indent);
                     if (node.setter) {
                         const auto& setter =
                             std::get<function_stmt_t>(m_ast.get(*node.setter).node);
@@ -707,7 +742,7 @@ private:
                     return std::format("{}\n{}{}End Extern\n", first, members(node.functions),
                                        indent);
                 } else if constexpr (std::is_same_v<node_t, variable_stmt_t>) {
-                    return variable_text(id, node, first, module);
+                    return variable_text(index, node, first, module);
                 } else {
                     return first + "\n";
                 }
@@ -715,10 +750,51 @@ private:
             stmt.node);
     }
 
-    /// A Global, Static Field, Const, or Field.
-    std::string variable_text(const stmt_id_t id, const variable_stmt_t& node,
+    /// "@MainThreadOnly("why") " after `indent`, for what of the code a declaration keeps in the
+    /// binary only the main thread can run, as analysis found it, or `indent` alone: one reason
+    /// for a function, or a Property's Get and Set, its Set's after "Set:".
+    [[nodiscard]] std::string
+    main_thread_only(const std::string& indent,
+                     const std::vector<std::optional<stmt_id_t>>& parts) const {
+        std::vector<std::string> reasons;
+        for (std::size_t i = 0; i < parts.size(); ++i) {
+            const std::optional<stmt_id_t>& part = parts[i];
+            const std::optional<symbol_id_t> symbol =
+                part ? m_analysis.stmt(*part).symbol : std::nullopt;
+            const auto found = symbol ? m_analysis.main_thread_only.find(*symbol)
+                                      : m_analysis.main_thread_only.end();
+            if (found == m_analysis.main_thread_only.end()) {
+                continue;
+            }
+
+            std::string_view label;
+            if (parts.size() > 1) {
+                label = i == 0 ? "Get: " : "Set: ";
+            }
+
+            reasons.push_back(
+                std::format("{}\"{}\"", label, escaped(code_points(found->second), U'"')));
+        }
+
+        if (reasons.empty()) {
+            return indent;
+        }
+
+        std::string text = indent + "@MainThreadOnly(";
+        for (std::size_t i = 0; i < reasons.size(); ++i) {
+            text += (i == 0 ? "" : ", ") + reasons[i];
+        }
+
+        return text + ") ";
+    }
+
+    /// A Global, Static Field, Const, or Field: a Struct's whole, since the Struct that a
+    /// program makes takes its defaults, and a Class's with "= ..." for a default.
+    std::string variable_text(const std::size_t index, const variable_stmt_t& node,
                               const std::string& first, module_text_t& module) {
-        if (node.kind == variable_kind_t::FIELD && !node.modifiers.is_static) {
+        const stmt_id_t id = m_candidates[index].id;
+        const bool field = node.kind == variable_kind_t::FIELD && !node.modifiers.is_static;
+        if (field && (!in_class(index) || !node.value)) {
             return first + "\n";
         }
 
@@ -735,6 +811,7 @@ private:
             return first + " = ...\n";
         }
 
+        m_typed = node.name;
         return std::format("{}: {} = ...\n", first, type_text(module, type));
     }
 
@@ -860,10 +937,37 @@ private:
             return {};
         }
 
+        // Another package's module is imported by its dotted name, which has to be one.
+        if (found->package != module.module->package && !dotted(found->name)) {
+            m_diagnostics.error(m_typed.span,
+                                "the interface file can't write the type of '{}', since its "
+                                "module, {}, has no name an Import takes; write the type",
+                                m_typed.text, found->name);
+            m_failed = true;
+        }
+
         const auto target = static_cast<module_id_t>(found - modules.begin());
-        const auto added =
-            module.qualifiers.emplace(target, std::format("__fbi{}", module.qualifiers.size() + 1));
-        return added.first->second + ".";
+        if (const auto known = module.qualifiers.find(target); known != module.qualifiers.end()) {
+            return known->second + ".";
+        }
+
+        // A name the module's own text doesn't use, which its code could have.
+        std::string chosen;
+        for (std::size_t n = module.qualifiers.size() + 1; chosen.empty(); ++n) {
+            chosen = std::format("__fbi{}", n);
+            const auto used = [&](const token_t& token) {
+                return token.kind == token_kind_t::IDENTIFIER &&
+                       module.file->slice(token.span) == chosen;
+            };
+            if (std::ranges::any_of(module.tokens, used) ||
+                std::ranges::any_of(module.qualifiers,
+                                    [&](const auto& entry) { return entry.second == chosen; })) {
+                chosen.clear();
+            }
+        }
+
+        module.qualifiers.emplace(target, chosen);
+        return chosen + ".";
     }
 
     /// Reports each Embed in the code a declaration keeps, which a program compiling it
@@ -886,13 +990,19 @@ private:
     }
 };
 
-/// Splits text into its lines, without their line breaks.
+/// Splits text into its lines, without their line breaks, "\n" or "\r\n", as a copy that was
+/// given Windows' line breaks has them.
 std::vector<std::string_view> lines_of(const std::string_view text) {
     std::vector<std::string_view> lines;
     std::size_t begin = 0;
     while (begin < text.size()) {
         const std::size_t end = std::min(text.find('\n', begin), text.size());
-        lines.push_back(text.substr(begin, end - begin));
+        std::string_view line = text.substr(begin, end - begin);
+        if (line.ends_with('\r')) {
+            line.remove_suffix(1);
+        }
+
+        lines.push_back(line);
         begin = end + 1;
     }
 
@@ -954,7 +1064,11 @@ std::optional<std::string> write_interface(const compilation_t& compilation,
 }
 
 std::optional<interface_header_t> read_interface_header(const std::string_view text) {
-    const std::string_view line = text.substr(0, text.find('\n'));
+    std::string_view line = text.substr(0, text.find('\n'));
+    if (line.ends_with('\r')) {
+        line.remove_suffix(1);
+    }
+
     if (!line.starts_with(header_start)) {
         return std::nullopt;
     }
@@ -1003,6 +1117,10 @@ std::optional<std::vector<library_file_t>> interface_modules(const std::string_v
             .path = std::string(line.substr(module_start.size(), space - module_start.size())),
             .text = std::string(at + 1, '\n'),
         };
+        if (std::ranges::contains(modules, module.path, &library_file_t::path)) {
+            return std::nullopt;
+        }
+
         for (std::size_t i = 0; i < count; ++i) {
             module.text += std::string(lines[at + 1 + i]) + "\n";
         }

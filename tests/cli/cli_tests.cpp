@@ -1605,6 +1605,25 @@ TEST_CASE("fb runs and builds a package from its folder", "[cli]") {
                       "physics is a library, whose build goes in its build/ folder; '-o' names an "
                       "executable");
 
+    // A prebuilt library is checked from its interface file, and has no source to build.
+    const std::filesystem::path prebuilt = packages / "prebuilt";
+    std::filesystem::create_directories(prebuilt / "lib" / fb::path_from_utf8(fb::build_target()) /
+                                        "release");
+    std::filesystem::copy_file(packages / "physics" / "project.toml", prebuilt / "project.toml");
+    std::filesystem::copy_file(written, prebuilt / "lib" / fb::path_from_utf8(fb::build_target()) /
+                                            "release" / "physics.fbi");
+    const fb::process_result_t prechecked = fb_run({ "check", fb::to_utf8(prebuilt), "--release" });
+    INFO(prechecked.output);
+    CHECK(prechecked.exit_code == 0);
+    check_usage_error({ "build", fb::to_utf8(prebuilt), "--release" }, "physics is prebuilt, ");
+
+    // A library needs modules to build.
+    const std::filesystem::path empty = packages / "empty";
+    std::filesystem::create_directories(empty);
+    std::ofstream(empty / "project.toml") << "[project]\nname = \"empty\"\nversion = \"0.1.0\"\n";
+    check_usage_error({ "build", fb::to_utf8(empty) },
+                      "empty has no .fb files, so it has no modules to build");
+
     // A folder that isn't a package's is bad usage.
     check_usage_error({ "check", fb::to_utf8(packages) }, "there's no project.toml in '");
 }

@@ -6689,7 +6689,7 @@ private:
             }
 
             result.push_back(member);
-            if (!constructor || super_new_of(symbol(member))) {
+            if (!constructor || super_new_of(symbol(member)) || is_prebuilt(member)) {
                 continue;
             }
 
@@ -7065,8 +7065,13 @@ private:
 
     /// Whether a field's declaration gives it a default.
     [[nodiscard]] bool has_written_default(const symbol_t& field) const {
-        return field.declaration &&
-               std::get<variable_stmt_t>(m_ast.get(*field.declaration).node).value.has_value();
+        if (!field.declaration) {
+            return false;
+        }
+
+        // An interface file's Class Field with "= ..." has its default in the library's New.
+        const auto& node = std::get<variable_stmt_t>(m_ast.get(*field.declaration).node);
+        return node.value.has_value() || node.prebuilt;
     }
 
     /// A field's type, in its type's fields and in those of every Class extending it, or one of
@@ -10918,6 +10923,22 @@ private:
                 in_file(worker.span.file, [&] { check_worker(worker, also); });
             }
         }
+
+        // A library's interface file keeps its functions' first lines, and says this of them.
+        // std's are always compiled from its source.
+        for (const symbol_id_t function : m_analysis.functions) {
+            const symbol_t& declared = symbol(function);
+            const std::optional<module_id_t> module = m_ast.modules().of(declared.span.file);
+            if (declared.modifiers.is_main_thread || !module ||
+                m_ast.modules().get(*module).path.starts_with("std/")) {
+                continue;
+            }
+
+            if (std::optional<std::pair<std::string, span_t>> why =
+                    main_only_path(function, also)) {
+                m_analysis.main_thread_only.emplace(function, std::move(why->first));
+            }
+        }
     }
 
     /// A Struct that implements Equatable without an Operator == of its own compares its
@@ -11326,6 +11347,15 @@ private:
         return shown_name(parameter);
     }
 
+    /// Whether a declared function is an interface file's, whose code is in its library's
+    /// binary.
+    [[nodiscard]] bool is_prebuilt(const symbol_id_t id) const {
+        const std::optional<stmt_id_t> declaration = m_analysis.symbol(id).declaration;
+        const auto* node =
+            declaration ? std::get_if<function_stmt_t>(&m_ast.get(*declaration).node) : nullptr;
+        return node != nullptr && node->prebuilt;
+    }
+
     void check_worker(const worker_t& worker,
                       const std::unordered_map<symbol_id_t, std::vector<symbol_id_t>>& also) {
         // A ThreadLocal Global's initializer is the work, and @MainThread on the Global itself is
@@ -11336,9 +11366,21 @@ private:
             return;
         }
 
+        if (const std::optional<std::pair<std::string, span_t>> why =
+                main_only_path(worker.work, also)) {
+            error(worker.span, "{}, but it {}", worker.where, why->first)
+                .with_label(why->second, "here");
+        }
+    }
+
+    /// Why `work` can only run on the main thread, after "it", like "calls 'Bump', which uses
+    /// the Global 'score', ...", and where, by the shortest way through what it runs.
+    std::optional<std::pair<std::string, span_t>>
+    main_only_path(const symbol_id_t work,
+                   const std::unordered_map<symbol_id_t, std::vector<symbol_id_t>>& also) {
         // Breadth first, so the error names the shortest way there.
-        std::unordered_map<symbol_id_t, symbol_id_t> came_from{ { worker.work, worker.work } };
-        std::vector<symbol_id_t> queue{ worker.work };
+        std::unordered_map<symbol_id_t, symbol_id_t> came_from{ { work, work } };
+        std::vector<symbol_id_t> queue{ work };
         for (std::size_t next = 0; next < queue.size(); ++next) {
             const symbol_id_t code = queue[next];
             if (const auto found = m_main_only.find(code); found != m_main_only.end()) {
@@ -11347,7 +11389,7 @@ private:
                 const main_only_t& reached = found->second;
                 std::vector<symbol_id_t> path;
                 std::vector<type_id_t> shown;
-                for (symbol_id_t at = code; at != worker.work; at = came_from.at(at)) {
+                for (symbol_id_t at = code; at != work; at = came_from.at(at)) {
                     const symbol_kind_t kind = symbol(at).kind;
                     if ((kind == symbol_kind_t::FUNCTION || kind == symbol_kind_t::METHOD ||
                          kind == symbol_kind_t::CONSTRUCTOR) &&
@@ -11363,9 +11405,9 @@ private:
                     shown.push_back(reached.type);
                 }
 
-                std::string how = "it";
+                std::string how;
                 for (const symbol_id_t step : std::views::reverse(path)) {
-                    how += std::format(" calls {}, which", code_name(symbol(step), shown));
+                    how += std::format("calls {}, which ", code_name(symbol(step), shown));
                 }
 
                 const std::string what =
@@ -11373,9 +11415,7 @@ private:
                         ? std::format("{}{}{}", reached.what, name_among(reached.type, shown),
                                       reached.rest)
                         : reached.what;
-                error(worker.span, "{}, but {} {}", worker.where, how, what)
-                    .with_label(reached.span, "here");
-                return;
+                return std::pair(how + what, reached.span);
             }
 
             const auto visit = [&](const symbol_id_t reached) {
@@ -11392,6 +11432,8 @@ private:
                 std::ranges::for_each(edges->second, visit);
             }
         }
+
+        return std::nullopt;
     }
 
     /// A use of `id` at `span`, for the main-thread rules, and a warning at a use of something
@@ -14631,8 +14673,13 @@ private:
             return;
         }
 
-        // A prebuilt library's binary has the code of what its interface file declares.
+        // A prebuilt library's binary has the code of what its interface file declares, and
+        // the file says what of it only the main thread can run.
         if (node->prebuilt) {
+            if (const std::optional<std::string>& why = node->modifiers.main_thread_only) {
+                add_main_only(*function_id, { .what = *why, .span = node->name.span });
+            }
+
             return;
         }
 

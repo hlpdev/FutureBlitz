@@ -458,6 +458,11 @@ struct modifiers_t {
     /// Where its first attribute or modifier is written, which is where its declaration starts.
     /// nullopt when it has none written.
     std::optional<std::uint32_t> start;
+    /// In an interface file, "@MainThreadOnly("why")": why a prebuilt function's code can only
+    /// run on the main thread, which its body showed, as a message about work on another thread
+    /// says it after "it". On a Property, its Get's, and after "Set:", its Set's.
+    std::optional<std::string> main_thread_only;
+    std::optional<std::string> main_thread_only_set;
 };
 
 /// The keyword that declares a variable: Local, Global, Const, or a Struct's Field.
@@ -477,8 +482,8 @@ struct variable_stmt_t {
     std::optional<expr_id_t> value;
     /// Static and ReadOnly, which only a Field can have.
     modifiers_t modifiers;
-    /// In a library's interface file, a Global or Static Field written "= ...": the library's
-    /// binary has it, and initializes it.
+    /// In a library's interface file, a Global or Static Field written "= ...", whose value the
+    /// library's binary has, or a Class's Field, whose default its New gives.
     bool prebuilt = false;
 };
 

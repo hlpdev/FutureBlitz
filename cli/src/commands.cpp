@@ -347,6 +347,13 @@ int build_library(const console_t& console, const options_t& options,
         return usage_exit_code;
     }
 
+    // A prebuilt library's build is what it has; there's no source to build it from.
+    if (!package->interface.empty()) {
+        console.error(std::format("{} is prebuilt, {}; there's no source to build it from",
+                                  package->name, to_utf8(package->interface)));
+        return usage_exit_code;
+    }
+
     diagnostic_bag_t diagnostics;
     const std::optional<std::string> interface =
         write_interface(compilation, options.mode, diagnostics);
@@ -359,6 +366,12 @@ int build_library(const console_t& console, const options_t& options,
         console.error(std::format("couldn't build {} because of {}", name,
                                   count(diagnostics.error_count(), "error")));
         return compile_errors_exit_code;
+    }
+
+    if (interface_modules(*interface).value_or(std::vector<library_file_t>{}).empty()) {
+        console.error(
+            std::format("{} has no .fb files, so it has no modules to build", package->name));
+        return usage_exit_code;
     }
 
     const std::filesystem::path folder = package->root / "build" / path_from_utf8(build_target()) /

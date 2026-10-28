@@ -17,6 +17,27 @@ libraries and `{target}`; and package archives. Its review's 23 findings were fi
 plugins and run-time loading the user then left out of M7, dropped (docs/review/m7-step0.md), and
 step 5, plugins and DynamicLibrary, left the build order, so steps 6 to 8 became 5 to 7.
 
+Step 1, project types and the interface file: project.toml's `type` (manifest_t::type and
+package_type_t), with an executable needing its main file, a library's main.fb a module, and
+an executable as a dependency an error; the interface file, compiler/src/interface.cpp's
+write_interface(), which `fb build` on a library writes to build/<target>/<mode>/<name>.fbi
+(build_target(), mode_folder()): FutureBlitz source lexed for the build, so #If is resolved,
+with each module after `// module <path> <lines>`, its Imports, every Public declaration and
+what kept code names, every member of the types it keeps and every Extend, generic, @Inline,
+and Const code whole, the rest as first lines and `=> ...` (function_stmt_t::prebuilt,
+header_end, modifiers_t::start), Globals, Static Fields, and Class Fields as `= ...`
+(variable_stmt_t::prebuilt), a type the source left out printed after a hidden Import, Consts
+as values, and `@MainThreadOnly("why")` from analysis_t::main_thread_only, under
+`// fbi <name> <version> <hash>`, a BLAKE3 hash; and the loader reading a package's
+lib/<target>/<mode>/<name>.fbi in place of source (read_prebuilt(), interface_modules(),
+parse_into's interface_file), with fb check on a prebuilt package checking its modules and a
+program's build stopping until step 2 links the .fblib. Its review's 32 findings were fixed
+(docs/review/m7-step1.md): a kept type's Operators, Private Methods, and Interfaces, every
+Extend, generic ones too, the main-thread rules through prebuilt code, a prebuilt New's
+Super.New, Class Field defaults that embed, .proto modules, hidden Imports by path and with
+free qualifiers, where `= ...` goes, CRLF, a missing build for the mode, main.fb's letter
+case, and clearer messages.
+
 ## M6, the full standard library
 
 Done in M6: step 0, CI: .github/workflows/ci.yml builds Debug and runs ctest on windows-2025

@@ -459,6 +459,11 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     type_id_t path = type_id_t::INVALID;
     std::optional<symbol_id_t> path_new;
     load_support_t loading;
+    /// Why each Function, Method, and New declared outside std can only run on the main thread,
+    /// as a message about work on another thread says it after "it", like "uses the Global
+    /// 'score', which only the main thread can, unless it's an Atomic or a Mutex", for a
+    /// library's interface file, which keeps its first line without its code.
+    std::unordered_map<symbol_id_t, std::string> main_thread_only;
     /// The function values the program makes. The expression that makes each one, a lambda or
     /// a Function's name, has its index.
     std::vector<closure_t> closures;

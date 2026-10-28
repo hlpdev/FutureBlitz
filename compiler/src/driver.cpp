@@ -1238,6 +1238,23 @@ private:
                 continue;
             }
 
+            // In a prebuilt library's interface file, the module of a .proto file is the
+            // FutureBlitz fb made from it, which imports the others by their paths in the
+            // program, std's well-known types as .proto files.
+            if (importer.ends_with(".proto") && prebuilt_package(m_files, importer) != nullptr &&
+                node.quoted) {
+                const std::optional<std::size_t> loaded =
+                    prebuilt_package(m_files, node.target) != nullptr
+                        ? load(node.target, node.target_span)
+                        : load_proto(node.target, node.target_span);
+                if (loaded) {
+                    targets.push_back(*loaded);
+                }
+
+                m_loaded[index].imports.emplace_back(id, std::move(targets));
+                continue;
+            }
+
             const std::expected<import_paths_t, std::string> paths =
                 resolve_import(node.target, node.quoted, origin_of(importer));
             if (!paths) {
@@ -1267,7 +1284,12 @@ private:
 
             // A folder whose files are all links away was reported for them, not as missing.
             bool linked = false;
-            if (paths->file.ends_with(".proto")) {
+            if (paths->file.ends_with(".proto") &&
+                prebuilt_package(m_files, paths->file) != nullptr) {
+                if (const std::optional<std::size_t> file = load(paths->file, node.target_span)) {
+                    targets.push_back(*file);
+                }
+            } else if (paths->file.ends_with(".proto")) {
                 if (const std::optional<std::size_t> file = load_imported_proto(node, *paths)) {
                     targets.push_back(*file);
                 }
@@ -1400,6 +1422,26 @@ private:
     /// "there's no module std.nothing: no std/nothing.fb, and no folder std/nothing/ of
     /// modules", or for a quoted path, the file it looked for.
     void report_missing(const import_stmt_t& node, const import_paths_t& paths) {
+        const std::string& named = paths.file.empty() ? paths.folder.value_or("") : paths.file;
+        if (const package_t* package = prebuilt_package(m_files, named)) {
+            const std::string interface = to_utf8(shown_disk_path(package->interface));
+            if (!node.quoted && paths.file.empty()) {
+                m_compilation.diagnostics.error(
+                    node.target_span, "the package {} has no modules in its interface file, {}",
+                    node.target, interface);
+            } else if (!node.quoted) {
+                m_compilation.diagnostics.error(
+                    node.target_span, "there's no module {}: no {} or folder {}/ in {}",
+                    node.target, paths.file, paths.folder.value_or(""), interface);
+            } else {
+                m_compilation.diagnostics.error(node.target_span,
+                                                "there's no module \"{}\": no {} in {}",
+                                                node.target, paths.file, interface);
+            }
+
+            return;
+        }
+
         if (!node.quoted && paths.file.empty()) {
             m_compilation.diagnostics.error(
                 node.target_span, "the package {} has no modules in its folder, {}", node.target,
@@ -1838,13 +1880,13 @@ private:
         // without main.fb is a library, and in one whose type says so, main.fb is a module.
         const std::filesystem::path main = root / path_from_utf8(manifest->main);
         const bool library = manifest->type == package_type_t::LIBRARY;
-        if (!library && std::filesystem::is_regular_file(main, ignored)) {
+        if (!library && has_main(root, *manifest)) {
             package.main = std::filesystem::weakly_canonical(main, ignored);
         } else if (!library && manifest->main_span) {
             fail(*manifest->main_span, "there's no {} in the package's folder, which 'main' names",
                  manifest->main);
-        } else if (manifest->type == package_type_t::EXECUTABLE) {
-            fail(*manifest->type_span,
+        } else if (manifest->type == package_type_t::EXECUTABLE && named == nullptr) {
+            fail(manifest->type_span.value_or(manifest->name_span),
                  "an executable needs its main file, but there's no {} in the package's folder",
                  manifest->main);
         }
@@ -1852,11 +1894,12 @@ private:
         read_prebuilt(*manifest, package);
 
         // Only a program's own package builds an executable; the ones it uses are libraries.
-        if (named != nullptr && !package.main.empty()) {
+        if (named != nullptr &&
+            (!package.main.empty() || manifest->type == package_type_t::EXECUTABLE)) {
             fail(named->name_span,
-                 "{} is an executable, with a main file, so it can't be a dependency; a package "
-                 "that programs use is a library, type = \"library\" in its project.toml",
-                 named->name);
+                 "{} is an executable, so it can't be a dependency; a package that programs use is "
+                 "a library, type = \"library\" in its project.toml{}",
+                 named->name, manifest->main_span ? ", without 'main'" : "");
         }
 
         for (const native_t& native : manifest->natives) {
@@ -1903,14 +1946,21 @@ private:
                                              path_from_utf8(mode_folder(m_mode));
         const std::filesystem::path interface =
             package.root / folder / path_from_utf8(manifest.name + ".fbi");
-        std::error_code ignored;
-        if (!std::filesystem::is_regular_file(interface, ignored)) {
-            return;
-        }
-
         // Named as project.toml's paths are, with '/'s.
         const std::string shown =
             std::format("lib/{}/{}/{}.fbi", build_target(), mode_folder(m_mode), manifest.name);
+        std::error_code ignored;
+        if (!std::filesystem::is_regular_file(interface, ignored)) {
+            // A prebuilt library without this build has no source either.
+            if (library_files(package).empty() &&
+                has_interface(package.root / "lib", manifest.name)) {
+                fail(manifest.name_span, "{} is prebuilt, but not for this build: there's no {}",
+                     manifest.name, shown);
+            }
+
+            return;
+        }
+
         if (!library_files(package).empty()) {
             fail(manifest.name_span,
                  "{} has both .fb source and a prebuilt build, {}; a package is one or the other",
@@ -1934,9 +1984,10 @@ private:
             return;
         }
 
-        // Its modules are the package's, each under its name.
+        // Its modules are the package's, each under its name, and its .proto files'.
         for (const library_file_t& module : *modules) {
-            if (!module.path.starts_with(package.prefix) || !module.path.ends_with(".fb")) {
+            if (!module.path.starts_with(package.prefix) ||
+                (!module.path.ends_with(".fb") && !module.path.ends_with(".proto"))) {
                 fail(manifest.name_span, "{} isn't an interface file that fb writes", shown);
                 return;
             }
@@ -1944,6 +1995,44 @@ private:
 
         package.interface = std::filesystem::weakly_canonical(interface, ignored);
         package.modules = std::move(*modules);
+    }
+
+    /// Whether a package has its main file: the one 'main' names, or else main.fb, by that
+    /// exact name, so a package is the same kind on a disk that ignores letter case as on one
+    /// that doesn't.
+    static bool has_main(const std::filesystem::path& root, const manifest_t& manifest) {
+        std::error_code error;
+        if (manifest.main_span) {
+            return std::filesystem::is_regular_file(root / path_from_utf8(manifest.main), error);
+        }
+
+        for (auto entry = std::filesystem::directory_iterator(root, error);
+             !error && entry != std::filesystem::directory_iterator(); entry.increment(error)) {
+            std::error_code ignored;
+            if (to_utf8(entry->path().filename()) == manifest.main &&
+                entry->is_regular_file(ignored)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// Whether `folder` has an interface file of the library `name` for some target and mode,
+    /// lib/<target>/<mode>/<name>.fbi.
+    static bool has_interface(const std::filesystem::path& folder, const std::string& name) {
+        std::error_code error;
+        for (auto entry = std::filesystem::recursive_directory_iterator(folder, error);
+             !error && entry != std::filesystem::recursive_directory_iterator();
+             entry.increment(error)) {
+            std::error_code ignored;
+            if (entry.depth() == 2 && entry->is_regular_file(ignored) &&
+                entry->path().filename() == path_from_utf8(name + ".fbi")) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// Whether a file starts as an archive does, as a static library's .a or .lib.
@@ -2150,6 +2239,7 @@ compile_package(const std::filesystem::path& folder,
         .version = own.version,
         .root = own.root,
         .program = own.name,
+        .interface = own.interface,
     };
     std::error_code error;
     const std::filesystem::path written =
@@ -2157,15 +2247,21 @@ compile_package(const std::filesystem::path& folder,
     std::filesystem::path main_path = written;
     if (main) {
         main_path = std::filesystem::weakly_canonical(*main, error);
-        if (!std::filesystem::equivalent(main_path, written, error)) {
+        // A library's main.fb is a module like the others, which names its program too.
+        if (manifest.type == package_type_t::LIBRARY ||
+            !std::filesystem::equivalent(main_path, written, error)) {
             compilation.package->program = to_utf8(main_path.stem());
         }
-    } else if (manifest.type == package_type_t::LIBRARY ||
-               (!manifest.type && !std::filesystem::is_regular_file(written, error))) {
+    } else if (manifest.type == package_type_t::LIBRARY || own.main.empty()) {
         // Without a main file, it's a library, whose files are each checked. The main file is
         // empty, and named unlike any of them.
         compilation.package->library = true;
+        // A prebuilt library's modules are in its interface file.
         std::vector<std::string> extra = library_files(own);
+        for (const library_file_t& module : own.modules) {
+            extra.push_back(module.path);
+        }
+
         std::string name = "(library).fb";
         for (int i = 2; std::ranges::contains(extra, own.prefix + name); ++i) {
             name = std::format("(library {}).fb", i);

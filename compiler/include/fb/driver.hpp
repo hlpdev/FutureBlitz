@@ -37,6 +37,9 @@ struct package_info_t {
     std::string program;
     /// It has no main file, so `fb check` checks its files, and it can't be built or run.
     bool library = false;
+    /// A prebuilt library: its interface file, whose modules `fb check` checks, in place of
+    /// source, which `fb build` needs. Empty for any other package.
+    std::filesystem::path interface;
 };
 
 /// Everything the front end makes from a program: its main file, and the files it imports, which

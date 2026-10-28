@@ -360,20 +360,25 @@ private:
         return { .file = m_file.id(), .begin = offset, .end = offset };
     }
 
-    /// From `begin` to the end of the last consumed token.
     /// "=> ..." after a declaration's first line, in a library's interface file, where it
-    /// stands for code in the library's binary.
-    bool accept_prebuilt() {
+    /// stands for code in the library's binary. One after a Const Function's is reported, since
+    /// a program runs a Const Function's code itself.
+    bool accept_prebuilt(const bool is_const = false) {
         if (!m_interface_file || !at(token_kind_t::ARROW) ||
             peek(1).kind != token_kind_t::DOT_DOT_DOT) {
             return false;
         }
 
-        advance();
-        advance();
+        const span_t written = merge(advance().span, advance().span);
+        if (is_const) {
+            error(written,
+                  "a Const Function's code is in an interface file, since programs run it");
+        }
+
         return true;
     }
 
+    /// From `begin` to the end of the last consumed token.
     [[nodiscard]] span_t span_from(const std::uint32_t begin) const {
         return { .file = m_file.id(), .begin = begin, .end = std::max(begin, m_previous_end) };
     }
@@ -1102,9 +1107,9 @@ private:
 
             const bool word = at(token_kind_t::IDENTIFIER);
             if (word && text(peek()) == "Get" && !getter) {
-                getter = parse_getter(name, type);
+                getter = parse_getter(name, type, modifiers.main_thread_only);
             } else if (word && text(peek()) == "Set" && !setter) {
-                setter = parse_setter(name, type);
+                setter = parse_setter(name, type, modifiers.main_thread_only_set);
             } else {
                 report_expected(getter ? "'Set'" : "'Get'");
             }
@@ -1201,7 +1206,8 @@ private:
 
     /// "Get => value", or "Get", its block, and "End Get": a Method that returns the Property's
     /// value.
-    stmt_id_t parse_getter(const name_t& property, const type_expr_id_t type) {
+    stmt_id_t parse_getter(const name_t& property, const type_expr_id_t type,
+                           const std::optional<std::string>& main_thread_only) {
         const std::size_t line = m_pos;
         const token_t& word = advance();
         block_t body;
@@ -1221,13 +1227,15 @@ private:
                             .name = { .text = property.text, .span = word.span },
                             .return_type = type,
                             .body = std::move(body),
+                            .modifiers = { .main_thread_only = main_thread_only },
                             .header_end = word.span.end,
                             .prebuilt = prebuilt,
                         });
     }
 
     /// "Set(value)", its block, and "End Set": a Method that takes the Property's new value.
-    stmt_id_t parse_setter(const name_t& property, const type_expr_id_t type) {
+    stmt_id_t parse_setter(const name_t& property, const type_expr_id_t type,
+                           const std::optional<std::string>& main_thread_only) {
         const std::size_t line = m_pos;
         const token_t& word = advance();
         expect(token_kind_t::LEFT_PAREN);
@@ -1247,6 +1255,7 @@ private:
                             .name = { .text = property.text, .span = word.span },
                             .parameters = { { .name = value, .by_ref = false, .type = type } },
                             .body = std::move(body),
+                            .modifiers = { .main_thread_only = main_thread_only },
                             .header_end = header_end,
                             .prebuilt = prebuilt,
                         });
@@ -1337,6 +1346,9 @@ private:
             } else if (name.text == "CLayout") {
                 modifiers.is_c_layout = true;
                 c_layout_span = name.span;
+            } else if (name.text == "MainThreadOnly" && m_interface_file) {
+                read_main_thread_only(arguments, span.value_or(name.span), modifiers);
+                span.reset();
             } else if (name.text == "Serialize") {
                 error(name.span, "@Serialize isn't needed: Load<T>(value) and Save(x) convert "
                                  "every Struct and Class");
@@ -1431,6 +1443,26 @@ private:
     }
 
     /// @Deprecated's message: a string without interpolation, or nothing.
+    /// An interface file's "@MainThreadOnly("why")", or a Property's "@MainThreadOnly(Get:
+    /// "why", Set: "why")", whose strings are plain.
+    void read_main_thread_only(const std::vector<argument_t>& arguments, const span_t span,
+                               modifiers_t& modifiers) {
+        for (const argument_t& argument : arguments) {
+            const auto* text = std::get_if<string_expr_t>(&m_ast.get(argument.value).node);
+            const bool plain = text != nullptr && text->parts.size() == 1 && !argument.by_ref &&
+                               std::holds_alternative<std::string>(text->parts.front());
+            const std::string_view name = argument.name ? argument.name->text : "";
+            if (!plain || (!name.empty() && name != "Get" && name != "Set")) {
+                error(span, R"(@MainThreadOnly takes why, like "uses the Global 'score'", or a )"
+                            "Property's Get: and Set:");
+                return;
+            }
+
+            (name == "Set" ? modifiers.main_thread_only_set : modifiers.main_thread_only) =
+                std::get<std::string>(text->parts.front());
+        }
+    }
+
     std::string deprecation(const std::vector<argument_t>& arguments,
                             const std::optional<span_t> span) {
         if (arguments.empty()) {
@@ -1648,9 +1680,13 @@ private:
         bool prebuilt = false;
         if (m_interface_file && at(token_kind_t::EQUAL) &&
             peek(1).kind == token_kind_t::DOT_DOT_DOT) {
-            advance();
-            advance();
+            const span_t marker = merge(advance().span, advance().span);
             prebuilt = true;
+            if (!type || (keyword.kind != token_kind_t::KW_GLOBAL &&
+                          keyword.kind != token_kind_t::KW_FIELD)) {
+                error(marker, "\"= ...\" only follows the type of a Global or a Field, whose "
+                              "value is in the library's binary");
+            }
         } else if (accept(token_kind_t::EQUAL)) {
             skip_continuation_newlines();
             value = parse_expression();
@@ -1821,7 +1857,7 @@ private:
             }
         } else if (modifiers.is_abstract) {
             // The line ends without a body, and the caller finishes it.
-        } else if (accept_prebuilt()) {
+        } else if (accept_prebuilt(modifiers.is_const)) {
             prebuilt = true;
         } else if (accept(token_kind_t::ARROW)) {
             skip_continuation_newlines();

@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -1574,14 +1575,122 @@ TEST_CASE("an interface file's declarations can leave their code in the library'
     CHECK_FALSE(count.value);
 
     const auto& body = std::get<fb::type_stmt_t>(ast.get(ast.items()[2]).node);
-    const std::uint32_t start = *body.modifiers.start;
+    const std::uint32_t start = body.modifiers.start.value_or(1);
     CHECK(file.slice({ .begin = start, .end = body.header_end }) ==
           "Public Class Body Extends Shape");
     const auto& mass = std::get<fb::property_stmt_t>(ast.get(body.members.at(0)).node);
-    CHECK(std::get<fb::function_stmt_t>(ast.get(*mass.getter).node).prebuilt);
-    CHECK(std::get<fb::function_stmt_t>(ast.get(*mass.setter).node).prebuilt);
+    REQUIRE(mass.getter);
+    REQUIRE(mass.setter);
+    CHECK(std::get<fb::function_stmt_t>(ast.get(mass.getter.value_or(fb::stmt_id_t{})).node)
+              .prebuilt);
+    CHECK(std::get<fb::function_stmt_t>(ast.get(mass.setter.value_or(fb::stmt_id_t{})).node)
+              .prebuilt);
 
     // Elsewhere, "=> ..." is a mistake.
     CHECK_FALSE(parse_text("Function Area(r: Float): Float => ...\n").errors.empty());
     CHECK_FALSE(parse_text("Global Count: Int = ...\n").errors.empty());
+}
+
+namespace {
+
+/// Parses `text` as an interface file, giving its AST, its file, and its errors' messages.
+struct interface_parse_t {
+    fb::source_file_t file;
+    fb::ast_t ast;
+    std::vector<std::string> errors;
+};
+
+interface_parse_t parse_interface(const std::string_view text) {
+    interface_parse_t parsed{
+        .file = fb::source_file_t(fb::file_id_t{}, "x.fbi", std::string(text)),
+    };
+    fb::diagnostic_bag_t bag;
+    const std::vector<fb::token_t> tokens = fb::lex(parsed.file, bag);
+    fb::parse_into(parsed.file, tokens, bag, parsed.ast, true);
+    for (const fb::diagnostic_t& diagnostic : bag.diagnostics()) {
+        parsed.errors.push_back(diagnostic.message);
+    }
+
+    return parsed;
+}
+
+} // namespace
+
+TEST_CASE("an interface file says what of its prebuilt code only the main thread can run",
+          "[parser]") {
+    const interface_parse_t parsed = parse_interface(
+        "@MainThreadOnly(\"uses the Global 'score'\") Public Function Bump() => ...\n"
+        "Public Struct Stats\n"
+        "    @MainThreadOnly(Get: \"reads\", Set: \"writes\") Public Property S: Int\n"
+        "        Get => ...\n"
+        "        Set(value) => ...\n"
+        "    End Property\n"
+        "End Struct\n");
+    CHECK(parsed.errors.empty());
+    REQUIRE(parsed.ast.items().size() == 2);
+    const auto& bump = std::get<fb::function_stmt_t>(parsed.ast.get(parsed.ast.items()[0]).node);
+    CHECK(bump.modifiers.main_thread_only == "uses the Global 'score'");
+    const auto& stats = std::get<fb::type_stmt_t>(parsed.ast.get(parsed.ast.items()[1]).node);
+    const auto& score = std::get<fb::property_stmt_t>(parsed.ast.get(stats.members.at(0)).node);
+    const auto part = [&](const std::optional<fb::stmt_id_t> id) {
+        return std::get<fb::function_stmt_t>(parsed.ast.get(id.value_or(fb::stmt_id_t{})).node)
+            .modifiers.main_thread_only.value_or("");
+    };
+    CHECK(part(score.getter) == "reads");
+    CHECK(part(score.setter) == "writes");
+
+    // It takes plain text.
+    CHECK(parse_interface("@MainThreadOnly(1) Function F() => ...\n").errors ==
+          std::vector<std::string>{ "@MainThreadOnly takes why, like \"uses the Global 'score'\", "
+                                    "or a Property's Get: and Set:" });
+}
+
+TEST_CASE("an interface file's '= ...' and '=> ...' go only where code is in the binary",
+          "[parser]") {
+    const std::string misplaced =
+        "\"= ...\" only follows the type of a Global or a Field, whose value is in the library's "
+        "binary";
+    CHECK(parse_interface("Public Global G = ...\n").errors ==
+          std::vector<std::string>{ misplaced });
+    CHECK(parse_interface("Public Const C: Int = ...\n").errors ==
+          std::vector<std::string>{ misplaced });
+    CHECK(parse_interface("Function F<T>()\n    Local y: Int = ...\nEnd Function\n").errors ==
+          std::vector<std::string>{ misplaced });
+    CHECK(parse_interface("Public Const Function K(): Int => ...\n").errors ==
+          std::vector<std::string>{
+              "a Const Function's code is in an interface file, since programs run it" });
+    CHECK(parse_interface("Public Global G: Int = ...\n"
+                          "Public Class C\n"
+                          "    Field f: Int = ...\n"
+                          "    Public Static Field S: Int = ...\n"
+                          "End Class\n")
+              .errors.empty());
+
+    // Each first line ends where its type, Implements, or Lib does.
+    const interface_parse_t parsed = parse_interface("Extend Int32 Implements Shown\n"
+                                                     "    Method Show(): String => ...\n"
+                                                     "End Extend\n"
+                                                     "Public Extern \"C\" Lib \"m\"\n"
+                                                     "    Function sqrt(x: Float64): Float64\n"
+                                                     "End Extern\n"
+                                                     "Struct P\n"
+                                                     "    Property X: Int\n"
+                                                     "        Get => ...\n"
+                                                     "    End Property\n"
+                                                     "End Struct\n");
+    CHECK(parsed.errors.empty());
+    REQUIRE(parsed.ast.items().size() == 3);
+    const auto first_line = [&](const std::uint32_t begin, const std::uint32_t end) {
+        return std::string(parsed.file.slice({ .begin = begin, .end = end }));
+    };
+    const fb::stmt_t& extend = parsed.ast.get(parsed.ast.items()[0]);
+    CHECK(first_line(extend.span.begin, std::get<fb::extend_stmt_t>(extend.node).header_end) ==
+          "Extend Int32 Implements Shown");
+    const auto& block = std::get<fb::extern_stmt_t>(parsed.ast.get(parsed.ast.items()[1]).node);
+    CHECK(first_line(block.modifiers.start.value_or(1), block.header_end) ==
+          "Public Extern \"C\" Lib \"m\"");
+    const auto& point = std::get<fb::type_stmt_t>(parsed.ast.get(parsed.ast.items()[2]).node);
+    const fb::stmt_t& property = parsed.ast.get(point.members.at(0));
+    CHECK(first_line(property.span.begin,
+                     std::get<fb::property_stmt_t>(property.node).header_end) == "Property X: Int");
 }
