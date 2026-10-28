@@ -245,7 +245,7 @@ embeds every package without dynamic natives, stays one executable.
 | 3 | Libraries beside the executable: `link = "beside"`, its .dll, .so, or .dylib with FB's metadata, the executable's runtime and exports, loading and checking at start-up | an FB program and a beside library share objects, Tasks, and `Is` checks, with one runtime and no leaks; a missing or mismatched file stops it with an error naming the file |
 | 4 | Across the edge: one type per instance in every binary, Globals' accessors, extending a library's Class | a Class extends a beside library's Class, and a generic instance made on both sides is one type |
 | 5 | `[native]` dynamic libraries and `{target}` paths; native DLLs copied beside the executable, rpaths | a program calls a C DLL from its package's native/<target>/ and runs from its build folder (done 2026-10-28, 537d4680) |
-| 6 | A package with prebuilt natives: a stand-in C++ engine DLL with a C API (tests/native), wrapped by an FB package through fb-bindgen | the package builds and runs on Windows, Linux, and macOS |
+| 6 | A package with prebuilt natives: a stand-in C++ engine DLL with a C API (tests/native), wrapped by an FB package through fb-bindgen | the package builds and runs on Windows, Linux, and macOS (done on Windows 2026-10-28, 8e239fb4; Linux and macOS by their tests) |
 | 7 | Loose ends, and the milestone's review | M7's "done when" |
 
 ## M9 build order

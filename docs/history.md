@@ -58,6 +58,21 @@ uses loads, hints that keep the folder written, an executable or a 32-bit, big-e
 arm64e file said to be one, "." and ".." as names, names folded beyond ASCII, -o over a
 library's name, and tests of an uncalled library and a stale copy.
 
+Step 6, a package with prebuilt natives (8e239fb4): tests/native/engine, a stand-in engine in
+C++ (a world of bodies, std::vector and std::format, exceptions caught at its edge into a
+thread-local engine_error()) behind engine.h's C API of fixed-size types, an opaque world, a
+struct by value, an enum, constants, and a callback with user data, which CMake builds as
+fb_engine, a DLL needing only the OS's libraries (-static -mcrtdll=ucrt on MinGW,
+-static-libstdc++ and -static-libgcc and engine.map's exports on Linux); tests/packages/engine,
+whose [native] engine is `native/{target}/engine`, with fb-bindgen's bindings in c/engine.fb
+(one copy for every target, which the bindgen tests check is what fb-bindgen makes of
+engine.h) and world.fb's World Class, Point, Shape, and EngineError over them; and
+tests/packages/engine_game, the program, which the programs test and a CLI test build and run
+from their build folders, staged with the engine's DLL. Its review's 7 findings were fixed
+(docs/review/m7-step6.md): a missing body's shape is an error, bodies bounce as often as they
+reach a wall and start inside it, engine_error's rule is the header's, the C++ runtime options
+leave out MSVC, and on Linux only the C API is exported.
+
 ## M6, the full standard library
 
 Done in M6: step 0, CI: .github/workflows/ci.yml builds Debug and runs ctest on windows-2025
