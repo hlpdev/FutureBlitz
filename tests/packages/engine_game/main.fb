@@ -23,6 +23,30 @@ Catch e As EngineError
     Print("error: {e.Message}")
 End Try
 
+// A missing body has no shape, and a body can't start outside the walls. One fast enough to
+// reach both walls in one step bounces off both.
+Try
+    Print(world.ShapeOf(7))
+Catch e As EngineError
+    Print("error: {e.Message}")
+End Try
+
+Try
+    world.Spawn(Shape.Box, Point(150.0, 50.0), Point(0.0, 0.0))
+Catch e As EngineError
+    Print("error: {e.Message}")
+End Try
+
+Try
+    Local fast = world.Spawn(Shape.Circle, Point(10.0, 50.0), Point(300.0, 0.0))
+    world.Step(1.0)
+    Print("fast at {world.Position(fast)}")
+    world.Step(1.0)
+    Print("fast at {world.Position(fast)}")
+Catch e As EngineError
+    Print("error: {e.Message}")
+End Try
+
 // The engine's exceptions stay inside it, and come out as errors.
 Function Fill(world: World) Throws EngineError
     While world.Count <= MaxBodies

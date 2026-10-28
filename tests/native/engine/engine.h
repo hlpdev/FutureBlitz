@@ -46,19 +46,23 @@ ENGINE_API const char* engine_world_name(const engine_world* world);
 // How many worlds there are, which one copy of the engine counts.
 ENGINE_API int32_t engine_worlds(void);
 
-// A new body's number, or -1 when the world is full.
+// A new body's number, or -1 when the world is full, the shape isn't one, or the position is
+// outside the walls, which engine_error says.
 ENGINE_API int32_t engine_spawn(engine_world* world, engine_shape shape, engine_vec2 position,
                                 engine_vec2 velocity);
 ENGINE_API int32_t engine_count(const engine_world* world);
-// Moves every body by its velocity over `seconds`, bouncing off the world's walls at 0 and 100.
+// Moves every body by its velocity over `seconds`, bouncing off the world's walls at 0 and 100
+// as many times as it reaches them.
 ENGINE_API void engine_step(engine_world* world, float seconds);
 // Where a body is, or false when there's no such body, which engine_error says.
 ENGINE_API bool engine_position(const engine_world* world, int32_t body, engine_vec2* position);
-ENGINE_API engine_shape engine_shape_of(const engine_world* world, int32_t body);
+// A body's shape, or false when there's no such body, which engine_error says.
+ENGINE_API bool engine_shape_of(const engine_world* world, int32_t body, engine_shape* shape);
 ENGINE_API engine_vec2 engine_center(const engine_world* world);
 ENGINE_API void engine_each(const engine_world* world, engine_visit visit, void* user);
 
-// What went wrong in this thread's last call that failed, or "".
+// Why this thread's last call of a function that can fail, engine_world_new, engine_spawn,
+// engine_position, or engine_shape_of, failed, or "" when it didn't.
 ENGINE_API const char* engine_error(void);
 
 #ifdef __cplusplus

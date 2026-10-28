@@ -1,0 +1,5 @@
+/* The engine exports its C API, and nothing of the C++ runtime linked into it. */
+{
+    global: engine_*;
+    local: *;
+};

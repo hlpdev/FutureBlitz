@@ -1,5 +1,6 @@
 // The engine for FutureBlitz programs, over its C API in c/engine.fb, the bindings fb-bindgen
-// made of tests/native/engine/engine.h, which programs don't see.
+// made of tests/native/engine/engine.h, which `Import engine` leaves out: they're
+// engine.c.engine.
 
 Import std.core
 Import std.ffi
@@ -80,8 +81,14 @@ Public Class World
         Return Point(at.x, at.y)
     End Method
 
-    Public Method ShapeOf(body: Int32): Shape
-        Return engine_shape_of(handle, body) == engine_shape.ENGINE_BOX ? Shape.Box : Shape.Circle
+    Public Method ShapeOf(body: Int32): Shape Throws EngineError
+        Local shape = engine_shape.ENGINE_CIRCLE
+        Local found = False
+        Unsafe
+            found = engine_shape_of(handle, body, AddressOf(shape))
+        End Unsafe
+        If !found Then Throw EngineError(LastError())
+        Return shape == engine_shape.ENGINE_BOX ? Shape.Box : Shape.Circle
     End Method
 
     Public Method Center(): Point

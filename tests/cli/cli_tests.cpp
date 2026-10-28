@@ -216,6 +216,49 @@ std::vector<std::string> elf_needed(const std::string& bytes) {
     return names;
 }
 
+#ifdef __linux__
+/// The symbols a 64-bit, little-endian ELF file exports: its .dynsym's global and weak ones that
+/// it defines.
+std::vector<std::string> elf_exports(const std::string& bytes) {
+    std::vector<std::string> names;
+    if (!bytes.starts_with("\x7F"
+                           "ELF") ||
+        bytes.size() < 64) {
+        return names;
+    }
+
+    // SHT_DYNSYM (11) is the symbols, and its sh_link the section of their names.
+    const auto sections = number_at<std::uint64_t>(bytes, 0x28);
+    const auto section_size = number_at<std::uint16_t>(bytes, 0x3A);
+    const auto count = number_at<std::uint16_t>(bytes, 0x3C);
+    const auto section = [&](const std::uint64_t index) {
+        return sections + (index * section_size);
+    };
+    for (std::uint64_t i = 0; i < count; ++i) {
+        if (number_at<std::uint32_t>(bytes, section(i) + 4) != 11) {
+            continue;
+        }
+
+        const auto symbols = number_at<std::uint64_t>(bytes, section(i) + 24);
+        const auto size = number_at<std::uint64_t>(bytes, section(i) + 32);
+        const auto strings = number_at<std::uint64_t>(
+            bytes, section(number_at<std::uint32_t>(bytes, section(i) + 40)) + 24);
+        // Each symbol is 24 bytes: its name's place, its binding in the info's high bits, and
+        // its section, 0 where it isn't defined.
+        for (std::uint64_t symbol = symbols; symbol + 24 <= symbols + size; symbol += 24) {
+            const auto binding =
+                static_cast<unsigned>(static_cast<unsigned char>(bytes[symbol + 4])) >> 4U;
+            if ((binding == 1 || binding == 2) &&
+                number_at<std::uint16_t>(bytes, symbol + 6) != 0) {
+                names.push_back(text_at(bytes, strings + number_at<std::uint32_t>(bytes, symbol)));
+            }
+        }
+    }
+
+    return names;
+}
+#endif
+
 /// The libraries a 64-bit Mach-O file loads: its LC_LOAD_DYLIB commands, and the weak,
 /// re-exported, lazy, and upward ones.
 std::vector<std::string> mach_o_dylibs(const std::string& bytes) {
@@ -1753,6 +1796,18 @@ TEST_CASE("a game uses the stand-in engine, a C++ DLL its package brings, from i
         INFO(name);
         CHECK(is_system_library(name));
     }
+
+    // On Linux it exports only its C API, not the C++ runtime inside it.
+#ifdef __linux__
+    std::ifstream image(library, std::ios::binary);
+    const std::vector<std::string> exports =
+        elf_exports(std::string{ std::istreambuf_iterator<char>(image), {} });
+    CHECK(std::ranges::contains(exports, "engine_world_new"));
+    for (const std::string& name : exports) {
+        INFO(name);
+        CHECK(name.starts_with("engine_"));
+    }
+#endif
 
     // The engine package has it in native/<target>/, as a package ships it.
     const std::filesystem::path packages =

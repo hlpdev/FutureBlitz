@@ -26,7 +26,7 @@ Public Extern "C" Lib "engine"
     Function engine_count(world: Ptr<Void>): Int32
     Function engine_step(world: Ptr<Void>, seconds: Float32)
     Function engine_position(world: Ptr<Void>, body: Int32, position: Ptr<engine_vec2>): Bool
-    Function engine_shape_of(world: Ptr<Void>, body: Int32): engine_shape
+    Function engine_shape_of(world: Ptr<Void>, body: Int32, shape: Ptr<engine_shape>): Bool
     Function engine_center(world: Ptr<Void>): engine_vec2
     Function engine_each(world: Ptr<Void>, visit: Callback(Int32, Float32, Float32, Ptr<Void>),
                          user: Ptr<Void>)

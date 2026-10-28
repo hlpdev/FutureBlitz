@@ -56,14 +56,11 @@ Result guarded(Call call, Result failed) noexcept {
     return failed;
 }
 
-/// Moves a coordinate by its speed, bouncing it back off the walls.
+/// Moves a coordinate by its speed, bouncing it back off the walls each time it gets past one.
 void move(float& at, float& speed, const float seconds) {
     at += speed * seconds;
-    if (at < 0.0F) {
-        at = -at;
-        speed = -speed;
-    } else if (at > wall) {
-        at = (2 * wall) - at;
+    while (at < 0.0F || at > wall) {
+        at = at < 0.0F ? -at : (2 * wall) - at;
         speed = -speed;
     }
 }
@@ -111,6 +108,17 @@ int32_t engine_spawn(engine_world* world, const engine_shape shape, const engine
                 throw std::length_error(std::format("{} is full", world->name));
             }
 
+            if (shape != ENGINE_CIRCLE && shape != ENGINE_BOX) {
+                throw std::invalid_argument(
+                    std::format("{} isn't a shape", static_cast<int32_t>(shape)));
+            }
+
+            const auto inside = [](const float at) { return at >= 0.0F && at <= wall; };
+            if (!inside(position.x) || !inside(position.y)) {
+                throw std::out_of_range(std::format("({}, {}) is outside {}'s walls", position.x,
+                                                    position.y, world->name));
+            }
+
             world->bodies.push_back({ .shape = shape, .position = position, .velocity = velocity });
             return static_cast<int32_t>(world->bodies.size() - 1);
         },
@@ -137,8 +145,13 @@ bool engine_position(const engine_world* world, const int32_t body, engine_vec2*
         false);
 }
 
-engine_shape engine_shape_of(const engine_world* world, const int32_t body) {
-    return guarded<engine_shape>([&] { return world->at(body).shape; }, ENGINE_CIRCLE);
+bool engine_shape_of(const engine_world* world, const int32_t body, engine_shape* shape) {
+    return guarded<bool>(
+        [&] {
+            *shape = world->at(body).shape;
+            return true;
+        },
+        false);
 }
 
 engine_vec2 engine_center(const engine_world* world) {
