@@ -107,6 +107,26 @@ For wait In waits
 End For
 
 Print("{waits.Count} waited")
+
+// Every wait for a lock let go gets it, round after round, as macOS's flock doesn't promise of
+// the flocks it wakes.
+Local rounds = 0
+For round = 1 To 10
+    Local holding = Try FileLock.Acquire(root / "lock")
+    Local waiting = [FileLock.AcquireSharedAsync(root / "lock")]
+    For i = 1 Until 6
+        waiting.Add(FileLock.AcquireSharedAsync(root / "lock"))
+    End For
+
+    holding.Close()
+    For wait In waiting
+        (Try Await wait).Close()
+    End For
+
+    rounds += 1
+End For
+
+Print("{rounds} rounds")
 Local held = Try Await FileLock.AcquireAsync(root / "lock")
 Print("{held.IsHeld()} {(Try FileLock.TryAcquire(root / "lock")) == Null}")
 held.Close()

@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -983,9 +984,25 @@ std::int64_t acquire_lock(request_t& request) {
     }
 #else
     int locked = 0;
+#ifdef __APPLE__
+    // macOS wakes only some of the flocks waiting for a lock that's let go, and the rest wait on
+    // until another is, which may be never. So a lock that waits tries again without waiting,
+    // a little longer apart each time, as it would be woken.
+    std::chrono::milliseconds pause{ 1 };
+    while (true) {
+        locked = flock(file, (shared ? LOCK_SH : LOCK_EX) | LOCK_NB);
+        if (locked == 0 || !wait || (errno != EWOULDBLOCK && errno != EINTR)) {
+            break;
+        }
+
+        std::this_thread::sleep_for(pause);
+        pause = std::min(pause * 2, std::chrono::milliseconds{ 50 });
+    }
+#else
     do {
         locked = flock(file, (shared ? LOCK_SH : LOCK_EX) | (wait ? 0 : LOCK_NB));
     } while (locked != 0 && errno == EINTR);
+#endif
 
     if (locked != 0) {
         const int error = errno;

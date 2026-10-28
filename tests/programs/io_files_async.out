@@ -28,6 +28,7 @@ IS_A_DIRECTORY
 whole none
 [written while they wait] False
 6 waited
+10 rounds
 True True
 True True
 True False
