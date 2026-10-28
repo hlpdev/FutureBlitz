@@ -120,28 +120,30 @@ Try
     Print("the silent client was closed:", (Try? Await silent.ReadAsync(Buffer<UInt8>(16))) == 0)
 
     // One that sends a handshake's record a byte at a time, each well inside the IdleTimeout, is
-    // closed once the IdleTimeout has passed for the whole handshake.
+    // closed once the IdleTimeout has passed for the whole handshake. Its record takes 30 seconds
+    // or more to send, so it's closed long before it has sent it, however busy the machine is,
+    // where a limit on each read alone would wait for the whole record.
     Local trickling = Try Await TcpStream.ConnectAsync("127.0.0.1", port)
     trickling.ReadTimeout = Duration.Zero()
-    Local watch = Stopwatch.StartNew()
-    Local record: UInt8[] = [0x16, 0x03, 0x01, 0x00, 0x40]
-    For i = 0 Until 64
+    Local record: UInt8[] = [0x16, 0x03, 0x01, 0x01, 0x2C]
+    For i = 0 Until 300
         record.Add(i As UInt8)
     End For
 
-    Local closed = False
-    For byte In record
+    // How many of its bytes were left to send when it was closed, or 0 for none.
+    Local left = 0
+    For i = 0 Until record.Count
         If (Try? Await trickling.ReadAsync(Buffer<UInt8>(16))) == 0
-            closed = True
+            left = record.Count - i
             Break
         End If
 
-        Try? Await trickling.WriteAsync(Buffer<UInt8>.From([byte]))
-        Await Timer.After(300.Milliseconds)
+        Try? Await trickling.WriteAsync(Buffer<UInt8>.From([record[i]]))
+        Await Timer.After(100.Milliseconds)
     End For
 
-    Print("a client that sends a byte at a time was closed in time:",
-          closed && watch.Elapsed < 3.Seconds)
+    Print("a client that sends a byte at a time was closed before it sent its record:",
+          left > 50)
     trickling.Close()
 
     // WebSockets over TLS: Async on the main thread, and blocking on a Thread of their own.
