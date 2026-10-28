@@ -957,10 +957,13 @@ TEST_CASE("the HTTP test servers of tests that run at once share a trace, each l
         std::unexpected(std::string("didn't run")),
     };
     {
-        const std::jthread first(
+        // std::thread, not jthread, which Apple's libc++ doesn't have.
+        std::thread first(
             [&] { results[0] = fb::run_process(FB_TEST_HTTP_SERVER, arguments, ""); });
-        const std::jthread second(
+        std::thread second(
             [&] { results[1] = fb::run_process(FB_TEST_HTTP_SERVER, arguments, ""); });
+        first.join();
+        second.join();
     }
 #ifdef _WIN32
     _putenv_s("FB_HTTP_TEST_LOG", "");
