@@ -30,15 +30,16 @@ STARTS_ANOTHER = textwrap.dedent("""\
 
 
 def running(pid: int) -> bool:
+    """Whether the process is still running. A killed one that's ended but not been reaped yet, a
+    zombie, isn't: its parent, the process that took in orphans, as a CI runner's can, may wait
+    for it late, or never, and kill(pid, 0) still finds it."""
     if os.name == "nt":
         listed = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
                                 capture_output=True, text=True).stdout
         return str(pid) in listed
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
+    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True,
+                           text=True).stdout.strip()
+    return state != "" and not state.startswith("Z")
 
 
 class limit_tests_t(unittest.TestCase):
