@@ -2888,8 +2888,7 @@ TEST_CASE("code an interface file keeps can't embed the library's files", "[driv
     CHECK_FALSE(fb::write_interface(*art, fb::build_mode_t::DEBUG, diagnostics));
     std::vector<std::string> errors;
     for (const fb::diagnostic_t& diagnostic : diagnostics.diagnostics()) {
-        errors.emplace_back(
-            std::string(art->sources.get(diagnostic.span.file).slice(diagnostic.span)));
+        errors.emplace_back(art->sources.get(diagnostic.span.file).slice(diagnostic.span));
     }
 
     // Logo's body stays in the library, where it embeds as it does in a program.
@@ -3045,8 +3044,11 @@ TEST_CASE("programs check against an interface file as they do against the libra
         "Local read = Spawn(Function() => Stats().Score)\n"
         "Local tagged = Tagged()\n"
         "Print(\"{tagged.Name()}\")\n";
-    const std::vector<std::string_view> files{ "deep/money.fb", "deep/generic.fb",
-                                               "deep/threads.fb" };
+    const std::vector<std::string_view> files{
+        "deep/money.fb",
+        "deep/generic.fb",
+        "deep/threads.fb",
+    };
     const std::vector<std::string> from_source =
         app_messages(packages, "deep", "deep", main, fb::build_mode_t::DEBUG, files);
     // Overriding a Private Method, three works on other threads, and a Private Name.
