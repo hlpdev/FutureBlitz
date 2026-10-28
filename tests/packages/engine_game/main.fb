@@ -1,0 +1,45 @@
+// M7's done-when program for a package with prebuilt natives: a game that uses the stand-in
+// engine, a C++ DLL from the engine package's native/<target>/ folder, which the build copies
+// beside it, only through the engine package's FutureBlitz API.
+
+Import std.core
+Import engine
+
+Print(Version())
+Local world = World("arena")
+Try
+    Local ball = world.Spawn(Shape.Circle, Point(10.0, 20.0), Point(30.0, -5.0))
+    Local crate = world.Spawn(Shape.Box, Point(90.0, 50.0), Point(20.0, 0.0))
+    Print("{world.Name}: {world.Count} bodies, {Worlds()} world")
+    // The crate bounces off the wall at 100.
+    For i = 1 To 4
+        world.Step(0.5)
+    End For
+    Print("ball {world.ShapeOf(ball)} at {world.Position(ball)}")
+    Print("crate {world.ShapeOf(crate)} at {world.Position(crate)}")
+    Print("center {world.Center()}, total {world.Total()}")
+    Print(world.Position(7))
+Catch e As EngineError
+    Print("error: {e.Message}")
+End Try
+
+// The engine's exceptions stay inside it, and come out as errors.
+Function Fill(world: World) Throws EngineError
+    While world.Count <= MaxBodies
+        Try world.Spawn(Shape.Box, Point(1.0, 1.0), Point(0.0, 0.0))
+    End While
+End Function
+
+Try
+    Fill(world)
+Catch e As EngineError
+    Print("error: {e.Message}, with {world.Count} bodies")
+End Try
+
+// A second world, which the engine counts until its last reference goes.
+Function Visit(): Int32
+    Local other = World("other")
+    Return Worlds()
+End Function
+
+Print("{Visit()} worlds, then {Worlds()}")

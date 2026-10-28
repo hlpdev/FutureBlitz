@@ -31,11 +31,13 @@ target_compile_definitions(fb_compiler_tests PRIVATE
   FB_TEST_VECMATH="$<TARGET_FILE:fb_vecmath>"
   FB_TEST_DYNCALC="$<TARGET_FILE:fb_dyncalc>"
   FB_TEST_DYNCALC_LINKED="$<TARGET_LINKER_FILE:fb_dyncalc>"
+  FB_TEST_ENGINE="$<TARGET_FILE:fb_engine>"
+  FB_TEST_ENGINE_LINKED="$<TARGET_LINKER_FILE:fb_engine>"
   FB_TEST_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/programs"
   FB_TEST_COMPILE_COMMANDS="${CMAKE_BINARY_DIR}/compile_commands.json"
   FB_TEST_HTTP_SERVER="$<TARGET_FILE:fb_http_test_server>")
 # Programs link the archives; http_ programs run under the HTTP test server.
-add_dependencies(fb_compiler_tests ${FB_RUNTIME_ARCHIVES} fb_vecmath fb_dyncalc fb_http_test_server)
+add_dependencies(fb_compiler_tests ${FB_RUNTIME_ARCHIVES} fb_vecmath fb_dyncalc fb_engine fb_http_test_server)
 fb_set_warnings(fb_compiler_tests)
 fb_set_stack(fb_compiler_tests)
 fb_copy_llvm(fb_compiler_tests)
@@ -76,8 +78,10 @@ target_compile_definitions(fb_cli_tests PRIVATE
   FB_TEST_VECMATH="$<TARGET_FILE:fb_vecmath>"
   FB_TEST_DYNCALC="$<TARGET_FILE:fb_dyncalc>"
   FB_TEST_DYNCALC_LINKED="$<TARGET_LINKER_FILE:fb_dyncalc>"
+  FB_TEST_ENGINE="$<TARGET_FILE:fb_engine>"
+  FB_TEST_ENGINE_LINKED="$<TARGET_LINKER_FILE:fb_engine>"
   FB_TEST_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/cli")
-add_dependencies(fb_cli_tests fb_cli fb_vecmath fb_dyncalc)
+add_dependencies(fb_cli_tests fb_cli fb_vecmath fb_dyncalc fb_engine)
 if(TARGET fb_console_probe)
   add_dependencies(fb_cli_tests fb_console_probe)
   target_compile_definitions(fb_cli_tests PRIVATE
@@ -101,7 +105,8 @@ if(TARGET fb_bindgen)
   target_compile_definitions(fb_bindgen_tests PRIVATE
     FB_TEST_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/bindgen"
     FB_TEST_PACKAGES="${CMAKE_CURRENT_SOURCE_DIR}/packages"
-    FB_TEST_VECMATH_HEADER="${CMAKE_CURRENT_SOURCE_DIR}/native/vecmath/vecmath.h")
+    FB_TEST_VECMATH_HEADER="${CMAKE_CURRENT_SOURCE_DIR}/native/vecmath/vecmath.h"
+    FB_TEST_ENGINE_HEADER="${CMAKE_CURRENT_SOURCE_DIR}/native/engine/engine.h")
   fb_set_warnings(fb_bindgen_tests)
   fb_copy_llvm(fb_bindgen_tests)
   fb_copy_libclang(fb_bindgen_tests)

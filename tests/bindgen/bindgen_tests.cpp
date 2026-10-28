@@ -532,6 +532,24 @@ TEST_CASE("the done-when package's bindings are what fb-bindgen makes of vecmath
     CHECK(module(made->text) == module(checked_in));
 }
 
+TEST_CASE("the engine package's bindings are what fb-bindgen makes of engine.h", "[bindgen]") {
+    // M7's stand-in engine, whose header names nothing that differs between targets, so the
+    // checked-in bindings are every target's. Its export macro is the one thing skipped.
+    const std::expected<fb::bindings_t, std::string> made =
+        fb::generate_bindings({ .header = FB_TEST_ENGINE_HEADER, .library = "engine" });
+    REQUIRE(made);
+    REQUIRE(made->warnings.size() == 1);
+    CHECK(made->warnings.front().ends_with("skipped ENGINE_API, a macro that isn't a number"));
+
+    std::ifstream file(std::filesystem::path(FB_TEST_PACKAGES) / "engine" / "c" / "engine.fb",
+                       std::ios::binary);
+    const std::string checked_in{ std::istreambuf_iterator<char>(file),
+                                  std::istreambuf_iterator<char>() };
+    const auto module = [](const std::string& text) { return text.substr(text.find("\n\n")); };
+    REQUIRE(checked_in.contains("\n\n"));
+    CHECK(module(made->text) == module(checked_in));
+}
+
 TEST_CASE("a struct that holds one pointing back at it is skipped with it", "[bindgen]") {
     // B holds A, which points at B: deciding B can't wait on deciding A, or the other way.
     CHECK(module_of("struct B;\n"

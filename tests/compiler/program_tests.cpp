@@ -1,6 +1,8 @@
 #include "fb/driver.hpp"
+#include "fb/interface.hpp"
 #include "fb/lower.hpp"
 #include "fb/process.hpp"
+#include "fb/utf8.hpp"
 
 #include <algorithm>
 #include <array>
@@ -249,7 +251,8 @@ std::vector<std::filesystem::path> shard_of_programs() {
 }
 
 /// A copy of tests/packages in the build folder, so building writes nothing into the source
-/// tree, with the vecmath C library in libs/ for each package whose project.toml links it.
+/// tree, with the vecmath C library in libs/ for each package whose project.toml links it, and
+/// the stand-in engine's DLL in native/<target>/ for each whose project.toml loads it.
 std::filesystem::path staged_packages() {
     const std::filesystem::path packages = std::filesystem::path(FB_TEST_OUTPUT) / "packages";
     std::filesystem::remove_all(packages);
@@ -261,6 +264,19 @@ std::filesystem::path staged_packages() {
         if (read_file(entry.path() / "project.toml").contains("\"libs/vecmath\"")) {
             std::filesystem::create_directories(entry.path() / "libs");
             std::filesystem::copy_file(archive, entry.path() / "libs" / archive.filename());
+        }
+
+        if (read_file(entry.path() / "project.toml").contains("\"native/{target}/engine\"")) {
+            const std::filesystem::path native =
+                entry.path() / "native" / fb::path_from_utf8(fb::build_target());
+            std::filesystem::create_directories(native);
+            // On Windows its import library goes beside it.
+            const std::filesystem::path library(FB_TEST_ENGINE);
+            const std::array<std::filesystem::path, 2> files{ library, FB_TEST_ENGINE_LINKED };
+            for (const std::filesystem::path& file : files) {
+                std::filesystem::copy_file(file, native / file.filename(),
+                                           std::filesystem::copy_options::skip_existing);
+            }
         }
     }
 

@@ -1,0 +1,8 @@
+[project]
+name = "engine"
+version = "0.1.0"
+type = "library"
+
+# The stand-in engine, tests/native's C++ DLL, prebuilt for each target.
+[native]
+engine = { dynamic = "native/{target}/engine" }

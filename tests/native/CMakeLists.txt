@@ -38,6 +38,26 @@ if(MINGW)
   target_link_options(fb_dyncalc PRIVATE -mcrtdll=ucrt -static-libgcc)
 endif()
 
+# The stand-in engine, a C++ library in a DLL of its own with a C API, as the real engine will be,
+# which tests/packages/engine wraps: engine.dll and libengine.dll.a on Windows, libengine.so on
+# Linux, and libengine.dylib, as @rpath/libengine.dylib, on macOS. Its C++ runtime is linked
+# into it, so it needs nothing but the OS's own libraries.
+add_library(fb_engine SHARED engine/engine.cpp)
+set_target_properties(fb_engine PROPERTIES OUTPUT_NAME engine CXX_VISIBILITY_PRESET hidden)
+target_compile_definitions(fb_engine PRIVATE ENGINE_BUILDING)
+fb_set_warnings(fb_engine)
+if(WIN32)
+  set_target_properties(fb_engine PROPERTIES PREFIX "")
+endif()
+
+# MinGW's static winpthread needs UCRT, as programs' does.
+if(MINGW)
+  target_compile_options(fb_engine PRIVATE -mcrtdll=ucrt)
+  target_link_options(fb_engine PRIVATE -static -mcrtdll=ucrt)
+elseif(NOT APPLE)
+  target_link_options(fb_engine PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
 # On Windows, a program that prints the console's output code page, for the tests that check fb
 # and the programs it builds give the console back as they found it.
 if(WIN32)

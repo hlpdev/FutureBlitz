@@ -1743,6 +1743,52 @@ TEST_CASE("fb copies a package's dynamic library beside the program, which loads
 #endif
 }
 
+TEST_CASE("a game uses the stand-in engine, a C++ DLL its package brings, from its build folder",
+          "[cli]") {
+    // The engine needs nothing but the OS's own libraries, its C++ runtime linked into it.
+    const std::filesystem::path library(FB_TEST_ENGINE);
+    const std::vector<std::string> needs = loaded_libraries(library);
+    CHECK_FALSE(needs.empty());
+    for (const std::string& name : needs) {
+        INFO(name);
+        CHECK(is_system_library(name));
+    }
+
+    // The engine package has it in native/<target>/, as a package ships it.
+    const std::filesystem::path packages =
+        std::filesystem::path(FB_TEST_OUTPUT) / "engine_packages";
+    std::filesystem::remove_all(packages);
+    std::filesystem::create_directories(packages);
+    for (const std::string_view name : { "engine", "engine_game" }) {
+        std::filesystem::copy(std::filesystem::path(FB_TEST_PACKAGES) / name, packages / name,
+                              std::filesystem::copy_options::recursive);
+    }
+
+    const std::filesystem::path native =
+        packages / "engine/native" / fb::path_from_utf8(fb::build_target());
+    std::filesystem::create_directories(native);
+    const std::array<std::filesystem::path, 2> files{ library, FB_TEST_ENGINE_LINKED };
+    for (const std::filesystem::path& file : files) {
+        std::filesystem::copy_file(file, native / file.filename(),
+                                   std::filesystem::copy_options::skip_existing);
+    }
+
+    const fb::process_result_t built = fb_run({ "build", fb::to_utf8(packages / "engine_game") });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+    std::filesystem::path game = packages / "engine_game/build/engine_game";
+    game += fb::executable_extension;
+    CHECK(std::filesystem::is_regular_file(game.parent_path() / library.filename()));
+    const std::expected<fb::process_result_t, std::string> ran = fb::run_process(game, {}, "");
+    REQUIRE(ran);
+    CHECK(ran->exit_code == 0);
+    std::ifstream file(std::filesystem::path(FB_TEST_PACKAGES) / "engine_game.out",
+                       std::ios::binary);
+    const std::string expected{ std::istreambuf_iterator<char>(file),
+                                std::istreambuf_iterator<char>() };
+    CHECK(ran->output == expected);
+}
+
 TEST_CASE("fb bindgen runs fb-bindgen, which writes a C header's module", "[cli]") {
 #ifdef FB_TEST_BINDGEN
     const std::filesystem::path header =

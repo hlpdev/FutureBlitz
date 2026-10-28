@@ -1,0 +1,114 @@
+// The engine for FutureBlitz programs, over its C API in c/engine.fb, the bindings fb-bindgen
+// made of tests/native/engine/engine.h, which programs don't see.
+
+Import std.core
+Import std.ffi
+Import "./c/engine"
+
+Public Const MaxBodies: Int32 = ENGINE_MAX_BODIES
+
+Public Enum Shape
+    Circle
+    Box
+End Enum
+
+Public Struct Point Implements Printable
+    Public Field x: Float32
+    Public Field y: Float32
+
+    Public Method ToString(): String => "({x}, {y})"
+End Struct
+
+// What the engine says went wrong.
+Public Class EngineError Extends Error
+End Class
+
+Public Function Version(): String
+    Unsafe
+        Return engine_version().ToString()
+    End Unsafe
+End Function
+
+// How many worlds there are, in the one engine every package of the program shares.
+Public Function Worlds(): Int32 => engine_worlds()
+
+// A world of bodies, which moves them, freed with its last reference.
+Public Class World
+    Field handle: Ptr<Void>
+
+    Public New(name: String)
+        handle = engine_world_new(name)
+        If handle == Null Then Panic("out of memory for the world {name}")
+    End New
+
+    Method Destroy()
+        engine_world_free(handle)
+    End Method
+
+    Public Property Name: String
+        Get
+            Unsafe
+                Return engine_world_name(handle).ToString()
+            End Unsafe
+        End Get
+    End Property
+
+    Public Property Count: Int32
+        Get => engine_count(handle)
+    End Property
+
+    // A new body's number.
+    Public Method Spawn(shape: Shape, at: Point, velocity: Point): Int32 Throws EngineError
+        Local kind = shape == Shape.Circle ? engine_shape.ENGINE_CIRCLE : engine_shape.ENGINE_BOX
+        Local body = engine_spawn(handle, kind, engine_vec2(at.x, at.y),
+                                  engine_vec2(velocity.x, velocity.y))
+        If body < 0 Then Throw EngineError(LastError())
+        Return body
+    End Method
+
+    Public Method Step(seconds: Float32)
+        engine_step(handle, seconds)
+    End Method
+
+    Public Method Position(body: Int32): Point Throws EngineError
+        Local at = engine_vec2(0.0, 0.0)
+        Local found = False
+        Unsafe
+            found = engine_position(handle, body, AddressOf(at))
+        End Unsafe
+        If !found Then Throw EngineError(LastError())
+        Return Point(at.x, at.y)
+    End Method
+
+    Public Method ShapeOf(body: Int32): Shape
+        Return engine_shape_of(handle, body) == engine_shape.ENGINE_BOX ? Shape.Box : Shape.Circle
+    End Method
+
+    Public Method Center(): Point
+        Local center = engine_center(handle)
+        Return Point(center.x, center.y)
+    End Method
+
+    // Every body's position added up, as the engine visits them.
+    Public Method Total(): Point
+        Local total = engine_vec2(0.0, 0.0)
+        Unsafe
+            engine_each(handle, Add, AddressOf(total))
+        End Unsafe
+        Return Point(total.x, total.y)
+    End Method
+End Class
+
+Function Add(body: Int32, x: Float32, y: Float32, user: Ptr<Void>)
+    Unsafe
+        Local total = user As Ptr<engine_vec2>
+        total.Value.x += x
+        total.Value.y += y
+    End Unsafe
+End Function
+
+Function LastError(): String
+    Unsafe
+        Return engine_error().ToString()
+    End Unsafe
+End Function
