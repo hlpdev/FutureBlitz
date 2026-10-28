@@ -15,7 +15,9 @@
 #include <fstream>
 #include <ios>
 #include <iterator>
+#include <map>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -920,4 +922,94 @@ TEST_CASE("the HTTP test server's program has no proxy of the environment's", "[
     REQUIRE(result);
     CHECK(result->output == "hello\n");
     CHECK(result->exit_code == 0);
+}
+
+TEST_CASE("the HTTP test servers of tests that run at once share a trace, each line its server's",
+          "[programs]") {
+    // A program that waits 300 ms, then makes three requests, each through a client of its own.
+    const fb::compilation_t compilation =
+        fb::compile("main.fb",
+                    "Import std.core\n"
+                    "Import std.net.http\n"
+                    "Import std.time\n"
+                    "Local base = Input() ?? \"\"\n"
+                    "Sleep(300.Milliseconds)\n"
+                    "For i = 1 To 3\n"
+                    "    Print((Try? HttpClient().Get(\"{base}/hello\"))?.Text ?? \"failed\")\n"
+                    "End For\n",
+                    fb::standard_library().value_or(std::vector<fb::library_file_t>{}));
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / "http_traced";
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(fb::build_program(module, compilation, program, fb::build_mode_t::DEBUG));
+
+    const std::filesystem::path log = std::filesystem::path(FB_TEST_OUTPUT) / "http_traced.log";
+    std::filesystem::remove(log);
+#ifdef _WIN32
+    _putenv_s("FB_HTTP_TEST_LOG", log.string().c_str());
+#else
+    setenv("FB_HTTP_TEST_LOG", log.string().c_str(), 1);
+#endif
+    const std::array arguments{ program.string() };
+    std::array<std::expected<fb::process_result_t, std::string>, 2> results{
+        std::unexpected(std::string("didn't run")),
+        std::unexpected(std::string("didn't run")),
+    };
+    {
+        const std::jthread first(
+            [&] { results[0] = fb::run_process(FB_TEST_HTTP_SERVER, arguments, ""); });
+        const std::jthread second(
+            [&] { results[1] = fb::run_process(FB_TEST_HTTP_SERVER, arguments, ""); });
+    }
+#ifdef _WIN32
+    _putenv_s("FB_HTTP_TEST_LOG", "");
+#else
+    unsetenv("FB_HTTP_TEST_LOG");
+#endif
+
+    for (const auto& result : results) {
+        INFO((result ? result->output : result.error()));
+        REQUIRE(result);
+        CHECK(result->output == "hello\nhello\nhello\n");
+    }
+
+    // Each server's lines are all there, by its process: its accepts, their threads, and their
+    // requests, the first of them after the program's wait, as the times count from the start.
+    struct seen_t {
+        int accepts = 0;
+        int serves = 0;
+        int requests = 0;
+        long long first = -1;
+    };
+    std::map<std::string, seen_t> servers;
+    std::ifstream file(log);
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream fields(line);
+        long long since = 0;
+        std::string process;
+        std::string thread;
+        std::string what;
+        fields >> since >> process >> thread >> what;
+        INFO(line);
+        REQUIRE_FALSE(fields.fail());
+        seen_t& seen = servers[process];
+        if (seen.first < 0) {
+            seen.first = since;
+        }
+
+        seen.accepts += what == "accept" ? 1 : 0;
+        seen.serves += what == "serve" ? 1 : 0;
+        seen.requests += what == "request" ? 1 : 0;
+    }
+
+    REQUIRE(servers.size() == 2);
+    for (const auto& [process, seen] : servers) {
+        INFO(process);
+        CHECK(seen.accepts == 3);
+        CHECK(seen.serves == 3);
+        CHECK(seen.requests == 3);
+        CHECK(seen.first >= 300);
+    }
 }

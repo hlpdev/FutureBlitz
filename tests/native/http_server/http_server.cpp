@@ -60,6 +60,7 @@
 #include <ws2tcpip.h>
 #else
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <spawn.h>
 #include <sys/socket.h>
@@ -93,24 +94,56 @@ void close_socket(const socket_t socket) {
     std::_Exit(2);
 }
 
-/// Where trace() writes, the file FB_HTTP_TEST_LOG names, or none.
-std::FILE* trace_file = nullptr;
-std::mutex trace_lock;
+/// Where trace() writes: the file FB_HTTP_TEST_LOG names, opened to add to its end only, so the
+/// servers of tests that run at once share it, each line written whole and starting with its
+/// server's process; or none. And when the server started, which its times count from.
+#ifdef _WIN32
+HANDLE trace_file = INVALID_HANDLE_VALUE;
+#else
+int trace_file = -1;
+#endif
+std::chrono::steady_clock::time_point trace_started;
 
-/// Adds a line to the trace, if there is one: the milliseconds since the server started, the
-/// thread, and `what`, as each accept, connection, and request comes, to look into a hang.
+/// Adds a line to the trace, if there is one: the milliseconds since the server started, its
+/// process, the thread, and `what`, as each accept, connection, and request comes, to look into a
+/// hang.
 void trace(const std::string& what) {
-    if (trace_file == nullptr) {
+#ifdef _WIN32
+    if (trace_file == INVALID_HANDLE_VALUE) {
         return;
     }
 
-    static const auto started = std::chrono::steady_clock::now();
+    const auto process = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+    if (trace_file < 0) {
+        return;
+    }
+
+    const auto process = static_cast<unsigned long>(getpid());
+#endif
     const auto since = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - started);
-    const std::scoped_lock lock(trace_lock);
-    std::fprintf(trace_file, "%lld %zu %s\n", static_cast<long long>(since.count()),
-                 std::hash<std::thread::id>{}(std::this_thread::get_id()), what.c_str());
-    std::fflush(trace_file);
+        std::chrono::steady_clock::now() - trace_started);
+    const std::string line =
+        std::format("{} {} {} {}\n", since.count(), process,
+                    std::hash<std::thread::id>{}(std::this_thread::get_id()), what);
+#ifdef _WIN32
+    DWORD written = 0;
+    WriteFile(trace_file, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
+#else
+    static_cast<void>(write(trace_file, line.data(), line.size()));
+#endif
+}
+
+/// Starts the trace into the file at `path`, which it adds to.
+void start_trace(const char* path) {
+    trace_started = std::chrono::steady_clock::now();
+#ifdef _WIN32
+    // Only FILE_APPEND_DATA, which has each write go at the end, whatever another wrote.
+    trace_file = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                             OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+#else
+    trace_file = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+#endif
 }
 
 std::string read_file(const char* path) {
@@ -1265,7 +1298,7 @@ int main(const int count, char** arguments) {
     }
 
     if (const char* log = std::getenv("FB_HTTP_TEST_LOG"); log != nullptr && *log != '\0') {
-        trace_file = std::fopen(log, "w");
+        start_trace(log);
     }
 
 #ifdef _WIN32
