@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <format>
@@ -35,6 +36,7 @@
 #include <string_view>
 #include <system_error>
 #include <thread>
+#include <utf8proc.h>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -45,6 +47,27 @@ namespace {
 /// The most bytes one Embed, EmbedText, or EmbedFolder puts in the program. A larger file is
 /// better read when the program runs, and the compiler holds every embedded file at once.
 constexpr std::uint64_t max_embedded = std::uint64_t{ 64 } * 1024 * 1024;
+
+/// A file's name as an OS that ignores letter case compares it: case-folded, and composed, as
+/// NFC, or as it is when it isn't UTF-8.
+std::string folded_name(const std::string& name) {
+    constexpr auto options = static_cast<utf8proc_option_t>(
+        static_cast<unsigned>(UTF8PROC_STABLE) | static_cast<unsigned>(UTF8PROC_COMPOSE) |
+        static_cast<unsigned>(UTF8PROC_CASEFOLD));
+    utf8proc_uint8_t* mapped = nullptr;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): utf8proc's bytes are chars
+    const auto* bytes = reinterpret_cast<const utf8proc_uint8_t*>(name.data());
+    const utf8proc_ssize_t size =
+        utf8proc_map(bytes, static_cast<utf8proc_ssize_t>(name.size()), &mapped, options);
+    if (size < 0) {
+        return name;
+    }
+
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): utf8proc's bytes are chars
+    std::string text(reinterpret_cast<const char*>(mapped), static_cast<std::size_t>(size));
+    std::free(mapped); // NOLINT(cppcoreguidelines-no-malloc): utf8proc mallocs it
+    return text;
+}
 
 /// One of a program's packages on disk: what its project.toml says, and its folder.
 struct package_t {
@@ -1919,6 +1942,11 @@ private:
                      native.kind == native_kind_t::DYNAMIC ? "dynamic" : "static");
             } else if (native.kind == native_kind_t::DYNAMIC) {
                 read_dynamic(root, *manifest, native, path, package);
+            } else if (is_dynamic_file(path_from_utf8(path))) {
+                fail(native.path_span,
+                     "\"{}\" is a dynamic library, which [native] takes as {} = {{ dynamic = "
+                     "\"{}\" }}",
+                     native.path, native.name, as_dynamic_path(native.path));
             } else if (const std::optional<std::filesystem::path> archive =
                            find_archive(root, path)) {
                 if (is_archive(*archive)) {
@@ -2065,6 +2093,43 @@ private:
         return "lib" + name + (target.starts_with("macos") ? ".dylib" : ".so");
     }
 
+    /// Whether a file's name is a dynamic library's, x.dll, libx.so, or libx.dylib, in any
+    /// letter case.
+    static bool is_dynamic_file(const std::filesystem::path& path) {
+        return extension_is(path, ".dll") || extension_is(path, ".so") ||
+               extension_is(path, ".dylib");
+    }
+
+    /// The [native] path of a dynamic library whose file, or import library, `written` names,
+    /// in its folder as written: without its extension, and without the "lib" before its name
+    /// unless it's a DLL's or a .lib's, so "libs/libx.so" is "libs/x".
+    static std::string as_dynamic_path(const std::string& written) {
+        std::string name = to_utf8(path_from_utf8(written).filename());
+        const auto ends_with = [&](const std::string_view suffix) {
+            return name.size() > suffix.size() &&
+                   std::ranges::equal(std::string_view(name).substr(name.size() - suffix.size()),
+                                      suffix, [](const char a, const char b) {
+                                          return std::tolower(static_cast<unsigned char>(a)) == b;
+                                      });
+        };
+        bool prefixed = true;
+        for (const std::string_view extension :
+             { ".dll.a", ".dll", ".so", ".dylib", ".lib", ".a" }) {
+            if (ends_with(extension)) {
+                prefixed = extension != ".dll" && extension != ".lib";
+                name.resize(name.size() - extension.size());
+                break;
+            }
+        }
+
+        if (prefixed && name.starts_with("lib") && name.size() > 3) {
+            name.erase(0, 3);
+        }
+
+        const std::size_t slash = written.find_last_of("/\\");
+        return slash == std::string::npos ? name : written.substr(0, slash + 1) + name;
+    }
+
     /// What this target's dynamic libraries are called, as in "a DLL".
     static std::string_view dynamic_kind() {
         const std::string_view target = build_target();
@@ -2082,12 +2147,18 @@ private:
     void read_dynamic(const std::filesystem::path& root, const manifest_t& manifest,
                       const native_t& native, const std::string& path, package_t& package) {
         const std::filesystem::path written = path_from_utf8(path);
-        if (extension_is(written, ".dll") || extension_is(written, ".so") ||
-            extension_is(written, ".dylib")) {
+        if (is_dynamic_file(written) || extension_is(written, ".lib") ||
+            extension_is(written, ".a")) {
             fail(native.path_span,
                  "a dynamic library's path leaves out its file's \"lib\" and extension, so it's "
-                 "the same on every OS, like \"native/{{target}}/{}\"",
-                 to_utf8(written.stem()));
+                 "the same on every OS, like \"{}\"",
+                 as_dynamic_path(native.path));
+            return;
+        }
+
+        std::error_code ignored;
+        if (std::filesystem::is_directory(root / written, ignored)) {
+            fail(native.path_span, "\"{}\" is a folder, not a dynamic library", native.path);
             return;
         }
 
@@ -2096,7 +2167,6 @@ private:
         const std::string file_name = dynamic_file_name(name);
         const std::filesystem::path folder = root / written.parent_path();
         const std::filesystem::path file = folder / path_from_utf8(file_name);
-        std::error_code ignored;
         if (!std::filesystem::is_regular_file(file, ignored)) {
             fail(native.path_span,
                  "the {} package has no dynamic library \"{}\" for {}: there's no {}{}",
@@ -2119,6 +2189,10 @@ private:
                      "\"{}\" names {}, which isn't a dynamic library: it doesn't start as {} "
                      "does",
                      native.path, shown(path, file), kind);
+            } else if (recorded.error() == library_problem_t::EXECUTABLE) {
+                fail(native.path_span,
+                     "\"{}\" names {}, which is an executable, not a dynamic library", native.path,
+                     shown(path, file));
             } else {
                 fail(native.path_span, "\"{}\" names {}, which is {} for another CPU than {}'s",
                      native.path, shown(path, file), kind, target);
@@ -2167,7 +2241,7 @@ private:
             constexpr std::string_view loader = "@loader_path/";
             const std::string_view rest =
                 std::string_view(*recorded).substr(std::min(recorded->size(), loader.size()));
-            if (recorded->starts_with(loader) && !rest.empty() && !rest.contains('/')) {
+            if (recorded->starts_with(loader) && is_file_name(rest)) {
                 library.beside = std::string(rest);
             } else if (*recorded != rpath) {
                 fail(native.path_span,
@@ -2179,10 +2253,10 @@ private:
             }
         } else if (!recorded->empty()) {
             // The executable records the SONAME, and finds the library by it.
-            if (recorded->contains('/')) {
+            if (!is_file_name(*recorded)) {
                 fail(native.path_span,
-                     "the {} package's {} has the SONAME {}, a path, but the program finds it "
-                     "beside the executable, by a file's name",
+                     "the {} package's {} has the SONAME {}, which isn't a file's name, but the "
+                     "program finds it beside the executable by one",
                      manifest.name, shown(path, file), *recorded);
                 return;
             }
@@ -2191,14 +2265,8 @@ private:
         }
 
         // Two files of one name can't both go beside it, in any letter case.
-        const auto folded = [](std::string text) {
-            std::ranges::transform(text, text.begin(), [](const unsigned char c) {
-                return static_cast<char>(std::tolower(c));
-            });
-            return text;
-        };
         for (const auto& [beside, owner, other] : m_beside) {
-            if (folded(beside) == folded(library.beside)) {
+            if (folded_name(beside) == folded_name(library.beside)) {
                 fail(native.path_span,
                      "the {} package's \"{}\" goes beside the executable as {}, as the {} "
                      "package's \"{}\" does",
@@ -2209,6 +2277,11 @@ private:
 
         m_beside.push_back({ library.beside, manifest.name, native.name });
         package.linked.dynamic.push_back(std::move(library));
+    }
+
+    /// Whether a name is a file's in a folder: not empty, ".", or "..", and without a '/'.
+    static bool is_file_name(const std::string_view name) {
+        return !name.empty() && name != "." && name != ".." && !name.contains('/');
     }
 
     /// Whether a file starts as an archive does, as a static library's .a or .lib.
@@ -2270,20 +2343,11 @@ private:
     /// ""libs/x" names no static library: there's no libs/x, libs/libx.a, libs/x.a, or
     /// libs/x.lib, from the package's folder", by the paths as written, or with {target} the
     /// build's target, which makes it one the package doesn't have for the target, or that it's
-    /// a folder, or a dynamic library.
+    /// a folder.
     void report_no_archive(const std::filesystem::path& root, const manifest_t& manifest,
                            const native_t& native, const std::string& path) {
         const std::filesystem::path written = path_from_utf8(path);
         std::error_code ignored;
-        if (extension_is(written, ".so") || extension_is(written, ".dylib") ||
-            extension_is(written, ".dll")) {
-            fail(native.path_span,
-                 "\"{}\" is a dynamic library, which [native] takes as {} = {{ dynamic = "
-                 "\"native/{{target}}/{}\" }}",
-                 native.path, native.name, to_utf8(written.stem()));
-            return;
-        }
-
         if (std::filesystem::is_directory(root / written, ignored)) {
             fail(native.path_span, "\"{}\" is a folder, not a static library", native.path);
             return;
@@ -2811,6 +2875,22 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
             "{} is a prebuilt library's interface; programs build with prebuilt libraries once "
             "fb links their .fblib",
             to_utf8(shown_disk_path(compilation.interfaces.front()))));
+    }
+
+    // A dynamic library beside the executable would go over it.
+    std::filesystem::path executable = output.filename();
+#ifdef _WIN32
+    if (executable.extension().empty()) {
+        executable += ".exe";
+    }
+#endif
+    for (const dynamic_native_t& library : compilation.natives.dynamic) {
+        if (folded_name(library.beside) == folded_name(to_utf8(executable))) {
+            return std::unexpected(std::format(
+                "the executable {} would have the name of {}, which goes beside it as {}; give "
+                "it another name",
+                to_utf8(output), to_utf8(library.file), library.beside));
+        }
     }
 
     // The output's folder may not exist yet, as with -o or fb run. If it can't be made, linking

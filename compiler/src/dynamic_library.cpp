@@ -46,19 +46,29 @@ std::optional<std::string> text_at(const std::string_view bytes, const std::uint
 
 /// A 64-bit, little-endian ELF shared object's SONAME, or "" for one without: DT_SONAME (14) is
 /// the name's place in the string table that DT_STRTAB (5) gives the address of, found through
-/// the loaded segments. An executable isn't one.
+/// the loaded segments. An executable, position-independent or not, isn't one.
 std::expected<std::string, library_problem_t> elf_name(const std::string_view bytes,
                                                        const std::uint64_t machine) {
-    constexpr std::uint64_t shared_object = 3;
     if (!bytes.starts_with("\x7F"
                            "ELF") ||
-        bytes.size() < 64 || bytes[4] != 2 || bytes[5] != 1 ||
-        number_at(bytes, 16, 2) != shared_object) {
+        bytes.size() < 64) {
         return std::unexpected(library_problem_t::NOT_A_LIBRARY);
     }
 
-    if (number_at(bytes, 18, 2) != machine) {
+    // A 32-bit or big-endian one is another CPU's.
+    if (bytes[4] != 2 || bytes[5] != 1 || number_at(bytes, 18, 2) != machine) {
         return std::unexpected(library_problem_t::OTHER_TARGET);
+    }
+
+    constexpr std::uint64_t executable = 2;
+    constexpr std::uint64_t shared_object = 3;
+    const std::optional<std::uint64_t> type = number_at(bytes, 16, 2);
+    if (type == executable) {
+        return std::unexpected(library_problem_t::EXECUTABLE);
+    }
+
+    if (type != shared_object) {
+        return std::unexpected(library_problem_t::NOT_A_LIBRARY);
     }
 
     struct segment_t {
@@ -73,18 +83,18 @@ std::expected<std::string, library_problem_t> elf_name(const std::string_view by
     const std::uint64_t count = number_at(bytes, 56, 2).value_or(0);
     for (std::uint64_t i = 0; i < count; ++i) {
         const std::uint64_t header = headers + (i * header_size);
-        const std::optional<std::uint64_t> type = number_at(bytes, header, 4);
+        const std::optional<std::uint64_t> segment_type = number_at(bytes, header, 4);
         const std::optional<std::uint64_t> offset = number_at(bytes, header + 8, 8);
         const std::optional<std::uint64_t> address = number_at(bytes, header + 16, 8);
         const std::optional<std::uint64_t> size = number_at(bytes, header + 32, 8);
-        if (!type || !offset || !address || !size) {
+        if (!segment_type || !offset || !address || !size) {
             return std::unexpected(library_problem_t::NOT_A_LIBRARY);
         }
 
         const segment_t segment{ .address = *address, .offset = *offset, .size = *size };
-        if (*type == 1) {
+        if (*segment_type == 1) {
             loaded.push_back(segment);
-        } else if (*type == 2) {
+        } else if (*segment_type == 2) {
             dynamic = segment;
         }
     }
@@ -115,7 +125,7 @@ std::expected<std::string, library_problem_t> elf_name(const std::string_view by
         } else if (*tag == 5) {
             strings = value;
         } else if (*tag == flags && (*value & position_independent_executable) != 0) {
-            return std::unexpected(library_problem_t::NOT_A_LIBRARY);
+            return std::unexpected(library_problem_t::EXECUTABLE);
         }
     }
 
@@ -136,10 +146,13 @@ std::expected<std::string, library_problem_t> elf_name(const std::string_view by
 }
 
 /// A 64-bit Mach-O dylib's install name, from its LC_ID_DYLIB (0xD), in a universal file the
-/// one for `cpu`.
+/// one for `cpu`, which for arm64 isn't an arm64e one, as the linker takes it.
 std::expected<std::string, library_problem_t> mach_o_name(const std::string_view bytes,
                                                           const std::uint64_t cpu) {
     constexpr std::uint64_t thin = 0xFEEDFACF;
+    constexpr std::uint64_t arm64 = 0x0100000C;
+    constexpr std::uint64_t arm64e = 2;
+    constexpr std::uint64_t subtype_bits = 0x00FFFFFF;
     constexpr std::uint64_t universal = 0xCAFEBABE;
     constexpr std::uint64_t universal_64 = 0xCAFEBABF;
     std::string_view image = bytes;
@@ -155,15 +168,16 @@ std::expected<std::string, library_problem_t> mach_o_name(const std::string_view
         for (std::uint64_t i = 0; i < slices && !found; ++i) {
             const std::uint64_t slice = 8 + (i * size);
             const std::optional<std::uint64_t> kind = number_at(bytes, slice, 4, true);
+            const std::optional<std::uint64_t> subtype = number_at(bytes, slice + 4, 4, true);
             const std::optional<std::uint64_t> offset = number_at(bytes, slice + 8, field, true);
             const std::optional<std::uint64_t> length =
                 number_at(bytes, slice + 8 + field, field, true);
-            if (!kind || !offset || !length || *offset > bytes.size() ||
+            if (!kind || !subtype || !offset || !length || *offset > bytes.size() ||
                 bytes.size() - *offset < *length) {
                 return std::unexpected(library_problem_t::NOT_A_LIBRARY);
             }
 
-            if (*kind == cpu) {
+            if (*kind == cpu && (cpu != arm64 || (*subtype & subtype_bits) != arm64e)) {
                 image = bytes.substr(*offset, *length);
                 found = true;
             }
@@ -175,13 +189,29 @@ std::expected<std::string, library_problem_t> mach_o_name(const std::string_view
         }
     }
 
-    constexpr std::uint64_t dylib = 6;
-    if (number_at(image, 0, 4) != thin || number_at(image, 12, 4) != dylib) {
+    // A 32-bit one, or one in the other byte order, is another CPU's.
+    const std::optional<std::uint64_t> start = number_at(image, 0, 4);
+    if (start == 0xFEEDFACE || start == 0xCEFAEDFE || start == 0xCFFAEDFE) {
+        return std::unexpected(library_problem_t::OTHER_TARGET);
+    }
+
+    if (start != thin) {
         return std::unexpected(library_problem_t::NOT_A_LIBRARY);
     }
 
     if (number_at(image, 4, 4) != cpu) {
         return std::unexpected(library_problem_t::OTHER_TARGET);
+    }
+
+    constexpr std::uint64_t executable = 2;
+    constexpr std::uint64_t dylib = 6;
+    const std::optional<std::uint64_t> type = number_at(image, 12, 4);
+    if (type == executable) {
+        return std::unexpected(library_problem_t::EXECUTABLE);
+    }
+
+    if (type != dylib) {
+        return std::unexpected(library_problem_t::NOT_A_LIBRARY);
     }
 
     constexpr std::uint64_t id_dylib = 0xD;
@@ -219,12 +249,16 @@ std::expected<std::string, library_problem_t> pe_name(const std::string_view byt
     if (!bytes.starts_with("MZ") ||
         bytes.substr(std::min<std::uint64_t>(pe, bytes.size()), 4) !=
             std::string_view("PE\0\0", 4) ||
-        !characteristics || (*characteristics & is_dll) == 0) {
+        !characteristics) {
         return std::unexpected(library_problem_t::NOT_A_LIBRARY);
     }
 
     if (number_at(bytes, pe + 4, 2) != machine) {
         return std::unexpected(library_problem_t::OTHER_TARGET);
+    }
+
+    if ((*characteristics & is_dll) == 0) {
+        return std::unexpected(library_problem_t::EXECUTABLE);
     }
 
     return "";

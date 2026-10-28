@@ -1869,7 +1869,7 @@ TEST_CASE("a package links its [native] libraries and its dependencies', in orde
                              "static library: it doesn't start as an archive does";
     const std::string dynamic = "c/project.toml: \"libs/x.so\": \"libs/x.so\" is a dynamic "
                                 "library, which [native] takes as dynamic = { dynamic = "
-                                "\"native/{target}/x\" }";
+                                "\"libs/x\" }";
     const std::string folder =
         R"(c/project.toml: "libs/folder.a": "libs/folder.a" is a folder, not a static library)";
     // A folder is one whatever its name, and a path that ends in '/' names one.
@@ -2009,6 +2009,22 @@ std::string other_cpu_library() {
         target == "linux-arm64" ? fb_test::elf_x86_64 : fb_test::elf_aarch64, "");
 }
 
+/// An executable's file for this target, which isn't a dynamic library.
+std::string executable_image() {
+    const std::string_view target = fb::build_target();
+    if (target.starts_with("windows")) {
+        return fb_test::pe_library(fb_test::pe_amd64, false);
+    }
+
+    if (target.starts_with("macos")) {
+        return fb_test::mach_o_library(
+            target == "macos-arm64" ? fb_test::mach_o_arm64 : fb_test::mach_o_x86_64, "x", 2);
+    }
+
+    return fb_test::elf_library(
+        target == "linux-arm64" ? fb_test::elf_aarch64 : fb_test::elf_x86_64, "", 2);
+}
+
 /// The calc package, whose [native] dyncalc is tests/native's dynamic library in its
 /// native/<target>/ folder, and the app package, a program that uses it.
 void write_calc(const packages_t& packages) {
@@ -2067,10 +2083,22 @@ TEST_CASE("a package's dynamic library goes beside the program, which runs from 
         REQUIRE(ran);
         CHECK(ran->exit_code == 0);
         CHECK(ran->output == "5 dyncalc 1 2\n");
-        CHECK(std::filesystem::is_regular_file(program.parent_path() /
-                                               fb::path_from_utf8(dyncalc_beside)));
+        const std::filesystem::path copy =
+            program.parent_path() / fb::path_from_utf8(dyncalc_beside);
+        CHECK(std::filesystem::file_size(copy) ==
+              std::filesystem::file_size(std::filesystem::path(FB_TEST_DYNCALC)));
+        // What the next build finds there is replaced.
+        std::ofstream(copy, std::ios::binary) << "stale";
     }
 
+    // The executable can't have the name the library goes beside it as, which would replace it.
+    const std::filesystem::path over = packages / "app/build" / fb::path_from_utf8(dyncalc_beside);
+    const std::expected<void, std::string> replaced =
+        fb::build_program(module, *app, over, fb::build_mode_t::DEBUG);
+    REQUIRE_FALSE(replaced);
+    CHECK(replaced.error().contains(
+        std::format("would have the name of {}, which goes beside it as {}; give it another name",
+                    fb::to_utf8(app->natives.dynamic.front().file), dyncalc_beside)));
     packages.remove();
 }
 
@@ -2107,6 +2135,11 @@ TEST_CASE("a package's dynamic library has to be there for the target, as the OS
                             "{}\"native/{{target}}/dyncalc\" names {}, which is {} for another "
                             "CPU than {}'s",
                             at, shown, library_kind, target) });
+    packages.write(folder + std::string(dyncalc_file), executable_image());
+    CHECK(messages() == std::vector<std::string>{ std::format(
+                            "{}\"native/{{target}}/dyncalc\" names {}, which is an executable, "
+                            "not a dynamic library",
+                            at, shown) });
 
 #ifdef _WIN32
     // A DLL needs its import library, an archive, beside it.
@@ -2131,8 +2164,9 @@ TEST_CASE("a package's dynamic library has to be there for the target, as the OS
               "the program finds it beside the executable, as @rpath/libdyncalc.dylib or a name "
               "in @loader_path; link it with -install_name @rpath/libdyncalc.dylib",
               at, shown) });
-    for (const std::string_view name : { "@rpath/libother.dylib", "@loader_path/sub/x.dylib",
-                                         "@loader_path/", "libdyncalc.dylib" }) {
+    for (const std::string_view name :
+         { "@rpath/libother.dylib", "@loader_path/sub/x.dylib", "@loader_path/", "@loader_path/.",
+           "@loader_path/..", "libdyncalc.dylib" }) {
         packages.write(folder + std::string(dyncalc_file), empty_library(name));
         CHECK(messages().size() == 1);
     }
@@ -2145,11 +2179,14 @@ TEST_CASE("a package's dynamic library has to be there for the target, as the OS
     CHECK(other->natives.dynamic.front().beside == "libother.dylib");
 #else
     // The executable finds it by its SONAME, beside it, or without one by its file's name.
-    packages.write(folder + std::string(dyncalc_file), empty_library("/opt/libdyncalc.so"));
-    CHECK(messages() == std::vector<std::string>{ std::format(
-                            "{}the calc package's {} has the SONAME /opt/libdyncalc.so, a path, "
-                            "but the program finds it beside the executable, by a file's name",
-                            at, shown) });
+    for (const std::string_view name : { "/opt/libdyncalc.so", ".", ".." }) {
+        packages.write(folder + std::string(dyncalc_file), empty_library(name));
+        CHECK(messages() == std::vector<std::string>{ std::format(
+                                "{}the calc package's {} has the SONAME {}, which isn't a file's "
+                                "name, but the program finds it beside the executable by one",
+                                at, shown, name) });
+    }
+
     packages.write(folder + std::string(dyncalc_file), empty_library(""));
     const std::expected<fb::compilation_t, std::string> unnamed =
         fb::compile_file(packages / "app");
@@ -2206,7 +2243,45 @@ TEST_CASE("a [native] path's {target} is the build's target", "[driver]") {
               R"(app/project.toml: "native/{target}/": "native/{target}/" is a folder, not a )"
               "dynamic library",
               "app/project.toml: \"libs/z.so\": \"libs/z.so\" is a dynamic library, which "
-              "[native] takes as z = { dynamic = \"native/{target}/z\" }",
+              "[native] takes as z = { dynamic = \"libs/z\" }",
+          });
+
+    // The path it says to write is in the folder written, without the file's "lib" and
+    // extension, or an import library's, but for a DLL's name, which is its file's.
+    packages.write("app/native/" + target + "/real.dll", "MZ");
+    packages.write("app/project.toml",
+                   "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+                   "[native]\na = { dynamic = \"native/{target}/libengine.so\" }\n"
+                   "b = { dynamic = \"native/{target}/libdyncalc.dll\" }\n"
+                   "c = \"libs/libengine.dylib\"\nd = { dynamic = \"libs/dyncalc.so\" }\n"
+                   "e = { dynamic = 'native\\{target}\\dyncalc.lib' }\n"
+                   "f = { dynamic = \"native/{target}/libdyncalc.dll.a\" }\n"
+                   "g = { dynamic = \"native/{target}\" }\nh = \"native/{target}/real.dll\"\n");
+    // What's at each path, and the path it says to write.
+    const auto unlike = [](const std::string_view written, const std::string_view like) {
+        return std::format("app/project.toml: {}: a dynamic library's path leaves out its file's "
+                           "\"lib\" and extension, so it's the same on every OS, like \"{}\"",
+                           written, like);
+    };
+    const auto takes = [](const std::string_view written, const std::string_view name,
+                          const std::string_view like) {
+        return std::format("app/project.toml: \"{}\": \"{}\" is a dynamic library, which [native] "
+                           "takes as {} = {{ dynamic = \"{}\" }}",
+                           written, written, name, like);
+    };
+    const std::string folder = R"(app/project.toml: "native/{target}": "native/{target}" is a )"
+                               "folder, not a dynamic library";
+    CHECK(messages() ==
+          std::vector<std::string>{
+              unlike("\"native/{target}/libengine.so\"", "native/{target}/engine"),
+              unlike("\"native/{target}/libdyncalc.dll\"", "native/{target}/libdyncalc"),
+              takes("libs/libengine.dylib", "c", "libs/engine"),
+              unlike("\"libs/dyncalc.so\"", "libs/dyncalc"),
+              // Its ''s are shown as the '/'s they are.
+              unlike("'native/{target}/dyncalc.lib'", "native/{target}/dyncalc"),
+              unlike("\"native/{target}/libdyncalc.dll.a\"", "native/{target}/dyncalc"),
+              folder,
+              takes("native/{target}/real.dll", "h", "native/{target}/real"),
           });
     packages.remove();
 }
@@ -2221,26 +2296,36 @@ TEST_CASE("two dynamic libraries can't go beside the program by one name", "[dri
                        empty_library(target.starts_with("macos") ? "@rpath/" + beside : ""));
         packages.write(folder + "lib" + name + ".dll.a", "!<arch>\n");
     };
+    // \xC3\xA9 is é, and \xC3\x89 É.
     packages.write("app/project.toml",
                    "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
                    "[dependencies]\nlib = { path = \"../lib\" }\n\n"
-                   "[native]\nengine = { dynamic = \"native/{target}/engine\" }\n");
+                   "[native]\nengine = { dynamic = \"native/{target}/engine\" }\n"
+                   "accent = { dynamic = \"native/{target}/\xC3\xA9lan\" }\n");
     packages.write("app/main.fb", "Import std.core\nImport lib\nPrint(\"app\")\n");
     library("app", "engine");
+    library("app", "\xC3\xA9lan");
     // In any letter case, as a Windows or macOS disk has them.
     packages.write("lib/project.toml",
                    "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n\n"
-                   "[native]\nother = { dynamic = \"native/{target}/Engine\" }\n");
+                   "[native]\nother = { dynamic = \"native/{target}/Engine\" }\n"
+                   "capital = { dynamic = \"native/{target}/\xC3\x89lan\" }\n");
     packages.write("lib/lib.fb", "Public Function F(): Int => 1\n");
     library("lib", "Engine");
+    library("lib", "\xC3\x89lan");
     const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
     REQUIRE(app);
-    const std::string beside = library_file("Engine");
     CHECK(packages.messages(*app) ==
-          std::vector<std::string>{ std::format(
-              "lib/project.toml: \"native/{{target}}/Engine\": the lib package's \"other\" goes "
-              "beside the executable as {}, as the app package's \"engine\" does",
-              beside) });
+          std::vector<std::string>{
+              std::format("lib/project.toml: \"native/{{target}}/Engine\": the lib package's "
+                          "\"other\" goes beside the executable as {}, as the app package's "
+                          "\"engine\" does",
+                          library_file("Engine")),
+              std::format("lib/project.toml: \"native/{{target}}/\xC3\x89lan\": the lib "
+                          "package's \"capital\" goes beside the executable as {}, as the app "
+                          "package's \"accent\" does",
+                          library_file("\xC3\x89lan")),
+          });
     packages.remove();
 }
 

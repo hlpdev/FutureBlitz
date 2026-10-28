@@ -1726,6 +1726,21 @@ TEST_CASE("fb copies a package's dynamic library beside the program, which loads
     INFO(run.output);
     CHECK(run.exit_code == 0);
     CHECK(run.output.contains("5 1 2\n"));
+
+    // A program that calls none of it has it beside it too, since its package needs it. Only a
+    // Windows executable leaves out what it doesn't call.
+    write("quiet/project.toml", "[project]\nname = \"quiet\"\nversion = \"0.1.0\"\n\n"
+                                "[dependencies]\ncalc = { path = \"../calc\" }\n");
+    write("quiet/main.fb", "Import std.core\nPrint(\"quiet\")\n");
+    const fb::process_result_t quiet = fb_run({ "build", fb::to_utf8(packages / "quiet") });
+    INFO(quiet.output);
+    REQUIRE(quiet.exit_code == 0);
+    CHECK(quiet.output.contains(std::format("Copied {} beside the executable", copied)));
+    CHECK(std::filesystem::is_regular_file(packages / "quiet/build" / fb::path_from_utf8(copied)));
+#ifndef _WIN32
+    std::filesystem::path silent = packages / "quiet/build/quiet";
+    CHECK(std::ranges::contains(loaded_libraries(silent), beside));
+#endif
 }
 
 TEST_CASE("fb bindgen runs fb-bindgen, which writes a C header's module", "[cli]") {

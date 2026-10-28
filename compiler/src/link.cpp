@@ -263,17 +263,22 @@ std::expected<void, std::string> link_program(const std::span<const std::filesys
     }
 #else
     // A shared object without a SONAME is recorded by the name the linker found it by, so each
-    // goes by its name beside the executable, from a folder of the link's own.
+    // goes by its name beside the executable, from a folder of the link's own. Each is recorded
+    // even when only another uses it, since $ORIGIN, a DT_RUNPATH, finds only the executable's
+    // own, and a linker that drops those it doesn't call, as Ubuntu's does, would leave it out.
     if (!natives.dynamic.empty()) {
         const std::filesystem::path found = folder.path() / "dynamic";
         std::error_code ignored;
         std::filesystem::create_directories(found, ignored);
         arguments.push_back("-L" + to_utf8(found));
+        arguments.emplace_back("-Wl,--push-state,--no-as-needed");
         for (const dynamic_native_t& library : natives.dynamic) {
             std::filesystem::create_symlink(library.linked, found / path_from_utf8(library.beside),
                                             ignored);
             arguments.push_back("-l:" + library.beside);
         }
+
+        arguments.emplace_back("-Wl,--pop-state");
     }
 #endif
 

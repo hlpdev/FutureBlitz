@@ -5,7 +5,6 @@
 #include <string>
 #include <string_view>
 #include <tuple>
-#include <utility>
 #include <vector>
 
 // The least of a dynamic library's file each OS's loader reads its name from, for tests of what
@@ -104,8 +103,15 @@ inline std::string mach_o_library(const std::uint32_t cpu, const std::string_vie
     return bytes;
 }
 
-/// A universal Mach-O file of `slices`, each a CPU and its file.
-inline std::string universal(const std::vector<std::pair<std::uint32_t, std::string>>& slices) {
+/// One CPU's file in a universal Mach-O file.
+struct slice_t {
+    std::uint32_t cpu;
+    std::string image;
+    std::uint32_t subtype = 0;
+};
+
+/// A universal Mach-O file of `slices`.
+inline std::string universal(const std::vector<slice_t>& slices) {
     std::string bytes;
     put(bytes, 0, 0xCAFEBABE, 4, true);
     put(bytes, 4, slices.size(), 4, true);
@@ -113,11 +119,12 @@ inline std::string universal(const std::vector<std::pair<std::uint32_t, std::str
     std::string images;
     for (std::size_t i = 0; i < slices.size(); ++i) {
         const std::size_t slice = 8 + (20 * i);
-        put(bytes, slice, slices[i].first, 4, true);
+        put(bytes, slice, slices[i].cpu, 4, true);
+        put(bytes, slice + 4, slices[i].subtype, 4, true);
         put(bytes, slice + 8, offset, 4, true);
-        put(bytes, slice + 12, slices[i].second.size(), 4, true);
-        offset += slices[i].second.size();
-        images += slices[i].second;
+        put(bytes, slice + 12, slices[i].image.size(), 4, true);
+        offset += slices[i].image.size();
+        images += slices[i].image;
     }
 
     bytes.resize(8 + (20 * slices.size()));

@@ -12,8 +12,10 @@ enum class library_problem_t : std::uint8_t {
     /// It isn't the target's kind of dynamic library: a DLL on Windows, a shared object on Linux,
     /// or a dylib on macOS.
     NOT_A_LIBRARY,
-    /// It is one, but for another CPU.
+    /// It is one, but for another CPU, or of another width or byte order.
     OTHER_TARGET,
+    /// It's an executable of the target's kind, not a library.
+    EXECUTABLE,
 };
 
 /// The name a dynamic library's file, `bytes`, gives itself, which an executable linked to it
