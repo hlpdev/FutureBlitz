@@ -47,6 +47,7 @@
 #include <pthread.h>
 #ifdef __APPLE__
 #include <crt_externs.h>
+#include <fcntl.h>
 #endif
 #endif
 
@@ -930,6 +931,18 @@ child_t* start_child(uv_loop_t* loop, const spawn_t& spawn, std::int64_t& failur
         uv_close(reinterpret_cast<uv_handle_t*>(&child->process), processes_t::on_closed);
         return nullptr;
     }
+
+#ifdef __APPLE__
+    // libuv makes the pipes socket pairs on macOS, whose SIGPIPE goes to the whole program, not
+    // only to the loop's thread, which blocks it; so a write to a pipe the child has closed is
+    // EPIPE there too.
+    for (stream_t& stream : child->streams) {
+        uv_os_fd_t fd = -1;
+        if (stream.open && uv_fileno(reinterpret_cast<uv_handle_t*>(&stream.pipe), &fd) == 0) {
+            fcntl(fd, F_SETNOSIGPIPE, 1);
+        }
+    }
+#endif
 
     child->pid = child->process.pid;
     return child;
