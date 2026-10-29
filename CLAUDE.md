@@ -29,12 +29,11 @@ compiler (lib), runtime (lib), cli (exe), lsp (exe), tools/bindgen (fb_bindgen l
 exe)
 
 ## Current step
-M7, libraries and packages, steps 0 to 7 of docs/milestones.md's M7 build order, with the design
-in docs/libraries.md and spec 11; plugins and loading at run time are left for later. M6, the full
-standard library, is done: all 32 steps landed by 2026-10-28, on Windows, Linux, and macOS.
-docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
-Tooling is M8; futureblitz.dev (the site, docs, playground, registry, and accounts) is M9, in
-docs/website.md.
+M7, libraries and packages, is done: steps 0 to 7 of docs/milestones.md's M7 build order landed by
+2026-10-29, on Windows, Linux, and macOS, with plugins and loading at run time left for later
+(Deferred work). M8, tooling, is next. docs/milestones.md's Deferred work lists everything left
+for later, and where it's planned. futureblitz.dev (the site, docs, playground, registry, and
+accounts) is M9, in docs/website.md.
 
 ## History
 Each milestone's steps, in detail (what each added, by name, and each review's fixes), are in
@@ -61,6 +60,7 @@ docs/history.md; a landed step's notes go there, newest milestone first.
   type-argument inference, overloads by type-parameter count, Defaults<T>, and For Method's own type
   parameters, picks, and throwing Methods; a parallel verify; and every one of the whole-codebase
   review's fixes.
-- M7 so far: step 0 (the spec), 1 (project types and the interface file), 2 (prebuilt libraries
-  embedded), 3 (libraries beside the executable), 4 (across the edge), 5 (dynamic natives and
-  {target}), and 6 (a package with prebuilt natives).
+- M7 (2026-10-28 to 29): project types and interface files, prebuilt libraries embedded and
+  beside the executable as the OS's own DLLs, one runtime across the edge, dynamic natives and
+  {target}, a package with a prebuilt C++ engine DLL, each library's recorded builds, and a
+  program that embeds one prebuilt library and has another beside it.

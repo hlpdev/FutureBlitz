@@ -5,6 +5,8 @@ them while each was built. Newest first.
 
 ## M7, libraries and packages
 
+M7 (2026-10-28 to 29) is done: steps 0 to 7, on Windows, Linux, and macOS.
+
 Step 0, the spec: spec 11's `type` (`"executable"` or `"library"`), `link` (`"embed"` or
 `"beside"`), and its Libraries section: each package in one place, a package two binaries use
 beside, the runtime and std always in the executable, beside libraries loaded by the executable
@@ -96,6 +98,23 @@ and clearer errors.
 Step 4, across the edge (03202ac0): what step 3 made, one type per instance in every binary, Globals
 reached through accessors, and a program's Class extending a library's, with a test that a generic
 instance made on both sides of a beside library is one type, for `Is`, Interfaces, and debug forms.
+
+Step 7, loose ends and the milestone's review (d070a739): the milestone's program,
+tests/packages/space, which embeds physics, prebuilt, and has arena beside it, prebuilt too, a
+library over the engine package's C++ DLL, and runs from its build folder with only its two files
+beside it and the OS's own libraries (the packages test prebuilds any package a project.toml names
+as `../<name>-prebuilt`); plugins and loading at run time in Deferred work, as the user left them;
+and every docs/review Status line fixed, dropped, or refuted. The milestone's review found 17 more,
+fixed too (docs/review/m7-step7.md): a library's interface file records each package it was built
+with (`// uses <name> <version> <build>`, package_build_t, compilation_t::builds, record_builds(),
+source_build(), interface_uses()), which a program checks against its own, and a prebuilt library's
+ABI hash is recomputed as it's read, so another build of a dependency, a mode's files in the other's
+folder, or a changed interface file is an error naming the builds; what an interface file keeps is
+reached by what each name refers to, not its spelling; a Func's result that's a Task with a Throws
+is written in parentheses; a beside library's bad bitcode is named; on Linux and macOS a beside
+library of another build that can't be bound says so; a thin arm64e dylib is another CPU's; on
+macOS, whose dyld binds a library all at once, a beside library's build record is read from its
+file's __DATA,__fb_build section; and the docs.
 
 Step 5, dynamic natives (537d4680): `[native]`'s `{ dynamic = "native/{target}/engine" }`
 (native_kind_t::DYNAMIC), a path without the file's "lib" and extension, which finds engine.dll
