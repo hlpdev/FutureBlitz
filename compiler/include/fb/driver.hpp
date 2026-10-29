@@ -190,8 +190,12 @@ struct library_build_t {
 
 /// A library's build, from a compilation that checked it without errors, for `mode`. Fails with
 /// lowering's or codegen's error, or "" after errors in `diagnostics`, the interface file's.
+/// `folder`, the one fb runs in, gives its debug info the folders its files are in here, for a
+/// library built for one program's build alone; without it, as for a prebuilt library, the build
+/// is the same wherever it's made.
 [[nodiscard]] std::expected<library_build_t, std::string>
-build_library(const compilation_t& compilation, build_mode_t mode, diagnostic_bag_t& diagnostics);
+build_library(const compilation_t& compilation, build_mode_t mode, diagnostic_bag_t& diagnostics,
+              const std::string& folder = {});
 
 /// The binaries of the prebuilt libraries a compilation uses, each the .fblib beside its .fbi,
 /// which has to be the same build. Fails with why one isn't.

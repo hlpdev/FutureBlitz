@@ -152,9 +152,10 @@ private:
         return scope;
     }
 
-    /// A subprogram's name, its third operand, which the C API has no call for.
+    /// A subprogram's name, its third operand, which the C API has no call for. The code the
+    /// compiler makes itself, whose subprogram is at line 0, has none, which a trace leaves out.
     [[nodiscard]] std::string_view name_of(LLVMMetadataRef subprogram) const {
-        if (subprogram == nullptr) {
+        if (subprogram == nullptr || LLVMDISubprogramGetLine(subprogram) == 0) {
             return {};
         }
 
@@ -256,6 +257,30 @@ LLVMTypeRef table_type(LLVMContextRef context) {
 
 } // namespace
 
+void keep_frames(LLVMModuleRef module) {
+    LLVMContextRef context = LLVMGetModuleContext(module);
+    constexpr std::string_view uwtable = "uwtable";
+    const unsigned uwtable_kind = LLVMGetEnumAttributeKindForName(uwtable.data(), uwtable.size());
+    LLVMAttributeRef unwinds = LLVMCreateEnumAttribute(context, uwtable_kind, 2);
+    constexpr std::string_view no_tail_calls = "disable-tail-calls";
+    constexpr std::string_view yes = "true";
+    LLVMAttributeRef stays = LLVMCreateStringAttribute(
+        context, no_tail_calls.data(), static_cast<unsigned>(no_tail_calls.size()), yes.data(),
+        static_cast<unsigned>(yes.size()));
+    const auto at_function = static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex);
+    for (LLVMValueRef function = LLVMGetFirstFunction(module); function != nullptr;
+         function = LLVMGetNextFunction(function)) {
+        if (LLVMIsDeclaration(function) != 0) {
+            continue;
+        }
+
+        LLVMAddAttributeAtIndex(function, at_function, unwinds);
+        if (!has_must_tail_call(function)) {
+            LLVMAddAttributeAtIndex(function, at_function, stays);
+        }
+    }
+}
+
 void add_trace_table(LLVMModuleRef module) {
     LLVMContextRef context = LLVMGetModuleContext(module);
     LLVMTypeRef pointer = LLVMPointerTypeInContext(context, 0);
@@ -314,28 +339,14 @@ void fill_trace_table(LLVMModuleRef module, const std::string_view triple) {
     LLVMContextRef context = LLVMGetModuleContext(module);
     const format_t format = format_of(triple);
     LLVMTypeRef asm_type = LLVMFunctionType(LLVMVoidTypeInContext(context), nullptr, 0, 0);
-    constexpr std::string_view uwtable = "uwtable";
-    const unsigned uwtable_kind = LLVMGetEnumAttributeKindForName(uwtable.data(), uwtable.size());
-    // Async unwind tables, so the unwinder walks through every function, whatever its code, and
-    // no tail calls, which would take their callers' frames out of a trace, as Go doesn't.
-    LLVMAttributeRef unwinds = LLVMCreateEnumAttribute(context, uwtable_kind, 2);
-    constexpr std::string_view no_tail_calls = "disable-tail-calls";
-    constexpr std::string_view yes = "true";
-    LLVMAttributeRef stays = LLVMCreateStringAttribute(
-        context, no_tail_calls.data(), static_cast<unsigned>(no_tail_calls.size()), yes.data(),
-        static_cast<unsigned>(yes.size()));
+    // What optimizing made keeps the frames too.
+    keep_frames(module);
     frames_t frames(context);
     LLVMBuilderRef builder = LLVMCreateBuilderInContext(context);
     for (LLVMValueRef function = LLVMGetFirstFunction(module); function != nullptr;
          function = LLVMGetNextFunction(function)) {
         if (LLVMIsDeclaration(function) != 0) {
             continue;
-        }
-
-        const auto at_function = static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex);
-        LLVMAddAttributeAtIndex(function, at_function, unwinds);
-        if (!has_must_tail_call(function)) {
-            LLVMAddAttributeAtIndex(function, at_function, stays);
         }
 
         const bool described = LLVMGetSubprogram(function) != nullptr;

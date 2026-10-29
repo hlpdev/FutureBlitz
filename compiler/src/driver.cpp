@@ -3096,14 +3096,15 @@ std::string system_library_name(const std::string_view file,
 
 std::expected<library_build_t, std::string> build_library(const compilation_t& compilation,
                                                           const build_mode_t mode,
-                                                          diagnostic_bag_t& diagnostics) {
+                                                          diagnostic_bag_t& diagnostics,
+                                                          const std::string& folder) {
     if (!compilation.package) {
         return std::unexpected("only a package is a library");
     }
 
     const mir_module_t module =
         lower(compilation.ast, compilation.analysis, compilation.package->name);
-    codegen_options_t options{ .mode = mode };
+    codegen_options_t options{ .mode = mode, .folder = folder };
     for (const module_t& each : compilation.ast.modules().modules()) {
         options.paths.emplace(each.file, each.path);
     }
@@ -3170,10 +3171,12 @@ beside_binary(const beside_library_t& library, const build_mode_t mode,
             library.name, errors, errors == 1 ? "" : "s", to_utf8(shown_disk_path(library.root))));
     }
 
-    // Its build's error is at its line.
+    // Its build's error is at its line. Built for this build alone, its debug info has the
+    // folders its files are in here, which a debugger finds them by.
     diagnostic_bag_t diagnostics;
-    const std::expected<library_build_t, std::string> built =
-        build_library(*compiled, mode, diagnostics);
+    std::error_code no_folder;
+    const std::expected<library_build_t, std::string> built = build_library(
+        *compiled, mode, diagnostics, to_utf8(std::filesystem::current_path(no_folder)));
     if (!built && (!built.error().empty() || diagnostics.diagnostics().empty())) {
         return std::unexpected(built.error());
     }
@@ -3207,9 +3210,9 @@ beside_binary(const beside_library_t& library, const build_mode_t mode,
     return std::move(*binary);
 }
 
-/// On macOS, a debug build's executable and the libraries beside it each get a .dSYM beside
-/// them with their debug info, which a debugger finds them by, as dsymutil makes it from the
-/// object files, which the build removes. Elsewhere the debug info is in the binaries.
+/// On macOS, an executable and the libraries beside it each get a .dSYM beside them with their
+/// debug info, a release build's line tables too, which a debugger finds them by, as dsymutil makes
+/// it from the object files, which the build removes. Elsewhere the debug info is in the binaries.
 std::expected<void, std::string>
 write_debug_symbols(std::span<const std::filesystem::path> binaries) {
     if (!build_config::target_triple.contains("apple")) {
@@ -3446,8 +3449,7 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
                     binaries.push_back(output.parent_path() / path_from_utf8(library.file));
                 }
 
-                return mode == build_mode_t::DEBUG ? write_debug_symbols(binaries)
-                                                   : std::expected<void, std::string>();
+                return write_debug_symbols(binaries);
             })
             .and_then([&] { return copy_beside(natives.dynamic, output); });
     remove_temporary(folder);

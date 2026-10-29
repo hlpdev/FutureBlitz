@@ -451,6 +451,9 @@ private:
     /// call of a @PanicsAtCaller function gives it. nullopt in code the compiler makes itself,
     /// like a function value's.
     std::optional<span_t> m_span;
+    /// The debug scopes the code being lowered is in, innermost last, as the function's
+    /// `scopes` numbers them; empty in its own.
+    std::vector<std::uint32_t> m_debug_scopes;
     /// Expressions lowered already that a statement uses again, by what they gave: an index's
     /// object and indices, which "grid[x] += v" reads and sets the element with.
     std::unordered_map<expr_id_t, operand_t> m_reused;
@@ -2231,6 +2234,7 @@ private:
         m_async_task.reset();
         m_async_kept.clear();
         m_scopes.clear();
+        m_debug_scopes.clear();
         m_temporaries.clear();
         m_loops.clear();
         m_leaving.clear();
@@ -2634,8 +2638,13 @@ private:
     local_id_t add_local(const type_id_t type, const std::string_view name = {},
                          const bool by_ref = false) {
         const auto id = static_cast<local_id_t>(current().locals.size());
-        current().locals.push_back(
-            { .type = type, .name = name, .by_ref = by_ref, .span = m_span });
+        current().locals.push_back({
+            .type = type,
+            .name = name,
+            .by_ref = by_ref,
+            .span = m_span,
+            .scope = debug_scope(),
+        });
         return id;
     }
 
@@ -3004,7 +3013,7 @@ private:
     void add_statement(statement_t statement) {
         basic_block_t& block = block_at(here());
         block.statements.push_back(std::move(statement));
-        block.spans.push_back(m_span);
+        block.places.push_back(place_here());
     }
 
     /// Ends the current block. Does nothing when there's none, as right after a Return.
@@ -3012,7 +3021,7 @@ private:
         if (m_block) {
             basic_block_t& block = block_at(*m_block);
             block.terminator = std::move(terminator);
-            block.terminator_span = m_span;
+            block.terminator_place = place_here();
             m_block.reset();
         }
     }
@@ -3491,14 +3500,63 @@ private:
         release_temporaries_from(0);
     }
 
+    /// A scope of the source, whose Locals and code debug info keeps apart from its siblings'.
+    /// The function's own is the first one's, scope 0.
     void push_scope() {
+        if (!m_scopes.empty()) {
+            open_debug_scope();
+        }
+
         m_scopes.emplace_back();
     }
 
     void pop_scope() {
         release_scope(m_scopes.size() - 1);
         m_scopes.pop_back();
+        if (!m_scopes.empty()) {
+            close_debug_scope();
+        }
     }
+
+    void open_debug_scope() {
+        std::vector<std::uint32_t>& scopes = current().scopes;
+        scopes.push_back(debug_scope());
+        m_debug_scopes.push_back(static_cast<std::uint32_t>(scopes.size()));
+    }
+
+    void close_debug_scope() {
+        m_debug_scopes.pop_back();
+    }
+
+    [[nodiscard]] std::uint32_t debug_scope() const {
+        return m_debug_scopes.empty() ? 0 : m_debug_scopes.back();
+    }
+
+    /// Where the code being lowered is, for debug info.
+    [[nodiscard]] mir_place_t place_here() const {
+        return { .span = m_span, .scope = debug_scope() };
+    }
+
+    /// A scope for debug info alone while it lives, as a For's is, whose variable comes before
+    /// its body's scope.
+    class debug_scope_t {
+    public:
+        explicit debug_scope_t(lowerer_t& lowerer) : m_lowerer(lowerer) {
+            m_lowerer.open_debug_scope();
+        }
+
+        ~debug_scope_t() {
+            m_lowerer.close_debug_scope();
+        }
+
+        debug_scope_t(const debug_scope_t&) = delete;
+        debug_scope_t& operator=(const debug_scope_t&) = delete;
+        debug_scope_t(debug_scope_t&&) = delete;
+        debug_scope_t& operator=(debug_scope_t&&) = delete;
+
+    private:
+        lowerer_t& m_lowerer;
+    };
 
     /// Leaving a scope releases its variables and runs its Defers' statements and its Finally,
     /// the last first. Each is lowered again at each way out, after the ones further in. Code
@@ -3513,6 +3571,10 @@ private:
         for (std::size_t i = scope.size(); i-- > 0;) {
             const cleanup_t& cleanup = scope[i];
             if (const auto* local = std::get_if<local_id_t>(&cleanup.action)) {
+                // Where no statement is, as at a function's end, a Local's release is where it's
+                // declared, not at the statement before it, which a Destroy's trace would name.
+                const scoped_value_t<std::optional<span_t>> at(
+                    m_span, m_span ? m_span : current().locals[index(*local)].span);
                 emit(release_t{ .target = *local });
                 continue;
             }
@@ -4028,6 +4090,7 @@ private:
             return;
         }
 
+        const debug_scope_t scope(*this);
         const symbol_id_t symbol_id = expect(m_analysis.stmt(id).symbol);
         const type_id_t type = m_analysis.symbol(symbol_id).type;
         const local_id_t variable = add_local(type, node.variable.text);
@@ -4513,6 +4576,7 @@ private:
     /// bounds does, x being its variable, without making a Range.
     void lower_range_iteration(const stmt_id_t id, const span_t span, const for_in_stmt_t& node,
                                const range_expr_t& range) {
+        const debug_scope_t scope(*this);
         const symbol_id_t symbol_id = expect(m_analysis.stmt(id).symbol);
         const type_id_t type = concrete(m_analysis.symbol(symbol_id).type);
         const local_id_t variable = add_local(type, node.value.text);

@@ -12,6 +12,12 @@ namespace fb {
 /// its table as the binary loads, and the table, which fill_trace_table() fills in.
 void add_trace_table(LLVMModuleRef module);
 
+/// Has every function `module` defines keep its frame, which a trace names: unwind tables for any
+/// of its code, and no tail call, which would take its caller out, as Go makes none. It's before
+/// optimizing, whose tail-call elimination reads it too, and again before fill_trace_table() for
+/// what optimizing made.
+void keep_frames(LLVMModuleRef module);
+
 /// Fills in the table that add_trace_table() gave `module`, once it's optimized, right before it
 /// becomes machine code for `triple`, so its calls are the ones the code has, each with the
 /// places debug info gives it. A call whose function has no debug info gets a marker too, which

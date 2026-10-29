@@ -185,9 +185,26 @@ const char* passes_for(const build_mode_t mode) {
                : "always-inline,globaldce,coro-early,cgscc(coro-split),coro-cleanup";
 }
 
-/// Runs `passes` over a module, with SIMD in a release build.
+/// Coroutine splitting gives each piece of an Async Function's code a subprogram with its LLVM
+/// name as its linkage name, which debuggers would show instead of its FutureBlitz name: the
+/// subprograms have none, as they had, but the line-0 ones of the code the compiler makes.
+void drop_linkage_names(LLVMModuleRef module) {
+    LLVMContextRef context = LLVMGetModuleContext(module);
+    for (LLVMValueRef function = LLVMGetFirstFunction(module); function != nullptr;
+         function = LLVMGetNextFunction(function)) {
+        LLVMMetadataRef subprogram = LLVMGetSubprogram(function);
+        if (subprogram != nullptr && LLVMDISubprogramGetLine(subprogram) != 0) {
+            // Its fourth operand.
+            LLVMReplaceMDNodeOperandWith(LLVMMetadataAsValue(context, subprogram), 3, nullptr);
+        }
+    }
+}
+
+/// Runs `passes` over a module, with SIMD in a release build. Every function keeps its frame
+/// for traces, as keep_frames() says, which the passes read.
 std::expected<void, std::string> run_passes(LLVMModuleRef module, LLVMTargetMachineRef machine,
                                             const build_mode_t mode, const char* passes) {
+    keep_frames(module);
     LLVMPassBuilderOptionsRef options = LLVMCreatePassBuilderOptions();
     // A release build turns loops over arrays and straight-line code on several values, like a
     // Vec4's Operators, into SIMD instructions.
@@ -198,6 +215,7 @@ std::expected<void, std::string> run_passes(LLVMModuleRef module, LLVMTargetMach
 
     LLVMErrorRef error = LLVMRunPasses(module, passes, machine, options);
     LLVMDisposePassBuilderOptions(options);
+    drop_linkage_names(module);
     if (error != nullptr) {
         char* message = LLVMGetErrorMessage(error);
         const std::string text = message;
@@ -677,6 +695,9 @@ private:
     std::vector<LLVMValueRef> m_slots;   // where each local lives
     /// The LLVM block for each MIR block, by block_id_t.
     std::vector<LLVMBasicBlockRef> m_blocks;
+    /// The LLVM block of the MIR block after the one being generated, which the blocks its code
+    /// adds go before, or null.
+    LLVMBasicBlockRef m_next_block = nullptr;
 
     [[nodiscard]] LLVMContextRef context() const {
         return m_context.get();
@@ -2490,10 +2511,12 @@ private:
     /// scope for a file other than its own.
     std::unordered_map<LLVMMetadataRef, LLVMMetadataRef> m_scope_subprograms;
     /// The function being generated's subprogram and file, null for code that has no place,
-    /// and its scope for each other file its code comes from.
+    /// the lexical block of each scope of the source its code is in, by the scope's number, and
+    /// the scope for each other file its code comes from inside each, by both.
     LLVMMetadataRef m_subprogram = nullptr;
     file_id_t m_subprogram_file{};
-    std::unordered_map<file_id_t, LLVMMetadataRef> m_file_scopes;
+    std::unordered_map<std::uint32_t, LLVMMetadataRef> m_lexical_blocks;
+    std::map<std::pair<std::uint32_t, file_id_t>, LLVMMetadataRef> m_file_scopes;
     /// Where the code being generated is, which code that has no place of its own keeps.
     LLVMMetadataRef m_line = nullptr;
     /// An object's header, as an Interface's value points at one, made when it's first needed.
@@ -2501,6 +2524,7 @@ private:
     // DWARF's numbers for what the C API takes as numbers.
     static constexpr unsigned dwarf_structure = 0x13;
     static constexpr std::uint64_t dwarf_deref = 0x06;
+    static constexpr std::uint64_t dwarf_plus = 0x23;
     static constexpr unsigned dwarf_boolean = 0x02;
     static constexpr unsigned dwarf_float = 0x04;
     static constexpr unsigned dwarf_signed = 0x05;
@@ -2530,15 +2554,34 @@ private:
     }
 
     /// The folder a file's path is from, which a debugger finds it by: std's own folder's for
-    /// std's files, and the folder fb ran in for the others. An absolute path needs none.
-    [[nodiscard]] std::string folder_of(const std::string& path) const {
+    /// std's files; for a file that panics name by its path in the program, as a library's build
+    /// names its modules, the folder that path is from where the file is on disk; and the folder
+    /// fb runs in for the others. An absolute path needs none.
+    [[nodiscard]] std::string folder_of(const source_file_t& file) const {
+        const std::string path = path_of(m_options, file);
         if (path.starts_with("std/")) {
             return std::filesystem::path(std::string(build_config::std_directory))
                 .parent_path()
                 .generic_string();
         }
 
-        return m_options.folder;
+        std::string folder = m_options.folder;
+        std::ranges::replace(folder, '\\', '/');
+        // A build with no folder, as a prebuilt library's is, is the same wherever it's made.
+        if (path != file.path() && !folder.empty()) {
+            std::string disk = file.path();
+            std::ranges::replace(disk, '\\', '/');
+            const bool absolute = disk.starts_with('/') || (disk.size() > 1 && disk[1] == ':');
+            if (!absolute && !folder.empty()) {
+                disk = folder + "/" + disk;
+            }
+
+            if (disk.ends_with("/" + path)) {
+                return disk.substr(0, disk.size() - path.size() - 1);
+            }
+        }
+
+        return folder;
     }
 
     LLVMMetadataRef debug_file(const file_id_t id) {
@@ -2547,7 +2590,7 @@ private:
         }
 
         const std::string path = path_of(m_options, m_sources.get(id));
-        const std::string folder = folder_of(path);
+        const std::string folder = folder_of(m_sources.get(id));
         LLVMMetadataRef file = LLVMDIBuilderCreateFile(unit(m_main_file).builder.get(), path.data(),
                                                        path.size(), folder.data(), folder.size());
         m_debug_files.emplace(id, file);
@@ -2563,7 +2606,7 @@ private:
 
         made.builder.reset(LLVMCreateDIBuilder(m_module.get()));
         const std::string path = path_of(m_options, m_sources.get(id));
-        const std::string folder = folder_of(path);
+        const std::string folder = folder_of(m_sources.get(id));
         made.file = LLVMDIBuilderCreateFile(made.builder.get(), path.data(), path.size(),
                                             folder.data(), folder.size());
         m_debug_files.emplace(id, made.file);
@@ -2591,14 +2634,14 @@ private:
         }
 
         for (const basic_block_t& block : function.blocks) {
-            for (const std::optional<span_t>& span : block.spans) {
-                if (span) {
-                    return span;
+            for (const mir_place_t& place : block.places) {
+                if (place.span) {
+                    return place.span;
                 }
             }
 
-            if (block.terminator_span) {
-                return block.terminator_span;
+            if (block.terminator_place.span) {
+                return block.terminator_place.span;
             }
         }
 
@@ -2644,6 +2687,7 @@ private:
     /// Starts a MIR function's debug info: its subprogram, in its file's unit, and its first
     /// line. A function with no place has none here, and finish_debug_info() gives it one.
     void begin_subprogram(const std::size_t function_index) {
+        m_lexical_blocks.clear();
         m_file_scopes.clear();
         m_subprogram = nullptr;
         m_line = nullptr;
@@ -2681,37 +2725,88 @@ private:
         LLVMSetCurrentDebugLocation2(builder(), nullptr);
     }
 
-    /// The scope of the function being generated's code that comes from `file`: its own, or one
-    /// for that file inside it, as a default argument's code from another file is.
-    LLVMMetadataRef scope_for(const file_id_t file) {
-        if (file == m_subprogram_file) {
+    /// The lexical block of a scope of the source in the function being generated, inside its
+    /// enclosing one's, made where `span` is when it's first needed, so a Local of a block shows
+    /// only in its code, apart from one of its name in a block beside it. Scope 0 is the
+    /// subprogram's own.
+    LLVMMetadataRef lexical_scope(const std::uint32_t scope, const std::optional<span_t> span) {
+        if (scope == 0 || scope > m_function->scopes.size()) {
             return m_subprogram;
         }
 
-        if (const auto found = m_file_scopes.find(file); found != m_file_scopes.end()) {
+        if (const auto found = m_lexical_blocks.find(scope); found != m_lexical_blocks.end()) {
             return found->second;
         }
 
-        LLVMMetadataRef scope = LLVMDIBuilderCreateLexicalBlockFile(
-            unit(m_subprogram_file).builder.get(), m_subprogram, debug_file(file), 0);
-        m_file_scopes.emplace(file, scope);
-        m_scope_subprograms.emplace(scope, m_subprogram);
-        return scope;
+        LLVMMetadataRef parent = lexical_scope(m_function->scopes[scope - 1], span);
+        location_t start{ .line = LLVMDISubprogramGetLine(m_subprogram), .column = 0 };
+        if (span && span->file == m_subprogram_file) {
+            start = start_of(*span);
+        }
+
+        LLVMMetadataRef block = LLVMDIBuilderCreateLexicalBlock(
+            unit(m_subprogram_file).builder.get(), parent, debug_file(m_subprogram_file),
+            start.line, start.column);
+        m_lexical_blocks.emplace(scope, block);
+        m_scope_subprograms.emplace(block, m_subprogram);
+        return block;
     }
 
-    /// The code generated next is at `span`, or where the code before it is when it has none.
-    void locate(const std::optional<span_t> span) {
+    /// The scope of the function being generated's code at `place`: its lexical block's, or
+    /// one for the place's file inside it, as a default argument's code from another file is.
+    LLVMMetadataRef scope_for(const span_t span, const std::uint32_t scope) {
+        LLVMMetadataRef block = lexical_scope(scope, span);
+        if (span.file == m_subprogram_file) {
+            return block;
+        }
+
+        const auto key = std::pair(scope, span.file);
+        if (const auto found = m_file_scopes.find(key); found != m_file_scopes.end()) {
+            return found->second;
+        }
+
+        LLVMMetadataRef made = LLVMDIBuilderCreateLexicalBlockFile(
+            unit(m_subprogram_file).builder.get(), block, debug_file(span.file), 0);
+        m_file_scopes.emplace(key, made);
+        m_scope_subprograms.emplace(made, m_subprogram);
+        return made;
+    }
+
+    /// A block's code starts at line 0, until a statement with a place: code the compiler makes
+    /// at its start, like an If's join, would otherwise have the line of the block generated
+    /// before it, which needn't run before it.
+    void start_block_line() {
+        if (m_subprogram != nullptr) {
+            m_line = LLVMDIBuilderCreateDebugLocation(context(), 0, 0, m_subprogram, nullptr);
+        }
+    }
+
+    /// The code generated next is at `place`, or where the code before it in the block is when
+    /// it has no span.
+    void locate(const mir_place_t& place) {
         if (m_subprogram == nullptr) {
             return;
         }
 
-        if (span) {
-            const location_t start = start_of(*span);
+        if (place.span) {
+            const location_t start = start_of(*place.span);
             m_line = LLVMDIBuilderCreateDebugLocation(context(), start.line, start.column,
-                                                      scope_for(span->file), nullptr);
+                                                      scope_for(*place.span, place.scope), nullptr);
         }
 
         LLVMSetCurrentDebugLocation2(builder(), m_line);
+    }
+
+    /// For a Local that a lambda captures, which lives in a Cell<T> object, where the value is
+    /// in that object: so the debugger shows it as a T.
+    [[nodiscard]] std::optional<std::uint64_t> cell_value(const type_id_t type) {
+        const type_t& info = m_mir.types->get(type);
+        if (info.kind != type_kind_t::CLASS || !info.made || info.fields.size() != 1 ||
+            info.fields[0].name != "value" || !info.name.starts_with("Cell<")) {
+            return std::nullopt;
+        }
+
+        return LLVMOffsetOfElement(LLVMGetModuleDataLayout(m_module.get()), object_type(type), 2);
     }
 
     /// In a debug build, the debug info of the function being generated's parameters and named
@@ -2733,13 +2828,17 @@ private:
             }
 
             const unsigned line = local.span ? start_of(*local.span).line : first;
-            LLVMMetadataRef type = debug_type(local.type);
+            LLVMMetadataRef scope = lexical_scope(local.scope, local.span);
+            const std::optional<std::uint64_t> cell =
+                local.by_ref ? std::nullopt : cell_value(local.type);
+            LLVMMetadataRef type =
+                debug_type(cell ? m_mir.types->get(local.type).fields[0].type : local.type);
             LLVMMetadataRef variable =
                 i < m_function->parameter_count
                     ? LLVMDIBuilderCreateParameterVariable(
-                          maker, m_subprogram, local.name.data(), local.name.size(),
+                          maker, scope, local.name.data(), local.name.size(),
                           static_cast<unsigned>(i + 1), file, line, type, 1, LLVMDIFlagZero)
-                    : LLVMDIBuilderCreateAutoVariable(maker, m_subprogram, local.name.data(),
+                    : LLVMDIBuilderCreateAutoVariable(maker, scope, local.name.data(),
                                                       local.name.size(), file, line, type, 1,
                                                       LLVMDIFlagZero, 0);
             LLVMValueRef storage = m_slots[i];
@@ -2748,10 +2847,13 @@ private:
                 storage = LLVMBuildAlloca(builder(), m_ptr, "");
                 LLVMBuildStore(builder(), m_slots[i], storage);
                 expression = LLVMDIBuilderCreateExpression(maker, deref.data(), deref.size());
+            } else if (cell) {
+                std::array<std::uint64_t, 3> inside{ dwarf_deref, dwarf_plus, *cell };
+                expression = LLVMDIBuilderCreateExpression(maker, inside.data(), inside.size());
             }
 
             LLVMMetadataRef at =
-                LLVMDIBuilderCreateDebugLocation(context(), line, 0, m_subprogram, nullptr);
+                LLVMDIBuilderCreateDebugLocation(context(), line, 0, scope, nullptr);
             LLVMDIBuilderInsertDeclareRecordAtEnd(maker, storage, variable, expression, at,
                                                   m_entry);
         }
@@ -2802,7 +2904,10 @@ private:
         LLVMMetadataRef file = debug_file(m_main_file);
         const std::uint64_t size = size_in_bits(layout);
         const std::uint32_t align = align_in_bits(layout);
-        const std::string struct_name = reference ? "fb." + name : name;
+        // A Class's struct is by its full name, which its fb_class_t has, so the script tells it
+        // from another module's of its name.
+        const std::string struct_name =
+            reference ? "fb." + (is_class(type) ? full_name(type) : name) : name;
         LLVMMetadataRef temporary = LLVMDIBuilderCreateReplaceableCompositeType(
             type_maker(), dwarf_structure, struct_name.data(), struct_name.size(), nullptr, file, 0,
             0, size, align, LLVMDIFlagZero, "", 0);
@@ -3082,6 +3187,20 @@ private:
             }
         }
 
+        // Each Class's struct, which a debugger finds an object's own Class by, though no
+        // variable has the Class as its type: its release's parameter has.
+        if (full_debug_info()) {
+            for (std::size_t i = 0; i < m_mir.classes.size(); ++i) {
+                LLVMMetadataRef releases = LLVMGetSubprogram(m_class_functions[i].release.value);
+                if (releases != nullptr) {
+                    constexpr std::string_view object = "object";
+                    LLVMDIBuilderCreateParameterVariable(
+                        main.builder.get(), releases, object.data(), object.size(), 1, main.file, 0,
+                        debug_type(m_mir.classes[i].type), 1, LLVMDIFlagArtificial);
+                }
+            }
+        }
+
         for (auto& [file, made] : m_units) {
             LLVMDIBuilderFinalize(made.builder.get());
         }
@@ -3140,17 +3259,20 @@ private:
         }
 
         for (std::size_t i = 0; i < m_function->blocks.size(); ++i) {
+            m_next_block = i + 1 < m_blocks.size() ? m_blocks[i + 1] : nullptr;
             LLVMPositionBuilderAtEnd(builder(), m_blocks[i]);
             const basic_block_t& block = m_function->blocks[i];
+            start_block_line();
             for (std::size_t j = 0; j < block.statements.size(); ++j) {
-                locate(j < block.spans.size() ? block.spans[j] : std::nullopt);
+                locate(j < block.places.size() ? block.places[j] : mir_place_t{});
                 std::visit([this](const auto& node) { this->generate(node); }, block.statements[j]);
             }
 
-            locate(block.terminator_span);
+            locate(block.terminator_place);
             std::visit([this](const auto& node) { this->generate(node); }, block.terminator);
         }
 
+        m_next_block = nullptr;
         // The entry block gets its jump last, since join adds allocas to it along the way.
         LLVMPositionBuilderAtEnd(builder(), m_entry);
         LLVMSetCurrentDebugLocation2(builder(), nullptr);
@@ -3589,10 +3711,22 @@ private:
         return call(intrinsic, std::move(arguments));
     }
 
+    /// A new block in the function code is being generated in. In a MIR function's code it goes
+    /// before the next MIR block's, so a line's code stays in the order it's written, as a
+    /// debugger puts a line's breakpoint at its lowest address.
+    LLVMBasicBlockRef add_block(const char* name) {
+        LLVMValueRef function = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder()));
+        if (function == m_llvm_function && m_next_block != nullptr) {
+            return LLVMInsertBasicBlockInContext(context(), m_next_block, name);
+        }
+
+        return LLVMAppendBasicBlockInContext(context(), function, name);
+    }
+
     /// Branches to a panic when `failed` is true, and carries on otherwise.
     void panic_if(LLVMValueRef failed, const std::string& message, const span_t span) {
-        LLVMBasicBlockRef fail = LLVMAppendBasicBlockInContext(context(), m_llvm_function, "panic");
-        LLVMBasicBlockRef ok = LLVMAppendBasicBlockInContext(context(), m_llvm_function, "ok");
+        LLVMBasicBlockRef fail = add_block("panic");
+        LLVMBasicBlockRef ok = add_block("ok");
         LLVMBuildCondBr(builder(), failed, fail, ok);
         LLVMPositionBuilderAtEnd(builder(), fail);
         panic(message, span);
@@ -3747,9 +3881,8 @@ private:
     /// UInt64's past an Int64's range as it is.
     LLVMValueRef check_index(LLVMValueRef position, const type_id_t index, LLVMValueRef count,
                              const span_t span) {
-        LLVMValueRef function = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder()));
-        LLVMBasicBlockRef fail = LLVMAppendBasicBlockInContext(context(), function, "out_of_range");
-        LLVMBasicBlockRef ok = LLVMAppendBasicBlockInContext(context(), function, "in_range");
+        LLVMBasicBlockRef fail = add_block("out_of_range");
+        LLVMBasicBlockRef ok = add_block("in_range");
         LLVMBuildCondBr(builder(), LLVMBuildICmp(builder(), LLVMIntUGE, position, count, ""), fail,
                         ok);
         LLVMPositionBuilderAtEnd(builder(), fail);
@@ -3781,10 +3914,9 @@ private:
     void for_each_element(LLVMValueRef first, LLVMTypeRef type, LLVMValueRef count,
                           const Body& body) {
         LLVMBasicBlockRef before = LLVMGetInsertBlock(builder());
-        LLVMValueRef function = LLVMGetBasicBlockParent(before);
-        LLVMBasicBlockRef head = LLVMAppendBasicBlockInContext(context(), function, "each");
-        LLVMBasicBlockRef loop = LLVMAppendBasicBlockInContext(context(), function, "element");
-        LLVMBasicBlockRef done = LLVMAppendBasicBlockInContext(context(), function, "done");
+        LLVMBasicBlockRef head = add_block("each");
+        LLVMBasicBlockRef loop = add_block("element");
+        LLVMBasicBlockRef done = add_block("done");
         LLVMBuildBr(builder(), head);
         LLVMPositionBuilderAtEnd(builder(), head);
         LLVMValueRef position = LLVMBuildPhi(builder(), m_i64, "");
@@ -4042,9 +4174,8 @@ private:
 
         const std::string& name = m_mir.globals[index(node.global)].name;
         LLVMValueRef state = LLVMBuildLoad2(builder(), m_i32, flag, "");
-        LLVMBasicBlockRef unready =
-            LLVMAppendBasicBlockInContext(context(), m_llvm_function, "unready");
-        LLVMBasicBlockRef ok = LLVMAppendBasicBlockInContext(context(), m_llvm_function, "ok");
+        LLVMBasicBlockRef unready = add_block("unready");
+        LLVMBasicBlockRef ok = add_block("ok");
         LLVMBuildCondBr(
             builder(),
             LLVMBuildICmp(builder(), LLVMIntEQ, state, LLVMConstInt(m_i32, ready, 0), ""), ok,
@@ -4069,9 +4200,8 @@ private:
         const std::size_t global = index(node.global);
         const std::string& name = m_mir.globals[global].name;
         LLVMValueRef state = LLVMBuildLoad2(builder(), m_i32, m_thread_states[global], "");
-        LLVMBasicBlockRef unmade =
-            LLVMAppendBasicBlockInContext(context(), m_llvm_function, "unmade");
-        LLVMBasicBlockRef ok = LLVMAppendBasicBlockInContext(context(), m_llvm_function, "ok");
+        LLVMBasicBlockRef unmade = add_block("unmade");
+        LLVMBasicBlockRef ok = add_block("ok");
         LLVMBuildCondBr(
             builder(),
             LLVMBuildICmp(builder(), LLVMIntEQ, state, LLVMConstInt(m_i32, ready, 0), ""), ok,
@@ -4117,6 +4247,18 @@ private:
         m_coroutine_cleanup = LLVMAppendBasicBlockInContext(context(), m_llvm_function, "free");
         m_coroutine_end = LLVMAppendBasicBlockInContext(context(), m_llvm_function, "end");
         LLVMPositionBuilderAtEnd(builder(), m_coroutine_cleanup);
+        // In a debug build every named variable is used after each Await, here at its end, so the
+        // coroutine's frame keeps it, and the debugger shows it once it resumes.
+        if (full_debug_info()) {
+            for (std::size_t i = 0; i < m_function->locals.size(); ++i) {
+                const local_t& local = m_function->locals[i];
+                if (!local.name.empty() && !local.by_ref) {
+                    LLVMSetVolatile(
+                        LLVMBuildLoad2(builder(), llvm_type(local.type), m_slots[i], ""), 1);
+                }
+            }
+        }
+
         LLVMValueRef memory =
             call_plain_intrinsic("llvm.coro.free", { m_coroutine_id, m_coroutine });
         call(m_coroutine_free, { memory });
@@ -5029,9 +5171,8 @@ private:
             return object;
         }
 
-        LLVMBasicBlockRef check =
-            LLVMAppendBasicBlockInContext(context(), m_llvm_function, "check");
-        LLVMBasicBlockRef done = LLVMAppendBasicBlockInContext(context(), m_llvm_function, "done");
+        LLVMBasicBlockRef check = add_block("check");
+        LLVMBasicBlockRef done = add_block("done");
         LLVMValueRef null = LLVMBuildICmp(builder(), LLVMIntEQ, object, LLVMConstNull(m_ptr), "");
         LLVMBuildCondBr(builder(), null, done, check);
         LLVMPositionBuilderAtEnd(builder(), check);

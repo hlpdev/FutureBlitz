@@ -35,8 +35,10 @@ struct local_t {
     std::string_view name;
     /// A ByRef parameter. It stands for the caller's variable, so assigning it changes theirs.
     bool by_ref = false;
-    /// Where it's declared, for debug info, or nullopt for one the compiler makes.
+    /// Where it's declared, for debug info, or nullopt for one the compiler makes, and the scope
+    /// it's in, as mir_function_t's `scopes` numbers them.
     std::optional<span_t> span;
+    std::uint32_t scope = 0;
 };
 
 /// How a function or Global is linked when a prebuilt library's binary and the program that uses it
@@ -482,6 +484,14 @@ struct ready_t {
     span_t span;
 };
 
+/// Where code is, for debug info: the innermost expression or statement it was lowered from, or
+/// nullopt for code the compiler makes, and the scope of the source it's in, whose Locals it
+/// sees, as mir_function_t's `scopes` numbers them.
+struct mir_place_t {
+    std::optional<span_t> span;
+    std::uint32_t scope = 0;
+};
+
 /// Statements run in order, inside a block.
 using statement_t = std::variant<assign_t, evaluate_t, retain_t, release_t, ready_t>;
 
@@ -528,12 +538,12 @@ using terminator_t = std::variant<goto_t, branch_t, return_t, panic_t, unreachab
 struct basic_block_t {
     std::vector<statement_t> statements;
     terminator_t terminator = unreachable_t{};
-    /// Where each statement's code is, as `statements` has them: the innermost expression or
-    /// statement it was lowered from, or nullopt for code the compiler makes, which debug info
-    /// gives the line before it. A block made by hand can leave it short.
-    std::vector<std::optional<span_t>> spans;
+    /// Where each statement's code is, as `statements` has them. Debug info gives one with no
+    /// span the line before it in the block, or line 0 at the block's start. A block made by
+    /// hand can leave it short.
+    std::vector<mir_place_t> places;
     /// Where the terminator's code is, the same way.
-    std::optional<span_t> terminator_span;
+    mir_place_t terminator_place;
 };
 
 /// An Extern Function, which C code or the runtime defines: its symbol, and how it's called.
@@ -573,6 +583,10 @@ struct mir_function_t {
     span_t span;
     /// IMPORTED for a prebuilt library's, which has no blocks, since its binary has its code.
     mir_linkage_t linkage = mir_linkage_t::INTERNAL;
+    /// The scopes of the source its code is in, as a block that can declare Locals is one, for
+    /// debug info: scope 0 is the function's own, and scope n's enclosing one is scopes[n - 1],
+    /// which is below n.
+    std::vector<std::uint32_t> scopes;
 };
 
 /// An Interface that a Class's objects implement, and the Class's table for it: for each of the

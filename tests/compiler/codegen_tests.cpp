@@ -134,7 +134,7 @@ TEST_CASE("debug builds describe functions, lines, variables, and types, and rel
         CHECK(debug.contains("DW_TAG_enumeration_type, name: \"Color\""));
         CHECK(debug.contains("!DIEnumerator(name: \"GREEN\", value: 1"));
         CHECK(debug.contains("DW_TAG_typedef, name: \"Node\""));
-        CHECK(debug.contains("DW_TAG_structure_type, name: \"fb.Node\""));
+        CHECK(debug.contains("DW_TAG_structure_type, name: \"fb.main.Node\""));
         CHECK(debug.contains("DW_TAG_typedef, name: \"Node?\""));
         CHECK(debug.contains("DW_TAG_typedef, name: \"Int32[]\""));
         CHECK(debug.contains("DW_TAG_typedef, name: \"String\""));
