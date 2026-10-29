@@ -1067,7 +1067,10 @@ private:
                 return false;
             }
 
-            named_type_t written{ .name = type->base->text, .qualifier = type->base_qualifier };
+            const named_type_t written{
+                .name = type->base->text,
+                .qualifier = type->base_qualifier,
+            };
             const std::optional<found_t> next = named_type(written, { .module = where->module });
             at = next ? next->declaration : std::nullopt;
         }
@@ -1170,8 +1173,10 @@ private:
             const auto& node = std::get<import_stmt_t>(m_ast.get(imported.statement).node);
             if (node.alias) {
                 if (node.alias->text == name) {
-                    return found_t{ .path = imported_path(imported, node),
-                                    .modules = imported.modules };
+                    return found_t{
+                        .path = imported_path(imported, node),
+                        .modules = imported.modules,
+                    };
                 }
 
                 continue;
@@ -1188,8 +1193,10 @@ private:
             }
 
             if (node.last.text == name) {
-                return found_t{ .path = imported_path(imported, node),
-                                .modules = imported.modules };
+                return found_t{
+                    .path = imported_path(imported, node),
+                    .modules = imported.modules,
+                };
             }
 
             if (std::optional<found_t> found = in_modules(imported.modules, name, module)) {
@@ -1276,8 +1283,10 @@ private:
         const scope_t there{ .module = where->module };
         std::vector<std::optional<found_t>> bases;
         if (type->base) {
-            const named_type_t written{ .name = type->base->text,
-                                        .qualifier = type->base_qualifier };
+            const named_type_t written{
+                .name = type->base->text,
+                .qualifier = type->base_qualifier,
+            };
             bases.push_back(named_type(written, there));
         }
 

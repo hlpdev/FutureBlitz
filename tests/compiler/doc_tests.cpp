@@ -905,8 +905,10 @@ TEST_CASE("fb doc has Operators and Overrides, finds links as code would, and wa
     const std::filesystem::path folder = write_package(
         "reviewed",
         {
-            { "project.toml",
-              "[project]\nname = \"reviewed\"\nversion = \"1.0.0\"\ntype = \"library\"\n" },
+            {
+                "project.toml",
+                "[project]\nname = \"reviewed\"\nversion = \"1.0.0\"\ntype = \"library\"\n",
+            },
             { "shapes.fb", std::string(reviewed_shapes) },
             { "other.fb", std::string(reviewed_other) },
         });
@@ -975,8 +977,10 @@ TEST_CASE("fb test runs a module's examples, ones that throw and declare, and ov
     const std::filesystem::path folder = write_package(
         "reviewed_tests",
         {
-            { "project.toml",
-              "[project]\nname = \"reviewed\"\nversion = \"1.0.0\"\ntype = \"library\"\n" },
+            {
+                "project.toml",
+                "[project]\nname = \"reviewed\"\nversion = \"1.0.0\"\ntype = \"library\"\n",
+            },
             { "shapes.fb", std::string(reviewed_shapes) },
             { "other.fb", std::string(reviewed_other) },
         });
@@ -1005,11 +1009,16 @@ TEST_CASE("fb test runs a module's examples, ones that throw and declare, and ov
     const std::filesystem::path unnamed = write_package(
         "unnamed",
         {
-            { "project.toml",
-              "[project]\nname = \"unnamed\"\nversion = \"1.0.0\"\ntype = \"library\"\n" },
-            { "my-lib.fb", "/// One.\n///\n/// # Examples\n///\n/// ```\n/// "
-                           "Expect(One() == 1)\n/// ```\nPublic Function One(): Int => "
-                           "1\n" },
+            {
+                "project.toml",
+                "[project]\nname = \"unnamed\"\nversion = \"1.0.0\"\ntype = \"library\"\n",
+            },
+            {
+                "my-lib.fb",
+                "/// One.\n///\n/// # Examples\n///\n/// ```\n/// "
+                "Expect(One() == 1)\n/// ```\nPublic Function One(): Int => "
+                "1\n",
+            },
         });
     const std::expected<fb::compilation_t, std::string> stopped = fb::compile_tests(unnamed);
     REQUIRE(stopped);
