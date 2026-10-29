@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  probe:
+    name: probe ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm, macos-15, macos-15-intel]
+    steps:
+      - name: Linux
+        if: runner.os == 'Linux'
+        run: |
+          set -x
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          apt-cache policy g++-14 g++-13 | head -20
+          wget -q https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 22
+          sudo apt-get install -y llvm-22-dev libclang-22-dev lld-22 liblld-22-dev libpolly-22-dev
+          ldd /usr/lib/llvm-22/bin/lld || true
+          ls -la /usr/lib/llvm-22/bin/lld /usr/lib/llvm-22/bin/ld.lld || true
+          ls /usr/lib/llvm-22/lib/ | grep -i -E "lld|clang\.|libclang-|LLVM\.|LLVM-" || true
+          ldd /usr/lib/llvm-22/lib/libclang.so.1 || ldd /usr/lib/llvm-22/lib/libclang.so || true
+          ls -la /usr/lib/llvm-22/lib/libclang* | head
+          ls /usr/lib/llvm-22/lib/libLLVM*.a | wc -l
+          grep -A4 "set_target_properties(LLVMSupport PROPERTIES" /usr/lib/llvm-22/lib/cmake/llvm/LLVMExports.cmake || true
+          grep -n "LLVM_LINK_LLVM_DYLIB\|LLVM_ENABLE_ZSTD\|LLVM_ENABLE_LIBXML2\|LLVM_ENABLE_ZLIB" /usr/lib/llvm-22/lib/cmake/llvm/LLVMConfig.cmake || true
+          ls /usr/lib/llvm-22/lib/cmake/ || true
+          ls /usr/lib/llvm-22/lib/clang/*/ || true
+          objdump -p /usr/lib/llvm-22/lib/libclang.so.1 | grep -i -E "rpath|runpath|soname" || true
+          objdump -p /usr/lib/llvm-22/bin/lld | grep -i -E "rpath|runpath|needed" || true
+      - name: Official LLVM Linux tarball
+        if: runner.os == 'Linux'
+        run: |
+          set -x
+          arch=X64; [ "$(uname -m)" = aarch64 ] && arch=ARM64
+          curl -sfL -o llvm.tar.xz "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-Linux-$arch.tar.xz" || { echo no tarball; exit 0; }
+          ls -la llvm.tar.xz
+          tar -xf llvm.tar.xz --wildcards '*/bin/lld' '*/lib/libclang.so*' '*/lib/libLLVM*.so*' || tar -tf llvm.tar.xz | grep -E "bin/lld$|libclang|libLLVM" | head
+          find . -path "*/bin/lld" -exec ldd {} \; -exec ls -la {} \;
+          find . -name "libclang.so*" -exec ls -la {} \; -exec ldd {} \;
+      - name: manylinux
+        if: runner.os == 'Linux'
+        run: |
+          image=quay.io/pypa/manylinux_2_28_x86_64; [ "$(uname -m)" = aarch64 ] && image=quay.io/pypa/manylinux_2_28_aarch64
+          docker run --rm $image bash -c 'set -x; gcc --version; which gcc; g++ -print-file-name=libstdc++.a; file $(g++ -print-file-name=libstdc++.a); head -c 300 $(g++ -print-file-name=libstdc++.a) | od -c | head -3; g++ -print-file-name=libstdc++.so; cat $(g++ -print-file-name=libstdc++.so) | head -5; g++ -print-file-name=libgcc_eh.a; g++ -print-file-name=Scrt1.o; g++ -print-file-name=crtbeginS.o; cmake --version; ninja --version; git --version; ldd --version | head -1; rpm -ql glibc-headers kernel-headers | grep ^/usr/include | wc -l; rpm -ql glibc-headers | head -3; ls /opt/rh; echo "int main(){}" > a.cpp; g++ -static-libstdc++ -static-libgcc a.cpp -o a && ldd a; echo "#include <string>\n#include <format>\nint main(){std::string s = std::format(\"{}\",1);}" > b.cpp; g++ -std=c++23 b.cpp -o b && ./b && echo cxx23ok; dnf list installed | grep -i -E "glibc|kernel-headers|gcc-toolset" | head -20'
+      - name: macOS
+        if: runner.os == 'macOS'
+        run: |
+          set -x
+          sw_vers; uname -m
+          brew install llvm@22 lld@22 || brew install llvm lld
+          llvm="$(brew --prefix llvm@22 2>/dev/null || brew --prefix llvm)"
+          lld="$(brew --prefix lld@22 2>/dev/null || brew --prefix lld)"
+          ls -la "$lld/bin" "$lld/lib" | head -40
+          otool -L "$lld/bin/lld" || true
+          otool -l "$lld/bin/lld" | grep -A2 LC_RPATH || true
+          otool -L "$llvm/lib/libclang.dylib"
+          otool -L "$llvm/lib/libLLVM.dylib" || true
+          ls "$llvm/lib" | grep -E "\.a$" | wc -l
+          ls "$llvm/lib" | grep -i -E "clang\.a|libclang\." || true
+          grep -A4 "set_target_properties(LLVMSupport PROPERTIES" "$llvm/lib/cmake/llvm/LLVMExports.cmake" || true
+          grep -n "LLVM_LINK_LLVM_DYLIB\|LLVM_ENABLE_ZSTD\|LLVM_ENABLE_LIBXML2" "$llvm/lib/cmake/llvm/LLVMConfig.cmake" || true
+          ls "$llvm/lib/clang/"*/ || true
+          xcrun --show-sdk-path
+          curl -sfI "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-macOS-ARM64.tar.xz" | head -1 || echo no-arm-tarball
+          curl -sfI "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-macOS-X64.tar.xz" | head -1 || echo no-x64-tarball
