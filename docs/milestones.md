@@ -296,7 +296,7 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | A generic type's own Operator used on a Class extending one of its instances, like Box<T>'s `<` on `Class Nums Extends Box<Int>`, whose type arguments aren't inferred through the base, so "no Operator < takes (Nums, Nums)"; what an Extend of the instance adds works | M5 step 3 | open question |
 | By-value Structs to and from C on 64-bit targets that aren't x86-64 or AArch64, like RISC-V, where fb-bindgen skips functions that pass one | M5 step 8 | open question |
 | A Callback that takes or gives a Struct by value, whose thunk would need the C ABI's lowering in reverse | M5 step 9 | open question |
-| A fix-it for a miscased keyword, like `if` for `If`, and `///` doc comments | M1 | M8 |
+| A fix-it for a miscased keyword, like `if` for `If` | M1 | M8 |
 | Stack traces for panics, which need debug info | M1 | M8 |
 | A Float range, like `0.0 To 1.0 Step 0.1`, which a For loop counts but a range doesn't | M6 step 2 | open question |
 | Plugins and loading libraries at run time, `Plugin.Load` and `DynamicLibrary`, which game mods would use (the user's call, 2026-10-28) | M7 | open question |
