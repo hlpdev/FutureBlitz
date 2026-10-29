@@ -118,7 +118,8 @@ other people can install and use every day in an editor. Step 0 settled what was
   value, and the test goes on; `ExpectThrows`, `Fail`, and `Skip`. A panic or an Assert in a test
   fails it.
 - `fb test` runs the tests in parallel in one process, and starts it again after a test that
-  panics, running the rest; filters by name, a summary, and leaks reported per test.
+  panics, running the rest, and in a debug build the ones that finished in that run too, whose
+  leaks it didn't check; filters by name, a summary, and leaks reported per test.
 - Doc tests: the examples in `///` comments' `# Examples` compile and run as tests.
 
 ## Docs from the code (step 8)

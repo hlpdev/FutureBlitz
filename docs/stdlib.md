@@ -1999,7 +1999,9 @@ Built in step 23, but for `V7`. `Import std.uuid` brings in std/uuid/.
 Built in M8's step 7, with `fb test` (see [tooling.md](tooling.md#testing-step-7)), as spec 09's
 [Tests](spec/09-errors.md#tests) has it. `Import std.test` brings in std/test.fb, which has no
 code of its own: its names are built in, since the compiler writes down what each one checks and
-where, and the runtime's runner, in its `fb_test_` functions, runs the tests and reports to fb.
+where, so a file has them with `Import std.test` alone, not From or As; and the runtime's
+runner, in its `fb_test_` functions, runs the tests and reports to fb. Work a test starts on
+another thread, with Spawn, a Thread, or a Parallel For, is the test's, wherever it runs.
 
 - `Expect(condition)` and `Expect(condition, message)`: when the condition is False, the test
   fails, and goes on. The failure says "expect failed: " and the condition as it's written, and
@@ -2011,10 +2013,10 @@ where, and the runtime's runner, in its `fb_test_` functions, runs the tests and
   and it gives Null. An x that can't throw, or can't throw an E, is an error.
 - `Fail()` and `Fail(message)`: the test fails, and goes on.
 - `Skip()` and `Skip(reason)`: the test is skipped, unless it failed already, and ends there, as
-  a Return would, so it's only in a @Test Function's own code.
-- On a thread that runs no test, as in a program fb builds, or in work a test starts on another
-  thread, a failure of Expect, ExpectThrows, or Fail panics with what it would report, and so
-  does a Skip.
+  a Return would, so it's only in a @Test Function's own code, not a lambda's, a Defer's, or a
+  Finally's.
+- In code that's no test's, as in a program fb builds, a failure of Expect, ExpectThrows, or
+  Fail panics with what it would report, and so does a Skip.
 
 #### std.ffi (after M5's reorganization)
 

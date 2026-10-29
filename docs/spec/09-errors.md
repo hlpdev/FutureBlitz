@@ -164,7 +164,7 @@ panic: index 5 is out of range for 3 elements at game.fb:12:17
 Import std.test
 
 @Test
-Function ParsesALevel() Throws IOError
+Function ParsesALevel() Throws IOError, ParseError
     Local level = Try LoadLevel("one.dat")
     Expect(level.Rooms.Count == 12)
     Expect(ExpectThrows<ParseError>(LoadLevel("broken.dat")) != Null)
@@ -175,22 +175,31 @@ End Function
   can throw, anywhere in a package: a test, which `fb test` runs (see
   [tooling.md](../tooling.md#testing-step-7)). It isn't generic, Async, Const, Unsafe, or Extern,
   it takes no visibility, and no code calls it, or uses it as a value. It sees its file's Private
-  names, as the file's other code does. `fb build`, `fb run`, and a library's binary and interface file leave
-  tests out, and the code only they reach.
+  names, as the file's other code does. `fb build` and `fb run` leave tests out, and the code only
+  they reach; a library's binary and interface file leave the tests out.
 - The `.fb` files of a package's tests/ folder are a package of their own, `<name>.tests`, which
   depends on the package and on what it depends on, so their tests use it from outside, through
   its Public names, as another package would; they import each other by their paths. A package
-  builds without its tests/ folder.
-- A test build runs the tests in place of the main file's top-level code, once the Globals are
-  set. They run in parallel, on the runtime's pool, but for those whose code uses what only the
-  main thread can (see [10](10-concurrency.md#main-thread-rules)), like a Global or a
-  `@MainThread` Function, which run on the main thread, one at a time.
+  builds without its tests/ folder, so its own files don't import them. A tests/ folder with a
+  project.toml of its own is a package of its own, which `fb test` leaves alone.
+- A test build has each of the package's `.fb` files, and runs the tests in place of the main
+  file's top-level code, once the Globals are set; another main file's top-level code, as a
+  tool's in the package can have, is left out too. The tests run in parallel, on the runtime's
+  pool, but for those whose code uses what only the main thread can (see
+  [10](10-concurrency.md#main-thread-rules)), like a Global or a `@MainThread` Function, which
+  run on the main thread, one at a time. Work a test starts, with Spawn, a Thread, or a Parallel
+  For, is the test's wherever it runs: its failures, panics, and leaks are the test's.
 - A test passes unless it fails: by a failed Expect, ExpectThrows, or Fail, which it goes on
   after, by an error it lets out, by a panic, a failed Assert's too, which ends its program, or
   by a leak, which a debug build finds as it does a program's, once the Globals are let go of.
-  `fb test` starts the program again after a panic, for the tests that didn't finish.
-- std.test's built-ins are only a file's that imports std.test, and a file's own Function of
-  their names and types hides them, as it does any built-in:
+  `fb test` starts the program again after a panic, for the tests that didn't finish, and in a
+  debug build, for the ones that finished in that run too, since their leaks weren't checked. A
+  panic outside the tests, as in a Global's initializer or Destroy, and a leak no test made, fail
+  the run, as a failed test does. Ctrl+C stops `fb test`, which then exits as the tests' program
+  did.
+- std.test's built-ins are only a file's that imports std.test, with `Import std.test` alone,
+  not From or As, since they're the compiler's; and a file's own Function of their names and
+  types hides them, as it does any built-in:
   - `Expect(condition)` and `Expect(condition, message)` are an Assert whose test goes on: a
     False condition fails it, saying "expect failed: ", the condition as it's written, and where,
     then for a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), each side's debug form, as
@@ -202,9 +211,10 @@ End Function
     fails, saying so, and it gives Null. An x that can't throw, or can't throw an E, is an error.
   - `Fail()` and `Fail(message)` fail the test, which goes on.
   - `Skip()` and `Skip(reason)` skip the test, unless it failed already, and end it, as a
-    Return would, so Skip is only in a @Test Function's own code, not a lambda's.
-  - On a thread that runs no test, a failure of Expect, ExpectThrows, or Fail panics, saying what
-    it would have reported, and so does Skip.
+    Return would, so Skip is only in a @Test Function's own code, not a lambda's, a Defer's, or
+    a Finally's.
+  - In code that's no test's, as in a program `fb build` makes, a failure of Expect,
+    ExpectThrows, or Fail panics, saying what it would have reported, and so does Skip.
 
 ## Tasks
 

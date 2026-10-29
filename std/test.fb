@@ -2,8 +2,9 @@
 // nothing back, though it can throw, is a test, anywhere in a package, and so is one in its tests/
 // folder, which uses the package from outside. Builds leave tests out, and fb test runs them, in
 // parallel, on the runtime's pool, but for those whose code uses what only the main thread can.
+// Work a test starts on another thread is the test's, wherever it runs.
 //
-// Its names are the compiler's own, which a file that imports std.test has:
+// Its names are the compiler's own, which a file has with `Import std.test`, not From or As:
 //
 // - Expect(condition) and Expect(condition, message): when the condition is False, the test
 //   fails, saying what it checked and where, and for a comparison, like Expect(a == b), each
@@ -14,4 +15,6 @@
 // - Fail() and Fail(message): the test fails, and goes on.
 // - Skip() and Skip(reason): the test is skipped, and ends there, as a Return would.
 //
-// A panic, as a failed Assert's, fails its test, and fb test runs the ones it didn't finish again.
+// A panic, as a failed Assert's, fails its test, and fb test runs the ones it didn't finish
+// again, and in a debug build, the ones that finished in that run too, whose leaks it didn't
+// check.
