@@ -268,11 +268,12 @@ void finish_arguments(const output_kind_t kind, std::vector<std::string>& argume
 #endif
 }
 
-/// Runs lld with `arguments`, through a response file in the link's folder, writing `output`.
+/// Runs lld with `arguments`, through a response file in the link's folder, writing `output`,
+/// and with `debug_symbols`, on Windows, its PDB.
 std::expected<void, std::string> run_linker(const output_kind_t kind,
                                             std::vector<std::string> arguments,
                                             const std::filesystem::path& output,
-                                            link_folder_t& folder) {
+                                            const bool debug_symbols, link_folder_t& folder) {
     std::expected<std::vector<std::string>, std::string> all = start_arguments(kind);
     if (!all) {
         return std::unexpected(all.error());
@@ -282,6 +283,19 @@ std::expected<void, std::string> run_linker(const output_kind_t kind,
     finish_arguments(kind, *all);
     all->emplace_back("-o");
     all->push_back(to_utf8(output));
+#ifdef _WIN32
+    // A build without one leaves no other build's beside it.
+    std::filesystem::path pdb = output;
+    pdb.replace_extension(".pdb");
+    if (debug_symbols) {
+        all->push_back("--pdb=" + to_utf8(pdb));
+    } else {
+        std::error_code ignored;
+        std::filesystem::remove(pdb, ignored);
+    }
+#else
+    (void)debug_symbols;
+#endif
 
     const std::filesystem::path response = folder.path() / "arguments.rsp";
     {
@@ -449,7 +463,7 @@ std::string system_library_argument(const std::string_view name,
 std::expected<void, std::string> link_program(const std::span<const std::filesystem::path> objects,
                                               const native_libraries_t& natives,
                                               const std::filesystem::path& written,
-                                              const exports_t* exports) {
+                                              const exports_t* exports, const bool debug_symbols) {
     // On Windows an executable's name ends in .exe.
     std::filesystem::path output = written;
 #ifdef _WIN32
@@ -505,13 +519,15 @@ std::expected<void, std::string> link_program(const std::span<const std::filesys
         }
     }
 
-    return run_linker(output_kind_t::EXECUTABLE, std::move(arguments), output, folder);
+    return run_linker(output_kind_t::EXECUTABLE, std::move(arguments), output, debug_symbols,
+                      folder);
 }
 
 std::expected<void, std::string>
 link_beside(const std::span<const std::filesystem::path> objects, const native_libraries_t& natives,
             const std::span<const std::filesystem::path> import_libraries,
-            const std::filesystem::path& written, const std::filesystem::path& import_library) {
+            const std::filesystem::path& written, const std::filesystem::path& import_library,
+            const bool debug_symbols) {
     link_folder_t folder;
     std::vector<std::string> arguments;
 #ifdef _WIN32
@@ -541,7 +557,7 @@ link_beside(const std::span<const std::filesystem::path> objects, const native_l
 #endif
     link_system(natives, arguments);
     std::ranges::move(find_beside(natives), std::back_inserter(arguments));
-    return run_linker(output_kind_t::LIBRARY, std::move(arguments), written, folder);
+    return run_linker(output_kind_t::LIBRARY, std::move(arguments), written, debug_symbols, folder);
 }
 
 } // namespace fb

@@ -2483,6 +2483,54 @@ TEST_CASE("fb links with its own lld, with no C++ compiler on PATH", "[cli]") {
     CHECK(fb::run_process(executable, none).value_or(fb::process_result_t{}).output == "linked\n");
 }
 
+TEST_CASE("on Windows a debug build writes a PDB beside each binary, and a release build none",
+          "[cli]") {
+#ifdef _WIN32
+    const std::filesystem::path packages = std::filesystem::path(FB_TEST_OUTPUT) / "pdb";
+    std::filesystem::remove_all(packages);
+    const auto write = [&](const std::string_view path, const std::string_view text) {
+        const std::filesystem::path file = packages / fb::path_from_utf8(path);
+        std::filesystem::create_directories(file.parent_path());
+        std::ofstream(file, std::ios::binary) << text;
+    };
+    write("lib/project.toml",
+          "[project]\nname = \"lib\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("lib/lib.fb", "Public Function Twice(a: Int): Int => a * 2\n");
+    write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\n"
+                              "lib = { path = \"../lib\", link = \"beside\" }\n");
+    write("app/main.fb", "Import std.core\nImport lib\nFunction Shown(): Int => Twice(2)\n"
+                         "Print(\"pdb {Shown()}\")\n");
+
+    // Each is an MSF file, which names the program's Functions.
+    const auto read = [](const std::filesystem::path& path) {
+        std::ifstream file(path, std::ios::binary);
+        return std::string{ std::istreambuf_iterator<char>(file), {} };
+    };
+    const fb::process_result_t debug = fb_run({ "build", fb::to_utf8(packages / "app") });
+    INFO(debug.output);
+    REQUIRE(debug.exit_code == 0);
+    const std::vector<std::string> none;
+    CHECK(fb::run_process(packages / "app/build/app.exe", none)
+              .value_or(fb::process_result_t{})
+              .output == "pdb 4\n");
+    const std::string app = read(packages / "app/build/app.pdb");
+    CHECK(app.starts_with("Microsoft C/C++ MSF 7.00"));
+    CHECK(app.contains("Shown"));
+    const std::string lib = read(packages / "app/build/lib.pdb");
+    CHECK(lib.starts_with("Microsoft C/C++ MSF 7.00"));
+    CHECK(lib.contains("Twice"));
+
+    const fb::process_result_t release =
+        fb_run({ "build", fb::to_utf8(packages / "app"), "--release" });
+    INFO(release.output);
+    REQUIRE(release.exit_code == 0);
+    CHECK_FALSE(std::filesystem::exists(packages / "app/build/app.pdb"));
+    CHECK_FALSE(std::filesystem::exists(packages / "app/build/lib.pdb"));
+#else
+    SKIP("only Windows' debuggers read a PDB");
+#endif
+}
+
 TEST_CASE("fb builds where the temporary folder's name isn't in the ANSI code page", "[cli]") {
 #ifdef _WIN32
     // Linking writes its files in the temporary folder, whose name here has a snowman, which the

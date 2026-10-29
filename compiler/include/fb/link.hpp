@@ -55,19 +55,23 @@ struct exports_t {
 /// Links object files, the native libraries, the runtime library, and the bundled ones into an
 /// executable at `written`, with fb's own lld and the C runtime's pieces in its toolchain, which
 /// finds the dynamic ones beside it. With `exports`, it's one that libraries beside it take
-/// what they use from. Fails when the linker can't run or reports errors.
+/// what they use from. With `debug_symbols`, on Windows its debug info is written to a PDB beside
+/// it, of its name with .pdb, for Visual Studio and WinDbg. Fails when the linker can't run or
+/// reports errors.
 [[nodiscard]] std::expected<void, std::string>
 link_program(std::span<const std::filesystem::path> objects, const native_libraries_t& natives,
-             const std::filesystem::path& written, const exports_t* exports = nullptr);
+             const std::filesystem::path& written, const exports_t* exports = nullptr,
+             bool debug_symbols = false);
 
 /// Links a library beside an executable, its objects and its own native libraries, into the
 /// OS's dynamic library at `written`, which takes the rest from the executable and the other
 /// libraries beside it: on Windows through `import_libraries`, theirs and the executable's, and
 /// writing its own to `import_library`, and elsewhere as it loads. Its own dynamic natives are
-/// found beside it.
+/// found beside it. `debug_symbols` is link_program()'s.
 [[nodiscard]] std::expected<void, std::string>
 link_beside(std::span<const std::filesystem::path> objects, const native_libraries_t& natives,
             std::span<const std::filesystem::path> import_libraries,
-            const std::filesystem::path& written, const std::filesystem::path& import_library);
+            const std::filesystem::path& written, const std::filesystem::path& import_library,
+            bool debug_symbols = false);
 
 } // namespace fb

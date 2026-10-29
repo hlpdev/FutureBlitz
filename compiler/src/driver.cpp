@@ -3592,7 +3592,8 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
         emit_object(module, compilation.sources, compilation.file, options, object)
             .and_then([&] {
                 return link_program(std::array{ object }, natives, output,
-                                    beside.empty() ? nullptr : &exports);
+                                    beside.empty() ? nullptr : &exports,
+                                    mode == build_mode_t::DEBUG);
             })
             .and_then([&] -> std::expected<void, std::string> {
                 for (std::size_t i = 0; i < beside.size(); ++i) {
@@ -3600,7 +3601,8 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
                     const std::filesystem::path library = folder / std::format("beside{}.lib", i);
                     if (std::expected<void, std::string> done = link_beside(
                             std::array{ linked }, compilation.beside[i].natives, import_libraries,
-                            output.parent_path() / path_from_utf8(options.beside[i].file), library);
+                            output.parent_path() / path_from_utf8(options.beside[i].file), library,
+                            mode == build_mode_t::DEBUG);
                         !done) {
                         std::filesystem::remove(output.parent_path() / executable, ignored);
                         for (std::size_t j = 0; j < i; ++j) {
