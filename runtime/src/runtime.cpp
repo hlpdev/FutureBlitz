@@ -660,12 +660,18 @@ void fb_load_beside(const char* executable, const char* file, const char* build,
     }
 
     const std::wstring path = folder + widen(file);
+    // One that takes what the executable doesn't have fails to load, without the box Windows
+    // would show for it and wait on, which the program says why instead.
+    DWORD mode = 0;
+    SetThreadErrorMode(SEM_FAILCRITICALERRORS, &mode);
     HMODULE library = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
     // One that can't be loaded may be for an executable that isn't there, which its record says.
     const bool loaded = library != nullptr;
     if (!loaded) {
         library = LoadLibraryExW(path.c_str(), nullptr, DONT_RESOLVE_DLL_REFERENCES);
     }
+
+    SetThreadErrorMode(mode, nullptr);
 
     const auto find = [&](const char* name) {
         return reinterpret_cast<void*>(GetProcAddress(library, name));
