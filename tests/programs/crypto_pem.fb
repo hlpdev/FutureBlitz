@@ -65,69 +65,76 @@ End Function
 // version, with an attribute and the public key after it; each reads to its 32 bytes, and
 // writes back as it was.
 Local edPublic = "-----BEGIN PUBLIC KEY-----\n" +
-    "MCowBQYDK2VwAyEAGb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE=\n" +
-    "-----END PUBLIC KEY-----\n"
+                 "MCowBQYDK2VwAyEAGb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE=\n" +
+                 "-----END PUBLIC KEY-----\n"
 Local edPrivate = "-----BEGIN PRIVATE KEY-----\n" +
-    "MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC\n" +
-    "-----END PRIVATE KEY-----\n"
+                  "MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC\n" +
+                  "-----END PRIVATE KEY-----\n"
 Local edPrivateV2 = "-----BEGIN PRIVATE KEY-----\n" +
-    "MHICAQEwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC\n" +
-    "oB8wHQYKKoZIhvcNAQkJFDEPDA1DdXJkbGUgQ2hhaXJzgSEAGb9ECWmEzf6FQbrB\n" +
-    "Z9w7lshQhqowtrbLDFw4rXAxZuE=\n" +
-    "-----END PRIVATE KEY-----\n"
+                    "MHICAQEwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC\n" +
+                    "oB8wHQYKKoZIhvcNAQkJFDEPDA1DdXJkbGUgQ2hhaXJzgSEAGb9ECWmEzf6FQbrB\n" +
+                    "Z9w7lshQhqowtrbLDFw4rXAxZuE=\n" +
+                    "-----END PRIVATE KEY-----\n"
 Local key = Try? Key.FromPem(edPublic)
 Expect("Ed25519 public kind", key?.Kind == KeyKind.ED25519 && key?.IsPrivate == False)
-Check("Ed25519 public bytes", key?.Bytes ?? [], "19bf44096984cdfe8541bac167dc3b96c85086aa30b6b6cb0c5c38ad703166e1")
+Check("Ed25519 public bytes", key?.Bytes ?? [],
+      "19bf44096984cdfe8541bac167dc3b96c85086aa30b6b6cb0c5c38ad703166e1")
 Expect("Ed25519 public PEM", key?.ToPem() == edPublic)
 key = Try? Key.FromPem(edPrivate)
 Expect("Ed25519 private kind", key?.Kind == KeyKind.ED25519 && key?.IsPrivate == True)
-Check("Ed25519 private bytes", key?.Bytes ?? [], "d4ee72dbf913584ad5b6d8f1f769f8ad3afe7c28cbf1d4fbe097a88f44755842")
+Check("Ed25519 private bytes", key?.Bytes ?? [],
+      "d4ee72dbf913584ad5b6d8f1f769f8ad3afe7c28cbf1d4fbe097a88f44755842")
 Expect("Ed25519 private PEM", key?.ToPem() == edPrivate)
 key = Try? Key.FromPem(edPrivateV2)
-Check("Ed25519 private bytes, version 2", key?.Bytes ?? [], "d4ee72dbf913584ad5b6d8f1f769f8ad3afe7c28cbf1d4fbe097a88f44755842")
+Check("Ed25519 private bytes, version 2", key?.Bytes ?? [],
+      "d4ee72dbf913584ad5b6d8f1f769f8ad3afe7c28cbf1d4fbe097a88f44755842")
 Done("RFC 8410")
 
 // ISRG Root X1, Let's Encrypt's root, as Python's ssl reads it: its names, serial number,
 // validity, and the SHA-256 of its DER, the fingerprint ISRG publishes.
 Local x1Pem = "-----BEGIN CERTIFICATE-----\n" +
-    "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\n" +
-    "-----END CERTIFICATE-----\n"
+              "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\n" +
+              "TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\n" +
+              "cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\n" +
+              "WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\n" +
+              "ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\n" +
+              "MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\n" +
+              "h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n" +
+              "0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\n" +
+              "A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\n" +
+              "T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\n" +
+              "B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\n" +
+              "B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\n" +
+              "KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\n" +
+              "OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\n" +
+              "jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\n" +
+              "qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\n" +
+              "rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\n" +
+              "HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\n" +
+              "hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\n" +
+              "ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n" +
+              "3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\n" +
+              "NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\n" +
+              "ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\n" +
+              "TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\n" +
+              "jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\n" +
+              "oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n" +
+              "4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\n" +
+              "mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\n" +
+              "emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n" +
+              "-----END CERTIFICATE-----\n"
 Try
     Local x1 = Certificate.FromPem(x1Pem)
-    Expect("ISRG Root X1 subject", x1.Subject == "C=US, O=Internet Security Research Group, CN=ISRG Root X1")
-    Expect("ISRG Root X1 issuer", x1.Issuer == "C=US, O=Internet Security Research Group, CN=ISRG Root X1")
-    Expect("ISRG Root X1 serial", x1.SerialNumber == "82:10:CF:B0:D2:40:E3:59:44:63:E0:BB:63:82:8B:00")
+    Expect("ISRG Root X1 subject",
+           x1.Subject == "C=US, O=Internet Security Research Group, CN=ISRG Root X1")
+    Expect("ISRG Root X1 issuer",
+           x1.Issuer == "C=US, O=Internet Security Research Group, CN=ISRG Root X1")
+    Expect("ISRG Root X1 serial",
+           x1.SerialNumber == "82:10:CF:B0:D2:40:E3:59:44:63:E0:BB:63:82:8B:00")
     Expect("ISRG Root X1 not before", x1.NotBefore == "2015-06-04T11:04:38Z")
     Expect("ISRG Root X1 not after", x1.NotAfter == "2035-06-04T11:04:38Z")
-    Check("ISRG Root X1 fingerprint", Sha256.Hash(x1.Der), "96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6")
+    Check("ISRG Root X1 fingerprint", Sha256.Hash(x1.Der),
+          "96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6")
     Expect("ISRG Root X1 key", x1.PublicKey?.Kind == KeyKind.RSA)
     // Its key, as PEM, reads back as the same RSA key.
     Local x1Key = x1.PublicKey?.ToPem() ?? ""
@@ -140,27 +147,31 @@ Done("ISRG Root X1")
 // ISRG Root X2, Let's Encrypt's root, as Python's ssl reads it: its names, serial number,
 // validity, and the SHA-256 of its DER, the fingerprint ISRG publishes.
 Local x2Pem = "-----BEGIN CERTIFICATE-----\n" +
-    "MIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\n" +
-    "CQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\n" +
-    "R3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\n" +
-    "MDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\n" +
-    "ZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\n" +
-    "EAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n" +
-    "+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\n" +
-    "ItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\n" +
-    "AQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\n" +
-    "zj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\n" +
-    "tL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n" +
-    "/q4AaOeMSQ+2b1tbFfLn\n" +
-    "-----END CERTIFICATE-----\n"
+              "MIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\n" +
+              "CQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\n" +
+              "R3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\n" +
+              "MDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\n" +
+              "ZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\n" +
+              "EAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n" +
+              "+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\n" +
+              "ItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\n" +
+              "AQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\n" +
+              "zj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\n" +
+              "tL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n" +
+              "/q4AaOeMSQ+2b1tbFfLn\n" +
+              "-----END CERTIFICATE-----\n"
 Try
     Local x2 = Certificate.FromPem(x2Pem)
-    Expect("ISRG Root X2 subject", x2.Subject == "C=US, O=Internet Security Research Group, CN=ISRG Root X2")
-    Expect("ISRG Root X2 issuer", x2.Issuer == "C=US, O=Internet Security Research Group, CN=ISRG Root X2")
-    Expect("ISRG Root X2 serial", x2.SerialNumber == "41:D2:9D:D1:72:EA:EE:A7:80:C1:2C:6C:E9:2F:87:52")
+    Expect("ISRG Root X2 subject",
+           x2.Subject == "C=US, O=Internet Security Research Group, CN=ISRG Root X2")
+    Expect("ISRG Root X2 issuer",
+           x2.Issuer == "C=US, O=Internet Security Research Group, CN=ISRG Root X2")
+    Expect("ISRG Root X2 serial",
+           x2.SerialNumber == "41:D2:9D:D1:72:EA:EE:A7:80:C1:2C:6C:E9:2F:87:52")
     Expect("ISRG Root X2 not before", x2.NotBefore == "2020-09-04T00:00:00Z")
     Expect("ISRG Root X2 not after", x2.NotAfter == "2040-09-17T16:00:00Z")
-    Check("ISRG Root X2 fingerprint", Sha256.Hash(x2.Der), "69729b8e15a86efc177a57afb7171dfc64add28c2fca8cf1507e34453ccb1470")
+    Check("ISRG Root X2 fingerprint", Sha256.Hash(x2.Der),
+          "69729b8e15a86efc177a57afb7171dfc64add28c2fca8cf1507e34453ccb1470")
     Expect("ISRG Root X2 key", x2.PublicKey == Null)
 Catch e As ParseError
     Expect("ISRG Root X2 read", False)
@@ -168,10 +179,10 @@ End Try
 
 // That key, on P-384, which there's no KeyKind for, as PEM of its own.
 Local p384 = "-----BEGIN PUBLIC KEY-----\n" +
-    "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0H\n" +
-    "ttwW+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7\n" +
-    "AlF9ItgKbppbd9/w+kHsOdx1ymgHDB/q\n" +
-    "-----END PUBLIC KEY-----\n"
+             "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0H\n" +
+             "ttwW+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7\n" +
+             "AlF9ItgKbppbd9/w+kHsOdx1ymgHDB/q\n" +
+             "-----END PUBLIC KEY-----\n"
 Try
     Key.FromPem(p384)
     Expect("P-384 key read", False)
@@ -182,53 +193,56 @@ Done("ISRG Root X2")
 
 // A bundle of both roots reads as both, in order.
 Local bundle = "-----BEGIN CERTIFICATE-----\n" +
-    "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\n" +
-    "-----END CERTIFICATE-----\n" +
-    "-----BEGIN CERTIFICATE-----\n" +
-    "MIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\n" +
-    "CQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\n" +
-    "R3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\n" +
-    "MDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\n" +
-    "ZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\n" +
-    "EAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n" +
-    "+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\n" +
-    "ItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\n" +
-    "AQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\n" +
-    "zj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\n" +
-    "tL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n" +
-    "/q4AaOeMSQ+2b1tbFfLn\n" +
-    "-----END CERTIFICATE-----\n"
+               "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\n" +
+               "TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\n" +
+               "cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\n" +
+               "WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\n" +
+               "ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\n" +
+               "MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\n" +
+               "h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n" +
+               "0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\n" +
+               "A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\n" +
+               "T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\n" +
+               "B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\n" +
+               "B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\n" +
+               "KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\n" +
+               "OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\n" +
+               "jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\n" +
+               "qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\n" +
+               "rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\n" +
+               "HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\n" +
+               "hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\n" +
+               "ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n" +
+               "3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\n" +
+               "NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\n" +
+               "ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\n" +
+               "TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\n" +
+               "jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\n" +
+               "oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n" +
+               "4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\n" +
+               "mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\n" +
+               "emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n" +
+               "-----END CERTIFICATE-----\n" +
+               "-----BEGIN CERTIFICATE-----\n" +
+               "MIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\n" +
+               "CQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\n" +
+               "R3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\n" +
+               "MDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\n" +
+               "ZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\n" +
+               "EAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n" +
+               "+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\n" +
+               "ItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\n" +
+               "AQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\n" +
+               "zj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\n" +
+               "tL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n" +
+               "/q4AaOeMSQ+2b1tbFfLn\n" +
+               "-----END CERTIFICATE-----\n"
 Try
     Local roots = Certificate.AllFromPem(bundle)
-    Expect("bundle", roots.Count == 2 && roots[0].SerialNumber == "82:10:CF:B0:D2:40:E3:59:44:63:E0:BB:63:82:8B:00" && roots[1].SerialNumber == "41:D2:9D:D1:72:EA:EE:A7:80:C1:2C:6C:E9:2F:87:52")
+    Expect("bundle",
+           roots.Count == 2 &&
+           roots[0].SerialNumber == "82:10:CF:B0:D2:40:E3:59:44:63:E0:BB:63:82:8B:00" &&
+           roots[1].SerialNumber == "41:D2:9D:D1:72:EA:EE:A7:80:C1:2C:6C:E9:2F:87:52")
 Catch e As ParseError
     Expect("bundle read", False)
 End Try
@@ -242,7 +256,8 @@ For pair In [(KeyKind.ECDSA_P256, p256), (KeyKind.ECDSA_P256, EcdsaP256.PublicKe
     Local isPrivate = bytes.Count == 32
     Local pem = Key(kind, isPrivate, bytes).ToPem()
     Local back = Try? Key.FromPem(pem)
-    Expect("{kind} {isPrivate} PEM", back?.Kind == kind && back?.IsPrivate == isPrivate && back?.Bytes == bytes)
+    Expect("{kind} {isPrivate} PEM",
+           back?.Kind == kind && back?.IsPrivate == isPrivate && back?.Bytes == bytes)
 End For
 Local x25519Public = Key(KeyKind.X25519, False, X25519.PublicKeyOf(X25519.NewPrivateKey()))
 Expect("X25519 public PEM", (Try? Key.FromPem(x25519Public.ToPem()))?.Bytes == x25519Public.Bytes)
@@ -279,85 +294,85 @@ End Function
 
 // The first key in a PEM of several is the one read, whatever kinds the later ones are.
 Local publicThenPrivate = "-----BEGIN PUBLIC KEY-----\n" +
-    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7fjQvYW6EbS12khag4DR50TeVGnQ\n" +
-    "shZ9zqOhcohtENjhAtz48fWAh9Vyb70wSGpUU95N77iC16vx+JX6Cq+Wsw==\n" +
-    "-----END PUBLIC KEY-----\n" +
-    "-----BEGIN PRIVATE KEY-----\n" +
-    "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg+5kwlov2G2geVvtD\n" +
-    "6T5+2FOzjzOnhww0IiXreSqkzpmhRANCAATt+NC9hboRtLXaSFqDgNHnRN5UadCy\n" +
-    "Fn3Oo6FyiG0Q2OEC3Pjx9YCH1XJvvTBIalRT3k3vuILXq/H4lfoKr5az\n" +
-    "-----END PRIVATE KEY-----\n"
+                          "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7fjQvYW6EbS12khag4DR50TeVGnQ\n" +
+                          "shZ9zqOhcohtENjhAtz48fWAh9Vyb70wSGpUU95N77iC16vx+JX6Cq+Wsw==\n" +
+                          "-----END PUBLIC KEY-----\n" +
+                          "-----BEGIN PRIVATE KEY-----\n" +
+                          "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg+5kwlov2G2geVvtD\n" +
+                          "6T5+2FOzjzOnhww0IiXreSqkzpmhRANCAATt+NC9hboRtLXaSFqDgNHnRN5UadCy\n" +
+                          "Fn3Oo6FyiG0Q2OEC3Pjx9YCH1XJvvTBIalRT3k3vuILXq/H4lfoKr5az\n" +
+                          "-----END PRIVATE KEY-----\n"
 Local edThenPublic = "-----BEGIN PRIVATE KEY-----\n" +
-    "MC4CAQAwBQYDK2VwBCIEIAMpMwWs7Xq0KatoYeKFjsxH6ezRfGNnJOGlUsStLXHY\n" +
-    "-----END PRIVATE KEY-----\n" +
-    "-----BEGIN PUBLIC KEY-----\n" +
-    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7fjQvYW6EbS12khag4DR50TeVGnQ\n" +
-    "shZ9zqOhcohtENjhAtz48fWAh9Vyb70wSGpUU95N77iC16vx+JX6Cq+Wsw==\n" +
-    "-----END PUBLIC KEY-----\n"
+                     "MC4CAQAwBQYDK2VwBCIEIAMpMwWs7Xq0KatoYeKFjsxH6ezRfGNnJOGlUsStLXHY\n" +
+                     "-----END PRIVATE KEY-----\n" +
+                     "-----BEGIN PUBLIC KEY-----\n" +
+                     "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7fjQvYW6EbS12khag4DR50TeVGnQ\n" +
+                     "shZ9zqOhcohtENjhAtz48fWAh9Vyb70wSGpUU95N77iC16vx+JX6Cq+Wsw==\n" +
+                     "-----END PUBLIC KEY-----\n"
 Local ecThenRsa = "-----BEGIN EC PRIVATE KEY-----\n" +
-    "MHcCAQEEIMIOu/XUZ6Y6/CYAE3BK4yZ+0T9pmoFmDglWcN1m9NYboAoGCCqGSM49\n" +
-    "AwEHoUQDQgAEUmeec5j8fz7i/W1XDMikutqfb64GWewFitVl6ngU6rRKfQSbNcaZ\n" +
-    "zpu2r3ZEAI8bZKLzG/BTTHycv6iCTze1Vg==\n" +
-    "-----END EC PRIVATE KEY-----\n" +
-    "-----BEGIN RSA PRIVATE KEY-----\n" +
-    "MIIEoQIBAAKCAQBWrwa8XoHVIjF/EvgJaQ3YV9xkcf78P/7/0g3KWKqv7ct+WXlv\n" +
-    "lLhPE4sbaZM74GNK8dk9+PwiIm6+zo8N4QIaUSXrKhnnH1ykVMNZSsuIhLg9EqY0\n" +
-    "C3BVzk7yPlBdN58ZxkcsB1sgJNhjDx6B0MCs3zdiG73biZ4JP0UZ0H33y2+aHw4y\n" +
-    "NZNaDAvrYUePsOszEKA/oACwGKTJf38+Qsv3Q2m/bXi67y7n+/RlMjcW8DXSx6Tc\n" +
-    "LpQhTfwA7dR0Lj6UUuaQ6yXXr1WHYx2SjtVNFMPwS3x5s1E4LGjDpTuQ7EZ5ZIWS\n" +
-    "n350ZXxuSZllsg6Wjwx/r4hpYNwio1rHbuEzAgMBAAECggEAPtCYnfoSNWOQ4Jfb\n" +
-    "W95f5Q1OLQ+aiirJ25HY4m+8SL6V/tpRsHTh1pO/8z5fLj2dVlrJZSo/c3DmNaiz\n" +
-    "a4hJIM77Hl2k5aIJXR/7a4JS2Xvrkn4oKIC9h8B33v0e+V3sEh5nxtURyMpKcAYt\n" +
-    "wj6G0P70QEkAHM2t0t+hcGJwVhaZklL2ElVVnDmyGrmAqvXxCcuVaqQJSGv6Dt+n\n" +
-    "cvOp04dR0GeC/doPsXwrDLDX4tCBvZg/9d4KsFLlY60xznfs7KdNdKu/y/JlE977\n" +
-    "6P7xjcvKRORgvJKNk8p2gFZlMRH8hBFjpzyaFKGsfdGt6UtXGaNkZhRC3aNh7aDj\n" +
-    "WbjKyQKBgQDHPhwc5AHYP6Q4d8lXV1gAuQ5TiaQANqtThNDujgw8Gzj8bdFBM86q\n" +
-    "lOA3YwWkEHdncNIJK13OocGLSVAO2Su2jTTWZqXcoVbr8cScleoBv0z38iP9eZlo\n" +
-    "B3KH0JeOxqKAUkcqu6sP2MszXMySrvKf/MXCNKjzDLqd8Ie+oqcz9wKBgG9gfPWv\n" +
-    "tWOFUEiuh6gt1SPPssXE968577YAU5qvNxzsIAvkePX/v/WbvDij590sYvM7RZmh\n" +
-    "gam4E1gpE+LFGE0r13aXDhybikN7pb00R6o1y4FR6egDTTYghENlqUpRyyHJGBsj\n" +
-    "Biuj9DFdGDQwLvm1PMgHerCKlJjIbv7gyfWlAoGAbmTjfr52pzLb8s2sKVCj2gKv\n" +
-    "BWpGDDg+RVBZ01OxQ7xxnqvaPZ5O7AUBFq8u+PCGuDGyrpHwsATAEETWruN1bPhg\n" +
-    "Rkspq01Zs/GJVplZxw4Pv3HSryco8JLvyoCw+NLmRuNPu0WwSl98d0D7uGpm1G5h\n" +
-    "xHEZC1IKNGiJTf8hVZECgYAR2I8NOuNAmAreKoD4FKfzPgNyJvZc8FaVfgXnYi3d\n" +
-    "h4Q3A5vSJvGWJCcLmE+9o7ATMysay8Mf86u9048pJdWX/+9dRCTxtoZ3+6b54xec\n" +
-    "kVQTW5G0KFtF0f3/Ypm2m9aFilg/eOQzN+kXw8fuDM5qGn0ru+8PvJTEylDmrBQQ\n" +
-    "NQKBgQCerrfUSQYp4IubnkgTDMja2rnTRGFcTlYkBnJh8YKEEgftUDtHNLmVPP1a\n" +
-    "YeG2MiQOG3IcshK9AYtkKoHqJgWttMFcIFrOzF1fByt0T2WtSDV9W613KCYIfjuB\n" +
-    "wfE5KvRLNzvKPlZXr0Zt9uFIqqdifcnfjuwxUsEEmSFIeemDnw==\n" +
-    "-----END RSA PRIVATE KEY-----\n"
+                  "MHcCAQEEIMIOu/XUZ6Y6/CYAE3BK4yZ+0T9pmoFmDglWcN1m9NYboAoGCCqGSM49\n" +
+                  "AwEHoUQDQgAEUmeec5j8fz7i/W1XDMikutqfb64GWewFitVl6ngU6rRKfQSbNcaZ\n" +
+                  "zpu2r3ZEAI8bZKLzG/BTTHycv6iCTze1Vg==\n" +
+                  "-----END EC PRIVATE KEY-----\n" +
+                  "-----BEGIN RSA PRIVATE KEY-----\n" +
+                  "MIIEoQIBAAKCAQBWrwa8XoHVIjF/EvgJaQ3YV9xkcf78P/7/0g3KWKqv7ct+WXlv\n" +
+                  "lLhPE4sbaZM74GNK8dk9+PwiIm6+zo8N4QIaUSXrKhnnH1ykVMNZSsuIhLg9EqY0\n" +
+                  "C3BVzk7yPlBdN58ZxkcsB1sgJNhjDx6B0MCs3zdiG73biZ4JP0UZ0H33y2+aHw4y\n" +
+                  "NZNaDAvrYUePsOszEKA/oACwGKTJf38+Qsv3Q2m/bXi67y7n+/RlMjcW8DXSx6Tc\n" +
+                  "LpQhTfwA7dR0Lj6UUuaQ6yXXr1WHYx2SjtVNFMPwS3x5s1E4LGjDpTuQ7EZ5ZIWS\n" +
+                  "n350ZXxuSZllsg6Wjwx/r4hpYNwio1rHbuEzAgMBAAECggEAPtCYnfoSNWOQ4Jfb\n" +
+                  "W95f5Q1OLQ+aiirJ25HY4m+8SL6V/tpRsHTh1pO/8z5fLj2dVlrJZSo/c3DmNaiz\n" +
+                  "a4hJIM77Hl2k5aIJXR/7a4JS2Xvrkn4oKIC9h8B33v0e+V3sEh5nxtURyMpKcAYt\n" +
+                  "wj6G0P70QEkAHM2t0t+hcGJwVhaZklL2ElVVnDmyGrmAqvXxCcuVaqQJSGv6Dt+n\n" +
+                  "cvOp04dR0GeC/doPsXwrDLDX4tCBvZg/9d4KsFLlY60xznfs7KdNdKu/y/JlE977\n" +
+                  "6P7xjcvKRORgvJKNk8p2gFZlMRH8hBFjpzyaFKGsfdGt6UtXGaNkZhRC3aNh7aDj\n" +
+                  "WbjKyQKBgQDHPhwc5AHYP6Q4d8lXV1gAuQ5TiaQANqtThNDujgw8Gzj8bdFBM86q\n" +
+                  "lOA3YwWkEHdncNIJK13OocGLSVAO2Su2jTTWZqXcoVbr8cScleoBv0z38iP9eZlo\n" +
+                  "B3KH0JeOxqKAUkcqu6sP2MszXMySrvKf/MXCNKjzDLqd8Ie+oqcz9wKBgG9gfPWv\n" +
+                  "tWOFUEiuh6gt1SPPssXE968577YAU5qvNxzsIAvkePX/v/WbvDij590sYvM7RZmh\n" +
+                  "gam4E1gpE+LFGE0r13aXDhybikN7pb00R6o1y4FR6egDTTYghENlqUpRyyHJGBsj\n" +
+                  "Biuj9DFdGDQwLvm1PMgHerCKlJjIbv7gyfWlAoGAbmTjfr52pzLb8s2sKVCj2gKv\n" +
+                  "BWpGDDg+RVBZ01OxQ7xxnqvaPZ5O7AUBFq8u+PCGuDGyrpHwsATAEETWruN1bPhg\n" +
+                  "Rkspq01Zs/GJVplZxw4Pv3HSryco8JLvyoCw+NLmRuNPu0WwSl98d0D7uGpm1G5h\n" +
+                  "xHEZC1IKNGiJTf8hVZECgYAR2I8NOuNAmAreKoD4FKfzPgNyJvZc8FaVfgXnYi3d\n" +
+                  "h4Q3A5vSJvGWJCcLmE+9o7ATMysay8Mf86u9048pJdWX/+9dRCTxtoZ3+6b54xec\n" +
+                  "kVQTW5G0KFtF0f3/Ypm2m9aFilg/eOQzN+kXw8fuDM5qGn0ru+8PvJTEylDmrBQQ\n" +
+                  "NQKBgQCerrfUSQYp4IubnkgTDMja2rnTRGFcTlYkBnJh8YKEEgftUDtHNLmVPP1a\n" +
+                  "YeG2MiQOG3IcshK9AYtkKoHqJgWttMFcIFrOzF1fByt0T2WtSDV9W613KCYIfjuB\n" +
+                  "wfE5KvRLNzvKPlZXr0Zt9uFIqqdifcnfjuwxUsEEmSFIeemDnw==\n" +
+                  "-----END RSA PRIVATE KEY-----\n"
 Local rsaThenEc = "-----BEGIN RSA PRIVATE KEY-----\n" +
-    "MIIEoQIBAAKCAQBWrwa8XoHVIjF/EvgJaQ3YV9xkcf78P/7/0g3KWKqv7ct+WXlv\n" +
-    "lLhPE4sbaZM74GNK8dk9+PwiIm6+zo8N4QIaUSXrKhnnH1ykVMNZSsuIhLg9EqY0\n" +
-    "C3BVzk7yPlBdN58ZxkcsB1sgJNhjDx6B0MCs3zdiG73biZ4JP0UZ0H33y2+aHw4y\n" +
-    "NZNaDAvrYUePsOszEKA/oACwGKTJf38+Qsv3Q2m/bXi67y7n+/RlMjcW8DXSx6Tc\n" +
-    "LpQhTfwA7dR0Lj6UUuaQ6yXXr1WHYx2SjtVNFMPwS3x5s1E4LGjDpTuQ7EZ5ZIWS\n" +
-    "n350ZXxuSZllsg6Wjwx/r4hpYNwio1rHbuEzAgMBAAECggEAPtCYnfoSNWOQ4Jfb\n" +
-    "W95f5Q1OLQ+aiirJ25HY4m+8SL6V/tpRsHTh1pO/8z5fLj2dVlrJZSo/c3DmNaiz\n" +
-    "a4hJIM77Hl2k5aIJXR/7a4JS2Xvrkn4oKIC9h8B33v0e+V3sEh5nxtURyMpKcAYt\n" +
-    "wj6G0P70QEkAHM2t0t+hcGJwVhaZklL2ElVVnDmyGrmAqvXxCcuVaqQJSGv6Dt+n\n" +
-    "cvOp04dR0GeC/doPsXwrDLDX4tCBvZg/9d4KsFLlY60xznfs7KdNdKu/y/JlE977\n" +
-    "6P7xjcvKRORgvJKNk8p2gFZlMRH8hBFjpzyaFKGsfdGt6UtXGaNkZhRC3aNh7aDj\n" +
-    "WbjKyQKBgQDHPhwc5AHYP6Q4d8lXV1gAuQ5TiaQANqtThNDujgw8Gzj8bdFBM86q\n" +
-    "lOA3YwWkEHdncNIJK13OocGLSVAO2Su2jTTWZqXcoVbr8cScleoBv0z38iP9eZlo\n" +
-    "B3KH0JeOxqKAUkcqu6sP2MszXMySrvKf/MXCNKjzDLqd8Ie+oqcz9wKBgG9gfPWv\n" +
-    "tWOFUEiuh6gt1SPPssXE968577YAU5qvNxzsIAvkePX/v/WbvDij590sYvM7RZmh\n" +
-    "gam4E1gpE+LFGE0r13aXDhybikN7pb00R6o1y4FR6egDTTYghENlqUpRyyHJGBsj\n" +
-    "Biuj9DFdGDQwLvm1PMgHerCKlJjIbv7gyfWlAoGAbmTjfr52pzLb8s2sKVCj2gKv\n" +
-    "BWpGDDg+RVBZ01OxQ7xxnqvaPZ5O7AUBFq8u+PCGuDGyrpHwsATAEETWruN1bPhg\n" +
-    "Rkspq01Zs/GJVplZxw4Pv3HSryco8JLvyoCw+NLmRuNPu0WwSl98d0D7uGpm1G5h\n" +
-    "xHEZC1IKNGiJTf8hVZECgYAR2I8NOuNAmAreKoD4FKfzPgNyJvZc8FaVfgXnYi3d\n" +
-    "h4Q3A5vSJvGWJCcLmE+9o7ATMysay8Mf86u9048pJdWX/+9dRCTxtoZ3+6b54xec\n" +
-    "kVQTW5G0KFtF0f3/Ypm2m9aFilg/eOQzN+kXw8fuDM5qGn0ru+8PvJTEylDmrBQQ\n" +
-    "NQKBgQCerrfUSQYp4IubnkgTDMja2rnTRGFcTlYkBnJh8YKEEgftUDtHNLmVPP1a\n" +
-    "YeG2MiQOG3IcshK9AYtkKoHqJgWttMFcIFrOzF1fByt0T2WtSDV9W613KCYIfjuB\n" +
-    "wfE5KvRLNzvKPlZXr0Zt9uFIqqdifcnfjuwxUsEEmSFIeemDnw==\n" +
-    "-----END RSA PRIVATE KEY-----\n" +
-    "-----BEGIN EC PRIVATE KEY-----\n" +
-    "MHcCAQEEIMIOu/XUZ6Y6/CYAE3BK4yZ+0T9pmoFmDglWcN1m9NYboAoGCCqGSM49\n" +
-    "AwEHoUQDQgAEUmeec5j8fz7i/W1XDMikutqfb64GWewFitVl6ngU6rRKfQSbNcaZ\n" +
-    "zpu2r3ZEAI8bZKLzG/BTTHycv6iCTze1Vg==\n" +
-    "-----END EC PRIVATE KEY-----\n"
+                  "MIIEoQIBAAKCAQBWrwa8XoHVIjF/EvgJaQ3YV9xkcf78P/7/0g3KWKqv7ct+WXlv\n" +
+                  "lLhPE4sbaZM74GNK8dk9+PwiIm6+zo8N4QIaUSXrKhnnH1ykVMNZSsuIhLg9EqY0\n" +
+                  "C3BVzk7yPlBdN58ZxkcsB1sgJNhjDx6B0MCs3zdiG73biZ4JP0UZ0H33y2+aHw4y\n" +
+                  "NZNaDAvrYUePsOszEKA/oACwGKTJf38+Qsv3Q2m/bXi67y7n+/RlMjcW8DXSx6Tc\n" +
+                  "LpQhTfwA7dR0Lj6UUuaQ6yXXr1WHYx2SjtVNFMPwS3x5s1E4LGjDpTuQ7EZ5ZIWS\n" +
+                  "n350ZXxuSZllsg6Wjwx/r4hpYNwio1rHbuEzAgMBAAECggEAPtCYnfoSNWOQ4Jfb\n" +
+                  "W95f5Q1OLQ+aiirJ25HY4m+8SL6V/tpRsHTh1pO/8z5fLj2dVlrJZSo/c3DmNaiz\n" +
+                  "a4hJIM77Hl2k5aIJXR/7a4JS2Xvrkn4oKIC9h8B33v0e+V3sEh5nxtURyMpKcAYt\n" +
+                  "wj6G0P70QEkAHM2t0t+hcGJwVhaZklL2ElVVnDmyGrmAqvXxCcuVaqQJSGv6Dt+n\n" +
+                  "cvOp04dR0GeC/doPsXwrDLDX4tCBvZg/9d4KsFLlY60xznfs7KdNdKu/y/JlE977\n" +
+                  "6P7xjcvKRORgvJKNk8p2gFZlMRH8hBFjpzyaFKGsfdGt6UtXGaNkZhRC3aNh7aDj\n" +
+                  "WbjKyQKBgQDHPhwc5AHYP6Q4d8lXV1gAuQ5TiaQANqtThNDujgw8Gzj8bdFBM86q\n" +
+                  "lOA3YwWkEHdncNIJK13OocGLSVAO2Su2jTTWZqXcoVbr8cScleoBv0z38iP9eZlo\n" +
+                  "B3KH0JeOxqKAUkcqu6sP2MszXMySrvKf/MXCNKjzDLqd8Ie+oqcz9wKBgG9gfPWv\n" +
+                  "tWOFUEiuh6gt1SPPssXE968577YAU5qvNxzsIAvkePX/v/WbvDij590sYvM7RZmh\n" +
+                  "gam4E1gpE+LFGE0r13aXDhybikN7pb00R6o1y4FR6egDTTYghENlqUpRyyHJGBsj\n" +
+                  "Biuj9DFdGDQwLvm1PMgHerCKlJjIbv7gyfWlAoGAbmTjfr52pzLb8s2sKVCj2gKv\n" +
+                  "BWpGDDg+RVBZ01OxQ7xxnqvaPZ5O7AUBFq8u+PCGuDGyrpHwsATAEETWruN1bPhg\n" +
+                  "Rkspq01Zs/GJVplZxw4Pv3HSryco8JLvyoCw+NLmRuNPu0WwSl98d0D7uGpm1G5h\n" +
+                  "xHEZC1IKNGiJTf8hVZECgYAR2I8NOuNAmAreKoD4FKfzPgNyJvZc8FaVfgXnYi3d\n" +
+                  "h4Q3A5vSJvGWJCcLmE+9o7ATMysay8Mf86u9048pJdWX/+9dRCTxtoZ3+6b54xec\n" +
+                  "kVQTW5G0KFtF0f3/Ypm2m9aFilg/eOQzN+kXw8fuDM5qGn0ru+8PvJTEylDmrBQQ\n" +
+                  "NQKBgQCerrfUSQYp4IubnkgTDMja2rnTRGFcTlYkBnJh8YKEEgftUDtHNLmVPP1a\n" +
+                  "YeG2MiQOG3IcshK9AYtkKoHqJgWttMFcIFrOzF1fByt0T2WtSDV9W613KCYIfjuB\n" +
+                  "wfE5KvRLNzvKPlZXr0Zt9uFIqqdifcnfjuwxUsEEmSFIeemDnw==\n" +
+                  "-----END RSA PRIVATE KEY-----\n" +
+                  "-----BEGIN EC PRIVATE KEY-----\n" +
+                  "MHcCAQEEIMIOu/XUZ6Y6/CYAE3BK4yZ+0T9pmoFmDglWcN1m9NYboAoGCCqGSM49\n" +
+                  "AwEHoUQDQgAEUmeec5j8fz7i/W1XDMikutqfb64GWewFitVl6ngU6rRKfQSbNcaZ\n" +
+                  "zpu2r3ZEAI8bZKLzG/BTTHycv6iCTze1Vg==\n" +
+                  "-----END EC PRIVATE KEY-----\n"
 CheckText("public, then private", Shown(publicThenPrivate), "ECDSA_P256, private: False")
 CheckText("Ed25519, then P-256", Shown(edThenPublic), "ED25519, private: True")
 CheckText("EC, then RSA", Shown(ecThenRsa), "ECDSA_P256, private: True")
@@ -367,22 +382,23 @@ Done("The first key")
 // RFC 7748's Alice's X25519 private key (6.1), as RFC 8410's PKCS #8, reads as its bytes,
 // which aren't clamped, and writes back as it was.
 Local alice = "-----BEGIN PRIVATE KEY-----\n" +
-    "MC4CAQAwBQYDK2VuBCIEIHcHbQpzGKV9PBbBclGyZkXfTC+H68CZKrF3+6UduSwq\n" +
-    "-----END PRIVATE KEY-----\n"
+              "MC4CAQAwBQYDK2VuBCIEIHcHbQpzGKV9PBbBclGyZkXfTC+H68CZKrF3+6UduSwq\n" +
+              "-----END PRIVATE KEY-----\n"
 Local aliceKey = Try? Key.FromPem(alice)
-CheckText("Alice bytes", Hex(aliceKey?.Bytes ?? []), "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")
+CheckText("Alice bytes", Hex(aliceKey?.Bytes ?? []),
+          "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")
 CheckText("Alice PEM", aliceKey?.ToPem() ?? "", alice)
 Done("RFC 7748")
 
 // A damaged key, of a kind std.crypto takes and not encrypted, is SYNTAX's, as a damaged
 // certificate is: RFC 8410's Ed25519 private key cut short, and a P-256 one whose base64 is.
 Local cutShort = "-----BEGIN PRIVATE KEY-----\n" +
-    "MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp\n" +
-    "-----END PRIVATE KEY-----\n"
+                 "MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp\n" +
+                 "-----END PRIVATE KEY-----\n"
 Local cutBase64 = "-----BEGIN PRIVATE KEY-----\n" +
-    "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg+5kwlov2G2geVvtD\n" +
-    "6T5+2FOzjzOnhww0IiXreSqkzpmh\n" +
-    "-----END PRIVATE KEY-----\n"
+                  "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg+5kwlov2G2geVvtD\n" +
+                  "6T5+2FOzjzOnhww0IiXreSqkzpmh\n" +
+                  "-----END PRIVATE KEY-----\n"
 CheckText("cut short", Shown(cutShort), "SYNTAX: the PEM's key doesn't read")
 CheckText("cut base64", Shown(cutBase64), "SYNTAX: the PEM's key doesn't read")
 Done("Damaged keys")

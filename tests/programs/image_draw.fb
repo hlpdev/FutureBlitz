@@ -92,7 +92,7 @@ For cap In [LineCap.BUTT, LineCap.ROUND, LineCap.SQUARE]
     canvas.Cap = cap
     canvas.StrokeLine(Vec2(3, 4), Vec2(20, 11), Color32.Black)
     Local expected = cap == LineCap.BUTT ? LineButt() : (cap == LineCap.ROUND ? LineRound() :
-                                                                                 LineSquare())
+                                                         LineSquare())
     Check("a line, {cap} caps", canvas, expected)
 End For
 
@@ -102,7 +102,7 @@ For join In [LineJoin.MITER, LineJoin.ROUND, LineJoin.BEVEL]
     canvas.Join = join
     canvas.StrokePolyline(zigzag, Color32.Black)
     Local expected = join == LineJoin.MITER ? Miter() : (join == LineJoin.ROUND ? RoundJoin() :
-                                                                                  BevelJoin())
+                                                         BevelJoin())
     Check("a polyline, {join} joins", canvas, expected)
 End For
 

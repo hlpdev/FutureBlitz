@@ -24,11 +24,13 @@ Print("{Shown(UInt8.Parse("255"))} {Shown(UInt8.Parse("256"))} {Shown(UInt16.Par
 Print("{Shown(Float64.Parse("0.1"))} {Shown(Float64.Parse("-2.5e-3"))} {Shown(Float64.Parse("1E21"))} " +
       "{Shown(Float64.Parse(".5"))} {Shown(Float64.Parse("NaN"))} {Shown(Float64.Parse("Inf"))} " +
       "{Shown(Float64.Parse("-Inf"))} {Shown(Float64.Parse("+Inf"))} {Shown(Float64.Parse("1e999"))}")
-Print("{Shown(Float64.Parse("nan"))} {Shown(Float64.Parse("inf"))} {Shown(Float64.Parse("1.5x"))} " +
-      "{Shown(Float64.Parse(""))} {Shown(Float64.Parse("-"))} {Shown(Float64.Parse("+-1"))} " +
-      "{Shown(Float64.Parse("-NaN"))} {Shown(Float64.Parse("1,5"))}")
+Print(
+    "{Shown(Float64.Parse("nan"))} {Shown(Float64.Parse("inf"))} {Shown(Float64.Parse("1.5x"))} " +
+    "{Shown(Float64.Parse(""))} {Shown(Float64.Parse("-"))} {Shown(Float64.Parse("+-1"))} " +
+    "{Shown(Float64.Parse("-NaN"))} {Shown(Float64.Parse("1,5"))}")
 Local tenth = Float.Parse("0.1") ?? 0
-Print("{tenth} {Float.Parse("3.4e38") ?? -1} {Float.Parse("3.5e38") ?? -1} {Float.Parse("x") ?? -1}")
+Print(
+    "{tenth} {Float.Parse("3.4e38") ?? -1} {Float.Parse("3.5e38") ?? -1} {Float.Parse("x") ?? -1}")
 Print("{Bool.Parse("True") ?? False} {Bool.Parse("False") ?? True} {Bool.Parse("true") == Null}")
 
 // An integer reads back from each base Format writes it in.
@@ -73,7 +75,8 @@ Function ReadsBack(value: Float64): Bool
 End Function
 
 Local edges: Float64[] = [0, -0.0, 0.1, 1 / 3.0, 5e-324, 2.2250738585072014e-308,
-                          1.7976931348623157e308, 0.30000000000000004, 1e21, 1e-7, 123456789012345680]
+                          1.7976931348623157e308, 0.30000000000000004, 1e21, 1e-7,
+                          123456789012345680]
 Local exact = 0
 For value In edges
     If ReadsBack(value) Then exact += 1
@@ -88,7 +91,8 @@ Print("edges {exact} of {edges.Count}, random ones wrong {wrong}")
 
 // A float too small for its type reads as 0, the nearest one, and only one too big is Null; -0
 // is 0, which an unsigned integer holds.
-Print(Shown(Float64.Parse("1e-400")), Shown(Float64.Parse("2e-324")), Shown(Float64.Parse("3e-324")),
+Print(Shown(Float64.Parse("1e-400")), Shown(Float64.Parse("2e-324")),
+      Shown(Float64.Parse("3e-324")),
       Shown(Float64.Parse("1e400")))
 Print(Shown(Float32.Parse("1e-50")), Shown(Float32.Parse("1e-46")), Shown(Float32.Parse("1e-45")),
       Shown(Float32.Parse("1e39")))

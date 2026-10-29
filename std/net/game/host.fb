@@ -108,7 +108,7 @@ Public Class GameHost
     // A host over a UDP socket bound to address, as UdpSocket.Bind binds it, with settings.
     @PanicsAtCaller
     Public Static Method Bind(
-        address: SocketAddress, settings: GameSettings): GameHost Throws NetError
+            address: SocketAddress, settings: GameSettings): GameHost Throws NetError
         Local socket = Try UdpSocket.Bind(address)
         Return GameHost(UdpLink(socket), settings)
     End Method

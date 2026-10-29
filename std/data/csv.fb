@@ -243,7 +243,8 @@ Class CsvReader
         Local out: UInt8[] = []
         Loop
             If At >= Bytes.Count
-                Throw ErrorAt(Bytes, start, ParseErrorKind.UNEXPECTED_END, "the field's '\"'s don't end")
+                Throw ErrorAt(Bytes, start, ParseErrorKind.UNEXPECTED_END,
+                              "the field's '\"'s don't end")
             End If
 
             Local b = Bytes[At]

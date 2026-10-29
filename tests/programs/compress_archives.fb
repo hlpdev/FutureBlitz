@@ -125,7 +125,8 @@ For i = 0 Until zip.Count
     Local entry = zip.Entries[i]
     Local bytes = Try zip.ReadAt(i)
     Local what = bytes == poem ? " poem" : bytes == noise ? " noise" : ""
-    Print("  {Describe(entry)}{what}", entry.Kind != ArchiveEntryKind.FILE || bytes.Count == entry.Size)
+    Print("  {Describe(entry)}{what}",
+          entry.Kind != ArchiveEntryKind.FILE || bytes.Count == entry.Size)
 End For
 
 Local later = (Try zip.Read("folder/stored.txt")) ?? []

@@ -64,5 +64,5 @@ For i = 0 Until ids.Count
     If ids[i].ToString() != sorted[i] Then inOrder = False
 End For
 Print(inOrder, ids[0] < ids[1], ids[1] > ids[0], ids[2] <= ids[2])
-Local names = { Uuid(1, 2): "one", Uuid(3, 4): "two" }
+Local names = {Uuid(1, 2): "one", Uuid(3, 4): "two"}
 Print(names[Uuid(1, 2)], names.Contains(Uuid(2, 1)))

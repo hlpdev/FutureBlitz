@@ -12,7 +12,8 @@ Function Show(p: Path)
 End Function
 
 Print("POSIX")
-For text In ["", "/", "a", "a/b", "/a/b/", "a//b/./c", "games/save.dat", ".config", "archive.tar.gz",
+For text In ["", "/", "a", "a/b", "/a/b/", "a//b/./c", "games/save.dat", ".config",
+             "archive.tar.gz",
              "a.", "..", "a/..", "/usr/local/", "spiele/größe.txt", "🎮/セーブ.dat", "a\\b"]
     Show(Posix(text))
 End For
@@ -28,7 +29,8 @@ Print("{Posix("a") / "b"} {Posix("a/") / "b"} {Posix("a") / "/b"} {Posix("") / "
 Print("{Posix("a") / "b" / "c.txt"} {Posix("/") / "etc"} {Posix("a").Join(Posix("b"))}")
 Print("{Windows("C:\\games") / "save.dat"} {Windows("C:\\games\\") / "save.dat"} {Windows("C:") / "games"}")
 Print("{Windows("C:\\games") / "D:\\music"} {Windows("C:\\games") / "\\music"} {Windows("C:\\games") / "C:saves"}")
-Print("{Windows("C:\\games") / "D:saves"} {Windows("games") / "\\music"} {Windows("C:games") / "x"}")
+Print(
+    "{Windows("C:\\games") / "D:saves"} {Windows("games") / "\\music"} {Windows("C:games") / "x"}")
 Print("{Windows("//server/share") / "dir"} {Windows("a") / "//server/share/b"}")
 // The same drive alone adds nothing, and a share starts again, as it's absolute.
 Print("{Windows("C:/a") / "C:"} {Windows("C:games") / "c:"} {(Windows("C:/a") / "C:") == Windows("C:/a")}")
@@ -91,7 +93,8 @@ End Struct
 
 Local unset = Save()
 Print("{unset.Spot.Style == Path.NativeStyle()} {unset.Spot == Path("")} {unset.Spot.Hash() == Path("").Hash()}")
-Print("{(unset.Spot / "games" / "save.dat").FileName()} {Path("x") == Path("x", Path.NativeStyle())}")
+Print(
+    "{(unset.Spot / "games" / "save.dat").FileName()} {Path("x") == Path("x", Path.NativeStyle())}")
 
 Print("From Strings")
 Function Named(p: Path): String => "{p.FileName()} in {p.Parent()}"

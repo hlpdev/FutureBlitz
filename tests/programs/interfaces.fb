@@ -61,12 +61,12 @@ End Class
 Function Report(things: Shown[])
     For thing In things
         Select thing
-        Case boss As Boss
-            Print("boss: {boss.Loud()}")
-        Case target As Damageable
-            Print("target with {target.Health}: {target.Loud()}")
-        Default
-            Print("thing: {thing.Loud()}")
+            Case boss As Boss
+                Print("boss: {boss.Loud()}")
+            Case target As Damageable
+                Print("target with {target.Health}: {target.Loud()}")
+            Default
+                Print("thing: {thing.Loud()}")
         End Select
     End For
 End Function

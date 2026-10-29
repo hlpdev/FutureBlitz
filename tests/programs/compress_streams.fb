@@ -152,7 +152,7 @@ Print(Try both.Read(Buffer<UInt8>(0)), Try ReadAllText(both), Try both.Read(Buff
 
 // A Compressor reads too, and a Decompressor writes: text compressed as it's read is what Zstd
 // decompresses, and a Copy through both gives it back.
-Local text = "e\u{301} 😀 wörld, " .Repeated(1000)
+Local text = "e\u{301} 😀 wörld, ".Repeated(1000)
 Local squeezed = Try ReadAll(CoderReader(StringReader(text), ZstdCompressor(19)))
 Print(String.FromUtf8(Try Zstd.Decompress(squeezed)) == text, squeezed.Count < text.Length / 20)
 Local back = StringWriter()

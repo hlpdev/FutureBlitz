@@ -6,7 +6,6 @@ Import std.collections.map
 
 @DebugElements
 Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Hashable
-
     Field Items: Map<T, Bool>
 
     Public New()
@@ -170,7 +169,6 @@ Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Ha
 End Class
 
 Public Struct SetIterator<T: Hashable> Implements Iterator<T>
-
     Field Entries: MapIterator<T, Bool>
 
     @PanicsAtCaller

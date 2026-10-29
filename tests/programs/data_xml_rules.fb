@@ -91,8 +91,10 @@ Function Bad(about: String, text: String)
 End Function
 
 // Documents, prologs, and declarations.
-Good("a declaration, then misc", "<?xml version='1.0'?>\n<!-- c --><?p x?>\n<a/>\n<?q?>", "<?p x?><a></a><?q ?>")
-Good("encoding and standalone", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone='no' ?><a/>", "<a></a>")
+Good("a declaration, then misc", "<?xml version='1.0'?>\n<!-- c --><?p x?>\n<a/>\n<?q?>",
+     "<?p x?><a></a><?q ?>")
+Good("encoding and standalone", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone='no' ?><a/>",
+     "<a></a>")
 Good("a later version 1.x", "<?xml version='1.7'?><a/>", "<a></a>")
 Good("a byte order mark", "\u{FEFF}<a/>", "<a></a>")
 Bad("no root", "<!-- only -->")
@@ -101,7 +103,8 @@ Bad("text before the root", "x<a/>")
 Bad("text after the root", "<a/>x")
 Bad("a declaration not at the start", " <?xml version='1.0'?><a/>")
 Bad("a declaration without a version", "<?xml encoding='UTF-8'?><a/>")
-Bad("a declaration's parts out of order", "<?xml version='1.0' standalone='yes' encoding='UTF-8'?><a/>")
+Bad("a declaration's parts out of order",
+    "<?xml version='1.0' standalone='yes' encoding='UTF-8'?><a/>")
 Bad("standalone that isn't yes or no", "<?xml version='1.0' standalone='maybe'?><a/>")
 Bad("a version that isn't 1.x", "<?xml version='2.0'?><a/>")
 Bad("a doctype after the root", "<a/><!DOCTYPE a>")
@@ -109,7 +112,8 @@ Bad("two doctypes", "<!DOCTYPE a><!DOCTYPE a><a/>")
 
 // Elements, attributes, and names.
 Good("attributes in quotes of either kind", "<a y='2' x=\"1\"/>", "<a x=\"1\" y=\"2\"></a>")
-Good("names of letters past ASCII", "<übung ñ='1'><x.y-z_9/></übung>", "<übung ñ=\"1\"><x.y-z_9></x.y-z_9></übung>")
+Good("names of letters past ASCII", "<übung ñ='1'><x.y-z_9/></übung>",
+     "<übung ñ=\"1\"><x.y-z_9></x.y-z_9></übung>")
 Good("spaces in tags", "<a  b = '1' ></a >", "<a b=\"1\"></a>")
 Bad("an end tag that doesn't match", "<a></b>")
 Bad("an unclosed element", "<a><b></b>")
@@ -122,7 +126,8 @@ Bad("'<' in an attribute", "<a b='<'/>")
 Bad("an end tag with an attribute", "<a></a b='1'>")
 
 // Character data and references.
-Good("references in text", "<a>&lt;&gt;&amp;&apos;&quot;&#65;&#x42;&#x1F600;</a>", "<a>&lt;&gt;&amp;'&quot;AB😀</a>")
+Good("references in text", "<a>&lt;&gt;&amp;&apos;&quot;&#65;&#x42;&#x1F600;</a>",
+     "<a>&lt;&gt;&amp;'&quot;AB😀</a>")
 Good("line ends normalized", "<a>x\r\ny\rz</a>", "<a>x&#10;y&#10;z</a>")
 Good("a character reference to CR", "<a>x&#13;y</a>", "<a>x&#13;y</a>")
 Good("CDATA as text", "<a><![CDATA[<&]]]></a>", "<a>&lt;&amp;]</a>")
@@ -156,32 +161,43 @@ Good("defaults given, and the first declaration taken",
      "<!ATTLIST a b CDATA 'two'>]><a e='1'/>",
      "<a b=\"one\" c=\"y\" d=\"f\" e=\"1\"></a>")
 Good("a default that refers to an entity",
-     "<!DOCTYPE a [<!ENTITY e 'v&#38;#38;w'><!ATTLIST a b CDATA '&e;'>]><a/>", "<a b=\"v&amp;w\"></a>")
+     "<!DOCTYPE a [<!ENTITY e 'v&#38;#38;w'><!ATTLIST a b CDATA '&e;'>]><a/>",
+     "<a b=\"v&amp;w\"></a>")
 
 // Entities.
 Good("an internal entity's text, markup and all",
-     "<!DOCTYPE a [<!ENTITY e '<b x=\"1\">t</b>'>]><a>&e;&e;</a>", "<a><b x=\"1\">t</b><b x=\"1\">t</b></a>")
-Good("entities in entities", "<!DOCTYPE a [<!ENTITY e '[&f;]'><!ENTITY f 'F'>]><a>&e;</a>", "<a>[F]</a>")
+     "<!DOCTYPE a [<!ENTITY e '<b x=\"1\">t</b>'>]><a>&e;&e;</a>",
+     "<a><b x=\"1\">t</b><b x=\"1\">t</b></a>")
+Good("entities in entities", "<!DOCTYPE a [<!ENTITY e '[&f;]'><!ENTITY f 'F'>]><a>&e;</a>",
+     "<a>[F]</a>")
 Good("an entity's character references replaced where it's declared",
      "<!DOCTYPE a [<!ENTITY e '&#38;#60;'>]><a>&e;</a>", "<a>&lt;</a>")
-Good("an entity in an attribute", "<!DOCTYPE a [<!ENTITY e 'v\nw'>]><a b='&e;'/>", "<a b=\"v w\"></a>")
+Good("an entity in an attribute", "<!DOCTYPE a [<!ENTITY e 'v\nw'>]><a b='&e;'/>",
+     "<a b=\"v w\"></a>")
 Good("a parameter entity's declarations",
      "<!DOCTYPE a [<!ENTITY % p '<!ENTITY e \"from p\">'>%p;]><a>&e;</a>", "<a>from p</a>")
-Good("an entity declared twice keeps the first", "<!DOCTYPE a [<!ENTITY e '1'><!ENTITY e '2'>]><a>&e;</a>",
+Good("an entity declared twice keeps the first",
+     "<!DOCTYPE a [<!ENTITY e '1'><!ENTITY e '2'>]><a>&e;</a>",
      "<a>1</a>")
-Good("an undeclared entity with an external subset", "<!DOCTYPE a SYSTEM 'a.dtd'><a>x&nope;y</a>", "<a>xy</a>")
+Good("an undeclared entity with an external subset", "<!DOCTYPE a SYSTEM 'a.dtd'><a>x&nope;y</a>",
+     "<a>xy</a>")
 Bad("an undeclared entity, standalone",
     "<?xml version='1.0' standalone='yes'?><!DOCTYPE a SYSTEM 'a.dtd'><a>&nope;</a>")
-Bad("an entity that refers to itself", "<!DOCTYPE a [<!ENTITY e '&f;'><!ENTITY f '&e;'>]><a>&e;</a>")
-Bad("an entity that starts an element it doesn't end", "<!DOCTYPE a [<!ENTITY e '<b>'>]><a>&e;</b></a>")
+Bad("an entity that refers to itself",
+    "<!DOCTYPE a [<!ENTITY e '&f;'><!ENTITY f '&e;'>]><a>&e;</a>")
+Bad("an entity that starts an element it doesn't end",
+    "<!DOCTYPE a [<!ENTITY e '<b>'>]><a>&e;</b></a>")
 Bad("an entity that ends an element it didn't start", "<!DOCTYPE a [<!ENTITY e '</a>'>]><a>&e;")
 Bad("'<' from an entity in an attribute", "<!DOCTYPE a [<!ENTITY e '<'>]><a b='&e;'/>")
 Bad("an external entity in an attribute", "<!DOCTYPE a [<!ENTITY e SYSTEM 'e.txt'>]><a b='&e;'/>")
-Bad("an unparsed entity in text", "<!DOCTYPE a [<!NOTATION n SYSTEM 'n'><!ENTITY e SYSTEM 'e' NDATA n>]><a>&e;</a>")
+Bad("an unparsed entity in text",
+    "<!DOCTYPE a [<!NOTATION n SYSTEM 'n'><!ENTITY e SYSTEM 'e' NDATA n>]><a>&e;</a>")
 Bad("a parameter entity in an internal subset's declaration",
     "<!DOCTYPE a [<!ENTITY % p 'CDATA'><!ATTLIST a b %p; #IMPLIED>]><a/>")
-Bad("a parameter entity in an internal entity's value", "<!DOCTYPE a [<!ENTITY % p 'x'><!ENTITY e '%p;'>]><a/>")
-Bad("a parameter entity's text that isn't whole declarations", "<!DOCTYPE a [<!ENTITY % p '<!ENTITY'>%p; e 'x'>]><a/>")
+Bad("a parameter entity in an internal entity's value",
+    "<!DOCTYPE a [<!ENTITY % p 'x'><!ENTITY e '%p;'>]><a/>")
+Bad("a parameter entity's text that isn't whole declarations",
+    "<!DOCTYPE a [<!ENTITY % p '<!ENTITY'>%p; e 'x'>]><a/>")
 
 // Past a parameter entity that isn't read, declarations are taken in a standalone document, and
 // only checked in one that isn't, an element's earlier ATTLIST or not (XML 1.0's 5.1).
@@ -204,7 +220,8 @@ Bad("an ATTLIST past an unread parameter entity, still checked",
 Good("element declarations of each kind",
      "<!DOCTYPE a [<!ELEMENT a (b, (c | d)*, e?)+><!ELEMENT b EMPTY><!ELEMENT c ANY>" +
      "<!ELEMENT d (#PCDATA)><!ELEMENT e (#PCDATA | b | c)*>]><a/>", "<a></a>")
-Good("notations, and public IDs", "<!DOCTYPE a [<!NOTATION n PUBLIC '-//x//y' 'z'><!NOTATION m PUBLIC 'p'>]><a/>",
+Good("notations, and public IDs",
+     "<!DOCTYPE a [<!NOTATION n PUBLIC '-//x//y' 'z'><!NOTATION m PUBLIC 'p'>]><a/>",
      "<a></a>")
 Good("comments and instructions in the subset", "<!DOCTYPE a [<!-- c --><?p x?>]><a/>", "<a></a>")
 Bad("a content model mixing ',' and '|'", "<!DOCTYPE a [<!ELEMENT a (b, c | d)>]><a/>")

@@ -67,7 +67,7 @@ Local nested = {
     "one": {1: [True]},
     "two": {2: [False, True]},
 }
-Print("{nested} { {3: 4}.Count }")
+Print("{nested} { {3: 4}.Count}")
 
 Function Single<K: Hashable, V>(key: K, value: V): Map<K, V>
     Return {key: value}
@@ -146,7 +146,8 @@ While smallest.Count > 0
     sorted = sorted + "{smallest.Pop()} "
 End While
 Print(sorted)
-Local longest = PriorityQueue<String>(Function(a: String, b: String) => a.Bytes.Count > b.Bytes.Count)
+Local longest = PriorityQueue<String>(Function(a: String, b: String) => a.Bytes.Count >
+                                      b.Bytes.Count)
 For word In ["fig", "banana", "kiwi", "apple"]
     longest.Add(word)
 End For

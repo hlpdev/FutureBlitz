@@ -27,7 +27,8 @@ End For
 Print("a second run")
 Local second = Try Preferences("Größe Game", root)
 Print("{second.Keys()} {second.Get("name") == first.Get("name")} [{second.Get("#hash") ?? "none"}]")
-Print("{second.Get("=odd#key") ?? "none"} {second.Get("セーブ") ?? "none"} {second.Contains("volume")}")
+Print(
+    "{second.Get("=odd#key") ?? "none"} {second.Get("セーブ") ?? "none"} {second.Contains("volume")}")
 second.Set("volume", "0.5")
 Print("{second.Remove("name")} {second.Remove("name")} {second.Count()} {second.IsChanged()}")
 Try second.Save()
@@ -53,7 +54,8 @@ Print("{third.Get("volume") ?? "none"}")
 Print("a file a person changed")
 Try Dir.CreateAll(root / "Edited")
 Try File.WriteLines(root / "Edited" / "preferences.txt",
-                    ["# a comment", "", "no equals here", "spaced = value ", "x=1=2", "tail=\\", "odd=\\q"],
+                    ["# a comment", "", "no equals here", "spaced = value ", "x=1=2", "tail=\\",
+                     "odd=\\q"],
                     LineEnding.CRLF)
 Local edited = Try Preferences("Edited", root)
 For key In edited.Keys()

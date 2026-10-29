@@ -57,8 +57,10 @@ Print("E\u{301}".ToLower(), "ǅ".ToLower(), "Ω".ToLower())
 // A capital sigma lowers to the final one after a cased character, past case-ignorable ones, and
 // with none after it: Cased has Roman numerals, U+00AA, and modifier letters, which are
 // case-ignorable too, and Case_Ignorable has each script's apostrophes, periods, and colons.
-For text In ["\u{2160}\u{3A3}", "\u{AA}\u{3A3}", "\u{391}\u{387}\u{3A3}", "\u{391}\u{3A3}\u{387}\u{392}",
-             "\u{391}\u{3A3}\u{FF0E}\u{392}", "\u{2B0}\u{3A3}", "\u{391}\u{3A3}\u{2B0}", "\u{24B6}\u{3A3}"]
+For text In ["\u{2160}\u{3A3}", "\u{AA}\u{3A3}", "\u{391}\u{387}\u{3A3}",
+             "\u{391}\u{3A3}\u{387}\u{392}",
+             "\u{391}\u{3A3}\u{FF0E}\u{392}", "\u{2B0}\u{3A3}", "\u{391}\u{3A3}\u{2B0}",
+             "\u{24B6}\u{3A3}"]
     Print(text.ToLower(), text.ToLower().Contains('\u{3C2}'))
 End For
 

@@ -91,7 +91,8 @@ Print(tagged)
 // Several documents, and markers.
 Local stream = Try Yaml.ReadAll("--- a\n--- b\n...\n%YAML 1.2\n--- [c]\n---\n")
 Print(stream.Count, stream[0], stream[1], stream[2], stream[3])
-Print((Try Yaml.ReadAll("")).Count, (Try Yaml.ReadAll("# only a comment\n")).Count, Try Yaml.Read(""))
+Print((Try Yaml.ReadAll("")).Count, (Try Yaml.ReadAll("# only a comment\n")).Count,
+      Try Yaml.Read(""))
 
 // Each mistake throws a ParseError of its kind, at its line and column.
 Function Failure(text: String)
@@ -221,7 +222,9 @@ Failure("[")
 
 // Integers past a UInt64 are the nearest Double, in hex and octal too; an !!int past a UInt64
 // is OUT_OF_RANGE.
-Print(Try Yaml.Read("hex: 0x20000000000001800\noctal: 0o40000000000000000140000\nbig: 0x1FFFFFFFFFFFFFFFF"))
+Print(
+    Try Yaml.Read(
+        "hex: 0x20000000000001800\noctal: 0o40000000000000000140000\nbig: 0x1FFFFFFFFFFFFFFFF"))
 Failure("a: !!int 99999999999999999999")
 Failure("a: !!int 0x1FFFFFFFFFFFFFFFF")
 Failure("a: !!int 1.5")

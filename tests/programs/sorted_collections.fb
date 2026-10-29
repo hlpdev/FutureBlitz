@@ -119,7 +119,7 @@ For round = 1 To 3000
 
         If (sortedSet.Ceiling(probe) ?? -1) != (above.Count == 0 ? -1 : above[0]) Then wrong += 1
         If sortedSet.Range(probe, probe + 30) != values.Filter(Function(v: Int) => v >= probe &&
-           v < probe + 30)
+                                                               v < probe + 30)
             wrong += 1
         End If
     End If

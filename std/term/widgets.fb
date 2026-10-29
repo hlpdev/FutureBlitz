@@ -197,7 +197,8 @@ Public Class Table
 
         Local lines = LinesOf(Border)
         Local rows: String[] = []
-        If framed Then rows.Add(Rule(lines.TopLeft, lines.Down, lines.TopRight, lines, widths, colors))
+        If framed Then rows.Add(Rule(lines.TopLeft, lines.Down, lines.TopRight, lines, widths,
+                                     colors))
         If Header.Count > 0
             For line In RowLines(Header, widths, colors, True)
                 rows.Add(line)

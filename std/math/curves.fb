@@ -37,7 +37,7 @@ End Function
 // The point t of the way along the Hermite curve from start, going in its tangent's direction, to
 // end, arriving in its: a cubic Bezier with control points a third of each tangent along.
 Public Function Hermite(start: Vec2, startTangent: Vec2, end: Vec2, endTangent: Vec2,
-                       t: Float): Vec2
+                        t: Float): Vec2
     Local squared = t * t
     Local cubed = squared * t
     Return start * (2 * cubed - 3 * squared + 1) + startTangent * (cubed - 2 * squared + t) +
@@ -47,7 +47,7 @@ End Function
 // The point t of the way along the Hermite curve from start, going in its tangent's direction, to
 // end, arriving in its: a cubic Bezier with control points a third of each tangent along.
 Public Function Hermite(start: Vec3, startTangent: Vec3, end: Vec3, endTangent: Vec3,
-                       t: Float): Vec3
+                        t: Float): Vec3
     Local squared = t * t
     Local cubed = squared * t
     Return start * (2 * cubed - 3 * squared + 1) + startTangent * (cubed - 2 * squared + t) +

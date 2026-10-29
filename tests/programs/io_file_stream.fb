@@ -61,7 +61,8 @@ Print("{Try reading.Seek(1, SeekOrigin.START)} {Try ReadSome(reading, 2)}")
 Print("{Try reading.Seek(-1, SeekOrigin.CURRENT)} {Try ReadSome(reading, 1)}")
 Print("{Try reading.Seek(-2, SeekOrigin.END)} {Try ReadSome(reading, 10)}")
 // At the end, and past it, a read gives nothing.
-Print("{Try ReadSome(reading, 4)} {Try reading.Seek(100, SeekOrigin.END)} {Try ReadSome(reading, 4)}")
+Print(
+    "{Try ReadSome(reading, 4)} {Try reading.Seek(100, SeekOrigin.END)} {Try ReadSome(reading, 4)}")
 Try
     reading.Seek(-1, SeekOrigin.START)
 Catch e As IOError

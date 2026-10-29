@@ -125,7 +125,7 @@ def literal(text):
                 out.append(c)
         out.append('"')
         parts.append("".join(out))
-    return " +\n            ".join(parts)
+    return " +\n         ".join(parts)
 
 
 def copy_suite(release):
@@ -200,8 +200,8 @@ def main():
     for at, (name, text, expected) in enumerate(cases):
         end = "" if at == len(cases) - 1 else ","
         lines.append(f"        ({literal(name)},")
-        lines.append(f"            {literal(text)},")
-        lines.append(f"            {literal(expected)}){end}")
+        lines.append(f"         {literal(text)},")
+        lines.append(f"         {literal(expected)}){end}")
     lines += ["    ]", "End Function", ""]
     (HERE / "data.fb").write_text("\n".join(lines), encoding="utf-8", newline="\n")
     print(len(cases), "cases,", len(skipped), "left out")

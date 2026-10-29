@@ -228,7 +228,8 @@ Public Class ArgsParser
                     Try Asked("", letter)
                     Local spec = Try Lettered(letter)
                     If spec.Kind == ArgKind.OPTION
-                        i = Try Take(spec, "-{letter}", at < word.Length ? word.Slice(at, word.Length) : Null,
+                        i = Try Take(spec, "-{letter}",
+                                     at < word.Length ? word.Slice(at, word.Length) : Null,
                                      arguments, i, read)
                         Break
                     End If
@@ -368,7 +369,7 @@ Public Class ArgsParser
 
     Method Has(long: String, short: String): Bool
         Return Specs.Any(Function(spec: ArgSpec) => (long != "" && spec.Long == long) ||
-                                                    (short != "" && spec.Short == short))
+                         (short != "" && spec.Short == short))
     End Method
 
     Method Named(long: String): ArgSpec Throws ArgumentError
@@ -409,7 +410,7 @@ Public Class ArgsParser
         Throw Mistake(ArgumentErrorKind.UNKNOWN,
                       "unknown command '{name}'" +
                       (closest != Null ? "; did you mean '{closest}'?" : "; the commands are " +
-                                                                         CommandNames()), name)
+                       CommandNames()), name)
     End Method
 
     Method CommandNames(): String

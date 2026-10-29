@@ -181,7 +181,7 @@ End Try
 
 // An ArgsParser built at run time, with commands, each reading the rest of the command line.
 Local commit = ArgsParser("git commit").Option("Message", "message", "m", "The commit's message",
-                                                required: True)
+                                               required: True)
 commit.Flag("All", "all", "a", "Commits every change")
 Local push = ArgsParser("git push").Positional("Remote", "Where to", required: False)
 Local git = ArgsParser("git", "Keeps versions.").Flag("Quiet", "quiet", "q", "Says less")

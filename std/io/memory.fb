@@ -40,7 +40,7 @@ Public Class MemoryStream Implements Reader, Writer, Seeker
         If finish == Null || finish > 2147483647
             Local past = finish == Null ? "more than an Int64 counts" : "{finish}"
             Throw IOError(IOErrorKind.OTHER, "a MemoryStream holds up to 2147483647 bytes, not " +
-                                             past)
+                          past)
         End If
 
         If finish > Data.Count Then Data.Resize(finish As Int, 0)
@@ -111,7 +111,7 @@ Public Class StringWriter Implements Writer
         Local finish = Bytes.Count + from.Count
         If finish > 2147483647
             Throw IOError(IOErrorKind.OTHER, "a StringWriter holds up to 2147483647 bytes, not " +
-                                             "{finish}")
+                          "{finish}")
         End If
 
         Local start = Bytes.Count
@@ -128,7 +128,8 @@ Public Class StringWriter Implements Writer
 End Class
 
 // Where a Seek of `offset` from `origin` goes in `count` bytes, from `at`.
-Package Function SeekIn(at: Int64, count: Int64, offset: Int64, origin: SeekOrigin): Int64 Throws IOError
+Package Function SeekIn(at: Int64, count: Int64, offset: Int64,
+                        origin: SeekOrigin): Int64 Throws IOError
     Local start = at
     If origin == SeekOrigin.START
         start = 0

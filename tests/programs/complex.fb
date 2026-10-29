@@ -1225,7 +1225,7 @@ Local zeroPower = Complex(0, 0).Pow(Complex(-1, 0))
 Expect("0 to -1", zeroPower.Real != zeroPower.Real)
 Expect("equal to a Double", Complex(1, 0) == 1.0 && 2.0 == Complex(2, 0) && Complex(1, 1) != 1.0)
 Expect("hashes", Complex(0.0, 0.0).Hash() == Complex(-0.0, 0.0).Hash() &&
-                 Complex(1, 2).Hash() == Complex(1, 2).Hash())
+       Complex(1, 2).Hash() == Complex(1, 2).Hash())
 Expect("zero and one",
        Complex.Zero() == 0.0 && Complex.One() == 1.0 && Complex.DefaultValue() == 0.0)
 Expect("a real Complex", Complex(5) == 5.0)

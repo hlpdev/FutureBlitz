@@ -40,7 +40,7 @@ End Loop
 
 // A TLS connection to localhost at `port`, trusting only the CA's `root`.
 Async Function Connected(port: UInt16, root: Certificate[]): TlsStream<TcpStream> Throws NetError,
-                                                                                       TimeoutError
+                                                                                         TimeoutError
     Local client = TlsClient()
     client.TrustOnly(root)
     Local tcp = Try Await TcpStream.ConnectAsync("127.0.0.1", port)
@@ -59,7 +59,8 @@ End Function
 
 // The status line a GET of /hello on `tls` is answered with.
 Async Function Hello(tls: TlsStream<TcpStream>): String Throws IOError
-    Try Await tls.WriteAsync(Buffer<UInt8>.From("GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n".Bytes))
+    Try Await tls.WriteAsync(
+        Buffer<UInt8>.From("GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n".Bytes))
     Return Try Await BufferedReader(tls).ReadLineAsync() ?? "-"
 End Function
 
@@ -195,7 +196,8 @@ Async Function Run()
         Local servingAgain = again.Serve()
         Local kept = Try Await Connected(again.LocalAddress.Port, root)
         Print("made again: {SerialOf(kept) == SerialOf(now)}, {Try Await Hello(kept)}")
-        Local account = Try Await (Try AcmeClient.InFolder("{base}/acme/dir", folder.Path)).RegisterAsync()
+        Local account = Try Await (Try AcmeClient.InFolder("{base}/acme/dir",
+                                                           folder.Path)).RegisterAsync()
         Print("the same account: {account == acme.Account}")
 
         // One that keeps a certificate that's due renews it as it starts, though RenewalCheck is

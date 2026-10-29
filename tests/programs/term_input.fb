@@ -120,9 +120,13 @@ Print("x10:", Parsed("{E}[M %#{E}[M#!!{E}[M`!!"))
 Print("paste:", Parsed("{E}[200~hello\nworld{E}[201~!"))
 Print("paste waits:", Parsed("{E}[200~not done"))
 Print("empty paste:", Parsed("{E}[200~{E}[201~"))
-Print("bad bytes:", ParsedBytes([0xC3]), "/", ParsedBytes([0xC3, 0x28]), "/", ParsedBytes([0xE2, 0x82]))
-Print("overlong:", ParsedBytes([0xC0, 0xAF]), "/", ParsedBytes([0xED, 0xA0, 0x80]), "/", ParsedBytes([0xF4, 0x90, 0x80, 0x80]))
-Print("bad paste:", ParsedBytes([0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E, 0x61, 0xFF, 0x62, 0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E]))
+Print("bad bytes:", ParsedBytes([0xC3]), "/", ParsedBytes([0xC3, 0x28]), "/",
+      ParsedBytes([0xE2, 0x82]))
+Print("overlong:", ParsedBytes([0xC0, 0xAF]), "/", ParsedBytes([0xED, 0xA0, 0x80]), "/",
+      ParsedBytes([0xF4, 0x90, 0x80, 0x80]))
+Print("bad paste:",
+      ParsedBytes([0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E, 0x61, 0xFF, 0x62, 0x1B, 0x5B, 0x32, 0x30,
+                   0x31, 0x7E]))
 Print("cut short:", Parsed("{E}[1;5"), "/", Parsed("{E}O"), "/", Parsed("{E}[1\u{7}A"))
 Local long = Parsed("{E}[" + "1".Repeated(40))
 Print("long:", long.StartsWith("|, Escape, [, 1, 1"), long.Count("1"))
@@ -132,9 +136,11 @@ Print("konsole's f keys:", Parsed("{E}O2P{E}O5Q{E}O3S{E}O2"), "/", Parsed("{E}O2
 Print("linux console's f keys:", Parsed("{E}[[A{E}[[E{E}[[F{E}[[{E}[B"), "/", Parsed("{E}[["))
 Print("alt+[:", Parsed(E + "["), "/", Parsed(E + "[" + E + "["), "/", Parsed(E + "[\u{7f}"))
 // A mouse's back and forward buttons, which have no MouseButton, are skipped.
-Print("other buttons:", Parsed("{E}[<128;5;3M{E}[<129;5;3m{E}[<131;1;1Mx"), "/", ParsedBytes([0x1B, 0x5B, 0x4D, 0xA0, 0x21, 0x21, 0x78]))
+Print("other buttons:", Parsed("{E}[<128;5;3M{E}[<129;5;3m{E}[<131;1;1Mx"), "/",
+      ParsedBytes([0x1B, 0x5B, 0x4D, 0xA0, 0x21, 0x21, 0x78]))
 // A character cut short by a byte that doesn't go on with it is U+FFFD, and that byte its own.
-Print("cut short characters:", ParsedBytes([0xE4, 0x61]), "/", ParsedBytes([0x63, 0xE9, 0x0A]), "/", ParsedBytes([0xF0, 0x9F, 0x41]), "/", ParsedBytes([0xE4, 0xB8]))
+Print("cut short characters:", ParsedBytes([0xE4, 0x61]), "/", ParsedBytes([0x63, 0xE9, 0x0A]), "/",
+      ParsedBytes([0xF0, 0x9F, 0x41]), "/", ParsedBytes([0xE4, 0xB8]))
 
 // The same, split across reads, as a terminal can send them.
 Local split = InputParser()
@@ -155,7 +161,8 @@ Print("then:", EventsOf(split))
 // A paste's start mark at the end of one read, and its text and end mark in the next.
 Local marked = InputParser()
 marked.Feed("x{E}[200~")
-Print("paste's mark alone:", Brief(marked.Next() ?? InputEvent("none")), marked.Next() == Null, marked.IsPasting, marked.IsWaiting)
+Print("paste's mark alone:", Brief(marked.Next() ?? InputEvent("none")), marked.Next() == Null,
+      marked.IsPasting, marked.IsWaiting)
 marked.Feed("hi{E}[201~")
 Print("then:", EventsOf(marked))
 
@@ -171,7 +178,8 @@ Loop
 End Loop
 
 session.Feed("A")
-Print("long session:", xs, session.IsWaiting, Brief(session.Next() ?? InputEvent("none")), session.IsWaiting)
+Print("long session:", xs, session.IsWaiting, Brief(session.Next() ?? InputEvent("none")),
+      session.IsWaiting)
 session.Feed("{E}[200~" + "p".Repeated(5000))
 Print("long paste waits:", session.Next() == Null, session.IsPasting)
 For i = 1 To 3
@@ -181,18 +189,21 @@ End For
 
 session.Feed("{E}[201~")
 Local pasted = session.Next() ?? InputEvent("none")
-Print("long paste:", pasted.Kind, pasted.Text.Length, pasted.Text.Count("q"), session.IsPasting, session.IsWaiting)
+Print("long paste:", pasted.Kind, pasted.Text.Length, pasted.Text.Count("q"), session.IsPasting,
+      session.IsWaiting)
 
 // Keys and what they say of themselves.
 Local keys = [KeyEvent('c', KeyModifiers.CONTROL), KeyEvent('x', KeyModifiers.ALT), KeyEvent(' '),
               KeyEvent(' ', KeyModifiers.CONTROL), KeyEvent(KeyCode.TAB, KeyModifiers.SHIFT),
               KeyEvent(KeyCode.LEFT, KeyModifiers.CONTROL | KeyModifiers.ALT | KeyModifiers.SHIFT),
-              KeyEvent(KeyCode.PAGE_DOWN), KeyEvent(KeyCode.F12), KeyEvent('A'), KeyEvent('é', KeyModifiers.ALT)]
+              KeyEvent(KeyCode.PAGE_DOWN), KeyEvent(KeyCode.F12), KeyEvent('A'),
+              KeyEvent('é', KeyModifiers.ALT)]
 For key In keys
     Print("{key}: char c {key.IsChar('c')}, ctrl+c {key.IsControl('c')} {key.IsControl('C')}, text {key.IsText}")
 End For
 
-Print(KeyEvent('q').IsChar('q'), KeyEvent('q', KeyModifiers.SHIFT).IsChar('q'), KeyEvent('\u{7}').IsText)
+Print(KeyEvent('q').IsChar('q'), KeyEvent('q', KeyModifiers.SHIFT).IsChar('q'),
+      KeyEvent('\u{7}').IsText)
 Local event = InputEvent(KeyEvent(KeyCode.ESCAPE))
 Print("{event} {event.IsKey(KeyCode.ESCAPE)} {event.IsKey(KeyCode.ENTER)} {InputEvent(KeyEvent(KeyCode.ESCAPE, KeyModifiers.ALT)).IsKey(KeyCode.ESCAPE)}")
 Print("{InputEvent(MouseEvent(MouseAction.PRESS, MouseButton.LEFT, 1, 2))} | {InputEvent(80, 24)} | {InputEvent("pasted")}")
@@ -246,12 +257,14 @@ Print("polled:", Brief(fake.PollEvent(1.Seconds) ?? InputEvent("none")))
 Print("key:", "{fake.ReadKey() ?? KeyEvent('?')}", "mode", fake.InputMode)
 fake.Feed("3")
 fake.Pause()
-Print("key:", "{fake.ReadKey(10.Milliseconds) ?? KeyEvent('?')}", "{fake.ReadKey(10.Milliseconds) ?? KeyEvent('?')}")
+Print("key:", "{fake.ReadKey(10.Milliseconds) ?? KeyEvent('?')}",
+      "{fake.ReadKey(10.Milliseconds) ?? KeyEvent('?')}")
 // A timeout as long as a Duration can be waits as long as it takes.
 fake.Feed("4")
 fake.Pause(1.Seconds)
 fake.Feed("5")
-Print("forever:", "{fake.ReadKey(Duration.MaxValue()) ?? KeyEvent('?')}", Brief(fake.PollEvent(Duration.MaxValue()) ?? InputEvent("none")))
+Print("forever:", "{fake.ReadKey(Duration.MaxValue()) ?? KeyEvent('?')}",
+      Brief(fake.PollEvent(Duration.MaxValue()) ?? InputEvent("none")))
 
 // A resize while a paste's text comes doesn't end the paste.
 Local resizing = FakeTerminal(80, 24)
@@ -279,7 +292,8 @@ End Loop
 
 // ReadEvent and PollEvent read in raw mode, as ReadKey does, on a Terminal of a program's own.
 Local own = ModeTerminal()
-Print("read in raw mode:", Brief(own.ReadEvent() ?? InputEvent("none")), Brief(own.PollEvent(1.Seconds) ?? InputEvent("none")), ", ".Join(own.Reads), own.Mode)
+Print("read in raw mode:", Brief(own.ReadEvent() ?? InputEvent("none")),
+      Brief(own.PollEvent(1.Seconds) ?? InputEvent("none")), ", ".Join(own.Reads), own.Mode)
 
 // Raw mode, which nests, each asking for more.
 Print("raw:", fake.IsRaw, fake.InputMode)
@@ -298,7 +312,8 @@ Print("raw:", fake.IsRaw, fake.InputMode)
 // ReadPassword shows nothing of what's typed.
 Local secret = FakeTerminal(40, 10)
 secret.Feed("hunter2\r")
-Print("password:", secret.ReadPassword("Password: ") ?? "Null", "{secret.TakeOutput():?}", secret.InputMode)
+Print("password:", secret.ReadPassword("Password: ") ?? "Null", "{secret.TakeOutput():?}",
+      secret.InputMode)
 secret.Feed("ab\u{7f}c\u{15}xy{E}[200~z\nw{E}[201~{E}[A\r")
 Print("password:", secret.ReadPassword() ?? "Null", "{secret.TakeOutput():?}")
 secret.Feed("\u{4}")

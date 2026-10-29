@@ -115,7 +115,8 @@ Function Unwrapped(data: UInt8[]): UInt8[] Throws IOError
     // Zstd and LZ4 each skip skippable frames, as pzstd writes one before each frame, so what
     // they are is by the first frame after them.
     Local at: Int64 = 0
-    While data.Count - at >= 8 && (data[at] & 0xf0) == 0x50 && MagicAt(data, at + 1, [0x2a, 0x4d, 0x18])
+    While data.Count - at >= 8 && (data[at] & 0xf0) == 0x50 &&
+          MagicAt(data, at + 1, [0x2a, 0x4d, 0x18])
         Local size: Int64 = 0
         For i = 7 To 4 Step -1
             size = size * 256 + (data[at + i] As Int64)

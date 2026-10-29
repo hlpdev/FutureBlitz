@@ -493,7 +493,8 @@ Public Class ProtoReader
 
     // "the bytes end inside a varint at byte 7".
     Method Ended(start: Int, what: String): ParseError
-        Return ParseError(ParseErrorKind.UNEXPECTED_END, "the bytes end inside {what} at byte {start}")
+        Return ParseError(ParseErrorKind.UNEXPECTED_END,
+                          "the bytes end inside {what} at byte {start}")
     End Method
 
     // "the bytes aren't protobuf's wire format: a tag of field 0 at byte 3".

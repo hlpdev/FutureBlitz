@@ -59,7 +59,8 @@ Public Struct Yaml
             AddText(out, "---")
             Local body = Write(value)
             Local bytes = body.Bytes
-            Local block = bytes.Count > 0 && (value.Kind == ValueKind.OBJECT || value.Kind == ValueKind.ARRAY) &&
+            Local block = bytes.Count > 0 &&
+                          (value.Kind == ValueKind.OBJECT || value.Kind == ValueKind.ARRAY) &&
                           value.Count > 0
             out.Add(block ? 10 : 32)
             out.AddAll(bytes)
@@ -205,7 +206,8 @@ Public Struct Yaml
             If b == 35 && i > 0 && bytes[i - 1] == 32 Then Return False
             If IsFlowByte(b) Then Return False
         End For
-        If bytes.Count >= 3 && bytes[0] == bytes[1] && bytes[1] == bytes[2] && (bytes[0] == 45 || bytes[0] == 46)
+        If bytes.Count >= 3 && bytes[0] == bytes[1] && bytes[1] == bytes[2] &&
+           (bytes[0] == 45 || bytes[0] == 46)
             Return False
         End If
 
@@ -219,13 +221,15 @@ Public Struct Yaml
         Return False
     End Method
 
-    Static Method IsFlowByte(b: UInt8): Bool => b == 44 || b == 91 || b == 93 || b == 123 || b == 125
+    Static Method IsFlowByte(b: UInt8): Bool => b == 44 || b == 91 || b == 93 || b == 123 ||
+                                                b == 125
 
     // Whether the character of more than one byte at `at` is one a plain scalar can hold.
     Static Method IsPrintableFrom(bytes: UInt8[], at: Int): Bool
         If (bytes[at] & 0xC0) == 0x80 Then Return True
         Local c = CodeOf(bytes, at).0
-        Return c != 0xFEFF && c != 0x85 && c != 0x2028 && c != 0x2029 && c >= 0xA0 && !(c >= 0xFFFE && c <= 0xFFFF)
+        Return c != 0xFEFF && c != 0x85 && c != 0x2028 && c != 0x2029 && c >= 0xA0 &&
+               !(c >= 0xFFFE && c <= 0xFFFF)
     End Method
 
     // What the core schema resolves a plain scalar's text to.
@@ -476,7 +480,8 @@ Class YamlParser
             Anchors = {}
             AnchorTexts = {}
             token = Try Scanner.Peek()
-            Local empty = token.Kind == YamlTokenKind.DOCUMENT_START || token.Kind == YamlTokenKind.DOCUMENT_END ||
+            Local empty = token.Kind == YamlTokenKind.DOCUMENT_START ||
+                          token.Kind == YamlTokenKind.DOCUMENT_END ||
                           token.Kind == YamlTokenKind.STREAM_END || IsDirective(token.Kind)
             If empty
                 documents.Add(Value())
@@ -485,7 +490,8 @@ Class YamlParser
             End If
 
             token = Try Scanner.Peek()
-            If token.Kind != YamlTokenKind.DOCUMENT_START && token.Kind != YamlTokenKind.DOCUMENT_END &&
+            If token.Kind != YamlTokenKind.DOCUMENT_START &&
+               token.Kind != YamlTokenKind.DOCUMENT_END &&
                token.Kind != YamlTokenKind.STREAM_END
                 Throw Fail(token, "a document holds one node, and this is past it")
             End If
@@ -534,14 +540,16 @@ Class YamlParser
         Local token = Try Scanner.Peek()
         If token.Kind == YamlTokenKind.SCALAR
             Try Scanner.Take()
-            Return Try Finish(Try Resolve(token.Text, token.Style == PLAIN, properties.Tag, token), properties, token)
+            Return Try Finish(Try Resolve(token.Text, token.Style == PLAIN, properties.Tag, token),
+                              properties, token)
         End If
 
         If token.Kind == YamlTokenKind.FLOW_SEQUENCE
             Return Try Finish(Try FlowSequence(), properties, token)
         End If
 
-        If token.Kind == YamlTokenKind.FLOW_MAPPING Then Return Try Finish(Try FlowMapping(), properties, token)
+        If token.Kind == YamlTokenKind.FLOW_MAPPING Then Return Try Finish(Try FlowMapping(),
+                                                                           properties, token)
         If properties.Anchor == Null && properties.Tag == Null Then Throw Fail(token, "a node is missing here")
         Return Try Finish(Try Resolve("", True, properties.Tag, token), properties, token)
     End Method
@@ -604,7 +612,8 @@ Class YamlParser
     End Method
 
     // value with its properties: its tag checked against its kind, and its anchor named.
-    Method Finish(value: Value, properties: YamlProperties, token: YamlToken): Value Throws ParseError
+    Method Finish(value: Value, properties: YamlProperties,
+                  token: YamlToken): Value Throws ParseError
         Local tag = properties.Tag
         Local collection = value.Kind == ValueKind.ARRAY || value.Kind == ValueKind.OBJECT
         If tag != Null && tag != "!" && collection && !IsCoreTag(tag)
@@ -641,7 +650,8 @@ Class YamlParser
 
     // A scalar's Value: by its tag, or for a plain scalar without one, as the core schema has
     // it, and else a String.
-    Method Resolve(text: String, plain: Bool, tag: String?, token: YamlToken): Value Throws ParseError
+    Method Resolve(text: String, plain: Bool, tag: String?,
+                   token: YamlToken): Value Throws ParseError
         KeyText = text
         If tag == Null Then Return plain ? Yaml.CoreValue(text) : Value(text)
         If tag == "!" || tag == "tag:yaml.org,2002:str" Then Return Value(text)
@@ -659,7 +669,6 @@ Class YamlParser
             If resolved.Kind != ValueKind.INT && resolved.Kind != ValueKind.UINT
                 Throw Fail(token, "!!int tags an integer, and \"{text}\" isn't one")
             End If
-
         ElseIf tag == "tag:yaml.org,2002:float"
             If resolved.Kind == ValueKind.INT || resolved.Kind == ValueKind.UINT
                 Return Value(resolved.AsDouble() ?? 0.0)
@@ -669,7 +678,8 @@ Class YamlParser
         ElseIf tag == "tag:yaml.org,2002:seq" || tag == "tag:yaml.org,2002:map"
             Throw Fail(token, "a scalar's tag isn't {tag}")
         Else
-            Throw ErrorAt(Bytes, token.At, ParseErrorKind.OTHER, "the tag {tag} isn't the core schema's")
+            Throw ErrorAt(Bytes, token.At, ParseErrorKind.OTHER,
+                          "the tag {tag} isn't the core schema's")
         End If
 
         Return resolved
@@ -878,9 +888,11 @@ Class YamlParser
     End Method
 
     // Adds key's entry: its scalar's text, which no entry before has.
-    Method AddEntry(mapping: Value, key: Value, text: String, value: Value, token: YamlToken) Throws ParseError
+    Method AddEntry(mapping: Value, key: Value, text: String, value: Value,
+                    token: YamlToken) Throws ParseError
         If key.Kind == ValueKind.ARRAY || key.Kind == ValueKind.OBJECT
-            Throw ErrorAt(Bytes, token.At, ParseErrorKind.OTHER, "a mapping's key is a scalar here, not a {key.Kind}")
+            Throw ErrorAt(Bytes, token.At, ParseErrorKind.OTHER,
+                          "a mapping's key is a scalar here, not a {key.Kind}")
         End If
 
         If mapping.Contains(text) Then Throw Fail(token, "the mapping has the key \"{text}\" twice")

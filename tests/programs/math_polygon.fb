@@ -123,7 +123,7 @@ Print(Shown(PolygonArea(Union(crossed, crossed))),
 // arithmetic, the union is 11.5166667, the overlap 1.6, and the first less the second 4.5666667.
 Local folded = [[Vec2(2, 1), Vec2(0, 4), Vec2(3, 6), Vec2(2, 6), Vec2(2, 2), Vec2(5, 2)]]
 Local hooked = [[Vec2(1, 1), Vec2(5, 1), Vec2(2, 0), Vec2(1, 4), Vec2(4, 1), Vec2(5, 2),
-                  Vec2(4, 4)]]
+                 Vec2(4, 4)]]
 Print(Shown(PolygonArea(Union(folded, hooked))), Shown(PolygonArea(Intersection(folded, hooked))),
       Shown(PolygonArea(Difference(folded, hooked))))
 // Squares 10^-30 across, and 10^30: the sides they're looked at by scale with them.
@@ -161,4 +161,4 @@ Print(Union([speck], [speck]).Count, Union([speck], [distant]).Count,
       Union([speck], [remote]).Count)
 Local kept = Union([speck], [remote])
 Print(kept[0].Count, kept[1].Count, IsClose(PolygonArea(kept[0]) + PolygonArea(kept[1]),
-      4096.000001, 0.0001))
+                                            4096.000001, 0.0001))

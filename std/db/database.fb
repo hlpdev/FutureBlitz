@@ -290,16 +290,16 @@ Function Loaded<T>(rows: Row[]): T[] Throws ParseError
             Local name = row.Names[column]
             If columns.Contains(name) Then Continue
             Select cell.Type
-            Case 1
-                columns[name] = Value(cell.Integer)
-            Case 2
-                columns[name] = Value(cell.Real)
-            Case 3
-                columns[name] = Value(cell.Text)
-            Case 4
-                columns[name] = Value(cell.Blob ?? [])
-            Default
-                columns[name] = Value()
+                Case 1
+                    columns[name] = Value(cell.Integer)
+                Case 2
+                    columns[name] = Value(cell.Real)
+                Case 3
+                    columns[name] = Value(cell.Text)
+                Case 4
+                    columns[name] = Value(cell.Blob ?? [])
+                Default
+                    columns[name] = Value()
             End Select
         End For
 

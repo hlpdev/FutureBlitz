@@ -234,7 +234,8 @@ Class PathEvaluator
         Document = document
     End New
 
-    Method Evaluate(expression: PathExpression, context: XmlPlace, position: Int, size: Int): PathValue
+    Method Evaluate(expression: PathExpression, context: XmlPlace, position: Int,
+                    size: Int): PathValue
         Select expression.Kind
             Case "path"
                 Local found = PathValue("nodes")
@@ -379,7 +380,8 @@ Class PathEvaluator
                 If place.Node.Kind == XmlKind.ELEMENT && place.Parent != Null
                     Local order = place.Order + 1
                     For name, value In place.Node.Attributes
-                        found.Add(XmlPlace(XmlNode(XmlKind.ATTRIBUTE, name, value), place, -1, order))
+                        found.Add(XmlPlace(XmlNode(XmlKind.ATTRIBUTE, name, value), place, -1,
+                                           order))
                         order += 1
                     End For
                 End If
@@ -424,7 +426,8 @@ Class PathEvaluator
             Case TEST_COMMENT
                 Return node.Kind == XmlKind.COMMENT
             Case TEST_INSTRUCTION
-                Return node.Kind == XmlKind.INSTRUCTION && (step.Name == "" || node.Name == step.Name)
+                Return node.Kind == XmlKind.INSTRUCTION &&
+                       (step.Name == "" || node.Name == step.Name)
             Default
                 Return True
         End Select
@@ -458,15 +461,19 @@ Class PathEvaluator
             Local other = left.Kind == "nodes" ? right : left
             Local flipped = left.Kind != "nodes"
             If other.Kind == "bool"
-                Return CompareNumbers(op, flipped ? (other.Flag ? 1.0 : 0.0) : (nodes.Truth() ? 1.0 : 0.0),
-                                      flipped ? (nodes.Truth() ? 1.0 : 0.0) : (other.Flag ? 1.0 : 0.0))
+                Return CompareNumbers(op,
+                                      flipped ? (other.Flag ? 1.0 : 0.0)
+                                              : (nodes.Truth() ? 1.0 : 0.0),
+                                      flipped ? (nodes.Truth() ? 1.0 : 0.0)
+                                              : (other.Flag ? 1.0 : 0.0))
             End If
 
             For place In nodes.Places
                 Local text = place.Node.Text
                 If other.Kind == "number"
                     Local number = NumberOf(text)
-                    If CompareNumbers(op, flipped ? other.Number : number, flipped ? number : other.Number)
+                    If CompareNumbers(op, flipped ? other.Number : number,
+                                      flipped ? number : other.Number)
                         Return True
                     End If
                 ElseIf CompareTexts(op, flipped ? other.Text : text, flipped ? text : other.Text)
@@ -674,7 +681,8 @@ Class PathParser
                 Fail("{name}() takes {expected} arguments")
             End If
 
-            If (name == "count" || name == "name") && call.Parts.Count > 0 && !call.Parts[0].IsPath()
+            If (name == "count" || name == "name") && call.Parts.Count > 0 &&
+               !call.Parts[0].IsPath()
                 Fail("{name}() takes a path")
             End If
 
@@ -824,8 +832,9 @@ Class PathParser
         Space()
         If !Starts(word) Then Return False
         Local after = At + word.Bytes.Count
-        Return after >= Bytes.Count || !(IsNameStartByte(Bytes[after]) || IsDigitByte(Bytes[after]) ||
-                                         Bytes[after] == 45)
+        Return after >= Bytes.Count ||
+               !(IsNameStartByte(Bytes[after]) || IsDigitByte(Bytes[after]) ||
+                 Bytes[after] == 45)
     End Method
 
     Method Expect(text: String)

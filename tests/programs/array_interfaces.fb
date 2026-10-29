@@ -32,7 +32,7 @@ Print(Total(kept))
 
 // Lazily, without a copy.
 Print(numbers.Iterate().Filter(Function(n: Int) => n % 2 == 0).Map(Function(n: Int) => n * 10)
-          .ToArray())
+      .ToArray())
 
 // Collections take arrays.
 Local set = Set<String>()

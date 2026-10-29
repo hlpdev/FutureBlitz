@@ -212,8 +212,10 @@ For entry In Try Dir.Entries(root / "ä")
 End For
 
 Print("glob")
-For pattern In ["*.png", "**/*.png", "ä/*.png", "ä/**/*.png", "**", "ä/b/*", "*", "?/b", "[äb]/[!x]",
-                "ä/[a-c]/ç/*.txt", "**/ç", "[", "ä/b/**", "nothing/*", "*.dat", "**/*.PNG", "", "./*.dat"]
+For pattern In ["*.png", "**/*.png", "ä/*.png", "ä/**/*.png", "**", "ä/b/*", "*", "?/b",
+                "[äb]/[!x]",
+                "ä/[a-c]/ç/*.txt", "**/ç", "[", "ä/b/**", "nothing/*", "*.dat", "**/*.PNG", "",
+                "./*.dat"]
     Local matched: String[] = []
     For entry In Try Dir.Glob(root, pattern)
         matched.Add(entry.Relative.Text)
@@ -461,7 +463,8 @@ Try Dir.Create(madePath / "inner")
 Try File.WriteText(madePath / "inner" / "deeper.txt", "x")
 Local name = madePath.FileName()
 Local prefixed = "{name.Bytes[0..3]}" == "{"fb-".Bytes}"
-Print("{((Try Dir.Temp()) / name).Normalize() == madePath.Normalize()} {prefixed} {name.Bytes.Count}")
+Print(
+    "{((Try Dir.Temp()) / name).Normalize() == madePath.Normalize()} {prefixed} {name.Bytes.Count}")
 made = Try TempDir()
 Print("{Dir.Exists(madePath)} {Dir.Exists(made.Path)}")
 Try made.Close()

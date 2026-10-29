@@ -24,22 +24,22 @@ Print(Shown(Env.Expand("")))
 Local temp = Try TempDir("fb-env-")
 Local path = temp.Path / ".env"
 Try File.WriteText(path, "\u{FEFF}# a comment\n" +
-                         "FB_ENV_A=plain\r\n" +
-                         "export FB_ENV_B = spaced value   # a comment\n" +
-                         "FB_ENV_C='single $FB_ENV_A \\n # kept' # a comment\n" +
-                         "FB_ENV_D=\"double $FB_ENV_A ${{FB_ENV_A}}x " +
-                         "\\\"q\\\" \\\\ \\$FB_ENV_A \\n\\tend \\q\"\n" +
-                         "FB_ENV_E=\n" +
-                         "FB_ENV_F=a#b\n" +
-                         "FB_ENV_G=#a comment\n" +
-                         "FB_ENV_H=\"two\nlines\"\n" +
-                         "FB_ENV_I=$FB_ENV_A-${{FB_ENV_B}}-$FB_ENV_X\n" +
-                         "FB_ENV_PRESET=from the file\n" +
-                         "FB_ENV_TWICE=one\n" +
-                         "FB_ENV_TWICE=two\n" +
-                         "   \n" +
-                         "\tFB_ENV_J\t=\t'quoted'\t\r" +
-                         "FB_ENV_K=$FB_ENV_PRESET")
+                   "FB_ENV_A=plain\r\n" +
+                   "export FB_ENV_B = spaced value   # a comment\n" +
+                   "FB_ENV_C='single $FB_ENV_A \\n # kept' # a comment\n" +
+                   "FB_ENV_D=\"double $FB_ENV_A ${{FB_ENV_A}}x " +
+                   "\\\"q\\\" \\\\ \\$FB_ENV_A \\n\\tend \\q\"\n" +
+                   "FB_ENV_E=\n" +
+                   "FB_ENV_F=a#b\n" +
+                   "FB_ENV_G=#a comment\n" +
+                   "FB_ENV_H=\"two\nlines\"\n" +
+                   "FB_ENV_I=$FB_ENV_A-${{FB_ENV_B}}-$FB_ENV_X\n" +
+                   "FB_ENV_PRESET=from the file\n" +
+                   "FB_ENV_TWICE=one\n" +
+                   "FB_ENV_TWICE=two\n" +
+                   "   \n" +
+                   "\tFB_ENV_J\t=\t'quoted'\t\r" +
+                   "FB_ENV_K=$FB_ENV_PRESET")
 Env.Set("FB_ENV_PRESET", "before")
 Try Env.Load(path)
 For name In ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "PRESET", "TWICE"]

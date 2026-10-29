@@ -166,16 +166,16 @@ Function IsBlock(kind: MarkdownKind): Bool => (kind As Int) <= (MarkdownKind.Tab
 // newline, and a newline for a break.
 Function OwnText(node: MarkdownNode): String
     Select node.Kind
-    Case MarkdownKind.Text, MarkdownKind.Code
-        Return node.Text
-    Case MarkdownKind.CodeBlock
-        Local bytes = node.Text.Bytes
-        If bytes.Count == 0 || bytes[bytes.Count - 1] != 10 Then Return node.Text
-        Return fb_string_from_array(bytes[0..bytes.Count - 1])
-    Case MarkdownKind.SoftBreak, MarkdownKind.HardBreak
-        Return "\n"
-    Default
-        Return ""
+        Case MarkdownKind.Text, MarkdownKind.Code
+            Return node.Text
+        Case MarkdownKind.CodeBlock
+            Local bytes = node.Text.Bytes
+            If bytes.Count == 0 || bytes[bytes.Count - 1] != 10 Then Return node.Text
+            Return fb_string_from_array(bytes[0..bytes.Count - 1])
+        Case MarkdownKind.SoftBreak, MarkdownKind.HardBreak
+            Return "\n"
+        Default
+            Return ""
     End Select
 End Function
 
@@ -229,26 +229,26 @@ Function NodeOf(events: Ptr<Void>, index: Int64): MarkdownNode
     Local flag = fb_markdown_flag(events, index) != 0
     node.Text = fb_markdown_text(events, index, 0)
     Select node.Kind
-    Case MarkdownKind.BulletList
-        node.Tight = flag
-    Case MarkdownKind.OrderedList
-        node.Start = number
-        node.Tight = flag
-    Case MarkdownKind.ListItem
-        node.Task = number != 0
-        node.Done = number == 2
-    Case MarkdownKind.Heading
-        node.Level = number
-    Case MarkdownKind.CodeBlock
-        node.Info = fb_markdown_text(events, index, 3)
-        node.Language = fb_markdown_text(events, index, 4)
-    Case MarkdownKind.TableHeaderCell, MarkdownKind.TableCell
-        node.Alignment = number As MarkdownAlignment
-    Case MarkdownKind.Link, MarkdownKind.Image
-        node.Url = fb_markdown_text(events, index, 1)
-        node.Title = fb_markdown_text(events, index, 2)
-        node.Autolink = flag
-    Default
+        Case MarkdownKind.BulletList
+            node.Tight = flag
+        Case MarkdownKind.OrderedList
+            node.Start = number
+            node.Tight = flag
+        Case MarkdownKind.ListItem
+            node.Task = number != 0
+            node.Done = number == 2
+        Case MarkdownKind.Heading
+            node.Level = number
+        Case MarkdownKind.CodeBlock
+            node.Info = fb_markdown_text(events, index, 3)
+            node.Language = fb_markdown_text(events, index, 4)
+        Case MarkdownKind.TableHeaderCell, MarkdownKind.TableCell
+            node.Alignment = number As MarkdownAlignment
+        Case MarkdownKind.Link, MarkdownKind.Image
+            node.Url = fb_markdown_text(events, index, 1)
+            node.Title = fb_markdown_text(events, index, 2)
+            node.Autolink = flag
+        Default
         // The rest have only their text.
     End Select
     Return node

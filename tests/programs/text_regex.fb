@@ -55,7 +55,7 @@ Print(Try date.Replace(text, r"$2/$4/${year} (${1}$$)"))
 Print(Try Regex(r"\d+").Replace("a1b22c333", Function(m) => "<{m.Value.Length}>"))
 Print(Try Regex(r"\d").ReplaceFirst("a1b2", "#"), Try Regex(r"\d").ReplaceFirst("ab", "#"))
 Print(Try Regex(r"(\w)(\w*)").ReplaceFirst("hello world",
-                                          Function(m) => (m[1] ?? "").ToUpper() + (m[2] ?? "")))
+                                           Function(m) => (m[1] ?? "").ToUpper() + (m[2] ?? "")))
 
 // Splitting, with an empty part where matches touch, or at an end.
 Print(Try Regex(r",\s*").Split("a, b,c,,d"), Try Regex(",").Split(",a,"))
@@ -66,7 +66,7 @@ Print(Regex.Escape(odd))
 Print(Try Regex(Regex.Escape(odd)).IsMatch("so " + odd + " so"))
 // Under any flags, EXTENDED's whitespace beyond ASCII included.
 For plain In ["a b", "a#b", "a\u{85}b", "a\u{200E}b", "a\u{200F}b", "a\u{2028}b", "a\u{2029}b",
-             "a\u{A0}b"]
+              "a\u{A0}b"]
     Write(Try Regex(Regex.Escape(plain), RegexFlags.EXTENDED).IsMatch(plain), "")
 End For
 

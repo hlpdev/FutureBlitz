@@ -147,7 +147,8 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
             Local wholeDigits = 0
             Local overflowed = False
             While at < chars.Count && IsDigit(chars[at])
-                Local next = whole.CheckedMultiply(10)?.CheckedAdd(((chars[at] As Int) - ('0' As Int)) As UInt64)
+                Local next = whole.CheckedMultiply(10)?.CheckedAdd(((chars[at] As Int) -
+                                                                    ('0' As Int)) As UInt64)
                 If next == Null Then overflowed = True Else whole = next
                 wholeDigits += 1
                 at += 1

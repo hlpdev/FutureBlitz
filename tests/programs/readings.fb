@@ -68,13 +68,15 @@ Async Function Run() Throws Error
     Local fetched = Try Await client.GetAsync(feed.Url)
     feed.Stop()
     Await feeding
-    Print("feed: untrusted", refused, "| trusted", fetched.Status, fetched.Headers.Get("Content-Type") ?? "-",
+    Print("feed: untrusted", refused, "| trusted", fetched.Status,
+          fetched.Headers.Get("Content-Type") ?? "-",
           fetched.Bytes.Count, "bytes, answered", feed.Served)
 
     // The JSON, read into the document's Structs, is the readings it was written from.
     Local document = Try Json.Read<Feed>(fetched.Text)
     Local taken = ReadingsOf(document)
-    Print("json:", document.Cities.Count, "cities,", taken.Count, "readings, the same", taken == readings)
+    Print("json:", document.Cities.Count, "cities,", taken.Count, "readings, the same",
+          taken == readings)
 
     // Kept in SQLite: a reading again takes the place of the one before it, a warmer one too, and
     // then the first back.
@@ -85,7 +87,8 @@ Async Function Run() Throws Error
     Local replaced = (Try store.Series(again.City))[0].1
     Try store.Add(taken[0..5])
     Print("stored:", Try store.Count(), "readings of", Try store.Cities(), "| again, warmer:",
-          replaced == again.Celsius + 10.0, "then back:", (Try store.Series(again.City))[0].1 == again.Celsius)
+          replaced == again.Celsius + 10.0, "then back:",
+          (Try store.Series(again.City))[0].1 == again.Celsius)
     Local summaries = Try store.Summaries()
     For summary In summaries
         Print("  {summary.City}: low {summary.Low:.1}, high {summary.High:.1}, mean {summary.Mean:.2}, {summary.Count} readings")
@@ -102,7 +105,8 @@ Async Function Run() Throws Error
     // A flat line, none, and readings 12 hours apart draw inside the plot too.
     Print("flat:", Try Drawn([Reading("Oslo", 0, 5.0), Reading("Oslo", 1, 5.0)]))
     Print("empty:", Try Drawn([]))
-    Print("every 12 hours:", Try Drawn([Reading("Oslo", 0, 1.0), Reading("Oslo", 12, 9.0), Reading("Oslo", 24, 3.0)]))
+    Print("every 12 hours:",
+          Try Drawn([Reading("Oslo", 0, 1.0), Reading("Oslo", 12, 9.0), Reading("Oslo", 24, 3.0)]))
     Print("from hour 30:", Try Drawn([Reading("Oslo", 30, 1.0), Reading("Oslo", 31, 9.0)]))
 
     // Served: the summary as JSON, and both as static files.
@@ -113,12 +117,15 @@ Async Function Run() Throws Error
     web.TrustOnly(TestRoots())
     Local summary = Try Await web.GetAsync("{site.Url}/summary.json")
     Local read = Try Json.Read<Summary[]>(summary.Text)
-    Print("summary.json:", summary.Status, summary.Headers.Get("Content-Type") ?? "-", "the same", read == summaries)
+    Print("summary.json:", summary.Status, summary.Headers.Get("Content-Type") ?? "-", "the same",
+          read == summaries)
     Local file = Try Await web.GetAsync("{site.Url}/files/chart.png")
-    Print("files/chart.png:", file.Status, file.Headers.Get("Content-Type") ?? "-", "the same", file.Bytes == png)
+    Print("files/chart.png:", file.Status, file.Headers.Get("Content-Type") ?? "-", "the same",
+          file.Bytes == png)
     Local text = Try Await web.GetAsync("{site.Url}/files/summary.json")
     Local missing = Try Await web.GetAsync("{site.Url}/files/missing.png")
-    Print("files/summary.json:", text.Status, "the same", text.Text == Json.Write(summaries), "| missing.png:", missing.Status)
+    Print("files/summary.json:", text.Status, "the same", text.Text == Json.Write(summaries),
+          "| missing.png:", missing.Status)
 
     // To its own WebSocket client: the summary as text, the chart as bytes, then the close.
     Local untrusted = "opened"
@@ -134,9 +141,12 @@ Async Function Run() Throws Error
     Local first = Try Await live.ReceiveAsync()
     Local second = Try Await live.ReceiveAsync()
     Local last = Try Await live.ReceiveAsync()
-    Local sentSummary = first != Null && first.IsText && (Try Json.Read<Summary[]>(first.Text)) == summaries
-    Local sentChart = second != Null && !second.IsText && (Try Image.Decode(second.Bytes)).ToBytes() == pixels
-    Print("websocket: untrusted", untrusted, "| summary", sentSummary, "chart", sentChart, "then closed", last == Null, live.CloseCode ?? 0)
+    Local sentSummary = first != Null && first.IsText &&
+                        (Try Json.Read<Summary[]>(first.Text)) == summaries
+    Local sentChart = second != Null && !second.IsText &&
+                      (Try Image.Decode(second.Bytes)).ToBytes() == pixels
+    Print("websocket: untrusted", untrusted, "| summary", sentSummary, "chart", sentChart,
+          "then closed", last == Null, live.CloseCode ?? 0)
     // The server counts it served once the client's close has come back to it.
     For i = 0 Until 5000
         If site.Lives > 0 Then Break
@@ -147,7 +157,8 @@ Async Function Run() Throws Error
     Local had = Dir.Exists(folder)
     Try site.Stop()
     Await serving
-    Print("served:", site.Lives, "websocket, and stopped", !site.IsRunning, "| its folder there", had,
+    Print("served:", site.Lives, "websocket, and stopped", !site.IsRunning, "| its folder there",
+          had,
           "then removed", !Dir.Exists(folder))
 End Function
 

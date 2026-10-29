@@ -43,7 +43,8 @@ Print("colored:", Answer(Confirm(colored, "Sure?")), Shown(colored.Output))
 
 // From a pipe, a line: y, yes, n, or no in any case, or nothing for the default.
 Local piped = Piped("maybe\nYES\nno\n\nN\n")
-Print("piped:", Answer(Confirm(piped, "Sure?")), Answer(Confirm(piped, "Sure?")), Answer(Confirm(piped, "Again?", True)), Answer(Confirm(piped, "Last?")))
+Print("piped:", Answer(Confirm(piped, "Sure?")), Answer(Confirm(piped, "Sure?")),
+      Answer(Confirm(piped, "Again?", True)), Answer(Confirm(piped, "Last?")))
 Print("piped:", Answer(Confirm(piped, "Ended?")))
 Print(piped.Output)
 
@@ -51,7 +52,8 @@ Print(piped.Output)
 Local typed = Live("helo{E}[D{E}[Dl{E}[F!\r")
 Print("ask:", Ask(typed, "Name?") ?? "Null")
 Print(Shown(typed.Output))
-For keys In ["one two three\u{17}x\r", "abc\u{1}X\u{5}Y\r", "abc{E}[H\u{b}Z\r", "a b c{E}[1;5D{E}[1;5DQ\r",
+For keys In ["one two three\u{17}x\r", "abc\u{1}X\u{5}Y\r", "abc{E}[H\u{b}Z\r",
+             "a b c{E}[1;5D{E}[1;5DQ\r",
              "a{E}[3~b{E}[D{E}[3~\r", "e\u{301}x\u{7f}\u{7f}y\r", "{E}[200~pasted\ntext{E}[201~\r",
              "\u{15}\r", "x{E}", "y"]
     Local live = Live(keys)
@@ -69,10 +71,13 @@ Local number = Ask(checked, "Age?", Function(text) => text.Chars.All(Function(c)
 Print("checked:", number ?? "Null")
 Print(Shown(checked.Output))
 Local fromPipe = Piped("x\n\n7\n")
-Print("piped ask:", Ask(fromPipe, "Age?", Function(text) => text == "" || text == "x" ? "say a number" : Null, "1") ?? "Null")
+Print("piped ask:",
+      Ask(fromPipe, "Age?", Function(text) => text == "" || text == "x" ? "say a number" : Null,
+          "1") ?? "Null")
 Print(fromPipe.Output)
 Local defaulted = Piped("\n")
-Print("piped default:", Ask(defaulted, "Name?", "anon") ?? "Null", Ask(defaulted, "More?") ?? "Null")
+Print("piped default:", Ask(defaulted, "Name?", "anon") ?? "Null",
+      Ask(defaulted, "More?") ?? "Null")
 Print(defaulted.Output)
 // A tab in a piped line is part of it.
 Local tabbed = Piped("name\tvalue\n")
@@ -84,7 +89,8 @@ Local options = ["red", "green", "blue", "yellow", "magenta"]
 Local chosen = Live("{E}[B{E}[B\r")
 Print("choose:", Choose(chosen, "Color?", options) ?? -1)
 Print(Shown(chosen.Output))
-For keys In ["\r", "{E}[A\r", "{E}[B{E}[B{E}[B{E}[B{E}[B\r", "{E}[F\r", "{E}[F{E}[H\r", "{E}[6~\r", "{E}[6~{E}[5~\r",
+For keys In ["\r", "{E}[A\r", "{E}[B{E}[B{E}[B{E}[B{E}[B\r", "{E}[F\r", "{E}[F{E}[H\r", "{E}[6~\r",
+             "{E}[6~{E}[5~\r",
              "bl\r", "e\r", "el\r", "zz\r\u{7f}\u{7f}\r", "gr\u{15}\r", "x{E}", "{E}", ""]
     Local live = Live(keys)
     Print("choose {keys:?}:", Choose(live, "Color?", options, 1) ?? -1)
@@ -111,7 +117,9 @@ Print("colored:", Choose(colors, "Which?", ["a", "b"]) ?? -1, Shown(colors.Outpu
 // A narrow terminal's lines are cut to its width, the question giving way, so none wraps.
 Local narrow = FakeTerminal(16, 4, ColorLevel.NONE)
 narrow.Feed("zz\u{7f}\u{7f}{E}[B\r")
-Print("narrow:", Choose(narrow, "Which of these do you want?", ["the first option", "the second option"]) ?? -1)
+Print("narrow:",
+      Choose(narrow, "Which of these do you want?", ["the first option", "the second option"]) ??
+      -1)
 // Each line drawn, between the line breaks and the moves back up to draw them again.
 Local drawn = (Try? narrow.Output.ReplaceAll(r"\x1b\[\d*F", "\n")) ?? ""
 Local lines = StripStyles(drawn.Replace("\r", "")).Split("\n")
@@ -127,7 +135,8 @@ Print("narrow ask:", Ask(asking, "What is your full name?", "x") ?? "Null", Show
 // A default too long for the line gives way too, and what's typed still shows.
 Local hinted = FakeTerminal(16, 4, ColorLevel.NONE)
 hinted.Feed("ab\r")
-Print("long default:", Ask(hinted, "Name?", "a default far too long") ?? "Null", Shown(hinted.Output))
+Print("long default:", Ask(hinted, "Name?", "a default far too long") ?? "Null",
+      Shown(hinted.Output))
 Print("leave meanwhile:", Shown(colors.Leave) == "")
 
 // Ask's line scrolls sideways, and back as what's typed gets shorter; where it scrolls to the
@@ -161,5 +170,6 @@ Print("widest line:", filteredWidest, Shown(filterLines[filterLines.Count - 2]))
 
 // From a pipe, a number from 1, or the default for nothing.
 Local numbered = Piped("9\nzero\n3\n\n")
-Print("piped choose:", Choose(numbered, "Color?", options) ?? -1, Choose(numbered, "Color?", options, 4) ?? -1, Choose(numbered, "Ended?", options) ?? -1)
+Print("piped choose:", Choose(numbered, "Color?", options) ?? -1,
+      Choose(numbered, "Color?", options, 4) ?? -1, Choose(numbered, "Ended?", options) ?? -1)
 Print(numbered.Output)

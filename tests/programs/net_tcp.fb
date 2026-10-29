@@ -145,14 +145,14 @@ Try
         quiet.Accept(20.Milliseconds)
     Catch e As TimeoutError
         Print("Accept:", e.Message == "accepting at {quiet.LocalAddress} took longer than it " +
-                                      "was given")
+              "was given")
     End Try
 
     Try
         Await quiet.AcceptAsync(20.Milliseconds)
     Catch e As TimeoutError
         Print("AcceptAsync:", e.Message == "accepting at {quiet.LocalAddress} took longer " +
-                                           "than it was given")
+              "than it was given")
     End Try
 
     Local client = TcpStream.Connect(quiet.LocalAddress)

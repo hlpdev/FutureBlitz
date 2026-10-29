@@ -98,7 +98,7 @@ grown.Remove(5000)
 grown.Add(1)
 Local plainOne = BitSet()
 plainOne.Add(1)
-Print(grown == plainOne, grown.Hash() == plainOne.Hash(), {grown: "one"}[plainOne])
+Print(grown == plainOne, grown.Hash() == plainOne.Hash(), {grown: "one"} [plainOne])
 some.Clear()
 Print(some, some.Count)
 

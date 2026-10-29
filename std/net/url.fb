@@ -261,7 +261,7 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
             entries.Add((Utf16Order(pair.0), pair))
         End For
         entries.Sort(Function(a: (Int[], (String, String)), b: (Int[], (String, String))) =>
-                         OrderBefore(a.0, b.0))
+                     OrderBefore(a.0, b.0))
         Pairs = []
         For entry In entries
             Pairs.Add(entry.1)

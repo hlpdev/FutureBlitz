@@ -30,7 +30,7 @@ Public Struct IpAddress Implements Hashable, Comparable, Printable
     // The IPv4 address a.b.c.d.
     Public Static Method V4(a: UInt8, b: UInt8, c: UInt8, d: UInt8): IpAddress
         Return IpAddress(IpFamily.V4, 0, (a As UInt64) << 24 | (b As UInt64) << 16 |
-                                         (c As UInt64) << 8 | (d As UInt64))
+                         (c As UInt64) << 8 | (d As UInt64))
     End Method
 
     // The IPv6 address of eight 16-bit groups, a:b:c:d:e:f:g:h.

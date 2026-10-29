@@ -24,7 +24,8 @@ End Function
 Local loopback = SocketAddress(IpAddress.Loopback, 0)
 Local server = Try GameHost.Bind(loopback)
 Local client = Try GameHost.Bind(loopback)
-Print("bound:", server.LocalAddress.Port != 0, server.LocalAddress.Port != client.LocalAddress.Port, server.IsClosed)
+Print("bound:", server.LocalAddress.Port != 0, server.LocalAddress.Port != client.LocalAddress.Port,
+      server.IsClosed)
 Local toServer = client.Connect(server.LocalAddress)
 Local toClient: GamePeer? = Null
 Local connected = 0

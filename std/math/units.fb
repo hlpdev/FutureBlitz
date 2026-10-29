@@ -10,7 +10,7 @@ Import std.core
 // A value of so many meters, kilograms, and seconds, to the powers L, M, and T: 5 m/s^2 is a
 // Quantity<1, 0, -2> of Value 5.
 Public Struct Quantity<Const L: Int, Const M: Int, Const T: Int> Implements Comparable, Hashable,
-                                                                    Printable, Defaultable
+                                                                            Printable, Defaultable
     // The value in the base units, and the units they make.
     Public Field Value: Double
 
@@ -62,12 +62,12 @@ Public Struct Quantity<Const L: Int, Const M: Int, Const T: Int> Implements Comp
 
     // A product's exponents are the sum of its operands', and a quotient's their difference.
     Operator *<Const L2: Int, Const M2: Int, Const T2: Int>(
-        a: Quantity<L, M, T>, b: Quantity<L2, M2, T2>): Quantity<L + L2, M + M2, T + T2>
+            a: Quantity<L, M, T>, b: Quantity<L2, M2, T2>): Quantity<L + L2, M + M2, T + T2>
         Return Quantity<L + L2, M + M2, T + T2>(a.Value * b.Value)
     End Operator
 
     Operator /<Const L2: Int, Const M2: Int, Const T2: Int>(
-        a: Quantity<L, M, T>, b: Quantity<L2, M2, T2>): Quantity<L - L2, M - M2, T - T2>
+            a: Quantity<L, M, T>, b: Quantity<L2, M2, T2>): Quantity<L - L2, M - M2, T - T2>
         Return Quantity<L - L2, M - M2, T - T2>(a.Value / b.Value)
     End Operator
 
@@ -82,7 +82,7 @@ Function Joined(units: String, unit: String): String => units == "" ? unit : "{u
 
 // How big a quantity is, of the same units, as the scalar Abs has it: 0 for -0.
 Public Function Abs<Const L: Int, Const M: Int, Const T: Int>(
-    q: Quantity<L, M, T>): Quantity<L, M, T>
+        q: Quantity<L, M, T>): Quantity<L, M, T>
     Return Quantity<L, M, T>(q.Value <= 0 ? 0 - q.Value : q.Value)
 End Function
 

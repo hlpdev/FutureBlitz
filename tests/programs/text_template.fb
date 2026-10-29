@@ -157,7 +157,7 @@ Print(Try Template(r"{{text}}").Render(quote))
 Local set = Templates()
 Try set.Add("page.HTML", "<ul>\n" + r"  {{> item}}" + "\n</ul>\n")
 Try set.Add("item", r"<li>{{title}}</li>" + "\n" + r"{{#each items}}" + "\n" +
-                    r"<li>{{name}}</li>" + "\n" + r"{{/each}}" + "\n")
+            r"<li>{{name}}</li>" + "\n" + r"{{/each}}" + "\n")
 Print(Try set.Render("page.HTML", data))
 Print(set.Contains("item"), set.Contains("page"))
 // Adding one again replaces it, an indented partial's too.

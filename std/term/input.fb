@@ -345,8 +345,12 @@ Public Class InputParser
         If first == 0x1B Then Return (1, KeyEvent(KeyCode.ESCAPE))
         If first == 0x00 Then Return (1, KeyEvent(' ', KeyModifiers.CONTROL))
         // Ctrl and a letter, or one of \ ] ^ _.
-        If first < 0x1B Then Return (1, KeyEvent(((first + 0x60) As Int) As Char, KeyModifiers.CONTROL))
-        If first < 0x20 Then Return (1, KeyEvent(((first + 0x40) As Int) As Char, KeyModifiers.CONTROL))
+        If first < 0x1B Then Return (1,
+                                     KeyEvent(((first + 0x60) As Int) As Char,
+                                              KeyModifiers.CONTROL))
+        If first < 0x20 Then Return (1,
+                                     KeyEvent(((first + 0x40) As Int) As Char,
+                                              KeyModifiers.CONTROL))
         // A character cut short by a byte that doesn't go on with it isn't one, nor is one cut
         // short by the end, which takes only its own bytes.
         Local length = Utf8Length(first)

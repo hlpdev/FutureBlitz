@@ -70,7 +70,7 @@ Print(roots64)
 
 // Sines and cosines over whole turns and back, the reference's bits each.
 Local angles32 = [0, 1, -1, 32768, 102944, 205887, -205887, 411775, 1000000, -2000000,
-                 2147483647, -2147483648]
+                  2147483647, -2147483648]
 For raw In angles32
     Local angle = Fixed32.FromRaw(raw)
     Print("32", raw, Sin(angle).Raw, Cos(angle).Raw)

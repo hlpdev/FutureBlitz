@@ -71,8 +71,9 @@ Public Class Store
     // Each city's summary, the warmest first.
     Public Method Summaries(): Summary[] Throws DatabaseError
         Local summaries: Summary[] = []
-        Local sql = "SELECT city, min(celsius), max(celsius), avg(celsius), count(*) FROM readings " +
-                    "GROUP BY city ORDER BY avg(celsius) DESC"
+        Local sql =
+            "SELECT city, min(celsius), max(celsius), avg(celsius), count(*) FROM readings " +
+            "GROUP BY city ORDER BY avg(celsius) DESC"
         For row In Try Db.Rows(sql)
             summaries.Add(Summary(row.Text(0) ?? "", row.Real(1) ?? 0.0, row.Real(2) ?? 0.0,
                                   row.Real(3) ?? 0.0, (row.Integer(4) ?? 0) As Int))

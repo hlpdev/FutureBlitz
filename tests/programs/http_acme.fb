@@ -132,7 +132,6 @@ Async Function Run()
         Catch e As NetError
             Print("NetError {e.Kind}: {e.Message}")
         End Try
-
     Catch e As Error
         Print("failed: {e.Message}")
     End Try

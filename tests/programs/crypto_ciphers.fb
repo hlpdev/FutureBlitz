@@ -80,32 +80,70 @@ Done("RFC 8439")
 
 // Wycheproof's AES-256-GCM vectors of a 256-bit key, a 96-bit nonce, and a 128-bit tag:
 // a valid one opens to its message, and an invalid one to Null.
-Opens("AES-256-GCM 91", 1, Unhex("92ace3e348cd821092cd921aa3546374299ab46209691bc28b8752d17f123c20"), Unhex("00112233445566778899aabb"),
-      Unhex("e27abdd2d2a53d2f136b"), Unhex("9a4a2579529301bcfb71c78d4060f52c"), Unhex("00000000ffffffff"), Unhex("00010203040506070809"))
-Opens("AES-256-GCM 92", 1, Unhex("29d3a44f8723dc640239100c365423a312934ac80239212ac3df3421a2098123"), Unhex("00112233445566778899aabb"),
+Opens("AES-256-GCM 91", 1,
+      Unhex("92ace3e348cd821092cd921aa3546374299ab46209691bc28b8752d17f123c20"),
+      Unhex("00112233445566778899aabb"),
+      Unhex("e27abdd2d2a53d2f136b"), Unhex("9a4a2579529301bcfb71c78d4060f52c"),
+      Unhex("00000000ffffffff"), Unhex("00010203040506070809"))
+Opens("AES-256-GCM 92", 1,
+      Unhex("29d3a44f8723dc640239100c365423a312934ac80239212ac3df3421a2098123"),
+      Unhex("00112233445566778899aabb"),
       Unhex(""), Unhex("2a7d77fa526b8250cb296078926b5020"), Unhex("aabbccddeeff"), Unhex(""))
-Opens("AES-256-GCM 93", 1, Unhex("80ba3192c803ce965ea371d5ff073cf0f43b6a2ab576b208426e11409c09b9b0"), Unhex("4da5bf8dfd5852c1ea12379d"),
+Opens("AES-256-GCM 93", 1,
+      Unhex("80ba3192c803ce965ea371d5ff073cf0f43b6a2ab576b208426e11409c09b9b0"),
+      Unhex("4da5bf8dfd5852c1ea12379d"),
       Unhex(""), Unhex("4771a7c404a472966cea8f73c8bfe17a"), Unhex(""), Unhex(""))
-Opens("AES-256-GCM 94", 1, Unhex("cc56b680552eb75008f5484b4cb803fa5063ebd6eab91f6ab6aef4916a766273"), Unhex("99e23ec48985bccdeeab60f1"),
+Opens("AES-256-GCM 94", 1,
+      Unhex("cc56b680552eb75008f5484b4cb803fa5063ebd6eab91f6ab6aef4916a766273"),
+      Unhex("99e23ec48985bccdeeab60f1"),
       Unhex("06"), Unhex("633c1e9703ef744ffffb40edf9d14355"), Unhex(""), Unhex("2a"))
-Opens("AES-256-GCM 95", 1, Unhex("51e4bf2bad92b7aff1a4bc05550ba81df4b96fabf41c12c7b00e60e48db7e152"), Unhex("4f07afedfdc3b6c2361823d3"),
-      Unhex("cf332a12fdee800b"), Unhex("602e8d7c4799d62c140c9bb834876b09"), Unhex(""), Unhex("be3308f72a2c6aed"))
-Opens("AES-256-GCM 96", 1, Unhex("67119627bd988eda906219e08c0d0d779a07d208ce8a4fe0709af755eeec6dcb"), Unhex("68ab7fdbf61901dad461d23c"),
-      Unhex("43fc101bff4b32bfadd3daf57a590e"), Unhex("ec04aacb7148a8b8be44cb7eaf4efa69"), Unhex(""), Unhex("51f8c1f731ea14acdb210a6d973e07"))
-Opens("AES-256-GCM 97", 1, Unhex("59d4eafb4de0cfc7d3db99a8f54b15d7b39f0acc8da69763b019c1699f87674a"), Unhex("2fcb1b38a99e71b84740ad9b"),
-      Unhex("f58c16690122d75356907fd96b570fca"), Unhex("28752c20153092818faba2a334640d6e"), Unhex(""), Unhex("549b365af913f3b081131ccb6b825588"))
-Opens("AES-256-GCM 98", 1, Unhex("3b2458d8176e1621c0cc24c0c0e24c1e80d72f7ee9149a4b166176629616d011"), Unhex("45aaa3e5d16d2d42dc03445d"),
-      Unhex("73a6b6f45f6ccc5131e07f2caa1f2e2f56"), Unhex("2d7379ec1db5952d4e95d30c340b1b1d"), Unhex(""), Unhex("3ff1514b1c503915918f0c0c31094a6e1f"))
-Opens("AES-256-GCM 99", 1, Unhex("0212a8de5007ed87b33f1a7090b6114f9e08cefd9607f2c276bdcfdbc5ce9cd7"), Unhex("e6b1adf2fd58a8762c65f31b"),
-      Unhex("0843fff52d934fc7a071ea62c0bd351ce85678cde3ea2c9e"), Unhex("7355fde599006715053813ce696237a8"), Unhex(""), Unhex("10f1ecf9c60584665d9ae5efe279e7f7377eea6916d2b111"))
-Opens("AES-256-GCM 100", 1, Unhex("b279f57e19c8f53f2f963f5f2519fdb7c1779be2ca2b3ae8e1128b7d6c627fc4"), Unhex("98bc2c7438d5cd7665d76f6e"),
-      Unhex("eb5500e3825952866d911253f8de860c00831c81"), Unhex("ecb660e1fb0541ec41e8d68a64141b3a"), Unhex("c0"), Unhex("fcc515b294408c8645c9183e3f4ecee5127846d1"))
-Opens("AES-256-GCM 101", 1, Unhex("cdccfe3f46d782ef47df4e72f0c02d9c7f774def970d23486f11a57f54247f17"), Unhex("376187894605a8d45e30de51"),
-      Unhex("feca44952447015b5df1f456df8ca4bb4eee2ce2"), Unhex("082e91924deeb77880e1b1c84f9b8d30"), Unhex("956846a209e087ed"), Unhex("e28e0e9f9d22463ac0e42639b530f42102fded75"))
-Opens("AES-256-GCM 102", 1, Unhex("f32364b1d339d82e4f132d8f4a0ec1ff7e746517fa07ef1a7f422f4e25a48194"), Unhex("5a86a50a0e8a179c734b996d"),
-      Unhex("43dda832e942e286da314daa99bef5071d9d2c78"), Unhex("c3922583476ced575404ddb85dd8cd44"), Unhex("ab2ac7c44c60bdf8228c7884adb20184"), Unhex("43891bccb522b1e72a6b53cf31c074e9d6c2df8e"))
-Opens("AES-256-GCM 103", 1, Unhex("ff0089ee870a4a39f645b0a5da774f7a5911e9696fc9cad646452c2aa8595a12"), Unhex("bc2a7757d0ce2d8b1f14ccd9"),
-      Unhex("a929ee7e67c7a2f91bbcec6389a3caf43ab49305"), Unhex("ebec6774b955e789591c822dab739e12"), Unhex("972ab4e06390caae8f99dd6e2187be6c7ff2c08a24be16ef"), Unhex("748b28031621d95ee61812b4b4f47d04c6fc2ff3"))
+Opens("AES-256-GCM 95", 1,
+      Unhex("51e4bf2bad92b7aff1a4bc05550ba81df4b96fabf41c12c7b00e60e48db7e152"),
+      Unhex("4f07afedfdc3b6c2361823d3"),
+      Unhex("cf332a12fdee800b"), Unhex("602e8d7c4799d62c140c9bb834876b09"), Unhex(""),
+      Unhex("be3308f72a2c6aed"))
+Opens("AES-256-GCM 96", 1,
+      Unhex("67119627bd988eda906219e08c0d0d779a07d208ce8a4fe0709af755eeec6dcb"),
+      Unhex("68ab7fdbf61901dad461d23c"),
+      Unhex("43fc101bff4b32bfadd3daf57a590e"), Unhex("ec04aacb7148a8b8be44cb7eaf4efa69"), Unhex(""),
+      Unhex("51f8c1f731ea14acdb210a6d973e07"))
+Opens("AES-256-GCM 97", 1,
+      Unhex("59d4eafb4de0cfc7d3db99a8f54b15d7b39f0acc8da69763b019c1699f87674a"),
+      Unhex("2fcb1b38a99e71b84740ad9b"),
+      Unhex("f58c16690122d75356907fd96b570fca"), Unhex("28752c20153092818faba2a334640d6e"),
+      Unhex(""), Unhex("549b365af913f3b081131ccb6b825588"))
+Opens("AES-256-GCM 98", 1,
+      Unhex("3b2458d8176e1621c0cc24c0c0e24c1e80d72f7ee9149a4b166176629616d011"),
+      Unhex("45aaa3e5d16d2d42dc03445d"),
+      Unhex("73a6b6f45f6ccc5131e07f2caa1f2e2f56"), Unhex("2d7379ec1db5952d4e95d30c340b1b1d"),
+      Unhex(""), Unhex("3ff1514b1c503915918f0c0c31094a6e1f"))
+Opens("AES-256-GCM 99", 1,
+      Unhex("0212a8de5007ed87b33f1a7090b6114f9e08cefd9607f2c276bdcfdbc5ce9cd7"),
+      Unhex("e6b1adf2fd58a8762c65f31b"),
+      Unhex("0843fff52d934fc7a071ea62c0bd351ce85678cde3ea2c9e"),
+      Unhex("7355fde599006715053813ce696237a8"), Unhex(""),
+      Unhex("10f1ecf9c60584665d9ae5efe279e7f7377eea6916d2b111"))
+Opens("AES-256-GCM 100", 1,
+      Unhex("b279f57e19c8f53f2f963f5f2519fdb7c1779be2ca2b3ae8e1128b7d6c627fc4"),
+      Unhex("98bc2c7438d5cd7665d76f6e"),
+      Unhex("eb5500e3825952866d911253f8de860c00831c81"), Unhex("ecb660e1fb0541ec41e8d68a64141b3a"),
+      Unhex("c0"), Unhex("fcc515b294408c8645c9183e3f4ecee5127846d1"))
+Opens("AES-256-GCM 101", 1,
+      Unhex("cdccfe3f46d782ef47df4e72f0c02d9c7f774def970d23486f11a57f54247f17"),
+      Unhex("376187894605a8d45e30de51"),
+      Unhex("feca44952447015b5df1f456df8ca4bb4eee2ce2"), Unhex("082e91924deeb77880e1b1c84f9b8d30"),
+      Unhex("956846a209e087ed"), Unhex("e28e0e9f9d22463ac0e42639b530f42102fded75"))
+Opens("AES-256-GCM 102", 1,
+      Unhex("f32364b1d339d82e4f132d8f4a0ec1ff7e746517fa07ef1a7f422f4e25a48194"),
+      Unhex("5a86a50a0e8a179c734b996d"),
+      Unhex("43dda832e942e286da314daa99bef5071d9d2c78"), Unhex("c3922583476ced575404ddb85dd8cd44"),
+      Unhex("ab2ac7c44c60bdf8228c7884adb20184"), Unhex("43891bccb522b1e72a6b53cf31c074e9d6c2df8e"))
+Opens("AES-256-GCM 103", 1,
+      Unhex("ff0089ee870a4a39f645b0a5da774f7a5911e9696fc9cad646452c2aa8595a12"),
+      Unhex("bc2a7757d0ce2d8b1f14ccd9"),
+      Unhex("a929ee7e67c7a2f91bbcec6389a3caf43ab49305"), Unhex("ebec6774b955e789591c822dab739e12"),
+      Unhex("972ab4e06390caae8f99dd6e2187be6c7ff2c08a24be16ef"),
+      Unhex("748b28031621d95ee61812b4b4f47d04c6fc2ff3"))
 Opens("AES-256-GCM 104", 1, Unhex("6efca98126918ab564d88c6bec02e8998b2be50e3f906ff9adfdd185f373e756"), Unhex("4abd6cfc83bd06b11efaa2a7"),
       Unhex("97b4c73a4d8b5b21bc4b50dbb70dfa77b1a7bf0bbe7cf16ecf5bb60ba8070acc5740780435ed145a62a613dd9881b721168fbb3f5af385ee5d4f856cf93cba"), Unhex("27ac8c4010d8e81b7051ceb06b30fe2d"), Unhex(""), Unhex("bbec79c086d41e602d090f7e40494d6bf3faa1dc6df0ab8a88ea5d35d426b248c2ad880351e223f6170d37cc9655e10459e59cbd6d1c092ed31d72ccc7af20"))
 Opens("AES-256-GCM 105", 1, Unhex("5b1d1035c0b17ee0b0444767f80a25b8c1b741f4b50a4d3052226baa1c6fb701"), Unhex("d61040a313ed492823cc065b"),
@@ -154,206 +192,517 @@ Opens("AES-256-GCM 126", 1, Unhex("65e18f70f168abaf388104c9b37a9686aebc7743f0e66
       Unhex("2844b68b9356049934b031b0d6de55b50fab0f46"), Unhex("387bc3a46530bdf24b1cfa67899369ea"), Unhex("016dde724536eee27187907263e4a62f3b637eaa8ab6f86d0343f66f7f73c6f8c3416cf253532454c045557ed7a371c2d6b8e19e0101e1109cd7227dc5390545ff24484031957749514379a77a33df0fd129f80e9869747b6589fd29a6935aa37b00e2abbbae2b67904726e9fe22143080af18821ff10c5217e845cd6e0ef2513c1d82c14f9d3933f3fd5c6364075aebef6c0f5c97fa343aa192ba8c526b7ad4c71c4c19ad2d5ae05b07176a5e66d486889a2e8f9ef80b9c0680cf887f60137f6266ec335a5f1d74dc41dec1653a96d61b75f4b569b9328f6b2fb40391704f66e058e92dfc15d77599018d74907a9bb8870c5c446e81fa7a764a549f6a417326b52fbbe4f5885e6455be2890c3a8b97a9fd0c92c085edfaf6a4f28dfec0243aa79a71d123282d4e9a0b3497ad569db869e56638e271f1205a52fc38cb74767e4bb2f37bd437083e994395e98454c04092d292c681ade9e398589df6cbf9b3196d12c8153740647af018cab5f9bf3e3db7deea221c73f377b96d368ff8d9ffecb8f44d50b59fafc90f655ec9271c9c1d032cfb0f23720d01981c26296536e66cdb8c390ad1bca90e6b2711170665ad52aaa188f87ca96888d3d932e6c3bf32891cd746308b0d6345ed8cf7c1ad88442326a3892e60afd5c86a2d062a461d8896446154e9148aad5b122437e26a52ba1b620d085af628af5ada9fff664d4a9a230"), Unhex("12d3cc4473970296d2918818fdcf1a570d2d4821"))
 Opens("AES-256-GCM 127", 1, Unhex("b15ab816ba505ec42b528066d9119b4b2ee38159ce54a26bc5d661127e05222c"), Unhex("75e3c608a39367dc4aa748d0"),
       Unhex("371fa70af8a198cb43ddd545e74b806246f7e932"), Unhex("014a0179b81691d09011dcea5739551d"), Unhex("005931a2d5c5bcedc716c3f246e21b3a46d2a6b1ce73644653e0cf277efa492f12fb2b83f70bae8737d53cd76254dabca8422d4ff9396c265d57e4fd3d0cd1c38198e229637c7fbfff468fcdb04ca12101865c08bbf55689e1299c5e7a430296c47a874d9956557b2cb32fd3f8073f85fefb6d2005c5d3329e40dcb957f5b01d7f1582ea359b947d5669da8003c009f8ecbfbf094fb8155cf89251ee4a91a43a96e3f6d302e15753dd48dd5e3b87e093021059ec323d38d3ee72290521eefd54cf708aa9e81869b756c3fc3c9a60e12226ac643bf7a91951e5509159b1e298bbfe88fd8ee659cac98c904f68c928403894fc89df100d6f30fd1ce20666815929b6eee39ece510eb53567e35cbe49dcec0f1b80fee861ed0af1cc759d477f306a5e1273e64c7e33554d11d79632006b420e7c71d36fece18d75a8b5773171ed071c26664fc0113277e3356ab30db05ac62ea5b975e36413572dd39e5c22d5c42bc82ab0ab85b54fbfaa527d1344dc3dfb18b941b05bcc5b47d25e18ef936f3918ed87cbf5dfa67989a038e2f747345c4b8d27b101c944f0f1d6fe21cd1a653c17530f9a893d7fd48afafcf12bf005fe044a000e8deaf09bed39ba62784bd5b88ace564806a9b5e0bf40f9f655fdd5bdc4bf568c5abb4b84ec61a85f0038b4f4cc3e75c3b3f99e62b99292d510f690c07c18af41b765fe5a1ee9484cf04c69f3f49c"), Unhex("8b2a6a9604b25d1670b7d869c649a05399b8ada5"))
-Opens("AES-256-GCM 128", 1, Unhex("00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f"), Unhex("000000000000000000000000"),
-      Unhex("23293e9b07ca7d1b0cae7cc489a973b3"), Unhex("ffffffffffffffffffffffffffffffff"), Unhex(""), Unhex("561008fa07a68f5c61285cd013464eaf"))
-Opens("AES-256-GCM 129", 1, Unhex("00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f"), Unhex("ffffffffffffffffffffffff"),
-      Unhex("7cb6fc7c6abc009efe9551a99f36a421"), Unhex("00000000000000000000000000000000"), Unhex(""), Unhex("c6152244cea1978d3e0bc274cf8c0b3b"))
-Opens("AES-256-GCM 130", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9de8fef6d8ab1bf1bf887232eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 131", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ee8fef6d8ab1bf1bf887232eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 132", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("1ce8fef6d8ab1bf1bf887232eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 133", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce9fef6d8ab1bf1bf887232eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 134", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fe76d8ab1bf1bf887232eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 135", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d9ab1bf1bf887232eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 136", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6daab1bf1bf887232eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 137", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1b71bf887232eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 138", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1be887232eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 139", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf13f887232eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 140", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bfa87232eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 141", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887332eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 142", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887232ebb590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 143", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887232e8b590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 144", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf8872326ab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 145", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887232eab590dc"), Unhex(""), Null)
-Opens("AES-256-GCM 146", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887232eab590df"), Unhex(""), Null)
-Opens("AES-256-GCM 147", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887232eab5909d"), Unhex(""), Null)
-Opens("AES-256-GCM 148", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887232eab5905d"), Unhex(""), Null)
-Opens("AES-256-GCM 149", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9de8fef6d8ab1bf1be887232eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 150", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fe76d8ab1b71bf887232eab590dd"), Unhex(""), Null)
-Opens("AES-256-GCM 151", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1b71bf887232eab5905d"), Unhex(""), Null)
-Opens("AES-256-GCM 152", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("631701092754e40e40778dcd154a6f22"), Unhex(""), Null)
-Opens("AES-256-GCM 153", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("00000000000000000000000000000000"), Unhex(""), Null)
-Opens("AES-256-GCM 154", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("ffffffffffffffffffffffffffffffff"), Unhex(""), Null)
-Opens("AES-256-GCM 155", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("1c687e76582b9b713f08f2b26a35105d"), Unhex(""), Null)
-Opens("AES-256-GCM 156", 1, Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"), Unhex("505152535455565758595a5b"),
-      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9de9fff7d9aa1af0be897333ebb491dc"), Unhex(""), Null)
+Opens("AES-256-GCM 128", 1,
+      Unhex("00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f"),
+      Unhex("000000000000000000000000"),
+      Unhex("23293e9b07ca7d1b0cae7cc489a973b3"), Unhex("ffffffffffffffffffffffffffffffff"),
+      Unhex(""), Unhex("561008fa07a68f5c61285cd013464eaf"))
+Opens("AES-256-GCM 129", 1,
+      Unhex("00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f"),
+      Unhex("ffffffffffffffffffffffff"),
+      Unhex("7cb6fc7c6abc009efe9551a99f36a421"), Unhex("00000000000000000000000000000000"),
+      Unhex(""), Unhex("c6152244cea1978d3e0bc274cf8c0b3b"))
+Opens("AES-256-GCM 130", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9de8fef6d8ab1bf1bf887232eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 131", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ee8fef6d8ab1bf1bf887232eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 132", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("1ce8fef6d8ab1bf1bf887232eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 133", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce9fef6d8ab1bf1bf887232eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 134", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fe76d8ab1bf1bf887232eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 135", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d9ab1bf1bf887232eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 136", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6daab1bf1bf887232eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 137", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1b71bf887232eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 138", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1be887232eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 139", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf13f887232eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 140", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bfa87232eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 141", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887332eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 142", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887232ebb590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 143", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887232e8b590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 144", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf8872326ab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 145", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887232eab590dc"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 146", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887232eab590df"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 147", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887232eab5909d"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 148", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1bf1bf887232eab5905d"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 149", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9de8fef6d8ab1bf1be887232eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 150", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fe76d8ab1b71bf887232eab590dd"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 151", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9ce8fef6d8ab1b71bf887232eab5905d"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 152", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("631701092754e40e40778dcd154a6f22"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 153", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("00000000000000000000000000000000"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 154", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("ffffffffffffffffffffffffffffffff"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 155", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("1c687e76582b9b713f08f2b26a35105d"),
+      Unhex(""), Null)
+Opens("AES-256-GCM 156", 1,
+      Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+      Unhex("505152535455565758595a5b"),
+      Unhex("b2061457c0759fc1749f174ee1ccadfa"), Unhex("9de9fff7d9aa1af0be897333ebb491dc"),
+      Unhex(""), Null)
 Done("Wycheproof AES-256-GCM")
 
 // Wycheproof's ChaCha20-Poly1305 vectors of a 256-bit key, a 96-bit nonce, and a 128-bit tag:
 // a valid one opens to its message, and an invalid one to Null.
 Opens("ChaCha20-Poly1305 1", 2, Unhex("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"), Unhex("070000004041424344454647"),
       Unhex("d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc3ff4def08e4b7a9de576d26586cec64b6116"), Unhex("1ae10b594f09e26a7e902ecbd0600691"), Unhex("50515253c0c1c2c3c4c5c6c7"), Unhex("4c616469657320616e642047656e746c656d656e206f662074686520636c617373206f66202739393a204966204920636f756c64206f6666657220796f75206f6e6c79206f6e652074697020666f7220746865206675747572652c2073756e73637265656e20776f756c642062652069742e"))
-Opens("ChaCha20-Poly1305 2", 2, Unhex("80ba3192c803ce965ea371d5ff073cf0f43b6a2ab576b208426e11409c09b9b0"), Unhex("4da5bf8dfd5852c1ea12379d"),
+Opens("ChaCha20-Poly1305 2", 2,
+      Unhex("80ba3192c803ce965ea371d5ff073cf0f43b6a2ab576b208426e11409c09b9b0"),
+      Unhex("4da5bf8dfd5852c1ea12379d"),
       Unhex(""), Unhex("76acb342cf3166a5b63c0c0ea1383c8d"), Unhex(""), Unhex(""))
-Opens("ChaCha20-Poly1305 3", 2, Unhex("7a4cd759172e02eb204db2c3f5c746227df584fc1345196391dbb9577a250742"), Unhex("a92ef0ac991dd516a3c6f689"),
+Opens("ChaCha20-Poly1305 3", 2,
+      Unhex("7a4cd759172e02eb204db2c3f5c746227df584fc1345196391dbb9577a250742"),
+      Unhex("a92ef0ac991dd516a3c6f689"),
       Unhex(""), Unhex("906fa6284b52f87b7359cbaa7563c709"), Unhex("bd506764f2d2c410"), Unhex(""))
-Opens("ChaCha20-Poly1305 4", 2, Unhex("cc56b680552eb75008f5484b4cb803fa5063ebd6eab91f6ab6aef4916a766273"), Unhex("99e23ec48985bccdeeab60f1"),
+Opens("ChaCha20-Poly1305 4", 2,
+      Unhex("cc56b680552eb75008f5484b4cb803fa5063ebd6eab91f6ab6aef4916a766273"),
+      Unhex("99e23ec48985bccdeeab60f1"),
       Unhex("3a"), Unhex("cac27dec0968801e9f6eded69d807522"), Unhex(""), Unhex("2a"))
-Opens("ChaCha20-Poly1305 5", 2, Unhex("46f0254965f769d52bdb4a70b443199f8ef207520d1220c55e4b70f0fda620ee"), Unhex("ab0dca716ee051d2782f4403"),
-      Unhex("c4"), Unhex("168310ca45b1f7c66cad4e99e43f72b9"), Unhex("91ca6c592cbcca53"), Unhex("51"))
-Opens("ChaCha20-Poly1305 6", 2, Unhex("2f7f7e4f592bb389194989743507bf3ee9cbde1786b6695fe6c025fd9ba4c100"), Unhex("461af122e9f2e0347e03f2db"),
+Opens("ChaCha20-Poly1305 5", 2,
+      Unhex("46f0254965f769d52bdb4a70b443199f8ef207520d1220c55e4b70f0fda620ee"),
+      Unhex("ab0dca716ee051d2782f4403"),
+      Unhex("c4"), Unhex("168310ca45b1f7c66cad4e99e43f72b9"), Unhex("91ca6c592cbcca53"),
+      Unhex("51"))
+Opens("ChaCha20-Poly1305 6", 2,
+      Unhex("2f7f7e4f592bb389194989743507bf3ee9cbde1786b6695fe6c025fd9ba4c100"),
+      Unhex("461af122e9f2e0347e03f2db"),
       Unhex("4d13"), Unhex("91e8b61efb39c122195453077b22e5e2"), Unhex(""), Unhex("5c60"))
-Opens("ChaCha20-Poly1305 7", 2, Unhex("c8833dce5ea9f248aa2030eacfe72bffe69a620caf793344e5718fe0d7ab1a58"), Unhex("61546ba5f1720590b6040ac6"),
-      Unhex("b60d"), Unhex("ead0fd4697ec2e5558237719d02437a2"), Unhex("88364fc8060518bf"), Unhex("ddf2"))
-Opens("ChaCha20-Poly1305 8", 2, Unhex("bd8ed7fb0d607522f04d0b12d42c92570bccc5ba2486953d70ba2e8193f6225a"), Unhex("d2ab0abb50a8e9fba25429e1"),
+Opens("ChaCha20-Poly1305 7", 2,
+      Unhex("c8833dce5ea9f248aa2030eacfe72bffe69a620caf793344e5718fe0d7ab1a58"),
+      Unhex("61546ba5f1720590b6040ac6"),
+      Unhex("b60d"), Unhex("ead0fd4697ec2e5558237719d02437a2"), Unhex("88364fc8060518bf"),
+      Unhex("ddf2"))
+Opens("ChaCha20-Poly1305 8", 2,
+      Unhex("bd8ed7fb0d607522f04d0b12d42c92570bccc5ba2486953d70ba2e8193f6225a"),
+      Unhex("d2ab0abb50a8e9fba25429e1"),
       Unhex("3cf470"), Unhex("a27a69c9d7ee84586f11388c6884e63a"), Unhex(""), Unhex("201221"))
-Opens("ChaCha20-Poly1305 9", 2, Unhex("1c8b59b17a5ceced31bde97d4cefd9aaaa63362e096e863ec1c89580bca79b7a"), Unhex("94f32a6dff588f2b5a2ead45"),
-      Unhex("610925"), Unhex("a8a7883eb7e40bc40e2e5922ae95ddc3"), Unhex("6c8cf2ab3820b695"), Unhex("453f95"))
-Opens("ChaCha20-Poly1305 10", 2, Unhex("e4912cb75a1174345f1a457366f18885fe8460b06478e04be2f7fb4ec9c113e5"), Unhex("7aa5ad8bf5254762171ec869"),
+Opens("ChaCha20-Poly1305 9", 2,
+      Unhex("1c8b59b17a5ceced31bde97d4cefd9aaaa63362e096e863ec1c89580bca79b7a"),
+      Unhex("94f32a6dff588f2b5a2ead45"),
+      Unhex("610925"), Unhex("a8a7883eb7e40bc40e2e5922ae95ddc3"), Unhex("6c8cf2ab3820b695"),
+      Unhex("453f95"))
+Opens("ChaCha20-Poly1305 10", 2,
+      Unhex("e4912cb75a1174345f1a457366f18885fe8460b06478e04be2f7fb4ec9c113e5"),
+      Unhex("7aa5ad8bf5254762171ec869"),
       Unhex("fe6849aa"), Unhex("99ad07871b25c27defc31a541bd5c418"), Unhex(""), Unhex("9e4c1d03"))
-Opens("ChaCha20-Poly1305 11", 2, Unhex("e05777ef3d989ace7d2abfba452bfded54801dbd5c66e91c0c2ef00479d85572"), Unhex("b7f526e3fd71cf5720961aec"),
-      Unhex("f4710e51"), Unhex("b957c6a37b6a4c94996c002186d63b2b"), Unhex("15d93a96d0e6c5a9"), Unhex("17bfda03"))
-Opens("ChaCha20-Poly1305 12", 2, Unhex("1a4c4f39abe890e62345c947bcf7de7c2e33bd5ceeda0a0abf0e7ef935ddf3ee"), Unhex("9447bf85d5b97d8aee0f8e51"),
-      Unhex("f711647ff1"), Unhex("22b12dc38cb79629f84cdbdc2425c09d"), Unhex(""), Unhex("c15a593bd0"))
-Opens("ChaCha20-Poly1305 13", 2, Unhex("800e9a24791700c9609736695ba2a8b99b2d57f1c3bfb61ed49db1c6c5219583"), Unhex("3dbe876bd880ec8ea2017043"),
-      Unhex("d171f046ea"), Unhex("d179b1b9c4184378df009019dbb8c249"), Unhex("96224835610b782b"), Unhex("a7bfd041e3"))
-Opens("ChaCha20-Poly1305 14", 2, Unhex("208c2c376c9430433db20e1a6b7ba817f8ffbfa6827f26759ccede42e591d3ec"), Unhex("27fb58ec6a21e84696cb8830"),
-      Unhex("9351b1b1b082"), Unhex("560785509f60f26b681933d9cdbfd29f"), Unhex(""), Unhex("af104b5ccd0e"))
-Opens("ChaCha20-Poly1305 15", 2, Unhex("2eb168e53b07ab04355ea792fe11a6be2ce9c39cfe15a997076b1e38c17ad620"), Unhex("b5965470c383fd29fe7eaee7"),
-      Unhex("41abff7b71cc"), Unhex("9b5174297c03cf8902d1f706fd008902"), Unhex("6d52feb2509f7fbf"), Unhex("6fdf2927e169"))
-Opens("ChaCha20-Poly1305 16", 2, Unhex("55568158d3a6483f1f7021eab69b703f614251cadc1af5d34a374fdbfc5adac7"), Unhex("3c4e654d663fa4596dc55bb7"),
-      Unhex("5dfe3440dbb3c3"), Unhex("ed7a434e2602d394281e0afa9fb7aa42"), Unhex(""), Unhex("ab85e9c1571731"))
-Opens("ChaCha20-Poly1305 17", 2, Unhex("e3c09e7fab1aefb516da6a33022a1dd4eb272c80d540c5da52a730f34d840d7f"), Unhex("58389375c69ee398de948396"),
-      Unhex("4bd47212941ce3"), Unhex("185f1408ee7fbf18f5abad6e2253a1ba"), Unhex("84e46be8c0919053"), Unhex("4ee5cda20d4290"))
-Opens("ChaCha20-Poly1305 18", 2, Unhex("51e4bf2bad92b7aff1a4bc05550ba81df4b96fabf41c12c7b00e60e48db7e152"), Unhex("4f07afedfdc3b6c2361823d3"),
-      Unhex("8e9439a56eeec817"), Unhex("fbe8a6ed8fabb1937539dd6c00e90021"), Unhex(""), Unhex("be3308f72a2c6aed"))
-Opens("ChaCha20-Poly1305 19", 2, Unhex("1131c1418577a054de7a4ac551950f1a053f9ae46e5b75fe4abd5608d7cddadd"), Unhex("b4ea666ee119563366484a78"),
-      Unhex("b9b910433af052b0"), Unhex("4530f51aeee024e0a445a6328fa67a18"), Unhex("66c0ae70076cb14d"), Unhex("a4c9c2801b71f7df"))
-Opens("ChaCha20-Poly1305 20", 2, Unhex("e1094967f86d893cdfe2e2e6d5c7ee4dfef67da3c9c5d64e6ad7c1577dcb38c5"), Unhex("8092fc245b3326cddbd1424c"),
-      Unhex("d9d897a9c1c5bb9f01"), Unhex("085a430373058f1a12a0d589fd5be68b"), Unhex(""), Unhex("c37aa791ddd6accf91"))
-Opens("ChaCha20-Poly1305 21", 2, Unhex("236f9baee4f9da15beeca40ff4af7c760f254a64bc3a3d7f4fad557e61b68586"), Unhex("f1ca81338629587acf9372bf"),
-      Unhex("8fdb429d47761cbf8e"), Unhex("8ef647ed334fdebbc2bef80be02884e0"), Unhex("8c32f47a386152ec"), Unhex("d7f26d5252e1765f5b"))
-Opens("ChaCha20-Poly1305 22", 2, Unhex("4de207a3b70c51e5f23048eed5a5da9bb65e917a69aa93e7c8b4a815cd9724de"), Unhex("4c15a71dc6791a8c005ad502"),
-      Unhex("700d35adf5100a22a1de"), Unhex("102d992ffaff599b5bddddeb2dfb399b"), Unhex(""), Unhex("f2c54b6b5e490da18659"))
-Opens("ChaCha20-Poly1305 23", 2, Unhex("6d667fd79e5fb725f50343dccc4863227c75ee3f7a578476e3e9f32598d81559"), Unhex("6220527aba88e27f766658b2"),
-      Unhex("04aad66c60e0bf8ebba9"), Unhex("c15f69a4d2aef97d7748756ff49d894b"), Unhex("e1e27ccddb3cb407"), Unhex("0c8c5a252681f2b5b4c0"))
-Opens("ChaCha20-Poly1305 24", 2, Unhex("8f4bd94ef73e75d1e068c30b37ead576c5344e093ece1330e9101c82f793cf05"), Unhex("ec1e2967f0f6979e5f5b07fb"),
-      Unhex("1c3d53baaa36eaa1d8ec4d"), Unhex("4d94ebf960f12433bec43aa86d7e6e6d"), Unhex(""), Unhex("b89812b34d9bced4a0ba07"))
-Opens("ChaCha20-Poly1305 25", 2, Unhex("2aa3bc7033351cac51364cdaf6ffac2c20f64046e1550a7b1c65f41800599019"), Unhex("28cce57a5db2cd206321e340"),
-      Unhex("1c8578f8e75203d0336a52"), Unhex("5910f7a9d5e4df05d7248bd7a8d65e63"), Unhex("a9bc350eaf2e6e3d"), Unhex("83016823123484b56095b0"))
-Opens("ChaCha20-Poly1305 26", 2, Unhex("99b62bd5afbe3fb015bde93f0abf483957a1c3eb3ca59cb50b39f7f8a9cc51be"), Unhex("9a59fce26df0005e07538656"),
-      Unhex("ff7dc203b26c467a6b50db33"), Unhex("578c0f2758c2e14e36d4fc106dcb29b4"), Unhex(""), Unhex("42baae5978feaf5c368d14e0"))
-Opens("ChaCha20-Poly1305 27", 2, Unhex("85f35b6282cff440bc1020c8136ff27031110fa63ec16f1e825118b006b91257"), Unhex("58dbd4ad2c4ad35dd906e9ce"),
-      Unhex("9f8816de0994e938d9e53f95"), Unhex("d086fc6c9d8fa915fd8423a7cf05072f"), Unhex("a506e1a5c69093f9"), Unhex("fdc85b94a4b2a6b759b1a0da"))
-Opens("ChaCha20-Poly1305 28", 2, Unhex("faf4bfe8019a891c74901b17f4f48cee5cd065d55fdea60118aaf6c4319a0ea5"), Unhex("b776c3fddba7c81362ce6e1b"),
-      Unhex("e6b33a74a4ac443bd93f9c1b94"), Unhex("0c115172bdb02bbad3130fff22790d60"), Unhex(""), Unhex("8dadff8d60c8e88f604f274833"))
-Opens("ChaCha20-Poly1305 29", 2, Unhex("841020d1606edcfc536abfb1a638a7b958e21efc10c386ac45a18493450afd5f"), Unhex("6d62f159731b140eb18ce074"),
-      Unhex("b0a7500aca45bb15f01ece4389"), Unhex("0160e83adbec7f6a2ee2ff0215f9ef00"), Unhex("5a8e1c7aa39810d5"), Unhex("d6af138f701b801e60c85ffd5c"))
-Opens("ChaCha20-Poly1305 30", 2, Unhex("470f9ce3d2250bd60cbbefdb2e6a1178c012299b5590639c7797b6024fa703d8"), Unhex("a9ea4d619fe405d04cba7d7a"),
-      Unhex("d3017e0bb1705b380b34cc333450"), Unhex("5708e72ca2bd354f487f82f67fbc3acb"), Unhex(""), Unhex("6ca67dd023fba6507b9f9a1f667e"))
-Opens("ChaCha20-Poly1305 31", 2, Unhex("e4b97e91e4c8e85eb7ce0a7f30bf8a0abf4468251e4c6386c0e7aacb8e879aa8"), Unhex("0e23c942a0c9fb526586eead"),
-      Unhex("52e9672b416d84d97033796072d0"), Unhex("e83839dc1fd9b8b9d1444c40e488d493"), Unhex("eaaaeab26957f9a1"), Unhex("b84b3f74cd23064bb426fe2ced2b"))
-Opens("ChaCha20-Poly1305 32", 2, Unhex("67119627bd988eda906219e08c0d0d779a07d208ce8a4fe0709af755eeec6dcb"), Unhex("68ab7fdbf61901dad461d23c"),
-      Unhex("0b29638e1fbdd6df53970be2210042"), Unhex("2a9134087d67a46e79178d0a93f5e1d2"), Unhex(""), Unhex("51f8c1f731ea14acdb210a6d973e07"))
-Opens("ChaCha20-Poly1305 33", 2, Unhex("e6f1118d41e4b43fb58221b7ed79673834e0d8ac5c4fa60bbc8bc4893a58894d"), Unhex("d95b3243afaef714c5035b6a"),
-      Unhex("32db66c4a3819d81557455e5980fed"), Unhex("feae30dec94e6ad3a9eea06a0d703917"), Unhex("6453a53384632212"), Unhex("97469da667d6110f9cbda1d1a20673"))
-Opens("ChaCha20-Poly1305 34", 2, Unhex("59d4eafb4de0cfc7d3db99a8f54b15d7b39f0acc8da69763b019c1699f87674a"), Unhex("2fcb1b38a99e71b84740ad9b"),
-      Unhex("e9110e9f56ab3ca483500ceabab67a13"), Unhex("836ccabf15a6a22a51c1071cfa68fa0c"), Unhex(""), Unhex("549b365af913f3b081131ccb6b825588"))
-Opens("ChaCha20-Poly1305 35", 2, Unhex("b907a45075513fe8a8019edee3f2591487b2a030b03c6e1d771c862571d2ea1e"), Unhex("118a6964c2d3e380071f5266"),
-      Unhex("e4b113cb775945f3d3a8ae9ec141c00c"), Unhex("7c43f16ce096d0dc27c95849dc383b7d"), Unhex("034585621af8d7ff"), Unhex("55a465644f5b650928cbee7c063214d6"))
-Opens("ChaCha20-Poly1305 36", 2, Unhex("3b2458d8176e1621c0cc24c0c0e24c1e80d72f7ee9149a4b166176629616d011"), Unhex("45aaa3e5d16d2d42dc03445d"),
-      Unhex("02cc3acb5ee1fcdd12a03bb857976474d3"), Unhex("d83b7463a2c3800fe958c28eaa290813"), Unhex(""), Unhex("3ff1514b1c503915918f0c0c31094a6e1f"))
-Opens("ChaCha20-Poly1305 37", 2, Unhex("f60c6a1b625725f76c7037b48fe3577fa7f7b87b1bd5a982176d182306ffb870"), Unhex("f0384fb876121410633d993d"),
-      Unhex("35766488d2bc7c2b8d17cbbb9abfad9e6d"), Unhex("1f391e657b2738dda08448cba2811ceb"), Unhex("9aaf299eeea78f79"), Unhex("63858ca3e2ce69887b578a3c167b421c9c"))
-Opens("ChaCha20-Poly1305 38", 2, Unhex("37ceb574ccb0b701dd11369388ca27101732339f49d8d908ace4b23af0b7ce89"), Unhex("37270b368f6b1e3e2ca51744"),
-      Unhex("b621d76a8dacff00b3f840cdf26c894cc5d1"), Unhex("e0a21716ed94c0382fa9b0903d15bb68"), Unhex(""), Unhex("f26991537257378151f4776aad28ae8bd16b"))
-Opens("ChaCha20-Poly1305 39", 2, Unhex("68888361919bc10622f45df168e5f6a03bd8e884c0611bea2f34c1882ed9832b"), Unhex("bfd6ff40f2df8ca7845980cc"),
-      Unhex("e0a745186c1a7b147f74faff2a715df5c19d"), Unhex("917baf703e355d4d950e6c05fe8f349f"), Unhex("b8373438ddb2d6c3"), Unhex("ff97f2eefb3401ac31fc8dc1590d1a92cbc1"))
-Opens("ChaCha20-Poly1305 40", 2, Unhex("1b35b856b5a86d3403d28fc2103a631d42deca5175cdb0669a5e5d90b2caafc5"), Unhex("2343de88be6c7196d33b8694"),
-      Unhex("d6e0ed54fccef30bd605d72da3320e249a9cb5"), Unhex("c68bc6724ec803c43984ce42f6bd09ff"), Unhex(""), Unhex("21ef185c3ae9a96fa5eb473878f4d0b242781d"))
-Opens("ChaCha20-Poly1305 41", 2, Unhex("d6484e3973f6be8c83ed3208d5be5cfa06fda72fbfdc5b19d09be3f4e4eba29d"), Unhex("1af1d90e877e11a496efa3df"),
-      Unhex("29e54d608237c3c3609dba16e6edf43842d72f"), Unhex("d3365fdcd506aaaa5368661e80e9d99b"), Unhex("cc4efd8364fb114a"), Unhex("7335ab04b03e706109ec3ee835db9a246ea0ad"))
-Opens("ChaCha20-Poly1305 42", 2, Unhex("422add37849d6e4c3dfd8020dc6a07e8a249788f3d6a83b9cb4d802362c97542"), Unhex("1e7e67be948de7352ffdb727"),
-      Unhex("7fe606652d858f595ec2e706754fa3d933fcc834"), Unhex("78d59235aa5d03a4c32590e590c04d22"), Unhex(""), Unhex("d7f5e611dd3a2750fb843fc1b6b93087310dc87d"))
-Opens("ChaCha20-Poly1305 43", 2, Unhex("cdccfe3f46d782ef47df4e72f0c02d9c7f774def970d23486f11a57f54247f17"), Unhex("376187894605a8d45e30de51"),
-      Unhex("14f707c446988a4903775ec7acec6da114d43112"), Unhex("987d4b147c490d43d376a198cab383f0"), Unhex("956846a209e087ed"), Unhex("e28e0e9f9d22463ac0e42639b530f42102fded75"))
-Opens("ChaCha20-Poly1305 44", 2, Unhex("e79dfc6d2fc465b8439e1c5baccb5d8ef2853899fc19753b397e6c25b35e977e"), Unhex("f9d6320d7ce51d8ed0677d3a"),
-      Unhex("1003f13ea1329cbb187316f64c3ff3a87cf5b96661"), Unhex("d2323ad625094bec84790d7958d5583f"), Unhex(""), Unhex("4f543e7938d1b878dacaeec81dce4899974816813b"))
-Opens("ChaCha20-Poly1305 45", 2, Unhex("1d7b8f1d96a1424923aef8a984869d4a777a110990ba465627acf80396c7f376"), Unhex("50ba1962cdc32a5a2d36e640"),
-      Unhex("2d48b0834e9ffe3046103ef7a214f02e8e4d33360e"), Unhex("d533ad089be229ea606ec0f3fa22eb33"), Unhex("093053e20261daab"), Unhex("5d3efd5767f3c12efd08af9a44e028ae68c9eff843"))
-Opens("ChaCha20-Poly1305 46", 2, Unhex("dd433e28cfbcb5de4ab36a02bf38686d83208771a0e63dcd08b4df1a07ac47a1"), Unhex("c9cc0a1afc38ec6c30c38c68"),
-      Unhex("e9917ff3e64bbe1783579375e75ea823976b35539949"), Unhex("074a890669b25105434c75beed3248db"), Unhex(""), Unhex("8a3e17aba9606dd49e3b1a4d9e5e42f1742373632489"))
-Opens("ChaCha20-Poly1305 47", 2, Unhex("a60924101b42ac24154a88de42142b2334cf599176caf4d1226f712dd9172930"), Unhex("8ba77644b08d65d5e9f31942"),
-      Unhex("db4c700513818972b0dc0e531b1c281ca03e40c60dea"), Unhex("63f4478bba2af469a7a4dc3b4f141360"), Unhex("b2a4e12a19a61c75"), Unhex("c949957e66439deee4b2ac1d4a6c98a6c527b90f52ab"))
-Opens("ChaCha20-Poly1305 48", 2, Unhex("1aa42027836965b1e6086fa137f9cf7f1ff48676696829bd281ff81c8ea0a4a9"), Unhex("4b3dca84ecc407f424f281a9"),
-      Unhex("b5f14617491fc923b683e2cc9562d043dd5986b97dbdbd"), Unhex("972ce54713c05c4bb4d088c0a30cacd3"), Unhex(""), Unhex("37252a3eb5c8960f0567e503a9035783b3d0a19a4b9a47"))
-Opens("ChaCha20-Poly1305 49", 2, Unhex("5d40db0cc18ef2e42815d3b6245a466a0b30a0f93e318ac10edde3bf8ad98160"), Unhex("acad618039b317470d21621b"),
-      Unhex("b7ca3879f95140bf6a97b3212218b7bf864a51e5bb0b3e"), Unhex("fe558fb570145470ea693eb76eb73171"), Unhex("413036411af75745"), Unhex("959dde1ef3129b27702c558849e466f2baca1a45bdf4b2"))
-Opens("ChaCha20-Poly1305 50", 2, Unhex("0212a8de5007ed87b33f1a7090b6114f9e08cefd9607f2c276bdcfdbc5ce9cd7"), Unhex("e6b1adf2fd58a8762c65f31b"),
-      Unhex("42f26c56cb4be21d9d8d0c80fc99dde00d75f38074bfe764"), Unhex("54aa7e13d48fff7d7557039457040a3a"), Unhex(""), Unhex("10f1ecf9c60584665d9ae5efe279e7f7377eea6916d2b111"))
-Opens("ChaCha20-Poly1305 51", 2, Unhex("c5bc09565646e7edda954f1f739223dada20b95c44ab033d0fae4b0283d18be3"), Unhex("6b282ebecc541bcd7834ed55"),
-      Unhex("123032437b4bfd6920e8f7e7e0087ae4889ebe7a0ad0e900"), Unhex("3cf68f179550da63d3b96c2d55411865"), Unhex("3e8bc5ade182ff08"), Unhex("9222f9018e54fd6de1200806a9ee8e4cc904d29f25cba193"))
-Opens("ChaCha20-Poly1305 52", 2, Unhex("9460b3c44ed86e70f3bda66385e1ca10b0c1677ef4f1360532830d17535f996f"), Unhex("abfaf42e0dba884efcf07823"),
-      Unhex("1d218c9f1f9f02f248a6f976a7557057f37d9393d9f213c1f3"), Unhex("bc88344c6fdc898feed394fb28511316"), Unhex(""), Unhex("5c5cce881b93fb7a1b7939af1ffc5f84d3280ada778cca0953"))
-Opens("ChaCha20-Poly1305 53", 2, Unhex("c111d6d5d78a071b15ab37cc8c3819199387ab7c1933aa97b1489f6584ba8e2a"), Unhex("85f18ad8ff72cafee2452ab8"),
-      Unhex("9715d344e8d3f3a3eaa98a9cea57c0cd717c6ef5076027c9ec"), Unhex("3056ff5ee0aa8636bb639984edb5236b"), Unhex("84cdff939391c022"), Unhex("6989c646a10b7c76f4d9f7d574da40e152013cf0dd78f5aa8a"))
-Opens("ChaCha20-Poly1305 54", 2, Unhex("8a1b1e699a0c4a3e610b10902daedab1bf1ea0d505c47d7842cbcee0d3b1b6e6"), Unhex("a6f9a8d335fa84c3b27dcd2a"),
-      Unhex("9089bbdb8bcfd124e227bf75c4bfe1cba2004a274fc31aa32358"), Unhex("fd2e21c64a019621c68594826cd7b1cd"), Unhex(""), Unhex("ee6a15fc183108f0877e7f2b8a9615f4b3fc36e1c83440f66aad"))
-Opens("ChaCha20-Poly1305 55", 2, Unhex("74b384e6e013ec4172ed7a28a10fb9bb79b4be2a24f6999e3d3caa28e64a8656"), Unhex("ebc19fc9ecb2339908ea3836"),
-      Unhex("796ffb70ab43e7fa79f95583e384524727bb3e47fc45b969f714"), Unhex("c3322b4445de5f3c9f18dcc847cc94c3"), Unhex("85073f2edc13d3a1"), Unhex("3aa9f7372f056e5a0729752d9a37132d6dd07c56792e1c7582a9"))
-Opens("ChaCha20-Poly1305 56", 2, Unhex("77d824795d2029f0eb0e0baab5cfeb32f7e93474913a7f95c737a667a3c33314"), Unhex("f3307430f492d2b8a72d3a81"),
-      Unhex("49c81d17d67d7ba9954f497d0b0ddc21f3f839c9d2cc198d30bc2c"), Unhex("50009899e5b2a9726c8f3556cadfbe84"), Unhex(""), Unhex("0c4179a497d8fdd72796fb725692b805d63b7c718359cf10518aee"))
-Opens("ChaCha20-Poly1305 57", 2, Unhex("bec5eac68f893951cbd7d1ecd3ee6611130dd9c3f80cddf95111d07d5edd76d1"), Unhex("342ada4f0c115124b222df80"),
-      Unhex("4c129fc13cbdd9d3fe81ac755bf4fbea2fdd7e0aca0505a6ee9637"), Unhex("9cede1d30a03db5d55265d3648bc40d4"), Unhex("73365f6d80edb1d8"), Unhex("481433d8b1cd38af4a750e13a64b7a4e8507682b3517595938a20e"))
-Opens("ChaCha20-Poly1305 58", 2, Unhex("a59c1e13064df8f2b8df77a492b0ca2eae921b52a84b305a3a9a51408a9ecb69"), Unhex("9544d41ece0c92ef01cfac2d"),
-      Unhex("a6fa8f57ddc81d6099f667dd62402b6a5d5b7d05a329298029113169"), Unhex("bb24e38b31dbbc3e575b9e3ee076af2a"), Unhex(""), Unhex("1c35b898821ba55c2617c25df9e6df2a8002b384902186cd69dfd20e"))
-Opens("ChaCha20-Poly1305 59", 2, Unhex("084b5d7365f1a8fec6365939ed741e6ea5893e0318d82ab47500a97d77aaa041"), Unhex("829f005e980f0a6e2f983eaa"),
-      Unhex("fd42cb5cf894f879e3cf751662aaa58a2288cc53548802becaf42359"), Unhex("188329438afe1cd7225d0478aa90c773"), Unhex("770f6e6e89a3fe8e"), Unhex("7510016efadc385a71ed689ceb590c8ea9cc1e81b793338bddf5f10c"))
-Opens("ChaCha20-Poly1305 60", 2, Unhex("5a7f850a1d9aafa77d59ae1b731965e8aaec6352280fc76a7b5e23ef3610cfe4"), Unhex("4946a0d6adea93b82d4332e5"),
-      Unhex("402302b56140c4dcc39774732c55883de124ce4bf0a0261cfa1569e2cf"), Unhex("e830bfe933a96786cff2dd72b82c4bd5"), Unhex(""), Unhex("3c161d791f624fb0388e808f0f69ed790dbe4cbd089ebac46627bcf01d"))
-Opens("ChaCha20-Poly1305 61", 2, Unhex("e6d5a4246f6f05618b59c8f9ec3ac8068cc0d3f351c571aa52b09cb251f9c2f6"), Unhex("2f90a65e9e48725de6ffc727"),
-      Unhex("d052932bad6e6c4f835f02019e52d7ff807dc2a5aac2040883c79dd3d5"), Unhex("655f93396b4d755dc4475721665fed91"), Unhex("f2415377ad283fd8"), Unhex("964fc9e0e8355947aa1c2caadd7b3dbef82a1024e623606fac436ef573"))
-Opens("ChaCha20-Poly1305 62", 2, Unhex("09e822123adbb1ed89b79a58619c64853992f8371d46338712f6c91ab11a68bb"), Unhex("a797205a6cacdd7e47a4789d"),
-      Unhex("83f5c77396cabd28dfcc002cba0756d4ea5455e0261d847d5708aac21e8d"), Unhex("705a05820a21f381d244d40e58d2f16b"), Unhex(""), Unhex("80b71bbe833629841bd3aeaeb9db6123e51d367b436fe9d2d3454b62cfad"))
-Opens("ChaCha20-Poly1305 63", 2, Unhex("625735fe7f8fc81b0c1edc3d08a78b41268f87a3c68488b674222630c1d587a5"), Unhex("9d8cdf289dddd09afdc1b02f"),
-      Unhex("209b7539385c8b19ecd0fd8b5011b2996e316f1942064e68edfa363acbcd"), Unhex("fa2f454b9fa2608f780f7c6f9b780fe1"), Unhex("200a9c95946ff05c"), Unhex("67ae1882d0b1c1b2485bec98115ecf53b9b438deb1d0400531705038873a"))
-Opens("ChaCha20-Poly1305 64", 2, Unhex("2eb51c469aa8eb9e6c54a8349bae50a20f0e382711bba1152c424f03b6671d71"), Unhex("04a9be03508a5f31371a6fd2"),
-      Unhex("45c7d6b53acad4abb68876a6e96a48fb59524d2c92c9d8a189c9fd2db91746"), Unhex("566d3ca10e311b695f3eae1551652493"), Unhex(""), Unhex("b053999286a2824f42cc8c203ab24e2c97a685adcc2ad32662558e55a5c729"))
-Opens("ChaCha20-Poly1305 65", 2, Unhex("7f5b74c07ed1b40fd14358fe2ff2a740c116c7706510e6a437f19ea49911cec4"), Unhex("470a339ecb3219b8b81a1f8b"),
-      Unhex("46a80c4187024720084627580080dde5a3f4a11093a7076ed6f3d326bc7b70"), Unhex("534d4aa2835a52e72d14df0e4f47f25f"), Unhex("374618a06ea98a48"), Unhex("f45206abc25552b2abc9ab7fa243035fedaaddc3b2293956f1ea6e7156e7eb"))
-Opens("ChaCha20-Poly1305 66", 2, Unhex("e1731d5854e1b70cb3ffe8b786a2b3ebf0994370954757b9dc8c7bc5354634a3"), Unhex("72cfd90ef3026ca22b7e6e6a"),
-      Unhex("ea29afa49d36e8760f5fe19723b9811ed5d519934a440f5081ac430b953b0e21"), Unhex("222541af46b86533c6b68d2ff108a7ea"), Unhex(""), Unhex("b9c554cbc36ac18ae897df7beecac1dbeb4eafa156bb60ce2e5d48f05715e678"))
-Opens("ChaCha20-Poly1305 67", 2, Unhex("27d860631b0485a410702fea61bc873f3442260caded4abde25b786a2d97f145"), Unhex("262880d475f3dac5340dd1b8"),
-      Unhex("6dad637897544d8bf6be9507ed4d1bb2e954bc427e5de729daf50762846ff2f4"), Unhex("7b997d93c982189d7095dc794c746232"), Unhex("2333e5ce0f93b059"), Unhex("6b2604996cd30c14a13a5257ed6cffd3bc5e29d6b97eb1799eb335e281ea451e"))
-Opens("ChaCha20-Poly1305 68", 2, Unhex("5155dee9aade1cc61ee7e3f92660f7590f5e5ba82f1b59b850e3fa453d2fa6b3"), Unhex("c26c4b3bfdb97ee6b0f63ca1"),
-      Unhex("f5982b601c7a18fc72a65b218c44974dc564d8314cbe6f87fcf6c6cfbe618b34b1"), Unhex("c43632f55760b5d1ed37556a94d049b5"), Unhex(""), Unhex("2734e08eff8f5c4f84fa0c207f49c7fd78af1ad5123ff81f83f500edf4eda09edf"))
-Opens("ChaCha20-Poly1305 69", 2, Unhex("573f08ebbe0cce4ac9618e8c3b224bea0a32f055c6996838a32f527ca3c3b695"), Unhex("ad8050dc6d122dce3e5639ed"),
-      Unhex("eaf6810e6ec1cb7a2918856257d1aa3d51a827879146c6337ecf535e9c89b149c5"), Unhex("a2950c2f394a3466c345f796323c1aa7"), Unhex("e99698241c599b5f"), Unhex("668d5e3f95fe030daf432a5fc5837af3a79c81e94b28d8204c5ee262ab3c9908a7"))
+Opens("ChaCha20-Poly1305 11", 2,
+      Unhex("e05777ef3d989ace7d2abfba452bfded54801dbd5c66e91c0c2ef00479d85572"),
+      Unhex("b7f526e3fd71cf5720961aec"),
+      Unhex("f4710e51"), Unhex("b957c6a37b6a4c94996c002186d63b2b"), Unhex("15d93a96d0e6c5a9"),
+      Unhex("17bfda03"))
+Opens("ChaCha20-Poly1305 12", 2,
+      Unhex("1a4c4f39abe890e62345c947bcf7de7c2e33bd5ceeda0a0abf0e7ef935ddf3ee"),
+      Unhex("9447bf85d5b97d8aee0f8e51"),
+      Unhex("f711647ff1"), Unhex("22b12dc38cb79629f84cdbdc2425c09d"), Unhex(""),
+      Unhex("c15a593bd0"))
+Opens("ChaCha20-Poly1305 13", 2,
+      Unhex("800e9a24791700c9609736695ba2a8b99b2d57f1c3bfb61ed49db1c6c5219583"),
+      Unhex("3dbe876bd880ec8ea2017043"),
+      Unhex("d171f046ea"), Unhex("d179b1b9c4184378df009019dbb8c249"), Unhex("96224835610b782b"),
+      Unhex("a7bfd041e3"))
+Opens("ChaCha20-Poly1305 14", 2,
+      Unhex("208c2c376c9430433db20e1a6b7ba817f8ffbfa6827f26759ccede42e591d3ec"),
+      Unhex("27fb58ec6a21e84696cb8830"),
+      Unhex("9351b1b1b082"), Unhex("560785509f60f26b681933d9cdbfd29f"), Unhex(""),
+      Unhex("af104b5ccd0e"))
+Opens("ChaCha20-Poly1305 15", 2,
+      Unhex("2eb168e53b07ab04355ea792fe11a6be2ce9c39cfe15a997076b1e38c17ad620"),
+      Unhex("b5965470c383fd29fe7eaee7"),
+      Unhex("41abff7b71cc"), Unhex("9b5174297c03cf8902d1f706fd008902"), Unhex("6d52feb2509f7fbf"),
+      Unhex("6fdf2927e169"))
+Opens("ChaCha20-Poly1305 16", 2,
+      Unhex("55568158d3a6483f1f7021eab69b703f614251cadc1af5d34a374fdbfc5adac7"),
+      Unhex("3c4e654d663fa4596dc55bb7"),
+      Unhex("5dfe3440dbb3c3"), Unhex("ed7a434e2602d394281e0afa9fb7aa42"), Unhex(""),
+      Unhex("ab85e9c1571731"))
+Opens("ChaCha20-Poly1305 17", 2,
+      Unhex("e3c09e7fab1aefb516da6a33022a1dd4eb272c80d540c5da52a730f34d840d7f"),
+      Unhex("58389375c69ee398de948396"),
+      Unhex("4bd47212941ce3"), Unhex("185f1408ee7fbf18f5abad6e2253a1ba"), Unhex("84e46be8c0919053"),
+      Unhex("4ee5cda20d4290"))
+Opens("ChaCha20-Poly1305 18", 2,
+      Unhex("51e4bf2bad92b7aff1a4bc05550ba81df4b96fabf41c12c7b00e60e48db7e152"),
+      Unhex("4f07afedfdc3b6c2361823d3"),
+      Unhex("8e9439a56eeec817"), Unhex("fbe8a6ed8fabb1937539dd6c00e90021"), Unhex(""),
+      Unhex("be3308f72a2c6aed"))
+Opens("ChaCha20-Poly1305 19", 2,
+      Unhex("1131c1418577a054de7a4ac551950f1a053f9ae46e5b75fe4abd5608d7cddadd"),
+      Unhex("b4ea666ee119563366484a78"),
+      Unhex("b9b910433af052b0"), Unhex("4530f51aeee024e0a445a6328fa67a18"),
+      Unhex("66c0ae70076cb14d"), Unhex("a4c9c2801b71f7df"))
+Opens("ChaCha20-Poly1305 20", 2,
+      Unhex("e1094967f86d893cdfe2e2e6d5c7ee4dfef67da3c9c5d64e6ad7c1577dcb38c5"),
+      Unhex("8092fc245b3326cddbd1424c"),
+      Unhex("d9d897a9c1c5bb9f01"), Unhex("085a430373058f1a12a0d589fd5be68b"), Unhex(""),
+      Unhex("c37aa791ddd6accf91"))
+Opens("ChaCha20-Poly1305 21", 2,
+      Unhex("236f9baee4f9da15beeca40ff4af7c760f254a64bc3a3d7f4fad557e61b68586"),
+      Unhex("f1ca81338629587acf9372bf"),
+      Unhex("8fdb429d47761cbf8e"), Unhex("8ef647ed334fdebbc2bef80be02884e0"),
+      Unhex("8c32f47a386152ec"), Unhex("d7f26d5252e1765f5b"))
+Opens("ChaCha20-Poly1305 22", 2,
+      Unhex("4de207a3b70c51e5f23048eed5a5da9bb65e917a69aa93e7c8b4a815cd9724de"),
+      Unhex("4c15a71dc6791a8c005ad502"),
+      Unhex("700d35adf5100a22a1de"), Unhex("102d992ffaff599b5bddddeb2dfb399b"), Unhex(""),
+      Unhex("f2c54b6b5e490da18659"))
+Opens("ChaCha20-Poly1305 23", 2,
+      Unhex("6d667fd79e5fb725f50343dccc4863227c75ee3f7a578476e3e9f32598d81559"),
+      Unhex("6220527aba88e27f766658b2"),
+      Unhex("04aad66c60e0bf8ebba9"), Unhex("c15f69a4d2aef97d7748756ff49d894b"),
+      Unhex("e1e27ccddb3cb407"), Unhex("0c8c5a252681f2b5b4c0"))
+Opens("ChaCha20-Poly1305 24", 2,
+      Unhex("8f4bd94ef73e75d1e068c30b37ead576c5344e093ece1330e9101c82f793cf05"),
+      Unhex("ec1e2967f0f6979e5f5b07fb"),
+      Unhex("1c3d53baaa36eaa1d8ec4d"), Unhex("4d94ebf960f12433bec43aa86d7e6e6d"), Unhex(""),
+      Unhex("b89812b34d9bced4a0ba07"))
+Opens("ChaCha20-Poly1305 25", 2,
+      Unhex("2aa3bc7033351cac51364cdaf6ffac2c20f64046e1550a7b1c65f41800599019"),
+      Unhex("28cce57a5db2cd206321e340"),
+      Unhex("1c8578f8e75203d0336a52"), Unhex("5910f7a9d5e4df05d7248bd7a8d65e63"),
+      Unhex("a9bc350eaf2e6e3d"), Unhex("83016823123484b56095b0"))
+Opens("ChaCha20-Poly1305 26", 2,
+      Unhex("99b62bd5afbe3fb015bde93f0abf483957a1c3eb3ca59cb50b39f7f8a9cc51be"),
+      Unhex("9a59fce26df0005e07538656"),
+      Unhex("ff7dc203b26c467a6b50db33"), Unhex("578c0f2758c2e14e36d4fc106dcb29b4"), Unhex(""),
+      Unhex("42baae5978feaf5c368d14e0"))
+Opens("ChaCha20-Poly1305 27", 2,
+      Unhex("85f35b6282cff440bc1020c8136ff27031110fa63ec16f1e825118b006b91257"),
+      Unhex("58dbd4ad2c4ad35dd906e9ce"),
+      Unhex("9f8816de0994e938d9e53f95"), Unhex("d086fc6c9d8fa915fd8423a7cf05072f"),
+      Unhex("a506e1a5c69093f9"), Unhex("fdc85b94a4b2a6b759b1a0da"))
+Opens("ChaCha20-Poly1305 28", 2,
+      Unhex("faf4bfe8019a891c74901b17f4f48cee5cd065d55fdea60118aaf6c4319a0ea5"),
+      Unhex("b776c3fddba7c81362ce6e1b"),
+      Unhex("e6b33a74a4ac443bd93f9c1b94"), Unhex("0c115172bdb02bbad3130fff22790d60"), Unhex(""),
+      Unhex("8dadff8d60c8e88f604f274833"))
+Opens("ChaCha20-Poly1305 29", 2,
+      Unhex("841020d1606edcfc536abfb1a638a7b958e21efc10c386ac45a18493450afd5f"),
+      Unhex("6d62f159731b140eb18ce074"),
+      Unhex("b0a7500aca45bb15f01ece4389"), Unhex("0160e83adbec7f6a2ee2ff0215f9ef00"),
+      Unhex("5a8e1c7aa39810d5"), Unhex("d6af138f701b801e60c85ffd5c"))
+Opens("ChaCha20-Poly1305 30", 2,
+      Unhex("470f9ce3d2250bd60cbbefdb2e6a1178c012299b5590639c7797b6024fa703d8"),
+      Unhex("a9ea4d619fe405d04cba7d7a"),
+      Unhex("d3017e0bb1705b380b34cc333450"), Unhex("5708e72ca2bd354f487f82f67fbc3acb"), Unhex(""),
+      Unhex("6ca67dd023fba6507b9f9a1f667e"))
+Opens("ChaCha20-Poly1305 31", 2,
+      Unhex("e4b97e91e4c8e85eb7ce0a7f30bf8a0abf4468251e4c6386c0e7aacb8e879aa8"),
+      Unhex("0e23c942a0c9fb526586eead"),
+      Unhex("52e9672b416d84d97033796072d0"), Unhex("e83839dc1fd9b8b9d1444c40e488d493"),
+      Unhex("eaaaeab26957f9a1"), Unhex("b84b3f74cd23064bb426fe2ced2b"))
+Opens("ChaCha20-Poly1305 32", 2,
+      Unhex("67119627bd988eda906219e08c0d0d779a07d208ce8a4fe0709af755eeec6dcb"),
+      Unhex("68ab7fdbf61901dad461d23c"),
+      Unhex("0b29638e1fbdd6df53970be2210042"), Unhex("2a9134087d67a46e79178d0a93f5e1d2"), Unhex(""),
+      Unhex("51f8c1f731ea14acdb210a6d973e07"))
+Opens("ChaCha20-Poly1305 33", 2,
+      Unhex("e6f1118d41e4b43fb58221b7ed79673834e0d8ac5c4fa60bbc8bc4893a58894d"),
+      Unhex("d95b3243afaef714c5035b6a"),
+      Unhex("32db66c4a3819d81557455e5980fed"), Unhex("feae30dec94e6ad3a9eea06a0d703917"),
+      Unhex("6453a53384632212"), Unhex("97469da667d6110f9cbda1d1a20673"))
+Opens("ChaCha20-Poly1305 34", 2,
+      Unhex("59d4eafb4de0cfc7d3db99a8f54b15d7b39f0acc8da69763b019c1699f87674a"),
+      Unhex("2fcb1b38a99e71b84740ad9b"),
+      Unhex("e9110e9f56ab3ca483500ceabab67a13"), Unhex("836ccabf15a6a22a51c1071cfa68fa0c"),
+      Unhex(""), Unhex("549b365af913f3b081131ccb6b825588"))
+Opens("ChaCha20-Poly1305 35", 2,
+      Unhex("b907a45075513fe8a8019edee3f2591487b2a030b03c6e1d771c862571d2ea1e"),
+      Unhex("118a6964c2d3e380071f5266"),
+      Unhex("e4b113cb775945f3d3a8ae9ec141c00c"), Unhex("7c43f16ce096d0dc27c95849dc383b7d"),
+      Unhex("034585621af8d7ff"), Unhex("55a465644f5b650928cbee7c063214d6"))
+Opens("ChaCha20-Poly1305 36", 2,
+      Unhex("3b2458d8176e1621c0cc24c0c0e24c1e80d72f7ee9149a4b166176629616d011"),
+      Unhex("45aaa3e5d16d2d42dc03445d"),
+      Unhex("02cc3acb5ee1fcdd12a03bb857976474d3"), Unhex("d83b7463a2c3800fe958c28eaa290813"),
+      Unhex(""), Unhex("3ff1514b1c503915918f0c0c31094a6e1f"))
+Opens("ChaCha20-Poly1305 37", 2,
+      Unhex("f60c6a1b625725f76c7037b48fe3577fa7f7b87b1bd5a982176d182306ffb870"),
+      Unhex("f0384fb876121410633d993d"),
+      Unhex("35766488d2bc7c2b8d17cbbb9abfad9e6d"), Unhex("1f391e657b2738dda08448cba2811ceb"),
+      Unhex("9aaf299eeea78f79"), Unhex("63858ca3e2ce69887b578a3c167b421c9c"))
+Opens("ChaCha20-Poly1305 38", 2,
+      Unhex("37ceb574ccb0b701dd11369388ca27101732339f49d8d908ace4b23af0b7ce89"),
+      Unhex("37270b368f6b1e3e2ca51744"),
+      Unhex("b621d76a8dacff00b3f840cdf26c894cc5d1"), Unhex("e0a21716ed94c0382fa9b0903d15bb68"),
+      Unhex(""), Unhex("f26991537257378151f4776aad28ae8bd16b"))
+Opens("ChaCha20-Poly1305 39", 2,
+      Unhex("68888361919bc10622f45df168e5f6a03bd8e884c0611bea2f34c1882ed9832b"),
+      Unhex("bfd6ff40f2df8ca7845980cc"),
+      Unhex("e0a745186c1a7b147f74faff2a715df5c19d"), Unhex("917baf703e355d4d950e6c05fe8f349f"),
+      Unhex("b8373438ddb2d6c3"), Unhex("ff97f2eefb3401ac31fc8dc1590d1a92cbc1"))
+Opens("ChaCha20-Poly1305 40", 2,
+      Unhex("1b35b856b5a86d3403d28fc2103a631d42deca5175cdb0669a5e5d90b2caafc5"),
+      Unhex("2343de88be6c7196d33b8694"),
+      Unhex("d6e0ed54fccef30bd605d72da3320e249a9cb5"), Unhex("c68bc6724ec803c43984ce42f6bd09ff"),
+      Unhex(""), Unhex("21ef185c3ae9a96fa5eb473878f4d0b242781d"))
+Opens("ChaCha20-Poly1305 41", 2,
+      Unhex("d6484e3973f6be8c83ed3208d5be5cfa06fda72fbfdc5b19d09be3f4e4eba29d"),
+      Unhex("1af1d90e877e11a496efa3df"),
+      Unhex("29e54d608237c3c3609dba16e6edf43842d72f"), Unhex("d3365fdcd506aaaa5368661e80e9d99b"),
+      Unhex("cc4efd8364fb114a"), Unhex("7335ab04b03e706109ec3ee835db9a246ea0ad"))
+Opens("ChaCha20-Poly1305 42", 2,
+      Unhex("422add37849d6e4c3dfd8020dc6a07e8a249788f3d6a83b9cb4d802362c97542"),
+      Unhex("1e7e67be948de7352ffdb727"),
+      Unhex("7fe606652d858f595ec2e706754fa3d933fcc834"), Unhex("78d59235aa5d03a4c32590e590c04d22"),
+      Unhex(""), Unhex("d7f5e611dd3a2750fb843fc1b6b93087310dc87d"))
+Opens("ChaCha20-Poly1305 43", 2,
+      Unhex("cdccfe3f46d782ef47df4e72f0c02d9c7f774def970d23486f11a57f54247f17"),
+      Unhex("376187894605a8d45e30de51"),
+      Unhex("14f707c446988a4903775ec7acec6da114d43112"), Unhex("987d4b147c490d43d376a198cab383f0"),
+      Unhex("956846a209e087ed"), Unhex("e28e0e9f9d22463ac0e42639b530f42102fded75"))
+Opens("ChaCha20-Poly1305 44", 2,
+      Unhex("e79dfc6d2fc465b8439e1c5baccb5d8ef2853899fc19753b397e6c25b35e977e"),
+      Unhex("f9d6320d7ce51d8ed0677d3a"),
+      Unhex("1003f13ea1329cbb187316f64c3ff3a87cf5b96661"),
+      Unhex("d2323ad625094bec84790d7958d5583f"), Unhex(""),
+      Unhex("4f543e7938d1b878dacaeec81dce4899974816813b"))
+Opens("ChaCha20-Poly1305 45", 2,
+      Unhex("1d7b8f1d96a1424923aef8a984869d4a777a110990ba465627acf80396c7f376"),
+      Unhex("50ba1962cdc32a5a2d36e640"),
+      Unhex("2d48b0834e9ffe3046103ef7a214f02e8e4d33360e"),
+      Unhex("d533ad089be229ea606ec0f3fa22eb33"), Unhex("093053e20261daab"),
+      Unhex("5d3efd5767f3c12efd08af9a44e028ae68c9eff843"))
+Opens("ChaCha20-Poly1305 46", 2,
+      Unhex("dd433e28cfbcb5de4ab36a02bf38686d83208771a0e63dcd08b4df1a07ac47a1"),
+      Unhex("c9cc0a1afc38ec6c30c38c68"),
+      Unhex("e9917ff3e64bbe1783579375e75ea823976b35539949"),
+      Unhex("074a890669b25105434c75beed3248db"), Unhex(""),
+      Unhex("8a3e17aba9606dd49e3b1a4d9e5e42f1742373632489"))
+Opens("ChaCha20-Poly1305 47", 2,
+      Unhex("a60924101b42ac24154a88de42142b2334cf599176caf4d1226f712dd9172930"),
+      Unhex("8ba77644b08d65d5e9f31942"),
+      Unhex("db4c700513818972b0dc0e531b1c281ca03e40c60dea"),
+      Unhex("63f4478bba2af469a7a4dc3b4f141360"), Unhex("b2a4e12a19a61c75"),
+      Unhex("c949957e66439deee4b2ac1d4a6c98a6c527b90f52ab"))
+Opens("ChaCha20-Poly1305 48", 2,
+      Unhex("1aa42027836965b1e6086fa137f9cf7f1ff48676696829bd281ff81c8ea0a4a9"),
+      Unhex("4b3dca84ecc407f424f281a9"),
+      Unhex("b5f14617491fc923b683e2cc9562d043dd5986b97dbdbd"),
+      Unhex("972ce54713c05c4bb4d088c0a30cacd3"), Unhex(""),
+      Unhex("37252a3eb5c8960f0567e503a9035783b3d0a19a4b9a47"))
+Opens("ChaCha20-Poly1305 49", 2,
+      Unhex("5d40db0cc18ef2e42815d3b6245a466a0b30a0f93e318ac10edde3bf8ad98160"),
+      Unhex("acad618039b317470d21621b"),
+      Unhex("b7ca3879f95140bf6a97b3212218b7bf864a51e5bb0b3e"),
+      Unhex("fe558fb570145470ea693eb76eb73171"), Unhex("413036411af75745"),
+      Unhex("959dde1ef3129b27702c558849e466f2baca1a45bdf4b2"))
+Opens("ChaCha20-Poly1305 50", 2,
+      Unhex("0212a8de5007ed87b33f1a7090b6114f9e08cefd9607f2c276bdcfdbc5ce9cd7"),
+      Unhex("e6b1adf2fd58a8762c65f31b"),
+      Unhex("42f26c56cb4be21d9d8d0c80fc99dde00d75f38074bfe764"),
+      Unhex("54aa7e13d48fff7d7557039457040a3a"), Unhex(""),
+      Unhex("10f1ecf9c60584665d9ae5efe279e7f7377eea6916d2b111"))
+Opens("ChaCha20-Poly1305 51", 2,
+      Unhex("c5bc09565646e7edda954f1f739223dada20b95c44ab033d0fae4b0283d18be3"),
+      Unhex("6b282ebecc541bcd7834ed55"),
+      Unhex("123032437b4bfd6920e8f7e7e0087ae4889ebe7a0ad0e900"),
+      Unhex("3cf68f179550da63d3b96c2d55411865"), Unhex("3e8bc5ade182ff08"),
+      Unhex("9222f9018e54fd6de1200806a9ee8e4cc904d29f25cba193"))
+Opens("ChaCha20-Poly1305 52", 2,
+      Unhex("9460b3c44ed86e70f3bda66385e1ca10b0c1677ef4f1360532830d17535f996f"),
+      Unhex("abfaf42e0dba884efcf07823"),
+      Unhex("1d218c9f1f9f02f248a6f976a7557057f37d9393d9f213c1f3"),
+      Unhex("bc88344c6fdc898feed394fb28511316"), Unhex(""),
+      Unhex("5c5cce881b93fb7a1b7939af1ffc5f84d3280ada778cca0953"))
+Opens("ChaCha20-Poly1305 53", 2,
+      Unhex("c111d6d5d78a071b15ab37cc8c3819199387ab7c1933aa97b1489f6584ba8e2a"),
+      Unhex("85f18ad8ff72cafee2452ab8"),
+      Unhex("9715d344e8d3f3a3eaa98a9cea57c0cd717c6ef5076027c9ec"),
+      Unhex("3056ff5ee0aa8636bb639984edb5236b"), Unhex("84cdff939391c022"),
+      Unhex("6989c646a10b7c76f4d9f7d574da40e152013cf0dd78f5aa8a"))
+Opens("ChaCha20-Poly1305 54", 2,
+      Unhex("8a1b1e699a0c4a3e610b10902daedab1bf1ea0d505c47d7842cbcee0d3b1b6e6"),
+      Unhex("a6f9a8d335fa84c3b27dcd2a"),
+      Unhex("9089bbdb8bcfd124e227bf75c4bfe1cba2004a274fc31aa32358"),
+      Unhex("fd2e21c64a019621c68594826cd7b1cd"), Unhex(""),
+      Unhex("ee6a15fc183108f0877e7f2b8a9615f4b3fc36e1c83440f66aad"))
+Opens("ChaCha20-Poly1305 55", 2,
+      Unhex("74b384e6e013ec4172ed7a28a10fb9bb79b4be2a24f6999e3d3caa28e64a8656"),
+      Unhex("ebc19fc9ecb2339908ea3836"),
+      Unhex("796ffb70ab43e7fa79f95583e384524727bb3e47fc45b969f714"),
+      Unhex("c3322b4445de5f3c9f18dcc847cc94c3"), Unhex("85073f2edc13d3a1"),
+      Unhex("3aa9f7372f056e5a0729752d9a37132d6dd07c56792e1c7582a9"))
+Opens("ChaCha20-Poly1305 56", 2,
+      Unhex("77d824795d2029f0eb0e0baab5cfeb32f7e93474913a7f95c737a667a3c33314"),
+      Unhex("f3307430f492d2b8a72d3a81"),
+      Unhex("49c81d17d67d7ba9954f497d0b0ddc21f3f839c9d2cc198d30bc2c"),
+      Unhex("50009899e5b2a9726c8f3556cadfbe84"), Unhex(""),
+      Unhex("0c4179a497d8fdd72796fb725692b805d63b7c718359cf10518aee"))
+Opens("ChaCha20-Poly1305 57", 2,
+      Unhex("bec5eac68f893951cbd7d1ecd3ee6611130dd9c3f80cddf95111d07d5edd76d1"),
+      Unhex("342ada4f0c115124b222df80"),
+      Unhex("4c129fc13cbdd9d3fe81ac755bf4fbea2fdd7e0aca0505a6ee9637"),
+      Unhex("9cede1d30a03db5d55265d3648bc40d4"), Unhex("73365f6d80edb1d8"),
+      Unhex("481433d8b1cd38af4a750e13a64b7a4e8507682b3517595938a20e"))
+Opens("ChaCha20-Poly1305 58", 2,
+      Unhex("a59c1e13064df8f2b8df77a492b0ca2eae921b52a84b305a3a9a51408a9ecb69"),
+      Unhex("9544d41ece0c92ef01cfac2d"),
+      Unhex("a6fa8f57ddc81d6099f667dd62402b6a5d5b7d05a329298029113169"),
+      Unhex("bb24e38b31dbbc3e575b9e3ee076af2a"), Unhex(""),
+      Unhex("1c35b898821ba55c2617c25df9e6df2a8002b384902186cd69dfd20e"))
+Opens("ChaCha20-Poly1305 59", 2,
+      Unhex("084b5d7365f1a8fec6365939ed741e6ea5893e0318d82ab47500a97d77aaa041"),
+      Unhex("829f005e980f0a6e2f983eaa"),
+      Unhex("fd42cb5cf894f879e3cf751662aaa58a2288cc53548802becaf42359"),
+      Unhex("188329438afe1cd7225d0478aa90c773"), Unhex("770f6e6e89a3fe8e"),
+      Unhex("7510016efadc385a71ed689ceb590c8ea9cc1e81b793338bddf5f10c"))
+Opens("ChaCha20-Poly1305 60", 2,
+      Unhex("5a7f850a1d9aafa77d59ae1b731965e8aaec6352280fc76a7b5e23ef3610cfe4"),
+      Unhex("4946a0d6adea93b82d4332e5"),
+      Unhex("402302b56140c4dcc39774732c55883de124ce4bf0a0261cfa1569e2cf"),
+      Unhex("e830bfe933a96786cff2dd72b82c4bd5"), Unhex(""),
+      Unhex("3c161d791f624fb0388e808f0f69ed790dbe4cbd089ebac46627bcf01d"))
+Opens("ChaCha20-Poly1305 61", 2,
+      Unhex("e6d5a4246f6f05618b59c8f9ec3ac8068cc0d3f351c571aa52b09cb251f9c2f6"),
+      Unhex("2f90a65e9e48725de6ffc727"),
+      Unhex("d052932bad6e6c4f835f02019e52d7ff807dc2a5aac2040883c79dd3d5"),
+      Unhex("655f93396b4d755dc4475721665fed91"), Unhex("f2415377ad283fd8"),
+      Unhex("964fc9e0e8355947aa1c2caadd7b3dbef82a1024e623606fac436ef573"))
+Opens("ChaCha20-Poly1305 62", 2,
+      Unhex("09e822123adbb1ed89b79a58619c64853992f8371d46338712f6c91ab11a68bb"),
+      Unhex("a797205a6cacdd7e47a4789d"),
+      Unhex("83f5c77396cabd28dfcc002cba0756d4ea5455e0261d847d5708aac21e8d"),
+      Unhex("705a05820a21f381d244d40e58d2f16b"), Unhex(""),
+      Unhex("80b71bbe833629841bd3aeaeb9db6123e51d367b436fe9d2d3454b62cfad"))
+Opens("ChaCha20-Poly1305 63", 2,
+      Unhex("625735fe7f8fc81b0c1edc3d08a78b41268f87a3c68488b674222630c1d587a5"),
+      Unhex("9d8cdf289dddd09afdc1b02f"),
+      Unhex("209b7539385c8b19ecd0fd8b5011b2996e316f1942064e68edfa363acbcd"),
+      Unhex("fa2f454b9fa2608f780f7c6f9b780fe1"), Unhex("200a9c95946ff05c"),
+      Unhex("67ae1882d0b1c1b2485bec98115ecf53b9b438deb1d0400531705038873a"))
+Opens("ChaCha20-Poly1305 64", 2,
+      Unhex("2eb51c469aa8eb9e6c54a8349bae50a20f0e382711bba1152c424f03b6671d71"),
+      Unhex("04a9be03508a5f31371a6fd2"),
+      Unhex("45c7d6b53acad4abb68876a6e96a48fb59524d2c92c9d8a189c9fd2db91746"),
+      Unhex("566d3ca10e311b695f3eae1551652493"), Unhex(""),
+      Unhex("b053999286a2824f42cc8c203ab24e2c97a685adcc2ad32662558e55a5c729"))
+Opens("ChaCha20-Poly1305 65", 2,
+      Unhex("7f5b74c07ed1b40fd14358fe2ff2a740c116c7706510e6a437f19ea49911cec4"),
+      Unhex("470a339ecb3219b8b81a1f8b"),
+      Unhex("46a80c4187024720084627580080dde5a3f4a11093a7076ed6f3d326bc7b70"),
+      Unhex("534d4aa2835a52e72d14df0e4f47f25f"), Unhex("374618a06ea98a48"),
+      Unhex("f45206abc25552b2abc9ab7fa243035fedaaddc3b2293956f1ea6e7156e7eb"))
+Opens("ChaCha20-Poly1305 66", 2,
+      Unhex("e1731d5854e1b70cb3ffe8b786a2b3ebf0994370954757b9dc8c7bc5354634a3"),
+      Unhex("72cfd90ef3026ca22b7e6e6a"),
+      Unhex("ea29afa49d36e8760f5fe19723b9811ed5d519934a440f5081ac430b953b0e21"),
+      Unhex("222541af46b86533c6b68d2ff108a7ea"), Unhex(""),
+      Unhex("b9c554cbc36ac18ae897df7beecac1dbeb4eafa156bb60ce2e5d48f05715e678"))
+Opens("ChaCha20-Poly1305 67", 2,
+      Unhex("27d860631b0485a410702fea61bc873f3442260caded4abde25b786a2d97f145"),
+      Unhex("262880d475f3dac5340dd1b8"),
+      Unhex("6dad637897544d8bf6be9507ed4d1bb2e954bc427e5de729daf50762846ff2f4"),
+      Unhex("7b997d93c982189d7095dc794c746232"), Unhex("2333e5ce0f93b059"),
+      Unhex("6b2604996cd30c14a13a5257ed6cffd3bc5e29d6b97eb1799eb335e281ea451e"))
+Opens("ChaCha20-Poly1305 68", 2,
+      Unhex("5155dee9aade1cc61ee7e3f92660f7590f5e5ba82f1b59b850e3fa453d2fa6b3"),
+      Unhex("c26c4b3bfdb97ee6b0f63ca1"),
+      Unhex("f5982b601c7a18fc72a65b218c44974dc564d8314cbe6f87fcf6c6cfbe618b34b1"),
+      Unhex("c43632f55760b5d1ed37556a94d049b5"), Unhex(""),
+      Unhex("2734e08eff8f5c4f84fa0c207f49c7fd78af1ad5123ff81f83f500edf4eda09edf"))
+Opens("ChaCha20-Poly1305 69", 2,
+      Unhex("573f08ebbe0cce4ac9618e8c3b224bea0a32f055c6996838a32f527ca3c3b695"),
+      Unhex("ad8050dc6d122dce3e5639ed"),
+      Unhex("eaf6810e6ec1cb7a2918856257d1aa3d51a827879146c6337ecf535e9c89b149c5"),
+      Unhex("a2950c2f394a3466c345f796323c1aa7"), Unhex("e99698241c599b5f"),
+      Unhex("668d5e3f95fe030daf432a5fc5837af3a79c81e94b28d8204c5ee262ab3c9908a7"))
 Opens("ChaCha20-Poly1305 70", 2, Unhex("cf0d40a4644e5f51815165d5301b22631f4544c49a1878e3a0a5e8e1aae0f264"), Unhex("e74a515e7e2102b90bef55d2"),
       Unhex("fba78ae4f9d808a62e3da40be2cb7700c3613d9eb2c529c652e76a432c658d27095f0eb8f940c324981ea935e507f9"), Unhex("8f046956db3a512908bd7afc8f2ab0a9"), Unhex(""), Unhex("973d0c753826bae466cf9abb3493152e9de7819e2bd0c71171346b4d2cebf8041aa3cedc0dfd7b467e26228bc86c9a"))
 Opens("ChaCha20-Poly1305 71", 2, Unhex("6cbfd71c645d184cf5d23c402bdb0d25ec54898c8a0273d42eb5be109fdcb2ac"), Unhex("d4d807341683825b31cd4d95"),
@@ -398,46 +747,110 @@ Opens("ChaCha20-Poly1305 90", 2, Unhex("afd579aa1accc682aca54e142aa69df09802f020
       Unhex("112f4ce552e41a1e8c93f6ed3e1273b9dab4c1eeb5c100c2c2732af27f0160764012af269a50f04d10ba24bb43598547b700cfc480ab123f6e5c7488d674a637552ca03eb298af4ca2879830ca25f273713bd5bde16a06b31254b412bf6a8ce22efe73b15380fafe2ade9d5c57e6267d082b5adc06f55e8313b1d0753a46b988e7776b201a9d5896c349e8631f1b381c8f43247d0d9b171701fc94c5265ead84f3d44672bb799d3ddf8d63ae73d79104e48366f05d048df2ee54102d637b9c2d4d03200109be48b6d4c2fb9b0b45f7945c8c5468c97f36c9f4b9789a3a547348739dac3e7b1144884d501b4a073f04081de6287b66af2d0e3728cf2064be88975e578581e1e8d7c7d9c956d558c2fa6816721518f1e1de493e83628a42cce40f85c55d5973b397ea1d58ee473bf5ea59f35510e1903d22673c3d289121f3fed8ee4253e299a52410bbbd39daf1b87e43b5c4be3e4698943e5578f0744c2b0a4d39922d6c4b205e8259166a46230d326442492763dba8a2cd9d62c7e8715e43c891ce2f5333b02ea94ce6fa1c27e86e3488a9b7f26bb814d214b9d29eefa5a4a04040cdcbb1a13ca2f436e302f767da3a7675bcf501cee45f774eb64c0fcb64f1d2e5cd8dd9f9600e0b5197125a35249a0da6f64cadca4a769984bab62438af11c323de33014f627e945cb90f5be88291af1e7e169d7695db6289302ad99fec050c"), Unhex("e2fcadc31ad755139d38ecbfb75d1ddc"), Unhex(""), Unhex("bafc6e865c48bd34b7f9329e35cfb286cd4dc31f8316171218bf0471dffd35a330a181697ca5178688dd87efe527924f90d1c78ba40de70952ff44c26efe2159e59358f3931573df9373a73b91ba9592e12140cc009feedd2595e5b6f066b5ef6de99d4c31552cecb0614f1dce990e46e7694382f3cf3ccfcd1ea62e563e5f0dc36cb5a84e0c0b3f1f8f3fa9100f487195ff2e3169ad08136aa8ad566548c9836aa00dbac74716c26e838c1486a0084d3dfd692585e2e5ae7c75caf0e7af60219f96116ae963b4a5899cb30a120daaca7833776692c25ad7c185e6a2d70ce03ff156cd25d76153539d6855773e21142f9ba0313562875f105a2b770a15b533fbf5110dafb69329982ab44ed1b9f321d7b79ae15a19d9f3bd4c504c24b23b812d514c19ae2a347cc18c12ce915a0bad7cc89a8720d4ba5ee0964fe05e4cc59a13f92c670b8655071e216f19ad05f4bbcca6dc7feeb188d6269c58065c98fcbbac183a9abb3811d80cb476544bd74b26991f3df987f0ed0ea6238659ac09a2250fecc0723ffc51647b74bdf454f26e11112c8bbd797f09a3be8251c6b5b319ed9537278cc1abedb32aa10840984b96e8636b289335846ae4fbd4a00f6600d98ebe25885c68d7043ce0dc5229d7e9bd51bea9b8fe0552f40688429c482629ced623f6074858147e73da3ff4ad2ae45c1a1c8a6c5b3b2c3d568a756608179f63b580fd"))
 Opens("ChaCha20-Poly1305 91", 2, Unhex("5f44a54d8959406787895ad07ee415090a45e1171789a2236ef30b1fb8aa6f58"), Unhex("0184e1b899f829c859822f21"),
       Unhex("ab64c27d42a6dd6d3a5882ae3a8d351026d48bbec73ddabdab59d0729680ca7edabb8acc71d23023394f21c205f4dcf3191bfeff50bedb42bcd3b20cacfbb0a201cceac62d8ee1cb187bf76abc9f0efc36fcf32e442a4aff52abc43e90e4f40dee972e9c8f78eba8dad3d5c3f065733e1e8d18fda5baa8b4d2cdbb9955d9f9ac5186605f5f7bd12efe38578878530fac56e0187e9d52dc1ec53b0fab591cda716ea608293f2d3c70666cdf966dc0ef4c7dead4b6b85f7585fa22225d792d1988186ce49046eec45d6adec620e8a4a16f5420630f3ac8020763d908d9fab35649e39153d65e06e792be350179b1a5b3ae3131a4c9ba05b6ca9afc8c8d9646aadfa275a65c0eb106f4c93eed0b536973698de3f7659e86e8bdec44c4c1e03b5e967abc89bbc6a831768673575d44b26caecfc82ad3ff5f48a9adc22fcdc000b915a1df8a027ac7d1f8524f3ca156202b2e288bb5d82c0574f8a1e2404bd5df52ac21dfee13ae509fea692ee5e42bae19a82b0249fdd43e725b8820c9a50d256064badb069d7ea142425290cb51ad10af493581a43640e69ebde9ac170f7835976cbff3800ef4fe07b1bbac842170d2ae0ef0c87b1cd8154cee3f46c064b6e68f1bf2aa1950dd658f2764f48885f450b1b2d634860fa233f9d8149e34e03348d4e506a75a0cf2636798826b2d6b7e55837628ab266395306722c924c70ff6081cd27e"), Unhex("c3342ce3b313cc8ce28c166d927a4474"), Unhex("88794ff41cdc04a6"), Unhex("0a0e09595a1a5d0784ce1abe4aafea00e66b30fbfa4ec23b22d0701f72b9492ae7d9cca281474fd5b1aad8265486cdb8c74f23bdbc0148affc171829ab113b18df5d873f70b54c340276381689edd981a4ee6a9354a7a0b3055b2c17e8dce3910857d3022ecb6871c7fead7601789fb211d0a4eb345bd16cf2ee447d0cc6267ef2b7b43a89778f6fcb08176be0308df23906567cace11c19e8962047c2a5db9d26c964d67318308bcbae06af8cd95405c5eba980528e4fdb10c24c0be0904199a7222e309495c4117b244c28f835dd68006ad8ca6a0e3bc0621115e3d7aab15d553c54acdb15f3479e4de48ffbf358a5aae9366cfd8f9dcf6a8010a70ec9fdfe889612368356a3c722dc04684ce6acd54fca83b3f097144be4b0af9ec4eac6d6bc443df3e3a679f29ed7afc162f936d7212de96ba50857178efebf83647b09fd751d48fe97ee68dbcf72547835502646ea68e8b17cf88d4ceb0ac5522e19ece5b30a0d5cb382d8c72478a5ebb18b8460df0eec767b232b0ecd7b9d5837367bdc08d7cc15b9e89a611e0e5f6f852f6264f07b4be7eb4482f3253c6b662b2f0b663be4f2e66ed71002f723da349cbbe0e0d1bd1837ff13228baaa0da2a07853164b227313748dba26b629ca6c995367bb977809c2a35661c048589fe1cba874190a80c9a7005df968a9bef0abf2fe4841aeea7cd2ba8c0e897aea78fbc2948ad2f8a"))
-Opens("ChaCha20-Poly1305 92", 2, Unhex("7d00b48095adfa3272050607b264185002ba99957c498be022770f2ce2f3143c"), Unhex("87345f1055fd9e2102d50656"),
-      Unhex("7e72f5a185af16a611921b438f749f0b"), Unhex("1242c670732334029adfe1c5001651e4"), Unhex("02"), Unhex("e5ccaa441bc814688f8f6e8f28b500b2"))
-Opens("ChaCha20-Poly1305 93", 2, Unhex("6432717f1db85e41ac7836bce25185a080d5762b9e2b18444b6ec72c3bd8e4dc"), Unhex("87a3163ec0598ad95b3aa713"),
-      Unhex("85f29a719557cdd14d1f8fffab6d9e60"), Unhex("732ca32becd515a1ed353f542e999858"), Unhex("b648"), Unhex("02cde168fba3f544bbd0332f7adeada8"))
-Opens("ChaCha20-Poly1305 94", 2, Unhex("7afa0f59dfcb5ad3a76490c5c804327c8d052be737a60fa8bcbf0a2c36630a43"), Unhex("25b7bdf4a6dcbf7c9a3ec2b3"),
-      Unhex("d46e8265a8c6a25393dd956bb44397ad"), Unhex("e28f3ad9e3ef4a3d94ee07bf538eaafb"), Unhex("8b71ac"), Unhex("623e6ba6d3166a338bfcc7af90a230c8"))
-Opens("ChaCha20-Poly1305 95", 2, Unhex("2ec25b0ec7ac244224e9c7fc2fa5d3ef17809e19fd6e954158dd0d72738a4cc8"), Unhex("6fb0d1417cdfff4df37db08c"),
-      Unhex("2d3cb2d9303491e264f2904f0e0753f4"), Unhex("6c1db959362d217b2322b466536bfea0"), Unhex("3a5ddf40"), Unhex("a1c933768a6d573ebf68a99e5e18dae8"))
-Opens("ChaCha20-Poly1305 96", 2, Unhex("0a2cf52371cf9d9f95b10108fc82b4fd6110a8ba9a88a26083685ad29826891a"), Unhex("2538fc67afb9eab333f83290"),
-      Unhex("a988c03c71b956ff086d0470d706bd34"), Unhex("b35d7cbf2beb894b0c746e0730429e15"), Unhex("9eec540bb0"), Unhex("0d8c691d044a3978d790432dc71d69f8"))
-Opens("ChaCha20-Poly1305 97", 2, Unhex("307e886b38bb18b445f8a2c6d6f8932492a9cea8d041ba72eb5efdfa70d0b8d2"), Unhex("a071be999151e2a1c41c81e9"),
-      Unhex("32bf95d4c195dbaf58d9af4001c6e57d"), Unhex("4393808703d67a90870578046cd8b525"), Unhex("56e014d97c74"), Unhex("9aba22b495cb7ec887ddaa62019aa14d"))
-Opens("ChaCha20-Poly1305 98", 2, Unhex("dacd51a8a8e4d5905b4cbb947ef4013eb296889353f3c9ee35f5577b26737a51"), Unhex("3fa378a1befdddd61ae68cf4"),
-      Unhex("2a207ca7e9da6b13a229604304d87eb1"), Unhex("8a6b6afec87d93ec6e8dbe13d84c0f8c"), Unhex("bb5a3812f0aefd"), Unhex("e148313883a77da121124d06b1c77dca"))
-Opens("ChaCha20-Poly1305 99", 2, Unhex("7b5fbbb202c16108fd13066446853a850d8b34e9da40519580da446a922f9162"), Unhex("aa077a5ce9161bde8d8edc40"),
-      Unhex("548a5ca0ae49211cdf30bbdcb1352d31"), Unhex("204dacb98f8c8908cc5ea22bb23f901f"), Unhex("f94bb92c1c668a695b"), Unhex("da471cd6935a0ca8307ddedc6b959962"))
-Opens("ChaCha20-Poly1305 100", 2, Unhex("1ffd101eb97531f6faa821ec4d5c5702725dd033d3b830bb760c4ef27ba983df"), Unhex("598114e8cf7fbdea8ad29683"),
-      Unhex("28cedac24f14caa326c7fe401f68a87c"), Unhex("2bf1b2c43d3039f8f5ce359c1102f879"), Unhex("2155627ec15a978fbcb2"), Unhex("28668ca8db535c7e8eb27491ad0fb7cb"))
-Opens("ChaCha20-Poly1305 101", 2, Unhex("d2d0a973d5951af352cbee57ac9dab1c284c99af3b992ce015f219506f64888d"), Unhex("9acd213570ce9bb9d886c6ef"),
-      Unhex("7256e856872ad3a54b34a2a6bdca8838"), Unhex("3b12e4586e45223f78a6eea811efb863"), Unhex("37ad668d4d4fe889949763"), Unhex("3f3f0076250352e1b6b5c12cfa12625e"))
-Opens("ChaCha20-Poly1305 102", 2, Unhex("adcc520b381382237d05a6400a7dfbcd0771b6aa9edb7966131ddef6af21f1be"), Unhex("9183cdf3a8ba7397b6b2d5d5"),
-      Unhex("852c141b4239a31feeda03550d70a2be"), Unhex("5fc59287b92d3fcf7d66f13defb11b0d"), Unhex("b334375415f6215c0bf89a9a"), Unhex("958295619cf1b36f0b474663c0bc79eb"))
-Opens("ChaCha20-Poly1305 103", 2, Unhex("bd534f7adeca466844fb3ba34658be807f15c5291ed6026860a24f179b712c89"), Unhex("412c3e13ee1f7864bd15ce39"),
-      Unhex("89d6d089c4a255952aca11b24a01ff95"), Unhex("f88fa4531204da315e7317970240ce9e"), Unhex("2866afff0bcc6135dc63af88c8"), Unhex("d92f8ce5d8d0ad2eb5f11af02ef63949"))
-Opens("ChaCha20-Poly1305 104", 2, Unhex("910ade7d324d2c9688439e1f142e0e5f9d130ff832e507fe1985e5a26452a6d0"), Unhex("9be090dba93deff27adf99ee"),
-      Unhex("01ffb343c757b27843d8a900a36ce39d"), Unhex("a315541b7d6313c6fddf64b303d71d60"), Unhex("ea2575f123268e936c8e4c8c1bb8"), Unhex("6e356094ed9d9a7053c7906c48ba3d9f"))
-Opens("ChaCha20-Poly1305 105", 2, Unhex("8e34cf73d245a1082a920b86364eb896c4946467bcb3d58929fcb36690e6394f"), Unhex("6f573aa86baa492ba46596df"),
-      Unhex("c1b295936d56fadac03e5f742bff73a1"), Unhex("39c457dbab66382babb3b55800cda5b8"), Unhex("bd4cd02fc7502bbdbdf6c9a3cbe8f0"), Unhex("16ddd23ff53f3d23c06334487040eb47"))
-Opens("ChaCha20-Poly1305 106", 2, Unhex("cb5575f5c7c45c91cf320b139fb594237560d0a3e6f865a67d4f633f2c08f016"), Unhex("1a6518f02ede1da6809266d9"),
-      Unhex("c84c9bb7c61c1bcb17772a1c500c5095"), Unhex("dbadf7a5138ca03459a2cd65831e092f"), Unhex("89cce9fb47441d07e0245a66fe8b778b"), Unhex("623b7850c321e2cf0c6fbcc8dfd1aff2"))
-Opens("ChaCha20-Poly1305 107", 2, Unhex("a5569e729a69b24ba6e0ff15c4627897436824c941e9d00b2e93fddc4ba77657"), Unhex("564dee49ab00d240fc1068c3"),
-      Unhex("94bc80621ed1e71b1fd2b5c3a15e3568"), Unhex("333511861796978401598b963722f5b3"), Unhex("d19f2d989095f7ab03a5fde84416e00c0e"), Unhex("87b3a4d7b26d8d3203a0de1d64ef82e3"))
-Opens("ChaCha20-Poly1305 108", 2, Unhex("56207465b4e48e6d04630f4a42f35cfc163ab289c22a2b4784f6f9290330bee0"), Unhex("df8713e87ec3dbcfad14d53e"),
-      Unhex("299b5d3f3d03c087209a16e285143111"), Unhex("4b454ed198de117e83ec49fa8d8508d6"), Unhex("5e6470facd99c1d81e37cd44015fe19480a2a4d3352a4ff560c0640fdbda"), Unhex("e601b38557797da2f8a4106a089d1da6"))
-Opens("ChaCha20-Poly1305 109", 2, Unhex("077433022ab34d380fc192fc24c2edc6301fec6f24442f572a1087ff2e05b39a"), Unhex("28adcbc74364f26dd4b3108b"),
-      Unhex("1e9687b35fbc8eaa1825ed3847798f76"), Unhex("0788bf70fd04030ecd1c96d0bc1fcd5d"), Unhex("e0100eb116cdc5e22a3b9f9b4126c149595e75107f6e237c69e82960052270"), Unhex("03c874eeaaa6fa9f0da62c758fb0ad04"))
-Opens("ChaCha20-Poly1305 110", 2, Unhex("3937986af86dafc1ba0c4672d8abc46c207062682d9c264ab06d6c5807205130"), Unhex("8df4b15a888c33286a7b7651"),
-      Unhex("605bbf90aeb974f6602bc778056f0dca"), Unhex("38ea23d99054b46b42ffe004129d2204"), Unhex("ba446f6f9a0ced22450feb10737d9007fd69abc19b1d4d9049a5551e86ec2b37"), Unhex("dc9e9eaf11e314182df6a4eba17aec9c"))
-Opens("ChaCha20-Poly1305 111", 2, Unhex("36372abcdb78e0279646ac3d176b9674e9154eecf0d5469c651ec7e16b4c1199"), Unhex("be40e5f1a11817a0a8fa8949"),
-      Unhex("7b7ce0d824809a70de32562ccf2c2bbd"), Unhex("15d44a00ce0d19b4231f921e22bc0a43"), Unhex("d41a828d5e71829247021905402ea257dccbc3b80fcd5675056b68bb59e62e8873"), Unhex("81ce84ede9b35859cc8c49a8f6be7dc6"))
+Opens("ChaCha20-Poly1305 92", 2,
+      Unhex("7d00b48095adfa3272050607b264185002ba99957c498be022770f2ce2f3143c"),
+      Unhex("87345f1055fd9e2102d50656"),
+      Unhex("7e72f5a185af16a611921b438f749f0b"), Unhex("1242c670732334029adfe1c5001651e4"),
+      Unhex("02"), Unhex("e5ccaa441bc814688f8f6e8f28b500b2"))
+Opens("ChaCha20-Poly1305 93", 2,
+      Unhex("6432717f1db85e41ac7836bce25185a080d5762b9e2b18444b6ec72c3bd8e4dc"),
+      Unhex("87a3163ec0598ad95b3aa713"),
+      Unhex("85f29a719557cdd14d1f8fffab6d9e60"), Unhex("732ca32becd515a1ed353f542e999858"),
+      Unhex("b648"), Unhex("02cde168fba3f544bbd0332f7adeada8"))
+Opens("ChaCha20-Poly1305 94", 2,
+      Unhex("7afa0f59dfcb5ad3a76490c5c804327c8d052be737a60fa8bcbf0a2c36630a43"),
+      Unhex("25b7bdf4a6dcbf7c9a3ec2b3"),
+      Unhex("d46e8265a8c6a25393dd956bb44397ad"), Unhex("e28f3ad9e3ef4a3d94ee07bf538eaafb"),
+      Unhex("8b71ac"), Unhex("623e6ba6d3166a338bfcc7af90a230c8"))
+Opens("ChaCha20-Poly1305 95", 2,
+      Unhex("2ec25b0ec7ac244224e9c7fc2fa5d3ef17809e19fd6e954158dd0d72738a4cc8"),
+      Unhex("6fb0d1417cdfff4df37db08c"),
+      Unhex("2d3cb2d9303491e264f2904f0e0753f4"), Unhex("6c1db959362d217b2322b466536bfea0"),
+      Unhex("3a5ddf40"), Unhex("a1c933768a6d573ebf68a99e5e18dae8"))
+Opens("ChaCha20-Poly1305 96", 2,
+      Unhex("0a2cf52371cf9d9f95b10108fc82b4fd6110a8ba9a88a26083685ad29826891a"),
+      Unhex("2538fc67afb9eab333f83290"),
+      Unhex("a988c03c71b956ff086d0470d706bd34"), Unhex("b35d7cbf2beb894b0c746e0730429e15"),
+      Unhex("9eec540bb0"), Unhex("0d8c691d044a3978d790432dc71d69f8"))
+Opens("ChaCha20-Poly1305 97", 2,
+      Unhex("307e886b38bb18b445f8a2c6d6f8932492a9cea8d041ba72eb5efdfa70d0b8d2"),
+      Unhex("a071be999151e2a1c41c81e9"),
+      Unhex("32bf95d4c195dbaf58d9af4001c6e57d"), Unhex("4393808703d67a90870578046cd8b525"),
+      Unhex("56e014d97c74"), Unhex("9aba22b495cb7ec887ddaa62019aa14d"))
+Opens("ChaCha20-Poly1305 98", 2,
+      Unhex("dacd51a8a8e4d5905b4cbb947ef4013eb296889353f3c9ee35f5577b26737a51"),
+      Unhex("3fa378a1befdddd61ae68cf4"),
+      Unhex("2a207ca7e9da6b13a229604304d87eb1"), Unhex("8a6b6afec87d93ec6e8dbe13d84c0f8c"),
+      Unhex("bb5a3812f0aefd"), Unhex("e148313883a77da121124d06b1c77dca"))
+Opens("ChaCha20-Poly1305 99", 2,
+      Unhex("7b5fbbb202c16108fd13066446853a850d8b34e9da40519580da446a922f9162"),
+      Unhex("aa077a5ce9161bde8d8edc40"),
+      Unhex("548a5ca0ae49211cdf30bbdcb1352d31"), Unhex("204dacb98f8c8908cc5ea22bb23f901f"),
+      Unhex("f94bb92c1c668a695b"), Unhex("da471cd6935a0ca8307ddedc6b959962"))
+Opens("ChaCha20-Poly1305 100", 2,
+      Unhex("1ffd101eb97531f6faa821ec4d5c5702725dd033d3b830bb760c4ef27ba983df"),
+      Unhex("598114e8cf7fbdea8ad29683"),
+      Unhex("28cedac24f14caa326c7fe401f68a87c"), Unhex("2bf1b2c43d3039f8f5ce359c1102f879"),
+      Unhex("2155627ec15a978fbcb2"), Unhex("28668ca8db535c7e8eb27491ad0fb7cb"))
+Opens("ChaCha20-Poly1305 101", 2,
+      Unhex("d2d0a973d5951af352cbee57ac9dab1c284c99af3b992ce015f219506f64888d"),
+      Unhex("9acd213570ce9bb9d886c6ef"),
+      Unhex("7256e856872ad3a54b34a2a6bdca8838"), Unhex("3b12e4586e45223f78a6eea811efb863"),
+      Unhex("37ad668d4d4fe889949763"), Unhex("3f3f0076250352e1b6b5c12cfa12625e"))
+Opens("ChaCha20-Poly1305 102", 2,
+      Unhex("adcc520b381382237d05a6400a7dfbcd0771b6aa9edb7966131ddef6af21f1be"),
+      Unhex("9183cdf3a8ba7397b6b2d5d5"),
+      Unhex("852c141b4239a31feeda03550d70a2be"), Unhex("5fc59287b92d3fcf7d66f13defb11b0d"),
+      Unhex("b334375415f6215c0bf89a9a"), Unhex("958295619cf1b36f0b474663c0bc79eb"))
+Opens("ChaCha20-Poly1305 103", 2,
+      Unhex("bd534f7adeca466844fb3ba34658be807f15c5291ed6026860a24f179b712c89"),
+      Unhex("412c3e13ee1f7864bd15ce39"),
+      Unhex("89d6d089c4a255952aca11b24a01ff95"), Unhex("f88fa4531204da315e7317970240ce9e"),
+      Unhex("2866afff0bcc6135dc63af88c8"), Unhex("d92f8ce5d8d0ad2eb5f11af02ef63949"))
+Opens("ChaCha20-Poly1305 104", 2,
+      Unhex("910ade7d324d2c9688439e1f142e0e5f9d130ff832e507fe1985e5a26452a6d0"),
+      Unhex("9be090dba93deff27adf99ee"),
+      Unhex("01ffb343c757b27843d8a900a36ce39d"), Unhex("a315541b7d6313c6fddf64b303d71d60"),
+      Unhex("ea2575f123268e936c8e4c8c1bb8"), Unhex("6e356094ed9d9a7053c7906c48ba3d9f"))
+Opens("ChaCha20-Poly1305 105", 2,
+      Unhex("8e34cf73d245a1082a920b86364eb896c4946467bcb3d58929fcb36690e6394f"),
+      Unhex("6f573aa86baa492ba46596df"),
+      Unhex("c1b295936d56fadac03e5f742bff73a1"), Unhex("39c457dbab66382babb3b55800cda5b8"),
+      Unhex("bd4cd02fc7502bbdbdf6c9a3cbe8f0"), Unhex("16ddd23ff53f3d23c06334487040eb47"))
+Opens("ChaCha20-Poly1305 106", 2,
+      Unhex("cb5575f5c7c45c91cf320b139fb594237560d0a3e6f865a67d4f633f2c08f016"),
+      Unhex("1a6518f02ede1da6809266d9"),
+      Unhex("c84c9bb7c61c1bcb17772a1c500c5095"), Unhex("dbadf7a5138ca03459a2cd65831e092f"),
+      Unhex("89cce9fb47441d07e0245a66fe8b778b"), Unhex("623b7850c321e2cf0c6fbcc8dfd1aff2"))
+Opens("ChaCha20-Poly1305 107", 2,
+      Unhex("a5569e729a69b24ba6e0ff15c4627897436824c941e9d00b2e93fddc4ba77657"),
+      Unhex("564dee49ab00d240fc1068c3"),
+      Unhex("94bc80621ed1e71b1fd2b5c3a15e3568"), Unhex("333511861796978401598b963722f5b3"),
+      Unhex("d19f2d989095f7ab03a5fde84416e00c0e"), Unhex("87b3a4d7b26d8d3203a0de1d64ef82e3"))
+Opens("ChaCha20-Poly1305 108", 2,
+      Unhex("56207465b4e48e6d04630f4a42f35cfc163ab289c22a2b4784f6f9290330bee0"),
+      Unhex("df8713e87ec3dbcfad14d53e"),
+      Unhex("299b5d3f3d03c087209a16e285143111"), Unhex("4b454ed198de117e83ec49fa8d8508d6"),
+      Unhex("5e6470facd99c1d81e37cd44015fe19480a2a4d3352a4ff560c0640fdbda"),
+      Unhex("e601b38557797da2f8a4106a089d1da6"))
+Opens("ChaCha20-Poly1305 109", 2,
+      Unhex("077433022ab34d380fc192fc24c2edc6301fec6f24442f572a1087ff2e05b39a"),
+      Unhex("28adcbc74364f26dd4b3108b"),
+      Unhex("1e9687b35fbc8eaa1825ed3847798f76"), Unhex("0788bf70fd04030ecd1c96d0bc1fcd5d"),
+      Unhex("e0100eb116cdc5e22a3b9f9b4126c149595e75107f6e237c69e82960052270"),
+      Unhex("03c874eeaaa6fa9f0da62c758fb0ad04"))
+Opens("ChaCha20-Poly1305 110", 2,
+      Unhex("3937986af86dafc1ba0c4672d8abc46c207062682d9c264ab06d6c5807205130"),
+      Unhex("8df4b15a888c33286a7b7651"),
+      Unhex("605bbf90aeb974f6602bc778056f0dca"), Unhex("38ea23d99054b46b42ffe004129d2204"),
+      Unhex("ba446f6f9a0ced22450feb10737d9007fd69abc19b1d4d9049a5551e86ec2b37"),
+      Unhex("dc9e9eaf11e314182df6a4eba17aec9c"))
+Opens("ChaCha20-Poly1305 111", 2,
+      Unhex("36372abcdb78e0279646ac3d176b9674e9154eecf0d5469c651ec7e16b4c1199"),
+      Unhex("be40e5f1a11817a0a8fa8949"),
+      Unhex("7b7ce0d824809a70de32562ccf2c2bbd"), Unhex("15d44a00ce0d19b4231f921e22bc0a43"),
+      Unhex("d41a828d5e71829247021905402ea257dccbc3b80fcd5675056b68bb59e62e8873"),
+      Unhex("81ce84ede9b35859cc8c49a8f6be7dc6"))
 Opens("ChaCha20-Poly1305 112", 2, Unhex("9f1479ed097d7fe529c11f2f5add9aaff4a1ca0b68997a2cb7f79749bd90aaf4"), Unhex("84c87dae4eee27730ec35d12"),
       Unhex("ca82bff3e2f310ccc976672c4415e69b"), Unhex("57638c62a5d85ded774f913c813ea032"), Unhex("3f2dd49bbf09d69a78a3d80ea2566614fc379474196c1aae84583da73d7ff85c6f42ca42056a9792cc1b9fb3c7d261"), Unhex("a66747c89e857af3a18e2c79500087ed"))
 Opens("ChaCha20-Poly1305 113", 2, Unhex("0c1e7bebbd5ff8c00827bc862f12154cd59a4fb013446e5022aede44f7670645"), Unhex("10b7c0942a81d7c644cb35cb"),

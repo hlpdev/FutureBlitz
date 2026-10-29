@@ -168,7 +168,8 @@ Public Class Canvas Implements Printable
 
     // Draws a box around area's edge with border's lines in look, with title in its top line or
     // not, and gives what's inside it. An area narrower or shorter than 2 has nothing inside.
-    Public Method DrawBox(area: Region, border: BorderStyle, look: Style, title: String = ""): Region
+    Public Method DrawBox(area: Region, border: BorderStyle, look: Style,
+                          title: String = ""): Region
         If area.Width < 2 || area.Height < 2 Then Return Region(area.Column, area.Row, 0, 0)
         Local lines = LinesOf(border)
         Local across = lines.Horizontal.Repeated(area.Width - 2)
@@ -181,7 +182,8 @@ Public Class Canvas Implements Printable
         PutText(area.Column, area.Bottom - 1, lines.BottomLeft + across + lines.BottomRight, look,
                 area.Right)
         Local shown = Truncated(title, area.Width - 6)
-        If shown != "" Then PutText(area.Column + 2, area.Row, " " + shown + " ", look, area.Right - 2)
+        If shown != "" Then PutText(area.Column + 2, area.Row, " " + shown + " ", look,
+                                    area.Right - 2)
         Return area.Inner(1)
     End Method
 

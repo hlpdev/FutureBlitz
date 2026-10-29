@@ -123,7 +123,9 @@ Print(ages.Update("ada", Function(age: Int) => age + 1),
       ages.Update("linus", Function(age: Int) => 0), ages["ada"], ages.Contains("linus"))
 Print(ages.GetOrAdd("alan", Function() => 0), ages.GetOrAdd("linus", Function() => 54))
 Print(ages.AddOrUpdate("linus", 0, Function(age: Int) => age + 1), ages.AddOrUpdate("ken", 80,
-      Function(age: Int) => 0))
+                                                                                    Function(
+                                                                                        age: Int) =>
+                                                                                    0))
 Local keys = ages.Keys()
 keys.Sort()
 Local values = ages.Values()

@@ -55,7 +55,8 @@ Try File.WriteText(root / "mod" / "levels" / "three.txt", "the mod's level three
 Local game = Vfs()
 game.MountEmbedded("data", embedded)
 game.MountFolder("data", root / "mod")
-For path In ["data/levels/one.txt", "data/levels/two.txt", "data/levels/three.txt", "data/readme.txt"]
+For path In ["data/levels/one.txt", "data/levels/two.txt", "data/levels/three.txt",
+             "data/readme.txt"]
     Print("  {path}: {Try game.ReadText(path)}")
 End For
 
@@ -75,10 +76,12 @@ Print("places")
 Local deep = Vfs()
 deep.MountEmbedded("a/b/c", embedded)
 deep.MountEmbedded("a/x", {"y.txt": "y".Bytes})
-For path In ["", "/", "a", "a/b", "a/b/c", "a/b/c/levels", "a/b/c/readme.txt", "a/x/y.txt", "a/./b/../x",
+For path In ["", "/", "a", "a/b", "a/b/c", "a/b/c/levels", "a/b/c/readme.txt", "a/x/y.txt",
+             "a/./b/../x",
              "a/missing", "a\\b\\c\\readme.txt", "../a"]
     Local kind = Try deep.KindOf(path)
-    Print("  [{path}] {kind == Null ? "none" : "{kind}"} {deep.Exists(path)} {deep.DirExists(path)}")
+    Print(
+        "  [{path}] {kind == Null ? "none" : "{kind}"} {deep.Exists(path)} {deep.DirExists(path)}")
 End For
 
 For entry In Try deep.Entries("a")
@@ -236,8 +239,11 @@ Class Numbers Implements VfsSource
         Return "number {path}".Bytes
     End Method
 
-    Method KindAt(path: String): FileKind? Throws IOError => path == "" ? FileKind.DIRECTORY : FileKind.FILE
-    Method List(path: String): (String, FileKind)[]? Throws IOError => path == "" ? [("1", FileKind.FILE)] : Null
+    Method KindAt(path: String): FileKind? Throws IOError =>
+        path == "" ? FileKind.DIRECTORY : FileKind.FILE
+    Method List(path: String): (String,
+                                FileKind)[]? Throws IOError => path == "" ? [("1",
+                                                                              FileKind.FILE)] : Null
 End Class
 
 Print("a source of its own")

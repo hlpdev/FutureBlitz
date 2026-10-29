@@ -73,9 +73,11 @@ Print("resumed:", "{screen.ReadEvent()?.Kind ?? InputKind.KEY}", Presented(scree
 screen.HideCursor()
 Print("cursor after:", Presented(screen, fake))
 fake.Feed("q")
-Print("event:", "{screen.PollEvent(0.Seconds)?.Key ?? KeyEvent('?')}", "{screen.PollEvent(0.Seconds) == Null}")
+Print("event:", "{screen.PollEvent(0.Seconds)?.Key ?? KeyEvent('?')}",
+      "{screen.PollEvent(0.Seconds) == Null}")
 screen.Close()
-Print("close:", Shown(fake.TakeOutput()), "mode", fake.InputMode, "leave [{fake.Leave}]", screen.IsOpen)
+Print("close:", Shown(fake.TakeOutput()), "mode", fake.InputMode, "leave [{fake.Leave}]",
+      screen.IsOpen)
 screen.Close()
 Print("closed twice: [{fake.TakeOutput()}]")
 
@@ -113,12 +115,14 @@ Print("app closed:", counted.InputMode, counted.ReadEvent()?.Key?.Character ?? '
 
 // A Canvas keeps what's drawn to its edges.
 Local canvas = Canvas(8, 4)
-Print(canvas.Print(5, 0, "clipped"), canvas.Print(-2, 1, "left"), canvas.Print(0, 9, "off"), canvas.Print(7, 2, "中"))
+Print(canvas.Print(5, 0, "clipped"), canvas.Print(-2, 1, "left"), canvas.Print(0, 9, "off"),
+      canvas.Print(7, 2, "中"))
 Print(canvas.Print(-1, 3, "中x"), canvas.Print(2, 3, "a\tb\nc"))
 Print(canvas.ToString())
 Print("[{canvas[0, 1]}] [{canvas[1, 1]}] [{canvas[0, 3]}] {canvas[0, 0].Look}")
 canvas.Clear()
-Print(canvas.Print(Region(1, 0, 5, 3), "wrap this text here", Style()), canvas.Print(Region(0, 0, 0, 2), "x", Style()))
+Print(canvas.Print(Region(1, 0, 5, 3), "wrap this text here", Style()),
+      canvas.Print(Region(0, 0, 0, 2), "x", Style()))
 Print(canvas.ToString())
 canvas.Fill(Region(4, 1, 10, 10), "#", Style(TermColor.Yellow))
 canvas.SetLook(Region(0, 0, 2, 1), Style().Reverse())
@@ -170,7 +174,8 @@ Local strip = Region(0, 0, 10, 1)
 Print("{strip.SplitColumns(Constraint.Fill(2000000000), Constraint.Fill(2000000000))}")
 Print("{strip.SplitColumns(Constraint.Fill(2147483647), Constraint.Min(1), Constraint.Fill(2147483647))}")
 Print("{area.Inner()} {area.Inner(2, 1)} {area.Inner(6)} {Region(5, 5, 4, 4).Intersect(area)} {Region(20, 0, 2, 2).Intersect(area)}")
-Print(area.Contains(0, 0), area.Contains(9, 9), area.Contains(10, 0), area.Contains(-1, 5), Region(0, 0, 0, 5).IsEmpty)
+Print(area.Contains(0, 0), area.Contains(9, 9), area.Contains(10, 0), area.Contains(-1, 5),
+      Region(0, 0, 0, 5).IsEmpty)
 Print(area.Right, area.Bottom, Region(1, 2, 3, 4) == Region(1, 2, 3, 4))
 
 // A list scrolls to keep what's selected in view.
@@ -178,9 +183,12 @@ Local list = ListView(["one", "two", "three", "four", "five", "six"])
 Local view = Canvas(10, 3)
 list.Draw(view, view.Area)
 Print(view.ToString(), "|", list.Selected, list.SelectedItem ?? "")
-For key In [KeyEvent(KeyCode.DOWN), KeyEvent(KeyCode.DOWN), KeyEvent(KeyCode.DOWN), KeyEvent(KeyCode.PAGE_DOWN),
-            KeyEvent(KeyCode.PAGE_DOWN), KeyEvent(KeyCode.UP), KeyEvent(KeyCode.PAGE_UP), KeyEvent(KeyCode.HOME),
-            KeyEvent(KeyCode.UP), KeyEvent(KeyCode.END), KeyEvent(KeyCode.DOWN, KeyModifiers.SHIFT), KeyEvent('x')]
+For key In [KeyEvent(KeyCode.DOWN), KeyEvent(KeyCode.DOWN), KeyEvent(KeyCode.DOWN),
+            KeyEvent(KeyCode.PAGE_DOWN),
+            KeyEvent(KeyCode.PAGE_DOWN), KeyEvent(KeyCode.UP), KeyEvent(KeyCode.PAGE_UP),
+            KeyEvent(KeyCode.HOME),
+            KeyEvent(KeyCode.UP), KeyEvent(KeyCode.END), KeyEvent(KeyCode.DOWN, KeyModifiers.SHIFT),
+            KeyEvent('x')]
     Local took = list.HandleKey(key)
     view.Clear()
     list.Draw(view, view.Area)
@@ -188,13 +196,17 @@ For key In [KeyEvent(KeyCode.DOWN), KeyEvent(KeyCode.DOWN), KeyEvent(KeyCode.DOW
 End For
 
 Local mouse = Region(0, 0, 10, 3)
-For event In [MouseEvent(MouseAction.PRESS, MouseButton.LEFT, 2, 0), MouseEvent(MouseAction.PRESS, MouseButton.RIGHT, 2, 1),
-              MouseEvent(MouseAction.SCROLL_DOWN, MouseButton.NONE, 0, 0), MouseEvent(MouseAction.SCROLL_UP, MouseButton.NONE, 0, 0),
-              MouseEvent(MouseAction.PRESS, MouseButton.LEFT, 2, 5), MouseEvent(MouseAction.RELEASE, MouseButton.LEFT, 2, 1)]
+For event In [MouseEvent(MouseAction.PRESS, MouseButton.LEFT, 2, 0),
+              MouseEvent(MouseAction.PRESS, MouseButton.RIGHT, 2, 1),
+              MouseEvent(MouseAction.SCROLL_DOWN, MouseButton.NONE, 0, 0),
+              MouseEvent(MouseAction.SCROLL_UP, MouseButton.NONE, 0, 0),
+              MouseEvent(MouseAction.PRESS, MouseButton.LEFT, 2, 5),
+              MouseEvent(MouseAction.RELEASE, MouseButton.LEFT, 2, 1)]
     Print("{event}:", list.HandleMouse(event, mouse), list.Selected)
 End For
 
-Print(list.HandleEvent(InputEvent(KeyEvent(KeyCode.END)), mouse), list.HandleEvent(InputEvent(10, 10), mouse), list.Selected)
+Print(list.HandleEvent(InputEvent(KeyEvent(KeyCode.END)), mouse),
+      list.HandleEvent(InputEvent(10, 10), mouse), list.Selected)
 list.Selected = 99
 Print(list.Selected)
 list.Selected = -5
@@ -209,7 +221,8 @@ Print("list:", Presented(listScreen, styled))
 listScreen.Close()
 Local empty = ListView([])
 empty.Draw(view, view.Area)
-Print(empty.Selected, empty.SelectedItem ?? "none", empty.HandleKey(KeyEvent(KeyCode.DOWN)), empty.Selected,
+Print(empty.Selected, empty.SelectedItem ?? "none", empty.HandleKey(KeyEvent(KeyCode.DOWN)),
+      empty.Selected,
       empty.HandleMouse(MouseEvent(MouseAction.SCROLL_DOWN, MouseButton.NONE, 0, 0), view.Area))
 
 // A text input edits its line, and scrolls sideways to keep its cursor in view.
@@ -226,20 +239,24 @@ For text In ["abc", "defghij", "中文", "k"]
     Print(input.Draw(line, line.Area), "[{line}]", input.Text, input.Cursor)
 End For
 
-For key In [KeyEvent(KeyCode.HOME), KeyEvent(KeyCode.RIGHT), KeyEvent(KeyCode.DELETE), KeyEvent(KeyCode.END),
-            KeyEvent(KeyCode.BACKSPACE), KeyEvent(KeyCode.LEFT, KeyModifiers.CONTROL), KeyEvent('w', KeyModifiers.CONTROL),
+For key In [KeyEvent(KeyCode.HOME), KeyEvent(KeyCode.RIGHT), KeyEvent(KeyCode.DELETE),
+            KeyEvent(KeyCode.END),
+            KeyEvent(KeyCode.BACKSPACE), KeyEvent(KeyCode.LEFT, KeyModifiers.CONTROL),
+            KeyEvent('w', KeyModifiers.CONTROL),
             KeyEvent(KeyCode.F1)]
     Local took = input.HandleKey(key)
     line.Clear()
     Print("{key}:", took, input.Draw(line, line.Area), "[{line}]", input.Text, input.Cursor)
 End For
 
-Print(input.HandleEvent(InputEvent("pasted\r\nline")), input.Text, input.HandleEvent(InputEvent(4, 4)))
+Print(input.HandleEvent(InputEvent("pasted\r\nline")), input.Text,
+      input.HandleEvent(InputEvent(4, 4)))
 input.Text = "secret"
 input.Mask = "•"
 line.Clear()
 Print(input.Draw(line, line.Area), "[{line}]", input.Cursor)
-Print(input.Draw(line, Region(0, 0, 0, 1)), input.HandleEvent(InputEvent(KeyEvent(KeyCode.HOME))), input.Cursor)
+Print(input.Draw(line, Region(0, 0, 0, 1)), input.HandleEvent(InputEvent(KeyEvent(KeyCode.HOME))),
+      input.Cursor)
 
 // Its text getting shorter, by keys or set, brings what it scrolled past back into view.
 Local shorter = TextInput()
@@ -247,8 +264,10 @@ For c In "abcdefghijk lm".Chars
     shorter.HandleKey(KeyEvent(c))
 End For
 
-For key In [KeyEvent(KeyCode.BACKSPACE), KeyEvent('w', KeyModifiers.CONTROL), KeyEvent(KeyCode.BACKSPACE),
-            KeyEvent(KeyCode.BACKSPACE), KeyEvent(KeyCode.BACKSPACE), KeyEvent(KeyCode.BACKSPACE), KeyEvent(KeyCode.BACKSPACE)]
+For key In [KeyEvent(KeyCode.BACKSPACE), KeyEvent('w', KeyModifiers.CONTROL),
+            KeyEvent(KeyCode.BACKSPACE),
+            KeyEvent(KeyCode.BACKSPACE), KeyEvent(KeyCode.BACKSPACE), KeyEvent(KeyCode.BACKSPACE),
+            KeyEvent(KeyCode.BACKSPACE)]
     shorter.HandleKey(key)
     line.Clear()
     Print("{key}:", shorter.Draw(line, line.Area), "[{line}]", shorter.Text)

@@ -191,12 +191,12 @@ Try
     Local host = "Host: localhost\r\n"
     Print(Await Raw(port, "GET /users/1 HTTP/1.1\r\n{host}\r\nGET /users/2 HTTP/1.1\r\n{host}\r\n"))
     Print(Await Raw(port, "GET /users/3 HTTP/1.1\r\n{host}Connection: close\r\n\r\n" +
-                          "GET /users/4 HTTP/1.1\r\n{host}\r\n"))
+                    "GET /users/4 HTTP/1.1\r\n{host}\r\n"))
     Print(Await Raw(port, "POST /close HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n" +
-                          "GET /users/5 HTTP/1.1\r\n{host}\r\n"))
+                    "GET /users/5 HTTP/1.1\r\n{host}\r\n"))
     Print(Await Raw(port, "GET /users/6 HTTP/1.0\r\n\r\nGET /users/7 HTTP/1.0\r\n\r\n"))
     Print(Await Raw(port, "GET /users/8 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n" +
-                          "GET /users/9 HTTP/1.0\r\n\r\n"))
+                    "GET /users/9 HTTP/1.0\r\n\r\n"))
 
     // A HEAD's response has the GET's Content-Length but not its body, a custom method has its
     // route, a target can be a whole URL, and OPTIONS * is the server's own.
@@ -207,26 +207,26 @@ Try
 
     // A 100 Continue before a body that asks for one, and a chunked body, its trailer read past.
     Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Expect: 100-continue\r\n" +
-                          "Content-Length: 5\r\n\r\nhello"))
+                    "Content-Length: 5\r\n\r\nhello"))
     Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Transfer-Encoding: chunked\r\n\r\n" +
-                          "3\r\nabc\r\n4;ext=1\r\ndefg\r\n0\r\nX-Trailer: t\r\n\r\n"))
+                    "3\r\nabc\r\n4;ext=1\r\ndefg\r\n0\r\nX-Trailer: t\r\n\r\n"))
     // A body too long for MaxBodySize is refused before it's sent, with no 100 Continue.
     Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Expect: 100-continue\r\n" +
-                          "Content-Length: 5000\r\n\r\n"))
+                    "Content-Length: 5000\r\n\r\n"))
 
     // What the rules refuse: its status, and the connection closed.
     Print(Await Raw(port, "GET /users/1 HTTP/1.1\r\n\r\n"))
     Print(Await Raw(port, "GET /users/1 HTTP/1.1\r\n{host}{host}\r\n"))
     Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Expect: tea\r\nContent-Length: 1\r\n\r\nx"))
     Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Content-Length: 3\r\n" +
-                          "Transfer-Encoding: chunked\r\n\r\n0\r\n\r\n"))
+                    "Transfer-Encoding: chunked\r\n\r\n0\r\n\r\n"))
     Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Content-Length: 3\r\nContent-Length: 4" +
-                          "\r\n\r\nabcd"))
+                    "\r\n\r\nabcd"))
     Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Transfer-Encoding: gzip, chunked\r\n\r\n"))
     Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Content-Length: 1001\r\n\r\n" +
-                          "x".Repeated(1001)))
+                    "x".Repeated(1001)))
     Print(Await Raw(port, "POST /echo HTTP/1.1\r\n{host}Transfer-Encoding: chunked\r\n\r\n" +
-                          "3e9\r\n" + "x".Repeated(1001) + "\r\n0\r\n\r\n"))
+                    "3e9\r\n" + "x".Repeated(1001) + "\r\n0\r\n\r\n"))
     Print(Await Raw(port, "GET /users/1 HTTP/2.0\r\n{host}\r\n"))
     Print(Await Raw(port, "GET users/1 HTTP/1.1\r\n{host}\r\n"))
     Print(Await Raw(port, "BAD REQUEST\r\n\r\n"))
@@ -249,7 +249,7 @@ Try
     Print(Await Raw(port, chunked + "3;a\rb\r\nabc\r\n0\r\n\r\n"))
     Print(Await Raw(port, chunked + "3;a=\"open\r\nabc\r\n0\r\n\r\n"))
     Print(Await Raw(port, "POST /echo HTTP/1.0\r\nConnection: keep-alive\r\nTransfer-Encoding: " +
-                          "chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\nGET /users/1 HTTP/1.0\r\n\r\n"))
+                    "chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\nGET /users/1 HTTP/1.0\r\n\r\n"))
     Print(Await Raw(port, post + "Transfer-Encoding: chunked, gzip\r\n\r\n"))
     Print(Await Raw(port, post + "Transfer-Encoding: chunked, chunked\r\n\r\n"))
     Print(Await Raw(port, "GET /users/1 HTTP/1.0\r\nHost: a\r\nHost: b\r\n\r\n"))

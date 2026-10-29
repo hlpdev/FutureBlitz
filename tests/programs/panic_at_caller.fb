@@ -16,4 +16,4 @@ Function Checked(n: Int): Int => Element(n) * 2
 
 Print("{Checked(1)}")
 Local total = Checked(1) +
-    Checked(5)
+              Checked(5)

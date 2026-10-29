@@ -110,7 +110,8 @@ l.Keep([True, False])
 Local s = Slot<String>()
 Print(s.Shout())
 s.Keep("hi")
-Print("{Slot<Int>.Kept ?? -1} {Slot<Int>.Count} {i.Show()} {l.Sum()} {s.Shout()} {Slot<Bool[]>.Sets}")
+Print(
+    "{Slot<Int>.Kept ?? -1} {Slot<Int>.Count} {i.Show()} {l.Sum()} {s.Shout()} {Slot<Bool[]>.Sets}")
 
 Tally(1).Note()
 Tally(2).Note()

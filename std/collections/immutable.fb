@@ -10,7 +10,6 @@ Import std.collections.map
 // A node of an ImmutableArray's tree: its values are its left child's, then Value, then its right
 // child's.
 Shared Class ArrayNode<T: Sendable>
-
     ReadOnly Field Value: T
     ReadOnly Field Left: ArrayNode<T>?
     ReadOnly Field Right: ArrayNode<T>?
@@ -28,7 +27,6 @@ End Class
 
 @DebugElements
 Public Struct ImmutableArray<T: Sendable> Implements Iterable<T>, Defaultable, Sendable
-
     Field Root: ArrayNode<T>?
 
     // An empty one.
@@ -230,7 +228,6 @@ End Struct
 // The nodes on the way down to an ImmutableArrayIterator's next value, the lowest first. A step
 // makes new ones rather than changing these, so a copy of the iterator keeps its place.
 Class ArrayPath<T: Sendable>
-
     ReadOnly Field Node: ArrayNode<T>
     ReadOnly Field Up: ArrayPath<T>?
 
@@ -242,7 +239,6 @@ End Class
 
 // An ImmutableArray's values in order: the nodes on the way down to the next one.
 Public Struct ImmutableArrayIterator<T: Sendable> Implements Iterator<T>
-
     Field Path: ArrayPath<T>?
 
     Public ByRef Method Next(): T?

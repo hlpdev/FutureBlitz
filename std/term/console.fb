@@ -49,4 +49,5 @@ Public Function ReadKey(timeout: Duration): KeyEvent? => Terminal.Console().Read
 // Writes the prompt, then reads a line typed at the console without showing it, as for a
 // password, up to ENTER. BACKSPACE takes back the last character, and Ctrl+U the whole line. Null
 // once the input has ended, or for Ctrl+D on an empty line, as Input gives at the end.
-Public Function ReadPassword(prompt: String = ""): String? => Terminal.Console().ReadPassword(prompt)
+Public Function ReadPassword(prompt: String = ""): String? =>
+    Terminal.Console().ReadPassword(prompt)

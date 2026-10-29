@@ -199,7 +199,8 @@ Public Class XmlReader
             If !good Then Throw Fail("the XML declaration's encoding isn't an encoding's name")
             // The text is a String's, UTF-8, which an encoding of 2 or 4 bytes a character isn't.
             Local lower = Lowered(value)
-            For wide In ["utf-16", "utf-16le", "utf-16be", "utf-32", "utf-32le", "utf-32be", "ucs-2",
+            For wide In ["utf-16", "utf-16le", "utf-16be", "utf-32", "utf-32le", "utf-32be",
+                         "ucs-2",
                          "ucs-4", "iso-10646-ucs-2", "iso-10646-ucs-4"]
                 If lower == wide Then Throw Fail("the text is UTF-8, which isn't {value}")
             End For
@@ -522,8 +523,10 @@ Public Class XmlReader
         Advance(2)
         Local target = Try Name()
         Local lower = target.Bytes
-        If lower.Count == 3 && (lower[0] | 32) == 120 && (lower[1] | 32) == 109 && (lower[2] | 32) == 108
-            Throw Fail("a processing instruction can't be named xml, but the declaration at the start")
+        If lower.Count == 3 && (lower[0] | 32) == 120 && (lower[1] | 32) == 109 &&
+           (lower[2] | 32) == 108
+            Throw Fail(
+                "a processing instruction can't be named xml, but the declaration at the start")
         End If
 
         Local out: UInt8[] = []
@@ -883,7 +886,8 @@ Public Class XmlReader
                 Local b = ByteAt(0)
                 If b != 124 && b != 44 Then Throw Fail("a content model's particles have '|' or ',' between them")
                 If separator != 0 && b != separator
-                    Throw Fail("a content model's group has '|' or ',' between its particles, not both")
+                    Throw Fail(
+                        "a content model's group has '|' or ',' between its particles, not both")
                 End If
 
                 separator = b

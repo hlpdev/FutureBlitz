@@ -59,7 +59,7 @@ Public Class BinaryReader
     Method BytesOf(count: Int64, name: String): UInt8[] Throws IOError
         If count > 2147483647
             Throw IOError(IOErrorKind.OTHER, "{name} reads up to the 2147483647 bytes an array " +
-                                             "holds, not {count}")
+                          "holds, not {count}")
         End If
 
         Local bytes: UInt8[] = []

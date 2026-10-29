@@ -31,7 +31,6 @@ End Class
 
 // A generic Class that extends the base with its own type parameter.
 Class Sorted<T: Comparable> Extends Container<T>
-
     Override Method Add(item: T)
         Local at = 0
         While at < Items.Count && Items[at] < item
@@ -49,7 +48,6 @@ Class Pair<A, B>
         Left = left
         Right = right
     End New
-
 End Class
 
 Class Labeled<T> Extends Pair<String, T>

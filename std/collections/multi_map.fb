@@ -8,7 +8,6 @@ Import std.collections.map
 
 @DebugEntries
 Public Class MultiMap<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
-
     Field Items: Map<K, V[]>
     Field Size: Int
     // How many times values were added or removed, so a For ... In over them can tell.
@@ -110,7 +109,6 @@ Public Class MultiMap<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, De
 End Class
 
 Public Struct MultiMapIterator<K: Hashable, V> Implements Iterator<(K, V)>
-
     Field Owner: MultiMap<K, V>
     // The keys when the loop began, which no change but one that panics reaches.
     Field Keys: K[]

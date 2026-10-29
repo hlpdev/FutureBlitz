@@ -171,7 +171,8 @@ Function CheckProtocols(protocols: String[])
     For protocol In protocols
         Local bytes = protocol.Bytes
         If bytes.Count == 0 || bytes.Count > 255
-            Panic("an application protocol's name is 1 to 255 bytes, like \"h2\", not \"{protocol}\"")
+            Panic(
+                "an application protocol's name is 1 to 255 bytes, like \"h2\", not \"{protocol}\"")
         End If
 
         If HasNul(bytes) Then Panic("an application protocol's name has no NUL")
@@ -262,7 +263,7 @@ Public Class TlsClient
     // Connect's Async twin, which waits on the main thread.
     @PanicsAtCaller
     Public Async Method ConnectAsync<S>(stream: S, host: String): TlsStream<S> Throws NetError,
-                                                                                 TimeoutError
+                                                                                      TimeoutError
         Where S: Reader & Writer
         CheckHost(host)
         Local tls = TlsStream<S>(stream, Setup.Config(), host)
@@ -406,7 +407,8 @@ Public Class TlsStream<S> Implements Reader, Writer
                     Throw NetError(NetErrorKind.TLS, fb_tls_message(State))
                 End If
 
-                If step == HANDSHAKE_ENDED Then Throw NetError(NetErrorKind.CLOSED, fb_tls_message(State))
+                If step == HANDSHAKE_ENDED Then Throw NetError(NetErrorKind.CLOSED,
+                                                               fb_tls_message(State))
                 If Try Send() Then Try Inner.Flush()
                 If step == HANDSHAKE_DONE Then Return
                 Try Receive()
@@ -428,7 +430,8 @@ Public Class TlsStream<S> Implements Reader, Writer
                     Throw NetError(NetErrorKind.TLS, fb_tls_message(State))
                 End If
 
-                If step == HANDSHAKE_ENDED Then Throw NetError(NetErrorKind.CLOSED, fb_tls_message(State))
+                If step == HANDSHAKE_ENDED Then Throw NetError(NetErrorKind.CLOSED,
+                                                               fb_tls_message(State))
                 If Try Await SendAsync() Then Try Await Inner.FlushAsync()
                 If step == HANDSHAKE_DONE Then Return
                 Try Await ReceiveAsync()
@@ -624,7 +627,7 @@ Public Class TlsListener
     // handshake fails throws here, as a NetError, or as a TimeoutError when it's too slow for
     // `timeout`, after which the listener takes the next one.
     Public Method Accept(timeout: Duration? = Null): TlsStream<TcpStream> Throws NetError,
-                                                                               TimeoutError
+                                                                                 TimeoutError
         Local started = Instant.Now()
         Local tcp = Try Listener.Accept(timeout)
         tcp.ReadTimeout = Left(timeout, started)
@@ -635,7 +638,7 @@ Public Class TlsListener
 
     // Accept's Async twin, which waits on the main thread.
     Public Async Method AcceptAsync(
-        timeout: Duration? = Null): TlsStream<TcpStream> Throws NetError, TimeoutError
+            timeout: Duration? = Null): TlsStream<TcpStream> Throws NetError, TimeoutError
         Local started = Instant.Now()
         Local tcp = Try Await Listener.AcceptAsync(timeout)
         tcp.ReadTimeout = Left(timeout, started)

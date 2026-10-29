@@ -759,7 +759,7 @@ Public Class HttpServer Extends HttpRouter
     // The request a head starts: its body read, once a 100 Continue is sent when it asks for
     // one, and its target's path and query.
     Async Method Read(head: Head, connection: ServerConnection): HttpRequest Throws IOError,
-                                                                                 WireError
+                                                                                    WireError
         Local hosts = 0
         For name In head.Names
             If name.EqualsIgnoreCase("Host") Then hosts += 1

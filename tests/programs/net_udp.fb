@@ -44,7 +44,8 @@ Try
     Try
         a.Receive(20.Milliseconds)
     Catch e As TimeoutError
-        Print("Receive:", e.Message == "receiving at {a.LocalAddress} took longer than it was given")
+        Print("Receive:",
+              e.Message == "receiving at {a.LocalAddress} took longer than it was given")
     End Try
 
     Try

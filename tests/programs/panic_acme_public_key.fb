@@ -13,5 +13,6 @@ End For
 
 Local key = Key(KeyKind.ECDSA_P256, True, bytes)
 Print(Acme.CertificateRequest(key, ["example.com"]).Count)
-Acme.CertificateRequest(Key(KeyKind.ECDSA_P256, False, EcdsaP256.PublicKeyOf(bytes)), ["example.com"])
+Acme.CertificateRequest(Key(KeyKind.ECDSA_P256, False, EcdsaP256.PublicKeyOf(bytes)),
+                        ["example.com"])
 Print("unreachable")

@@ -440,7 +440,8 @@ Function FindBridge(nodes: Node[], hole: Int, outer: Int): Int
             Local tangent = Abs(h.Y - at.Y) / (h.X - at.X)
             Local chosen = nodes[m].At
             Local nearer = tangent < least || (tangent == least && (at.X > chosen.X ||
-                           (at.X == chosen.X && HoldsSector(nodes, m, p))))
+                                                                    (at.X == chosen.X &&
+                                                                     HoldsSector(nodes, m, p))))
             If LocallyInside(nodes, p, hole) && nearer
                 m = p
                 least = tangent

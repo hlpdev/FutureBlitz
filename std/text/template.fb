@@ -174,7 +174,7 @@ Function Parsed(text: String, name: String, indent: Int = 0): Part[] Throws Form
         Local close = ClosingAt(bytes, inside, triple ? 3 : 2)
         If close < 0
             Throw Bad(name, bytes, tag, triple ? r"this {{{ has no }}} after it" :
-                                                  r"this {{ has no }} after it")
+                      r"this {{ has no }} after it")
         End If
 
         Local after = close + (triple ? 3 : 2)
@@ -216,7 +216,7 @@ Function Parsed(text: String, name: String, indent: Int = 0): Part[] Throws Form
     If open.Count > 1
         Local block = open[open.Count - 1]
         Throw Bad(name, bytes, block.Opens, r"this {{#" + block.Text + r"}} has no {{/" +
-                                            block.Text + r"}} after it")
+                  block.Text + r"}} after it")
     End If
 
     Return root.Body
@@ -378,7 +378,7 @@ Function PathOf(written: UInt8[], from: Int, name: String, bytes: UInt8[],
         Local special = each == "@index" || each == "@key" || each == "@first" || each == "@last"
         If (each.Bytes[0] == 64 && !special) || (special && steps.Count > 1)
             Throw Bad(name, bytes, at, "\"{whole}\" isn't a name; an " + r"{{#each}}" +
-                                       "'s are @index, @key, @first, and @last, alone")
+                      "'s are @index, @key, @first, and @last, alone")
         End If
     End For
 
@@ -563,42 +563,42 @@ Function Rendered(parts: Part[], data: Value, html: Bool,
             Local part = frame.Parts[frame.Next]
             frame.Next += 1
             Select part.Kind
-            Case PartKind.TEXT
-                out.Add(part.Text)
-            Case PartKind.VALUE
-                Local found = Lookup(scopes, part.Path)
-                Local text = part.Spec == "" ? TextOf(found) : Try SpecText(found, part)
-                out.Add(frame.Html && !part.Raw ? Escaped(text) : text)
-            Case PartKind.IF, PartKind.UNLESS
-                Local holds = Holds(Lookup(scopes, part.Path)) != (part.Kind == PartKind.UNLESS)
-                Local chosen = holds ? part.Body : part.Otherwise
-                If chosen.Count > 0 Then frames.Add(Frame(chosen, frame.Html))
-            Case PartKind.EACH
-                Local each = Each(part, Lookup(scopes, part.Path), frame.Html)
-                If each.Items.Count > 0
-                    frames.Add(each)
-                ElseIf part.Otherwise.Count > 0
-                    frames.Add(Frame(part.Otherwise, frame.Html))
-                End If
-            Case PartKind.PARTIAL
-                Local set = templates
-                If set == Null
-                    Throw FormatError(FormatErrorKind.MISSING_VALUE,
-                                      r"a Template has no partials, like {{> " + part.Text +
-                                      r"}}; Templates have them")
-                End If
+                Case PartKind.TEXT
+                    out.Add(part.Text)
+                Case PartKind.VALUE
+                    Local found = Lookup(scopes, part.Path)
+                    Local text = part.Spec == "" ? TextOf(found) : Try SpecText(found, part)
+                    out.Add(frame.Html && !part.Raw ? Escaped(text) : text)
+                Case PartKind.IF, PartKind.UNLESS
+                    Local holds = Holds(Lookup(scopes, part.Path)) != (part.Kind == PartKind.UNLESS)
+                    Local chosen = holds ? part.Body : part.Otherwise
+                    If chosen.Count > 0 Then frames.Add(Frame(chosen, frame.Html))
+                Case PartKind.EACH
+                    Local each = Each(part, Lookup(scopes, part.Path), frame.Html)
+                    If each.Items.Count > 0
+                        frames.Add(each)
+                    ElseIf part.Otherwise.Count > 0
+                        frames.Add(Frame(part.Otherwise, frame.Html))
+                    End If
+                Case PartKind.PARTIAL
+                    Local set = templates
+                    If set == Null
+                        Throw FormatError(FormatErrorKind.MISSING_VALUE,
+                                          r"a Template has no partials, like {{> " + part.Text +
+                                          r"}}; Templates have them")
+                    End If
 
-                If partials == MostPartials
-                    Throw FormatError(FormatErrorKind.OTHER,
-                                      "partials go more than {MostPartials} deep inside each " +
-                                      "other, at \"{part.Text}\"")
-                End If
+                    If partials == MostPartials
+                        Throw FormatError(FormatErrorKind.OTHER,
+                                          "partials go more than {MostPartials} deep inside each " +
+                                          "other, at \"{part.Text}\"")
+                    End If
 
-                Local inner = Frame(Try set.PartsOf(part.Text, part.Indent),
-                                    frame.Html || IsHtml(part.Text))
-                inner.Partial = True
-                partials += 1
-                frames.Add(inner)
+                    Local inner = Frame(Try set.PartsOf(part.Text, part.Indent),
+                                        frame.Html || IsHtml(part.Text))
+                    inner.Partial = True
+                    partials += 1
+                    frames.Add(inner)
             End Select
 
             Continue
@@ -694,20 +694,20 @@ End Function
 // Null, and the rest as their ToString gives them.
 Function TextOf(value: Value): String
     Select value.Kind
-    Case ValueKind.NULL
-        Return ""
-    Case ValueKind.STRING
-        Return value.AsString() ?? ""
-    Case ValueKind.BOOL
-        Return "{value.AsBool() ?? False}"
-    Case ValueKind.INT
-        Return "{value.AsInt64() ?? 0}"
-    Case ValueKind.UINT
-        Return "{value.AsUInt64() ?? 0}"
-    Case ValueKind.DOUBLE
-        Return "{value.AsDouble() ?? 0.0}"
-    Default
-        Return value.ToString()
+        Case ValueKind.NULL
+            Return ""
+        Case ValueKind.STRING
+            Return value.AsString() ?? ""
+        Case ValueKind.BOOL
+            Return "{value.AsBool() ?? False}"
+        Case ValueKind.INT
+            Return "{value.AsInt64() ?? 0}"
+        Case ValueKind.UINT
+            Return "{value.AsUInt64() ?? 0}"
+        Case ValueKind.DOUBLE
+            Return "{value.AsDouble() ?? 0.0}"
+        Default
+            Return value.ToString()
     End Select
 End Function
 
@@ -719,22 +719,22 @@ End Function
 Function SpecText(value: Value, part: Part): String Throws FormatError
     Local text: String? = Null
     Select value.Kind
-    Case ValueKind.NULL
-        Return ""
-    Case ValueKind.BOOL
-        text = (value.AsBool() ?? False).Format(part.Spec)
-    Case ValueKind.INT
-        Local number = value.AsInt64() ?? 0
-        Local magnitude = number < 0 ? ((-(number + 1)) As UInt64) + 1 : number As UInt64
-        text = number.Format(part.Spec) ??
-               fb_format_exact(magnitude, number < 0 ? 1 : 0, part.Spec)
-    Case ValueKind.UINT
-        Local number = value.AsUInt64() ?? 0
-        text = number.Format(part.Spec) ?? fb_format_exact(number, 0, part.Spec)
-    Case ValueKind.DOUBLE
-        text = (value.AsDouble() ?? 0.0).Format(part.Spec)
-    Default
-        text = TextOf(value).Format(part.Spec)
+        Case ValueKind.NULL
+            Return ""
+        Case ValueKind.BOOL
+            text = (value.AsBool() ?? False).Format(part.Spec)
+        Case ValueKind.INT
+            Local number = value.AsInt64() ?? 0
+            Local magnitude = number < 0 ? ((-(number + 1)) As UInt64) + 1 : number As UInt64
+            text = number.Format(part.Spec) ??
+                   fb_format_exact(magnitude, number < 0 ? 1 : 0, part.Spec)
+        Case ValueKind.UINT
+            Local number = value.AsUInt64() ?? 0
+            text = number.Format(part.Spec) ?? fb_format_exact(number, 0, part.Spec)
+        Case ValueKind.DOUBLE
+            text = (value.AsDouble() ?? 0.0).Format(part.Spec)
+        Default
+            text = TextOf(value).Format(part.Spec)
     End Select
 
     If text == Null
@@ -751,21 +751,21 @@ End Function
 // Object, or bytes.
 Function Holds(value: Value): Bool
     Select value.Kind
-    Case ValueKind.NULL
-        Return False
-    Case ValueKind.BOOL
-        Return value.AsBool() ?? False
-    Case ValueKind.INT
-        Return (value.AsInt64() ?? 0) != 0
-    Case ValueKind.UINT
-        Return True
-    Case ValueKind.DOUBLE
-        Local number = value.AsDouble() ?? 0.0
-        Return number != 0 && number == number
-    Case ValueKind.STRING
-        Return (value.AsString() ?? "") != ""
-    Default
-        Return value.Count > 0
+        Case ValueKind.NULL
+            Return False
+        Case ValueKind.BOOL
+            Return value.AsBool() ?? False
+        Case ValueKind.INT
+            Return (value.AsInt64() ?? 0) != 0
+        Case ValueKind.UINT
+            Return True
+        Case ValueKind.DOUBLE
+            Local number = value.AsDouble() ?? 0.0
+            Return number != 0 && number == number
+        Case ValueKind.STRING
+            Return (value.AsString() ?? "") != ""
+        Default
+            Return value.Count > 0
     End Select
 End Function
 
@@ -777,18 +777,18 @@ Function Escaped(text: String): String
     For i, b In bytes
         Local escape = ""
         Select b
-        Case 38
-            escape = "&amp;"
-        Case 60
-            escape = "&lt;"
-        Case 62
-            escape = "&gt;"
-        Case 34
-            escape = "&quot;"
-        Case 39
-            escape = "&#39;"
-        Default
-            Continue
+            Case 38
+                escape = "&amp;"
+            Case 60
+                escape = "&lt;"
+            Case 62
+                escape = "&gt;"
+            Case 34
+                escape = "&quot;"
+            Case 39
+                escape = "&#39;"
+            Default
+                Continue
         End Select
 
         parts.Add(fb_string_from_array(bytes[start..i]))

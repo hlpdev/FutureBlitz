@@ -202,7 +202,8 @@ Public Struct TermColor Implements Hashable, Printable
             Case ColorKind.NORMAL
                 Return "normal"
             Case ColorKind.BASIC
-                Local names = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"]
+                Local names = ["black", "red", "green", "yellow", "blue", "magenta", "cyan",
+                               "white"]
                 Return Index < 8 ? names[Index] : "bright {names[Index - 8]}"
             Case ColorKind.INDEXED
                 Return "color {Index}"
@@ -586,7 +587,8 @@ End Function
 // The red, green, and blue xterm shows each of the 256 colors as.
 Function PaletteRgb(index: UInt8): (Int, Int, Int)
     If index < 16
-        Local basic = [(0, 0, 0), (205, 0, 0), (0, 205, 0), (205, 205, 0), (0, 0, 238), (205, 0, 205),
+        Local basic = [(0, 0, 0), (205, 0, 0), (0, 205, 0), (205, 205, 0), (0, 0, 238),
+                       (205, 0, 205),
                        (0, 205, 205), (229, 229, 229), (127, 127, 127), (255, 0, 0), (0, 255, 0),
                        (255, 255, 0), (92, 92, 255), (255, 0, 255), (0, 255, 255), (255, 255, 255)]
         Return basic[index]

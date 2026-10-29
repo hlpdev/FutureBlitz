@@ -33,7 +33,7 @@ Public Class IpcStream Implements Reader, Writer
     // it takes too long. A name that isn't one panics.
     @PanicsAtCaller
     Public Static Method Connect(
-        name: String, timeout: Duration? = Null): IpcStream Throws NetError, TimeoutError
+            name: String, timeout: Duration? = Null): IpcStream Throws NetError, TimeoutError
         CheckName(name)
         Local socket = StreamSocket(SocketKind.IPC, "IpcStream", name)
         Local code = fb_io_net_connect_pipe(socket.Handle, name, NanosecondsOf(timeout))
@@ -44,7 +44,7 @@ Public Class IpcStream Implements Reader, Writer
     // Connect's Async twin, which waits on the main thread.
     @PanicsAtCaller
     Public Static Async Method ConnectAsync(
-        name: String, timeout: Duration? = Null): IpcStream Throws NetError, TimeoutError
+            name: String, timeout: Duration? = Null): IpcStream Throws NetError, TimeoutError
         CheckName(name)
         Local socket = StreamSocket(SocketKind.IPC, "IpcStream", name)
         Local code = Await fb_io_net_connect_pipe_async(socket.Handle, name,
@@ -141,7 +141,7 @@ Public Class IpcListener
 
     // Accept's Async twin, which waits on the main thread.
     Public Async Method AcceptAsync(
-        timeout: Duration? = Null): IpcStream Throws NetError, TimeoutError
+            timeout: Duration? = Null): IpcStream Throws NetError, TimeoutError
         Local accepted = Try Await Socket.AcceptAsync(timeout)
         Return IpcStream(StreamSocket(accepted, "IpcStream", Socket.Address))
     End Method

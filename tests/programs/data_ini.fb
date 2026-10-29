@@ -44,7 +44,8 @@ Local written = Ini.Write(document)
 Print(written)
 Local again = Try Ini.Read(written)
 Print(again)
-Print(again.Path("server.spaced")?.AsString() == " a b ", again.Path("server.quote")?.AsString() == "\"q\"")
+Print(again.Path("server.spaced")?.AsString() == " a b ",
+      again.Path("server.quote")?.AsString() == "\"q\"")
 
 // A CR alone ends a line too.
 Print(Try Ini.Read("a = 1\r[s]\rb = 2\r\nc = 3"))

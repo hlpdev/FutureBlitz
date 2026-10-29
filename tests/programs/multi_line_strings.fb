@@ -14,7 +14,7 @@ Print("""
 Local x = 41
 Print("""
     one {x +
-1} two
+      1} two
     three
     """)
 

@@ -120,8 +120,8 @@ Function Orient(ax: Double, ay: Double, bx: Double, by: Double, cx: Double, cy: 
     If determinant >= bound || -determinant >= bound Then Return determinant
     // ax * by - ax * cy + bx * cy - bx * ay + cx * ay - cx * by, exactly.
     Local terms = Plus(Plus(Minus(Exactly(ax, by), Exactly(ax, cy)),
-                          Minus(Exactly(bx, cy), Exactly(bx, ay))),
-                      Minus(Exactly(cx, ay), Exactly(cx, by)))
+                            Minus(Exactly(bx, cy), Exactly(bx, ay))),
+                       Minus(Exactly(cx, ay), Exactly(cx, by)))
     Return SignOf(terms)
 End Function
 

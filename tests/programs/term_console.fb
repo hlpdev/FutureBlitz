@@ -9,11 +9,15 @@ Import std.term
 
 Function Shown(text: String): String => text.Replace("\u{1b}", "\\e").Replace("\r", "\\r")
 
-Print(IsTerminal(), IsTerminal(StandardStream.INPUT), IsTerminal(StandardStream.ERROR), TerminalSize() == Null)
-Print(ConsoleColors(), ConsoleColors(StandardStream.ERROR), Paint("plain", Style(TermColor.Red).Bold()))
+Print(IsTerminal(), IsTerminal(StandardStream.INPUT), IsTerminal(StandardStream.ERROR),
+      TerminalSize() == Null)
+Print(ConsoleColors(), ConsoleColors(StandardStream.ERROR),
+      Paint("plain", Style(TermColor.Red).Bold()))
 Local console = Terminal.Console()
-Print(console.Columns, console.Rows, console.Colors, console.IsInteractive, console.IsInputInteractive)
-Print(RefEquals(console, Terminal.Console()), RefEquals(console, Terminal.Console(StandardStream.ERROR)))
+Print(console.Columns, console.Rows, console.Colors, console.IsInteractive,
+      console.IsInputInteractive)
+Print(RefEquals(console, Terminal.Console()),
+      RefEquals(console, Terminal.Console(StandardStream.ERROR)))
 console.Write("written, ")
 console.Write("styled", Style(TermColor.Green))
 console.WriteLine()
@@ -29,7 +33,8 @@ End For
 Print("password:", ReadPassword("Password: ") ?? "Null")
 Print("confirm:", Confirm("Proceed?") ?? False)
 Print("ask:", Ask("Name?", "nobody") ?? "Null")
-Print("checked ask:", Ask("Age?", Function(text: String) => text == "" ? "say a number" : Null) ?? "Null")
+Print("checked ask:",
+      Ask("Age?", Function(text: String) => text == "" ? "say a number" : Null) ?? "Null")
 Print("choose:", Choose("Size?", ["small", "medium", "large"], 1) ?? -1)
 Print("key:", "{ReadKey(10.Milliseconds) ?? KeyEvent('?')}")
 Print("ended:", ReadKey() == Null, ReadPassword() == Null, Ask("More?") == Null)

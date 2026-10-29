@@ -76,10 +76,10 @@ Local rsa = Rsa.PublicKey(Unhex("a1f8160ae2e3c9b465ce8d2d656263362b927dbe29e1f02
 Expect("RS256 RFC 7515", Rsa.Verify(rsa, "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ",
                                     Unhex("702e218943e88fd11eb5d82dbf7845f34106ae1b81fff7731116add1717d83656d420afd3c96eedd73a2663e5166687b000b87226e0187ed1073f945e582adfcef16d85a798ee8c66ddb3db8975b17d09402beedd5d9d97007108db28160d5f8040ca7445762b81fbe7ff9d92e0ae76f24f25b33bbe6f44ae61eb1040acb20044d3ef9128ed40130795bd4bd3b41eecad066ab651981fde48df77f372dc38b9fafdd3befb18b5da3cc3c2eb02f9e3a41d612caad15911273a05f23b9e838faaf849d698429ef5a1e88798236c3d40e604522a544c8f27a7a2db80663d16cf7caea56de405cb2215a45b2c25566b55ac1a748a070dfc8a32a469543d019eefb47")))
 Expect("RS256 RFC 7515 changed", !Rsa.Verify(rsa, "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQx",
-                                    Unhex("702e218943e88fd11eb5d82dbf7845f34106ae1b81fff7731116add1717d83656d420afd3c96eedd73a2663e5166687b000b87226e0187ed1073f945e582adfcef16d85a798ee8c66ddb3db8975b17d09402beedd5d9d97007108db28160d5f8040ca7445762b81fbe7ff9d92e0ae76f24f25b33bbe6f44ae61eb1040acb20044d3ef9128ed40130795bd4bd3b41eecad066ab651981fde48df77f372dc38b9fafdd3befb18b5da3cc3c2eb02f9e3a41d612caad15911273a05f23b9e838faaf849d698429ef5a1e88798236c3d40e604522a544c8f27a7a2db80663d16cf7caea56de405cb2215a45b2c25566b55ac1a748a070dfc8a32a469543d019eefb47")))
+                                             Unhex("702e218943e88fd11eb5d82dbf7845f34106ae1b81fff7731116add1717d83656d420afd3c96eedd73a2663e5166687b000b87226e0187ed1073f945e582adfcef16d85a798ee8c66ddb3db8975b17d09402beedd5d9d97007108db28160d5f8040ca7445762b81fbe7ff9d92e0ae76f24f25b33bbe6f44ae61eb1040acb20044d3ef9128ed40130795bd4bd3b41eecad066ab651981fde48df77f372dc38b9fafdd3befb18b5da3cc3c2eb02f9e3a41d612caad15911273a05f23b9e838faaf849d698429ef5a1e88798236c3d40e604522a544c8f27a7a2db80663d16cf7caea56de405cb2215a45b2c25566b55ac1a748a070dfc8a32a469543d019eefb47")))
 Expect("ES256 RFC 7515", EcdsaP256.Verify(Unhex("047fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad"),
-                                         "eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ",
-                                         Unhex("0ed1215379636c483c2f7f155807d402a3b228033af97c7e17819ac3169ea665c50a07d38c3c70e5d8f12daf084a5480a66590c5f293509a8f3f7f8a83a354d5")))
+                                          "eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ",
+                                          Unhex("0ed1215379636c483c2f7f155807d402a3b228033af97c7e17819ac3169ea665c50a07d38c3c70e5d8f12daf084a5480a66590c5f293509a8f3f7f8a83a354d5")))
 Done("RFC 7515")
 
 // Wycheproof's ES256 vectors: a valid signature verifies, and an invalid one
@@ -249,13 +249,19 @@ Local es256Key19 = Unhex("04083539fbee44625e3acaafa2fcb41349392cef0633a1b8fabece
 Expect("ES256 143", EcdsaP256.Verify(es256Key19, Unhex("313233343030"), Unhex("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc6324d5555555550000000055555555555555553ef7a8e48d07df81a693439654210c70")))
 Local es256Key20 = Unhex("04e075effd9607d08d5f34e3652f64cfa3bd6d20c58d0a232f058491260ab212a4cc61760ac8b0680c1b644c03cc628ba9dc4a3c0561368489c692bd40f43aa3ca")
 Expect("ES256 144", EcdsaP256.Verify(es256Key20, Unhex("313233343030"), Unhex("0000000000000000000000000000000000000000000000009c44febf31c3594f000000000000000000000000000000000000000000000000839ed28247c2b06b")))
-Expect("ES256 145", !EcdsaP256.Verify(es256Key20, Unhex("313233343030"), Unhex("9c44febf31c3594f839ed28247c2b06b")))
+Expect("ES256 145",
+       !EcdsaP256.Verify(es256Key20, Unhex("313233343030"),
+                         Unhex("9c44febf31c3594f839ed28247c2b06b")))
 Local es256Key21 = Unhex("04cffb758c3073ea3c08efd9f7f17a85b6ae385c5a140c146ad5f1f5a826718bc8dfdc6bebc894144c6d418ac5d97339726ad2ae925df868426e5628e9f4e62342")
 Expect("ES256 146", EcdsaP256.Verify(es256Key21, Unhex("313233343030"), Unhex("0000000000000000000000000000000000000009df8b682430beef6f5fd7c7cd000000000000000000000000000000000000000fd0a62e13778f4222a0d61c8a")))
-Expect("ES256 147", !EcdsaP256.Verify(es256Key21, Unhex("313233343030"), Unhex("09df8b682430beef6f5fd7c7cd0fd0a62e13778f4222a0d61c8a")))
+Expect("ES256 147",
+       !EcdsaP256.Verify(es256Key21, Unhex("313233343030"),
+                         Unhex("09df8b682430beef6f5fd7c7cd0fd0a62e13778f4222a0d61c8a")))
 Local es256Key22 = Unhex("04b98740e69e61a325d5f772e3b5c4f67fb7150b16a9afeca9ddc4afcbb6fa0549c446e814138e4ebc82dbf86a390056d4595dcf45e381fef217a4597d7bd51498")
 Expect("ES256 148", EcdsaP256.Verify(es256Key22, Unhex("313233343030"), Unhex("000000000000000000000000000000008a598e563a89f526c32ebec8de26367c0000000000000000000000000000000084f633e2042630e99dd0f1e16f7a04bf")))
-Expect("ES256 149", !EcdsaP256.Verify(es256Key22, Unhex("313233343030"), Unhex("8a598e563a89f526c32ebec8de26367c84f633e2042630e99dd0f1e16f7a04bf")))
+Expect("ES256 149",
+       !EcdsaP256.Verify(es256Key22, Unhex("313233343030"),
+                         Unhex("8a598e563a89f526c32ebec8de26367c84f633e2042630e99dd0f1e16f7a04bf")))
 Local es256Key23 = Unhex("0484536a270c3932bb2084732adf2c768efc6d3977e5220229ea9a44888b8f9d7b1766398cdac2fc8000017b29a7ba15a58f196037f35f7008ed4286ddff00fd46")
 Expect("ES256 150", EcdsaP256.Verify(es256Key23, Unhex("313233343030"), Unhex("000000000000000000000000aa6eeb5823f7fa31b466bb473797f0d0314c0bdf000000000000000000000000e2977c479e6d25703cebbc6bd561938cc9d1bfb9")))
 Expect("ES256 151", !EcdsaP256.Verify(es256Key23, Unhex("313233343030"), Unhex("aa6eeb5823f7fa31b466bb473797f0d0314c0bdfe2977c479e6d25703cebbc6bd561938cc9d1bfb9")))
@@ -839,8 +845,12 @@ Expect("PS256 108", !Rsa.VerifyPss(ps256Key0, Unhex("313233343030"), Unhex("1758
 Done("Wycheproof PS256")
 
 // RFC 7748's X25519 vectors (5.2), and its Diffie-Hellman example (6.1).
-Check("X25519 Alice's public key", X25519.PublicKeyOf(Unhex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")), "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a")
-Check("X25519 Bob's public key", X25519.PublicKeyOf(Unhex("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb")), "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f")
+Check("X25519 Alice's public key",
+      X25519.PublicKeyOf(Unhex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")),
+      "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a")
+Check("X25519 Bob's public key",
+      X25519.PublicKeyOf(Unhex("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb")),
+      "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f")
 Check("X25519 Alice's secret", X25519.SharedSecret(Unhex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a"), Unhex("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f")) ?? [], "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742")
 Check("X25519 Bob's secret", X25519.SharedSecret(Unhex("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb"), Unhex("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a")) ?? [], "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742")
 Check("X25519 5.2 1", X25519.SharedSecret(Unhex("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4"), Unhex("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c")) ?? [], "c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552")
@@ -853,9 +863,11 @@ For turn = 1 To 1000
     Local result = X25519.SharedSecret(k, u) ?? []
     u = k
     k = result
-    If turn == 1 Then Check("X25519 iterated once", k, "422c8e7a6227d7bca1350b3e2bb7279f7897b87bb6854b783c60e80311ae3079")
+    If turn == 1 Then Check("X25519 iterated once", k,
+                            "422c8e7a6227d7bca1350b3e2bb7279f7897b87bb6854b783c60e80311ae3079")
 End For
-Check("X25519 iterated 1000 times", k, "684cf59ba83309552800ef566f2f4d3c1c3887c49360e3875f2eb94d99532c51")
+Check("X25519 iterated 1000 times", k,
+      "684cf59ba83309552800ef566f2f4d3c1c3887c49360e3875f2eb94d99532c51")
 Done("RFC 7748")
 
 // Wycheproof's X25519 vectors: each secret, or Null for a public key that makes it 0.
@@ -890,8 +902,14 @@ Check("X25519 28", X25519.SharedSecret(Unhex("58354fd64bc022cba3a71b2ae64281e4ea
 Check("X25519 29", X25519.SharedSecret(Unhex("f0019cf05159794cc8052b00c2e75b7f46fb6693c4b38c02b12a4fe272e8556a"), Unhex("edffffffffffefffffffffffffffffffffffffffffffffffffffffffffffff7f")) ?? [], "fcde6e0a3d5fd5b63f10c2d3aad4efa05196f26bc0cb26fd6d9d3bd015eaa74f")
 Check("X25519 30", X25519.SharedSecret(Unhex("d0fca64cc5f3a0c8e75c824e8b09d1615aa79aeba139bb7302e2bb2fcbe54b40"), Unhex("edfeffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) ?? [], "7d62f189444c6231a48afab10a0af2eee4a52e431ea05ff781d616af2114672f")
 Check("X25519 31", X25519.SharedSecret(Unhex("d02456e456911d3c6cd054933199807732dfdc958642ad1aebe900c793bef24a"), Unhex("eaffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) ?? [], "07ba5fcbda21a9a17845c401492b10e6de0a168d5c94b606694c11bac39bea41")
-Expect("X25519 32", X25519.SharedSecret(Unhex("88227494038f2bb811d47805bcdf04a2ac585ada7f2f23389bfd4658f9ddd45e"), Unhex("0000000000000000000000000000000000000000000000000000000000000000")) == Null)
-Expect("X25519 33", X25519.SharedSecret(Unhex("48232e8972b61c7e61930eb9450b5070eae1c670475685541f0476217e48184f"), Unhex("0100000000000000000000000000000000000000000000000000000000000000")) == Null)
+Expect("X25519 32",
+       X25519.SharedSecret(
+           Unhex("88227494038f2bb811d47805bcdf04a2ac585ada7f2f23389bfd4658f9ddd45e"),
+           Unhex("0000000000000000000000000000000000000000000000000000000000000000")) == Null)
+Expect("X25519 33",
+       X25519.SharedSecret(
+           Unhex("48232e8972b61c7e61930eb9450b5070eae1c670475685541f0476217e48184f"),
+           Unhex("0100000000000000000000000000000000000000000000000000000000000000")) == Null)
 Check("X25519 34", X25519.SharedSecret(Unhex("a8386f7f16c50731d64f82e6a170b142a4e34f31fd7768fcb8902925e7d1e25a"), Unhex("0400000000000000000000000000000000000000000000000000000000000000")) ?? [], "34b7e4fa53264420d9f943d15513902342b386b172a0b0b7c8b8f2dd3d669f59")
 Check("X25519 35", X25519.SharedSecret(Unhex("d05abd08bf5e62538cb9a5ed105dbedd6de38d07940085072b4311c2678ed77d"), Unhex("0001000000000000000000000000000000000000000000000000000000000000")) ?? [], "3aa227a30781ed746bd4b3365e5f61461b844d09410c70570abd0d75574dfc77")
 Check("X25519 36", X25519.SharedSecret(Unhex("f0b8b0998c8394364d7dcb25a3885e571374f91615275440db0645ee7c0a6f6b"), Unhex("0000001000000000000000000000000000000000000000000000000000000000")) ?? [], "97755e7e775789184e176847ffbc2f8ef98799d46a709c6a1c0ffd29081d7039")
@@ -921,30 +939,102 @@ Check("X25519 59", X25519.SharedSecret(Unhex("f8d4ca1f37a30ec9acd6dbe5a6e150e5bc
 Check("X25519 60", X25519.SharedSecret(Unhex("88037ac8e33c72c2c51037c7c8c5288bba9265c82fd8c31796dd7ea5df9aaa4a"), Unhex("edffffefffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) ?? [], "8c27b3bff8d3c1f6daf2d3b7b3479cf9ad2056e2002be247992a3b29de13a625")
 Check("X25519 61", X25519.SharedSecret(Unhex("5034ee7bf83a13d9167df86b0640294f3620f4f4d9030e5e293f9190824ae562"), Unhex("edfffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) ?? [], "8e1d2207b47432f881677448b9d426a30de1a1f3fd38cad6f4b23dbdfe8a2901")
 Check("X25519 62", X25519.SharedSecret(Unhex("40bd4e1caf39d9def7663823502dad3e7d30eb6eb01e9b89516d4f2f45b7cd7f"), Unhex("ebffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) ?? [], "2cf6974b0c070e3707bf92e721d3ea9de3db6f61ed810e0a23d72d433365f631")
-Expect("X25519 63", X25519.SharedSecret(Unhex("e0f978dfcd3a8f1a5093418de54136a584c20b7b349afdf6c0520886f95b1272"), Unhex("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800")) == Null)
-Expect("X25519 64", X25519.SharedSecret(Unhex("387355d995616090503aafad49da01fb3dc3eda962704eaee6b86f9e20c92579"), Unhex("5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157")) == Null)
-Expect("X25519 65", X25519.SharedSecret(Unhex("c8fe0df92ae68a03023fc0c9adb9557d31be7feed0d3ab36c558143daf4dbb40"), Unhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
-Expect("X25519 66", X25519.SharedSecret(Unhex("c8d74acde5934e64b9895d5ff7afbffd7f704f7dfccff7ac28fa62a1e6410347"), Unhex("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b880")) == Null)
-Expect("X25519 67", X25519.SharedSecret(Unhex("b85649d5120e01e8ccaf7b2fb8d81b62e8ad6f3d5c0553fdde1906cb9d79c050"), Unhex("5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f11d7")) == Null)
-Expect("X25519 68", X25519.SharedSecret(Unhex("2064b2f4c9dc97ec7cf58932fdfa3265ba6ea4d11f0259b8efc8afb35db88c48"), Unhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == Null)
-Expect("X25519 69", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("0000000000000000000000000000000000000000000000000000000000000000")) == Null)
-Expect("X25519 70", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("0100000000000000000000000000000000000000000000000000000000000000")) == Null)
-Expect("X25519 71", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
-Expect("X25519 72", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157")) == Null)
-Expect("X25519 73", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800")) == Null)
-Expect("X25519 74", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
-Expect("X25519 75", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
-Expect("X25519 76", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("0000000000000000000000000000000000000000000000000000000000000080")) == Null)
-Expect("X25519 77", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("0100000000000000000000000000000000000000000000000000000000000080")) == Null)
-Expect("X25519 78", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == Null)
-Expect("X25519 79", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f11d7")) == Null)
-Expect("X25519 80", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b880")) == Null)
-Expect("X25519 81", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == Null)
-Expect("X25519 82", X25519.SharedSecret(Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"), Unhex("eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == Null)
-Expect("X25519 83", X25519.SharedSecret(Unhex("40ff586e73d61f0960dc2d763ac19e98225f1194f6fe43d5dd97ad55b3d35961"), Unhex("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
-Expect("X25519 84", X25519.SharedSecret(Unhex("7887889bac4c629a101d3724f2ed8b98d936fde79e1a1f77d86779626bf8f263"), Unhex("0000000000000000000000000000000000000000000000000000000000000080")) == Null)
-Expect("X25519 85", X25519.SharedSecret(Unhex("584fceaebae944bfe93b2e0d0a575f706ce5ada1da2b1311c3b421f9186c7a6f"), Unhex("eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
-Expect("X25519 86", X25519.SharedSecret(Unhex("e07971ee820e48b0b266d8be3cdbbb5e900a43f59ee8535c6572418615de4962"), Unhex("0100000000000000000000000000000000000000000000000000000000000080")) == Null)
+Expect("X25519 63",
+       X25519.SharedSecret(
+           Unhex("e0f978dfcd3a8f1a5093418de54136a584c20b7b349afdf6c0520886f95b1272"),
+           Unhex("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800")) == Null)
+Expect("X25519 64",
+       X25519.SharedSecret(
+           Unhex("387355d995616090503aafad49da01fb3dc3eda962704eaee6b86f9e20c92579"),
+           Unhex("5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157")) == Null)
+Expect("X25519 65",
+       X25519.SharedSecret(
+           Unhex("c8fe0df92ae68a03023fc0c9adb9557d31be7feed0d3ab36c558143daf4dbb40"),
+           Unhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
+Expect("X25519 66",
+       X25519.SharedSecret(
+           Unhex("c8d74acde5934e64b9895d5ff7afbffd7f704f7dfccff7ac28fa62a1e6410347"),
+           Unhex("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b880")) == Null)
+Expect("X25519 67",
+       X25519.SharedSecret(
+           Unhex("b85649d5120e01e8ccaf7b2fb8d81b62e8ad6f3d5c0553fdde1906cb9d79c050"),
+           Unhex("5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f11d7")) == Null)
+Expect("X25519 68",
+       X25519.SharedSecret(
+           Unhex("2064b2f4c9dc97ec7cf58932fdfa3265ba6ea4d11f0259b8efc8afb35db88c48"),
+           Unhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == Null)
+Expect("X25519 69",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("0000000000000000000000000000000000000000000000000000000000000000")) == Null)
+Expect("X25519 70",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("0100000000000000000000000000000000000000000000000000000000000000")) == Null)
+Expect("X25519 71",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
+Expect("X25519 72",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157")) == Null)
+Expect("X25519 73",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800")) == Null)
+Expect("X25519 74",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
+Expect("X25519 75",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
+Expect("X25519 76",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("0000000000000000000000000000000000000000000000000000000000000080")) == Null)
+Expect("X25519 77",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("0100000000000000000000000000000000000000000000000000000000000080")) == Null)
+Expect("X25519 78",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == Null)
+Expect("X25519 79",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f11d7")) == Null)
+Expect("X25519 80",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b880")) == Null)
+Expect("X25519 81",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == Null)
+Expect("X25519 82",
+       X25519.SharedSecret(
+           Unhex("786a33a4f7af297a20e7642925932bf509e7070fa1bc36986af1eb13f4f50b55"),
+           Unhex("eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == Null)
+Expect("X25519 83",
+       X25519.SharedSecret(
+           Unhex("40ff586e73d61f0960dc2d763ac19e98225f1194f6fe43d5dd97ad55b3d35961"),
+           Unhex("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
+Expect("X25519 84",
+       X25519.SharedSecret(
+           Unhex("7887889bac4c629a101d3724f2ed8b98d936fde79e1a1f77d86779626bf8f263"),
+           Unhex("0000000000000000000000000000000000000000000000000000000000000080")) == Null)
+Expect("X25519 85",
+       X25519.SharedSecret(
+           Unhex("584fceaebae944bfe93b2e0d0a575f706ce5ada1da2b1311c3b421f9186c7a6f"),
+           Unhex("eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
+Expect("X25519 86",
+       X25519.SharedSecret(
+           Unhex("e07971ee820e48b0b266d8be3cdbbb5e900a43f59ee8535c6572418615de4962"),
+           Unhex("0100000000000000000000000000000000000000000000000000000000000080")) == Null)
 Check("X25519 87", X25519.SharedSecret(Unhex("0016b62af5cabde8c40938ebf2108e05d27fa0533ed85d70015ad4ad39762d54"), Unhex("efffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) ?? [], "b4d10e832714972f96bd3382e4d082a21a8333a16315b3ffb536061d2482360d")
 Check("X25519 88", X25519.SharedSecret(Unhex("d83650ba7cec115881916255e3fa5fa0d6b8dcf968731bd2c9d2aec3f561f649"), Unhex("f0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) ?? [], "515eac8f1ed0b00c70762322c3ef86716cd2c51fe77cec3d31b6388bc6eea336")
 Check("X25519 89", X25519.SharedSecret(Unhex("88dd14e2711ebd0b0026c651264ca965e7e3da5082789fbab7e24425e7b4377e"), Unhex("f1ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) ?? [], "6919992d6a591e77b3f2bacbd74caf3aea4be4802b18b2bc07eb09ade3ad6662")
@@ -975,8 +1065,14 @@ Check("X25519 113", X25519.SharedSecret(Unhex("60a3a4f130b98a5be4b1cedb7cb85584a
 Check("X25519 114", X25519.SharedSecret(Unhex("60a3a4f130b98a5be4b1cedb7cb85584a3520e142d474dc9ccb909a073a9767f"), Unhex("21a35d5db1b6237c739b56345a930aeee373cdcfb4701266782a8ac594913b29")) ?? [], "dbffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")
 Check("X25519 115", X25519.SharedSecret(Unhex("60a3a4f130b98a5be4b1cedb7cb85584a3520e142d474dc9ccb909a073a9767f"), Unhex("3e5efb63c352ce942762482bc9337a5d35ba55664743ac5e93d11f957336cb10")) ?? [], "0000000000000000000000000000000000000000000000000000000000000002")
 Check("X25519 116", X25519.SharedSecret(Unhex("60a3a4f130b98a5be4b1cedb7cb85584a3520e142d474dc9ccb909a073a9767f"), Unhex("8e41f05ea3c76572be104ad8788e970863c6e2ca3daae64d1c2f46decfffa571")) ?? [], "0000000000000000000000000000000000000000000000000000000000008000")
-Expect("X25519 117", X25519.SharedSecret(Unhex("c8d07c46bbfb827753b92c70e49583ce8bfa44641a7382258ea903d6a832c96b"), Unhex("0000000000000000000000000000000000000000000000000000000000000000")) == Null)
-Expect("X25519 118", X25519.SharedSecret(Unhex("90b7ef237a055f348dcb4c4364a59d7d31edc7ab78f2ca254e2c810975c3f543"), Unhex("0100000000000000000000000000000000000000000000000000000000000000")) == Null)
+Expect("X25519 117",
+       X25519.SharedSecret(
+           Unhex("c8d07c46bbfb827753b92c70e49583ce8bfa44641a7382258ea903d6a832c96b"),
+           Unhex("0000000000000000000000000000000000000000000000000000000000000000")) == Null)
+Expect("X25519 118",
+       X25519.SharedSecret(
+           Unhex("90b7ef237a055f348dcb4c4364a59d7d31edc7ab78f2ca254e2c810975c3f543"),
+           Unhex("0100000000000000000000000000000000000000000000000000000000000000")) == Null)
 Check("X25519 119", X25519.SharedSecret(Unhex("e0a8be63315c4f0f0a3fee607f44d30a55be63f09561d9af93e0a1c9cf0ed751"), Unhex("0200000000000000000000000000000000000000000000000000000000000000")) ?? [], "0c50ac2bfb6815b47d0734c5981379882a24a2de6166853c735329d978baee4d")
 Check("X25519 120", X25519.SharedSecret(Unhex("0840a8af5bc4c48da8850e973d7e14220f45c192cea4020d377eecd25c7c3643"), Unhex("1200000000000000000000000000000000000000000000000000000000000000")) ?? [], "77557137a2a2a651c49627a9b239ac1f2bf78b8a3e72168ccecc10a51fc5ae66")
 Check("X25519 121", X25519.SharedSecret(Unhex("0092229c753a71284d0853909470ad847ab62f439ea51482fb41d30cc3b44743"), Unhex("1400000000000000000000000000000000000000000000000000000000000000")) ?? [], "c88e719ae5c2248b5f90da346a92ae214f44a5d129fd4e9c26cf6a0da1efe077")
@@ -1012,7 +1108,10 @@ Check("X25519 150", X25519.SharedSecret(Unhex("40a6349c03f0dc0a42358f6353ca67632
 Check("X25519 151", X25519.SharedSecret(Unhex("50696d4d05209971d6ba0676ea274262ba639aac74fa75e5df4570768ad8ae74"), Unhex("eefffffffffffffffffffffffffffeffffffffffffffffffffffffffffffff7f")) ?? [], "c118ddf6462fbea80f14ef1f2972a1ab12cafa511d1323d4d22d0d426d651b5b")
 Check("X25519 152", X25519.SharedSecret(Unhex("68bb680c853f4e4daa47c586dc886cf4568d7b0383770f6df439a53be4a3236d"), Unhex("edffffffffffffffffffffffff7fffffffffffffffffffffffffffffffffff7f")) ?? [], "cc0775bfd970a2706b11c7222a4436a3d17160382c83b76f89b66192c81b4408")
 Check("X25519 153", X25519.SharedSecret(Unhex("b0f6c28dbdc647068a76d71805ef770f087cf76b82afdc0d26c45b71ace49768"), Unhex("ebffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) ?? [], "f0097fa0ba70d019126277ab15c56ecc170ca88180b2bf9d80fcda3d7d74552a")
-Expect("X25519 154", X25519.SharedSecret(Unhex("18630f93598637c35da623a74559cf944374a559114c7937811041fc8605564a"), Unhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
+Expect("X25519 154",
+       X25519.SharedSecret(
+           Unhex("18630f93598637c35da623a74559cf944374a559114c7937811041fc8605564a"),
+           Unhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")) == Null)
 Check("X25519 155", X25519.SharedSecret(Unhex("581ecbda5a4a228044fefd6e03df234558c3c79152c6e2c5e60b142c4f26a851"), Unhex("0000000000000000000008000000000000000000000000000000000000000000")) ?? [], "59e7b1e6f47065a48bd34913d910176b6792a1372aad22e73cd7df45fcf91a0e")
 Check("X25519 156", X25519.SharedSecret(Unhex("b0561a38000795b7cb537b55e975ea452c2118506295d5eb15fd9c83b67f7a50"), Unhex("77af0d3897a715dfe25df5d538cf133bc9ab7ad52df6bd922a2fb75621d59901")) ?? [], "179f6b020748acba349133eaa4518f1bd8bab7bfc4fb05fd4c24e7553da1e960")
 Check("X25519 157", X25519.SharedSecret(Unhex("b00f7df2d47128441c7270b9a87eee45b6056fc64236a57bdf81dbcccf5f5d42"), Unhex("4e39866127b6a12a54914e106aab86464af55631f3cb61766d5999aa8d2e070e")) ?? [], "43c5ee1451f213ef7624729e595a0fee7c9af7ee5d27eb03278ee9f94c202352")
@@ -1023,8 +1122,14 @@ Check("X25519 161", X25519.SharedSecret(Unhex("d002292d4359a3d42bc8767f138000933
 Check("X25519 162", X25519.SharedSecret(Unhex("d0c2c49e644ab738270707ff9917065942687e2f12886d961161db46c05b565f"), Unhex("078fa523498fb51cba1112d83b20af448b8009d8eea14368564d01b8f9b6086f")) ?? [], "c0ee59d3685fc2c3c803608b5ee39a7f8da30b48e4293ae011f0ea1e5aeb7173")
 Check("X25519 163", X25519.SharedSecret(Unhex("f087d38b274c1dad1bce6eaa36b48e2190b90b9bf8ca59669cc5e00464534342"), Unhex("9fc6799ed8495ed5ab6eb1ef955479b9b50aa9ce0c349e8992a6665572d1f871")) ?? [], "b252bc8eabfaa68c56e54d61b99061a35d11e3a7b9bda417d90f69b1119bcf45")
 Check("X25519 164", X25519.SharedSecret(Unhex("48dbcc5a695f1514bbbaa6ad00842b69d9ae5216b1963add07fb2947c97b8447"), Unhex("7650f2c76858ea201da2022ac730ecc43654852ad209426dd5d048a9de2a667e")) ?? [], "fbda33bc930c08df837208e19afdc1cfe3fd0f8f0e3976be34775e58a4a7771f")
-Expect("X25519 165", X25519.SharedSecret(Unhex("5891c9272cf9a197735b701e5715268d36d7436b7e351a3e997a0862e4807d4d"), Unhex("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800")) == Null)
-Expect("X25519 166", X25519.SharedSecret(Unhex("c0f9c60aea73731d92ab5ed9f4cea122f9a6eb2577bda72f94948fea4d4cc65d"), Unhex("5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157")) == Null)
+Expect("X25519 165",
+       X25519.SharedSecret(
+           Unhex("5891c9272cf9a197735b701e5715268d36d7436b7e351a3e997a0862e4807d4d"),
+           Unhex("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800")) == Null)
+Expect("X25519 166",
+       X25519.SharedSecret(
+           Unhex("c0f9c60aea73731d92ab5ed9f4cea122f9a6eb2577bda72f94948fea4d4cc65d"),
+           Unhex("5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157")) == Null)
 Check("X25519 167", X25519.SharedSecret(Unhex("0066dd7674fe51f9326c1e239b875f8ac0701aae69a804c25fe43595e8660b45"), Unhex("b0224e7134cf92d40a31515f2f0e89c2a2777e8ac2fe741db0dc39399fdf2702")) ?? [], "8dacfe7beaaa62b94bf6e50ee5214d99ad7cda5a431ea0c62f2b20a89d73c62e")
 Check("X25519 168", X25519.SharedSecret(Unhex("80067f30f40d61318b420c859fce128c9017ab81b47b76028a57bc30d5856846"), Unhex("601e3febb848ec3e57fce64588aad82afc9c2af99bbcdffcc4cd58d4b3d15c07")) ?? [], "20f1d3fe90e08bc6f152bf5dacc3ed35899785333f1470e6a62c3b8cbe28d260")
 Check("X25519 169", X25519.SharedSecret(Unhex("584577669d21ce0ae3e30b02c9783ffe97709cbfe396889aa31e8ee43352dc52"), Unhex("82a3807bbdec2fa9938fb4141e27dc57456606301f78ff7133cf24f3d13ee117")) ?? [], "2b28cc5140b816add5ad3a77a81b1c073d67bf51bf95bda2064a14eb12d5f766")
@@ -1383,10 +1488,14 @@ Done("Wycheproof X25519")
 Local signer = EcdsaP256.NewPrivateKey()
 Local signature = EcdsaP256.Sign(signer, "move 12 to e4")
 Expect("P-256 new key", EcdsaP256.Verify(EcdsaP256.PublicKeyOf(signer), "move 12 to e4", signature))
-Expect("P-256 other key", !EcdsaP256.Verify(EcdsaP256.PublicKeyOf(EcdsaP256.NewPrivateKey()), "move 12 to e4", signature))
+Expect("P-256 other key",
+       !EcdsaP256.Verify(EcdsaP256.PublicKeyOf(EcdsaP256.NewPrivateKey()), "move 12 to e4",
+                         signature))
 Expect("P-256 not a key", !EcdsaP256.Verify(Unhex("010203"), "move 12 to e4", signature))
 Local alice = X25519.NewPrivateKey()
 Local bob = X25519.NewPrivateKey()
 Local aliceSecret = X25519.SharedSecret(alice, X25519.PublicKeyOf(bob)) ?? []
-Expect("X25519 new keys", aliceSecret.Count == 32 && X25519.SharedSecret(bob, X25519.PublicKeyOf(alice)) == aliceSecret)
+Expect("X25519 new keys",
+       aliceSecret.Count == 32 &&
+       X25519.SharedSecret(bob, X25519.PublicKeyOf(alice)) == aliceSecret)
 Done("New keys")

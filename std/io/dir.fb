@@ -218,7 +218,7 @@ Function Globbed(base: Path, folder: Path, parts: String[], names: Char[][],
 End Function
 
 Async Function GlobbedAsync(base: Path, folder: Path, parts: String[], names: Char[][],
-                             into: DirEntry[]) Throws IOError
+                            into: DirEntry[]) Throws IOError
     For entry In Try Await Dir.EntriesAsync(folder)
         Local inner = parts.Clone()
         inner.Add(entry.Name())

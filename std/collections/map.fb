@@ -19,7 +19,6 @@ End Struct
 
 @DebugEntries
 Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
-
     Field Entries: MapEntry<K, V>[] = []
     // The first entry in each bucket, or -1. There are none until the first Add, or a Reserve of
     // 1 or more, and then 2^(64 - Shift) of them, so a mixed hash's top 64 - Shift bits pick one.
@@ -386,7 +385,6 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
 End Class
 
 Public Struct MapIterator<K: Hashable, V> Implements Iterator<(K, V)>
-
     Field Owner: Map<K, V>
     // The next entry, or -1.
     Field At: Int

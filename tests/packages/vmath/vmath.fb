@@ -108,7 +108,8 @@ Public Function Structs(): String
     Local rotated = vm_odd_rotate(odd)
     Local total = vm_spans(Span(1, 0.5), Span(2, 0.5), Span(3, 0.5), Span(4, 0.5), Span(5, 0.5),
                            Span(6, 0.5), Span(7, 0.5), 5)
-    Local first = "{tiny.a} {tiny.b} {point.x} {point.y} {v.x} {v.y} {v.z} {span.start} {span.length}"
+    Local first =
+        "{tiny.a} {tiny.b} {point.x} {point.y} {v.x} {v.y} {v.z} {span.start} {span.length}"
     Local second = "{box.min.x} {box.max.y} {box.filled} {vm_box_area(box)} {rotated.bytes[0]}"
     // An Extern Function is a function value too, whose calls pass Structs the same way.
     Local add: Func(Point, Point): Point = vm_point_add

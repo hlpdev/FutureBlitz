@@ -24,7 +24,7 @@ Local longer: Int64 = total + n
 Print("{total} {longer} {total > n} {total == 42}")
 
 // They're Hashable and Comparable like any integer.
-Local names = { labs(-1): "one", labs(-2): "two" }
+Local names = {labs(-1): "one", labs(-2): "two"}
 Print(names[2 As CLong])
 Local sum: CLong = 0
 For i = 1 To labs(-4)

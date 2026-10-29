@@ -73,7 +73,8 @@ Print(Try Load<String>(Value("text")), (Try Load<String?>(Value())) ?? "Null",
       Try Load<String?>(Value("set")) ?? "Null", Try Load<Int[]>(Value([Value(1), Value(2)])))
 Print(Save(Try Load<Int?[]>(Value([Value(1), Value()]))),
       Try Load<String[][]>(Value([Value([Value("a")]), Value.Array()])))
-Print(Try Load<UInt8[]>(Value([1 As UInt8, 2, 255])), Try Load<UInt8[]>(Value([Value(4), Value(5)])))
+Print(Try Load<UInt8[]>(Value([1 As UInt8, 2, 255])),
+      Try Load<UInt8[]>(Value([Value(4), Value(5)])))
 Print(Save([1 As UInt8, 2]), Save([1, 2]), Save(["a", "b"]), Save<Int?>(Null), Save<Int?>(4))
 Local scores: Map<String, Int[]> = {"ann": [1, 2], "bo": []}
 Print(Save(scores))
@@ -146,7 +147,7 @@ Class Marker
 End Class
 
 Local marker = Try Load<Marker>(Value({"Label": Value("m"), "X": Value(1), "Y": Value(2),
-                                      "Width": Value(8), "Height": Value(9)}))
+                                       "Width": Value(8), "Height": Value(9)}))
 Print(marker.Label, marker.At.X, marker.At.Y, marker.Extra.Width, marker.Extra.Height,
       Save(marker))
 
@@ -200,7 +201,8 @@ Class Shelf
 End Class
 
 Local shelf = Try Load<Shelf>(Value({"Boxes": Value([Value({"Width": Value(2), "Height": Value(3)}),
-                                                     Value({"Width": Value(4), "Height": Value(5)})])}))
+                                                     Value({"Width": Value(4),
+                                                            "Height": Value(5)})])}))
 Print(shelf.Boxes[0].Area, shelf.Boxes[1].Area, shelf.Total)
 
 // A generic Class's instance, and Load<T> and Save in generic code, for each instance's T.
@@ -212,7 +214,7 @@ End Struct
 Function Copied<T>(x: T): T Throws ParseError => Try Load<T>(Save(x))
 
 Local pair = Try Load<Pair<String, Int[]>>(Value({"First": Value("p"),
-                                                   "Second": Value([Value(1)])}))
+                                                  "Second": Value([Value(1)])}))
 Print(pair.First, pair.Second, Save(pair))
 Print(Try Copied(Size(1, 2)).Width, Try Copied("s"), Try Copied([Color.RED]), Try Copied(2.5))
 Print(Save<Int64>(3), Save<Double?>(2))

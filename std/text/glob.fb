@@ -295,29 +295,30 @@ Function Matched(pieces: Piece[], text: Char[], folded: Char[]): Bool
         Local reachable = False
         For at = count To 0 Step -1
             Select piece.Kind
-            Case PieceKind.LITERAL
-                here[at] = at < count && (ignoring ? folded[at] : text[at]) == piece.Literal &&
-                           after[at + 1]
-            Case PieceKind.ONE
-                here[at] = at < count && text[at] != '/' && after[at + 1]
-            Case PieceKind.SET
-                If at < count && text[at] != '/' && after[at + 1]
-                    Local c = text[at]
-                    Local inside = Inside(piece, c)
-                    If ignoring
-                        inside = inside || Inside(piece, folded[at]) || Inside(piece, c.ToUpper())
-                    End If
+                Case PieceKind.LITERAL
+                    here[at] = at < count && (ignoring ? folded[at] : text[at]) == piece.Literal &&
+                               after[at + 1]
+                Case PieceKind.ONE
+                    here[at] = at < count && text[at] != '/' && after[at + 1]
+                Case PieceKind.SET
+                    If at < count && text[at] != '/' && after[at + 1]
+                        Local c = text[at]
+                        Local inside = Inside(piece, c)
+                        If ignoring
+                            inside = inside || Inside(piece, folded[at]) ||
+                                     Inside(piece, c.ToUpper())
+                        End If
 
-                    here[at] = inside != piece.Negated
-                End If
-            Case PieceKind.STAR
-                here[at] = after[at] || (at < count && text[at] != '/' && here[at + 1])
-            Case PieceKind.GLOBSTAR
-                here[at] = after[at] || (at < count && here[at + 1])
-            Case PieceKind.FOLDERS
-                // No folder, or any run that ends with a /, after which the rest matches.
-                If at < count && text[at] == '/' && after[at + 1] Then reachable = True
-                here[at] = after[at] || reachable
+                        here[at] = inside != piece.Negated
+                    End If
+                Case PieceKind.STAR
+                    here[at] = after[at] || (at < count && text[at] != '/' && here[at + 1])
+                Case PieceKind.GLOBSTAR
+                    here[at] = after[at] || (at < count && here[at + 1])
+                Case PieceKind.FOLDERS
+                    // No folder, or any run that ends with a /, after which the rest matches.
+                    If at < count && text[at] == '/' && after[at + 1] Then reachable = True
+                    here[at] = after[at] || reachable
             End Select
         End For
 

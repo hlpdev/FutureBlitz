@@ -50,7 +50,7 @@ Public Class UdpSocket
     // or multicast to it, as LAN discovery's do. Throws a NetError when it can't, as when another
     // socket has the address.
     Public Static Method Bind(
-        address: SocketAddress, reuseAddress: Bool = False): UdpSocket Throws NetError
+            address: SocketAddress, reuseAddress: Bool = False): UdpSocket Throws NetError
         Local socket = UdpSocket(address.ToString())
         Local code = fb_io_net_bind(socket.Handle, SocketBytes(address), reuseAddress ? 1 : 0)
         If code != 0 Then Throw NetErrorOf(code, "binding to {address}", socket.Address)
@@ -60,7 +60,7 @@ Public Class UdpSocket
 
     // Binds a socket to `host`'s first address, as Dns.Resolve gives them, and `port`.
     Public Static Method Bind(
-        host: String, port: UInt16, reuseAddress: Bool = False): UdpSocket Throws NetError
+            host: String, port: UInt16, reuseAddress: Bool = False): UdpSocket Throws NetError
         Local addresses = Try Dns.Resolve(host)
         Return Try Bind(SocketAddress(addresses[0], port), reuseAddress)
     End Method
@@ -114,7 +114,7 @@ Public Class UdpSocket
 
     // Receive's Async twin, which waits on the main thread.
     Public Async Method ReceiveAsync(
-        timeout: Duration? = Null): Datagram Throws NetError, TimeoutError
+            timeout: Duration? = Null): Datagram Throws NetError, TimeoutError
         Loop
             Try Open()
             Local taken = Take()

@@ -18,7 +18,7 @@ For c In "banana".Chars
     seen.Add(c)
 End For
 
-Local counts = { 'a': 1 }
+Local counts = {'a': 1}
 counts['b'] = 2
 Print(seen.Count, seen.Contains('n'), counts['b'], Max('a', 'c'), Min(face, letter))
 

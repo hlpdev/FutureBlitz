@@ -221,9 +221,11 @@ Public Struct Xml
                         parent.Children.Add(XmlNode(XmlKind.TEXT, "", event.Text))
                     End If
                 Case XmlEventKind.CDATA
-                    If parent != Null Then parent.Children.Add(XmlNode(XmlKind.CDATA, "", event.Text))
+                    If parent != Null Then parent.Children.Add(XmlNode(XmlKind.CDATA, "",
+                                                                       event.Text))
                 Case XmlEventKind.COMMENT
-                    If parent != Null Then parent.Children.Add(XmlNode(XmlKind.COMMENT, "", event.Text))
+                    If parent != Null Then parent.Children.Add(XmlNode(XmlKind.COMMENT, "",
+                                                                       event.Text))
                 Default
                     If parent != Null
                         parent.Children.Add(XmlNode(XmlKind.INSTRUCTION, event.Name, event.Text))
@@ -619,7 +621,8 @@ Public Class XmlWriter
     Public Method Instruction(target: String, text: String)
         CheckName(target)
         Local lower = target.Bytes
-        If lower.Count == 3 && (lower[0] | 32) == 120 && (lower[1] | 32) == 109 && (lower[2] | 32) == 108
+        If lower.Count == 3 && (lower[0] | 32) == 120 && (lower[1] | 32) == 109 &&
+           (lower[2] | 32) == 108
             Panic("a processing instruction can't be named xml")
         End If
 

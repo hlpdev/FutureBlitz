@@ -357,7 +357,8 @@ Class TomlReader
         End If
 
         Local table = NestOf(Root, parent, True)
-        If table == Null Then Throw Fail(start, "{Joined(parent)} already has a value that isn't a table")
+        If table == Null Then Throw Fail(start,
+                                         "{Joined(parent)} already has a value that isn't a table")
         Local stem = key[key.Count - 1]
         If table.Contains(stem) Then Throw Fail(start, "{Joined(whole)} is defined already")
         If value.Kind == ValueKind.ARRAY || value.Kind == ValueKind.OBJECT
@@ -373,7 +374,8 @@ Class TomlReader
         At += 1
         SkipSpaces()
         Local key = Try Key()
-        If At >= Bytes.Count || Bytes[At] != 93 Then Throw Fail(At, "a table's header ends with ']'")
+        If At >= Bytes.Count || Bytes[At] != 93 Then Throw Fail(At,
+                                                                "a table's header ends with ']'")
         At += 1
         If Flags.IsExplicit(key) || Flags.IsFrozen(key)
             Throw Fail(start, "the table [{Joined(key)}] is defined already")
@@ -399,7 +401,8 @@ Class TomlReader
 
         At += 2
         If Flags.IsFrozen(key)
-            Throw Fail(start, "{Joined(key)} is an inline table or an array, which can't be added to")
+            Throw Fail(start,
+                       "{Joined(key)} is an inline table or an array, which can't be added to")
         End If
 
         // The new table's keys are its own, but this key still can't be a table's header.
@@ -557,7 +560,8 @@ Class TomlReader
             Local value = Try ReadValue()
             Local above = key[0..key.Count - 1]
             If flags.IsFrozen(above)
-                Throw Fail(keyAt, "{Joined(above)} is an inline table or an array, which can't be " +
+                Throw Fail(keyAt,
+                           "{Joined(above)} is an inline table or an array, which can't be " +
                            "added to")
             End If
 
@@ -636,7 +640,8 @@ Class TomlReader
                 Continue
             End If
 
-            If b != 10 && IsControl(b) Then Throw Fail(At, "a string can't hold a control character")
+            If b != 10 && IsControl(b) Then Throw Fail(At,
+                                                       "a string can't hold a control character")
             out.Add(b)
             At += 1
         End Loop
@@ -675,7 +680,8 @@ Class TomlReader
                 Return TextOf(out)
             End If
 
-            If b != 10 && IsControl(b) Then Throw Fail(At, "a string can't hold a control character")
+            If b != 10 && IsControl(b) Then Throw Fail(At,
+                                                       "a string can't hold a control character")
             out.Add(b)
             At += 1
         End Loop
@@ -786,7 +792,8 @@ Class TomlReader
 
         // A decimal: its integer part, then a fraction, an exponent, or both, for a float.
         At = body
-        If At >= Bytes.Count || !IsDigit(Bytes[At]) Then Throw Fail(start, "the value isn't one TOML has")
+        If At >= Bytes.Count || !IsDigit(Bytes[At]) Then Throw Fail(start,
+                                                                    "the value isn't one TOML has")
         Local digits: UInt8[] = []
         If b == 45 Then digits.Add(45)
         If Bytes[At] == 48
@@ -976,7 +983,8 @@ Class TomlReader
             value = value * 10 + (Bytes[At] As Int) - 48
             At += 1
         End For
-        If value < least || value > most Then Throw Fail(At - digits, "the date or time is out of range")
+        If value < least || value > most Then Throw Fail(At - digits,
+                                                         "the date or time is out of range")
         Return value
     End Method
 

@@ -85,7 +85,7 @@ box.Border = BorderStyle.ASCII
 Print(box.Render())
 Print(Box("").Render())
 Print(Box("", "Empty").Render())
-Print(Box("wide 中文", "", ).Render())
+Print(Box("wide 中文", "",).Render())
 Local colored = Box("text", "Title")
 colored.BorderColor = Style(TermColor.Yellow)
 colored.TitleStyle = Style().Bold()

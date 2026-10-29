@@ -30,7 +30,8 @@ Public Class TcpStream Implements Reader, Writer
     // Throws a NetError of REFUSED when nothing listens there, of UNREACHABLE when the network
     // can't get there, and a TimeoutError when it takes too long.
     Public Static Method Connect(
-        address: SocketAddress, timeout: Duration? = Null): TcpStream Throws NetError, TimeoutError
+            address: SocketAddress, timeout: Duration? = Null): TcpStream Throws NetError,
+                                                                                 TimeoutError
         Local socket = StreamSocket(SocketKind.TCP, "TcpStream", address.ToString())
         Local code = fb_io_net_connect(socket.Handle, SocketBytes(address), NanosecondsOf(timeout))
         If code != 0 Then Try ThrowSocketError(code, "connecting to {address}", socket.Peer)
@@ -40,8 +41,8 @@ Public Class TcpStream Implements Reader, Writer
     // Connects to `host` at `port`, trying its addresses in the order Dns.Resolve gives them,
     // each for up to `timeout`, and throws what the last one did when none connects.
     Public Static Method Connect(
-        host: String, port: UInt16, timeout: Duration? = Null): TcpStream Throws NetError,
-                                                                           TimeoutError
+            host: String, port: UInt16, timeout: Duration? = Null): TcpStream Throws NetError,
+                                                                                     TimeoutError
         Local addresses = Try Dns.Resolve(host)
         For at = 0 Until addresses.Count
             Try
@@ -58,7 +59,8 @@ Public Class TcpStream Implements Reader, Writer
 
     // Connect's Async twin, which waits on the main thread.
     Public Static Async Method ConnectAsync(
-        address: SocketAddress, timeout: Duration? = Null): TcpStream Throws NetError, TimeoutError
+            address: SocketAddress, timeout: Duration? = Null): TcpStream Throws NetError,
+                                                                                 TimeoutError
         Local socket = StreamSocket(SocketKind.TCP, "TcpStream", address.ToString())
         Local code = Await fb_io_net_connect_async(socket.Handle, SocketBytes(address),
                                                    NanosecondsOf(timeout))
@@ -68,8 +70,8 @@ Public Class TcpStream Implements Reader, Writer
 
     // Connect's Async twin to a host, through Dns.ResolveAsync.
     Public Static Async Method ConnectAsync(
-        host: String, port: UInt16, timeout: Duration? = Null): TcpStream Throws NetError,
-                                                                           TimeoutError
+            host: String, port: UInt16, timeout: Duration? = Null): TcpStream Throws NetError,
+                                                                                     TimeoutError
         Local addresses = Try Await Dns.ResolveAsync(host)
         For at = 0 Until addresses.Count
             Try
@@ -193,7 +195,7 @@ Public Class TcpListener
 
     // Accept's Async twin, which waits on the main thread.
     Public Async Method AcceptAsync(
-        timeout: Duration? = Null): TcpStream Throws NetError, TimeoutError
+            timeout: Duration? = Null): TcpStream Throws NetError, TimeoutError
         Local accepted = Try Await Socket.AcceptAsync(timeout)
         Return TcpStream(StreamSocket(accepted, "TcpStream", PeerOf(accepted)))
     End Method

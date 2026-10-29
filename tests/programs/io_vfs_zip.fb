@@ -77,7 +77,8 @@ Print("[{Try vfs.ReadText("game/readme.txt")}] [{Try vfs.ReadText("game/data/two
 Print("[{Try vfs.ReadText("game\\data\\two.txt")}] [{Try vfs.ReadText("game/top.txt")}]")
 Print("{Try vfs.KindOf("game/data") ?? FileKind.OTHER} {Try vfs.KindOf("game/data/levels/one.txt") ?? FileKind.OTHER} {(Try vfs.KindOf("outside.txt")) == Null}")
 Print("{vfs.Exists("game/readme.txt")} {vfs.DirExists("game/empty")} {vfs.Exists("game/empty")}")
-Print("{Failure(vfs, "game/data")} {Failure(vfs, "game/missing.txt")} {Failure(vfs, "outside.txt")}")
+Print(
+    "{Failure(vfs, "game/data")} {Failure(vfs, "game/missing.txt")} {Failure(vfs, "outside.txt")}")
 Print("{Try vfs.ReadLines("game/data/levels/one.txt")} {(Try Await vfs.ReadTextAsync("game/readme.txt"))}")
 For entry In Try vfs.Glob("game", "**/*.txt")
     Print("{entry.Relative}")
@@ -98,7 +99,8 @@ Print("{Try Listed(root, "")} {Try Listed(root, "a")} [{Try root.ReadText("a/b/c
 // A zip's link isn't in it, though the file it points to is.
 Local linked = Vfs()
 Try linked.MountZip("", LinkZip())
-Print("{Try Listed(linked, "")} {linked.Exists("link")} {(Try linked.ReadBytes("target.txt")).Count}")
+Print(
+    "{Try Listed(linked, "")} {linked.Exists("link")} {(Try linked.ReadBytes("target.txt")).Count}")
 
 // A file and a folder at one place, and data that isn't a zip.
 Try

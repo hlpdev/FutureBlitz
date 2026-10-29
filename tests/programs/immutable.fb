@@ -195,7 +195,8 @@ End For
 // their entries were added.
 Local first = ImmutableSet<Crowded>.From([Crowded(1), Crowded(4)])
 Local second = ImmutableSet<Crowded>.From([Crowded(4), Crowded(1)])
-Print(first == second, first.Hash() == second.Hash(), first.ToArray().Map(Function(c: Crowded) => c.N),
+Print(first == second, first.Hash() == second.Hash(),
+      first.ToArray().Map(Function(c: Crowded) => c.N),
       second.ToArray().Map(Function(c: Crowded) => c.N))
 
 // They can be a Map's keys.
@@ -208,7 +209,8 @@ byMap[ImmutableMap<String, Int>.From({"y": 2, "x": 1})] += 1
 Local bySet = Map<ImmutableSet<Int>, Int>()
 bySet[ImmutableSet<Int>.From([3, 2])] = 5
 Print(seenBefore.Count, seenBefore[ImmutableArray<Int>.From([1, 2])], byMap.Count,
-      byMap[ImmutableMap<String, Int>.From({"x": 1, "y": 2})], bySet[ImmutableSet<Int>.From([2, 3])])
+      byMap[ImmutableMap<String, Int>.From({"x": 1, "y": 2})],
+      bySet[ImmutableSet<Int>.From([2, 3])])
 
 // A consumer or a For ... In goes over a copy of an Iterator, so one partly used doesn't move.
 Local fifty: Int[] = []

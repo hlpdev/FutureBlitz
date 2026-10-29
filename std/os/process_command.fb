@@ -198,7 +198,7 @@ Public Class Command
             Panic("a Command takes variables' names that aren't empty and have no '=' or NUL")
         ElseIf failure == 3
             Throw IOError(IOErrorKind.OTHER, "{Program}: cmd.exe can't give a .bat or .cmd " +
-                                             "file an argument with a line break", Program)
+                          "file an argument with a line break", Program)
         ElseIf handle == 0
             Throw ProcessError(failure, Program)
         End If

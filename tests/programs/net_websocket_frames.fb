@@ -243,9 +243,9 @@ Exchange("reserved bits", port, [FrameOf(0xC1, "hi".Bytes)], reports)
 Exchange("an unknown opcode", port, [FrameOf(0x83, "hi".Bytes)], reports)
 Exchange("text that isn't UTF-8", port, [FrameOf(0x81, [0xC3, 0x28])], reports)
 Exchange("fragments that aren't UTF-8", port, [FrameOf(0x01, [0xE2, 0x82]),
-                                              FrameOf(0x80, [0x41])], reports)
+                                               FrameOf(0x80, [0x41])], reports)
 Exchange("UTF-8 split between fragments", port, [FrameOf(0x01, [0xE2, 0x82]),
-                                                FrameOf(0x80, [0xAC]), Close(1000, [])], reports)
+                                                 FrameOf(0x80, [0xAC]), Close(1000, [])], reports)
 Exchange("a continuation first", port, [FrameOf(0x80, "hi".Bytes)], reports)
 Exchange("a message in a message", port, [FrameOf(0x01, "a".Bytes), FrameOf(0x81, "b".Bytes)],
          reports)

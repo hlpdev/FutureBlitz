@@ -207,7 +207,8 @@ Package Class YamlScanner
                 If ByteAt(0) == 9 Then TabBefore = True
                 Advance(1)
             End While
-            If FlowLevel > 0 && Indent >= 0 && !AtEnd() && !IsBreakByte(ByteAt(0)) && ByteAt(0) != 35 &&
+            If FlowLevel > 0 && Indent >= 0 && !AtEnd() && !IsBreakByte(ByteAt(0)) &&
+               ByteAt(0) != 35 &&
                LineStart() && LineSpaces() <= Indent
                 Throw Fail("a flow collection's lines are indented more than its block's")
             End If
@@ -399,13 +400,15 @@ Package Class YamlScanner
             // mapping's start before that.
             key.Possible = False
             If FlowLevel == 0 && key.Tabbed
-                Throw ErrorAt(Bytes, key.At, ParseErrorKind.SYNTAX, "a block mapping's key can't come after a tab")
+                Throw ErrorAt(Bytes, key.At, ParseErrorKind.SYNTAX,
+                              "a block mapping's key can't come after a tab")
             End If
 
             Local place = key.Number - Taken
             Tokens.Insert(place, YamlToken(YamlTokenKind.KEY, key.At, key.Line, key.Column))
             If FlowLevel == 0 && AddIndent(key.Column)
-                Tokens.Insert(place, YamlToken(YamlTokenKind.BLOCK_MAPPING, key.At, key.Line, key.Column))
+                Tokens.Insert(place,
+                              YamlToken(YamlTokenKind.BLOCK_MAPPING, key.At, key.Line, key.Column))
             End If
 
             SimpleAllowed = False
@@ -807,7 +810,8 @@ Package Class YamlScanner
             Else
                 indent = Max(least, Column)
                 If most > indent
-                    Throw Fail("a block scalar's leading empty lines have more spaces than its first line")
+                    Throw Fail(
+                        "a block scalar's leading empty lines have more spaces than its first line")
                 End If
             End If
         End If
@@ -881,7 +885,8 @@ Package Class YamlScanner
     Method RemoveKey() Throws ParseError
         Local key = Keys[FlowLevel]
         If key.Possible && key.Required
-            Throw ErrorAt(Bytes, key.At, ParseErrorKind.SYNTAX, "a mapping's key has no ':' after it")
+            Throw ErrorAt(Bytes, key.At, ParseErrorKind.SYNTAX,
+                          "a mapping's key has no ':' after it")
         End If
 
         key.Possible = False
@@ -893,7 +898,8 @@ Package Class YamlScanner
         For key In Keys
             If key.Possible && (key.Line != Line || Column - key.Column > 1024)
                 If key.Required
-                    Throw ErrorAt(Bytes, key.At, ParseErrorKind.SYNTAX, "a mapping's key has no ':' after it")
+                    Throw ErrorAt(Bytes, key.At, ParseErrorKind.SYNTAX,
+                                  "a mapping's key has no ':' after it")
                 End If
 
                 key.Possible = False
@@ -971,7 +977,8 @@ Package Class YamlScanner
         Local code = CodeOf(Bytes, At)
         Local c = code.0
         If c == 0xFEFF Then Throw Fail("a byte order mark can only start a document")
-        If !(c == 0x85 || (c >= 0xA0 && c <= 0xD7FF) || (c >= 0xE000 && c <= 0xFFFD) || c >= 0x10000)
+        If !(c == 0x85 || (c >= 0xA0 && c <= 0xD7FF) || (c >= 0xE000 && c <= 0xFFFD) ||
+             c >= 0x10000)
             Throw Fail("YAML can't hold the character U+{HexOf(c As Int, 4)}")
         End If
 

@@ -147,7 +147,6 @@ End Class
 // A Map to read but not change, which AsReadOnly gives.
 @DebugEntries
 Public Class ReadOnlyMap<K: Hashable, V> Implements Iterable<(K, V)>
-
     Field Items: Map<K, V>
 
     New(items: Map<K, V>)
@@ -181,7 +180,6 @@ End Class
 // A Set to read but not change, which AsReadOnly gives.
 @DebugElements
 Public Class ReadOnlySet<T: Hashable> Implements Iterable<T>
-
     Field Items: Set<T>
 
     New(items: Set<T>)

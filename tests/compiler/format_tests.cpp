@@ -317,6 +317,31 @@ TEST_CASE("formatting leaves a file that doesn't parse, and says why", "[format]
     }
 }
 
+TEST_CASE("std, tests/programs, and tests/packages are formatted", "[format][repository]") {
+    for (const char* folder : { "std", "tests/programs", "tests/packages" }) {
+        std::error_code error;
+        auto entry = std::filesystem::recursive_directory_iterator(repository() / folder, error);
+        for (; !error && entry != std::filesystem::recursive_directory_iterator();
+             entry.increment(error)) {
+            if (entry->path().extension() != ".fb") {
+                continue;
+            }
+
+            const std::string text = read_file(entry->path());
+            const fb::source_file_t file(fb::file_id_t{}, entry->path().string(), text);
+            const std::expected<std::string, std::vector<fb::diagnostic_t>> result =
+                fb::format_source(file);
+            // A test program that doesn't parse is left as it is.
+            if (result) {
+                INFO(entry->path().string() + ": fb fmt formats it");
+                CHECK(*result == text);
+            }
+        }
+
+        CHECK_FALSE(error);
+    }
+}
+
 TEST_CASE("formatting every .fb in the repository keeps what it means", "[format][repository]") {
     // The symbols each platform's builds define, so each #If branch is in some tree.
     const std::array<std::vector<std::string_view>, 3> symbol_sets = {

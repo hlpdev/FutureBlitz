@@ -115,8 +115,8 @@ Public Class LanAnnouncer
     // gives that interface's address alone, as RFC 6762 has it.
     @PanicsAtCaller
     Public Static Method Start(
-        type: String, name: String, port: UInt16, text: Map<String, String>? = Null,
-        discoveryPort: UInt16 = MDNS_PORT): LanAnnouncer Throws NetError
+            type: String, name: String, port: UInt16, text: Map<String, String>? = Null,
+            discoveryPort: UInt16 = MDNS_PORT): LanAnnouncer Throws NetError
         Local offered = Offered(TypeLabels(type), InstanceLabel(name), port, TextData(text))
         Local socket = Try UdpSocket.Bind(SocketAddress(IpAddress.Any, discoveryPort), True)
         Try JoinEverywhere(socket)
@@ -197,8 +197,8 @@ Public Struct Lan
     // Find's Async twin, which waits on the main thread.
     @PanicsAtCaller
     Public Static Async Method FindAsync(
-        type: String, timeout: Duration? = Null,
-        discoveryPort: UInt16 = MDNS_PORT): LanService[] Throws NetError
+            type: String, timeout: Duration? = Null,
+            discoveryPort: UInt16 = MDNS_PORT): LanService[] Throws NetError
         Local found = Found(TypeLabels(type))
         Local socket = Try UdpSocket.Bind(SocketAddress(IpAddress.Any, 0))
         Local query = Query(found.Service)
@@ -1028,7 +1028,7 @@ Async Function Answer(socket: UdpSocket, offered: Offered, port: UInt16)
                 Local asked: Message = query
                 Try SendEverywhere(socket, port,
                                    Function(addresses: IpAddress[]) =>
-                                       offered.AnswerThrough(asked, addresses))
+                                   offered.AnswerThrough(asked, addresses))
             End If
         Catch e As Error
             If socket.IsClosed Then Return

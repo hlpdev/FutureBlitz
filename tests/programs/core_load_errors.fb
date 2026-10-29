@@ -297,7 +297,8 @@ Function Alone(value: Value)
     End Try
 End Function
 
-Alone(Value({"Sizes": Value({"Width": Value(1), "Height": Value("x")}), "Bytes": Value([Value(1)])}))
+Alone(Value({"Sizes": Value({"Width": Value(1), "Height": Value("x")}),
+             "Bytes": Value([Value(1)])}))
 Alone(Value({"Sizes": Value.Array(), "Bytes": Value(300)}))
 Alone(Value({"Sizes": Value([Value({"Width": Value(1), "Height": Value(2)}), Value(5)]),
              "Bytes": Value.Array()}))

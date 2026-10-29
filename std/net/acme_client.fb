@@ -94,7 +94,8 @@ Public Class AcmeClient
     Public Static Method InFolder(directory: String,
                                   folder: Path): AcmeClient Throws IOError, ParseError
         Local path = folder / Path("account.pem")
-        If File.Exists(path) Then Return AcmeClient(directory, Try Key.FromPem(Try File.ReadText(path)))
+        If File.Exists(path) Then Return AcmeClient(directory,
+                                                    Try Key.FromPem(Try File.ReadText(path)))
         Local key = Key(KeyKind.ECDSA_P256, True, EcdsaP256.NewPrivateKey())
         Try Dir.CreateAll(folder)
         Try File.WriteTextAtomic(path, key.ToPem())

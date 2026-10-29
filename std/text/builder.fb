@@ -195,7 +195,7 @@ Public Class StringBuilder Implements Printable, Writer
         Local finish = (Bytes.Count As Int64) + text.Length
         If finish > 2147483647
             Throw IOError(IOErrorKind.OTHER, "a StringBuilder holds up to 2147483647 bytes, not " +
-                                             "{finish}")
+                          "{finish}")
         End If
     End Method
 

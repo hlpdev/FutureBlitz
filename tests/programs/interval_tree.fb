@@ -53,7 +53,7 @@ For round = 1 To 3000
             End Function)
             If tree.Overlapping(from, to) != overlapping Then wrong += 1
             Local holding = ordered.Filter(Function(e: (Int, Int, Int)) => e.0 <= from &&
-                                                                         e.1 >= from)
+                                           e.1 >= from)
             If tree.Containing(from) != holding Then wrong += 1
         End For
     End If

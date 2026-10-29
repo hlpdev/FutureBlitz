@@ -74,27 +74,40 @@ Check("MD5 2", Md5.Hash("a"), "0cc175b9c0f1b6a831c399e269772661")
 Check("MD5 3", Md5.Hash("abc"), "900150983cd24fb0d6963f7d28e17f72")
 Check("MD5 4", Md5.Hash("message digest"), "f96b697d7cb7938d525a2f31aaf161d0")
 Check("MD5 5", Md5.Hash("abcdefghijklmnopqrstuvwxyz"), "c3fcd3d76192e4007dfb496cca67e13b")
-Check("MD5 6", Md5.Hash("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"), "d174ab98d277d9f5a5611c2c9f419d9f")
-Check("MD5 7", Md5.Hash("12345678901234567890123456789012345678901234567890123456789012345678901234567890"), "57edf4a22be3c955ac49da2e2107b67a")
+Check("MD5 6", Md5.Hash("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"),
+      "d174ab98d277d9f5a5611c2c9f419d9f")
+Check("MD5 7",
+      Md5.Hash("12345678901234567890123456789012345678901234567890123456789012345678901234567890"),
+      "57edf4a22be3c955ac49da2e2107b67a")
 Done("MD5")
 
 // RFC 6234's SHA1 tests, but those of a partial byte.
 Check("SHA1 test 1", Sha1.Hash("abc"), "a9993e364706816aba3e25717850c26c9cd0d89d")
-Check("SHA1 test 2", Sha1.Hash("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"), "84983e441c3bd26ebaae4aa1f95129e5e54670f1")
+Check("SHA1 test 2", Sha1.Hash("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+      "84983e441c3bd26ebaae4aa1f95129e5e54670f1")
 Check("SHA1 test 3", Repeated(Sha1(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".Bytes, 1000), "34aa973cd4c4daa4f61eeb2bdbad27316534016f")
-Check("SHA1 test 4", Repeated(Sha1(), "0123456701234567012345670123456701234567012345670123456701234567".Bytes, 10), "dea356a2cddd90c7a7ecedc5ebb563934f460452")
+Check("SHA1 test 4",
+      Repeated(Sha1(), "0123456701234567012345670123456701234567012345670123456701234567".Bytes,
+               10), "dea356a2cddd90c7a7ecedc5ebb563934f460452")
 Check("SHA1 test 6", Sha1.Hash("^"), "5e6f80a34a9798cafc6a5db96cc57ba4c4db59c2")
-Check("SHA1 test 8", Sha1.Hash(Unhex("9a7dfdf1ecead06ed646aa55fe757146")), "82abff6605dbe1c17def12a394fa22a82b544a35")
+Check("SHA1 test 8", Sha1.Hash(Unhex("9a7dfdf1ecead06ed646aa55fe757146")),
+      "82abff6605dbe1c17def12a394fa22a82b544a35")
 Check("SHA1 test 10", Sha1.Hash(Unhex("f78f92141bcd170ae89b4fba15a1d59f3fd84d223c9251bdacbbae61d05ed115a06a7ce117b7beead24421ded9c32592bd57edeae39c39fa1fe8946a84d0cf1f7beead1713e2e0959897347f67c80b0400c209815d6b10a683836fd5562a56cab1a28e81b6576654631cf16566b86e3b33a108b05307c00aff14a768ed7350606a0f85e6a91d396f5b5cbe577f9b38807c7d523d6d792f6ebc24a4ecf2b3a427cdbbfb")), "cb0082c8f197d260991ba6a460e76e202bad27b3")
 Done("SHA1")
 
 // RFC 6234's SHA256 tests, but those of a partial byte.
-Check("SHA256 test 1", Sha256.Hash("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
-Check("SHA256 test 2", Sha256.Hash("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"), "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1")
+Check("SHA256 test 1", Sha256.Hash("abc"),
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+Check("SHA256 test 2", Sha256.Hash("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+      "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1")
 Check("SHA256 test 3", Repeated(Sha256(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".Bytes, 1000), "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0")
-Check("SHA256 test 4", Repeated(Sha256(), "0123456701234567012345670123456701234567012345670123456701234567".Bytes, 10), "594847328451bdfa85056225462cc1d867d877fb388df0ce35f25ab5562bfbb5")
-Check("SHA256 test 6", Sha256.Hash(Unhex("19")), "68aa2e2ee5dff96e3355e6c7ee373e3d6a4e17f75f9518d843709c0c9bc3e3d4")
-Check("SHA256 test 8", Sha256.Hash(Unhex("e3d72570dcdd787ce3887ab2cd684652")), "175ee69b02ba9b58e2b0a5fd13819cea573f3940a94f825128cf4209beabb4e8")
+Check("SHA256 test 4",
+      Repeated(Sha256(), "0123456701234567012345670123456701234567012345670123456701234567".Bytes,
+               10), "594847328451bdfa85056225462cc1d867d877fb388df0ce35f25ab5562bfbb5")
+Check("SHA256 test 6", Sha256.Hash(Unhex("19")),
+      "68aa2e2ee5dff96e3355e6c7ee373e3d6a4e17f75f9518d843709c0c9bc3e3d4")
+Check("SHA256 test 8", Sha256.Hash(Unhex("e3d72570dcdd787ce3887ab2cd684652")),
+      "175ee69b02ba9b58e2b0a5fd13819cea573f3940a94f825128cf4209beabb4e8")
 Check("SHA256 test 10", Sha256.Hash(Unhex("8326754e2277372f4fc12b20527afef04d8a056971b11ad57123a7c137760000d7bef6f3c1f7a9083aa39d810db310777dab8b1e7f02b84a26c773325f8b2374de7a4b5a58cb5c5cf35bcee6fb946e5bd694fa593a8beb3f9d6592ecedaa66ca82a29d0c51bcf9336230e5d784e4c0a43f8d79a30a165cbabe452b774b9c7109a97d138f129228966f6c0adc106aad5a9fdd30825769b2c671af6759df28eb393d54d6")), "97dbca7df46d62c8a422c941dd7e835b8ad3361763f7e9b2d95f4f0da6e1ccbc")
 Done("SHA256")
 

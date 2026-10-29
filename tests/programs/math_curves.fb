@@ -102,7 +102,8 @@ Local beziers: Vec2[] = []
 For i = 0 Until 298
     beziers.Add(zigzag[i])
 End For
-Print(Shown(Curve2.CatmullRom(zigzag, False, 1).Length), Shown(Curve2.BSpline(zigzag, True, 8).Length),
+Print(Shown(Curve2.CatmullRom(zigzag, False, 1).Length),
+      Shown(Curve2.BSpline(zigzag, True, 8).Length),
       Shown(Curve2.Bezier(beziers, 2).Length))
 Local zigzag3: Vec3[] = []
 For i = 0 Until 300

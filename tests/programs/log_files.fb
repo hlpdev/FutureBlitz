@@ -37,7 +37,8 @@ Try Dir.SetCurrent(temp.Path / "two")
 here(Line("second"))
 rotatingHere(Line("first"))
 Try Dir.SetCurrent(temp.Path)
-Print("{LinesOf("one/here.log")} {LinesOf("one/rotating here.log")} {(Try Dir.Entries("two")).Count}")
+Print(
+    "{LinesOf("one/here.log")} {LinesOf("one/rotating here.log")} {(Try Dir.Entries("two")).Count}")
 
 // A FileSink makes the file and its folders, and adds to the end of one that's there.
 Local sink = FileSink("logs/deep/app.log")
