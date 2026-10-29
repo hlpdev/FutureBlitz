@@ -14,6 +14,7 @@ FetchContent_Declare(
   GIT_TAG v${FB_LIBUV_VERSION}
   GIT_SHALLOW TRUE
   SYSTEM
+  EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(libuv)
 # Its warnings are its own. GCC 14 and later make one an error, a const mismatch in uv_cpu_info's

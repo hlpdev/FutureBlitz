@@ -116,6 +116,16 @@ fb_set_stack(fb_lsp_tests)
 fb_copy_llvm(fb_lsp_tests)
 catch_discover_tests(fb_lsp_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})
 
+# A release: this build, installed into a folder of its own, builds and runs `fb new`'s package
+# with nothing else on PATH. It copies the whole release, so it takes a while.
+add_test(NAME "a release installs, and builds and runs fb new's package with nothing on PATH"
+  COMMAND ${CMAKE_COMMAND} -DFB_BUILD=${CMAKE_BINARY_DIR}
+          -DFB_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/install
+          -DFB_EXECUTABLE_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/install/install_test.cmake)
+set_tests_properties("a release installs, and builds and runs fb new's package with nothing on PATH"
+  PROPERTIES TIMEOUT 1200)
+
 # fb-bindgen's tests, where it's built: each header becomes the module it should, which
 # compiles.
 if(TARGET fb_bindgen)
