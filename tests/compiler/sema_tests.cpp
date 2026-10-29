@@ -16248,6 +16248,33 @@ TEST_CASE("a member being typed, without its name, works out what's before its '
     const std::string missing = "\n: expected identifier, found newline";
     CHECK(errors_of(program) == errors_t{ missing, missing, missing, missing });
 
+    // Nor for "Super.", a call of one, or what's before the '.' with an error of its own, which
+    // the line being typed shows already.
+    CHECK(errors_of("Import std.core\n"
+                    "Import std.collections\n"
+                    "Class Animal\n    Method Speak(): Int => 1\nEnd Class\n"
+                    "Class Dog Extends Animal\n"
+                    "    Override Method Speak(): Int\n"
+                    "        Super.\n"
+                    "        Return 2\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Struct Point\n    Field X: Int\nEnd Struct\n"
+                    "Function F(p: Point)\n"
+                    "    p.(1)\n"
+                    "    Point.()\n"
+                    "    collections.()\n"
+                    "    nothing.\n"
+                    "    std.\n"
+                    "End Function\n") == errors_t{
+                                             missing,
+                                             "(: expected identifier, found '('",
+                                             "(: expected identifier, found '('",
+                                             "(: expected identifier, found '('",
+                                             missing,
+                                             missing,
+                                         });
+
     // What a tool completes the name from: the value's type, or the module's or type's symbol.
     const fb::compilation_t compilation = fb::compile("test.fb", std::string(program));
     std::vector<std::string> objects;

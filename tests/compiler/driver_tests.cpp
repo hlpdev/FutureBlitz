@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <cctype>
 #include <chrono>
 #include <cstddef>
 #include <cstdlib>
@@ -3869,6 +3870,34 @@ TEST_CASE("check_files checks only the files it's given, and what they import", 
           std::vector<std::string>{ "app.tests/t.fb", "app/(library).fb", "app/a.fb", "app/c.fb" });
     REQUIRE(packages.messages(*checked).size() == 1);
     CHECK(packages.messages(*checked).front().starts_with("app/c.fb: "));
+
+#ifdef _WIN32
+    // Files named in other letter cases than the disk's, as an editor may name them, are the
+    // package's all the same.
+    std::string upper = fb::to_utf8(packages / "app/c.fb");
+    std::string lower = fb::to_utf8(packages / "app/b.fb");
+    upper[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(upper[0])));
+    lower[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(lower[0])));
+    checked =
+        fb::check_files({ .files = { fb::path_from_utf8(lower), fb::path_from_utf8(upper) } });
+    REQUIRE(checked);
+    CHECK(own_modules(*checked) ==
+          std::vector<std::string>{ "app/(library).fb", "app/a.fb", "app/b.fb", "app/c.fb" });
+#endif
+
+    // A file with top-level code that the main file imports is an error, as in a build, not
+    // another main file.
+    packages.write("app/main.fb", "Import std.core\nImport \"./tool\"\nPrint(1)\n");
+    packages.write("app/tool.fb",
+                   "Import std.core\nPublic Function T(): Int => 1\nPrint(\"side\")\n");
+    checked = fb::check_files({
+        .files = { packages / "app/main.fb", packages / "app/tool.fb" },
+        .main = packages / "app/main.fb",
+    });
+    REQUIRE(checked);
+    const std::vector<std::string> side = packages.messages(*checked);
+    REQUIRE(side.size() == 1);
+    CHECK(side.front().contains("only the main module's top-level code runs"));
     packages.remove();
 }
 

@@ -1686,6 +1686,23 @@ private:
             }
         }
 
+        // What the main file imports, directly or not, which a build has too, where a file with
+        // top-level code is an error, not another main file.
+        std::vector<bool> reached(m_loaded.size());
+        std::vector<std::size_t> work{ 0 };
+        while (!work.empty()) {
+            const std::size_t at = work.back();
+            work.pop_back();
+            for (const auto& [statement, targets] : m_loaded[at].imports) {
+                for (const std::size_t target : targets) {
+                    if (!reached[target]) {
+                        reached[target] = true;
+                        work.push_back(target);
+                    }
+                }
+            }
+        }
+
         // Two files can't be one module, as a.b.fb and a/b.fb would be, since names in MIR start
         // with the module's.
         std::map<std::string, std::size_t, std::less<>> names;
@@ -1702,8 +1719,9 @@ private:
                                : packages[package_of(loaded.path).value_or(0)],
                 .prebuilt = prebuilt_package(m_files, loaded.path) != nullptr,
                 .beside = beside_package(loaded.path),
-                .other_main = m_files.testing && index != 0 && !m_files.packages.empty() &&
-                              package_of(loaded.path) == 0 && has_code(m_items[index]),
+                .other_main = m_files.testing && index != 0 && !reached[index] &&
+                              !m_files.packages.empty() && package_of(loaded.path) == 0 &&
+                              has_code(m_items[index]),
             };
             if (const auto [taken, added] = names.emplace(module.name, index); !added) {
                 m_compilation.diagnostics.error(
@@ -2766,11 +2784,14 @@ compile_package(const std::filesystem::path& folder,
     // check_files()'s, by their paths in the program, the tests/ folder's first, as it's inside
     // the package's.
     if (request != nullptr) {
+        // Both as real_path() gives them, in the disk's letter case, as is_under() compares, though
+        // an editor may name a file in other cases.
         for (const std::filesystem::path& file : request->files) {
-            const std::filesystem::path real = std::filesystem::weakly_canonical(file, error);
+            const std::optional<std::filesystem::path> real = real_path(file);
             for (const package_t* package : folders | std::views::reverse) {
-                if (is_under(real, package->root)) {
-                    extra.push_back(package->prefix + program_path(package->root, real));
+                const std::optional<std::filesystem::path> root = real_path(package->root);
+                if (real && root && is_under(*real, *root)) {
+                    extra.push_back(package->prefix + program_path(*root, *real));
                     break;
                 }
             }
@@ -2824,7 +2845,9 @@ compile_package(const std::filesystem::path& folder,
 
     compilation.file = *file;
     const std::filesystem::path root = own.root;
-    const std::string path = own.prefix + program_path(own.root, main_path);
+    // In the disk's letter case, which the main file may be given in another of.
+    const std::string path = own.prefix + program_path(real_path(own.root).value_or(own.root),
+                                                       real_path(main_path).value_or(main_path));
     std::erase(extra, path);
     run_front_end(compilation,
                   {

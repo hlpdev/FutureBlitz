@@ -542,6 +542,8 @@ private:
     std::optional<symbol_id_t> m_function;          // the function being checked
     /// Each declared Struct's, Class's, Interface's, and Enum's symbol, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
+    /// Each Enum's values' Consts, by its type, in order, which a use of one names.
+    std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_enum_members;
     /// The Aliases whose types are being worked out, innermost last, and those that are done.
     std::vector<symbol_id_t> m_aliasing;
     std::unordered_set<symbol_id_t> m_aliased;
@@ -2546,13 +2548,15 @@ private:
                 used |= bits_of(*value);
             }
 
-            enter_scope(add_symbol({
+            const symbol_id_t constant = add_symbol({
                 .kind = symbol_kind_t::CONSTANT,
                 .name = member.name.text,
                 .span = member.name.span,
                 .type = integer,
                 .value = value,
-            }));
+            });
+            m_enum_members[symbol(*declared).type].push_back(constant);
+            enter_scope(constant);
         }
 
         pop_scope();
@@ -3493,6 +3497,10 @@ private:
             return resolve_type(id);
         }
 
+        if (!found.empty()) {
+            note_written(written.span, found.front());
+        }
+
         // The built-in types that work and threads share, and Ptrs, have only their own
         // operations. Each is its name, then what it is.
         using kind_t = std::pair<std::string_view, std::string_view>;
@@ -4009,9 +4017,17 @@ private:
             return;
         }
 
+        if (module) {
+            note_written(qualifier->span, *module);
+        }
+
         if (module && found.empty()) {
             report_not_in_module(*module, name);
             return;
+        }
+
+        if (!found.empty()) {
+            note_written(name.span, found.front());
         }
 
         if (!found.empty() && symbol(found.front()).kind == symbol_kind_t::ALIAS) {
@@ -9224,7 +9240,12 @@ private:
         }
 
         const std::optional<symbol_id_t> module = qualifier_of_type(*named.qualifier);
-        return module ? in_module(*module, named.name, span) : std::vector<symbol_id_t>{};
+        if (!module) {
+            return {};
+        }
+
+        note_written(named.qualifier->span, *module);
+        return in_module(*module, named.name, span);
     }
 
     /// The type or variable that an import gives code at `span` by a name, past a Function of
@@ -11761,6 +11782,19 @@ private:
     /// A use of `id` at `span`, for the main-thread rules, an error at a use of a @Test Function,
     /// and a warning at a use of something @Deprecated, or of a New of a @Deprecated type. Its own
     /// code, and its type's, can use it.
+    /// A use of `id` at `span` for tools alone, where the language has no rule about using it: a
+    /// type after Extends or Extend, a module's qualifier, an Enum's value, a type before a
+    /// Static member, an assignment's target, or a named argument's parameter.
+    void note_written(const span_t span, const symbol_id_t id) {
+        // A name looked up again, as a qualifier is while its expression is checked, once.
+        if (!m_analysis.uses.empty() && m_analysis.uses.back().span == span &&
+            m_analysis.uses.back().symbol == id) {
+            return;
+        }
+
+        m_analysis.uses.push_back({ .span = span, .symbol = id });
+    }
+
     void note_use(const symbol_id_t id, const span_t span) {
         m_analysis.uses.push_back({ .span = span, .symbol = id });
         note_thread_use(id, span);
@@ -13829,6 +13863,7 @@ private:
             return type_id_t::INVALID;
         }
 
+        note_written(qualifier.span, *module);
         const std::vector<symbol_id_t> found = in_module(*module, named.name, span);
         if (found.empty()) {
             report_not_in_module(*module, { .text = named.name, .span = span });
@@ -13856,6 +13891,7 @@ private:
         }
 
         if (declared.kind == symbol_kind_t::ALIAS) {
+            note_written(span, found.front());
             if (!named.arguments.empty()) {
                 error(span, "'{}' is an Alias, so it takes no type arguments", named.name);
             }
@@ -17604,6 +17640,7 @@ private:
                 .type_arguments = static_arguments(symbol(*found)),
             };
             note_thread_use(*found, span_of(id));
+            note_written(span_of(id), *found);
             if (parallel_outside(*found) != nullptr) {
                 error(span_of(id), "a Parallel For's body can't change '{}', which is outside it",
                       name->name);
@@ -18866,6 +18903,7 @@ private:
         }
 
         info(member->object).symbol = module;
+        note_written(span_of(member->object), *module);
         return qualified_t{ .module = *module, .member = member };
     }
 
@@ -21651,6 +21689,18 @@ private:
     }
 
     type_id_t check_expr(const expr_id_t id, const call_expr_t& node, const type_id_t hint) {
+        // "x.(...)" while the member's name is typed: what's before the '.' and the arguments are
+        // checked, and the parser said what's missing.
+        if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
+            member != nullptr && member->member.text.empty()) {
+            check_unnamed_member(*member);
+            for (const argument_t& argument : node.arguments) {
+                check_any(argument.value, type_id_t::NONE);
+            }
+
+            return type_id_t::INVALID;
+        }
+
         if (const auto* name = std::get_if<name_expr_t>(&m_ast.get(node.callee).node);
             name != nullptr && is_value_builtin(name->name) &&
             !declared_here(name->name, span_of(node.callee))) {
@@ -23967,6 +24017,12 @@ private:
             }
 
             if (const std::optional<type_id_t> named = type_named(member->object)) {
+                // The type's name, before its Static Method.
+                if (const std::optional<written_name_t> written = written_name(member->object);
+                    written && !written->symbols.empty()) {
+                    note_written(span_of(member->object), written->symbols.front());
+                }
+
                 // A Static Field or Property holding a function value is called through it.
                 if (static_value(*named, member->member)) {
                     check(callee, type_id_t::NONE);
@@ -24163,6 +24219,7 @@ private:
         }
 
         if (first.kind == symbol_kind_t::ALIAS) {
+            note_written(span_of(callee), found.front());
             return alias_constructors(callee, found.front(), name);
         }
 
@@ -24931,6 +24988,19 @@ private:
             }
         }
 
+        // A named argument's name is its parameter's, as a rename of the parameter changes.
+        for (const argument_t& argument : node.arguments) {
+            if (!argument.name) {
+                continue;
+            }
+
+            for (const symbol_id_t parameter : symbol(function).parameters) {
+                if (symbol(parameter).name == argument.name->text) {
+                    note_written(argument.name->span, parameter);
+                }
+            }
+        }
+
         info(id).arguments = std::move(arguments);
         info(id).packed = std::move(packed);
     }
@@ -25151,6 +25221,13 @@ private:
         }
 
         note_use(m_declared_types.at(type), span_of(node.object));
+        // An Alias of the Enum, as written.
+        if (const std::optional<written_name_t> written = written_name(node.object);
+            written && !written->symbols.empty() &&
+            symbol(written->symbols.front()).kind == symbol_kind_t::ALIAS) {
+            note_written(span_of(node.object), written->symbols.front());
+        }
+
         const std::vector<enum_value_t>& values = m_analysis.types.get(type).values;
         const auto found = std::ranges::find(values, node.member.text, &enum_value_t::name);
         if (found == values.end()) {
@@ -25160,6 +25237,16 @@ private:
         }
 
         info(id).value = enum_constant(type, found->bits);
+        // The value, by its name after the type's.
+        if (const auto members = m_enum_members.find(type); members != m_enum_members.end()) {
+            const auto value = std::ranges::find_if(members->second, [&](const symbol_id_t each) {
+                return symbol(each).name == node.member.text;
+            });
+            if (value != members->second.end()) {
+                note_written(node.member.span, *value);
+            }
+        }
+
         return type;
     }
 
@@ -25190,27 +25277,43 @@ private:
     void check_unnamed_member(const member_expr_t& node) {
         if (const std::optional<symbol_id_t> module = qualifier_named(node.object)) {
             info(node.object).symbol = module;
+            note_written(span_of(node.object), *module);
             return;
         }
 
-        if (const std::optional<written_name_t> name = written_name(node.object)) {
-            if (builtin_type(name->name)) {
-                return;
+        // "Super.": the Class that Self's extends.
+        if (std::holds_alternative<super_expr_t>(m_ast.get(node.object).node)) {
+            if (m_function && symbol(*m_function).owner != type_id_t::INVALID) {
+                const type_id_t base = m_analysis.types.get(symbol(*m_function).owner).base;
+                info(node.object).type = base;
+                info(node.object).converted = base;
             }
 
-            if (!name->symbols.empty() &&
-                (symbol(name->symbols.front()).kind == symbol_kind_t::TYPE ||
-                 symbol(name->symbols.front()).kind == symbol_kind_t::ALIAS)) {
-                info(node.object).symbol = name->symbols.front();
-                return;
-            }
-        }
-
-        if (parameter_named(node.object)) {
             return;
         }
 
-        check(node.object, type_id_t::NONE);
+        // Quietly, as the parser's error is the one the line being typed gets, as it was when the
+        // whole member was an error.
+        quietly([&] {
+            if (const std::optional<written_name_t> name = written_name(node.object)) {
+                if (builtin_type(name->name)) {
+                    return 0;
+                }
+
+                if (!name->symbols.empty() &&
+                    (symbol(name->symbols.front()).kind == symbol_kind_t::TYPE ||
+                     symbol(name->symbols.front()).kind == symbol_kind_t::ALIAS)) {
+                    info(node.object).symbol = name->symbols.front();
+                    return 0;
+                }
+            }
+
+            if (!parameter_named(node.object)) {
+                check(node.object, type_id_t::NONE);
+            }
+
+            return 0;
+        });
     }
 
     type_id_t check_expr(const expr_id_t id, const member_expr_t& node, const type_id_t hint) {
@@ -25241,6 +25344,12 @@ private:
         }
 
         if (named) {
+            // The type's name, before its member.
+            if (const std::optional<written_name_t> written = written_name(node.object);
+                written && !written->symbols.empty()) {
+                note_written(span_of(node.object), written->symbols.front());
+            }
+
             const std::vector<symbol_id_t> found = static_members(*named, node.member, false);
             if (found.empty()) {
                 return type_id_t::INVALID;

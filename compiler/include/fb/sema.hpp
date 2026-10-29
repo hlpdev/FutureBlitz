@@ -433,11 +433,15 @@ struct expectation_t {
     std::string text;
 };
 
-/// Where the code uses a symbol, which tools find definitions and references with: a name, a
-/// member after its '.', a type, or a call, as the code is checked.
+/// Where the code uses a symbol, which tools find definitions and references with, as the code is
+/// checked: a name in code, an assignment's target among them, a member after its '.', an Enum's
+/// value, a type where it's written, after Extends, Implements, and Extend too, an Alias, a
+/// module's qualifier, a type before its Static member, a call, a constructor by its type's
+/// name, a named argument's parameter, and a From line's names.
 struct symbol_use_t {
-    /// What names it: the name, a qualified name's or a member's whole expression, or for an
-    /// operator that calls an Operator, its expression.
+    /// What names it: the name, or a qualified name's or a type's whole text, which ends with
+    /// the name or starts with it before its type arguments. An operator that calls an Operator
+    /// has its whole expression, which doesn't name it.
     span_t span;
     symbol_id_t symbol{};
 };
