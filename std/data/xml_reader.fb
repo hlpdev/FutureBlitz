@@ -62,7 +62,7 @@ Public Class XmlReader
     Field Expanded: Int64
     Field MostExpanded: Int64
 
-    /// A reader of text's document, its line ends LFs, and past a byte order mark at its start.
+    /// A reader of `text`'s document, its line ends LFs, and past a byte order mark at its start.
     Public New(text: String)
         Local bytes = text.Bytes
         Local normal: UInt8[] = []

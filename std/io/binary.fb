@@ -58,7 +58,7 @@ Public Class BinaryReader
 
     /// The next `count` bytes, read a chunk at a time, so a count that the stream doesn't have,
     /// like a broken file's, ends in an IOError, not in asking for all that memory. Panics when
-    /// count is negative.
+    /// `count` is negative.
     @PanicsAtCaller
     Public Method ReadBytes(count: Int64): UInt8[] Throws IOError
         If count < 0 Then Panic("ReadBytes reads a count of bytes that isn't negative, not {count}")
@@ -86,7 +86,7 @@ Public Class BinaryReader
     End Method
 
     /// The next `count` bytes as text, with U+FFFD for each one that doesn't start well-formed
-    /// UTF-8, read as ReadBytes reads them. Panics when count is negative.
+    /// UTF-8, read as ReadBytes reads them. Panics when `count` is negative.
     @PanicsAtCaller
     Public Method ReadText(count: Int64): String Throws IOError
         If count < 0 Then Panic("ReadText reads a count of bytes that isn't negative, not {count}")
@@ -180,7 +180,7 @@ Public Class BinaryWriter
         Try Inner.WriteBytes(bytes)
     End Method
 
-    /// The text's UTF-8 bytes, without anything to say how many there are.
+    /// The `text`'s UTF-8 bytes, without anything to say how many there are.
     Public Method WriteText(text: String) Throws IOError
         Try Inner.WriteText(text)
     End Method

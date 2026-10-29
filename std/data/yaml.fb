@@ -17,9 +17,9 @@ Public Struct Yaml
     New()
     End New
 
-    /// The document text holds, or Null for a text of none. An integer past what an Int64 holds is
-    /// a UINT, and past a UInt64 a Double. Throws a ParseError, with its line and column, of
-    /// UNEXPECTED_END for text that ends inside a quoted scalar or a flow collection, of
+    /// The document `text` holds, or Null for a text of none. An integer past what an Int64 holds
+    /// is a UINT, and past a UInt64 a Double. Throws a ParseError, with its line and column, of
+    /// UNEXPECTED_END for `text` that ends inside a quoted scalar or a flow collection, of
     /// OUT_OF_RANGE for an !!int past what a UInt64 holds, of OTHER for a tag that isn't the core
     /// schema's, a key that's a mapping or a sequence, or a text of more than one document, which
     /// ReadAll reads, at the second's start, and of SYNTAX for the rest that isn't YAML 1.2.
@@ -35,15 +35,15 @@ Public Struct Yaml
         Return documents[0]
     End Method
 
-    /// Each document text holds, in order. Throws a ParseError as Read does, but for more than
+    /// Each document `text` holds, in order. Throws a ParseError as Read does, but for more than
     /// one document.
     Public Static Method ReadAll(text: String): Value[] Throws ParseError
         Return Try YamlParser(text.Bytes).Documents()
     End Method
 
-    /// value as a document: an Object as a block mapping, an Array as a block sequence, an empty
+    /// `value` as a document: an Object as a block mapping, an Array as a block sequence, an empty
     /// one as {} or [], and a String plain where the core schema reads it back as that String,
-    /// else in double quotes. Panics when value holds bytes, which the core schema hasn't got.
+    /// else in double quotes. Panics when `value` holds bytes, which the core schema hasn't got.
     @PanicsAtCaller
     Public Static Method Write(value: Value): String
         Local out: UInt8[] = []
@@ -52,7 +52,7 @@ Public Struct Yaml
         Return TextOf(out)
     End Method
 
-    /// values as documents, each after a "---". Panics as Write does.
+    /// `values` as documents, each after a "---". Panics as Write does.
     @PanicsAtCaller
     Public Static Method WriteAll(values: Value[]): String
         Local out: UInt8[] = []

@@ -10,7 +10,7 @@ Import std.log.sinks
 
 /// A sink that adds each line, as LogLine has it, with its time and without colors, and a "\n",
 /// to the end of the file at `path`, made, with the folders it's in, when it isn't there; a
-/// relative path is from the folder that's current when the sink's made. Each line goes in one
+/// relative `path` is from the folder that's current when the sink's made. Each line goes in one
 /// write, which no other line's comes into, from this program's threads or, on every OS, another
 /// program's adding to the file too. A line that can't be written is gone, and the first of those
 /// since one was written says so on stderr.
@@ -22,8 +22,8 @@ End Function
 /// A sink that adds lines as FileSink does, until a line would make the file hold more than
 /// `maxBytes`: then the file becomes `path` with ".1" after it, the ".1" before it ".2", and so on,
 /// the oldest of `keep` going, and the line starts a new file. A file holds one line at least, so
-/// one longer than maxBytes has one of its own. While the file can't be moved aside, which stderr
-/// is told once, lines go on being added to it. Panics when maxBytes isn't above 0, or keep is
+/// one longer than `maxBytes` has one of its own. While the file can't be moved aside, which stderr
+/// is told once, lines go on being added to it. Panics when `maxBytes` isn't above 0, or `keep` is
 /// below 0; with a keep of 0, the old lines go.
 @PanicsAtCaller
 Public Function RotatingFileSink(path: Path, maxBytes: Int64,

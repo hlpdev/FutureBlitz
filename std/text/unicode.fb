@@ -31,14 +31,14 @@ Public Enum NormalForm
     NFC, NFD, NFKC, NFKD
 End Enum
 
-/// c's general category: a letter of some case, a mark, a number, punctuation, a symbol, a
+/// `c`'s general category: a letter of some case, a mark, a number, punctuation, a symbol, a
 /// separator, or another kind.
 Public Function Category(c: Char): UnicodeCategory
     Return fb_unicode_category(c As UInt32) As UnicodeCategory
 End Function
 
-/// text in the normal form form, so text that looks the same is the same: "é" as one character
-/// in NFC, and as "e" and its accent in NFD. Panics past the most a String holds.
+/// `text` in the normal `form` `form`, so `text` that looks the same is the same: "é" as one
+/// character in NFC, and as "e" and its accent in NFD. Panics past the most a String holds.
 @PanicsAtCaller
 Public Function Normalize(text: String, form: NormalForm = NormalForm.NFC): String
     Local normal = fb_unicode_normalize(text, form As Int32)
@@ -46,12 +46,12 @@ Public Function Normalize(text: String, form: NormalForm = NormalForm.NFC): Stri
     Return normal
 End Function
 
-/// Whether text is in the normal form form already. One past the most a String holds isn't.
+/// Whether `text` is in the normal `form` `form` already. One past the most a String holds isn't.
 Public Function IsNormalized(text: String, form: NormalForm = NormalForm.NFC): Bool
     Return fb_unicode_normalize(text, form As Int32) == text
 End Function
 
-/// text case-folded, as Unicode has it, so two texts that differ only by case fold to the same:
+/// `text` case-folded, as Unicode has it, so two texts that differ only by case fold to the same:
 /// "Straße" and "STRASSE" both to "strasse". Panics past the most a String holds.
 @PanicsAtCaller
 Public Function CaseFold(text: String): String
@@ -60,11 +60,11 @@ Public Function CaseFold(text: String): String
     Return folded
 End Function
 
-/// The columns c takes in a terminal: 2 for a wide one, like "中" or most emoji, 0 for a mark or a
+/// The columns `c` takes in a terminal: 2 for a wide one, like "中" or most emoji, 0 for a mark or a
 /// control character, and 1 for the rest.
 Public Function DisplayWidth(c: Char): Int => fb_unicode_char_width(c As UInt32)
 
-/// The columns text takes in a terminal, each grapheme cluster as many as its widest character,
+/// The columns `text` takes in a terminal, each grapheme cluster as many as its widest character,
 /// so "e" with its accent is 1, and an emoji made of several is 2. A flag is 2, and so is a
 /// character that U+FE0F asks to be drawn as emoji, like "\u{2764}\u{FE0F}", though it's 1 alone.
 Public Function DisplayWidth(text: String): Int => fb_unicode_display_width(text) As Int

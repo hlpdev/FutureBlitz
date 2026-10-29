@@ -53,26 +53,26 @@ Public Struct Url Implements Hashable, Printable
         Fragment = fragment
     End New
 
-    /// The URL text writes, or Null when it isn't one. Space and controls around it, and tabs and
+    /// The URL `text` writes, or Null when it isn't one. Space and controls around it, and tabs and
     /// line breaks in it, are left out.
     Public Static Method Parse(text: String): Url?
         Return Parser(Trimmed(PointsOf(text)), Null).Run()
     End Method
 
-    /// The URL text writes, relative to base: a whole URL, or a path, query, or fragment to
-    /// resolve against base, as a link in a page is.
+    /// The URL `text` writes, relative to `base`: a whole URL, or a path, query, or fragment to
+    /// resolve against `base`, as a link in a page is.
     Public Static Method Parse(text: String, base: Url): Url?
         Return Parser(Trimmed(PointsOf(text)), base).Run()
     End Method
 
-    /// The URL `text` writes, relative to `base`'s text, or Null when either isn't one.
+    /// The URL `text` writes, relative to `base`'s `text`, or Null when either isn't one.
     Public Static Method Parse(text: String, base: String): Url?
         Local parsed = Parse(base)
         If parsed == Null Then Return Null
         Return Parse(text, parsed)
     End Method
 
-    /// What text resolves to, relative to this URL.
+    /// What `text` resolves to, relative to this URL.
     Public Method Resolve(text: String): Url? => Parse(text, Self)
 
     /// Its path as its text has it: each segment after a /, or its opaque path.
@@ -158,7 +158,7 @@ Public Struct Url Implements Hashable, Printable
         Return text
     End Method
 
-    /// text with what isn't a letter, a digit, or one of !'()*-._~ percent-encoded as its UTF-8
+    /// `text` with what isn't a letter, a digit, or one of !'()*-._~ percent-encoded as its UTF-8
     /// bytes, as a query's name or value, or a path's segment, takes any text.
     Public Static Method Encode(text: String): String
         Local bytes: UInt8[] = []
@@ -168,7 +168,7 @@ Public Struct Url Implements Hashable, Printable
         Return fb_string_from_array(bytes)
     End Method
 
-    /// text with each % and two hex digits as the byte they stand for, read as UTF-8 as the
+    /// `text` with each % and two hex digits as the byte they stand for, read as UTF-8 as the
     /// Encoding Standard's decoder reads it: one U+FFFD for each byte that can't start a code
     /// point, and one for each start of one that's cut short, before the byte that cuts it.
     Public Static Method Decode(text: String): String
@@ -185,7 +185,7 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
     Public New()
     End New
 
-    /// The names and values query has, after its ?, if it starts with one.
+    /// The names and values `query` has, after its ?, if it starts with one.
     Public New(query: String)
         Local bytes = query.Bytes
         Pairs = FormParsed(bytes, bytes.Count > 0 && bytes[0] == 63 ? 1 : 0)
@@ -196,7 +196,7 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
         Get => Pairs.Count
     End Property
 
-    /// The first value of name, or Null when it has none.
+    /// The first value of `name`, or Null when it has none.
     Public Method Get(name: String): String?
         For pair In Pairs
             If pair.0 == name Then Return pair.1
@@ -204,7 +204,7 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
         Return Null
     End Method
 
-    /// Each value of name, in order.
+    /// Each value of `name`, in order.
     Public Method GetAll(name: String): String[]
         Local values: String[] = []
         For pair In Pairs
@@ -213,7 +213,7 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
         Return values
     End Method
 
-    /// Whether it has name, or name with value.
+    /// Whether it has `name`, or `name` with value.
     Public Method Contains(name: String): Bool => Get(name) != Null
 
     /// Whether it has `name` with `value`.
@@ -224,12 +224,12 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
         Return False
     End Method
 
-    /// Adds name and value at the end, after any values name has.
+    /// Adds `name` and `value` at the end, after any values `name` has.
     Public Method Add(name: String, value: String)
         Pairs.Add((name, value))
     End Method
 
-    /// Gives name value: its first pair's, taking the others out, or a new one at the end.
+    /// Gives `name` `value`: its first pair's, taking the others out, or a new one at the end.
     Public Method Set(name: String, value: String)
         Local found = False
         Local kept: (String, String)[] = []
@@ -245,7 +245,7 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
         Pairs = kept
     End Method
 
-    /// Takes out each pair of name, or of name and value, and gives whether there was one.
+    /// Takes out each pair of `name`, or of `name` and value, and gives whether there was one.
     Public Method Remove(name: String): Bool
         Local count = Pairs.Count
         Pairs = Pairs.Filter(Function(pair: (String, String)) => pair.0 != name)

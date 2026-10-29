@@ -16,20 +16,20 @@ Public Struct Gif
     New()
     End New
 
-    /// The first frame of the GIF in data. Throws an IOError of INVALID_DATA when the data isn't a
-    /// GIF or is broken, and OTHER when the frame has more pixels than `limit`. Panics when the
-    /// limit is negative.
+    /// The first frame of the GIF in `data`. Throws an IOError of INVALID_DATA when the `data`
+    /// isn't a GIF or is broken, and OTHER when the frame has more pixels than `limit`. Panics when
+    /// the `limit` is negative.
     @PanicsAtCaller
     Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError
         CheckLimit(limit)
         Return Try Decoded(fb_image_gif_decode(data, 1, Min(limit, MOST_PIXELS)), "GIF")
     End Method
 
-    /// The frames of the GIF in data, each as it's shown once the frames before it are, its delay
+    /// The frames of the GIF in `data`, each as it's shown once the frames before it are, its delay
     /// in hundredths of a second as milliseconds, and how many times they play, by the NETSCAPE2.0
     /// extension, which counts the times after the first, or once without it. Throws an IOError as
     /// Decode does, of OTHER when the frames, all their pixels counted, have more than `limit`.
-    /// Panics when the limit is negative.
+    /// Panics when the `limit` is negative.
     @PanicsAtCaller
     Public Static Method DecodeAnimation(data: UInt8[],
                                          limit: Int = MOST_PIXELS): Animation Throws IOError
@@ -37,7 +37,7 @@ Public Struct Gif
         Return Try DecodedAnimation(fb_image_gif_decode(data, 0, Min(limit, MOST_PIXELS)), "GIF")
     End Method
 
-    /// The GIF of the image, one frame. Panics when it has no pixels or a side longer than 65535.
+    /// The GIF of the `image`, one frame. Panics when it has no pixels or a side longer than 65535.
     @PanicsAtCaller
     Public Static Method Encode(image: Image): UInt8[]
         CheckEncodable(image.Width, image.Height, 65535, "a GIF")
@@ -48,8 +48,8 @@ Public Struct Gif
         Return Finished(encoder)
     End Method
 
-    /// The GIF of the animation's frames, each delay in hundredths of a second, rounded, and each
-    /// frame drawn on a transparent canvas. Panics when the animation has no frames, no pixels, a
+    /// The GIF of the `animation`'s frames, each delay in hundredths of a second, rounded, and each
+    /// frame drawn on a transparent canvas. Panics when the `animation` has no frames, no pixels, a
     /// side longer than 65535, a frame whose image isn't its size, or one longer than 655350
     /// milliseconds, or plays more than 65536 times, which GIF can't count.
     @PanicsAtCaller

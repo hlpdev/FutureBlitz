@@ -37,7 +37,7 @@ Public Class MappedFile
     /// it's made.
     ReadOnly Field Native: Ptr<Void>
 
-    /// Maps the file, which has to be there, read-only, or writable when `writable` is True.
+    /// Maps the file, which has to be there, read-only, or `writable` when `writable` is True.
     Public New(path: Path, writable: Bool = False) Throws IOError
         Path = path
         IsWritable = writable
@@ -88,8 +88,8 @@ Public Class MappedFile
         Return bytes
     End Method
 
-    /// Puts the bytes at `start`, over what's there. Panics when it's read-only or closed, or they
-    /// don't all fit.
+    /// Puts the `bytes` at `start`, over what's there. Panics when it's read-only or closed, or
+    /// they don't all fit.
     @PanicsAtCaller
     Public Method WriteBytes(start: Int64, bytes: UInt8[])
         CheckWritable()

@@ -19,22 +19,22 @@ Public Struct MessagePack
     New()
     End New
 
-    /// The Value of data's MessagePack: nil as NULL, a bool as BOOL, an integer that fits an
-    /// Int64 as an INT and a larger one as a UINT, a float 32 or 64 as a DOUBLE, a str as a
-    /// STRING, a bin as BYTES, an array as an ARRAY, and a map as an OBJECT, its keys in order,
-    /// the last of a key that repeats where its first was. Throws a ParseError, whose message says
-    /// at which byte: SYNTAX for the byte 0xC1, which starts no value, a str that isn't UTF-8,
-    /// or bytes after the value; UNEXPECTED_END for data that ends too soon, or says it has more
-    /// than it does; WRONG_TYPE for a map's key that isn't a str, or an ext, which a Value has no
-    /// kind for; and OUT_OF_RANGE for arrays and maps nested past depth. Panics unless depth is 1
-    /// or more.
+    /// The Value of `data`'s MessagePack: nil as NULL, a bool as BOOL, an integer that fits an
+    /// Int64 as an INT and a larger one as a UINT, a float 32 or 64 as a DOUBLE, a str as a STRING,
+    /// a bin as BYTES, an array as an ARRAY, and a map as an OBJECT, its keys in order, the last of
+    /// a key that repeats where its first was. Throws a ParseError, whose message says at which
+    /// byte: SYNTAX for the byte 0xC1, which starts no value, a str that isn't UTF-8, or bytes
+    /// after the value; UNEXPECTED_END for `data` that ends too soon, or says it has more than it
+    /// does; WRONG_TYPE for a map's key that isn't a str, or an ext, which a Value has no kind for;
+    /// and OUT_OF_RANGE for arrays and maps nested past `depth`. Panics unless `depth` is 1 or
+    /// more.
     @PanicsAtCaller
     Public Static Method Read(data: UInt8[], depth: Int = DEPTH): Value Throws ParseError
         If depth < 1 Then Panic("MessagePack.Read's depth is 1 or more, not {depth}")
         Return Try Unpacking(data, depth).Document()
     End Method
 
-    /// value's MessagePack: an integer in the fewest bytes of a fixint, a uint, or an int, a
+    /// `value`'s MessagePack: an integer in the fewest bytes of a fixint, a uint, or an int, a
     /// DOUBLE as a float 64, a STRING as a str and BYTES as a bin, and an ARRAY and an OBJECT as
     /// an array and a map, each with its count in the fewest bytes.
     Public Static Method Write(value: Value): UInt8[]
@@ -79,14 +79,14 @@ Public Struct MessagePack
         End Loop
     End Method
 
-    /// The T of data's MessagePack: Read's Value, made a T by `Load<T>`. Throws Read's ParseErrors,
-    /// and Load's, whose Path says where in the document a value doesn't fit.
+    /// The T of `data`'s MessagePack: Read's Value, made a T by `Load<T>`. Throws Read's
+    /// ParseErrors, and Load's, whose Path says where in the document a value doesn't fit.
     @PanicsAtCaller
     Public Static Method Read<T>(data: UInt8[], depth: Int = DEPTH): T Throws ParseError
         Return Try Load<T>(Try Read(data, depth))
     End Method
 
-    /// x's MessagePack: Save's Value of it, written as Write writes a Value.
+    /// `x`'s MessagePack: Save's Value of it, written as Write writes a Value.
     @PanicsAtCaller
     Public Static Method Write<T>(x: T): UInt8[]
         Return Write(Save(x))

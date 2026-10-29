@@ -102,7 +102,7 @@ Extend UInt64
 End Extend
 
 Extend Float32
-    /// The Float32 `text` writes, or Null for text that isn't a float or one too big for a
+    /// The Float32 `text` writes, or Null for `text` that isn't a float or one too big for a
     /// Float32: Float.Parse("2.5").
     Public Static Method Parse(text: String): Float32?
         Local value: Float64 = 0

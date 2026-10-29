@@ -133,13 +133,13 @@ Public Class Canvas
         Stroke([CornersOf(rect)], True, color)
     End Method
 
-    /// Strokes the line from a to b. Panics when either isn't finite.
+    /// Strokes the line from a to `b`. Panics when either isn't finite.
     @PanicsAtCaller
     Public Method StrokeLine(a: Vec2, b: Vec2, color: Color32)
         Stroke([[a, b]], False, color)
     End Method
 
-    /// Strokes the line through the points, open. Panics when one isn't finite.
+    /// Strokes the line through the `points`, open. Panics when one isn't finite.
     @PanicsAtCaller
     Public Method StrokePolyline(points: Vec2[], color: Color32)
         Stroke([points], False, color)
@@ -158,7 +158,7 @@ Public Class Canvas
         FillRings([points], color)
     End Method
 
-    /// Fills the region of rings, each closed, by the nonzero rule, as std.math's polygons are,
+    /// Fills the region of `rings`, each closed, by the nonzero rule, as std.math's polygons are,
     /// so a ring the other way around from the one it's in is a hole. Panics when a point isn't
     /// finite.
     @PanicsAtCaller
@@ -166,7 +166,7 @@ Public Class Canvas
         FillRings(rings, color)
     End Method
 
-    /// Fills the circle. Panics when its center or radius isn't finite, or its radius is
+    /// Fills the circle. Panics when its center or `radius` isn't finite, or its radius is
     /// negative.
     @PanicsAtCaller
     Public Method FillCircle(center: Vec2, radius: Float, color: Color32)
@@ -179,7 +179,7 @@ Public Class Canvas
         StrokeEllipse(center, Vec2(radius, radius), color)
     End Method
 
-    /// Fills the ellipse of the radii across and down. Panics when its center or radii aren't
+    /// Fills the ellipse of the `radii` across and down. Panics when its center or `radii` aren't
     /// finite, or a radius is negative.
     @PanicsAtCaller
     Public Method FillEllipse(center: Vec2, radii: Vec2, color: Color32)
@@ -201,10 +201,10 @@ Public Class Canvas
         End Unsafe
     End Method
 
-    /// Fills the text in the font at `size` pixels an em, its first line's baseline from
+    /// Fills the `text` in the `font` at `size` pixels an em, its first line's baseline from
     /// `position`, as one region: each glyph after the last's advance and the kerning between
-    /// them, unrounded, each line feed a line's height down, and a code point the font has no
-    /// glyph for its .notdef. Panics when the size isn't finite or is negative, or the position
+    /// them, unrounded, each line feed a line's height down, and a code point the `font` has no
+    /// glyph for its .notdef. Panics when the `size` isn't finite or is negative, or the `position`
     /// isn't finite.
     @PanicsAtCaller
     Public Method FillText(text: String, font: Font, size: Float, position: Vec2, color: Color32)

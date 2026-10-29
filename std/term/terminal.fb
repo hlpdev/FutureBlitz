@@ -80,13 +80,13 @@ Public Abstract Class Terminal
     /// line at a time.
     Public Abstract ReadOnly Property IsInputInteractive: Bool
 
-    /// Writes text as it is, escape codes and all.
+    /// Writes `text` as it is, escape codes and all.
     Public Abstract Method Write(text: String)
 
     /// Sends on what's been written.
     Public Abstract Method Flush()
 
-    /// Reads what's come into the start of `into`, waiting for timeout nanoseconds at most, or as
+    /// Reads what's come into the start of `into`, waiting for `timeout` nanoseconds at most, or as
     /// long as it takes when that's negative, and gives how many bytes it read: 0 when none came
     /// in time, once the time has passed, -1 at the end of the input, and -2, before any more,
     /// once its size has changed. What a program reads goes through ReadEvent and the rest.
@@ -101,17 +101,17 @@ Public Abstract Class Terminal
     Protected Method ScreenChanged(enter: String, leave: String)
     End Method
 
-    /// Writes text and a line break.
+    /// Writes `text` and a line break.
     Public Method WriteLine(text: String = "")
         Write(text + "\n")
     End Method
 
-    /// Writes text in style, as many colors as it shows, or alone where it shows none.
+    /// Writes `text` in `style`, as many colors as it shows, or alone where it shows none.
     Public Method Write(text: String, style: Style)
         Write(style.Apply(text, Colors))
     End Method
 
-    /// text in style, as it shows colors.
+    /// `text` in `style`, as it shows colors.
     Public Method Paint(text: String, style: Style): String => style.Apply(text, Colors)
 
     /// Whether it's in raw mode.
@@ -120,8 +120,8 @@ Public Abstract Class Terminal
     End Property
 
     /// Starts raw mode, until a matching EndRawMode: keys come as they're typed, without showing
-    /// them. Ctrl+C still ends the program, unless ctrlCIsKey says it's a key; with mouse, the
-    /// mouse's reports come too, once the terminal is asked for them. Each StartRawMode needs its
+    /// them. Ctrl+C still ends the program, unless `ctrlCIsKey` says it's a key; with `mouse`, the
+    /// `mouse`'s reports come too, once the terminal is asked for them. Each StartRawMode needs its
     /// EndRawMode; those inside another add what they ask for.
     Public Method StartRawMode(ctrlCIsKey: Bool = False, mouse: Bool = False)
         Local mode = Input.RawMode | 1 | (ctrlCIsKey ? 2 : 0) | (mouse ? 4 : 0)
@@ -151,8 +151,8 @@ Public Abstract Class Terminal
         Return NextEvent(-1)
     End Method
 
-    /// The next event, in raw mode for as long as it waits, which is timeout at most, or Null when
-    /// none came by then, or at the end of the input.
+    /// The next event, in raw mode for as long as it waits, which is `timeout` at most, or Null
+    /// when none came by then, or at the end of the input.
     Public Method PollEvent(timeout: Duration): InputEvent?
         StartRawMode()
         Defer EndRawMode()
@@ -163,10 +163,10 @@ Public Abstract Class Terminal
     /// of the input. What isn't a key is skipped.
     Public Method ReadKey(): KeyEvent? => KeyWithin(-1)
 
-    /// The next key, which waits for timeout at most, or Null when none came by then.
+    /// The next key, which waits for `timeout` at most, or Null when none came by then.
     Public Method ReadKey(timeout: Duration): KeyEvent? => KeyWithin(Max(timeout.Nanoseconds, 0))
 
-    /// Writes the prompt, then reads a line in raw mode without showing it, up to ENTER, as for a
+    /// Writes the `prompt`, then reads a line in raw mode without showing it, up to ENTER, as for a
     /// password. BACKSPACE takes back the last character, and Ctrl+U the whole line, and what's
     /// pasted is typed. Null at the end of the input, or for Ctrl+D on an empty line.
     Public Method ReadPassword(prompt: String = ""): String?
@@ -212,7 +212,7 @@ Public Abstract Class Terminal
     /// The program's console: stdout, and stdin for keys. Its state is the main thread's.
     Public Static Method Console(): Terminal => Console(StandardStream.OUTPUT)
 
-    /// The console for writing to stream, stdout or stderr, as a progress bar does so what the
+    /// The console for writing to `stream`, stdout or stderr, as a progress bar does so what the
     /// program prints to stdout stays as it is. Both read keys from stdin, which they share.
     Public Static Method Console(stream: StandardStream): Terminal
         Local input = consoleInput
@@ -378,7 +378,7 @@ Public Class FakeTerminal Extends Terminal
     Field Flushed: Int
     Field Leaving: String
 
-    /// A terminal of columns and rows that shows colors' colors, and is interactive, as a
+    /// A terminal of `columns` and `rows` that shows `colors`' `colors`, and is `interactive`, as a
     /// terminal is, or not, as a pipe or a file is, for both what's written and keys.
     Public New(columns: Int = 80, rows: Int = 24, colors: ColorLevel = ColorLevel.TRUE_COLOR,
                interactive: Bool = True)
@@ -439,7 +439,7 @@ Public Class FakeTerminal Extends Terminal
         Get => Leaving
     End Property
 
-    /// Takes text's bytes as if they were typed, after what's fed before. Bytes fed one after
+    /// Takes `text`'s bytes as if they were typed, after what's fed before. Bytes fed one after
     /// another come as one, as a terminal's do when they're sent at once.
     Public Method Feed(text: String)
         If text != "" Then Fed.Add(FedInput(FedKind.BYTES, text.Bytes, 0, 0, 0))

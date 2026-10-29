@@ -39,8 +39,8 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
     Public Static Method One(): Complex => Complex(1, 0)
     Public Static Method DefaultValue(): Complex => Complex(0, 0)
 
-    /// The number of the magnitude, at the angle in radians from the positive real axis, as
-    /// cmath.rect gives it: an angle of 0 has a Real part of the magnitude, even an infinite one.
+    /// The number of the `magnitude`, at the `angle` in radians from the positive real axis, as
+    /// cmath.rect gives it: an angle of 0 has a Real part of the `magnitude`, even an infinite one.
     Public Static Method FromPolar(magnitude: Double, angle: Double): Complex
         If angle == 0.0 && !IsNaN(magnitude)
             Return Complex(magnitude, copysign(0.0, angle) * copysign(1.0, magnitude))

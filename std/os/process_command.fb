@@ -85,13 +85,13 @@ Public Class Command
         Return Self
     End Method
 
-    /// Adds the arguments, in order, as Arg does.
+    /// Adds the `arguments`, in order, as Arg does.
     Public Method Args(arguments: String[]): Command
         Arguments.AddAll(arguments)
         Return Self
     End Method
 
-    /// Sets the variable name to value for the program, whose environment is otherwise this
+    /// Sets the variable `name` to `value` for the program, whose environment is otherwise this
     /// program's. On Windows a name is the same in any case, so "Path" is "PATH".
     Public Method Env(name: String, value: String): Command
         Names.Add(name)
@@ -99,7 +99,7 @@ Public Class Command
         Return Self
     End Method
 
-    /// Takes the variable name out of the program's environment. On Windows, the ones every
+    /// Takes the variable `name` out of the program's environment. On Windows, the ones every
     /// program needs, PATH, SYSTEMROOT, TEMP, and the like, stay, with this program's values.
     Public Method Unset(name: String): Command
         Names.Add(name)
@@ -116,7 +116,7 @@ Public Class Command
         Return Self
     End Method
 
-    /// Runs the program in folder, not this program's current one.
+    /// Runs the program in `folder`, not this program's current one.
     Public Method Folder(folder: String): Command
         InFolder = folder
         Return Self

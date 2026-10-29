@@ -86,14 +86,14 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
         Return Duration(Count < 0 ? -Count : Count)
     End Method
 
-    /// It rounded toward 0 to a multiple of unit, as 1h15m truncated to an hour is 1h. A unit
+    /// It rounded toward 0 to a multiple of `unit`, as 1h15m truncated to an hour is 1h. A unit
     /// that isn't above 0 leaves it as it is.
     Public Method Truncate(unit: Duration): Duration
         If unit.Count <= 0 Then Return Self
         Return Duration(Count - Count % unit.Count)
     End Method
 
-    /// It rounded to the nearest multiple of unit, a half away from 0, as 1h30m rounded to an
+    /// It rounded to the nearest multiple of `unit`, a half away from 0, as 1h30m rounded to an
     /// hour is 2h; past the longest Duration, it's the longest. A unit that isn't above 0 leaves
     /// it as it is.
     Public Method Round(unit: Duration): Duration
@@ -135,7 +135,7 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
         Return "{sign}{hours}h{text}"
     End Method
 
-    /// The Duration the text is, as Go's ParseDuration reads it: a sign or none, then one or more
+    /// The Duration the `text` is, as Go's ParseDuration reads it: a sign or none, then one or more
     /// numbers, each with a fraction or not and a unit, "ns", "us" (or "µs" or "μs"), "ms", "s",
     /// "m", or "h", as in "1h30m" and "-1.5s"; or "0". Other text, or a Duration longer than one
     /// holds, is Null.

@@ -42,8 +42,8 @@ Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
     /// The latest Timestamp there is.
     Public Static Method MaxValue(): Timestamp => Timestamp(31556889832780799, 999999999)
 
-    /// The Timestamp that many seconds, and nanoseconds, after 1970-01-01T00:00:00Z, or before it
-    /// below 0, as Unix time counts them, without leap seconds. One past the years a Timestamp
+    /// The Timestamp that many `seconds`, and `nanoseconds`, after 1970-01-01T00:00:00Z, or before
+    /// it below 0, as Unix time counts them, without leap `seconds`. One past the years a Timestamp
     /// holds panics.
     @PanicsAtCaller
     Public Static Method FromUnixSeconds(seconds: Int64, nanoseconds: Int64 = 0): Timestamp
@@ -56,13 +56,13 @@ Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
         Return Checked(total, FloorModulo(nanoseconds, 1000000000) As Int)
     End Method
 
-    /// The Timestamp that many milliseconds after 1970-01-01T00:00:00Z, or before it below 0.
+    /// The Timestamp that many `milliseconds` after 1970-01-01T00:00:00Z, or before it below 0.
     Public Static Method FromUnixMilliseconds(milliseconds: Int64): Timestamp
         Return Timestamp(FloorDivide(milliseconds, 1000),
                          (FloorModulo(milliseconds, 1000) * 1000000) As Int)
     End Method
 
-    /// The Timestamp that many nanoseconds after 1970-01-01T00:00:00Z, or before it below 0.
+    /// The Timestamp that many `nanoseconds` after 1970-01-01T00:00:00Z, or before it below 0.
     Public Static Method FromUnixNanoseconds(nanoseconds: Int64): Timestamp
         Return Timestamp(FloorDivide(nanoseconds, 1000000000),
                          FloorModulo(nanoseconds, 1000000000) As Int)
@@ -76,7 +76,7 @@ Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
         Return MomentOf(parts)
     End Method
 
-    /// The Timestamp the text writes as the pattern says (see format.fb), or Null. A pattern
+    /// The Timestamp the `text` writes as the `pattern` says (see format.fb), or Null. A pattern
     /// without the date, or without an offset or a zone, panics.
     @PanicsAtCaller
     Public Static Method Parse(text: String, pattern: String): Timestamp?
@@ -117,7 +117,7 @@ Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
         Get => Nanos
     End Property
 
-    /// It where the zone is.
+    /// It where the `zone` is.
     Public Method InZone(zone: TimeZone): ZonedDateTime => ZonedDateTime(Self, zone)
 
     /// Its date and time in UTC.
@@ -153,7 +153,7 @@ Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
     /// As RFC 2822 writes it, in UTC: "Fri, 23 Oct 2026 12:30:00 +0000".
     Public Method ToRfc2822(): String => Rfc2822Of(ToUtc(), 0)
 
-    /// As the pattern says (see format.fb), in UTC.
+    /// As the `pattern` says (see format.fb), in UTC.
     @PanicsAtCaller
     Public Method Format(pattern: String): String
         Return FormatPattern(pattern, PartsAt(ToUtc(), 0, "UTC", "UTC"))

@@ -194,8 +194,8 @@ Public Class GamePeer Implements Printable
         End Get
     End Property
 
-    /// Sends bytes on the host's channel, from 0, as the channel's kind says; it goes at the host's
-    /// next Update, once it's connected. A peer that's disconnecting or disconnected sends
+    /// Sends `bytes` on the host's `channel`, from 0, as the `channel`'s kind says; it goes at the
+    /// host's next Update, once it's connected. A peer that's disconnecting or disconnected sends
     /// nothing more. Panics for a channel the host doesn't have, or a message past its
     /// MaxMessageSize.
     @PanicsAtCaller
@@ -209,7 +209,7 @@ Public Class GamePeer Implements Printable
         Outbound[channel].Add(channel, bytes, PartSize())
     End Method
 
-    /// Sends text's UTF-8 on the host's channel.
+    /// Sends `text`'s UTF-8 on the host's `channel`.
     @PanicsAtCaller
     Public Method Send(channel: Int, text: String)
         Send(channel, text.Bytes)

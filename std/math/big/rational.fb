@@ -21,7 +21,7 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
     Public ReadOnly Field Denominator: BigInt
 
     /// The fraction in lowest terms, with its denominator above 0, so Rational(2, -4) is -1/2. A
-    /// denominator of 0 panics.
+    /// `denominator` of 0 panics.
     @PanicsAtCaller
     Public New(numerator: BigInt, denominator: BigInt)
         Numerator, Denominator = Lowest(numerator, denominator)
@@ -85,8 +85,8 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
         Return Rational(numerator, BigInt(10) ** -exponent)
     End Method
 
-    /// The fraction the text is: an integer, a "/", and digits, as "-3/4" is, or a Decimal's text,
-    /// as "0.75" and "1e-3" are. Other text is Null, and so is a denominator of 0.
+    /// The fraction the `text` is: an integer, a "/", and digits, as "-3/4" is, or a Decimal's
+    /// `text`, as "0.75" and "1e-3" are. Other text is Null, and so is a denominator of 0.
     Public Static Method Parse(text: String): Rational?
         Local chars = text.Chars
         Local slash = chars.IndexOf('/')

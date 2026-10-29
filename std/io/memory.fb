@@ -12,7 +12,7 @@ Public Class MemoryStream Implements Reader, Writer, Seeker
     Field Data: UInt8[]
     Field At: Int64
 
-    /// One of a copy of the bytes, from their start, or an empty one.
+    /// One of a copy of the `bytes`, from their start, or an empty one.
     Public New(bytes: UInt8[] = [])
         Data = bytes.Clone()
     End New

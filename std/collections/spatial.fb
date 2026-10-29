@@ -109,7 +109,7 @@ Public Class SpatialHash<T> Implements Iterable<T>, Cloneable
     /// How many times values were added or removed, so a For ... In over them can tell.
     Field Changes: Int64
 
-    /// An empty SpatialHash whose cells are size across, which has to be above 0 and finite.
+    /// An empty SpatialHash whose cells are `size` across, which has to be above 0 and finite.
     @PanicsAtCaller
     Public New(size: Float)
         If !(size > 0) || size * 0 != 0
@@ -125,7 +125,7 @@ Public Class SpatialHash<T> Implements Iterable<T>, Cloneable
         Get => Size
     End Property
 
-    /// Adds the value at (x, y).
+    /// Adds the `value` at (`x`, `y`).
     @PanicsAtCaller
     Public Method Add(value: T, x: Float, y: Float)
         CheckPoint(x, y, 0)
@@ -135,7 +135,7 @@ Public Class SpatialHash<T> Implements Iterable<T>, Cloneable
         Changes += 1
     End Method
 
-    /// Removes the first value equal to value at (x, y), and tells whether there was one.
+    /// Removes the first `value` equal to `value` at (`x`, `y`), and tells whether there was one.
     @PanicsAtCaller
     Public Method Remove(value: T, x: Float, y: Float): Bool
         Where T: Equatable
@@ -155,7 +155,7 @@ Public Class SpatialHash<T> Implements Iterable<T>, Cloneable
         Return False
     End Method
 
-    /// Whether a value equal to value is at (x, y).
+    /// Whether a value equal to `value` is at (`x`, `y`).
     @PanicsAtCaller
     Public Method Contains(value: T, x: Float, y: Float): Bool
         Where T: Equatable
@@ -168,8 +168,8 @@ Public Class SpatialHash<T> Implements Iterable<T>, Cloneable
         Return False
     End Method
 
-    /// Moves the first value equal to value at (x, y) to (toX, toY), and tells whether there was
-    /// one.
+    /// Moves the first `value` equal to `value` at (`x`, `y`) to (`toX`, `toY`), and tells whether
+    /// there was one.
     @PanicsAtCaller
     Public Method Move(value: T, x: Float, y: Float, toX: Float, toY: Float): Bool
         Where T: Equatable
@@ -186,13 +186,13 @@ Public Class SpatialHash<T> Implements Iterable<T>, Cloneable
         Changes += 1
     End Method
 
-    /// The values in the box from (minX, minY) to (maxX, maxY), in a new array.
+    /// The values in the box from (`minX`, `minY`) to (`maxX`, `maxY`), in a new array.
     @PanicsAtCaller
     Public Method Query(minX: Float, minY: Float, maxX: Float, maxY: Float): T[]
         Return ValuesOf(Placed(BoxOf(minX, minY, 0, maxX, maxY, 0)))
     End Method
 
-    /// The values no more than radius from (x, y), in a new array.
+    /// The values no more than `radius` from (`x`, `y`), in a new array.
     @PanicsAtCaller
     Public Method Near(x: Float, y: Float, radius: Float): T[]
         CheckPoint(x, y, 0)
@@ -534,8 +534,8 @@ End Class
 Public Class QuadTree<T> Implements Iterable<T>, Cloneable
     Field Tree: SpaceTree<T>
 
-    /// An empty QuadTree for the points in the box from (minX, minY) to (maxX, maxY), which has to
-    /// be finite. A box whose max is below its min along an axis panics.
+    /// An empty QuadTree for the points in the box from (`minX`, `minY`) to (`maxX`, `maxY`), which
+    /// has to be finite. A box whose max is below its min along an axis panics.
     @PanicsAtCaller
     Public New(minX: Float, minY: Float, maxX: Float, maxY: Float)
         Tree = SpaceTree<T>(BoxOf(minX, minY, 0, maxX, maxY, 0), 2, "QuadTree")
@@ -551,28 +551,28 @@ Public Class QuadTree<T> Implements Iterable<T>, Cloneable
         Get => Tree.Root.Size
     End Property
 
-    /// Adds the value at (x, y). A point outside the QuadTree's box panics.
+    /// Adds the `value` at (`x`, `y`). A point outside the QuadTree's box panics.
     @PanicsAtCaller
     Public Method Add(value: T, x: Float, y: Float)
         Tree.Add(PlacedValue<T>(value, x, y, 0))
     End Method
 
-    /// Removes the first value equal to value at (x, y), and tells whether there was one.
+    /// Removes the first `value` equal to `value` at (`x`, `y`), and tells whether there was one.
     @PanicsAtCaller
     Public Method Remove(value: T, x: Float, y: Float): Bool
         Where T: Equatable
         Return Tree.Remove(value, x, y, 0)
     End Method
 
-    /// Whether a value equal to value is at (x, y).
+    /// Whether a value equal to `value` is at (`x`, `y`).
     @PanicsAtCaller
     Public Method Contains(value: T, x: Float, y: Float): Bool
         Where T: Equatable
         Return Tree.Contains(value, x, y, 0)
     End Method
 
-    /// Moves the first value equal to value at (x, y) to (toX, toY), and tells whether there was
-    /// one. A point outside the QuadTree's box panics.
+    /// Moves the first `value` equal to `value` at (`x`, `y`) to (`toX`, `toY`), and tells whether
+    /// there was one. A point outside the QuadTree's box panics.
     @PanicsAtCaller
     Public Method Move(value: T, x: Float, y: Float, toX: Float, toY: Float): Bool
         Where T: Equatable
@@ -584,13 +584,13 @@ Public Class QuadTree<T> Implements Iterable<T>, Cloneable
         Tree.Clear()
     End Method
 
-    /// The values in the box from (minX, minY) to (maxX, maxY), in a new array.
+    /// The values in the box from (`minX`, `minY`) to (`maxX`, `maxY`), in a new array.
     @PanicsAtCaller
     Public Method Query(minX: Float, minY: Float, maxX: Float, maxY: Float): T[]
         Return ValuesOf(Tree.Placed(BoxOf(minX, minY, 0, maxX, maxY, 0)))
     End Method
 
-    /// The values no more than radius from (x, y), in a new array.
+    /// The values no more than `radius` from (`x`, `y`), in a new array.
     @PanicsAtCaller
     Public Method Near(x: Float, y: Float, radius: Float): T[]
         CheckPoint(x, y, 0)
@@ -613,8 +613,8 @@ End Class
 Public Class Octree<T> Implements Iterable<T>, Cloneable
     Field Tree: SpaceTree<T>
 
-    /// An empty Octree for the points in the box from (minX, minY, minZ) to (maxX, maxY, maxZ),
-    /// which has to be finite. A box whose max is below its min along an axis panics.
+    /// An empty Octree for the points in the box from (`minX`, `minY`, `minZ`) to (`maxX`, `maxY`,
+    /// `maxZ`), which has to be finite. A box whose max is below its min along an axis panics.
     @PanicsAtCaller
     Public New(minX: Float, minY: Float, minZ: Float, maxX: Float, maxY: Float, maxZ: Float)
         Tree = SpaceTree<T>(BoxOf(minX, minY, minZ, maxX, maxY, maxZ), 3, "Octree")
@@ -630,28 +630,29 @@ Public Class Octree<T> Implements Iterable<T>, Cloneable
         Get => Tree.Root.Size
     End Property
 
-    /// Adds the value at (x, y, z). A point outside the Octree's box panics.
+    /// Adds the `value` at (`x`, `y`, `z`). A point outside the Octree's box panics.
     @PanicsAtCaller
     Public Method Add(value: T, x: Float, y: Float, z: Float)
         Tree.Add(PlacedValue<T>(value, x, y, z))
     End Method
 
-    /// Removes the first value equal to value at (x, y, z), and tells whether there was one.
+    /// Removes the first `value` equal to `value` at (`x`, `y`, `z`), and tells whether there was
+    /// one.
     @PanicsAtCaller
     Public Method Remove(value: T, x: Float, y: Float, z: Float): Bool
         Where T: Equatable
         Return Tree.Remove(value, x, y, z)
     End Method
 
-    /// Whether a value equal to value is at (x, y, z).
+    /// Whether a value equal to `value` is at (`x`, `y`, `z`).
     @PanicsAtCaller
     Public Method Contains(value: T, x: Float, y: Float, z: Float): Bool
         Where T: Equatable
         Return Tree.Contains(value, x, y, z)
     End Method
 
-    /// Moves the first value equal to value at (x, y, z) to (toX, toY, toZ), and tells whether
-    /// there was one. A point outside the Octree's box panics.
+    /// Moves the first `value` equal to `value` at (`x`, `y`, `z`) to (`toX`, `toY`, `toZ`), and
+    /// tells whether there was one. A point outside the Octree's box panics.
     @PanicsAtCaller
     Public Method Move(value: T, x: Float, y: Float, z: Float, toX: Float, toY: Float,
                        toZ: Float): Bool
@@ -664,14 +665,15 @@ Public Class Octree<T> Implements Iterable<T>, Cloneable
         Tree.Clear()
     End Method
 
-    /// The values in the box from (minX, minY, minZ) to (maxX, maxY, maxZ), in a new array.
+    /// The values in the box from (`minX`, `minY`, `minZ`) to (`maxX`, `maxY`, `maxZ`), in a new
+    /// array.
     @PanicsAtCaller
     Public Method Query(minX: Float, minY: Float, minZ: Float, maxX: Float, maxY: Float,
                         maxZ: Float): T[]
         Return ValuesOf(Tree.Placed(BoxOf(minX, minY, minZ, maxX, maxY, maxZ)))
     End Method
 
-    /// The values no more than radius from (x, y, z), in a new array.
+    /// The values no more than `radius` from (`x`, `y`, `z`), in a new array.
     @PanicsAtCaller
     Public Method Near(x: Float, y: Float, z: Float, radius: Float): T[]
         CheckPoint(x, y, z)

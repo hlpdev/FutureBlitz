@@ -24,7 +24,7 @@ Public Class Buffer<T: CData> Implements Iterable<T>
     /// Whether its memory is its own, which it gives back.
     ReadOnly Field Owned: Bool
 
-    /// `count` T's, all 0. Panics when count is negative, or there isn't that much memory.
+    /// `count` T's, all 0. Panics when `count` is negative, or there isn't that much memory.
     @PanicsAtCaller
     Public New(count: Int64)
         If count < 0 Then Panic("a Buffer holds a count of values that isn't negative, not {count}")
@@ -51,7 +51,7 @@ Public Class Buffer<T: CData> Implements Iterable<T>
         Viewed = viewed
     End New
 
-    /// A new Buffer of the items, in order. Panics when there isn't that much memory.
+    /// A new Buffer of the `items`, in order. Panics when there isn't that much memory.
     @PanicsAtCaller
     Public Static Method From(items: T[]): Buffer<T>
         Local made = Buffer<T>(items.Count)
@@ -65,8 +65,8 @@ Public Class Buffer<T: CData> Implements Iterable<T>
     End Method
 
     /// A view of `count` T's of memory C owns, from `pointer`, which C keeps there while the view
-    /// is, since nothing else does, and doesn't give back. Panics when count is negative, or isn't
-    /// 0 and pointer is Null, or the T's take more bytes than an Int64 counts, as New does.
+    /// is, since nothing else does, and doesn't give back. Panics when `count` is negative, or
+    /// isn't 0 and `pointer` is Null, or the T's take more bytes than an Int64 counts, as New does.
     @PanicsAtCaller
     Public Unsafe Static Method View(pointer: Ptr<T>, count: Int64): Buffer<T>
         If count < 0 Then Panic("a view holds a count of values that isn't negative, not {count}")
@@ -113,8 +113,8 @@ Public Class Buffer<T: CData> Implements Iterable<T>
     /// Buffer, or a view that keeps it alive, is.
     Public Unsafe Method Pointer(): Ptr<T> => First
 
-    /// The T's from start up to finish, without the one at finish, as a view of its memory, which
-    /// keeps this Buffer alive and sees what changes in it.
+    /// The T's from `start` up to `finish`, without the one at `finish`, as a view of its memory,
+    /// which keeps this Buffer alive and sees what changes in it.
     @PanicsAtCaller
     Public Method Slice(start: Int64, finish: Int64): Buffer<T>
         If start < 0 || finish < start || finish > Length
@@ -127,7 +127,7 @@ Public Class Buffer<T: CData> Implements Iterable<T>
         End Unsafe
     End Method
 
-    /// Copies its T's to the start of destination, which has room for them. The two can share
+    /// Copies its T's to the start of `destination`, which has room for them. The two can share
     /// memory, as two views of one Buffer do.
     @PanicsAtCaller
     Public Method CopyTo(destination: Buffer<T>)

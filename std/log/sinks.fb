@@ -22,7 +22,7 @@ Public Function ConsoleSink(colors: Bool, times: Bool): Sendable Func(LogRecord)
     Return Function(record: LogRecord) => PrintError(LogLine(record, times, colors))
 End Function
 
-/// A sink that gives write each line as JSON, an object without line breaks, as JsonLine has it.
+/// A sink that gives `write` each line as JSON, an object without line breaks, as JsonLine has it.
 Public Function JsonLinesSink(write: Sendable Func(String)): Sendable Func(LogRecord)
     Return Function(record: LogRecord) => write(JsonLine(record))
 End Function

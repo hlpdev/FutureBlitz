@@ -14,7 +14,7 @@ Public Class UnionFind
     Field Sizes: Int[] = []
     Field Sets: Int
 
-    /// count values, each in a set of its own. A negative count panics.
+    /// `count` values, each in a set of its own. A negative `count` panics.
     @PanicsAtCaller
     Public New(count: Int)
         If count < 0 Then Panic("a UnionFind holds a count that isn't negative, not {count}")
@@ -46,7 +46,7 @@ Public Class UnionFind
         Return value
     End Method
 
-    /// The root of the value's set, which every value in it has. A value outside 0 to Count - 1
+    /// The root of the `value`'s set, which every value in it has. A value outside 0 to Count - 1
     /// panics.
     @PanicsAtCaller
     Public Method Find(value: Int): Int
@@ -77,7 +77,7 @@ Public Class UnionFind
     @PanicsAtCaller
     Public Method Connected(a: Int, b: Int): Bool => Find(a) == Find(b)
 
-    /// How many values are in the value's set, the value too. A value outside 0 to Count - 1
+    /// How many values are in the `value`'s set, the `value` too. A value outside 0 to Count - 1
     /// panics.
     @PanicsAtCaller
     Public Method SizeOf(value: Int): Int => Sizes[Find(value)]

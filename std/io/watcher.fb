@@ -50,7 +50,7 @@ Public Class FileWatcher
     /// once it's made.
     ReadOnly Field Native: Ptr<Void>
 
-    /// Starts watching what's at the path, which has to be there.
+    /// Starts watching what's at the `path`, which has to be there.
     Public New(path: Path) Throws IOError
         Path = path
         Native = fb_io_watcher_new(path.Text)

@@ -86,7 +86,7 @@ Public Function Format(template: String, values: Formattable...): String Throws 
     Return text
 End Function
 
-/// The debug form of value, with each part on a line of its own, as "{value:#?}" gives it.
+/// The debug form of `value`, with each part on a line of its own, as "{value:#?}" gives it.
 Public Function Dump<T>(value: T): String => "{value:#?}"
 
 /// On an Iterable type, makes its debug form show its elements in place of its Fields, as

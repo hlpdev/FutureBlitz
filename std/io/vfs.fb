@@ -165,7 +165,7 @@ Public Class Vfs
         Mounts = []
     End New
 
-    /// Puts the source at `at`, a path in the Vfs, "" or "/" for its root, before what's mounted
+    /// Puts the `source` at `at`, a path in the Vfs, "" or "/" for its root, before what's mounted
     /// already. Panics for a path that goes above the root.
     @PanicsAtCaller
     Public Method Mount(at: Path, source: VfsSource)
@@ -180,7 +180,7 @@ Public Class Vfs
         Mount(at, FolderSource(folder))
     End Method
 
-    /// Mounts files in memory, like what EmbedFolder gives, at `at`.
+    /// Mounts `files` in memory, like what EmbedFolder gives, at `at`.
     @PanicsAtCaller
     Public Method MountEmbedded(at: Path, files: Map<String, UInt8[]>)
         Mount(at, EmbeddedSource(files))
@@ -334,7 +334,7 @@ Public Class Vfs
 
     /// What's in the folder at `path`, and in the folders in it, whose path from it matches
     /// `pattern`, as Dir.Glob's patterns match, with '/' or '\' between its names on every OS, as
-    /// between a Vfs path's. It throws as Entries does.
+    /// between a Vfs `path`'s. It throws as Entries does.
     Public Method Glob(path: Path, pattern: String): DirEntry[] Throws IOError
         Local names = PatternNames(pattern, True)
         If names.Count == 0 Then Return []

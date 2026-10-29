@@ -85,8 +85,8 @@ End Class
 
 Extend Vfs
     /// Mounts the zip in `data`, which it copies, at `at`, as a ZipSource. Throws an IOError of
-    /// INVALID_DATA when the data isn't a zip, or ends too soon, or as a ZipSource does, and panics
-    /// for a path that goes above the root, as Mount does.
+    /// INVALID_DATA when the `data` isn't a zip, or ends too soon, or as a ZipSource does, and
+    /// panics for a path that goes above the root, as Mount does.
     @PanicsAtCaller
     Public Method MountZip(at: Path, data: UInt8[]) Throws IOError
         Mount(at, Try ZipSource(Try Zip.Read(data)))

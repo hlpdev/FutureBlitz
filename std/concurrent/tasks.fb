@@ -155,7 +155,7 @@ End Function
 /// A Task of each task's result, in their order, done once they all are.
 Public Function WhenAll<T>(tasks: Task<T>[]): Task<T[]> => AllOf(tasks.Clone())
 
-/// A Task that's done once each of the tasks is.
+/// A Task that's done once each of the `tasks` is.
 Public Function WhenAll(tasks: Task[]): Task => AllOf(tasks.Clone())
 
 Async Function AllOf<T>(tasks: Task<T>[]): T[]
@@ -179,7 +179,7 @@ Public Function WhenAll<T, E: Error>(tasks: (Task<T> Throws E)[]): (Task<T[]> Th
     Return AllOf(tasks.Clone())
 End Function
 
-/// A Task that's done once each of the tasks is, which throws the first's error, in their order,
+/// A Task that's done once each of the `tasks` is, which throws the first's error, in their order,
 /// when any throw.
 Public Function WhenAll<E: Error>(tasks: (Task Throws E)[]): (Task Throws E) => AllOf(tasks.Clone())
 
@@ -214,8 +214,8 @@ Async Function AllOf<E: Error>(tasks: (Task Throws E)[]) Throws E
     If first != Null Then Throw first
 End Function
 
-/// A Task of the index of the first of the tasks found done, whose result a Wait or an Await then
-/// gives at once. At a tick of the scheduler it looks at them in their order, so of tasks done
+/// A Task of the index of the first of the `tasks` found done, whose result a Wait or an Await then
+/// gives at once. At a tick of the scheduler it looks at them in their order, so of `tasks` done
 /// before it looks, it's the first in the array, and one done later in the tick doesn't count.
 /// Panics when there are none, since none would be done.
 @PanicsAtCaller
@@ -229,7 +229,7 @@ Public Function WhenAny<T>(tasks: Task<T>[]): Task<Int>
     Return first.Task
 End Function
 
-/// A Task of the index of the first of the tasks to be done, as for tasks with results.
+/// A Task of the index of the first of the `tasks` to be done, as for `tasks` with results.
 @PanicsAtCaller
 Public Function WhenAny(tasks: Task[]): Task<Int>
     If tasks.Count == 0 Then Panic("WhenAny waits for the first of its tasks, so it needs one")
@@ -241,7 +241,7 @@ Public Function WhenAny(tasks: Task[]): Task<Int>
     Return first.Task
 End Function
 
-/// A Task of the index of the first of the tasks found done, as for tasks that don't throw: one
+/// A Task of the index of the first of the `tasks` found done, as for `tasks` that don't throw: one
 /// that threw is done, and its Wait or Await then throws its error. Panics when there are none.
 @PanicsAtCaller
 Public Function WhenAny<T, E: Error>(tasks: (Task<T> Throws E)[]): Task<Int>
@@ -254,7 +254,7 @@ Public Function WhenAny<T, E: Error>(tasks: (Task<T> Throws E)[]): Task<Int>
     Return first.Task
 End Function
 
-/// A Task of the index of the first of the tasks to be done, or to throw. Panics when there are
+/// A Task of the index of the first of the `tasks` to be done, or to throw. Panics when there are
 /// none.
 @PanicsAtCaller
 Public Function WhenAny<E: Error>(tasks: (Task Throws E)[]): Task<Int>

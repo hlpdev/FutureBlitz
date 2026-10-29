@@ -113,8 +113,8 @@ Public Class Match Implements Printable
         Return Text.Slice(Positions[number * 2], Positions[number * 2 + 1])
     End Operator
 
-    /// Where group number starts, or Null when it took no part. Panics unless the pattern has that
-    /// group.
+    /// Where group `number` starts, or Null when it took no part. Panics unless the pattern has
+    /// that group.
     @PanicsAtCaller
     Public Method StartOf(number: Int): Int?
         Local at = Positions[Checked(number) * 2]
@@ -122,8 +122,8 @@ Public Class Match Implements Printable
         Return at
     End Method
 
-    /// Where the group called name starts, or Null when it took no part. Panics unless the
-    /// pattern has a group of that name.
+    /// Where the group called `name` starts, or Null when it took no part. Panics unless the
+    /// pattern has a group of that `name`.
     @PanicsAtCaller
     Public Method StartOf(name: String): Int?
         Local number = Named(name)
@@ -131,7 +131,7 @@ Public Class Match Implements Printable
         Return Positions[number * 2]
     End Method
 
-    /// Where group number finishes, or Null when it took no part. Panics unless the pattern has
+    /// Where group `number` finishes, or Null when it took no part. Panics unless the pattern has
     /// that group.
     @PanicsAtCaller
     Public Method FinishOf(number: Int): Int?
@@ -140,8 +140,8 @@ Public Class Match Implements Printable
         Return at
     End Method
 
-    /// Where the group called name finishes, or Null when it took no part. Panics unless the
-    /// pattern has a group of that name.
+    /// Where the group called `name` finishes, or Null when it took no part. Panics unless the
+    /// pattern has a group of that `name`.
     @PanicsAtCaller
     Public Method FinishOf(name: String): Int?
         Local number = Named(name)
@@ -189,8 +189,8 @@ Public Class Regex
     /// The flags it was read with.
     Public ReadOnly Field Flags: RegexFlags
 
-    /// A Regex of pattern, read as flags says. Panics when it isn't a valid pattern, with PCRE2's
-    /// message and where in the pattern it is.
+    /// A Regex of `pattern`, read as `flags` says. Panics when it isn't a valid `pattern`, with
+    /// PCRE2's message and where in the `pattern` it is.
     @PanicsAtCaller
     Public New(pattern: String, flags: RegexFlags = RegexFlags.NONE)
         Local problem: Int[] = []
@@ -214,8 +214,9 @@ Public Class Regex
         Flags = flags
     End New
 
-    /// A Regex of pattern, read as flags says, for a pattern from elsewhere. Throws a RegexError of
-    /// PATTERN when it isn't a valid pattern, whose Offset is where in the pattern it is.
+    /// A Regex of `pattern`, read as `flags` says, for a pattern from elsewhere. Throws a
+    /// RegexError of PATTERN when it isn't a valid `pattern`, whose Offset is where in the
+    /// `pattern` it is.
     Public Static Method Parse(pattern: String,
                                flags: RegexFlags = RegexFlags.NONE): Regex Throws RegexError
         Local problem: Int[] = []
@@ -229,8 +230,8 @@ Public Class Regex
         Return Regex(pattern, flags, code)
     End Method
 
-    /// text with a backslash before each character that can mean something in a pattern, so a
-    /// Regex of it matches text itself, under any flags: each ASCII one but a letter, a digit, or
+    /// `text` with a backslash before each character that can mean something in a pattern, so a
+    /// Regex of it matches `text` itself, under any flags: each ASCII one but a letter, a digit, or
     /// _, and the whitespace beyond ASCII that EXTENDED skips, U+0085, U+200E, U+200F, U+2028,
     /// and U+2029.
     Public Static Method Escape(text: String): String
@@ -292,10 +293,10 @@ Public Class Regex
         End Get
     End Property
 
-    /// Whether the pattern matches somewhere in text.
+    /// Whether the pattern matches somewhere in `text`.
     Public Method IsMatch(text: String): Bool Throws RegexError => Try Next(text, 0, 0) != Null
 
-    /// The first match at start or after, or Null. Panics unless start is a position in text,
+    /// The first match at `start` or after, or Null. Panics unless `start` is a position in `text`,
     /// between its characters.
     @PanicsAtCaller
     Public Method Find(text: String, start: Int = 0): Match? Throws RegexError
@@ -314,32 +315,32 @@ Public Class Regex
     /// empty one, from the next character unless a match that isn't empty starts where it is.
     Public Method FindAll(text: String): Match[] Throws RegexError => Try All(text, text.Length + 1)
 
-    /// A copy of text with each match replaced by replacement, in which $1 or ${1} is group 1's
-    /// text, $0 the whole match's, ${name} the group called name's, and $$ a $. A group that took
+    /// A copy of `text` with each match replaced by `replacement`, in which $1 or ${1} is group 1's
+    /// `text`, $0 the whole match's, ${name} the group called name's, and $$ a $. A group that took
     /// no part is "". Panics on a $ before anything else, or a group the pattern doesn't have.
     @PanicsAtCaller
     Public Method Replace(text: String, replacement: String): String Throws RegexError
         Return Replaced(text, Try All(text, text.Length + 1), Pieces(replacement))
     End Method
 
-    /// A copy of text with each match replaced by what replacement gives for it.
+    /// A copy of `text` with each match replaced by what `replacement` gives for it.
     Public Method Replace(text: String, replacement: Func(Match): String): String Throws RegexError
         Return Replaced(text, Try All(text, text.Length + 1), replacement)
     End Method
 
-    /// A copy of text with its first match replaced by replacement, as Replace does each.
+    /// A copy of `text` with its first match replaced by `replacement`, as Replace does each.
     @PanicsAtCaller
     Public Method ReplaceFirst(text: String, replacement: String): String Throws RegexError
         Return Replaced(text, Try All(text, 1), Pieces(replacement))
     End Method
 
-    /// A copy of text with its first match replaced by what replacement gives for it.
+    /// A copy of `text` with its first match replaced by what `replacement` gives for it.
     Public Method ReplaceFirst(text: String,
                                replacement: Func(Match): String): String Throws RegexError
         Return Replaced(text, Try All(text, 1), replacement)
     End Method
 
-    /// The parts of text between its matches: "a1b22c" split by "[0-9]+" is "a", "b", and "c". A
+    /// The parts of `text` between its matches: "a1b22c" split by "[0-9]+" is "a", "b", and "c". A
     /// match at the start or the end makes an empty part there.
     Public Method Split(text: String): String[] Throws RegexError
         Local parts: String[] = []
@@ -496,20 +497,22 @@ Struct Piece
 End Struct
 
 Extend String
-    /// Whether pattern matches somewhere in it, as Regex(pattern).IsMatch does. Its compiled
-    /// pattern is kept for a while, so calling it again with the same one doesn't compile it again.
+    /// Whether `pattern` matches somewhere in it, as Regex(`pattern`).IsMatch does. Its compiled
+    /// `pattern` is kept for a while, so calling it again with the same one doesn't compile it
+    /// again.
     @PanicsAtCaller
     Public Method Matches(pattern: String): Bool Throws RegexError
         Return Try Regex(pattern).IsMatch(Self)
     End Method
 
-    /// A copy with each match of pattern replaced by replacement, as Regex(pattern).Replace does.
+    /// A copy with each match of `pattern` replaced by `replacement`, as Regex(`pattern`).Replace
+    /// does.
     @PanicsAtCaller
     Public Method ReplaceAll(pattern: String, replacement: String): String Throws RegexError
         Return Try Regex(pattern).Replace(Self, replacement)
     End Method
 
-    /// The parts between each match of pattern, as Regex(pattern).Split gives them.
+    /// The parts between each match of `pattern`, as Regex(`pattern`).Split gives them.
     @PanicsAtCaller
     Public Method SplitBy(pattern: String): String[] Throws RegexError
         Return Try Regex(pattern).Split(Self)

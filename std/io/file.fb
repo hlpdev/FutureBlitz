@@ -105,7 +105,7 @@ Public Class File
     New()
     End New
 
-    /// The file's bytes. One that holds more than `most` bytes, which an array's most is the
+    /// The file's bytes. One that holds more than `most` bytes, which an array's `most` is the
     /// default for, throws an IOError of OTHER, found before reading them where the OS knows a
     /// file's size, and so does one that memory can't hold. Panics for a most below 0 or above an
     /// array's, 2^31 - 1.
@@ -172,8 +172,8 @@ Public Class File
         Return lines
     End Method
 
-    /// Makes the file hold the bytes, made when it isn't there, and replacing what it held when it
-    /// is.
+    /// Makes the file hold the `bytes`, made when it isn't there, and replacing what it held when
+    /// it is.
     Public Static Method WriteBytes(path: Path, bytes: UInt8[]) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_write(request.Native, path.Text, bytes, REPLACE), "write", path)
@@ -186,7 +186,7 @@ Public Class File
                     "write", path)
     End Method
 
-    /// Makes the file hold the text's UTF-8 bytes, as they are, as WriteBytes does.
+    /// Makes the file hold the `text`'s UTF-8 bytes, as they are, as WriteBytes does.
     Public Static Method WriteText(path: Path, text: String) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_write_text(request.Native, path.Text, text, REPLACE), "write", path)
@@ -199,7 +199,7 @@ Public Class File
                     "write", path)
     End Method
 
-    /// Makes the file hold the lines, each with `ending` after it, as WriteBytes does.
+    /// Makes the file hold the `lines`, each with `ending` after it, as WriteBytes does.
     Public Static Method WriteLines(path: Path, lines: String[],
                                     ending: LineEnding = LineEnding.LF) Throws IOError
         Local request = Request()
@@ -216,7 +216,7 @@ Public Class File
                                                        CrlfOf(ending), REPLACE), "write", path)
     End Method
 
-    /// Adds the bytes to the end of the file, made when it isn't there.
+    /// Adds the `bytes` to the end of the file, made when it isn't there.
     Public Static Method AppendBytes(path: Path, bytes: UInt8[]) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_write(request.Native, path.Text, bytes, APPEND), "add to", path)
@@ -229,7 +229,7 @@ Public Class File
                     "add to", path)
     End Method
 
-    /// Adds the text's UTF-8 bytes to the end of the file, as AppendBytes does.
+    /// Adds the `text`'s UTF-8 bytes to the end of the file, as AppendBytes does.
     Public Static Method AppendText(path: Path, text: String) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_write_text(request.Native, path.Text, text, APPEND), "add to", path)
@@ -242,7 +242,7 @@ Public Class File
                     "add to", path)
     End Method
 
-    /// Adds the lines, each with `ending` after it, to the end of the file, as AppendBytes does.
+    /// Adds the `lines`, each with `ending` after it, to the end of the file, as AppendBytes does.
     Public Static Method AppendLines(path: Path, lines: String[],
                                      ending: LineEnding = LineEnding.LF) Throws IOError
         Local request = Request()
@@ -259,7 +259,7 @@ Public Class File
                                                        CrlfOf(ending), APPEND), "add to", path)
     End Method
 
-    /// Writes the bytes to a new temporary file in the file's folder, onto the disk, then renames
+    /// Writes the `bytes` to a new temporary file in the file's folder, onto the disk, then renames
     /// it over the file, so the file holds either all of them or what it held before, even if the
     /// program or the machine stops partway. On POSIX it keeps the permissions the file had. For
     /// a link, the file it leads to is replaced, as a plain write writes through it, and the link
@@ -276,7 +276,7 @@ Public Class File
                     path)
     End Method
 
-    /// Writes the text's UTF-8 bytes atomically, as WriteBytesAtomic does.
+    /// Writes the `text`'s UTF-8 bytes atomically, as WriteBytesAtomic does.
     Public Static Method WriteTextAtomic(path: Path, text: String) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_write_text(request.Native, path.Text, text, ATOMIC), "write", path)
@@ -289,7 +289,7 @@ Public Class File
                     "write", path)
     End Method
 
-    /// Whether there's a file at the path, or a link to one; not a folder. One the program can't
+    /// Whether there's a file at the `path`, or a link to one; not a folder. One the program can't
     /// look at isn't there, as far as it can tell.
     Public Static Method Exists(path: Path): Bool
         Local request = Request()
@@ -318,7 +318,7 @@ Public Class File
         Return Try SizeOf(request, path)
     End Method
 
-    /// What's at the path, or at what it links to unless `followLinks` is False, which gives a
+    /// What's at the `path`, or at what it links to unless `followLinks` is False, which gives a
     /// link's own.
     Public Static Method Metadata(path: Path, followLinks: Bool = True): Metadata Throws IOError
         Local request = Request()
@@ -365,7 +365,7 @@ Public Class File
                     to)
     End Method
 
-    /// Deletes the file, or the link, at the path, and gives whether there was one. A folder
+    /// Deletes the file, or the link, at the `path`, and gives whether there was one. A folder
     /// throws an IOError of IS_A_DIRECTORY; Dir.Remove deletes one.
     Public Static Method Delete(path: Path): Bool Throws IOError
         Local request = Request()
@@ -390,9 +390,9 @@ Public Class File
         Return Try Await FileStream.OpenedAsync(path, OpenOptions(Read: True))
     End Method
 
-    /// The file opened as the options say, as a FileStream from its start, or at its end when it
-    /// appends. Panics for options no file opens with: none of Read, Write, and Append, or Create,
-    /// CreateNew, or Truncate without Write or Append, or Truncate with Append.
+    /// The file opened as the `options` say, as a FileStream from its start, or at its end when it
+    /// appends. Panics for `options` no file opens with: none of Read, Write, and Append, or
+    /// Create, CreateNew, or Truncate without Write or Append, or Truncate with Append.
     @PanicsAtCaller
     Public Static Method Open(path: Path, options: OpenOptions): FileStream Throws IOError
         Return Try FileStream.Opened(path, options)

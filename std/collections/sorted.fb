@@ -57,8 +57,8 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Get => Size
     End Property
 
-    /// Adds an entry, or gives an existing key its new value, which leaves the tree as it is. A key
-    /// that isn't equal to itself, like NaN, panics.
+    /// Adds an entry, or gives an existing `key` its new value, which leaves the tree as it is. A
+    /// key that isn't equal to itself, like NaN, panics.
     @PanicsAtCaller
     Public Method Add(key: K, value: V)
         CheckKey(key, "a SortedMap's key")
@@ -81,14 +81,14 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         End If
     End Method
 
-    /// The key's value, or Null when it isn't there.
+    /// The `key`'s value, or Null when it isn't there.
     Public Method Get(key: K): V?
         Local found = Find(key)
         If found == Null Then Return Null
         Return found.0.Values[found.1]
     End Method
 
-    /// The key's value, or fallback when it isn't there.
+    /// The `key`'s value, or `fallback` when it isn't there.
     Public Method Get(key: K, fallback: V): V
         Local found = Find(key)
         If found == Null Then Return fallback
@@ -112,8 +112,8 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
     /// Whether `key` has an entry.
     Public Method Contains(key: K): Bool => Find(key) != Null
 
-    /// Removes the key's entry, and tells whether there was one. A key that isn't there leaves the
-    /// tree as it is.
+    /// Removes the `key`'s entry, and tells whether there was one. A key that isn't there leaves
+    /// the tree as it is.
     Public Method Remove(key: K): Bool
         If Find(key) == Null Then Return False
         Delete(Root, key)
@@ -151,8 +151,8 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return (node.Keys[node.Keys.Count - 1], node.Values[node.Values.Count - 1])
     End Method
 
-    /// The largest key that isn't above key, and its value, or Null when there's none, as for a
-    /// key that isn't equal to itself.
+    /// The largest `key` that isn't above `key`, and its value, or Null when there's none, as for a
+    /// `key` that isn't equal to itself.
     Public Method Floor(key: K): (K, V)?
         If key != key Then Return Null
         Local best: (K, V)? = Null
@@ -169,8 +169,8 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         End Loop
     End Method
 
-    /// The smallest key that isn't below key, and its value, or Null when there's none, as for a
-    /// key that isn't equal to itself.
+    /// The smallest `key` that isn't below `key`, and its value, or Null when there's none, as for
+    /// a `key` that isn't equal to itself.
     Public Method Ceiling(key: K): (K, V)?
         If key != key Then Return Null
         Local best: (K, V)? = Null
@@ -187,7 +187,7 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         End Loop
     End Method
 
-    /// The entries from low up to high, without high itself, in order, in a new array. An end
+    /// The entries from `low` up to `high`, without `high` itself, in order, in a new array. An end
     /// that isn't equal to itself finds none.
     Public Method Range(low: K, high: K): (K, V)[]
         Local found: (K, V)[] = []
@@ -546,7 +546,7 @@ Public Class SortedSet<T: Comparable> Implements Iterable<T>, Cloneable, Default
         Get => Items.Count
     End Property
 
-    /// Adds the value, and tells whether it's new. A value that isn't equal to itself, like NaN,
+    /// Adds the `value`, and tells whether it's new. A value that isn't equal to itself, like NaN,
     /// panics.
     @PanicsAtCaller
     Public Method Add(value: T): Bool
@@ -556,7 +556,7 @@ Public Class SortedSet<T: Comparable> Implements Iterable<T>, Cloneable, Default
         Return True
     End Method
 
-    /// Removes the value, and tells whether it was there.
+    /// Removes the `value`, and tells whether it was there.
     Public Method Remove(value: T): Bool => Items.Remove(value)
 
     /// Whether it holds `value`.
@@ -573,13 +573,13 @@ Public Class SortedSet<T: Comparable> Implements Iterable<T>, Cloneable, Default
     /// The largest value, or Null when there's none.
     Public Method Last(): T? => Key(Items.Last())
 
-    /// The largest value that isn't above value, or Null when there's none.
+    /// The largest `value` that isn't above `value`, or Null when there's none.
     Public Method Floor(value: T): T? => Key(Items.Floor(value))
 
-    /// The smallest value that isn't below value, or Null when there's none.
+    /// The smallest `value` that isn't below `value`, or Null when there's none.
     Public Method Ceiling(value: T): T? => Key(Items.Ceiling(value))
 
-    /// The values from low up to high, without high itself, in order, in a new array.
+    /// The values from `low` up to `high`, without `high` itself, in order, in a new array.
     Public Method Range(low: T, high: T): T[]
         Return Items.Range(low, high).Map(Function(entry: (T, Bool)) => entry.0)
     End Method

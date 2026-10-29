@@ -78,8 +78,8 @@ Public Struct Color32 Implements Hashable, Printable
         Get => Color32(255, 165, 0)
     End Property
 
-    /// The color hex text gives, as CSS writes one: "#rgb", "#rgba", "#rrggbb", or "#rrggbbaa",
-    /// with or without the "#", in either case. Any other text panics; TryHex takes text from
+    /// The color hex `text` gives, as CSS writes one: "#rgb", "#rgba", "#rrggbb", or "#rrggbbaa",
+    /// with or without the "#", in either case. Any other text panics; TryHex takes `text` from
     /// outside the program.
     @PanicsAtCaller
     Public Static Method Hex(text: String): Color32
@@ -88,7 +88,7 @@ Public Struct Color32 Implements Hashable, Printable
         Return color
     End Method
 
-    /// The color hex text gives, as Hex takes it, or Null for text that isn't one.
+    /// The color hex `text` gives, as Hex takes it, or Null for `text` that isn't one.
     Public Static Method TryHex(text: String): Color32?
         Local chars = text.Chars
         Local start = chars.Count > 0 && chars[0] == '#' ? 1 : 0
@@ -204,13 +204,13 @@ Public Struct Color Implements Hashable, Printable
         Get => Color(1, 0.37626213, 0)
     End Property
 
-    /// The color hex text gives, as CSS writes one: "#rgb", "#rgba", "#rrggbb", or "#rrggbbaa",
-    /// with or without the "#", in either case, in sRGB. Any other text panics; TryHex takes text
+    /// The color hex `text` gives, as CSS writes one: "#rgb", "#rgba", "#rrggbb", or "#rrggbbaa",
+    /// with or without the "#", in either case, in sRGB. Any other text panics; TryHex takes `text`
     /// from outside the program.
     @PanicsAtCaller
     Public Static Method Hex(text: String): Color => Color32.Hex(text).ToColor()
 
-    /// The color hex text gives, as Hex takes it, or Null for text that isn't one.
+    /// The color hex `text` gives, as Hex takes it, or Null for `text` that isn't one.
     Public Static Method TryHex(text: String): Color?
         Local color = Color32.TryHex(text)
         If color == Null Then Return Null
@@ -222,22 +222,22 @@ Public Struct Color Implements Hashable, Printable
         Return Color(ToLinear(r), ToLinear(g), ToLinear(b), a)
     End Method
 
-    /// The color of an sRGB hue, saturation, and value, each from 0 to 1, as a color picker gives
-    /// them: a hue outside 0 to 1 goes around.
+    /// The color of an sRGB `hue`, `saturation`, and `value`, each from 0 to 1, as a color picker
+    /// gives them: a hue outside 0 to 1 goes around.
     Public Static Method Hsv(hue: Float, saturation: Float, value: Float, a: Float = 1): Color
         Local red, green, blue = FromHue(hue, value * saturation, value * (1 - saturation))
         Return Color(ToLinear(red), ToLinear(green), ToLinear(blue), a)
     End Method
 
-    /// The color of an sRGB hue, saturation, and lightness, each from 0 to 1, as CSS's hsl(): a
-    /// hue outside 0 to 1 goes around.
+    /// The color of an sRGB `hue`, `saturation`, and `lightness`, each from 0 to 1, as CSS's hsl():
+    /// a `hue` outside 0 to 1 goes around.
     Public Static Method Hsl(hue: Float, saturation: Float, lightness: Float, a: Float = 1): Color
         Local chroma = (1 - Abs(2 * lightness - 1)) * saturation
         Local red, green, blue = FromHue(hue, chroma, lightness - chroma / 2)
         Return Color(ToLinear(red), ToLinear(green), ToLinear(blue), a)
     End Method
 
-    /// The color of an OKLab lightness and a and b, its green to red and blue to yellow, as
+    /// The color of an OKLab `lightness` and a and `b`, its green to red and blue to yellow, as
     /// Björn Ottosson defined it: a space where equal steps look equal, for blending and ramps.
     Public Static Method OkLab(lightness: Float, a: Float, b: Float, alpha: Float = 1): Color
         Local light: Double = lightness
@@ -316,12 +316,12 @@ Public Struct Color Implements Hashable, Printable
     End Operator
 End Struct
 
-/// The color t of the way from a to b, each channel in linear light, alpha too.
+/// The color `t` of the way from a to `b`, each channel in linear light, alpha too.
 Public Function Lerp(a: Color, b: Color, t: Float): Color
     Return Color(Lerp(a.r, b.r, t), Lerp(a.g, b.g, t), Lerp(a.b, b.b, t), Lerp(a.a, b.a, t))
 End Function
 
-/// Whether each channel is close to b's, as IsClose tells for Floats.
+/// Whether each channel is close to `b`'s, as IsClose tells for Floats.
 Public Function IsClose(a: Color, b: Color): Bool
     Return IsClose(a.r, b.r) && IsClose(a.g, b.g) && IsClose(a.b, b.b) && IsClose(a.a, b.a)
 End Function

@@ -67,9 +67,9 @@ Public Struct Folders
     End Property
 End Struct
 
-/// Opens target, a file, a folder, or a URL like "https://futureblitz.dev", in the app the OS
-/// opens it with, and returns once the OS has taken it. Throws an IOError when target is neither a
-/// URL nor a file or folder that's there (NOT_FOUND), when the program may not open it
+/// Opens `target`, a file, a folder, or a URL like "https://futureblitz.dev", in the app the OS
+/// opens it with, and returns once the OS has taken it. Throws an IOError when `target` is neither
+/// a URL nor a file or folder that's there (NOT_FOUND), when the program may not open it
 /// (PERMISSION_DENIED), or when no app opens it (OTHER).
 Public Function OpenDefault(target: String) Throws IOError
     Local result = fb_os_open_default(target)

@@ -22,9 +22,9 @@ Public Class Headers Implements Iterable<(String, String)>, Cloneable, Printable
         Get => Names.Count
     End Property
 
-    /// Adds a value for name, after any it has. Panics when name isn't a header's name, a token
-    /// of letters, digits, and !#$%&'*+-.^_`|~, or value has a control character other than a tab,
-    /// as a line break would make it another header.
+    /// Adds a value for `name`, after any it has. Panics when `name` isn't a header's `name`, a
+    /// token of letters, digits, and !#$%&'*+-.^_`|~, or `value` has a control character other than
+    /// a tab, as a line break would make it another header.
     @PanicsAtCaller
     Public Method Add(name: String, value: String)
         CheckField(name, value)
@@ -32,7 +32,7 @@ Public Class Headers Implements Iterable<(String, String)>, Cloneable, Printable
         Values.Add(value)
     End Method
 
-    /// Gives name only value, where its first one was, or last when it had none. Panics as Add
+    /// Gives `name` only `value`, where its first one was, or last when it had none. Panics as Add
     /// does.
     @PanicsAtCaller
     Public Method Set(name: String, value: String)
@@ -56,14 +56,14 @@ Public Class Headers Implements Iterable<(String, String)>, Cloneable, Printable
         End While
     End Method
 
-    /// name's first value, or Null when it has none.
+    /// `name`'s first value, or Null when it has none.
     Public Method Get(name: String): String?
         Local at = IndexOf(name)
         If at == Null Then Return Null
         Return Values[at]
     End Method
 
-    /// Each of name's values, in order.
+    /// Each of `name`'s values, in order.
     Public Method GetAll(name: String): String[]
         Local found: String[] = []
         For i = 0 Until Names.Count
@@ -75,7 +75,7 @@ Public Class Headers Implements Iterable<(String, String)>, Cloneable, Printable
     /// Whether it has a value of `name`, whatever its letters' case.
     Public Method Contains(name: String): Bool => IndexOf(name) != Null
 
-    /// Takes out each of name's values, and tells whether it had any.
+    /// Takes out each of `name`'s values, and tells whether it had any.
     Public Method Remove(name: String): Bool
         Local removed = False
         Local i = 0

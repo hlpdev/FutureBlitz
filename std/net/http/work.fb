@@ -77,7 +77,7 @@ Public Struct WorkRequest
         Get => fb_string_from_utf8(Bytes.ToArray())
     End Property
 
-    /// A path parameter its route bound, percent-decoded, or Null when it has none of that name.
+    /// A path parameter its route bound, percent-decoded, or Null when it has none of that `name`.
     Public Method Param(name: String): String? => Bound.Get(name)
 
     /// Each path parameter its route bound, by name, a new Map each time.

@@ -35,7 +35,7 @@ Public Class Canvas Implements Printable
     Field Width: Int
     Field Height: Int
 
-    /// A canvas of columns by rows, each cell blank. Panics for a negative size.
+    /// A canvas of `columns` by `rows`, each cell blank. Panics for a negative size.
     @PanicsAtCaller
     Public New(columns: Int, rows: Int)
         CheckSize(columns, rows)
@@ -72,15 +72,15 @@ Public Class Canvas Implements Printable
         Clear(Style())
     End Method
 
-    /// Makes every cell a space in look, as behind a screen's text.
+    /// Makes every cell a space in `look`, as behind a screen's text.
     Public Method Clear(look: Style)
         For i = 0 Until Cells.Count
             Cells[i] = Cell(" ", look)
         End For
     End Method
 
-    /// Makes it columns by rows, keeping the cells it still has, and blank ones past them. Panics
-    /// for a negative size.
+    /// Makes it `columns` by `rows`, keeping the cells it still has, and blank ones past them.
+    /// Panics for a negative size.
     @PanicsAtCaller
     Public Method Resize(columns: Int, rows: Int)
         CheckSize(columns, rows)
@@ -109,20 +109,20 @@ Public Class Canvas Implements Printable
         End For
     End Method
 
-    /// Writes text on row from column, a grapheme cluster a cell, or two for a wide one, in plain
-    /// text, as far as the canvas goes. Control characters, like tabs and line breaks, take no
-    /// cell. Gives the column after what it wrote.
+    /// Writes `text` on `row` from `column`, a grapheme cluster a cell, or two for a wide one, in
+    /// plain `text`, as far as the canvas goes. Control characters, like tabs and line breaks, take
+    /// no cell. Gives the `column` after what it wrote.
     Public Method Print(column: Int, row: Int, text: String): Int
         Return PutText(column, row, text, Style(), Width)
     End Method
 
-    /// Writes text on row from column in look, as far as the canvas goes.
+    /// Writes `text` on `row` from `column` in `look`, as far as the canvas goes.
     Public Method Print(column: Int, row: Int, text: String, look: Style): Int
         Return PutText(column, row, text, look, Width)
     End Method
 
-    /// Writes text in area in look, its lines wrapped to its width, as many as fit, and gives how
-    /// many rows it took.
+    /// Writes `text` in `area` in `look`, its lines wrapped to its width, as many as fit, and gives
+    /// how many rows it took.
     Public Method Print(area: Region, text: String, look: Style): Int
         If area.IsEmpty Then Return 0
         Local rows = 0
@@ -135,9 +135,9 @@ Public Class Canvas Implements Printable
         Return rows
     End Method
 
-    /// Fills area's cells with text, a grapheme cluster, in look: each cell, or each two for a wide
-    /// one, with a space in a last column that has no room for it. Panics for text that isn't one
-    /// grapheme cluster, one or two columns wide.
+    /// Fills `area`'s cells with `text`, a grapheme cluster, in `look`: each cell, or each two for
+    /// a wide one, with a space in a last column that has no room for it. Panics for `text` that
+    /// isn't one grapheme cluster, one or two columns wide.
     @PanicsAtCaller
     Public Method Fill(area: Region, text: String, look: Style)
         Local width = DisplayWidth(text)
@@ -160,7 +160,7 @@ Public Class Canvas Implements Printable
         End For
     End Method
 
-    /// Makes each of area's cells look as look says, keeping their text, as a selection does.
+    /// Makes each of `area`'s cells `look` as `look` says, keeping their text, as a selection does.
     Public Method SetLook(area: Region, look: Style)
         Local shown = area.Intersect(Self.Area)
         For row = shown.Row Until shown.Bottom
@@ -171,8 +171,9 @@ Public Class Canvas Implements Printable
         End For
     End Method
 
-    /// Draws a box around area's edge with border's lines in look, with title in its top line or
-    /// not, and gives what's inside it. An area narrower or shorter than 2 has nothing inside.
+    /// Draws a box around `area`'s edge with `border`'s lines in `look`, with `title` in its top
+    /// line or not, and gives what's inside it. An area narrower or shorter than 2 has nothing
+    /// inside.
     Public Method DrawBox(area: Region, border: BorderStyle, look: Style,
                           title: String = ""): Region
         If area.Width < 2 || area.Height < 2 Then Return Region(area.Column, area.Row, 0, 0)
@@ -295,8 +296,8 @@ Public Class Screen
         Start(True, False)
     End New
 
-    /// terminal's whole screen, with the mouse's reports or not, and Ctrl+C a key with ctrlCIsKey,
-    /// or ending the program without it.
+    /// `terminal`'s whole screen, with the `mouse`'s reports or not, and Ctrl+C a key with
+    /// `ctrlCIsKey`, or ending the program without it.
     Public New(terminal: Terminal, mouse: Bool = True, ctrlCIsKey: Bool = False)
         Term = terminal
         Front = Canvas(0, 0)
@@ -334,7 +335,7 @@ Public Class Screen
         Back.Clear()
     End Method
 
-    /// Shows the cursor at column and row once the next Present is done, as for a text input.
+    /// Shows the cursor at `column` and `row` once the next Present is done, as for a text input.
     Public Method ShowCursor(column: Int, row: Int)
         CursorColumn = column
         CursorRow = row
@@ -422,11 +423,11 @@ Public Class Screen
     /// Frame, keeping what's on it, and has the next Present draw it all.
     Public Method ReadEvent(): InputEvent? => Track(Term.ReadEvent())
 
-    /// The next event, which waits for timeout at most, or Null when none came by then.
+    /// The next event, which waits for `timeout` at most, or Null when none came by then.
     Public Method PollEvent(timeout: Duration): InputEvent? => Track(Term.PollEvent(timeout))
 
-    /// Runs an app until handle gives False or the input ends: draw draws each frame on a blank
-    /// Frame, which is presented, then handle takes the next event.
+    /// Runs an app until `handle` gives False or the input ends: `draw` draws each frame on a blank
+    /// Frame, which is presented, then `handle` takes the next event.
     Public Method Run(draw: Func(Canvas), handle: Func(InputEvent): Bool)
         Loop
             Back.Clear()

@@ -28,8 +28,8 @@ Public Struct SevenZip
     New()
     End New
 
-    /// A reader of the 7z in data, which it copies, or an IOError when the data isn't a 7z, ends
-    /// too soon, or its header uses what isn't supported.
+    /// A reader of the 7z in `data`, which it copies, or an IOError when the `data` isn't a 7z,
+    /// ends too soon, or its header uses what isn't supported.
     Public Static Method Read(data: UInt8[]): SevenZipReader Throws IOError => Try Opened(data)
 End Struct
 
@@ -60,7 +60,7 @@ Public Class SevenZipReader
         Get => List.Count
     End Property
 
-    /// The entry named name, the last of them when there are several, or Null when there's none.
+    /// The entry named `name`, the last of them when there are several, or Null when there's none.
     Public Method Find(name: String): ArchiveEntry?
         Local index = LastNamed(List, name)
         If index < 0 Then Return Null
@@ -70,7 +70,7 @@ Public Class SevenZipReader
     /// Whether it has an entry named `name`.
     Public Method Contains(name: String): Bool => LastNamed(List, name) >= 0
 
-    /// The bytes of the entry named name, the last of them when there are several, or Null when
+    /// The bytes of the entry named `name`, the last of them when there are several, or Null when
     /// there's none, as ReadAt gives them.
     Public Method Read(name: String): UInt8[]? Throws IOError
         Local index = LastNamed(List, name)
@@ -78,8 +78,9 @@ Public Class SevenZipReader
         Return Try ReadAt(index)
     End Method
 
-    /// The bytes of the entry at index, which are none for a folder or a link, or an IOError when
-    /// they're broken, or use a coder that isn't supported. Panics when the index is out of range.
+    /// The bytes of the entry at `index`, which are none for a folder or a link, or an IOError when
+    /// they're broken, or use a coder that isn't supported. Panics when the `index` is out of
+    /// range.
     @PanicsAtCaller
     Public Method ReadAt(index: Int): UInt8[] Throws IOError
         If index < 0 || index >= List.Count

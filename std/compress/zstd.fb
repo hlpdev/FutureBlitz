@@ -26,7 +26,7 @@ Public Struct Zstd
     New()
     End New
 
-    /// The data, compressed at the level. Panics when the level isn't from 1 to 22.
+    /// The `data`, compressed at the `level`. Panics when the `level` isn't from 1 to 22.
     @PanicsAtCaller
     Public Static Method Compress(data: UInt8[], level: Int = 3): UInt8[]
         Local encoder = Encoder(level)
@@ -36,9 +36,9 @@ Public Struct Zstd
         Return output
     End Method
 
-    /// The bytes the data is compressed from, each frame's after the last's, or an IOError when it
-    /// isn't Zstd's, ends too soon, or would come to more than limit bytes. Panics when the limit
-    /// is negative.
+    /// The bytes the `data` is compressed from, each frame's after the last's, or an IOError when
+    /// it isn't Zstd's, ends too soon, or would come to more than `limit` bytes. Panics when the
+    /// `limit` is negative.
     @PanicsAtCaller
     Public Static Method Decompress(data: UInt8[],
                                     limit: Int = MOST_BYTES): UInt8[] Throws IOError
@@ -54,7 +54,7 @@ End Struct
 Public Class ZstdCompressor Implements Coder
     Field State: Ptr<Void>
 
-    /// Panics when the level isn't from 1 to 22.
+    /// Panics when the `level` isn't from 1 to 22.
     @PanicsAtCaller
     Public New(level: Int = 3)
         State = Encoder(level)
@@ -85,7 +85,7 @@ Public Class ZstdDecompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
 
-    /// Panics when the limit is negative.
+    /// Panics when the `limit` is negative.
     @PanicsAtCaller
     Public New(limit: Int = MOST_BYTES)
         CheckLimit(limit)

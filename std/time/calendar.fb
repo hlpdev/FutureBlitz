@@ -31,7 +31,7 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         Days = DaysFromCivil(year, month, day)
     End New
 
-    /// The date that many days after 1970-01-01, or before it for a count below 0. One whose year
+    /// The date that many `days` after 1970-01-01, or before it for a count below 0. One whose year
     /// isn't an Int panics.
     @PanicsAtCaller
     Public Static Method FromDays(days: Int64): Date
@@ -48,22 +48,22 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
     /// The latest Date there is.
     Public Static Method MaxValue(): Date => Date(784351576776)
 
-    /// Today, where the zone is, or the OS's zone.
+    /// Today, where the `zone` is, or the OS's `zone`.
     Public Static Method Today(zone: TimeZone): Date => Timestamp.Now().InZone(zone).Date
     /// Today, in the OS's zone.
     Public Static Method Today(): Date => Today(TimeZone.System())
 
-    /// Whether the year, month, and day are a date.
+    /// Whether the `year`, `month`, and `day` are a date.
     Public Static Method IsValid(year: Int, month: Int, day: Int): Bool
         Return month >= 1 && month <= 12 && day >= 1 && day <= DaysIn(year, month)
     End Method
 
-    /// Whether the year has a Feb 29.
+    /// Whether the `year` has a Feb 29.
     Public Static Method IsLeap(year: Int64): Bool
         Return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
     End Method
 
-    /// How many days the month has in the year, or 0 for a month that isn't from 1 to 12.
+    /// How many days the `month` has in the `year`, or 0 for a month that isn't from 1 to 12.
     Public Static Method DaysIn(year: Int64, month: Int): Int
         If month < 1 || month > 12 Then Return 0
         If month == 2 Then Return IsLeap(year) ? 29 : 28
@@ -78,7 +78,7 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         Return DateOf(parts.Year, parts.Month, parts.Day)
     End Method
 
-    /// The date the text writes as the pattern says (see format.fb), or Null. A pattern without
+    /// The date the `text` writes as the `pattern` says (see format.fb), or Null. A pattern without
     /// the year, or without the month and day or the day of the year, panics.
     @PanicsAtCaller
     Public Static Method Parse(text: String, pattern: String): Date?
@@ -166,7 +166,7 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         Return Date(DaysFromCivil(newYear, month, Min(day, DaysIn(newYear, month))))
     End Method
 
-    /// How many days it is to the other date, below 0 when it's earlier.
+    /// How many days it is to the `other` date, below 0 when it's earlier.
     Public Method DaysUntil(other: Date): Int64 => other.Days - Days
 
     /// The first and last days of its week, from Monday to Sunday, of its month, and of its year.
@@ -197,7 +197,7 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
     /// It at that time of day.
     Public Method At(time: TimeOfDay): LocalDateTime => LocalDateTime(Self, time)
 
-    /// Its first moment where the zone is: midnight, or when its clocks reach the day, where they
+    /// Its first moment where the `zone` is: midnight, or when its clocks reach the day, where they
     /// skip midnight.
     @PanicsAtCaller
     Public Method StartOfDay(zone: TimeZone): ZonedDateTime
@@ -210,8 +210,8 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         Return "{YearText(year)}-{Padded(month, 2)}-{Padded(day, 2)}"
     End Method
 
-    /// As the pattern says (see format.fb): Format("EEE d MMM yyyy") is "Fri 23 Oct 2026". A
-    /// pattern letter of a time or a zone panics.
+    /// As the `pattern` says (see format.fb): Format("EEE d MMM yyyy") is "Fri 23 Oct 2026". A
+    /// `pattern` letter of a time or a zone panics.
     @PanicsAtCaller
     Public Method Format(pattern: String): String => FormatPattern(pattern, PartsOf(Self))
 
@@ -240,7 +240,7 @@ Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
         Nanoseconds = ((hour * 3600 + minute * 60 + second) As Int64) * 1000000000 + nanosecond
     End New
 
-    /// The time that many nanoseconds after midnight, which panics when it's not on the day.
+    /// The time that many `nanoseconds` after midnight, which panics when it's not on the day.
     @PanicsAtCaller
     Public Static Method FromNanosecondOfDay(nanoseconds: Int64): TimeOfDay
         If nanoseconds < 0 || nanoseconds >= 86400000000000
@@ -260,7 +260,7 @@ Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
     /// The latest time of day: a nanosecond before midnight.
     Public Static Method MaxValue(): TimeOfDay => TimeOfDay(86399999999999)
 
-    /// Now, where the zone is, or the OS's zone.
+    /// Now, where the `zone` is, or the OS's `zone`.
     Public Static Method Now(zone: TimeZone): TimeOfDay => Timestamp.Now().InZone(zone).Time
     /// Now, in the OS's zone.
     Public Static Method Now(): TimeOfDay => Now(TimeZone.System())
@@ -278,7 +278,7 @@ Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
         Return TimeOfDay(parts.Nanoseconds)
     End Method
 
-    /// The time the text writes as the pattern says (see format.fb), or Null. A pattern without
+    /// The time the `text` writes as the `pattern` says (see format.fb), or Null. A pattern without
     /// the hour panics.
     @PanicsAtCaller
     Public Static Method Parse(text: String, pattern: String): TimeOfDay?
@@ -342,7 +342,7 @@ Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
         Return "{Padded(Hour, 2)}:{Padded(Minute, 2)}:{Padded(Second, 2)}{FractionText(Nanosecond)}"
     End Method
 
-    /// As the pattern says (see format.fb): Format("h:mm a") is "1:30 PM". A pattern letter of a
+    /// As the `pattern` says (see format.fb): Format("h:mm a") is "1:30 PM". A pattern letter of a
     /// date or a zone panics.
     @PanicsAtCaller
     Public Method Format(pattern: String): String => FormatPattern(pattern, PartsOf(Self))
@@ -384,7 +384,7 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
         Return LocalDateTime(DayOf(784351576776), ClockOf(86399999999999))
     End Method
 
-    /// Now, where the zone is, or the OS's zone.
+    /// Now, where the `zone` is, or the OS's `zone`.
     Public Static Method Now(zone: TimeZone): LocalDateTime => Timestamp.Now().InZone(zone).DateTime
     /// Now, in the OS's zone.
     Public Static Method Now(): LocalDateTime => Now(TimeZone.System())
@@ -399,9 +399,9 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
         Return LocalDateTime(date, ClockOf(parts.Nanoseconds))
     End Method
 
-    /// The date and time the text writes as the pattern says (see format.fb), or Null. A pattern
-    /// without the year, or without the month and day or the day of the year, panics; the time's
-    /// parts it doesn't have are 0.
+    /// The date and time the `text` writes as the `pattern` says (see format.fb), or Null. A
+    /// pattern without the year, or without the month and day or the day of the year, panics; the
+    /// time's parts it doesn't have are 0.
     @PanicsAtCaller
     Public Static Method Parse(text: String, pattern: String): LocalDateTime?
         Local parts = ParsePattern(text, pattern, PartKind.DATE_TIME)
@@ -488,8 +488,8 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
     /// Midnight on its day.
     Public Method StartOfDay(): LocalDateTime => LocalDateTime(Day, ClockOf(0))
 
-    /// It where the zone is. When the zone's clocks show it twice, as they're turned back, or
-    /// never, as they skip it, the disambiguation says which moment it is (see zone.fb).
+    /// It where the `zone` is. When the `zone`'s clocks show it twice, as they're turned back, or
+    /// never, as they skip it, the `disambiguation` says which moment it is (see `zone`.fb).
     @PanicsAtCaller
     Public Method InZone(zone: TimeZone,
                          disambiguation: Disambiguation = Disambiguation.COMPATIBLE): ZonedDateTime
@@ -521,8 +521,8 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
     /// As ISO 8601 writes it, like "2026-10-23T12:30:00".
     Public Method ToString(): String => "{Day}T{Clock}"
 
-    /// As the pattern says (see format.fb): Format("yyyy-MM-dd HH:mm") is "2026-10-23 12:30". A
-    /// pattern letter of a zone panics.
+    /// As the `pattern` says (see format.fb): Format("yyyy-MM-dd HH:mm") is "2026-10-23 12:30". A
+    /// `pattern` letter of a zone panics.
     @PanicsAtCaller
     Public Method Format(pattern: String): String => FormatPattern(pattern, PartsOf(Self))
 

@@ -34,13 +34,13 @@ Public Struct IpAddress Implements Hashable, Comparable, Printable
                          (c As UInt64) << 8 | (d As UInt64))
     End Method
 
-    /// The IPv6 address of eight 16-bit groups, a:b:c:d:e:f:g:h.
+    /// The IPv6 address of eight 16-bit groups, a:`b`:`c`:`d`:`e`:`f`:`g`:`h`.
     Public Static Method V6(a: UInt16, b: UInt16, c: UInt16, d: UInt16, e: UInt16, f: UInt16,
                             g: UInt16, h: UInt16): IpAddress
         Return IpAddress(IpFamily.V6, Joined(a, b, c, d), Joined(e, f, g, h))
     End Method
 
-    /// The address of 4 bytes, IPv4, or 16, IPv6, in the order Bytes gives them. Panics for
+    /// The address of 4 `bytes`, IPv4, or 16, IPv6, in the order Bytes gives them. Panics for
     /// another count.
     @PanicsAtCaller
     Public Static Method FromBytes(bytes: UInt8[]): IpAddress
@@ -60,7 +60,7 @@ Public Struct IpAddress Implements Hashable, Comparable, Printable
         Return IpAddress(bytes.Count == 4 ? IpFamily.V4 : IpFamily.V6, high, low)
     End Method
 
-    /// The address text writes: IPv4's four decimal numbers from 0 to 255 with dots between, with
+    /// The address `text` writes: IPv4's four decimal numbers from 0 to 255 with dots between, with
     /// no leading zeros, or IPv6's eight groups of up to four hex digits, in either case, with
     /// colons between, where one :: can stand for groups of zeros and the last two can be
     /// IPv4's, as RFC 4291 has them. Null for anything else, a zone like "%eth0" too.
@@ -253,7 +253,7 @@ Public Struct SocketAddress Implements Hashable, Comparable, Printable
     /// An IPv6 link-local address's scope, its zone's index, or 0 for none.
     Public ReadOnly Field ScopeId: UInt32
 
-    /// Panics for a ScopeId on an IPv4 address, which has none.
+    /// Panics for a ScopeId on an IPv4 `address`, which has none.
     @PanicsAtCaller
     Public New(address: IpAddress, port: UInt16, scopeId: UInt32 = 0)
         If address.IsV4 && scopeId != 0
@@ -265,7 +265,7 @@ Public Struct SocketAddress Implements Hashable, Comparable, Printable
         ScopeId = scopeId
     End New
 
-    /// The address text writes as ToString does: an IPv4 address and its port, as in
+    /// The address `text` writes as ToString does: an IPv4 address and its port, as in
     /// 127.0.0.1:80, or an IPv6 one in brackets, with its scope's number after a %, as in [::1]:80
     /// and [fe80::1%3]:80. Null for anything else, a scope's name like %eth0 too.
     Public Static Method Parse(text: String): SocketAddress?

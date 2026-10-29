@@ -39,9 +39,9 @@ Function CheckCell(width: Int, height: Int, cell: Vec2i)
     If !OnGrid(width, height, cell) Then Panic("{cell} is off a grid {width} by {height}")
 End Function
 
-/// The cells next to cell on a grid of width by height, those on it only: the four along the axes,
-/// right, down, left, and up, then, when diagonal, the four corners. A negative size, or a cell off
-/// the grid, panics.
+/// The cells next to `cell` on a grid of `width` by `height`, those on it only: the four along the
+/// axes, right, down, left, and up, then, when `diagonal`, the four corners. A negative size, or a
+/// cell off the grid, panics.
 @PanicsAtCaller
 Public Function GridNeighbors(width: Int, height: Int, cell: Vec2i, diagonal: Bool = False): Vec2i[]
     CheckSize(width, height)
@@ -71,10 +71,10 @@ Function Moves(width: Int, height: Int, cell: Vec2i, cost: Func(Vec2i): Double?,
     Return moves
 End Function
 
-/// The path across a grid of width by height from start to goal, by A*, through the cells passable
-/// says can be walked, with steps along the axes, or diagonal ones too, and its cost: a step along
-/// an axis is 1, and a diagonal one the square root of 2. The start needn't be passable; Null when
-/// the goal can't be reached. A start or goal off the grid panics.
+/// The path across a grid of `width` by `height` from `start` to `goal`, by A*, through the cells
+/// `passable` says can be walked, with steps along the axes, or `diagonal` ones too, and its cost:
+/// a step along an axis is 1, and a diagonal one the square root of 2. The `start` needn't be
+/// `passable`; Null when the `goal` can't be reached. A start or `goal` off the grid panics.
 @PanicsAtCaller
 Public Function GridPath(width: Int, height: Int, start: Vec2i, goal: Vec2i,
                          passable: Func(Vec2i): Bool, diagonal: Bool = False): Path<Vec2i, Double>?
@@ -111,9 +111,9 @@ Public Class FlowField
     /// any.
     Field Nexts: Int[]
 
-    /// A flow field over a grid of width by height to the goals, through the cells cost gives a
-    /// cost for, along the axes, or diagonally too. A goal that cost gives Null for isn't one. A
-    /// negative size, a goal off the grid, or a cost that's negative or NaN panics.
+    /// A flow field over a grid of `width` by `height` to the `goals`, through the cells `cost`
+    /// gives a `cost` for, along the axes, or diagonally too. A goal that `cost` gives Null for
+    /// isn't one. A negative size, a goal off the grid, or a cost that's negative or NaN panics.
     @PanicsAtCaller
     Public New(width: Int, height: Int, goals: Vec2i[], cost: Func(Vec2i): Double?,
                diagonal: Bool = False)
@@ -182,12 +182,12 @@ Public Class FlowField
         Get => Rows
     End Property
 
-    /// Whether the cell has a way to a goal, the goals included. A cell off the grid panics.
+    /// Whether the `cell` has a way to a goal, the goals included. A cell off the grid panics.
     @PanicsAtCaller
     Public Method Reaches(cell: Vec2i): Bool => DistanceAt(cell) >= 0
 
-    /// The cost from the cell to its nearest goal, 0 at a goal, or Null where it has no way to one.
-    /// A cell off the grid panics.
+    /// The cost from the `cell` to its nearest goal, 0 at a goal, or Null where it has no way to
+    /// one. A cell off the grid panics.
     @PanicsAtCaller
     Public Method Distance(cell: Vec2i): Double?
         Local distance = DistanceAt(cell)
@@ -195,8 +195,8 @@ Public Class FlowField
         Return distance
     End Method
 
-    /// The cell to step to from this one on its cheapest way to a goal, or Null at a goal or where
-    /// there's no way to one. A cell off the grid panics.
+    /// The `cell` to step to from this one on its cheapest way to a goal, or Null at a goal or
+    /// where there's no way to one. A cell off the grid panics.
     @PanicsAtCaller
     Public Method Next(cell: Vec2i): Vec2i?
         CheckCell(Columns, Rows, cell)
@@ -205,8 +205,8 @@ Public Class FlowField
         Return Vec2i(next % Columns, next / Columns)
     End Method
 
-    /// Which way to go from the cell, of length 1, toward its next cell: the zero vector at a goal
-    /// or where there's no way to one. A cell off the grid panics.
+    /// Which way to go from the `cell`, of length 1, toward its next `cell`: the zero vector at a
+    /// goal or where there's no way to one. A cell off the grid panics.
     @PanicsAtCaller
     Public Method Direction(cell: Vec2i): Vec2
         Local next = Next(cell)

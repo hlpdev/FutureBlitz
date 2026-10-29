@@ -40,7 +40,7 @@ End Interface
 /// "{0:>8}": Format gives its text for the spec, or Null when it doesn't take that spec. The
 /// numbers, Bool, String, and Enums are Formattable, by the specs the compiler checks.
 Public Interface Formattable Extends Printable
-    /// Its text for a format spec, like ".2" or ">8", or Null when it doesn't take that spec.
+    /// Its text for a format `spec`, like ".2" or ">8", or Null when it doesn't take that `spec`.
     Method Format(spec: String): String?
 End Interface
 

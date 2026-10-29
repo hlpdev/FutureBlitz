@@ -89,7 +89,7 @@ Public Class Decimal Implements Comparable, Hashable, Printable, Numeric
         Return Decimal(fb_decimal_from_double(value))
     End Method
 
-    /// The number the text is, exactly: a sign or none, then digits with a "." or not, then an
+    /// The number the `text` is, exactly: a sign or none, then digits with a "." or not, then an
     /// exponent or none, an "E" or "e" and an integer, as "-1.50" and "2.5e-3" are. Other text,
     /// NaN and the infinities too, is Null.
     Public Static Method Parse(text: String): Decimal?
@@ -134,10 +134,10 @@ Public Class Decimal Implements Comparable, Hashable, Printable, Numeric
     /// Its distance from 0: the same Decimal, without its sign.
     Public Method Abs(): Decimal => Decimal(fb_decimal_abs(State))
 
-    /// It rounded by the mode to the places after the point, or before it when negative: 2.675 is
-    /// 2.68 to 2 places, and 1234 is 1.2E+3 to -2. Rounding to more digits than 28, or than it
-    /// has when that's more, panics, and so does a result whose exponent is past 999999 either
-    /// way, as with Python's quantize.
+    /// It rounded by the `mode` to the `places` after the point, or before it when negative: 2.675
+    /// is 2.68 to 2 `places`, and 1234 is 1.2E+3 to -2. Rounding to more digits than 28, or than it
+    /// has when that's more, panics, and so does a result whose exponent is past 999999 either way,
+    /// as with Python's quantize.
     @PanicsAtCaller
     Public Method Round(places: Int = 0, mode: RoundingMode = RoundingMode.HALF_EVEN): Decimal
         Local state = fb_decimal_round(State, places, mode As Int32)

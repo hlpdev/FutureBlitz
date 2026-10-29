@@ -242,7 +242,7 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return Shape == ValueKind.OBJECT && entries != Null ? entries.Keys() : []
     End Method
 
-    /// Whether an Object has the key.
+    /// Whether an Object has the `key`.
     Public Method Contains(key: String): Bool
         Local entries = Entries
         Return Shape == ValueKind.OBJECT && entries != Null && entries.Contains(key)
@@ -328,7 +328,7 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         ArrayElements("Value.RemoveAt").RemoveAt(index)
     End Method
 
-    /// Removes an Object's key, and tells whether it had one. Panics on another kind.
+    /// Removes an Object's `key`, and tells whether it had one. Panics on another kind.
     @PanicsAtCaller
     Public Method Remove(key: String): Bool => ObjectEntries("Value.Remove").Remove(key)
 

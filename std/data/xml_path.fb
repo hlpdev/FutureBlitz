@@ -21,7 +21,7 @@ Public Class XmlPath
     Field Source: String
     Field Tree: PathExpression
 
-    /// The path text writes. Panics when it isn't one XmlPath reads.
+    /// The path `text` writes. Panics when it isn't one XmlPath reads.
     @PanicsAtCaller
     Public New(text: String)
         Source = text
@@ -32,7 +32,7 @@ Public Class XmlPath
         If !Tree.IsPath() Then Panic("the XPath \"{text}\" selects no nodes")
     End New
 
-    /// The nodes the path selects from node, in the document's order, each once. An attribute is
+    /// The nodes the path selects from `node`, in the document's order, each once. An attribute is
     /// a node of its own, an ATTRIBUTE, made for what selects it.
     Public Method Query(node: XmlNode): XmlNode[]
         Local document = XmlNode(XmlKind.ELEMENT, "", "")

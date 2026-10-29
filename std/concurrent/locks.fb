@@ -70,7 +70,7 @@ Public Shared Class Semaphore
     Public Method TryAcquire(): Bool => fb_semaphore_try_acquire(Handle) != 0
 
     /// Gives back `count` permits, which needn't be ones Acquire took, waking as many threads
-    /// waiting for one. Panics when count isn't 1 or more, or when it would take the permits past
+    /// waiting for one. Panics when `count` isn't 1 or more, or when it would take the permits past
     /// what an Int holds.
     @PanicsAtCaller
     Public Method Release(count: Int = 1)
@@ -128,8 +128,8 @@ Public Shared Class WaitGroup
         Handle = fb_wait_group_new()
     End New
 
-    /// Adds `count` to the count, which can be negative, and wakes the threads waiting once it's 0.
-    /// Panics when it would take the count below 0, or past what an Int holds.
+    /// Adds `count` to the `count`, which can be negative, and wakes the threads waiting once it's
+    /// 0. Panics when it would take the `count` below 0, or past what an Int holds.
     @PanicsAtCaller
     Public Method Add(count: Int = 1)
         Local result = fb_wait_group_add(Handle, count)
@@ -180,8 +180,8 @@ Public Shared Class Once
         Handle = fb_once_new()
     End New
 
-    /// Runs work, unless a Do has, waiting while another thread's Do runs it. Panics in a Do that
-    /// the work itself calls, which would wait for itself forever.
+    /// Runs `work`, unless a Do has, waiting while another thread's Do runs it. Panics in a Do that
+    /// the `work` itself calls, which would wait for itself forever.
     @PanicsAtCaller
     Public Method Do(work: Func())
         Local begun = fb_once_begin(Handle)
@@ -222,7 +222,7 @@ Public Shared Class RwLock<T: Sendable>
         End Lock
     End New
 
-    /// What reader gives for the value, which no thread writes meanwhile, though others may
+    /// What `reader` gives for the value, which no thread writes meanwhile, though others may
     /// read it. Panics when this thread reads or writes it already, in a reader or a writer,
     /// which a writer waiting between could keep waiting forever.
     @PanicsAtCaller
@@ -236,8 +236,8 @@ Public Shared Class RwLock<T: Sendable>
         Return result
     End Method
 
-    /// Gives the value what writer gives for it, while no other thread reads or writes it. The old
-    /// value goes once the Write holds no lock, so a Destroy that its going runs can use the
+    /// Gives the value what `writer` gives for it, while no other thread reads or writes it. The
+    /// old value goes once the Write holds no lock, so a Destroy that its going runs can use the
     /// RwLock. Panics when this thread reads or writes it already, which would wait for itself
     /// forever.
     @PanicsAtCaller

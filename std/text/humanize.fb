@@ -15,7 +15,7 @@ End Extern
 
 /// Humanize's operations.
 Public Class Humanize
-    /// word's plural: "enemy" is "enemies", "box" "boxes", "leaf" "leaves", "child" "children",
+    /// `word`'s plural: "enemy" is "enemies", "box" "boxes", "leaf" "leaves", "child" "children",
     /// and "sheep" "sheep". Of several words, the last one's. A word keeps its capitals, as
     /// "GameObject" does in "GameObjects", and one in capitals has its ending in them too.
     Public Static Method Plural(word: String): String
@@ -24,17 +24,17 @@ Public Class Humanize
         Return word.Slice(0, start) + PluralOf(word.Slice(start, word.Length))
     End Method
 
-    /// count and word, the word in its plural unless count is 1 or -1: "3 enemies", "1 enemy",
-    /// and "0 enemies".
+    /// `count` and `word`, the `word` in its plural unless `count` is 1 or -1: "3 enemies", "1
+    /// enemy", and "0 enemies".
     Public Static Method Plural(count: Int64, word: String): String
         If count == 1 || count == -1 Then Return "{count} {word}"
         Return "{count} {Plural(word)}"
     End Method
 
-    /// How long ago a time seconds from now was, when seconds is negative, "3 minutes ago", or how
-    /// soon it will be, "in 3 minutes", rounded to the unit people would say: "just now" under 45
-    /// seconds either way, then a minute, minutes, an hour, hours, a day, days, a month, months,
-    /// a year, and years.
+    /// How long ago a time `seconds` from now was, when `seconds` is negative, "3 minutes ago", or
+    /// how soon it will be, "in 3 minutes", rounded to the unit people would say: "just now" under
+    /// 45 `seconds` either way, then a minute, minutes, an hour, hours, a day, days, a month,
+    /// months, a year, and years.
     Public Static Method Relative(seconds: Int64): String
         // The size without the sign, which the most negative Int64 has no room for.
         Local size: UInt64 = seconds < 0 ? ((-(seconds + 1)) As UInt64) + 1 : seconds As UInt64
@@ -44,11 +44,11 @@ Public Class Humanize
         Return "in {said}"
     End Method
 
-    /// How long ago a time d before now was, when d is before 0, or how soon one d from now will
-    /// be, as Relative says it of d's whole seconds: "3 minutes ago" and "in 2 hours".
+    /// How long ago a time `d` before now was, when `d` is before 0, or how soon one d from now
+    /// will be, as Relative says it of `d`'s whole seconds: "3 minutes ago" and "in 2 hours".
     Public Static Method Relative(d: Duration): String => Relative(d.Nanoseconds / 1000000000)
 
-    /// n with its ordinal's ending: "1st", "2nd", "3rd", "4th", "11th", "22nd", and "113th".
+    /// `n` with its ordinal's ending: "1st", "2nd", "3rd", "4th", "11th", "22nd", and "113th".
     Public Static Method Ordinal(n: Int64): String
         Local size = Magnitude(n)
         Local last = size % 10
@@ -62,7 +62,7 @@ Public Class Humanize
         Return "{n}{ending}"
     End Method
 
-    /// n in words: "zero", "forty-two", "one thousand two hundred thirty-four", and "minus
+    /// `n` in words: "zero", "forty-two", "one thousand two hundred thirty-four", and "minus
     /// seven".
     Public Static Method Words(n: Int64): String
         If n == 0 Then Return "zero"
@@ -71,15 +71,15 @@ Public Class Humanize
         Return words
     End Method
 
-    /// text's words in snake_case: "Hello World", "helloWorld", and "HTTPServer2" are
+    /// `text`'s words in snake_case: "Hello World", "helloWorld", and "HTTPServer2" are
     /// "hello_world", "hello_world", and "http_server2". Words are split at spaces, punctuation,
     /// and capitals that start one, and a run of capitals is one word.
     Public Static Method SnakeCase(text: String): String => "_".Join(Lowered(WordsIn(text)))
 
-    /// text's words in kebab-case: "hello-world".
+    /// `text`'s words in kebab-case: "hello-world".
     Public Static Method KebabCase(text: String): String => "-".Join(Lowered(WordsIn(text)))
 
-    /// text's words in camelCase: "helloWorld", "httpServer2".
+    /// `text`'s words in camelCase: "helloWorld", "httpServer2".
     Public Static Method CamelCase(text: String): String
         Local words = WordsIn(text)
         Local joined = ""
@@ -90,7 +90,7 @@ Public Class Humanize
         Return joined
     End Method
 
-    /// text's words in PascalCase: "HelloWorld", "HttpServer2".
+    /// `text`'s words in PascalCase: "HelloWorld", "HttpServer2".
     Public Static Method PascalCase(text: String): String
         Local joined = ""
         For word In WordsIn(text)
@@ -251,8 +251,8 @@ Function Span(size: UInt64): String
     Return "{Max((size + 15778800) / 31557600, 2)} years"
 End Function
 
-/// count bytes as people say them, in the largest unit they make at least 1 of, to a tenth,
-/// rounded half up: "1.2 MB", "999 B", and "-3.4 GB". The units are 1000 apart, or with binary,
+/// `count` bytes as people say them, in the largest unit they make at least 1 of, to a tenth,
+/// rounded half up: "1.2 MB", "999 B", and "-3.4 GB". The units are 1000 apart, or with `binary`,
 /// 1024: "1.2 MiB".
 Public Function FormatBytes(count: Int64, binary: Bool = False): String
     Local size = Magnitude(count)
@@ -274,7 +274,7 @@ Public Function FormatBytes(count: Int64, binary: Bool = False): String
     Return "{sign}{tenths / 10}.{tenths % 10} {units[unit]}"
 End Function
 
-/// d in words: each of its days, hours, minutes, and seconds that isn't 0, the seconds with their
+/// `d` in words: each of its days, hours, minutes, and seconds that isn't 0, the seconds with their
 /// fraction, as "1 hour, 2 minutes, and 3.5 seconds" and "2 days and 1 minute". Under a second,
 /// it's in its largest unit: "250 milliseconds", "1.5 microseconds", and "80 nanoseconds". It's
 /// "0 seconds", and one before 0 is "minus" one after.

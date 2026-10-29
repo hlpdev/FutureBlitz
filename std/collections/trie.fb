@@ -59,7 +59,7 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Get => Size
     End Property
 
-    /// Adds an entry, or gives an existing key its new value.
+    /// Adds an entry, or gives an existing `key` its new value.
     Public Method Add(key: String, value: V)
         Local node = Root
         For byte In key.Bytes
@@ -75,14 +75,14 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         node.Value = value
     End Method
 
-    /// The key's value, or Null when it isn't there.
+    /// The `key`'s value, or Null when it isn't there.
     Public Method Get(key: String): V?
         Local node = Find(key)
         If node == Null || node.Key == Null Then Return Null
         Return node.Value.Expect("a Trie's key has a value")
     End Method
 
-    /// The key's value, or fallback when it isn't there.
+    /// The `key`'s value, or `fallback` when it isn't there.
     Public Method Get(key: String, fallback: V): V
         Local node = Find(key)
         If node == Null || node.Key == Null Then Return fallback
@@ -108,7 +108,7 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Return node != Null && node.Key != Null
     End Method
 
-    /// Removes the key's entry, and tells whether there was one.
+    /// Removes the `key`'s entry, and tells whether there was one.
     Public Method Remove(key: String): Bool
         // The nodes on the way down, so the ones only this key needed can go.
         Local path: TrieNode<V>[] = [Root]
@@ -144,7 +144,7 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Changes += 1
     End Method
 
-    /// Whether a key starts with prefix, as every key starts with "", so an empty Trie has none.
+    /// Whether a key starts with `prefix`, as every key starts with "", so an empty Trie has none.
     /// Every node but the root is on the way to a key, since Remove takes out what only its key
     /// needed.
     Public Method HasPrefix(prefix: String): Bool
@@ -152,7 +152,7 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Return node != Null && (node.Key != Null || node.Children.Count > 0)
     End Method
 
-    /// The keys that start with prefix, in order, in a new array.
+    /// The keys that start with `prefix`, in order, in a new array.
     Public Method KeysWithPrefix(prefix: String): String[]
         Local keys: String[] = []
         Local start = Find(prefix)
@@ -165,7 +165,7 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         End Loop
     End Method
 
-    /// The longest key that text starts with, or Null when none does.
+    /// The longest key that `text` starts with, or Null when none does.
     Public Method LongestPrefixOf(text: String): String?
         Local node = Root
         Local longest = node.Key

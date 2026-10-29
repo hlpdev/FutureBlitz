@@ -18,7 +18,7 @@ Public Class BufferedReader Implements Reader
     /// What ReadLine has taken of a line, which a read that throws leaves for the next ReadLine.
     Field Line: UInt8[]
 
-    /// Reads `inner` `size` bytes at a time. Panics when size is below 1.
+    /// Reads `inner` `size` bytes at a time. Panics when `size` is below 1.
     @PanicsAtCaller
     Public New(inner: Reader, size: Int64 = 4096)
         If size < 1 Then Panic("a BufferedReader reads 1 byte at a time at least, not {size}")
@@ -138,7 +138,7 @@ Public Class BufferedWriter Implements Writer
     Field Held: Buffer<UInt8>
     Field Length: Int64
 
-    /// Writes `inner` `size` bytes at a time. Panics when size is below 1.
+    /// Writes `inner` `size` bytes at a time. Panics when `size` is below 1.
     @PanicsAtCaller
     Public New(inner: Writer, size: Int64 = 4096)
         If size < 1 Then Panic("a BufferedWriter writes 1 byte at a time at least, not {size}")

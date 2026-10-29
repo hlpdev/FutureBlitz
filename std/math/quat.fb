@@ -25,7 +25,7 @@ Public Struct Quat Implements Equatable, Printable
         Get => Quat(0, 0, 0, 1)
     End Property
 
-    /// The rotation by the angle, in radians, about the axis. A zero axis gives no rotation.
+    /// The rotation by the `angle`, in radians, about the `axis`. A zero `axis` gives no rotation.
     Public Static Method FromAxisAngle(axis: Vec3, angle: Float): Quat
         Local unit = Normalize(axis)
         If unit == Vec3.Zero() Then Return Identity
@@ -33,8 +33,8 @@ Public Struct Quat Implements Equatable, Printable
         Return Quat(unit.x * sine, unit.y * sine, unit.z * sine, Cos(angle / 2))
     End Method
 
-    /// The rotation by Euler angles in radians: z about Z, then x about X, then y about Y, as a
-    /// camera's roll, pitch, and yaw.
+    /// The rotation by Euler angles in radians: `z` about Z, then `x` about X, then `y` about Y, as
+    /// a camera's roll, pitch, and yaw.
     Public Static Method FromEuler(x: Float, y: Float, z: Float): Quat
         Local yaw = Quat(0, Sin(y / 2), 0, Cos(y / 2))
         Local pitch = Quat(Sin(x / 2), 0, 0, Cos(x / 2))
@@ -95,8 +95,9 @@ Public Struct Quat Implements Equatable, Printable
         Return Normalize(Quat(axis.x, axis.y, axis.z, 1 + cosine))
     End Method
 
-    /// The rotation that turns Forward, -Z, to forward, with Up turned as near to up as it goes:
-    /// how an object or camera at a place faces forward. A zero forward, or an up along it, panics.
+    /// The rotation that turns Forward, -Z, to `forward`, with Up turned as near to up as it goes:
+    /// how an object or camera at a place faces `forward`. A zero `forward`, or an up along it,
+    /// panics.
     @PanicsAtCaller
     Public Static Method LookRotation(forward: Vec3, up: Vec3): Quat
         Local back = Normalize(-forward)
@@ -194,15 +195,15 @@ End Function
 /// The opposite rotation, which undoes it: for a unit quaternion, as a rotation is, its conjugate.
 Public Function Inverse(q: Quat): Quat => Quat(-q.x, -q.y, -q.z, q.w)
 
-/// The rotation t of the way from a to b, the short way around, as a straight line between them
-/// scaled to length 1: quicker than Slerp, and nearly as smooth for angles that aren't large.
+/// The rotation `t` of the way from a to `b`, the short way around, as a straight line between them
+/// scaled to length 1: quicker than Slerp, and nearly as smooth for angles that aren'`t` large.
 Public Function Lerp(a: Quat, b: Quat, t: Float): Quat
     Local sign: Float = Dot(a, b) >= 0 ? 1 : -1
     Return Normalize(Quat(a.x + (b.x * sign - a.x) * t, a.y + (b.y * sign - a.y) * t,
                           a.z + (b.z * sign - a.z) * t, a.w + (b.w * sign - a.w) * t))
 End Function
 
-/// The rotation t of the way from a to b, the short way around, at an even speed.
+/// The rotation `t` of the way from a to `b`, the short way around, at an even speed.
 Public Function Slerp(a: Quat, b: Quat, t: Float): Quat
     Local cosine = Dot(a, b)
     Local end = b
@@ -220,8 +221,8 @@ Public Function Slerp(a: Quat, b: Quat, t: Float): Quat
                 a.z * scaleA + end.z * scaleB, a.w * scaleA + end.w * scaleB)
 End Function
 
-/// The angle in radians, from 0 to Pi, of the rotation from a to b, from its half angle's sine and
-/// cosine, which keep small angles exact.
+/// The angle in radians, from 0 to Pi, of the rotation from a to `b`, from its half angle's sine
+/// and cosine, which keep small angles exact.
 Public Function Angle(a: Quat, b: Quat): Float
     Local between = Inverse(a) * b
     Return 2 * Atan2(Length(Vec3(between.x, between.y, between.z)), Abs(between.w))

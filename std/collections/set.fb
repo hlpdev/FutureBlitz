@@ -28,10 +28,10 @@ Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Ha
         Get => Items.Count
     End Property
 
-    /// Adds the value, and tells whether it's new.
+    /// Adds the `value`, and tells whether it's new.
     Public Method Add(value: T): Bool => Items.TryAdd(value, True)
 
-    /// Removes the value, and tells whether it was there. The others keep their order.
+    /// Removes the `value`, and tells whether it was there. The others keep their order.
     Public Method Remove(value: T): Bool => Items.Remove(value)
 
     /// Whether it holds `value`.
@@ -42,47 +42,47 @@ Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Ha
         Items.Clear()
     End Method
 
-    /// Adds each of the values that isn't there yet, in their order.
+    /// Adds each of the `values` that isn't there yet, in their order.
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
             Add(value)
         End For
     End Method
 
-    /// Removes each of the values that's there.
+    /// Removes each of the `values` that's there.
     Public Method RemoveAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
             Remove(value)
         End For
     End Method
 
-    /// Removes each value that isn't among the values.
+    /// Removes each value that isn't among the `values`.
     Public Method KeepOnly(values: Iterable<T>)
         Local kept = SetOf(values)
         Items.RemoveWhere(Function(value: T, unused: Bool) => !kept.Contains(value))
     End Method
 
-    /// A new Set of this one's values, then the other values that aren't among them.
+    /// A new Set of this one's `values`, then the other values that aren't among them.
     Public Method Union(values: Iterable<T>): Set<T>
         Local union = Clone()
         union.AddAll(values)
         Return union
     End Method
 
-    /// A new Set of this one's values that are among the values too.
+    /// A new Set of this one's `values` that are among the `values` too.
     Public Method Intersect(values: Iterable<T>): Set<T>
         Local other = SetOf(values)
         Return Filter(Function(value: T) => other.Contains(value))
     End Method
 
-    /// A new Set of this one's values that aren't among the values.
+    /// A new Set of this one's `values` that aren't among the `values`.
     Public Method Difference(values: Iterable<T>): Set<T>
         Local other = SetOf(values)
         Return Filter(Function(value: T) => !other.Contains(value))
     End Method
 
-    /// A new Set of the values that are in this one or among the values, but not both: this one's
-    /// first, then the others.
+    /// A new Set of the `values` that are in this one or among the `values`, but not both: this
+    /// one's first, then the others.
     Public Method SymmetricDifference(values: Iterable<T>): Set<T>
         Local other = SetOf(values)
         Local either = Filter(Function(value: T) => !other.Contains(value))
@@ -92,7 +92,7 @@ Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Ha
         Return either
     End Method
 
-    /// Whether each of this one's values is among the values.
+    /// Whether each of this one's `values` is among the `values`.
     Public Method IsSubsetOf(values: Iterable<T>): Bool
         Local other = SetOf(values)
         For value In Self
@@ -101,7 +101,7 @@ Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Ha
         Return True
     End Method
 
-    /// Whether each of the values is in this one.
+    /// Whether each of the `values` is in this one.
     Public Method IsSupersetOf(values: Iterable<T>): Bool
         For value In values
             If !Contains(value) Then Return False
@@ -109,7 +109,7 @@ Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Ha
         Return True
     End Method
 
-    /// Whether any of the values is in this one.
+    /// Whether any of the `values` is in this one.
     Public Method Overlaps(values: Iterable<T>): Bool
         For value In values
             If Contains(value) Then Return True
@@ -117,7 +117,7 @@ Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Ha
         Return False
     End Method
 
-    /// Whether the values, without their repeats, are this one's, in any order.
+    /// Whether the `values`, without their repeats, are this one's, in any order.
     Public Method SetEquals(values: Iterable<T>): Bool => SetOf(values) == Self
 
     /// The values, in order, in a new array.
@@ -133,7 +133,7 @@ Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Ha
         Return copy
     End Method
 
-    /// A new Set of the values that keep says to keep.
+    /// A new Set of the values that `keep` says to `keep`.
     @PanicsAtCaller
     Public Method Filter(keep: Func(T): Bool): Set<T>
         Local kept = Set<T>()
@@ -143,7 +143,7 @@ Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Ha
         Return kept
     End Method
 
-    /// The first value that test says is the one, or Null.
+    /// The first value that `test` says is the one, or Null.
     @PanicsAtCaller
     Public Method Find(test: Func(T): Bool): T?
         For value In Self

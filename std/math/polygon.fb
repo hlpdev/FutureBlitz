@@ -32,7 +32,7 @@ Function Turn(a: Point2, b: Point2, c: Point2): Double
     Return (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X)
 End Function
 
-/// The area of the ring, above 0 when it goes counterclockwise and below when it goes clockwise:
+/// The area of the `ring`, above 0 when it goes counterclockwise and below when it goes clockwise:
 /// the shoelace formula, in Doubles.
 Public Function PolygonArea(ring: Vec2[]): Double
     Local twice: Double = 0
@@ -44,7 +44,7 @@ Public Function PolygonArea(ring: Vec2[]): Double
     Return twice / 2
 End Function
 
-/// The area of the region, its outer rings' less its holes', as each ring's PolygonArea adds up.
+/// The area of the region, its outer `rings`' less its holes', as each ring's PolygonArea adds up.
 Public Function PolygonArea(rings: Vec2[][]): Double
     Local area: Double = 0
     For ring In rings
@@ -102,10 +102,10 @@ Function PointsOf(rings: Vec2[][]): Point2[][]
     Return points
 End Function
 
-/// Whether the point is in the ring or on its edge, by the nonzero rule.
+/// Whether the `point` is in the `ring` or on its edge, by the nonzero rule.
 Public Function PointInPolygon(point: Vec2, ring: Vec2[]): Bool => PointInPolygon(point, [ring])
 
-/// Whether the point is in the region or on one of its rings' edges, by the nonzero rule.
+/// Whether the `point` is in the region or on one of its rings' edges, by the nonzero rule.
 Public Function PointInPolygon(point: Vec2, rings: Vec2[][]): Bool
     Local p = PointOf(point)
     Local points = PointsOf(rings)
@@ -118,7 +118,7 @@ Public Function PointInPolygon(point: Vec2, rings: Vec2[][]): Bool
 End Function
 
 /// The smallest convex polygon holding every point, counterclockwise from the lowest of the
-/// leftmost, with no corner on a straight edge: Andrew's monotone chain. Fewer than three points
+/// leftmost, with no corner on a straight edge: Andrew's monotone chain. Fewer than three `points`
 /// that aren't on one line give those of them that are its ends. A corner that isn't finite panics.
 @PanicsAtCaller
 Public Function ConvexHull(points: Vec2[]): Vec2[]
@@ -180,12 +180,13 @@ Public Function Triangulate(outer: Vec2[]): (Int, Int, Int)[]
     Return Triangulate(outer, none)
 End Function
 
-/// The triangles that fill the outer ring less its holes, each as indices of its corners in the
-/// rings one after another, the outer ring's first, counterclockwise: Mapbox's earcut, without its
-/// z-order hash, which cuts off one convex corner with no other corner in its triangle at a time,
-/// once each hole is joined to the outer ring by a bridge from its leftmost corner to a corner it
-/// sees. A ring's last corner may repeat its first. An outer ring of fewer than three corners gives
-/// none, and a hole of fewer than three is left out. A corner that isn't finite panics.
+/// The triangles that fill the `outer` ring less its holes, each as indices of its corners in the
+/// rings one after another, the `outer` ring's first, counterclockwise: Mapbox's earcut, without
+/// its z-order hash, which cuts off one convex corner with no other corner in its triangle at a
+/// time, once each hole is joined to the `outer` ring by a bridge from its leftmost corner to a
+/// corner it sees. A ring's last corner may repeat its first. An outer ring of fewer than three
+/// corners gives none, and a hole of fewer than three is left out. A corner that isn't finite
+/// panics.
 @PanicsAtCaller
 Public Function Triangulate(outer: Vec2[], holes: Vec2[][]): (Int, Int, Int)[]
     CheckFinite([outer])
@@ -851,7 +852,7 @@ Function Link(edges: Edge[]): Vec2[][]
     Return rings
 End Function
 
-/// The region filled by either a or b, or both. A corner that isn't finite panics.
+/// The region filled by either a or `b`, or both. A corner that isn't finite panics.
 @PanicsAtCaller
 Public Function Union(a: Vec2[][], b: Vec2[][]): Vec2[][]
     CheckFinite(a)
@@ -859,7 +860,7 @@ Public Function Union(a: Vec2[][], b: Vec2[][]): Vec2[][]
     Return Boundary([PointsOf(a), PointsOf(b)], Function(w: Int[]) => w[0] != 0 || w[1] != 0)
 End Function
 
-/// The region filled by both a and b. A corner that isn't finite panics.
+/// The region filled by both a and `b`. A corner that isn't finite panics.
 @PanicsAtCaller
 Public Function Intersection(a: Vec2[][], b: Vec2[][]): Vec2[][]
     CheckFinite(a)
@@ -867,7 +868,7 @@ Public Function Intersection(a: Vec2[][], b: Vec2[][]): Vec2[][]
     Return Boundary([PointsOf(a), PointsOf(b)], Function(w: Int[]) => w[0] != 0 && w[1] != 0)
 End Function
 
-/// The region filled by a but not by b. A corner that isn't finite panics.
+/// The region filled by a but not by `b`. A corner that isn't finite panics.
 @PanicsAtCaller
 Public Function Difference(a: Vec2[][], b: Vec2[][]): Vec2[][]
     CheckFinite(a)
@@ -875,10 +876,10 @@ Public Function Difference(a: Vec2[][], b: Vec2[][]): Vec2[][]
     Return Boundary([PointsOf(a), PointsOf(b)], Function(w: Int[]) => w[0] != 0 && w[1] == 0)
 End Function
 
-/// The region grown by distance all around, or shrunk by a negative one: each ring's edges moved
-/// out along their normals, joined around its corners by arcs when rounded, else by miters up to
-/// twice the distance long, beyond which they're cut off, and what overlaps then merged, so a
-/// shrunk part too thin for the distance goes. A corner or a distance that isn't finite panics.
+/// The region grown by `distance` all around, or shrunk by a negative one: each ring's edges moved
+/// out along their normals, joined around its corners by arcs when `rounded`, else by miters up to
+/// twice the `distance` long, beyond which they're cut off, and what overlaps then merged, so a
+/// shrunk part too thin for the `distance` goes. A corner or a distance that isn't finite panics.
 @PanicsAtCaller
 Public Function Offset(rings: Vec2[][], distance: Float, rounded: Bool = True): Vec2[][]
     CheckFinite(rings)

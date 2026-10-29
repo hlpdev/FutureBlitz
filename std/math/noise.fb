@@ -84,7 +84,7 @@ Public Class Noise
         Fill(PerlinTable())
     End New
 
-    /// Noise from a permutation the seed shuffles, so each seed gives a world of its own.
+    /// Noise from a permutation the `seed` shuffles, so each seed gives a world of its own.
     Public New(seed: Int64)
         Local table: Int[] = []
         For i = 0 Until 256

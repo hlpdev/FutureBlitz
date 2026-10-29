@@ -27,14 +27,14 @@ Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defa
         Get => Sum
     End Property
 
-    /// Counts the value once more.
+    /// Counts the `value` once more.
     @PanicsAtCaller
     Public Method Add(value: T)
         Add(value, 1)
     End Method
 
-    /// Counts the value times more times. A negative times panics, and so does a count past what
-    /// an Int holds, which only Total can be.
+    /// Counts the `value` `times` more `times`. A negative `times` panics, and so does a count past
+    /// what an Int holds, which only Total can be.
     @PanicsAtCaller
     Public Method Add(value: T, times: Int)
         If times < 0 Then Panic("Add takes a count that isn't negative, not {times}")
@@ -49,7 +49,7 @@ Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defa
         Self[value] = count
     End Method
 
-    /// Counts each of the values once more, all read first.
+    /// Counts each of the `values` once more, all read first.
     @PanicsAtCaller
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
@@ -57,10 +57,10 @@ Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defa
         End For
     End Method
 
-    /// Counts the value once less, and tells whether it was there.
+    /// Counts the `value` once less, and tells whether it was there.
     Public Method Remove(value: T): Bool => Remove(value, 1) > 0
 
-    /// Counts the value up to times less, and gives how many it took away. A negative times
+    /// Counts the `value` up to `times` less, and gives how many it took away. A negative `times`
     /// panics.
     @PanicsAtCaller
     Public Method Remove(value: T, times: Int): Int
@@ -97,8 +97,8 @@ Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defa
         Sum = 0
     End Method
 
-    /// The count most counted values and their counts, most first, and values counted the same
-    /// number of times in the Counter's order. A negative count panics.
+    /// The `count` most counted values and their counts, most first, and values counted the same
+    /// number of times in the Counter's order. A negative `count` panics.
     @PanicsAtCaller
     Public Method MostCommon(count: Int): (T, Int)[]
         If count < 0 Then Panic("MostCommon takes a count that isn't negative, not {count}")

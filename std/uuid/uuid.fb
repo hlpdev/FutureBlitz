@@ -28,7 +28,7 @@ Public Struct Uuid Implements Hashable, Comparable, Printable
         Return FromBytes(bytes)
     End Method
 
-    /// The Uuid of 16 bytes, in the order Bytes gives them. Panics unless there are 16.
+    /// The Uuid of 16 `bytes`, in the order Bytes gives them. Panics unless there are 16.
     @PanicsAtCaller
     Public Static Method FromBytes(bytes: UInt8[]): Uuid
         If bytes.Count != 16 Then Panic("a Uuid is 16 bytes, not {bytes.Count}")
@@ -41,7 +41,7 @@ Public Struct Uuid Implements Hashable, Comparable, Printable
         Return Uuid(high, low)
     End Method
 
-    /// The Uuid text writes, as ToString does, in either case, or Null when it isn't one.
+    /// The Uuid `text` writes, as ToString does, in either case, or Null when it isn't one.
     Public Static Method Parse(text: String): Uuid?
         Local chars = text.Bytes
         If chars.Count != 36 Then Return Null

@@ -194,13 +194,13 @@ End Function
 /// The extensions MarkdownToHtml and ParseMarkdown take unless they're given others.
 Const Usual = MarkdownExtensions.Tables | MarkdownExtensions.TaskLists
 
-/// The Markdown as HTML: CommonMark, and the extensions, tables and task lists unless they say
+/// The Markdown as HTML: CommonMark, and the `extensions`, tables and task lists unless they say
 /// others; with None, it's CommonMark alone.
 Public Function MarkdownToHtml(text: String, extensions: MarkdownExtensions = Usual): String
     Return fb_markdown_html(text, extensions As Int32)
 End Function
 
-/// The Markdown as a tree, from its Document down, with the extensions, tables and task lists
+/// The Markdown as a tree, from its Document down, with the `extensions`, tables and task lists
 /// unless they say others.
 Public Function ParseMarkdown(text: String, extensions: MarkdownExtensions = Usual): MarkdownNode
     Local events = fb_markdown_parse(text, extensions As Int32)

@@ -24,15 +24,15 @@ Function HintLook(): Style => Style(Attributes: TextAttributes.DIM)
 Function AnswerLook(): Style => Style(TermColor.Cyan)
 Function ErrorLook(): Style => Style(TermColor.Red)
 
-/// Asks question on the console, and gives True for yes or False for no, or default for ENTER
+/// Asks `question` on the console, and gives True for yes or False for no, or `default` for ENTER
 /// alone, when it has one.
 Public Function Confirm(question: String, default: Bool? = Null): Bool?
     Return Confirm(Terminal.Console(), question, default)
 End Function
 
-/// Asks question on terminal, and gives True for yes or False for no, or default for ENTER alone,
-/// when it has one: a key, y or n in either case, where it's interactive, and a line otherwise,
-/// "y", "yes", "n", or "no", in any case.
+/// Asks `question` on `terminal`, and gives True for yes or False for no, or `default` for ENTER
+/// alone, when it has one: a key, y or n in either case, where it's interactive, and a line
+/// otherwise, "y", "yes", "n", or "no", in any case.
 Public Function Confirm(terminal: Terminal, question: String, default: Bool? = Null): Bool?
     Local hint = default == Null ? "y/n" : (default ? "Y/n" : "y/N")
     Local prompt = QuestionOf(terminal, question) + " " + terminal.Paint("({hint})", HintLook()) +
@@ -78,42 +78,43 @@ Public Function Confirm(terminal: Terminal, question: String, default: Bool? = N
     End Loop
 End Function
 
-/// Asks question on the console, and gives what's typed, or default for nothing.
+/// Asks `question` on the console, and gives what's typed, or `default` for nothing.
 Public Function Ask(question: String, default: String = ""): String?
     Return AskWith(Terminal.Console(), question, default, Null)
 End Function
 
-/// Asks question on the console, and gives what's typed, or default for nothing, once validate
-/// gives Null for it; until then, what it gives says what's wrong, and the question goes on.
+/// Asks `question` on the console, and gives what's typed, or `default` for nothing, once
+/// `validate` gives Null for it; until then, what it gives says what's wrong, and the `question`
+/// goes on.
 Public Function Ask(question: String, validate: Func(String): String?,
                     default: String = ""): String?
     Return AskWith(Terminal.Console(), question, default, validate)
 End Function
 
-/// Asks question on terminal, and gives what's typed, or default for nothing.
+/// Asks `question` on `terminal`, and gives what's typed, or `default` for nothing.
 Public Function Ask(terminal: Terminal, question: String, default: String = ""): String?
     Return AskWith(terminal, question, default, Null)
 End Function
 
-/// Asks question on terminal, and gives what's typed, or default for nothing, once validate gives
-/// Null for it; until then, what it gives says what's wrong, and the question goes on.
+/// Asks `question` on `terminal`, and gives what's typed, or `default` for nothing, once `validate`
+/// gives Null for it; until then, what it gives says what's wrong, and the `question` goes on.
 Public Function Ask(terminal: Terminal, question: String, validate: Func(String): String?,
                     default: String = ""): String?
     Return AskWith(terminal, question, default, validate)
 End Function
 
-/// Asks question on the console, and gives one of options, by its index, from default's at first,
-/// or Null for Escape. Panics without an option.
+/// Asks `question` on the console, and gives one of `options`, by its index, from `default`'s at
+/// first, or Null for Escape. Panics without an option.
 @PanicsAtCaller
 Public Function Choose(question: String, options: String[], default: Int = 0): Int?
     If options.Count == 0 Then Panic("Choose needs an option to choose")
     Return ChooseOn(Terminal.Console(), question, options, default)
 End Function
 
-/// Asks question on terminal, and gives one of options, by its index: where it's interactive, the
-/// one selected with the arrows, from default's, at ENTER, among those that match what's typed, by
-/// fuzzy matching, the best first; otherwise, a number from 1, or default's for none. Panics
-/// without an option.
+/// Asks `question` on `terminal`, and gives one of `options`, by its index: where it's interactive,
+/// the one selected with the arrows, from `default`'s, at ENTER, among those that match what's
+/// typed, by fuzzy matching, the best first; otherwise, a number from 1, or `default`'s for none.
+/// Panics without an option.
 @PanicsAtCaller
 Public Function Choose(terminal: Terminal, question: String, options: String[],
                        default: Int = 0): Int?

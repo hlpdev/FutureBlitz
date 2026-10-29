@@ -79,17 +79,17 @@ Public Struct Body
         ContentType = contentType
     End New
 
-    /// text's UTF-8, as plain text unless contentType says another kind.
+    /// `text`'s UTF-8, as plain `text` unless `contentType` says another kind.
     @PanicsAtCaller
     Public Static Method Text(text: String,
                               contentType: String = "text/plain; charset=utf-8"): Body
         Return Body(text.Bytes, contentType)
     End Method
 
-    /// JSON's text, as application/json.
+    /// JSON's text, as application/`json`.
     Public Static Method Json(json: String): Body => Body(json.Bytes, "application/json")
 
-    /// A form's fields, in their order, as application/x-www-form-urlencoded: each name and value
+    /// A form's `fields`, in their order, as application/x-www-form-urlencoded: each name and value
     /// with each byte but the letters, digits, '-', '.', '_', and '~' as %XX, which servers read
     /// as they read a browser's '+' for a space, each pair as name=value, and '&' between them.
     Public Static Method Form(fields: Map<String, String>): Body
@@ -223,8 +223,8 @@ Public Class HttpClient
         End Set
     End Property
 
-    /// Trusts only roots for HTTPS from then on, instead of the OS's roots, as for a server whose
-    /// certificate a private authority signed.
+    /// Trusts only `roots` for HTTPS from then on, instead of the OS's `roots`, as for a server
+    /// whose certificate a private authority signed.
     Public Method TrustOnly(roots: Certificate[])
         fb_http_client_trust_own(State, 1)
         For root In roots
@@ -272,14 +272,15 @@ Public Class HttpClient
         Return Try Send(HttpMethod.DELETE, url)
     End Method
 
-    /// A request of method to url, with body, if it has one, and headers, after the client's.
+    /// A request of `method` to `url`, with `body`, if it has one, and `headers`, after the
+    /// client's.
     Public Method Send(method: HttpMethod, url: String, body: Body? = Null,
                        headers: Headers? = Null): HttpResponse Throws NetError, TimeoutError
         Local transfer = Transfer(Self, method, url, body, headers)
         Return Try transfer.Finish(fb_http_perform(transfer.State))
     End Method
 
-    /// The body of url's response, which progress, unless it's Null, is told of as it comes: how
+    /// The body of `url`'s response, which progress, unless it's Null, is told of as it comes: how
     /// many bytes came, and how many the response said it has, or -1 when it didn't say, but
     /// nothing of a redirect's own body. Throws a NetError of HTTP_STATUS when the response's
     /// status isn't success.
@@ -291,9 +292,9 @@ Public Class HttpClient
         Return response.Bytes
     End Method
 
-    /// Writes url's body to the file at path as it comes, atomically, as File.WriteBytesAtomic
+    /// Writes `url`'s body to the file at `path` as it comes, atomically, as File.WriteBytesAtomic
     /// does: to a new temporary file in its folder, which is renamed over the file, onto the disk,
-    /// once all of it came, so the file holds either all of it or what it held before. progress
+    /// once all of it came, so the file holds either all of it or what it held before. `progress`
     /// is told of it as Download's is. Throws a NetError of HTTP_STATUS when the response's
     /// status isn't success, and an IOError when the file can't be written, which a folder that
     /// isn't there throws before anything's sent; each leaves the file as it was.
@@ -551,7 +552,7 @@ Public Struct Http
         Return Try HttpClient().Get(url)
     End Method
 
-    /// The text of url's response. Throws a NetError of HTTP_STATUS when its status isn't
+    /// The text of `url`'s response. Throws a NetError of HTTP_STATUS when its status isn't
     /// success.
     Public Static Method GetText(url: String): String Throws NetError, TimeoutError
         Local response = Try HttpClient().Get(url)
@@ -559,7 +560,7 @@ Public Struct Http
         Return response.Text
     End Method
 
-    /// The bytes of url's response. Throws a NetError of HTTP_STATUS when its status isn't
+    /// The bytes of `url`'s response. Throws a NetError of HTTP_STATUS when its status isn't
     /// success.
     Public Static Method GetBytes(url: String): UInt8[] Throws NetError, TimeoutError
         Return Try HttpClient().Download(url)
@@ -590,14 +591,14 @@ Public Struct Http
         Return Try HttpClient().Delete(url)
     End Method
 
-    /// url's body, as HttpClient's Download gives it.
+    /// `url`'s body, as HttpClient's Download gives it.
     Public Static Method Download(
             url: String,
             progress: Func(Int64, Int64)? = Null): UInt8[] Throws NetError, TimeoutError
         Return Try HttpClient().Download(url, progress)
     End Method
 
-    /// Writes url's body to the file at path, as HttpClient's Download does.
+    /// Writes `url`'s body to the file at `path`, as HttpClient's Download does.
     Public Static Method Download(
             url: String, path: Path,
             progress: Func(Int64, Int64)? = Null) Throws NetError, TimeoutError, IOError

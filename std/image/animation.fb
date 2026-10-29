@@ -21,8 +21,8 @@ Public Class Animation
     Field Times: Int
     Field List: Frame[]
 
-    /// An animation of frames of width by height pixels, with none yet, played `plays` times, or
-    /// forever for 0. Panics when the size is one an Image can't be, or plays is negative.
+    /// An animation of frames of `width` by `height` pixels, with none yet, played `plays` times,
+    /// or forever for 0. Panics when the size is one an Image can't be, or `plays` is negative.
     @PanicsAtCaller
     Public New(width: Int, height: Int, plays: Int = 0)
         CheckSize(width, height)
@@ -67,9 +67,9 @@ Public Class Animation
     @PanicsAtCaller
     Operator [](index: Int): Frame => List[index]
 
-    /// Adds a frame of `image`, which it keeps rather than copies, so what changes the image
-    /// changes the frame, shown for `delay` milliseconds. Panics when the image isn't the
-    /// animation's size, or the delay is negative or longer than 65535000, APNG's longest, 65535
+    /// Adds a frame of `image`, which it keeps rather than copies, so what changes the `image`
+    /// changes the frame, shown for `delay` milliseconds. Panics when the `image` isn't the
+    /// animation's size, or the `delay` is negative or longer than 65535000, APNG's longest, 65535
     /// seconds.
     @PanicsAtCaller
     Public Method Add(image: Image, delay: Int)

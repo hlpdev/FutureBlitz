@@ -38,8 +38,8 @@ End Struct
 
 /// Fuzzy matching's operations.
 Public Class Fuzzy
-    /// The best match of pattern in text, or Null when text doesn't have pattern's characters in
-    /// order. An empty pattern matches anything, scoring 0.
+    /// The best match of `pattern` in `text`, or Null when `text` doesn't have `pattern`'s
+    /// characters in order. An empty `pattern` matches anything, scoring 0.
     Public Static Method Match(pattern: String, text: String): FuzzyMatch?
         Local wanted = pattern.Chars
         Local chars = text.Chars
@@ -76,14 +76,14 @@ Public Class Fuzzy
         Return Best(wanted, folded, chars, firsts)
     End Method
 
-    /// pattern's score in text, or Null when it doesn't match.
+    /// `pattern`'s score in `text`, or Null when it doesn't match.
     Public Static Method Score(pattern: String, text: String): Int?
         Local found = Match(pattern, text)
         If found == Null Then Return Null
         Return found.Score
     End Method
 
-    /// The candidates that match pattern, the best first: by score, then the shorter, then in
+    /// The `candidates` that match `pattern`, the best first: by score, then the shorter, then in
     /// the order given.
     Public Static Method Rank(pattern: String, candidates: String[]): String[]
         Local scored: (Int, String)[] = []

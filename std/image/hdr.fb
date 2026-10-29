@@ -17,9 +17,9 @@ Public Class HdrImage
     Field Columns: Int
     Field Rows: Int
 
-    /// An image of width by height pixels, each transparent black. Panics when either is negative,
-    /// or there'd be more pixels than an HdrImage holds, 134217727, as many as stb_image reads of
-    /// an HDR image.
+    /// An image of `width` by `height` pixels, each transparent black. Panics when either is
+    /// negative, or there'd be more pixels than an HdrImage holds, 134217727, as many as stb_image
+    /// reads of an HDR image.
     @PanicsAtCaller
     Public New(width: Int, height: Int)
         CheckHdrSize(width, height)
@@ -34,7 +34,7 @@ Public Class HdrImage
         Memory = pixels
     End New
 
-    /// An image of width by height pixels whose Floats, 4 for each pixel, red, green, blue, and
+    /// An image of `width` by `height` pixels whose Floats, 4 for each pixel, red, green, blue, and
     /// alpha, are a copy of `values`. Panics when there aren't that many, or the size is one New
     /// panics for.
     @PanicsAtCaller
@@ -48,9 +48,9 @@ Public Class HdrImage
         Return HdrImage(width, height, Buffer<Float32>.From(values))
     End Method
 
-    /// An image of width by height pixels whose Floats, 4 for each pixel, red, green, blue, and
-    /// alpha, are the Buffer's own, not a copy. Panics when the Buffer doesn't have that many, or
-    /// the size is one New panics for.
+    /// An image of `width` by `height` `pixels` whose Floats, 4 for each pixel, red, green, blue,
+    /// and alpha, are the Buffer's own, not a copy. Panics when the Buffer doesn't have that many,
+    /// or the size is one New panics for.
     @PanicsAtCaller
     Public Static Method Over(width: Int, height: Int, pixels: Buffer<Float32>): HdrImage
         CheckHdrSize(width, height)
@@ -108,7 +108,7 @@ Public Class HdrImage
     Public Method Clone(): HdrImage => HdrImage(Columns, Rows, Copied(Memory))
 
     /// An image's pixels in linear light, through sRGB's gamma, as Color32's ToColor gives them.
-    /// Panics when the image has more pixels than an HdrImage holds.
+    /// Panics when the `image` has more pixels than an HdrImage holds.
     @PanicsAtCaller
     Public Static Method FromImage(image: Image): HdrImage
         CheckHdrSize(image.Width, image.Height)
@@ -173,9 +173,9 @@ Public Struct Hdr
     New()
     End New
 
-    /// The image in data, Radiance's RGBE, each pixel opaque. Throws an IOError of INVALID_DATA
-    /// when the data isn't an HDR image or is broken, and OTHER when the image has more pixels
-    /// than `limit`. Panics when the limit is negative.
+    /// The image in `data`, Radiance's RGBE, each pixel opaque. Throws an IOError of INVALID_DATA
+    /// when the `data` isn't an HDR image or is broken, and OTHER when the image has more pixels
+    /// than `limit`. Panics when the `limit` is negative.
     @PanicsAtCaller
     Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): HdrImage Throws IOError
         CheckLimit(limit)
@@ -191,7 +191,7 @@ Public Struct Hdr
         Return decoded
     End Method
 
-    /// The image in Radiance's RGBE, run-length encoded, without its alpha: a channel that's
+    /// The `image` in Radiance's RGBE, run-length encoded, without its alpha: a channel that's
     /// negative or NaN is 0, and one past the most RGBE holds, 255 times 2^119, about 1.69e38, is
     /// that most. Panics when it has no pixels.
     @PanicsAtCaller

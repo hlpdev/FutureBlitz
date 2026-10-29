@@ -22,17 +22,17 @@ End Extern
 Const MOST_BYTES: Int64 = 2147483647
 
 Extend HttpRouter
-    /// Serves folder's files at prefix, a path as routes have them, without a *name,
-    /// or "/" for the router's own: a GET or a HEAD of prefix/a/b.png gives folder's a/b.png, and
-    /// one of a folder gives its index.html, once its path ends with '/', to which one that
-    /// doesn't is redirected. A segment that starts with a '.', or has a '\', a ':', or a control
-    /// character, or ends with a '.' or a space, or is a name Windows keeps for a device, like
-    /// NUL or COM1, is a 404, as is what isn't there, whatever the OS; and so is a file whose path
-    /// on the disk, its links followed and its names the disk's own, isn't inside the folder's,
-    /// or has such a name there, as a link out of the folder, or Windows' 8.3 short name SECRET~1
-    /// for .secret, would; so a request never reaches outside the folder, nor a name it refuses.
-    /// A file of more than 2 GiB, which it reads whole, is a 500. Panics when prefix isn't a
-    /// path, or a route has its paths already.
+    /// Serves `folder`'s files at `prefix`, a path as routes have them, without a *name, or "/" for
+    /// the router's own: a GET or a HEAD of `prefix`/a/b.png gives `folder`'s a/b.png, and one of a
+    /// folder gives its index.html, once its path ends with '/', to which one that doesn't is
+    /// redirected. A segment that starts with a '.', or has a '\', a ':', or a control character,
+    /// or ends with a '.' or a space, or is a name Windows keeps for a device, like NUL or COM1, is
+    /// a 404, as is what isn't there, whatever the OS; and so is a file whose path on the disk, its
+    /// links followed and its names the disk's own, isn't inside the `folder`'s, or has such a name
+    /// there, as a link out of the `folder`, or Windows' 8.3 short name SECRET~1 for .secret,
+    /// would; so a request never reaches outside the `folder`, nor a name it refuses. A file of
+    /// more than 2 GiB, which it reads whole, is a 500. Panics when `prefix` isn't a path, or a
+    /// route has its paths already.
     @PanicsAtCaller
     Public Method Files(prefix: String, folder: Path)
         If !prefix.StartsWith("/")

@@ -86,8 +86,8 @@ Function Windows1252Code(byte: Int): Int
     End Select
 End Function
 
-/// text in encoding, after the encoding's BOM when bom says and it has one, or Null when a
-/// character of the text isn't in the encoding: ASCII has U+0000 to U+007F, Latin-1 U+0000 to
+/// `text` in `encoding`, after the `encoding`'s BOM when `bom` says and it has one, or Null when a
+/// character of the `text` isn't in the `encoding`: ASCII has U+0000 to U+007F, Latin-1 U+0000 to
 /// U+00FF, and Windows-1252 Latin-1's but U+0080 to U+009F, where it has others, like "€".
 Public Function Encode(text: String, encoding: TextEncoding, bom: Bool = False): UInt8[]?
     Local bytes: UInt8[] = bom ? BomOf(encoding) : []
@@ -121,8 +121,8 @@ Public Function Encode(text: String, encoding: TextEncoding, bom: Bool = False):
     Return bytes
 End Function
 
-/// The text bytes hold in encoding, or Null when they aren't that: ASCII with a byte past 0x7F, or
-/// UTF-8, UTF-16, or UTF-32 that isn't well-formed, like half a surrogate pair. A BOM at their
+/// The text `bytes` hold in `encoding`, or Null when they aren't that: ASCII with a byte past 0x7F,
+/// or UTF-8, UTF-16, or UTF-32 that isn't well-formed, like half a surrogate pair. A BOM at their
 /// start stays, as U+FEFF; DecodeAny takes it off.
 Public Function Decode(bytes: UInt8[], encoding: TextEncoding): String?
     Local text: UInt8[] = []
@@ -175,7 +175,7 @@ Public Function Decode(bytes: UInt8[], encoding: TextEncoding): String?
     Return fb_text_from_utf8(text, 0, text.Count)
 End Function
 
-/// The encoding a BOM at the start of bytes is for, or Null when they start with none. UTF-32
+/// The encoding a BOM at the start of `bytes` is for, or Null when they start with none. UTF-32
 /// LE's BOM starts as UTF-16 LE's does, so it's looked for first.
 Public Function DetectBom(bytes: UInt8[]): TextEncoding?
     For encoding In [TextEncoding.UTF32_LE, TextEncoding.UTF32_BE, TextEncoding.UTF8,
@@ -187,7 +187,7 @@ Public Function DetectBom(bytes: UInt8[]): TextEncoding?
     Return Null
 End Function
 
-/// The text bytes hold: in the encoding their BOM is for, without it, or else in fallback; or
+/// The text `bytes` hold: in the encoding their BOM is for, without it, or else in `fallback`; or
 /// Null when they aren't that encoding.
 Public Function DecodeAny(bytes: UInt8[], fallback: TextEncoding = TextEncoding.UTF8): String?
     Local found = DetectBom(bytes)
@@ -203,7 +203,8 @@ Public Struct Base64
     New()
     End New
 
-    /// bytes as Base64, URL-safe when urlSafe says, and filled out with "=" when padding says.
+    /// `bytes` as Base64, URL-safe when `urlSafe` says, and filled out with "=" when `padding`
+    /// says.
     Public Static Method Encode(bytes: UInt8[], urlSafe: Bool = False,
                                 padding: Bool = True): String
         Local alphabet = Base64Alphabet(urlSafe)
@@ -226,8 +227,8 @@ Public Struct Base64
         Return fb_text_from_utf8(text, 0, text.Count) ?? ""
     End Method
 
-    /// The bytes Base64 text holds, in its URL-safe form when urlSafe says, with "=" filling out
-    /// its end or not, or Null when it isn't Base64.
+    /// The bytes Base64 `text` holds, in its URL-safe form when `urlSafe` says, with "=" filling
+    /// out its end or not, or Null when it isn't Base64.
     Public Static Method Decode(text: String, urlSafe: Bool = False): UInt8[]?
         Local values = SymbolValues(text, Base64Alphabet(urlSafe), False, 4, [0, 2, 3])
         If values == Null Then Return Null
@@ -241,7 +242,7 @@ Public Struct Hex
     New()
     End New
 
-    /// bytes as hex, its digits from "A" to "F" when upper says.
+    /// `bytes` as hex, its digits from "A" to "F" when `upper` says.
     Public Static Method Encode(bytes: UInt8[], upper: Bool = False): String
         Local digits = (upper ? "0123456789ABCDEF" : "0123456789abcdef").Bytes
         Local text: UInt8[] = []
@@ -253,7 +254,7 @@ Public Struct Hex
         Return fb_text_from_utf8(text, 0, text.Count) ?? ""
     End Method
 
-    /// The bytes hex text holds, two digits each, in either case, or Null when it isn't hex.
+    /// The bytes hex `text` holds, two digits each, in either case, or Null when it isn't hex.
     Public Static Method Decode(text: String): UInt8[]?
         Local chars = text.Chars
         If chars.Count % 2 != 0 Then Return Null
@@ -276,7 +277,7 @@ Public Struct Base32
     New()
     End New
 
-    /// bytes as Base32, filled out with "=" when padding says.
+    /// `bytes` as Base32, filled out with "=" when `padding` says.
     Public Static Method Encode(bytes: UInt8[], padding: Bool = True): String
         Local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".Bytes
         Local text: UInt8[] = []
@@ -299,7 +300,7 @@ Public Struct Base32
         Return fb_text_from_utf8(text, 0, text.Count) ?? ""
     End Method
 
-    /// The bytes Base32 text holds, in either case, with "=" filling out its end or not, or Null
+    /// The bytes Base32 `text` holds, in either case, with "=" filling out its end or not, or Null
     /// when it isn't Base32.
     Public Static Method Decode(text: String): UInt8[]?
         Local values = SymbolValues(text, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".Bytes, True, 8,
@@ -316,12 +317,13 @@ Public Struct Percent
     New()
     End New
 
-    /// text percent-encoded, with each ASCII character in keep, like "/" for a path, kept as it is.
+    /// `text` percent-encoded, with each ASCII character in `keep`, like "/" for a path, kept as it
+    /// is.
     Public Static Method Encode(text: String, keep: String = ""): String
         Return EncodeBytes(text.Bytes, keep)
     End Method
 
-    /// bytes percent-encoded, with each byte of an ASCII character in keep kept as it is.
+    /// `bytes` percent-encoded, with each byte of an ASCII character in `keep` kept as it is.
     Public Static Method EncodeBytes(bytes: UInt8[], keep: String = ""): String
         Local digits = "0123456789ABCDEF".Bytes
         Local kept = keep.Bytes
@@ -341,7 +343,7 @@ Public Struct Percent
         Return fb_text_from_utf8(text, 0, text.Count) ?? ""
     End Method
 
-    /// The text percent-encoded text stands for, or Null when a "%" isn't followed by two hex
+    /// The `text` percent-encoded `text` stands for, or Null when a "%" isn't followed by two hex
     /// digits, or the bytes aren't UTF-8.
     Public Static Method Decode(text: String): String?
         Local bytes = DecodeBytes(text)
@@ -349,7 +351,7 @@ Public Struct Percent
         Return String.FromUtf8(bytes)
     End Method
 
-    /// The bytes percent-encoded text stands for, or Null when a "%" isn't followed by two hex
+    /// The bytes percent-encoded `text` stands for, or Null when a "%" isn't followed by two hex
     /// digits.
     Public Static Method DecodeBytes(text: String): UInt8[]?
         Local source = text.Bytes
@@ -379,15 +381,15 @@ Public Struct Html
     New()
     End New
 
-    /// text with "&", "<", ">", '"', and "'" as entities, so HTML shows it as it is.
+    /// `text` with "&", "<", ">", '"', and "'" as entities, so HTML shows it as it is.
     Public Static Method Escape(text: String): String
         Local escaped = text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;")
         Return escaped.Replace("\"", "&quot;").Replace("'", "&#39;")
     End Method
 
-    /// text with its entities as the characters they stand for: "&amp;", "&lt;", "&gt;", "&quot;",
-    /// "&apos;", "&nbsp;", and numbers like "&#233;" and "&#xE9;", one that isn't a Unicode scalar
-    /// value as U+FFFD. Another "&" stays as it is.
+    /// `text` with its entities as the characters they stand for: "&amp;", "&lt;", "&gt;",
+    /// "&quot;", "&apos;", "&nbsp;", and numbers like "&#233;" and "&#xE9;", one that isn't a
+    /// Unicode scalar value as U+FFFD. Another "&" stays as it is.
     Public Static Method Unescape(text: String): String
         Local result = StringBuilder()
         Local at = 0
@@ -421,7 +423,7 @@ Public Struct Html
     End Method
 End Struct
 
-/// text as a FutureBlitz string literal's contents write it, by spec 01's escapes, without the
+/// `text` as a FutureBlitz string literal's contents write it, by spec 01's escapes, without the
 /// quotes: a backslash, '"', or "'" after a backslash; a tab, line break, carriage return, or NUL
 /// as "\t", "\n", "\r", or "\0"; another control character as "\x" and two hex digits, or past
 /// U+007F as "\u{...}"; and the rest as it is. A C literal reads them differently: its "\x" takes
@@ -455,7 +457,7 @@ Public Function Escape(text: String): String
     Return result.ToString()
 End Function
 
-/// The text that escaped text stands for, as Escape writes it: "\n", "\t", "\r", "\0", "\\",
+/// The `text` that escaped `text` stands for, as Escape writes it: "\n", "\t", "\r", "\0", "\\",
 /// "\"", and "\'", "\x" and two hex digits from 00 to 7F, and "\u{...}" with a Unicode scalar
 /// value's hex digits; or Null for another backslash, or one at the end.
 Public Function Unescape(text: String): String?

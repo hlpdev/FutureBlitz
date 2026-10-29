@@ -123,7 +123,7 @@ Public Class Event<T>
         End Get
     End Property
 
-    /// Adds handler, which each Emit after this calls, after the handlers added before it, until
+    /// Adds `handler`, which each Emit after this calls, after the handlers added before it, until
     /// the Subscription it gives is cancelled. An Emit that's calling handlers meanwhile doesn't.
     Public Method Subscribe(handler: Func(T)): Subscription
         TakeOutGone()
@@ -132,11 +132,12 @@ Public Class Event<T>
         Return Subscription(added)
     End Method
 
-    /// Adds handler for owner, which it's called with, after the handlers added before it, until
-    /// the Subscription it gives is cancelled or the owner goes, as the handler holds it weakly.
-    /// The handler gets the owner, so it needn't capture it, which would keep it: a handler that
-    /// captures its owner keeps it as long as the Event keeps the handler. The next Emit or Clear
-    /// after the owner goes takes the handler out, as a Subscribe does now and then.
+    /// Adds `handler` for `owner`, which it's called with, after the handlers added before it,
+    /// until the Subscription it gives is cancelled or the `owner` goes, as the `handler` holds it
+    /// weakly. The `handler` gets the `owner`, so it needn't capture it, which would keep it: a
+    /// handler that captures its owner keeps it as long as the Event keeps the `handler`. The next
+    /// Emit or Clear after the `owner` goes takes the `handler` out, as a Subscribe does now and
+    /// then.
     Public Method Subscribe<O: Class>(owner: O, handler: Func(O, T)): Subscription
         TakeOutGone()
         Local added = OwnedHandler<T, O>(owner, handler, Self)
@@ -144,7 +145,7 @@ Public Class Event<T>
         Return Subscription(added)
     End Method
 
-    /// Calls each handler with value, in the order they were added. A handler added meanwhile
+    /// Calls each handler with `value`, in the order they were added. A handler added meanwhile
     /// waits for the next Emit, and one cancelled meanwhile, by a handler before it, isn't called.
     Public Method Emit(value: T)
         Local count = Handlers.Count

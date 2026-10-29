@@ -48,7 +48,7 @@ End Struct
 
 /// Diffing's operations.
 Public Class Diff
-    /// The runs of lines that are the same in a and b, deleted from a, and inserted for b, in
+    /// The runs of lines that are the same in a and `b`, deleted from a, and inserted for `b`, in
     /// order, as few lines as can be deleted and inserted. Where lines are replaced, the deleted
     /// ones come before the inserted ones.
     Public Static Method Lines(a: String, b: String): DiffRun[]
@@ -57,7 +57,7 @@ Public Class Diff
         Return Runs(Script(from, to), from, to)
     End Method
 
-    /// The runs of characters that are the same in a and b, deleted from a, and inserted for b.
+    /// The runs of characters that are the same in a and `b`, deleted from a, and inserted for `b`.
     Public Static Method Chars(a: String, b: String): DiffRun[]
         Local from: String[] = []
         For c In a.Chars
@@ -72,9 +72,9 @@ Public Class Diff
         Return Runs(Script(from, to), from, to)
     End Method
 
-    /// The unified diff of a and b, as diff -u and git diff write it, with context lines of each
-    /// change's around it, and fromName and toName in its first two lines. "" when they're the
-    /// same. Panics when context is negative.
+    /// The unified diff of a and `b`, as diff -u and git diff write it, with `context` lines of
+    /// each change's around it, and `fromName` and `toName` in its first two lines. "" when they're
+    /// the same. Panics when `context` is negative.
     @PanicsAtCaller
     Public Static Method Unified(a: String, b: String, fromName: String = "a",
                                  toName: String = "b", context: Int = 3): String
@@ -129,13 +129,13 @@ Public Class Diff
         Return text
     End Method
 
-    /// ours and theirs, both changed from base, merged as git merge-file merges them: what each
-    /// changed, and where both changed the same lines, or lines that touch, what they both made
-    /// of them, or else a conflict, marked "<<<<<<< ours", ours' lines, "=======", theirs', and
-    /// ">>>>>>> theirs", with oursName and theirsName, on lines that end in "\r\n" where the
-    /// texts' lines do. A conflict holds only the lines that differ between the two, and two
-    /// conflicts with at most 3 lines between them, or lines without an ASCII letter or digit,
-    /// are one.
+    /// `ours` and `theirs`, both changed from `base`, merged as git merge-file merges them: what
+    /// each changed, and where both changed the same lines, or lines that touch, what they both
+    /// made of them, or else a conflict, marked "<<<<<<< ours", `ours`' lines, "=======",
+    /// `theirs`', and ">>>>>>> theirs", with `oursName` and `theirsName`, on lines that end in
+    /// "\r\n" where the texts' lines do. A conflict holds only the lines that differ between the
+    /// two, and two conflicts with at most 3 lines between them, or lines without an ASCII letter
+    /// or digit, are one.
     Public Static Method Merge(base: String, ours: String, theirs: String,
                                oursName: String = "ours", theirsName: String = "theirs"): Merged
         Local lines = LinesOf(base)

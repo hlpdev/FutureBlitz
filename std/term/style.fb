@@ -154,8 +154,8 @@ Public Struct TermColor Implements Hashable, Printable
         Return TermColor(ColorKind.RGB, 0, r, g, b)
     End Method
 
-    /// The color hex text gives, as CSS writes one: "#rgb" or "#rrggbb", with or without the "#",
-    /// in either case. Any other text panics; TryHex takes text from outside the program.
+    /// The color hex `text` gives, as CSS writes one: "#rgb" or "#rrggbb", with or without the "#",
+    /// in either case. Any other text panics; TryHex takes `text` from outside the program.
     @PanicsAtCaller
     Public Static Method Hex(text: String): TermColor
         Local color = TryHex(text)
@@ -163,7 +163,7 @@ Public Struct TermColor Implements Hashable, Printable
         Return color
     End Method
 
-    /// The color hex text gives, as Hex takes it, or Null for text that isn't one.
+    /// The color hex `text` gives, as Hex takes it, or Null for `text` that isn't one.
     Public Static Method TryHex(text: String): TermColor?
         Local chars = text.Chars
         Local start = chars.Count > 0 && chars[0] == '#' ? 1 : 0
@@ -198,7 +198,7 @@ Public Struct TermColor Implements Hashable, Printable
         End Select
     End Method
 
-    /// The color as a terminal that shows level's colors shows it: itself, where it has it, or
+    /// The color as a terminal that shows `level`'s colors shows it: itself, where it has it, or
     /// the nearest one it has, by red, green, and blue. NONE has none, so it's NORMAL there.
     Public Method Nearest(level: ColorLevel): TermColor
         If Kind == ColorKind.NORMAL || level == ColorLevel.NONE Then Return Normal
@@ -273,10 +273,10 @@ Public Struct Style Implements Hashable, Printable
                Attributes == TextAttributes.NONE
     End Property
 
-    /// A copy with background behind the text.
+    /// A copy with `background` behind the text.
     Public Method On(background: TermColor): Style => Style(Foreground, background, Attributes)
 
-    /// A copy with attributes too.
+    /// A copy with `attributes` too.
     Public Method With(attributes: TextAttributes): Style
         Return Style(Foreground, Background, Attributes | attributes)
     End Method
@@ -298,7 +298,7 @@ Public Struct Style Implements Hashable, Printable
     /// A copy that's struck through too.
     Public Method Strikethrough(): Style => With(TextAttributes.STRIKETHROUGH)
 
-    /// This style over under: its own colors, and under's where it has the terminal's NORMAL
+    /// This style over `under`: its own colors, and `under`'s where it has the terminal's NORMAL
     /// ones, and both's attributes, as a list's selected line is drawn over its own style.
     Public Method Over(under: Style): Style
         Local foreground = Foreground.Kind == ColorKind.NORMAL ? under.Foreground : Foreground
@@ -306,8 +306,8 @@ Public Struct Style Implements Hashable, Printable
         Return Style(foreground, background, Attributes | under.Attributes)
     End Method
 
-    /// The escape code that starts it, from plain text, as a terminal of level's colors shows it,
-    /// like "\e[0;1;31m", or "" where level is NONE. A plain style is "\e[0m".
+    /// The escape code that starts it, from plain text, as a terminal of `level`'s colors shows it,
+    /// like "\e[0;1;31m", or "" where `level` is NONE. A plain style is "\e[0m".
     Public Method Codes(level: ColorLevel): String
         If level == ColorLevel.NONE Then Return ""
         Local codes = "\u{1b}[0"
@@ -324,8 +324,8 @@ Public Struct Style Implements Hashable, Printable
         Return codes + "m"
     End Method
 
-    /// text as this style shows it on a terminal of level's colors: between the codes that start
-    /// it and the one that ends it, or alone where level is NONE or the style is plain.
+    /// `text` as this style shows it on a terminal of `level`'s colors: between the codes that
+    /// start it and the one that ends it, or alone where `level` is NONE or the style is plain.
     Public Method Apply(text: String, level: ColorLevel): String
         If level == ColorLevel.NONE || IsPlain || text == "" Then Return text
         Return Codes(level) + text + "\u{1b}[0m"
@@ -342,26 +342,26 @@ Public Struct Style Implements Hashable, Printable
     End Method
 End Struct
 
-/// How many colors stream shows, which Paint goes by: NONE where it isn't a terminal, or
+/// How many colors `stream` shows, which Paint goes by: NONE where it isn't a terminal, or
 /// NO_COLOR is set and isn't empty, or TERM is "dumb"; TRUE_COLOR where COLORTERM is "truecolor" or
 /// "24bit", or on Windows' console; INDEXED where TERM has "256color" in it; and BASIC otherwise.
 Public Function ConsoleColors(stream: StandardStream = StandardStream.OUTPUT): ColorLevel
     Return fb_term_colors(stream As Int32) As ColorLevel
 End Function
 
-/// text in style, for stdout: with the codes that show it where stdout is a terminal that shows
+/// `text` in `style`, for stdout: with the codes that show it where stdout is a terminal that shows
 /// colors, and alone where it isn't, or NO_COLOR is set, as Print(Paint("done",
 /// Style(TermColor.Green))).
 Public Function Paint(text: String, style: Style): String
     Return style.Apply(text, ConsoleColors(StandardStream.OUTPUT))
 End Function
 
-/// text in style, for stream, as stream shows colors.
+/// `text` in `style`, for `stream`, as `stream` shows colors.
 Public Function Paint(text: String, style: Style, stream: StandardStream): String
     Return style.Apply(text, ConsoleColors(stream))
 End Function
 
-/// text without the escape codes in it: a CSI's, like a style's "\e[1;31m" or a cursor move; an
+/// `text` without the escape codes in it: a CSI's, like a style's "\e[1;31m" or a cursor move; an
 /// OSC's, like a link's, or a DCS's, an APC's, a PM's, or an SOS's, like a sixel image's or kitty's
 /// graphics', up to its BEL or ST; and any other escape and the characters it takes, as "\e(B" or
 /// "\e7". A code cut short at the end goes, as far as it goes.
@@ -381,8 +381,8 @@ Public Function StripStyles(text: String): String
     Return kept.ToString()
 End Function
 
-/// The columns text takes in a terminal, as DisplayWidth counts them, without its escape codes.
-/// Each line's are counted alike, so for text of several lines it's the widest one's.
+/// The columns `text` takes in a terminal, as DisplayWidth counts them, without its escape codes.
+/// Each line's are counted alike, so for `text` of several lines it's the widest one's.
 Public Function VisibleWidth(text: String): Int
     Local plain = StripStyles(text)
     If !plain.Contains("\n") Then Return DisplayWidth(plain)

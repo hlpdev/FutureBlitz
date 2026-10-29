@@ -124,21 +124,21 @@ Public Function LengthSquared(v: Vec2i): Int => Dot(v, v)
 @PanicsAtCaller
 Public Function LengthSquared(v: Vec3i): Int => Dot(v, v)
 
-/// How many steps along the axes go from a to b: the taxicab distance.
+/// How many steps along the axes go from a to `b`: the taxicab distance.
 @PanicsAtCaller
 Public Function ManhattanDistance(a: Vec2i, b: Vec2i): Int => Abs(b.x - a.x) + Abs(b.y - a.y)
 
-/// How many steps along the axes go from a to b: the taxicab distance.
+/// How many steps along the axes go from a to `b`: the taxicab distance.
 @PanicsAtCaller
 Public Function ManhattanDistance(a: Vec3i, b: Vec3i): Int
     Return Abs(b.x - a.x) + Abs(b.y - a.y) + Abs(b.z - a.z)
 End Function
 
-/// How many steps go from a to b where a diagonal is one step too: the chessboard distance.
+/// How many steps go from a to `b` where a diagonal is one step too: the chessboard distance.
 @PanicsAtCaller
 Public Function ChebyshevDistance(a: Vec2i, b: Vec2i): Int => Max(Abs(b.x - a.x), Abs(b.y - a.y))
 
-/// How many steps go from a to b where a diagonal is one step too: the chessboard distance.
+/// How many steps go from a to `b` where a diagonal is one step too: the chessboard distance.
 @PanicsAtCaller
 Public Function ChebyshevDistance(a: Vec3i, b: Vec3i): Int
     Return Max(Max(Abs(b.x - a.x), Abs(b.y - a.y)), Abs(b.z - a.z))
@@ -154,15 +154,15 @@ Public Function Max(a: Vec2i, b: Vec2i): Vec2i => Vec2i(Max(a.x, b.x), Max(a.y, 
 /// The larger of each component.
 Public Function Max(a: Vec3i, b: Vec3i): Vec3i => Vec3i(Max(a.x, b.x), Max(a.y, b.y), Max(a.z, b.z))
 
-/// Each component kept between low's and high's, as Clamp keeps an Int. A component whose low is
-/// above its high panics.
+/// Each component kept between `low`'s and `high`'s, as Clamp keeps an Int. A component whose low
+/// is above its high panics.
 @PanicsAtCaller
 Public Function Clamp(v: Vec2i, low: Vec2i, high: Vec2i): Vec2i
     Return Vec2i(Clamp(v.x, low.x, high.x), Clamp(v.y, low.y, high.y))
 End Function
 
-/// Each component kept between low's and high's, as Clamp keeps an Int. A component whose low is
-/// above its high panics.
+/// Each component kept between `low`'s and `high`'s, as Clamp keeps an Int. A component whose low
+/// is above its high panics.
 @PanicsAtCaller
 Public Function Clamp(v: Vec3i, low: Vec3i, high: Vec3i): Vec3i
     Return Vec3i(Clamp(v.x, low.x, high.x), Clamp(v.y, low.y, high.y), Clamp(v.z, low.z, high.z))

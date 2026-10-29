@@ -19,40 +19,40 @@ Public Function EaseOutSine(t: Float): Float => Sin(t * Pi / 2)
 /// In and out along a quarter of a sine wave.
 Public Function EaseInOutSine(t: Float): Float => -(Cos(Pi * t) - 1) / 2
 
-/// t squared.
+/// `t` squared.
 Public Function EaseInQuad(t: Float): Float => t * t
-/// Out along t squared.
+/// Out along `t` squared.
 Public Function EaseOutQuad(t: Float): Float => 1 - (1 - t) * (1 - t)
-/// In and out along t squared.
+/// In and out along `t` squared.
 Public Function EaseInOutQuad(t: Float): Float => t < 0.5 ? 2 * t * t : 1 - (2 - 2 * t) ** 2 / 2
 
-/// t cubed.
+/// `t` cubed.
 Public Function EaseInCubic(t: Float): Float => t ** 3
-/// Out along t cubed.
+/// Out along `t` cubed.
 Public Function EaseOutCubic(t: Float): Float => 1 - (1 - t) ** 3
-/// In and out along t cubed.
+/// In and out along `t` cubed.
 Public Function EaseInOutCubic(t: Float): Float => t < 0.5 ? 4 * t ** 3 : 1 - (2 - 2 * t) ** 3 / 2
 
-/// t to the fourth.
+/// `t` to the fourth.
 Public Function EaseInQuart(t: Float): Float => t ** 4
-/// Out along t to the fourth.
+/// Out along `t` to the fourth.
 Public Function EaseOutQuart(t: Float): Float => 1 - (1 - t) ** 4
-/// In and out along t to the fourth.
+/// In and out along `t` to the fourth.
 Public Function EaseInOutQuart(t: Float): Float => t < 0.5 ? 8 * t ** 4 : 1 - (2 - 2 * t) ** 4 / 2
 
-/// t to the fifth.
+/// `t` to the fifth.
 Public Function EaseInQuint(t: Float): Float => t ** 5
-/// Out along t to the fifth.
+/// Out along `t` to the fifth.
 Public Function EaseOutQuint(t: Float): Float => 1 - (1 - t) ** 5
-/// In and out along t to the fifth.
+/// In and out along `t` to the fifth.
 Public Function EaseInOutQuint(t: Float): Float => t < 0.5 ? 16 * t ** 5 : 1 - (2 - 2 * t) ** 5 / 2
 
-/// 2 to the power of 10 t, from 0 to 1 at the ends.
+/// 2 to the power of 10 `t`, from 0 to 1 at the ends.
 Public Function EaseInExpo(t: Float): Float => t <= 0 ? 0 : Exp2(10 * t - 10)
-/// Out along 2 to the power of 10 t, from 0 to 1 at the ends.
+/// Out along 2 to the power of 10 `t`, from 0 to 1 at the ends.
 Public Function EaseOutExpo(t: Float): Float => t >= 1 ? 1 : 1 - Exp2(-10 * t)
 
-/// In and out along 2 to the power of 10 t, from 0 to 1 at the ends.
+/// In and out along 2 to the power of 10 `t`, from 0 to 1 at the ends.
 Public Function EaseInOutExpo(t: Float): Float
     If t <= 0 Then Return 0
     If t >= 1 Then Return 1

@@ -92,7 +92,7 @@ Public Class HttpRequest
     End Property
 
     /// A path parameter its route bound, percent-decoded, like `:id`'s, or Null when it has none
-    /// of that name.
+    /// of that `name`.
     Public Method Param(name: String): String? => Bound.Get(name)
 
     /// Each path parameter its route bound, by name.
@@ -129,9 +129,9 @@ End Class
 
 // Responses a handler gives.
 Extend HttpResponse
-    /// A response of status, with body's bytes and its Content-Type, or an empty one. The status
-    /// is a final response's, from 200 to 599, or it panics: a 1xx's response comes before the
-    /// one that answers, and a WebSocket's 101 comes from its AcceptAsync.
+    /// A response of `status`, with `body`'s bytes and its Content-Type, or an empty one. The
+    /// `status` is a final response's, from 200 to 599, or it panics: a 1xx's response comes before
+    /// the one that answers, and a WebSocket's 101 comes from its AcceptAsync.
     @PanicsAtCaller
     Public Static Method Of(status: Int, body: Body? = Null): HttpResponse
         If status < 200 || status > 599
@@ -149,11 +149,11 @@ Extend HttpResponse
         Return HttpResponse(status, headers, bytes, "")
     End Method
 
-    /// A 200 with body.
+    /// A 200 with `body`.
     Public Static Method Of(body: Body): HttpResponse => Of(StatusCode.OK, body)
 
-    /// A redirect to url, which a header's value can hold, a 302 Found unless status says another
-    /// from 300 to 399, or it panics.
+    /// A redirect to `url`, which a header's value can hold, a 302 Found unless `status` says
+    /// another from 300 to 399, or it panics.
     @PanicsAtCaller
     Public Static Method Redirect(url: String, status: Int = 302): HttpResponse
         If status < 300 || status > 399
@@ -228,7 +228,7 @@ Public Class HttpRouter
         Stacks = stacks
     End New
 
-    /// Adds a route for GET and the path, which panics unless it's a path as HttpRouter has
+    /// Adds a route for GET and the `path`, which panics unless it's a path as HttpRouter has
     /// them, or another route has the method and a path that matches what it matches.
     @PanicsAtCaller
     Public Method Get(path: String, handler: HttpHandler)
@@ -259,14 +259,14 @@ Public Class HttpRouter
         Add("DELETE", path, handler)
     End Method
 
-    /// Adds a route for method, any token, like "PROPFIND", as Get does.
+    /// Adds a route for `method`, any token, like "PROPFIND", as Get does.
     @PanicsAtCaller
     Public Method Route(method: String, path: String, handler: HttpHandler)
         If !IsToken(method) Then Panic("\"{method}\" isn't an HTTP method")
         Add(method, path, handler)
     End Method
 
-    /// Adds a work route for GET and the path, as Get does, whose handler blocks, computing or
+    /// Adds a work route for GET and the `path`, as Get does, whose handler blocks, computing or
     /// waiting, and so runs on one of the server's Workers threads, given a Sendable copy of the
     /// request, while the main thread goes on answering others. The server's and groups'
     /// middleware runs around it on the main thread, as it does around any route.
@@ -275,20 +275,20 @@ Public Class HttpRouter
         Add("GET", path, Null, handler)
     End Method
 
-    /// Adds a work route for method, as Route does.
+    /// Adds a work route for `method`, as Route does.
     @PanicsAtCaller
     Public Method Work(method: String, path: String, handler: WorkHandler)
         If !IsToken(method) Then Panic("\"{method}\" isn't an HTTP method")
         Add(method, path, Null, handler)
     End Method
 
-    /// Adds middleware, which runs around each of its routes' handlers, after what Use gave it
+    /// Adds `middleware`, which runs around each of its routes' handlers, after what Use gave it
     /// before, a server's around every request, the ones no route takes too.
     Public Method Use(middleware: HttpMiddleware)
         Stack.Add(middleware)
     End Method
 
-    /// A group of routes whose paths start with prefix, a path as routes have them, but without
+    /// A group of routes whose paths start with `prefix`, a path as routes have them, but without
     /// a `*name`, or it panics, and whose middleware runs inside this one's.
     @PanicsAtCaller
     Public Method Group(prefix: String): HttpRouter
@@ -580,16 +580,16 @@ Public Class HttpServer Extends HttpRouter
         Tls = tls
     End Method
 
-    /// Listens for HTTPS at `https` with a certificate for `names`, DNS names, which `acme` gets
-    /// from its CA, or which `folder` keeps from a run before, while it's valid for those names. On
-    /// `http`, where the CA checks HTTP-01's challenges, a server of its own answers them, and
+    /// Listens for HTTPS at `https` with a certificate for `names`, DNS `names`, which `acme` gets
+    /// from its CA, or which `folder` keeps from a run before, while it's valid for those `names`.
+    /// On `http`, where the CA checks HTTP-01's challenges, a server of its own answers them, and
     /// redirects every other request to HTTPS, with a 308, once HTTPS listens, and until then
     /// answers a 503. `folder` keeps the certificate's key and chain, as certificate.pem, and its
-    /// names, each written atomically. Serve renews the certificate as it runs, as RenewAsync does,
-    /// once less than a third of its lifetime is left, which it checks as it starts, as a kept one
-    /// can be due, and then every RenewalCheck; connections from then on get the renewed one, and
-    /// those before keep theirs. Throws what ObtainAsync, Listen, and writing the folder do. Panics
-    /// when it listens already, and as ObtainAsync does for the names.
+    /// `names`, each written atomically. Serve renews the certificate as it runs, as RenewAsync
+    /// does, once less than a third of its lifetime is left, which it checks as it starts, as a
+    /// kept one can be due, and then every RenewalCheck; connections from then on get the renewed
+    /// one, and those before keep theirs. Throws what ObtainAsync, Listen, and writing the `folder`
+    /// do. Panics when it listens already, and as ObtainAsync does for the `names`.
     @PanicsAtCaller
     Public Async Method ListenAutoAsync(acme: AcmeClient, names: String[], folder: Path,
                                         https: SocketAddress,

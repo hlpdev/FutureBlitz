@@ -34,26 +34,27 @@ Public Struct KeyEvent Implements Hashable, Printable
     /// The modifiers held with it.
     Public ReadOnly Field Modifiers: KeyModifiers
 
-    /// A key that types no character, like UP, with the modifiers held.
+    /// A key that types no character, like UP, with the `modifiers` held.
     Public New(code: KeyCode, modifiers: KeyModifiers = KeyModifiers.NONE)
         Code = code
         Modifiers = modifiers
     End New
 
-    /// The key that types character, with the modifiers held.
+    /// The key that types `character`, with the `modifiers` held.
     Public New(character: Char, modifiers: KeyModifiers = KeyModifiers.NONE)
         Code = KeyCode.CHAR
         Character = character
         Modifiers = modifiers
     End New
 
-    /// Whether it typed c, without Ctrl or Alt.
+    /// Whether it typed `c`, without Ctrl or Alt.
     Public Method IsChar(c: Char): Bool
         Return Code == KeyCode.CHAR && Character == c && !Modifiers.Has(KeyModifiers.CONTROL) &&
                !Modifiers.Has(KeyModifiers.ALT)
     End Method
 
-    /// Whether it's Ctrl and the letter c, in either case, without Alt: IsControl('c') for Ctrl+C.
+    /// Whether it's Ctrl and the letter `c`, in either case, without Alt: IsControl('`c`') for
+    /// Ctrl+C.
     Public Method IsControl(c: Char): Bool
         Return Code == KeyCode.CHAR && Character == c.ToLower() &&
                Modifiers.Has(KeyModifiers.CONTROL) && !Modifiers.Has(KeyModifiers.ALT)
@@ -154,7 +155,7 @@ Public Struct InputEvent Implements Printable
         Self.Key = key
     End New
 
-    /// What the mouse did.
+    /// What the `mouse` did.
     Public New(mouse: MouseEvent)
         Kind = InputKind.MOUSE
         Self.Mouse = mouse
@@ -167,13 +168,13 @@ Public Struct InputEvent Implements Printable
         Rows = rows
     End New
 
-    /// Text pasted.
+    /// Text `pasted`.
     Public New(pasted: String)
         Kind = InputKind.PASTE
         Text = pasted
     End New
 
-    /// Whether it's the key that types c, as KeyEvent's IsChar says.
+    /// Whether it's the key that types `c`, as KeyEvent's IsChar says.
     Public Method IsChar(c: Char): Bool => Kind == InputKind.KEY && Key.IsChar(c)
 
     /// Whether it's that key without a character, with no modifiers.
@@ -216,8 +217,8 @@ Public Class InputParser
     Public New()
     End New
 
-    /// Takes the first count of bytes, as they came. Panics for a count below 0 or past what
-    /// bytes has.
+    /// Takes the first `count` of `bytes`, as they came. Panics for a count below 0 or past what
+    /// `bytes` has.
     @PanicsAtCaller
     Public Method Feed(bytes: UInt8[], count: Int)
         If count < 0 || count > bytes.Count
@@ -236,7 +237,7 @@ Public Class InputParser
         End For
     End Method
 
-    /// Takes text's bytes, as they came.
+    /// Takes `text`'s bytes, as they came.
     Public Method Feed(text: String)
         Local bytes = text.Bytes
         Feed(bytes, bytes.Count)

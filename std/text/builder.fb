@@ -38,7 +38,7 @@ Public Class StringBuilder Implements Printable, Writer
     Public New()
     End New
 
-    /// One that starts with text.
+    /// One that starts with `text`.
     Public New(text: String)
         fb_text_append(Bytes, text)
     End New
@@ -48,8 +48,8 @@ Public Class StringBuilder Implements Printable, Writer
         Get => Bytes.Count
     End Property
 
-    /// Adds text at the end, and gives the StringBuilder, for another call after it. Each Append,
-    /// AppendLine, Insert, and [] that makes the text longer than a String holds panics.
+    /// Adds `text` at the end, and gives the StringBuilder, for another call after it. Each Append,
+    /// AppendLine, Insert, and [] that makes the `text` longer than a String holds panics.
     @PanicsAtCaller
     Public Method Append(text: String): StringBuilder
         Settle()
@@ -58,15 +58,15 @@ Public Class StringBuilder Implements Printable, Writer
         Return Self
     End Method
 
-    /// Adds c at the end.
+    /// Adds `c` at the end.
     @PanicsAtCaller
     Public Method Append(c: Char): StringBuilder => Append("{c}")
 
-    /// Adds the value's text at the end, as "{value}" shows it.
+    /// Adds the `value`'s text at the end, as "{value}" shows it.
     @PanicsAtCaller
     Public Method Append<T: Printable>(value: T): StringBuilder => Append("{value}")
 
-    /// Adds text, then a line break, "\n", at the end.
+    /// Adds `text`, then a line break, "\n", at the end.
     @PanicsAtCaller
     Public Method AppendLine(text: String = ""): StringBuilder
         Settle()
@@ -77,7 +77,7 @@ Public Class StringBuilder Implements Printable, Writer
         Return Self
     End Method
 
-    /// Puts text in at the position at. Panics unless at is a position in the text, between two
+    /// Puts `text` in at the position at. Panics unless at is a position in the `text`, between two
     /// characters.
     @PanicsAtCaller
     Public Method Insert(at: Int, text: String): StringBuilder
@@ -88,8 +88,8 @@ Public Class StringBuilder Implements Printable, Writer
         Return Self
     End Method
 
-    /// Takes out the text from start up to finish. Panics unless both are positions in the text,
-    /// between characters, with start no later than finish.
+    /// Takes out the text from `start` up to `finish`. Panics unless both are positions in the
+    /// text, between characters, with `start` no later than `finish`.
     @PanicsAtCaller
     Public Method Remove(start: Int, finish: Int): StringBuilder
         Settle()
@@ -100,7 +100,7 @@ Public Class StringBuilder Implements Printable, Writer
         Return Self
     End Method
 
-    /// Replaces each old, from the start, with replacement. An empty old panics.
+    /// Replaces each old, from the start, with `replacement`. An empty `old` panics.
     @PanicsAtCaller
     Public Method Replace(old: String, replacement: String): StringBuilder
         Settle()
@@ -146,8 +146,8 @@ Public Class StringBuilder Implements Printable, Writer
         Settle()
     End Method
 
-    /// Makes room for bytes bytes of text in all, so adding up to that many needs no more memory.
-    /// A negative count panics.
+    /// Makes room for `bytes` `bytes` of text in all, so adding up to that many needs no more
+    /// memory. A negative count panics.
     @PanicsAtCaller
     Public Method Reserve(bytes: Int)
         If bytes < 0 Then Panic("Reserve takes a count that isn't negative, not {bytes}")

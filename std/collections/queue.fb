@@ -39,7 +39,7 @@ Public Class Queue<T> Implements Iterable<T>, Cloneable, Defaultable
         Enqueue(value)
     End Method
 
-    /// Enqueues each of the values, in order.
+    /// Enqueues each of the `values`, in order.
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
             Enqueue(value)

@@ -32,7 +32,7 @@ Public Class Timer
     Public Static Method After(time: Duration): Task => fb_io_after(time.Nanoseconds)
 
     /// A Timer that ticks every interval from now, or from the Instant, which panics for an
-    /// interval that isn't above 0.
+    /// `interval` that isn't above 0.
     @PanicsAtCaller
     Public Static Method Every(interval: Duration): Timer => Every(interval, Instant.Now())
 
@@ -60,7 +60,7 @@ Public Class Timer
         Return fb_io_after(UntilNext(Instant.Now()).Nanoseconds)
     End Method
 
-    /// How long it is from now, the Instant, to its next tick.
+    /// How long it is from `now`, the Instant, to its next tick.
     Public Method UntilNext(now: Instant): Duration
         Local since = (now - Start).Nanoseconds
         Local interval = Interval.Nanoseconds
@@ -255,15 +255,15 @@ Public Class RateLimiter
     Field Tolerance: Int64
     Field Full: Instant?
 
-    /// count every per, with a bucket of count tokens, or of burst, which panics for a count,
-    /// per, or burst that isn't above 0.
+    /// `count` every per, with a bucket of `count` tokens, or of burst, which panics for a count,
+    /// `per`, or burst that isn't above 0.
     @PanicsAtCaller
     Public New(count: Int, per: Duration)
         Setup(count, per, count)
     End New
 
-    /// `count` tokens every `per`, with a bucket of `burst`, which panics for a count, per, or
-    /// burst that isn't above 0.
+    /// `count` tokens every `per`, with a bucket of `burst`, which panics for a count, `per`, or
+    /// `burst` that isn't above 0.
     @PanicsAtCaller
     Public New(count: Int, per: Duration, burst: Int)
         Setup(count, per, burst)
@@ -325,7 +325,7 @@ Public Class Debounce
     Field Delay: Duration
     Field Latest: Instant?
 
-    /// A Debounce of that delay, which panics for one below 0.
+    /// A Debounce of that `delay`, which panics for one below 0.
     @PanicsAtCaller
     Public New(delay: Duration)
         If delay.IsNegative Then Panic("a Debounce's delay isn't below 0, as {delay} is")

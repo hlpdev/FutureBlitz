@@ -46,7 +46,7 @@ Public Class JsonReader
     Field Truth: Bool
     Field Started: Bool
 
-    /// Panics unless depth is 1 or more.
+    /// Panics unless `depth` is 1 or more.
     @PanicsAtCaller
     Public New(text: String, depth: Int = DEPTH)
         CheckDepth(depth)
@@ -189,7 +189,7 @@ Public Class JsonWriter Implements Printable
     Field Keyed: Bool
     Field Written: Bool
 
-    /// Panics when indent is below 0.
+    /// Panics when `indent` is below 0.
     @PanicsAtCaller
     Public New(indent: Int = 0)
         If indent < 0 Then Panic("a JsonWriter's indent can't be below 0, as {indent} is")
@@ -367,25 +367,25 @@ Public Struct Json
     New()
     End New
 
-    /// The Value of text's JSON: an object as an OBJECT, its keys in order, the last of a key that
-    /// repeats where its first was, and an integer that fits an Int64 as an INT, one past an
+    /// The Value of `text`'s JSON: an object as an OBJECT, its keys in order, the last of a key
+    /// that repeats where its first was, and an integer that fits an Int64 as an INT, one past an
     /// Int64's largest that fits a UInt64 as a UINT, and any other number as a DOUBLE. Throws a
-    /// ParseError as JsonReader's Next does, and for arrays and objects nested past depth. Panics
-    /// unless depth is 1 or more.
+    /// ParseError as JsonReader's Next does, and for arrays and objects nested past `depth`. Panics
+    /// unless `depth` is 1 or more.
     @PanicsAtCaller
     Public Static Method Read(text: String, depth: Int = DEPTH): Value Throws ParseError
         Return Try ValueOf(JsonReader(text, depth))
     End Method
 
-    /// The Value of UTF-8 bytes' JSON, as Read of text gives it.
+    /// The Value of UTF-8 `bytes`' JSON, as Read of text gives it.
     @PanicsAtCaller
     Public Static Method Read(bytes: UInt8[], depth: Int = DEPTH): Value Throws ParseError
         Return Try ValueOf(JsonReader(bytes, depth))
     End Method
 
-    /// value as JSON, as JsonWriter writes it with indent: a DOUBLE with a point or an exponent,
-    /// so it reads back as one, and BYTES, which JSON has no kind for, as a string of their
-    /// base64 (RFC 4648's, with '=' padding). Panics for a DOUBLE that's NaN or an infinity,
+    /// `value` as JSON, as JsonWriter writes it with `indent`: a DOUBLE with a point or an
+    /// exponent, so it reads back as one, and BYTES, which JSON has no kind for, as a string of
+    /// their base64 (RFC 4648's, with '=' padding). Panics for a DOUBLE that's NaN or an infinity,
     /// which JSON doesn't have, or an indent below 0.
     @PanicsAtCaller
     Public Static Method Write(value: Value, indent: Int = 0): String
@@ -394,20 +394,20 @@ Public Struct Json
         Return writer.ToString()
     End Method
 
-    /// The T of text's JSON: Read's Value, made a T by `Load<T>`. Throws Read's ParseErrors, and
+    /// The T of `text`'s JSON: Read's Value, made a T by `Load<T>`. Throws Read's ParseErrors, and
     /// Load's, whose Path says where in the document a value doesn't fit.
     @PanicsAtCaller
     Public Static Method Read<T>(text: String, depth: Int = DEPTH): T Throws ParseError
         Return Try Load<T>(Try Read(text, depth))
     End Method
 
-    /// The T of UTF-8 bytes' JSON, as `Read<T>` of text gives it.
+    /// The T of UTF-8 `bytes`' JSON, as `Read<T>` of text gives it.
     @PanicsAtCaller
     Public Static Method Read<T>(bytes: UInt8[], depth: Int = DEPTH): T Throws ParseError
         Return Try Load<T>(Try Read(bytes, depth))
     End Method
 
-    /// x as JSON: Save's Value of it, written as Write writes a Value.
+    /// `x` as JSON: Save's Value of it, written as Write writes a Value.
     @PanicsAtCaller
     Public Static Method Write<T>(x: T, indent: Int = 0): String
         Return Write(Save(x), indent)

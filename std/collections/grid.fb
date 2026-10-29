@@ -12,8 +12,8 @@ Public Class Grid<T> Implements Iterable<T>, Cloneable
     Field Columns: Int
     Field Rows: Int
 
-    /// A Grid width cells across and height down, each holding fill. A negative size panics, and
-    /// so does one with more cells than an Int counts.
+    /// A Grid `width` cells across and `height` down, each holding `fill`. A negative size panics,
+    /// and so does one with more cells than an Int counts.
     @PanicsAtCaller
     Public New(width: Int, height: Int, fill: T)
         If width < 0 || height < 0 Then Panic("a Grid can't be {width} by {height}")
@@ -43,7 +43,7 @@ Public Class Grid<T> Implements Iterable<T>, Cloneable
         Get => Cells.Count
     End Property
 
-    /// Whether (x, y) is one of the Grid's cells.
+    /// Whether (`x`, `y`) is one of the Grid's cells.
     Public Method InBounds(x: Int, y: Int): Bool => x >= 0 && x < Columns && y >= 0 && y < Rows
 
     @PanicsAtCaller
@@ -54,20 +54,20 @@ Public Class Grid<T> Implements Iterable<T>, Cloneable
         Cells[CellOf(x, y)] = value
     End Operator
 
-    /// The positions beside (x, y) that are in the Grid: above, left, right, and below it.
+    /// The positions beside (`x`, `y`) that are in the Grid: above, left, right, and below it.
     @PanicsAtCaller
     Public Method Neighbors4(x: Int, y: Int): (Int, Int)[]
         Return Beside(x, y, [(0, -1), (-1, 0), (1, 0), (0, 1)])
     End Method
 
-    /// The positions around (x, y) that are in the Grid, its corners too, row by row.
+    /// The positions around (`x`, `y`) that are in the Grid, its corners too, row by row.
     @PanicsAtCaller
     Public Method Neighbors8(x: Int, y: Int): (Int, Int)[]
         Local offsets = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
         Return Beside(x, y, offsets)
     End Method
 
-    /// Gives every cell the value.
+    /// Gives every cell the `value`.
     Public Method Fill(value: T)
         Cells.Fill(value)
     End Method
@@ -147,8 +147,8 @@ Public Class Grid3<T> Implements Iterable<T>, Cloneable
     Field Rows: Int
     Field Layers: Int
 
-    /// A Grid3 width cells across, height down, and depth deep, each holding fill. A negative size
-    /// panics, and so does one with more cells than an Int counts.
+    /// A Grid3 `width` cells across, `height` down, and `depth` deep, each holding `fill`. A
+    /// negative size panics, and so does one with more cells than an Int counts.
     @PanicsAtCaller
     Public New(width: Int, height: Int, depth: Int, fill: T)
         If width < 0 || height < 0 || depth < 0
@@ -195,7 +195,7 @@ Public Class Grid3<T> Implements Iterable<T>, Cloneable
         Get => Cells.Count
     End Property
 
-    /// Whether (x, y, z) is one of the Grid3's cells.
+    /// Whether (`x`, `y`, `z`) is one of the Grid3's cells.
     Public Method InBounds(x: Int, y: Int, z: Int): Bool
         Return x >= 0 && x < Columns && y >= 0 && y < Rows && z >= 0 && z < Layers
     End Method
@@ -208,16 +208,16 @@ Public Class Grid3<T> Implements Iterable<T>, Cloneable
         Cells[CellOf(x, y, z)] = value
     End Operator
 
-    /// The positions that share a face with (x, y, z) and are in the Grid3: the layer before, then
-    /// above, left, right, and below, then the layer after.
+    /// The positions that share a face with (`x`, `y`, `z`) and are in the Grid3: the layer before,
+    /// then above, left, right, and below, then the layer after.
     @PanicsAtCaller
     Public Method Neighbors6(x: Int, y: Int, z: Int): (Int, Int, Int)[]
         Local offsets = [(0, 0, -1), (0, -1, 0), (-1, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1)]
         Return Beside(x, y, z, offsets)
     End Method
 
-    /// The positions around (x, y, z) that are in the Grid3, its edges and corners too, layer by
-    /// layer and row by row.
+    /// The positions around (`x`, `y`, `z`) that are in the Grid3, its edges and corners too, layer
+    /// by layer and row by row.
     @PanicsAtCaller
     Public Method Neighbors26(x: Int, y: Int, z: Int): (Int, Int, Int)[]
         Local offsets: (Int, Int, Int)[] = []
@@ -231,7 +231,7 @@ Public Class Grid3<T> Implements Iterable<T>, Cloneable
         Return Beside(x, y, z, offsets)
     End Method
 
-    /// Gives every cell the value.
+    /// Gives every cell the `value`.
     Public Method Fill(value: T)
         Cells.Fill(value)
     End Method

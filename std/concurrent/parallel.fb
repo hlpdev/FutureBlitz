@@ -14,14 +14,15 @@ Const MOST_PARTS = 64
 /// Below this many items, ParallelSort sorts on the calling thread, which is quicker.
 Const SORT_ALONE = 4096
 
-/// Calls action with each item, on the pool at once, in no order.
+/// Calls `action` with each item, on the pool at once, in no order.
 Public Function ParallelForEach<T: Sendable>(items: T[], action: Sendable Func(T))
     Parallel For i = 0 Until items.Count
         action(items[i])
     End For
 End Function
 
-/// A new array of what change makes of each item, in the items' order, made on the pool at once.
+/// A new array of what `change` makes of each item, in the `items`' order, made on the pool at
+/// once.
 Public Function ParallelMap<T, R>(items: T[], change: Sendable Func(T): R): R[]
     Where T: Sendable
     Where R: Sendable
@@ -35,10 +36,10 @@ Public Function ParallelMap<T, R>(items: T[], change: Sendable Func(T): R): R[]
     Return results
 End Function
 
-/// The items combined with combine, which takes two values and gives one, or Null for no items.
+/// The `items` combined with `combine`, which takes two values and gives one, or Null for no items.
 /// They're cut into parts, each combined left to right on the pool at once, and then the parts'
-/// values left to right, so combine must give the same however its calls are grouped, as + and Max
-/// do, though it needn't let its values swap places.
+/// values left to right, so `combine` must give the same however its calls are grouped, as + and
+/// Max do, though it needn't let its values swap places.
 Public Function ParallelReduce<T: Sendable>(items: T[], combine: Sendable Func(T, T): T): T?
     If items.Count == 0 Then Return Null
     Local parts = Min(items.Count, MOST_PARTS)
@@ -61,7 +62,7 @@ Public Function ParallelReduce<T: Sendable>(items: T[], combine: Sendable Func(T
     Return value
 End Function
 
-/// Sorts the items in place, smallest first, keeping equal ones in their order, as T[]'s Sort
+/// Sorts the `items` in place, smallest first, keeping equal ones in their order, as T[]'s Sort
 /// does: parts sorted on the pool at once, then merged in pairs, each round's merges at once too.
 /// A value that isn't equal to itself, like NaN, has no place in the order, and goes where it may.
 Public Function ParallelSort<T>(items: T[])
@@ -69,8 +70,8 @@ Public Function ParallelSort<T>(items: T[])
     ParallelSort(items, Function(a: T, b: T) => a < b)
 End Function
 
-/// Sorts the items in place, those before goes with first, keeping in their order the ones it puts
-/// neither before the other, as Sort(before) does.
+/// Sorts the `items` in place, those `before` goes with first, keeping in their order the ones it
+/// puts neither `before` the other, as Sort(`before`) does.
 Public Function ParallelSort<T: Sendable>(items: T[], before: Sendable Func(T, T): Bool)
     If items.Count < SORT_ALONE
         items.Sort(before)

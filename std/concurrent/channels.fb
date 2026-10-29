@@ -16,7 +16,7 @@ End Extern
 /// The longest wait, which isn't a limit.
 Const FOREVER: Int64 = 9223372036854775807
 
-/// Receives channel's oldest value, waiting while it has none, unless the cancellation is
+/// Receives `channel`'s oldest value, waiting while it has none, unless the cancellation is
 /// cancelled first, or is already, which throws a CancelledError and takes none. Null once the
 /// Channel is closed and empty, as its Receive gives.
 Public Function Receive<T: Sendable>(channel: Channel<T>,
@@ -32,9 +32,9 @@ Public Function Receive<T: Sendable>(channel: Channel<T>,
     End Loop
 End Function
 
-/// Sends value on channel, waiting while it's full, unless the cancellation is cancelled first, or
-/// is already, which throws a CancelledError and sends nothing. Panics once the Channel is closed,
-/// as its Send does.
+/// Sends `value` on `channel`, waiting while it's full, unless the cancellation is cancelled first,
+/// or is already, which throws a CancelledError and sends nothing. Panics once the Channel is
+/// closed, as its Send does.
 @PanicsAtCaller
 Public Function Send<T: Sendable>(channel: Channel<T>, value: T,
                                   cancel: Cancellation) Throws CancelledError
@@ -68,13 +68,13 @@ Public Class Selector
         Limit = Duration.Zero()
     End New
 
-    /// Waits on channel too, whose values go to handler.
+    /// Waits on `channel` too, whose values go to `handler`.
     Public Method On<T: Sendable>(channel: Channel<T>, handler: Func(T)): Selector
         Cases.Add(ChannelCase<T>(channel, handler))
         Return Self
     End Method
 
-    /// Runs handler when time passes in a Wait with no value. A Selector has one timeout, which
+    /// Runs `handler` when time passes in a Wait with no value. A Selector has one timeout, which
     /// this replaces.
     Public Method Timeout(time: Duration, handler: Func()): Selector
         Limited = True

@@ -67,7 +67,7 @@ Public Class AcmeClient
     Field Nonce: String?
     Field Kid: String?
 
-    /// A client of the CA whose directory is at `directory`. Panics unless accountKey is an ECDSA
+    /// A client of the CA whose directory is at `directory`. Panics unless `accountKey` is an ECDSA
     /// P-256 private key, of 32 bytes that are one.
     @PanicsAtCaller
     Public New(directory: String, accountKey: Key)
@@ -89,8 +89,8 @@ Public Class AcmeClient
 
     /// A client of the CA whose directory is at `directory`, with the account key `folder` keeps
     /// as account.pem, or a new ECDSA P-256 key, which it writes there atomically, making the
-    /// folder, for the runs after; automatic HTTPS's ListenAutoAsync keeps its certificate in the
-    /// same folder. Throws an IOError when the folder can't be read or written, or a ParseError
+    /// `folder`, for the runs after; automatic HTTPS's ListenAutoAsync keeps its certificate in the
+    /// same folder. Throws an IOError when the `folder` can't be read or written, or a ParseError
     /// when its account.pem isn't a key's PEM. Panics as New does for a key it keeps that isn't
     /// an ECDSA P-256 private key.
     @PanicsAtCaller
@@ -139,11 +139,11 @@ Public Class AcmeClient
         Return location
     End Method
 
-    /// A certificate for `names`, DNS names, of `certificateKey`, an ECDSA P-256 private key, as
+    /// A certificate for `names`, DNS `names`, of `certificateKey`, an ECDSA P-256 private key, as
     /// PEM, its chain after it: it orders one, publishes each name's HTTP-01 key authorization
     /// through `tokens` while the CA checks it, finalizes the order with a CSR, and gives what the
     /// CA issued. It registers first, with no contact, when Register hasn't. Panics as
-    /// Acme.CertificateRequest does for the key and names.
+    /// Acme.CertificateRequest does for the key and `names`.
     @PanicsAtCaller
     Public Async Method ObtainAsync(names: String[], certificateKey: Key,
                                     tokens: AcmeTokens): String Throws NetError, TimeoutError

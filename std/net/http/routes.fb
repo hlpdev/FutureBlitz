@@ -37,7 +37,7 @@ Extend HttpRequest Implements Loadable
 End Extend
 
 Extend HttpRouter
-    /// Adds a route for each Async Method of instance's type with a @Get, @Post, @Put, @Patch, or
+    /// Adds a route for each Async Method of `instance`'s type with a @Get, @Post, @Put, @Patch, or
     /// @Delete, or several, which gives an HttpResponse and takes nothing, the request, one
     /// Struct or Class, or that and the request: `@Get("/users/:id") Async Method Show(args:
     /// ShowUser): HttpResponse`. Each call's Struct or Class is made by Load<T> from an Object of

@@ -18,7 +18,7 @@ Public Shared Class Lazy<T: Sendable>
     /// The number of the thread whose maker is making the value, or 0.
     Field Making: Atomic<UInt32>
 
-    /// A Lazy whose value maker makes, the first time Value is read.
+    /// A Lazy whose value `maker` makes, the first time Value is read.
     Public New(maker: Sendable Func(): T)
         Maker = maker
     End New

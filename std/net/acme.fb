@@ -32,9 +32,9 @@ Public Struct Acme
     New()
     End New
 
-    /// The JWK (RFC 7517) of `key`'s public key, an ECDSA P-256 key, private or public: its curve,
-    /// its type, and its point's x and y in base64url, in that order, which its thumbprint takes.
-    /// Panics for a key of another kind.
+    /// The JWK (RFC 7517) of `key`'s public `key`, an ECDSA P-256 `key`, private or public: its
+    /// curve, its type, and its point's x and y in base64url, in that order, which its thumbprint
+    /// takes. Panics for a key of another kind.
     @PanicsAtCaller
     Public Static Method Jwk(key: Key): Value
         If key.Kind != KeyKind.ECDSA_P256
@@ -64,14 +64,14 @@ Public Struct Acme
         Return "{token}.{Thumbprint(accountKey)}"
     End Method
 
-    /// A certificate signing request (PKCS #10) of `key`, an ECDSA P-256 private key, which signs
-    /// it, for `names`, DNS names, which its subjectAltName lists, in order, where ACME's CAs read
-    /// them, and whose subject's common name is the first name that fits in one, 64 bytes, as
+    /// A certificate signing request (PKCS #10) of `key`, an ECDSA P-256 private `key`, which signs
+    /// it, for `names`, DNS `names`, which its subjectAltName lists, in order, where ACME's CAs
+    /// read them, and whose subject's common name is the first name that fits in one, 64 bytes, as
     /// certbot's is, since some readers, mbedTLS's among them, don't take an empty subject. Panics
     /// for a key of another kind or a public one, no names, or a name that isn't a DNS name of
     /// ASCII letters, digits, and hyphens, as an IDN's A-label is, maybe with "*." first, for a
-    /// wildcard, whose labels neither start nor end with a hyphen, and whose last isn't all
-    /// digits, as an IPv4 address's is.
+    /// wildcard, whose labels neither start nor end with a hyphen, and whose last isn't all digits,
+    /// as an IPv4 address's is.
     @PanicsAtCaller
     Public Static Method CertificateRequest(key: Key, names: String[]): UInt8[]
         If key.Kind != KeyKind.ECDSA_P256

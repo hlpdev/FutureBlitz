@@ -140,24 +140,24 @@ Public Function Permutations<T>(items: T[]): PermutationIterator<T>
     Return PermutationIterator<T>(items.Clone(), items.Count)
 End Function
 
-/// Every order of count of the array's elements: n! / (n - count)! of them, none when count is more
-/// than n, and one empty one for 0. The array is copied. A negative count panics.
+/// Every order of `count` of the array's elements: n! / (n - `count`)! of them, none when `count`
+/// is more than n, and one empty one for 0. The array is copied. A negative `count` panics.
 @PanicsAtCaller
 Public Function Permutations<T>(items: T[], count: Int): PermutationIterator<T>
     If count < 0 Then Panic("Permutations takes a count that isn't negative, not {count}")
     Return PermutationIterator<T>(items.Clone(), count)
 End Function
 
-/// Every choice of count of the array's elements, each in the array's order: Binomial(n, count) of
-/// them, none when count is more than n, and one empty one for 0. The array is copied. A negative
-/// count panics.
+/// Every choice of `count` of the array's elements, each in the array's order: Binomial(n, `count`)
+/// of them, none when `count` is more than n, and one empty one for 0. The array is copied. A
+/// negative `count` panics.
 @PanicsAtCaller
 Public Function Combinations<T>(items: T[], count: Int): CombinationIterator<T>
     If count < 0 Then Panic("Combinations takes a count that isn't negative, not {count}")
     Return CombinationIterator<T>(items.Clone(), count)
 End Function
 
-/// n!, the number of orders of n things, from 0! = 1 to 20!, the most a Long holds. Any other n
+/// `n`!, the number of orders of `n` things, from 0! = 1 to 20!, the most a Long holds. Any other n
 /// panics.
 @PanicsAtCaller
 Public Function Factorial(n: Int): Long
@@ -169,8 +169,8 @@ Public Function Factorial(n: Int): Long
     Return product
 End Function
 
-/// The number of ways to choose k of n things, "n choose k": 0 for a k below 0 or above n. A
-/// negative n panics, and so does a count too large for a Long.
+/// The number of ways to choose `k` of `n` things, "n choose k": 0 for a k below 0 or above `n`. A
+/// negative `n` panics, and so does a count too large for a Long.
 @PanicsAtCaller
 Public Function Binomial(n: Int, k: Int): Long
     If n < 0 Then Panic("Binomial takes an n that isn't negative, not {n}")

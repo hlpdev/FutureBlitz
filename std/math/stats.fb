@@ -31,7 +31,7 @@ Function CheckCount(what: String, count: Int, least: Int)
 End Function
 
 /// The mean, the sum over the count, or the sum of each value's share where the sum overflows and
-/// the values don't. No values panics.
+/// the `values` don't. No values panics.
 @PanicsAtCaller
 Public Function Mean<T: Bounded>(values: T[]): Double
     CheckCount("Mean", values.Count, 1)
@@ -78,14 +78,14 @@ Function Spread<T: Bounded>(values: T[]): (Double, Double)
 End Function
 
 /// The variance of a sample, the squared differences from the mean over the count less 1, as an
-/// estimate of the variance of all it was drawn from. Fewer than two values panics.
+/// estimate of the variance of all it was drawn from. Fewer than two `values` panics.
 @PanicsAtCaller
 Public Function Variance<T: Bounded>(values: T[]): Double
     CheckCount("Variance", values.Count, 2)
     Return Spread(values).1 / (values.Count - 1)
 End Function
 
-/// The standard deviation of a sample: the square root of its Variance. Fewer than two values
+/// The standard deviation of a sample: the square root of its Variance. Fewer than two `values`
 /// panics.
 @PanicsAtCaller
 Public Function StdDev<T: Bounded>(values: T[]): Double
@@ -93,7 +93,7 @@ Public Function StdDev<T: Bounded>(values: T[]): Double
     Return Sqrt(Variance(values))
 End Function
 
-/// The variance of the values as the whole population: the squared differences from the mean over
+/// The variance of the `values` as the whole population: the squared differences from the mean over
 /// the count. No values panics.
 @PanicsAtCaller
 Public Function PopulationVariance<T: Bounded>(values: T[]): Double
@@ -101,7 +101,7 @@ Public Function PopulationVariance<T: Bounded>(values: T[]): Double
     Return Spread(values).1 / values.Count
 End Function
 
-/// The standard deviation of the values as the whole population: the square root of their
+/// The standard deviation of the `values` as the whole population: the square root of their
 /// PopulationVariance. No values panics.
 @PanicsAtCaller
 Public Function PopulationStdDev<T: Bounded>(values: T[]): Double
@@ -111,7 +111,7 @@ End Function
 
 /// The value below which percent of them lie, from 0 for the least to 100 for the largest, between
 /// the two nearest when it falls between them, as NumPy's percentile does: 50 is the Median. No
-/// values, a NaN, or a percent outside 0 to 100, panics.
+/// `values`, a NaN, or a percent outside 0 to 100, panics.
 @PanicsAtCaller
 Public Function Percentile<T: Bounded>(values: T[], percent: Double): Double
     CheckCount("Percentile", values.Count, 1)
@@ -145,9 +145,9 @@ Function Midpoint(a: Double, b: Double): Double
     Return a / 2 + b / 2
 End Function
 
-/// How many values fall in each of bins equal ranges from low to high, the last range holding high
-/// too; those outside, and NaN, are left out. A count of bins that isn't above 0, or a low that
-/// isn't below high, or isn't finite, panics.
+/// How many `values` fall in each of `bins` equal ranges from `low` to `high`, the last range
+/// holding `high` too; those outside, and NaN, are left out. A count of `bins` that isn't above 0,
+/// or a low that isn't below `high`, or isn't finite, panics.
 @PanicsAtCaller
 Public Function Histogram<T: Bounded>(values: T[], bins: Int, low: Double, high: Double): Int[]
     If bins <= 0 Then Panic("Histogram takes a count of bins above 0, not {bins}")
@@ -203,8 +203,8 @@ Function BinOf(edges: Double[], x: Double): Int
     Return low
 End Function
 
-/// How many values fall in each of bins equal ranges from the least value to the largest, which
-/// all do. No values, a NaN or an infinite one, or a count of bins that isn't above 0, panics.
+/// How many `values` fall in each of `bins` equal ranges from the least value to the largest, which
+/// all do. No values, a NaN or an infinite one, or a count of `bins` that isn't above 0, panics.
 @PanicsAtCaller
 Public Function Histogram<T: Bounded>(values: T[], bins: Int): Int[]
     CheckCount("Histogram", values.Count, 1)

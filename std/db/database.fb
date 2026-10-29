@@ -56,7 +56,7 @@ End Enum
 /// Null. A type of the program's is one too when its BindTo binds one of these, with
 /// statement.Bind(index, value).
 Public Interface SqlValue
-    /// Binds statement's parameter at index, from 1, to the value.
+    /// Binds `statement`'s parameter at `index`, from 1, to the value.
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
 End Interface
 
@@ -194,23 +194,23 @@ Public Struct Row
         Get => Cells.Count
     End Property
 
-    /// The name of the column at index. Panics when there's none there.
+    /// The name of the `column` at index. Panics when there's none there.
     @PanicsAtCaller
     Public Method Name(column: Int): String => Names[At(column)]
 
-    /// The type of the column at `column`'s value. Panics when there's none there.
+    /// The type of the `column` at `column`'s value. Panics when there's none there.
     @PanicsAtCaller
     Public Method Type(column: Int): ColumnType => (Cells[At(column)].Type - 1) As ColumnType
 
-    /// The type of the column named `name`'s value. Panics when there's none of that name.
+    /// The type of the column named `name`'s value. Panics when there's none of that `name`.
     @PanicsAtCaller
     Public Method Type(name: String): ColumnType => Type(Find(name))
 
-    /// Whether the column at `column` is NULL. Panics when there's none there.
+    /// Whether the `column` at `column` is NULL. Panics when there's none there.
     @PanicsAtCaller
     Public Method IsNull(column: Int): Bool => Type(column) == ColumnType.NULL
 
-    /// Whether the column named `name` is NULL. Panics when there's none of that name.
+    /// Whether the column named `name` is NULL. Panics when there's none of that `name`.
     @PanicsAtCaller
     Public Method IsNull(name: String): Bool => IsNull(Find(name))
 
@@ -225,12 +225,12 @@ Public Struct Row
     End Method
 
     /// The integer in the column named `name`, or Null for NULL. Panics when there's no column of
-    /// that name, or it's of another type.
+    /// that `name`, or it's of another type.
     @PanicsAtCaller
     Public Method Integer(name: String): Int64? => Integer(Find(name))
 
     /// The real number at `column`, an integer's too, or Null for NULL. Panics when there's no
-    /// column there, or it's of another type.
+    /// `column` there, or it's of another type.
     @PanicsAtCaller
     Public Method Real(column: Int): Float64?
         Local cell = Cells[At(column)]
@@ -241,7 +241,7 @@ Public Struct Row
     End Method
 
     /// The real number in the column named `name`, an integer's too, or Null for NULL. Panics when
-    /// there's no column of that name, or it's of another type.
+    /// there's no column of that `name`, or it's of another type.
     @PanicsAtCaller
     Public Method Real(name: String): Float64? => Real(Find(name))
 
@@ -256,7 +256,7 @@ Public Struct Row
     End Method
 
     /// The text in the column named `name`, or Null for NULL. Panics when there's no column of that
-    /// name, or it's of another type.
+    /// `name`, or it's of another type.
     @PanicsAtCaller
     Public Method Text(name: String): String? => Text(Find(name))
 
@@ -271,7 +271,7 @@ Public Struct Row
     End Method
 
     /// The blob in the column named `name`, or Null for NULL. Panics when there's no column of that
-    /// name, or it's of another type.
+    /// `name`, or it's of another type.
     @PanicsAtCaller
     Public Method Blob(name: String): UInt8[]? => Blob(Find(name))
 
@@ -349,7 +349,7 @@ Public Class Database
         Close()
     End Method
 
-    /// The database at path, made when there's none: a file, ":memory:" for a new one in memory
+    /// The database at `path`, made when there's none: a file, ":memory:" for a new one in memory
     /// that only this Database reaches, or a URI file name, like "file:data.db?mode=ro" to only
     /// read one, or "file:name?mode=memory&cache=shared" for one in memory that each Database of
     /// that name shares while one is open. Its foreign keys are checked, and it waits up to 5
@@ -395,9 +395,9 @@ Public Class Database
         Get => fb_db_last_id(Connection())
     End Property
 
-    /// Runs each statement in sql, in turn, and throws what the first that fails fails with,
+    /// Runs each statement in `sql`, in turn, and throws what the first that fails fails with,
     /// leaving what the ones before it did, but for what a Transaction undoes. Panics when one
-    /// takes parameters, which Execute(sql, values) binds.
+    /// takes parameters, which Execute(`sql`, values) binds.
     @PanicsAtCaller
     Public Method Execute(sql: String) Throws DatabaseError
         Local code = fb_db_run(Connection(), sql)
@@ -408,8 +408,9 @@ Public Class Database
         Try Check(code)
     End Method
 
-    /// Runs sql's one statement with its parameters bound to values, in order, a value for each, as
-    /// a Statement's Execute does. Throws a DatabaseError of QUERY when sql isn't one statement.
+    /// Runs `sql`'s one statement with its parameters bound to values, in order, a value for each,
+    /// as a Statement's Execute does. Throws a DatabaseError of QUERY when `sql` isn't one
+    /// statement.
     @PanicsAtCaller
     Public Method Execute<A: SqlValue>(sql: String, a: A) Throws DatabaseError
         Try Prepare(sql).Execute(a)
@@ -503,8 +504,8 @@ Public Class Database
         Try Prepare(sql).Execute(a, b, c, d, e, f, g, h)
     End Method
 
-    /// The rows sql's one query reads, with its parameters bound to values as Execute's are, so
-    /// Rows(sql) panics when it takes any.
+    /// The rows `sql`'s one query reads, with its parameters bound to values as Execute's are, so
+    /// Rows(`sql`) panics when it takes any.
     @PanicsAtCaller
     Public Method Rows(sql: String): Row[] Throws DatabaseError
         Local statement = Try Prepare(sql)
@@ -512,8 +513,8 @@ Public Class Database
         Return Try statement.Rows()
     End Method
 
-    /// The rows sql's one query reads, each a T, as a Statement's `Query<T>()` gives them. Panics
-    /// when sql takes parameters, which a Statement binds.
+    /// The rows `sql`'s one query reads, each a T, as a Statement's `Query<T>()` gives them. Panics
+    /// when `sql` takes parameters, which a Statement binds.
     @PanicsAtCaller
     Public Method Query<T>(sql: String): T[] Throws DatabaseError, ParseError
         Local statement = Try Prepare(sql)
@@ -521,7 +522,8 @@ Public Class Database
         Return Try statement.Query<T>()
     End Method
 
-    /// The rows sql's one query reads as Ts, with its parameters bound to values as Execute's are.
+    /// The rows `sql`'s one query reads as Ts, with its parameters bound to values as Execute's
+    /// are.
     @PanicsAtCaller
     Public Method Query<T, A: SqlValue>(sql: String, a: A): T[] Throws DatabaseError, ParseError
         Return Try Prepare(sql).Query<T, A>(a)
@@ -704,9 +706,9 @@ Public Class Database
         Return Try Prepare(sql).Rows(a, b, c, d, e, f, g, h)
     End Method
 
-    /// sql's one statement, prepared to run many times. Throws a DatabaseError of QUERY when sql
-    /// holds no statement or more than one, or one that doesn't prepare, like one that names a
-    /// table the database hasn't got.
+    /// `sql`'s one statement, prepared to run many times. Throws a DatabaseError of QUERY when
+    /// `sql` holds no statement or more than one, or one that doesn't prepare, like one that names
+    /// a table the database hasn't got.
     @PanicsAtCaller
     Public Method Prepare(sql: String): Statement Throws DatabaseError
         Local handle: Ptr<Void> = Null
@@ -734,7 +736,7 @@ Public Class Database
         Return Transaction(Self, Begun, level)
     End Method
 
-    /// Brings the database up to date with migrations, the SQL that makes each version of it from
+    /// Brings the database up to date with `migrations`, the SQL that makes each version of it from
     /// the one before: the first makes version 1 from an empty database, the second version 2,
     /// and so on. The database keeps its version, as PRAGMA user_version, so each migration runs
     /// once, in order, in a Transaction of its own with the version it makes, and one that fails
@@ -829,7 +831,7 @@ Public Class Statement
         Get => Count
     End Property
 
-    /// Binds the parameter at index, from 1, to value. Panics when it has none there.
+    /// Binds the parameter at `index`, from 1, to `value`. Panics when it has none there.
     @PanicsAtCaller
     Public Method Bind<A: SqlValue>(index: Int, value: A) Throws DatabaseError
         Owner.Connection()
@@ -841,7 +843,8 @@ Public Class Statement
         Try value.BindTo(Self, index)
     End Method
 
-    /// Binds the parameter of name, like ":id", to value. Panics when it has none of that name.
+    /// Binds the parameter of `name`, like ":id", to `value`. Panics when it has none of that
+    /// `name`.
     @PanicsAtCaller
     Public Method Bind<A: SqlValue>(name: String, value: A) Throws DatabaseError
         Owner.Connection()

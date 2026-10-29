@@ -59,7 +59,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
         Get => Entries.Count
     End Property
 
-    /// Adds an entry, or gives an existing key its new value.
+    /// Adds an entry, or gives an existing `key` its new value.
     Public Method Add(key: K, value: V)
         Local hash = key.Hash()
         Local found = IndexOf(key, hash)
@@ -73,7 +73,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
         Append(key, value, hash)
     End Method
 
-    /// Adds an entry when the key isn't there, and tells whether it wasn't.
+    /// Adds an entry when the `key` isn't there, and tells whether it wasn't.
     Public Method TryAdd(key: K, value: V): Bool
         Local hash = key.Hash()
         If IndexOf(key, hash) >= 0 Then Return False
@@ -81,29 +81,29 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
         Return True
     End Method
 
-    /// Adds each of other's entries, in its order, as Add does.
+    /// Adds each of `other`'s entries, in its order, as Add does.
     Public Method AddAll(other: Map<K, V>)
         For key, value In other
             Add(key, value)
         End For
     End Method
 
-    /// The key's value, or Null when it isn't there.
+    /// The `key`'s value, or Null when it isn't there.
     Public Method Get(key: K): V?
         Local found = IndexOf(key, key.Hash())
         If found < 0 Then Return Null
         Return Entries[found].Value
     End Method
 
-    /// The key's value, or fallback when it isn't there.
+    /// The `key`'s value, or `fallback` when it isn't there.
     Public Method Get(key: K, fallback: V): V
         Local found = IndexOf(key, key.Hash())
         If found < 0 Then Return fallback
         Return Entries[found].Value
     End Method
 
-    /// The key's value, adding what make gives for it first when it isn't there, which is the
-    /// key's value though make added the key itself.
+    /// The `key`'s value, adding what `make` gives for it first when it isn't there, which is the
+    /// `key`'s value though `make` added the `key` itself.
     Public Method GetOrAdd(key: K, make: Func(): V): V
         Local hash = key.Hash()
         Local found = IndexOf(key, hash)
@@ -120,8 +120,8 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
         Return value
     End Method
 
-    /// Gives the key's value what change gives for it, and tells whether the key was there. A key
-    /// that change removed stays removed.
+    /// Gives the `key`'s value what `change` gives for it, and tells whether the `key` was there. A
+    /// key that `change` removed stays removed.
     Public Method Update(key: K, change: Func(V): V): Bool
         Local hash = key.Hash()
         Local found = IndexOf(key, hash)
@@ -154,7 +154,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
     /// Whether `key` has an entry.
     Public Method Contains(key: K): Bool => IndexOf(key, key.Hash()) >= 0
 
-    /// Removes the key's entry, and tells whether there was one. The others keep their order.
+    /// Removes the `key`'s entry, and tells whether there was one. The others keep their order.
     Public Method Remove(key: K): Bool
         Local found = IndexOf(key, key.Hash())
         If found < 0 Then Return False
@@ -162,7 +162,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
         Return True
     End Method
 
-    /// Removes each entry that test says to, and tells how many went.
+    /// Removes each entry that `test` says to, and tells how many went.
     @PanicsAtCaller
     Public Method RemoveWhere(test: Func(K, V): Bool): Int
         Local going: K[] = []
@@ -189,7 +189,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
         Changes += 1
     End Method
 
-    /// Makes room for count entries in all, so adding up to that many doesn't move them again.
+    /// Makes room for `count` entries in all, so adding up to that many doesn't move them again.
     @PanicsAtCaller
     Public Method Reserve(count: Int)
         If count < 0 Then Panic("Reserve takes a count that isn't negative, not {count}")
@@ -236,7 +236,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
         Return copy
     End Method
 
-    /// A new Map of the entries that keep says to keep.
+    /// A new Map of the entries that `keep` says to `keep`.
     @PanicsAtCaller
     Public Method Filter(keep: Func(K, V): Bool): Map<K, V>
         Local kept = Map<K, V>()
@@ -246,7 +246,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
         Return kept
     End Method
 
-    /// The first entry that test says is the one, or Null.
+    /// The first entry that `test` says is the one, or Null.
     @PanicsAtCaller
     Public Method Find(test: Func(K, V): Bool): (K, V)?
         For key, value In Self
@@ -255,7 +255,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
         Return Null
     End Method
 
-    /// Whether test says yes for any entry, going no further than the first.
+    /// Whether `test` says yes for any entry, going no further than the first.
     @PanicsAtCaller
     Public Method Any(test: Func(K, V): Bool): Bool
         For key, value In Self
@@ -264,7 +264,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
         Return False
     End Method
 
-    /// A new Map of the same keys, in the same order, each with what change gives for its value.
+    /// A new Map of the same keys, in the same order, each with what `change` gives for its value.
     @PanicsAtCaller
     Public Method MapValues<U>(change: Func(V): U): Map<K, U>
         Local changed = Map<K, U>()

@@ -24,7 +24,8 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
         Unplaced = Function(value: T) => value != value
     End New
 
-    /// A new, empty PriorityQueue that gives first the value `before` says comes before the others.
+    /// A new, empty PriorityQueue that gives first the value `before` says comes `before` the
+    /// others.
     Public New(before: Func(T, T): Bool)
         Before = before
     End New
@@ -50,7 +51,7 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
         Changes += 1
     End Method
 
-    /// Adds each of the values, putting the heap in order once, in time that grows with the
+    /// Adds each of the `values`, putting the heap in order once, in time that grows with the
     /// count.
     @PanicsAtCaller
     Public Method AddAll(values: Iterable<T>)

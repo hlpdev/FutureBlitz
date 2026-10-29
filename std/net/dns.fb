@@ -20,7 +20,7 @@ Public Struct Dns
     New()
     End New
 
-    /// The addresses host has, IPv4 and IPv6, each once, in the order the OS prefers them, from
+    /// The addresses `host` has, IPv4 and IPv6, each once, in the order the OS prefers them, from
     /// its hosts file and the DNS servers it asks, as getaddrinfo looks them up: "localhost" is
     /// the loopback addresses, and an IP address's text is that address. Throws a NetError of
     /// HOST_NOT_FOUND for a name with no address, an empty one, one with a NUL, or one too long
@@ -32,7 +32,7 @@ Public Struct Dns
         Return Addresses(output, 0)
     End Method
 
-    /// Resolve's Async twin: a Task of host's addresses, which the I/O thread finishes while the
+    /// Resolve's Async twin: a Task of `host`'s addresses, which the I/O thread finishes while the
     /// main thread goes on, with an array of its own, the code then the addresses.
     Public Static Async Method ResolveAsync(host: String): IpAddress[] Throws NetError
         Try Named(host)

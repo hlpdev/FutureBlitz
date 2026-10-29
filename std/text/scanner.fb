@@ -22,7 +22,7 @@ Public Class Scanner
     Field CurrentLine: Int = 1
     Field CurrentColumn: Int = 1
 
-    /// One that reads text from its start.
+    /// One that reads `text` from its start.
     Public New(text: String)
         Text = text
     End New
@@ -59,14 +59,14 @@ Public Class Scanner
         Return c
     End Method
 
-    /// Reads text when it comes next, and gives whether it did.
+    /// Reads `text` when it comes next, and gives whether it did.
     Public Method Take(text: String): Bool
         If fb_text_matches_at(Text, text, At) == 0 Then Return False
         PassUntil(At + text.Length)
         Return True
     End Method
 
-    /// Reads the characters keep says to, up to the first it doesn't, and gives them.
+    /// Reads the characters `keep` says to, up to the first it doesn't, and gives them.
     Public Method TakeWhile(keep: Func(Char): Bool): String
         Local start = At
         While !AtEnd()
@@ -87,8 +87,8 @@ Public Class Scanner
         End While
     End Method
 
-    /// Reads up to text, or to the end when text doesn't come, and gives what it read, without
-    /// text, which comes next.
+    /// Reads up to `text`, or to the end when `text` doesn't come, and gives what it read, without
+    /// `text`, which comes next.
     Public Method TakeUntil(text: String): String
         Local start = At
         Local found = fb_text_find(Text, text, At)

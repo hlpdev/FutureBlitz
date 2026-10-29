@@ -18,9 +18,9 @@ Public Struct Process
         Get => fb_process_id()
     End Property
 
-    /// Ends the program at once with code, which the OS gives what started it: 0 says it went
+    /// Ends the program at once with `code`, which the OS gives what started it: 0 says it went
     /// well. What it printed is flushed, but nothing else runs, on any thread: no Defer, Destroy,
-    /// or leak report. Linux and macOS give only code's low 8 bits.
+    /// or leak report. Linux and macOS give only `code`'s low 8 bits.
     Public Static Method Exit(code: Int)
         fb_exit(code)
     End Method

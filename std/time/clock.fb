@@ -128,7 +128,7 @@ Public Class Stopwatch
     End Method
 End Class
 
-/// How long the work takes, on the monotonic clock.
+/// How long the `work` takes, on the monotonic clock.
 Public Function Measure(work: Func()): Duration
     Local start = fb_time_monotonic()
     work()

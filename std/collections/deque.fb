@@ -18,7 +18,7 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Get => Front.Count + Back.Count
     End Property
 
-    /// Adds the value first, or last. A Deque holds at most 2147483647 values, as many as its
+    /// Adds the `value` first, or last. A Deque holds at most 2147483647 values, as many as its
     /// Int Count counts, as an array does, and one more panics.
     @PanicsAtCaller
     Public Method AddFirst(value: T)
@@ -41,7 +41,7 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         AddLast(value)
     End Method
 
-    /// Adds each of the values last, in order.
+    /// Adds each of the `values` last, in order.
     @PanicsAtCaller
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()

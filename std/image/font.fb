@@ -31,7 +31,7 @@ Public Class Font
         State = state
     End New
 
-    /// The font in data, a font file or a collection's first font. Throws an IOError of
+    /// The font in `data`, a font file or a collection's first font. Throws an IOError of
     /// INVALID_DATA when it isn't one, or is broken, and of OTHER when it's a kind std.image
     /// doesn't read, like one of CFF2's outlines.
     Public Static Method Parse(data: UInt8[]): Font Throws IOError
@@ -67,7 +67,7 @@ Public Class Font
         Get => fb_font_units(State)
     End Property
 
-    /// How far its glyphs go above the baseline, at `size` pixels an em. Panics when the size
+    /// How far its glyphs go above the baseline, at `size` pixels an em. Panics when the `size`
     /// isn't finite or is negative, as each of its metrics does.
     @PanicsAtCaller
     Public Method Ascent(size: Float): Float
@@ -94,8 +94,8 @@ Public Class Font
                       size)
     End Method
 
-    /// How wide the text is at `size` pixels an em, its widest line's, as FillText lays it out:
-    /// each glyph's advance and the kerning between them. Panics when the size isn't finite or is
+    /// How wide the `text` is at `size` pixels an em, its widest line's, as FillText lays it out:
+    /// each glyph's advance and the kerning between them. Panics when the `size` isn't finite or is
     /// negative.
     @PanicsAtCaller
     Public Method Width(text: String, size: Float): Float

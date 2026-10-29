@@ -215,14 +215,14 @@ End Function
 Public Class Random
     Field Generator: Pcg
 
-    /// A generator from the seed, on PCG's default stream.
+    /// A generator from the `seed`, on PCG's default stream.
     Public New(seed: Int64)
         Generator.Start(seed As UInt64, DefaultStream)
     End New
 
-    /// A generator from the seed, on one of 2^63 streams, from 0 up, which give numbers apart from
-    /// each other for the same seed. A negative stream panics, since PCG takes the stream's low 63
-    /// bits, so it would give a stream from 0 up's numbers.
+    /// A generator from the `seed`, on one of 2^63 streams, from 0 up, which give numbers apart
+    /// from each other for the same seed. A negative `stream` panics, since PCG takes the
+    /// `stream`'s low 63 bits, so it would give a stream from 0 up's numbers.
     @PanicsAtCaller
     Public New(seed: Int64, stream: Int64)
         If stream < 0 Then Panic("Random takes a stream from 0 up, not {stream}")
@@ -250,22 +250,22 @@ Public Class Random
     /// Any Int, each as likely.
     Public Method Int(): Int => Generator.Int()
 
-    /// An Int from 0 to count - 1, each as likely, as for an index. A count that isn't above 0
+    /// An Int from 0 to `count` - 1, each as likely, as for an index. A count that isn't above 0
     /// panics.
     @PanicsAtCaller
     Public Method Int(count: Int): Int => Generator.Int(count)
 
-    /// An Int from low to high, both included, each as likely: Int(1, 6) rolls a die. A low above
-    /// high panics.
+    /// An Int from `low` to `high`, both included, each as likely: Int(1, 6) rolls a die. A low
+    /// above `high` panics.
     @PanicsAtCaller
     Public Method Int(low: Int, high: Int): Int => Generator.Int(low, high)
 
     /// A Float from 0 up to 1, 1 left out, from 24 random bits, so each of its values is as likely.
     Public Method Float(): Float => Generator.Float()
 
-    /// A Float from low up to high, high left out: low itself when they're equal. A low above high,
-    /// or a NaN or infinite end, panics. The span is worked out in Doubles, so ends a Float's whole
-    /// range apart are fine.
+    /// A Float from `low` up to `high`, `high` left out: `low` itself when they're equal. A low
+    /// above `high`, or a NaN or infinite end, panics. The span is worked out in Doubles, so ends a
+    /// Float's whole range apart are fine.
     @PanicsAtCaller
     Public Method Float(low: Float, high: Float): Float => Generator.Float(low, high)
 
@@ -275,33 +275,35 @@ Public Class Random
     /// True or False, each as likely.
     Public Method Bool(): Bool => Generator.Bool()
 
-    /// True with the probability, from 0 for never to 1 for always.
+    /// True with the `probability`, from 0 for never to 1 for always.
     Public Method Chance(probability: Double): Bool => Generator.Chance(probability)
 
-    /// One of the items, each as likely. No items panics.
+    /// One of the `items`, each as likely. No items panics.
     @PanicsAtCaller
     Public Method Pick<T>(items: T[]): T => Generator.Pick(items)
 
-    /// One of the items, each as likely as its weight is of the weights' sum. Weights and items of
-    /// other counts, a weight that's negative or not finite, or weights that add up to 0, panic.
-    /// Weights whose sum overflows are taken as shares of the largest.
+    /// One of the `items`, each as likely as its weight is of the `weights`' sum. Weights and
+    /// `items` of other counts, a weight that's negative or not finite, or `weights` that add up to
+    /// 0, panic. Weights whose sum overflows are taken as shares of the largest.
     @PanicsAtCaller
     Public Method WeightedPick<T>(items: T[], weights: Double[]): T
         Return Generator.WeightedPick(items, weights)
     End Method
 
-    /// Puts the items in a random order, in place, each order as likely: Fisher and Yates' shuffle.
+    /// Puts the `items` in a random order, in place, each order as likely: Fisher and Yates'
+    /// shuffle.
     Public Method Shuffle<T>(items: T[])
         Generator.Shuffle(items)
     End Method
 
-    /// count of the items, none twice, in a random order, as a new array, each choice as likely. A
-    /// count below 0 or above the items' panics.
+    /// `count` of the `items`, none twice, in a random order, as a new array, each choice as
+    /// likely. A `count` below 0 or above the `items`' panics.
     @PanicsAtCaller
     Public Method Sample<T>(items: T[], count: Int): T[] => Generator.Sample(items, count)
 
-    /// A number from the normal distribution, the bell curve, of the mean and standard deviation:
-    /// Marsaglia's polar method, with a logarithm of its own, so it's the same everywhere.
+    /// A number from the normal distribution, the bell curve, of the `mean` and standard
+    /// `deviation`: Marsaglia's polar method, with a logarithm of its own, so it's the same
+    /// everywhere.
     Public Method Normal(mean: Double = 0, deviation: Double = 1): Double
         Return Generator.Normal(mean, deviation)
     End Method
@@ -371,8 +373,8 @@ Function Reseed()
     End If
 End Function
 
-/// Starts the default generator on every thread again from the seed, so it gives the numbers
-/// Random(seed) does, on each thread, from that thread's next draw: the same numbers on each run.
+/// Starts the default generator on every thread again from the `seed`, so it gives the numbers
+/// Random(`seed`) does, on each thread, from that thread's next draw: the same numbers on each run.
 Public Function SeedRandom(seed: Int64)
     Lock seeding As latest
         latest.Seed = seed
@@ -387,7 +389,7 @@ Public Function Rand(): Float
     Return generator.Float()
 End Function
 
-/// An Int from 0 to count - 1, each as likely, from this thread's default generator. A count that
+/// An Int from 0 to `count` - 1, each as likely, from this thread's default generator. A count that
 /// isn't above 0 panics.
 @PanicsAtCaller
 Public Function RandInt(count: Int): Int
@@ -396,8 +398,8 @@ Public Function RandInt(count: Int): Int
     Return generator.Int(count)
 End Function
 
-/// An Int from low to high, both included, each as likely, from this thread's default generator:
-/// RandInt(1, 6) rolls a die. A low above high panics.
+/// An Int from `low` to `high`, both included, each as likely, from this thread's default
+/// generator: RandInt(1, 6) rolls a die. A low above `high` panics.
 @PanicsAtCaller
 Public Function RandInt(low: Int, high: Int): Int
     If low > high
@@ -407,8 +409,8 @@ Public Function RandInt(low: Int, high: Int): Int
     Return generator.Int(low, high)
 End Function
 
-/// A Float from low up to high, high left out, from this thread's default generator: low itself
-/// when they're equal. A low above high, or a NaN or infinite end, panics.
+/// A Float from `low` up to `high`, `high` left out, from this thread's default generator: `low`
+/// itself when they're equal. A low above `high`, or a NaN or infinite end, panics.
 @PanicsAtCaller
 Public Function RandFloat(low: Float, high: Float): Float
     If !(low <= high) || !IsFinite(low) || !IsFinite(high)
@@ -431,7 +433,7 @@ Extend T[]
         random.Shuffle(Self)
     End Method
 
-    /// count of the elements, none twice, in a random order, as a new array, from this thread's
+    /// `count` of the elements, none twice, in a random order, as a new array, from this thread's
     /// default generator. A count below 0 or above the elements' panics.
     @PanicsAtCaller
     Public Method Sample(count: Int): T[]
@@ -439,8 +441,8 @@ Extend T[]
         Return generator.Sample(Self, count)
     End Method
 
-    /// count of the elements, none twice, in a random order, as a new array, from the generator. A
-    /// count below 0 or above the elements' panics.
+    /// `count` of the elements, none twice, in a random order, as a new array, from the generator.
+    /// A `count` below 0 or above the elements' panics.
     @PanicsAtCaller
     Public Method Sample(count: Int, random: Random): T[] => random.Sample(Self, count)
 End Extend

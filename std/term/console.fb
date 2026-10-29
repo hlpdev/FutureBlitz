@@ -24,7 +24,7 @@ Public Enum StandardStream
     INPUT, OUTPUT, ERROR
 End Enum
 
-/// Whether stream is a terminal, which someone types at or reads, rather than a pipe or a file.
+/// Whether `stream` is a terminal, which someone types at or reads, rather than a pipe or a file.
 Public Function IsTerminal(stream: StandardStream = StandardStream.OUTPUT): Bool
     Return fb_term_is_terminal(stream As Int32) != 0
 End Function
@@ -43,10 +43,10 @@ End Function
 /// line break is ENTER.
 Public Function ReadKey(): KeyEvent? => Terminal.Console().ReadKey()
 
-/// ReadKey's twin that waits for timeout at most, and gives Null when no key came by then.
+/// ReadKey's twin that waits for `timeout` at most, and gives Null when no key came by then.
 Public Function ReadKey(timeout: Duration): KeyEvent? => Terminal.Console().ReadKey(timeout)
 
-/// Writes the prompt, then reads a line typed at the console without showing it, as for a
+/// Writes the `prompt`, then reads a line typed at the console without showing it, as for a
 /// password, up to ENTER. BACKSPACE takes back the last character, and Ctrl+U the whole line. Null
 /// once the input has ended, or for Ctrl+D on an empty line, as Input gives at the end.
 Public Function ReadPassword(prompt: String = ""): String? =>

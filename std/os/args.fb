@@ -136,9 +136,9 @@ Public Class ArgsParser
         Commands = []
     End New
 
-    /// A flag, "--long" or "-s", which is True once given, or with counts, how many times it was.
-    /// Panics for a key, long name, or short name another has, a short name that isn't one ASCII
-    /// letter or digit, or neither name.
+    /// A flag, "--long" or "-s", which is True once given, or with `counts`, how many times it was.
+    /// Panics for a key, `long` name, or `short` name another has, a short name that isn't one
+    /// ASCII letter or digit, or neither name.
     @PanicsAtCaller
     Public Method Flag(key: String, long: String = "", short: String = "", help: String = "",
                        counts: Bool = False): ArgsParser
@@ -148,7 +148,7 @@ Public Class ArgsParser
     End Method
 
     /// An option that takes a value, "--long value", "--long=value", "-s value", or "-svalue",
-    /// which can be given once, or with repeated, any number of times. Panics as Flag does.
+    /// which can be given once, or with `repeated`, any number of times. Panics as Flag does.
     @PanicsAtCaller
     Public Method Option(key: String, long: String = "", short: String = "", help: String = "",
                          valueName: String = "", required: Bool = False, repeated: Bool = False,
@@ -159,8 +159,9 @@ Public Class ArgsParser
         Return Self
     End Method
 
-    /// The next argument by its place, which with rest takes all that are left. Panics for one
-    /// after one that takes the rest, a required one after one that isn't, or one beside commands.
+    /// The next argument by its place, which with `rest` takes all that are left. Panics for one
+    /// after one that takes the `rest`, a required one after one that isn't, or one beside
+    /// commands.
     @PanicsAtCaller
     Public Method Positional(key: String, help: String = "", valueName: String = "",
                              required: Bool = True, rest: Bool = False): ArgsParser
@@ -179,7 +180,7 @@ Public Class ArgsParser
     End Method
 
     /// A command, which reads the rest of the command line after its name, into an Object at its
-    /// key. One of the commands has to be given, unless every one is optional. Panics beside
+    /// `key`. One of the commands has to be given, unless every one is `optional`. Panics beside
     /// positional arguments, or for a name another command has.
     @PanicsAtCaller
     Public Method Command(name: String, key: String, parser: ArgsParser, help: String = "",

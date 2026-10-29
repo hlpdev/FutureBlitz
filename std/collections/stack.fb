@@ -37,7 +37,7 @@ Public Class Stack<T> Implements Iterable<T>, Cloneable, Defaultable
         Push(value)
     End Method
 
-    /// Pushes each of the values, in order, so the last ends up on top.
+    /// Pushes each of the `values`, in order, so the last ends up on top.
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
             Push(value)

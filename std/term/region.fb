@@ -31,22 +31,22 @@ Public Struct Region Implements Hashable, Printable
         Get => Width <= 0 || Height <= 0
     End Property
 
-    /// Whether the cell at column and row is in it.
+    /// Whether the cell at `column` and `row` is in it.
     Public Method Contains(column: Int, row: Int): Bool
         Return column >= Column && column < Right && row >= Row && row < Bottom
     End Method
 
-    /// It without margin cells on each side, or empty where there aren't that many.
+    /// It without `margin` cells on each side, or empty where there aren't that many.
     Public Method Inner(margin: Int = 1): Region => Inner(margin, margin)
 
-    /// It without horizontal cells on its left and right, and vertical ones on its top and
+    /// It without `horizontal` cells on its left and right, and `vertical` ones on its top and
     /// bottom.
     Public Method Inner(horizontal: Int, vertical: Int): Region
         Return Region(Column + horizontal, Row + vertical, Max(Width - 2 * horizontal, 0),
                       Max(Height - 2 * vertical, 0))
     End Method
 
-    /// The cells it has in common with other, which may be none.
+    /// The cells it has in common with `other`, which may be none.
     Public Method Intersect(other: Region): Region
         Local left = Max(Column, other.Column)
         Local top = Max(Row, other.Row)
@@ -55,7 +55,7 @@ Public Struct Region Implements Hashable, Printable
         Return Region(left, top, Max(right - left, 0), Max(bottom - top, 0))
     End Method
 
-    /// Its rows, top to bottom, as the sizes say, each its whole width.
+    /// Its rows, top to bottom, as the `sizes` say, each its whole width.
     Public Method SplitRows(sizes: Constraint...): Region[]
         Local regions: Region[] = []
         Local at = Row
@@ -67,7 +67,7 @@ Public Struct Region Implements Hashable, Printable
         Return regions
     End Method
 
-    /// Its columns, left to right, as the sizes say, each its whole height.
+    /// Its columns, left to right, as the `sizes` say, each its whole height.
     Public Method SplitColumns(sizes: Constraint...): Region[]
         Local regions: Region[] = []
         Local at = Column
@@ -102,14 +102,14 @@ Public Struct Constraint Implements Hashable, Printable
         Value = value
     End New
 
-    /// size cells. Panics for a negative size.
+    /// `size` cells. Panics for a negative `size`.
     @PanicsAtCaller
     Public Static Method Fixed(size: Int): Constraint
         If size < 0 Then Panic("Constraint.Fixed takes a size that isn't negative, not {size}")
         Return Constraint(ConstraintKind.FIXED, size)
     End Method
 
-    /// percent of the cells there are, rounded down. Panics for a percent below 0 or past 100.
+    /// `percent` of the cells there are, rounded down. Panics for a percent below 0 or past 100.
     @PanicsAtCaller
     Public Static Method Percent(percent: Int): Constraint
         If percent < 0 || percent > 100
@@ -119,16 +119,16 @@ Public Struct Constraint Implements Hashable, Printable
         Return Constraint(ConstraintKind.PERCENT, percent)
     End Method
 
-    /// At least size cells, and a share of what's left, as a Fill of 1. Panics for a negative
-    /// size.
+    /// At least `size` cells, and a share of what's left, as a Fill of 1. Panics for a negative
+    /// `size`.
     @PanicsAtCaller
     Public Static Method Min(size: Int): Constraint
         If size < 0 Then Panic("Constraint.Min takes a size that isn't negative, not {size}")
         Return Constraint(ConstraintKind.MIN, size)
     End Method
 
-    /// A share of what's left, by weight beside the other Fills' weights: a Fill of 2 gets twice
-    /// a Fill of 1's. Panics for a negative weight.
+    /// A share of what's left, by `weight` beside the other Fills' weights: a Fill of 2 gets twice
+    /// a Fill of 1's. Panics for a negative `weight`.
     @PanicsAtCaller
     Public Static Method Fill(weight: Int = 1): Constraint
         If weight < 0 Then Panic("Constraint.Fill takes a weight that isn't negative, not {weight}")

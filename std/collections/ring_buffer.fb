@@ -15,7 +15,7 @@ Public Class RingBuffer<T> Implements Iterable<T>, Cloneable
     /// How many times values were added or removed, so a For ... In over them can tell.
     Field Changes: Int64
 
-    /// An empty RingBuffer that holds up to capacity values, which must be 1 or more.
+    /// An empty RingBuffer that holds up to `capacity` values, which must be 1 or more.
     @PanicsAtCaller
     Public New(capacity: Int)
         If capacity < 1 Then Panic("a RingBuffer holds 1 value or more, not {capacity}")
@@ -37,7 +37,7 @@ Public Class RingBuffer<T> Implements Iterable<T>, Cloneable
         Get => Size == Slots.Count
     End Property
 
-    /// Adds the value as the newest, dropping the oldest when the RingBuffer is full.
+    /// Adds the `value` as the newest, dropping the oldest when the RingBuffer is full.
     Public Method Add(value: T)
         If Size == Slots.Count
             Slots[Head] = value
@@ -50,7 +50,7 @@ Public Class RingBuffer<T> Implements Iterable<T>, Cloneable
         Changes += 1
     End Method
 
-    /// Adds each of the values in turn, so the last Capacity of them stay.
+    /// Adds each of the `values` in turn, so the last Capacity of them stay.
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
             Add(value)

@@ -174,7 +174,7 @@ Public Class TextInput
     /// How its placeholder looks.
     Public Field PlaceholderLook: Style
 
-    /// An input holding text, its cursor after it.
+    /// An input holding `text`, its cursor after it.
     Public New(text: String = "")
         Editor = LineEditor(text)
         PlaceholderLook = Style(Attributes: TextAttributes.DIM)
@@ -194,7 +194,7 @@ Public Class TextInput
         Get => Editor.Cursor
     End Property
 
-    /// Edits it as key says, and gives whether the key was one it takes.
+    /// Edits it as `key` says, and gives whether the `key` was one it takes.
     Public Method HandleKey(key: KeyEvent): Bool => Editor.Handle(key)
 
     /// Takes a key, or what's pasted, its line breaks as spaces, and gives whether it took it.
@@ -205,7 +205,7 @@ Public Class TextInput
         Return True
     End Method
 
-    /// Draws it in area's first row, and gives the column its cursor is at, for a Screen's
+    /// Draws it in `area`'s first row, and gives the column its cursor is at, for a Screen's
     /// ShowCursor.
     Public Method Draw(canvas: Canvas, area: Region): Int
         If area.IsEmpty Then Return area.Column
@@ -262,7 +262,7 @@ Public Class ListView
     /// How the selected item looks.
     Public Field SelectedLook: Style
 
-    /// A list of items, the first selected.
+    /// A list of `items`, the first selected.
     Public New(items: String[])
         Items = items
         SelectedLook = Style(Attributes: TextAttributes.REVERSE)
@@ -281,7 +281,7 @@ Public Class ListView
         Get => Items.Count == 0 ? Null : Items[Selected]
     End Property
 
-    /// Moves the selection as key says, and gives whether it was one of its keys, which an empty
+    /// Moves the selection as `key` says, and gives whether it was one of its keys, which an empty
     /// list has none of.
     Public Method HandleKey(key: KeyEvent): Bool
         If key.Modifiers != KeyModifiers.NONE || Items.Count == 0 Then Return False
@@ -306,7 +306,7 @@ Public Class ListView
         Return True
     End Method
 
-    /// Selects the item a press of the left button in area is on, or moves the selection three
+    /// Selects the item a press of the left button in `area` is on, or moves the selection three
     /// items for the wheel, and gives whether it did.
     Public Method HandleMouse(mouse: MouseEvent, area: Region): Bool
         If Items.Count == 0 || !area.Contains(mouse.Column, mouse.Row) Then Return False
@@ -327,14 +327,14 @@ Public Class ListView
         Return True
     End Method
 
-    /// Takes a key or the mouse's event in area, and gives whether it took it.
+    /// Takes a key or the mouse's `event` in `area`, and gives whether it took it.
     Public Method HandleEvent(event: InputEvent, area: Region): Bool
         If event.Kind == InputKind.KEY Then Return HandleKey(event.Key)
         If event.Kind == InputKind.MOUSE Then Return HandleMouse(event.Mouse, area)
         Return False
     End Method
 
-    /// Draws the items that fit in area, one a row, scrolled to keep the selected one in view.
+    /// Draws the items that fit in `area`, one a row, scrolled to keep the selected one in view.
     Public Method Draw(canvas: Canvas, area: Region)
         If area.IsEmpty Then Return
         Shown = area.Height

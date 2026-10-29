@@ -292,7 +292,7 @@ End Function
 Public Struct Fixed32 Implements Numeric, Comparable, Hashable, Bounded, Printable, Defaultable
     Field Bits: Int32
 
-    /// The Fixed32 these bits are, as Raw gives them.
+    /// The Fixed32 these `bits` are, as Raw gives them.
     Public Static Method FromRaw(bits: Int32): Fixed32 => Fixed32(bits)
 
     /// The whole number. One outside -32768 to 32767 panics.
@@ -411,7 +411,7 @@ End Function
 Public Struct Fixed64 Implements Numeric, Comparable, Hashable, Bounded, Printable, Defaultable
     Field Bits: Int64
 
-    /// The Fixed64 these bits are, as Raw gives them.
+    /// The Fixed64 these `bits` are, as Raw gives them.
     Public Static Method FromRaw(bits: Int64): Fixed64 => Fixed64(bits)
 
     /// The whole number. One outside an Int's range panics.
@@ -541,7 +541,7 @@ Function Divided(a: Int64, b: Int64): Fixed64
     Return Narrowed64((a < 0) != (b < 0) ? Negate(quotient) : quotient, "/")
 End Function
 
-/// The square root, rounded to the nearest. A negative value panics.
+/// The square root, rounded to the nearest. A negative `value` panics.
 @PanicsAtCaller
 Public Function Sqrt(value: Fixed32): Fixed32
     If value.Raw < 0 Then Panic("Sqrt takes a value that isn't negative, not {value}")
@@ -551,7 +551,7 @@ Public Function Sqrt(value: Fixed32): Fixed32
     Return Fixed32.FromRaw(root As Int32)
 End Function
 
-/// The square root, rounded to the nearest. A negative value panics.
+/// The square root, rounded to the nearest. A negative `value` panics.
 @PanicsAtCaller
 Public Function Sqrt(value: Fixed64): Fixed64
     If value.Raw < 0 Then Panic("Sqrt takes a value that isn't negative, not {value}")

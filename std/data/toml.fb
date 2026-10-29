@@ -16,17 +16,17 @@ Public Struct Toml
     New()
     End New
 
-    /// The document text holds, as an Object. Throws a ParseError, with its line and column, of
-    /// UNEXPECTED_END for text that ends inside a string, an array, or an inline table, of
+    /// The document `text` holds, as an Object. Throws a ParseError, with its line and column, of
+    /// UNEXPECTED_END for `text` that ends inside a string, an array, or an inline table, of
     /// OUT_OF_RANGE for an integer an Int64 doesn't hold, and of SYNTAX for the rest that isn't
     /// TOML 1.0, and for arrays and inline tables nested more than 256 deep.
     Public Static Method Read(text: String): Value Throws ParseError
         Return Try TomlReader(text).Document()
     End Method
 
-    /// value, an Object, as a TOML document: each table's keys and values, then its tables, each
-    /// under its header, an Array of Objects as an array of tables, and an Object in an Array as
-    /// an inline table. TOML has no null, so an Object's Null is left out. Panics when value isn't
+    /// `value`, an Object, as a TOML document: each table's keys and values, then its tables, each
+    /// under its header, an Array of Objects as an array of tables, and an Object in an Array as an
+    /// inline table. TOML has no null, so an Object's Null is left out. Panics when `value` isn't
     /// an Object, an Array holds a Null, it holds bytes or an integer past an Int64, or its arrays
     /// and inline tables nest more than 256 deep.
     @PanicsAtCaller

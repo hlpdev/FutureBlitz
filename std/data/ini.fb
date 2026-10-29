@@ -15,7 +15,7 @@ Public Struct Ini
     New()
     End New
 
-    /// The keys and sections text holds. A key given again in a section takes its new value, and
+    /// The keys and sections `text` holds. A key given again in a section takes its new value, and
     /// a section named again goes on adding to the first. Throws a ParseError of SYNTAX, with its
     /// line and column, for a line that's none of the four, a key that's empty, a header that
     /// doesn't end with ']', or a section named as a key before it is.
@@ -91,14 +91,14 @@ Public Struct Ini
         Return document
     End Method
 
-    /// value, an Object, as INI: its own keys whose values aren't Objects, then a section for each
-    /// Object in it, of its keys. A String is written as it is, in '"'s when it starts or ends with
-    /// a space, a tab, or a '"', a Bool, an integer, or a Double as its text, and Null as nothing.
-    /// Panics at what Read wouldn't read back as the same: when value isn't an Object, a section
-    /// holds an Object or anything holds an Array, a key is empty, holds '=', ':', or a line break,
-    /// starts with '[', ';', '#', or a byte order mark, or starts or ends with a space or a tab, a
-    /// section's name holds ']' or a line break or starts or ends with a space or a tab, or a value
-    /// holds a line break.
+    /// `value`, an Object, as INI: its own keys whose values aren't Objects, then a section for
+    /// each Object in it, of its keys. A String is written as it is, in '"'s when it starts or ends
+    /// with a space, a tab, or a '"', a Bool, an integer, or a Double as its text, and Null as
+    /// nothing. Panics at what Read wouldn't read back as the same: when `value` isn't an Object, a
+    /// section holds an Object or anything holds an Array, a key is empty, holds '=', ':', or a
+    /// line break, starts with '[', ';', '#', or a byte order mark, or starts or ends with a space
+    /// or a tab, a section's name holds ']' or a line break or starts or ends with a space or a
+    /// tab, or a value holds a line break.
     @PanicsAtCaller
     Public Static Method Write(value: Value): String
         If value.Kind != ValueKind.OBJECT Then Panic("an INI file is an Object, not {value.Kind}")

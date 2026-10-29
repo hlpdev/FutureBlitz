@@ -20,7 +20,7 @@ Public Class Template
     Field Html: Bool
 
     /// The template that `text` is, which escapes its values for HTML with `html`. Throws a
-    /// FormatError of BAD_TEMPLATE where the text isn't one, which says the line and column.
+    /// FormatError of BAD_TEMPLATE where the `text` isn't one, which says the line and column.
     Public New(text: String, html: Bool = False) Throws FormatError
         Parts = Try Parsed(text, "")
         Html = html
@@ -32,8 +32,8 @@ Public Class Template
         Return Try Rendered(Parts, data, Html, Null)
     End Method
 
-    /// The template, filled from the Value that Save makes of data: a Struct's or Class's Fields
-    /// by name, a Map's keys, and the rest as Save has them. Panics, as Save does, for data that
+    /// The template, filled from the Value that Save makes of `data`: a Struct's or Class's Fields
+    /// by name, a Map's keys, and the rest as Save has them. Panics, as Save does, for `data` that
     /// nests more than 256 levels deep.
     @PanicsAtCaller
     Public Method Render<T>(data: T): String Throws FormatError => Try Render(Save(data))
@@ -54,9 +54,9 @@ Public Class Templates
         Read = Map<String, Map<String, Part[]>>()
     End New
 
-    /// Adds the template that `text` is as `name`, in place of one that has the name already.
-    /// Throws a FormatError of BAD_TEMPLATE where the text isn't one, which says the template's
-    /// name, the line, and the column.
+    /// Adds the template that `text` is as `name`, in place of one that has the `name` already.
+    /// Throws a FormatError of BAD_TEMPLATE where the `text` isn't one, which says the template's
+    /// `name`, the line, and the column.
     Public Method Add(name: String, text: String) Throws FormatError
         Local parts = Try Parsed(text, name)
         Sources[name] = text
@@ -66,18 +66,18 @@ Public Class Templates
         Read[name] = read
     End Method
 
-    /// Whether it has a template of the name.
+    /// Whether it has a template of the `name`.
     Public Method Contains(name: String): Bool => Sources.Contains(name)
 
-    /// The template of the name, filled from a Value, whose Object's keys are the names the tags
-    /// give. Throws a FormatError of MISSING_VALUE where it has no template of the name, or of a
+    /// The template of the `name`, filled from a Value, whose Object's keys are the names the tags
+    /// give. Throws a FormatError of MISSING_VALUE where it has no template of the `name`, or of a
     /// partial's, and of OTHER for partials more than 1000 deep inside each other.
     Public Method Render(name: String, data: Value): String Throws FormatError
         Return Try Rendered(Try PartsOf(name, ""), data, IsHtml(name), Self)
     End Method
 
-    /// The template of the name, filled from the Value that Save makes of data. Panics, as Save
-    /// does, for data that nests more than 256 levels deep.
+    /// The template of the `name`, filled from the Value that Save makes of `data`. Panics, as Save
+    /// does, for `data` that nests more than 256 levels deep.
     @PanicsAtCaller
     Public Method Render<T>(name: String, data: T): String Throws FormatError =>
         Try Render(name, Save(data))

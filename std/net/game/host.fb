@@ -97,8 +97,8 @@ Public Class GameHost
     Field Clock: Int64
     Field Closed: Bool
 
-    /// A host over link, with settings, whose salts and first sequences are random, or come from
-    /// seed, so a test repeats. Panics for settings that don't make sense.
+    /// A host over `link`, with `settings`, whose salts and first sequences are random, or come
+    /// from `seed`, so a test repeats. Panics for `settings` that don't make sense.
     @PanicsAtCaller
     Public New(link: GameLink, settings: GameSettings, seed: Int64? = Null)
         Check(settings)
@@ -110,7 +110,7 @@ Public Class GameHost
         Clock = Instant.Now().Nanoseconds
     End New
 
-    /// A host over a UDP socket bound to address, as UdpSocket.Bind binds it, with settings.
+    /// A host over a UDP socket bound to `address`, as UdpSocket.Bind binds it, with `settings`.
     @PanicsAtCaller
     Public Static Method Bind(
             address: SocketAddress, settings: GameSettings): GameHost Throws NetError
@@ -118,7 +118,7 @@ Public Class GameHost
         Return GameHost(UdpLink(socket), settings)
     End Method
 
-    /// A host over a UDP socket bound to address, with GameSettings().
+    /// A host over a UDP socket bound to `address`, with GameSettings().
     Public Static Method Bind(address: SocketAddress): GameHost Throws NetError
         Return Try Bind(address, GameSettings())
     End Method
@@ -138,9 +138,9 @@ Public Class GameHost
         Get => Closed
     End Property
 
-    /// Asks the host at address for a connection, at the next Update and each ConnectRetry after,
+    /// Asks the host at `address` for a connection, at the next Update and each ConnectRetry after,
     /// which gives a CONNECT event once it's accepted, or a DISCONNECT one when it's refused or
-    /// the Timeout passes. A peer it has at address already is the one it gives. MaxPeers limits
+    /// the Timeout passes. A peer it has at `address` already is the one it gives. MaxPeers limits
     /// only the peers that connect to it. Panics once it's closed.
     @PanicsAtCaller
     Public Method Connect(address: SocketAddress): GamePeer
@@ -153,8 +153,8 @@ Public Class GameHost
         Return peer
     End Method
 
-    /// Sends bytes on channel to every peer that's connected. Panics, peers or not, for a channel
-    /// the host doesn't have, or a message past its MaxMessageSize, as a peer's Send does.
+    /// Sends `bytes` on `channel` to every peer that's connected. Panics, peers or not, for a
+    /// channel the host doesn't have, or a message past its MaxMessageSize, as a peer's Send does.
     @PanicsAtCaller
     Public Method Broadcast(channel: Int, bytes: UInt8[])
         CheckMessage(Settings, channel, bytes)
@@ -163,8 +163,8 @@ Public Class GameHost
         End For
     End Method
 
-    /// Takes what's come, then sends what's due, all as of now, and gives the events since the last
-    /// Update. A closed host gives none. Throws a NetError only when its link fails for good.
+    /// Takes what's come, then sends what's due, all as of `now`, and gives the events since the
+    /// last Update. A closed host gives none. Throws a NetError only when its link fails for good.
     Public Method Update(now: Instant): GameEvent[] Throws NetError
         If Closed Then Return []
         Clock = now.Nanoseconds
@@ -183,8 +183,8 @@ Public Class GameHost
     /// Update as of the clock's now.
     Public Method Update(): GameEvent[] Throws NetError => Try Update(Instant.Now())
 
-    /// Updates until there are events, waiting for what comes, up to timeout, and gives them, or
-    /// none once timeout passes. A timeout too long for the clock waits as long as it takes.
+    /// Updates until there are events, waiting for what comes, up to `timeout`, and gives them, or
+    /// none once `timeout` passes. A timeout too long for the clock waits as long as it takes.
     Public Method Service(timeout: Duration): GameEvent[] Throws NetError
         Local until = Later(timeout)
         Loop

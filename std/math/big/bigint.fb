@@ -71,14 +71,14 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         Return BigInt(fb_bigint_from_double(value))
     End Method
 
-    /// The integer the bytes are, big-endian, which is 0 or more. Past the most bits a BigInt
+    /// The integer the `bytes` are, big-endian, which is 0 or more. Past the most bits a BigInt
     /// holds, it panics.
     @PanicsAtCaller
     Public Static Method FromBytes(bytes: UInt8[]): BigInt => Made(fb_bigint_from_bytes(bytes))
 
-    /// The integer the text is in the radix: a sign or none, then one or more digits, those past 9
-    /// letters of either case, as "-ff" is -255 in 16. Other text, or a number past the most bits
-    /// a BigInt holds, is Null, and a radix outside 2 to 36 panics.
+    /// The integer the `text` is in the `radix`: a sign or none, then one or more digits, those
+    /// past 9 letters of either case, as "-ff" is -255 in 16. Other text, or a number past the most
+    /// bits a BigInt holds, is Null, and a radix outside 2 to 36 panics.
     @PanicsAtCaller
     Public Static Method Parse(text: String, radix: Int = 10): BigInt?
         CheckRadix(radix)
@@ -90,7 +90,7 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     /// Its digits in base 10, after a "-" below 0.
     Public Method ToString(): String => fb_bigint_to_string(State, 10)
 
-    /// Its digits in the radix, those past 9 lowercase letters, after a "-" below 0. A radix
+    /// Its digits in the `radix`, those past 9 lowercase letters, after a "-" below 0. A radix
     /// outside 2 to 36 panics.
     @PanicsAtCaller
     Public Method ToString(radix: Int): String
@@ -129,8 +129,8 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     /// Its distance from 0: the same BigInt, without its sign.
     Public Method Abs(): BigInt => BigInt(fb_bigint_abs(State))
 
-    /// It to the power, modulo the modulus: from 0 to below the modulus. An exponent below 0, or a
-    /// modulus that isn't above 0, panics.
+    /// It to the power, modulo the `modulus`: from 0 to below the `modulus`. An exponent below 0,
+    /// or a `modulus` that isn't above 0, panics.
     @PanicsAtCaller
     Public Method ModPow(exponent: BigInt, modulus: BigInt): BigInt
         If exponent.Sign < 0 Then Panic("ModPow takes an exponent of 0 or more, not {exponent}")
@@ -138,8 +138,8 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         Return BigInt(fb_bigint_mod_power(State, exponent.State, modulus.State))
     End Method
 
-    /// The number from 0 to below the modulus that times it is 1 modulo the modulus, or Null when
-    /// there's none, since they share a factor. A modulus that isn't above 0 panics.
+    /// The number from 0 to below the `modulus` that times it is 1 modulo the `modulus`, or Null
+    /// when there's none, since they share a factor. A modulus that isn't above 0 panics.
     @PanicsAtCaller
     Public Method ModInverse(modulus: BigInt): BigInt?
         CheckModulus(modulus)
@@ -161,7 +161,7 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         Return BigInt(fb_bigint_sqrt(State))
     End Method
 
-    /// Its quotient and remainder by the divisor, as / and % give them. A divisor of 0 panics.
+    /// Its quotient and remainder by the `divisor`, as / and % give them. A divisor of 0 panics.
     @PanicsAtCaller
     Public Method DivRem(divisor: BigInt): (BigInt, BigInt) => (Self / divisor, Self % divisor)
 

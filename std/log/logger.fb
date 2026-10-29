@@ -47,14 +47,14 @@ Public Shared Class Logger
     ReadOnly Field Context: ImmutableArray<LogField>
     ReadOnly Field Output: LogOutput
 
-    /// A Logger for module, a name like "net.http" whose dots say what it's in, which writes to the
-    /// default output.
+    /// A Logger for `module`, a name like "net.http" whose dots say what it's in, which writes to
+    /// the default output.
     Public New(module: String)
         Name = module
         Output = DefaultLogOutput()
     End New
 
-    /// A Logger for module that writes to output.
+    /// A Logger for `module` that writes to `output`.
     Public New(module: String, output: LogOutput)
         Name = module
         Output = output
@@ -140,11 +140,11 @@ Public Shared Class Logger
         Return Logger(Name, Context.Add(LogField(name, value ? "true" : "false", False)), Output)
     End Method
 
-    /// Whether a line at level would be written, so code can leave out work that only a line
+    /// Whether a line at `level` would be written, so code can leave out work that only a line
     /// would use.
     Public Method IsEnabled(level: LogLevel): Bool => Output.Allows(Name, level)
 
-    /// Writes message at level, now, when the output's filter writes it.
+    /// Writes `message` at `level`, now, when the output's filter writes it.
     Public Method Log(level: LogLevel, message: String)
         If !Output.Allows(Name, level) Then Return
         Output.Write(LogRecord(Timestamp.Now(), level, Name, message, Context))

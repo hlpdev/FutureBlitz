@@ -56,7 +56,7 @@ Public Struct TimeZone Implements Hashable, Printable, Defaultable
     Public Static Method Utc(): TimeZone => TimeZone(0, 0)
     Public Static Method DefaultValue(): TimeZone => TimeZone(0, 0)
 
-    /// The zone of that offset from UTC, always, which panics when it isn't whole seconds under a
+    /// The zone of that `offset` from UTC, always, which panics when it isn't whole seconds under a
     /// day.
     @PanicsAtCaller
     Public Static Method Fixed(offset: Duration): TimeZone
@@ -179,15 +179,15 @@ Public Struct ZonedDateTime Implements Comparable, Hashable, Printable, Defaulta
     /// The zone's offset's seconds then.
     Field Shift: Int
 
-    /// The moment where the zone is.
+    /// The moment where the `zone` is.
     Public New(time: Timestamp, zone: TimeZone)
         Moment = time
         Place = zone
         Shift = zone.OffsetSecondsAt(time)
     End New
 
-    /// The date and time where the zone is, as the disambiguation picks when the zone's clocks
-    /// show it twice or skip it. One past the years a Timestamp holds panics.
+    /// The date and time where the `zone` is, as the `disambiguation` picks when the `zone`'s
+    /// clocks show it twice or skip it. One past the years a Timestamp holds panics.
     @PanicsAtCaller
     Public New(local: LocalDateTime, zone: TimeZone,
                disambiguation: Disambiguation = Disambiguation.COMPATIBLE)
@@ -209,7 +209,7 @@ Public Struct ZonedDateTime Implements Comparable, Hashable, Printable, Defaulta
         Return ZonedDateTime(MomentOfSeconds(0), TimeZone.Utc(), 0)
     End Method
 
-    /// Now, where the zone is, or the OS's zone.
+    /// Now, where the `zone` is, or the OS's `zone`.
     Public Static Method Now(zone: TimeZone): ZonedDateTime => ZonedDateTime(NowMoment(), zone)
     /// Now, in the OS's zone.
     Public Static Method Now(): ZonedDateTime => ZonedDateTime(NowMoment(), TimeZone.System())
@@ -223,9 +223,9 @@ Public Struct ZonedDateTime Implements Comparable, Hashable, Printable, Defaulta
         Return ZonedOf(parts)
     End Method
 
-    /// The moment the text writes as the pattern says (see format.fb), or Null. A pattern without
-    /// the date, or without an offset or a zone, panics. With a zone and no offset, the zone's
-    /// clocks' date and time are a moment as COMPATIBLE says.
+    /// The moment the `text` writes as the `pattern` says (see format.fb), or Null. A pattern
+    /// without the date, or without an offset or a zone, panics. With a zone and no offset, the
+    /// zone's clocks' date and time are a moment as COMPATIBLE says.
     @PanicsAtCaller
     Public Static Method Parse(text: String, pattern: String): ZonedDateTime?
         Local parts = ParsePattern(text, pattern, PartKind.ZONED)
@@ -385,7 +385,7 @@ Public Struct ZonedDateTime Implements Comparable, Hashable, Printable, Defaulta
     /// As RFC 2822 writes it: "Fri, 23 Oct 2026 14:30:00 +0200".
     Public Method ToRfc2822(): String => Rfc2822Of(LocalAt(Moment, Shift), Shift)
 
-    /// As the pattern says (see format.fb): Format("yyyy-MM-dd HH:mm z") is
+    /// As the `pattern` says (see format.fb): Format("yyyy-MM-dd HH:mm z") is
     /// "2026-10-23 14:30 CEST".
     @PanicsAtCaller
     Public Method Format(pattern: String): String

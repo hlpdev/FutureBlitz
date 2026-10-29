@@ -13,7 +13,7 @@ Public Class LruCache<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable
     Field Items: Map<K, V>
     Field Room: Int
 
-    /// An empty LruCache that holds up to capacity entries, which must be 1 or more.
+    /// An empty LruCache that holds up to `capacity` entries, which must be 1 or more.
     @PanicsAtCaller
     Public New(capacity: Int)
         If capacity < 1 Then Panic("an LruCache holds 1 entry or more, not {capacity}")
@@ -31,7 +31,7 @@ Public Class LruCache<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable
         Get => Room
     End Property
 
-    /// The key's value, or Null when it isn't there. A key that's there is used.
+    /// The `key`'s value, or Null when it isn't there. A key that's there is used.
     Public Method Get(key: K): V?
         If !Items.Contains(key) Then Return Null
         Local value = Items[key]
@@ -40,15 +40,15 @@ Public Class LruCache<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable
         Return value
     End Method
 
-    /// The key's value, or Null when it isn't there, without using the key.
+    /// The `key`'s value, or Null when it isn't there, without using the `key`.
     Public Method Peek(key: K): V? => Items.Get(key)
 
     /// Whether `key` has an entry, which doesn't count as using it.
     Public Method Contains(key: K): Bool => Items.Contains(key)
 
-    /// Adds an entry, or gives an existing key its new value, and uses the key. When that leaves
-    /// more than Capacity entries, the least recently used one goes, and Add gives it, or else
-    /// Null.
+    /// Adds an entry, or gives an existing `key` its new value, and uses the `key`. When that
+    /// leaves more than Capacity entries, the least recently used one goes, and Add gives it, or
+    /// else Null.
     Public Method Add(key: K, value: V): (K, V)?
         Items.Remove(key)
         Items.Add(key, value)
@@ -58,7 +58,7 @@ Public Class LruCache<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable
         Return oldest
     End Method
 
-    /// Removes the key's entry, and tells whether there was one.
+    /// Removes the `key`'s entry, and tells whether there was one.
     Public Method Remove(key: K): Bool => Items.Remove(key)
 
     /// Takes every entry out.
@@ -66,7 +66,7 @@ Public Class LruCache<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable
         Items.Clear()
     End Method
 
-    /// Holds up to capacity entries from now on, which must be 1 or more, dropping the least
+    /// Holds up to `capacity` entries from now on, which must be 1 or more, dropping the least
     /// recently used ones beyond it.
     @PanicsAtCaller
     Public Method Resize(capacity: Int)

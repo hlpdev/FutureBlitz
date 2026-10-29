@@ -29,7 +29,7 @@ Public Struct Rect Implements Equatable, Printable
         Return Rect(low.x, low.y, high.x - low.x, high.y - low.y)
     End Method
 
-    /// The rectangle of the size, with its center at the point.
+    /// The rectangle of the `size`, with its center at the point.
     Public Static Method FromCenter(center: Vec2, size: Vec2): Rect
         Return Rect(center.x - size.x / 2, center.y - size.y / 2, size.x, size.y)
     End Method
@@ -59,12 +59,12 @@ Public Struct Rect Implements Equatable, Printable
         Get => Width * Height
     End Property
 
-    /// Whether the point is in the rectangle or on its edge.
+    /// Whether the `point` is in the rectangle or on its edge.
     Public Method Contains(point: Vec2): Bool
         Return point.x >= X && point.x <= X + Width && point.y >= Y && point.y <= Y + Height
     End Method
 
-    /// Whether the other rectangle is all in this one.
+    /// Whether the `other` rectangle is all in this one.
     Public Method Contains(other: Rect): Bool
         Return other.X >= X && other.X + other.Width <= X + Width && other.Y >= Y &&
                other.Y + other.Height <= Y + Height
@@ -87,7 +87,7 @@ Public Struct Rect Implements Equatable, Printable
         Return FromCorners(vector.Min(Min, other.Min), vector.Max(Max, other.Max))
     End Method
 
-    /// The rectangle with each edge moved out by amount, or in by a negative one. Shrunk past
+    /// The rectangle with each edge moved out by `amount`, or in by a negative one. Shrunk past
     /// nothing, a side is 0 long, at the center.
     Public Method Grow(amount: Float): Rect
         Local width = Width + amount * 2
@@ -108,7 +108,7 @@ Public Struct AABB Implements Equatable, Printable
     /// Its corner with the largest x, y, and z.
     Public Field Max: Vec3
 
-    /// The box of the size, with its center at the point.
+    /// The box of the `size`, with its center at the point.
     Public Static Method FromCenter(center: Vec3, size: Vec3): AABB
         Return AABB(center - size / 2, center + size / 2)
     End Method
@@ -141,13 +141,13 @@ Public Struct AABB Implements Equatable, Printable
         Get => (Max - Min) / 2
     End Property
 
-    /// Whether the point is in the box or on its surface.
+    /// Whether the `point` is in the box or on its surface.
     Public Method Contains(point: Vec3): Bool
         Return point.x >= Min.x && point.x <= Max.x && point.y >= Min.y && point.y <= Max.y &&
                point.z >= Min.z && point.z <= Max.z
     End Method
 
-    /// Whether the other box is all in this one.
+    /// Whether the `other` box is all in this one.
     Public Method Contains(other: AABB): Bool => Contains(other.Min) && Contains(other.Max)
 
     /// Whether the two have a point in common, a face's included.
@@ -156,13 +156,13 @@ Public Struct AABB Implements Equatable, Printable
                other.Max.y >= Min.y && other.Min.z <= Max.z && other.Max.z >= Min.z
     End Method
 
-    /// Whether the sphere and the box have a point in common.
+    /// Whether the `sphere` and the box have a point in common.
     Public Method Intersects(sphere: Sphere): Bool => sphere.Intersects(Self)
 
-    /// The point in the box nearest the one given: that point itself when it's inside.
+    /// The `point` in the box nearest the one given: that `point` itself when it's inside.
     Public Method ClosestPoint(point: Vec3): Vec3 => vector.Min(vector.Max(point, Min), Max)
 
-    /// How far along the ray it first meets the box, by its slabs, one axis at a time.
+    /// How far along the `ray` it first meets the box, by its slabs, one axis at a time.
     Public Method Raycast(ray: Ray): Float?
         Local near: Float = 0
         Local far = Inf
@@ -187,11 +187,11 @@ Public Struct AABB Implements Equatable, Printable
         Return AABB(vector.Min(Min, other.Min), vector.Max(Max, other.Max))
     End Method
 
-    /// The smallest box that holds this one and the point.
+    /// The smallest box that holds this one and the `point`.
     Public Method Union(point: Vec3): AABB => AABB(vector.Min(Min, point), vector.Max(Max, point))
 
-    /// The box with each face moved out by amount, or in by a negative one. Shrunk past nothing, an
-    /// axis is 0 long, at the center.
+    /// The box with each face moved out by `amount`, or in by a negative one. Shrunk past nothing,
+    /// an axis is 0 long, at the center.
     Public Method Grow(amount: Float): AABB
         Local step = Vec3(amount, amount, amount)
         Local low = Min - step
@@ -229,7 +229,7 @@ Public Struct Sphere Implements Equatable, Printable
     /// How far its surface is from its Center.
     Public Field Radius: Float
 
-    /// Whether the point is in the sphere or on its surface, by squares in Doubles, which no
+    /// Whether the `point` is in the sphere or on its surface, by squares in Doubles, which no
     /// Float's square overflows.
     Public Method Contains(point: Vec3): Bool
         Local offset = Vec3d.Of(point) - Vec3d.Of(Center)
@@ -244,12 +244,12 @@ Public Struct Sphere Implements Equatable, Printable
         Return offset.Dot(offset) <= reach * reach
     End Method
 
-    /// Whether the box and the sphere have a point in common.
+    /// Whether the `box` and the sphere have a point in common.
     Public Method Intersects(box: AABB): Bool => Contains(box.ClosestPoint(Center))
 
-    /// How far along the ray it first meets the sphere, worked out in Doubles from where the ray
-    /// comes nearest the center, as Ray Tracing Gems' chapter 7 has it, so a sphere far off or
-    /// small, or a short Direction, loses nothing to rounding.
+    /// How far along the `ray` it first meets the sphere, worked out in Doubles from where the
+    /// `ray` comes nearest the center, as Ray Tracing Gems' chapter 7 has it, so a sphere far off
+    /// or small, or a short Direction, loses nothing to rounding.
     Public Method Raycast(ray: Ray): Float?
         Local offset = Vec3d.Of(ray.Origin) - Vec3d.Of(Center)
         Local direction = Vec3d.Of(ray.Direction)
@@ -305,7 +305,7 @@ Public Struct Plane Implements Equatable, Printable
     /// Its distance from the origin along its Normal: Dot(Normal, p) for each point p on it.
     Public Field Distance: Float
 
-    /// The plane through the point, facing the way the normal does. A zero normal panics.
+    /// The plane through the `point`, facing the way the `normal` does. A zero `normal` panics.
     @PanicsAtCaller
     Public Static Method FromPointNormal(point: Vec3, normal: Vec3): Plane
         Local unit = Normalize(normal)
@@ -322,13 +322,13 @@ Public Struct Plane Implements Equatable, Printable
         Return Plane(unit, Dot(unit, a))
     End Method
 
-    /// How far the point is in front of the plane, negative behind it.
+    /// How far the `point` is in front of the plane, negative behind it.
     Public Method SignedDistance(point: Vec3): Float => Dot(Normal, point) - Distance
 
-    /// The point on the plane nearest the one given.
+    /// The `point` on the plane nearest the one given.
     Public Method ClosestPoint(point: Vec3): Vec3 => point - Normal * SignedDistance(point)
 
-    /// How far along the ray it meets the plane, from either side, 0 for a ray that starts on it,
+    /// How far along the `ray` it meets the plane, from either side, 0 for a ray that starts on it,
     /// whichever way it goes. A ray along it misses.
     Public Method Raycast(ray: Ray): Float?
         Local facing = Dot(Normal, ray.Direction)
@@ -369,14 +369,14 @@ Public Struct Frustum Implements Equatable, Printable
                        PlaneOf(fourth - second), PlaneOf(third), PlaneOf(fourth - third))
     End Method
 
-    /// Whether the point is inside, or on a plane.
+    /// Whether the `point` is inside, or on a plane.
     Public Method Contains(point: Vec3): Bool
         Return Left.SignedDistance(point) >= 0 && Right.SignedDistance(point) >= 0 &&
                Bottom.SignedDistance(point) >= 0 && Top.SignedDistance(point) >= 0 &&
                Near.SignedDistance(point) >= 0 && Far.SignedDistance(point) >= 0
     End Method
 
-    /// Whether the sphere is inside, or partly: False only when it's all behind a plane.
+    /// Whether the `sphere` is inside, or partly: False only when it's all behind a plane.
     Public Method Intersects(sphere: Sphere): Bool
         Local least = -sphere.Radius
         Return Left.SignedDistance(sphere.Center) >= least &&
@@ -387,7 +387,7 @@ Public Struct Frustum Implements Equatable, Printable
                Far.SignedDistance(sphere.Center) >= least
     End Method
 
-    /// Whether the box is inside, or partly: False only when it's all behind a plane, so a box
+    /// Whether the `box` is inside, or partly: False only when it's all behind a plane, so a box
     /// just past a corner of the frustum can be True, as culling allows.
     Public Method Intersects(box: AABB): Bool
         Return Reaches(Left, box) && Reaches(Right, box) && Reaches(Bottom, box) &&

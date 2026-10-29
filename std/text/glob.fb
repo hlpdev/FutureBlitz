@@ -33,8 +33,8 @@ Public Class Glob
     /// Whether letters match in either case.
     Public ReadOnly Field IgnoreCase: Bool
 
-    /// A Glob of pattern. With ignoreCase, letters match in either case, as Unicode folds each
-    /// one, so the pattern matches all it does without it, and more.
+    /// A Glob of `pattern`. With `ignoreCase`, letters match in either case, as Unicode folds each
+    /// one, so the `pattern` matches all it does without it, and more.
     Public New(pattern: String, ignoreCase: Bool = False)
         Pattern = pattern
         IgnoreCase = ignoreCase
@@ -53,7 +53,7 @@ Public Class Glob
         Alternatives = alternatives
     End New
 
-    /// Whether all of text matches the pattern.
+    /// Whether all of `text` matches the pattern.
     Public Method Matches(text: String): Bool
         Local chars = text.Chars
         Local folded: Char[] = []
@@ -70,7 +70,8 @@ Public Class Glob
         Return False
     End Method
 
-    /// Whether all of text matches pattern, as Glob(pattern, ignoreCase).Matches(text) tells.
+    /// Whether all of `text` matches `pattern`, as Glob(`pattern`, `ignoreCase`).Matches(`text`)
+    /// tells.
     Public Static Method Match(pattern: String, text: String, ignoreCase: Bool = False): Bool
         Return Glob(pattern, ignoreCase).Matches(text)
     End Method

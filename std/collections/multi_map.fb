@@ -29,22 +29,22 @@ Public Class MultiMap<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, De
         Get => Items.Count
     End Property
 
-    /// Adds a value for the key, after the ones it has.
+    /// Adds a value for the `key`, after the ones it has.
     Public Method Add(key: K, value: V)
         Items.GetOrAdd(key, Function(): V[] => []).Add(value)
         Size += 1
         Changes += 1
     End Method
 
-    /// Adds each of the values for the key, in order, all read first.
+    /// Adds each of the `values` for the `key`, in order, all read first.
     Public Method AddAll(key: K, values: Iterable<V>)
         For value In values.Iterate().ToArray()
             Add(key, value)
         End For
     End Method
 
-    /// The key's values, in the order they were added, in a new array, which is empty when the
-    /// key has none.
+    /// The `key`'s values, in the order they were added, in a new array, which is empty when the
+    /// `key` has none.
     Public Method Get(key: K): V[] => Items.Get(key)?.Clone() ?? []
 
     /// The same as Get.
@@ -53,13 +53,13 @@ Public Class MultiMap<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, De
     /// Whether `key` has any values.
     Public Method Contains(key: K): Bool => Items.Contains(key)
 
-    /// Whether the key has the value.
+    /// Whether the `key` has the `value`.
     Public Method Contains(key: K, value: V): Bool
         Where V: Equatable
         Return Items.Get(key)?.Contains(value) ?? False
     End Method
 
-    /// Removes the first of the key's values that's equal to value, and tells whether there was
+    /// Removes the first of the `key`'s values that's equal to `value`, and tells whether there was
     /// one.
     Public Method Remove(key: K, value: V): Bool
         Where V: Equatable
@@ -71,7 +71,7 @@ Public Class MultiMap<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, De
         Return True
     End Method
 
-    /// Removes the key and all its values, and gives how many values went.
+    /// Removes the `key` and all its values, and gives how many values went.
     Public Method RemoveKey(key: K): Int
         Local values = Items.Get(key)
         If values == Null Then Return 0

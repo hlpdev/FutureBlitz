@@ -19,7 +19,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Get => Size
     End Property
 
-    /// Adds the value, and tells whether it's new. A negative value panics.
+    /// Adds the `value`, and tells whether it's new. A negative `value` panics.
     @PanicsAtCaller
     Public Method Add(value: Int): Bool
         If value < 0 Then Panic("a BitSet holds Ints from 0 up, not {value}")
@@ -34,7 +34,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return True
     End Method
 
-    /// Adds each of the values, which are all read first. A negative value panics.
+    /// Adds each of the `values`, which are all read first. A negative value panics.
     @PanicsAtCaller
     Public Method AddAll(values: Iterable<Int>)
         For value In values.Iterate().ToArray()
@@ -42,7 +42,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         End For
     End Method
 
-    /// Removes the value, and tells whether it was there.
+    /// Removes the `value`, and tells whether it was there.
     Public Method Remove(value: Int): Bool
         If !Contains(value) Then Return False
         Words[value / 64] &= ~BitOf(value)
@@ -97,14 +97,14 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return both
     End Method
 
-    /// A new BitSet of this one's values that other doesn't have.
+    /// A new BitSet of this one's values that `other` doesn't have.
     Public Method Difference(other: BitSet): BitSet
         Local rest = Clone()
         rest.RemoveAll(other)
         Return rest
     End Method
 
-    /// A new BitSet of the values in one but not the other.
+    /// A new BitSet of the values in one but not the `other`.
     Public Method SymmetricDifference(other: BitSet): BitSet
         Local either = BitSet()
         For i = 0 Until Max(Words.Count, other.Words.Count)
@@ -114,7 +114,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return either
     End Method
 
-    /// Adds each of other's values.
+    /// Adds each of `other`'s values.
     Public Method AddAll(other: BitSet)
         Local words = other.Words.Clone()
         While Words.Count < words.Count
@@ -127,7 +127,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Recount()
     End Method
 
-    /// Removes each of other's values.
+    /// Removes each of `other`'s values.
     Public Method RemoveAll(other: BitSet)
         Local words = other.Words.Clone()
         For i = 0 Until Min(Words.Count, words.Count)
@@ -136,7 +136,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Recount()
     End Method
 
-    /// Keeps only the values other has too.
+    /// Keeps only the values `other` has too.
     Public Method KeepOnly(other: BitSet)
         Local words = other.Words.Clone()
         For i = 0 Until Words.Count
@@ -145,7 +145,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Recount()
     End Method
 
-    /// Whether each of its values is in other.
+    /// Whether each of its values is in `other`.
     Public Method IsSubsetOf(other: BitSet): Bool
         For i, word In Words
             If (word & ~other.WordAt(i)) != 0 Then Return False
@@ -153,7 +153,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return True
     End Method
 
-    /// Whether it has each of other's values.
+    /// Whether it has each of `other`'s values.
     Public Method IsSupersetOf(other: BitSet): Bool => other.IsSubsetOf(Self)
 
     /// Whether the two have a value in common.

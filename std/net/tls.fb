@@ -213,7 +213,7 @@ Public Class TlsClient
         Setup = TlsSetup(False)
     End New
 
-    /// Trusts only `roots` from then on, instead of the OS's roots, as for a server whose
+    /// Trusts only `roots` from then on, instead of the OS's `roots`, as for a server whose
     /// certificate a CA of a company's own signed.
     Public Method TrustOnly(roots: Certificate[])
         Setup.Roots = roots.Clone()
@@ -226,7 +226,7 @@ Public Class TlsClient
         Setup.Change()
     End Method
 
-    /// Offers the application protocols, like "h2" and "http/1.1", most wanted first, of which
+    /// Offers the application `protocols`, like "h2" and "http/1.1", most wanted first, of which
     /// the server picks one, which the TlsStream's Protocol says. Panics for a name that isn't 1
     /// to 255 bytes, or has a NUL, or names that come to more than 8192 bytes, each with 1 more.
     @PanicsAtCaller
@@ -237,9 +237,9 @@ Public Class TlsClient
     End Method
 
     /// Gives a server that asks for a certificate `chain`, its own certificate first, and `key`,
-    /// its private key. Panics when the chain is empty, or a certificate is one mbedTLS can't
-    /// read, or the key isn't the first certificate's private key, of ECDSA P-256 or RSA, or the
-    /// first certificate's usages aren't a TLS client's.
+    /// its private `key`. Panics when the `chain` is empty, or a certificate is one mbedTLS can't
+    /// read, or the `key` isn't the first certificate's private `key`, of ECDSA P-256 or RSA, or
+    /// the first certificate's usages aren't a TLS client's.
     @PanicsAtCaller
     Public Method Identify(chain: Certificate[], key: Key)
         CheckIdentity(chain, key, False)
@@ -250,7 +250,7 @@ Public Class TlsClient
 
     /// TLS over `stream` to `host`, a name or an IP address, which the server's certificate has
     /// to be for, once the handshake is done. A name goes to the server as its server_name, and
-    /// an address as none, as RFC 6066 has it. Panics for an empty host, one with a NUL, or one
+    /// an address as none, as RFC 6066 has it. Panics for an empty `host`, one with a NUL, or one
     /// of more than 255 bytes.
     @PanicsAtCaller
     Public Method Connect<S>(stream: S, host: String): TlsStream<S> Throws NetError, TimeoutError
@@ -288,10 +288,10 @@ End Function
 Public Class TlsServer
     ReadOnly Field Setup: TlsSetup
 
-    /// A server whose certificate is chain's first, which the others signed, up to one a
-    /// client's root signed, and whose private key is `key`. Panics when the chain is empty, or a
-    /// certificate is one mbedTLS can't read, or the key isn't the first certificate's private
-    /// key, of ECDSA P-256 or RSA, or the first certificate's usages aren't a TLS server's.
+    /// A server whose certificate is `chain`'s first, which the others signed, up to one a client's
+    /// root signed, and whose private `key` is `key`. Panics when the `chain` is empty, or a
+    /// certificate is one mbedTLS can't read, or the `key` isn't the first certificate's private
+    /// `key`, of ECDSA P-256 or RSA, or the first certificate's usages aren't a TLS server's.
     @PanicsAtCaller
     Public New(chain: Certificate[], key: Key)
         CheckIdentity(chain, key, True)
@@ -300,7 +300,7 @@ Public Class TlsServer
         Setup.Key = key
     End New
 
-    /// Picks the first of the application protocols, most wanted first, that a client offers,
+    /// Picks the first of the application `protocols`, most wanted first, that a client offers,
     /// which the TlsStream's Protocol says, and refuses a client that offers only others. Panics
     /// for a name that isn't 1 to 255 bytes, or has a NUL, or names that come to more than 8192
     /// bytes, each with 1 more.

@@ -244,7 +244,7 @@ Public Class WebSocket
     /// answering its handshake as AcceptAsync of a TcpStream does, and takes the connection from
     /// the server, which then sends nothing of the handler's response, and doesn't close it as it
     /// stops. A request that isn't a WebSocket's throws a NetError of OTHER, and the server sends
-    /// the handler's response to it. Panics when a subprotocol isn't a token, or the request's
+    /// the handler's response to it. Panics when a subprotocol isn't a token, or the `request`'s
     /// connection is a WebSocket's already.
     @PanicsAtCaller
     Public Static Async Method AcceptAsync(request: HttpRequest,
@@ -395,9 +395,9 @@ Public Class WebSocket
     End Method
 
     /// Sends a Close with `code` and `reason`, unless it has already, and is CLOSING: Receive gives
-    /// the messages that came before the other side's Close, and then Null. The code is 1000, a
+    /// the messages that came before the other side's Close, and then Null. The `code` is 1000, a
     /// normal close, or one RFC 6455 has an endpoint send, from 1001 to 1003 or 1007 to 1014, or
-    /// one of 3000 to 4999, and the reason's UTF-8 is 123 bytes at most, or it panics. A Close
+    /// one of 3000 to 4999, and the `reason`'s UTF-8 is 123 bytes at most, or it panics. A Close
     /// that can't be sent closes the connection.
     @PanicsAtCaller
     Public Method Close(code: Int = 1000, reason: String = "")

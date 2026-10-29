@@ -91,7 +91,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Last()
     End Method
 
-    /// Adds the value at the start, and gives its node.
+    /// Adds the `value` at the start, and gives its node.
     Public Method AddFirst(value: T): LinkedListNode<T>
         Local node = LinkedListNode<T>(value, Self)
         Local first = Head
@@ -107,7 +107,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return node
     End Method
 
-    /// Adds the value at the end, and gives its node.
+    /// Adds the `value` at the end, and gives its node.
     Public Method AddLast(value: T): LinkedListNode<T>
         Local node = LinkedListNode<T>(value, Self)
         Local last = Tail
@@ -126,14 +126,14 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
     /// The same as AddLast.
     Public Method Add(value: T): LinkedListNode<T> => AddLast(value)
 
-    /// Adds each of the values at the end, in order, all read first.
+    /// Adds each of the `values` at the end, in order, all read first.
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
             AddLast(value)
         End For
     End Method
 
-    /// Adds the value just before node, which has to be in this list, and gives its node.
+    /// Adds the `value` just before `node`, which has to be in this list, and gives its node.
     @PanicsAtCaller
     Public Method AddBefore(node: LinkedListNode<T>, value: T): LinkedListNode<T>
         Check(node)
@@ -142,7 +142,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return AddAfter(before, value)
     End Method
 
-    /// Adds the value just after node, which has to be in this list, and gives its node.
+    /// Adds the `value` just after `node`, which has to be in this list, and gives its node.
     @PanicsAtCaller
     Public Method AddAfter(node: LinkedListNode<T>, value: T): LinkedListNode<T>
         Check(node)
@@ -157,7 +157,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return added
     End Method
 
-    /// Takes node, which has to be in this list, out of it.
+    /// Takes `node`, which has to be in this list, out of it.
     @PanicsAtCaller
     Public Method RemoveNode(node: LinkedListNode<T>)
         Check(node)
@@ -182,7 +182,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Changes += 1
     End Method
 
-    /// Takes out the first value equal to value, and tells whether there was one.
+    /// Takes out the first `value` equal to `value`, and tells whether there was one.
     Public Method Remove(value: T): Bool
         Where T: Equatable
         Local found = NodeOf(value)
@@ -221,7 +221,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return RemoveLast()
     End Method
 
-    /// The first node whose value is equal to value, or Null.
+    /// The first node whose value is equal to `value`, or Null.
     Public Method NodeOf(value: T): LinkedListNode<T>?
         Where T: Equatable
         Local node = Head
@@ -232,7 +232,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Null
     End Method
 
-    /// The last node whose value is equal to value, or Null.
+    /// The last node whose value is equal to `value`, or Null.
     Public Method LastNodeOf(value: T): LinkedListNode<T>?
         Where T: Equatable
         Local node = Tail
@@ -249,7 +249,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return NodeOf(value) != Null
     End Method
 
-    /// The first value that test says is the one, or Null.
+    /// The first value that `test` says is the one, or Null.
     Public Method Find(test: Func(T): Bool): T?
         Local node = Head
         While node != Null
@@ -259,7 +259,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Null
     End Method
 
-    /// The last value that test says is the one, or Null.
+    /// The last value that `test` says is the one, or Null.
     Public Method FindLast(test: Func(T): Bool): T?
         Local node = Tail
         While node != Null

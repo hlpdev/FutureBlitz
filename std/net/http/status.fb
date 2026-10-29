@@ -131,7 +131,7 @@ Public Struct StatusCode
     New()
     End New
 
-    /// What status means, as its RFC names it, like "Not Found", or "" for one without a name.
+    /// What `status` means, as its RFC names it, like "Not Found", or "" for one without a name.
     Public Static Method Reason(status: Int): String
         Select status
             Case 100
@@ -259,9 +259,9 @@ Public Struct StatusCode
         End Select
     End Method
 
-    /// Whether status says the request worked: from 200 to 299.
+    /// Whether `status` says the request worked: from 200 to 299.
     Public Static Method IsSuccess(status: Int): Bool => status >= 200 && status < 300
 
-    /// Whether status sends the request elsewhere, as a Location header says: from 300 to 399.
+    /// Whether `status` sends the request elsewhere, as a Location header says: from 300 to 399.
     Public Static Method IsRedirect(status: Int): Bool => status >= 300 && status < 400
 End Struct

@@ -26,7 +26,7 @@ Public Struct XZ
     New()
     End New
 
-    /// The data, compressed at the level. Panics when the level isn't from 0 to 9.
+    /// The `data`, compressed at the `level`. Panics when the `level` isn't from 0 to 9.
     @PanicsAtCaller
     Public Static Method Compress(data: UInt8[], level: Int = 6): UInt8[]
         Local encoder = Encoder(level)
@@ -36,9 +36,9 @@ Public Struct XZ
         Return output
     End Method
 
-    /// The bytes the data is compressed from, each stream's after the last's, or an IOError when it
-    /// isn't XZ's, ends too soon, or would come to more than limit bytes. Panics when the limit is
-    /// negative.
+    /// The bytes the `data` is compressed from, each stream's after the last's, or an IOError when
+    /// it isn't XZ's, ends too soon, or would come to more than `limit` bytes. Panics when the
+    /// `limit` is negative.
     @PanicsAtCaller
     Public Static Method Decompress(data: UInt8[],
                                     limit: Int = MOST_BYTES): UInt8[] Throws IOError
@@ -54,7 +54,7 @@ End Struct
 Public Class XZCompressor Implements Coder
     Field State: Ptr<Void>
 
-    /// Panics when the level isn't from 0 to 9.
+    /// Panics when the `level` isn't from 0 to 9.
     @PanicsAtCaller
     Public New(level: Int = 6)
         State = Encoder(level)
@@ -85,7 +85,7 @@ Public Class XZDecompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
 
-    /// Panics when the limit is negative.
+    /// Panics when the `limit` is negative.
     @PanicsAtCaller
     Public New(limit: Int = MOST_BYTES)
         CheckLimit(limit)

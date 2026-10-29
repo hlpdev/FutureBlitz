@@ -14,17 +14,18 @@ Public Struct Png
     New()
     End New
 
-    /// The image in data, which is a PNG, or an APNG's image for decoders without animation.
-    /// Throws an IOError of INVALID_DATA when the data isn't a PNG or is broken, and OTHER when
-    /// the image has more pixels than `limit`. Panics when the limit is negative.
+    /// The image in `data`, which is a PNG, or an APNG's image for decoders without animation.
+    /// Throws an IOError of INVALID_DATA when the `data` isn't a PNG or is broken, and OTHER when
+    /// the image has more pixels than `limit`. Panics when the `limit` is negative.
     @PanicsAtCaller
     Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError
         CheckLimit(limit)
         Return Try Decoded(fb_stb_decode(data, 1, Min(limit, MOST_PIXELS)), "PNG")
     End Method
 
-    /// The PNG of the image, deflated at `level`, from 0 to 9. Panics when the level is another,
-    /// or the image has no pixels or more than 268435456, as many as stb_image reads back.
+    /// The PNG of the `image`, deflated at `level`, from 0 to 9. Panics when the `level` is
+    /// another, or the `image` has no pixels or more than 268435456, as many as stb_image reads
+    /// back.
     @PanicsAtCaller
     Public Static Method Encode(image: Image, level: Int = 6): UInt8[]
         CheckRange(level, 0, 9, "a PNG's level")
@@ -39,7 +40,7 @@ Public Struct Png
 
     /// An APNG's frames, each as it's shown once the frames before it are, or a PNG's one, which
     /// plays once. Throws an IOError as Decode does, of OTHER when the frames, all their pixels
-    /// counted, have more than `limit`. Panics when the limit is negative.
+    /// counted, have more than `limit`. Panics when the `limit` is negative.
     @PanicsAtCaller
     Public Static Method DecodeAnimation(data: UInt8[],
                                          limit: Int = MOST_PIXELS): Animation Throws IOError
@@ -47,10 +48,10 @@ Public Struct Png
         Return Try DecodedAnimation(fb_stb_decode_apng(data, Min(limit, MOST_PIXELS)), "APNG")
     End Method
 
-    /// The APNG of the animation's frames, each deflated at `level`, from 0 to 9, whose first
-    /// frame is the image a decoder without animation shows: each delay in milliseconds up to
+    /// The APNG of the `animation`'s frames, each deflated at `level`, from 0 to 9, whose first
+    /// frame is the image a decoder without `animation` shows: each delay in milliseconds up to
     /// 65535, in hundredths of a second, rounded, up to 655350, and in seconds past that. Panics
-    /// when the level is another, or the animation has no frames, no pixels or more than
+    /// when the `level` is another, or the `animation` has no frames, no pixels or more than
     /// 268435456, or a frame whose image isn't its size.
     @PanicsAtCaller
     Public Static Method EncodeAnimation(animation: Animation, level: Int = 6): UInt8[]

@@ -13,18 +13,19 @@ Public Struct Csv
     New()
     End New
 
-    /// The rows text holds, each its fields, an empty line a row of one empty field. Throws a
+    /// The rows `text` holds, each its fields, an empty line a row of one empty field. Throws a
     /// ParseError, with its line and column, of UNEXPECTED_END for a quoted field that doesn't end,
     /// and of SYNTAX for a '"' in a field that isn't quoted or after one that ends. Panics when the
-    /// separator isn't one ASCII character other than '"' or a line break.
+    /// `separator` isn't one ASCII character other than '"' or a line break.
     @PanicsAtCaller
     Public Static Method Read(text: String, separator: String = ","): String[][] Throws ParseError
         Return Try CsvReader(text, SeparatorOf(separator)).Rows()
     End Method
 
-    /// The records text holds: its first row is a header of names, and each row after it an Object
-    /// of its fields by those names, as Strings, in an Array. Throws a ParseError as Read does, and
-    /// of SYNTAX for a header that names a field twice, or a row with more or fewer fields than it.
+    /// The records `text` holds: its first row is a header of names, and each row after it an
+    /// Object of its fields by those names, as Strings, in an Array. Throws a ParseError as Read
+    /// does, and of SYNTAX for a header that names a field twice, or a row with more or fewer
+    /// fields than it.
     @PanicsAtCaller
     Public Static Method ReadRecords(text: String, separator: String = ","): Value Throws ParseError
         Local reader = CsvReader(text, SeparatorOf(separator))
@@ -57,10 +58,11 @@ Public Struct Csv
         Return records
     End Method
 
-    /// rows as CSV, each on its line, ended with LF, a field quoted when it holds the separator, a
-    /// '"', or a line break, starts or ends with a space, or starts with a byte order mark. Panics
-    /// when the separator isn't one ASCII character other than '"' or a line break, or a row has
-    /// no fields, which CSV can't hold: an empty line is a row of one empty field.
+    /// `rows` as CSV, each on its line, ended with LF, a field quoted when it holds the
+    /// `separator`, a '"', or a line break, starts or ends with a space, or starts with a byte
+    /// order mark. Panics when the `separator` isn't one ASCII character other than '"' or a line
+    /// break, or a row has no fields, which CSV can't hold: an empty line is a row of one empty
+    /// field.
     @PanicsAtCaller
     Public Static Method Write(rows: String[][], separator: String = ","): String
         Local between = SeparatorOf(separator)
@@ -79,11 +81,11 @@ Public Struct Csv
         Return TextOf(out)
     End Method
 
-    /// records, an Array of Objects, as CSV, with a header of every key they have, in the order
+    /// `records`, an Array of Objects, as CSV, with a header of every key they have, in the order
     /// they come in, and a row for each, a key it hasn't got an empty field: a String as it is, a
-    /// Bool, an integer, or a Double as its text, and Null as nothing. Panics when records isn't an
-    /// Array of Objects, a field is an Array or an Object, the records have no keys, or the
-    /// separator is one Write panics for. No records are no text.
+    /// Bool, an integer, or a Double as its text, and Null as nothing. Panics when `records` isn't
+    /// an Array of Objects, a field is an Array or an Object, the `records` have no keys, or the
+    /// `separator` is one Write panics for. No records are no text.
     @PanicsAtCaller
     Public Static Method WriteRecords(records: Value, separator: String = ","): String
         If records.Kind != ValueKind.ARRAY Then Panic("CSV's records are an Array, not {records.Kind}")

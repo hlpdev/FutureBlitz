@@ -44,9 +44,9 @@ Public Struct Key
         Bytes = bytes
     End New
 
-    /// The first key in pem, whatever comes after it: a private one in PKCS #8 ("PRIVATE KEY"),
+    /// The first key in `pem`, whatever comes after it: a private one in PKCS #8 ("PRIVATE KEY"),
     /// SEC 1 ("EC PRIVATE KEY"), or PKCS #1 ("RSA PRIVATE KEY"), or a public one ("PUBLIC KEY", or
-    /// "RSA PUBLIC KEY"). Throws a ParseError of SYNTAX when pem has no key, or one that doesn't
+    /// "RSA PUBLIC KEY"). Throws a ParseError of SYNTAX when `pem` has no key, or one that doesn't
     /// read, and of WRONG_TYPE when it's encrypted, or of a kind there's no KeyKind for, like
     /// another curve's.
     Public Static Method FromPem(pem: String): Key Throws ParseError
@@ -105,14 +105,14 @@ Public Struct Certificate
         Der = der
     End New
 
-    /// The first certificate in pem. Throws a ParseError when pem has none, or one that doesn't
+    /// The first certificate in `pem`. Throws a ParseError when `pem` has none, or one that doesn't
     /// read.
     Public Static Method FromPem(pem: String): Certificate Throws ParseError
         Return (Try AllFromPem(pem))[0]
     End Method
 
-    /// Each certificate in pem, in order, as a chain or a bundle of trusted ones has them. Throws a
-    /// ParseError when pem has none, or one that doesn't read.
+    /// Each certificate in `pem`, in order, as a chain or a bundle of trusted ones has them. Throws
+    /// a ParseError when `pem` has none, or one that doesn't read.
     Public Static Method AllFromPem(pem: String): Certificate[] Throws ParseError
         Local chain = fb_crypto_certificates_new(pem)
         If chain == Null

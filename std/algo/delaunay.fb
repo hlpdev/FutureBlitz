@@ -432,10 +432,10 @@ Function Triangulate(points: Vec2[], order: Int[]): (Int, Int, Int)[]
     Return triangles
 End Function
 
-/// The Delaunay triangulation of the points: triangles whose circumcircles hold none of the points,
-/// each as the indices of its corners in points, counterclockwise. Fewer than three points, or
-/// points all on a line, have none, and of points that are equal, only the first is a corner. A
-/// coordinate that's infinite or NaN panics.
+/// The Delaunay triangulation of the `points`: triangles whose circumcircles hold none of the
+/// `points`, each as the indices of its corners in `points`, counterclockwise. Fewer than three
+/// `points`, or `points` all on a line, have none, and of `points` that are equal, only the first
+/// is a corner. A coordinate that's infinite or NaN panics.
 @PanicsAtCaller
 Public Function Delaunay(points: Vec2[]): (Int, Int, Int)[]
     Local order, _ = Ordered(points)
@@ -475,11 +475,11 @@ Function CheckBounds(bounds: Rect)
     End If
 End Function
 
-/// Each point's Voronoi cell inside bounds: the polygon, counterclockwise, with no corner twice in
-/// a row, of where in bounds is no nearer another point, and empty for a point whose cell is
-/// outside bounds or only touches them, at a corner or along an edge. Points that are equal share a
-/// cell, and fewer than two points have bounds' whole rectangle for theirs. A coordinate that's
-/// infinite or NaN, or bounds that aren't finite or have a negative size, panic.
+/// Each point's Voronoi cell inside `bounds`: the polygon, counterclockwise, with no corner twice
+/// in a row, of where in `bounds` is no nearer another point, and empty for a point whose cell is
+/// outside `bounds` or only touches them, at a corner or along an edge. Points that are equal share
+/// a cell, and fewer than two `points` have `bounds`' whole rectangle for theirs. A coordinate
+/// that's infinite or NaN, or `bounds` that aren't finite or have a negative size, panic.
 @PanicsAtCaller
 Public Function Voronoi(points: Vec2[], bounds: Rect): Vec2[][]
     CheckBounds(bounds)
@@ -551,10 +551,10 @@ Public Function Voronoi(points: Vec2[], bounds: Rect): Vec2[][]
     Return cells
 End Function
 
-/// The points moved, iterations times, each to the middle of its Voronoi cell in bounds, which
-/// spreads them evenly: Lloyd's relaxation. A point whose cell is empty stays. A negative number of
-/// iterations, a coordinate that's infinite or NaN, or bounds that aren't finite or have a negative
-/// size, panics.
+/// The `points` moved, `iterations` times, each to the middle of its Voronoi cell in `bounds`,
+/// which spreads them evenly: Lloyd's relaxation. A point whose cell is empty stays. A negative
+/// number of `iterations`, a coordinate that's infinite or NaN, or `bounds` that aren't finite or
+/// have a negative size, panics.
 @PanicsAtCaller
 Public Function LloydRelax(points: Vec2[], bounds: Rect, iterations: Int = 1): Vec2[]
     If iterations < 0

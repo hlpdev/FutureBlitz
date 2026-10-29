@@ -40,8 +40,8 @@ Public Struct Zip
     New()
     End New
 
-    /// A reader of the zip in data, which it copies, or an IOError of INVALID_DATA when the data
-    /// isn't a zip.
+    /// A reader of the zip in `data`, which it copies, or an IOError of INVALID_DATA when the
+    /// `data` isn't a zip.
     Public Static Method Read(data: UInt8[]): ZipReader Throws IOError => Try Opened(data)
 End Struct
 
@@ -60,14 +60,14 @@ Public Class ZipWriter
         State = fb_zip_writer_new()
     End New
 
-    /// Adds a file named name of data, compressed by method, at level, or its default when level
-    /// is Null: 6 for DEFLATE, from 0 to 9, and for LZMA and XZ, which a zip has from 1 to 9, as
-    /// minizip-ng stores an entry at 0, and 3 for ZSTD, from 1 to 22. It was last changed at
-    /// modified, or on 1980-01-01 when that's Null, a DOS date of an even second from 1980 to
-    /// 2107, which one from 1970 to 2106 is exact to the second beside, and its mode is mode, or
-    /// 644 when that's Null. Panics when the level isn't one of method's, when the mode isn't from
-    /// 0 to 0o7777, or when the name is "", holds a NUL or a '\', ends with '/', as a folder's
-    /// does, or is longer than 65535 bytes.
+    /// Adds a file named `name` of `data`, compressed by `method`, at `level`, or its default when
+    /// `level` is Null: 6 for DEFLATE, from 0 to 9, and for LZMA and XZ, which a zip has from 1 to
+    /// 9, as minizip-ng stores an entry at 0, and 3 for ZSTD, from 1 to 22. It was last changed at
+    /// `modified`, or on 1980-01-01 when that's Null, a DOS date of an even second from 1980 to
+    /// 2107, which one from 1970 to 2106 is exact to the second beside, and its mode is `mode`, or
+    /// 644 when that's Null. Panics when the `level` isn't one of `method`'s, when the `mode` isn't
+    /// from 0 to 0o7777, or when the `name` is "", holds a NUL or a '\', ends with '/', as a
+    /// folder's does, or is longer than 65535 bytes.
     @PanicsAtCaller
     Public Method Add(name: String, data: UInt8[], method: ZipMethod = ZipMethod.DEFLATE,
                       level: Int? = Null, modified: Timestamp? = Null, mode: Int? = Null)
@@ -88,10 +88,10 @@ Public Class ZipWriter
                           modified?.UnixSeconds ?? 0, (mode ?? -1) As Int32)
     End Method
 
-    /// Adds a folder named name, with '/' after it unless it has one, which takes 1 of a name's
-    /// 65535 bytes, last changed at modified, as Add's are, with mode, or 755 when that's Null.
-    /// Panics when the mode isn't from 0 to 0o7777, or when the name is "", holds a NUL or a '\',
-    /// or is longer than 65534 bytes.
+    /// Adds a folder named `name`, with '/' after it unless it has one, which takes 1 of a name's
+    /// 65535 bytes, last changed at `modified`, as Add's are, with `mode`, or 755 when that's Null.
+    /// Panics when the `mode` isn't from 0 to 0o7777, or when the `name` is "", holds a NUL or a
+    /// '\', or is longer than 65534 bytes.
     @PanicsAtCaller
     Public Method AddFolder(name: String, modified: Timestamp? = Null, mode: Int? = Null)
         CheckName(name, 65534, "zip")
@@ -174,7 +174,7 @@ Public Class ZipReader
         Get => List.Count
     End Property
 
-    /// The entry named name, the last of them when there are several, or Null when there's none.
+    /// The entry named `name`, the last of them when there are several, or Null when there's none.
     Public Method Find(name: String): ArchiveEntry?
         Local index = LastNamed(List, name)
         If index < 0 Then Return Null
@@ -184,7 +184,7 @@ Public Class ZipReader
     /// Whether it has an entry named `name`.
     Public Method Contains(name: String): Bool => LastNamed(List, name) >= 0
 
-    /// The bytes of the entry named name, the last of them when there are several, or Null when
+    /// The bytes of the entry named `name`, the last of them when there are several, or Null when
     /// there's none, as ReadAt gives them.
     Public Method Read(name: String): UInt8[]? Throws IOError
         Local index = LastNamed(List, name)
@@ -192,9 +192,9 @@ Public Class ZipReader
         Return Try ReadAt(index)
     End Method
 
-    /// The bytes of the entry at index, which are none for a folder or a link, or an IOError when
+    /// The bytes of the entry at `index`, which are none for a folder or a link, or an IOError when
     /// they're broken, encrypted, or compressed by a method that isn't supported. Panics when the
-    /// index is out of range.
+    /// `index` is out of range.
     @PanicsAtCaller
     Public Method ReadAt(index: Int): UInt8[] Throws IOError
         If index < 0 || index >= List.Count

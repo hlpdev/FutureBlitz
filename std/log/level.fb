@@ -39,15 +39,15 @@ Public Struct LogFilter Implements Printable
         Modules = modules
     End New
 
-    /// Every module at level.
+    /// Every module at `level`.
     Public Static Method At(level: LogLevel): LogFilter
         Return LogFilter(level, ImmutableMap<String, LogLevel>())
     End Method
 
-    /// FB_LOG's text: parts between commas, each a level, which every module gets, or a module, an
-    /// '=', and its level, with spaces around them left out. Every module is at INFO unless a part
-    /// says otherwise, and a later part wins. Null when a part is neither, or a module's name is
-    /// empty.
+    /// FB_LOG's `text`: parts between commas, each a level, which every module gets, or a module,
+    /// an '=', and its level, with spaces around them left out. Every module is at INFO unless a
+    /// part says otherwise, and a later part wins. Null when a part is neither, or a module's name
+    /// is empty.
     Public Static Method Parse(text: String): LogFilter?
         Local filter = At(LogLevel.INFO)
         Local bytes = text.Bytes
@@ -78,8 +78,8 @@ Public Struct LogFilter Implements Printable
         Return filter
     End Method
 
-    /// The same filter, with module, and the modules in it that have no level of their own, at
-    /// level.
+    /// The same filter, with `module`, and the modules in it that have no level of their own, at
+    /// `level`.
     Public Method With(module: String, level: LogLevel): LogFilter
         Return LogFilter(Base, Modules.Add(module, level))
     End Method
@@ -89,7 +89,8 @@ Public Struct LogFilter Implements Printable
         Get => Base
     End Property
 
-    /// The least level written for module: its own, or the nearest module's it's in, or the base.
+    /// The least level written for `module`: its own, or the nearest `module`'s it's in, or the
+    /// base.
     Public Method LevelOf(module: String): LogLevel
         Local name = module
         Loop
@@ -102,7 +103,7 @@ Public Struct LogFilter Implements Printable
         End Loop
     End Method
 
-    /// Whether a line at level, which isn't OFF, is written for module.
+    /// Whether a line at `level`, which isn't OFF, is written for `module`.
     Public Method Allows(module: String, level: LogLevel): Bool
         If level == LogLevel.OFF Then Return False
         Return (level As Int) >= (LevelOf(module) As Int)

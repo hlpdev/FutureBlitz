@@ -39,8 +39,8 @@ Public Const PROTO_DEPTH_LIMIT = 100
 /// The highest field number: a tag keeps 3 bits for the wire type.
 Public Const PROTO_FIELD_LIMIT = 536870911
 
-/// The tag of field `number` with `wire` type, for code that writes the wire format itself. Panics
-/// when number isn't from 1 to PROTO_FIELD_LIMIT, or wire isn't one of the WIRE_ types.
+/// The tag of field `number` with `wire` type, for code that writes the `wire` format itself.
+/// Panics when `number` isn't from 1 to PROTO_FIELD_LIMIT, or `wire` isn't one of the WIRE_ types.
 @PanicsAtCaller
 Public Function ProtoTag(number: Int, wire: UInt32): UInt32
     If number < 1 || number > PROTO_FIELD_LIMIT
@@ -57,7 +57,7 @@ Public Function ProtoIsZero(value: Float32): Bool => value.ToBits() == 0
 /// Whether a double is 0 as proto3 leaves out a field's zero: by its bits, so -0.0 isn't.
 Public Function ProtoIsZero(value: Float64): Bool => value.ToBits() == 0
 
-/// Keeps a closed enum's number that isn't one of its values in `unknown`, as field `tag`'s, as
+/// Keeps a closed enum's `number` that isn't one of its values in `unknown`, as field `tag`'s, as
 /// protobuf's readers keep one: a packed field's go one at a time.
 Public Function ProtoKeepEnum(unknown: UInt8[], tag: UInt32, number: Int32)
     Local writer = ProtoWriter()
@@ -87,7 +87,7 @@ Public Class ProtoWriter
         Get => Bytes.Count
     End Property
 
-    /// Writes a field's tag, its number and its wire type, as a varint.
+    /// Writes a field's `tag`, its number and its wire type, as a varint.
     Public Method WriteTag(tag: UInt32)
         WriteVarint(tag As UInt64)
     End Method
@@ -103,7 +103,7 @@ Public Class ProtoWriter
         Bytes.Add(rest As UInt8)
     End Method
 
-    /// An int32 as protobuf writes one: a negative one as its 64-bit value, in 10 bytes.
+    /// An int32 as protobuf writes one: a negative one as its 64-bit `value`, in 10 bytes.
     Public Method WriteInt32(value: Int32)
         WriteVarint((value As Int64) As UInt64)
     End Method
@@ -200,7 +200,7 @@ Public Class ProtoWriter
     End Method
 
     /// Puts the length of what was written since BeginLength gave `start` before it. Panics when
-    /// start isn't where a BeginLength left room for a length.
+    /// `start` isn't where a BeginLength left room for a length.
     @PanicsAtCaller
     Public Method EndLength(start: Int)
         If start < 0 || start >= Bytes.Count || Bytes[start] != 0
@@ -464,7 +464,7 @@ Public Class ProtoReader
 
     /// Reads past the value of a field the message doesn't know, whose tag was just read, and
     /// keeps the field, its tag too, in `unknown`, as it was written. A group's fields go along
-    /// with it. Throws a ParseError for an end tag without its group.
+    /// with it. Throws a ParseError for an end `tag` without its group.
     Public Method Skip(tag: UInt32, unknown: UInt8[]) Throws ParseError
         Local start = TagAt
         Try SkipValue(tag)
@@ -480,7 +480,7 @@ Public Class ProtoReader
 
     /// Keeps the bytes from `start`, where TagStart said a field's tag was, up to where it's
     /// reading, in `unknown`: a map's entry whose value is a closed enum's number it doesn't name.
-    /// Panics when start is past where it's reading, or before the bytes.
+    /// Panics when `start` is past where it's reading, or before the bytes.
     @PanicsAtCaller
     Public Method KeepFrom(start: Int, unknown: UInt8[])
         If start < 0 || start > At
@@ -588,7 +588,7 @@ Public Class ProtoText
     Public New()
     End New
 
-    /// `name: value`, for a value that's text already, like a number or an enum's name.
+    /// `name: value`, for a value that's text already, like a number or an enum's `name`.
     Public Method Write(name: String, value: String)
         Parts.Add("{name}: {value}")
     End Method
@@ -630,8 +630,8 @@ Public Class ProtoText
     End Method
 
     /// The fields a message didn't know, by their numbers, as text format shows them: a varint as
-    /// its number, a 4-byte or 8-byte value in hex, a length-delimited one as bytes in quotes,
-    /// and a group between braces. Panics when unknown isn't fields, as a reader's Skip keeps them.
+    /// its number, a 4-byte or 8-byte value in hex, a length-delimited one as bytes in quotes, and
+    /// a group between braces. Panics when `unknown` isn't fields, as a reader's Skip keeps them.
     @PanicsAtCaller
     Public Method WriteUnknown(unknown: UInt8[])
         If unknown.Count == 0 Then Return

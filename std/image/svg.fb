@@ -16,7 +16,7 @@ Public Class Svg
         State = state
     End New
 
-    /// The SVG in text. Throws an IOError of INVALID_DATA when the text isn't an SVG, or is one
+    /// The SVG in `text`. Throws an IOError of INVALID_DATA when the `text` isn't an SVG, or is one
     /// without a size, by its width and height or its viewBox.
     Public Static Method Parse(text: String): Svg Throws IOError
         Local state = fb_svg_parse(text)
@@ -37,8 +37,8 @@ Public Class Svg
         Get => fb_svg_height(State)
     End Property
 
-    /// It drawn at `scale`, in an image of its size times the scale, each side rounded up. Panics
-    /// when the scale isn't above 0, or the image would have more pixels than an Image holds.
+    /// It drawn at `scale`, in an image of its size times the `scale`, each side rounded up. Panics
+    /// when the `scale` isn't above 0, or the image would have more pixels than an Image holds.
     @PanicsAtCaller
     Public Method Rasterize(scale: Double = 1): Image
         If !(scale > 0) Then Panic("an SVG is drawn at a scale above 0, not {scale}")
@@ -51,7 +51,7 @@ Public Class Svg
         Return Drawn(width As Int, height As Int, scale, 0, 0)
     End Method
 
-    /// It drawn as large as it fits in an image of width by height, in the middle of it. Panics
+    /// It drawn as large as it fits in an image of `width` by `height`, in the middle of it. Panics
     /// when the size is one an Image can't be.
     @PanicsAtCaller
     Public Method Rasterize(width: Int, height: Int): Image

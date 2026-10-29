@@ -63,14 +63,14 @@ Public Shared Class LogOutput
     Field Chosen: Mutex<LogFilter>
     Field Sinks: Mutex<ImmutableArray<Sendable Func(LogRecord)>>
 
-    /// An output with no sinks, whose filter is filter.
+    /// An output with no sinks, whose filter is `filter`.
     Public New(filter: LogFilter)
         Lock Chosen As chosen
             chosen = filter
         End Lock
     End New
 
-    /// Adds sink, which each line written after this goes to, after the sinks added before it.
+    /// Adds `sink`, which each line written after this goes to, after the sinks added before it.
     Public Method Add(sink: Sendable Func(LogRecord))
         Lock Sinks As sinks
             sinks = sinks.Add(sink)
@@ -98,10 +98,10 @@ Public Shared Class LogOutput
         End Set
     End Property
 
-    /// Whether its filter writes a line at level for module.
+    /// Whether its filter writes a line at `level` for `module`.
     Public Method Allows(module: String, level: LogLevel): Bool => Filter.Allows(module, level)
 
-    /// Gives record to each sink, if its filter writes it. The sinks are called outside the lock,
+    /// Gives `record` to each sink, if its filter writes it. The sinks are called outside the lock,
     /// so one can log, or add a sink, which the next line goes to.
     Public Method Write(record: LogRecord)
         If !Allows(record.Module, record.Level) Then Return

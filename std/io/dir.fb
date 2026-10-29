@@ -109,7 +109,7 @@ Public Struct Dir
                             path)) == 1
     End Method
 
-    /// Whether there's a folder at the path, or a link to one. One the program can't look at
+    /// Whether there's a folder at the `path`, or a link to one. One the program can't look at
     /// isn't there, as far as it can tell.
     Public Static Method Exists(path: Path): Bool
         Local request = Request()
@@ -155,14 +155,14 @@ Public Struct Dir
     End Method
 
     /// What's in the folder, and in the folders in it, whose path from it matches `pattern`, in
-    /// Walk's order. The pattern's names go between '/'s, and '\'s too by Windows' rules, each
-    /// matching one name in the path: '*' matches any run of characters in a name, '?' any one
+    /// Walk's order. The `pattern`'s names go between '/'s, and '\'s too by Windows' rules, each
+    /// matching one name in the `path`: '*' matches any run of characters in a name, '?' any one
     /// character, and `[abc]`, `[a-z]`, and `[!abc]` one character of or not of those; a name
     /// that's just "**" matches any number of folders, none too, and last, everything below,
     /// files too, and the folder before it. So "*.png" matches the folder's PNGs, and "**/*.png"
     /// every PNG in it. A '[' with no ']' after it is just itself, and a pattern with no names
     /// matches nothing. Names match exactly, in the same case, on every OS. Only the folders the
-    /// pattern can reach into are listed.
+    /// `pattern` can reach into are listed.
     Public Static Method Glob(path: Path, pattern: String): DirEntry[] Throws IOError
         Local names = PatternNames(pattern, path.Style == PathStyle.WINDOWS)
         If names.Count == 0 Then Return []

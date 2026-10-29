@@ -45,9 +45,9 @@ Public Struct Tar
     New()
     End New
 
-    /// A reader of the tar in data, or in the data decompressed when it starts as Gzip's, Zstd's,
-    /// XZ's, or LZ4's does, which it copies, or an IOError when it isn't a tar, or its compression
-    /// is broken. A decompressed tar holds no more bytes than an array does.
+    /// A reader of the tar in `data`, or in the `data` decompressed when it starts as Gzip's,
+    /// Zstd's, XZ's, or LZ4's does, which it copies, or an IOError when it isn't a tar, or its
+    /// compression is broken. A decompressed tar holds no more bytes than an array does.
     Public Static Method Read(data: UInt8[]): TarReader Throws IOError
         Return Try Opened(Try Unwrapped(data))
     End Method
@@ -63,9 +63,9 @@ Public Class TarWriter
         State = fb_tar_writer_new()
     End New
 
-    /// Adds a file named name of data, last changed at modified, or at 1970's start when that's
-    /// Null, and with mode, or 644 when that's Null. Panics when the mode isn't from 0 to 0o7777,
-    /// or when the name is "", holds a NUL, or ends with '/', as a folder's does.
+    /// Adds a file named `name` of `data`, last changed at `modified`, or at 1970's start when
+    /// that's Null, and with `mode`, or 644 when that's Null. Panics when the `mode` isn't from 0
+    /// to 0o7777, or when the `name` is "", holds a NUL, or ends with '/', as a folder's does.
     @PanicsAtCaller
     Public Method Add(name: String, data: UInt8[], modified: Timestamp? = Null, mode: Int? = Null)
         CheckFileName(name, MOST_BYTES, "tar")
@@ -73,9 +73,9 @@ Public Class TarWriter
         Added(name, data, 0, modified, mode)
     End Method
 
-    /// Adds a folder named name, with '/' after it unless it has one, last changed at modified, as
-    /// Add's are, with mode, or 755 when that's Null. Panics when the mode isn't from 0 to 0o7777,
-    /// or when the name is "" or holds a NUL.
+    /// Adds a folder named `name`, with '/' after it unless it has one, last changed at `modified`,
+    /// as Add's are, with `mode`, or 755 when that's Null. Panics when the `mode` isn't from 0 to
+    /// 0o7777, or when the `name` is "" or holds a NUL.
     @PanicsAtCaller
     Public Method AddFolder(name: String, modified: Timestamp? = Null, mode: Int? = Null)
         CheckName(name, MOST_BYTES, "tar")
@@ -168,7 +168,7 @@ Public Class TarReader
         Get => List.Count
     End Property
 
-    /// The entry named name, the last of them when there are several, or Null when there's none.
+    /// The entry named `name`, the last of them when there are several, or Null when there's none.
     Public Method Find(name: String): ArchiveEntry?
         Local index = LastNamed(List, name)
         If index < 0 Then Return Null
@@ -178,7 +178,7 @@ Public Class TarReader
     /// Whether it has an entry named `name`.
     Public Method Contains(name: String): Bool => LastNamed(List, name) >= 0
 
-    /// The bytes of the entry named name, the last of them when there are several, or Null when
+    /// The bytes of the entry named `name`, the last of them when there are several, or Null when
     /// there's none, as ReadAt gives them.
     Public Method Read(name: String): UInt8[]? Throws IOError
         Local index = LastNamed(List, name)
@@ -186,9 +186,9 @@ Public Class TarReader
         Return Try ReadAt(index)
     End Method
 
-    /// The bytes of the entry at index, which are none for a folder or a link, or an IOError when
-    /// they're broken, or are a GNU sparse file's, which isn't supported. Panics when the index is
-    /// out of range.
+    /// The bytes of the entry at `index`, which are none for a folder or a link, or an IOError when
+    /// they're broken, or are a GNU sparse file's, which isn't supported. Panics when the `index`
+    /// is out of range.
     @PanicsAtCaller
     Public Method ReadAt(index: Int): UInt8[] Throws IOError
         If index < 0 || index >= List.Count

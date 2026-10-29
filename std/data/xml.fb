@@ -32,7 +32,7 @@ Public Class XmlNode Implements Printable
     /// Its number in the document's order, which XmlPath's Query gives it.
     Package Field Mark: Int
 
-    /// A new element named name. Panics when name isn't an XML name.
+    /// A new element named `name`. Panics when `name` isn't an XML `name`.
     @PanicsAtCaller
     Public New(name: String)
         CheckName(name)
@@ -49,16 +49,16 @@ Public Class XmlNode Implements Printable
         Attributes = {}
     End New
 
-    /// A node of text.
+    /// A node of `text`.
     Public Static Method NewText(text: String): XmlNode => XmlNode(XmlKind.TEXT, "", text)
 
-    /// A CDATA section of text.
+    /// A CDATA section of `text`.
     Public Static Method NewCData(text: String): XmlNode => XmlNode(XmlKind.CDATA, "", text)
 
-    /// A comment of text.
+    /// A comment of `text`.
     Public Static Method NewComment(text: String): XmlNode => XmlNode(XmlKind.COMMENT, "", text)
 
-    /// A processing instruction for target. Panics when target isn't an XML name.
+    /// A processing instruction for `target`. Panics when `target` isn't an XML name.
     @PanicsAtCaller
     Public Static Method NewInstruction(target: String, text: String): XmlNode
         CheckName(target)
@@ -76,18 +76,18 @@ Public Class XmlNode Implements Printable
         End Get
     End Property
 
-    /// An element's attribute's value, or Null when it has none of that name.
+    /// An element's attribute's value, or Null when it has none of that `name`.
     Public Method Attribute(name: String): String? => Attributes.Get(name)
 
-    /// Gives an element's attribute a value, adding it at the end when it's new. Panics when name
-    /// isn't an XML name.
+    /// Gives an element's attribute a value, adding it at the end when it's new. Panics when `name`
+    /// isn't an XML `name`.
     @PanicsAtCaller
     Public Method SetAttribute(name: String, value: String)
         CheckName(name)
         Attributes[name] = value
     End Method
 
-    /// An element's first child element named name, or Null.
+    /// An element's first child element named `name`, or Null.
     Public Method Element(name: String): XmlNode?
         For child In Children
             If child.Kind == XmlKind.ELEMENT && child.Name == name Then Return child
@@ -95,7 +95,7 @@ Public Class XmlNode Implements Printable
         Return Null
     End Method
 
-    /// An element's child elements, in order, or those named name when it isn't "".
+    /// An element's child elements, in order, or those named `name` when it isn't "".
     Public Method Elements(name: String = ""): XmlNode[]
         Local found: XmlNode[] = []
         For child In Children
@@ -104,27 +104,27 @@ Public Class XmlNode Implements Printable
         Return found
     End Method
 
-    /// Adds child at the end of an element's children, and gives it.
+    /// Adds `child` at the end of an element's children, and gives it.
     Public Method Add(child: XmlNode): XmlNode
         Children.Add(child)
         Return child
     End Method
 
-    /// Adds a new element named name, and gives it. Panics when name isn't an XML name.
+    /// Adds a new element named `name`, and gives it. Panics when `name` isn't an XML `name`.
     @PanicsAtCaller
     Public Method AddElement(name: String): XmlNode => Add(XmlNode(name))
 
-    /// Adds text at the end of an element's children.
+    /// Adds `text` at the end of an element's children.
     Public Method AddText(text: String)
         Children.Add(XmlNode.NewText(text))
     End Method
 
-    /// The nodes path selects, from this one, in the document's order: XmlPath's subset of XPath
-    /// 1.0. Panics when path isn't one XmlPath reads.
+    /// The nodes `path` selects, from this one, in the document's order: XmlPath's subset of XPath
+    /// 1.0. Panics when `path` isn't one XmlPath reads.
     @PanicsAtCaller
     Public Method Query(path: String): XmlNode[] => XmlPath(path).Query(Self)
 
-    /// The first node path selects, or Null when it selects none. Panics as Query does.
+    /// The first node `path` selects, or Null when it selects none. Panics as Query does.
     @PanicsAtCaller
     Public Method QueryFirst(path: String): XmlNode?
         Local found = XmlPath(path).Query(Self)
@@ -189,7 +189,7 @@ Public Struct Xml
     New()
     End New
 
-    /// The root element of the document text holds, its text, CDATA, comments, and processing
+    /// The root element of the document `text` holds, its text, CDATA, comments, and processing
     /// instructions its nodes; those outside it are left out. Throws a ParseError as XmlReader's
     /// Next does.
     Public Static Method Read(text: String): XmlNode Throws ParseError
@@ -239,10 +239,10 @@ Public Struct Xml
         Return root.Expect("XmlReader gives a document's root element")
     End Method
 
-    /// root as an XML document, the XML declaration first when declaration says so. An indent
+    /// `root` as an XML document, the XML `declaration` first when `declaration` says so. An indent
     /// above 0 puts each element on a line of its own, that many spaces in for each element it's
     /// in, but for what's in an element that holds text, whose spaces are its own, so what's
-    /// written reads back as the same tree. Panics when root isn't an element, or a node holds
+    /// written reads back as the same tree. Panics when `root` isn't an element, or a node holds
     /// what XML can't, as XmlWriter's Methods say.
     @PanicsAtCaller
     Public Static Method Write(root: XmlNode, indent: Int = 2, declaration: Bool = True): String
@@ -312,9 +312,9 @@ Public Struct Xml
         End Select
     End Method
 
-    /// element as a Value: an Object of its attributes, with '@' before their names, and its child
-    /// elements, by name, an Array of those of a name that comes more than once, and "#text" for
-    /// its text when it isn't only spaces; or its text, a String, when it has no attributes or
+    /// `element` as a Value: an Object of its attributes, with '@' before their names, and its
+    /// child elements, by name, an Array of those of a name that comes more than once, and "#text"
+    /// for its text when it isn't only spaces; or its text, a String, when it has no attributes or
     /// child elements. Comments and processing instructions are left out.
     Public Static Method ToValue(element: XmlNode): Value
         If IsLeaf(element) Then Return Value(element.Text)
@@ -375,12 +375,12 @@ Public Struct Xml
         Return True
     End Method
 
-    /// A new element named name of value, as ToValue gives a Value: an Object's keys with '@'
+    /// A new element named `name` of `value`, as ToValue gives a Value: an Object's keys with '@'
     /// before them its attributes, "#text" its text, and the rest its child elements, an Array's
-    /// items each a child of its key's name; another Value its text, an integer's, a Double's, or a
-    /// Bool's as its text, and Null's none. Panics when name or a key isn't an XML name, an
-    /// attribute's value or "#text" is an Array or an Object, an Array's item is an Array, or
-    /// value is an Array.
+    /// items each a child of its key's `name`; another Value its text, an integer's, a Double's, or
+    /// a Bool's as its text, and Null's none. Panics when `name` or a key isn't an XML `name`, an
+    /// attribute's `value` or "#text" is an Array or an Object, an Array's item is an Array, or
+    /// `value` is an Array.
     @PanicsAtCaller
     Public Static Method FromValue(name: String, value: Value): XmlNode
         If value.Kind == ValueKind.ARRAY
@@ -479,7 +479,7 @@ Public Class XmlWriter
     Package Field Loose: Bool
 
     /// A writer that indents each element that many spaces for each it's in, or writes them on
-    /// one line for 0. Panics when indent is negative.
+    /// one line for 0. Panics when `indent` is negative.
     @PanicsAtCaller
     Public New(indent: Int = 0)
         If indent < 0 Then Panic("an indent can't be negative, like {indent}")
@@ -494,8 +494,8 @@ Public Class XmlWriter
         AddText(Out, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
     End Method
 
-    /// Starts an element named name. Panics when name isn't an XML name, or the root element has
-    /// ended.
+    /// Starts an element named `name`. Panics when `name` isn't an XML `name`, or the root element
+    /// has ended.
     @PanicsAtCaller
     Public Method StartElement(name: String)
         CheckName(name)
@@ -511,9 +511,9 @@ Public Class XmlWriter
         Named.Clear()
     End Method
 
-    /// Gives the element just started an attribute. Panics when name isn't an XML name, it isn't
-    /// right after the start or another attribute, the element has an attribute of that name
-    /// already, or value holds a character XML hasn't got.
+    /// Gives the element just started an attribute. Panics when `name` isn't an XML `name`, it
+    /// isn't right after the start or another attribute, the element has an attribute of that
+    /// `name` already, or `value` holds a character XML hasn't got.
     @PanicsAtCaller
     Public Method Attribute(name: String, value: String)
         CheckName(name)
@@ -554,7 +554,7 @@ Public Class XmlWriter
         Out.Add(34)
     End Method
 
-    /// Writes text in the open element. Panics outside one, or when text holds a character XML
+    /// Writes `text` in the open element. Panics outside one, or when `text` holds a character XML
     /// hasn't got.
     @PanicsAtCaller
     Public Method Text(text: String)
@@ -578,8 +578,8 @@ Public Class XmlWriter
         End For
     End Method
 
-    /// Writes a CDATA section of text in the open element, one more each time text holds "]]>",
-    /// whose "]]" ends one and '>' starts the next. Panics outside an element, or when text holds
+    /// Writes a CDATA section of `text` in the open element, one more each time `text` holds "]]>",
+    /// whose "]]" ends one and '>' starts the next. Panics outside an element, or when `text` holds
     /// a character XML hasn't got.
     @PanicsAtCaller
     Public Method CData(text: String)
@@ -603,7 +603,7 @@ Public Class XmlWriter
         AddText(Out, "]]>")
     End Method
 
-    /// Writes a comment. Panics when text holds "--", ends with '-', or holds a character XML
+    /// Writes a comment. Panics when `text` holds "--", ends with '-', or holds a character XML
     /// hasn't got.
     @PanicsAtCaller
     Public Method Comment(text: String)
@@ -619,7 +619,7 @@ Public Class XmlWriter
         AddText(Out, "-->")
     End Method
 
-    /// Writes a processing instruction. Panics when target isn't an XML name or is xml, or text
+    /// Writes a processing instruction. Panics when `target` isn't an XML name or is xml, or `text`
     /// holds "?>" or a character XML hasn't got.
     @PanicsAtCaller
     Public Method Instruction(target: String, text: String)

@@ -34,7 +34,8 @@ Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
         Get => Size.Load()
     End Property
 
-    /// Puts value at the back. Panics when the ConcurrentQueue has as many values as an Int counts.
+    /// Puts `value` at the back. Panics when the ConcurrentQueue has as many values as an Int
+    /// counts.
     @PanicsAtCaller
     Public Method Enqueue(value: T)
         Lock Values As values
@@ -52,7 +53,8 @@ Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
         Enqueue(value)
     End Method
 
-    /// Enqueues each of the values, in order, all read first. Other threads' may come between them.
+    /// Enqueues each of the `values`, in order, all read first. Other threads' may come between
+    /// them.
     @PanicsAtCaller
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()

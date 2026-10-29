@@ -8,8 +8,8 @@ Import std.collections.map
 Import std.collections.set
 
 Extend T[]
-    /// The elements from start up to finish, without the one at finish, as a view of them in the
-    /// array. They have to be in the array.
+    /// The elements from `start` up to `finish`, without the one at `finish`, as a view of them in
+    /// the array. They have to be in the array.
     @PanicsAtCaller
     Public Method View(start: Int, finish: Int): ArrayView<T>
         If start < 0 || finish < start || finish > Count
@@ -64,7 +64,7 @@ Public Class ArrayView<T> Implements Iterable<T>
         Items[Place(index)] = value
     End Operator
 
-    /// Part of this view, from start up to finish, without the one at finish.
+    /// Part of this view, from `start` up to `finish`, without the one at `finish`.
     @PanicsAtCaller
     Public Method View(start: Int, finish: Int): ArrayView<T>
         If start < 0 || finish < start || finish > Length

@@ -47,7 +47,7 @@ Public Interface Writer
         Try Flush()
     End Method
 
-    /// Writes the bytes.
+    /// Writes the `bytes`.
     Final Method WriteBytes(bytes: UInt8[]) Throws IOError
         Try Write(Buffer<UInt8>.From(bytes))
     End Method
