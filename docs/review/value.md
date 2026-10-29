@@ -229,7 +229,7 @@ Skeptic: Ran c5.fb: both builds print {"blob": <01ff>} [blob] True. Keys() and C
 
 ## core-7 (low): milestones.md still puts Value in step 19's std.data I and has no row for std.core's Value
 
-Status: handed over: milestones.md and decisions.md are the coordinator's. Row 19's `Value` belongs to step 17 (std.core's Value, with Load<T> and Save<T>), and decisions.md needs the 2026-10-23 call, one dynamic Value in std.core with built-in Load<T> and Save<T>; lane4-value.md has the row's text
+Status: fixed: milestones.md's row 17 is std.core's Value, with Load<T> and Save<T>, row 19 builds JSON over it, and decisions.md has the 2026-10-23 call (M6's coordinator, checked in M7 step 7)
 
 Where: docs/milestones.md:187
 

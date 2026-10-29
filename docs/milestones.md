@@ -17,7 +17,7 @@ Timeline: honors project begins **fall 2027**, so there is plenty of runway.
 | **M4** | Concurrency: Sendable checks, tasks, `Parallel For`, async/coroutines, channels, Mutex/Atomic | a parallel job and an async chain run correctly |
 | **M5** | Modules, packages, `project.toml`, FFI, bindgen | calls a C library through generated bindings |
 | **M6** | Full standard library | `std.*` complete, with tests |
-| **M7** | Libraries and packages: FutureBlitz libraries built into the executable or shipped beside it as the OS's own DLLs, interface files, plugins, prebuilt native code in packages | an FB program uses one prebuilt FB library embedded and another beside it, loads a plugin, and calls a C++ DLL from a package |
+| **M7** | Libraries and packages: FutureBlitz libraries built into the executable or shipped beside it as the OS's own DLLs, interface files, prebuilt native code in packages | an FB program uses one prebuilt FB library embedded and another beside it, and calls a C++ DLL from a package |
 | **M8** | Tooling: LSP, VS Code extension, formatter, test runner, package manager | daily-driving FutureBlitz in an editor feels good |
 | **M9** | futureblitz.dev: the site, docs, playground, package registry, and accounts, on Cloudflare ([website.md](website.md)) | the site, docs, registry, accounts, and playground are live, and `fb publish` and `fb add` use them |
 
@@ -269,6 +269,7 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | A fix-it for a miscased keyword, like `if` for `If`, and `///` doc comments | M1 | M8 |
 | Stack traces for panics, which need debug info | M1 | open question |
 | A Float range, like `0.0 To 1.0 Step 0.1`, which a For loop counts but a range doesn't | M6 step 2 | open question |
+| Plugins and loading libraries at run time, `Plugin.Load` and `DynamicLibrary`, which game mods would use (the user's call, 2026-10-28) | M7 | open question |
 
 ## Process
 

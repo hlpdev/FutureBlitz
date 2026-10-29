@@ -1,0 +1,9 @@
+# M7's done-when: a library over the engine package's C++ DLL, which a program has beside it,
+# prebuilt.
+[project]
+name = "arena"
+version = "0.1.0"
+type = "library"
+
+[dependencies]
+engine = { path = "../engine" }

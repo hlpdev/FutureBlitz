@@ -3108,3 +3108,51 @@ TEST_CASE("fb names what keeps a library beside the executable from building or 
         CHECK(fb::run_process(link, none).value_or(fb::process_result_t{}).output == "tool 3\n");
     }
 }
+
+TEST_CASE("M7's program embeds one prebuilt library and has another beside it, over a C++ DLL",
+          "[cli]") {
+    // tests/packages' physics and arena, prebuilt, and the engine package with its DLL.
+    const std::filesystem::path packages = std::filesystem::path(FB_TEST_OUTPUT) / "m7_packages";
+    std::filesystem::remove_all(packages);
+    std::filesystem::create_directories(packages);
+    for (const std::string_view name : { "physics", "engine", "arena", "space" }) {
+        std::filesystem::copy(std::filesystem::path(FB_TEST_PACKAGES) / name, packages / name,
+                              std::filesystem::copy_options::recursive);
+    }
+
+    const std::filesystem::path native =
+        packages / "engine/native" / fb::path_from_utf8(fb::build_target());
+    std::filesystem::create_directories(native);
+    for (const std::filesystem::path file :
+         { std::filesystem::path(FB_TEST_ENGINE), std::filesystem::path(FB_TEST_ENGINE_LINKED) }) {
+        std::filesystem::copy_file(file, native / file.filename(),
+                                   std::filesystem::copy_options::skip_existing);
+    }
+
+    prebuild(packages, "physics");
+    prebuild(packages, "arena");
+    const fb::process_result_t built = fb_run({ "build", fb::to_utf8(packages / "space") });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+    CHECK(built.output.contains(
+        std::format("Built {} beside the executable, which needs it\n", library_file("arena"))));
+
+    // It needs only its two files beside it and the OS's own libraries, and runs from its build
+    // folder.
+    std::filesystem::path space = packages / "space/build/space";
+    space += fb::executable_extension;
+    const std::filesystem::path engine(FB_TEST_ENGINE);
+    CHECK(std::filesystem::is_regular_file(space.parent_path() / library_file("arena")));
+    CHECK(std::filesystem::is_regular_file(space.parent_path() / engine.filename()));
+    std::vector<std::string> libraries = loaded_libraries(space);
+    std::erase_if(libraries, [](const std::string& name) { return name.contains("engine"); });
+    CHECK(std::ranges::all_of(libraries, is_system_library));
+    const std::expected<fb::process_result_t, std::string> ran = fb::run_process(space, {}, "");
+    REQUIRE(ran);
+    INFO(ran->output);
+    CHECK(ran->exit_code == 0);
+    std::ifstream file(std::filesystem::path(FB_TEST_PACKAGES) / "space.out", std::ios::binary);
+    const std::string expected{ std::istreambuf_iterator<char>(file),
+                                std::istreambuf_iterator<char>() };
+    CHECK(ran->output == expected);
+}

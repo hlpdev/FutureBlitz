@@ -1,0 +1,40 @@
+// A game's arena over the stand-in engine, whose errors it says as text.
+
+Import std.core
+Import engine
+
+Public Class Arena
+    Field world: World
+    Field drops: Int = 0
+
+    Public New(name: String)
+        world = World(name)
+    End New
+
+    // A rock falling from `x`, `y`, or -1 where the engine won't have one.
+    Public Method Drop(x: Float32, y: Float32): Int32
+        Try
+            drops += 1
+            Return world.Spawn(Shape.Circle, Point(x, y), Point(4.0, -10.0))
+        Catch e As EngineError
+            Print("no rock: {e.Message}")
+            Return -1
+        End Try
+    End Method
+
+    Public Method Run(seconds: Float32, steps: Int)
+        For i = 1 To steps
+            world.Step(seconds)
+        End For
+    End Method
+
+    Public Method Place(body: Int32): String
+        Try
+            Return "{world.Position(body)}"
+        Catch e As EngineError
+            Return e.Message
+        End Try
+    End Method
+
+    Public Method Describe(): String => "{world.Name}: {world.Count} bodies from {drops} drops"
+End Class

@@ -1,0 +1,20 @@
+// M7's done-when program: physics links into the executable, arena is a file beside it, and the
+// engine's DLL is beside it too, which arena calls.
+
+Import std.core
+Import physics
+Import arena
+
+Local ship = Body(Vec(0.0, 0.0), Vec(2.0, 1.0))
+ship.Step(1.5)
+Print("ship at {ship.position.x}, {ship.position.y}")
+
+Local field = Arena("field")
+Local rock = field.Drop(10.0, 50.0)
+Local stray = field.Drop(150.0, 50.0)
+field.Run(0.5, 4)
+Print("rock at {field.Place(rock)}")
+Print(field.Place(7))
+Print(field.Describe())
+// A Task runs the arena's code on another thread.
+Print(Spawn(Function() => Arena("task").Describe()).Wait())

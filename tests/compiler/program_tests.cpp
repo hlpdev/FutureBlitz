@@ -280,6 +280,38 @@ std::filesystem::path staged_packages() {
         }
     }
 
+    // A library that a project.toml names as "../<name>-prebuilt" is built, in debug, into
+    // <name>-prebuilt, with its project.toml, as a prebuilt package ships.
+    std::string manifests;
+    std::vector<std::filesystem::path> folders;
+    for (const std::filesystem::directory_entry& entry :
+         std::filesystem::directory_iterator(packages)) {
+        manifests += read_file(entry.path() / "project.toml");
+        folders.push_back(entry.path());
+    }
+
+    for (const std::filesystem::path& folder : folders) {
+        const std::string name = fb::to_utf8(folder.filename());
+        if (!manifests.contains(std::format("\"../{}-prebuilt\"", name))) {
+            continue;
+        }
+
+        const std::expected<fb::compilation_t, std::string> compiled = fb::compile_file(folder);
+        REQUIRE(compiled);
+        fb::diagnostic_bag_t diagnostics;
+        const std::expected<fb::library_build_t, std::string> built =
+            fb::build_library(*compiled, fb::build_mode_t::DEBUG, diagnostics);
+        INFO((built ? std::string() : built.error()));
+        REQUIRE(built);
+        const std::filesystem::path prebuilt = packages / std::format("{}-prebuilt", name);
+        const std::filesystem::path lib =
+            prebuilt / "lib" / fb::path_from_utf8(fb::build_target()) / "debug";
+        std::filesystem::create_directories(lib);
+        std::filesystem::copy_file(folder / "project.toml", prebuilt / "project.toml");
+        std::ofstream(lib / (name + ".fbi"), std::ios::binary) << built->interface;
+        std::ofstream(lib / (name + ".fblib"), std::ios::binary) << built->binary;
+    }
+
     return packages;
 }
 

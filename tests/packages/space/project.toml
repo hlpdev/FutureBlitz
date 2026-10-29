@@ -1,0 +1,9 @@
+# M7's done-when: a program that embeds a prebuilt library, physics, and has another beside it,
+# arena, prebuilt too, which calls the stand-in engine, a C++ DLL from its package.
+[project]
+name = "space"
+version = "0.1.0"
+
+[dependencies]
+physics = { path = "../physics-prebuilt" }
+arena = { path = "../arena-prebuilt", link = "beside" }
