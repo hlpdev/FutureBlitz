@@ -87,17 +87,22 @@ public:
     environment_variable_t(environment_variable_t&&) = delete;
     environment_variable_t& operator=(environment_variable_t&&) = delete;
 
+    // Putting it back is best effort.
     ~environment_variable_t() {
+        try {
 #ifdef _WIN32
-        _wputenv_s(fb::path_from_utf8(m_name).wstring().c_str(),
-                   fb::path_from_utf8(m_old.value_or("")).wstring().c_str());
+            _wputenv_s(fb::path_from_utf8(m_name).wstring().c_str(),
+                       fb::path_from_utf8(m_old.value_or("")).wstring().c_str());
 #else
-        if (m_old) {
-            setenv(m_name.c_str(), m_old->c_str(), 1);
-        } else {
-            unsetenv(m_name.c_str());
-        }
+            if (m_old) {
+                setenv(m_name.c_str(), m_old->c_str(), 1);
+            } else {
+                unsetenv(m_name.c_str());
+            }
 #endif
+        } catch (...) {
+            return;
+        }
     }
 
 private:
@@ -582,7 +587,8 @@ TEST_CASE("std.text links utf8proc only where a program needs Unicode's data", "
     CHECK(linked.output.contains(std::format("     Bundled utf8proc {}, under the MIT license and "
                                              "the Unicode license; ship its notices with the "
                                              "program: {}\n",
-                                             utf8proc->version, fb::to_utf8(notice_file(*utf8proc)))));
+                                             utf8proc->version,
+                                             fb::to_utf8(notice_file(*utf8proc)))));
     std::ifstream file(notice_file(*utf8proc), std::ios::binary);
     const std::string notices{ std::istreambuf_iterator<char>(file), {} };
     CHECK(notices.contains("Steven G. Johnson"));
@@ -2453,11 +2459,12 @@ TEST_CASE("fb links with its own lld, with no C++ compiler on PATH", "[cli]") {
     std::filesystem::remove_all(folder);
     std::filesystem::create_directories(folder / "empty");
     const std::filesystem::path text = folder / "linked.txt";
-    const std::filesystem::path source = write_source(
-        "no_tools/files.fb", std::format("Import std.core\nImport std.io\n"
-                                         "Try File.WriteText(Path(\"{0}\"), \"linked\")\n"
-                                         "Print(Try File.ReadText(Path(\"{0}\")))\n",
-                                         fb::to_utf8(std::filesystem::path(text.generic_string()))));
+    const std::filesystem::path source =
+        write_source("no_tools/files.fb",
+                     std::format("Import std.core\nImport std.io\n"
+                                 "Try File.WriteText(Path(\"{0}\"), \"linked\")\n"
+                                 "Print(Try File.ReadText(Path(\"{0}\")))\n",
+                                 fb::to_utf8(std::filesystem::path(text.generic_string()))));
     // Outside Windows, whose names can't have them, the linker's arguments keep a quote and a
     // backslash.
 #ifdef _WIN32

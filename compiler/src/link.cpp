@@ -168,8 +168,12 @@ std::expected<std::vector<std::string>, std::string> start_arguments(const outpu
     // MinGW-w64's, with everything static.
     arguments = { "-m", "i386pep", "-Bstatic" };
     if (library) {
-        arguments.insert(arguments.end(), { "--shared", "-e", "DllMainCRTStartup",
-                                            "--enable-auto-image-base" });
+        arguments.insert(arguments.end(), {
+                                              "--shared",
+                                              "-e",
+                                              "DllMainCRTStartup",
+                                              "--enable-auto-image-base",
+                                          });
     }
 
     arguments.push_back(piece(library ? "dllcrt2.o" : "crt2.o"));
@@ -224,10 +228,26 @@ void finish_arguments(const output_kind_t kind, std::vector<std::string>& argume
 #ifdef _WIN32
     // As GCC links them, with UCRT, the current C runtime, which MinGW's static winpthread
     // needs.
-    for (const std::string_view library :
-         { "stdc++", "mingw32", "gcc", "gcc_eh", "mingwex", "ucrt", "kernel32", "pthread",
-           "advapi32", "shell32", "user32", "kernel32", "mingw32", "gcc", "gcc_eh", "mingwex",
-           "ucrt", "kernel32" }) {
+    for (const std::string_view library : {
+             "stdc++",
+             "mingw32",
+             "gcc",
+             "gcc_eh",
+             "mingwex",
+             "ucrt",
+             "kernel32",
+             "pthread",
+             "advapi32",
+             "shell32",
+             "user32",
+             "kernel32",
+             "mingw32",
+             "gcc",
+             "gcc_eh",
+             "mingwex",
+             "ucrt",
+             "kernel32",
+         }) {
         arguments.push_back(std::format("-l{}", library));
     }
 
@@ -329,11 +349,18 @@ void link_dynamic(const native_libraries_t& natives, link_folder_t& folder,
 /// The folders a Linux system keeps its libraries in, after the toolchain's own.
 constexpr auto system_folders = std::to_array<std::string_view>({
 #ifdef __aarch64__
-    "/usr/local/lib", "/usr/lib/aarch64-linux-gnu", "/lib/aarch64-linux-gnu",
+    "/usr/local/lib",
+    "/usr/lib/aarch64-linux-gnu",
+    "/lib/aarch64-linux-gnu",
 #else
-    "/usr/local/lib", "/usr/lib/x86_64-linux-gnu", "/lib/x86_64-linux-gnu",
+    "/usr/local/lib",
+    "/usr/lib/x86_64-linux-gnu",
+    "/lib/x86_64-linux-gnu",
 #endif
-    "/usr/lib64", "/lib64", "/usr/lib", "/lib",
+    "/usr/lib64",
+    "/lib64",
+    "/usr/lib",
+    "/lib",
 });
 
 #endif
@@ -365,19 +392,19 @@ void link_system(const native_libraries_t& natives, std::vector<std::string>& ar
 
 /// The option by which the OS finds a library's dynamic natives beside it, where it has any.
 /// Windows looks there anyway.
-void find_beside(const native_libraries_t& natives, std::vector<std::string>& arguments) {
+std::vector<std::string> find_beside(const native_libraries_t& natives) {
 #ifdef _WIN32
     (void)natives;
-    (void)arguments;
+    return {};
 #else
     if (natives.dynamic.empty()) {
-        return;
+        return {};
     }
 
 #ifdef __APPLE__
-    arguments.insert(arguments.end(), { "-rpath", "@loader_path" });
+    return { "-rpath", "@loader_path" };
 #else
-    arguments.insert(arguments.end(), { "-rpath", "$ORIGIN" });
+    return { "-rpath", "$ORIGIN" };
 #endif
 #endif
 }
@@ -448,7 +475,7 @@ std::expected<void, std::string> link_program(const std::span<const std::filesys
     }
 
     link_system(natives, arguments);
-    find_beside(natives, arguments);
+    std::ranges::move(find_beside(natives), std::back_inserter(arguments));
     // The libraries beside it take what they use from its own symbols, the runtime functions
     // they call among them, which it links for them.
     if (exports != nullptr) {
@@ -513,7 +540,7 @@ link_beside(const std::span<const std::filesystem::path> objects, const native_l
     (void)import_library;
 #endif
     link_system(natives, arguments);
-    find_beside(natives, arguments);
+    std::ranges::move(find_beside(natives), std::back_inserter(arguments));
     return run_linker(output_kind_t::LIBRARY, std::move(arguments), written, folder);
 }
 

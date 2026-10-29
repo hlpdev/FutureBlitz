@@ -54,8 +54,8 @@ TEST_CASE("the build folder's toolchain has every library the runtime and std li
           "[toolchain]") {
     const fb::toolchain_t& toolchain = fb::toolchain();
     CHECK(std::filesystem::is_regular_file(toolchain.linker));
-    CHECK(std::filesystem::is_regular_file(
-        toolchain.libraries / fb::path_from_utf8(fb::build_config::runtime_library)));
+    CHECK(std::filesystem::is_regular_file(toolchain.libraries /
+                                           fb::path_from_utf8(fb::build_config::runtime_library)));
     for (const fb::build_config::bundled_library_t& library : fb::build_config::bundled_libraries) {
         INFO(library.name);
         if (!library.runtime.empty()) {
@@ -65,7 +65,8 @@ TEST_CASE("the build folder's toolchain has every library the runtime and std li
 
         for (const auto part : std::views::split(library.archives, ';')) {
             CHECK(std::filesystem::is_regular_file(
-                toolchain.libraries / fb::path_from_utf8(std::string_view(part.begin(), part.end()))));
+                toolchain.libraries /
+                fb::path_from_utf8(std::string_view(part.begin(), part.end()))));
         }
 
         if (!library.notice.empty()) {
