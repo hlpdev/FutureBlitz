@@ -1013,6 +1013,12 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | An uncaught error's trace is the stack at its first Throw, kept beside the error until it's released (the user, 2026-10-29, M8 step 3) | simple, and it shows where the error began; a throw costs about 2.35 µs instead of 0.88 µs, 12 frames deep |
 | The program tests and verify.py compare a panic's trace only for programs whose names say "trace" (M8 step 3) | a trace names std's lines, so every other .out file would change with each edit to std |
 | Tests are `@Test` Functions anywhere in a package, left out of builds, and a tests/ folder; `Expect` is built in; one process runs them in parallel, started again after a panic (the user, 2026-10-29) | tests reach a file's Private names, and a run is fast but survives a panicking test |
+| std.test's `Expect`, `ExpectThrows`, `Fail`, and `Skip` are compiler built-ins that only a file that imports std.test has, plainly, not through From or As; a file's own Function of their names and types hides them (M8 step 7) | Expect shows a comparison's sides, and ExpectThrows takes an expression, which a Function can't |
+| `Fail` goes on after failing, as `Expect` does, and `Skip` ends its test as a Return, only in the test's own code (M8 step 7) | a test reports every failure it finds, and a Skip can't end a test from a lambda or a Defer |
+| A @Test Function takes no visibility; a tests/ folder's files use the package's dependencies too, and only its Public names (M8 step 7) | as cargo's integration tests do |
+| Leaks fail a test, only in debug builds; after a panic, a debug build runs its finished tests again to check their leaks, and Strings aren't any test's (M8 step 7) | release builds don't track objects |
+| `fb test` prints each run's results when it ends, in the tests' order; it also tests a lone .fb file; `fb check` leaves a library's tests/ folder out, as `cargo check` does without --tests (M8 step 7) | the output is the same every time |
+| A library's binary and interface file leave its tests out but keep the code only they reach (M8 step 7's review) | programs' instances of a library's generic code can call its Private Functions, so all of them are exported |
 | `///` doc comments are Markdown, Rust's way, with `[Name]` links (the user, 2026-10-29) | plain to write and read, and the site renders Markdown already |
 
 ## futureblitz.dev (M9 and M10)

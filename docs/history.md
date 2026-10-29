@@ -5,6 +5,32 @@ them while each was built. Newest first.
 
 ## M8, tooling
 
+Step 7, testing (2026-10-29, e111738b): `@Test` Functions, which take nothing and give nothing back,
+though they can throw, anywhere in a package, seeing their file's Private names, and a package's
+tests/ folder, a package of its own, `<name>.tests`, which depends on it and on what it depends on,
+so its tests use it from outside; no code uses a test, `fb build` and `fb run` leave tests out and
+globaldce the code only they reach, and a library's binary and interface file leave the tests out.
+std.test's `Expect`, which on failure says the condition as it's written and where, and a
+comparison's sides' debug forms, worked out once, and goes on; `ExpectThrows(x)` and
+`ExpectThrows<E>(x)`, which catch as Try? does and give the error; `Fail`; and `Skip`, which ends
+its test as a Return would, only in a @Test Function's own code. They're compiler built-ins that
+only a file that imports std.test has, over the runtime's `fb_test_` functions. `fb test [package]
+[--filter <name>]` builds a test executable whose main hands the runtime's runner each test; the
+runner runs them on the pool, but for those that use what only the main thread can, which run on the
+main thread, and writes each one's start, failures, and end to FB_TEST_REPORT's file, a panic's
+through a hook. fb starts the executable again after a test that panics, with FB_TEST_PLAN's file
+listing the rest, one at a time when no test is to blame, then prints each result, the failures, and
+a summary with how many were filtered out, and exits 1 on a failure. In debug builds each object
+records the test that made it, work a test starts on the pool or a Thread included, and what's left
+once the Globals are let go of is that test's leak, which fails it. Its review's 19 fixes
+(docs/review/m8-step7.md): work a test starts belongs to it wherever it runs; a panic, an early end,
+or a leak outside every test fails the run; a Global's panic shows its text; Ctrl+C stops fb test;
+another main file's top-level code and a tests/ folder with its own project.toml stay out of a test
+build; a package's own code can't import its tests/ folder; Skip without the import, ExpectThrows as
+a value, and From std.test or Import std.test As each get an error that says what to do; @Test
+Async, Const, and Unsafe each say what's wrong; and spec 09's example and its rerun rule. Doc tests
+wait for step 8's `///` comments.
+
 Step 3, debug info and stack traces (2026-10-29, 297a90f2): codegen describes the program through
 LLVM's DIBuilder, with a compile unit for each file a function is in, its functions by their
 FutureBlitz names, each statement's line from the places MIR now keeps, a lexical block for each
