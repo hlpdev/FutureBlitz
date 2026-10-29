@@ -4785,6 +4785,11 @@ emit_beside_object(const beside_binary_t& binary, const codegen_options_t& optio
                           .c_str());
     LLVMSetInitializer(built, build);
     LLVMSetGlobalConstant(built, 1);
+    // macOS binds a library's every symbol as it loads it, so one of another build that can't be
+    // bound has its record read from its file, in a section of its own.
+    if (triple.contains("apple")) {
+        LLVMSetSection(built, "__DATA,__fb_build");
+    }
 
     // A Global of another library beside the executable is in its file, and a ThreadLocal it
     // takes from the executable is each thread's own there, so each is reached through what gives
