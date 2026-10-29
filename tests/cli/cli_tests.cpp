@@ -452,6 +452,23 @@ TEST_CASE("fb new makes a package that fb runs", "[cli]") {
     INFO(empty.output);
     CHECK(empty.exit_code == 0);
     CHECK(read_file(folder / "game" / "project.toml").contains("name = \"game\""));
+
+    // A folder is named by its own name, however it's written: "dotted/." and "slashed/./" are
+    // the empty folders dotted and slashed, as `fb new .` is the one it runs in.
+    for (const auto& [written, name] : {
+             std::pair{ "dotted/.", "dotted" },
+             std::pair{ "slashed/./", "slashed" },
+         }) {
+        INFO(written);
+        std::filesystem::create_directories(folder / name);
+        const fb::process_result_t made_there =
+            fb_run({ "new", fb::to_utf8(folder) + "/" + written });
+        INFO(made_there.output);
+        CHECK(made_there.exit_code == 0);
+        CHECK(made_there.output.contains(std::format("Created package {} in", name)));
+        CHECK(
+            read_file(folder / name / "project.toml").contains(std::format("name = \"{}\"", name)));
+    }
 }
 
 TEST_CASE("fb new refuses a folder that isn't empty, and a name a package can't have", "[cli]") {
@@ -471,6 +488,30 @@ TEST_CASE("fb new refuses a folder that isn't empty, and a name a package can't 
     const fb::process_result_t file = fb_run({ "new", fb::to_utf8(folder / "file") });
     CHECK(file.exit_code == 1);
     CHECK(file.output.contains("is a file, not a folder"));
+
+    // A folder under a file can't be made, which fb new says, with why.
+    const fb::process_result_t under = fb_run({ "new", fb::to_utf8(folder / "file" / "game") });
+    INFO(under.output);
+    CHECK(under.exit_code == 1);
+    CHECK(under.output.contains(std::format("error: couldn't make the folder {}: ",
+                                            fb::to_utf8(folder / "file" / "game"))));
+
+    // A root has no name for the package to take.
+    const fb::process_result_t root = fb_run({ "new", fb::to_utf8(folder.root_path()) });
+    CHECK(root.exit_code == 2);
+    CHECK(root.output.contains("has no name, which the package would take"));
+
+#ifdef _WIN32
+    // Windows' devices' names are in every folder, though no file is.
+    for (const std::string_view device : { "con", "NUL", "Com1", "lpt9" }) {
+        INFO(device);
+        const fb::process_result_t made =
+            fb_run({ "new", std::format("{}/{}", fb::to_utf8(folder), device) });
+        CHECK(made.exit_code == 2);
+        CHECK(made.output.contains(std::format(
+            "{} is the name of a device on Windows, which a folder can't have", device)));
+    }
+#endif
 
     // Names are checked as project.toml's are.
     for (const auto& [name, message] : {
