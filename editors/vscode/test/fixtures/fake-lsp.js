@@ -1,13 +1,28 @@
 // A language server for the extension's tests, over stdio: it formats a document by putting
-// "// formatted" at its top. Run with "exit", it stops as it starts, as fb_lsp's placeholder does,
-// and with "crash", soon after.
+// "// formatted" at its top, each time it's asked, through textDocument/formatting, and through
+// textDocument/willSaveWaitUntil when initializationOptions.formatOnSave is true, as fb-lsp does.
+//
+// node fake-lsp.js [mode] [log]: mode "exit" stops as it starts, as fb-lsp's placeholder did,
+// "crash" soon after, and "hang" never answers. With a log file, it writes "start <pid>" there.
 "use strict";
 
-if (process.argv[2] === "exit") {
+const fs = require("fs");
+
+const [mode, log] = process.argv.slice(2);
+if (log !== undefined) {
+    fs.appendFileSync(log, `start ${process.pid}\n`);
+}
+
+if (mode === "exit") {
     process.exit(0);
 }
 
-const documents = new Map();
+const formatted = [
+    {
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+        newText: "// formatted\n",
+    },
+];
 let buffer = Buffer.alloc(0);
 
 function send(message) {
@@ -18,43 +33,34 @@ function send(message) {
 
 function handle(message) {
     const { id, method, params } = message;
+    if (mode === "hang") {
+        return;
+    }
+
     switch (method) {
-        case "initialize":
+        case "initialize": {
+            const onSave = params.initializationOptions?.formatOnSave === true;
             send({
                 id,
                 result: {
-                    capabilities: { textDocumentSync: 1, documentFormattingProvider: true },
+                    capabilities: {
+                        textDocumentSync: { openClose: true, change: 1, willSaveWaitUntil: onSave },
+                        documentFormattingProvider: true,
+                    },
                     serverInfo: { name: "fake-lsp" },
                 },
             });
             break;
+        }
         case "initialized":
-            // Run with "crash", it stops each time soon after it starts.
-            if (process.argv[2] === "crash") {
+            if (mode === "crash") {
                 setTimeout(() => process.exit(3), 200);
             }
             break;
-        case "textDocument/didOpen":
-            documents.set(params.textDocument.uri, params.textDocument.text);
+        case "textDocument/formatting":
+        case "textDocument/willSaveWaitUntil":
+            send({ id, result: formatted });
             break;
-        case "textDocument/didChange":
-            documents.set(params.textDocument.uri, params.contentChanges.at(-1).text);
-            break;
-        case "textDocument/formatting": {
-            const text = documents.get(params.textDocument.uri) ?? "";
-            send({
-                id,
-                result: text.startsWith("// formatted")
-                    ? []
-                    : [
-                          {
-                              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-                              newText: "// formatted\n",
-                          },
-                      ],
-            });
-            break;
-        }
         case "shutdown":
             send({ id, result: null });
             break;

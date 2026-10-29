@@ -109,62 +109,82 @@ README says how to build, test, and install it.
 
 - **The grammar** is syntaxes/futureblitz.tmLanguage.json, scope `source.futureblitz`, standalone
   JSON with no build step, so M9's Shiki loads the same file. It has the keywords as the lexer
-  has them, in their case only, the contextual ones where they're keywords (Get and Set at a
-  Property's lines, Step after a bound, Lib after Extern's convention, From before Import, Weak in
-  a capture list, Sendable before Func, and Has and Or in a For Method's Where), attributes,
-  strings with escapes, interpolation, and format specs (a `:` with no space after it, outside
-  the interpolation's brackets), raw and triple-quoted strings, Chars, numbers, `//`, nested
-  `/* */`, and `///` comments with their Markdown's code, links, and headings, #If lines and their
-  symbols, declarations' names, parameters, and types (after a declaration's `:`, As, Is,
-  Implements, Extends, Throws, and Where, and type arguments, `Name<...>` with no space before the
-  `<`), calls, members, UPPER_CASE constants, and operators. A single-line string, and an
-  interpolation in it, end with their line, as the lexer has them, so one left open doesn't color
-  the rest of the file.
+  has them, in their case only, the contextual ones where they're keywords (Get at a line's
+  start, Set(value) inside a Property, which goes to its End Property or the next member, Step
+  after a For header's or a range's To or Until, Lib after Extern's convention, From before
+  Import, Weak in a capture list, Sendable before Func, and Has and Or in a For Method's Where),
+  attributes and Attribute declarations, strings with escapes, interpolation, and format specs (a
+  `:` with no space after it, outside the interpolation's brackets), raw and triple-quoted
+  strings, Chars, numbers, `//`, nested `/* */`, and `///` comments with their Markdown's code,
+  links, and headings, #If lines and their symbols, declarations' names, parameters, and types
+  (after a declaration's `:`, a lambda's and an Operator's too, As, Is, Implements, Extends,
+  Throws, and Where, and type arguments, `Name<...>` with no space before the `<` and no `&&` in
+  them), calls, members, UPPER_CASE constants, and operators. A colon is the ternary's after its
+  spaced `?`, or at the start of a line that goes on from one, and a named argument's, a Map
+  entry's, or a typed loop's elsewhere. Brackets balance in a parameter list, so a default's call
+  doesn't end it. A single-line string, an interpolation in it, and type arguments end with their
+  line, as the lexer has them, so one left open doesn't color the rest of the file.
 - **The language configuration**: `//` and `/* */` for comment toggling, brackets and quotes that
-  close themselves, `///` going on to the next line, folding by indentation and by #If ... #End If,
-  and indentation rules for the blocks: the line after one's first line indents, and Else, ElseIf,
-  Case, Default, Catch, Finally, Until, and End lines go back. The rules see one line at a time,
-  so a Select's first Case, a block deeper than Select, and an Interface's or Extern's Functions
-  without bodies come out wrong; the snippets lay the blocks out, and formatting on save fixes
-  the rest.
-- **The language server** is `fb_lsp`, from `futureblitz.lspPath`, else beside fb (a release's
+  close themselves, `///` going on to the next line, numbers as one word as the lexer reads them
+  (`0xFF_00`, `1.5e-3`), folding by indentation and by #If ... #End If, and indentation rules for
+  the blocks: the line after one's first line indents, and Else, ElseIf, Case, Default, Catch,
+  Finally, Until, and End lines go back. A `Then` or `=>` in a comment or a string isn't the
+  line's. The rules see one line at a time, so a Select's first Case, a block deeper than Select,
+  an Interface's or Extern's Functions without bodies, and a call to a Method named Set with one
+  name for its argument, which looks like an accessor, come out wrong; the snippets lay the
+  blocks out, and formatting on save fixes the rest.
+- **The language server** is `fb-lsp`, from `futureblitz.lspPath`, else beside fb (a release's
   bin/, or a CMake build folder's lsp/ beside cli/), else on PATH, started over stdio through
   vscode-languageclient. Missing, it says so once, with Don't Show Again, and the language status
-  item says so too; one that fails to start, or stops 4 times in 3 minutes, is said once, with
-  Restart and Show Output, and it's started again after fewer. The grammar, tasks, and debugging
-  work without it. `[futureblitz]`'s defaults format on save, with 4 spaces, through the server's
-  formatting, which waits for step 4.
-- **fb** is `futureblitz.path`, else fb on PATH, else ~/.futureblitz/bin, where the install
-  scripts put it. A setting's `${workspaceFolder}` and `~` are expanded.
+  item says so too; one that fails to start, doesn't answer initialize in 20 seconds, or stops 4
+  times in 3 minutes, is said, with Restart and Show Output, and it's started again after fewer
+  stops. A start or stop that comes while another is under way supersedes it, so only one server
+  runs. The grammar, tasks, and debugging work without it. `[futureblitz]`'s defaults format on
+  save, with 4 spaces, through the editor's format on save and the server's
+  `textDocument/formatting`; the client passes `formatOnSave: false` in its initializationOptions,
+  so the server's own `willSaveWaitUntil` doesn't format the save a second time.
+- **fb** is `futureblitz.path`, else fb on PATH (an .exe or .com on Windows, not a shim that needs
+  a shell), else ~/.futureblitz/bin, where the install scripts put it. A setting's
+  `${workspaceFolder}` and `~` are expanded, and one that names nothing is said by name.
 - **Tasks**, of type `futureblitz`: build, run, test, fmt, and check on the workspace folder's
   package, and build, run, fmt, and check on the open file (`${file}`), with `target`, `release`,
   `filter`, `check`, `args`, and `programArgs` in tasks.json. They run in the workspace folder, so
-  fb's paths are relative to it. Problem matchers: `$fb` for diagnostic_render.cpp's
+  fb's paths are relative to it, or with no folder open, in the target's. Problem matchers, which
+  take a relative path from the task's folder: `$fb` for diagnostic_render.cpp's
   `path:line:col: error[code]: message` and warnings, `$fb-note` for its notes, and `$fb-runtime`
-  for a running program's `panic: ... at path:line:col`, `uncaught Type: ... at`, and `expect
-  failed: ... at`. Without fb, a task says how to install it. FutureBlitz: Run, Debug, and Run
-  Tests do the open file's package, or the file.
+  for what a program or its tests print with a place: `panic: ... at path:line:col`, `uncaught
+  Type[: message] at`, `expect failed: ... at`, `failed[: message] at` (Fail), and `threw
+  Type[: message] at`. fb counts columns in code points and VS Code in UTF-16 units, so a task's
+  problem after a character outside the BMP on its line is a column left per such character,
+  until fb can print UTF-16 columns; the server's diagnostics are right. Without fb, a task says
+  why. FutureBlitz: Run, Debug, and Run Tests do the open file's package, or the file.
 - **Debugging**: a `futureblitz` launch configuration, with `program` (a .fb file or a package's
-  folder), `args`, `cwd`, `env`, `release`, `stopOnEntry`, and `terminal`, builds the program in
-  debug with `fb build -o` where fb puts it anyway (a package's build/<name>, a file's beside it),
-  as a task, so a failed build's errors are in Problems and nothing launches, then hands CodeLLDB
-  (`vadimcn.vscode-lldb`, an extension dependency, on every OS) an `lldb` configuration whose
-  initCommands load fb's lldb script: `futureblitz.debug.lldbScript`, else beside fb (a release's
-  lldb/futureblitz.py, or the source tree's tools/lldb/ for a build folder in it), else the
-  extension's own copy of tools/lldb/futureblitz.py. F5 with no launch.json debugs the open file's
-  package, or the file. The extension adds breakpoints to .fb files, which CodeLLDB doesn't.
+  folder), `args`, `cwd`, `env`, `release`, `stopOnEntry`, `terminal`, and CodeLLDB's own commands
+  and settings, builds the program in debug with `fb build -o` where fb puts it anyway (a
+  package's, or its main file's, build/<name>, another of its files' build/<file>, and a file
+  outside any package's beside it), as a task, so a failed build's errors are in Problems and
+  nothing launches. It runs in the program's own workspace folder, which in a workspace of
+  several isn't always the one F5 passes, or the program's folder with none open. A library has
+  no program, which it says before building. Then CodeLLDB (`vadimcn.vscode-lldb`, an extension
+  dependency, on every OS) gets an `lldb` configuration whose initCommands load fb's lldb script:
+  `futureblitz.debug.lldbScript`, else beside fb (lldb/futureblitz.py, where releases ship it, or
+  the source tree's tools/lldb/ for a build folder in it), else the extension's own copy of
+  tools/lldb/futureblitz.py. F5 with no launch.json debugs the open file's package, or the file.
+  The extension adds breakpoints to .fb files, which CodeLLDB doesn't.
 - **Snippets** for If, For, For In, While, Repeat, Loop, Select, Function, Method, lambdas,
   Class, Struct, Interface, Enum, Property, Operator, Try, Lock, Unsafe, Extern, Extend, @Test, #If,
   and From ... Import.
 - **Tests**, `npm test` in editors/vscode, which needs Node 22 and isn't in CMake or verify.py:
-  the unit tests under Node (the grammar's vscode-tmgrammar-test assertion files and snapshots
-  of real std and tests/programs code, every .fb in the repo leaving nothing open and nothing
-  invalid, every keyword in token_kinds.def, the indentation rules over std, each snippet read by
-  `fb fmt`, the problem matchers over fb's output, finding fb and the server, and lldb loading the
-  script where its lldb has Python), then the extension tests in VS Code through
-  @vscode/test-electron, with a stand-in for CodeLLDB that records each launch and a stand-in
-  server: tasks, problems, format on save, a missing and a failing server, and a debug launch.
-  `FUTUREBLITZ_FB` names fb for the tests that build.
+  the unit tests under Node (the grammar's vscode-tmgrammar-test assertion files, whose excluded
+  scopes exclude the scopes under them too, and snapshots of real std and tests/programs code,
+  every .fb in the repo leaving nothing open and nothing invalid, every keyword in
+  token_kinds.def, the indentation rules and the word pattern, each snippet read by `fb fmt` and
+  the Operator's checked, the problem matchers over fb's output, the launch schema and the
+  README, finding fb and the server, and lldb loading the script where its lldb has Python), then
+  the extension tests in VS Code through @vscode/test-electron, with a stand-in for CodeLLDB that
+  records each launch and a stand-in server, on a workspace of three folders and then with no
+  folder open: tasks, problems, format on save once, missing, failing, crashing, hung, and
+  overlapping servers, and debug launches. `FUTUREBLITZ_FB` names fb for the tests that build.
 - `npm run package` makes futureblitz.vsix with @vscode/vsce; publishing waits for the accounts.
 
 ## The formatter (step 6)

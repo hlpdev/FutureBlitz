@@ -9,7 +9,7 @@ import * as vscode from "vscode";
 import { ServerClient } from "./client";
 import { DEBUG_TYPE, FbDebugConfigurationProvider, defaultProgram } from "./debug";
 import { FbCommand, relativeTarget } from "./fb";
-import { currentEnvironment, findFb, findLldbScript, findLsp } from "./paths";
+import { Found, currentEnvironment, findFb, findLldbScript, findLsp } from "./paths";
 import { FbTaskProvider, TASK_TYPE, runTask } from "./tasks";
 
 // What the extension tests reach through the extension's exports.
@@ -17,7 +17,7 @@ export interface Api {
     server: ServerClient;
     tasks: FbTaskProvider;
     debug: FbDebugConfigurationProvider;
-    locateFb: (folder: vscode.WorkspaceFolder | undefined) => string | undefined;
+    locateFb: (folder: vscode.WorkspaceFolder | undefined) => Found;
     lldbScript: (folder: vscode.WorkspaceFolder | undefined) => string | undefined;
 }
 
@@ -34,12 +34,12 @@ export function activate(context: vscode.ExtensionContext): Api {
     const environment = currentEnvironment();
     const bundledScript = context.asAbsolutePath(path.join("lldb", "futureblitz.py"));
 
-    const locateFb = (folder: vscode.WorkspaceFolder | undefined): string | undefined =>
-        findFb(settings(folder).get<string>("path", ""), (folder ?? firstFolder())?.uri.fsPath, environment).path;
+    const locateFb = (folder: vscode.WorkspaceFolder | undefined): Found =>
+        findFb(settings(folder).get<string>("path", ""), (folder ?? firstFolder())?.uri.fsPath, environment);
     const lldbScript = (folder: vscode.WorkspaceFolder | undefined): string | undefined =>
         findLldbScript(
             settings(folder).get<string>("debug.lldbScript", ""),
-            locateFb(folder),
+            locateFb(folder).path,
             bundledScript,
             (folder ?? firstFolder())?.uri.fsPath,
             environment,

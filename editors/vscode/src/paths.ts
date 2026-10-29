@@ -20,7 +20,7 @@ export interface Found {
     missingSetting?: string;
 }
 
-export const LSP_NAME = "fb_lsp";
+export const LSP_NAME = "fb-lsp";
 
 export function currentEnvironment(): Environment {
     return {
@@ -151,8 +151,8 @@ export function findFb(
     return { ...found, tried: [...onPath.tried, installed] };
 }
 
-// The language server: futureblitz.lspPath, else fb_lsp beside fb (a release's bin/) or in the
-// lsp/ folder beside fb's cli/ (a CMake build folder), else fb_lsp on PATH.
+// The language server: futureblitz.lspPath, else fb-lsp beside fb (a release's bin/) or in the
+// lsp/ folder beside fb's cli/ (a CMake build folder), else fb-lsp on PATH.
 export function findLsp(
     setting: string,
     fb: string | undefined,

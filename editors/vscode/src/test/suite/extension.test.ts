@@ -120,13 +120,55 @@ suite("the language server", () => {
         assert.match(api.server.detail, /stopped 4 times in 3 minutes/);
     });
 
-    test("format on save goes through it", async () => {
+    // Each start's server, from the stand-in's log, that's still running.
+    function running(log: string): number[] {
+        const pids = fs.existsSync(log) ? [...fs.readFileSync(log, "utf8").matchAll(/start (\d+)/g)].map((m) => Number(m[1])) : [];
+        return pids.filter((pid) => {
+            try {
+                process.kill(pid, 0);
+                return true;
+            } catch {
+                return false;
+            }
+        });
+    }
+
+    test("starts that overlap leave one server, and stop leaves none", async () => {
+        const log = path.join(folder("files").uri.fsPath, "servers.log");
+        const server = { command: node, args: [fakeServer, "serve", log] };
+        await Promise.all([api.server.start(server), api.server.start(server), api.server.start(server)]);
+        assert.equal(api.server.state, "running");
+        await waitFor("one server", () => running(log).length === 1, 10000);
+        await Promise.all([api.server.start(server), api.server.stop()]);
+        await waitFor("no server", () => running(log).length === 0, 10000);
+        assert.equal(api.server.client, undefined);
+    });
+
+    test("one that never answers fails after its time, and its process goes", async () => {
+        const log = path.join(folder("files").uri.fsPath, "hung.log");
+        const before = api.server.startTimeout;
+        api.server.startTimeout = 1000;
+        try {
+            await api.server.start({ command: node, args: [fakeServer, "hang", log] });
+        } finally {
+            api.server.startTimeout = before;
+        }
+
+        assert.equal(api.server.state, "failed");
+        assert.match(api.server.detail, /didn't answer in 1 seconds/);
+        await waitFor("the hung server to go", () => running(log).length === 0, 10000);
+    });
+
+    test("format on save goes through it, once", async () => {
         await api.server.start({ command: node, args: [fakeServer] });
         assert.equal(api.server.state, "running");
         const editor = await open(file("files", "format.fb"));
         await editor.edit((edit) => edit.insert(new vscode.Position(3, 0), "\n"));
         await editor.document.save();
         assert.equal(editor.document.lineAt(0).text, "// formatted");
+        // The stand-in formats through willSaveWaitUntil too when initializationOptions ask for it.
+        const formatted = editor.document.getText().split(/\r?\n/).filter((line) => line === "// formatted");
+        assert.equal(formatted.length, 1);
         assert.ok(!editor.document.isDirty);
     });
 });
@@ -268,12 +310,7 @@ suite("debugging", () => {
                 "build",
                 process.platform === "win32" ? "app.exe" : "app",
             );
-            // VS Code's ${workspaceFolder} and a folder's fsPath can differ in the drive letter's case.
-            const same = (a: unknown, b: string): void =>
-                assert.equal(
-                    process.platform === "win32" ? String(a).toLowerCase() : a,
-                    process.platform === "win32" ? b.toLowerCase() : b,
-                );
+            const same = sameFile;
             assert.equal(launch.type, "lldb");
             same(launch.program, executable);
             assert.ok(fs.existsSync(executable));
@@ -299,5 +336,65 @@ suite("debugging", () => {
             assert.equal(started, false);
             assert.equal(launches().length, before);
         });
+
+        // F5 in a workspace of several passes the first folder; the program runs in its own.
+        test("a program in another workspace folder runs in that folder", async () => {
+            const before = launches().length;
+            const hello = file("files", "hello.fb").fsPath;
+            assert.ok(
+                await vscode.debug.startDebugging(folder("app"), {
+                    type: "futureblitz",
+                    request: "launch",
+                    name: "Debug hello",
+                    program: hello,
+                }),
+            );
+            const launch = await waitFor("CodeLLDB's launch", () => launches()[before]);
+            sameFile(launch.cwd, folder("files").uri.fsPath);
+            sameFile(launch.program, path.join(folder("files").uri.fsPath, process.platform === "win32" ? "hello.exe" : "hello"));
+        });
+
+        // As fb builds a package's file without -o: in its build/, not beside the source.
+        test("a package's main file is built as the package", async () => {
+            const before = launches().length;
+            assert.ok(
+                await vscode.debug.startDebugging(folder("app"), {
+                    type: "futureblitz",
+                    request: "launch",
+                    name: "Debug main.fb",
+                    program: "${workspaceFolder}/main.fb",
+                }),
+            );
+            const launch = await waitFor("CodeLLDB's launch", () => launches()[before]);
+            sameFile(launch.program, path.join(folder("app").uri.fsPath, "build", process.platform === "win32" ? "app.exe" : "app"));
+            assert.ok(!fs.existsSync(path.join(folder("app").uri.fsPath, process.platform === "win32" ? "main.exe" : "main")));
+        });
+
+        test("a library says it has no program, and builds nothing", async () => {
+            const before = launches().length;
+            let tasks = 0;
+            const counting = vscode.tasks.onDidStartTask(() => ++tasks);
+            try {
+                const started = await vscode.debug.startDebugging(folder("lib"), {
+                    type: "futureblitz",
+                    request: "launch",
+                    name: "Debug lib",
+                    program: "${workspaceFolder}",
+                });
+                assert.equal(started, false);
+            } finally {
+                counting.dispose();
+            }
+
+            assert.equal(tasks, 0);
+            assert.equal(launches().length, before);
+        });
     });
 });
+
+// Paths compared as Windows has them, whatever their case: VS Code's ${workspaceFolder} and a
+// folder's fsPath can differ in the drive letter's.
+function sameFile(a: unknown, b: string): void {
+    const fold = (text: string): string => (process.platform === "win32" ? text.toLowerCase() : text);
+    assert.equal(fold(String(a)), fold(b));
+}

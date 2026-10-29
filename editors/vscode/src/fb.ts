@@ -56,8 +56,16 @@ export function taskLabel(definition: TaskDefinition): string {
     return `${definition.command}${on}${definition.release === true ? " (release)" : ""}`;
 }
 
-// The package's name from project.toml's [project] section, or undefined without one.
-export function packageName(projectToml: string): string | undefined {
+// What project.toml's [project] section says, as compiler/src/manifest.cpp reads it: the name, the
+// type, "executable" without one, and the main file, "main.fb" without one.
+export interface Project {
+    name?: string;
+    type: string;
+    main: string;
+}
+
+export function projectOf(projectToml: string): Project {
+    const project: Project = { type: "executable", main: "main.fb" };
     let inProject = false;
     for (const raw of projectToml.split(/\r\n|\r|\n/)) {
         const line = raw.replace(/#.*$/, "").trim();
@@ -67,13 +75,25 @@ export function packageName(projectToml: string): string | undefined {
             continue;
         }
 
-        const name = /^name\s*=\s*"([^"]*)"$/.exec(line) ?? /^name\s*=\s*'([^']*)'$/.exec(line);
-        if (inProject && name !== null) {
-            return name[1];
+        const field = /^(name|type|main)\s*=\s*(?:"([^"]*)"|'([^']*)')$/.exec(line);
+        if (inProject && field !== null) {
+            const value = field[2] ?? field[3];
+            if (field[1] === "name") {
+                project.name = value;
+            } else if (field[1] === "type") {
+                project.type = value;
+            } else {
+                project.main = value.replaceAll("\\", "/").replace(/^\.\//, "");
+            }
         }
     }
 
-    return undefined;
+    return project;
+}
+
+// The package's name from project.toml's [project] section, or undefined without one.
+export function packageName(projectToml: string): string | undefined {
+    return projectOf(projectToml).name;
 }
 
 // The folder with the project.toml that `file` is in, from its folder up to `stop`, or undefined
@@ -106,21 +126,37 @@ export function findPackageRoot(
     }
 }
 
-// Where a debug build goes, as fb puts it without -o: a package's in its build/ folder, named
-// for the package, and a file's beside it, named for the file.
-export function debugExecutable(
-    program: string,
-    name: string | undefined,
-    platform: NodeJS.Platform,
-): string {
+// The package a program is in: its folder and its project.toml.
+export interface Owner {
+    root: string;
+    project: Project;
+}
+
+// Where a debug build goes, as fb puts it without -o (cli/src/commands.cpp's build and
+// compiler/src/driver.cpp's program name): a package's, or its main file's, in its build/ folder,
+// named for the package; another of its files in build/ too, named for the file; and a file
+// outside any package beside itself.
+export function debugExecutable(program: string, owner: Owner | undefined, platform: NodeJS.Platform): string {
     const paths = platform === "win32" ? path.win32 : path.posix;
     const extension = platform === "win32" ? ".exe" : "";
-    if (name !== undefined) {
-        return paths.join(program, "build", name + extension);
+    const parsed = paths.parse(program);
+    if (owner === undefined) {
+        return paths.join(parsed.dir, parsed.name + extension);
     }
 
-    const parsed = paths.parse(program);
-    return paths.join(parsed.dir, parsed.name + extension);
+    const relative = paths.relative(owner.root, program).replaceAll("\\", "/");
+    const isPackage = relative === "" || relative === owner.project.main;
+    const name = isPackage && owner.project.type !== "library" ? owner.project.name : parsed.name;
+    return paths.join(owner.root, "build", (name ?? parsed.name) + extension);
+}
+
+// Says that fb wasn't found, naming the setting when it names a file that isn't there.
+export function missingFbMessage(missingSetting: string | undefined): string {
+    if (missingSetting !== undefined) {
+        return `futureblitz.path is ${missingSetting}, which isn't there; set it to fb, or clear it to find fb on PATH.`;
+    }
+
+    return "fb isn't installed where FutureBlitz looks: set futureblitz.path to it, put it on PATH, or install it into ~/.futureblitz.";
 }
 
 // lldb's command that loads fb's script. lldb reads a backslash in quotes as an escape, so the

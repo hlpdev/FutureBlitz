@@ -130,8 +130,90 @@ describe("problem matchers", () => {
         );
     });
 
+    // runtime.cpp writes an uncaught error's ": message" only when it has one, and runtime/test.cpp
+    // and lower.cpp write a test's Fail and a thrown error as "failed[: message] at" and
+    // "threw Class[: message] at".
+    test("an uncaught error with no message, and tests that fail or throw", () => {
+        const output = [
+            "uncaught Oops at C:/work/u.fb:6:1",
+            "failed: by hand at t/src/math.fb:10:5",
+            "failed at t/src/math.fb:12:5",
+            "threw Oops at throws.fb:8:5",
+            "threw std.io.IOError: no file at throws.fb:9:5",
+        ].join("\n");
+        assert.deepEqual(
+            problems(output).map((p) => [p.file, p.line, p.column, p.message]),
+            [
+                ["C:/work/u.fb", 6, 1, "uncaught Oops"],
+                ["t/src/math.fb", 10, 5, "failed: by hand"],
+                ["t/src/math.fb", 12, 5, "failed"],
+                ["throws.fb", 8, 5, "threw Oops"],
+                ["throws.fb", 9, 5, "threw std.io.IOError: no file"],
+            ],
+        );
+    });
+
     const fb = testFb();
     const skip = fb === undefined ? "no fb: set FUTUREBLITZ_FB" : false;
+
+    test("fb run's uncaught error with no message", { skip }, () => {
+        const folder = scratch("uncaught");
+        fs.writeFileSync(path.join(folder, "uncaught.fb"), "Import std.core\n\nClass Oops Extends Error\nEnd Class\n\nThrow Oops()\n");
+        const result = spawnSync(fb as string, ["run", "--color", "never", "uncaught.fb"], { cwd: folder, encoding: "utf8" });
+        fs.rmSync(folder, { recursive: true, force: true });
+        assert.equal(result.status, 1);
+        assert.deepEqual(
+            problems(result.stdout + result.stderr).map((p) => [p.matcher, p.file, p.line, p.message]),
+            [["fb-runtime", "uncaught.fb", 6, "uncaught Oops"]],
+        );
+    });
+
+    test("fb test's failed Expect, Fail, and thrown error", { skip }, () => {
+        const folder = scratch("tests");
+        fs.writeFileSync(
+            path.join(folder, "throws.fb"),
+            [
+                "Import std.core",
+                "Import std.test",
+                "",
+                "Class Oops Extends Error",
+                "End Class",
+                "",
+                "Function Boom() Throws Oops",
+                "    Throw Oops()",
+                "End Function",
+                "",
+                "@Test",
+                "Function LetsItOut() Throws Oops",
+                "    Try Boom()",
+                "End Function",
+                "",
+                "@Test",
+                "Function FailsByHand()",
+                '    Fail("by hand")',
+                "End Function",
+                "",
+                "@Test",
+                "Function Expects()",
+                "    Expect(1 == 2)",
+                "End Function",
+                "",
+            ].join("\n"),
+        );
+        const result = spawnSync(fb as string, ["test", "--color", "never", "throws.fb"], { cwd: folder, encoding: "utf8" });
+        fs.rmSync(folder, { recursive: true, force: true });
+        assert.equal(result.status, 1);
+        assert.deepEqual(
+            problems(result.stdout + result.stderr)
+                .map((p) => [p.file, p.line, p.message])
+                .sort((a, b) => Number(a[1]) - Number(b[1])),
+            [
+                ["throws.fb", 8, "threw Oops"],
+                ["throws.fb", 18, "failed: by hand"],
+                ["throws.fb", 23, "expect failed: 1 == 2"],
+            ],
+        );
+    });
 
     // fb's own output, colored or not: VS Code takes the color codes out before matching.
     test("fb build's errors", { skip }, () => {

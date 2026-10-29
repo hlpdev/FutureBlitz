@@ -1,0 +1,3 @@
+Import std.core
+
+Public Function Twice(x: Int): Int => x * 2

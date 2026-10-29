@@ -6,10 +6,13 @@ import * as path from "node:path";
 import { describe, test } from "node:test";
 
 import {
+    Owner,
     debugExecutable,
     findPackageRoot,
     lldbImportCommand,
+    missingFbMessage,
     packageName,
+    projectOf,
     relativeTarget,
     taskArguments,
     taskLabel,
@@ -89,11 +92,43 @@ describe("findPackageRoot", () => {
 });
 
 describe("debugExecutable", () => {
-    test("a package's in its build/, a file's beside it", () => {
-        assert.equal(debugExecutable("C:\\w\\game", "game", "win32"), "C:\\w\\game\\build\\game.exe");
-        assert.equal(debugExecutable("/w/game", "game", "linux"), "/w/game/build/game");
+    const game = (root: string, main = "main.fb"): Owner => ({ root, project: { name: "game", type: "executable", main } });
+
+    test("a package's in its build/, a file outside any package beside it", () => {
+        assert.equal(debugExecutable("C:\\w\\game", game("C:\\w\\game"), "win32"), "C:\\w\\game\\build\\game.exe");
+        assert.equal(debugExecutable("/w/game", game("/w/game"), "linux"), "/w/game/build/game");
         assert.equal(debugExecutable("C:\\w\\tools\\hello.fb", undefined, "win32"), "C:\\w\\tools\\hello.exe");
         assert.equal(debugExecutable("/w/tools/hello.fb", undefined, "darwin"), "/w/tools/hello");
+    });
+
+    // As fb builds them without -o: the main file is the package's program, and another file's
+    // program is named for the file, both in build/.
+    test("a package's file in its build/", () => {
+        assert.equal(debugExecutable("/w/game/main.fb", game("/w/game"), "linux"), "/w/game/build/game");
+        assert.equal(debugExecutable("/w/game/src/tool.fb", game("/w/game"), "linux"), "/w/game/build/tool");
+        assert.equal(
+            debugExecutable("C:\\w\\game\\src\\play.fb", game("C:\\w\\game", "src/play.fb"), "win32"),
+            "C:\\w\\game\\build\\game.exe",
+        );
+        assert.equal(debugExecutable("/w/game/main.fb", game("/w/game", "src/play.fb"), "linux"), "/w/game/build/main");
+    });
+});
+
+describe("projectOf", () => {
+    test("the name, the type, and the main file, with fb's defaults", () => {
+        assert.deepEqual(projectOf('[project]\nname = "game"\n'), { name: "game", type: "executable", main: "main.fb" });
+        assert.deepEqual(projectOf('[project]\nname = "lib"\ntype = "library"\nmain = "./src/lib.fb"\n'), {
+            name: "lib",
+            type: "library",
+            main: "src/lib.fb",
+        });
+    });
+});
+
+describe("missingFbMessage", () => {
+    test("names a setting that names nothing", () => {
+        assert.match(missingFbMessage("C:\\tools\\fb"), /futureblitz\.path is C:\\tools\\fb, which isn't there/);
+        assert.match(missingFbMessage(undefined), /set futureblitz\.path to it, put it on PATH/);
     });
 });
 

@@ -2,12 +2,12 @@
 
 FutureBlitz (.fb) in VS Code: highlighting, the language server's errors as you type and
 formatting on save, tasks for `fb build`, `fb run`, `fb test`, and `fb fmt`, and debugging through
-CodeLLDB. The design is in [docs/tooling.md](../../docs/tooling.md#the-vs-code-extension-step-5).
+CodeLLDB. The design is in [docs/tooling.md](https://github.com/hlpdev/FutureBlitz/blob/HEAD/docs/tooling.md#the-vs-code-extension-step-5).
 
 ## What it needs
 
 - **fb**: `futureblitz.path`, else `fb` on PATH, else `~/.futureblitz/bin`.
-- **The language server**, `fb_lsp`: `futureblitz.lspPath`, else beside fb, else on PATH. Without
+- **The language server**, `fb-lsp`: `futureblitz.lspPath`, else beside fb, else on PATH. Without
   it, highlighting, tasks, and debugging still work.
 - **CodeLLDB** (`vadimcn.vscode-lldb`), which VS Code installs with the extension, for debugging
   on every OS.
@@ -87,8 +87,8 @@ npm run test:extension   # the extension in VS Code, through @vscode/test-electr
 - `FUTUREBLITZ_FB=<path to fb>` runs the tests that build programs; without it they're skipped.
 - The extension tests download VS Code, the oldest version package.json takes, into
   .vscode-test/; `FB_VSCODE_VERSION=stable` picks another, and `FB_VSCODE_EXECUTABLE` runs an
-  installed one. A stand-in for CodeLLDB records each launch, and a stand-in language server
-  formats.
+  installed one. They run twice, on a workspace of three folders and then with no folder open. A
+  stand-in for CodeLLDB records each launch, and a stand-in language server formats.
 - The grammar's tests are vscode-tmgrammar-test's assertion files, test/grammar/*.fb, and its
   snapshots of real std and tests/programs code, test/grammar/snap/*.fb.snap.
   `UPDATE_SNAPSHOTS=1 npm run test:unit` writes the snapshots again; read what changed before

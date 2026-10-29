@@ -81,7 +81,7 @@
           "type": "string",
           "default": "",
           "scope": "machine-overridable",
-          "markdownDescription": "The language server's executable. Empty finds `fb_lsp` beside `fb`, then on PATH. `${workspaceFolder}` and `~` are expanded."
+          "markdownDescription": "The language server's executable. Empty finds `fb-lsp` beside `fb`, then on PATH. `${workspaceFolder}` and `~` are expanded."
         },
         "futureblitz.lsp.enabled": {
           "type": "boolean",
@@ -216,7 +216,7 @@
         "source": "fb",
         "fileLocation": [
           "autoDetect",
-          "${workspaceFolder}"
+          "${cwd}"
         ],
         "pattern": {
           "regexp": "^(.+?):(\\d+):(\\d+): (error|warning)(?:\\[([^\\]]+)\\])?: (.*)$",
@@ -236,7 +236,7 @@
         "severity": "info",
         "fileLocation": [
           "autoDetect",
-          "${workspaceFolder}"
+          "${cwd}"
         ],
         "pattern": {
           "regexp": "^(.+?):(\\d+):(\\d+): note: (.*)$",
@@ -248,16 +248,16 @@
       },
       {
         "name": "fb-runtime",
-        "label": "Panics, uncaught errors, and failed Expects",
+        "label": "Panics, uncaught errors, and failed tests",
         "owner": "futureblitz",
         "source": "fb",
         "severity": "error",
         "fileLocation": [
           "autoDetect",
-          "${workspaceFolder}"
+          "${cwd}"
         ],
         "pattern": {
-          "regexp": "^((?:panic|uncaught [^:]+|expect failed): .*) at (.+?):(\\d+):(\\d+)$",
+          "regexp": "^((?:panic: .*|uncaught [^:\\s]+(?:: .*)?|expect failed: .*|failed(?:: .*)?|threw [^:\\s]+(?:: .*)?)) at (.+?):(\\d+):(\\d+)$",
           "message": 1,
           "file": 2,
           "line": 3,
@@ -320,6 +320,73 @@
                 ],
                 "description": "Where the program's input and output go, as CodeLLDB has it.",
                 "default": "integrated"
+              },
+              "initCommands": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "CodeLLDB: lldb commands run before the program is made, before the one that loads fb's script.",
+                "default": []
+              },
+              "preRunCommands": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "CodeLLDB: lldb commands run just before the program starts.",
+                "default": []
+              },
+              "postRunCommands": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "CodeLLDB: lldb commands run just after the program starts.",
+                "default": []
+              },
+              "preTerminateCommands": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "CodeLLDB: lldb commands run before the session ends.",
+                "default": []
+              },
+              "exitCommands": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "CodeLLDB: lldb commands run at the session's end.",
+                "default": []
+              },
+              "envFile": {
+                "type": "string",
+                "description": "CodeLLDB: a file of environment variables for the program."
+              },
+              "stdio": {
+                "type": [
+                  "string",
+                  "array",
+                  "object",
+                  "null"
+                ],
+                "description": "CodeLLDB: where the program's stdin, stdout, and stderr go."
+              },
+              "sourceMap": {
+                "type": "object",
+                "description": "CodeLLDB: source paths the debug info has, mapped to where they are now.",
+                "default": {}
+              },
+              "expressions": {
+                "type": "string",
+                "enum": [
+                  "simple",
+                  "python",
+                  "native"
+                ],
+                "description": "CodeLLDB: how watch and debug console expressions are read."
               }
             }
           }

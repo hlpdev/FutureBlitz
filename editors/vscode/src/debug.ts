@@ -6,7 +6,16 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
-import { debugExecutable, findPackageRoot, lldbImportCommand, packageName, relativeTarget } from "./fb";
+import {
+    Owner,
+    debugExecutable,
+    findPackageRoot,
+    lldbImportCommand,
+    missingFbMessage,
+    projectOf,
+    relativeTarget,
+} from "./fb";
+import { Found } from "./paths";
 import { FbTaskProvider, TASK_TYPE, runTask } from "./tasks";
 
 export const DEBUG_TYPE = "futureblitz";
@@ -14,7 +23,7 @@ export const CODELLDB = "vadimcn.vscode-lldb";
 
 export interface DebugHelpers {
     tasks: FbTaskProvider;
-    locateFb: (folder: vscode.WorkspaceFolder | undefined) => string | undefined;
+    locateFb: (folder: vscode.WorkspaceFolder | undefined) => Found;
     lldbScript: (folder: vscode.WorkspaceFolder | undefined) => string | undefined;
 }
 
@@ -22,6 +31,16 @@ function exists(file: string): boolean {
     try {
         fs.statSync(file);
         return true;
+    } catch {
+        return false;
+    }
+}
+
+// Whether `file` was written since `since`, a time from Date.now(), give or take the file system's
+// clock.
+function built(file: string, since: number): boolean {
+    try {
+        return fs.statSync(file).mtimeMs >= since - 1000;
     } catch {
         return false;
     }
@@ -110,47 +129,85 @@ export class FbDebugConfigurationProvider implements vscode.DebugConfigurationPr
             return undefined;
         }
 
-        if (this.m_helpers.locateFb(folder) === undefined) {
-            void vscode.window.showErrorMessage(
-                "FutureBlitz: fb isn't installed where it looks; set futureblitz.path, or put fb on PATH.",
-            );
+        const fb = this.m_helpers.locateFb(folder);
+        if (fb.path === undefined) {
+            void vscode.window.showErrorMessage(`FutureBlitz: ${missingFbMessage(fb.missingSetting)}`);
             return undefined;
         }
 
-        const base = folder?.uri.fsPath ?? process.cwd();
-        const program = path.resolve(base, String(config.program));
+        // A relative program is the workspace folder's, or with none the open file's folder's.
+        const editor = vscode.window.activeTextEditor;
+        const from =
+            folder?.uri.fsPath ??
+            (editor?.document.uri.scheme === "file" ? path.dirname(editor.document.uri.fsPath) : process.cwd());
+        const program = path.resolve(from, String(config.program));
         if (!exists(program)) {
             void vscode.window.showErrorMessage(`FutureBlitz: there's no ${program} to debug.`);
             return undefined;
         }
 
-        let name: string | undefined;
-        if (isDirectory(program)) {
-            const manifest = path.join(program, "project.toml");
-            name = exists(manifest) ? packageName(fs.readFileSync(manifest, "utf8")) : undefined;
-            if (name === undefined) {
+        // The program's own workspace folder, which in a workspace of several isn't always the one
+        // VS Code passes, else none, when the program's folder is where it runs.
+        const own = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(program)) ?? folder;
+        const ownPath = own?.uri.fsPath;
+        const root = isDirectory(program) ? program : findPackageRoot(program, ownPath, exists);
+        let owner: Owner | undefined;
+        if (root !== undefined) {
+            const manifest = path.join(root, "project.toml");
+            const project = projectOf(exists(manifest) ? fs.readFileSync(manifest, "utf8") : "");
+            owner = { root, project };
+            if (project.name === undefined) {
                 void vscode.window.showErrorMessage(
-                    `FutureBlitz: ${program} isn't a package; it needs a project.toml with a name.`,
+                    `FutureBlitz: ${root} isn't a package; it needs a project.toml with a name.`,
+                );
+                return undefined;
+            }
+
+            if (project.type === "library") {
+                void vscode.window.showErrorMessage(
+                    `FutureBlitz: ${project.name} is a library, so it has no program to debug.`,
                 );
                 return undefined;
             }
         }
 
-        const executable = debugExecutable(program, name, process.platform);
+        const base = ownPath ?? (isDirectory(program) ? program : path.dirname(program));
+        const executable = debugExecutable(program, owner, process.platform);
         const build = this.m_helpers.tasks.make(
             {
                 type: TASK_TYPE,
                 command: "build",
-                target: folder === undefined ? program : relativeTarget(program, folder.uri.fsPath),
+                target: own === undefined ? program : relativeTarget(program, own.uri.fsPath),
                 release: config.release === true,
                 args: ["-o", executable],
             },
-            folder,
+            own,
         );
-        const code = await runTask(build);
+        // VS Code 1.143 can end the first task process in a window with no folder before it runs,
+        // with no exit code. A build that ends so and wrote nothing runs once more.
+        let started = Date.now();
+        let code = await runTask(build);
+        if (code === undefined && !built(executable, started)) {
+            started = Date.now();
+            code = await runTask(build);
+        }
+
+        if (code === undefined && built(executable, started)) {
+            code = 0;
+        }
+
+        if (code === undefined) {
+            void vscode.window.showErrorMessage(
+                "FutureBlitz: the build didn't run, so there's nothing to debug; the Terminal and the " +
+                    "FutureBlitz output say why.",
+            );
+            return undefined;
+        }
+
         if (code !== 0) {
             void vscode.window.showErrorMessage(
-                "FutureBlitz: the build failed, so there's nothing to debug; its errors are in Problems.",
+                "FutureBlitz: the build failed, so there's nothing to debug; its errors are in Problems " +
+                    "and the build's terminal.",
             );
             return undefined;
         }

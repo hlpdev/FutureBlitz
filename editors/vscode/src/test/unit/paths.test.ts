@@ -88,29 +88,29 @@ describe("findFb", () => {
 
 describe("findLsp", () => {
     test("beside fb, as a release has it", () => {
-        const environment = linux(["/opt/fb/bin/fb", "/opt/fb/bin/fb_lsp", "/usr/bin/fb_lsp"]);
-        assert.equal(findLsp("", "/opt/fb/bin/fb", undefined, environment).path, "/opt/fb/bin/fb_lsp");
+        const environment = linux(["/opt/fb/bin/fb", "/opt/fb/bin/fb-lsp", "/usr/bin/fb-lsp"]);
+        assert.equal(findLsp("", "/opt/fb/bin/fb", undefined, environment).path, "/opt/fb/bin/fb-lsp");
     });
 
     test("in a CMake build folder's lsp/, beside cli/", () => {
-        const environment = windows(["C:\\fb\\build\\cli\\fb.exe", "C:\\fb\\build\\lsp\\fb_lsp.exe"]);
+        const environment = windows(["C:\\fb\\build\\cli\\fb.exe", "C:\\fb\\build\\lsp\\fb-lsp.exe"]);
         assert.equal(
             findLsp("", "C:\\fb\\build\\cli\\fb.exe", undefined, environment).path,
-            "C:\\fb\\build\\lsp\\fb_lsp.exe",
+            "C:\\fb\\build\\lsp\\fb-lsp.exe",
         );
     });
 
     test("then PATH, and the setting before all of them", () => {
-        assert.equal(findLsp("", undefined, undefined, linux(["/usr/bin/fb_lsp"])).path, "/usr/bin/fb_lsp");
-        const environment = linux(["/opt/fb/bin/fb_lsp", "/srv/lsp"]);
+        assert.equal(findLsp("", undefined, undefined, linux(["/usr/bin/fb-lsp"])).path, "/usr/bin/fb-lsp");
+        const environment = linux(["/opt/fb/bin/fb-lsp", "/srv/lsp"]);
         assert.equal(findLsp("/srv/lsp", "/opt/fb/bin/fb", undefined, environment).path, "/srv/lsp");
     });
 
     test("missing, it lists where it looked", () => {
         const found = findLsp("", "/opt/fb/bin/fb", undefined, linux([]));
         assert.equal(found.path, undefined);
-        assert.deepEqual(found.tried.slice(0, 2), ["/opt/fb/bin/fb_lsp", "/opt/fb/lsp/fb_lsp"]);
-        assert.ok(found.tried.includes("/usr/bin/fb_lsp"));
+        assert.deepEqual(found.tried.slice(0, 2), ["/opt/fb/bin/fb-lsp", "/opt/fb/lsp/fb-lsp"]);
+        assert.ok(found.tried.includes("/usr/bin/fb-lsp"));
     });
 });
 

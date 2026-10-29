@@ -29,7 +29,13 @@ export class ServerClient implements vscode.Disposable {
     private m_state: ServerState = "disabled";
     private m_detail = "";
     private m_restarts: number[] = [];
+    // Each start and stop takes the next one, so one that's superseded can tell.
+    private m_generation = 0;
     private readonly m_status: vscode.LanguageStatusItem;
+
+    // How long a server has to answer initialize before it's taken to have failed; the tests
+    // shorten it.
+    startTimeout = 20 * 1000;
 
     constructor(
         private readonly m_context: vscode.ExtensionContext,
@@ -56,9 +62,16 @@ export class ServerClient implements vscode.Disposable {
         return this.m_client;
     }
 
-    // Starts the server the settings find, or, for the tests, `server` with its arguments.
+    // Starts the server the settings find, or, for the tests, `server` with its arguments. A start
+    // or stop that comes while one is under way supersedes it: the earlier one's client is
+    // disposed of, and it changes nothing once it goes on.
     async start(server?: { command: string; args: string[] }): Promise<void> {
-        await this.stop();
+        const generation = ++this.m_generation;
+        await this.disposeClient();
+        if (generation !== this.m_generation) {
+            return;
+        }
+
         this.m_restarts = [];
         if (server === undefined) {
             const settings = vscode.workspace.getConfiguration("futureblitz");
@@ -87,6 +100,10 @@ export class ServerClient implements vscode.Disposable {
                 { scheme: "file", language: "futureblitz" },
                 { scheme: "untitled", language: "futureblitz" },
             ],
+            // Saving formats through the editor's own editor.formatOnSave, which [futureblitz]
+            // turns on and which asks textDocument/formatting; fb-lsp's willSaveWaitUntil, which
+            // this would turn on, would format each save a second time.
+            initializationOptions: { formatOnSave: false },
             outputChannel: this.m_output,
             revealOutputChannelOn: RevealOutputChannelOn.Never,
             initializationFailedHandler: (error) => {
@@ -102,20 +119,33 @@ export class ServerClient implements vscode.Disposable {
         const client = new LanguageClient("futureblitz", "FutureBlitz", serverOptions, clientOptions);
         this.m_client = client;
         this.setState("starting", command);
+        // vscode-languageclient waits for initialize's answer for as long as it takes.
+        let timer: NodeJS.Timeout | undefined;
+        const seconds = Math.round(this.startTimeout / 1000);
+        const timeout = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`it didn't answer in ${seconds} seconds`)), this.startTimeout);
+        });
         try {
-            await client.start();
-            if (this.m_client === client && client.state === State.Running) {
+            await Promise.race([client.start(), timeout]);
+            if (generation === this.m_generation && client.state === State.Running) {
                 this.setState("running", command);
             }
         } catch (error) {
-            if (this.m_client === client) {
-                this.m_client = undefined;
+            if (generation === this.m_generation) {
+                await this.disposeClient();
                 this.reportFailed(command, error instanceof Error ? error.message : String(error));
             }
+        } finally {
+            clearTimeout(timer);
         }
     }
 
     async stop(): Promise<void> {
+        ++this.m_generation;
+        await this.disposeClient();
+    }
+
+    private async disposeClient(): Promise<void> {
         const client = this.m_client;
         this.m_client = undefined;
         if (client !== undefined) {
@@ -155,7 +185,7 @@ export class ServerClient implements vscode.Disposable {
         const where =
             found.missingSetting !== undefined
                 ? `futureblitz.lspPath is ${found.missingSetting}, which isn't there`
-                : "there's no fb_lsp beside fb or on PATH";
+                : "there's no fb-lsp beside fb or on PATH";
         this.setState("missing", where);
         this.m_output.appendLine(`No language server: ${where}. Looked in:`);
         for (const tried of found.tried) {
@@ -224,7 +254,7 @@ export class ServerClient implements vscode.Disposable {
             case "starting":
                 status.text = "Language server starting";
                 status.severity = vscode.LanguageStatusSeverity.Information;
-                status.command = undefined;
+                status.command = { title: "Restart", command: "futureblitz.restartServer" };
                 break;
             case "running":
                 status.text = "Language server";
