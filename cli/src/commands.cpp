@@ -1133,10 +1133,15 @@ int doc_command(const options_t& options) {
     }
 
     const std::string json = doc_json(package, compilation.sources);
-    std::filesystem::path output =
-        options.output.value_or(standard ? std::filesystem::path("std.json")
-                                         : compilation.package->root / "build" /
-                                               path_from_utf8(compilation.package->name + ".json"));
+    const std::optional<package_info_t>& documented = compilation.package;
+    std::filesystem::path written = "std.json";
+    if (options.output) {
+        written = *options.output;
+    } else if (!standard && documented) {
+        written = documented->root / "build" / path_from_utf8(documented->name + ".json");
+    }
+
+    const std::filesystem::path output = written;
     std::size_t items = 0;
     for (const doc_module_t& module : package.modules) {
         items += module.items.size();

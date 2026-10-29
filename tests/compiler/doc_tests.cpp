@@ -72,6 +72,7 @@ fb::doc_t read(const std::string_view text) {
 
 std::vector<std::string> link_targets(const fb::doc_t& doc) {
     std::vector<std::string> targets;
+    targets.reserve(doc.links.size());
     for (const fb::doc_link_t& link : doc.links) {
         targets.push_back(link.target);
     }
@@ -81,7 +82,7 @@ std::vector<std::string> link_targets(const fb::doc_t& doc) {
 
 } // namespace
 
-TEST_CASE("/// comments go on the declarations right after them", "[doc]") {
+TEST_CASE("doc comments go on the declarations right after them", "[doc]") {
     const parsed_t parsed(R"(//! The module's doc,
 //! on two lines.
 
@@ -408,6 +409,7 @@ const fb::doc_item_t* item_at(const std::vector<fb::doc_item_t>& items,
 
 std::vector<std::string> paths_of(const std::vector<fb::doc_item_t>& items) {
     std::vector<std::string> paths;
+    paths.reserve(items.size());
     for (const fb::doc_item_t& item : items) {
         paths.push_back(item.path);
     }
@@ -432,13 +434,24 @@ TEST_CASE("fb doc has a package's public API, its docs, and what their links nam
     CHECK(module.name == "documented.shapes");
     CHECK(module.file == "shapes.fb");
     REQUIRE(module.doc);
-    CHECK(module.doc->summary == "Shapes, and what they cover: see [Shape] and [Circle].");
+    CHECK(module.doc.value().summary == "Shapes, and what they cover: see [Shape] and [Circle].");
 
     // Its Public declarations, and the Extends of them, in order: not its Private or Package ones.
     const std::string prefix = "documented.shapes.";
     std::vector<std::string> expected;
-    for (const std::string_view name : { "Shown", "Shape", "Circle", "Named", "Square", "Kind",
-                                         "TotalArea", "Pi", "Made", "Extend.Circle", "Shapes" }) {
+    for (const std::string_view name : {
+             "Shown",
+             "Shape",
+             "Circle",
+             "Named",
+             "Square",
+             "Kind",
+             "TotalArea",
+             "Pi",
+             "Made",
+             "Extend.Circle",
+             "Shapes",
+         }) {
         expected.push_back(prefix + std::string(name));
     }
 
@@ -461,10 +474,11 @@ TEST_CASE("fb doc has a package's public API, its docs, and what their links nam
                                                                  prefix + "Circle.Area",
                                                                  prefix + "Circle.Grow" });
     REQUIRE(circle->doc);
-    REQUIRE(circle->doc->examples.size() == 1);
+    REQUIRE(circle->doc.value().examples.size() == 1);
 
     // Each link, found as the doc's declaration's code would find it.
     std::vector<std::pair<std::string, std::string>> links;
+    links.reserve(circle->links.size());
     for (const fb::doc_target_t& link : circle->links) {
         links.emplace_back(link.text, link.builtin ? "built-in" : link.path);
     }
@@ -490,7 +504,7 @@ TEST_CASE("fb doc has a package's public API, its docs, and what their links nam
     const fb::doc_item_t* area = item_at(module.items, prefix + "Circle.Area");
     REQUIRE(area);
     REQUIRE(area->doc);
-    CHECK(area->doc->summary == "How much of the plane it covers, in square units.");
+    CHECK(area->doc.value().summary == "How much of the plane it covers, in square units.");
     CHECK(area->doc_from == prefix + "Shape.Area");
     const fb::doc_item_t* described = item_at(module.items, prefix + "Square.Describe");
     REQUIRE(described);
@@ -504,7 +518,7 @@ TEST_CASE("fb doc has a package's public API, its docs, and what their links nam
     CHECK(grow->signature == "Public ByRef Method Grow(by: Float)");
     CHECK(grow->attributes == std::vector<std::string>{ "@PanicsAtCaller" });
     REQUIRE(grow->doc);
-    CHECK(grow->doc->examples.size() == 3);
+    CHECK(grow->doc.value().examples.size() == 3);
 
     // A Class's Protected members are its users', and a Private one isn't.
     const fb::doc_item_t* named = item_at(module.items, prefix + "Named");
@@ -713,7 +727,7 @@ TEST_CASE("a file made from another's lines shows them where they come from", "[
                         .lines = { { .line = 0, .column = 4 },
                                    { .line = 0, .column = 8 },
                                    { .line = 0, .column = 4 },
-                                   { .line = 0, .column = 4 } },
+                                   { .line = 0, .column = 4 }, },
                     });
     const fb::source_file_t& file = sources.get(made);
     CHECK(file.location_of(38, fb::column_unit_t::CODEPOINT) ==

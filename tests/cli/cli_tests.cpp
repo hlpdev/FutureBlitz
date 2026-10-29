@@ -2349,8 +2349,14 @@ TEST_CASE("fb doc writes a package's public API as JSON, and warns about its doc
 
     // -o names the file, and - writes to stdout; a file of the package documents it.
     const std::filesystem::path elsewhere = documented / "out" / "api.json";
-    const fb::process_result_t named = fb_run({ "doc", fb::to_utf8(documented / "shapes.fb"), "-o",
-                                                fb::to_utf8(elsewhere), "--color", "never" });
+    const fb::process_result_t named = fb_run({
+        "doc",
+        fb::to_utf8(documented / "shapes.fb"),
+        "-o",
+        fb::to_utf8(elsewhere),
+        "--color",
+        "never",
+    });
     INFO(named.output);
     CHECK(named.exit_code == 0);
     CHECK(read_file(elsewhere) == json);

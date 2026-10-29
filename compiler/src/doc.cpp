@@ -56,9 +56,9 @@ struct fence_t {
 };
 
 [[nodiscard]] std::optional<fence_t> fence_of(const std::string_view line) {
+    // A blank line's npos is more than 3 too.
     const std::size_t indent = line.find_first_not_of(' ');
-    if (indent == std::string_view::npos || indent > 3 ||
-        (line[indent] != '`' && line[indent] != '~')) {
+    if (indent > 3 || (line[indent] != '`' && line[indent] != '~')) {
         return std::nullopt;
     }
 
@@ -76,7 +76,7 @@ struct fence_t {
 /// that close it.
 [[nodiscard]] std::optional<std::string_view> heading_of(const std::string_view line) {
     const std::size_t indent = line.find_first_not_of(' ');
-    if (indent == std::string_view::npos || indent > 3 || line[indent] != '#') {
+    if (indent > 3 || line[indent] != '#') {
         return std::nullopt;
     }
 
@@ -141,6 +141,16 @@ struct fence_t {
     return target;
 }
 
+/// How many backticks open a code span after a run of `run` of them, when `open` did before, or
+/// 0 for none: a run opens one, and closes one it's as long as.
+[[nodiscard]] std::size_t ticks_after(const std::size_t open, const std::size_t run) {
+    if (open == 0) {
+        return run;
+    }
+
+    return open == run ? 0 : open;
+}
+
 /// A paragraph's first sentence: up to a '.', '!', or '?' outside code that a space follows, or
 /// that ends it.
 [[nodiscard]] std::string first_sentence(const std::string_view paragraph) {
@@ -150,7 +160,7 @@ struct fence_t {
         if (c == '`') {
             const std::size_t run =
                 std::min(paragraph.find_first_not_of('`', i), paragraph.size()) - i;
-            ticks = ticks == 0 ? run : (ticks == run ? 0 : ticks);
+            ticks = ticks_after(ticks, run);
             i += run;
             continue;
         }
@@ -265,8 +275,8 @@ private:
     }
 
     void read_line(const std::string_view line, const span_t span) {
-        if (m_fence) {
-            read_code(line, span);
+        if (const std::optional<fence_t> open = m_fence) {
+            read_code(line, span, *open);
             return;
         }
 
@@ -317,10 +327,11 @@ private:
         show(line);
     }
 
-    /// A line in a code block: the end of it, or its code, which in an example can be hidden.
-    void read_code(const std::string_view line, const span_t span) {
+    /// A line in the code block `open` opened: the end of it, or its code, which in an example can
+    /// be hidden.
+    void read_code(const std::string_view line, const span_t span, const fence_t& open) {
         const std::optional<fence_t> closing = fence_of(line);
-        if (closing && closing->mark == m_fence->mark && closing->length >= m_fence->length &&
+        if (closing && closing->mark == open.mark && closing->length >= open.length &&
             closing->info.empty()) {
             m_fence.reset();
             finish_example();
@@ -330,7 +341,7 @@ private:
 
         // The code goes in as far as the fence, as Markdown has it.
         std::size_t start = 0;
-        while (start < m_fence->indent && start < line.size() && line[start] == ' ') {
+        while (start < open.indent && start < line.size() && line[start] == ' ') {
             ++start;
         }
 
@@ -372,7 +383,7 @@ private:
 
             if (c == '`') {
                 const std::size_t run = std::min(line.find_first_not_of('`', i), line.size()) - i;
-                m_ticks = m_ticks == 0 ? run : (m_ticks == run ? 0 : m_ticks);
+                m_ticks = ticks_after(m_ticks, run);
                 i += run;
                 continue;
             }
@@ -653,8 +664,7 @@ struct found_t {
 /// Each declaration of a program, by name, with its path, for fb doc's items and links.
 class api_index_t {
 public:
-    api_index_t(const compilation_t& compilation)
-        : m_compilation(compilation), m_ast(compilation.ast) {
+    explicit api_index_t(const compilation_t& compilation) : m_ast(compilation.ast) {
         const module_table_t& modules = m_ast.modules();
         m_items.resize(modules.size());
         for (const stmt_id_t id : m_ast.items()) {
@@ -761,7 +771,6 @@ public:
     }
 
 private:
-    const compilation_t& m_compilation;
     const ast_t& m_ast;
     std::vector<std::vector<stmt_id_t>> m_items;
     /// Each module's top-level declarations by name, Extern blocks' Functions among them.
@@ -770,11 +779,9 @@ private:
     std::unordered_map<stmt_id_t, scope_t> m_scopes;
     std::set<std::string_view> m_builtins;
 
-    void index_declaration(const stmt_id_t id, const module_id_t module, const std::string& path,
-                           const scope_t& scope) {
+    void index_declaration(const stmt_id_t id, const std::string& path, const scope_t& scope) {
         m_paths.emplace(id, path);
         m_scopes.emplace(id, scope);
-        static_cast<void>(module);
     }
 
     [[nodiscard]] static std::string member_name(const stmt_node_t& node) {
@@ -797,13 +804,12 @@ private:
                 const bool is_type = std::holds_alternative<type_stmt_t>(node) ||
                                      std::holds_alternative<enum_stmt_t>(node);
                 index_declaration(
-                    id, module, path,
+                    id, path,
                     { .module = module, .type = is_type ? std::optional(id) : std::nullopt });
                 if (const auto* type = std::get_if<type_stmt_t>(&node)) {
                     for (const stmt_id_t member : type->members) {
                         index_declaration(
-                            member, module,
-                            std::format("{}.{}", path, member_name(m_ast.get(member).node)),
+                            member, std::format("{}.{}", path, member_name(m_ast.get(member).node)),
                             { .module = module, .type = id });
                     }
                 }
@@ -811,13 +817,11 @@ private:
                 // An Extend's members are its type's, in its module; it's Extend and its type, as
                 // no declaration can be named Extend.
                 const std::string path = std::format("{}.{}", name, extended_name(*extension));
-                index_declaration(id, module,
-                                  std::format("{}.Extend.{}", name, extended_name(*extension)),
+                index_declaration(id, std::format("{}.Extend.{}", name, extended_name(*extension)),
                                   { .module = module, .extension = id });
                 for (const stmt_id_t member : extension->members) {
                     index_declaration(
-                        member, module,
-                        std::format("{}.{}", path, member_name(m_ast.get(member).node)),
+                        member, std::format("{}.{}", path, member_name(m_ast.get(member).node)),
                         { .module = module, .extension = id });
                 }
             } else if (const auto* block = std::get_if<extern_stmt_t>(&node)) {
@@ -825,7 +829,7 @@ private:
                     const std::string text = member_name(m_ast.get(function).node);
                     top[std::get<function_stmt_t>(m_ast.get(function).node).name.text].push_back(
                         function);
-                    index_declaration(function, module, std::format("{}.{}", name, text),
+                    index_declaration(function, std::format("{}.{}", name, text),
                                       { .module = module });
                 }
             }
@@ -1028,15 +1032,14 @@ private:
             return added;
         }
 
-        const auto* type = found.declaration
-                               ? std::get_if<type_stmt_t>(&m_ast.get(*found.declaration).node)
-                               : nullptr;
-        if (type == nullptr) {
+        if (!found.declaration) {
             return std::nullopt;
         }
 
-        const std::optional<scope_t> where = scope(*found.declaration);
-        if (!where) {
+        const stmt_id_t declaration = *found.declaration;
+        const auto* type = std::get_if<type_stmt_t>(&m_ast.get(declaration).node);
+        const std::optional<scope_t> where = scope(declaration);
+        if (type == nullptr || !where) {
             return std::nullopt;
         }
 
@@ -1061,7 +1064,7 @@ private:
         }
 
         for (const std::optional<found_t>& base : bases) {
-            if (base && base->declaration && *base->declaration != *found.declaration) {
+            if (base && base->declaration != declaration) {
                 if (std::optional<found_t> inherited = member(*base, name, from, depth + 1)) {
                     return inherited;
                 }
@@ -1363,10 +1366,15 @@ private:
         }
 
         if (const auto* type = std::get_if<type_stmt_t>(&node)) {
-            return type->is_attribute   ? "attribute"
-                   : type->is_interface ? "interface"
-                   : type->is_class     ? "class"
-                                        : "struct";
+            if (type->is_attribute) {
+                return "attribute";
+            }
+
+            if (type->is_interface) {
+                return "interface";
+            }
+
+            return type->is_class ? "class" : "struct";
         }
 
         if (const auto* variable = std::get_if<variable_stmt_t>(&node)) {
@@ -1480,9 +1488,14 @@ private:
         for (std::uint32_t depth = 0; symbol && depth < 32; ++depth) {
             const symbol_t& each = analysis.symbol(*symbol);
             const auto implemented = m_implements.find(*symbol);
-            symbol = each.overrides                      ? each.overrides
-                     : implemented != m_implements.end() ? std::optional(implemented->second)
-                                                         : std::nullopt;
+            if (each.overrides) {
+                symbol = each.overrides;
+            } else if (implemented != m_implements.end()) {
+                symbol = implemented->second;
+            } else {
+                symbol.reset();
+            }
+
             if (!symbol) {
                 break;
             }
@@ -1529,20 +1542,25 @@ private:
             return;
         }
 
+        // A member is its type's, unless it's Protected.
+        visibility_t visibility = visibility_t::PUBLIC;
+        if (member) {
+            visibility =
+                modifiers->visibility == visibility_t::PROTECTED ? visibility_t::PROTECTED : parent;
+        }
+
         doc_item_t item{
             .kind = kind_of(node, member),
             .name = std::string(name->text),
             .path = m_index.path(id),
-            .visibility =
-                member ? (modifiers->visibility == visibility_t::PROTECTED ? visibility_t::PROTECTED
-                                                                           : parent)
-                       : visibility_t::PUBLIC,
+            .visibility = visibility,
         };
         const auto [begin, end] = extent(id);
         describe(item, m_ast.get(id).span, begin, end);
         add_doc(item, id, name->span);
         // An Attribute's Fields are its parameters, which its signature shows.
-        if (const auto* type = std::get_if<type_stmt_t>(&node); type && !type->is_attribute) {
+        if (const auto* type = std::get_if<type_stmt_t>(&node);
+            type != nullptr && !type->is_attribute) {
             for (const stmt_id_t each : type->members) {
                 if (shown(m_ast.get(each).node, *type)) {
                     add_item(item.members, each, item.visibility, true);
@@ -1710,7 +1728,7 @@ private:
         }
 
         if (!m_first.back()) {
-            m_out += ",";
+            m_out += ',';
         }
 
         m_first.back() = false;
