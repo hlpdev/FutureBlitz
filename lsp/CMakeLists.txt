@@ -24,12 +24,3 @@ target_link_libraries(fb_lsp PRIVATE fb_lsp_server)
 fb_set_warnings(fb_lsp)
 fb_set_stack(fb_lsp)
 fb_copy_llvm(fb_lsp)
-
-# MinGW's C++ runtime goes next to it, as it does next to fb.
-if(MINGW)
-  cmake_path(GET CMAKE_CXX_COMPILER PARENT_PATH fb_mingw_bin)
-  foreach(dll libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll)
-    add_custom_command(TARGET fb_lsp POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${fb_mingw_bin}/${dll}" "$<TARGET_FILE_DIR:fb_lsp>")
-  endforeach()
-endif()
