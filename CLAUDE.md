@@ -31,12 +31,12 @@ exe)
 ## Current step
 M7, libraries and packages, is done: steps 0 to 7 of docs/milestones.md's M7 build order landed by
 2026-10-29, on Windows, Linux, and macOS, with plugins and loading at run time left for later
-(Deferred work). M8, tooling, is next (docs/tooling.md): the self-contained toolchain and
-releases, debug info and a debugger, the LSP, VS Code, the formatter, `fb test`, and `fb doc`.
-M9 is futureblitz.dev's site, docs, and playground, and M10 packages online, the package manager
-and the registry, both in docs/website.md; phase 1 ends with M10, and the engine is a phase of
-its own. docs/milestones.md's Deferred work lists everything left for later, and where it's
-planned.
+(Deferred work). M8, tooling, is under way (docs/tooling.md; step 0, the design, done 2026-10-29):
+the self-contained toolchain and releases, debug info and a debugger, the LSP, VS Code, the
+formatter, `fb test`, and `fb doc`. M9 is futureblitz.dev's site, docs, and playground, and M10
+packages online, the package manager and the registry, both in docs/website.md; phase 1 ends with
+M10, and the engine is a phase of its own. docs/milestones.md's Deferred work lists everything left
+for later, and where it's planned.
 
 ## History
 Each milestone's steps, in detail (what each added, by name, and each review's fixes), are in

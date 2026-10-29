@@ -3,6 +3,13 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## M8, tooling
+
+Step 0, the design (2026-10-29): tooling.md's decisions 5 to 12, with the user: fb runs its own
+lld, Linux programs link against glibc 2.28's stubs, releases on GitHub Releases as archives,
+install scripts, an MSI, and a .pkg, unsigned; stack traces from fb's own table; CodeLLDB on
+every OS; `@Test` Functions anywhere and a tests/ folder; and Markdown doc comments.
+
 ## M7, libraries and packages
 
 M7 (2026-10-28 to 29) is done: steps 0 to 7, on Windows, Linux, and macOS.

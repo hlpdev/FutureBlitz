@@ -999,6 +999,19 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | What an interface file keeps, its kept code reaches by what each name refers to, as analysis resolved it, and only a name it didn't resolve, like a type's in a header, by spelling (M7 step 7's review) | a member's, parameter's, or Local's name would otherwise publish a Private Function of that name |
 | A C++ native DLL carries its own C++ runtime and exports only its C API: -static on MinGW, -static-libstdc++ -static-libgcc and a version script on Linux; on macOS the system's libc++ (M7 step 6, and its review) | it runs beside any program with only the OS's libraries, and a program's own C++ runtime can't take over the library's |
 
+## Tooling (M8)
+
+| Decision | Why |
+|---|---|
+| fb runs its own bundled lld directly, with each target's startup files and libraries, and no C++ driver (the user, 2026-10-29, M8 step 0) | building needs no C++ compiler, and lld reads its arguments as UTF-8, so Windows' code page workarounds go |
+| Linux programs link against glibc 2.28's stubs, which fb ships, with the runtime and std's libraries built against them; libstdc++ and libgcc stay static (the user, 2026-10-29) | no libc6-dev needed, and programs run on any distribution since about 2018 |
+| Releases go to GitHub Releases as archives with install.sh and install.ps1, and as an MSI and a .pkg; self-update waits for M10's dl.futureblitz.dev (the user, 2026-10-29) | one place to download before the site exists, and installers for people who expect them |
+| Releases are unsigned for now (the user, 2026-10-29) | the install scripts' downloads aren't stopped by Gatekeeper or SmartScreen, and signing needs paid accounts |
+| Stack traces come from a table of FB names, files, and lines the compiler writes into every binary, debug and release (the user, 2026-10-29) | the same on every OS, and a player's crash names its lines with no debug files shipped |
+| VS Code debugs through CodeLLDB on every OS, with a formatter script of fb's; Windows debug builds carry DWARF and a PDB (the user, 2026-10-29) | CodeLLDB bundles its own lldb, so there's nothing else to install and one set of formatters |
+| Tests are `@Test` Functions anywhere in a package, left out of builds, and a tests/ folder; `Expect` is built in; one process runs them in parallel, started again after a panic (the user, 2026-10-29) | tests reach a file's Private names, and a run is fast but survives a panicking test |
+| `///` doc comments are Markdown, Rust's way, with `[Name]` links (the user, 2026-10-29) | plain to write and read, and the site renders Markdown already |
+
 ## futureblitz.dev (M9 and M10)
 
 | Decision | Why |
