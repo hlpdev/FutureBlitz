@@ -5,6 +5,29 @@ them while each was built. Newest first.
 
 ## M8, tooling
 
+Step 6, the formatter (2026-10-29, c7a74326): `fb fmt [files and folders]`, which formats .fb files
+in place, a folder's, or the current package's, but for hidden folders and a package's build/, with
+`--check` listing those it would change, and project.toml's `[format] width` (40 to 1000, 100
+without it); compiler/src/format.cpp's format_source(), which the LSP will call, laying out
+lex_layout()'s tokens (trivia_t: comments, and each outermost #If's lines, left as written) by
+parse_layout()'s layout_t (each line's block depth, the line breaks that end statements, where one
+may follow outside brackets, and tokens' roles), and refusing any output whose tokens or tree differ
+from the file's; std's style, as tooling.md now writes it, settled with the user: 4 spaces a block,
+Cases a block under Select, a statement going on after a comma, operator, `=`, `=>`, or opening
+bracket, lined up one past the innermost bracket, items packed, or with its expression's start, a
+bracket that ends its line 4 deeper and a signature's 8, the author's line breaks kept and lines
+never joined, a too-wide line broken at the loosest break that fits, wide characters counted as two
+columns, and a statement that can't fit left as written; map literals tight, `{"a": 1}`; sema's
+warning, with a fix-it (fix_t, diagnostic_t::fixes), for a constraint written the other way than
+spec 07's, one inline and more on Where lines, which fmt never moves; and std, tests/programs, and
+tests/packages formatted, with a test that they stay so. Its review's 24 fixes
+(docs/review/m8-step6.md): `>=` and `>>=` after type arguments, `- -a`, the next-best break when the
+best leaves too wide a line, comments that share a line, a comment at the end of a Select's last
+Case, a block of only comments or #If lines, attributes on a declaration's line, and a block comment
+that ends on an #If's line; an #If that holds part of a statement says so; the constraint warning's
+relations, its message, and its fix-its' line breaks and comments; and `fb fmt`'s .FB files, files
+reached twice, project.toml's warnings, and its options' messages.
+
 Step 7, testing (2026-10-29, e111738b): `@Test` Functions, which take nothing and give nothing back,
 though they can throw, anywhere in a package, seeing their file's Private names, and a package's
 tests/ folder, a package of its own, `<name>.tests`, which depends on it and on what it depends on,

@@ -1020,6 +1020,10 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | `fb test` prints each run's results when it ends, in the tests' order; it also tests a lone .fb file; `fb check` leaves a library's tests/ folder out, as `cargo check` does without --tests (M8 step 7) | the output is the same every time |
 | A library's binary and interface file leave its tests out but keep the code only they reach (M8 step 7's review) | programs' instances of a library's generic code can call its Private Functions, so all of them are exported |
 | `///` doc comments are Markdown, Rust's way, with `[Name]` links (the user, 2026-10-29) | plain to write and read, and the site renders Markdown already |
+| fb fmt's style is std's own: continuation lines one past the innermost bracket with items packed, or at the expression's start, breaking after operators; the author's line breaks kept and lines never joined; a statement that can't fit left as written (the user, 2026-10-29, M8 step 6) | std reformats to itself with almost no change, and hand-laid tables keep their shape |
+| fb fmt never moves a generic constraint; a sema warning, with a fix-it the LSP offers, says when spec 07's form fits (the user, 2026-10-29, M8 step 6) | formatting never changes a program's tree |
+| Map literals are tight, `{"a": 1}`; #If regions are left exactly as written, and a file whose #If holds part of a statement isn't formatted; CRLF stays where a file's first line has it (M8 step 6) | std writes them so, about 1,700 to 5; the output is the same on every OS |
+| format_source() refuses any output whose tokens or tree differ from the file's (M8 step 6) | a formatter bug leaves a file as it was, never wrong |
 
 ## futureblitz.dev (M9 and M10)
 
