@@ -52,6 +52,9 @@ struct module_t {
     bool prebuilt = false;
     /// A library's beside the executable, whose code is in its file of its own.
     bool beside = false;
+    /// In fb test's build, a file of the package with top-level code, another main file, as a
+    /// tool's can be, whose code the build leaves out, as it does the main file's.
+    bool other_main = false;
 };
 
 /// A name that a standard library module the program doesn't load declares, for an error to

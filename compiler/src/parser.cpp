@@ -1386,7 +1386,16 @@ private:
 
         // A test is a plain Function, not an Async, Const, or Unsafe one, which fb test runs.
         if (modifiers.is_test && !at(token_kind_t::KW_FUNCTION)) {
-            error(test_span, "@Test only goes before a Function, which fb test runs");
+            const token_kind_t kind = peek().kind;
+            if (kind == token_kind_t::KW_ASYNC || kind == token_kind_t::KW_CONST ||
+                kind == token_kind_t::KW_UNSAFE) {
+                error(test_span,
+                      "a @Test Function can't be {}, since fb test calls it as a plain Function",
+                      text(peek()));
+            } else {
+                error(test_span, "@Test only goes before a Function, which fb test runs");
+            }
+
             modifiers.is_test = false;
         }
 

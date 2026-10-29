@@ -6717,10 +6717,18 @@ TEST_CASE("a @Test Function takes nothing and gives nothing, though it can throw
           });
     const std::string only = "Test: @Test only goes before a Function, which fb test runs";
     CHECK(errors_of("@Test Struct S\nEnd Struct\n"
-                    "@Test Async Function F()\nEnd Function\n"
                     "Class C\n    @Test Method M()\n    End Method\nEnd Class\n"
                     "@Test @Test Function G()\nEnd Function") ==
-          errors_t{ only, only, only, "Test: @Test is written twice" });
+          errors_t{ only, only, "Test: @Test is written twice" });
+    // A Function that isn't plain is named for what it is.
+    const auto plain = [](const std::string_view what) {
+        return std::format(
+            "Test: a @Test Function can't be {}, since fb test calls it as a plain Function", what);
+    };
+    CHECK(errors_of("@Test Async Function A()\nEnd Function\n"
+                    "@Test Const Function B(): Int => 1\n"
+                    "@Test Unsafe Function C()\nEnd Function") ==
+          errors_t{ plain("Async"), plain("Const"), plain("Unsafe") });
 }
 
 TEST_CASE("no code uses a @Test Function, which only fb test runs", "[sema]") {
@@ -6737,6 +6745,41 @@ TEST_CASE("std.test's built-ins are only its importers'", "[sema]") {
               "Fail: 'Fail' is in std.test, which this file doesn't import",
               "ExpectThrows: 'ExpectThrows' is in std.test, which this file doesn't import",
           });
+    // Skip too, though std.core has an Attribute Skip, and what ExpectThrows is given is
+    // checked as what it takes would be, so it needs no Try.
+    CHECK(errors_of("Import std.core\n"
+                    "Function Boom(): Int Throws Error\n"
+                    "    Throw Error(\"boom\")\n"
+                    "End Function\n"
+                    "Function Done()\n"
+                    "End Function\n"
+                    "Function F()\n"
+                    "    Skip()\n"
+                    "    Skip(\"why\")\n"
+                    "    Local e = ExpectThrows(Boom())\n"
+                    "    Local f = ExpectThrows(Done())\n"
+                    "End Function") ==
+          errors_t{
+              "Skip: 'Skip' is in std.test, which this file doesn't import",
+              "Skip: 'Skip' is in std.test, which this file doesn't import",
+              "ExpectThrows: 'ExpectThrows' is in std.test, which this file doesn't import",
+              "ExpectThrows: 'ExpectThrows' is in std.test, which this file doesn't import",
+          });
+    // They're built in, so none is a value, and a file has them whole.
+    CHECK(errors_of("Import std.test\n"
+                    "Local k = Expect\n"
+                    "Local j = ExpectThrows\n") ==
+          errors_t{
+              "Expect: 'Expect' is built in, so it can't be a value; use a lambda that calls it",
+              "ExpectThrows: 'ExpectThrows' is built in, so it can't be a value; use a lambda "
+              "that calls it",
+          });
+    CHECK(errors_of("From std.test Import Expect\n") ==
+          errors_t{ "From std.test Import Expect: std.test's names are built in, so a file has "
+                    "them all, with 'Import std.test', not some, with From" });
+    CHECK(errors_of("Import std.test As t\n") ==
+          errors_t{ "Import std.test As t: std.test's names are built in, so a file has them "
+                    "all, with 'Import std.test', not under another name, with As" });
     // A program's own Function of the name hides the built-in, as with any built-in, and a
     // Method of a type's own hides it in its code.
     CHECK(errors_of("Import std.test\n"

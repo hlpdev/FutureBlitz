@@ -1349,6 +1349,17 @@ private:
         for (std::size_t here = 0; here < modules.size(); ++here) {
             for (const module_import_t& imported : modules[here].imports) {
                 const import_stmt_t& node = import_of(imported);
+                // std.test's names are the compiler's, which a file has whole or not at all.
+                if (m_test_module && (node.from || node.alias) &&
+                    std::ranges::contains(imported.modules,
+                                          static_cast<module_id_t>(*m_test_module))) {
+                    error(m_ast.get(imported.statement).span,
+                          "std.test's names are built in, so a file has them all, with 'Import "
+                          "std.test', not {}",
+                          node.from ? "some, with From" : "under another name, with As");
+                    continue;
+                }
+
                 if (!node.from || imported.modules.empty()) {
                     continue;
                 }
@@ -14713,7 +14724,14 @@ private:
                 !std::holds_alternative<extend_stmt_t>(node) &&
                 !std::holds_alternative<import_stmt_t>(node) &&
                 !std::holds_alternative<extern_stmt_t>(node)) {
-                // Only the main module's code runs.
+                // Only the main module's code runs. A test build leaves out another main file's,
+                // as it does the main file's.
+                if (const std::optional<module_id_t> module =
+                        m_ast.modules().of(m_ast.get(items[i]).span.file);
+                    module && m_ast.modules().get(*module).other_main) {
+                    continue;
+                }
+
                 if (m_ast.outside_main(items[i])) {
                     error(m_ast.get(items[i]).span,
                           "only the main module's top-level code runs, so this module only "
@@ -19025,6 +19043,10 @@ private:
                             m_function ? symbol(*m_function).owner : type_id_t::INVALID);
         } else if (is_test_builtin(name) && !sees_test_builtins(module_of(span.file))) {
             error(span, "'{}' is in std.test, which this file doesn't import", name);
+        } else if (name == "ExpectThrows") {
+            // Found by its name only where it's called, as the other built-ins are values of none.
+            error(span, "'ExpectThrows' is built in, so it can't be a value; use a lambda that "
+                        "calls it");
         } else if (const std::optional<hint_t> hint = import_hint(name, span)) {
             report_hint(span, *hint);
         } else if (is_later_name(name)) {
@@ -22613,6 +22635,17 @@ private:
         record_expectation(id, checked ? text(*checked) : std::string_view());
     }
 
+    /// The arguments of an ExpectThrows that's wrong, each checked as what ExpectThrows takes is:
+    /// what can throw, and give nothing, with nothing that needs Try.
+    void check_thrown(const std::vector<argument_t>& arguments) {
+        m_handlers.push_back({ .kind = handler_kind_t::TRY_OPTIONAL });
+        for (const argument_t& argument : arguments) {
+            (void)check_any(argument.value, type_id_t::NONE);
+        }
+
+        m_handlers.pop_back();
+    }
+
     /// "ExpectThrows(x)" catches what x throws, as Try? does, and its test fails when x throws
     /// nothing, or with a type argument, "ExpectThrows<ParseError>(x)", nothing of that Class. It
     /// gives the error, an E? or an Error?, which is Null when its test failed.
@@ -22621,7 +22654,7 @@ private:
         if (!sees_test_builtins(module_of(span_of(id).file))) {
             error(span_of(node.callee), "'ExpectThrows' is in std.test, which this file doesn't "
                                         "import");
-            check_alone(node.arguments);
+            check_thrown(node.arguments);
             return type_id_t::INVALID;
         }
 
@@ -22630,10 +22663,7 @@ private:
             error(span_of(id), "ExpectThrows takes what should throw, like "
                                "ExpectThrows(Parse(text)), and the error's Class as its type "
                                "argument, if it's to be one, like ExpectThrows<ParseError>(...)");
-            // What it was given can throw, as what it takes can.
-            m_handlers.push_back({ .kind = handler_kind_t::TRY_OPTIONAL });
-            check_alone(node.arguments);
-            m_handlers.pop_back();
+            check_thrown(node.arguments);
             return type_id_t::INVALID;
         }
 
@@ -23842,10 +23872,15 @@ private:
             return {};
         }
 
-        // std.test's Skip is called where std.core's Attribute Skip is only a type.
-        if (is_test_builtin(name->name) && sees_test_builtins(module_of(span.file)) &&
-            symbol(found.front()).kind == symbol_kind_t::TYPE &&
-            in_std(symbol(found.front()).span.file)) {
+        // std.test's Skip is called where std.core's Attribute Skip is only a type, and without
+        // std.test, a call of it is std.test's that's missing its Import, not a new Attribute.
+        if (is_test_builtin(name->name) && symbol(found.front()).kind == symbol_kind_t::TYPE &&
+            in_std(symbol(found.front()).span.file) && !in_std(span.file)) {
+            if (!sees_test_builtins(module_of(span.file))) {
+                error(span, "'{}' is in std.test, which this file doesn't import", name->name);
+                return {};
+            }
+
             found = names_in(m_builtins, name->name);
         }
 

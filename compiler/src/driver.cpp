@@ -115,6 +115,9 @@ struct file_set_t {
     /// Files loaded as modules of their own, though nothing imports them: a library's, for its
     /// check.
     std::vector<std::string> extra;
+    /// For fb test's build, whose main package's other files with top-level code are other main
+    /// files, whose code it leaves out.
+    bool testing = false;
 };
 
 /// The package whose files `path`, a path in the program, is in, or whose folder it names: its
@@ -1313,6 +1316,18 @@ private:
                 continue;
             }
 
+            // A package's tests/ folder is its tests', which use it from outside, so a package
+            // builds without it.
+            if (in_tests_folder(importer, named)) {
+                m_compilation.diagnostics.error(
+                    node.target_span,
+                    "{} is in the package's tests/ folder, whose tests use the package from "
+                    "outside, so the package's own files don't import them",
+                    shown_path(m_files, named));
+                m_loaded[index].imports.emplace_back(id, std::move(targets));
+                continue;
+            }
+
             if (report_linked(node, *paths)) {
                 m_loaded[index].imports.emplace_back(id, std::move(targets));
                 continue;
@@ -1571,6 +1586,37 @@ private:
         return order;
     }
 
+    /// Whether `path`, a file or folder an Import in `importer` names, is in the importer's
+    /// package's tests/ folder.
+    [[nodiscard]] bool in_tests_folder(const std::string& importer,
+                                       const std::string_view path) const {
+        const std::optional<std::size_t> package = package_of(importer);
+        if (m_files.packages.empty() || !package || importer.starts_with("std/")) {
+            return false;
+        }
+
+        const std::string tests = m_files.packages[*package].prefix + "tests";
+        return path == tests || path.starts_with(tests + "/");
+    }
+
+    /// Whether a file's items have top-level code, which only a main file's can, besides its
+    /// declarations.
+    [[nodiscard]] bool has_code(const std::vector<stmt_id_t>& items) const {
+        return std::ranges::any_of(items, [this](const stmt_id_t id) {
+            const stmt_node_t& node = m_compilation.ast.get(id).node;
+            const auto* variable = std::get_if<variable_stmt_t>(&node);
+            return (variable != nullptr && variable->kind == variable_kind_t::LOCAL) ||
+                   (variable == nullptr && !std::holds_alternative<function_stmt_t>(node) &&
+                    !std::holds_alternative<type_stmt_t>(node) &&
+                    !std::holds_alternative<enum_stmt_t>(node) &&
+                    !std::holds_alternative<alias_stmt_t>(node) &&
+                    !std::holds_alternative<extend_stmt_t>(node) &&
+                    !std::holds_alternative<import_stmt_t>(node) &&
+                    !std::holds_alternative<extern_stmt_t>(node) &&
+                    !std::holds_alternative<error_stmt_t>(node));
+        });
+    }
+
     /// Puts each loaded file in the module table, in the order its Globals initialize, with what
     /// it imports, and the AST's items in that order too.
     void add_modules() {
@@ -1621,6 +1667,8 @@ private:
                                : packages[package_of(loaded.path).value_or(0)],
                 .prebuilt = prebuilt_package(m_files, loaded.path) != nullptr,
                 .beside = beside_package(loaded.path),
+                .other_main = m_files.testing && index != 0 && !m_files.packages.empty() &&
+                              package_of(loaded.path) == 0 && has_code(m_items[index]),
             };
             if (const auto [taken, added] = names.emplace(module.name, index); !added) {
                 m_compilation.diagnostics.error(
@@ -2519,10 +2567,13 @@ std::vector<std::string> library_files(const package_t& package) {
 
 /// For fb test, the package of a package's tests/ folder, if it has one: "<name>.tests", whose
 /// files use the package from outside, as one that depends on it does, with what it depends on.
+/// A tests/ folder with a project.toml of its own is a package of its own, which fb test leaves
+/// alone.
 std::optional<package_t> tests_package(const package_t& own) {
     std::error_code error;
     const std::filesystem::path root = own.root / "tests";
-    if (!std::filesystem::is_directory(root, error) || is_link(root)) {
+    if (!std::filesystem::is_directory(root, error) || is_link(root) ||
+        std::filesystem::exists(root / "project.toml", error)) {
         return std::nullopt;
     }
 
@@ -2647,7 +2698,12 @@ compile_package(const std::filesystem::path& folder,
         const std::filesystem::path root = own.root;
         const std::string path = own.prefix + name;
         run_front_end(compilation,
-                      { .root = root, .packages = std::move(*packages), .extra = std::move(extra) },
+                      {
+                          .root = root,
+                          .packages = std::move(*packages),
+                          .extra = std::move(extra),
+                          .testing = testing,
+                      },
                       path, mode);
         record_builds(compilation, others);
         return compilation;
@@ -2664,7 +2720,10 @@ compile_package(const std::filesystem::path& folder,
     const std::string path = own.prefix + program_path(own.root, main_path);
     std::erase(extra, path);
     run_front_end(compilation,
-                  { .root = root, .packages = std::move(*packages), .extra = std::move(extra) },
+                  { .root = root,
+                    .packages = std::move(*packages),
+                    .extra = std::move(extra),
+                    .testing = testing },
                   path, mode);
     record_builds(compilation, others);
     return compilation;

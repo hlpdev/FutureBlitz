@@ -2543,6 +2543,71 @@ TEST_CASE("a package's tests are in its files, and its tests/ folder's use it fr
     packages.remove();
 }
 
+TEST_CASE("a test build leaves out other main files' code, and builds leave out tests/",
+          "[driver]") {
+    const packages_t packages;
+    // A tool's main file beside the package's, whose test runs, and whose code is left out.
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n");
+    packages.write("app/main.fb", "Import std.core\nPrint(\"game\")\n");
+    packages.write("app/tools/gen.fb", "Import std.core\n"
+                                       "Import std.test\n"
+                                       "Local made = 1\n"
+                                       "Print(\"tool {made}\")\n"
+                                       "@Test Function Generates()\n"
+                                       "End Function\n");
+    // A tests/ folder with a project.toml is a package of its own, which fb test leaves alone.
+    packages.write("app/tests/project.toml", "[project]\nname = \"checks\"\nversion = \"1.0.0\"\n");
+    packages.write("app/tests/main.fb", "This isn't code\n");
+    const std::expected<fb::compilation_t, std::string> tested =
+        fb::compile_tests(packages / "app");
+    REQUIRE(tested);
+    CHECK(packages.messages(*tested).empty());
+    const std::vector<fb::test_case_t> tests = fb::package_tests(*tested);
+    REQUIRE(tests.size() == 1);
+    CHECK(tests.front().name == "app.tools.gen.Generates");
+    CHECK_FALSE(
+        fb::dump(fb::lower_tests(tested->ast, tested->analysis, tests)).contains("\"tool "));
+
+    // The package's own files don't import its tests/ folder, in any build.
+    packages.remove();
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n");
+    packages.write("app/main.fb", "Import app.tests.helpers\nImport \"./tests/helpers\"\n");
+    packages.write("app/tests/helpers.fb", "Public Function Helped(): Int => 1\n");
+    const std::expected<fb::compilation_t, std::string> built = fb::compile_file(packages / "app");
+    REQUIRE(built);
+    const std::string message = "is in the package's tests/ folder, whose tests use the package "
+                                "from outside, so the package's own files don't import them";
+    CHECK(packages.messages(*built) ==
+          std::vector<std::string>{
+              "app/main.fb: app.tests.helpers: app/tests/helpers.fb " + message,
+              "app/main.fb: \"./tests/helpers\": app/tests/helpers.fb " + message,
+          });
+
+    // A library's check and build leave out its tests/ folder, and its binary and interface
+    // file its tests.
+    packages.write("lib/project.toml",
+                   "[project]\nname = \"lib\"\nversion = \"1.0.0\"\ntype = \"library\"\n");
+    packages.write("lib/shapes.fb", "Import std.test\n"
+                                    "Public Function Area(side: Int): Int => side * side\n"
+                                    "@Test Function AreaWorks()\n"
+                                    "    Expect(Area(2) == 4)\n"
+                                    "End Function\n");
+    packages.write("lib/tests/broken.fb", "This isn't code\n");
+    const std::expected<fb::compilation_t, std::string> library =
+        fb::compile_file(packages / "lib");
+    REQUIRE(library);
+    CHECK(packages.messages(*library).empty());
+    fb::diagnostic_bag_t diagnostics;
+    const std::expected<fb::library_build_t, std::string> binary =
+        fb::build_library(*library, fb::build_mode_t::DEBUG, diagnostics);
+    REQUIRE(binary);
+    CHECK(binary->interface.contains("Area"));
+    CHECK_FALSE(binary->interface.contains("AreaWorks"));
+    CHECK(binary->binary.contains("Area"));
+    CHECK_FALSE(binary->binary.contains("AreaWorks"));
+    packages.remove();
+}
+
 TEST_CASE("a dependency's project.toml is checked as its own package's is", "[driver]") {
     const packages_t packages;
     packages.write("app/main.fb", "Print(\"app\")\n");
