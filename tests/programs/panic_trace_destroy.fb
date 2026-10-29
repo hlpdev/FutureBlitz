@@ -1,0 +1,19 @@
+// A Destroy that panics as its Local goes out of scope at a Function's end is traced to the
+// Local's line, where nothing else could have called it.
+
+Import std.core
+
+Class Res
+    Field N: Int
+
+    Method Destroy()
+        Assert(N > 0, "destroyed with {N}")
+    End Method
+End Class
+
+Function Scoped()
+    Local r = Res()
+    Print("in scoped")
+End Function
+
+Scoped()

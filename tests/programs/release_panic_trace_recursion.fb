@@ -1,0 +1,16 @@
+// In a release build no call is a tail call, so a Function that calls itself last keeps each
+// call's frame in its panic's trace, as a debug build does.
+
+Import std.core
+
+Function Down(n: Int): Int
+    If n == 0 Then Panic("bottom")
+    Return Down(n - 1)
+End Function
+
+Function Start(): Int
+    Local x = Down(3)
+    Return x + 1
+End Function
+
+Print(Start())

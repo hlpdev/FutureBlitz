@@ -1,0 +1,11 @@
+// A Function whose last call is to itself, inside a sum, keeps each call's frame in a release
+// build too, where tail-call elimination would make it a loop. Its input says how deep.
+
+Import std.core
+
+Function Sum(n: Int): Int
+    If n == 0 Then Panic("bottom")
+    Return n + Sum(n - 1)
+End Function
+
+Print(Sum((Input() ?? "").Chars.Count))

@@ -1,0 +1,5 @@
+panic: -1 is negative at release_panic_trace_merged.fb:14:23
+    at Big.Check (release_panic_trace_merged.fb:14)
+    at Pick (release_panic_trace_merged.fb)
+    at Go (release_panic_trace_merged.fb:30)
+    at top-level code (release_panic_trace_merged.fb:33)

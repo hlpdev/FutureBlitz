@@ -1,0 +1,11 @@
+// A trace shows the innermost 100 places, and then says there are more, on every platform.
+
+Import std.core
+
+Function Down(n: Int): Int
+    If n == 0 Then Panic("bottom")
+    Local r = Down(n - 1)
+    Return r + 1
+End Function
+
+Print(Down(1000))

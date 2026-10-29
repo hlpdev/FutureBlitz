@@ -134,18 +134,26 @@ struct stack_frame_t {
     std::uintptr_t start;
 };
 
-/// The calling thread's stack, from the caller of capture_stack() outward, up to a limit.
-[[nodiscard]] std::vector<stack_frame_t> capture_stack();
+/// A thread's stack, innermost first, and whether it went on past the frames walked.
+struct captured_stack_t {
+    std::vector<stack_frame_t> frames;
+    bool cut = false;
+};
 
-/// Writes the stack trace of `frames`, a line for each place of the program's code in it, which
+/// The calling thread's stack, from capture_stack()'s own frame outward, up to a limit.
+[[nodiscard]] captured_stack_t capture_stack();
+
+/// Writes the stack trace of `stack`, a line for each place of the program's code in it, which
 /// the binaries' trace tables name, "    at <function> (<file>:<line>)", innermost first, with
-/// the calls it's inlined into after it. Frames of other code, like the runtime's, are left out.
-void write_trace(std::span<const stack_frame_t> frames, std::FILE* stream);
+/// the calls it's inlined into after it, up to a limit, then a line saying there are more.
+/// Frames of other code, like the runtime's, are left out.
+void write_trace(const captured_stack_t& stack, std::FILE* stream);
 
-/// Keeps the calling thread's stack as a thrown error's trace, until fb_error_released().
+/// Keeps the calling thread's stack as a thrown error's trace, the frames of the program's code
+/// alone, until fb_error_released().
 void keep_error_trace(const fb_object_t* error);
 
 /// The stack that keep_error_trace() kept for an error, or none.
-[[nodiscard]] std::vector<stack_frame_t> error_trace(const fb_object_t* error);
+[[nodiscard]] captured_stack_t error_trace(const fb_object_t* error);
 
 } // namespace fb::runtime

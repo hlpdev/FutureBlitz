@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <mutex>
-#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -30,8 +29,10 @@
 
 namespace {
 
-/// A trace shows at most this many frames, the innermost.
-constexpr std::size_t max_frames = 256;
+/// A stack is walked for at most this many frames, the innermost, on every platform.
+constexpr std::size_t max_frames = 512;
+/// A trace shows at most this many places, the innermost, then says that there are more.
+constexpr std::size_t shown_places = 100;
 /// A frame's parent when it isn't inlined, and a marker's frame when its call has no place.
 constexpr std::uint32_t no_frame = 0xFFFFFFFF;
 
@@ -128,8 +129,8 @@ const marker_t* marker_of(const fb::runtime::stack_frame_t& frame) {
 
 /// Each thrown error's stack, by the error, until it goes, and how many there are, which a
 /// release reads without the lock.
-std::unordered_map<const fb_object_t*, std::vector<fb::runtime::stack_frame_t>>& error_traces() {
-    static std::unordered_map<const fb_object_t*, std::vector<fb::runtime::stack_frame_t>> instance;
+std::unordered_map<const fb_object_t*, fb::runtime::captured_stack_t>& error_traces() {
+    static std::unordered_map<const fb_object_t*, fb::runtime::captured_stack_t> instance;
     return instance;
 }
 
@@ -146,7 +147,8 @@ std::atomic<std::size_t>& traced_errors() {
 #ifndef _WIN32
 _Unwind_Reason_Code add_frame(_Unwind_Context* context, void* data) {
     auto& frames = *static_cast<std::vector<fb::runtime::stack_frame_t>*>(data);
-    if (frames.size() >= max_frames) {
+    // One more than it keeps, which says the stack goes on.
+    if (frames.size() > max_frames) {
         return _URC_END_OF_STACK;
     }
 
@@ -163,69 +165,108 @@ _Unwind_Reason_Code add_frame(_Unwind_Context* context, void* data) {
 
 namespace fb::runtime {
 
-std::vector<stack_frame_t> capture_stack() {
-    std::vector<stack_frame_t> frames;
-    frames.reserve(32);
+captured_stack_t capture_stack() {
+    captured_stack_t stack;
 #ifdef _WIN32
-    // The return addresses alone, which write_trace() finds the functions of: Windows walks
-    // the stack faster than its parts would one frame at a time. It takes fewer than 63 at once.
-    constexpr DWORD batch = 62;
-    std::array<void*, batch> found{};
-    for (DWORD skip = 0; frames.size() < max_frames; skip += batch) {
-        const USHORT count = RtlCaptureStackBackTrace(skip, batch, found.data(), nullptr);
-        for (USHORT i = 0; i < count; ++i) {
-            frames.push_back({ .address = reinterpret_cast<std::uintptr_t>(found[i]), .start = 0 });
-        }
-
-        if (count < batch) {
-            break;
-        }
+    // The return addresses alone, in one walk, which marker_of() finds the functions of. One
+    // more than it keeps says the stack goes on.
+    std::array<void*, max_frames + 1> found{};
+    const USHORT count =
+        RtlCaptureStackBackTrace(0, static_cast<DWORD>(found.size()), found.data(), nullptr);
+    stack.frames.reserve(count);
+    for (USHORT i = 0; i < count; ++i) {
+        stack.frames.push_back(
+            { .address = reinterpret_cast<std::uintptr_t>(found[i]), .start = 0 });
     }
 #else
-    _Unwind_Backtrace(add_frame, &frames);
+    _Unwind_Backtrace(add_frame, &stack.frames);
 #endif
-    return frames;
+    if (stack.frames.size() > max_frames) {
+        stack.frames.resize(max_frames);
+        stack.cut = true;
+    }
+
+    return stack;
 }
 
-void write_trace(const std::span<const stack_frame_t> frames, std::FILE* stream) {
+void write_trace(const captured_stack_t& stack, std::FILE* stream) {
     const std::scoped_lock held(tables_mutex());
     mark_tables();
+    std::size_t shown = 0;
+    bool more = stack.cut;
     // The first frame is capture_stack()'s, which a marker can't be in.
-    for (const stack_frame_t& frame : frames) {
+    for (const stack_frame_t& frame : stack.frames) {
         const marker_t* marker = frame.address != 0 ? marker_of(frame) : nullptr;
         if (marker == nullptr) {
             continue;
         }
 
+        // A place of code the compiler makes has no name. One whose line isn't known, as when
+        // a release build merges calls on several lines, is shown without it.
         const fb_trace_t& table = *marker->table;
         for (std::uint32_t at = marker->frame; at != no_frame; at = table.frames[at].parent) {
             const fb_trace_frame_t& place = table.frames[at];
-            if (place.line == 0) {
+            const char* name = table.names + place.name;
+            const char* file = table.names + place.file;
+            if (*name == '\0' && place.line == 0) {
                 continue;
             }
 
-            const char* name = table.names + place.name;
+            if (shown == shown_places) {
+                more = true;
+                break;
+            }
+
+            ++shown;
             if (*name == '\0') {
-                std::fprintf(stream, "    at %s:%u\n", table.names + place.file, place.line);
+                std::fprintf(stream, "    at %s:%u\n", file, place.line);
+            } else if (place.line == 0) {
+                std::fprintf(stream, "    at %s (%s)\n", name, file);
             } else {
-                std::fprintf(stream, "    at %s (%s:%u)\n", name, table.names + place.file,
-                             place.line);
+                std::fprintf(stream, "    at %s (%s:%u)\n", name, file, place.line);
             }
         }
+    }
+
+    if (more) {
+        std::fputs("    and more calls, which aren't shown\n", stream);
     }
 }
 
 void keep_error_trace(const fb_object_t* error) {
-    std::vector<stack_frame_t> frames = capture_stack();
+    const captured_stack_t stack = capture_stack();
+    // It keeps the frames of the program's code alone, each with where its function starts.
+    captured_stack_t kept{ .frames = {}, .cut = stack.cut };
+    {
+        const std::scoped_lock held(tables_mutex());
+        mark_tables();
+        std::size_t marked = 0;
+        for (const stack_frame_t& frame : stack.frames) {
+            if (frame.address != 0 && marker_of(frame) != nullptr) {
+                ++marked;
+            }
+        }
+
+        kept.frames.reserve(marked);
+        for (const stack_frame_t& frame : stack.frames) {
+            if (frame.address != 0 && marker_of(frame) != nullptr) {
+                kept.frames.push_back({
+                    .address = frame.address,
+                    .start = frame.start != 0 ? frame.start : function_start(frame.address - 1),
+                });
+            }
+        }
+    }
+
     const std::scoped_lock held(errors_mutex());
-    error_traces()[error] = std::move(frames);
+    error_traces()[error] = std::move(kept);
     traced_errors().store(error_traces().size(), std::memory_order_relaxed);
 }
 
-std::vector<stack_frame_t> error_trace(const fb_object_t* error) {
+captured_stack_t error_trace(const fb_object_t* error) {
     const std::scoped_lock held(errors_mutex());
     const auto found = error_traces().find(error);
-    return found != error_traces().end() ? found->second : std::vector<stack_frame_t>();
+    return found != error_traces().end() ? found->second : captured_stack_t();
 }
 
 } // namespace fb::runtime

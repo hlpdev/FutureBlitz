@@ -1,0 +1,6 @@
+panic: bottom at release_panic_trace_accumulate.fb:7:20
+    at Sum (release_panic_trace_accumulate.fb:7)
+    at Sum (release_panic_trace_accumulate.fb:8)
+    at Sum (release_panic_trace_accumulate.fb:8)
+    at Sum (release_panic_trace_accumulate.fb:8)
+    at top-level code (release_panic_trace_accumulate.fb:11)

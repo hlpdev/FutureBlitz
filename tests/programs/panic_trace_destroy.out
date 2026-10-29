@@ -1,0 +1,5 @@
+in scoped
+panic: destroyed with 0 at panic_trace_destroy.fb:10:9
+    at Res.Destroy (panic_trace_destroy.fb:10)
+    at Scoped (panic_trace_destroy.fb:15)
+    at top-level code (panic_trace_destroy.fb:19)

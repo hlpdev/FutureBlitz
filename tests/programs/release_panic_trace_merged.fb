@@ -1,0 +1,33 @@
+// A release build merges a call written on three lines into one, which then has no line of its
+// own: its function, Pick, is still in the trace, without a line.
+
+Import std.core
+
+Class Big
+    Field Items: Int[] = []
+
+    Method Check(n: Int)
+        For i = 0 Until 3
+            Items.Add(i)
+        End For
+
+        If n < 0 Then Panic("{n} is negative")
+        Print(Items.Count)
+    End Method
+End Class
+
+Function Pick(flag: Int, b: Big, x: Int)
+    If flag == 1
+        b.Check(x)
+    ElseIf flag == 2
+        b.Check(x)
+    Else
+        b.Check(x)
+    End If
+End Function
+
+Function Go(f: Int)
+    Pick(f, Big(), -1)
+End Function
+
+Go((Input() ?? "").Chars.Count)

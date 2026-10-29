@@ -1,0 +1,7 @@
+panic: bottom at release_panic_trace_recursion.fb:7:20
+    at Down (release_panic_trace_recursion.fb:7)
+    at Down (release_panic_trace_recursion.fb:8)
+    at Down (release_panic_trace_recursion.fb:8)
+    at Down (release_panic_trace_recursion.fb:8)
+    at Start (release_panic_trace_recursion.fb:12)
+    at top-level code (release_panic_trace_recursion.fb:16)
