@@ -1,0 +1,23 @@
+{
+  "name": "vscode-lldb",
+  "displayName": "CodeLLDB (the extension tests' stand-in)",
+  "description": "Takes the place of vadimcn.vscode-lldb in the extension tests: its lldb debugger records each launch and ends it",
+  "version": "0.0.0",
+  "publisher": "vadimcn",
+  "private": true,
+  "engines": {
+    "vscode": "^1.91.0"
+  },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onDebug"
+  ],
+  "contributes": {
+    "debuggers": [
+      {
+        "type": "lldb",
+        "label": "CodeLLDB (test stand-in)"
+      }
+    ]
+  }
+}

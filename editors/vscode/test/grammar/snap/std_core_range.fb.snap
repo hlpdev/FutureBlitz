@@ -1,0 +1,329 @@
+>// Range<T>: the integers a range gives, like 0 Until 10, 1 To 10, or 10 To 0 Step -2, which are
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>// the values a For loop with those bounds counts. The compiler makes each one from what's written,
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>// so a Range holds only the value it gives next, its step, and how many steps come after that
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>// value. An empty range is a Range's zero. Ranges are == when they give the same values.
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>
+>Import std.core.interfaces
+#^^^^^^ source.futureblitz meta.import.futureblitz keyword.control.import.futureblitz
+#      ^ source.futureblitz meta.import.futureblitz
+#       ^^^^^^^^^^^^^^^^^^^ source.futureblitz meta.import.futureblitz entity.name.namespace.futureblitz
+>Import std.core.iterator
+#^^^^^^ source.futureblitz meta.import.futureblitz keyword.control.import.futureblitz
+#      ^ source.futureblitz meta.import.futureblitz
+#       ^^^^^^^^^^^^^^^^^ source.futureblitz meta.import.futureblitz entity.name.namespace.futureblitz
+>
+>Public Struct Range<T: Numeric> Implements Iterator<T>, Iterable<T>
+#^^^^^^ source.futureblitz storage.modifier.futureblitz
+#      ^ source.futureblitz
+#       ^^^^^^ source.futureblitz storage.type.futureblitz
+#             ^ source.futureblitz
+#              ^^^^^ source.futureblitz entity.name.type.futureblitz
+#                   ^ source.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                    ^ source.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                     ^ source.futureblitz meta.type.parameters.futureblitz punctuation.separator.type.futureblitz
+#                      ^ source.futureblitz meta.type.parameters.futureblitz
+#                       ^^^^^^^ source.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                              ^ source.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                               ^ source.futureblitz
+#                                ^^^^^^^^^^ source.futureblitz meta.inheritance.futureblitz storage.modifier.futureblitz
+#                                          ^ source.futureblitz meta.inheritance.futureblitz
+#                                           ^^^^^^^^ source.futureblitz meta.inheritance.futureblitz entity.name.type.futureblitz
+#                                                   ^ source.futureblitz meta.inheritance.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                                                    ^ source.futureblitz meta.inheritance.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                                                     ^ source.futureblitz meta.inheritance.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                                                      ^ source.futureblitz meta.inheritance.futureblitz punctuation.separator.comma.futureblitz
+#                                                       ^ source.futureblitz meta.inheritance.futureblitz
+#                                                        ^^^^^^^^ source.futureblitz meta.inheritance.futureblitz entity.name.type.futureblitz
+#                                                                ^ source.futureblitz meta.inheritance.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                                                                 ^ source.futureblitz meta.inheritance.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                                                                  ^ source.futureblitz meta.inheritance.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+>    // The value Next gives next. The compiler makes these Fields, in this order.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Field Current: T
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.field.futureblitz storage.type.field.futureblitz
+#         ^ source.futureblitz meta.declaration.field.futureblitz
+#          ^^^^^^^ source.futureblitz meta.declaration.field.futureblitz variable.other.property.futureblitz
+#                 ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                  ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz
+#                   ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz entity.name.type.futureblitz
+>    Field Step: T
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.field.futureblitz storage.type.field.futureblitz
+#         ^ source.futureblitz meta.declaration.field.futureblitz
+#          ^^^^ source.futureblitz meta.declaration.field.futureblitz variable.other.property.futureblitz
+#              ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#               ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz
+#                ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz entity.name.type.futureblitz
+>    // How many steps come after Current. Counting them, rather than comparing with the end, keeps
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    // Current from stepping past the end, even at the end of T's values.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Field Left: UInt64
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.field.futureblitz storage.type.field.futureblitz
+#         ^ source.futureblitz meta.declaration.field.futureblitz
+#          ^^^^ source.futureblitz meta.declaration.field.futureblitz variable.other.property.futureblitz
+#              ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#               ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz
+#                ^^^^^^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+>    // Whether Current is one of the range's values: False for an empty range, and once Next has
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    // given the last one.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Field More: Bool
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.field.futureblitz storage.type.field.futureblitz
+#         ^ source.futureblitz meta.declaration.field.futureblitz
+#          ^^^^ source.futureblitz meta.declaration.field.futureblitz variable.other.property.futureblitz
+#              ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#               ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz
+#                ^^^^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+>
+>    // The next value, or Null after the last one.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Public ByRef Method Next(): T?
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^ source.futureblitz storage.modifier.futureblitz
+#                ^ source.futureblitz
+#                 ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                       ^ source.futureblitz meta.function.futureblitz
+#                        ^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                            ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                             ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                              ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                               ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz entity.name.type.futureblitz
+#                                 ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz keyword.operator.type.nullable.futureblitz
+>        If !More Then Return Null
+#^^^^^^^^ source.futureblitz
+#        ^^ source.futureblitz keyword.control.conditional.futureblitz
+#          ^ source.futureblitz
+#           ^ source.futureblitz keyword.operator.logical.futureblitz
+#            ^^^^^ source.futureblitz
+#                 ^^^^ source.futureblitz keyword.control.conditional.futureblitz
+#                     ^ source.futureblitz
+#                      ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#                            ^ source.futureblitz
+#                             ^^^^ source.futureblitz constant.language.null.futureblitz
+>        Local value = Current
+#^^^^^^^^ source.futureblitz
+#        ^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#             ^ source.futureblitz meta.declaration.variable.futureblitz
+#              ^^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#                   ^ source.futureblitz meta.declaration.variable.futureblitz
+#                    ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                     ^^^^^^^^^ source.futureblitz
+>        If Left == 0
+#^^^^^^^^ source.futureblitz
+#        ^^ source.futureblitz keyword.control.conditional.futureblitz
+#          ^^^^^^ source.futureblitz
+#                ^^ source.futureblitz keyword.operator.comparison.futureblitz
+#                  ^ source.futureblitz
+#                   ^ source.futureblitz constant.numeric.decimal.futureblitz
+>            More = False
+#^^^^^^^^^^^^^^^^^ source.futureblitz
+#                 ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                  ^ source.futureblitz
+#                   ^^^^^ source.futureblitz constant.language.boolean.futureblitz
+>        Else
+#^^^^^^^^ source.futureblitz
+#        ^^^^ source.futureblitz keyword.control.conditional.futureblitz
+>            Left -= 1
+#^^^^^^^^^^^^^^^^^ source.futureblitz
+#                 ^^ source.futureblitz keyword.operator.assignment.compound.futureblitz
+#                   ^ source.futureblitz
+#                    ^ source.futureblitz constant.numeric.decimal.futureblitz
+>            Current = Current + Step
+#^^^^^^^^^^^^^^^^^^^^ source.futureblitz
+#                    ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                     ^^^^^^^^^ source.futureblitz
+#                              ^ source.futureblitz keyword.operator.arithmetic.futureblitz
+#                               ^^^^^^ source.futureblitz
+>        End If
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>        Return value
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#              ^^^^^^^ source.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    // A copy of the range, which goes over its values from where it is.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Public Method Iterate(): Range<T> => Self
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz
+#                  ^^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                         ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                          ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                           ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                            ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                             ^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz entity.name.type.futureblitz
+#                                  ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                                   ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                                    ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                                     ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                      ^^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz storage.type.function.arrow.futureblitz
+#                                        ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz
+#                                         ^^^^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz variable.language.self.futureblitz
+>End Struct
+#^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>// Whether the two give the same values: every range that gives none does, whatever it gave
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>// before, and the step counts only where there's a value after Current. Every integer type is
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>// Equatable, so every range a program makes has it.
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>Extend Range<T>
+#^^^^^^ source.futureblitz meta.extend.futureblitz storage.type.futureblitz
+#      ^ source.futureblitz meta.extend.futureblitz
+#       ^^^^^ source.futureblitz meta.extend.futureblitz entity.name.type.futureblitz
+#            ^ source.futureblitz meta.extend.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#             ^ source.futureblitz meta.extend.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#              ^ source.futureblitz meta.extend.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+>    Where T: Equatable
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.where.futureblitz keyword.other.where.futureblitz
+#         ^ source.futureblitz meta.where.futureblitz
+#          ^ source.futureblitz meta.where.futureblitz entity.name.type.futureblitz
+#           ^ source.futureblitz meta.where.futureblitz punctuation.separator.type.futureblitz
+#            ^ source.futureblitz meta.where.futureblitz
+#             ^^^^^^^^^ source.futureblitz meta.where.futureblitz entity.name.type.futureblitz
+>
+>    Operator ==(a: Range<T>, b: Range<T>): Bool
+#^^^^ source.futureblitz
+#    ^^^^^^^^ source.futureblitz meta.function.operator.futureblitz storage.type.function.futureblitz
+#            ^ source.futureblitz meta.function.operator.futureblitz
+#             ^^ source.futureblitz meta.function.operator.futureblitz entity.name.function.operator.futureblitz
+#               ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                 ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                  ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                   ^^^^^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz entity.name.type.futureblitz
+#                        ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                         ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                          ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                           ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz punctuation.separator.comma.futureblitz
+#                            ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz
+#                             ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                              ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                               ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                                ^^^^^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz entity.name.type.futureblitz
+#                                     ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                                      ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                                       ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                                        ^ source.futureblitz meta.function.operator.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                         ^ source.futureblitz meta.function.operator.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                                          ^ source.futureblitz meta.function.operator.futureblitz meta.type.return.futureblitz
+#                                           ^^^^ source.futureblitz meta.function.operator.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
+>        If !a.More || !b.More Then Return a.More == b.More
+#^^^^^^^^ source.futureblitz
+#        ^^ source.futureblitz keyword.control.conditional.futureblitz
+#          ^ source.futureblitz
+#           ^ source.futureblitz keyword.operator.logical.futureblitz
+#            ^ source.futureblitz
+#             ^ source.futureblitz punctuation.accessor.futureblitz
+#              ^^^^ source.futureblitz variable.other.property.futureblitz
+#                  ^ source.futureblitz
+#                   ^^ source.futureblitz keyword.operator.logical.futureblitz
+#                     ^ source.futureblitz
+#                      ^ source.futureblitz keyword.operator.logical.futureblitz
+#                       ^ source.futureblitz
+#                        ^ source.futureblitz punctuation.accessor.futureblitz
+#                         ^^^^ source.futureblitz variable.other.property.futureblitz
+#                             ^ source.futureblitz
+#                              ^^^^ source.futureblitz keyword.control.conditional.futureblitz
+#                                  ^ source.futureblitz
+#                                   ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#                                         ^^ source.futureblitz
+#                                           ^ source.futureblitz punctuation.accessor.futureblitz
+#                                            ^^^^ source.futureblitz variable.other.property.futureblitz
+#                                                ^ source.futureblitz
+#                                                 ^^ source.futureblitz keyword.operator.comparison.futureblitz
+#                                                   ^^ source.futureblitz
+#                                                     ^ source.futureblitz punctuation.accessor.futureblitz
+#                                                      ^^^^ source.futureblitz variable.other.property.futureblitz
+>        Return a.Current == b.Current && a.Left == b.Left && (a.Left == 0 || a.Step == b.Step)
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#              ^^ source.futureblitz
+#                ^ source.futureblitz punctuation.accessor.futureblitz
+#                 ^^^^^^^ source.futureblitz variable.other.property.futureblitz
+#                        ^ source.futureblitz
+#                         ^^ source.futureblitz keyword.operator.comparison.futureblitz
+#                           ^^ source.futureblitz
+#                             ^ source.futureblitz punctuation.accessor.futureblitz
+#                              ^^^^^^^ source.futureblitz variable.other.property.futureblitz
+#                                     ^ source.futureblitz
+#                                      ^^ source.futureblitz keyword.operator.logical.futureblitz
+#                                        ^^ source.futureblitz
+#                                          ^ source.futureblitz punctuation.accessor.futureblitz
+#                                           ^^^^ source.futureblitz variable.other.property.futureblitz
+#                                               ^ source.futureblitz
+#                                                ^^ source.futureblitz keyword.operator.comparison.futureblitz
+#                                                  ^^ source.futureblitz
+#                                                    ^ source.futureblitz punctuation.accessor.futureblitz
+#                                                     ^^^^ source.futureblitz variable.other.property.futureblitz
+#                                                         ^ source.futureblitz
+#                                                          ^^ source.futureblitz keyword.operator.logical.futureblitz
+#                                                            ^ source.futureblitz
+#                                                             ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                                                              ^ source.futureblitz
+#                                                               ^ source.futureblitz punctuation.accessor.futureblitz
+#                                                                ^^^^ source.futureblitz variable.other.property.futureblitz
+#                                                                    ^ source.futureblitz
+#                                                                     ^^ source.futureblitz keyword.operator.comparison.futureblitz
+#                                                                       ^ source.futureblitz
+#                                                                        ^ source.futureblitz constant.numeric.decimal.futureblitz
+#                                                                         ^ source.futureblitz
+#                                                                          ^^ source.futureblitz keyword.operator.logical.futureblitz
+#                                                                            ^^ source.futureblitz
+#                                                                              ^ source.futureblitz punctuation.accessor.futureblitz
+#                                                                               ^^^^ source.futureblitz variable.other.property.futureblitz
+#                                                                                   ^ source.futureblitz
+#                                                                                    ^^ source.futureblitz keyword.operator.comparison.futureblitz
+#                                                                                      ^^ source.futureblitz
+#                                                                                        ^ source.futureblitz punctuation.accessor.futureblitz
+#                                                                                         ^^^^ source.futureblitz variable.other.property.futureblitz
+#                                                                                             ^ source.futureblitz punctuation.parenthesis.futureblitz
+>    End Operator
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>End Extend
+#^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>

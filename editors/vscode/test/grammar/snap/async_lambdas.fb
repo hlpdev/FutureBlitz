@@ -1,0 +1,49 @@
+// A lambda can be Async: calling it starts its coroutine and gives its Task, through a function
+// value too.
+
+Import std.core
+
+Async Function Double(n: Int): Int
+    Return Await Spawn(Function() => n * 2)
+End Function
+
+Class Light
+    Field name: String
+
+    Method Destroy()
+        Print("{name} let go")
+    End Method
+End Class
+
+Async Function Main()
+    // It captures what's around it, and keeps it while it waits.
+    Local light = Light()
+    light.name = "lamp"
+    Local count = 0
+    Local blink = Async Function(times: Int): String
+        For i = 1 To times
+            Await NextFrame()
+            count += 1
+        End For
+
+        Return "{light.name} blinked {times}"
+    End Function
+
+    Print(Await blink(3))
+    Print("count {count}")
+
+    // A "=>" one, where a Func that gives a Task is expected.
+    Local twice: Func(Int): Task<Int> = Async Function(n) => 1 + Await Double(n)
+    Print("twice {Await twice(5)}")
+
+    // One that gives nothing.
+    Local log = Async Function(text: String)
+        Await NextFrame()
+        Print("log {text}")
+    End Function
+
+    Await log("done")
+End Function
+
+Main()
+Print("top-level code is done")

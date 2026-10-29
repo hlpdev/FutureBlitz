@@ -1,0 +1,343 @@
+>// A lambda can be Async: calling it starts its coroutine and gives its Task, through a function
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>// value too.
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>
+>Import std.core
+#^^^^^^ source.futureblitz meta.import.futureblitz keyword.control.import.futureblitz
+#      ^ source.futureblitz meta.import.futureblitz
+#       ^^^^^^^^ source.futureblitz meta.import.futureblitz entity.name.namespace.futureblitz
+>
+>Async Function Double(n: Int): Int
+#^^^^^ source.futureblitz storage.modifier.futureblitz
+#     ^ source.futureblitz
+#      ^^^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#              ^ source.futureblitz meta.function.futureblitz
+#               ^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                     ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                      ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                       ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                        ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                         ^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                            ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                             ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                              ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                               ^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
+>    Return Await Spawn(Function() => n * 2)
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#                ^ source.futureblitz
+#                 ^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                      ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                       ^^^^^^^^ source.futureblitz meta.function.lambda.futureblitz storage.type.function.futureblitz
+#                               ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                                ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                 ^ source.futureblitz
+#                                  ^^ source.futureblitz storage.type.function.arrow.futureblitz
+#                                    ^^^ source.futureblitz
+#                                       ^ source.futureblitz keyword.operator.arithmetic.futureblitz
+#                                        ^ source.futureblitz
+#                                         ^ source.futureblitz constant.numeric.decimal.futureblitz
+#                                          ^ source.futureblitz punctuation.parenthesis.futureblitz
+>End Function
+#^^^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>Class Light
+#^^^^^ source.futureblitz storage.type.futureblitz
+#     ^ source.futureblitz
+#      ^^^^^ source.futureblitz entity.name.type.futureblitz
+>    Field name: String
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.field.futureblitz storage.type.field.futureblitz
+#         ^ source.futureblitz meta.declaration.field.futureblitz
+#          ^^^^ source.futureblitz meta.declaration.field.futureblitz variable.other.property.futureblitz
+#              ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#               ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz
+#                ^^^^^^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+>
+>    Method Destroy()
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#          ^ source.futureblitz meta.function.futureblitz
+#           ^^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                  ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                   ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+>        Print("{name} let go")
+#^^^^^^^^ source.futureblitz
+#        ^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#             ^ source.futureblitz punctuation.parenthesis.futureblitz
+#              ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#               ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                ^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                    ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                     ^^^^^^^ source.futureblitz string.quoted.double.futureblitz
+#                            ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                             ^ source.futureblitz punctuation.parenthesis.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>End Class
+#^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>Async Function Main()
+#^^^^^ source.futureblitz storage.modifier.futureblitz
+#     ^ source.futureblitz
+#      ^^^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#              ^ source.futureblitz meta.function.futureblitz
+#               ^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                   ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                    ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+>    // It captures what's around it, and keeps it while it waits.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Local light = Light()
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#         ^ source.futureblitz meta.declaration.variable.futureblitz
+#          ^^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#               ^ source.futureblitz meta.declaration.variable.futureblitz
+#                ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                 ^ source.futureblitz
+#                  ^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                       ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                        ^ source.futureblitz punctuation.parenthesis.futureblitz
+>    light.name = "lamp"
+#^^^^^^^^^ source.futureblitz
+#         ^ source.futureblitz punctuation.accessor.futureblitz
+#          ^^^^ source.futureblitz variable.other.property.futureblitz
+#              ^ source.futureblitz
+#               ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                ^ source.futureblitz
+#                 ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                  ^^^^ source.futureblitz string.quoted.double.futureblitz
+#                      ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+>    Local count = 0
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#         ^ source.futureblitz meta.declaration.variable.futureblitz
+#          ^^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#               ^ source.futureblitz meta.declaration.variable.futureblitz
+#                ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                 ^ source.futureblitz
+#                  ^ source.futureblitz constant.numeric.decimal.futureblitz
+>    Local blink = Async Function(times: Int): String
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#         ^ source.futureblitz meta.declaration.variable.futureblitz
+#          ^^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#               ^ source.futureblitz meta.declaration.variable.futureblitz
+#                ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                 ^ source.futureblitz
+#                  ^^^^^ source.futureblitz storage.modifier.futureblitz
+#                       ^ source.futureblitz
+#                        ^^^^^^^^ source.futureblitz meta.function.lambda.futureblitz storage.type.function.futureblitz
+#                                ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                                 ^^^^^ source.futureblitz meta.function.lambda.futureblitz variable.parameter.futureblitz
+#                                      ^ source.futureblitz meta.function.lambda.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                                       ^ source.futureblitz meta.function.lambda.futureblitz meta.type.annotation.futureblitz
+#                                        ^^^ source.futureblitz meta.function.lambda.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                                           ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                            ^ source.futureblitz meta.function.lambda.futureblitz punctuation.separator.type.futureblitz
+#                                             ^ source.futureblitz meta.function.lambda.futureblitz
+#                                              ^^^^^^ source.futureblitz meta.function.lambda.futureblitz storage.type.primitive.futureblitz
+>        For i = 1 To times
+#^^^^^^^^ source.futureblitz
+#        ^^^ source.futureblitz keyword.control.loop.futureblitz
+#           ^^^ source.futureblitz
+#              ^ source.futureblitz keyword.operator.assignment.futureblitz
+#               ^ source.futureblitz
+#                ^ source.futureblitz constant.numeric.decimal.futureblitz
+#                 ^ source.futureblitz
+#                  ^^ source.futureblitz keyword.control.loop.futureblitz
+#                    ^^^^^^^ source.futureblitz
+>            Await NextFrame()
+#^^^^^^^^^^^^ source.futureblitz
+#            ^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#                 ^ source.futureblitz
+#                  ^^^^^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                           ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                            ^ source.futureblitz punctuation.parenthesis.futureblitz
+>            count += 1
+#^^^^^^^^^^^^^^^^^^ source.futureblitz
+#                  ^^ source.futureblitz keyword.operator.assignment.compound.futureblitz
+#                    ^ source.futureblitz
+#                     ^ source.futureblitz constant.numeric.decimal.futureblitz
+>        End For
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>        Return "{light.name} blinked {times}"
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#              ^ source.futureblitz
+#               ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                 ^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                      ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.accessor.futureblitz
+#                       ^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz variable.other.property.futureblitz
+#                           ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                            ^^^^^^^^^ source.futureblitz string.quoted.double.futureblitz
+#                                     ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                                      ^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                                           ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                            ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+>    End Function
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    Print(Await blink(3))
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#         ^ source.futureblitz punctuation.parenthesis.futureblitz
+#          ^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#               ^ source.futureblitz
+#                ^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                     ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                      ^ source.futureblitz constant.numeric.decimal.futureblitz
+#                       ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                        ^ source.futureblitz punctuation.parenthesis.futureblitz
+>    Print("count {count}")
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#         ^ source.futureblitz punctuation.parenthesis.futureblitz
+#          ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#           ^^^^^^ source.futureblitz string.quoted.double.futureblitz
+#                 ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                  ^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                       ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                        ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                         ^ source.futureblitz punctuation.parenthesis.futureblitz
+>
+>    // A "=>" one, where a Func that gives a Task is expected.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Local twice: Func(Int): Task<Int> = Async Function(n) => 1 + Await Double(n)
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#         ^ source.futureblitz meta.declaration.variable.futureblitz
+#          ^^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#               ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz
+#                 ^^^^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz storage.type.function.futureblitz
+#                     ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz meta.type.tuple.futureblitz punctuation.parenthesis.open.futureblitz
+#                      ^^^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz meta.type.tuple.futureblitz storage.type.primitive.futureblitz
+#                         ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz meta.type.tuple.futureblitz punctuation.parenthesis.close.futureblitz
+#                          ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                           ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz
+#                            ^^^^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz entity.name.type.futureblitz
+#                                ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                                 ^^^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz storage.type.primitive.futureblitz
+#                                    ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                                     ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz
+#                                      ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                                       ^ source.futureblitz
+#                                        ^^^^^ source.futureblitz storage.modifier.futureblitz
+#                                             ^ source.futureblitz
+#                                              ^^^^^^^^ source.futureblitz meta.function.lambda.futureblitz storage.type.function.futureblitz
+#                                                      ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                                                       ^ source.futureblitz meta.function.lambda.futureblitz variable.parameter.futureblitz
+#                                                        ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                                         ^ source.futureblitz
+#                                                          ^^ source.futureblitz storage.type.function.arrow.futureblitz
+#                                                            ^ source.futureblitz
+#                                                             ^ source.futureblitz constant.numeric.decimal.futureblitz
+#                                                              ^ source.futureblitz
+#                                                               ^ source.futureblitz keyword.operator.arithmetic.futureblitz
+#                                                                ^ source.futureblitz
+#                                                                 ^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#                                                                      ^ source.futureblitz
+#                                                                       ^^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                                                                             ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                                                                              ^ source.futureblitz
+#                                                                               ^ source.futureblitz punctuation.parenthesis.futureblitz
+>    Print("twice {Await twice(5)}")
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#         ^ source.futureblitz punctuation.parenthesis.futureblitz
+#          ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#           ^^^^^^ source.futureblitz string.quoted.double.futureblitz
+#                 ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                  ^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz keyword.control.flow.futureblitz
+#                       ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                        ^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#                             ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                              ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz constant.numeric.decimal.futureblitz
+#                               ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                 ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                  ^ source.futureblitz punctuation.parenthesis.futureblitz
+>
+>    // One that gives nothing.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Local log = Async Function(text: String)
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#         ^ source.futureblitz meta.declaration.variable.futureblitz
+#          ^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#             ^ source.futureblitz meta.declaration.variable.futureblitz
+#              ^ source.futureblitz keyword.operator.assignment.futureblitz
+#               ^ source.futureblitz
+#                ^^^^^ source.futureblitz storage.modifier.futureblitz
+#                     ^ source.futureblitz
+#                      ^^^^^^^^ source.futureblitz meta.function.lambda.futureblitz storage.type.function.futureblitz
+#                              ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                               ^^^^ source.futureblitz meta.function.lambda.futureblitz variable.parameter.futureblitz
+#                                   ^ source.futureblitz meta.function.lambda.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                                    ^ source.futureblitz meta.function.lambda.futureblitz meta.type.annotation.futureblitz
+#                                     ^^^^^^ source.futureblitz meta.function.lambda.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                                           ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.end.futureblitz
+>        Await NextFrame()
+#^^^^^^^^ source.futureblitz
+#        ^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#             ^ source.futureblitz
+#              ^^^^^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                       ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                        ^ source.futureblitz punctuation.parenthesis.futureblitz
+>        Print("log {text}")
+#^^^^^^^^ source.futureblitz
+#        ^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#             ^ source.futureblitz punctuation.parenthesis.futureblitz
+#              ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#               ^^^^ source.futureblitz string.quoted.double.futureblitz
+#                   ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                    ^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                        ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                         ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                          ^ source.futureblitz punctuation.parenthesis.futureblitz
+>    End Function
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    Await log("done")
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#         ^ source.futureblitz
+#          ^^^ source.futureblitz entity.name.function.call.futureblitz
+#             ^ source.futureblitz punctuation.parenthesis.futureblitz
+#              ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#               ^^^^ source.futureblitz string.quoted.double.futureblitz
+#                   ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                    ^ source.futureblitz punctuation.parenthesis.futureblitz
+>End Function
+#^^^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>Main()
+#^^^^ source.futureblitz entity.name.function.call.futureblitz
+#    ^ source.futureblitz punctuation.parenthesis.futureblitz
+#     ^ source.futureblitz punctuation.parenthesis.futureblitz
+>Print("top-level code is done")
+#^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#     ^ source.futureblitz punctuation.parenthesis.futureblitz
+#      ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#       ^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz string.quoted.double.futureblitz
+#                             ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                              ^ source.futureblitz punctuation.parenthesis.futureblitz
+>

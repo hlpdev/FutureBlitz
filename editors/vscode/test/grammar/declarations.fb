@@ -1,0 +1,185 @@
+// SYNTAX TEST "source.futureblitz" "declarations, attributes, types, and generics"
+
+Import std.collections As C
+// <------ keyword.control.import.futureblitz
+//     ^^^^^^^^^^^^^^^ entity.name.namespace.futureblitz
+//                     ^^ keyword.control.import.futureblitz
+//                        ^ entity.name.namespace.futureblitz
+From std.math Import Vec3, Lerp
+// <---- keyword.control.import.futureblitz
+//   ^^^^^^^^ entity.name.namespace.futureblitz
+//            ^^^^^^ keyword.control.import.futureblitz
+//                   ^^^^ meta.import.futureblitz - entity.name.namespace
+Import "./ui/hud"
+//     ^^^^^^^^^^ string.quoted.double.futureblitz
+
+@DebugElements
+// <- meta.attribute.futureblitz punctuation.definition.attribute.futureblitz
+//^^^^^^^^^^^^ entity.name.function.decorator.futureblitz
+@C.Rename("x") Public Shared Class Pool<T> Extends Base Implements Iterable<T>, Cloneable
+//^^^^^^^ entity.name.function.decorator.futureblitz
+//             ^^^^^^ storage.modifier.futureblitz
+//                    ^^^^^^ storage.modifier.futureblitz
+//                           ^^^^^ storage.type.futureblitz
+//                                 ^^^^ entity.name.type.futureblitz
+//                                     ^ punctuation.definition.typeparameters.begin.futureblitz
+//                                      ^ entity.name.type.futureblitz
+//                                         ^^^^^^^ storage.modifier.futureblitz
+//                                                 ^^^^ entity.name.type.futureblitz
+//                                                      ^^^^^^^^^^ storage.modifier.futureblitz
+//                                                                 ^^^^^^^^ entity.name.type.futureblitz
+//                                                                                ^^^^^^^^^ entity.name.type.futureblitz
+    Field Items: T[] = []
+//  ^^^^^ storage.type.field.futureblitz
+//        ^^^^^ variable.other.property.futureblitz
+//               ^ entity.name.type.futureblitz
+//                ^^ meta.type.array.futureblitz
+//                   ^ keyword.operator.assignment.futureblitz - meta.type
+    ReadOnly Field Count: Int64?
+//  ^^^^^^^^ storage.modifier.futureblitz
+//                        ^^^^^ storage.type.primitive.futureblitz
+//                             ^ keyword.operator.type.nullable.futureblitz
+
+    New(name: String)
+//  ^^^ storage.type.function.futureblitz
+//      ^^^^ variable.parameter.futureblitz
+//            ^^^^^^ storage.type.primitive.futureblitz
+    End New
+
+    Public Async Method Load<T: Hashable>(path: String, ByRef count: Int = 0): Task<T> Throws IOError
+//         ^^^^^ storage.modifier.futureblitz
+//               ^^^^^^ storage.type.function.futureblitz
+//                      ^^^^ entity.name.function.futureblitz
+//                           ^ entity.name.type.futureblitz
+//                              ^^^^^^^^ entity.name.type.futureblitz
+//                                        ^^^^ variable.parameter.futureblitz
+//                                                      ^^^^^ storage.modifier.futureblitz
+//                                                            ^^^^^ variable.parameter.futureblitz
+//                                                                         ^ constant.numeric.decimal.futureblitz
+//                                                                             ^^^^ meta.type.return.futureblitz entity.name.type.futureblitz
+//                                                                                     ^^^^^^ storage.modifier.futureblitz
+//                                                                                            ^^^^^^^ entity.name.type.futureblitz
+        Where T: Equatable
+//      ^^^^^ keyword.other.where.futureblitz
+//            ^ entity.name.type.futureblitz
+//               ^^^^^^^^^ entity.name.type.futureblitz
+    End Method
+
+    Public Static Method Make(): Pool<T> => Pool<T>(Self, Items.Count, size)
+//                       ^^^^ entity.name.function.futureblitz
+//                               ^^^^ meta.type.return.futureblitz entity.name.type.futureblitz
+//                                       ^^ storage.type.function.arrow.futureblitz
+//                                          ^^^^ meta.function.body.futureblitz entity.name.type.futureblitz
+//                                                  ^^^^ variable.language.self.futureblitz
+//                                                                     ^^^^ - variable.parameter
+
+    Property Health: Int
+//  ^^^^^^^^ storage.type.property.futureblitz
+//           ^^^^^^ variable.other.property.futureblitz
+//                   ^^^ storage.type.primitive.futureblitz
+        Get => hp
+//      ^^^ storage.type.function.accessor.futureblitz
+        Set(value)
+//      ^^^ storage.type.function.accessor.futureblitz
+//          ^^^^^ variable.parameter.futureblitz
+        End Set
+    End Property
+
+    Operator +(a: Money, b: Money): Money => Money(cents: a.cents + b.cents)
+//  ^^^^^^^^ storage.type.function.futureblitz
+//           ^ entity.name.function.operator.futureblitz
+//             ^ variable.parameter.futureblitz
+//                ^^^^^ entity.name.type.futureblitz
+//                                  ^^^^^ meta.type.return.futureblitz entity.name.type.futureblitz
+//                                                 ^^^^^ - variable.parameter
+    Operator []=(index: Int, value: T)
+//           ^^^ entity.name.function.operator.futureblitz
+    End Operator
+End Class
+
+Enum Color: UInt8
+// <---- storage.type.futureblitz
+//   ^^^^^ entity.name.type.futureblitz
+//          ^^^^^ storage.type.primitive.futureblitz
+    RED, GREEN
+//  ^^^ variable.other.constant.futureblitz
+End Enum
+
+Struct Point Implements Printable
+// <------ storage.type.futureblitz
+//     ^^^^^ entity.name.type.futureblitz
+End Struct
+Interface Shape Extends Printable
+//        ^^^^^ entity.name.type.futureblitz
+End Interface
+Extend T[]
+// <------ storage.type.futureblitz
+//     ^ entity.name.type.futureblitz
+End Extend
+Public Alias Scores = Map<String, Int[]>
+//     ^^^^^ storage.type.alias.futureblitz
+//           ^^^^^^ entity.name.type.alias.futureblitz
+//                    ^^^ entity.name.type.futureblitz
+//                        ^^^^^^ storage.type.primitive.futureblitz
+
+Const MAX_HP: Int = 100
+// <----- storage.type.const.futureblitz
+//    ^^^^^^ variable.other.constant.futureblitz
+//            ^^^ storage.type.primitive.futureblitz
+Const Function Fact(n: Int): Int
+//    ^^^^^^^^ storage.type.function.futureblitz
+//             ^^^^ entity.name.function.futureblitz
+End Function
+ThreadLocal Global rng: Random? = Null
+// <----------- storage.modifier.futureblitz
+//          ^^^^^^ storage.type.variable.futureblitz
+//                 ^^^ variable.other.readwrite.futureblitz
+//                      ^^^^^^ entity.name.type.futureblitz
+Local lo, hi = MinMax(xs)
+//    ^^ variable.other.readwrite.futureblitz
+//        ^^ variable.other.readwrite.futureblitz
+//             ^^^^^^ entity.name.function.call.futureblitz
+Local q: Sendable Func(Int, String): Bool? = Null
+//       ^^^^^^^^ storage.modifier.futureblitz
+//                ^^^^ storage.type.function.futureblitz
+//                     ^^^ storage.type.primitive.futureblitz
+//                                   ^^^^ storage.type.primitive.futureblitz
+Local grid: Int[4, 4]
+//              ^ constant.numeric.decimal.futureblitz
+Local pair: (Int, String) = (1, "a")
+//           ^^^ meta.type.tuple.futureblitz storage.type.primitive.futureblitz
+Local m = Map<String, Int32>()
+//        ^^^ entity.name.type.futureblitz
+//            ^^^^^^ storage.type.primitive.futureblitz
+Local less = a<b
+//            ^ keyword.operator.comparison.futureblitz - meta.type.parameters
+
+Spawn(Function()
+//    ^^^^^^^^ storage.type.function.futureblitz
+    ParseLevel()
+End Function)
+// <------------ keyword.control.end.futureblitz
+Local f = Function(x: Int): Int => x * 2
+//                 ^ variable.parameter.futureblitz
+//                    ^^^ storage.type.primitive.futureblitz
+//                          ^^^ storage.type.primitive.futureblitz
+Local g = Async Function(a, b) => a + b
+//        ^^^^^ storage.modifier.futureblitz
+//                       ^ variable.parameter.futureblitz
+//                          ^ variable.parameter.futureblitz
+
+Extern "C" Lib "joltc"
+// <------ storage.type.extern.futureblitz
+//     ^^^ string.quoted.double.futureblitz
+//         ^^^ keyword.other.lib.futureblitz
+//             ^^^^^^^ string.quoted.double.futureblitz
+    Function CreateBody(shape: Ptr<Void>, x: Float): UInt32 = "JPH_CreateBody"
+//                             ^^^ entity.name.type.futureblitz
+//                                 ^^^^ storage.type.primitive.futureblitz
+//                                                   ^^^^^^ storage.type.primitive.futureblitz
+//                                                            ^^^^^^^^^^^^^^^^ string.quoted.double.futureblitz
+    Function SetLogger(cb: Callback(CString): Int32)
+//                         ^^^^^^^^ storage.type.function.futureblitz
+//                                  ^^^^^^^ storage.type.primitive.futureblitz
+//                                            ^^^^^ storage.type.primitive.futureblitz
+End Extern

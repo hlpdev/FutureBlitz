@@ -1,0 +1,53 @@
+// SYNTAX TEST "source.futureblitz" "numbers and operators"
+
+Local n = 1_000_000 + 0xFF00 + 0b1010 + 0o755 + 1.5e-3 + 1e5 + 42
+//        ^^^^^^^^^ constant.numeric.decimal.futureblitz
+//                    ^^^^^^ constant.numeric.hex.futureblitz
+//                             ^^^^^^ constant.numeric.binary.futureblitz
+//                                      ^^^^^ constant.numeric.octal.futureblitz
+//                                              ^^^^^^ constant.numeric.decimal.futureblitz
+//                                                       ^^^ constant.numeric.decimal.futureblitz
+//                                                             ^^ constant.numeric.decimal.futureblitz
+
+Local t = 2.Seconds + 1.5.Minutes + x1
+//        ^ constant.numeric.decimal.futureblitz
+//         ^ punctuation.accessor.futureblitz
+//          ^^^^^^^ variable.other.property.futureblitz
+//                    ^^^ constant.numeric.decimal.futureblitz
+//                       ^^^^^^^^ - constant.numeric
+//                                  ^^ - constant.numeric
+Local part = items[1..3]
+//                 ^ constant.numeric.decimal.futureblitz
+//                  ^^ keyword.operator.range.futureblitz
+//                    ^ constant.numeric.decimal.futureblitz
+
+x <<= 2
+//^^^ keyword.operator.assignment.compound.futureblitz
+y >>= 1
+//^^^ keyword.operator.assignment.compound.futureblitz
+total %= 3
+//    ^^ keyword.operator.assignment.compound.futureblitz
+y = a >= b && c != d || !e
+//  ^ - keyword
+//    ^^ keyword.operator.comparison.futureblitz
+//         ^^ keyword.operator.logical.futureblitz
+//              ^^ keyword.operator.comparison.futureblitz
+//                   ^^ keyword.operator.logical.futureblitz
+//                      ^ keyword.operator.logical.futureblitz
+z = a?.b ?? c ** 2 << 1 >> 3
+//   ^^ punctuation.accessor.futureblitz
+//     ^ variable.other.property.futureblitz
+//       ^^ keyword.operator.null-coalescing.futureblitz
+//            ^^ keyword.operator.arithmetic.futureblitz
+//                 ^^ keyword.operator.bitwise.futureblitz
+//                      ^^ keyword.operator.bitwise.futureblitz
+count++
+//   ^^ keyword.operator.increment.futureblitz
+Local f = Function(x) => x % 2 == 0 ? "even" : "odd"
+//                    ^^ storage.type.function.arrow.futureblitz
+//                         ^ keyword.operator.arithmetic.futureblitz
+//                                  ^ keyword.operator.ternary.futureblitz
+//                                           ^ keyword.operator.ternary.futureblitz
+Function Sum(nums: Int...): Int
+//                    ^^^ keyword.operator.variadic.futureblitz
+End Function

@@ -1,0 +1,9 @@
+Import std.core
+Import std.test
+
+Public Function Greet(name: String): String => "hello {name}"
+
+@Test
+Function GreetSaysHello()
+    Expect(Greet("Orc") == "hello Orc")
+End Function

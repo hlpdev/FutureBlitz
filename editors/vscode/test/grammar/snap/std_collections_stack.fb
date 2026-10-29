@@ -1,0 +1,105 @@
+// Stack<T>: last in, first out. Push puts a value on top, and Pop takes the top one off.
+
+Import std.core
+Import std.collections.array
+
+@DebugElements
+Public Class Stack<T> Implements Iterable<T>, Cloneable, Defaultable
+    Field Items: T[] = []
+    // How many times values were added or removed, so a For ... In over them can tell.
+    Field Changes: Int64
+
+    Public Property Count: Int
+        Get => Items.Count
+    End Property
+
+    Public Method Push(value: T)
+        Items.Add(value)
+        Changes += 1
+    End Method
+
+    // The same as Push.
+    Public Method Add(value: T)
+        Push(value)
+    End Method
+
+    // Pushes each of the values, in order, so the last ends up on top.
+    Public Method AddAll(values: Iterable<T>)
+        For value In values.Iterate().ToArray()
+            Push(value)
+        End For
+    End Method
+
+    // Takes the top value off and gives it. Panics when the Stack is empty.
+    @PanicsAtCaller
+    Public Method Pop(): T
+        Local top = Peek()
+        Items.RemoveAt(Items.Count - 1)
+        Changes += 1
+        Return top
+    End Method
+
+    // The top value, which stays. Panics when the Stack is empty.
+    @PanicsAtCaller
+    Public Method Peek(): T
+        If Items.Count == 0 Then Panic("the Stack is empty")
+        Return Items[Items.Count - 1]
+    End Method
+
+    // Takes the top value off and gives it, or Null when the Stack is empty.
+    Public Method TryPop(): T?
+        If Items.Count == 0 Then Return Null
+        Return Pop()
+    End Method
+
+    // The top value, which stays, or Null when the Stack is empty.
+    Public Method TryPeek(): T?
+        If Items.Count == 0 Then Return Null
+        Return Items[Items.Count - 1]
+    End Method
+
+    // The values from the top down, the order Pop gives them, in a new array.
+    Public Method ToArray(): T[]
+        Local values = Items.Clone()
+        values.Reverse()
+        Return values
+    End Method
+
+    Public Method Contains(value: T): Bool
+        Where T: Equatable
+        Return Items.Contains(value)
+    End Method
+
+    Public Method Clear()
+        Items.Clear()
+        Changes += 1
+    End Method
+
+    // A new, empty Stack.
+    Public Static Method DefaultValue(): Stack<T> => Stack<T>()
+
+    // A new Stack with the same values.
+    Public Method Clone(): Stack<T>
+        Local copy = Stack<T>()
+        copy.Items = Items.Clone()
+        Return copy
+    End Method
+
+    // The values from the top down, the order Pop gives them. Changing the Stack while going
+    // over them panics.
+    Public Method Iterate(): StackIterator<T> => StackIterator<T>(Self, Items.Count, Changes)
+End Class
+
+Public Struct StackIterator<T> Implements Iterator<T>
+    Field Owner: Stack<T>
+    Field Index: Int
+    Field Changes: Int64
+
+    @PanicsAtCaller
+    Public ByRef Method Next(): T?
+        If Owner.Changes != Changes Then Panic("the Stack changed while a For ... In went over it")
+        If Index == 0 Then Return Null
+        Index -= 1
+        Return Owner.Items[Index]
+    End Method
+End Struct

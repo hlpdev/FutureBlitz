@@ -1,0 +1,101 @@
+# FutureBlitz for VS Code
+
+FutureBlitz (.fb) in VS Code: highlighting, the language server's errors as you type and
+formatting on save, tasks for `fb build`, `fb run`, `fb test`, and `fb fmt`, and debugging through
+CodeLLDB. The design is in [docs/tooling.md](../../docs/tooling.md#the-vs-code-extension-step-5).
+
+## What it needs
+
+- **fb**: `futureblitz.path`, else `fb` on PATH, else `~/.futureblitz/bin`.
+- **The language server**, `fb_lsp`: `futureblitz.lspPath`, else beside fb, else on PATH. Without
+  it, highlighting, tasks, and debugging still work.
+- **CodeLLDB** (`vadimcn.vscode-lldb`), which VS Code installs with the extension, for debugging
+  on every OS.
+
+## Using it
+
+- **Run** and **Debug** are in the editor's title bar on a .fb file, and in the Command Palette as
+  FutureBlitz: Run, FutureBlitz: Debug, and FutureBlitz: Run Tests. Each takes the open file's
+  package, the folder with the project.toml above it, or the file itself without one.
+- **Tasks**: Terminal > Run Task > fb lists build, run, test, fmt, and check for the workspace
+  folder's package and for the open file. Their errors, and a program's panics and failed
+  Expects, go to Problems. In tasks.json:
+
+  ```json
+  {
+    "type": "futureblitz",
+    "command": "run",
+    "target": "game",
+    "release": true,
+    "programArgs": ["--level", "2"]
+  }
+  ```
+
+- **Debugging**: F5 debugs the open file's package, or the file. A launch.json configuration:
+
+  ```json
+  {
+    "type": "futureblitz",
+    "request": "launch",
+    "name": "Debug",
+    "program": "${workspaceFolder}",
+    "args": [],
+    "stopOnEntry": false
+  }
+  ```
+
+  It builds the program in debug, then CodeLLDB runs it with fb's lldb script, which shows
+  Strings, arrays, Maps, nullables, and objects as their values. CodeLLDB's own settings, like
+  `env` or `preRunCommands`, go in the same configuration.
+
+## Settings
+
+| Setting | |
+|---|---|
+| `futureblitz.path` | fb; `${workspaceFolder}` and `~` are expanded |
+| `futureblitz.lspPath` | the language server |
+| `futureblitz.lsp.enabled` | start the language server; on by default |
+| `futureblitz.trace.server` | trace its messages in the FutureBlitz output |
+| `futureblitz.debug.lldbScript` | fb's `futureblitz.py`; beside fb, else the extension's copy |
+
+In the FutureBlitz repo itself, fb from the CMake build folder is
+`"futureblitz.path": "${workspaceFolder}/cmake-build-debug/cli/fb.exe"`.
+
+## Building and installing
+
+With Node 22 or newer:
+
+```sh
+cd editors/vscode
+npm ci
+npm run package          # futureblitz.vsix
+code --install-extension futureblitz.vsix
+```
+
+`npm run compile` builds into out/ and copies tools/lldb/futureblitz.py and the license in. To
+work on the extension, open editors/vscode in VS Code and run it with F5's Extension Development
+Host, or `npm run watch`.
+
+## Tests
+
+```sh
+npm test                 # compile, the unit tests, then the extension tests
+npm run test:unit        # the grammar, language configuration, snippets, and helpers, in Node
+npm run test:extension   # the extension in VS Code, through @vscode/test-electron
+```
+
+- `FUTUREBLITZ_FB=<path to fb>` runs the tests that build programs; without it they're skipped.
+- The extension tests download VS Code, the oldest version package.json takes, into
+  .vscode-test/; `FB_VSCODE_VERSION=stable` picks another, and `FB_VSCODE_EXECUTABLE` runs an
+  installed one. A stand-in for CodeLLDB records each launch, and a stand-in language server
+  formats.
+- The grammar's tests are vscode-tmgrammar-test's assertion files, test/grammar/*.fb, and its
+  snapshots of real std and tests/programs code, test/grammar/snap/*.fb.snap.
+  `UPDATE_SNAPSHOTS=1 npm run test:unit` writes the snapshots again; read what changed before
+  committing them. `node scripts/tokens.mjs <file.fb>` prints how the grammar scopes a file.
+- `FUTUREBLITZ_LLDB` names an lldb with Python, for the test that it loads fb's script.
+
+## Publishing
+
+To the VS Code Marketplace and Open VSX, under the `futureblitz` publisher, once its accounts
+exist: `npx vsce publish` and `npx ovsx publish futureblitz.vsix`.

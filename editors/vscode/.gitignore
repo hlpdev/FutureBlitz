@@ -1,0 +1,7 @@
+node_modules/
+out/
+.vscode-test/
+*.vsix
+# Copied from the repo by scripts/copy-assets.mjs.
+lldb/
+LICENSE

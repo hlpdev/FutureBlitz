@@ -1,0 +1,741 @@
+>// Stack<T>: last in, first out. Push puts a value on top, and Pop takes the top one off.
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>
+>Import std.core
+#^^^^^^ source.futureblitz meta.import.futureblitz keyword.control.import.futureblitz
+#      ^ source.futureblitz meta.import.futureblitz
+#       ^^^^^^^^ source.futureblitz meta.import.futureblitz entity.name.namespace.futureblitz
+>Import std.collections.array
+#^^^^^^ source.futureblitz meta.import.futureblitz keyword.control.import.futureblitz
+#      ^ source.futureblitz meta.import.futureblitz
+#       ^^^^^^^^^^^^^^^^^^^^^ source.futureblitz meta.import.futureblitz entity.name.namespace.futureblitz
+>
+>@DebugElements
+#^ source.futureblitz meta.attribute.futureblitz punctuation.definition.attribute.futureblitz
+# ^^^^^^^^^^^^^ source.futureblitz meta.attribute.futureblitz entity.name.function.decorator.futureblitz
+>Public Class Stack<T> Implements Iterable<T>, Cloneable, Defaultable
+#^^^^^^ source.futureblitz storage.modifier.futureblitz
+#      ^ source.futureblitz
+#       ^^^^^ source.futureblitz storage.type.futureblitz
+#            ^ source.futureblitz
+#             ^^^^^ source.futureblitz entity.name.type.futureblitz
+#                  ^ source.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                   ^ source.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                    ^ source.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                     ^ source.futureblitz
+#                      ^^^^^^^^^^ source.futureblitz meta.inheritance.futureblitz storage.modifier.futureblitz
+#                                ^ source.futureblitz meta.inheritance.futureblitz
+#                                 ^^^^^^^^ source.futureblitz meta.inheritance.futureblitz entity.name.type.futureblitz
+#                                         ^ source.futureblitz meta.inheritance.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                                          ^ source.futureblitz meta.inheritance.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                                           ^ source.futureblitz meta.inheritance.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                                            ^ source.futureblitz meta.inheritance.futureblitz punctuation.separator.comma.futureblitz
+#                                             ^ source.futureblitz meta.inheritance.futureblitz
+#                                              ^^^^^^^^^ source.futureblitz meta.inheritance.futureblitz entity.name.type.futureblitz
+#                                                       ^ source.futureblitz meta.inheritance.futureblitz punctuation.separator.comma.futureblitz
+#                                                        ^ source.futureblitz meta.inheritance.futureblitz
+#                                                         ^^^^^^^^^^^ source.futureblitz meta.inheritance.futureblitz entity.name.type.futureblitz
+>    Field Items: T[] = []
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.field.futureblitz storage.type.field.futureblitz
+#         ^ source.futureblitz meta.declaration.field.futureblitz
+#          ^^^^^ source.futureblitz meta.declaration.field.futureblitz variable.other.property.futureblitz
+#               ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz
+#                 ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz entity.name.type.futureblitz
+#                  ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz meta.type.array.futureblitz punctuation.definition.array.begin.futureblitz
+#                   ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz meta.type.array.futureblitz punctuation.definition.array.end.futureblitz
+#                    ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz
+#                     ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                      ^ source.futureblitz
+#                       ^ source.futureblitz punctuation.brackets.futureblitz
+#                        ^ source.futureblitz punctuation.brackets.futureblitz
+>    // How many times values were added or removed, so a For ... In over them can tell.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Field Changes: Int64
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.field.futureblitz storage.type.field.futureblitz
+#         ^ source.futureblitz meta.declaration.field.futureblitz
+#          ^^^^^^^ source.futureblitz meta.declaration.field.futureblitz variable.other.property.futureblitz
+#                 ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                  ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz
+#                   ^^^^^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+>
+>    Public Property Count: Int
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^^^ source.futureblitz meta.property.futureblitz storage.type.property.futureblitz
+#                   ^ source.futureblitz meta.property.futureblitz
+#                    ^^^^^ source.futureblitz meta.property.futureblitz variable.other.property.futureblitz
+#                         ^ source.futureblitz meta.property.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                          ^ source.futureblitz meta.property.futureblitz meta.type.annotation.futureblitz
+#                           ^^^ source.futureblitz meta.property.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+>        Get => Items.Count
+#^^^^^^^^ source.futureblitz
+#        ^^^ source.futureblitz storage.type.function.accessor.futureblitz
+#           ^ source.futureblitz
+#            ^^ source.futureblitz storage.type.function.arrow.futureblitz
+#              ^^^^^^ source.futureblitz
+#                    ^ source.futureblitz punctuation.accessor.futureblitz
+#                     ^^^^^ source.futureblitz variable.other.property.futureblitz
+>    End Property
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    Public Method Push(value: T)
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz
+#                  ^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                      ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                       ^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                            ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                             ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                              ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz entity.name.type.futureblitz
+#                               ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+>        Items.Add(value)
+#^^^^^^^^^^^^^ source.futureblitz
+#             ^ source.futureblitz punctuation.accessor.futureblitz
+#              ^^^ source.futureblitz entity.name.function.member.futureblitz
+#                 ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                  ^^^^^ source.futureblitz
+#                       ^ source.futureblitz punctuation.parenthesis.futureblitz
+>        Changes += 1
+#^^^^^^^^^^^^^^^^ source.futureblitz
+#                ^^ source.futureblitz keyword.operator.assignment.compound.futureblitz
+#                  ^ source.futureblitz
+#                   ^ source.futureblitz constant.numeric.decimal.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    // The same as Push.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Public Method Add(value: T)
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz
+#                  ^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                     ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                      ^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                           ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                            ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                             ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz entity.name.type.futureblitz
+#                              ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+>        Push(value)
+#^^^^^^^^ source.futureblitz
+#        ^^^^ source.futureblitz entity.name.function.call.futureblitz
+#            ^ source.futureblitz punctuation.parenthesis.futureblitz
+#             ^^^^^ source.futureblitz
+#                  ^ source.futureblitz punctuation.parenthesis.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    // Pushes each of the values, in order, so the last ends up on top.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Public Method AddAll(values: Iterable<T>)
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz
+#                  ^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                        ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                         ^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                               ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                                ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                                 ^^^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz entity.name.type.futureblitz
+#                                         ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                                          ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                                           ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                                            ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+>        For value In values.Iterate().ToArray()
+#^^^^^^^^ source.futureblitz
+#        ^^^ source.futureblitz keyword.control.loop.futureblitz
+#           ^^^^^^^ source.futureblitz
+#                  ^^ source.futureblitz keyword.control.loop.futureblitz
+#                    ^^^^^^^ source.futureblitz
+#                           ^ source.futureblitz punctuation.accessor.futureblitz
+#                            ^^^^^^^ source.futureblitz entity.name.function.member.futureblitz
+#                                   ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                                    ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                                     ^ source.futureblitz punctuation.accessor.futureblitz
+#                                      ^^^^^^^ source.futureblitz entity.name.function.member.futureblitz
+#                                             ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                                              ^ source.futureblitz punctuation.parenthesis.futureblitz
+>            Push(value)
+#^^^^^^^^^^^^ source.futureblitz
+#            ^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                 ^^^^^ source.futureblitz
+#                      ^ source.futureblitz punctuation.parenthesis.futureblitz
+>        End For
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    // Takes the top value off and gives it. Panics when the Stack is empty.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    @PanicsAtCaller
+#^^^^ source.futureblitz
+#    ^ source.futureblitz meta.attribute.futureblitz punctuation.definition.attribute.futureblitz
+#     ^^^^^^^^^^^^^^ source.futureblitz meta.attribute.futureblitz entity.name.function.decorator.futureblitz
+>    Public Method Pop(): T
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz
+#                  ^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                     ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                      ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                       ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                        ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                         ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz entity.name.type.futureblitz
+>        Local top = Peek()
+#^^^^^^^^ source.futureblitz
+#        ^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#             ^ source.futureblitz meta.declaration.variable.futureblitz
+#              ^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#                 ^ source.futureblitz meta.declaration.variable.futureblitz
+#                  ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                   ^ source.futureblitz
+#                    ^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                        ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                         ^ source.futureblitz punctuation.parenthesis.futureblitz
+>        Items.RemoveAt(Items.Count - 1)
+#^^^^^^^^^^^^^ source.futureblitz
+#             ^ source.futureblitz punctuation.accessor.futureblitz
+#              ^^^^^^^^ source.futureblitz entity.name.function.member.futureblitz
+#                      ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                       ^^^^^ source.futureblitz
+#                            ^ source.futureblitz punctuation.accessor.futureblitz
+#                             ^^^^^ source.futureblitz variable.other.property.futureblitz
+#                                  ^ source.futureblitz
+#                                   ^ source.futureblitz keyword.operator.arithmetic.futureblitz
+#                                    ^ source.futureblitz
+#                                     ^ source.futureblitz constant.numeric.decimal.futureblitz
+#                                      ^ source.futureblitz punctuation.parenthesis.futureblitz
+>        Changes += 1
+#^^^^^^^^^^^^^^^^ source.futureblitz
+#                ^^ source.futureblitz keyword.operator.assignment.compound.futureblitz
+#                  ^ source.futureblitz
+#                   ^ source.futureblitz constant.numeric.decimal.futureblitz
+>        Return top
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#              ^^^^^ source.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    // The top value, which stays. Panics when the Stack is empty.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    @PanicsAtCaller
+#^^^^ source.futureblitz
+#    ^ source.futureblitz meta.attribute.futureblitz punctuation.definition.attribute.futureblitz
+#     ^^^^^^^^^^^^^^ source.futureblitz meta.attribute.futureblitz entity.name.function.decorator.futureblitz
+>    Public Method Peek(): T
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz
+#                  ^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                      ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                       ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                        ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                         ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                          ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz entity.name.type.futureblitz
+>        If Items.Count == 0 Then Panic("the Stack is empty")
+#^^^^^^^^ source.futureblitz
+#        ^^ source.futureblitz keyword.control.conditional.futureblitz
+#          ^^^^^^ source.futureblitz
+#                ^ source.futureblitz punctuation.accessor.futureblitz
+#                 ^^^^^ source.futureblitz variable.other.property.futureblitz
+#                      ^ source.futureblitz
+#                       ^^ source.futureblitz keyword.operator.comparison.futureblitz
+#                         ^ source.futureblitz
+#                          ^ source.futureblitz constant.numeric.decimal.futureblitz
+#                           ^ source.futureblitz
+#                            ^^^^ source.futureblitz keyword.control.conditional.futureblitz
+#                                ^ source.futureblitz
+#                                 ^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                                      ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                                       ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                        ^^^^^^^^^^^^^^^^^^ source.futureblitz string.quoted.double.futureblitz
+#                                                          ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                                           ^ source.futureblitz punctuation.parenthesis.futureblitz
+>        Return Items[Items.Count - 1]
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#              ^^^^^^ source.futureblitz
+#                    ^ source.futureblitz punctuation.brackets.futureblitz
+#                     ^^^^^ source.futureblitz
+#                          ^ source.futureblitz punctuation.accessor.futureblitz
+#                           ^^^^^ source.futureblitz variable.other.property.futureblitz
+#                                ^ source.futureblitz
+#                                 ^ source.futureblitz keyword.operator.arithmetic.futureblitz
+#                                  ^ source.futureblitz
+#                                   ^ source.futureblitz constant.numeric.decimal.futureblitz
+#                                    ^ source.futureblitz punctuation.brackets.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    // Takes the top value off and gives it, or Null when the Stack is empty.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Public Method TryPop(): T?
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz
+#                  ^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                        ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                         ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                          ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                           ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                            ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz entity.name.type.futureblitz
+#                             ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz keyword.operator.type.nullable.futureblitz
+>        If Items.Count == 0 Then Return Null
+#^^^^^^^^ source.futureblitz
+#        ^^ source.futureblitz keyword.control.conditional.futureblitz
+#          ^^^^^^ source.futureblitz
+#                ^ source.futureblitz punctuation.accessor.futureblitz
+#                 ^^^^^ source.futureblitz variable.other.property.futureblitz
+#                      ^ source.futureblitz
+#                       ^^ source.futureblitz keyword.operator.comparison.futureblitz
+#                         ^ source.futureblitz
+#                          ^ source.futureblitz constant.numeric.decimal.futureblitz
+#                           ^ source.futureblitz
+#                            ^^^^ source.futureblitz keyword.control.conditional.futureblitz
+#                                ^ source.futureblitz
+#                                 ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#                                       ^ source.futureblitz
+#                                        ^^^^ source.futureblitz constant.language.null.futureblitz
+>        Return Pop()
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#              ^ source.futureblitz
+#               ^^^ source.futureblitz entity.name.function.call.futureblitz
+#                  ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                   ^ source.futureblitz punctuation.parenthesis.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    // The top value, which stays, or Null when the Stack is empty.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Public Method TryPeek(): T?
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz
+#                  ^^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                         ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                          ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                           ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                            ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                             ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz entity.name.type.futureblitz
+#                              ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz keyword.operator.type.nullable.futureblitz
+>        If Items.Count == 0 Then Return Null
+#^^^^^^^^ source.futureblitz
+#        ^^ source.futureblitz keyword.control.conditional.futureblitz
+#          ^^^^^^ source.futureblitz
+#                ^ source.futureblitz punctuation.accessor.futureblitz
+#                 ^^^^^ source.futureblitz variable.other.property.futureblitz
+#                      ^ source.futureblitz
+#                       ^^ source.futureblitz keyword.operator.comparison.futureblitz
+#                         ^ source.futureblitz
+#                          ^ source.futureblitz constant.numeric.decimal.futureblitz
+#                           ^ source.futureblitz
+#                            ^^^^ source.futureblitz keyword.control.conditional.futureblitz
+#                                ^ source.futureblitz
+#                                 ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#                                       ^ source.futureblitz
+#                                        ^^^^ source.futureblitz constant.language.null.futureblitz
+>        Return Items[Items.Count - 1]
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#              ^^^^^^ source.futureblitz
+#                    ^ source.futureblitz punctuation.brackets.futureblitz
+#                     ^^^^^ source.futureblitz
+#                          ^ source.futureblitz punctuation.accessor.futureblitz
+#                           ^^^^^ source.futureblitz variable.other.property.futureblitz
+#                                ^ source.futureblitz
+#                                 ^ source.futureblitz keyword.operator.arithmetic.futureblitz
+#                                  ^ source.futureblitz
+#                                   ^ source.futureblitz constant.numeric.decimal.futureblitz
+#                                    ^ source.futureblitz punctuation.brackets.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    // The values from the top down, the order Pop gives them, in a new array.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Public Method ToArray(): T[]
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz
+#                  ^^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                         ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                          ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                           ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                            ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                             ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz entity.name.type.futureblitz
+#                              ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.array.futureblitz punctuation.definition.array.begin.futureblitz
+#                               ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.array.futureblitz punctuation.definition.array.end.futureblitz
+>        Local values = Items.Clone()
+#^^^^^^^^ source.futureblitz
+#        ^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#             ^ source.futureblitz meta.declaration.variable.futureblitz
+#              ^^^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#                    ^ source.futureblitz meta.declaration.variable.futureblitz
+#                     ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                      ^^^^^^ source.futureblitz
+#                            ^ source.futureblitz punctuation.accessor.futureblitz
+#                             ^^^^^ source.futureblitz entity.name.function.member.futureblitz
+#                                  ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                                   ^ source.futureblitz punctuation.parenthesis.futureblitz
+>        values.Reverse()
+#^^^^^^^^^^^^^^ source.futureblitz
+#              ^ source.futureblitz punctuation.accessor.futureblitz
+#               ^^^^^^^ source.futureblitz entity.name.function.member.futureblitz
+#                      ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                       ^ source.futureblitz punctuation.parenthesis.futureblitz
+>        Return values
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#              ^^^^^^^^ source.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    Public Method Contains(value: T): Bool
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz
+#                  ^^^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                          ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                           ^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                                ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                                 ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                                  ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz entity.name.type.futureblitz
+#                                   ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                    ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                                     ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                      ^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
+>        Where T: Equatable
+#^^^^^^^^ source.futureblitz
+#        ^^^^^ source.futureblitz meta.where.futureblitz keyword.other.where.futureblitz
+#             ^ source.futureblitz meta.where.futureblitz
+#              ^ source.futureblitz meta.where.futureblitz entity.name.type.futureblitz
+#               ^ source.futureblitz meta.where.futureblitz punctuation.separator.type.futureblitz
+#                ^ source.futureblitz meta.where.futureblitz
+#                 ^^^^^^^^^ source.futureblitz meta.where.futureblitz entity.name.type.futureblitz
+>        Return Items.Contains(value)
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#              ^^^^^^ source.futureblitz
+#                    ^ source.futureblitz punctuation.accessor.futureblitz
+#                     ^^^^^^^^ source.futureblitz entity.name.function.member.futureblitz
+#                             ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                              ^^^^^ source.futureblitz
+#                                   ^ source.futureblitz punctuation.parenthesis.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    Public Method Clear()
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz
+#                  ^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                       ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                        ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+>        Items.Clear()
+#^^^^^^^^^^^^^ source.futureblitz
+#             ^ source.futureblitz punctuation.accessor.futureblitz
+#              ^^^^^ source.futureblitz entity.name.function.member.futureblitz
+#                   ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                    ^ source.futureblitz punctuation.parenthesis.futureblitz
+>        Changes += 1
+#^^^^^^^^^^^^^^^^ source.futureblitz
+#                ^^ source.futureblitz keyword.operator.assignment.compound.futureblitz
+#                  ^ source.futureblitz
+#                   ^ source.futureblitz constant.numeric.decimal.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    // A new, empty Stack.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Public Static Method DefaultValue(): Stack<T> => Stack<T>()
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#                 ^ source.futureblitz
+#                  ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                        ^ source.futureblitz meta.function.futureblitz
+#                         ^^^^^^^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                                     ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                                      ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                       ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                                        ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                         ^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz entity.name.type.futureblitz
+#                                              ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                                               ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                                                ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                                                 ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                                  ^^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz storage.type.function.arrow.futureblitz
+#                                                    ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz
+#                                                     ^^^^^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz entity.name.type.futureblitz
+#                                                          ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                                                           ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                                                            ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                                                             ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz punctuation.parenthesis.futureblitz
+#                                                              ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz punctuation.parenthesis.futureblitz
+>
+>    // A new Stack with the same values.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Public Method Clone(): Stack<T>
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz
+#                  ^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                       ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                        ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                         ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                          ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                           ^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz entity.name.type.futureblitz
+#                                ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                                 ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                                  ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+>        Local copy = Stack<T>()
+#^^^^^^^^ source.futureblitz
+#        ^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#             ^ source.futureblitz meta.declaration.variable.futureblitz
+#              ^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#                  ^ source.futureblitz meta.declaration.variable.futureblitz
+#                   ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                    ^ source.futureblitz
+#                     ^^^^^ source.futureblitz entity.name.type.futureblitz
+#                          ^ source.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                           ^ source.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                            ^ source.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                             ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                              ^ source.futureblitz punctuation.parenthesis.futureblitz
+>        copy.Items = Items.Clone()
+#^^^^^^^^^^^^ source.futureblitz
+#            ^ source.futureblitz punctuation.accessor.futureblitz
+#             ^^^^^ source.futureblitz variable.other.property.futureblitz
+#                  ^ source.futureblitz
+#                   ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                    ^^^^^^ source.futureblitz
+#                          ^ source.futureblitz punctuation.accessor.futureblitz
+#                           ^^^^^ source.futureblitz entity.name.function.member.futureblitz
+#                                ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                                 ^ source.futureblitz punctuation.parenthesis.futureblitz
+>        Return copy
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#              ^^^^^^ source.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>    // The values from the top down, the order Pop gives them. Changing the Stack while going
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    // over them panics.
+#^^^^ source.futureblitz
+#    ^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#      ^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>    Public Method Iterate(): StackIterator<T> => StackIterator<T>(Self, Items.Count, Changes)
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz
+#                  ^^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                         ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                          ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                           ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                            ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                             ^^^^^^^^^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz entity.name.type.futureblitz
+#                                          ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                                           ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                                            ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                                             ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                              ^^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz storage.type.function.arrow.futureblitz
+#                                                ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz
+#                                                 ^^^^^^^^^^^^^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz entity.name.type.futureblitz
+#                                                              ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                                                               ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                                                                ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                                                                 ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz punctuation.parenthesis.futureblitz
+#                                                                  ^^^^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz variable.language.self.futureblitz
+#                                                                      ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz punctuation.separator.comma.futureblitz
+#                                                                       ^^^^^^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz
+#                                                                             ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz punctuation.accessor.futureblitz
+#                                                                              ^^^^^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz variable.other.property.futureblitz
+#                                                                                   ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz punctuation.separator.comma.futureblitz
+#                                                                                    ^^^^^^^^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz
+#                                                                                            ^ source.futureblitz meta.function.futureblitz meta.function.body.futureblitz punctuation.parenthesis.futureblitz
+>End Class
+#^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>Public Struct StackIterator<T> Implements Iterator<T>
+#^^^^^^ source.futureblitz storage.modifier.futureblitz
+#      ^ source.futureblitz
+#       ^^^^^^ source.futureblitz storage.type.futureblitz
+#             ^ source.futureblitz
+#              ^^^^^^^^^^^^^ source.futureblitz entity.name.type.futureblitz
+#                           ^ source.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                            ^ source.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                             ^ source.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+#                              ^ source.futureblitz
+#                               ^^^^^^^^^^ source.futureblitz meta.inheritance.futureblitz storage.modifier.futureblitz
+#                                         ^ source.futureblitz meta.inheritance.futureblitz
+#                                          ^^^^^^^^ source.futureblitz meta.inheritance.futureblitz entity.name.type.futureblitz
+#                                                  ^ source.futureblitz meta.inheritance.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                                                   ^ source.futureblitz meta.inheritance.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                                                    ^ source.futureblitz meta.inheritance.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+>    Field Owner: Stack<T>
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.field.futureblitz storage.type.field.futureblitz
+#         ^ source.futureblitz meta.declaration.field.futureblitz
+#          ^^^^^ source.futureblitz meta.declaration.field.futureblitz variable.other.property.futureblitz
+#               ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz
+#                 ^^^^^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz entity.name.type.futureblitz
+#                      ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+#                       ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz entity.name.type.futureblitz
+#                        ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz meta.type.parameters.futureblitz punctuation.definition.typeparameters.end.futureblitz
+>    Field Index: Int
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.field.futureblitz storage.type.field.futureblitz
+#         ^ source.futureblitz meta.declaration.field.futureblitz
+#          ^^^^^ source.futureblitz meta.declaration.field.futureblitz variable.other.property.futureblitz
+#               ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz
+#                 ^^^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+>    Field Changes: Int64
+#^^^^ source.futureblitz
+#    ^^^^^ source.futureblitz meta.declaration.field.futureblitz storage.type.field.futureblitz
+#         ^ source.futureblitz meta.declaration.field.futureblitz
+#          ^^^^^^^ source.futureblitz meta.declaration.field.futureblitz variable.other.property.futureblitz
+#                 ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                  ^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz
+#                   ^^^^^ source.futureblitz meta.declaration.field.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+>
+>    @PanicsAtCaller
+#^^^^ source.futureblitz
+#    ^ source.futureblitz meta.attribute.futureblitz punctuation.definition.attribute.futureblitz
+#     ^^^^^^^^^^^^^^ source.futureblitz meta.attribute.futureblitz entity.name.function.decorator.futureblitz
+>    Public ByRef Method Next(): T?
+#^^^^ source.futureblitz
+#    ^^^^^^ source.futureblitz storage.modifier.futureblitz
+#          ^ source.futureblitz
+#           ^^^^^ source.futureblitz storage.modifier.futureblitz
+#                ^ source.futureblitz
+#                 ^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#                       ^ source.futureblitz meta.function.futureblitz
+#                        ^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                            ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                             ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                              ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                               ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz entity.name.type.futureblitz
+#                                 ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz keyword.operator.type.nullable.futureblitz
+>        If Owner.Changes != Changes Then Panic("the Stack changed while a For ... In went over it")
+#^^^^^^^^ source.futureblitz
+#        ^^ source.futureblitz keyword.control.conditional.futureblitz
+#          ^^^^^^ source.futureblitz
+#                ^ source.futureblitz punctuation.accessor.futureblitz
+#                 ^^^^^^^ source.futureblitz variable.other.property.futureblitz
+#                        ^ source.futureblitz
+#                         ^^ source.futureblitz keyword.operator.comparison.futureblitz
+#                           ^^^^^^^^^ source.futureblitz
+#                                    ^^^^ source.futureblitz keyword.control.conditional.futureblitz
+#                                        ^ source.futureblitz
+#                                         ^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                                              ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                                               ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz string.quoted.double.futureblitz
+#                                                                                                 ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                                                                                  ^ source.futureblitz punctuation.parenthesis.futureblitz
+>        If Index == 0 Then Return Null
+#^^^^^^^^ source.futureblitz
+#        ^^ source.futureblitz keyword.control.conditional.futureblitz
+#          ^^^^^^^ source.futureblitz
+#                 ^^ source.futureblitz keyword.operator.comparison.futureblitz
+#                   ^ source.futureblitz
+#                    ^ source.futureblitz constant.numeric.decimal.futureblitz
+#                     ^ source.futureblitz
+#                      ^^^^ source.futureblitz keyword.control.conditional.futureblitz
+#                          ^ source.futureblitz
+#                           ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#                                 ^ source.futureblitz
+#                                  ^^^^ source.futureblitz constant.language.null.futureblitz
+>        Index -= 1
+#^^^^^^^^^^^^^^ source.futureblitz
+#              ^^ source.futureblitz keyword.operator.assignment.compound.futureblitz
+#                ^ source.futureblitz
+#                 ^ source.futureblitz constant.numeric.decimal.futureblitz
+>        Return Owner.Items[Index]
+#^^^^^^^^ source.futureblitz
+#        ^^^^^^ source.futureblitz keyword.control.flow.futureblitz
+#              ^^^^^^ source.futureblitz
+#                    ^ source.futureblitz punctuation.accessor.futureblitz
+#                     ^^^^^ source.futureblitz variable.other.property.futureblitz
+#                          ^ source.futureblitz punctuation.brackets.futureblitz
+#                           ^^^^^ source.futureblitz
+#                                ^ source.futureblitz punctuation.brackets.futureblitz
+>    End Method
+#^^^^ source.futureblitz
+#    ^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>End Struct
+#^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>

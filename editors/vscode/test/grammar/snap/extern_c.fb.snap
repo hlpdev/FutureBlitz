@@ -1,0 +1,605 @@
+>// Calling C: the C runtime's functions, declared in Extern blocks, take and give numbers, Enums,
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>// and CStrings, a String becomes a CString for the call, a String C gives is a copy of its text,
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>// and ByRef passes a variable's address.
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>
+>Import std.core
+#^^^^^^ source.futureblitz meta.import.futureblitz keyword.control.import.futureblitz
+#      ^ source.futureblitz meta.import.futureblitz
+#       ^^^^^^^^ source.futureblitz meta.import.futureblitz entity.name.namespace.futureblitz
+>Import "./extern_c/libc"
+#^^^^^^ source.futureblitz meta.import.futureblitz keyword.control.import.futureblitz
+#      ^ source.futureblitz meta.import.futureblitz
+#       ^ source.futureblitz meta.import.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#        ^^^^^^^^^^^^^^^ source.futureblitz meta.import.futureblitz string.quoted.double.futureblitz
+#                       ^ source.futureblitz meta.import.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+>
+>Extern "C"
+#^^^^^^ source.futureblitz storage.type.extern.futureblitz
+#      ^ source.futureblitz
+#       ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#        ^ source.futureblitz string.quoted.double.futureblitz
+#         ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+>    Function llabs(n: Int64): Int64
+#^^^^ source.futureblitz
+#    ^^^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#            ^ source.futureblitz meta.function.futureblitz
+#             ^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                  ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                   ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                    ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                     ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                      ^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                           ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                            ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                             ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                              ^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
+>    Function Sqrt(x: Float64): Float64 = "sqrt"
+#^^^^ source.futureblitz
+#    ^^^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#            ^ source.futureblitz meta.function.futureblitz
+#             ^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                  ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                   ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                    ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                     ^^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                            ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                             ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                              ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                               ^^^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
+#                                      ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                       ^ source.futureblitz meta.function.futureblitz keyword.operator.assignment.futureblitz
+#                                        ^ source.futureblitz meta.function.futureblitz
+#                                         ^ source.futureblitz meta.function.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                          ^^^^ source.futureblitz meta.function.futureblitz string.quoted.double.futureblitz
+#                                              ^ source.futureblitz meta.function.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+>    Function sqrtf(x: Float32): Float32
+#^^^^ source.futureblitz
+#    ^^^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#            ^ source.futureblitz meta.function.futureblitz
+#             ^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                  ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                   ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                    ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                     ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                      ^^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                             ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                              ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                               ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                ^^^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
+>    Function frexp(x: Float64, ByRef exponent: Int32): Float64
+#^^^^ source.futureblitz
+#    ^^^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#            ^ source.futureblitz meta.function.futureblitz
+#             ^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                  ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                   ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                    ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                     ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                      ^^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                             ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.separator.comma.futureblitz
+#                              ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz
+#                               ^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz storage.modifier.futureblitz
+#                                    ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz
+#                                     ^^^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                                             ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                                              ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                                               ^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                                                    ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                                     ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                                                      ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                                       ^^^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
+>    Function modf(x: Float64, ByRef whole: Float64): Float64
+#^^^^ source.futureblitz
+#    ^^^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#            ^ source.futureblitz meta.function.futureblitz
+#             ^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                  ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                   ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                    ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                     ^^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                            ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.separator.comma.futureblitz
+#                             ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz
+#                              ^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz storage.modifier.futureblitz
+#                                   ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz
+#                                    ^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                                         ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                                          ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                                           ^^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                                                  ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                                   ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                                                    ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                                     ^^^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
+>    Function getenv(name: CString): String?
+#^^^^ source.futureblitz
+#    ^^^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#            ^ source.futureblitz meta.function.futureblitz
+#             ^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                   ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                    ^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                        ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                         ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                          ^^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                                 ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                  ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                                   ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                    ^^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
+#                                          ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz keyword.operator.type.nullable.futureblitz
+>    Function Find(text: CString, part: CString): String? = "strstr"
+#^^^^ source.futureblitz
+#    ^^^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#            ^ source.futureblitz meta.function.futureblitz
+#             ^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                 ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                  ^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                      ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                       ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                        ^^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                               ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.separator.comma.futureblitz
+#                                ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz
+#                                 ^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                                     ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                                      ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                                       ^^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                                              ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                               ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                                                ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                                 ^^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
+#                                                       ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz keyword.operator.type.nullable.futureblitz
+#                                                        ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                                         ^ source.futureblitz meta.function.futureblitz keyword.operator.assignment.futureblitz
+#                                                          ^ source.futureblitz meta.function.futureblitz
+#                                                           ^ source.futureblitz meta.function.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                                            ^^^^^^ source.futureblitz meta.function.futureblitz string.quoted.double.futureblitz
+#                                                                  ^ source.futureblitz meta.function.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+>    Function setlocale(category: Int32, locale: CString): String?
+#^^^^ source.futureblitz
+#    ^^^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#            ^ source.futureblitz meta.function.futureblitz
+#             ^^^^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                      ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                       ^^^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                               ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                                ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                                 ^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                                      ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.separator.comma.futureblitz
+#                                       ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz
+#                                        ^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                                              ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                                               ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                                                ^^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                                                       ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                                        ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                                                         ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                                          ^^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
+#                                                                ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz keyword.operator.type.nullable.futureblitz
+>End Extern
+#^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>// The same C symbol under another name, and with an Enum for its integer type.
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>Enum Offset: Int32
+#^^^^ source.futureblitz storage.type.futureblitz
+#    ^ source.futureblitz
+#     ^^^^^^ source.futureblitz entity.name.type.futureblitz
+#           ^ source.futureblitz punctuation.separator.type.futureblitz
+#            ^ source.futureblitz
+#             ^^^^^ source.futureblitz storage.type.primitive.futureblitz
+>    Back = -3
+#^^^^^^^^^ source.futureblitz
+#         ^ source.futureblitz keyword.operator.assignment.futureblitz
+#          ^ source.futureblitz
+#           ^ source.futureblitz keyword.operator.arithmetic.futureblitz
+#            ^ source.futureblitz constant.numeric.decimal.futureblitz
+>    Ahead = 3
+#^^^^^^^^^^ source.futureblitz
+#          ^ source.futureblitz keyword.operator.assignment.futureblitz
+#           ^ source.futureblitz
+#            ^ source.futureblitz constant.numeric.decimal.futureblitz
+>End Enum
+#^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>Extern "C"
+#^^^^^^ source.futureblitz storage.type.extern.futureblitz
+#      ^ source.futureblitz
+#       ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#        ^ source.futureblitz string.quoted.double.futureblitz
+#         ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+>    Function Magnitude(n: Int32): Int32 = "abs"
+#^^^^ source.futureblitz
+#    ^^^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#            ^ source.futureblitz meta.function.futureblitz
+#             ^^^^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                      ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                       ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                        ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                         ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                          ^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                               ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                                 ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                  ^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
+#                                       ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                        ^ source.futureblitz meta.function.futureblitz keyword.operator.assignment.futureblitz
+#                                         ^ source.futureblitz meta.function.futureblitz
+#                                          ^ source.futureblitz meta.function.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                           ^^^ source.futureblitz meta.function.futureblitz string.quoted.double.futureblitz
+#                                              ^ source.futureblitz meta.function.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+>    Function Distance(n: Offset): Int32 = "abs"
+#^^^^ source.futureblitz
+#    ^^^^^^^^ source.futureblitz meta.function.futureblitz storage.type.function.futureblitz
+#            ^ source.futureblitz meta.function.futureblitz
+#             ^^^^^^^^ source.futureblitz meta.function.futureblitz entity.name.function.futureblitz
+#                     ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                      ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                       ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                        ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                         ^^^^^^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz entity.name.type.futureblitz
+#                               ^ source.futureblitz meta.function.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                                 ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                  ^^^^^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
+#                                       ^ source.futureblitz meta.function.futureblitz meta.type.return.futureblitz
+#                                        ^ source.futureblitz meta.function.futureblitz keyword.operator.assignment.futureblitz
+#                                         ^ source.futureblitz meta.function.futureblitz
+#                                          ^ source.futureblitz meta.function.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                           ^^^ source.futureblitz meta.function.futureblitz string.quoted.double.futureblitz
+#                                              ^ source.futureblitz meta.function.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+>End Extern
+#^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+>
+>Print("{abs(-5)} {Magnitude(-6)} {Distance(Offset.Back)} {llabs(-12345678901)}")
+#^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#     ^ source.futureblitz punctuation.parenthesis.futureblitz
+#      ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#       ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#        ^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#           ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#            ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz keyword.operator.arithmetic.futureblitz
+#             ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz constant.numeric.decimal.futureblitz
+#              ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#               ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                ^ source.futureblitz string.quoted.double.futureblitz
+#                 ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                  ^^^^^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#                           ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                            ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz keyword.operator.arithmetic.futureblitz
+#                             ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz constant.numeric.decimal.futureblitz
+#                              ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                               ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                ^ source.futureblitz string.quoted.double.futureblitz
+#                                 ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                                  ^^^^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#                                          ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                           ^^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                                                 ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.accessor.futureblitz
+#                                                  ^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz variable.other.property.futureblitz
+#                                                      ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                                       ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                                        ^ source.futureblitz string.quoted.double.futureblitz
+#                                                         ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                                                          ^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#                                                               ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                                                ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz keyword.operator.arithmetic.futureblitz
+#                                                                 ^^^^^^^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz constant.numeric.decimal.futureblitz
+#                                                                            ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                                                             ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                                                              ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                                                               ^ source.futureblitz punctuation.parenthesis.futureblitz
+>Print("{Sqrt(2.0)} {sqrtf(9.0)} {Upper(97)}")
+#^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#     ^ source.futureblitz punctuation.parenthesis.futureblitz
+#      ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#       ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#        ^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#            ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#             ^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz constant.numeric.decimal.futureblitz
+#                ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                 ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                  ^ source.futureblitz string.quoted.double.futureblitz
+#                   ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                    ^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#                         ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                          ^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz constant.numeric.decimal.futureblitz
+#                             ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                              ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                               ^ source.futureblitz string.quoted.double.futureblitz
+#                                ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                                 ^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#                                      ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                       ^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz constant.numeric.decimal.futureblitz
+#                                         ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                          ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                           ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                            ^ source.futureblitz punctuation.parenthesis.futureblitz
+>
+>// Strings go as copies with a NUL after them, which C reads up to the first NUL.
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>Local text = "abc" + "def"
+#^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#     ^ source.futureblitz meta.declaration.variable.futureblitz
+#      ^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#          ^ source.futureblitz meta.declaration.variable.futureblitz
+#           ^ source.futureblitz keyword.operator.assignment.futureblitz
+#            ^ source.futureblitz
+#             ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#              ^^^ source.futureblitz string.quoted.double.futureblitz
+#                 ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                  ^ source.futureblitz
+#                   ^ source.futureblitz keyword.operator.arithmetic.futureblitz
+#                    ^ source.futureblitz
+#                     ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                      ^^^ source.futureblitz string.quoted.double.futureblitz
+#                         ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+>Print("{strlen(text)} {strlen("hello")} {atoi("42")} {strlen("ab\x00cd")} {text}")
+#^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#     ^ source.futureblitz punctuation.parenthesis.futureblitz
+#      ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#       ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#        ^^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#              ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#               ^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                   ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                    ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                     ^ source.futureblitz string.quoted.double.futureblitz
+#                      ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                       ^^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#                             ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                              ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                               ^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz
+#                                    ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                     ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                      ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                       ^ source.futureblitz string.quoted.double.futureblitz
+#                                        ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                                         ^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#                                             ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                              ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                               ^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz
+#                                                 ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                                  ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                                   ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                                    ^ source.futureblitz string.quoted.double.futureblitz
+#                                                     ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                                                      ^^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#                                                            ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                                             ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                                              ^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz
+#                                                                ^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz constant.character.escape.futureblitz
+#                                                                    ^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz
+#                                                                      ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                                                       ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                                                        ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                                                         ^ source.futureblitz string.quoted.double.futureblitz
+#                                                                          ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                                                                           ^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                                                                               ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                                                                ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                                                                 ^ source.futureblitz punctuation.parenthesis.futureblitz
+>
+>// ByRef passes the variable's address, so C can set it.
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>Local exponent: Int32 = 0
+#^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#     ^ source.futureblitz meta.declaration.variable.futureblitz
+#      ^^^^^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#              ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#               ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz
+#                ^^^^^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                     ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz
+#                      ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                       ^ source.futureblitz
+#                        ^ source.futureblitz constant.numeric.decimal.futureblitz
+>Local mantissa = frexp(8.0, ByRef exponent)
+#^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#     ^ source.futureblitz meta.declaration.variable.futureblitz
+#      ^^^^^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#              ^ source.futureblitz meta.declaration.variable.futureblitz
+#               ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                ^ source.futureblitz
+#                 ^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                      ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                       ^^^ source.futureblitz constant.numeric.decimal.futureblitz
+#                          ^ source.futureblitz punctuation.separator.comma.futureblitz
+#                           ^ source.futureblitz
+#                            ^^^^^ source.futureblitz storage.modifier.futureblitz
+#                                 ^^^^^^^^^ source.futureblitz
+#                                          ^ source.futureblitz punctuation.parenthesis.futureblitz
+>Local whole: Float64 = 0.0
+#^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#     ^ source.futureblitz meta.declaration.variable.futureblitz
+#      ^^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#           ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#            ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz
+#             ^^^^^^^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                    ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz
+#                     ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                      ^ source.futureblitz
+#                       ^^^ source.futureblitz constant.numeric.decimal.futureblitz
+>Local fraction = modf(3.25, ByRef whole)
+#^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#     ^ source.futureblitz meta.declaration.variable.futureblitz
+#      ^^^^^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#              ^ source.futureblitz meta.declaration.variable.futureblitz
+#               ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                ^ source.futureblitz
+#                 ^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                     ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                      ^^^^ source.futureblitz constant.numeric.decimal.futureblitz
+#                          ^ source.futureblitz punctuation.separator.comma.futureblitz
+#                           ^ source.futureblitz
+#                            ^^^^^ source.futureblitz storage.modifier.futureblitz
+#                                 ^^^^^^ source.futureblitz
+#                                       ^ source.futureblitz punctuation.parenthesis.futureblitz
+>Print("{mantissa} {exponent} {whole} {fraction}")
+#^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#     ^ source.futureblitz punctuation.parenthesis.futureblitz
+#      ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#       ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#        ^^^^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                 ^ source.futureblitz string.quoted.double.futureblitz
+#                  ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                   ^^^^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                           ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                            ^ source.futureblitz string.quoted.double.futureblitz
+#                             ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                              ^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                                   ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                    ^ source.futureblitz string.quoted.double.futureblitz
+#                                     ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                                      ^^^^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                                              ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                               ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                                ^ source.futureblitz punctuation.parenthesis.futureblitz
+>
+>// A String C gives is a copy of its text, made before the arguments' copies go, or Null.
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>Local name = "PATH"
+#^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#     ^ source.futureblitz meta.declaration.variable.futureblitz
+#      ^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#          ^ source.futureblitz meta.declaration.variable.futureblitz
+#           ^ source.futureblitz keyword.operator.assignment.futureblitz
+#            ^ source.futureblitz
+#             ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#              ^^^^ source.futureblitz string.quoted.double.futureblitz
+#                  ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+>Local path = getenv(name)
+#^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#     ^ source.futureblitz meta.declaration.variable.futureblitz
+#      ^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#          ^ source.futureblitz meta.declaration.variable.futureblitz
+#           ^ source.futureblitz keyword.operator.assignment.futureblitz
+#            ^ source.futureblitz
+#             ^^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                   ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                    ^^^^ source.futureblitz
+#                        ^ source.futureblitz punctuation.parenthesis.futureblitz
+>Print("{(path ?? "") != ""} {getenv("FB_NO_SUCH_VARIABLE") ?? "none"} {Find("hello world", "wor") ?? "?"}")
+#^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#     ^ source.futureblitz punctuation.parenthesis.futureblitz
+#      ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#       ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#        ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#         ^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#              ^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz keyword.operator.null-coalescing.futureblitz
+#                ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                 ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                  ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                   ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                    ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                     ^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz keyword.operator.comparison.futureblitz
+#                       ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                        ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                         ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                          ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                           ^ source.futureblitz string.quoted.double.futureblitz
+#                            ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                             ^^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#                                   ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                    ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                     ^^^^^^^^^^^^^^^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz
+#                                                        ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                                         ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                                          ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                                                           ^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz keyword.operator.null-coalescing.futureblitz
+#                                                             ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                                                              ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                                               ^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz
+#                                                                   ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                                                    ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                                                     ^ source.futureblitz string.quoted.double.futureblitz
+#                                                                      ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#                                                                       ^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#                                                                           ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                                                            ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                                                             ^^^^^^^^^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz
+#                                                                                        ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                                                                         ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.separator.comma.futureblitz
+#                                                                                          ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                                                                                           ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                                                                            ^^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz
+#                                                                                               ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                                                                                ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#                                                                                                 ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                                                                                                  ^^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz keyword.operator.null-coalescing.futureblitz
+#                                                                                                    ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz
+#                                                                                                     ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                                                                                      ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz
+#                                                                                                       ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                                                                                        ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#                                                                                                         ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                                                                                          ^ source.futureblitz punctuation.parenthesis.futureblitz
+>
+>// A CString's zero is null, C's NULL, which asks setlocale for the locale it has.
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>Global nothing: CString
+#^^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#      ^ source.futureblitz meta.declaration.variable.futureblitz
+#       ^^^^^^^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#              ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#               ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz
+#                ^^^^^^^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+>Print(setlocale(0, nothing) ?? "no locale")
+#^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#     ^ source.futureblitz punctuation.parenthesis.futureblitz
+#      ^^^^^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#               ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                ^ source.futureblitz constant.numeric.decimal.futureblitz
+#                 ^ source.futureblitz punctuation.separator.comma.futureblitz
+#                  ^^^^^^^^ source.futureblitz
+#                          ^ source.futureblitz punctuation.parenthesis.futureblitz
+#                           ^ source.futureblitz
+#                            ^^ source.futureblitz keyword.operator.null-coalescing.futureblitz
+#                              ^ source.futureblitz
+#                               ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#                                ^^^^^^^^^ source.futureblitz string.quoted.double.futureblitz
+#                                         ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#                                          ^ source.futureblitz punctuation.parenthesis.futureblitz
+>
+>// An Extern Function is a value like any Function.
+#^^ source.futureblitz comment.line.double-slash.futureblitz punctuation.definition.comment.futureblitz
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.futureblitz comment.line.double-slash.futureblitz
+>Local f: Func(Int32): Int32 = abs
+#^^^^^ source.futureblitz meta.declaration.variable.futureblitz storage.type.variable.futureblitz
+#     ^ source.futureblitz meta.declaration.variable.futureblitz
+#      ^ source.futureblitz meta.declaration.variable.futureblitz variable.other.readwrite.futureblitz
+#       ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#        ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz
+#         ^^^^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz storage.type.function.futureblitz
+#             ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz meta.type.tuple.futureblitz punctuation.parenthesis.open.futureblitz
+#              ^^^^^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz meta.type.tuple.futureblitz storage.type.primitive.futureblitz
+#                   ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz meta.type.tuple.futureblitz punctuation.parenthesis.close.futureblitz
+#                    ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                     ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz
+#                      ^^^^^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                           ^ source.futureblitz meta.declaration.variable.futureblitz meta.type.annotation.futureblitz
+#                            ^ source.futureblitz keyword.operator.assignment.futureblitz
+#                             ^^^^^ source.futureblitz
+>Print("{f(-7)}")
+#^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#     ^ source.futureblitz punctuation.parenthesis.futureblitz
+#      ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+#       ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+#        ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz entity.name.function.call.futureblitz
+#         ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#          ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz keyword.operator.arithmetic.futureblitz
+#           ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz constant.numeric.decimal.futureblitz
+#            ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz meta.embedded.line.futureblitz punctuation.parenthesis.futureblitz
+#             ^ source.futureblitz string.quoted.double.futureblitz meta.interpolation.futureblitz punctuation.section.interpolation.end.futureblitz
+#              ^ source.futureblitz string.quoted.double.futureblitz punctuation.definition.string.end.futureblitz
+#               ^ source.futureblitz punctuation.parenthesis.futureblitz
+>

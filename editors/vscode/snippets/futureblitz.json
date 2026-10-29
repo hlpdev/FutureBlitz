@@ -1,0 +1,261 @@
+{
+  "If": {
+    "prefix": "If",
+    "body": [
+      "If ${1:condition}",
+      "\t$0",
+      "End If"
+    ],
+    "description": "If ... End If"
+  },
+  "If Else": {
+    "prefix": "IfElse",
+    "body": [
+      "If ${1:condition}",
+      "\t$2",
+      "Else",
+      "\t$0",
+      "End If"
+    ],
+    "description": "If ... Else ... End If"
+  },
+  "For To": {
+    "prefix": "For",
+    "body": [
+      "For ${1:i} = ${2:0} ${3|Until,To|} ${4:count}",
+      "\t$0",
+      "End For"
+    ],
+    "description": "A counting For loop"
+  },
+  "For In": {
+    "prefix": "ForIn",
+    "body": [
+      "For ${1:item} In ${2:items}",
+      "\t$0",
+      "End For"
+    ],
+    "description": "For ... In over a collection"
+  },
+  "While": {
+    "prefix": "While",
+    "body": [
+      "While ${1:condition}",
+      "\t$0",
+      "End While"
+    ],
+    "description": "While ... End While"
+  },
+  "Repeat": {
+    "prefix": "Repeat",
+    "body": [
+      "Repeat",
+      "\t$0",
+      "Until ${1:condition}"
+    ],
+    "description": "Repeat ... Until, whose body runs at least once"
+  },
+  "Loop": {
+    "prefix": "Loop",
+    "body": [
+      "Loop",
+      "\t$0",
+      "End Loop"
+    ],
+    "description": "Loop ... End Loop, which only Break or Return ends"
+  },
+  "Select": {
+    "prefix": "Select",
+    "body": [
+      "Select ${1:value}",
+      "\tCase ${2:first}",
+      "\t\t$3",
+      "\tDefault",
+      "\t\t$0",
+      "End Select"
+    ],
+    "description": "Select ... Case ... End Select"
+  },
+  "Function": {
+    "prefix": "Function",
+    "body": [
+      "Function ${1:Name}(${2})${3:: ${4:Int}}",
+      "\t$0",
+      "End Function"
+    ],
+    "description": "Function ... End Function"
+  },
+  "Method": {
+    "prefix": "Method",
+    "body": [
+      "Method ${1:Name}(${2})${3:: ${4:Int}}",
+      "\t$0",
+      "End Method"
+    ],
+    "description": "Method ... End Method"
+  },
+  "Lambda": {
+    "prefix": "lambda",
+    "body": [
+      "Function(${1:x}) => ${0:x}"
+    ],
+    "description": "A lambda: Function(x) => expression"
+  },
+  "Block lambda": {
+    "prefix": "lambdablock",
+    "body": [
+      "Function(${1})",
+      "\t$0",
+      "End Function"
+    ],
+    "description": "A lambda with a block body"
+  },
+  "Class": {
+    "prefix": "Class",
+    "body": [
+      "Class ${1:Name}",
+      "\tField ${2:Value}: ${3:Int}",
+      "",
+      "\tNew(${4})",
+      "\t\t$0",
+      "\tEnd New",
+      "End Class"
+    ],
+    "description": "Class ... End Class, with a Field and a New"
+  },
+  "Struct": {
+    "prefix": "Struct",
+    "body": [
+      "Struct ${1:Name}",
+      "\tField ${2:X}: ${3:Int}",
+      "\t$0",
+      "End Struct"
+    ],
+    "description": "Struct ... End Struct"
+  },
+  "Interface": {
+    "prefix": "Interface",
+    "body": [
+      "Interface ${1:Name}",
+      "\tMethod ${2:Name}()${0}",
+      "End Interface"
+    ],
+    "description": "Interface ... End Interface"
+  },
+  "Enum": {
+    "prefix": "Enum",
+    "body": [
+      "Enum ${1:Name}",
+      "\t${0:FIRST}",
+      "End Enum"
+    ],
+    "description": "Enum ... End Enum"
+  },
+  "Property": {
+    "prefix": "Property",
+    "body": [
+      "Property ${1:Name}: ${2:Int}",
+      "\tGet => ${3:value}",
+      "\tSet(${4:value})",
+      "\t\t$0",
+      "\tEnd Set",
+      "End Property"
+    ],
+    "description": "Property with a Get and a Set"
+  },
+  "Operator": {
+    "prefix": "Operator",
+    "body": [
+      "Operator ${1:+}(a: ${2:Self}, b: ${3:Self}): ${4:Self}",
+      "\tReturn ${0:a}",
+      "End Operator"
+    ],
+    "description": "An Operator on a Struct or Class"
+  },
+  "Try": {
+    "prefix": "Try",
+    "body": [
+      "Try",
+      "\t$1",
+      "Catch ${2:e} As ${3:Error}",
+      "\t$0",
+      "End Try"
+    ],
+    "description": "Try ... Catch ... End Try"
+  },
+  "Try Finally": {
+    "prefix": "TryFinally",
+    "body": [
+      "Try",
+      "\t$1",
+      "Catch ${2:e} As ${3:Error}",
+      "\t$4",
+      "Finally",
+      "\t$0",
+      "End Try"
+    ],
+    "description": "Try ... Catch ... Finally ... End Try"
+  },
+  "Lock": {
+    "prefix": "Lock",
+    "body": [
+      "Lock ${1:value} As ${2:held}",
+      "\t$0",
+      "End Lock"
+    ],
+    "description": "Lock ... End Lock"
+  },
+  "Unsafe": {
+    "prefix": "Unsafe",
+    "body": [
+      "Unsafe",
+      "\t$0",
+      "End Unsafe"
+    ],
+    "description": "Unsafe ... End Unsafe"
+  },
+  "Extern": {
+    "prefix": "Extern",
+    "body": [
+      "Extern \"C\" Lib \"${1:library}\"",
+      "\tFunction ${2:name}(${3})${0}",
+      "End Extern"
+    ],
+    "description": "Extern \"C\" ... End Extern"
+  },
+  "Extend": {
+    "prefix": "Extend",
+    "body": [
+      "Extend ${1:Type}",
+      "\t$0",
+      "End Extend"
+    ],
+    "description": "Extend ... End Extend"
+  },
+  "Test": {
+    "prefix": "Test",
+    "body": [
+      "@Test",
+      "Function ${1:Name}()",
+      "\tExpect(${0:condition})",
+      "End Function"
+    ],
+    "description": "A @Test Function, which fb test runs"
+  },
+  "If directive": {
+    "prefix": "#If",
+    "body": [
+      "#If ${1|DEBUG,RELEASE,PLATFORM_WINDOWS,PLATFORM_LINUX,PLATFORM_MACOS|}",
+      "$0",
+      "#End If"
+    ],
+    "description": "#If ... #End If"
+  },
+  "From Import": {
+    "prefix": "From",
+    "body": [
+      "From ${1:std.math} Import ${0:Name}"
+    ],
+    "description": "From module Import names"
+  }
+}

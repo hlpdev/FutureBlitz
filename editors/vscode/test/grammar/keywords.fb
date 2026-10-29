@@ -1,0 +1,109 @@
+// SYNTAX TEST "source.futureblitz" "keywords, exact in case, and contextual ones"
+
+If hp <= 0 Then Die() Else Regen()
+// <-- keyword.control.conditional.futureblitz
+//         ^^^^ keyword.control.conditional.futureblitz
+//                    ^^^^ keyword.control.conditional.futureblitz
+if = 3
+// <-- - keyword
+Local And = True && !False
+//    ^^^ variable.other.readwrite.futureblitz - keyword
+//          ^^^^ constant.language.boolean.futureblitz
+//                   ^^^^^ constant.language.boolean.futureblitz
+Local Or = And
+//    ^^ - keyword
+//         ^^^ - keyword
+
+Outer: For y = 0 Until h Step 2
+// <----- entity.name.label.futureblitz
+//   ^ punctuation.separator.label.futureblitz
+//     ^^^ keyword.control.loop.futureblitz
+//               ^^^^^ keyword.control.loop.futureblitz
+//                       ^^^^ keyword.control.loop.futureblitz
+    For x In 1 To 3
+//        ^^ keyword.control.loop.futureblitz
+//             ^^ keyword.control.loop.futureblitz
+        If grid[x, y] < 0 Then Break Outer
+//                             ^^^^^ keyword.control.loop.futureblitz
+//                                   ^^^^^ entity.name.label.futureblitz
+        particles[x].Step(dt)
+//                   ^^^^ entity.name.function.member.futureblitz - keyword
+    End For
+//  ^^^^^^^ keyword.control.end.futureblitz
+End For
+
+Repeat
+// <------ keyword.control.loop.futureblitz
+Until done
+// <----- keyword.control.loop.futureblitz
+Parallel For i = 0 Until 10
+// <-------- keyword.control.loop.futureblitz
+End For
+
+Select state
+// <------ keyword.control.conditional.futureblitz
+    Case e As Boss
+//  ^^^^ keyword.control.conditional.futureblitz
+//         ^^ keyword.operator.word.futureblitz
+//            ^^^^ entity.name.type.futureblitz
+    Default
+//  ^^^^^^^ keyword.control.conditional.futureblitz
+End Select
+
+Try
+// <--- keyword.control.trycatch.futureblitz
+    Local v = Try? Load<Config>(text)
+//            ^^^^ keyword.control.trycatch.futureblitz
+//                 ^^^^ entity.name.type.futureblitz
+//                      ^^^^^^ meta.type.parameters.futureblitz entity.name.type.futureblitz
+Catch e As FileError
+// <----- keyword.control.trycatch.futureblitz
+//         ^^^^^^^^^ entity.name.type.futureblitz
+Finally
+// <------- keyword.control.trycatch.futureblitz
+    Throw Error("no")
+//  ^^^^^ keyword.control.trycatch.futureblitz
+End Try
+
+Local w = x As? Circle
+//          ^^^ keyword.operator.word.futureblitz
+//              ^^^^^^ entity.name.type.futureblitz
+If x Is Boss Then Return
+//   ^^ keyword.operator.word.futureblitz
+//      ^^^^ entity.name.type.futureblitz
+//                ^^^^^^ keyword.control.flow.futureblitz
+If y == Null Then Return
+//      ^^^^ constant.language.null.futureblitz
+Local t = Await task
+//        ^^^^^ keyword.control.flow.futureblitz
+Defer f.Close()
+// <----- keyword.control.flow.futureblitz
+Lock part.Entries As entries
+// <---- keyword.other.futureblitz
+//                ^^ keyword.operator.word.futureblitz
+//                   ^^^^^^^ variable.other.readwrite.futureblitz - entity.name.type
+End Lock
+Unsafe
+// <------ keyword.other.futureblitz
+End Unsafe
+OnOpen = Function[Weak Self, Weak other]() => Self?.PlaySound()
+//       ^^^^^^^^ storage.type.function.futureblitz
+//                ^^^^ meta.captures.futureblitz storage.modifier.futureblitz
+//                     ^^^^ variable.language.self.futureblitz
+//                           ^^^^ storage.modifier.futureblitz
+//                                      ^ punctuation.definition.parameters.begin.futureblitz
+Local k = Weak<Enemy>(boss)
+//        ^^^^ entity.name.type.futureblitz - storage.modifier
+Super.New(name)
+// <----- variable.language.super.futureblitz
+//    ^^^ entity.name.function.member.futureblitz
+Set<Int>()
+// <--- entity.name.type.futureblitz - storage.type.function.accessor
+For Method m In T
+//  ^^^^^^ storage.type.function.futureblitz
+//         ^ - entity.name.function
+    Where m Has Get Or Post
+//  ^^^^^ keyword.other.where.futureblitz
+//          ^^^ keyword.operator.word.futureblitz
+//                  ^^ keyword.operator.word.futureblitz
+End For

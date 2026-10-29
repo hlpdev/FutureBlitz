@@ -1,0 +1,93 @@
+// SYNTAX TEST "source.futureblitz" "strings, interpolation, format specs, raw and triple-quoted strings, and Chars"
+
+Print("HP: {hp}/{MAX_HP}")
+//    ^ string.quoted.double.futureblitz punctuation.definition.string.begin.futureblitz
+//         ^ meta.interpolation.futureblitz punctuation.section.interpolation.begin.futureblitz
+//          ^^ meta.embedded.line.futureblitz
+//            ^ punctuation.section.interpolation.end.futureblitz
+//               ^^^^^^ meta.interpolation.futureblitz variable.other.constant.futureblitz
+//                      ^ punctuation.definition.string.end.futureblitz
+
+Print("a\tb\nc \\ \" \0 \x41 \u{1F600} \q")
+//      ^^ constant.character.escape.futureblitz
+//         ^^ constant.character.escape.futureblitz
+//             ^^ constant.character.escape.futureblitz
+//                ^^ constant.character.escape.futureblitz
+//                   ^^ constant.character.escape.futureblitz
+//                      ^^^^ constant.character.escape.futureblitz
+//                           ^^^^^^^^^ constant.character.escape.futureblitz - meta.interpolation
+//                                     ^^ invalid.illegal.escape.futureblitz
+
+Print("{{literal}} braces")
+//     ^^ constant.character.escape.futureblitz - meta.interpolation
+//       ^^^^^^^ string.quoted.double.futureblitz - meta.interpolation
+//              ^^ constant.character.escape.futureblitz - meta.interpolation
+
+Print("{price:.2} {name:<10}|{title:*^9} {mask:#010b} {x:?}")
+//           ^ punctuation.separator.format-spec.futureblitz
+//            ^^ constant.other.placeholder.futureblitz
+//                      ^^^ constant.other.placeholder.futureblitz
+//                                  ^^^ constant.other.placeholder.futureblitz
+//                                             ^^^^^ constant.other.placeholder.futureblitz
+//                                                       ^ constant.other.placeholder.futureblitz
+
+Print("{a ? b : c} {(a ? b : c):>8}")
+//        ^ keyword.operator.ternary.futureblitz
+//            ^ keyword.operator.ternary.futureblitz - punctuation.separator.format-spec
+//                         ^ keyword.operator.ternary.futureblitz
+//                             ^ punctuation.separator.format-spec.futureblitz
+//                              ^^ constant.other.placeholder.futureblitz
+
+Print("{name ?? "nobody"} {items[0]:>5} {':'}")
+//           ^^ keyword.operator.null-coalescing.futureblitz
+//              ^^^^^^^^ meta.interpolation.futureblitz string.quoted.double.futureblitz
+//                                  ^^ constant.other.placeholder.futureblitz
+//                                       ^^^ string.quoted.single.futureblitz - constant.other.placeholder
+
+Print("{ {1: 2}.Count}")
+//        ^ constant.numeric.decimal.futureblitz
+//         ^ keyword.operator.ternary.futureblitz - punctuation.separator.format-spec
+//              ^^^^^ variable.other.property.futureblitz
+//                   ^ punctuation.section.interpolation.end.futureblitz
+
+Local path = r"C:\raw\no {escapes}"
+//           ^ string.quoted.double.raw.futureblitz storage.type.string.futureblitz
+//               ^^ string.quoted.double.raw.futureblitz - constant.character.escape
+//                       ^^^^^^^^^ string.quoted.double.raw.futureblitz - meta.interpolation
+
+Local unterminated = "no end
+//                   ^^^^^^^ string.quoted.double.futureblitz
+Local after = 1
+// <----- storage.type.variable.futureblitz - string
+
+Print("a {f(1,
+//        ^ meta.interpolation.futureblitz entity.name.function.call.futureblitz
+Local next = 2
+// <----- storage.type.variable.futureblitz - string meta.interpolation
+
+Local text = """
+    a {x:06X} "quoted" \n
+//    ^ string.quoted.triple.futureblitz meta.interpolation.futureblitz
+//       ^^^ constant.other.placeholder.futureblitz
+//            ^^^^^^^^ string.quoted.triple.futureblitz - meta.interpolation
+//                     ^^ constant.character.escape.futureblitz
+    {Sum(a,
+         b)}
+//       ^ meta.interpolation.futureblitz
+//         ^ punctuation.section.interpolation.end.futureblitz
+    """
+//  ^^^ string.quoted.triple.futureblitz punctuation.definition.string.end.futureblitz
+Local raw = r"""
+    "quotes" {braces} \n
+//  ^^^^^^^^^^^^^^^^^^^^ string.quoted.triple.raw.futureblitz - meta.interpolation constant.character.escape
+    """
+Local last = 3
+// <----- storage.type.variable.futureblitz - string
+
+Local c = '\n' + 'a' + '\u{1F600}' + '{' + '\''
+//        ^ string.quoted.single.futureblitz punctuation.definition.string.begin.futureblitz
+//         ^^ constant.character.escape.futureblitz
+//               ^^^ string.quoted.single.futureblitz
+//                      ^^^^^^^^^ constant.character.escape.futureblitz
+//                                   ^^^ string.quoted.single.futureblitz - meta.interpolation
+//                                          ^^ constant.character.escape.futureblitz

@@ -1,0 +1,85 @@
+// Format specs in interpolation: fill, alignment, sign, base and prefix, zeros, width, grouping,
+// precision, and kinds, on values only the running program knows, on a Formattable type of the
+// program's own, in generic code, and in a Const Function the compiler runs.
+Import std.core
+
+Enum Suit
+    Hearts
+    Spades
+End Enum
+
+Struct Point Implements Printable
+    Field X: Int
+    Field Y: Int
+
+    Method ToString(): String => "({X}, {Y})"
+End Struct
+
+// Money takes specs of its own: "cents" and "dollars", and nothing else.
+Struct Money Implements Formattable
+    Field Cents: Int64
+
+    Method ToString(): String => "${Cents / 100}.{Cents % 100:02}"
+
+    Method Format(spec: String): String?
+        If spec == "cents" Then Return "{Cents} cents"
+        If spec == "dollars" Then Return ToString()
+        Return Null
+    End Method
+End Struct
+
+Class Temperature Implements Formattable
+    Field Celsius: Float64
+
+    New(celsius: Float64)
+        Celsius = celsius
+    End New
+
+    Method ToString(): String => "{Celsius:.1}C"
+
+    Method Format(spec: String): String?
+        If spec == "F" Then Return "{Celsius * 9 / 5 + 32:.1}F"
+        Return Null
+    End Method
+End Class
+
+Function Padded<T: Formattable>(value: T): String => "[{value:>8}]"
+Function Boxed<T: Printable>(value: T): String => "[{value:^9}]"
+Function Spelled<T: Formattable>(value: T): String => "{value:dollars}"
+
+Const Function Label(n: Int): String => "#{n:03} {n:x} {(n As Float64) * 1.5:.1}"
+Const LABEL = Label(26)
+
+// Values the compiler doesn't know.
+Function Run(count: Int, price: Float64, ratio: Float32, name: String, on: Bool)
+    Local small: Int8 = -5
+    Local big: UInt64 = 18446744073709551615
+    Print("{count:,} {count:_x} {count:#o} {count:#b} {count:+} {small:04}")
+    Print("{big:,} {big:X} {-count:*>10,}|{count:<8}|{count:^9}|")
+    Print("{price:.2} {price:e} {price:.3E} {price:12.4f}| {price:%} {0.125:.0%} {ratio:.3}")
+    Print("{price * 1000000:,.2} {-price:+010.2} {price:+} {ratio}")
+    Print("{name:>8}|{name:<8}|{name:-^8}|{name:.3}|{name:?}|{name:>8?}|")
+    Print("{on:>6}|{Suit.Spades:<8}|{(1, "a"):>10}|{[1, 2, 3]:^11}|{Point(1, 2):*>9}|")
+    Print("{count > 1000 ? "many" : "few":>6}|{count > 1000 ? count : 0:,}")
+End Function
+
+Run(1234567, 3.14159265, 0.1, "Ann", True)
+
+// A Formattable type of the program's own reads its own spec.
+Local wallet = Money(1250)
+Local hot = Temperature(30)
+Local shown: Formattable = hot
+Print("{wallet} {wallet:cents} {wallet:dollars} {hot} {hot:F} {shown:F}")
+
+// Generic code, whose specs each instance checks.
+Print("{Padded(42)} {Padded(2.5)} {Padded("hi")} {Padded(True)} {Padded(Suit.Hearts)}")
+Print("{Boxed(7)} {Boxed(Point(3, 4))} {Boxed([1])} {Spelled(wallet)}")
+
+// A built-in type's Format reads its spec when the program runs.
+Local five = 5
+Print(five.Format("03") ?? "none", five.Format(".2") ?? "no precision", 2.5.Format("e") ?? "-")
+Print("abc".Format("^7") ?? "-", True.Format("+") ?? "no sign", Suit.Hearts.Format(">7") ?? "-")
+Print(LABEL)
+
+// An empty spec is none, a program's own Formattable type's too, which shows its ToString.
+Print("{wallet:} [{five:}] [{"a":}] [{(1, 2):}]")

@@ -1,0 +1,384 @@
+{
+  "name": "futureblitz",
+  "displayName": "FutureBlitz",
+  "description": "FutureBlitz (.fb) for VS Code: highlighting, the language server, tasks, and debugging",
+  "version": "0.1.0",
+  "publisher": "futureblitz",
+  "license": "Apache-2.0",
+  "homepage": "https://futureblitz.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hlpdev/FutureBlitz.git",
+    "directory": "editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.91.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Debuggers",
+    "Formatters",
+    "Snippets"
+  ],
+  "keywords": [
+    "futureblitz",
+    "fb",
+    "blitz3d",
+    "basic"
+  ],
+  "extensionDependencies": [
+    "vadimcn.vscode-lldb"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "workspaceContains:**/*.fb",
+    "onDebugResolve:futureblitz",
+    "onDebugInitialConfigurations",
+    "onDebugDynamicConfigurations:futureblitz"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "futureblitz",
+        "aliases": [
+          "FutureBlitz",
+          "fb"
+        ],
+        "extensions": [
+          ".fb"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "futureblitz",
+        "scopeName": "source.futureblitz",
+        "path": "./syntaxes/futureblitz.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "futureblitz",
+        "path": "./snippets/futureblitz.json"
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "futureblitz"
+      }
+    ],
+    "configuration": {
+      "title": "FutureBlitz",
+      "properties": {
+        "futureblitz.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "The `fb` executable. Empty finds `fb` on PATH, then in `~/.futureblitz/bin`. `${workspaceFolder}` and `~` are expanded."
+        },
+        "futureblitz.lspPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "The language server's executable. Empty finds `fb_lsp` beside `fb`, then on PATH. `${workspaceFolder}` and `~` are expanded."
+        },
+        "futureblitz.lsp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the language server for diagnostics as you type, hovers, completion, and formatting."
+        },
+        "futureblitz.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the messages between VS Code and the language server in the FutureBlitz output."
+        },
+        "futureblitz.debug.lldbScript": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "fb's lldb script, `futureblitz.py`, which shows FutureBlitz values in the debugger. Empty takes the one beside `fb` (`<root>/lldb/futureblitz.py`), else the extension's own copy."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[futureblitz]": {
+        "editor.formatOnSave": true,
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.detectIndentation": false
+      }
+    },
+    "commands": [
+      {
+        "command": "futureblitz.restartServer",
+        "title": "Restart Language Server",
+        "category": "FutureBlitz"
+      },
+      {
+        "command": "futureblitz.showOutput",
+        "title": "Show Output",
+        "category": "FutureBlitz"
+      },
+      {
+        "command": "futureblitz.run",
+        "title": "Run",
+        "category": "FutureBlitz",
+        "icon": "$(play)"
+      },
+      {
+        "command": "futureblitz.debug",
+        "title": "Debug",
+        "category": "FutureBlitz",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "futureblitz.test",
+        "title": "Run Tests",
+        "category": "FutureBlitz"
+      }
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "futureblitz.run",
+          "when": "resourceLangId == futureblitz",
+          "group": "navigation@1"
+        },
+        {
+          "command": "futureblitz.debug",
+          "when": "resourceLangId == futureblitz",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "taskDefinitions": [
+      {
+        "type": "futureblitz",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "build",
+              "run",
+              "test",
+              "fmt",
+              "check"
+            ],
+            "description": "The fb command."
+          },
+          "target": {
+            "type": "string",
+            "description": "A .fb file or a package's folder, relative to the workspace folder. Without one, it's the workspace folder's package."
+          },
+          "release": {
+            "type": "boolean",
+            "description": "Build with --release."
+          },
+          "filter": {
+            "type": "string",
+            "description": "test: run only the tests whose names have this in them."
+          },
+          "check": {
+            "type": "boolean",
+            "description": "fmt: list the files it would change, without changing them."
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "More options for fb, before the target."
+          },
+          "programArgs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "run: the program's own arguments, after --."
+          }
+        }
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "fb",
+        "label": "fb's errors and warnings",
+        "owner": "futureblitz",
+        "source": "fb",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^(.+?):(\\d+):(\\d+): (error|warning)(?:\\[([^\\]]+)\\])?: (.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "code": 5,
+          "message": 6
+        }
+      },
+      {
+        "name": "fb-note",
+        "label": "fb's notes",
+        "owner": "futureblitz",
+        "source": "fb",
+        "severity": "info",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^(.+?):(\\d+):(\\d+): note: (.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
+        }
+      },
+      {
+        "name": "fb-runtime",
+        "label": "Panics, uncaught errors, and failed Expects",
+        "owner": "futureblitz",
+        "source": "fb",
+        "severity": "error",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^((?:panic|uncaught [^:]+|expect failed): .*) at (.+?):(\\d+):(\\d+)$",
+          "message": 1,
+          "file": 2,
+          "line": 3,
+          "column": 4
+        }
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "futureblitz",
+        "label": "FutureBlitz",
+        "languages": [
+          "futureblitz"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "The .fb file or package folder to build in debug and run. Without one, the workspace folder's package, or the open file.",
+                "default": "${workspaceFolder}"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The program's arguments.",
+                "default": []
+              },
+              "cwd": {
+                "type": "string",
+                "description": "The program's working folder. Without one, the workspace folder.",
+                "default": "${workspaceFolder}"
+              },
+              "env": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Environment variables to add for the program.",
+                "default": {}
+              },
+              "release": {
+                "type": "boolean",
+                "description": "Build with --release: optimized, with line tables only.",
+                "default": false
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Stop at the program's entry.",
+                "default": false
+              },
+              "terminal": {
+                "type": "string",
+                "enum": [
+                  "integrated",
+                  "external",
+                  "console"
+                ],
+                "description": "Where the program's input and output go, as CodeLLDB has it.",
+                "default": "integrated"
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "futureblitz",
+            "request": "launch",
+            "name": "Debug",
+            "program": "${workspaceFolder}"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "FutureBlitz: Debug a package",
+            "description": "Builds the package in debug and runs it under CodeLLDB",
+            "body": {
+              "type": "futureblitz",
+              "request": "launch",
+              "name": "Debug",
+              "program": "^\"\\${workspaceFolder}\""
+            }
+          },
+          {
+            "label": "FutureBlitz: Debug the open file",
+            "description": "Builds the open .fb file in debug and runs it under CodeLLDB",
+            "body": {
+              "type": "futureblitz",
+              "request": "launch",
+              "name": "Debug the open file",
+              "program": "^\"\\${file}\""
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "node scripts/copy-assets.mjs && tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && npm run test:unit && npm run test:extension",
+    "test:unit": "node --test \"out/test/unit/*.test.js\"",
+    "test:extension": "node out/test/run.js",
+    "package": "npm run compile && vsce package --out futureblitz.vsix",
+    "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": {
+    "vscode-languageclient": "11.0.0"
+  },
+  "devDependencies": {
+    "@types/mocha": "10.0.10",
+    "@types/node": "22.20.5",
+    "@types/vscode": "1.91.0",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "4.1.0",
+    "mocha": "11.8.0",
+    "typescript": "7.0.2",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2",
+    "vscode-tmgrammar-test": "0.1.3"
+  }
+}

@@ -1,0 +1,43 @@
+// SYNTAX TEST "source.futureblitz" "comments, doc comments, and #If directives"
+
+Local a = 1 // after code
+//          ^^^^^^^^^^^^^ comment.line.double-slash.futureblitz
+
+/* block /* nested */ still comment */ Local b = 2
+// <-- comment.block.futureblitz punctuation.definition.comment.begin.futureblitz
+//       ^^ comment.block.futureblitz comment.block.futureblitz
+//                    ^^^^^ comment.block.futureblitz
+//                                     ^^^^^ storage.type.variable.futureblitz - comment
+
+/* spans
+   lines, Local c = 3 */
+// <------------------ comment.block.futureblitz
+Local d = 4
+// <----- storage.type.variable.futureblitz - comment
+
+/// The summary, with `code` and a [Stack.Push] link.
+// <--- comment.line.documentation.futureblitz punctuation.definition.comment.futureblitz
+//                    ^^^^^^ comment.line.documentation.futureblitz markup.inline.raw.futureblitz
+//                                 ^^^^^^^^^^^^ markup.underline.link.futureblitz
+/// # Examples
+//  ^^^^^^^^^^ comment.line.documentation.futureblitz markup.heading.futureblitz
+//// four slashes are a plain comment
+// <---- comment.line.double-slash.futureblitz - comment.line.documentation
+
+#If DEBUG && !PLATFORM_WINDOWS
+// <- meta.preprocessor.futureblitz punctuation.definition.directive.futureblitz
+//^ keyword.control.directive.futureblitz
+//  ^^^^^ constant.language.condition.futureblitz
+//        ^^ keyword.operator.logical.futureblitz
+//           ^ keyword.operator.logical.futureblitz
+//            ^^^^^^^^^^^^^^^^ constant.language.condition.futureblitz
+Print("debug")
+#ElseIf (RELEASE || PLATFORM_LINUX) // a comment
+//^^^^^ keyword.control.directive.futureblitz
+//      ^ punctuation.parenthesis.futureblitz
+//                                  ^^^^^^^^^^^^ comment.line.double-slash.futureblitz
+    #Else
+//  ^ punctuation.definition.directive.futureblitz
+//   ^^^^ keyword.control.directive.futureblitz
+#End If
+//^^^^^ keyword.control.directive.futureblitz

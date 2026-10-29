@@ -1,0 +1,183 @@
+// std.data's TOML: what each kind of value reads as, dates and times as their RFC 3339 text,
+// where a ParseError says it is and what kind it is, and what Write writes, which reads back as
+// the same Value.
+
+Import std.core
+Import std.collections
+Import std.data.toml
+
+// A document of every kind of value, raw but for its multi-line basic string.
+Local document = r"""
+    # A document of every kind of value.
+    title = "TOML \u00E9\t\"quoted\" \U0001F600"
+    literal = 'C:\no\escapes'
+    """ + "\nlines = \"\"\"\nfirst \\\n    second\nthird \"\"\"\"\n" + r"""
+    raw = '''
+    'one'
+    two'''''
+    integers = [0, -17, +42, 1_000, 0xDEAD_beef, 0o755, 0b1101, 9223372036854775807,
+                -9223372036854775808]
+    floats = [1.5, -0.0, 6.02e23, 1E-7, 3_141.592_6, inf, -inf, nan, 1e1000, -1e-1000]
+    flags = [true, false]
+    "quoted key" = 1
+    dotted.inner.key = "x"
+    times = [1979-05-27T07:32:00Z, 1979-05-27t07:32:00.500z, 1979-05-27 07:32:00.120-07:00,
+             1979-05-27T07:32:00, 1979-05-27, 07:32:00.000, 00:00:00.5]
+
+    [server]
+    point = { x = 1, y.z = [2, { w = 3 }] }
+
+    [server.alpha]
+    ip = "10.0.0.1"
+
+    [[fruit]]
+    name = "apple"
+
+    [fruit.physical]
+    color = "red"
+
+    [[fruit]]
+    name = "banana"
+    """
+
+Local read = Try Toml.Read(document)
+For key In read.Keys()
+    Print(key, "=", read[key] ?? Value())
+End For
+
+// Each mistake throws a ParseError of its kind, at its line and column.
+Function Failure(text: String)
+    Try
+        Toml.Read(text)
+        Print("reads:", text)
+    Catch e As ParseError
+        Print(e.Kind, e.Line, e.Column, e.Message)
+    End Try
+End Function
+
+Failure("a = 1\nb = 2\na = 3")
+Failure("[t]\nx = 1\n[t]")
+Failure("a = \"unended")
+Failure("a = [1, 2")
+Failure("a = {{ b = 1")
+Failure("a = 9223372036854775808")
+Failure("a = -9223372036854775809")
+Failure("a = 0x8000000000000000")
+Failure("a = 1979-02-29")
+Failure("a = 1979-05-27T25:00:00")
+Failure("a = 01")
+Failure("a = 1__0")
+Failure("a = \"\\q\"")
+Failure("a = \"\\uD800\"")
+Failure("t = {{ a = 1 }}\nt.b = 2")
+Failure("a = [1]\n[[a]]")
+Failure("[a.b]\n[a]\nb.c = 1")
+Failure("ü = 1")
+Failure("a = 1 b = 2")
+Failure("a = \"one\ntwo\"")
+Failure("a = 1 # bell \u{7}")
+Failure("a\r= 1")
+Failure("a = '''x''''''")
+Failure("x = 1\nä = ")
+Print((Try Toml.Read("")).Count)
+
+// Text that ends inside an inline table, a string, or an array is UNEXPECTED_END, wherever in it
+// it ends; outside them, it's SYNTAX.
+Failure("a = {{ b = ")
+Failure("a = {{ b.")
+Failure("a = \"\\u12")
+Failure("a = \"\"\"x\\U0001")
+Failure("a = [1, -")
+Failure("a = [1, 0x")
+Failure("a = [1, 1979-")
+Failure("a = ")
+
+// A key an inline table has already is named in its error, the first time an array or an inline
+// table too.
+Failure("x = {{ a = [1], a = 2 }}")
+Failure("x = {{ a = {{ b = 1 }}, a = 2 }}")
+Failure("x = {{ a.b = [1], a.b = 2 }}")
+Failure("x = {{ a = [1], a.b = 2 }}")
+
+// Arrays and inline tables nest 256 deep at most, read and written; tables nest however deep.
+Function Nested(depth: Int, open: String, close: String): String
+    Local parts: String[] = ["a = "]
+    For i = 1 To depth
+        parts.Add(open)
+    End For
+    For i = 1 To depth
+        parts.Add(close)
+    End For
+    Return parts.Join("")
+End Function
+
+Local deepest = Try Toml.Read(Nested(256, "[", "]"))
+Print(Toml.Write(deepest).Bytes.Count, (Try Toml.Read(Toml.Write(deepest))) == deepest)
+Failure(Nested(257, "[", "]"))
+Failure(Nested(300, "{{ b = ", " }}"))
+Failure(Nested(5000, "[", "]"))
+Local headers: String[] = []
+For i = 1 To 1000
+    headers.Add("t")
+End For
+Local tables = Try Toml.Read("[" + headers.Join(".") + "]\nx = 1")
+Local back = Try Toml.Read(Toml.Write(tables))
+Print(back == tables, Toml.Write(tables).Bytes.Count)
+
+// Write: a table's keys and values, then its tables; an Array of Objects is an array of tables,
+// and an Object in an Array an inline table; and keys are quoted when they must be. What it
+// writes reads back as the same Value.
+Local huge: Float64 = 1e308
+Local value = Value.Object()
+value["name"] = Value("Tom \"T\" é\n\u{1}\u{7F}")
+value["odd key"] = Value(1 As Int64)
+value[""] = Value(True)
+value["ratio"] = Value(2.0)
+value["big"] = Value(1e300)
+value["small"] = Value(-1.5e-7)
+Local edges = Value.Array()
+edges.Add(Value(huge * 10))
+edges.Add(Value(-huge * 10))
+value["edges"] = edges
+Local mixed = Value.Array()
+mixed.Add(Value(1 As Int64))
+Local inline = Value.Object()
+inline["a b"] = Value("b")
+mixed.Add(inline)
+mixed.Add(Value.Object())
+value["mixed"] = mixed
+value["empty"] = Value.Array()
+Local owner = Value.Object()
+owner["dob"] = Value("1979-05-27T07:32:00Z")
+Local deeper = Value.Object()
+deeper["k"] = Value(1 As Int64)
+owner["deeper"] = deeper
+owner["blank"] = Value.Object()
+value["owner"] = owner
+Local items = Value.Array()
+For i = 1 To 2
+    Local item = Value.Object()
+    item["n"] = Value(i As Int64)
+    Local detail = Value.Object()
+    detail["twice"] = Value((i * 2) As Int64)
+    item["detail"] = detail
+    items.Add(item)
+End For
+value["items"] = items
+
+Local written = Toml.Write(value)
+Print(written)
+Print((Try Toml.Read(written)) == value)
+Print(Toml.Write(Value.Object()) == "")
+
+// TOML has no null, so an Object's Null is left out, an inline table's too.
+Local nulls = Value.Object()
+nulls["nothing"] = Value()
+nulls["kept"] = Value(1 As Int64)
+Local inner = Value.Object()
+inner["nothing"] = Value()
+Local listed = Value.Array()
+listed.Add(inner)
+listed.Add(Value(2 As Int64))
+nulls["list"] = listed
+Print(Toml.Write(nulls))

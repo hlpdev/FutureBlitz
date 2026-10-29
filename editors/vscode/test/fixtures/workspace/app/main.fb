@@ -1,0 +1,5 @@
+Import std.core
+Import app.greet
+
+Local name = "Orc"
+Print(Greet(name))
