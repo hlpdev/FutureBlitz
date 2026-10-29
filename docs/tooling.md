@@ -97,6 +97,49 @@ other people can install and use every day in an editor. Step 0 settled what was
   signature help, semantic tokens, and code actions for the fix-its fb already has.
 - A front end that re-checks only what an edit touches, a file and what depends on it, so a
   large package stays responsive.
+- Formatting through `format_source`, with the package's `[format] width`: the whole document,
+  and on save, through the editor's own format on save, or willSaveWaitUntil when the client's
+  initializationOptions say `formatOnSave`.
+
+How it's built (2026-10-29):
+
+- **fb-lsp** is an executable of its own beside fb, which an editor starts and talks to in
+  JSON-RPC over stdin and stdout, read and written with nlohmann/json. Positions count UTF-16 code
+  units, or UTF-8 bytes when the client offers them. lsp/ is the `fb_lsp_server` library, which
+  tests/lsp drives through its messages in process, and main.cpp.
+- **Units.** One compilation covers a unit: a package with its tests/ folder, as fb test has it,
+  the standard library, or a .fb file outside a package. Each package in the client's folders,
+  and std when it's among them, is checked whole once, in the background, which gives every
+  file's diagnostics and the import graph.
+- **A check** is the driver's `check_files()`: some files of one unit, the roots, each a module of
+  its own, with what they import, and no other file. The open documents' texts are read in place
+  of the disk's. Sema checks a compilation's modules whole, as it does a build's, so what makes it
+  incremental is what a check loads: an edit of a file that few others import loads few modules.
+- **An edit** checks the edited file once there's been no other edit for 150 ms, on a thread for
+  edited documents, and publishes its diagnostics. Then, 400 ms after, a thread for the rest
+  checks the files that import it, directly or not, as the graph of the checks before says, one
+  check for each unit they're in. Every file imports std/core/ and std.collections.map without
+  saying so. A file with top-level code is the main file of its own check; one that's another
+  main file in a check of several has its top-level code left out, as fb test's build leaves it,
+  so it's checked again on its own. A check that started before a newer one doesn't replace that
+  one's diagnostics.
+- **Requests** answer from the check of the document's current text, which they wait for, kept
+  for each open document; references and renames check the file that declares the name with every
+  file that imports it. Sema records each use of a symbol (`analysis_t::uses`), which hover,
+  definitions, references, renames, and semantic tokens look names up in; and a member being
+  typed, "x.", is a member with an empty name, whose object sema works out without another error,
+  which completion takes the members from. Document and workspace symbols parse the file alone.
+- **Shared work.** A check's driver parses each std file it doesn't load, for the error that says
+  which module declares a name, which took most of a check's time; the checks share what it finds
+  (`std_names_cache_t`), by each file's text.
+- **Docs on hover** come from the comments right above a declaration, through `doc_comment()` in
+  lsp/include/fb/lsp/docs.hpp, which step 8's `///` comments on the AST take the place of.
+- **Files changed outside the editor**, as by a git checkout, come in workspace/didChangeWatchedFiles,
+  which the server asks the client for when it can: each is checked again with what imports it,
+  and a changed project.toml's package whole.
+- In a debug build, a std file's check, std/text/fuzzy.fb's, has 17 of std's 206 modules, and an
+  edit's takes about 300 ms; the requests after it take 1 to 25 ms. std as a folder is checked
+  whole in about 20 s, once.
 
 ## The VS Code extension (step 5)
 
