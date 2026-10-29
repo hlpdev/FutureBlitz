@@ -1758,6 +1758,15 @@ TEST_CASE("fb test runs a package's tests, filters them, and reports each", "[cl
                                    "\ntest result: ok. 2 passed; 0 failed; 0 skipped; 9 filtered "
                                    "out; finished in "));
 
+    // A file in the package tests the package.
+    const fb::process_result_t file =
+        fb_run({ "test", fb::to_utf8(packages / "tested" / "counting.fb"), "--filter",
+                 "counting.Counts", "--color", "never" });
+    INFO(file.output);
+    CHECK(file.exit_code == 0);
+    CHECK(file.output.contains("test tested.counting.Counts ... ok\n"));
+    CHECK(file.output.contains("10 filtered out"));
+
     // Its program and report are in a temporary folder, whose path can be beyond the ANSI code
     // page, as a user's name can.
     const std::filesystem::path temporary =
@@ -1811,6 +1820,172 @@ TEST_CASE("fb test runs a package's tests, filters them, and reports each", "[cl
     CHECK(help.contains("Usage: fb test"));
     CHECK(help.contains("--filter <name>"));
     CHECK_FALSE(help.contains("--show"));
+}
+
+TEST_CASE("fb test gives a test the work it starts, and fails a run that fails outside its tests",
+          "[cli]") {
+    const auto run = [](const std::filesystem::path& file,
+                        const std::vector<std::string>& more = {}) {
+        std::vector<std::string> arguments{ "test", fb::to_utf8(file), "--color", "never" };
+        arguments.insert(arguments.end(), more.begin(), more.end());
+        return fb_run(arguments);
+    };
+    const std::string_view nodes = "Import std.core\n"
+                                   "Import std.test\n"
+                                   "Import std.time\n"
+                                   "Class Node\n"
+                                   "    Field next: Node?\n"
+                                   "End Class\n"
+                                   "Function MakeCycle(): Int\n"
+                                   "    Local node = Node()\n"
+                                   "    node.next = node\n"
+                                   "    Return 1\n"
+                                   "End Function\n";
+
+    // Work a test starts is its own wherever the pool runs it: its leaks, its Expects, and its
+    // panic, though the test doesn't wait for it, every run.
+    const std::filesystem::path work = write_source(
+        "testing/work.fb", std::string(nodes) +
+                               "Function Later(): Int\n"
+                               "    Sleep(300.Milliseconds)\n"
+                               "    Panic(\"the work broke\")\n"
+                               "End Function\n"
+                               "@Test Function LeaksInSpawn()\n"
+                               "    Expect(Spawn(Function() => MakeCycle()).Wait() == 1)\n"
+                               "End Function\n"
+                               "@Test Function ExpectsInParallel()\n"
+                               "    Parallel For i = 0 Until 4\n"
+                               "        Expect(i < 0)\n"
+                               "    End For\n"
+                               "End Function\n"
+                               "@Test Function StartsWorkThatPanics()\n"
+                               "    Local later = Spawn(Function() => Later())\n"
+                               "End Function\n"
+                               "@Test Function Innocent()\n"
+                               "    Expect(1 + 1 == 2)\n"
+                               "End Function\n");
+    for (int i = 0; i < 3; ++i) {
+        const fb::process_result_t ran = run(work);
+        INFO(ran.output);
+        CHECK(ran.exit_code == 1);
+        CHECK(ran.output.contains("test work.LeaksInSpawn ... FAILED\n"));
+        CHECK(ran.output.contains("\n---- work.LeaksInSpawn ----\n"
+                                  "leak: 1 Node object was never released\n"));
+        CHECK(ran.output.contains("test work.ExpectsInParallel ... FAILED\n"));
+        std::size_t expects = 0;
+        for (std::size_t at = ran.output.find("expect failed: i < 0 at "); at != std::string::npos;
+             at = ran.output.find("expect failed: i < 0 at ", at + 1)) {
+            ++expects;
+        }
+
+        CHECK(expects == 4);
+        CHECK_FALSE(ran.output.contains("only a test's own code"));
+        CHECK(ran.output.contains("test work.StartsWorkThatPanics ... FAILED\n"));
+        CHECK(ran.output.contains(
+            "\n---- work.StartsWorkThatPanics ----\npanic: the work broke at "));
+        CHECK(ran.output.contains("test work.Innocent ... ok\n"));
+        CHECK(ran.output.contains("test result: FAILED. 1 passed; 3 failed; 0 skipped"));
+    }
+
+    // A panic once the tests are done, in a Global's Destroy, fails the run, whose finished
+    // tests' leaks it didn't check, and so does a leak no test made.
+    const std::filesystem::path destroy =
+        write_source("testing/destroy.fb", "Import std.core\n"
+                                           "Import std.test\n"
+                                           "Class Holder\n"
+                                           "    Method Destroy()\n"
+                                           "        Panic(\"Destroy broke\")\n"
+                                           "    End Method\n"
+                                           "End Class\n"
+                                           "Global holder = Holder()\n"
+                                           "@Test Function Fine()\n"
+                                           "    Expect(1 == 1)\n"
+                                           "End Function\n");
+    const fb::process_result_t destroyed = run(destroy);
+    INFO(destroyed.output);
+    CHECK(destroyed.exit_code == 1);
+    CHECK(destroyed.output.contains("test destroy.Fine ... ok\n"));
+    CHECK(destroyed.output.contains("\n---- the tests' program ----\npanic: Destroy broke at "));
+    CHECK(destroyed.output.contains(
+        "\nso the leaks of the tests that had finished weren't checked\n"));
+    CHECK(destroyed.output.contains("test result: FAILED. 1 passed; 0 failed"));
+    const std::filesystem::path unowned =
+        write_source("testing/unowned.fb", std::string(nodes) + "Global made = MakeCycle()\n"
+                                                                "@Test Function Fine()\n"
+                                                                "End Function\n");
+    const fb::process_result_t left = run(unowned);
+    INFO(left.output);
+    CHECK(left.exit_code == 1);
+    CHECK(left.output.contains("test unowned.Fine ... ok\n"));
+    CHECK(left.output.contains(
+        "\n---- the tests' program ----\nleak: 1 Node object was never released\n"));
+
+    // A panic before any test runs, in a Global's initializer, says what panicked.
+    const std::filesystem::path early = write_source("testing/early.fb", "Import std.test\n"
+                                                                         "Function Start(): Int\n"
+                                                                         "    Local counts = [1]\n"
+                                                                         "    Return counts[2]\n"
+                                                                         "End Function\n"
+                                                                         "Global start = Start()\n"
+                                                                         "@Test Function A()\n"
+                                                                         "End Function\n");
+    const fb::process_result_t panicked = run(early);
+    INFO(panicked.output);
+    CHECK(panicked.exit_code == 1);
+    CHECK(panicked.output.contains("\n---- early.A ----\n"
+                                   "panic: index 2 is out of range for 1 element at "));
+    CHECK(panicked.output.contains("\nbefore any test ran\n"));
+
+    // In a debug build, a run that panics runs its finished tests again, for their leaks.
+    const std::filesystem::path twice =
+        write_source("testing/twice.fb", "Import std.core\n"
+                                         "Import std.test\n"
+                                         "Import std.time\n"
+                                         "Global runs = 0\n"
+                                         "@Test Function Quick()\n"
+                                         "    runs += 1\n"
+                                         "    Print(\"Quick ran\")\n"
+                                         "End Function\n"
+                                         "@Test Function PanicsLater()\n"
+                                         "    Sleep(500.Milliseconds)\n"
+                                         "    Panic(\"later\")\n"
+                                         "End Function\n");
+    for (const bool release : { false, true }) {
+        const fb::process_result_t ran = release ? run(twice, { "--release" }) : run(twice);
+        INFO(ran.output);
+        std::size_t quick = 0;
+        for (std::size_t at = ran.output.find("Quick ran\n"); at != std::string::npos;
+             at = ran.output.find("Quick ran\n", at + 1)) {
+            ++quick;
+        }
+
+        CHECK(quick == (release ? 1 : 2));
+        CHECK(ran.output.contains("test twice.Quick ... ok\n"));
+        CHECK(ran.output.contains("test twice.PanicsLater ... FAILED\n"));
+    }
+
+    // Ctrl+C stops fb test, which exits as the tests' program did.
+    const std::filesystem::path interrupt =
+        write_source("testing/interrupt.fb", "Import std.os\n"
+                                             "Import std.test\n"
+                                             "@Test Function Interrupted()\n"
+                                             "#If PLATFORM_WINDOWS\n"
+                                             "    Process.Exit(-1073741510)\n"
+                                             "#Else\n"
+                                             "    Process.Exit(130)\n"
+                                             "#End If\n"
+                                             "End Function\n"
+                                             "@Test Function Other()\n"
+                                             "End Function\n");
+    const fb::process_result_t stopped = run(interrupt);
+    INFO(stopped.output);
+#ifdef _WIN32
+    CHECK(static_cast<std::uint32_t>(stopped.exit_code) == 0xC000013AU);
+#else
+    CHECK(stopped.exit_code == 130);
+#endif
+    CHECK(stopped.output.contains("error: the tests were interrupted, and exited with code "));
+    CHECK_FALSE(stopped.output.contains("test result:"));
 }
 
 TEST_CASE("fb runs a package that links a C library", "[cli]") {

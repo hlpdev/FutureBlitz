@@ -1,4 +1,5 @@
 #include "fb/runtime.hpp"
+#include "internal.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -127,6 +128,50 @@ TEST_CASE("a job is done once its work returns", "[runtime][threads]") {
     CHECK(fb_job_done(job) == 1);
     CHECK(gate.passed.load());
     fb_job_release(job);
+    fb_pool_finish();
+}
+
+TEST_CASE("a job's work has the object owner of the thread that started it, wherever it runs",
+          "[runtime][threads]") {
+    // Each job notes the owner its work runs with, on the pool's workers, on a thread of its own,
+    // and in a parallel range's chunks, which other workers take too.
+    struct noted_t {
+        std::atomic<std::int64_t> owner = -1;
+        std::atomic<bool> other = false;
+    };
+    const auto note = [](void* context) {
+        static_cast<noted_t*>(context)->owner.store(fb::runtime::object_owner());
+    };
+    fb::runtime::set_object_owner(7);
+    std::vector<noted_t> noted(64);
+    std::vector<fb_job_t*> jobs;
+    for (noted_t& each : noted) {
+        jobs.push_back(fb_job_start(note, &each));
+    }
+
+    noted_t own;
+    jobs.push_back(fb_job_start_thread(note, &own));
+    noted_t ranged;
+    fb_parallel_for(
+        0, 999,
+        [](void* context, std::int64_t /*first*/, std::int64_t /*count*/) {
+            if (fb::runtime::object_owner() != 7) {
+                static_cast<noted_t*>(context)->other.store(true);
+            }
+        },
+        &ranged);
+    fb::runtime::set_object_owner(0);
+    for (fb_job_t* job : jobs) {
+        fb_job_wait(job);
+        fb_job_release(job);
+    }
+
+    for (const noted_t& each : noted) {
+        CHECK(each.owner.load() == 7);
+    }
+
+    CHECK(own.owner.load() == 7);
+    CHECK_FALSE(ranged.other.load());
     fb_pool_finish();
 }
 

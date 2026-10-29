@@ -94,16 +94,23 @@ void run_before_report();
 void at_panic(void (*watch)(std::string_view message, const fb_location_t* location));
 
 /// The calling thread's objects belong to `owner` from now on, or to no one for 0, while debug
-/// builds keep track of every object, so a leak can say which test made it.
+/// builds keep track of every object, so a leak can say which test made it. A job the thread
+/// starts on the pool, or on a thread of its own, has its owner while it runs, wherever it runs.
 void set_object_owner(std::int64_t owner);
 
-/// An object that's left, and the owner the thread that made it had.
+/// What set_object_owner() gave the calling thread, or 0.
+[[nodiscard]] std::int64_t object_owner();
+
+/// Whether the runtime keeps track of every object, as debug builds have it do.
+[[nodiscard]] bool tracks_objects();
+
+/// An object that's left, and the owner the thread that made it had, or 0.
 struct owned_object_t {
     std::int64_t owner;
     const fb_class_t* type;
 };
 
-/// The objects left that have owners, in the order they were made.
+/// The objects left, in the order they were made, while the runtime keeps track of them.
 [[nodiscard]] std::vector<owned_object_t> owned_objects();
 
 /// Has `check` run in fb_finish, once the program's code is done, its Globals are let go of, and

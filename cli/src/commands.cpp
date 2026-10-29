@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -750,14 +751,38 @@ void print_results(const console_t& console, const std::vector<test_case_t>& tes
     }
 }
 
+/// What the runs of a test executable did besides its tests: what failed outside them, like a
+/// panic in a Global's Destroy, or a leak no test made, and the exit code of a run that Ctrl+C
+/// stopped, which stops fb test too.
+struct runs_t {
+    std::vector<std::string> failures;
+    std::optional<int> interrupted;
+};
+
+/// Whether a program's exit code says Ctrl+C ended it: Windows' STATUS_CONTROL_C_EXIT, or
+/// SIGINT's 128 + 2.
+bool interrupted(const int code) {
+#ifdef _WIN32
+    return static_cast<std::uint32_t>(code) == 0xC000013AU;
+#else
+    return code == 128 + SIGINT;
+#endif
+}
+
 /// Runs a test executable, built for `mode`, until each of `tests`, by their indexes, is done,
 /// printing each one's result once a run of it ends. A test that panics ends the run, and fails;
-/// the next run has the rest. When a run ends with more than one test going and none to blame,
-/// the next runs them one at a time, on the main thread, so the next one that ends a run is the
-/// one.
-void run_tests(const console_t& console, const std::filesystem::path& program,
-               const build_mode_t mode, const std::vector<test_case_t>& tests,
-               std::vector<test_result_t>& results) {
+/// the next run has the rest, and in a debug build, the ones that finished in it too, whose leaks
+/// it didn't check. When a run ends with more than one test going and none to blame, the next
+/// runs them one at a time, on the main thread, so the next one that ends a run is the one.
+runs_t run_tests(const console_t& console, const std::filesystem::path& program,
+                 const build_mode_t mode, const std::vector<test_case_t>& tests,
+                 std::vector<test_result_t>& results) {
+    runs_t runs;
+    const auto fail_run = [&](const std::string& why) {
+        if (!std::ranges::contains(runs.failures, why)) {
+            runs.failures.push_back(why);
+        }
+    };
     const std::filesystem::path folder = program.parent_path();
     const std::filesystem::path plan = folder / "plan.txt";
     const std::filesystem::path report = folder / "report.txt";
@@ -783,7 +808,7 @@ void run_tests(const console_t& console, const std::filesystem::path& program,
                 results[index] = { .done = true, .failed = true, .messages = { ran.error() } };
             }
 
-            return;
+            return runs;
         }
 
         // What each test of this run did: a run that ends early keeps only what its finished
@@ -801,6 +826,12 @@ void run_tests(const console_t& console, const std::filesystem::path& program,
 
             if (record.kind == "panic" && !record.test) {
                 panic = record.text;
+                continue;
+            }
+
+            // A leak no test made is the run's.
+            if (record.kind == "leak" && !record.test) {
+                fail_run(record.text);
                 continue;
             }
 
@@ -824,6 +855,12 @@ void run_tests(const console_t& console, const std::filesystem::path& program,
                     panicked = record.test;
                 }
             }
+        }
+
+        // Ctrl+C stops the tests, as it does a program fb runs.
+        if (!finished && interrupted(*ran)) {
+            runs.interrupted = *ran;
+            return runs;
         }
 
         std::vector<std::size_t> going;
@@ -860,22 +897,34 @@ void run_tests(const console_t& console, const std::filesystem::path& program,
         }
 
         print_results(console, tests, results, ended);
-        // A run that ends before any test does can't be helped by another.
-        if (!finished && ended.empty() && going.empty()) {
-            const std::string why =
-                panic.empty() ? std::format("the tests' program {} first", exited_with(*ran))
-                              : std::format("the tests' program panicked first: {}", panic);
-            for (const std::size_t index : next) {
-                results[index] = { .done = true, .failed = true, .messages = { why } };
+        // A run that ends with no test going ended outside them, as a panic in a Global's Destroy
+        // does, so the run failed. One that ends before any test does can't be helped by another.
+        if (!finished && !panicked && going.empty()) {
+            const std::string what =
+                panic.empty() ? std::format("the tests' program {}", exited_with(*ran)) : panic;
+            if (ended.empty()) {
+                for (const std::size_t index : next) {
+                    results[index] = {
+                        .done = true,
+                        .failed = true,
+                        .messages = { what + "\nbefore any test ran" },
+                    };
+                }
+
+                print_results(console, tests, results, next);
+                return runs;
             }
 
-            print_results(console, tests, results, next);
-            return;
+            fail_run(mode == build_mode_t::DEBUG
+                         ? what + "\nso the leaks of the tests that had finished weren't checked"
+                         : what);
         }
 
         serial = serial || (!finished && !panicked && going.size() > 1);
         remaining = std::move(next);
     }
+
+    return runs;
 }
 
 /// `fb test`: builds the package's tests, those `--filter` names, into a test executable in a
@@ -938,14 +987,26 @@ int test_command(const options_t& options) {
     console.status("Running", count(tests.size(), "test"));
     const auto running = std::chrono::steady_clock::now();
     std::vector<test_result_t> results(tests.size());
-    run_tests(console, program, options.mode, tests, results);
+    const runs_t runs = run_tests(console, program, options.mode, tests, results);
     remove_temporary(folder);
+    if (runs.interrupted) {
+        console.error(
+            std::format("the tests were interrupted, and {}", exited_with(*runs.interrupted)));
+        return *runs.interrupted;
+    }
 
-    // Then each failure, with what it said, and how they all did.
+    // Then each failure, with what it said, the run's own first, and how they all did.
     std::size_t passed = 0;
     std::size_t failed = 0;
     std::size_t skipped = 0;
     std::string failures;
+    if (!runs.failures.empty()) {
+        failures += "\n---- the tests' program ----\n";
+        for (const std::string& message : runs.failures) {
+            failures += message + "\n";
+        }
+    }
+
     for (std::size_t i = 0; i < tests.size(); ++i) {
         const test_result_t& result = results[i];
         if (result.failed) {
@@ -962,15 +1023,16 @@ int test_command(const options_t& options) {
     }
 
     const style_t& style = console.out();
-    if (failed > 0) {
+    const bool ok = failed == 0 && runs.failures.empty();
+    if (!ok) {
         console_t::print(std::format("\nfailures:\n{}", failures));
     }
 
     console_t::print(std::format(
         "\ntest result: {}. {} passed; {} failed; {} skipped; {} filtered out; finished in {}\n",
-        failed > 0 ? style.paint("FAILED", tone_t::ERROR) : style.paint("ok", tone_t::SUCCESS),
-        passed, failed, skipped, found.size() - tests.size(), seconds_since(running)));
-    return failed > 0 ? tests_failed_exit_code : 0;
+        ok ? style.paint("ok", tone_t::SUCCESS) : style.paint("FAILED", tone_t::ERROR), passed,
+        failed, skipped, found.size() - tests.size(), seconds_since(running)));
+    return ok ? 0 : tests_failed_exit_code;
 }
 
 /// Runs fb-bindgen, next to fb, with what `fb bindgen` was given, and gives its exit code.

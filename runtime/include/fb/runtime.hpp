@@ -817,6 +817,9 @@ std::int32_t fb_io_net_error_kind(std::int32_t code);
 /// FB_TEST_REPORT's file for fb test, or without one, all of them, printing what they did.
 void fb_test_add(const fb_string_t* name, void (*run)(), bool main_thread);
 void fb_test_run();
+/// The first thing a test executable's main does, before the Globals are set: opens the report,
+/// and has a panic, a Global's initializer's too, and the leaks left at the end go in it.
+void fb_test_begin();
 /// The test the calling thread runs failed, as `message` says, and goes on: a failed Expect, or
 /// Fail. On a thread that runs no test, it panics with the message.
 void fb_test_failed(const fb_string_t* message);

@@ -79,8 +79,16 @@ std::FILE* open_file(const std::string& path, const char* mode) {
 #endif
 }
 
-/// The test the calling thread runs, by its index, or nullopt.
-thread_local std::optional<std::size_t> t_test;
+/// The test whose code the calling thread runs, by its index, or nullopt: the owner of the
+/// objects the thread makes, which a test's thread has, and the jobs it starts, wherever they run.
+std::optional<std::size_t> running_test() {
+    const std::int64_t owner = fb::runtime::object_owner();
+    if (owner <= 0) {
+        return std::nullopt;
+    }
+
+    return static_cast<std::size_t>(owner - 1);
+}
 
 /// A record of the report, which fb test reads: its kind, the test's index or -1, and its text's
 /// length on a line, then the text, which can have line breaks, and a line break. Each goes out
@@ -112,13 +120,14 @@ void record(const std::string_view kind, const std::optional<std::size_t> test,
 /// The test the calling thread runs. Expect and the rest are only for a test's own code, so
 /// elsewhere they panic with what they'd report.
 std::size_t current(const std::string_view message) {
-    if (!t_test) {
+    const std::optional<std::size_t> test = running_test();
+    if (!test) {
         const std::string text =
-            std::format("{} (only a test's own thread can report to fb test)", message);
+            std::format("{} (only a test's own code can report to fb test)", message);
         fb_panic(text.c_str(), nullptr);
     }
 
-    return *t_test;
+    return *test;
 }
 
 /// "IOError: no such file at main.fb:3:5", then a "caused by" line like it for each Cause, as an
@@ -166,15 +175,16 @@ void panicked(const std::string_view message, const fb_location_t* location) {
         text += std::format(" at {}:{}:{}", location->file, location->line, location->column);
     }
 
-    record("panic", t_test, text);
+    record("panic", running_test(), text);
 }
 
-/// Once the Globals are let go of, the objects each test made that are left are its leaks.
+/// Once the Globals are let go of, the objects each test made that are left are its leaks, and
+/// the ones no test made, and the Strings left, are the run's, as a debug build finds them.
 void check_leaks() {
-    // By test, then by Class, in the order each was first made.
-    std::map<std::size_t, std::vector<std::pair<const fb_class_t*, std::int64_t>>> leaks;
+    // By test, the run's first, then by Class, in the order each was first made.
+    std::map<std::int64_t, std::vector<std::pair<const fb_class_t*, std::int64_t>>> leaks;
     for (const fb::runtime::owned_object_t& object : fb::runtime::owned_objects()) {
-        auto& counts = leaks[static_cast<std::size_t>(object.owner - 1)];
+        auto& counts = leaks[object.owner];
         const auto found = std::ranges::find(counts, object.type,
                                              &std::pair<const fb_class_t*, std::int64_t>::first);
         if (found != counts.end()) {
@@ -190,12 +200,24 @@ void check_leaks() {
             types.push_back(type);
         }
 
+        std::optional<std::size_t> owner;
+        if (test > 0) {
+            owner = static_cast<std::size_t>(test - 1);
+        }
+
         for (const auto& [type, count] : counts) {
-            record("leak", test,
+            record("leak", owner,
                    std::format("leak: {} {} {} never released", count,
                                fb::runtime::shown_class_name(type, types),
                                count == 1 ? "object was" : "objects were"));
         }
+    }
+
+    if (const std::int64_t strings = fb_string_live_count();
+        strings != 0 && fb::runtime::tracks_objects()) {
+        record("leak", std::nullopt,
+               std::format("leak: {} {} never released", strings,
+                           strings == 1 ? "String was" : "Strings were"));
     }
 
     record("done", std::nullopt);
@@ -203,13 +225,11 @@ void check_leaks() {
 
 /// Runs a test on the calling thread, whose objects are the test's while it runs.
 void run_test(const std::size_t index) {
-    t_test = index;
     fb::runtime::set_object_owner(static_cast<std::int64_t>(index) + 1);
     record("start", index);
     runner().tests[index].run();
     record("end", index);
     fb::runtime::set_object_owner(0);
-    t_test.reset();
 }
 
 void run_job(void* context) {
@@ -304,16 +324,22 @@ void fb_test_add(const fb_string_t* name, void (*run)(), const bool main_thread)
     });
 }
 
-void fb_test_run() {
+void fb_test_begin() {
     runner_t& run = runner();
-    const std::optional<std::string> report = fb::runtime::environment("FB_TEST_REPORT");
-    if (report) {
+    fb::runtime::at_panic(panicked);
+    if (const std::optional<std::string> report = fb::runtime::environment("FB_TEST_REPORT")) {
         run.report = open_file(*report, "ab");
         if (run.report == nullptr) {
             const std::string message = std::format("can't write fb test's report, {}", *report);
             fb_panic(message.c_str(), nullptr);
         }
+
+        fb::runtime::at_leak_check(check_leaks);
     }
+}
+
+void fb_test_run() {
+    runner_t& run = runner();
 
     plan_t plan;
     if (const std::optional<std::string> path = fb::runtime::environment("FB_TEST_PLAN")) {
@@ -328,11 +354,6 @@ void fb_test_run() {
         for (std::size_t i = 0; i < run.tests.size(); ++i) {
             plan.tests.push_back(i);
         }
-    }
-
-    fb::runtime::at_panic(panicked);
-    if (report) {
-        fb::runtime::at_leak_check(check_leaks);
     }
 
     // The ones that can run on another thread go to the pool, each a job, while the main thread
@@ -355,7 +376,7 @@ void fb_test_run() {
         fb_job_release(job);
     }
 
-    if (!report) {
+    if (run.report == nullptr) {
         print_results(plan.tests);
     }
 }

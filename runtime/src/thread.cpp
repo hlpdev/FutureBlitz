@@ -32,9 +32,20 @@ struct fb_job_t {
     /// The caller's reference and the pool's, which it lets go once the work has run.
     std::atomic<std::int32_t> owners;
     std::atomic<bool> done;
+    /// The owner of the objects of the thread that started it, as fb test's test is, which its
+    /// work has wherever it runs.
+    std::int64_t object_owner = 0;
 };
 
 namespace {
+
+/// Runs a job's work with its starter's object owner, and puts the thread's own back.
+void work_of(const fb_job_t* job) {
+    const std::int64_t outer = fb::runtime::object_owner();
+    fb::runtime::set_object_owner(job->object_owner);
+    job->work(job->context);
+    fb::runtime::set_object_owner(outer);
+}
 
 void release(fb_job_t* job) {
     if (job->owners.fetch_sub(1, std::memory_order_acq_rel) == 1) {
@@ -126,7 +137,7 @@ public:
             return true;
         });
         m_threads.emplace_back([this, job] {
-            job->work(job->context);
+            work_of(job);
             // The thread ends with its job, so its ThreadLocals go before what waits for it goes
             // on.
             fb::runtime::release_thread_locals();
@@ -362,7 +373,7 @@ private:
             return false;
         }
 
-        job->work(job->context);
+        work_of(job);
         job->done.store(true, std::memory_order_release);
         release(job);
         m_pending.fetch_sub(1, std::memory_order_acq_rel);
@@ -924,7 +935,11 @@ void help(void* context) {
 extern "C" {
 
 fb_job_t* fb_job_start(const fb_work_t work, void* context) {
-    auto* job = new fb_job_t{ .work = work, .context = context, .owners = 2, .done = false };
+    auto* job = new fb_job_t{ .work = work,
+                              .context = context,
+                              .owners = 2,
+                              .done = false,
+                              .object_owner = fb::runtime::object_owner() };
     pool().submit(job);
     return job;
 }
@@ -1182,7 +1197,11 @@ void fb_channel_free(const fb_channel_t* channel) {
 }
 
 fb_job_t* fb_job_start_thread(const fb_work_t work, void* context) {
-    auto* job = new fb_job_t{ .work = work, .context = context, .owners = 2, .done = false };
+    auto* job = new fb_job_t{ .work = work,
+                              .context = context,
+                              .owners = 2,
+                              .done = false,
+                              .object_owner = fb::runtime::object_owner() };
     pool().start_thread(job);
     return job;
 }

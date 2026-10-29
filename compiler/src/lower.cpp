@@ -2481,6 +2481,11 @@ private:
     /// the rest of the top-level code runs.
     void lower_top_level() {
         begin_function(m_module.entry);
+        // A test build's report has a panic in a Global's initializer too.
+        if (m_testing) {
+            emit(evaluate_t{ call_t{ .function = test_runtime("fb_test_begin", {}) } });
+        }
+
         // The Globals are set module by module, in the modules' order. A library's build sets
         // its own in its modules' initializers, and a prebuilt library's binary its own, which
         // main calls, with no items of the module's to set, though it may have none in its
