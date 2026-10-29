@@ -2405,7 +2405,7 @@ TEST_CASE("a prebuilt library's binary runs its code as its source would", "[cli
         fb::path_from_utf8(std::format("lib/build/{}/debug/lib.fbi", fb::build_target()));
     CHECK(first_line(folder / interface) == first_line(folder / "elsewhere" / interface));
 
-    // A .fblib whose code isn't bitcode is named.
+    // A .fblib whose code was changed isn't the build its interface file names.
     const std::filesystem::path binary = folder / "lib-prebuilt" / "lib" /
                                          fb::path_from_utf8(fb::build_target()) / "debug" /
                                          "lib.fblib";
@@ -2419,7 +2419,7 @@ TEST_CASE("a prebuilt library's binary runs its code as its source would", "[cli
     const fb::process_result_t broken = fb_run({ "build", fb::to_utf8(folder / "app") });
     INFO(broken.output);
     CHECK(broken.exit_code == 1);
-    CHECK(broken.output.contains("lib.fblib's code isn't LLVM bitcode that this fb reads"));
+    CHECK(broken.output.contains("lib.fbi isn't the build its first line names, lib v0.1.0 ("));
 
     // A Class's record, and a T[]'s, is one in both binaries, so a leak report counts each type
     // once.
