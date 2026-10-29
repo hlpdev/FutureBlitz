@@ -1,18 +1,9 @@
 file(GLOB_RECURSE FB_CLI_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 
 # The commit fb is built from, which `fb --version` shows, as git has it when CMake configures
-# the build, or "unknown" without git.
-set(FB_COMMIT unknown)
-find_package(Git QUIET)
-if(GIT_FOUND)
-  execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --short=7 HEAD
-    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    OUTPUT_VARIABLE fb_commit OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET
-    RESULT_VARIABLE fb_git_result)
-  if(fb_git_result EQUAL 0 AND fb_commit MATCHES "^[0-9a-f]+$")
-    set(FB_COMMIT "${fb_commit}")
-  endif()
-endif()
+# the build, or "unknown" without git, or outside a checkout of its own.
+include(${PROJECT_SOURCE_DIR}/cmake/commit.cmake)
+fb_source_commit("${PROJECT_SOURCE_DIR}" FB_COMMIT)
 # Only commands.cpp includes it, and it's written only when the commit changes.
 file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/fb/commit.hpp CONTENT
 "#pragma once
