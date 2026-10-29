@@ -220,12 +220,14 @@ TEST_CASE("lex_layout keeps the comments, and gives no #If branch tokens", "[lex
 
     CHECK(texts == std::vector<std::string>{ "a", "\n", "b", "\n", "e", "\n", "" });
     std::vector<std::string> comments;
+    comments.reserve(trivia.comments.size());
     for (const fb::span_t comment : trivia.comments) {
         comments.emplace_back(file.slice(comment));
     }
 
     CHECK(comments == std::vector<std::string>{ "// one", "/* two\n */", "/* five */" });
     std::vector<std::string> conditionals;
+    conditionals.reserve(trivia.conditionals.size());
     for (const fb::span_t lines : trivia.conditionals) {
         conditionals.emplace_back(file.slice(lines));
     }

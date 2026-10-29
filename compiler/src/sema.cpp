@@ -2093,7 +2093,7 @@ private:
                 });
         };
         // The file's line break, which the lines a fix adds end with.
-        const std::string_view eol = source.find("\r\n") != std::string_view::npos ? "\r\n" : "\n";
+        const std::string_view eol = source.contains("\r\n") ? "\r\n" : "\n";
 
         if (constrained.size() == 1 && interfaces == 1 && !relates(*own.front())) {
             const constraint_t& constraint = *own.front();

@@ -398,10 +398,11 @@ TEST_CASE("formatting's check tells what changes meaning from what doesn't", "[f
 
 TEST_CASE("formatting says an #If that holds part of a statement keeps it from formatting",
           "[format]") {
-    for (const std::string_view text :
-         { "#If DEBUG\nFunction F(): Int\n#Else\nFunction F(): Int\n#End If\n    Return 1\nEnd "
-           "Function\n",
-           "Local a = True\n#If DEBUG\nIf a\n#Else\nIf !a\n#End If\n    Print(\"x\")\nEnd If\n" }) {
+    for (const std::string_view text : {
+             "#If DEBUG\nFunction F(): Int\n#Else\nFunction F(): Int\n#End If\n    Return 1\nEnd "
+             "Function\n",
+             "Local a = True\n#If DEBUG\nIf a\n#Else\nIf !a\n#End If\n    Print(\"x\")\nEnd If\n",
+         }) {
         INFO(text);
         const fb::source_file_t file(fb::file_id_t{}, "test.fb", std::string(text));
         const std::expected<std::string, std::vector<fb::diagnostic_t>> result =
