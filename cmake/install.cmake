@@ -118,11 +118,11 @@ else()
     list(APPEND fb_bundled "$<TARGET_FILE_NAME:fb_bindgen_cli>")
   endif()
   install(CODE "
-    set(FB_BUNDLE_BIN \"\${CMAKE_INSTALL_PREFIX}/bin\")
+    set(FB_BUNDLE_BIN \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/bin\")
     set(FB_BUNDLE_EXECUTABLES \"${fb_bundled}\")
     set(FB_BUNDLE_FOLDERS \"${fb_library_folders}\")
     set(FB_BUNDLE_LLD \"${fb_lld}\")
-    set(FB_BUNDLE_NOTICES \"\${CMAKE_INSTALL_PREFIX}/notices/shared\")
+    set(FB_BUNDLE_NOTICES \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/notices/shared\")
     include(\"${PROJECT_SOURCE_DIR}/cmake/bundle.cmake\")
   ")
 endif()
@@ -135,17 +135,21 @@ endif()
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/std/" DESTINATION std)
 install(FILES "${PROJECT_SOURCE_DIR}/tools/lldb/futureblitz.py" DESTINATION lldb)
 
-# The notices: std's bundled libraries', which programs link, LLVM's for LLVM, clang, and lld,
-# and those of the C runtime's pieces in lib/<target>/: MinGW-w64's and GCC's on Windows, and
-# GCC's, glibc's, and the Linux headers' on Linux.
+# The notices: std's bundled libraries', which programs link, and fb's executables have some of
+# in them; LLVM's for LLVM, clang, and lld; toml++'s, which fb's executables have in them; and
+# those of the C runtime's pieces in lib/<target>/ and in fb's executables: MinGW-w64's,
+# winpthreads', and GCC's on Windows, with libxml2's, which the LLVM installer links into
+# lld.exe, and GCC's, glibc's, and the Linux headers' on Linux.
 cmake_path(GET FB_LIBUV_NOTICE PARENT_PATH fb_notices)
 install(DIRECTORY "${fb_notices}/" DESTINATION notices)
 set(fb_release_notices llvm)
 if(WIN32)
-  list(APPEND fb_release_notices mingw-w64 gcc)
+  list(APPEND fb_release_notices mingw-w64 winpthreads gcc libxml2)
 elseif(NOT APPLE)
   list(APPEND fb_release_notices gcc glibc linux-headers)
 endif()
 foreach(notice IN LISTS fb_release_notices)
   install(FILES "${PROJECT_SOURCE_DIR}/cmake/notices/${notice}.txt" DESTINATION notices)
 endforeach()
+FetchContent_GetProperties(tomlplusplus)
+install(FILES "${tomlplusplus_SOURCE_DIR}/LICENSE" DESTINATION notices RENAME tomlplusplus.txt)

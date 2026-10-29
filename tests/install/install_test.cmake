@@ -26,6 +26,36 @@ if(system)
   message(FATAL_ERROR "The release's bin/ has the system's ${system}")
 endif()
 
+# The notices of what's in the release besides std's bundled libraries: LLVM, toml++ in fb, and
+# the C runtime's pieces, with winpthreads and the libxml2 in lld.exe on Windows.
+set(notices llvm tomlplusplus)
+if(CMAKE_HOST_WIN32)
+  list(APPEND notices mingw-w64 winpthreads gcc libxml2)
+elseif(NOT CMAKE_HOST_APPLE)
+  list(APPEND notices gcc glibc linux-headers)
+endif()
+foreach(notice IN LISTS notices)
+  if(NOT EXISTS "${FB_OUTPUT}/futureblitz/notices/${notice}.txt")
+    message(FATAL_ERROR "The release has no notices/${notice}.txt")
+  endif()
+endforeach()
+
+# A staged install, under DESTDIR, is the same release, its bundled libraries too.
+if(NOT CMAKE_HOST_WIN32)
+  set(ENV{DESTDIR} "${FB_OUTPUT}/stage")
+  execute_process(COMMAND "${CMAKE_COMMAND}" --install "${FB_BUILD}" --prefix /futureblitz
+    OUTPUT_QUIET COMMAND_ERROR_IS_FATAL ANY)
+  unset(ENV{DESTDIR})
+  execute_process(COMMAND "${FB_OUTPUT}/stage/futureblitz/bin/fb" --version
+    OUTPUT_QUIET COMMAND_ERROR_IS_FATAL ANY)
+  file(GLOB staged RELATIVE "${FB_OUTPUT}/futureblitz/bin" "${FB_OUTPUT}/futureblitz/bin/*")
+  foreach(file IN LISTS staged)
+    if(NOT EXISTS "${FB_OUTPUT}/stage/futureblitz/bin/${file}")
+      message(FATAL_ERROR "The staged release has no bin/${file}")
+    endif()
+  endforeach()
+endif()
+
 set(fb "${FB_OUTPUT}/futureblitz/bin/fb${FB_EXECUTABLE_SUFFIX}")
 set(ENV{PATH} "${FB_OUTPUT}/empty")
 
