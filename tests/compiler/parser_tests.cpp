@@ -159,6 +159,22 @@ TEST_CASE("parse_layout tells the formatter each line's blocks and each token's 
     CHECK(role(": I") == std::nullopt);
 }
 
+TEST_CASE("parse_layout's breaks are after a range's To, Until, and Step, and a constraint's '&'",
+          "[parser]") {
+    const std::string text = "r = 1 To\n    3\ns = 1 Until\n    9 Step\n    2\n"
+                             "Function F<T>()\n    Where T: A &\n        B\nEnd Function\n";
+    const fb::source_file_t file(fb::file_id_t{}, "test.fb", text);
+    fb::diagnostic_bag_t bag;
+    const std::vector<fb::token_t> tokens = fb::lex(file, bag);
+    fb::layout_t layout;
+    static_cast<void>(fb::parse_layout(file, tokens, bag, layout));
+    CHECK_FALSE(bag.has_errors());
+    for (const std::string_view after : { "To", "Until", "Step", "&" }) {
+        INFO(after);
+        CHECK(layout.breaks.contains(static_cast<std::uint32_t>(text.find(after) + after.size())));
+    }
+}
+
 TEST_CASE("postfix chains", "[parser]") {
     CHECK(expression("a.b.c(1, 2)[3]") == "(index (call (. (. a b) c) (int 1) (int 2)) (int 3))");
     CHECK(expression("a?.b") == "(?. a b)");

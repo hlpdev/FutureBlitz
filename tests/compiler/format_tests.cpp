@@ -282,6 +282,7 @@ TEST_CASE("formatting leaves a statement that can't fit as written", "[format]")
     // An operator's break would split a ternary's operands, outside brackets, where its ':'
     // can't start a line.
     unchanged("x = flag ? aaaa + bbbb : cccc\n", 20);
+    unchanged("Local keep = flag ? value == ((i + 1) As Float64) : value.Truth()\n", 40);
     // A single-line If breaks only at a ',' in its statement's brackets.
     unchanged("If aaaa && bbbb Then Print(cccc)\n", 20);
     CHECK(formatted("If aa Then Print(bbbb, cccc)\n", 24) ==
@@ -317,6 +318,107 @@ TEST_CASE("formatting leaves a file that doesn't parse, and says why", "[format]
     }
 }
 
+TEST_CASE("formatting writes type arguments that a '>=' ends apart from the '='", "[format]") {
+    CHECK(formatted("Local x: List<Int>=[]\n") == "Local x: List<Int> = []\n");
+    CHECK(formatted("Local t: List<Int?>=[]\n") == "Local t: List<Int?> = []\n");
+    CHECK(formatted("Local s: Map<Int, Map<Int, Int>>= Map<Int, Map<Int, Int>>()\n") ==
+          "Local s: Map<Int, Map<Int, Int>> = Map<Int, Map<Int, Int>>()\n");
+    unchanged("Print(a >= b, a >> 2 >= 1)\nx >>= 1\n");
+}
+
+TEST_CASE("formatting keeps prefix minuses apart, which together would be '--'", "[format]") {
+    unchanged("Local b = - -a\n");
+    unchanged("Local b = a - - -a\n");
+    CHECK(formatted("Local b = !  !a\n") == "Local b = !!a\n");
+}
+
+TEST_CASE("formatting tries the next break when what follows the best one can't fit", "[format]") {
+    CHECK(formatted("Local value = Something(aaaa, bbbbbbbbbbbbbbbbbbbb)\n", 40) ==
+          "Local value = Something(\n    aaaa, bbbbbbbbbbbbbbbbbbbb)\n");
+    CHECK(formatted("Function F()\n    Local message = Format.Describe(code, \"the request could "
+                    "not be completed because the server went away\")\nEnd Function\n") ==
+          "Function F()\n    Local message =\n        Format.Describe(code, \"the request could "
+          "not be completed because the server went away\")\nEnd Function\n");
+}
+
+TEST_CASE("formatting doesn't break a statement where its next line would be too wide too",
+          "[format]") {
+    unchanged("Local message = \"a string that is much too long for a line of forty\"\n", 40);
+    unchanged("Local x = aaaa + \"a string that is much too long for a line of forty\"\n", 40);
+}
+
+TEST_CASE("formatting keeps comments on one line of their own together", "[format]") {
+    unchanged("Function F()\n    /* a */ /* b */\n    Print(1)\nEnd Function\n", 40);
+    unchanged("/* a */ // b\nPrint(1)\n", 40);
+    unchanged("Print(1,\n      /* a */ /* b */\n      2)\n", 40);
+}
+
+TEST_CASE("formatting keeps a comment at the end of a Select's last Case in its body", "[format]") {
+    unchanged("Select x\n    Case 1\n        Print(1)\n        // still in the case\nEnd Select\n");
+    CHECK(
+        formatted("Select x\n    Case 1\n        Print(1)\n            // deeper\nEnd Select\n") ==
+        "Select x\n    Case 1\n        Print(1)\n        // deeper\nEnd Select\n");
+    unchanged("If a\n    Print(1)\n    // still inside\nEnd If\n");
+}
+
+TEST_CASE("formatting drops a blank line at the start of a block of comments or #If lines",
+          "[format]") {
+    CHECK(formatted("Function F()\n\n#If DEBUG\n    Print(1)\n#End If\n\nEnd Function\n") ==
+          "Function F()\n#If DEBUG\n    Print(1)\n#End If\nEnd Function\n");
+    CHECK(formatted("Function F()\n\n    // c\n\nEnd Function\n") ==
+          "Function F()\n    // c\nEnd Function\n");
+    unchanged("Function F()\n    Print(1)\n\n    // c\nEnd Function\n");
+}
+
+TEST_CASE("formatting puts a declaration's parameters 8 deep with its attribute on its line",
+          "[format]") {
+    CHECK(
+        formatted("@Inline Function Lerp(\na: Float, b: Float): Float\n    Return a\nEnd "
+                  "Function\n") ==
+        "@Inline Function Lerp(\n        a: Float, b: Float): Float\n    Return a\nEnd Function\n");
+    CHECK(formatted(
+              "@Renamed(\"x\") Function Lerp(\na: Float): Float\n    Return a\nEnd Function\n") ==
+          "@Renamed(\"x\") Function Lerp(\n        a: Float): Float\n    Return a\nEnd Function\n");
+}
+
+TEST_CASE("formatting counts a wide character's columns", "[format]") {
+    CHECK(formatted("Print(aaaa, \"中文中文中文中文\", bbbbbbbb, ccc)\n", 40) ==
+          "Print(aaaa, \"中文中文中文中文\",\n      bbbbbbbb, ccc)\n");
+    unchanged("Print(aaaa, \"éééééééééééééé\", bbbbbbbb)\n", 40);
+}
+
+TEST_CASE("formatting's check tells what changes meaning from what doesn't", "[format]") {
+    const fb::source_file_t file(fb::file_id_t{}, "test.fb",
+                                 "x = a+b\nPrint(1)\nLocal y: List<Int>=[]\n");
+    CHECK(fb::same_meaning(file, "x = a + b\nPrint(1)\nLocal y: List<Int> = []\n"));
+    CHECK_FALSE(fb::same_meaning(file, "x = a + c\nPrint(1)\nLocal y: List<Int> = []\n"));
+    CHECK_FALSE(fb::same_meaning(file, "x = a + b Print(1)\nLocal y: List<Int> = []\n"));
+    CHECK_FALSE(fb::same_meaning(file, "x = a\n+ b\nPrint(1)\nLocal y: List<Int> = []\n"));
+}
+
+TEST_CASE("formatting says an #If that holds part of a statement keeps it from formatting",
+          "[format]") {
+    for (const std::string_view text :
+         { "#If DEBUG\nFunction F(): Int\n#Else\nFunction F(): Int\n#End If\n    Return 1\nEnd "
+           "Function\n",
+           "Local a = True\n#If DEBUG\nIf a\n#Else\nIf !a\n#End If\n    Print(\"x\")\nEnd If\n" }) {
+        INFO(text);
+        const fb::source_file_t file(fb::file_id_t{}, "test.fb", std::string(text));
+        const std::expected<std::string, std::vector<fb::diagnostic_t>> result =
+            fb::format_source(file);
+        REQUIRE_FALSE(result.has_value());
+        REQUIRE(result.error().size() == 1);
+        CHECK(result.error().front().message ==
+              "fb fmt leaves an #If's lines as they are, so it formats a file only when each #If "
+              "holds whole statements, and this one holds part of one");
+        CHECK(file.slice(result.error().front().span) == "#If DEBUG");
+    }
+}
+
+TEST_CASE("formatting keeps a block comment that ends on an #If's line once", "[format]") {
+    unchanged("Local a = 1\n/* x\ny */ #If X\nLocal b = 2\n#End If\nPrint(a)\n");
+}
+
 TEST_CASE("std, tests/programs, and tests/packages are formatted", "[format][repository]") {
     for (const char* folder : { "std", "tests/programs", "tests/packages" }) {
         std::error_code error;
@@ -331,10 +433,12 @@ TEST_CASE("std, tests/programs, and tests/packages are formatted", "[format][rep
             const fb::source_file_t file(fb::file_id_t{}, entry->path().string(), text);
             const std::expected<std::string, std::vector<fb::diagnostic_t>> result =
                 fb::format_source(file);
-            // A test program that doesn't parse is left as it is.
+            INFO(entry->path().string() + ": fb fmt formats it");
             if (result) {
-                INFO(entry->path().string() + ": fb fmt formats it");
                 CHECK(*result == text);
+            } else {
+                // Only a test program that doesn't parse is left as it is, not one fb fmt refuses.
+                CHECK_FALSE(fb::format_unchecked(file).has_value());
             }
         }
 

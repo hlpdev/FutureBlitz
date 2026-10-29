@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <expected>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fb {
@@ -24,5 +25,10 @@ format_source(const source_file_t& file, std::uint32_t width = default_format_wi
 /// which check that themselves.
 [[nodiscard]] std::expected<std::string, std::vector<diagnostic_t>>
 format_unchecked(const source_file_t& file, std::uint32_t width = default_format_width);
+
+/// Whether `formatted` means what `file` does, which format_source() checks of what it gives:
+/// the same tokens but for line breaks, a ">=" as its '>' and '=', and the same tree without
+/// spans, with each #If's lines left out, and no errors.
+[[nodiscard]] bool same_meaning(const source_file_t& file, std::string_view formatted);
 
 } // namespace fb

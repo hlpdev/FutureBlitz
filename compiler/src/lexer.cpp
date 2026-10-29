@@ -692,6 +692,13 @@ private:
         const bool outermost = m_conditions.empty();
         if (outermost && name == "If") {
             m_conditional_begin = line_start(begin);
+            // A block comment its line starts inside, as "/* x\ny */ #If" has, is one of its
+            // lines.
+            if (m_trivia != nullptr && !m_trivia->comments.empty() &&
+                m_trivia->comments.back().begin < m_conditional_begin &&
+                m_conditional_begin < m_trivia->comments.back().end) {
+                m_conditional_begin = m_trivia->comments.back().begin;
+            }
         }
 
         if (name == "If") {

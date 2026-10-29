@@ -239,6 +239,18 @@ TEST_CASE("lex_layout keeps the comments, and gives no #If branch tokens", "[lex
           std::vector<std::string>{ "a", "\n", "b", "\n", "c", "\n", "e", "\n" });
 }
 
+TEST_CASE("lex_layout's #If lines start with a block comment that ends on the #If's line",
+          "[lexer]") {
+    const std::string text = "a\n/* x\ny */ #If X\nb\n#End If\nc\n";
+    const fb::source_file_t file(fb::file_id_t{}, "test.fb", text);
+    fb::diagnostic_bag_t bag;
+    fb::trivia_t trivia;
+    static_cast<void>(fb::lex_layout(file, bag, trivia));
+    CHECK(trivia.comments.empty());
+    REQUIRE(trivia.conditionals.size() == 1);
+    CHECK(file.slice(trivia.conditionals[0]) == "/* x\ny */ #If X\nb\n#End If");
+}
+
 TEST_CASE("a line in a comment or a string is no directive, in a branch taken or not", "[lexer]") {
     constexpr std::array<std::string_view, 1> debug = { "DEBUG" };
     constexpr std::array<std::string_view, 1> release = { "RELEASE" };

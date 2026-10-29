@@ -5,8 +5,10 @@
 #include "fb/lexer.hpp"
 #include "fb/parser.hpp"
 #include "fb/token.hpp"
+#include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -22,10 +24,17 @@ namespace {
 
 constexpr std::uint32_t indent_width = 4;
 
-/// How wide text shows: its code points.
+/// How many columns text shows in: 2 for each East Asian wide character, and none for a
+/// combining mark.
 std::uint32_t width_of(const std::string_view text) {
-    return static_cast<std::uint32_t>(std::ranges::count_if(
-        text, [](const char c) { return (static_cast<unsigned char>(c) & 0xC0U) != 0x80U; }));
+    std::uint32_t width = 0;
+    for (std::size_t at = 0; at < text.size();) {
+        const decoded_t decoded = decode_utf8(text, at);
+        width += static_cast<std::uint32_t>(display_width(decoded.code_point));
+        at += decoded.length;
+    }
+
+    return width;
 }
 
 constexpr bool is_opener(const token_kind_t kind) {
@@ -241,8 +250,10 @@ struct segment_t {
     bool expression_next = false;
     /// Its first line is laid out.
     bool started = false;
-    /// It's a declaration, whose first '(' holds its parameters.
+    /// It's a declaration, whose first '(' after its keyword, which begins at `keyword`, holds
+    /// its parameters.
     bool declaration = false;
+    std::uint32_t keyword = 0;
     bool seen_paren = false;
 };
 
@@ -266,6 +277,7 @@ struct candidate_t {
     std::uint32_t rank = 0;
     std::vector<bracket_t> brackets;
     segment_t segment;
+    std::uint32_t line_depth = 0;
 };
 
 /// What each item of a line is, before the line is laid out.
@@ -427,6 +439,14 @@ private:
         }
 
         flush();
+        // Another comment on the line of one of its own goes with it.
+        if (!m_units.empty() && !m_units.back().code && !m_units.back().conditional &&
+            line_of(m_units.back().end) == line) {
+            m_units.back().items.push_back(item);
+            m_units.back().end = span.end;
+            return;
+        }
+
         m_units.push_back({ .items = { item }, .begin = span.begin, .end = span.end });
     }
 
@@ -551,7 +571,11 @@ private:
 
     void write_comment(const unit_t& unit, const std::uint32_t indent, std::string& out) const {
         out.append(indent, ' ');
-        out += unit.items.front().text;
+        for (const item_t& item : unit.items) {
+            out += &item == unit.items.data() ? "" : " ";
+            out += item.text;
+        }
+
         newline(out);
     }
 
@@ -559,7 +583,23 @@ private:
     void emit_loose(const std::size_t index) {
         const unit_t& unit = m_units[index];
         const unit_t* next = next_code(index + 1);
-        if (blank_before(unit, depth_before(next), false)) {
+        const bool before_end =
+            next != nullptr && !next->continuation && is_block_end(next->first_token().kind);
+        // Right after the line that opens the block a block's end closes, it's at the block's
+        // start, even with nothing but comments or #If lines in the block.
+        const bool opened =
+            m_state.after_code && before_end && next->depth == m_state.statement_depth;
+        std::uint32_t depth = depth_before(next);
+        // Before a block's end, a comment written inside the block stays inside it: at the depth
+        // it's written at, as deep as the last line of code before it at most, as a comment at
+        // the end of a Select's last Case is.
+        const std::uint32_t column = m_file.location_of(unit.begin, column_unit_t::UTF8).column;
+        if (before_end && column > m_file.location_of(next->begin, column_unit_t::UTF8).column) {
+            depth = std::clamp(column / indent_width, next->depth + 1,
+                               std::max(next->depth + 1, m_state.statement_depth));
+        }
+
+        if (!opened && blank_before(unit, depth, false)) {
             newline(m_out);
         }
 
@@ -568,15 +608,7 @@ private:
             m_out += slice(unit.begin, unit.end);
             newline(m_out);
         } else {
-            std::uint32_t indent = depth_before(next) * indent_width;
-            // Before a block's end, a comment written inside the block stays inside it.
-            if (next != nullptr && !next->continuation && is_block_end(next->first_token().kind) &&
-                m_file.location_of(unit.begin, column_unit_t::UTF8).column >
-                    m_file.location_of(next->begin, column_unit_t::UTF8).column) {
-                indent += indent_width;
-            }
-
-            write_comment(unit, indent, m_out);
+            write_comment(unit, depth * indent_width, m_out);
         }
 
         finish_unit(unit);
@@ -670,17 +702,44 @@ private:
                                  : unit.depth * indent_width;
     }
 
-    [[nodiscard]] static bool is_declaration(const unit_t& unit) {
-        for (const item_t& item : unit.items) {
+    /// Where a declaration's keyword begins, after its modifiers and attributes, or nullopt
+    /// when the line isn't a Function's, Method's, New's, or Operator's.
+    [[nodiscard]] static std::optional<std::uint32_t> declaration_keyword(const unit_t& unit) {
+        const std::vector<item_t>& items = unit.items;
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            const item_t& item = items[i];
             if (item.comment || is_modifier(item.kind)) {
                 continue;
             }
 
-            return item.kind == token_kind_t::KW_FUNCTION || item.kind == token_kind_t::KW_METHOD ||
-                   item.kind == token_kind_t::KW_NEW || item.kind == token_kind_t::KW_OPERATOR;
+            // "@Name", "@Module.Name", or either with arguments in parentheses.
+            if (item.kind == token_kind_t::AT) {
+                while (i + 1 < items.size() && (items[i + 1].kind == token_kind_t::IDENTIFIER ||
+                                                items[i + 1].kind == token_kind_t::DOT)) {
+                    ++i;
+                }
+
+                if (i + 1 < items.size() && items[i + 1].kind == token_kind_t::LEFT_PAREN) {
+                    std::uint32_t depth = 0;
+                    do {
+                        ++i;
+                        depth += is_opener(items[i].kind) ? 1U : 0U;
+                        depth -= is_closer(items[i].kind) && depth > 0 ? 1U : 0U;
+                    } while (depth > 0 && i + 1 < items.size());
+                }
+
+                continue;
+            }
+
+            if (item.kind == token_kind_t::KW_FUNCTION || item.kind == token_kind_t::KW_METHOD ||
+                item.kind == token_kind_t::KW_NEW || item.kind == token_kind_t::KW_OPERATOR) {
+                return item.begin;
+            }
+
+            return std::nullopt;
         }
 
-        return false;
+        return std::nullopt;
     }
 
     void start_segment(const unit_t& unit) {
@@ -704,11 +763,13 @@ private:
             return;
         }
 
+        const std::optional<std::uint32_t> keyword = declaration_keyword(unit);
         segments.push_back({
             .depth = unit.depth,
             .base = m_state.brackets.size(),
             .indent = unit.depth * indent_width,
-            .declaration = is_declaration(unit),
+            .declaration = keyword.has_value(),
+            .keyword = keyword.value_or(0),
         });
     }
 
@@ -792,8 +853,9 @@ private:
             return false;
         }
 
+        // "- -a" written together would be "--a", another token.
         if (a.unary()) {
-            return false;
+            return a.kind == MINUS && b.text.starts_with('-');
         }
 
         if (b.kind == PLUS_PLUS || b.kind == MINUS_MINUS) {
@@ -831,17 +893,25 @@ private:
         std::vector<std::ptrdiff_t> groups{ -1 };
         std::vector<std::ptrdiff_t> group_of(items.size(), -1);
         std::vector<std::ptrdiff_t> ternaries;
+        // Whether each open group has had a ternary's '?', so what follows in it, and in the
+        // brackets inside, is the ternary's operands.
+        std::vector<bool> asked{ false };
+        std::vector<bool> operand(items.size(), false);
         for (std::size_t i = 0; i < items.size(); ++i) {
             const item_t& item = items[i];
             group_of[i] = groups.back();
+            operand[i] = std::ranges::contains(asked, true);
             if (item.kind == token_kind_t::QUESTION && item.has(token_role_t::TERNARY)) {
                 ternaries.push_back(groups.back());
+                asked.back() = true;
             }
 
             if (is_opener(item.kind) || item.generic_open()) {
                 groups.push_back(static_cast<std::ptrdiff_t>(i));
+                asked.push_back(false);
             } else if ((is_closer(item.kind) || item.generic_close()) && groups.size() > 1) {
                 groups.pop_back();
+                asked.pop_back();
             }
         }
 
@@ -890,15 +960,16 @@ private:
             const bool piece =
                 item.kind == token_kind_t::GREATER && item.end == next.begin &&
                 (next.kind == token_kind_t::GREATER || next.kind == token_kind_t::GREATER_EQUAL);
-            const bool binary = item.has(token_role_t::BINARY) && !piece &&
-                                !std::ranges::contains(ternaries, group_of[i]);
+            // An operator's or a bracket's break in a ternary's level would split its operands.
+            const bool in_ternary = std::ranges::contains(ternaries, group_of[i]) || operand[i];
+            const bool binary = item.has(token_role_t::BINARY) && !piece && !in_ternary;
             // Before a ternary's ':', which then lines up with its '?', inside brackets.
             const bool ternary =
                 next.kind == token_kind_t::COLON && next.has(token_role_t::TERNARY) && depth > 0;
             std::optional<std::uint32_t> tier;
             if (item.kind == token_kind_t::COMMA || binary || ternary) {
                 tier = 0;
-            } else if (is_opener(item.kind) && !is_closer(next.kind)) {
+            } else if (is_opener(item.kind) && !is_closer(next.kind) && !in_ternary) {
                 tier = 1;
             } else if (is_assignment(item.kind)) {
                 tier = 2;
@@ -952,11 +1023,12 @@ private:
         }
 
         if (is_opener(item.kind) || item.generic_open()) {
-            const bool signature = !segment.started && line_depth == 0 && segment.declaration &&
-                                   !segment.seen_paren && item.kind == token_kind_t::LEFT_PAREN;
-            if (item.kind == token_kind_t::LEFT_PAREN && line_depth == 0 && !segment.started) {
-                segment.seen_paren = true;
-            }
+            // An attribute's arguments come before the keyword, and aren't its parameters.
+            const bool parameters = !segment.started && line_depth == 0 && segment.declaration &&
+                                    item.begin > segment.keyword &&
+                                    item.kind == token_kind_t::LEFT_PAREN;
+            const bool signature = parameters && !segment.seen_paren;
+            segment.seen_paren = segment.seen_paren || parameters;
 
             m_state.brackets.push_back({
                 .align = column,
@@ -987,7 +1059,7 @@ private:
     }
 
     /// Lays out one line of code as one line or more. With `fit`, a line too wide breaks where
-    /// it may, and false means a piece of it doesn't fit even so.
+    /// it may, and false means it doesn't fit at any of its breaks.
     bool layout_code(const unit_t& unit, const bool fit, std::vector<std::string>& lines) {
         if (!unit.continuation) {
             start_segment(unit);
@@ -995,96 +1067,123 @@ private:
 
         const std::vector<item_t>& items = unit.items;
         const std::vector<item_info_t> info = describe_items(unit);
-        std::uint32_t indent = next_indent(unit);
-        std::uint32_t line_depth = 0;
-        const auto first_token = static_cast<std::size_t>(&unit.first_token() - items.data());
         // How wide what follows each item is, to the end of the line.
         std::vector<std::uint32_t> after(items.size() + 1, 0);
         for (std::size_t k = items.size(); k-- > 1;) {
             after[k - 1] = after[k] + width_of(items[k].text) + (info[k].space ? 1 : 0);
         }
 
-        std::size_t i = 0;
-        while (i < items.size()) {
-            std::string text(indent, ' ');
-            std::uint32_t column = indent;
-            std::vector<candidate_t> candidates;
-            const std::size_t line_begin = i;
-            bool broke = false;
-            for (; i < items.size(); ++i) {
-                const item_t& item = items[i];
-                const bool first = i == line_begin;
-                const std::uint32_t space = !first && info[i].space ? 1 : 0;
-                const std::size_t line_break = item.text.find_first_of("\r\n");
-                const std::uint32_t width = width_of(item.text.substr(0, line_break));
-                if (fit && !first && column + space + width > m_width) {
-                    if (candidates.empty()) {
+        const line_t line{
+            .items = items,
+            .info = info,
+            .after = after,
+            .first_token = static_cast<std::size_t>(&unit.first_token() - items.data()),
+        };
+        std::uint32_t tries = max_tries;
+        return layout_from(line, 0, next_indent(unit), 0, fit, lines, tries);
+    }
+
+    /// A line of code being laid out.
+    struct line_t {
+        std::span<const item_t> items;
+        std::span<const item_info_t> info;
+        std::span<const std::uint32_t> after;
+        std::size_t first_token = 0;
+    };
+
+    /// How many breaks one line of code tries before it's left as written.
+    static constexpr std::uint32_t max_tries = 256;
+
+    /// Lays out the line's items from `i` on, on a line at `indent` and the lines after it. Where
+    /// one is too wide, each break on it is tried, the best first, until the rest fits.
+    bool layout_from(const line_t& line, std::size_t i, const std::uint32_t indent,
+                     std::uint32_t line_depth, const bool fit, std::vector<std::string>& lines,
+                     std::uint32_t& tries) {
+        const std::span<const item_t> items = line.items;
+        std::string text(indent, ' ');
+        std::uint32_t column = indent;
+        std::vector<candidate_t> candidates;
+        const std::size_t line_begin = i;
+        for (; i < items.size(); ++i) {
+            const item_t& item = items[i];
+            const bool first = i == line_begin;
+            const std::uint32_t space = !first && line.info[i].space ? 1 : 0;
+            const std::size_t line_break = item.text.find_first_of("\r\n");
+            const std::uint32_t width = width_of(item.text.substr(0, line_break));
+            if (fit && column + space + width > m_width) {
+                // A line that starts too wide doesn't fit at any break.
+                if (first) {
+                    return false;
+                }
+
+                std::ranges::sort(candidates, {}, [](const candidate_t& candidate) {
+                    return std::tuple(candidate.tier, candidate.depth, candidate.rank,
+                                      ~candidate.item);
+                });
+                for (const candidate_t& candidate : candidates) {
+                    if (tries == 0) {
                         return false;
                     }
 
-                    const candidate_t& best =
-                        *std::ranges::min_element(candidates, {}, [](const candidate_t& candidate) {
-                            return std::tuple(candidate.tier, candidate.depth, candidate.rank,
-                                              ~candidate.item);
-                        });
-                    text.resize(best.length);
-                    m_state.brackets = best.brackets;
-                    m_state.segments.back() = best.segment;
-                    i = best.item + 1;
-                    end_line(items[best.item]);
-                    broke = true;
-                    break;
-                }
-
-                text.append(space, ' ');
-                text += item.text;
-                const std::uint32_t start = column + space;
-                if (line_break == std::string_view::npos) {
-                    column = start + width;
-                } else {
-                    const std::size_t last = item.text.find_last_of("\r\n");
-                    column = width_of(item.text.substr(last + 1));
-                }
-
-                place(item, start, column, indent, line_depth, i == first_token);
-                if (fit && info[i].breakable) {
-                    // After '=' or "=>", when the rest fits on the next line, comes before an
-                    // opening bracket.
-                    const std::uint32_t rest =
-                        after[i] - (i + 1 < items.size() && info[i + 1].space ? 1 : 0);
-                    const bool whole =
-                        info[i].tier == 2 && info[i].depth == 0 &&
-                        m_state.segments.back().indent + indent_width + rest <= m_width;
-                    std::uint32_t tier = info[i].tier + 1;
-                    if (info[i].tier == 0) {
-                        tier = 0;
-                    } else if (whole) {
-                        tier = 1;
+                    --tries;
+                    m_state.brackets = candidate.brackets;
+                    m_state.segments.back() = candidate.segment;
+                    end_line(items[candidate.item]);
+                    const std::size_t mark = lines.size();
+                    lines.push_back(text.substr(0, candidate.length));
+                    const std::uint32_t next = continuation_indent(items[candidate.item + 1]);
+                    if (layout_from(line, candidate.item + 1, next, candidate.line_depth, fit,
+                                    lines, tries)) {
+                        return true;
                     }
 
-                    candidates.push_back({
-                        .item = i,
-                        .length = text.size(),
-                        .tier = tier,
-                        .depth = info[i].depth,
-                        .rank = info[i].rank,
-                        .brackets = m_state.brackets,
-                        .segment = m_state.segments.back(),
-                    });
+                    lines.resize(mark);
                 }
+
+                return false;
             }
 
-            if (!broke) {
-                end_line(*std::ranges::find_if(items.rbegin(), items.rend(),
-                                               [](const item_t& item) { return !item.comment; }));
+            text.append(space, ' ');
+            text += item.text;
+            const std::uint32_t start = column + space;
+            if (line_break == std::string_view::npos) {
+                column = start + width;
+            } else {
+                const std::size_t last = item.text.find_last_of("\r\n");
+                column = width_of(item.text.substr(last + 1));
             }
 
-            lines.push_back(std::move(text));
-            if (broke) {
-                indent = continuation_indent(items[i]);
+            place(item, start, column, indent, line_depth, i == line.first_token);
+            if (fit && line.info[i].breakable) {
+                // After '=' or "=>", when the rest fits on the next line, comes before an
+                // opening bracket.
+                const std::uint32_t rest =
+                    line.after[i] - (i + 1 < items.size() && line.info[i + 1].space ? 1 : 0);
+                const bool whole = line.info[i].tier == 2 && line.info[i].depth == 0 &&
+                                   m_state.segments.back().indent + indent_width + rest <= m_width;
+                std::uint32_t tier = line.info[i].tier + 1;
+                if (line.info[i].tier == 0) {
+                    tier = 0;
+                } else if (whole) {
+                    tier = 1;
+                }
+
+                candidates.push_back({
+                    .item = i,
+                    .length = text.size(),
+                    .tier = tier,
+                    .depth = line.info[i].depth,
+                    .rank = line.info[i].rank,
+                    .brackets = m_state.brackets,
+                    .segment = m_state.segments.back(),
+                    .line_depth = line_depth,
+                });
             }
         }
 
+        end_line(*std::ranges::find_if(items.rbegin(), items.rend(),
+                                       [](const item_t& item) { return !item.comment; }));
+        lines.push_back(std::move(text));
         return true;
     }
 };
@@ -1097,7 +1196,11 @@ std::string meaning(const source_file_t& file, diagnostic_bag_t& diagnostics) {
     const ast_t ast = parse_layout(file, tokens, diagnostics, layout);
     std::string out;
     for (const token_t& token : tokens) {
-        if (token.kind != token_kind_t::NEWLINE) {
+        // The parser reads a ">=" as a '>' and a '=', which type arguments can end with, as in
+        // "List<Int>= []", so it means what they do apart.
+        if (token.kind == token_kind_t::GREATER_EQUAL) {
+            out += "'>' >\n'=' =\n";
+        } else if (token.kind != token_kind_t::NEWLINE) {
             out += describe(token.kind);
             out += ' ';
             out += file.slice(token.span);
@@ -1118,7 +1221,29 @@ std::vector<diagnostic_t> errors_of(const diagnostic_bag_t& diagnostics) {
     return errors;
 }
 
+/// Whether the file parses as some build reads it, with its #If branches.
+bool parses_in_a_build(const source_file_t& file) {
+    static constexpr std::array<std::array<std::string_view, 2>, 3> builds = { {
+        { "DEBUG", "PLATFORM_WINDOWS" },
+        { "RELEASE", "PLATFORM_LINUX" },
+        { "DEBUG", "PLATFORM_MACOS" },
+    } };
+    return std::ranges::any_of(builds, [&](const std::array<std::string_view, 2>& defined) {
+        diagnostic_bag_t diagnostics;
+        const std::vector<token_t> tokens = lex(file, diagnostics, defined);
+        static_cast<void>(parse(file, tokens, diagnostics));
+        return !diagnostics.has_errors();
+    });
+}
+
 } // namespace
+
+bool same_meaning(const source_file_t& file, const std::string_view formatted) {
+    const source_file_t after_file(file.id(), file.path(), std::string(formatted));
+    diagnostic_bag_t before;
+    diagnostic_bag_t after;
+    return meaning(file, before) == meaning(after_file, after) && !after.has_errors();
+}
 
 std::expected<std::string, std::vector<diagnostic_t>> format_unchecked(const source_file_t& file,
                                                                        const std::uint32_t width) {
@@ -1126,7 +1251,26 @@ std::expected<std::string, std::vector<diagnostic_t>> format_unchecked(const sou
     trivia_t trivia;
     const std::vector<token_t> tokens = lex_layout(file, diagnostics, trivia);
     layout_t layout;
-    const ast_t ast = parse_layout(file, tokens, diagnostics, layout);
+    static_cast<void>(parse_layout(file, tokens, diagnostics, layout));
+    // The formatter leaves #If lines as they are and lays out the rest, which doesn't parse
+    // when an #If holds part of a statement, as a block's first line, though each build does.
+    if (diagnostics.has_errors() && !trivia.conditionals.empty() && parses_in_a_build(file)) {
+        const std::uint32_t error = errors_of(diagnostics).front().span.begin;
+        span_t region = trivia.conditionals.front();
+        for (const span_t lines : trivia.conditionals) {
+            region = lines.begin <= error ? lines : region;
+        }
+
+        const std::uint32_t line_end = std::min(
+            region.end, static_cast<std::uint32_t>(std::min(
+                            file.text().find_first_of("\r\n", region.begin), file.text().size())));
+        diagnostic_bag_t split;
+        split.error({ .file = file.id(), .begin = region.begin, .end = line_end },
+                    "fb fmt leaves an #If's lines as they are, so it formats a file only when each "
+                    "#If holds whole statements, and this one holds part of one");
+        return std::unexpected(errors_of(split));
+    }
+
     if (diagnostics.has_errors()) {
         return std::unexpected(errors_of(diagnostics));
     }
@@ -1143,10 +1287,7 @@ std::expected<std::string, std::vector<diagnostic_t>> format_source(const source
 
     // Formatting changes only the space between tokens, so what the file means is the same:
     // anything else is a bug, and the file is left as it is.
-    const source_file_t formatted(file.id(), file.path(), *text);
-    diagnostic_bag_t before;
-    diagnostic_bag_t after;
-    if (meaning(file, before) != meaning(formatted, after) || after.has_errors()) {
+    if (!same_meaning(file, *text)) {
         diagnostic_bag_t bug;
         bug.error({ .file = file.id(), .begin = 0, .end = 0 },
                   "fb fmt would change what this file means, which is a bug in it; the file is "

@@ -45,8 +45,9 @@ struct layout_t {
     std::unordered_map<std::uint32_t, std::uint32_t> depths;
     /// The NEWLINE tokens that end a statement. The others only go on with one.
     std::unordered_set<std::uint32_t> line_ends;
-    /// Where the tokens that a line break may follow outside brackets end: an operator, '=', ',',
-    /// or "=>". Inside brackets, one may come anywhere.
+    /// Where the tokens that a line break may follow outside brackets end: an operator, a
+    /// constraint's '&' among them, '=', ',', "=>", or a range's To, Until, or Step. Inside
+    /// brackets, one may come anywhere.
     std::unordered_set<std::uint32_t> breaks;
     std::unordered_map<std::uint32_t, token_role_t> roles;
 };

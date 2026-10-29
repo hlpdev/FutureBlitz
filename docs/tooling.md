@@ -103,7 +103,8 @@ other people can install and use every day in an editor. Step 0 settled what was
   hidden ones and a package's build/, or the current package's without any; `--check` lists the
   files it would change and exits with 1. The LSP formats on save through the compiler's
   `format_source` (compiler/include/fb/format.hpp). One style, with no options but the line
-  width, `[format] width` in project.toml, 100 without it.
+  width, `[format] width` in project.toml, 100 without it, counted in the columns a terminal
+  shows: 2 for an East Asian wide character, and none for a combining mark.
 - The formatter changes only the space between tokens and where long lines break, so the code
   means what it did: `format_source` parses the result and compares its tokens and tree with the
   original's, and leaves a file it would change otherwise as it is. A file that doesn't parse is
@@ -140,12 +141,16 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
 - **Long lines**: the author's line breaks inside a statement stay; lines are never joined. A
   line wider than the width breaks where it may, at the best place on it: a comma or a ternary's
   `:` before an operator, the loosest operator first, at the outermost bracket level, the latest
-  there; after an opening bracket only when nothing else fits, and after `=` or `=>` last. An
-  operator inside a ternary's level doesn't break it, and a single-line If breaks only at a comma
-  in its statement's brackets. A statement that can't fit at any break, as with a long string, is
-  left as written, with only its spacing and indentation fixed.
+  there; then after `=` or `=>` outside brackets when all that follows fits on the next line;
+  after an opening bracket only when nothing else fits; and after `=` or `=>` last. When what
+  comes after the best break still can't fit, the next best is tried. An operator inside a
+  ternary's level doesn't break it, and a single-line If breaks only at a comma in its
+  statement's brackets. A statement that can't fit at any break, as with a long string, is left
+  as written, with only its spacing and indentation fixed.
 - **#If** lines, from an outermost #If to its #End If, are left as written, so the formatting is
-  the same whatever's defined.
+  the same whatever's defined. The rest is laid out as code without them, so an #If has to hold
+  whole statements: one that holds part of one, as a block's first line, makes fb fmt leave the
+  file as it is and say so.
 - **Constraints**: one constraint, on one of a declaration's own type parameters, goes inline,
   `<T: Hashable>`; more, a `&`, or one that relates two type parameters, `S: Iterator<T>`, go on
   Where lines. The formatter doesn't move them, as that changes the tree: sema warns about the
