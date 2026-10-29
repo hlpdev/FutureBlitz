@@ -84,8 +84,9 @@ constexpr bool is_digit(const char c, const std::uint32_t base) {
 class lexer_t {
 public:
     lexer_t(const source_file_t& file, diagnostic_bag_t& diagnostics,
-            const std::span<const std::string_view> defined)
-        : m_file(file), m_text(file.text()), m_diagnostics(diagnostics), m_defined(defined) {}
+            const std::span<const std::string_view> defined, trivia_t* trivia = nullptr)
+        : m_file(file), m_text(file.text()), m_diagnostics(diagnostics), m_defined(defined),
+          m_trivia(trivia) {}
 
     std::vector<token_t> run() {
         while (true) {
@@ -108,6 +109,10 @@ public:
 
         for (const condition_t& condition : m_conditions) {
             m_diagnostics.error(condition.span, "this #If needs an #End If");
+        }
+
+        if (m_trivia != nullptr) {
+            finish_trivia();
         }
 
         add(token_kind_t::END_OF_FILE, m_pos);
@@ -135,6 +140,10 @@ private:
     std::uint32_t m_condition_depth = 0;
     static constexpr std::uint32_t max_condition_depth = 1000;
     std::uint32_t m_pos = 0;
+    /// For lex_layout(): where comments and #If lines go, and no #If branch is lexed.
+    trivia_t* m_trivia = nullptr;
+    /// Where the outermost #If that's open starts its line.
+    std::uint32_t m_conditional_begin = 0;
 
     [[nodiscard]] bool at_end() const {
         return m_pos >= m_text.size();
@@ -168,16 +177,48 @@ private:
     void skip_trivia() {
         while (!at_end()) {
             const char c = peek();
+            const std::uint32_t begin = m_pos;
             if (c == ' ' || c == '\t') {
                 ++m_pos;
             } else if (c == '/' && peek(1) == '/') {
                 skip_to_line_end();
+                note_comment(begin);
             } else if (c == '/' && peek(1) == '*') {
                 skip_block_comment();
+                note_comment(begin);
             } else {
                 return;
             }
         }
+    }
+
+    /// Keeps the comment that started at `begin` for the formatter.
+    void note_comment(const std::uint32_t begin) {
+        if (m_trivia != nullptr) {
+            m_trivia->comments.push_back(span(begin, m_pos));
+        }
+    }
+
+    /// Where the line holding `offset` starts.
+    [[nodiscard]] std::uint32_t line_start(const std::uint32_t offset) const {
+        const std::size_t found = m_text.find_last_of("\r\n", offset == 0 ? 0 : offset - 1);
+        return offset == 0 || found == std::string_view::npos
+                   ? 0
+                   : static_cast<std::uint32_t>(found + 1);
+    }
+
+    /// Drops the comments inside #If lines, which the formatter leaves as they are, and ends an
+    /// #If that runs to the end of the file.
+    void finish_trivia() {
+        if (!m_conditions.empty()) {
+            m_trivia->conditionals.push_back(span(m_conditional_begin, m_pos));
+        }
+
+        std::erase_if(m_trivia->comments, [&](const span_t comment) {
+            return std::ranges::any_of(m_trivia->conditionals, [&](const span_t lines) {
+                return lines.contains(comment.begin);
+            });
+        });
     }
 
     /// Moves past one character of a comment or skipped line, reporting invalid UTF-8.
@@ -648,6 +689,11 @@ private:
         const std::string_view name = take_word();
         const span_t where = span(begin, m_pos);
         const bool in_active = m_conditions.empty() || m_conditions.back().active;
+        const bool outermost = m_conditions.empty();
+        if (outermost && name == "If") {
+            m_conditional_begin = line_start(begin);
+        }
+
         if (name == "If") {
             const bool outer = in_active;
             const bool holds = outer && condition_holds();
@@ -691,6 +737,12 @@ private:
             }
 
             skip_to_line_end();
+        }
+
+        if (m_trivia != nullptr && !m_conditions.empty()) {
+            m_conditions.back().active = false;
+        } else if (m_trivia != nullptr && !outermost) {
+            m_trivia->conditionals.push_back(span(m_conditional_begin, m_pos));
         }
 
         const bool skipping = !m_conditions.empty() && !m_conditions.back().active;
@@ -845,6 +897,12 @@ private:
 std::vector<token_t> lex(const source_file_t& file, diagnostic_bag_t& diagnostics,
                          const std::span<const std::string_view> defined) {
     return lexer_t(file, diagnostics, defined).run();
+}
+
+std::vector<token_t> lex_layout(const source_file_t& file, diagnostic_bag_t& diagnostics,
+                                trivia_t& trivia) {
+    trivia = {};
+    return lexer_t(file, diagnostics, {}, &trivia).run();
 }
 
 } // namespace fb

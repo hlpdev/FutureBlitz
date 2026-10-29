@@ -207,6 +207,38 @@ TEST_CASE("#If keeps the lines of the branch whose condition holds", "[lexer]") 
           std::vector<std::string>{ "b", "\n" });
 }
 
+TEST_CASE("lex_layout keeps the comments, and gives no #If branch tokens", "[lexer]") {
+    const std::string text = "a // one\n/* two\n */ b\n#If DEBUG // three\n c\n#Else\n d\n#End If "
+                             "// four\ne /* five */\n#If X";
+    const fb::source_file_t file(fb::file_id_t{}, "test.fb", text);
+    fb::diagnostic_bag_t bag;
+    fb::trivia_t trivia;
+    std::vector<std::string> texts;
+    for (const fb::token_t& token : fb::lex_layout(file, bag, trivia)) {
+        texts.emplace_back(file.slice(token.span));
+    }
+
+    CHECK(texts == std::vector<std::string>{ "a", "\n", "b", "\n", "e", "\n", "" });
+    std::vector<std::string> comments;
+    for (const fb::span_t comment : trivia.comments) {
+        comments.emplace_back(file.slice(comment));
+    }
+
+    CHECK(comments == std::vector<std::string>{ "// one", "/* two\n */", "/* five */" });
+    std::vector<std::string> conditionals;
+    for (const fb::span_t lines : trivia.conditionals) {
+        conditionals.emplace_back(file.slice(lines));
+    }
+
+    CHECK(conditionals == std::vector<std::string>{
+                              "#If DEBUG // three\n c\n#Else\n d\n#End If // four", "#If X" });
+
+    // lex() still takes the branch whose condition holds.
+    constexpr std::array<std::string_view, 1> debug = { "DEBUG" };
+    CHECK(lex_text(text, debug).texts ==
+          std::vector<std::string>{ "a", "\n", "b", "\n", "c", "\n", "e", "\n" });
+}
+
 TEST_CASE("a line in a comment or a string is no directive, in a branch taken or not", "[lexer]") {
     constexpr std::array<std::string_view, 1> debug = { "DEBUG" };
     constexpr std::array<std::string_view, 1> release = { "RELEASE" };

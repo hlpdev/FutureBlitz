@@ -126,8 +126,10 @@ bool is_name(const std::string_view text) {
 class parser_t {
 public:
     parser_t(const source_file_t& file, const std::span<const token_t> tokens,
-             diagnostic_bag_t& diagnostics, ast_t& ast, const bool interface_file)
-        : m_file(file), m_diagnostics(diagnostics), m_ast(ast), m_interface_file(interface_file) {
+             diagnostic_bag_t& diagnostics, ast_t& ast, const bool interface_file,
+             layout_t* layout = nullptr)
+        : m_file(file), m_diagnostics(diagnostics), m_ast(ast), m_interface_file(interface_file),
+          m_layout(layout) {
         // ">=" comes as '>' then '=', as ">>" comes as two '>', so "Stack<Int>= s" closes its
         // type arguments before the '='. Touching, they make the operator again.
         m_split.reserve(tokens.size());
@@ -206,6 +208,9 @@ private:
     std::optional<extern_block_t> m_extern;
     /// Parsing a library's interface file, where "=> ..." stands for code in its binary.
     bool m_interface_file = false;
+    /// For parse_layout(): what the formatter learns, and how many blocks the parse is in.
+    layout_t* m_layout = nullptr;
+    std::uint32_t m_layout_depth = 0;
 
     // Tokens
 
@@ -237,7 +242,30 @@ private:
             m_previous_end = token.span.end;
         }
 
+        if (m_layout != nullptr && token.kind == token_kind_t::NEWLINE) {
+            m_layout->line_ends.insert(token.span.begin);
+        } else if (m_layout != nullptr &&
+                   (index == 0 || m_tokens[index - 1].kind == token_kind_t::NEWLINE)) {
+            m_layout->depths.insert_or_assign(token.span.begin, m_layout_depth);
+        }
+
         return token;
+    }
+
+    /// For the formatter: what `token` is, where its spelling alone doesn't say.
+    void note_role(const token_t& token, const token_role_t role) {
+        if (m_layout != nullptr) {
+            m_layout->roles.insert_or_assign(token.span.begin, role);
+        }
+    }
+
+    /// For the formatter: the blocks a line is in go one deeper or back up.
+    void enter_layout() {
+        ++m_layout_depth;
+    }
+
+    void leave_layout() {
+        --m_layout_depth;
     }
 
     [[nodiscard]] bool at(const token_kind_t kind) const {
@@ -319,6 +347,10 @@ private:
     /// missing, so parsing picks up on the next line, as its own. After an error the parser got
     /// past, like a decimal that's out of range before a "+", the statement goes on.
     void skip_continuation_newlines() {
+        if (m_layout != nullptr) {
+            m_layout->breaks.insert(m_previous_end);
+        }
+
         while (!m_line_missing && m_tokens[m_pos].kind == token_kind_t::NEWLINE) {
             ++m_pos;
         }
@@ -467,12 +499,14 @@ private:
             return block;
         }
 
+        enter_layout();
         while (!is_block_end(peek().kind)) {
             const std::size_t start = m_pos;
             block.push_back(parse_statement());
             finish_line(start);
         }
 
+        leave_layout();
         --m_nesting;
         return block;
     }
@@ -771,6 +805,7 @@ private:
         finish_line(start);
         m_blocks.push_back(keyword.kind);
         std::vector<enum_member_t> members;
+        enter_layout();
         while (!is_block_end(peek().kind)) {
             const std::size_t line = m_pos;
             while (at(token_kind_t::IDENTIFIER) || visibility_of(peek().kind)) {
@@ -804,6 +839,7 @@ private:
             finish_line(line);
         }
 
+        leave_layout();
         expect_end(keyword);
         m_blocks.pop_back();
         enum_stmt_t declared{
@@ -1097,6 +1133,7 @@ private:
         m_blocks.push_back(keyword.kind);
         std::optional<stmt_id_t> getter;
         std::optional<stmt_id_t> setter;
+        enter_layout();
         while (!is_block_end(peek().kind)) {
             const std::size_t line = m_pos;
             if (const std::optional<visibility_t> written = visibility_of(peek().kind)) {
@@ -1117,6 +1154,7 @@ private:
             finish_line(line);
         }
 
+        leave_layout();
         if (!getter) {
             error(name.span, "a Property needs a Get");
         }
@@ -2009,6 +2047,7 @@ private:
             });
         // Its Functions are a block's statements.
         const bool entered = enter();
+        enter_layout();
         while (entered && !is_block_end(peek().kind)) {
             const std::size_t line = m_pos;
             const stmt_id_t id = parse_statement();
@@ -2023,6 +2062,7 @@ private:
             finish_line(line);
         }
 
+        leave_layout();
         if (entered) {
             --m_nesting;
         }
@@ -2262,6 +2302,7 @@ private:
 
     /// "Where T: Hashable & Equatable" lines at the top of a body, each for one type parameter.
     void parse_where_lines(std::vector<constraint_t>& constraints) {
+        enter_layout();
         while (at(token_kind_t::KW_WHERE)) {
             const std::size_t line = m_pos;
             advance();
@@ -2273,6 +2314,8 @@ private:
 
             finish_line(line);
         }
+
+        leave_layout();
     }
 
     parameter_t parse_parameter() {
@@ -2590,6 +2633,7 @@ private:
     /// are words only there.
     void parse_member_where_lines(const name_t& variable, std::vector<constraint_t>& constraints,
                                   std::vector<std::vector<expr_id_t>>& picks) {
+        enter_layout();
         while (at(token_kind_t::KW_WHERE)) {
             const std::size_t line = m_pos;
             advance();
@@ -2614,6 +2658,8 @@ private:
 
             finish_line(line);
         }
+
+        leave_layout();
     }
 
     /// An Attribute's name in a "Where m Has" line, which an imported module's name can qualify:
@@ -2639,6 +2685,7 @@ private:
         const expr_id_t subject = parse_expression();
         finish_line(start);
         m_blocks.push_back(keyword.kind);
+        enter_layout();
 
         // Only Case and Default can come before the first Case.
         while (!at(token_kind_t::KW_CASE) && !is_block_end(peek().kind)) {
@@ -2697,6 +2744,7 @@ private:
             default_body = parse_block();
         }
 
+        leave_layout();
         expect_end(keyword);
         m_blocks.pop_back();
         return add_stmt(span_from(keyword.span.begin), select_stmt_t{
@@ -2975,7 +3023,7 @@ private:
 
     expr_id_t parse_binary(const expr_id_t left, const binary_t& binary) {
         for (std::uint32_t i = 0; i < binary.tokens; ++i) {
-            advance();
+            note_role(advance(), token_role_t::BINARY);
         }
 
         skip_continuation_newlines();
@@ -2989,7 +3037,7 @@ private:
     }
 
     expr_id_t parse_ternary(const expr_id_t condition) {
-        advance(); // '?'
+        note_role(advance(), token_role_t::TERNARY); // '?'
         // Both branches take a whole expression, so "a ? b : c ? d : e" groups to the right.
         const expr_id_t if_true = parse_expression();
         // In an interpolation, a ':' with no space after it starts a format spec.
@@ -2999,6 +3047,10 @@ private:
                                 "format spec, so a ternary's needs one");
             advance();
             return add_expr(span_from(begin_of(condition)), error_expr_t{});
+        }
+
+        if (at(token_kind_t::COLON)) {
+            note_role(peek(), token_role_t::TERNARY);
         }
 
         expect(token_kind_t::COLON);
@@ -3056,7 +3108,7 @@ private:
             return parse_postfix(parse_primary());
         }
 
-        advance();
+        note_role(advance(), token_role_t::UNARY);
         const expr_id_t operand = nested_unary();
         return add_expr(span_from(token.span.begin), unary_expr_t{ .op = *op, .operand = operand });
     }
@@ -3205,12 +3257,17 @@ private:
         }
 
         const token_t& open = advance();
+        note_role(open, token_role_t::GENERIC);
         ++m_bracket_depth;
         while (!at(token_kind_t::GREATER) && !at(token_kind_t::END_OF_FILE)) {
             arguments.push_back(parse_type_argument());
             if (!accept(token_kind_t::COMMA)) {
                 break;
             }
+        }
+
+        if (at(token_kind_t::GREATER)) {
+            note_role(peek(), token_role_t::GENERIC);
         }
 
         expect_closing(token_kind_t::GREATER, open.span);
@@ -3297,8 +3354,10 @@ private:
         expr_id_t left = parse_value_product();
         // Each operator around `left` puts it a level deeper.
         while ((at(token_kind_t::PLUS) || at(token_kind_t::MINUS)) && enter()) {
+            const token_t& sign = advance();
+            note_role(sign, token_role_t::BINARY);
             const binary_op_t op =
-                advance().kind == token_kind_t::PLUS ? binary_op_t::ADD : binary_op_t::SUBTRACT;
+                sign.kind == token_kind_t::PLUS ? binary_op_t::ADD : binary_op_t::SUBTRACT;
             const expr_id_t right = parse_value_product();
             left = add_expr(span_from(begin_of(left)),
                             binary_expr_t{ .op = op, .left = left, .right = right });
@@ -3336,6 +3395,7 @@ private:
     parse_type_parameters(std::vector<constraint_t>& constraints,
                           std::vector<std::optional<type_expr_id_t>>& value_types) {
         const token_t& open = advance();
+        note_role(open, token_role_t::GENERIC);
         ++m_bracket_depth;
         std::vector<name_t> names;
         while (!at(token_kind_t::GREATER) && !at(token_kind_t::END_OF_FILE)) {
@@ -3354,6 +3414,10 @@ private:
             if (!accept(token_kind_t::COMMA)) {
                 break;
             }
+        }
+
+        if (at(token_kind_t::GREATER)) {
+            note_role(peek(), token_role_t::GENERIC);
         }
 
         expect_closing(token_kind_t::GREATER, open.span);
@@ -4050,8 +4114,12 @@ private:
                 return type;
             }
 
-            advance();
+            note_role(advance(), token_role_t::GENERIC);
             const type_expr_id_t inner = parse_type();
+            if (at(token_kind_t::GREATER)) {
+                note_role(peek(), token_role_t::GENERIC);
+            }
+
             expect(token_kind_t::GREATER);
             --m_nesting;
             type = add_type(span_from(token.span.begin), weak_type_t{ .inner = inner });
@@ -4215,6 +4283,14 @@ ast_t parse(const source_file_t& file, const std::span<const token_t> tokens,
 void parse_into(const source_file_t& file, const std::span<const token_t> tokens,
                 diagnostic_bag_t& diagnostics, ast_t& ast, const bool interface_file) {
     parser_t(file, tokens, diagnostics, ast, interface_file).run();
+}
+
+ast_t parse_layout(const source_file_t& file, const std::span<const token_t> tokens,
+                   diagnostic_bag_t& diagnostics, layout_t& layout) {
+    layout = {};
+    ast_t ast;
+    parser_t(file, tokens, diagnostics, ast, false, &layout).run();
+    return ast;
 }
 
 } // namespace fb

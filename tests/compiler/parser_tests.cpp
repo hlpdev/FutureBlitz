@@ -108,6 +108,57 @@ TEST_CASE("the ternary is right-associative and binds loosest", "[parser]") {
     CHECK(expression("a + b ? c : d") == "(? (+ a b) c d)");
 }
 
+TEST_CASE("parse_layout tells the formatter each line's blocks and each token's part", "[parser]") {
+    const std::string text = "Select x\n    Case 1\n        y = -a > b ? c : d\nEnd Select\n"
+                             "Class C<T>\n    Where T: I\n    Property P: Int\n        Get => 1\n"
+                             "    End Property\nEnd Class\nz = F(1,\n      2) +\n    G<Int>()\n";
+    const fb::source_file_t file(fb::file_id_t{}, "test.fb", text);
+    fb::diagnostic_bag_t bag;
+    const std::vector<fb::token_t> tokens = fb::lex(file, bag);
+    fb::layout_t layout;
+    const fb::ast_t ast = fb::parse_layout(file, tokens, bag, layout);
+    REQUIRE_FALSE(bag.has_errors());
+    CHECK(fb::dump_ast(ast) == fb::dump_ast(fb::parse(file, tokens, bag)));
+
+    // Where each line's first word, or its token, is, and the depth the formatter gives it.
+    const auto depth = [&](const std::string_view first) {
+        const auto found = layout.depths.find(static_cast<std::uint32_t>(text.find(first)));
+        return found != layout.depths.end() ? std::optional(found->second) : std::nullopt;
+    };
+    CHECK(depth("Select") == 0U);
+    CHECK(depth("Case") == 1U);
+    CHECK(depth("y =") == 2U);
+    CHECK(depth("End Select") == 0U);
+    CHECK(depth("Where") == 1U);
+    CHECK(depth("Property") == 1U);
+    CHECK(depth("Get") == 2U);
+    CHECK(depth("End Property") == 1U);
+
+    // The line breaks inside F's brackets and after '+' go on with the statement.
+    std::size_t ends = 0;
+    for (const fb::token_t& token : tokens) {
+        if (token.kind == fb::token_kind_t::NEWLINE) {
+            ends += layout.line_ends.contains(token.span.begin) ? 1U : 0U;
+        }
+    }
+
+    CHECK(ends == 11);
+    CHECK(layout.breaks.contains(static_cast<std::uint32_t>(text.find(") +") + 3)));
+
+    const auto role = [&](const std::string_view at, const std::size_t from = 0) {
+        const auto found = layout.roles.find(static_cast<std::uint32_t>(text.find(at, from)));
+        return found != layout.roles.end() ? std::optional(found->second) : std::nullopt;
+    };
+    CHECK(role("-a") == fb::token_role_t::UNARY);
+    CHECK(role("> b") == fb::token_role_t::BINARY);
+    CHECK(role("? c") == fb::token_role_t::TERNARY);
+    CHECK(role(": d") == fb::token_role_t::TERNARY);
+    CHECK(role("<T>") == fb::token_role_t::GENERIC);
+    CHECK(role("<Int>") == fb::token_role_t::GENERIC);
+    CHECK(role(">()") == fb::token_role_t::GENERIC);
+    CHECK(role(": I") == std::nullopt);
+}
+
 TEST_CASE("postfix chains", "[parser]") {
     CHECK(expression("a.b.c(1, 2)[3]") == "(index (call (. (. a b) c) (int 1) (int 2)) (int 3))");
     CHECK(expression("a?.b") == "(?. a b)");
