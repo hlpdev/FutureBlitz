@@ -136,9 +136,15 @@ panic: index 5 is out of range for 3 elements at game.fb:12:17
 
 - A panic's trace, and an uncaught error's, has a line for each call of the program's code that
   it's in, the innermost first: `    at <function> (<file>:<line>)`, with the file named as the
-  panic names it. A Method is `Class.Method`, a generic Function's instance names its type
-  arguments, a function value's code is named by where it's written, and a module's top-level
-  code is `top-level code`. The runtime's frames, and the C code's, are left out.
+  panic names it. A Method or Property is `Class.Method`, a generic Function's instance names its
+  type arguments, a function value's code and a Parallel For's body are named by where they're
+  written, as `Parallel For at game.fb:9:5`, a function of another module than the program's
+  main one has its module first, and a module's top-level code is `top-level code`. A call whose
+  line a release build loses, as when it merges calls on several lines into one, is
+  `    at <function> (<file>)`. The runtime's frames, the C code's, and those of the code the
+  compiler makes itself are left out.
+- It shows the innermost 100 places, then `    and more calls, which aren't shown` when the
+  stack goes on.
 - An uncaught error's trace is where it was first thrown, the Throw that set its Place, though a
   Catch threw it again further out.
 - Every build has them, debug and release, with no debug files: the compiler writes a table into
@@ -147,7 +153,8 @@ panic: index 5 is out of range for 3 elements at game.fb:12:17
   of its own, after the call it's in, and no call is made a tail call, which would take its
   caller out of the trace.
 - Debug builds have full debug info, DWARF and on Windows CodeView too, so a debugger stops at
-  lines and shows the Locals; release builds have the line tables. tools/lldb/futureblitz.py,
+  lines and shows the Locals, each in the block it's declared in; release builds have the line
+  tables. On macOS a build's debug info is in the .dSYM beside it. tools/lldb/futureblitz.py,
   which VS Code's debugger loads, shows a String, an array, a Map, a `T?`, and an object as its
   value (see [tooling.md](../tooling.md)).
 

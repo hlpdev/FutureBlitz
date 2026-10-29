@@ -76,9 +76,10 @@ other people can install and use every day in an editor. Step 0 settled what was
   on Windows CodeView too, which lld writes as a PDB beside the executable for Visual Studio and
   WinDbg.
 - Panics and uncaught errors print a stack trace of FutureBlitz names, files, and lines. The
-  compiler writes a table into every binary of its functions' address ranges, FB names, and each
-  call's file and line, inlined calls included; the runtime walks the stack with the platform's
-  unwinder and reads it, in a beside library's frames too.
+  compiler writes a table into every binary of where each call is, with its function's FB name,
+  its file, and its line, and those of the calls it's inlined into; the runtime walks the stack
+  with the platform's unwinder, which gives each frame's function, and finds each frame's call in
+  the table, in a beside library's frames too.
 - VS Code debugs through CodeLLDB on every OS; a Python script fb ships, which the extension
   loads, shows Strings, arrays, Maps, nullables, and Classes as their values, not their bytes.
 
