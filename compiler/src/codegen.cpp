@@ -2,6 +2,7 @@
 
 #include "fb/build_config.hpp"
 #include "fb/c_abi.hpp"
+#include "fb/toolchain.hpp"
 #include "fb/trace.hpp"
 
 #include <algorithm>
@@ -2560,9 +2561,7 @@ private:
     [[nodiscard]] std::string folder_of(const source_file_t& file) const {
         const std::string path = path_of(m_options, file);
         if (path.starts_with("std/")) {
-            return std::filesystem::path(std::string(build_config::std_directory))
-                .parent_path()
-                .generic_string();
+            return toolchain().std.parent_path().generic_string();
         }
 
         std::string folder = m_options.folder;
