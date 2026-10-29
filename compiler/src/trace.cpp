@@ -52,8 +52,16 @@ std::string_view section_of(const format_t format) {
     return "__TEXT,__fb_trace,regular,no_dead_strip";
 }
 
-/// A marker's entry: where the code after it is, from the entry, and its frame's index.
+/// A marker's entry: where the code after it is, from the entry, and its frame's index. On
+/// Mach-O the entry is a symbol of its own, unique to the marker, as x86-64's linkers take a
+/// difference's subtrahend only by its symbol, not by its section.
 std::string marker(const format_t format, const std::uint32_t frame) {
+    if (format == format_t::MACHO) {
+        return std::format(".pushsection {}\nfb_trace_entry${{:uid}}:\n"
+                           ".long 0f - fb_trace_entry${{:uid}}\n.long {}\n.popsection\n0:",
+                           section_of(format), static_cast<std::int32_t>(frame));
+    }
+
     return std::format(".pushsection {}\n.long 0f - .\n.long {}\n.popsection\n0:",
                        section_of(format), static_cast<std::int32_t>(frame));
 }

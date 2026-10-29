@@ -2,7 +2,10 @@
 #include "fb/driver.hpp"
 #include "fb/lower.hpp"
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
+#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <format>
@@ -33,6 +36,68 @@ std::string ir_of(const std::string_view text, const fb::build_mode_t mode,
     return fb::emit_ir(module, compilation.sources, compilation.file,
                        { .mode = mode, .target_triple = std::string(triple) })
         .value_or("");
+}
+
+/// A little-endian number at `at` in `bytes`, or 0 past their end.
+std::uint64_t number_at(const std::string& bytes, const std::uint64_t at, const std::size_t size) {
+    if (at > bytes.size() || bytes.size() - at < size) {
+        return 0;
+    }
+
+    std::uint64_t value = 0;
+    for (std::size_t i = size; i-- > 0;) {
+        value = (value << 8U) | static_cast<unsigned char>(bytes[at + i]);
+    }
+
+    return value;
+}
+
+/// A Mach-O relocation's type, and whether it names a symbol rather than a section.
+struct relocation_t {
+    std::uint32_t type = 0;
+    bool external = false;
+};
+
+/// The relocations of a 64-bit Mach-O object's __fb_trace section.
+std::vector<relocation_t> trace_relocations(const std::string& bytes) {
+    std::vector<relocation_t> relocations;
+    if (number_at(bytes, 0, 4) != 0xFEEDFACF) {
+        return relocations;
+    }
+
+    // Each LC_SEGMENT_64 (0x19) has its sections after its 72 bytes, 80 bytes each, named in
+    // their first 16 and with their relocations' place and count 56 bytes in.
+    std::uint64_t command = 32;
+    for (std::uint64_t i = 0; i < number_at(bytes, 16, 4); ++i) {
+        const std::uint64_t size = number_at(bytes, command + 4, 4);
+        if (size == 0) {
+            break;
+        }
+
+        if (number_at(bytes, command, 4) == 0x19) {
+            for (std::uint64_t j = 0; j < number_at(bytes, command + 64, 4); ++j) {
+                const std::uint64_t section = command + 72 + (j * 80);
+                if (bytes.compare(section, 10, "__fb_trace") != 0) {
+                    continue;
+                }
+
+                // Each is 8 bytes: an address, then a symbol's or section's number in the low
+                // 24 bits, the extern bit at 27, and the type in the top 4.
+                const std::uint64_t first = number_at(bytes, section + 56, 4);
+                for (std::uint64_t k = 0; k < number_at(bytes, section + 60, 4); ++k) {
+                    const std::uint64_t info = number_at(bytes, first + (k * 8) + 4, 4);
+                    relocations.push_back({
+                        .type = static_cast<std::uint32_t>(info >> 28U),
+                        .external = ((info >> 27U) & 1U) != 0,
+                    });
+                }
+            }
+        }
+
+        command += size;
+    }
+
+    return relocations;
 }
 
 } // namespace
@@ -247,6 +312,16 @@ TEST_CASE("each target's object files have the stack trace table's markers", "[c
             CHECK(bytes.contains(runs));
             if (runs == ".init_array") {
                 CHECK_FALSE(bytes.contains(".ctors"));
+            }
+
+            // Apple's x86-64 linkers take a difference's subtrahend only by its symbol.
+            if (triple.contains("apple")) {
+                const std::vector<relocation_t> relocations = trace_relocations(bytes);
+                const std::uint32_t subtractor = triple.starts_with("x86_64") ? 5 : 1;
+                CHECK(std::ranges::count(relocations, subtractor, &relocation_t::type) > 0);
+                for (const relocation_t& relocation : relocations) {
+                    CHECK((relocation.type != subtractor || relocation.external));
+                }
             }
         }
     }
