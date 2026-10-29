@@ -41,13 +41,17 @@ execute_process(COMMAND ${CMAKE_CXX_COMPILER} -dumpmachine
 include(${PROJECT_SOURCE_DIR}/cmake/toolchain.cmake)
 
 # The oldest macOS a program runs on: the runtime's, which without a deployment target is the
-# one its Darwin version stands for (Darwin 24 is macOS 15).
+# one its Darwin version stands for, as LLVM reads the target (Darwin 24.6 is macOS 15.6).
 set(FB_MACOS_MINIMUM "")
 if(APPLE)
   set(FB_MACOS_MINIMUM "${CMAKE_OSX_DEPLOYMENT_TARGET}")
-  if(NOT FB_MACOS_MINIMUM AND FB_TARGET_TRIPLE MATCHES "darwin([0-9]+)")
+  if(NOT FB_MACOS_MINIMUM AND FB_TARGET_TRIPLE MATCHES "darwin([0-9]+)(\\.([0-9]+))?")
     math(EXPR fb_macos_major "${CMAKE_MATCH_1} - 9")
-    set(FB_MACOS_MINIMUM "${fb_macos_major}.0")
+    set(fb_macos_minor "${CMAKE_MATCH_3}")
+    if(NOT fb_macos_minor)
+      set(fb_macos_minor 0)
+    endif()
+    set(FB_MACOS_MINIMUM "${fb_macos_major}.${fb_macos_minor}")
   endif()
 endif()
 
