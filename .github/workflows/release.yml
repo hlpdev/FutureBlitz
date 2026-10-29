@@ -1,3 +1,11 @@
+# Builds fb's release for each target, installs each on a fresh machine with its install script
+# and installer, and builds and runs `fb new`'s package there; for a pushed v<version> tag, makes a
+# draft GitHub Release of them, which is published by hand. docs/tooling.md's Releases says what
+# a release is.
+#
+# Linux: fb is built on Ubuntu 22.04, which it then needs, with apt.llvm.org's LLVM linked in,
+# while the runtime and std's bundled libraries, and glibc 2.28's pieces that programs link, come
+# from a manylinux_2_28 container (AlmaLinux 8), so the programs fb builds run on glibc 2.28.
 name: Release
 
 on:
@@ -7,70 +15,410 @@ on:
     # For now only: a run registers the workflow, which can then be dispatched on this branch.
     branches: [m8-release]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LLVM_VERSION: 22.1.8
+
 jobs:
-  probe:
-    name: probe ${{ matrix.os }}
+  # What Linux programs link, against glibc 2.28: lib/linux-<arch>/, with glibc's and the
+  # kernel's headers in its include/, for fb-bindgen.
+  runtime:
+    name: runtime ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    container: quay.io/pypa/manylinux_2_28_${{ matrix.arch }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-22.04-arm, macos-15, macos-15-intel]
+        include:
+          - target: linux-x64
+            os: ubuntu-22.04
+            arch: x86_64
+          - target: linux-arm64
+            os: ubuntu-22.04-arm
+            arch: aarch64
     steps:
-      - name: Linux
+      - uses: actions/checkout@v4
+
+      - name: Gather glibc's and the kernel's headers
+        run: |
+          mkdir headers
+          rpm -ql glibc-headers kernel-headers | grep '^/usr/include/' | while read -r file; do
+            if [ -f "$file" ]; then cp --parents "$file" headers/; fi
+          done
+
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFB_RUNTIME_ONLY=ON \
+            -DFB_C_HEADERS="$GITHUB_WORKSPACE/headers/usr/include"
+          cmake --build build -j "$(nproc)"
+          cmake --install build --prefix out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ matrix.target }}
+          path: out/lib/${{ matrix.target }}
+          if-no-files-found: error
+
+  build:
+    name: build ${{ matrix.target }}
+    needs: runtime
+    if: ${{ !cancelled() }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x64
+            os: windows-2025
+            shell: msys2 {0}
+          - target: linux-x64
+            os: ubuntu-22.04
+            shell: bash
+          - target: linux-arm64
+            os: ubuntu-22.04-arm
+            shell: bash
+          - target: macos-arm64
+            os: macos-15
+            shell: bash
+          - target: macos-x64
+            os: macos-15-intel
+            shell: bash
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        shell: bash
+        run: |
+          version="$(sed -n 's/^project(FutureBlitz VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "RELEASE=futureblitz-$version-${{ matrix.target }}" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/v* && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::The tag $GITHUB_REF_NAME isn't CMakeLists.txt's version, $version"
+            exit 1
+          fi
+
+      # Windows: MinGW's GCC from MSYS2, and the official LLVM installer, as ci.yml has them.
+      - name: Install MinGW
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          path-type: inherit
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$env:LLVM_VERSION/LLVM-$env:LLVM_VERSION-win64.exe"
+          Invoke-WebRequest $url -OutFile llvm.exe
+          Start-Process -Wait -FilePath .\llvm.exe -ArgumentList '/S', '/D=C:\LLVM'
+          C:\LLVM\bin\clang.exe --version
+          "FB_CONFIGURE=-DFB_LLVM_ROOT=C:/LLVM" >> $env:GITHUB_ENV
+
+      # MinGW-w64's own headers and winpthreads', for fb-bindgen, not the other packages'.
+      - name: Gather MinGW's headers
+        if: runner.os == 'Windows'
+        run: |
+          for header in /mingw64/include/_mingw.h /mingw64/include/pthread.h; do
+            pacman -Qlq "$(pacman -Qoq "$header")"
+          done | grep '^/mingw64/include/.*[^/]$' | while read -r file; do
+            mkdir -p "headers/$(dirname "${file#/mingw64/include/}")"
+            cp "$file" "headers/${file#/mingw64/include/}"
+          done
+          echo "FB_CONFIGURE=$FB_CONFIGURE -DFB_C_HEADERS=$(cygpath -m "$PWD/headers")" >> "$GITHUB_ENV"
+
+      # Linux: GCC 14, from the toolchain PPA, and LLVM's static libraries, from apt.llvm.org.
+      - name: Install the toolchain (Linux)
         if: runner.os == 'Linux'
         run: |
-          set -x
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          apt-cache policy g++-14 g++-13 | head -20
+          sudo apt-get install -y ninja-build g++-14 patchelf
           wget -q https://apt.llvm.org/llvm.sh
           sudo bash llvm.sh 22
-          sudo apt-get install -y llvm-22-dev libclang-22-dev lld-22 liblld-22-dev libpolly-22-dev
-          ldd /usr/lib/llvm-22/bin/lld || true
-          ls -la /usr/lib/llvm-22/bin/lld /usr/lib/llvm-22/bin/ld.lld || true
-          ls /usr/lib/llvm-22/lib/ | grep -i -E "lld|clang\.|libclang-|LLVM\.|LLVM-" || true
-          ldd /usr/lib/llvm-22/lib/libclang.so.1 || ldd /usr/lib/llvm-22/lib/libclang.so || true
-          ls -la /usr/lib/llvm-22/lib/libclang* | head
-          ls /usr/lib/llvm-22/lib/libLLVM*.a | wc -l
-          grep -A4 "set_target_properties(LLVMSupport PROPERTIES" /usr/lib/llvm-22/lib/cmake/llvm/LLVMExports.cmake || true
-          grep -n "LLVM_LINK_LLVM_DYLIB\|LLVM_ENABLE_ZSTD\|LLVM_ENABLE_LIBXML2\|LLVM_ENABLE_ZLIB" /usr/lib/llvm-22/lib/cmake/llvm/LLVMConfig.cmake || true
-          ls /usr/lib/llvm-22/lib/cmake/ || true
-          ls /usr/lib/llvm-22/lib/clang/*/ || true
-          objdump -p /usr/lib/llvm-22/lib/libclang.so.1 | grep -i -E "rpath|runpath|soname" || true
-          objdump -p /usr/lib/llvm-22/bin/lld | grep -i -E "rpath|runpath|needed" || true
-      - name: Official LLVM Linux tarball
+          sudo apt-get install -y llvm-22-dev libclang-22-dev lld-22 libpolly-22-dev
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
+          echo "FB_CONFIGURE=-DLLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm -DFB_LLVM_STATIC=ON -DFB_TOOLCHAIN_PREBUILT=$GITHUB_WORKSPACE/runtime" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v4
         if: runner.os == 'Linux'
-        run: |
-          set -x
-          arch=X64; [ "$(uname -m)" = aarch64 ] && arch=ARM64
-          curl -sfL -o llvm.tar.xz "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-Linux-$arch.tar.xz" || { echo no tarball; exit 0; }
-          ls -la llvm.tar.xz
-          tar -xf llvm.tar.xz --wildcards '*/bin/lld' '*/lib/libclang.so*' '*/lib/libLLVM*.so*' || tar -tf llvm.tar.xz | grep -E "bin/lld$|libclang|libLLVM" | head
-          find . -path "*/bin/lld" -exec ldd {} \; -exec ls -la {} \;
-          find . -name "libclang.so*" -exec ls -la {} \; -exec ldd {} \;
-      - name: manylinux
-        if: runner.os == 'Linux'
-        run: |
-          image=quay.io/pypa/manylinux_2_28_x86_64; [ "$(uname -m)" = aarch64 ] && image=quay.io/pypa/manylinux_2_28_aarch64
-          docker run --rm $image bash -c 'set -x; gcc --version; which gcc; g++ -print-file-name=libstdc++.a; file $(g++ -print-file-name=libstdc++.a); head -c 300 $(g++ -print-file-name=libstdc++.a) | od -c | head -3; g++ -print-file-name=libstdc++.so; cat $(g++ -print-file-name=libstdc++.so) | head -5; g++ -print-file-name=libgcc_eh.a; g++ -print-file-name=Scrt1.o; g++ -print-file-name=crtbeginS.o; cmake --version; ninja --version; git --version; ldd --version | head -1; rpm -ql glibc-headers kernel-headers | grep ^/usr/include | wc -l; rpm -ql glibc-headers | head -3; ls /opt/rh; echo "int main(){}" > a.cpp; g++ -static-libstdc++ -static-libgcc a.cpp -o a && ldd a; echo "#include <string>\n#include <format>\nint main(){std::string s = std::format(\"{}\",1);}" > b.cpp; g++ -std=c++23 b.cpp -o b && ./b && echo cxx23ok; dnf list installed | grep -i -E "glibc|kernel-headers|gcc-toolset" | head -20'
-      - name: macOS
+        with:
+          name: runtime-${{ matrix.target }}
+          path: runtime
+
+      # macOS: Apple's Clang and Homebrew's LLVM, whose shared libraries go in the release.
+      - name: Install the toolchain (macOS)
         if: runner.os == 'macOS'
         run: |
-          set -x
-          sw_vers; uname -m
-          brew install llvm@22 lld@22 || brew install llvm lld
-          llvm="$(brew --prefix llvm@22 2>/dev/null || brew --prefix llvm)"
-          lld="$(brew --prefix lld@22 2>/dev/null || brew --prefix lld)"
-          ls -la "$lld/bin" "$lld/lib" | head -40
-          otool -L "$lld/bin/lld" || true
-          otool -l "$lld/bin/lld" | grep -A2 LC_RPATH || true
-          otool -L "$llvm/lib/libclang.dylib"
-          otool -L "$llvm/lib/libLLVM.dylib" || true
-          ls "$llvm/lib" | grep -E "\.a$" | wc -l
-          ls "$llvm/lib" | grep -i -E "clang\.a|libclang\." || true
-          grep -A4 "set_target_properties(LLVMSupport PROPERTIES" "$llvm/lib/cmake/llvm/LLVMExports.cmake" || true
-          grep -n "LLVM_LINK_LLVM_DYLIB\|LLVM_ENABLE_ZSTD\|LLVM_ENABLE_LIBXML2" "$llvm/lib/cmake/llvm/LLVMConfig.cmake" || true
-          ls "$llvm/lib/clang/"*/ || true
-          xcrun --show-sdk-path
-          curl -sfI "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-macOS-ARM64.tar.xz" | head -1 || echo no-arm-tarball
-          curl -sfI "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-macOS-X64.tar.xz" | head -1 || echo no-x64-tarball
+          brew install ninja llvm@22 lld@22
+          prefix="$(brew --prefix llvm@22)"
+          echo "FB_CONFIGURE=-DLLVM_DIR=$prefix/lib/cmake/llvm" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DFB_BUILD_TESTS=OFF $FB_CONFIGURE
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Install
+        run: |
+          cmake --install build --prefix "stage/$RELEASE"
+          ls -la "stage/$RELEASE/bin"
+
+      - name: Archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Push-Location stage
+          7z a -tzip -mx=9 "../dist/$env:RELEASE.zip" $env:RELEASE | Out-Null
+          Pop-Location
+          dotnet tool install --global wix --version 5.0.2
+          wix build tools/install/futureblitz.wxs -arch x64 -d "Version=$env:VERSION" `
+            -d "Release=$PWD\stage\$env:RELEASE" -o "dist/$env:RELEASE.msi"
+
+      - name: Archive
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          tar -C stage -czf "dist/$RELEASE.tar.gz" "$RELEASE"
+
+      - name: Installer (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          pkgbuild --root "stage/$RELEASE" --install-location /usr/local/futureblitz \
+            --identifier dev.futureblitz.fb --version "$VERSION" \
+            --scripts tools/install/macos "dist/$RELEASE.pkg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist
+          compression-level: 0
+          if-no-files-found: error
+
+  # A fresh machine, with no C++ compiler: the Windows and macOS runners as they come, but for
+  # what's on PATH, and a plain ubuntu:22.04 container.
+  test:
+    name: test ${{ matrix.target }}
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x64
+            os: windows-2025
+          - target: linux-x64
+            os: ubuntu-22.04
+            container: ubuntu:22.04
+          - target: linux-arm64
+            os: ubuntu-22.04-arm
+            container: ubuntu:22.04
+          - target: macos-arm64
+            os: macos-15
+          - target: macos-x64
+            os: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist
+
+      - name: Install with install.ps1, and run fb new's package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Only Windows' own folders on PATH, so nothing else is found.
+          $env:Path = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+          $archive = (Get-ChildItem dist\*.zip).FullName
+          & .\tools\install\install.ps1 -Archive $archive
+          if (-not (Get-Command fb -ErrorAction SilentlyContinue)) { throw "fb isn't on PATH" }
+          $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if (-not $user.Contains("$env:USERPROFILE\.futureblitz\bin")) { throw "the user's PATH is $user" }
+          fb --version
+          Set-Location $env:RUNNER_TEMP
+          fb new hello
+          if ($LASTEXITCODE -ne 0) { throw "fb new failed" }
+          Set-Location hello
+          $out = fb run
+          if ($LASTEXITCODE -ne 0 -or $out -ne 'Hello, world!') { throw "fb run printed '$out'" }
+          # Again, an update over the release that's there.
+          & "$env:GITHUB_WORKSPACE\tools\install\install.ps1" -Archive $archive
+          fb run
+
+      - name: Install with the MSI, and run fb new's package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # As though install.ps1 hadn't run.
+          $bin = "$env:USERPROFILE\.futureblitz\bin"
+          Remove-Item -Recurse -Force "$env:USERPROFILE\.futureblitz"
+          $user = ([Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ -and $_ -ne $bin }) -join ';'
+          [Environment]::SetEnvironmentVariable('Path', $user, 'User')
+          $msi = (Get-ChildItem dist\*.msi).FullName
+          $log = "$env:RUNNER_TEMP\msi.log"
+          Start-Process msiexec.exe -Wait -ArgumentList '/i', "`"$msi`"", '/qn', '/l*v', "`"$log`""
+          $fb = "$env:USERPROFILE\.futureblitz\bin\fb.exe"
+          if (-not (Test-Path $fb)) { Get-Content $log -Tail 50; throw "the MSI didn't install fb" }
+          $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if (-not $user.Contains("$env:USERPROFILE\.futureblitz\bin")) { throw "the user's PATH is $user" }
+          $env:Path = "$env:SystemRoot\System32;$env:SystemRoot"
+          Set-Location $env:RUNNER_TEMP
+          Remove-Item -Recurse -Force hello
+          & $fb new hello
+          Set-Location hello
+          $out = & $fb run
+          if ($LASTEXITCODE -ne 0 -or $out -ne 'Hello, world!') { throw "fb run printed '$out'" }
+          Set-Location $env:RUNNER_TEMP
+          Start-Process msiexec.exe -Wait -ArgumentList '/x', "`"$msi`"", '/qn'
+          if (Test-Path $fb) { throw "the MSI didn't uninstall fb" }
+          $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if ($user -and $user.Contains($bin)) { throw "the MSI left $bin on the user's PATH" }
+
+      - name: Install with install.sh, and run fb new's package
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -eux
+          # A fresh machine: no C++ compiler, or linker, but fb's own.
+          if [ "$RUNNER_OS" = Linux ] && { command -v cc || command -v c++ || command -v ld; }; then
+            echo "::error::The container has a C++ compiler or a linker"
+            exit 1
+          fi
+          export SHELL=/bin/bash
+          sh tools/install/install.sh --archive "$(ls "$PWD"/dist/*.tar.gz)"
+          # A new login shell has fb on PATH, from the shell's startup file.
+          bash -lc 'command -v fb && fb --version'
+          cd "$RUNNER_TEMP"
+          bash -lc 'fb new hello'
+          test "$(cd hello && bash -lc 'fb run')" = "Hello, world!"
+          # Again, an update over the release that's there.
+          sh "$GITHUB_WORKSPACE/tools/install/install.sh" --archive "$(ls "$GITHUB_WORKSPACE"/dist/*.tar.gz)"
+          test "$(cd hello && bash -lc 'fb run')" = "Hello, world!"
+
+      # fb's binaries load only the system's libraries, and their own beside them.
+      - name: What the binaries load
+        if: runner.os == 'macOS'
+        run: |
+          for binary in ~/.futureblitz/bin/*; do
+            otool -L "$binary"
+            if otool -L "$binary" | tail -n +2 | grep -v -E '^\s+(@rpath/|/usr/lib/|/System/Library/)'; then
+              echo "::error::$binary loads a library from outside the system and its folder"
+              exit 1
+            fi
+          done
+
+      - name: Install with the .pkg, and run fb new's package
+        if: runner.os == 'macOS'
+        run: |
+          set -eux
+          # As though install.sh hadn't run.
+          rm -rf ~/.futureblitz
+          sudo installer -pkg "$(ls dist/*.pkg)" -target /
+          test "$(cat /etc/paths.d/futureblitz)" = /usr/local/futureblitz/bin
+          # path_helper, in a login shell, puts it on PATH.
+          test "$(env -i HOME="$HOME" PATH=/usr/bin:/bin /bin/bash -lc 'command -v fb')" = /usr/local/futureblitz/bin/fb
+          test "$(cd "$RUNNER_TEMP/hello" && env -i HOME="$HOME" PATH=/usr/bin:/bin /bin/bash -lc 'fb run')" = "Hello, world!"
+
+      # A program fb builds runs on glibc 2.28: one that uses the runtime's I/O thread, files,
+      # and threads, built here and run in AlmaLinux 8 next.
+      - name: Build a program for glibc 2.28
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -eux
+          mkdir -p "$RUNNER_TEMP/old/out"
+          cat > "$RUNNER_TEMP/old/main.fb" <<'EOF'
+          Import std.core
+          Import std.io
+
+          Try File.WriteText(Path("old.txt"), "glibc 2.28")
+          Print(Try File.ReadText(Path("old.txt")))
+          EOF
+          bash -lc "fb build '$RUNNER_TEMP/old/main.fb' -o '$RUNNER_TEMP/old/out/old'"
+          cp "$RUNNER_TEMP/old/out/old" old
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: old-${{ matrix.target }}
+          path: old
+          if-no-files-found: error
+
+  glibc:
+    name: glibc 2.28 ${{ matrix.target }}
+    needs: test
+    if: ${{ !cancelled() }}
+    runs-on: ${{ matrix.os }}
+    container: almalinux:8
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-22.04
+          - target: linux-arm64
+            os: ubuntu-22.04-arm
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: old-${{ matrix.target }}
+
+      - name: Run it
+        run: |
+          set -eux
+          ldd --version | head -n 1
+          chmod +x old
+          test "$(./old)" = "glibc 2.28"
+
+  # A draft, for a pushed tag only, which is published by hand.
+  release:
+    name: draft release
+    needs: [build, test, glibc]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp tools/install/install.sh tools/install/install.ps1 dist/
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "FutureBlitz ${GITHUB_REF_NAME#v}" \
+            --notes "FutureBlitz ${GITHUB_REF_NAME#v}. See the README's Installing." dist/*
