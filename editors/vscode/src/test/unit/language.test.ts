@@ -50,6 +50,11 @@ describe("indentation", () => {
             "Operator +(a: Money, b: Money): Money",
             "Spawn(Function()",
             "Local double = items.Map(Function(x: Int): Int",
+            "OnOpen = Function[Weak Self]()",
+            // A Then or => in a comment or a string isn't the line's.
+            "If ready // Then go",
+            'If name == "Then"',
+            "Function Foo() // => comment",
         ]) {
             assert.ok(increase.test(line), line);
         }
@@ -73,6 +78,10 @@ describe("indentation", () => {
             "Try Save(path)",
             "Default(x)",
             "Ifs += 1",
+            // A call to a Method named Set, which an accessor's one parameter can't be told from.
+            '        Set(key, "{value}")',
+            "Set(a, b)",
+            'Print("Function(")',
         ]) {
             assert.ok(!increase.test(line), line);
         }
@@ -86,6 +95,15 @@ describe("indentation", () => {
         for (const line of ["Ending = 1", "Cases.Add(x)", "Local x = 0 Until 10", "Defaults<T>()"]) {
             assert.ok(!decrease.test(line), line);
         }
+    });
+
+    test("a number is one word, as the lexer reads it", () => {
+        const word = new RegExp(configuration.wordPattern, "g");
+        for (const literal of ["0xFF_00", "1.5e-3", "0b1010", "0o755", "1_000", "x1"]) {
+            assert.deepEqual(literal.match(word), [literal]);
+        }
+
+        assert.deepEqual("2.Seconds".match(word), ["2", "Seconds"]);
     });
 
     // VS Code's rules see a line at a time, so some lines miss: a Select's first Case, which goes a
@@ -143,28 +161,46 @@ describe("snippets", () => {
         fs.readFileSync(path.join(EXTENSION, "snippets", "futureblitz.json"), "utf8"),
     );
 
-    // A snippet's text, with each placeholder's first choice or default, and tabs as 4 spaces.
+    // A snippet's text, with each placeholder's first choice or default, a tab stop that repeats
+    // one with what it holds, and tabs as 4 spaces.
     function expand(body: string[]): string {
         let text = body.join("\n").replaceAll("\t", "    ");
+        const values = new Map<string, string>();
         let before = "";
         while (before !== text) {
             before = text;
             text = text
-                .replace(/\$\{\d+\|([^,|}]*)[^}]*\|\}/g, "$1")
-                .replace(/\$\{\d+:([^${}]*)\}/g, "$1")
-                .replace(/\$\{\d+\}/g, "")
-                .replace(/\$\d+/g, "");
+                .replace(/\$\{(\d+)\|([^,|}]*)[^}]*\|\}/g, (_, stop: string, value: string) => {
+                    values.set(stop, value);
+                    return value;
+                })
+                .replace(/\$\{(\d+):([^${}]*)\}/g, (_, stop: string, value: string) => {
+                    values.set(stop, value);
+                    return value;
+                });
         }
 
-        return text;
+        return text.replace(/\$\{\d+\}/g, "").replace(/\$(\d+)/g, (_, stop: string) => values.get(stop) ?? "");
     }
 
     test("expand as written", () => {
         assert.equal(expand(snippets["For To"].body), "For i = 0 Until count\n    \nEnd For");
         assert.equal(expand(snippets["Function"].body), "Function Name(): Int\n    \nEnd Function");
+        assert.equal(expand(snippets["Operator"].body).split("\n")[0], "Operator +(a: Name, b: Name): Name");
     });
 
     const fb = testFb();
+
+    // Its defaults compile in the type they're written in, as the description says they're for.
+    test("the Operator's defaults compile in a Struct", { skip: fb === undefined ? "no fb: set FUTUREBLITZ_FB" : false }, () => {
+        const folder = scratch("operator");
+        const file = path.join(folder, "operator.fb");
+        const operator = expand(snippets["Operator"].body).replace(/^/gm, "    ");
+        fs.writeFileSync(file, `Import std.core\n\nStruct Name\n    Field V: Int\n\n${operator}\nEnd Struct\n`);
+        const result = spawnSync(fb as string, ["check", "--color", "never", file], { encoding: "utf8" });
+        fs.rmSync(folder, { recursive: true, force: true });
+        assert.equal(result.status, 0, result.stdout + result.stderr);
+    });
     test("fb reads each", { skip: fb === undefined ? "no fb: set FUTUREBLITZ_FB" : false }, () => {
         const folder = scratch("snippets");
         const inClass = new Set(["Method", "Property", "Operator"]);

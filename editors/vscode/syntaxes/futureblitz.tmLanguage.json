@@ -38,6 +38,9 @@
           "include": "#inheritance"
         },
         {
+          "include": "#attribute-declaration"
+        },
+        {
           "include": "#function-declaration"
         },
         {
@@ -90,6 +93,9 @@
           "include": "#cast"
         },
         {
+          "include": "#range"
+        },
+        {
           "include": "#keywords"
         },
         {
@@ -109,6 +115,12 @@
         },
         {
           "include": "#constant"
+        },
+        {
+          "include": "#ternary-continued"
+        },
+        {
+          "include": "#ternary"
         },
         {
           "include": "#operators"
@@ -310,33 +322,12 @@
       }
     },
     "accessor": {
-      "patterns": [
-        {
-          "match": "^\\s*(Set)\\s*(\\()\\s*([A-Za-z_]\\w*)\\s*(\\))",
-          "captures": {
-            "1": {
-              "name": "storage.type.function.accessor.futureblitz"
-            },
-            "2": {
-              "name": "punctuation.definition.parameters.begin.futureblitz"
-            },
-            "3": {
-              "name": "variable.parameter.futureblitz"
-            },
-            "4": {
-              "name": "punctuation.definition.parameters.end.futureblitz"
-            }
-          }
-        },
-        {
-          "match": "^\\s*(Get|Set)\\b(?=\\s*(?:=>|$|//))",
-          "captures": {
-            "1": {
-              "name": "storage.type.function.accessor.futureblitz"
-            }
-          }
+      "match": "^\\s*(Get)\\b(?=\\s*(?:=>|$|//))",
+      "captures": {
+        "1": {
+          "name": "storage.type.function.accessor.futureblitz"
         }
-      ]
+      }
     },
     "where": {
       "patterns": [
@@ -440,6 +431,26 @@
       },
       "end": "$",
       "patterns": [
+        {
+          "name": "meta.type.parameters.futureblitz",
+          "begin": "\\G\\s*(<)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.typeparameters.begin.futureblitz"
+            }
+          },
+          "end": ">|$",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.typeparameters.end.futureblitz"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#type"
+            }
+          ]
+        },
         {
           "include": "#signature"
         }
@@ -571,6 +582,9 @@
           }
         },
         {
+          "include": "#groups"
+        },
+        {
           "include": "#expression"
         }
       ]
@@ -607,7 +621,7 @@
     },
     "lambda": {
       "name": "meta.function.lambda.futureblitz",
-      "begin": "\\b(Function)(?:\\s*(\\[)([^\\]]*)(\\]))?\\s*(\\()",
+      "begin": "\\b(Function)(?:\\s*(\\[)([^\\]]*)(\\]))?\\s*(?=\\()",
       "beginCaptures": {
         "1": {
           "name": "storage.type.function.futureblitz"
@@ -634,30 +648,15 @@
         },
         "4": {
           "name": "punctuation.definition.captures.end.futureblitz"
-        },
-        "5": {
-          "name": "punctuation.definition.parameters.begin.futureblitz"
         }
       },
-      "end": "(\\))(?:(:)\\s+((?:[A-Za-z_]\\w*\\.)*[A-Za-z_]\\w*(?:<[^<>]*(?:<[^<>]*>[^<>]*)*>)?\\??(?:\\[\\])*\\??))?",
-      "endCaptures": {
-        "1": {
-          "name": "punctuation.definition.parameters.end.futureblitz"
-        },
-        "2": {
-          "name": "punctuation.separator.type.futureblitz"
-        },
-        "3": {
-          "patterns": [
-            {
-              "include": "#type"
-            }
-          ]
-        }
-      },
+      "end": "(?<=\\))(?!:\\s)|(?=\\s*(?:=>|$|//|/\\*|[,)\\]}]))",
       "patterns": [
         {
-          "include": "#parameter-list"
+          "include": "#parameters"
+        },
+        {
+          "include": "#return-type"
         }
       ]
     },
@@ -770,13 +769,47 @@
           "name": "variable.other.property.futureblitz"
         }
       },
-      "end": "$|(?=//|/\\*)",
+      "end": "^\\s*(End\\s+Property)\\b|(?=^\\s*(?:@[A-Za-z_][\\w.]*(?:\\([^)]*\\))?\\s+)*(?:(?:Public|Private|Protected|Package|Static|Abstract|Override|Final|ReadOnly|Async|Shared|ByRef|Unsafe)\\s+)*(?:Method|Function|Field|Property|Operator|New|Class|Struct|Interface|Enum|Extend|Alias|End\\s+(?:Class|Struct|Interface|Extend))\\b)",
+      "endCaptures": {
+        "1": {
+          "name": "keyword.control.end.futureblitz"
+        }
+      },
       "patterns": [
         {
-          "include": "#type-annotation"
+          "begin": "\\G",
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#type-annotation"
+            },
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#expression"
+            }
+          ]
         },
         {
-          "include": "#expression"
+          "match": "^\\s*(Set)\\s*(\\()\\s*([A-Za-z_]\\w*)\\s*(\\))",
+          "captures": {
+            "1": {
+              "name": "storage.type.function.accessor.futureblitz"
+            },
+            "2": {
+              "name": "punctuation.definition.parameters.begin.futureblitz"
+            },
+            "3": {
+              "name": "variable.parameter.futureblitz"
+            },
+            "4": {
+              "name": "punctuation.definition.parameters.end.futureblitz"
+            }
+          }
+        },
+        {
+          "include": "#statements"
         }
       ]
     },
@@ -983,13 +1016,13 @@
     },
     "type-arguments": {
       "name": "meta.type.parameters.futureblitz",
-      "begin": "(?<=\\w)(<)(?![<=])(?=(?:[\\w\\s,.?:\\[\\]()+\\-*&]|<(?:[\\w\\s,.?:\\[\\]()+\\-*&]|<[\\w\\s,.?:\\[\\]()+\\-*&]*>)*>)*>)",
+      "begin": "(?<=\\w)(<)(?![<=])(?=(?:[\\w\\s,.?:\\[\\]()+\\-*]|&(?!&)|<(?:[\\w\\s,.?:\\[\\]()+\\-*]|&(?!&)|<(?:[\\w\\s,.?:\\[\\]()+\\-*]|&(?!&))*>)*>)*>)",
       "beginCaptures": {
         "1": {
           "name": "punctuation.definition.typeparameters.begin.futureblitz"
         }
       },
-      "end": ">",
+      "end": ">|$",
       "endCaptures": {
         "0": {
           "name": "punctuation.definition.typeparameters.end.futureblitz"
@@ -1002,7 +1035,7 @@
       ]
     },
     "generic-name": {
-      "match": "\\b([A-Za-z_]\\w*)(?=<(?![<=])(?:[\\w\\s,.?:\\[\\]()+\\-*&]|<(?:[\\w\\s,.?:\\[\\]()+\\-*&]|<[\\w\\s,.?:\\[\\]()+\\-*&]*>)*>)*>)",
+      "match": "\\b([A-Za-z_]\\w*)(?=<(?![<=])(?:[\\w\\s,.?:\\[\\]()+\\-*]|&(?!&)|<(?:[\\w\\s,.?:\\[\\]()+\\-*]|&(?!&)|<(?:[\\w\\s,.?:\\[\\]()+\\-*]|&(?!&))*>)*>)*>)",
       "captures": {
         "1": {
           "name": "entity.name.type.futureblitz"
@@ -1030,6 +1063,29 @@
     "keywords": {
       "patterns": [
         {
+          "match": "\\b(For)\\s+(?:(Static)\\s+)?(Method|Field|Property)\\s+([A-Za-z_]\\w*)(?:(:)\\s*([A-Za-z_]\\w*))?",
+          "captures": {
+            "1": {
+              "name": "keyword.control.loop.futureblitz"
+            },
+            "2": {
+              "name": "storage.modifier.futureblitz"
+            },
+            "3": {
+              "name": "storage.type.futureblitz"
+            },
+            "4": {
+              "name": "variable.other.readwrite.futureblitz"
+            },
+            "5": {
+              "name": "punctuation.separator.type.futureblitz"
+            },
+            "6": {
+              "name": "entity.name.type.futureblitz"
+            }
+          }
+        },
+        {
           "name": "keyword.control.end.futureblitz",
           "match": "\\bEnd\\s+(?:If|For|While|Loop|Select|Function|Method|New|Class|Struct|Interface|Enum|Try|Lock|Unsafe|Extern|Extend|Property|Operator|Get|Set)\\b"
         },
@@ -1051,10 +1107,6 @@
         {
           "name": "keyword.control.loop.futureblitz",
           "match": "\\b(?:For|To|Until|In|While|Repeat|Loop|Parallel|Break|Continue)\\b"
-        },
-        {
-          "name": "keyword.control.loop.futureblitz",
-          "match": "(?<![.\\w])Step\\b(?!\\s*[(<.:=]|\\s*$)"
         },
         {
           "name": "keyword.control.trycatch.futureblitz",
@@ -1239,7 +1291,11 @@
         },
         {
           "name": "keyword.operator.ternary.futureblitz",
-          "match": "\\?|:"
+          "match": "\\?"
+        },
+        {
+          "name": "punctuation.separator.key-value.futureblitz",
+          "match": ":"
         }
       ]
     },
@@ -1600,6 +1656,126 @@
         },
         "2": {
           "name": "constant.other.placeholder.futureblitz"
+        }
+      }
+    },
+    "groups": {
+      "patterns": [
+        {
+          "begin": "\\(",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.parenthesis.futureblitz"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.parenthesis.futureblitz"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#groups"
+            },
+            {
+              "include": "#expression"
+            }
+          ]
+        },
+        {
+          "begin": "\\[",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.brackets.futureblitz"
+            }
+          },
+          "end": "\\]",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.brackets.futureblitz"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#groups"
+            },
+            {
+              "include": "#expression"
+            }
+          ]
+        }
+      ]
+    },
+    "range": {
+      "begin": "\\b(To|Until)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.loop.futureblitz"
+        }
+      },
+      "end": "(?=$|//|/\\*|[)\\]},]|\\bThen\\b)",
+      "patterns": [
+        {
+          "name": "keyword.control.loop.futureblitz",
+          "match": "\\bStep\\b"
+        },
+        {
+          "include": "#groups"
+        },
+        {
+          "include": "#expression"
+        }
+      ]
+    },
+    "attribute-declaration": {
+      "name": "meta.attribute.declaration.futureblitz",
+      "begin": "^\\s*(?:(Public|Private|Package)\\s+)?(Attribute)\\s+([A-Za-z_]\\w*)",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.futureblitz"
+        },
+        "2": {
+          "name": "storage.type.futureblitz"
+        },
+        "3": {
+          "name": "entity.name.function.decorator.futureblitz"
+        }
+      },
+      "end": "$",
+      "patterns": [
+        {
+          "include": "#signature"
+        }
+      ]
+    },
+    "ternary": {
+      "begin": "(?<=\\s)(\\?)(?=\\s)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.operator.ternary.futureblitz"
+        }
+      },
+      "end": "(?<=\\s)(:)(?=\\s)|$",
+      "endCaptures": {
+        "1": {
+          "name": "keyword.operator.ternary.futureblitz"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#groups"
+        },
+        {
+          "include": "#expression"
+        }
+      ]
+    },
+    "ternary-continued": {
+      "match": "^\\s*(:)(?=\\s)",
+      "captures": {
+        "1": {
+          "name": "keyword.operator.ternary.futureblitz"
         }
       }
     }

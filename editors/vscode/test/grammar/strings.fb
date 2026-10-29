@@ -46,7 +46,7 @@ Print("{name ?? "nobody"} {items[0]:>5} {':'}")
 
 Print("{ {1: 2}.Count}")
 //        ^ constant.numeric.decimal.futureblitz
-//         ^ keyword.operator.ternary.futureblitz - punctuation.separator.format-spec
+//         ^ punctuation.separator.key-value.futureblitz - punctuation.separator.format-spec
 //              ^^^^^ variable.other.property.futureblitz
 //                   ^ punctuation.section.interpolation.end.futureblitz
 

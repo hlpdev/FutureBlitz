@@ -1,0 +1,124 @@
+// SYNTAX TEST "source.futureblitz" "what depends on what's around it: comparisons and type arguments, defaults, Set, Step, Attribute, lambdas' and Operators' types, and colons"
+
+Function Check(x: Int, y: Int, max: Int): Bool
+    If x<0 && (y>max) Then Return True
+//     ^ - entity.name.type
+//      ^ keyword.operator.comparison.futureblitz - meta.type.parameters
+//              ^ keyword.operator.comparison.futureblitz
+    If x<(y>max) Then Return True
+    Return False
+//  ^^^^^^ keyword.control.flow.futureblitz - meta.type.parameters
+//         ^^^^^ constant.language.boolean.futureblitz
+End Function
+// <------------ keyword.control.end.futureblitz - meta.type.parameters
+
+Function Place(scale: Int = Twice(3), offset: Int = (1 + 2) * 4, last: String = "x"): Int
+//                                 ^ meta.parameters.futureblitz punctuation.parenthesis.futureblitz - punctuation.definition.parameters.end
+//                                    ^^^^^^ meta.parameters.futureblitz variable.parameter.futureblitz
+//                                          ^ meta.parameters.futureblitz punctuation.separator.type.futureblitz
+//                                            ^^^ meta.parameters.futureblitz storage.type.primitive.futureblitz
+//                                                               ^^^^ meta.parameters.futureblitz variable.parameter.futureblitz
+//                                                                                 ^ punctuation.definition.parameters.end.futureblitz
+//                                                                                    ^^^ meta.type.return.futureblitz storage.type.primitive.futureblitz
+End Function
+Local pick = Function(at: Int = Max(1, 2), by: Int): (Int, Double)[] => Pair(at, by)
+//                                         ^^ meta.function.lambda.futureblitz variable.parameter.futureblitz
+//                                                    ^^^ meta.function.lambda.futureblitz meta.type.return.futureblitz meta.type.tuple.futureblitz storage.type.primitive.futureblitz
+//                                                         ^^^^^^ meta.type.tuple.futureblitz storage.type.primitive.futureblitz
+//                                                                   ^^ storage.type.function.arrow.futureblitz - meta.function.lambda
+//                                                                           ^^ - variable.parameter
+Local check = Function(f: Func(Int): Bool): Func(): Int => Make(f)
+//                                          ^^^^ meta.type.return.futureblitz storage.type.function.futureblitz
+Spawn(Function()
+    Work()
+End Function)
+// <------------ keyword.control.end.futureblitz - meta.function.lambda
+
+Class Box
+    Field V: Int
+
+    Method Set(value: Int)
+//         ^^^ entity.name.function.futureblitz
+        V = value
+    End Method
+
+    Method Reset()
+        Set(0)
+//      ^^^ entity.name.function.call.futureblitz - storage.type.function.accessor
+        Set(V)
+//      ^^^ entity.name.function.call.futureblitz - storage.type.function.accessor
+//          ^ - variable.parameter
+    End Method
+
+    Property Value: Int
+//           ^^^^^ meta.property.futureblitz variable.other.property.futureblitz
+//                  ^^^ meta.property.futureblitz storage.type.primitive.futureblitz
+        Get => V
+//      ^^^ storage.type.function.accessor.futureblitz
+        Set(value)
+//      ^^^ meta.property.futureblitz storage.type.function.accessor.futureblitz
+//          ^^^^^ variable.parameter.futureblitz
+            V = value
+        End Set
+    End Property
+//  ^^^^^^^^^^^^ meta.property.futureblitz keyword.control.end.futureblitz
+
+    ReadOnly Property Size: Int
+    Method After()
+//  ^^^^^^ storage.type.function.futureblitz - meta.property
+        Set(1)
+//      ^^^ entity.name.function.call.futureblitz - storage.type.function.accessor
+    End Method
+End Class
+
+Local Step = 3
+Local total = Step * 2 + Count(Step, 1)
+//            ^^^^ - keyword
+//                             ^^^^ - keyword
+For i = 0 Until items[n].Count Step 2
+//        ^^^^^ keyword.control.loop.futureblitz
+//                             ^^^^ keyword.control.loop.futureblitz
+Local odd = (1 To Last(xs) Step 2).Sum()
+//             ^^ keyword.control.loop.futureblitz
+//                         ^^^^ keyword.control.loop.futureblitz
+//                                 ^^^ entity.name.function.member.futureblitz
+Select n
+    Case 1 To 5, 7 Until 9
+//         ^^ keyword.control.loop.futureblitz
+//                 ^^^^^ keyword.control.loop.futureblitz
+End Select
+
+Public Attribute Range(Low: Int = 0, High: Int = 100)
+// <------ storage.modifier.futureblitz
+//     ^^^^^^^^^ storage.type.futureblitz
+//               ^^^^^ entity.name.function.decorator.futureblitz
+//                     ^^^ variable.parameter.futureblitz
+//                          ^^^ storage.type.primitive.futureblitz
+
+Struct Quantity<Const L: Int>
+    Operator *<Const L2: Int>(a: Quantity<L>, b: Quantity<L2>): Quantity<L + L2>
+//            ^ meta.type.parameters.futureblitz punctuation.definition.typeparameters.begin.futureblitz
+//                   ^^ meta.type.parameters.futureblitz entity.name.type.futureblitz
+//                       ^^^ meta.type.parameters.futureblitz storage.type.primitive.futureblitz
+//                                            ^ variable.parameter.futureblitz
+End Struct
+
+Local money = Money(cents: a.cents + b.cents)
+//                       ^ punctuation.separator.key-value.futureblitz - keyword.operator.ternary
+Local counts = {"apple": 3, "pear": 4}
+//                     ^ punctuation.separator.key-value.futureblitz
+Local sign = x < 0 ? -1 : (x == 0 ? Pick(at: 0) : 1)
+//                 ^ keyword.operator.ternary.futureblitz
+//                      ^ keyword.operator.ternary.futureblitz
+//                                         ^ punctuation.separator.key-value.futureblitz
+//                                              ^ keyword.operator.ternary.futureblitz
+Local wide = Choose(ready ? first
+                          : second)
+//                        ^ keyword.operator.ternary.futureblitz
+For Method m: M In T
+// <--- keyword.control.loop.futureblitz
+//         ^ variable.other.readwrite.futureblitz
+//          ^ punctuation.separator.type.futureblitz
+//            ^ entity.name.type.futureblitz
+    Where M: Func(Int): String
+End For

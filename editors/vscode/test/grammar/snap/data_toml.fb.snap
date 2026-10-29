@@ -642,7 +642,7 @@
 #            ^ source.futureblitz constant.numeric.decimal.futureblitz
 #             ^ source.futureblitz
 #              ^^ source.futureblitz keyword.control.loop.futureblitz
-#                ^^^^^^^ source.futureblitz
+#                ^^^^^^ source.futureblitz
 >        parts.Add(open)
 #^^^^^^^^^^^^^ source.futureblitz
 #             ^ source.futureblitz punctuation.accessor.futureblitz
@@ -662,7 +662,7 @@
 #            ^ source.futureblitz constant.numeric.decimal.futureblitz
 #             ^ source.futureblitz
 #              ^^ source.futureblitz keyword.control.loop.futureblitz
-#                ^^^^^^^ source.futureblitz
+#                ^^^^^^ source.futureblitz
 >        parts.Add(close)
 #^^^^^^^^^^^^^ source.futureblitz
 #             ^ source.futureblitz punctuation.accessor.futureblitz

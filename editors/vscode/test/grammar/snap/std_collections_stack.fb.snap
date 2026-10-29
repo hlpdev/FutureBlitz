@@ -75,16 +75,16 @@
 #                          ^ source.futureblitz meta.property.futureblitz meta.type.annotation.futureblitz
 #                           ^^^ source.futureblitz meta.property.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
 >        Get => Items.Count
-#^^^^^^^^ source.futureblitz
-#        ^^^ source.futureblitz storage.type.function.accessor.futureblitz
-#           ^ source.futureblitz
-#            ^^ source.futureblitz storage.type.function.arrow.futureblitz
-#              ^^^^^^ source.futureblitz
-#                    ^ source.futureblitz punctuation.accessor.futureblitz
-#                     ^^^^^ source.futureblitz variable.other.property.futureblitz
+#^^^^^^^^ source.futureblitz meta.property.futureblitz
+#        ^^^ source.futureblitz meta.property.futureblitz storage.type.function.accessor.futureblitz
+#           ^ source.futureblitz meta.property.futureblitz
+#            ^^ source.futureblitz meta.property.futureblitz storage.type.function.arrow.futureblitz
+#              ^^^^^^ source.futureblitz meta.property.futureblitz
+#                    ^ source.futureblitz meta.property.futureblitz punctuation.accessor.futureblitz
+#                     ^^^^^ source.futureblitz meta.property.futureblitz variable.other.property.futureblitz
 >    End Property
-#^^^^ source.futureblitz
-#    ^^^^^^^^^^^^ source.futureblitz keyword.control.end.futureblitz
+#^^^^ source.futureblitz meta.property.futureblitz
+#    ^^^^^^^^^^^^ source.futureblitz meta.property.futureblitz keyword.control.end.futureblitz
 >
 >    Public Method Push(value: T)
 #^^^^ source.futureblitz

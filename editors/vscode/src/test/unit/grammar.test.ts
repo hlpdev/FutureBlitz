@@ -59,6 +59,37 @@ describe("the grammar's assertion files", () => {
                     `missing [${failure.missing.join(" ")}], unexpected [${failure.unexpected.join(" ")}], ` +
                     `actual [${failure.actual.join(" ")}]\n    ${testCase.source[failure.srcLine]}`,
             );
+
+            // vscode-tmgrammar-test excludes a scope only by its whole name, so `- keyword` would
+            // never fail; here an excluded scope excludes the scopes under it too, as a theme's
+            // selector does.
+            const loaded = await grammar;
+            let stack = textmate.INITIAL;
+            const tokens = testCase.source.map((line) => {
+                const result = loaded.tokenizeLine(line, stack);
+                stack = result.ruleStack;
+                return result.tokens;
+            });
+            for (const line of testCase.assertions) {
+                for (const { from, to, exclude } of line.scopeAssertions) {
+                    for (const token of tokens[line.sourceLineNumber]) {
+                        if (token.endIndex <= from || token.startIndex >= to) {
+                            continue;
+                        }
+
+                        const found = token.scopes.filter((scope) =>
+                            exclude.some((excluded) => scope === excluded || scope.startsWith(`${excluded}.`)),
+                        );
+                        if (found.length > 0) {
+                            shown.push(
+                                `line ${line.sourceLineNumber + 1}, columns ${from} to ${to}: excluded ` +
+                                    `[${found.join(" ")}]\n    ${testCase.source[line.sourceLineNumber]}`,
+                            );
+                        }
+                    }
+                }
+            }
+
             assert.deepEqual(shown, []);
         });
     }

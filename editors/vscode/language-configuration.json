@@ -79,9 +79,9 @@
       "'"
     ]
   ],
-  "wordPattern": "[A-Za-z_][A-Za-z0-9_]*|[0-9][0-9_]*(?:\\.[0-9][0-9_]*)?",
+  "wordPattern": "0[xbo][0-9A-Fa-f_]+|[0-9][0-9_]*(?:\\.[0-9][0-9_]*)?(?:[eE][+-]?[0-9][0-9_]*)?|[A-Za-z_][A-Za-z0-9_]*",
   "indentationRules": {
-    "increaseIndentPattern": "^(?!.*\\b(?:Abstract|ReadOnly)\\s+(?:Method|Property|Operator)\\b)\\s*(?:@[A-Za-z_][\\w.]*(?:\\([^)]*\\))?\\s+)*(?:(?:Public|Private|Protected|Package|Async|Final|Override|Static|Shared|ByRef|Const|Abstract|Unsafe)\\s+)*(?:If\\b(?!.*\\bThen\\b)|ElseIf\\b|Else\\s*(?://.*)?$|(?:Parallel\\s+)?For\\b|While\\b|Repeat\\s*(?://.*)?$|Loop\\s*(?://.*)?$|Select\\b|Case\\b|Default\\s*(?://.*)?$|Try\\s*(?://.*)?$|Catch\\b|Finally\\s*(?://.*)?$|Lock\\b|Unsafe\\s*(?://.*)?$|Extern\\b|Extend\\b|Class\\b|Struct\\b|Interface\\b|Enum\\b|Property\\b|Get\\s*(?://.*)?$|Set\\b(?!.*=>)|(?:Function|Method|Operator|New)\\b(?!.*=>))|^.*\\bFunction\\s*\\((?:(?!=>).)*$",
+    "increaseIndentPattern": "^(?!.*\\b(?:Abstract|ReadOnly)\\s+(?:Method|Property|Operator)\\b)\\s*(?:@[A-Za-z_][\\w.]*(?:\\([^)]*\\))?\\s+)*(?:(?:Public|Private|Protected|Package|Async|Final|Override|Static|Shared|ByRef|Const|Abstract|Unsafe)\\s+)*(?:If\\b(?!(?:[^\"/]|/(?!/)|\"(?:[^\"\\\\]|\\\\.)*\")*\\bThen\\b)|ElseIf\\b|Else\\s*(?://.*)?$|(?:Parallel\\s+)?For\\b|While\\b|Repeat\\s*(?://.*)?$|Loop\\s*(?://.*)?$|Select\\b|Case\\b|Default\\s*(?://.*)?$|Try\\s*(?://.*)?$|Catch\\b|Finally\\s*(?://.*)?$|Lock\\b|Unsafe\\s*(?://.*)?$|Extern\\b|Extend\\b|Class\\b|Struct\\b|Interface\\b|Enum\\b|Property\\b|Get\\s*(?://.*)?$|Set\\s*\\(\\s*[A-Za-z_]\\w*\\s*\\)\\s*(?://.*)?$|(?:Function|Method|Operator|New)\\b(?!(?:[^\"/]|/(?!/)|\"(?:[^\"\\\\]|\\\\.)*\")*=>))|^(?:[^\"/]|/(?!/)|\"(?:[^\"\\\\]|\\\\.)*\")*\\bFunction\\s*(?:\\[[^\\]]*\\])?\\s*\\((?:(?!=>)[^\"/]|/(?!/)|\"(?:[^\"\\\\]|\\\\.)*\")*(?://.*)?$",
     "decreaseIndentPattern": "^\\s*(?:End\\b|Else\\b|ElseIf\\b|Case\\b|Default\\s*(?://.*)?$|Catch\\b|Finally\\b|Until\\b)"
   },
   "onEnterRules": [

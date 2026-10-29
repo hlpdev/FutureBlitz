@@ -166,7 +166,7 @@
   "Operator": {
     "prefix": "Operator",
     "body": [
-      "Operator ${1:+}(a: ${2:Self}, b: ${3:Self}): ${4:Self}",
+      "Operator ${1:+}(a: ${2:Name}, b: $2): $2",
       "\tReturn ${0:a}",
       "End Operator"
     ],

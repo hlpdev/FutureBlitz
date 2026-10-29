@@ -100,7 +100,7 @@
 #            ^ source.futureblitz constant.numeric.decimal.futureblitz
 #             ^ source.futureblitz
 #              ^^^^^ source.futureblitz keyword.control.loop.futureblitz
-#                   ^^^^^^^ source.futureblitz
+#                   ^^^^^^ source.futureblitz
 >        If !sieve[i]
 #^^^^^^^^ source.futureblitz
 #        ^^ source.futureblitz keyword.control.conditional.futureblitz
@@ -126,7 +126,7 @@
 #                          ^^^^^ source.futureblitz keyword.control.loop.futureblitz
 #                               ^^^^^^^ source.futureblitz
 #                                      ^^^^ source.futureblitz keyword.control.loop.futureblitz
-#                                          ^^^ source.futureblitz
+#                                          ^^ source.futureblitz
 >                sieve[j] = True
 #^^^^^^^^^^^^^^^^^^^^^ source.futureblitz
 #                     ^ source.futureblitz punctuation.brackets.futureblitz
@@ -193,7 +193,7 @@
 #            ^ source.futureblitz constant.numeric.decimal.futureblitz
 #             ^ source.futureblitz
 #              ^^ source.futureblitz keyword.control.loop.futureblitz
-#                ^^^^^^^ source.futureblitz
+#                ^^^^^^ source.futureblitz
 >        line += "="
 #^^^^^^^^^^^^^ source.futureblitz
 #             ^^ source.futureblitz keyword.operator.assignment.compound.futureblitz
@@ -418,7 +418,7 @@
 #            ^ source.futureblitz constant.numeric.decimal.futureblitz
 #             ^ source.futureblitz
 #              ^^^^^ source.futureblitz keyword.control.loop.futureblitz
-#                   ^^^ source.futureblitz
+#                   ^^ source.futureblitz
 >        total += values[i]
 #^^^^^^^^^^^^^^ source.futureblitz
 #              ^^ source.futureblitz keyword.operator.assignment.compound.futureblitz

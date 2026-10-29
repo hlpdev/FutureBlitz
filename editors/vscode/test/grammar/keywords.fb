@@ -100,7 +100,7 @@ Super.New(name)
 Set<Int>()
 // <--- entity.name.type.futureblitz - storage.type.function.accessor
 For Method m In T
-//  ^^^^^^ storage.type.function.futureblitz
+//  ^^^^^^ storage.type.futureblitz
 //         ^ - entity.name.function
     Where m Has Get Or Post
 //  ^^^^^ keyword.other.where.futureblitz

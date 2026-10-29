@@ -34,8 +34,8 @@
 #                 ^^^^^ source.futureblitz entity.name.function.call.futureblitz
 #                      ^ source.futureblitz punctuation.parenthesis.futureblitz
 #                       ^^^^^^^^ source.futureblitz meta.function.lambda.futureblitz storage.type.function.futureblitz
-#                               ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.begin.futureblitz
-#                                ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.end.futureblitz
+#                               ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                                ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
 #                                 ^ source.futureblitz
 #                                  ^^ source.futureblitz storage.type.function.arrow.futureblitz
 #                                    ^^^ source.futureblitz
@@ -136,15 +136,15 @@
 #                  ^^^^^ source.futureblitz storage.modifier.futureblitz
 #                       ^ source.futureblitz
 #                        ^^^^^^^^ source.futureblitz meta.function.lambda.futureblitz storage.type.function.futureblitz
-#                                ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.begin.futureblitz
-#                                 ^^^^^ source.futureblitz meta.function.lambda.futureblitz variable.parameter.futureblitz
-#                                      ^ source.futureblitz meta.function.lambda.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
-#                                       ^ source.futureblitz meta.function.lambda.futureblitz meta.type.annotation.futureblitz
-#                                        ^^^ source.futureblitz meta.function.lambda.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
-#                                           ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.end.futureblitz
-#                                            ^ source.futureblitz meta.function.lambda.futureblitz punctuation.separator.type.futureblitz
-#                                             ^ source.futureblitz meta.function.lambda.futureblitz
-#                                              ^^^^^^ source.futureblitz meta.function.lambda.futureblitz storage.type.primitive.futureblitz
+#                                ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                                 ^^^^^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                                      ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                                       ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                                        ^^^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                                           ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                            ^ source.futureblitz meta.function.lambda.futureblitz meta.type.return.futureblitz punctuation.separator.type.futureblitz
+#                                             ^ source.futureblitz meta.function.lambda.futureblitz meta.type.return.futureblitz
+#                                              ^^^^^^ source.futureblitz meta.function.lambda.futureblitz meta.type.return.futureblitz storage.type.primitive.futureblitz
 >        For i = 1 To times
 #^^^^^^^^ source.futureblitz
 #        ^^^ source.futureblitz keyword.control.loop.futureblitz
@@ -154,7 +154,7 @@
 #                ^ source.futureblitz constant.numeric.decimal.futureblitz
 #                 ^ source.futureblitz
 #                  ^^ source.futureblitz keyword.control.loop.futureblitz
-#                    ^^^^^^^ source.futureblitz
+#                    ^^^^^^ source.futureblitz
 >            Await NextFrame()
 #^^^^^^^^^^^^ source.futureblitz
 #            ^^^^^ source.futureblitz keyword.control.flow.futureblitz
@@ -240,9 +240,9 @@
 #                                        ^^^^^ source.futureblitz storage.modifier.futureblitz
 #                                             ^ source.futureblitz
 #                                              ^^^^^^^^ source.futureblitz meta.function.lambda.futureblitz storage.type.function.futureblitz
-#                                                      ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.begin.futureblitz
-#                                                       ^ source.futureblitz meta.function.lambda.futureblitz variable.parameter.futureblitz
-#                                                        ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.end.futureblitz
+#                                                      ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                                                       ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                                                        ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
 #                                                         ^ source.futureblitz
 #                                                          ^^ source.futureblitz storage.type.function.arrow.futureblitz
 #                                                            ^ source.futureblitz
@@ -288,12 +288,12 @@
 #                ^^^^^ source.futureblitz storage.modifier.futureblitz
 #                     ^ source.futureblitz
 #                      ^^^^^^^^ source.futureblitz meta.function.lambda.futureblitz storage.type.function.futureblitz
-#                              ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.begin.futureblitz
-#                               ^^^^ source.futureblitz meta.function.lambda.futureblitz variable.parameter.futureblitz
-#                                   ^ source.futureblitz meta.function.lambda.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
-#                                    ^ source.futureblitz meta.function.lambda.futureblitz meta.type.annotation.futureblitz
-#                                     ^^^^^^ source.futureblitz meta.function.lambda.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
-#                                           ^ source.futureblitz meta.function.lambda.futureblitz punctuation.definition.parameters.end.futureblitz
+#                              ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.begin.futureblitz
+#                               ^^^^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz variable.parameter.futureblitz
+#                                   ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz punctuation.separator.type.futureblitz
+#                                    ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
+#                                     ^^^^^^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
+#                                           ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
 >        Await NextFrame()
 #^^^^^^^^ source.futureblitz
 #        ^^^^^ source.futureblitz keyword.control.flow.futureblitz
