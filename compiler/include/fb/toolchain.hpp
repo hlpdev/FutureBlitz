@@ -1,12 +1,13 @@
 #pragma once
 
 #include <filesystem>
+#include <vector>
 
 namespace fb {
 
 /// Where fb finds what it builds programs with. A release keeps it beside fb: lld in fb's bin/
-/// folder, and lib/<target>/, notices/, and std/ in the folder above it. A build folder keeps
-/// it where CMake put it.
+/// folder, and lib/<target>/, lib/clang/, notices/, and std/ in the folder above it. A build
+/// folder keeps it where CMake put it.
 struct toolchain_t {
     /// lld, which links for every target, as its -flavor says.
     std::filesystem::path linker;
@@ -17,6 +18,13 @@ struct toolchain_t {
     std::filesystem::path notices;
     /// The standard library's source files.
     std::filesystem::path std;
+    /// clang's own headers, like stddef.h and the intrinsics, which fb-bindgen reads a C header
+    /// with: clang's resource folder, with them in its include/. A release's lib/clang/; empty
+    /// in a build folder without libclang.
+    std::filesystem::path clang_headers;
+    /// The folders of the target's C headers, which a header's #includes are found in: a
+    /// release's lib/<target>/include/, which on macOS it hasn't, as the SDK's are Apple's.
+    std::vector<std::filesystem::path> c_headers;
 };
 
 /// The toolchain of the fb at `executable`: a release's, when its folder has lld and the folder

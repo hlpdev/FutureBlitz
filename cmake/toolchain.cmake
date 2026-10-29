@@ -2,8 +2,8 @@
 # archives, std's bundled libraries, and the pieces of the C runtime a program links, which are
 # copied here from the C++ compiler that builds the runtime, so fb links with lld alone.
 #
-# FB_TOOLCHAIN_TARGET is the target's name, like windows-x64, and FB_TOOLCHAIN_LIBRARIES its
-# folder.
+# FB_TOOLCHAIN_TARGET is the target's name, like windows-x64, FB_TOOLCHAIN_LIBRARIES its
+# folder, and FB_C_HEADER_DIRECTORIES the C library's include folders.
 
 if(WIN32)
   set(fb_os windows)
@@ -110,3 +110,13 @@ elseif(fb_os STREQUAL "macos")
   endif()
   fb_toolchain_copy("${fb_builtins}" libclang_rt.osx.a)
 endif()
+
+# The C library's include folders, of the C compiler that builds the runtime, which fb-bindgen
+# reads a header's #includes in, as when the C library was built with it. That compiler's own
+# headers, like GCC's intrinsics, are clang's own instead.
+set(FB_C_HEADER_DIRECTORIES "")
+foreach(folder IN LISTS CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES)
+  if(NOT folder MATCHES "/lib/gcc/|/lib/clang/")
+    list(APPEND FB_C_HEADER_DIRECTORIES "${folder}")
+  endif()
+endforeach()

@@ -3,7 +3,9 @@
 #include "fb/bindgen_config.hpp"
 #include "fb/build_config.hpp"
 #include "fb/c_abi.hpp"
+#include "fb/process.hpp"
 #include "fb/token.hpp"
+#include "fb/toolchain.hpp"
 #include "fb/types.hpp"
 #include "fb/utf8.hpp"
 
@@ -2100,6 +2102,34 @@ std::string errors_of(CXTranslationUnit unit) {
     return errors;
 }
 
+/// The folders of this target's C headers: the toolchain's, or on macOS, where a release has
+/// none, the SDK's, from Apple's Command Line Tools.
+std::vector<std::string> c_header_folders() {
+    std::vector<std::string> folders;
+    for (const std::filesystem::path& folder : toolchain().c_headers) {
+        folders.push_back(to_utf8(folder));
+    }
+
+#ifdef __APPLE__
+    if (folders.empty()) {
+        const std::vector<std::string> arguments{ "--sdk", "macosx", "--show-sdk-path" };
+        const std::expected<process_result_t, std::string> sdk =
+            run_process("/usr/bin/xcrun", arguments);
+        if (sdk && sdk->exit_code == 0) {
+            std::string path = sdk->output;
+            while (!path.empty() && (path.back() == '\n' || path.back() == '\r')) {
+                path.pop_back();
+            }
+
+            if (!path.empty()) {
+                folders.push_back(path + "/usr/include");
+            }
+        }
+    }
+#endif
+    return folders;
+}
+
 } // namespace
 
 std::expected<bindings_t, std::string> generate_bindings(const bindgen_options_t& options) {
@@ -2123,7 +2153,7 @@ std::expected<bindings_t, std::string> generate_bindings(const bindgen_options_t
         "--target=" + target,
         "-nostdlibinc",
         "-resource-dir",
-        std::string(bindgen_config::resource_dir),
+        to_utf8(toolchain().clang_headers),
     };
     for (const std::string& folder : options.includes) {
         arguments.push_back("-I" + folder);
@@ -2133,8 +2163,7 @@ std::expected<bindings_t, std::string> generate_bindings(const bindgen_options_t
     // own headers, like stdint.h, stand on their own.
     std::vector<std::string> system = options.system_includes;
     if (system.empty() && !foreign) {
-        system.assign(bindgen_config::system_includes.begin(),
-                      bindgen_config::system_includes.end());
+        system = c_header_folders();
         if (!bindgen_config::gnuc_version.empty()) {
             arguments.push_back(std::format("-fgnuc-version={}", bindgen_config::gnuc_version));
         }

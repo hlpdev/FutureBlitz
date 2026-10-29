@@ -48,6 +48,17 @@ TEST_CASE("fb finds a release's toolchain beside it, and else its build folder's
     CHECK(release.notices == root / "notices");
     CHECK(release.std == root / "std");
     CHECK(fb::find_toolchain({}).libraries == build.libraries);
+
+    // fb-bindgen's headers: clang's in lib/clang/, and the target's C headers in its folder's
+    // include/, where it has them, as a release for macOS hasn't.
+    CHECK(release.clang_headers == root / "lib" / "clang");
+    CHECK(release.c_headers.empty());
+    std::filesystem::create_directories(libraries / "include");
+    CHECK(fb::find_toolchain(fb).c_headers == std::vector{ libraries / "include" });
+
+    // The build folder's are libclang's and the C compiler's own.
+    CHECK(build.clang_headers == fb::path_from_utf8(fb::build_config::clang_resource_directory));
+    CHECK(build.c_headers.size() == fb::build_config::c_header_directories.size());
 }
 
 TEST_CASE("the build folder's toolchain has every library the runtime and std link",
