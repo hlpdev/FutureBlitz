@@ -269,14 +269,22 @@ void print_results(const std::vector<std::size_t>& ran) {
     std::size_t skipped = 0;
     for (const std::size_t index : ran) {
         const test_t& test = runner().tests[index];
-        const std::string_view result = test.failed ? "FAILED" : test.skipped ? "skipped" : "ok";
+        std::string_view result = "ok";
+        std::size_t* counted = &passed;
+        if (test.failed) {
+            result = "FAILED";
+            counted = &failed;
+        } else if (test.skipped) {
+            result = "skipped";
+            counted = &skipped;
+        }
+
+        ++*counted;
         std::printf("test %s ... %.*s\n", test.name.c_str(), static_cast<int>(result.size()),
                     result.data());
         for (const std::string& message : test.messages) {
             std::printf("    %s\n", message.c_str());
         }
-
-        (test.failed ? failed : test.skipped ? skipped : passed) += 1;
     }
 
     std::printf("%llu passed, %llu failed, %llu skipped\n", static_cast<unsigned long long>(passed),
@@ -289,9 +297,11 @@ void print_results(const std::vector<std::size_t>& ran) {
 extern "C" {
 
 void fb_test_add(const fb_string_t* name, void (*run)(), const bool main_thread) {
-    runner().tests.push_back({ .name = std::string(fb::runtime::text_of(name)),
-                               .run = run,
-                               .main_thread = main_thread });
+    runner().tests.push_back({
+        .name = std::string(fb::runtime::text_of(name)),
+        .run = run,
+        .main_thread = main_thread,
+    });
 }
 
 void fb_test_run() {

@@ -182,8 +182,13 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
 
     if (!command) {
         out += std::format("\n{}\n", heading("Commands:"));
-        for (const command_t each : { command_t::CHECK, command_t::BUILD, command_t::RUN,
-                                      command_t::TEST, command_t::BINDGEN }) {
+        for (const command_t each : {
+                 command_t::CHECK,
+                 command_t::BUILD,
+                 command_t::RUN,
+                 command_t::TEST,
+                 command_t::BINDGEN,
+             }) {
             out += entry(command_name(each), summary(each));
         }
 

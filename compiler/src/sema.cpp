@@ -22608,8 +22608,9 @@ private:
         }
 
         const std::vector<std::optional<expr_id_t>>& arguments = info(id).arguments;
-        const bool checks = function.name == "Expect" && !arguments.empty() && arguments.front();
-        record_expectation(id, checks ? text(*arguments.front()) : std::string_view());
+        const std::optional<expr_id_t> checked =
+            function.name == "Expect" && !arguments.empty() ? arguments.front() : std::nullopt;
+        record_expectation(id, checked ? text(*checked) : std::string_view());
     }
 
     /// "ExpectThrows(x)" catches what x throws, as Try? does, and its test fails when x throws

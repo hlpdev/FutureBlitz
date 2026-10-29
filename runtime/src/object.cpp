@@ -545,6 +545,7 @@ std::vector<fb::runtime::owned_object_t> fb::runtime::owned_objects() {
     registry_t& known = registry();
     const std::scoped_lock lock(known.mutex);
     std::vector<std::pair<std::uint64_t, owned_object_t>> found;
+    found.reserve(known.owners.size());
     for (const auto& [object, owner] : known.owners) {
         found.emplace_back(known.objects.at(object),
                            owned_object_t{ .owner = owner, .type = object->type });

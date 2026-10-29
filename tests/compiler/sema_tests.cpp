@@ -6699,6 +6699,10 @@ TEST_CASE("a @Test Function takes nothing and gives nothing, though it can throw
                     "    Throw Error(\"no\")\n"
                     "End Function")
               .empty());
+    const std::string gives = "Int: a @Test Function gives nothing back, since fb test has no "
+                              "use for it; Expect checks what it works out";
+    const std::string generic =
+        "C: a @Test Function can't be generic, since fb test calls it without type arguments";
     CHECK(errors_of("@Test Function A(n: Int)\nEnd Function\n"
                     "@Test Function B(): Int => 1\n"
                     "@Test Function C<T>()\nEnd Function\n"
@@ -6706,10 +6710,8 @@ TEST_CASE("a @Test Function takes nothing and gives nothing, though it can throw
                     "Extern \"C\"\n    @Test Function abs(n: Int32): Int32\nEnd Extern") ==
           errors_t{
               "n: a @Test Function takes nothing, since fb test calls it without arguments",
-              "Int: a @Test Function gives nothing back, since fb test has no use for it; "
-              "Expect checks what it works out",
-              "C: a @Test Function can't be generic, since fb test calls it without type "
-              "arguments",
+              gives,
+              generic,
               "Public: a @Test Function is only fb test's to run, so it takes no visibility",
               "abs: an Extern Function can't be @Test, since its code is C's",
           });
@@ -6842,6 +6844,7 @@ TEST_CASE("a test that uses what only the main thread can runs there", "[sema]")
                                                                  "End Function\n");
     REQUIRE_FALSE(compilation.diagnostics.has_errors());
     std::vector<std::pair<std::string, bool>> tests;
+    tests.reserve(compilation.analysis.tests.size());
     for (const fb::test_function_t& test : compilation.analysis.tests) {
         tests.emplace_back(compilation.analysis.symbol(test.function).name, test.main_thread);
     }

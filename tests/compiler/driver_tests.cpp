@@ -2509,7 +2509,7 @@ TEST_CASE("a package's tests are in its files, and its tests/ folder's use it fr
     const std::expected<fb::compilation_t, std::string> tested =
         fb::compile_tests(packages / "app");
     REQUIRE(tested);
-    CHECK(packages.messages(*tested) == std::vector<std::string>());
+    CHECK(packages.messages(*tested).empty());
     std::vector<std::string> names;
     for (const fb::test_case_t& test : fb::package_tests(*tested)) {
         names.push_back(test.name);

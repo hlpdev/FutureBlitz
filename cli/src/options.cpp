@@ -23,8 +23,13 @@ constexpr std::array<std::string_view, 5> stage_names = { "tokens", "ast", "type
 /// One of the commands that take a file, by name. Anything else starting with '-' is reported as
 /// an unknown option.
 std::expected<command_t, std::string> find_command(const std::string_view name) {
-    for (const command_t command : { command_t::CHECK, command_t::BUILD, command_t::RUN,
-                                     command_t::TEST, command_t::BINDGEN }) {
+    for (const command_t command : {
+             command_t::CHECK,
+             command_t::BUILD,
+             command_t::RUN,
+             command_t::TEST,
+             command_t::BINDGEN,
+         }) {
         if (command_name(command) == name) {
             return command;
         }

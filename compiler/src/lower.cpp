@@ -2606,8 +2606,10 @@ private:
             start(threw);
             const function_id_t report = test_runtime("fb_test_threw", { m_analysis.error_class });
             emit(evaluate_t{
-                call_t{ .function = report,
-                        .arguments = { { .value = unwrap(place_t{ error }) } } },
+                call_t{
+                    .function = report,
+                    .arguments = { { .value = unwrap(place_t{ error }) } },
+                },
             });
             jump(done);
             start(done);
@@ -9590,17 +9592,18 @@ private:
         const std::optional<expr_id_t> message = info.arguments[checks ? 1 : 0];
         std::vector<operand_t> parts;
         if (checks) {
-            parts.push_back(make_string(
+            parts.emplace_back(make_string(
                 std::format("expect failed: {} at {}", expectation.text, expectation.place)));
-            const operand_t indent{ const_value_t{ .type = type_id_t::INT32,
-                                                   .data = std::int64_t{ -1 } } };
+            const operand_t indent{
+                const_value_t{ .type = type_id_t::INT32, .data = std::int64_t{ -1 } },
+            };
             for (std::size_t i = 0; i < sides.size(); ++i) {
-                parts.push_back(make_string(i == 0 ? "\n  left: " : "\n  right: "));
+                parts.emplace_back(make_string(i == 0 ? "\n  left: " : "\n  right: "));
                 parts.push_back(debug_of(sides[i].first, sides[i].second, indent));
             }
 
             if (message) {
-                parts.push_back(make_string("\n  "));
+                parts.emplace_back(make_string("\n  "));
                 parts.push_back(lower_value(*message));
             }
         } else if (message) {
@@ -9610,12 +9613,16 @@ private:
                 make_string(std::format(" at {}", expectation.place)),
             };
         } else {
-            parts.push_back(make_string(std::format("failed at {}", expectation.place)));
+            parts.emplace_back(make_string(std::format("failed at {}", expectation.place)));
         }
 
-        fail_test(parts.size() == 1 ? parts.front()
-                                    : runtime_call(runtime_function_t::JOIN, std::move(parts),
-                                                   type_id_t::STRING, true));
+        operand_t text = parts.front();
+        if (parts.size() > 1) {
+            text =
+                runtime_call(runtime_function_t::JOIN, std::move(parts), type_id_t::STRING, true);
+        }
+
+        fail_test(text);
         release_temporaries_from(mark);
         if (ok) {
             jump(*ok);
@@ -9692,8 +9699,10 @@ private:
                 const operand_t caught = temporary(
                     downcast_t{ .value = place_t{ error }, .type = expected, .span = span },
                     expected);
-                emit(assign_t{ .target = result,
-                               .value = use_t{ .value = convert(caught, type, span) } });
+                emit(assign_t{
+                    .target = result,
+                    .value = use_t{ .value = convert(caught, type, span) },
+                });
                 leave(exits);
                 start(wrong);
                 const function_id_t other = test_runtime(
