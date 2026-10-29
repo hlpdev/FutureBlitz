@@ -2,6 +2,6 @@ skipped: two.bad isn't a level
 skipped: must.bad isn't a level
 uncaught IOError: must.bad isn't a level at uncaught_trace_thrown.fb:11:39
     at Level.Load (uncaught_trace_thrown.fb:11)
-    at Open (uncaught_trace_thrown.fb:18)
-    at OpenAll (uncaught_trace_thrown.fb:26)
-    at top-level code (uncaught_trace_thrown.fb:36)
+    at Open (uncaught_trace_thrown.fb:19)
+    at OpenAll (uncaught_trace_thrown.fb:27)
+    at top-level code (uncaught_trace_thrown.fb:37)
