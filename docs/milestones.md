@@ -250,7 +250,7 @@ Planned 2026-10-29, with the design in [tooling.md](tooling.md).
 |---|---|---|
 | 0 | The design: the toolchain per OS, releases, debug info, `fb test` and std.test, `///` docs, and the formatter's rules | tooling.md settles each (done 2026-10-29) |
 | 1 | The self-contained toolchain: fb links with its own lld and each target's runtime pieces | a program builds and runs on a machine with no C++ compiler, on each OS (done 2026-10-29, e50d0fe6; the Linux release on glibc 2.28 is step 2's) |
-| 2 | Releases: fb for each target from CI, archives and install scripts, `fb --version`, and `fb new` | a fresh machine installs fb and builds `fb new`'s package |
+| 2 | Releases: fb for each target from CI, archives and install scripts, `fb --version`, and `fb new` | a fresh machine installs fb and builds `fb new`'s package (done 2026-10-29, 19d46557, on all five targets in the release workflow) |
 | 3 | Debug info and stack traces: DWARF and CodeView through LLVM | a debugger steps through a program and shows its Locals, and a panic prints its stack (done 2026-10-29, 297a90f2, on Windows; Linux and macOS by their tests) |
 | 4 | The LSP: diagnostics, hover, definitions, references, completion, symbols, rename, signature help, semantic tokens, and fix-its, re-checking only what an edit touches | each works in a large package as you type (done 2026-10-29, 672b4377) |
 | 5 | The VS Code extension: the grammar, the LSP client, tasks, and debugging | daily editing, running, and debugging work in VS Code (done 2026-10-29, 6267d7dc; its LSP features come with step 4, and publishing with the user's accounts) |

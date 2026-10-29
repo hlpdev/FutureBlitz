@@ -5,6 +5,34 @@ them while each was built. Newest first.
 
 ## M8, tooling
 
+Step 2, releases (2026-10-29, 19d46557): `fb --version` prints the version, the commit, from git
+when CMake configured the build, only for fb's own checkout, or "unknown", and the target, `fb 0.1.0
+(abc1234, windows-x64)`; `fb new <folder>` makes a package there, named by the folder's own name,
+`fb new .` too, checked as project.toml's names are (package_name_error()), with project.toml, a
+main.fb that imports std.core and prints "Hello, world!", and a .gitignore of build/, and refuses a
+folder that isn't empty and Windows' devices' names. `cmake --install <build> --prefix <folder>`
+writes a release (cmake/install.cmake): bin/ with fb, fb-bindgen, fb-lsp, lld, and what they load,
+lib/<target>/ with the target's C headers in its include/, lib/clang/ with clang's, notices/, std/,
+and lldb/futureblitz.py; fb-bindgen finds both through toolchain()'s clang_headers and c_headers, or
+on macOS the SDK's from xcrun. fb's executables run with nothing else installed: MinGW's runtime
+linked in where its winpthread allows, libstdc++ and libgcc on Linux, LLVM's static libraries on
+Linux (FB_LLVM_STATIC), and the shared libraries they and lld load, but the system's, copied beside
+them by cmake/bundle.cmake with a RUNPATH of $ORIGIN or @rpath names, signed again on macOS, each
+one's license in notices/shared/; the release's own notices, LLVM's, MinGW-w64's and winpthreads',
+GCC's, glibc's, the Linux headers', libxml2's, and toml++'s, are in cmake/notices/. FB_RUNTIME_ONLY
+builds only lib/<target>/, which the Linux release builds in a manylinux_2_28 container against
+glibc 2.28, while fb is built on Ubuntu 22.04; on macOS fb needs macOS 15, as Homebrew's LLVM does.
+tools/install/install.sh and install.ps1 install the latest release, a version, or an archive under
+~/.futureblitz, check it runs before replacing anything, and put its bin on PATH, keeping the user's
+PATH as it was; the MSI (WiX 5) installs the same folder per user, and the .pkg
+/usr/local/futureblitz with /etc/paths.d. .github/workflows/release.yml builds windows-x64,
+linux-x64, linux-arm64, macos-arm64, and macos-x64, installs each with its script, the MSI, and the
+.pkg on a fresh runner or a plain ubuntu:22.04 container, runs `fb new hello` and `fb run`, runs a
+program built there in almalinux:8, and for a pushed v<version> tag makes a draft GitHub Release.
+What it found: a Mach-O trace entry is a symbol of its own, so programs link on Intel Macs; the
+runtime is position-independent where the compiler doesn't default to it; and programs link glibc
+2.28's libdl and librt. Its review's 16 fixes are in docs/review/m8-step2.md.
+
 Step 4, the LSP (2026-10-29, 672b4377): fb-lsp, an executable beside fb that an editor talks to in
 JSON-RPC over stdin and stdout, read and written with nlohmann/json 3.12.0, in UTF-16 or UTF-8
 positions: diagnostics as you type, hover with a declaration's signature, constraints included, and
