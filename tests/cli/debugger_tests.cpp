@@ -131,7 +131,7 @@ TEST_CASE("lldb steps through a debug build and shows its Locals as FutureBlitz 
         << std::format("command script import \"{}\"\n", FB_LLDB_SCRIPT)
         << std::format("breakpoint set --file main.fb --line {}\n", first) << "run\n"
         << "frame variable\n"
-        << "frame variable shape\n"
+        << "frame variable -P 1 shape\n"
         << "next\n"
         << "step\n"
         << "kill\n";
@@ -147,8 +147,9 @@ TEST_CASE("lldb steps through a debug build and shows its Locals as FutureBlitz 
     CHECK(text.contains(R"(ages = {"ann": 31})"));
     CHECK(text.contains("Y = 7"));
     CHECK(text.contains("color = GREEN"));
-    // The Shape is a Circle, whose Fields it shows on its own.
-    const std::size_t alone = text.find("(lldb) frame variable shape");
+    // The Shape is a Circle, whose Fields it shows on its own. lldb shows what a pointer points
+    // at only with a pointer depth, as VS Code does when it's opened.
+    const std::size_t alone = text.find("(lldb) frame variable -P 1 shape");
     REQUIRE(alone != std::string::npos);
     const std::string shape = text.substr(alone, text.find("(lldb) next", alone) - alone);
     CHECK(shape.contains("shape = Circle"));

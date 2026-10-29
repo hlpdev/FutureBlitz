@@ -5,16 +5,22 @@ Load it with `command script import <path>/futureblitz.py`, which the VS Code ex
 reads what the compiler's debug info says about each type (compiler/src/codegen.cpp's
 debug_type()): a String, a Class, and a T[] are their names for a pointer to their object, whose
 header comes first, in a member named "header.counts", and for a Class's or a T[]'s object
-"header.class" after it; a T[]'s object has its Count and its Items after the header; a String's,
-its Length, with its UTF-8 bytes after it; and a value T? is a struct of HasValue and Value. A
-Class's object shows the Fields of its own Class, whose struct is "fb." and the full name its
-header's fb_class_t has, so an object seen through a Class it extends, or an Interface, shows
-them all.
+"header.class" after it; a T[]'s object, "fb." and its name, has its Count and its Items after
+the header; a String's, "fb.String", its Length, with its UTF-8 bytes after it; a value T? is a
+struct of HasValue and Value, and a String?, Class?, or T[]? a struct of its Value, each named
+by its type, which ends in "?". A Class's object shows the Fields of its own Class, whose struct
+is "fb." and the full name its header's fb_class_t has, so an object seen through a Class it
+extends, or an Interface, shows them all.
+
+The summaries hide a pointer's value, its address, as `type summary add --no-value` does. lldb's
+`frame variable` shows a pointer's children only with a pointer depth, as `-P 1` gives.
 """
 
 import lldb
 
 CATEGORY = "futureblitz"
+# The start of std's Map's struct's name, its full name's.
+MAP = "fb.std.collections.map.Map<"
 # The most elements, entries, or bytes a summary shows, and the most children a value has.
 SHOWN = 16
 CHILDREN = 1000
@@ -52,13 +58,15 @@ def _kind(sbtype):
     struct = _object_struct(sbtype)
     if struct is not None:
         names = _field_names(struct)
-        if names == ["header.counts", "Length"]:
+        name = struct.GetName()
+        if name == "fb.String" and names == ["header.counts", "Length"]:
             return "string"
 
-        if names[:5] == ["header.counts", "header.class", "Count", "Capacity", "Items"]:
+        if (name.endswith("[]")
+                and names[:5] == ["header.counts", "header.class", "Count", "Capacity", "Items"]):
             return "array"
 
-        if struct.GetName().startswith("fb.Map<") and "Entries" in names and "First" in names:
+        if name.startswith(MAP) and "Entries" in names and "First" in names:
             return "map"
 
         if len(names) >= 2 and names[1] == "header.class":
@@ -67,8 +75,8 @@ def _kind(sbtype):
         return None
 
     canonical = sbtype.GetCanonicalType()
-    if (canonical.IsTypeComplete() and canonical.GetNumberOfFields() == 2
-            and _field_names(canonical) == ["HasValue", "Value"]):
+    if (canonical.IsTypeComplete() and canonical.GetName().endswith("?")
+            and _field_names(canonical) in (["HasValue", "Value"], ["Value"])):
         return "nullable"
 
     return None
@@ -128,6 +136,28 @@ def string_text(valobj):
 def string_summary(valobj, internal_dict):
     text = string_text(valobj)
     return "Null" if text is None else text
+
+
+class StringProvider:
+    """A String, which is its text, with no children, not its object's members."""
+
+    def __init__(self, valobj, internal_dict):
+        pass
+
+    def update(self):
+        return False
+
+    def num_children(self):
+        return 0
+
+    def has_children(self):
+        return False
+
+    def get_child_index(self, name):
+        return -1
+
+    def get_child_at_index(self, index):
+        return None
 
 
 def _shown(value):
@@ -285,7 +315,7 @@ class MapProvider:
         fields = ObjectProvider(self.valobj, None)
         fields.update()
         map_object = fields.object
-        entries = map_object.GetChildMemberWithName("Entries")
+        entries = map_object.GetChildMemberWithName("Entries").GetNonSyntheticValue()
         array = ArrayProvider(entries, None)
         array.update()
         at = map_object.GetChildMemberWithName("First").GetValueAsSigned(-1)
@@ -336,18 +366,30 @@ def map_summary(valobj, internal_dict):
     return "{" + ", ".join(shown) + more + "}"
 
 
+def _nullable_value(valobj):
+    """A T?'s value, or None for Null: a value T?'s when its HasValue is set, and a String?'s,
+    Class?'s, or T[]?'s when its reference isn't null."""
+    plain = valobj.GetNonSyntheticValue()
+    value = plain.GetChildMemberWithName("Value")
+    has = plain.GetChildMemberWithName("HasValue")
+    held = has.GetValueAsUnsigned(0) if has.IsValid() else value.GetValueAsUnsigned(0)
+    if held == 0:
+        return None
+
+    # Its children are those the script gives it, a Class's Fields, not its object's members.
+    value.SetPreferSyntheticValue(True)
+    return value
+
+
 class NullableProvider:
-    """A value T?'s value's children when it holds one, and none for Null."""
+    """A T?'s value's children when it holds one, and none for Null."""
 
     def __init__(self, valobj, internal_dict):
         self.valobj = valobj
         self.value = None
 
     def update(self):
-        self.value = None
-        if self.valobj.GetChildMemberWithName("HasValue").GetValueAsUnsigned(0) != 0:
-            self.value = self.valobj.GetChildMemberWithName("Value")
-
+        self.value = _nullable_value(self.valobj)
         return False
 
     def num_children(self):
@@ -364,25 +406,24 @@ class NullableProvider:
 
 
 def nullable_summary(valobj, internal_dict):
-    plain = valobj.GetNonSyntheticValue()
-    if plain.GetChildMemberWithName("HasValue").GetValueAsUnsigned(0) == 0:
-        return "Null"
-
-    return _shown(plain.GetChildMemberWithName("Value"))
+    value = _nullable_value(valobj)
+    return "Null" if value is None else _shown(value)
 
 
 def __lldb_init_module(debugger, internal_dict):
     module = __name__
     for kind, summary, provider in (
-        ("string", "string_summary", None),
+        ("string", "string_summary", "StringProvider"),
         ("array", "array_summary", "ArrayProvider"),
         ("map", "map_summary", "MapProvider"),
         ("object", "object_summary", "ObjectProvider"),
         ("nullable", "nullable_summary", "NullableProvider"),
     ):
         recognizer = "%s.is_%s" % (module, kind)
-        debugger.HandleCommand("type summary add -w %s -e -F %s.%s --recognizer-function %s"
-                               % (CATEGORY, module, summary, recognizer))
+        # Without the value, a String's, Class's, or T[]'s address.
+        debugger.HandleCommand(
+            "type summary add -w %s -e --no-value -F %s.%s --recognizer-function %s"
+            % (CATEGORY, module, summary, recognizer))
         if provider is not None:
             debugger.HandleCommand("type synthetic add -w %s -l %s.%s --recognizer-function %s"
                                    % (CATEGORY, module, provider, recognizer))
