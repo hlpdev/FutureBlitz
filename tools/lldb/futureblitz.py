@@ -4,10 +4,12 @@ their values, not their bytes.
 Load it with `command script import <path>/futureblitz.py`, which the VS Code extension does. It
 reads what the compiler's debug info says about each type (compiler/src/codegen.cpp's
 debug_type()): a String, a Class, and a T[] are their names for a pointer to their object, whose
-header comes first, in members named "header.counts" and "header.class"; a T[]'s object has its
-Count and its Items after the header; a String's, its Length, with its UTF-8 bytes after it; and
-a value T? is a struct of HasValue and Value. A Class's object shows the Fields of its own Class,
-which its header's fb_class_t names, so an object seen through a Class it extends shows them all.
+header comes first, in a member named "header.counts", and for a Class's or a T[]'s object
+"header.class" after it; a T[]'s object has its Count and its Items after the header; a String's,
+its Length, with its UTF-8 bytes after it; and a value T? is a struct of HasValue and Value. A
+Class's object shows the Fields of its own Class, whose struct is "fb." and the full name its
+header's fb_class_t has, so an object seen through a Class it extends, or an Interface, shows
+them all.
 """
 
 import lldb
@@ -191,20 +193,27 @@ def array_summary(valobj, internal_dict):
     return "[" + ", ".join(shown) + more + "]"
 
 
-def _class_name(valobj):
-    """The name of the Class of the object a reference points at, from its header."""
+def _class_info(valobj, at):
+    """What the fb_class_t of the object a reference points at has `at` bytes in, from its
+    header: its name at 0, its full name at 8, and its objects' size at 16."""
     address = valobj.GetValueAsUnsigned(0)
     process = valobj.GetProcess()
     type_info = _read_int(process, address + 8, 8)
     if not type_info:
         return None
 
-    name = _read_int(process, type_info, 8)
+    return _read_int(process, type_info + at, 8)
+
+
+def _class_name(valobj, at=0):
+    """The name of the Class of the object a reference points at, or with `at` 8, its full name,
+    which tells it from another module's of its name."""
+    name = _class_info(valobj, at)
     if not name:
         return None
 
     error = lldb.SBError()
-    text = process.ReadCStringFromMemory(name, 512, error)
+    text = valobj.GetProcess().ReadCStringFromMemory(name, 512, error)
     return text if error.Success() else None
 
 
@@ -224,11 +233,13 @@ class ObjectProvider:
         if address == 0:
             return False
 
+        # The object's own Class's struct, which its size checks is the one.
         struct = _object_struct(self.valobj.GetType())
-        name = _class_name(self.valobj)
+        name = _class_name(self.valobj, 8) or _class_name(self.valobj)
+        size = _class_info(self.valobj, 16)
         if name is not None:
             found = self.valobj.GetTarget().FindFirstType("fb." + name)
-            if found.IsValid() and found.GetNumberOfFields() >= struct.GetNumberOfFields():
+            if found.IsValid() and found.GetByteSize() == size:
                 struct = found
 
         self.object = self.valobj.CreateValueFromAddress("object", address, struct)

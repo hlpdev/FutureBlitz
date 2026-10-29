@@ -1,0 +1,8 @@
+// A program that ends normally prints lines like a trace's, which are its own output.
+
+Import std.core
+
+Print("uncaught errors: 0")
+Print("    at most 3 retries")
+Print("panic: none")
+Print("    at the end")

@@ -127,9 +127,19 @@ class trace_tests_t(unittest.TestCase):
                          b"    at the start\n\x1b[?25hpanic: boom at a.fb:2:1\n")
         uncaught = b"uncaught Error: x at a.fb:1:1\n"
         self.assertEqual(verify.without_trace(uncaught + b"    at G (a.fb:1)\n"), uncaught)
-        self.assertTrue(verify.keeps_trace("release_panic_trace_inlined"))
-        self.assertTrue(verify.keeps_trace("uncaught_trace_thrown"))
-        self.assertFalse(verify.keeps_trace("panic_overflow"))
+        self.assertFalse(verify.leaves_out_trace("release_panic_trace_inlined"))
+        self.assertFalse(verify.leaves_out_trace("uncaught_trace_thrown"))
+        self.assertTrue(verify.leaves_out_trace("release_panic_overflow"))
+        self.assertTrue(verify.leaves_out_trace("uncaught_error"))
+        # A program that ends normally, whose own lines can look like a trace's, keeps them.
+        self.assertFalse(verify.leaves_out_trace("print_at_lines"))
+        # Only a line that is the report starts the trace, and the trace's last line can say it
+        # goes on.
+        named = b"no panic: here\n    at most 3 retries\n"
+        self.assertEqual(verify.without_trace(named), named)
+        cut = (b"panic: deep at a.fb:1:1\n    at F (a.fb:1)\n"
+               b"    and more calls, which aren't shown\n")
+        self.assertEqual(verify.without_trace(cut), b"panic: deep at a.fb:1:1\n")
 
 
 class shard_tests_t(unittest.TestCase):

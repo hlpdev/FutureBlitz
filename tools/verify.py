@@ -116,24 +116,32 @@ def executable(path: Path) -> Path:
     return path.with_suffix(".exe") if os.name == "nt" else path
 
 
-def keeps_trace(name: str) -> bool:
-    """Whether a program's .out has its stack trace, as the program tests read its name: one
-    whose ending, after release_ and panic_ or uncaught_, starts with "trace"."""
-    for prefix in ("release_", "panic_", "uncaught_"):
-        name = name.removeprefix(prefix)
-    return name.startswith("trace")
+def leaves_out_trace(name: str) -> bool:
+    """Whether a program's output is compared without its stack trace, as the program tests
+    read its name: one whose name, after release_, says it panics or lets an error out, unless
+    what follows starts with "trace"."""
+    name = name.removeprefix("release_")
+    for prefix in ("panic_", "uncaught_"):
+        if name.startswith(prefix):
+            return not name.removeprefix(prefix).startswith("trace")
+    return False
+
+
+ESCAPES = re.compile(rb"^(?:\x1b\[[\x20-\x3f]*[\x40-\x7e])*")
 
 
 def without_trace(output: bytes) -> bytes:
-    """What a program printed without the stack trace after its panic or uncaught error, the
-    lines that start "    at ", as the program tests compare it: the line can start with what
-    the program printed without a line break."""
+    """What a program printed without the stack trace after its panic's or uncaught error's
+    report, the lines that start "    at ", as the program tests compare it: the report can
+    start with terminal escapes the program wrote without a line break."""
     kept = []
     reported = False
     for line in output.splitlines(keepends=True):
-        if b"panic: " in line or b"uncaught " in line:
+        text = ESCAPES.sub(b"", line)
+        if text.startswith(b"panic: ") or text.startswith(b"uncaught "):
             reported = True
-        elif reported and line.startswith(b"    at "):
+        elif reported and (line.startswith(b"    at ")
+                           or line == b"    and more calls, which aren't shown\n"):
             continue
         kept.append(line)
     return b"".join(kept)
@@ -208,7 +216,7 @@ class programs_t:
             problems.append(f"{name} ({label}) was still running after {RUN_LIMIT} seconds, "
                             f"having printed:\n{printed}")
             return False
-        compared = output if keeps_trace(name) else without_trace(output)
+        compared = without_trace(output) if leaves_out_trace(name) else output
         if compared == (PROGRAMS / f"{name}.out").read_bytes() and code == expected_code(name):
             return True
         problems.append(f"{name} ({label}) printed:\n{printed}"
