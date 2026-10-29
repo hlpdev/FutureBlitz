@@ -1009,6 +1009,9 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | Releases are unsigned for now (the user, 2026-10-29) | the install scripts' downloads aren't stopped by Gatekeeper or SmartScreen, and signing needs paid accounts |
 | Stack traces come from a table of FB names, files, and lines the compiler writes into every binary, debug and release (the user, 2026-10-29) | the same on every OS, and a player's crash names its lines with no debug files shipped |
 | VS Code debugs through CodeLLDB on every OS, with a formatter script of fb's; Windows debug builds carry DWARF and a PDB (the user, 2026-10-29) | CodeLLDB bundles its own lldb, so there's nothing else to install and one set of formatters |
+| No build makes tail calls, release builds too (the user, 2026-10-29, M8 step 3) | a release trace keeps every caller, as Go's do, at a small cost; deep tail recursion uses stack as it does in debug builds |
+| An uncaught error's trace is the stack at its first Throw, kept beside the error until it's released (the user, 2026-10-29, M8 step 3) | simple, and it shows where the error began; a throw costs about 2.35 µs instead of 0.88 µs, 12 frames deep |
+| The program tests and verify.py compare a panic's trace only for programs whose names say "trace" (M8 step 3) | a trace names std's lines, so every other .out file would change with each edit to std |
 | Tests are `@Test` Functions anywhere in a package, left out of builds, and a tests/ folder; `Expect` is built in; one process runs them in parallel, started again after a panic (the user, 2026-10-29) | tests reach a file's Private names, and a run is fast but survives a panicking test |
 | `///` doc comments are Markdown, Rust's way, with `[Name]` links (the user, 2026-10-29) | plain to write and read, and the site renders Markdown already |
 

@@ -251,7 +251,7 @@ Planned 2026-10-29, with the design in [tooling.md](tooling.md).
 | 0 | The design: the toolchain per OS, releases, debug info, `fb test` and std.test, `///` docs, and the formatter's rules | tooling.md settles each (done 2026-10-29) |
 | 1 | The self-contained toolchain: fb links with its own lld and each target's runtime pieces | a program builds and runs on a machine with no C++ compiler, on each OS |
 | 2 | Releases: fb for each target from CI, archives and install scripts, `fb --version`, and `fb new` | a fresh machine installs fb and builds `fb new`'s package |
-| 3 | Debug info and stack traces: DWARF and CodeView through LLVM | a debugger steps through a program and shows its Locals, and a panic prints its stack |
+| 3 | Debug info and stack traces: DWARF and CodeView through LLVM | a debugger steps through a program and shows its Locals, and a panic prints its stack (done 2026-10-29, 297a90f2, on Windows; Linux and macOS by their tests) |
 | 4 | The LSP: diagnostics, hover, definitions, references, completion, symbols, rename, signature help, semantic tokens, and fix-its, re-checking only what an edit touches | each works in a large package as you type |
 | 5 | The VS Code extension: the grammar, the LSP client, tasks, and debugging | daily editing, running, and debugging work in VS Code |
 | 6 | The formatter: `fb fmt`, `--check`, and formatting on save | std and tests/programs format to themselves |

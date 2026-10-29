@@ -5,6 +5,31 @@ them while each was built. Newest first.
 
 ## M8, tooling
 
+Step 3, debug info and stack traces (2026-10-29, 297a90f2): codegen describes the program through
+LLVM's DIBuilder, with a compile unit for each file a function is in, its functions by their
+FutureBlitz names, each statement's line from the places MIR now keeps, a lexical block for each
+scope that declares Locals, and in debug builds the parameters and Locals with their types (Structs,
+tuples, and value T?s as structs, Enums with their members, and Strings, Classes, and T[]s as their
+names for pointers to their objects, header first, each Class's own struct named by its module),
+DWARF 4 everywhere and CodeView too on Windows; release builds have the line tables, and macOS
+builds a .dSYM. Panics and uncaught errors print a stack trace, " at <function> (<file>:<line>)",
+from fb's own table in every binary, a beside library's too (compiler/src/trace.cpp): after
+optimizing, an inline-assembly marker before each call names its place and the calls it's inlined
+into, and the runtime walks the stack with the platform's unwinder and finds each return address's
+marker (runtime/src/trace.cpp), showing at most 100 places. No build makes tail calls, so no caller
+drops out, and an error keeps the stack of its first Throw until it's released (both the user's
+calls). tools/lldb/futureblitz.py shows Strings, arrays, Maps, nullables, and objects, by their own
+Class, in lldb and CodeLLDB. The program tests and verify.py compare a trace only for programs whose
+name says "trace". A beside library that takes what its executable lacks no longer waits on Windows'
+"entry point not found" box. Its review's 21 fixes (docs/review/m8-step3.md): a checked operation's
+panic and ok blocks stay in source order, so a breakpoint on a line after one stops; sibling scopes'
+Locals of one name each show their own; code with no place starts at line 0, not the last block's; a
+beside library built from source gets its folder; a captured Local shows its value, and an Async
+Function's Locals and name after an Await; tail calls are off before optimizing; a frame with no
+line keeps its function; a kept error's stack costs less, and one walk serves every platform; a cut
+trace says so; a release at a function's end is at its Local's declaration; and the trace filter,
+the lldb script, the debugger tests, and the docs.
+
 Step 0, the design (2026-10-29): tooling.md's decisions 5 to 12, with the user: fb runs its own
 lld, Linux programs link against glibc 2.28's stubs, releases on GitHub Releases as archives,
 install scripts, an MSI, and a .pkg, unsigned; stack traces from fb's own table; CodeLLDB on
