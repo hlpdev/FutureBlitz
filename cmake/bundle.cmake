@@ -5,13 +5,18 @@
 # after which each binary is signed again, as arm64 Macs run only signed code. Each library's
 # license goes in notices/, from the package it came in.
 #
-# FB_BUNDLE_BIN is bin/, FB_BUNDLE_EXECUTABLES the executables' names there, FB_BUNDLE_FOLDERS
-# where else to look for what they load, and FB_BUNDLE_NOTICES notices/.
+# FB_BUNDLE_BIN is bin/, FB_BUNDLE_EXECUTABLES the executables' names there, lld among them,
+# FB_BUNDLE_LLD the lld it was copied from, FB_BUNDLE_FOLDERS where else to look for what they
+# load, and FB_BUNDLE_NOTICES notices/.
 
 set(fb_executables "")
 foreach(name IN LISTS FB_BUNDLE_EXECUTABLES)
   list(APPEND fb_executables "${FB_BUNDLE_BIN}/${name}")
 endforeach()
+# lld is read where it was installed from, where its own rpaths find what it loads.
+set(fb_scanned ${fb_executables})
+list(REMOVE_ITEM fb_scanned "${FB_BUNDLE_BIN}/lld")
+list(APPEND fb_scanned "${FB_BUNDLE_LLD}")
 
 # What every machine fb runs on has: on macOS, Apple's; on Linux, glibc's, GCC's, and the
 # libraries that every Ubuntu has, which its package manager needs.
@@ -25,7 +30,7 @@ else()
 endif()
 
 file(GET_RUNTIME_DEPENDENCIES
-  EXECUTABLES ${fb_executables}
+  EXECUTABLES ${fb_scanned}
   RESOLVED_DEPENDENCIES_VAR fb_resolved
   UNRESOLVED_DEPENDENCIES_VAR fb_unresolved
   CONFLICTING_DEPENDENCIES_PREFIX fb_conflicting

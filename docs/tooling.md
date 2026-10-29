@@ -41,12 +41,14 @@ other people can install and use every day in an editor. Step 0 settled what was
 - fb ships lld and what each target links besides the program: the runtime, std's bundled
   libraries, and the C runtime's startup files and libraries, so building needs no C++ compiler.
   fb runs lld itself (ld.lld, its MinGW driver, and ld64.lld), as one binary beside fb.
-- A release's folder: `bin/` (fb, fb-bindgen, lld, and on Windows LLVM-C.dll and libclang.dll),
-  `lib/<target>/` (the runtime's archives, std's bundled libraries, and the C runtime's pieces),
-  `notices/`, and `std/`. fb takes them from beside itself when its bin/ has lld and the folder
-  above lib/<target>/ and std/, and else from its build folder, where CMake lays lib/<target>/
-  out the same way, copying the C runtime's pieces from the C++ compiler that builds the
-  runtime (fb/toolchain.hpp).
+- A release's folder: `bin/` (fb, fb-bindgen, fb_lsp, lld, and the shared libraries they load:
+  LLVM-C.dll and libclang.dll on Windows), `lib/<target>/` (the runtime's archives, std's
+  bundled libraries, the C runtime's pieces, and in `include/` the target's C headers),
+  `lib/clang/` (clang's own headers), `notices/`, `std/`, and `lldb/futureblitz.py`, which the
+  VS Code extension finds beside the folder bin/ is in. fb takes them from beside itself when
+  its bin/ has lld and the folder above lib/<target>/ and std/, and else from its build folder,
+  where CMake lays lib/<target>/ out the same way, copying the C runtime's pieces from the C++
+  compiler that builds the runtime (fb/toolchain.hpp).
 - lld's arguments go in a response file, so a link of many objects fits Windows' command line.
 - Windows: the pieces of the MinGW-w64 toolchain fb is built with that a program links: crt2.o,
   crtbegin.o and crtend.o, libmingw32, libmingwex, UCRT's and the system's import libraries,
@@ -68,13 +70,57 @@ other people can install and use every day in an editor. Step 0 settled what was
 ## Releases (step 2)
 
 - Versioned builds of fb for windows-x64, linux-x64, linux-arm64, macos-arm64, and macos-x64,
-  from CI, on GitHub Releases, when a `v<version>` tag is pushed.
-- Each target's archive (.zip on Windows, .tar.gz elsewhere), and install.sh and install.ps1,
-  which fetch the latest, unpack it under ~/.futureblitz, and put fb on PATH; running one again
-  updates. An MSI for Windows (WiX) and a .pkg for macOS (pkgbuild) install the same folder.
+  from .github/workflows/release.yml, which a pushed `v<version>` tag runs, or a dispatch on a
+  branch to check it. A tag makes a **draft** GitHub Release of the assets, which is published by
+  hand; the tag has to be CMakeLists.txt's version.
+- Each target's archive, `futureblitz-<version>-<target>.zip` on Windows and `.tar.gz`
+  elsewhere, holds one folder of that name, laid out as above. `cmake --install <build> --prefix
+  <folder>` writes it (cmake/install.cmake), and the install test in ctest installs the build
+  into a folder of its own and builds and runs `fb new`'s package there with PATH empty.
+- tools/install/install.sh (Linux and macOS) and install.ps1 (Windows), assets of each release,
+  install the latest release, one given with `--version` (`-Version`), or an archive with
+  `--archive` (`-Archive`), under ~/.futureblitz (%USERPROFILE%\.futureblitz, or
+  `FUTUREBLITZ_HOME`), replacing the release's folders and keeping anything else there, and put
+  its bin on PATH: the shell's startup file (.zshrc, .bash_profile on macOS, .profile and .bashrc
+  on Linux, fish's config.fish, else .profile), or Windows' user PATH; `--no-modify-path`
+  (`-NoModifyPath`) leaves it. Running one again updates.
+- The MSI (WiX 5, tools/install/futureblitz.wxs) installs the same folder for the user alone,
+  in %USERPROFILE%\.futureblitz with its bin on the user's PATH, and uninstalls both; a newer one
+  replaces an older one. The .pkg (pkgbuild) installs it for every user in
+  /usr/local/futureblitz, with /etc/paths.d/futureblitz putting its bin on PATH, as Go's does.
+- fb's own executables run with nothing else installed. On Windows they link MinGW's runtime
+  statically (where winpthread links statically: CLion's MinGW, whose winpthread is built for
+  UCRT, gets libwinpthread-1.dll beside them instead), and LLVM-C.dll and libclang.dll, which
+  hold all of LLVM, go beside them. On Linux they link libstdc++ and libgcc statically, and in a
+  release LLVM's static libraries (`FB_LLVM_STATIC`); on macOS Homebrew's LLVM has only its
+  shared libraries. Elsewhere than Windows, cmake/bundle.cmake copies into bin/ the shared
+  libraries that fb's executables and lld load, but the system's, and has them found there:
+  a RUNPATH of $ORIGIN on Linux (patchelf), and on macOS @rpath names, an @loader_path rpath
+  (install_name_tool), and each binary signed again; each one's license goes in notices/.
+- Linux: fb is built on Ubuntu 22.04 with GCC 14 and apt.llvm.org's LLVM, so it needs Ubuntu
+  22.04 or newer (glibc 2.35), while lib/<target>/, with glibc 2.28's and the kernel's headers in
+  its include/, comes from a runtime-only build (`FB_RUNTIME_ONLY`, no LLVM) in a
+  manylinux_2_28 container (AlmaLinux 8, gcc-toolset-14), which the release takes as
+  `FB_TOOLCHAIN_PREBUILT`; the programs fb builds run on glibc 2.28. apt.llvm.org's lld and
+  libclang load its libLLVM, which goes beside them with what it loads.
+- macOS: fb needs Apple's Command Line Tools for the SDK, and Homebrew's LLVM is built for the
+  macOS the runner has, 15, which fb then needs.
+- fb-bindgen finds clang's headers in lib/clang/ and the target's C headers in
+  lib/<target>/include/ (MinGW-w64's and winpthreads', or glibc 2.28's and the kernel's), or on
+  macOS the SDK's, from `xcrun`; a build folder has libclang's own and the C compiler's.
+- notices/: std's bundled libraries', LLVM's (for LLVM, clang, and lld), MinGW-w64's and GCC's
+  on Windows, and GCC's, glibc's, and the Linux headers' on Linux, from cmake/notices/, and the
+  bundled shared libraries' own, from their Debian packages or Homebrew kegs.
+- The workflow checks each release on a fresh machine: Windows' and macOS' runners as they come,
+  with PATH cut to the system's, and a plain ubuntu:22.04 container with no compiler, each
+  installing with its script, and on Windows and macOS with the MSI and the .pkg too, then
+  running `fb new hello` and `fb run` in it; and a program fb builds there runs in almalinux:8.
 - Unsigned: an archive or installer downloaded in a browser warns until signing comes.
-- `fb --version` prints the version, the commit, and the target.
-- `fb new <name>` makes a package: project.toml, main.fb, and a .gitignore.
+- `fb --version` prints the version, the commit from git when CMake configured the build, or
+  "unknown", and the target: `fb 0.1.0 (abc1234, windows-x64)`.
+- `fb new <folder>` makes a package there, named by the folder's name, which is checked as
+  project.toml's names are: project.toml, a main.fb that imports std.core and prints "Hello,
+  world!", and a .gitignore of build/. It refuses a folder that's there and isn't empty.
 
 ## Debug info (step 3)
 

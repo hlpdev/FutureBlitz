@@ -66,12 +66,13 @@ jobs:
           C:\LLVM\bin\clang.exe --version
           "FB_CONFIGURE=-DFB_LLVM_ROOT=C:/LLVM" >> $env:GITHUB_ENV
 
-      # Linux: GCC 14 and LLVM 22 from apt.llvm.org.
+      # Linux: GCC 14 and LLVM 22 from apt.llvm.org, and patchelf, with which the install test
+      # has a release's shared libraries found beside it.
       - name: Install the toolchain (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build g++-14
+          sudo apt-get install -y ninja-build g++-14 patchelf
           wget -q https://apt.llvm.org/llvm.sh
           sudo bash llvm.sh 22
           sudo apt-get install -y llvm-22-dev libclang-22-dev lld-22 libpolly-22-dev

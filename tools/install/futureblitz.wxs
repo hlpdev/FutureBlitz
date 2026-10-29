@@ -11,7 +11,9 @@
     <MajorUpgrade DowngradeErrorMessage="A newer FutureBlitz is installed already." />
     <MediaTemplate EmbedCab="yes" />
 
-    <StandardDirectory Id="TARGETDIR">
+    <!-- A standard folder, which components' generated GUIDs need, that's set to the real one
+         as it installs. -->
+    <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="INSTALLFOLDER" Name="futureblitz" />
     </StandardDirectory>
     <SetDirectory Id="INSTALLFOLDER" Value="[%USERPROFILE]\.futureblitz\" Sequence="both" />
