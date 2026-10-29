@@ -434,7 +434,8 @@ TEST_CASE("fb doc has a package's public API, its docs, and what their links nam
     CHECK(module.name == "documented.shapes");
     CHECK(module.file == "shapes.fb");
     REQUIRE(module.doc);
-    CHECK(module.doc.value().summary == "Shapes, and what they cover: see [Shape] and [Circle].");
+    CHECK(module.doc.value_or(fb::doc_t{}).summary ==
+          "Shapes, and what they cover: see [Shape] and [Circle].");
 
     // Its Public declarations, and the Extends of them, in order: not its Private or Package ones.
     const std::string prefix = "documented.shapes.";
@@ -474,7 +475,7 @@ TEST_CASE("fb doc has a package's public API, its docs, and what their links nam
                                                                  prefix + "Circle.Area",
                                                                  prefix + "Circle.Grow" });
     REQUIRE(circle->doc);
-    REQUIRE(circle->doc.value().examples.size() == 1);
+    REQUIRE(circle->doc.value_or(fb::doc_t{}).examples.size() == 1);
 
     // Each link, found as the doc's declaration's code would find it.
     std::vector<std::pair<std::string, std::string>> links;
@@ -504,7 +505,8 @@ TEST_CASE("fb doc has a package's public API, its docs, and what their links nam
     const fb::doc_item_t* area = item_at(module.items, prefix + "Circle.Area");
     REQUIRE(area);
     REQUIRE(area->doc);
-    CHECK(area->doc.value().summary == "How much of the plane it covers, in square units.");
+    CHECK(area->doc.value_or(fb::doc_t{}).summary ==
+          "How much of the plane it covers, in square units.");
     CHECK(area->doc_from == prefix + "Shape.Area");
     const fb::doc_item_t* described = item_at(module.items, prefix + "Square.Describe");
     REQUIRE(described);
@@ -518,7 +520,7 @@ TEST_CASE("fb doc has a package's public API, its docs, and what their links nam
     CHECK(grow->signature == "Public ByRef Method Grow(by: Float)");
     CHECK(grow->attributes == std::vector<std::string>{ "@PanicsAtCaller" });
     REQUIRE(grow->doc);
-    CHECK(grow->doc.value().examples.size() == 3);
+    CHECK(grow->doc.value_or(fb::doc_t{}).examples.size() == 3);
 
     // A Class's Protected members are its users', and a Private one isn't.
     const fb::doc_item_t* named = item_at(module.items, prefix + "Named");

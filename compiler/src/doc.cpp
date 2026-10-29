@@ -1350,7 +1350,7 @@ private:
     }
 
     /// The kind fb doc names a declaration by.
-    [[nodiscard]] static std::string kind_of(const stmt_node_t& node, const bool member) {
+    [[nodiscard]] static std::string_view kind_of(const stmt_node_t& node, const bool member) {
         if (const auto* function = std::get_if<function_stmt_t>(&node)) {
             switch (function->kind) {
             case function_kind_t::FUNCTION:
@@ -1550,7 +1550,7 @@ private:
         }
 
         doc_item_t item{
-            .kind = kind_of(node, member),
+            .kind = std::string(kind_of(node, member)),
             .name = std::string(name->text),
             .path = m_index.path(id),
             .visibility = visibility,
