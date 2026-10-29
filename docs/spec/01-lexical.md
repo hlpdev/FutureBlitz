@@ -42,10 +42,54 @@ End Function)
 // line comment
 /* block comment, /* nestable */ */
 /// doc comment, attached to the next declaration
+//! the module's doc comment, at the top of its file
 ```
 
 An unterminated `/*` is an error. A block comment counts as a space even when it spans lines,
 so it never ends a statement.
+
+### Doc comments
+
+```vb
+//! Shapes, and what they cover: see [Shape] and [TotalArea].
+
+Import std.core
+
+/// The area of each of `shapes`, added up.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local shapes: Shape[] = [Circle(1), Square(2)]
+/// Expect(TotalArea(shapes) > 7)
+/// ```
+@Inline
+Public Function TotalArea(shapes: Shape[]): Float
+```
+
+- The `///` lines right before a declaration, each on a line of its own, are its doc comment:
+  before its attributes, with no blank line or other comment between. A top-level Function,
+  Struct, Class, Interface, Attribute, Enum, Global, Const, or Alias has one, and so do the
+  members of a Struct, Class, Interface, or Extend, the Functions of an Extern block, and an
+  Enum's members, each on the line before the line it starts. `////` is an ordinary comment, and a
+  `///` comment that's on no declaration, or after code on its line, documents nothing.
+- The `//!` lines at the top of a file, before its first line of code, are its module's doc
+  comment.
+- A doc comment's text is Markdown, without each line's `///` or `//!` and the spaces that all
+  its lines with text start with, written Rust's way. Its first sentence is its summary, which
+  lists show: up to the first `.`, `!`, or `?` outside code that a space follows or that ends its
+  first paragraph. Headings start its sections, like `# Errors` for what it throws, `# Panics` for
+  how it's misused, and `# Examples`. Parameters go in backticks, as `` `shapes` ``. A link in
+  brackets, like `[Shape]`, `[Circle.Grow]`, or `[std.collections.Stack]`, names a declaration as
+  code where the comment is would: the members of its type, then its module's declarations, those
+  of the modules it imports, and the built-ins, or by a module's whole name; backticks and a `()`
+  can go inside, as in ``[`Grow()`]``. `fb doc` warns about one that names nothing, and about a
+  doc comment that documents nothing (see [tooling.md](../tooling.md#docs-from-the-code-step-8)).
+- The code blocks under `# Examples`, in a fence with no language, or `fb`, are tests that
+  `fb test` compiles and runs, and with `fb no_run`, only compiles (see
+  [09](09-errors.md#tests)). A line of one that starts with `# `, or is `#` alone, is compiled but
+  not shown, for setup the reader doesn't need; `#If` and the other directives are code.
 
 ## Blocks
 

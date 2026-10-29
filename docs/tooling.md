@@ -372,16 +372,86 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
 - `fb test` runs the tests in parallel in one process, and starts it again after a test that
   panics, running the rest, and in a debug build the ones that finished in that run too, whose
   leaks it didn't check; filters by name, a summary, and leaks reported per test.
-- Doc tests: the examples in `///` comments' `# Examples` compile and run as tests.
+- Doc tests: the examples in `///` comments' `# Examples` compile and run as tests, each a test
+  named after its declaration, like `game.shapes.Circle.Grow (example)`, in a package of their
+  own, `<name>.doctests`, that uses the package from outside (spec 09). `fb test std` runs std's.
 
 ## Docs from the code (step 8)
 
 - `///` doc comments on declarations, in Markdown, Rust's way: the first sentence is the summary,
   sections like `# Errors`, `# Panics`, and `# Examples`, parameters in backticks, and `[Name]`
-  or `[Type.Member]` links, which fb doc resolves and checks.
-- std's comments on its declarations become `///` ones.
-- `fb doc`, which writes a package's public API as JSON (modules, types, members, signatures,
-  docs, and source links) for M9's reference pages.
+  or `[Type.Member]` links, which fb doc resolves and checks. `//!` lines at the top of a file are
+  its module's (spec 01).
+- The parser attaches each to its declaration in the AST, from the doc comments the lexer finds:
+  `ast_t::doc()` gives a declaration's by where its name is, as a symbol's span is, which is what
+  the LSP's hover shows, and `module_doc()` a file's. `read_doc()` (compiler/include/fb/doc.hpp)
+  reads one's Markdown into its summary, sections, links, and examples.
+- std's comments on its declarations became `///` ones, and its files' first comments `//!`
+  ones. Every Public declaration of std's, and every member its users see, has a summary, of its
+  own or from the Interface member it implements or the Class member it overrides; a test checks
+  each is in `fb doc std`'s JSON with one.
+- `fb doc [package | std]` writes a package's public API as JSON, to `build/<name>.json` in its
+  folder, or for std, std.json in the current one, unless `-o` names a file, or `-` for stdout,
+  after a warning for each link that names nothing and each doc comment on nothing. `--release`
+  documents a release build's `#If` branches.
+- An example has `Import std.core`, `Import std.test`, and its declaration's module without
+  writing them, and writes any other Import at its top, as a file does; a line that starts with
+  `# ` is compiled but not shown, as Rust's are, for setup the reader doesn't need. Its
+  declarations go outside its test, and the rest is its body. It's compiled as a module of its own,
+  whose lines are mapped to their place in the doc comment, so its errors, failures, panics, and
+  stack traces show the comment's lines. A fence with `fb no_run` only compiles, for code that
+  would wait on a network or a person; one with another language isn't a test.
+
+fb doc's JSON, format 1, which M9's reference pages read. Every object has every key shown, but
+for the ones marked as only sometimes there:
+
+```json
+{
+  "format": 1,
+  "package": "std",
+  "version": "0.1.0",
+  "modules": [
+    {
+      "name": "std.collections.stack",
+      "file": "collections/stack.fb",
+      "doc": "<doc> or null",
+      "items": ["<item>"]
+    }
+  ]
+}
+```
+
+- A module's `file` is its path from its package's folder, std's from std/. A module with no
+  Public declarations and no doc comment is left out, and the modules are sorted by name.
+- An item is a declaration its users see: a module's Public ones, and its Extends of a Public
+  type, a built-in, or every `T[]`, with their Public members. Its keys:
+  - `kind`: function, struct, class, interface, attribute, enum, alias, global, const, field,
+    static field, method, static method, constructor, operator, property, enum member, or extend.
+  - `name`: an Operator's is its operator, like `+`, a New's is `New`, and an Extend's is its type
+    without its type arguments, like `String` or `T[]`.
+  - `path`: its module's name, its type's name for a member, and its name, as links name it:
+    `std.collections.stack.Stack.Push`, or for an Operator, `...Vec3.Operator+`. An Extend's is
+    `<module>.Extend.<name>`, and its members' are `<module>.<name>.<member>`, its type's in its
+    module. Overloads share their path.
+  - `signature`: its first line as written, with its visibility and modifiers but not its
+    attributes or comments, and a line break as a space: a function's through its result and
+    Throws, a type's through its Implements, a variable's through its type, or its value for a
+    Const or one without a type, an Enum member's through its value.
+  - `attributes`: each attribute before it as written, like `@PanicsAtCaller`.
+  - `visibility`: Public, or Protected for a Class's member that only the Classes extending it
+    see.
+  - `file` and `line`: where it starts, at its first attribute, its line from 1.
+  - `doc`: its doc comment, or null; a member without one that implements an Interface's member
+    or overrides a base Class's has that one's, and `doc_from`, only then, is its path.
+  - `extends`, only on an Extend: the path of the type it extends, or a built-in's name.
+  - `members`, on a type, an Enum, and an Extend: their items, in source order, a Struct's and a
+    Class's Public members and a Class's Protected ones, an Interface's all, and an Enum's.
+- A doc: `summary`, its first sentence, empty when it starts with a heading or code; `markdown`,
+  its text without its examples' hidden lines; `sections`, each `heading` (empty for what comes
+  before the first) and its `markdown`; `links`, each `[Name]` in it, its `text` as written
+  without backticks or a `()`, and the `path` it names, or a built-in's name with `builtin`
+  true, or an empty path for one that names nothing; and `examples`, each one's `code` as shown,
+  the `line` of its opening fence, and whether it `runs` or only compiles.
 
 ## Not in M8
 

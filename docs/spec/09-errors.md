@@ -177,6 +177,16 @@ End Function
   it takes no visibility, and no code calls it, or uses it as a value. It sees its file's Private
   names, as the file's other code does. `fb build` and `fb run` leave tests out, and the code only
   they reach; a library's binary and interface file leave the tests out.
+- Each example in the doc comments of a package's `.fb` files, a code block under `# Examples`
+  (see [01](01-lexical.md#doc-comments)), is a test of its own, named after its declaration, as
+  `game.shapes.Circle.Grow (example)`, and its second `(example 2)`. It's a module of a package
+  of its own, `<name>.doctests`, which depends on the package and what it depends on, so it uses
+  the package through its Public names, as a reader's code would. It has `Import std.core`,
+  `Import std.test`, and an Import of its declaration's module, unless it writes them itself, and
+  writes any other Import at its top, as a file does; its declarations, like a Struct that
+  implements an Interface, go outside its test, and its other code is the test's body. Its
+  failures, panics, and stack traces show its lines in the doc comment. `fb test std` runs the
+  standard library's examples.
 - The `.fb` files of a package's tests/ folder are a package of their own, `<name>.tests`, which
   depends on the package and on what it depends on, so their tests use it from outside, through
   its Public names, as another package would; they import each other by their paths. A package

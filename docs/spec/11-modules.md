@@ -166,8 +166,10 @@ physics = { path = "../physics" }
   `.fb` files as a module of its own, but not those in its build/ folder, its tests/ folder, in
   hidden folders, or in folders with a project.toml of their own; it has nothing to run, and
   `fb build` writes its interface file and binary (see [Prebuilt libraries](#prebuilt-libraries)).
-  `fb test` builds a package's tests, from each of its `.fb` files and its tests/ folder's, and
-  runs them (see [09](09-errors.md#tests)).
+  `fb test` builds a package's tests, from each of its `.fb` files, its tests/ folder's, and its
+  doc comments' examples, and runs them (see [09](09-errors.md#tests)). `fb doc` writes a
+  package's public API as JSON, to `<folder>/build/<name>.json` unless `-o` says where (see
+  [tooling.md](../tooling.md#docs-from-the-code-step-8)).
 - `[native]` names the package's C libraries, each by the name `Lib` gives it (see
   [12](12-ffi.md)): `joltc = "libs/joltc"`, or `joltc = { static = "libs/joltc" }`, is a static
   archive from the package's folder: the file itself, or without its `lib` prefix and its
