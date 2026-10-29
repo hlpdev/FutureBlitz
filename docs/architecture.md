@@ -91,7 +91,7 @@ C++ library linked into every FutureBlitz program:
 | `cli` (`fb`) | `build`, `run`, `check`, and `--show` for every stage (M1); `new`, `test`, package management later |
 | `lsp` | language server: diagnostics, completion, go-to-definition, etc. |
 | VS Code extension | interim editor support until the IDE exists |
-| Formatter | enforces style, including inline-vs-`Where` generic constraints |
+| Formatter | enforces style (docs/tooling.md); sema warns about inline-vs-`Where` generic constraints |
 | `bindgen` | C header → `Extern` module (libclang) |
 | Asset cooker | source assets → cooked, compressed, packed |
 | Migrator | Blitz3D `.bb` → FutureBlitz (see [migration.md](migration.md)) |

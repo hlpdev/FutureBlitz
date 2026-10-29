@@ -23,6 +23,13 @@ struct label_t {
     std::string message;
 };
 
+/// A change to the source that fixes what a diagnostic says, which an editor can make: the text
+/// `span` covers becomes `replacement`. An empty span inserts it.
+struct fix_t {
+    span_t span;
+    std::string replacement;
+};
+
 /// One error, warning, or note for the user.
 struct diagnostic_t {
     severity_t severity = severity_t::ERROR;
@@ -34,6 +41,8 @@ struct diagnostic_t {
     std::vector<label_t> labels;
     /// Extra lines shown after the snippets, as "= note: ...".
     std::vector<std::string> notes;
+    /// Changes that together fix it, which the LSP offers as a code action. They don't overlap.
+    std::vector<fix_t> fixes;
 
     diagnostic_t& with_label(const span_t at, std::string text) {
         labels.push_back({ .span = at, .message = std::move(text) });
@@ -42,6 +51,11 @@ struct diagnostic_t {
 
     diagnostic_t& with_note(std::string text) {
         notes.push_back(std::move(text));
+        return *this;
+    }
+
+    diagnostic_t& with_fix(const span_t at, std::string replacement) {
+        fixes.push_back({ .span = at, .replacement = std::move(replacement) });
         return *this;
     }
 };

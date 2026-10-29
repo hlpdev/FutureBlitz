@@ -9,9 +9,11 @@
 #include <chrono>
 #include <cstddef>
 #include <format>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -728,20 +730,17 @@ TEST_CASE("overloads: an exact match beats a conversion", "[sema]") {
                                           "Struct OnlyEq Implements Equatable\n"
                                           "    Field X: Int\n"
                                           "End Struct\n"
-                                          "Function Describe<T>(x: T): String\n"
-                                          "    Where T: Comparable\n"
+                                          "Function Describe<T: Comparable>(x: T): String\n"
                                           "    Return \"comparable\"\n"
                                           "End Function\n";
     CHECK(probe(std::format("Import std.core\n"
-                            "{}Function Describe<U>(y: U): Int\n"
-                            "    Where U: Equatable\n"
+                            "{}Function Describe<U: Equatable>(y: U): Int\n"
                             "    Return 1\n"
                             "End Function\n"
                             "Local x = Describe(OnlyEq(1))",
                             describe)) == "Int32");
     CHECK(errors_of(std::format("Import std.core\n"
-                                "{}Function Describe<U>(y: U): String\n"
-                                "    Where U: Comparable\n"
+                                "{}Function Describe<U: Comparable>(y: U): String\n"
                                 "    Return \"again\"\n"
                                 "End Function",
                                 describe)) ==
@@ -757,8 +756,7 @@ TEST_CASE("overloads: an exact match beats a conversion", "[sema]") {
     // That holds whatever is declared first: Const Functions are declared before any Interface
     // knows what it extends, and here the Interfaces come after the Functions.
     CHECK(errors_of("Import std.core\n"
-                    "Const Function F<T>(x: T): Int\n"
-                    "    Where T: Comparable\n"
+                    "Const Function F<T: Comparable>(x: T): Int\n"
                     "    Return 1\n"
                     "End Function\n"
                     "Const Function F<U>(y: U): Int\n"
@@ -767,8 +765,7 @@ TEST_CASE("overloads: an exact match beats a conversion", "[sema]") {
                     "End Function\n"
                     "Const A = F(1)") ==
           errors_t{ "F: 'F' is already declared with the same parameter types" });
-    CHECK(errors_of("Function D<T>(x: T): Int\n"
-                    "    Where T: B\n"
+    CHECK(errors_of("Function D<T: B>(x: T): Int\n"
                     "    Return 1\n"
                     "End Function\n"
                     "Function D<U>(y: U): Int\n"
@@ -3245,8 +3242,7 @@ TEST_CASE("Where T: Class says a type parameter is a Class, which a Weak<T> refe
                                       "Interface Shape\n"
                                       "    Method Area(): Float\n"
                                       "End Interface\n"
-                                      "Class Holder<T>\n"
-                                      "    Where T: Class\n"
+                                      "Class Holder<T: Class>\n"
                                       "    Field Item: Weak<T>\n"
                                       "    Method Get(): T? => Item\n"
                                       "End Class\n";
@@ -3372,8 +3368,7 @@ TEST_CASE("Class and Error are constraints any module's Public code can have", "
         {
             .path = "lib/holder.fb",
             .text = "Import std.core\n"
-                    "Public Class Holder<T>\n"
-                    "    Where T: Class\n"
+                    "Public Class Holder<T: Class>\n"
                     "    Public Field Item: Weak<T>\n"
                     "    Public Method Keep<O: Class>(owner: O): Weak<O> => owner\n"
                     "End Class\n"
@@ -3406,8 +3401,7 @@ TEST_CASE("a Weak<T> of a Class that's Sendable is Sendable, a type parameter's 
                                 "Local r = Registry<Hub>(Hub())",
                                 hub))
               .empty());
-    CHECK(errors_of(std::format("{}Shared Class Registry<T>\n"
-                                "    Where T: Class\n"
+    CHECK(errors_of(std::format("{}Shared Class Registry<T: Class>\n"
                                 "    ReadOnly Field First: Weak<T>\n"
                                 "End Class",
                                 hub)) ==
@@ -4934,8 +4928,7 @@ errors_t with_numbers(const std::string_view text) {
 
 TEST_CASE("generic code uses what its constraints give", "[sema]") {
     CHECK(probe_numbers("Local s = Sum([Money(1), Money(2)])") == "Money");
-    CHECK(probe_numbers("Function Same<T>(a: T, b: T): Bool\n"
-                        "    Where T: Summable\n"
+    CHECK(probe_numbers("Function Same<T: Summable>(a: T, b: T): Bool\n"
                         "    Return a == b && !(a != b)\n"
                         "End Function\n"
                         "Local s = Same(Money(1), Money(2))") == "Bool");
@@ -5007,6 +5000,67 @@ TEST_CASE("constraint mistakes", "[sema]") {
               "Named: 'Named' isn't a type",
               "Sameish: 'Sameish' isn't a type",
           });
+}
+
+TEST_CASE("one constraint goes inline, and more on Where lines, or sema warns with a fix",
+          "[sema]") {
+    // The warning's message, and its source with the fixes made, after an Import of std.core.
+    constexpr std::string_view import = "Import std.core\n";
+    const auto fixed = [&](const std::string_view program) {
+        std::string text = std::string(import) + std::string(program);
+        const fb::compilation_t compilation = fb::compile("test.fb", text);
+        std::vector<std::string> messages;
+        for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+            INFO(diagnostic.message);
+            CHECK(diagnostic.severity == fb::severity_t::WARNING);
+            messages.push_back(diagnostic.message);
+            // Back to front, so each fix's span is still where it was.
+            std::vector<fb::fix_t> fixes = diagnostic.fixes;
+            std::ranges::sort(fixes, std::greater{},
+                              [](const fb::fix_t& fix) { return fix.span.begin; });
+            for (const fb::fix_t& fix : fixes) {
+                text.replace(fix.span.begin, fix.span.length(), fix.replacement);
+            }
+        }
+
+        return std::pair(messages, text.substr(import.size()));
+    };
+
+    CHECK(fixed("Function F<T>(x: T): Bool\n    Where T: Equatable\n    Return x == x\nEnd "
+                "Function\nPrint(F(1))") ==
+          std::pair(std::vector<std::string>{ "a declaration's one constraint goes inline, as "
+                                              "<T: Equatable>, not on a Where line" },
+                    std::string("Function F<T: Equatable>(x: T): Bool\n    Return x == x\nEnd "
+                                "Function\nPrint(F(1))")));
+    CHECK(fixed("Class Box<K, V>\n    Where K: Hashable\n    Field Keys: K[] = []\nEnd Class")
+              .second == "Class Box<K: Hashable, V>\n    Field Keys: K[] = []\nEnd Class");
+    CHECK(fixed("Class C\n    Method F<A: Equatable, B: Equatable>(a: A, b: B): Bool\n        "
+                "Return a == a && b == b\n    End Method\nEnd Class") ==
+          std::pair(std::vector<std::string>{ "a declaration with more than one constraint has "
+                                              "each on a Where line" },
+                    std::string("Class C\n    Method F<A, B>(a: A, b: B): Bool\n        Where A: "
+                                "Equatable\n        Where B: Equatable\n        Return a == a && "
+                                "b == b\n    End Method\nEnd Class")));
+    CHECK(fixed("Function F<T: Equatable & Printable>(x: T)\n    Print(x)\nEnd Function").second ==
+          "Function F<T>(x: T)\n    Where T: Equatable & Printable\n    Print(x)\nEnd Function");
+
+    // Each form where it belongs, and Where lines inline can't take the place of.
+    for (const std::string_view program : {
+             "Function F<T: Equatable>(x: T): Bool => x == x",
+             "Function F<A, B>(a: A, b: B)\n    Where A: Equatable\n    Where B: Equatable\nEnd "
+             "Function",
+             "Function F<A: Equatable, B: Equatable>(a: A, b: B): Bool => a == a && b == b",
+             "Class Bag<T>\n    Field Items: T[] = []\n    Method Has(x: T): Bool\n        Where "
+             "T: "
+             "Equatable\n        Return Items.Contains(x)\n    End Method\nEnd Class",
+             "Function Collect<S, E>(items: S): E[]\n    Where S: Iterator<E>\n    Return []\nEnd "
+             "Function",
+             "Class Box<T>\nEnd Class\nExtend Box<T> Implements Printable\n    Where T: Printable\n"
+             "    Method ToString(): String => \"box\"\nEnd Extend",
+         }) {
+        INFO(program);
+        CHECK(errors_of(std::string(import) + std::string(program)).empty());
+    }
 }
 
 TEST_CASE("a missing Import's constraint is reported once, and nothing it would allow is",
@@ -5110,11 +5164,13 @@ TEST_CASE("a Property's type is reported once, though its Get gives it and its S
 // Built-in Interfaces
 
 TEST_CASE("the built-in types implement the built-in Interfaces that fit them", "[sema]") {
+    // More than one constraint goes on a Where line.
     const auto meets = [](const std::string_view constraint, const std::string_view value) {
-        return errors_of(
-                   std::format("Import std.core\nFunction F<T: {}>(x: T)\nEnd Function\nF({})",
-                               constraint, value))
-            .empty();
+        const std::string declared =
+            constraint.contains('&')
+                ? std::format("Function F<T>(x: T)\n    Where T: {}\nEnd Function", constraint)
+                : std::format("Function F<T: {}>(x: T)\nEnd Function", constraint);
+        return errors_of(std::format("Import std.core\n{}\nF({})", declared, value)).empty();
     };
 
     CHECK(meets("Numeric & Comparable & Hashable & Printable", "2.5"));
@@ -5144,7 +5200,7 @@ TEST_CASE("the built-in types implement the built-in Interfaces that fit them", 
           errors_t{ "Line<Thing>: Thing doesn't implement Comparable, which Line<T> needs for T" });
     CHECK(errors_of("Import std.core\n"
                     "Class Thing\nEnd Class\n"
-                    "Function Sorted<T>(items: T[])\n    Where T: Comparable\nEnd Function\n"
+                    "Function Sorted<T: Comparable>(items: T[])\nEnd Function\n"
                     "Function Sorted<T>(items: T[], before: Func(T, T): Bool)\nEnd Function\n"
                     "Sorted([Thing()])") ==
           errors_t{ "Sorted: Thing doesn't implement Comparable, which 'Sorted' needs for T" });
@@ -5746,8 +5802,7 @@ TEST_CASE("an Extend's Where makes the defaults it gives conditional too", "[sem
                            "End Class\n"
                            "Local n = Sub<Rock>().Twice() + Sub<Int>().Twice()")
               .empty());
-    CHECK(implementer(base + "Class Sub<T> Extends Base<T> Implements Sized\n"
-                             "    Where T: Hashable\n"
+    CHECK(implementer(base + "Class Sub<T: Hashable> Extends Base<T> Implements Sized\n"
                              "End Class",
                       "Sub<T>") == "Base<T> Doubled");
 
@@ -6288,7 +6343,7 @@ TEST_CASE("generic Interface mistakes", "[sema]") {
           errors_t{ "Grow<T[]>: Grow<T> can't extend itself, directly or through other "
                     "Interfaces" });
     CHECK(errors_of("Import std.core\n"
-                    "Interface Picky<T>\n    Where T: Comparable\nEnd Interface\n"
+                    "Interface Picky<T: Comparable>\nEnd Interface\n"
                     "Struct P\n    Field X: Int\nEnd Struct\n"
                     "Function F(x: Picky<P>)\nEnd Function") ==
           errors_t{ "Picky<P>: P doesn't implement Comparable, which Picky<T> needs for T" });
@@ -8444,8 +8499,7 @@ TEST_CASE("a type parameter that's CData can be a Ptr's T, and SizeOf's", "[sema
                     "    Local steps = (run.first + run.count) - run.first\n"
                     "    Return run.first[run.count - 1]\n"
                     "End Function\n"
-                    "Function Wrap<T>(p: Ptr<T>): Run<T>\n"
-                    "    Where T: CData\n"
+                    "Function Wrap<T: CData>(p: Ptr<T>): Run<T>\n"
                     "    Return Run<T>(p, 1)\n"
                     "End Function\n"
                     "Local a = Run<Point>(Null, 0)\n"
@@ -8603,7 +8657,7 @@ TEST_CASE("a CString is Null as C's NULL, and Unsafe code reads its text", "[sem
 TEST_CASE("a name that a later milestone declares isn't supported yet, wherever it's used",
           "[sema]") {
     CHECK(errors_of("Local t: Clock") == errors_t{ "Clock: 'Clock' isn't supported yet" });
-    CHECK(errors_of("Function F<T>()\n    Where T: DateTime\nEnd Function") ==
+    CHECK(errors_of("Function F<T: DateTime>()\nEnd Function") ==
           errors_t{ "DateTime: 'DateTime' isn't supported yet" });
     CHECK(errors_of("Local d = DateTime(1, 2, 3)") ==
           errors_t{ "DateTime: 'DateTime' isn't supported yet" });
@@ -8615,7 +8669,7 @@ TEST_CASE("a name that a later milestone declares isn't supported yet, wherever 
 TEST_CASE("std.math's types say which Import they need, wherever they're used", "[sema]") {
     CHECK(errors_of("Local v = Vec3(1, 2, 3)") ==
           errors_t{ "Vec3: 'Vec3' is in std.math, which this file doesn't import" });
-    CHECK(errors_of("Function F<T>()\n    Where T: Mat3\nEnd Function") ==
+    CHECK(errors_of("Function F<T: Mat3>()\nEnd Function") ==
           errors_t{ "Mat3: 'Mat3' is in std.math, which this file doesn't import" });
     CHECK(errors_of("Extend Vec2\n    Method Twice(): Int => 2\nEnd Extend") ==
           errors_t{ "Vec2: 'Vec2' is in std.math, which this file doesn't import" });
@@ -8624,8 +8678,7 @@ TEST_CASE("std.math's types say which Import they need, wherever they're used", 
 TEST_CASE("a generic type's field default can name its type parameters", "[sema]") {
     CHECK(errors_of("Import std.core\n"
                     "Import std.collections\n"
-                    "Struct S<T>\n"
-                    "    Where T: Hashable\n"
+                    "Struct S<T: Hashable>\n"
                     "    Field M: Map<T, Bool> = Map<T, Bool>()\n"
                     "End Struct") ==
           errors_t{ "Map<T, Bool>(): a field's default must be known at compile time" });
@@ -8666,8 +8719,7 @@ TEST_CASE("an Interface's type parameters can have constraints and be Const", "[
                     "    Method Smallest(): T\n"
                     "    Method Less(a: T, b: T): Bool => a < b\n"
                     "End Interface\n"
-                    "Struct Pair<T> Implements Sorted<T>\n"
-                    "    Where T: Comparable\n"
+                    "Struct Pair<T: Comparable> Implements Sorted<T>\n"
                     "    Field A: T\n"
                     "    Field B: T\n"
                     "    Method Smallest(): T => A < B ? A : B\n"
@@ -9311,8 +9363,7 @@ TEST_CASE("a Class can extend an instance of a generic Class", "[sema]") {
                             "Local x = Names().First()",
                             container)) == "String");
     CHECK(probe(std::format("Import std.core\n"
-                            "{}Class Sorted<T> Extends Container<T>\n"
-                            "    Where T: Comparable\n"
+                            "{}Class Sorted<T: Comparable> Extends Container<T>\n"
                             "    Override Method Add(item: T)\n"
                             "        Items.Insert(0, item)\n"
                             "    End Method\n"
@@ -11620,6 +11671,8 @@ TEST_CASE("a Task's Throws, written out, is checked, inferred, and named as a fu
                     "End Function") ==
           errors_t{
               "String: Throws lists Classes that extend Error, not String",
+              "T: a declaration's one constraint goes inline, as <T: Task<Int> Throws String>, "
+              "not on a Where line",
               "Task<Int> Throws String: Task<Int32> Throws String isn't an Interface",
               "String: Throws lists Classes that extend Error, not String",
           });
@@ -14147,8 +14200,7 @@ TEST_CASE("the signature rule covers every part a Public declaration shows", "[s
                     "End Class\n"
                     "Public Function Risky() Throws Oops\n"
                     "End Function\n"
-                    "Public Function Pick<T>(x: T)\n"
-                    "    Where T: Face\n"
+                    "Public Function Pick<T: Face>(x: T)\n"
                     "End Function\n"
                     "Public Interface Wide Extends Face\n"
                     "End Interface\n"

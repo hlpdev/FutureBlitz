@@ -189,7 +189,7 @@ section.
 | Decision | Why |
 |---|---|
 | `<T>` syntax | |
-| **Both** inline constraints and `Where`; formatter enforces which | inline for simple cases, `Where` for everything else (conditional methods/conformance, relations) |
+| **Both** inline constraints and `Where`; sema warns about the other form, with a fix-it (the formatter changes no tree) | inline for simple cases, `Where` for everything else (conditional methods/conformance, relations) |
 | Monomorphization | native speed |
 | Invariant generics | avoids soundness bugs |
 | Const generics | `T[W, H]`, fixed-size math |

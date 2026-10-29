@@ -93,12 +93,14 @@ beside it, not its Override or its replacement, since a generic Method is in no 
 
 ## Constraints: inline and `Where`
 
-Both forms exist. The **formatter enforces** which one is used, so there is still only one
-correct way to write any signature:
+Both forms exist, and there is still only one correct way to write any signature. The
+compiler **warns** about the other, with a fix-it that an editor offers:
 
 - **Inline** `<T: X>` for a single, simple constraint.
-- **`Where`** for multiple constraints, multiple constrained parameters, or anything inline
-  can't express.
+- **`Where`** for multiple constraints, multiple constrained parameters, a constraint that
+  relates a type parameter to another through a generic Interface, as `S: Iterator<T>` does, or
+  anything inline can't express. A one-line declaration, `... => value`, or one without a body
+  has no lines for Where lines, so it can have them inline.
 
 `&` combines constraints: `Where K: Hashable & Equatable`.
 

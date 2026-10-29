@@ -381,6 +381,7 @@ public:
         declare_imports();
         each_item([this](const stmt_id_t id) { declare_type(id); });
         each_item([this](const stmt_id_t id) { check_type_parameter_names(id); });
+        each_item([this](const stmt_id_t id) { check_constraint_forms(id); });
         find_error_class();
         find_builtin_interfaces();
         find_map_class();
@@ -1952,6 +1953,180 @@ private:
                       names[i].text);
             }
         }
+    }
+
+    /// Spec 07's one way to write constraints: a declaration with one, on one of its own type
+    /// parameters, has it inline, as <T: Hashable>, and one with more, or one that relates its
+    /// type parameter to another, as S: Iterator<T> does, has them on Where lines. A declaration
+    /// written the other way is warned about, with the changes that fix it. `outer` has the
+    /// names of the type parameters of the type a member is in.
+    void check_constraint_forms(const stmt_id_t id,
+                                const std::vector<std::string_view>& outer = {}) {
+        const stmt_t& statement = m_ast.get(id);
+        const std::optional<module_id_t> module = m_ast.modules().of(statement.span.file);
+        if (module && m_ast.modules().get(*module).prebuilt) {
+            return;
+        }
+
+        if (const auto* type = std::get_if<type_stmt_t>(&statement.node)) {
+            check_constraint_form(type->type_parameters, type->value_types, type->constraints,
+                                  type->header_end, true, outer);
+            std::vector<std::string_view> inside;
+            for (const name_t& name : type->type_parameters) {
+                inside.push_back(name.text);
+            }
+
+            for (const stmt_id_t member : type->members) {
+                check_constraint_forms(member, inside);
+            }
+        } else if (const auto* extension = std::get_if<extend_stmt_t>(&statement.node)) {
+            // The names in "Extend Box<T>" are its type parameters, and a type's name or two.
+            const std::vector<std::string_view> inside =
+                words_of(text(m_ast.get(extension->type).span));
+            for (const stmt_id_t member : extension->members) {
+                check_constraint_forms(member, inside);
+            }
+        } else if (const auto* function = std::get_if<function_stmt_t>(&statement.node)) {
+            // One without a body, or with "=> value", has no lines for Where lines.
+            std::string_view rest =
+                m_sources.get(statement.span.file).text().substr(function->header_end);
+            rest.remove_prefix(std::min(rest.size(), rest.find_first_not_of(" \t")));
+            const bool block =
+                !function->required && !function->external && !rest.starts_with("=>");
+            check_constraint_form(function->type_parameters, function->value_types,
+                                  function->constraints, function->header_end, block, outer);
+        }
+    }
+
+    /// The names in some text: its runs of letters, digits, and '_'.
+    static std::vector<std::string_view> words_of(const std::string_view text) {
+        std::vector<std::string_view> words;
+        std::size_t begin = 0;
+        for (std::size_t i = 0; i <= text.size(); ++i) {
+            const char c = i < text.size() ? text[i] : ' ';
+            const bool word = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                              (c >= '0' && c <= '9') || c == '_';
+            if (!word && i > begin) {
+                words.push_back(text.substr(begin, i - begin));
+            }
+
+            if (!word) {
+                begin = i + 1;
+            }
+        }
+
+        return words;
+    }
+
+    void check_constraint_form(const std::vector<name_t>& names,
+                               const std::vector<std::optional<type_expr_id_t>>& value_types,
+                               const std::vector<constraint_t>& constraints,
+                               const std::uint32_t header_end, const bool block,
+                               const std::vector<std::string_view>& outer) {
+        // The constraints on its own type parameters, not a conditional Method's on its type's.
+        std::vector<const constraint_t*> own;
+        std::vector<std::string_view> constrained;
+        std::size_t interfaces = 0;
+        for (const constraint_t& constraint : constraints) {
+            const auto named = std::ranges::find_if(
+                names, [&](const name_t& name) { return name.text == constraint.parameter.text; });
+            const auto at = static_cast<std::size_t>(named - names.begin());
+            // A Const one's constraint is an error, which says so.
+            if (named != names.end() && at < value_types.size() && value_types[at]) {
+                return;
+            }
+
+            if (named != names.end() && !constraint.interfaces.empty()) {
+                own.push_back(&constraint);
+                interfaces += constraint.interfaces.size();
+                if (!std::ranges::contains(constrained, constraint.parameter.text)) {
+                    constrained.push_back(constraint.parameter.text);
+                }
+            }
+        }
+
+        if (own.empty()) {
+            return;
+        }
+
+        const source_file_t& file = m_sources.get(own.front()->parameter.span.file);
+        const std::string_view source = file.text();
+        // From the start of the line `offset` is on through its line break.
+        const auto line_of = [&](const std::uint32_t offset) {
+            const std::size_t before =
+                offset == 0 ? std::string_view::npos : source.find_last_of('\n', offset - 1);
+            const std::size_t after = source.find('\n', offset);
+            return span_t{
+                .file = file.id(),
+                .begin =
+                    before == std::string_view::npos ? 0 : static_cast<std::uint32_t>(before + 1),
+                .end = after == std::string_view::npos ? static_cast<std::uint32_t>(source.size())
+                                                       : static_cast<std::uint32_t>(after + 1),
+            };
+        };
+        // "A & B", as the constraint writes it.
+        const auto written = [&](const constraint_t& constraint) {
+            const span_t first = m_ast.get(constraint.interfaces.front()).span;
+            const span_t last = m_ast.get(constraint.interfaces.back()).span;
+            return span_t{ .file = file.id(), .begin = first.begin, .end = last.end };
+        };
+        // Whether a constraint's Interface takes a type parameter as a type argument.
+        const auto relates = [&](const constraint_t& constraint) {
+            return std::ranges::any_of(
+                words_of(text(written(constraint))), [&](const std::string_view word) {
+                    return std::ranges::contains(outer, word) ||
+                           std::ranges::any_of(
+                               names, [&](const name_t& name) { return name.text == word; });
+                });
+        };
+
+        if (constrained.size() == 1 && interfaces == 1 && !relates(*own.front())) {
+            const constraint_t& constraint = *own.front();
+            if (!constraint.where) {
+                return;
+            }
+
+            const name_t& name = *std::ranges::find_if(
+                names, [&](const name_t& each) { return each.text == constraint.parameter.text; });
+            const std::string_view interface = text(written(constraint));
+            warning(constraint.parameter.span,
+                    "a declaration's one constraint goes inline, as <{}: {}>, not on a Where line",
+                    name.text, interface)
+                .with_fix({ .file = file.id(), .begin = name.span.end, .end = name.span.end },
+                          std::format(": {}", interface))
+                .with_fix(line_of(constraint.parameter.span.begin), "");
+            return;
+        }
+
+        std::vector<const constraint_t*> inline_ones;
+        std::ranges::copy_if(own, std::back_inserter(inline_ones),
+                             [](const constraint_t* constraint) { return !constraint->where; });
+        if (inline_ones.empty() || !block) {
+            return;
+        }
+
+        // The Where lines go after the declaration's first line, a step deeper than it.
+        const span_t header = line_of(header_end);
+        const span_t first = line_of(names.front().span.begin);
+        const std::string_view line = source.substr(first.begin, first.length());
+        const std::string indent(line.substr(0, line.find_first_not_of(" \t")));
+        std::string lines;
+        for (const constraint_t* constraint : inline_ones) {
+            lines += std::format("{}    Where {}: {}\n", indent, constraint->parameter.text,
+                                 text(written(*constraint)));
+        }
+
+        diagnostic_t& reported =
+            warning(inline_ones.front()->parameter.span,
+                    "a declaration with more than one constraint has each on a Where line");
+        for (const constraint_t* constraint : inline_ones) {
+            reported.with_fix({ .file = file.id(),
+                                .begin = constraint->parameter.span.end,
+                                .end = written(*constraint).end },
+                              "");
+        }
+
+        reported.with_fix({ .file = file.id(), .begin = header.end, .end = header.end }, lines);
     }
 
     /// Whether a name is a Struct's, Class's, Interface's, or Enum's that the code there sees,
