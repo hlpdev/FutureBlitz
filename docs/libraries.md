@@ -4,7 +4,7 @@ M7's design, planned with the user on 2026-10-22 and replanned on 2026-10-24: Fu
 executables and libraries for FutureBlitz programs only. A library is built into the executable
 that uses it, or ships beside it in FutureBlitz's own library format, as its project.toml says,
 and a package can bring prebuilt native code, like the engine's. The package manager that ships
-them is designed here and in [website.md](website.md), and built in M8 and M9.
+them is designed here and in [website.md](website.md), and built in M10.
 
 ## Decided
 
@@ -117,7 +117,7 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
 - A build copies every native DLL the program needs beside the executable, which finds them there
   (`$ORIGIN` on Linux, `@loader_path` on macOS).
 
-## The package manager (built in M8, hosted in M9)
+## The package manager (built and hosted in M10)
 
 - The registry is at futureblitz.dev, designed in [website.md](website.md), with a sparse index of
   each package's versions and each archive's SHA-256.
@@ -132,4 +132,4 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
 Plugins and loading libraries at run time, `Plugin.Load` and `DynamicLibrary` (later);
 FutureBlitz called from C or other languages (not planned); a stable ABI across versions (not
 planned); direct C++ interop (not planned); building a package's native code from source (maybe
-later); the registry and downloads (M8 and M9); signing packages (later).
+later); the registry and downloads (M10); signing packages (later).

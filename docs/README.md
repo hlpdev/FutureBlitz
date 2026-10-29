@@ -9,7 +9,10 @@
 | [assets.md](assets.md) | Asset system design |
 | [stdlib.md](stdlib.md) | Standard library layout (draft, intentionally shallow for now) |
 | [migration.md](migration.md) | Porting Blitz3D games to FutureBlitz |
-| [milestones.md](milestones.md) | Roadmap, phases, M1 build order |
+| [milestones.md](milestones.md) | Roadmap, phases, and each milestone's build order |
+| [libraries.md](libraries.md) | Libraries and packages (M7, and M10's package manager) |
+| [tooling.md](tooling.md) | M8's tooling: the toolchain, releases, debugger, LSP, editor, tests, docs |
+| [website.md](website.md) | futureblitz.dev: M9's site, docs, and playground, and M10's registry |
 | [conventions.md](conventions.md) | C++ coding conventions and tooling |
 | [decisions.md](decisions.md) | Decision log: what was decided and why |
 | [open-questions.md](open-questions.md) | Things not yet decided |

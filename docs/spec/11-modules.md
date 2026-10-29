@@ -115,7 +115,7 @@ joltc = { static = "libs/joltc" }
 - `[native]` declares C libraries for FFI and how to link them. Static linking is the
   default so games ship as a single binary; a package can bring dynamic ones too (see
   [Native libraries](#native-libraries)).
-- The package manager is part of the `cli` tool (Milestone M8).
+- The package manager is part of the `cli` tool (Milestone M10).
 
 Until then (M5), a dependency is a local package, by its folder from the project.toml's:
 
@@ -306,4 +306,4 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
 - A package is shipped as an archive: its project.toml, a license, a readme, and either its `.fb`
   source, or its prebuilt `lib/<target>/<mode>/`, each `.fblib` with its `.fbi`, and its natives
   per target. The registry and the commands that fetch and publish archives come with the package
-  manager (M8).
+  manager (M10).

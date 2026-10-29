@@ -1,13 +1,16 @@
 # futureblitz.dev
 
-M9's design, planned with the user on 2026-10-24: the site, the documentation, the playground,
-the package registry, and accounts, all on Cloudflare, done at the end of phase 1. Nothing is
-hosted yet; this is the plan.
+The design of futureblitz.dev, planned with the user on 2026-10-24 and replanned on 2026-10-29:
+M9 builds the site, the documentation, and the playground, and M10 the package registry, its
+API, accounts, and the package site, with the package manager. All of it is on Cloudflare.
+Nothing is hosted yet; this is the plan.
 
 ## Decided
 
-1. **Its own milestone, M9**, after M8's tooling (whose `fb add` and `fb publish` it serves) and
-   before the engine, which moves to M10 to M17.
+1. **Two milestones, M9 and M10**, after M8's tooling: M9 the site, docs, and playground, which
+   need M8's releases, `fb doc`, the grammar, and the LSP; and M10 packages online, the registry,
+   accounts, and the package site with the package manager, built together, on M9's design
+   system. Phase 1 ends with M10; the engine is a phase of its own (the user, 2026-10-29).
 2. **A retro Blitz nod.** A modern site in one dark look, with no theme switch, and Blitz3D-era
    touches: the classic
    IDE's blue, a CRT and pixel accent kept to the hero and headings, and the story of where
@@ -179,7 +182,7 @@ project's milestones are GitHub's business, not the page's.
 - **Policies:** the terms, privacy, package policy (names, squatting, malware, yanking), the code
   of conduct, and how to report a package.
 
-## The command line (built in M8)
+## The command line (built in M10)
 
 - `fb login` opens the browser, signs in, and stores a token in the OS's credential store
   (Windows Credential Manager, the macOS keychain, libsecret), or reads `FB_REGISTRY_TOKEN` in CI.
@@ -221,11 +224,11 @@ project's milestones are GitHub's business, not the page's.
 |---|---|---|
 | 0 | The design system: palette, type, the CRT hero, and components, in the one dark theme | a page of every component passes WCAG AA |
 | 1 | The site's skeleton: Astro, the FutureBlitz grammar in Shiki, deploys to staging | futureblitz.dev's staging serves the landing page and a docs page |
-| 2 | The landing page, with its hero and code tabs | it meets its budget on a mid phone |
+| 2 | The landing page, with its hero and code tabs, and the download page over M8's releases | it meets its budget on a mid phone |
 | 3 | The docs: Learn, guides, the spec, std's reference from `fb doc`, versions, search | every page renders, and every example compiles and runs in CI |
-| 4 | Accounts: GitHub sign-in, email with passkeys, sessions, recovery | a person signs up each way and signs in again |
-| 5 | The registry: index, archives, the publish API, tokens, trusted publishing, yanking | `fb publish` and a GitHub workflow each publish a package that `fb add` then builds with |
-| 6 | The package site: search, package pages, generated docs, the dashboard | a published package's page shows its readme, versions, and docs |
-| 7 | The playground: the editor, the run Worker, the container, sharing | the docs' examples run from the browser within the limits |
-| 8 | Operations: production, backups, monitoring, the status page, the policies | a restore from backup works, and alerts fire on errors |
-| 9 | Loose ends, and the milestone's review | M9's "done when": the site, docs, registry, accounts, and playground are live |
+| 4 | The playground: the editor, the run Worker, the container, sharing | the docs' examples run from the browser within the limits |
+| 5 | Operations: production, backups, monitoring, the status page, the policies | a restore from backup works, and alerts fire on errors |
+| 6 | Loose ends, and the milestone's review | M9's "done when": the site, its docs, and the playground are live |
+
+M10's build order, the registry, accounts, the package site, and the package manager, is in
+[milestones.md](milestones.md).

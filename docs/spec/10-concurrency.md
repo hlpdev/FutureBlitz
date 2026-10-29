@@ -202,7 +202,7 @@ End While
 
 Rules:
 
-- Until the engine's `Flip()` (M9), the main scheduler ticks once top-level code ends, until no
+- Until the engine's `Flip()`, the main scheduler ticks once top-level code ends, until no
   coroutine waits on it, and whenever the main thread waits for a Task with `Wait()`. Its time is
   the real clock's.
 - Once top-level code ends, a coroutine that can never go on, since it waits for a Task on a

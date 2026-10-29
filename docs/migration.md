@@ -17,7 +17,7 @@ This keeps AI mistakes confined to the parts a human should review anyway.
 
 ## Timing
 
-The migrator is built **last** (milestone M17): it translates Blitz engine calls into
+The migrator is built **last**, at the engine phase's end: it translates Blitz engine calls into
 FutureBlitz engine APIs, so those APIs have to exist first.
 
 ## Visual fidelity

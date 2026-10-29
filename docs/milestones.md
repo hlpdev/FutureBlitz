@@ -18,21 +18,14 @@ Timeline: honors project begins **fall 2027**, so there is plenty of runway.
 | **M5** | Modules, packages, `project.toml`, FFI, bindgen | calls a C library through generated bindings |
 | **M6** | Full standard library | `std.*` complete, with tests |
 | **M7** | Libraries and packages: FutureBlitz libraries built into the executable or shipped beside it as the OS's own DLLs, interface files, prebuilt native code in packages | an FB program uses one prebuilt FB library embedded and another beside it, and calls a C++ DLL from a package |
-| **M8** | Tooling: LSP, VS Code extension, formatter, test runner, package manager | daily-driving FutureBlitz in an editor feels good |
-| **M9** | futureblitz.dev: the site, docs, playground, package registry, and accounts, on Cloudflare ([website.md](website.md)) | the site, docs, registry, accounts, and playground are live, and `fb publish` and `fb add` use them |
+| **M8** | Tooling: a self-contained toolchain and releases, debug info and a debugger, the LSP, the VS Code extension, the formatter, `fb test`, and `fb doc` ([tooling.md](tooling.md)) | on a machine with no C++ compiler, fb installs from a release, and VS Code shows errors as you type, hovers, goes to definitions, completes, formats on save, runs tests, and steps through a program at a breakpoint |
+| **M9** | futureblitz.dev: the site, docs, and playground, on Cloudflare ([website.md](website.md)) | the site, its docs, and the playground are live, and every docs example runs |
+| **M10** | Packages online: the package manager and the registry, built together, with accounts and the package site ([website.md](website.md), [libraries.md](libraries.md)) | a package published with `fb publish`, from a computer and from a GitHub workflow, is added with `fb add` on another computer and builds, and its page shows its readme, versions, and docs |
 
-## Phase 2: Engine
+## The engine
 
-| | Goal |
-|---|---|
-| **M10** | Engine bootstrap: window, input, frame loop, main scheduler |
-| **M11** | 2D: images, drawing, fonts |
-| **M12** | 3D scene: entities, cameras, lights, hierarchy |
-| **M13** | Vulkan renderer and materials |
-| **M14** | Asset pipeline: VFS, cooker, pak files, typed references, hot reload |
-| **M15** | Audio and physics (miniaudio, Jolt) |
-| **M16** | The IDE |
-| **M17** | Migrator, plus porting a real Blitz3D game as the final proof |
+The engine is a development phase of its own, after phase 1, which these milestones don't
+number; it's planned on its own ([engine.md](engine.md)).
 
 ## M1 build order
 
@@ -119,7 +112,7 @@ time, in debug and release builds.
 | 11 | Loose ends: the rows of the Deferred work below planned for it, and programs that run a parallel job and an async chain together, many times over, with no leaks | M4's "done when" |
 
 **Not in M4:** lock-free collections, actors, and GPU compute stay out of v1 (spec 10). I/O awaits,
-like `File.ReadAsync`, come with `std.io` in M6, and `Flip()` with the engine in M10.
+like `File.ReadAsync`, come with `std.io` in M6, and `Flip()` with the engine.
 
 ## M5 build order
 
@@ -142,8 +135,9 @@ prints the same output.
 | 11 | Loose ends: the rows of the Deferred work below planned for it, and a package that calls the C test library through bindings fb-bindgen generates: numbers, strings, pointers, structs, enums, constants, callbacks, and an opaque handle | M5's "done when" |
 
 **Not in M5:** the package manager (versioned dependencies, resolving and fetching them, lock
-files, a registry, `fb new` and `fb add`) comes in M8, where spec 11 puts it, with `fb test`, the
-formatter, the LSP's use of modules, and running bindgen from the manifest at build time. Dynamic
+files, a registry, and `fb add`) comes in M10, where spec 11 puts it, and `fb new`, `fb test`,
+the formatter, and the LSP's use of modules in M8; running bindgen from the manifest at build
+time stays open. Dynamic
 `[native]` libraries wait for M7, with FB's own libraries. The rest of std.ffi, the
 std modules that will use `Extern "runtime"` (std.text, std.io, std.os), and std.concurrent as a
 module of its own are M6; M4's built-ins stay built in. Separate compilation or caching of
@@ -151,8 +145,8 @@ modules stays an open question, and so do C varargs functions like printf, union
 globals, `long double`, macros other than number constants, typed opaque handles, C++ headers,
 `@MainThread` callbacks, and building FutureBlitz code as a C library. Callbacks that capture
 stay out, as spec 12 says. CI on Linux and macOS (M0) waited for M6 step 0, which ran the SysV
-struct ABI's C calls on Linux and added AArch64's for macOS. The self-contained toolchain stays
-open for M8: M5 still links through the C++ compiler that built the runtime.
+struct ABI's C calls on Linux and added AArch64's for macOS. The self-contained toolchain is
+M8's first step: M5 still links through the C++ compiler that built the runtime.
 
 ## M6 build order
 
@@ -191,7 +185,7 @@ except where it's about those.
 | 22 | std.compress: Deflate, Zlib, Gzip, Zstd, Lz4, and XZ streams; Zip and Tar to read and write; 7z to read | each format round-trips, and reads what common tools wrote | archives for the VFS, packages, and HTTP |
 | 23 | std.uuid and std.db: `Uuid.V4`, `V7`, `Parse`; SQLite with `Execute`, `Query<T>`, transactions, prepared statements, and `Migrate` | Query<T> reads rows into Structs; a failed transaction leaves nothing; migrations run once each, in order | the first of the extra modules, on data and io |
 | 24 | std.image I: the codecs (PNG, JPEG, BMP, TGA, GIF, HDR, QOI, WebP, SVG, animated GIF and APNG) into an `Image`, and the transforms | each format round-trips where it can be written, and decodes reference files to known pixels; resizing matches reference output within a tolerance | images, which the engine's 2D will share |
-| 25 | std.image II: drawing lines, shapes, fills, and TrueType text | drawn images match reference images pixel for pixel | the drawing M11 builds on |
+| 25 | std.image II: drawing lines, shapes, fills, and TrueType text | drawn images match reference images pixel for pixel | the drawing the engine's 2D builds on |
 | 26 | std.term: line widgets and full-screen terminal apps | widgets render to a fake terminal as expected, with and without color; a full-screen app redraws only what changed | console tools, on io and text |
 | 27 | std.algo: BFS, DFS, Dijkstra, A*, flow fields, union-find, topological sort, combinatorics, Delaunay, Voronoi | paths match known shortest paths on grids and graphs; triangulations match reference results | the algorithms games and tools reach for |
 | 28 | std.net I: `IpAddress`, `SocketAddress`, `Dns`, `TcpListener`, `TcpStream`, `UdpSocket`, `IpcListener`, `IpcStream`, `Url`, `QueryParams`, LAN discovery | a program talks to itself over TCP, UDP, and IPC, blocking and Async; a refused connection is a NetError Kind; URLs parse per the WHATWG tests that apply | the bottom of the network stack |
@@ -224,7 +218,7 @@ except where it's about those.
   the distribution's bundle file on Linux.
 
 **Not in M6:** `std.test` comes with M8's `fb test`. Stack traces for panics wait for debug info
-(open question). An HTTP/2 server, QUIC and HTTP/3, FTP, and SMTP stay out until something
+(M8). An HTTP/2 server, QUIC and HTTP/3, FTP, and SMTP stay out until something
 needs them. Loading a library at run time comes later (Deferred work).
 A `Locale` for formatting comes later, and only ever explicit. Platform-only APIs stay out of
 std. Navigation meshes, game AI, and procedural generation wait for the engine phase. CI on
@@ -248,9 +242,45 @@ embeds every package without dynamic natives, stays one executable.
 | 6 | A package with prebuilt natives: a stand-in C++ engine DLL with a C API (tests/native), wrapped by an FB package through fb-bindgen | the package builds and runs on Windows, Linux, and macOS (done on Windows 2026-10-28, 8e239fb4; Linux and macOS by their tests) |
 | 7 | Loose ends, and the milestone's review | M7's "done when" (done 2026-10-29, d070a739: tests/packages/space) |
 
+## M8 build order
+
+Planned 2026-10-29, with the design in [tooling.md](tooling.md).
+
+| Step | What | Done when |
+|---|---|---|
+| 0 | The design: the toolchain per OS, releases, debug info, `fb test` and std.test, `///` docs, and the formatter's rules | tooling.md settles each |
+| 1 | The self-contained toolchain: fb links with its own lld and each target's runtime pieces | a program builds and runs on a machine with no C++ compiler, on each OS |
+| 2 | Releases: fb for each target from CI, archives and install scripts, `fb --version`, and `fb new` | a fresh machine installs fb and builds `fb new`'s package |
+| 3 | Debug info and stack traces: DWARF and CodeView through LLVM | a debugger steps through a program and shows its Locals, and a panic prints its stack |
+| 4 | The LSP: diagnostics, hover, definitions, references, completion, symbols, rename, signature help, semantic tokens, and fix-its, re-checking only what an edit touches | each works in a large package as you type |
+| 5 | The VS Code extension: the grammar, the LSP client, tasks, and debugging | daily editing, running, and debugging work in VS Code |
+| 6 | The formatter: `fb fmt`, `--check`, and formatting on save | std and tests/programs format to themselves |
+| 7 | Testing: std.test, `fb test`, and doc tests | a package's tests run, filter, and report |
+| 8 | `///` doc comments and `fb doc`'s JSON | std's API comes out whole, for M9's reference |
+| 9 | Loose ends, and the milestone's review | M8's "done when" |
+
 ## M9 build order
 
-Planned 2026-10-24; its steps and design are in [website.md](website.md).
+Planned 2026-10-24 and replanned 2026-10-29; its steps and design are in
+[website.md](website.md).
+
+## M10 build order
+
+Planned 2026-10-29, with the design in [website.md](website.md)'s registry, API, and accounts
+sections and [libraries.md](libraries.md)'s package manager.
+
+| Step | What | Done when |
+|---|---|---|
+| 0 | The design: versions and ranges, the resolver, `fb.lock`, archives, the index, and the API | website.md and libraries.md settle each |
+| 1 | Versions: semver ranges in project.toml, the resolver, `fb.lock`, the cache folder, and a local registry for tests | a package with versioned dependencies resolves, locks, and builds from the local registry |
+| 2 | Archives: a package's `.fbpkg`, its source or .fbi, and one per target for prebuilt builds and natives | an archive unpacks into a package that builds, checked by its hashes |
+| 3 | Accounts: GitHub sign-in, email with passkeys, sessions, and recovery | a person signs up each way and signs in again |
+| 4 | The registry: the sparse index, archives on R2, and the publish API | a package the API takes is in the index and downloads |
+| 5 | Publishing: `fb login`, `fb publish`, tokens, trusted publishing, yanking, and owners | a computer and a GitHub workflow each publish a package |
+| 6 | Using packages: `fb add`, `fb update`, `fb search`, the offline cache, and other registries | another computer adds and builds a published package |
+| 7 | The package site: search, package pages, generated docs, and the dashboard | a published package's page shows its readme, versions, and docs |
+| 8 | Operations: production, backups, monitoring, and the policies | a restore from backup works, and alerts fire on errors |
+| 9 | Loose ends, and the milestone's review | M10's "done when" |
 
 ## Deferred work
 
@@ -267,12 +297,12 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | By-value Structs to and from C on 64-bit targets that aren't x86-64 or AArch64, like RISC-V, where fb-bindgen skips functions that pass one | M5 step 8 | open question |
 | A Callback that takes or gives a Struct by value, whose thunk would need the C ABI's lowering in reverse | M5 step 9 | open question |
 | A fix-it for a miscased keyword, like `if` for `If`, and `///` doc comments | M1 | M8 |
-| Stack traces for panics, which need debug info | M1 | open question |
+| Stack traces for panics, which need debug info | M1 | M8 |
 | A Float range, like `0.0 To 1.0 Step 0.1`, which a For loop counts but a range doesn't | M6 step 2 | open question |
 | Plugins and loading libraries at run time, `Plugin.Load` and `DynamicLibrary`, which game mods would use (the user's call, 2026-10-28) | M7 | open question |
 
 ## Process
 
-- **Proposed:** track milestones M0–M17 as GitHub milestones, with issues per task.
+- **Proposed:** track milestones M0–M10 as GitHub milestones, with issues per task.
 - Every feature lands with tests: Catch2 unit tests, plus golden tests once they're decided
   (see [open-questions.md](open-questions.md)).

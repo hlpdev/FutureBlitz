@@ -248,7 +248,7 @@ What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Ite
 
 Planned with the user on 2026-10-20 and, module by module, on 2026-10-21. std is batteries
 included: it covers what Python's standard library and its most common packages do together, so
-a program needs FFI only for a C library of its own choosing. Packages (M8's registry) are for
+a program needs FFI only for a C library of its own choosing. Packages (M10's registry) are for
 niche domains, like PDF or cloud SDKs.
 
 std is as cross-platform as it can be: its `.fb` files have no platform code, and there are no
@@ -1851,7 +1851,7 @@ std.io. `Import std.image` brings in all of std/image/.
   but the project's, and image_text/make_data.py draws their text from those glyphs apart from
   the runtime; tests/runtime/font_tests.cpp breaks them, cut short and changed at random. A size
   that isn't finite or is negative panics at the caller.
-- The engine's 2D (M11) will share the image and font code.
+- The engine's 2D will share the image and font code.
 
 #### std.term
 
