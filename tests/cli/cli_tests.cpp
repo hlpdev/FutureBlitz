@@ -411,10 +411,89 @@ bool is_system_library(std::string name) {
 
 } // namespace
 
-TEST_CASE("fb --version prints the version", "[cli]") {
+TEST_CASE("fb --version prints the version, the commit, and the target", "[cli]") {
     const fb::process_result_t result = fb_run({ "--version" });
     CHECK(result.exit_code == 0);
-    CHECK(result.output == std::format("fb {}\n", fb::build_config::version));
+    // "fb 0.1.0 (abc1234, windows-x64)", or "unknown" where git didn't say.
+    const std::string start = std::format("fb {} (", fb::build_config::version);
+    const std::string end = std::format(", {})\n", fb::build_config::toolchain_target);
+    INFO(result.output);
+    REQUIRE(result.output.starts_with(start));
+    REQUIRE(result.output.ends_with(end));
+    const std::string commit =
+        result.output.substr(start.size(), result.output.size() - start.size() - end.size());
+    CHECK((commit == "unknown" ||
+           (commit.size() >= 7 && std::ranges::all_of(commit, [](const char c) {
+                return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+            }))));
+}
+
+TEST_CASE("fb new makes a package that fb runs", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "new";
+    std::filesystem::remove_all(folder);
+    const std::filesystem::path package = folder / "games" / "hello";
+    const fb::process_result_t made = fb_run({ "new", fb::to_utf8(package) });
+    INFO(made.output);
+    REQUIRE(made.exit_code == 0);
+    CHECK(made.output == std::format("     Created package hello in {}\n", fb::to_utf8(package)));
+    CHECK(read_file(package / "project.toml") ==
+          "[project]\nname = \"hello\"\nversion = \"0.1.0\"\n");
+    CHECK(read_file(package / "main.fb") == "Import std.core\n\nPrint(\"Hello, world!\")\n");
+    CHECK(read_file(package / ".gitignore") == "build/\n");
+
+    const fb::process_result_t ran = fb_run({ "run", fb::to_utf8(package) });
+    INFO(ran.output);
+    CHECK(ran.exit_code == 0);
+    CHECK(ran.output.ends_with("Hello, world!\n"));
+
+    // An empty folder is fine, and "game/" is the folder "game".
+    std::filesystem::create_directories(folder / "game");
+    const fb::process_result_t empty = fb_run({ "new", fb::to_utf8(folder) + "/game/" });
+    INFO(empty.output);
+    CHECK(empty.exit_code == 0);
+    CHECK(read_file(folder / "game" / "project.toml").contains("name = \"game\""));
+}
+
+TEST_CASE("fb new refuses a folder that isn't empty, and a name a package can't have", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "new_refused";
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder / "full");
+    std::ofstream(folder / "full" / "notes.txt", std::ios::binary) << "mine\n";
+    std::ofstream(folder / "file", std::ios::binary) << "a file\n";
+
+    const fb::process_result_t full = fb_run({ "new", fb::to_utf8(folder / "full") });
+    CHECK(full.exit_code == 1);
+    CHECK(full.output.contains(
+        std::format("error: {} is there already, and isn't empty", fb::to_utf8(folder / "full"))));
+    CHECK(read_file(folder / "full" / "notes.txt") == "mine\n");
+    CHECK_FALSE(std::filesystem::exists(folder / "full" / "project.toml"));
+
+    const fb::process_result_t file = fb_run({ "new", fb::to_utf8(folder / "file") });
+    CHECK(file.exit_code == 1);
+    CHECK(file.output.contains("is a file, not a folder"));
+
+    // Names are checked as project.toml's are.
+    for (const auto& [name, message] : {
+             std::pair{ "9lives", "a package's name is an identifier, like game or my_physics, not "
+                                  "\"9lives\"; it's the folder's name" },
+             std::pair{ "my-game", "not \"my-game\"" },
+             std::pair{ "If", "not \"If\"" },
+             std::pair{ "std", "std is the standard library's name" },
+         }) {
+        INFO(name);
+        const fb::process_result_t bad = fb_run({ "new", fb::to_utf8(folder / name) });
+        CHECK(bad.exit_code == 2);
+        CHECK(bad.output.contains(message));
+        CHECK_FALSE(std::filesystem::exists(folder / name));
+    }
+
+    check_usage_error({ "new" }, "'fb new' needs the new package's folder, like 'fb new game'");
+    check_usage_error({ "new", "a", "b" },
+                      "unexpected argument 'b'; 'fb new' takes the new package's folder");
+    check_usage_error({ "new", "a", "--release" },
+                      "'--release' doesn't work with 'fb new', whose only option is --color");
+    CHECK(fb_run({ "help", "new" }).output.contains("Usage: fb new [options] <folder>"));
+    CHECK(fb_run({}).output.contains("new                  Make a package in a new folder"));
 }
 
 TEST_CASE("fb shows help", "[cli]") {

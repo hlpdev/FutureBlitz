@@ -84,6 +84,10 @@ struct manifest_t {
 /// linker: ASCII letters, digits, '_', '-', '.', and '+', not starting with '-'.
 [[nodiscard]] bool is_library_name(std::string_view text);
 
+/// Why text can't be a package's name, which is an identifier, but not std, or nullopt when it
+/// can be.
+[[nodiscard]] std::optional<std::string> package_name_error(std::string_view text);
+
 /// Reads `file`, a project.toml: errors for what it can't use, at their lines, and warnings for
 /// the keys it doesn't know. nullopt after an error.
 [[nodiscard]] std::optional<manifest_t> read_manifest(const source_file_t& file,

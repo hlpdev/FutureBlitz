@@ -1,6 +1,7 @@
 #include "fb/commands.hpp"
 
 #include "fb/build_config.hpp"
+#include "fb/commit.hpp"
 #include "fb/diagnostic_render.hpp"
 #include "fb/driver.hpp"
 #include "fb/dump.hpp"
@@ -8,6 +9,7 @@
 #include "fb/interface.hpp"
 #include "fb/lexer.hpp"
 #include "fb/lower.hpp"
+#include "fb/new.hpp"
 #include "fb/process.hpp"
 #include "fb/style.hpp"
 #include "fb/terminal.hpp"
@@ -117,6 +119,8 @@ std::string seconds_since(const std::chrono::steady_clock::time_point start) {
 /// A command's line in the help. Empty for HELP and VERSION.
 std::string_view summary(const command_t command) {
     switch (command) {
+    case command_t::NEW:
+        return "Make a package in a new folder";
     case command_t::CHECK:
         return "Check a program for errors, without building it";
     case command_t::BUILD:
@@ -173,6 +177,18 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
         return bindgen_help(style);
     }
 
+    if (command == command_t::NEW) {
+        std::string out = std::format("{}\n\n{} fb new [options] <folder>\n",
+                                      summary(command_t::NEW), heading("Usage:"));
+        out += "\nThe package is named by the folder's name, which is an identifier. It has a\n"
+               "project.toml, a main.fb, and a .gitignore. The folder mustn't be there yet, or\n"
+               "must be empty.\n";
+        out += std::format("\n{}\n", heading("Options:"));
+        out += entry("    --color <when>", "Color the output: auto, always, or never");
+        out += entry("-h, --help", "Show this help");
+        return out;
+    }
+
     if (command == command_t::FMT) {
         std::string out = std::format("{}\n\n{} fb fmt [options] [files and folders]\n",
                                       summary(command_t::FMT), heading("Usage:"));
@@ -206,6 +222,7 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
     if (!command) {
         out += std::format("\n{}\n", heading("Commands:"));
         for (const command_t each : {
+                 command_t::NEW,
                  command_t::CHECK,
                  command_t::BUILD,
                  command_t::RUN,
@@ -1091,8 +1108,11 @@ int run_command(const options_t& options) {
         console_t::print(help_text(options.help_for, console_t(options.color).out()));
         return 0;
     case command_t::VERSION:
-        console_t::print(std::format("fb {}\n", build_config::version));
+        console_t::print(std::format("fb {} ({}, {})\n", build_config::version, build_commit,
+                                     build_config::toolchain_target));
         return 0;
+    case command_t::NEW:
+        return new_command(options);
     case command_t::CHECK:
     case command_t::BUILD:
     case command_t::RUN:

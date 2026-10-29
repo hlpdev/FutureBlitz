@@ -186,12 +186,10 @@ private:
                 named = true;
                 const std::optional<std::string> text = string_of(field, value, "\"game\"");
                 manifest.name_span = span_of(value.source());
-                if (text && !is_identifier(*text)) {
-                    fail(manifest.name_span,
-                         "a package's name is an identifier, like game or my_physics, not \"{}\"",
-                         *text);
-                } else if (text && *text == "std") {
-                    fail(manifest.name_span, "std is the standard library's name");
+                const std::optional<std::string> wrong =
+                    text ? package_name_error(*text) : std::nullopt;
+                if (wrong) {
+                    fail(manifest.name_span, "{}", *wrong);
                 } else if (text) {
                     manifest.name = *text;
                 }
@@ -524,6 +522,19 @@ private:
 
 std::optional<manifest_t> read_manifest(const source_file_t& file, diagnostic_bag_t& diagnostics) {
     return reader_t(file, diagnostics).read();
+}
+
+std::optional<std::string> package_name_error(const std::string_view text) {
+    if (!is_identifier(text)) {
+        return std::format("a package's name is an identifier, like game or my_physics, not \"{}\"",
+                           text);
+    }
+
+    if (text == "std") {
+        return "std is the standard library's name";
+    }
+
+    return std::nullopt;
 }
 
 bool is_library_name(const std::string_view text) {

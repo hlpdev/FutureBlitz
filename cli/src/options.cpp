@@ -24,6 +24,7 @@ constexpr std::array<std::string_view, 5> stage_names = { "tokens", "ast", "type
 /// an unknown option.
 std::expected<command_t, std::string> find_command(const std::string_view name) {
     for (const command_t command : {
+             command_t::NEW,
              command_t::CHECK,
              command_t::BUILD,
              command_t::RUN,
@@ -97,6 +98,8 @@ std::string_view command_name(const command_t command) {
         return "help";
     case command_t::VERSION:
         return "version";
+    case command_t::NEW:
+        return "new";
     case command_t::CHECK:
         return "check";
     case command_t::BUILD:
@@ -279,6 +282,12 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
             return std::unexpected("'--check' only works with 'fb fmt'");
         }
 
+        // fb new takes the folder it makes, and --color.
+        if (options.command == command_t::NEW && argument.starts_with('-') && name != "--color") {
+            return std::unexpected(
+                std::format("'{}' doesn't work with 'fb new', whose only option is --color", name));
+        }
+
         // Stays a success unless an option's value is bad.
         std::expected<void, std::string> parsed;
         if (argument == "--release") {
@@ -321,9 +330,11 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
         } else if (argument.starts_with('-')) {
             return std::unexpected(std::format("unknown option '{}'", argument));
         } else if (!options.input.empty()) {
-            return std::unexpected(std::format(
-                "unexpected argument '{}'; 'fb {}' takes one .fb file or package folder", argument,
-                command_name(options.command)));
+            return std::unexpected(std::format("unexpected argument '{}'; 'fb {}' takes {}",
+                                               argument, command_name(options.command),
+                                               options.command == command_t::NEW
+                                                   ? "the new package's folder"
+                                                   : "one .fb file or package folder"));
         } else {
             options.input = path_from_utf8(argument);
         }
@@ -331,6 +342,10 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
         if (!parsed) {
             return std::unexpected(parsed.error());
         }
+    }
+
+    if (options.command == command_t::NEW && options.input.empty()) {
+        return std::unexpected("'fb new' needs the new package's folder, like 'fb new game'");
     }
 
     // Views print once each, in pipeline order, however they were given.

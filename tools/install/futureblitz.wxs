@@ -1,0 +1,36 @@
+<!--
+  The Windows installer, for WiX 5: a release's folder, installed for the user alone into
+  %USERPROFILE%\.futureblitz, where install.ps1 puts it, with its bin on the user's PATH. A newer
+  one replaces an older one. Built by .github/workflows/release.yml:
+
+    wix build futureblitz.wxs -d Version=0.1.0 -d Release=<the release's folder> -o <file>.msi
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="FutureBlitz" Manufacturer="FutureBlitz" Version="$(Version)"
+           UpgradeCode="75CFB38F-FD33-43B2-89E1-BBD7387E5FEA" Scope="perUser" Compressed="yes">
+    <MajorUpgrade DowngradeErrorMessage="A newer FutureBlitz is installed already." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="TARGETDIR">
+      <Directory Id="INSTALLFOLDER" Name="futureblitz" />
+    </StandardDirectory>
+    <SetDirectory Id="INSTALLFOLDER" Value="[%USERPROFILE]\.futureblitz\" Sequence="both" />
+
+    <ComponentGroup Id="Release" Directory="INSTALLFOLDER">
+      <Files Include="$(Release)\**" />
+    </ComponentGroup>
+
+    <Component Id="Path" Directory="INSTALLFOLDER" Guid="FE0D3AC3-7C57-4F09-85B2-52970DF167D2">
+      <Environment Id="Path" Name="PATH" Value="[INSTALLFOLDER]bin" Part="last" Action="set"
+                   System="no" Permanent="no" />
+      <RegistryValue Root="HKCU" Key="Software\FutureBlitz" Name="Installed" Type="integer"
+                     Value="1" KeyPath="yes" />
+      <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+    </Component>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="Release" />
+      <ComponentRef Id="Path" />
+    </Feature>
+  </Package>
+</Wix>

@@ -1,0 +1,6 @@
+#!/bin/sh
+# The .pkg's: an older release's folders go, so the new one doesn't keep files it dropped.
+for folder in bin lib lldb notices std; do
+    rm -rf "/usr/local/futureblitz/$folder"
+done
+exit 0

@@ -17,6 +17,8 @@ namespace fb {
 enum class command_t : std::uint8_t {
     HELP,
     VERSION,
+    /// Makes a package in a new folder.
+    NEW,
     CHECK,
     BUILD,
     RUN,
@@ -48,8 +50,8 @@ enum class stage_t : std::uint8_t {
 struct options_t {
     command_t command = command_t::HELP;
     std::optional<command_t> help_for; // "fb help build" or "fb build --help"
-    /// The .fb file, or a package's folder. Empty for the current folder, and for HELP and
-    /// VERSION.
+    /// The .fb file, or a package's folder, which for NEW is the one it makes. Empty for the
+    /// current folder, and for HELP and VERSION.
     std::filesystem::path input;
     /// From `-o`, which only `fb build` takes. Nullopt puts the executable next to the source, or
     /// in a package's build/ folder.

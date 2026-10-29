@@ -1,0 +1,5 @@
+#!/bin/sh
+# The .pkg's: fb on every shell's PATH, through path_helper's /etc/paths.d.
+mkdir -p /etc/paths.d
+echo /usr/local/futureblitz/bin >/etc/paths.d/futureblitz
+exit 0
