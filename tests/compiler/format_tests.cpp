@@ -460,10 +460,12 @@ TEST_CASE("formatting every .fb in the repository keeps what it means", "[format
     for (; !error && entry != std::filesystem::recursive_directory_iterator();
          entry.increment(error)) {
         // A build folder, by any name, as CLion's cmake-build-debug in the repository, holds
-        // the tests' own files, which other tests write and remove as this one runs.
+        // the tests' own files, which other tests write and remove as this one runs; npm's
+        // packages are no FutureBlitz.
         const std::filesystem::path& path = entry->path();
         if (entry->is_directory() &&
             (path.filename().string().starts_with('.') || path.filename() == "build" ||
+             path.filename() == "node_modules" ||
              std::filesystem::exists(path / "CMakeCache.txt"))) {
             entry.disable_recursion_pending();
             continue;
