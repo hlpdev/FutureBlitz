@@ -398,6 +398,83 @@ void run_before_report() {
 
 } // namespace fb::runtime
 
+#ifdef __APPLE__
+namespace {
+
+/// A library beside the executable's build record, from its file's __DATA,__fb_build section,
+/// read without loading it: empty when it has none.
+std::string build_section(const std::string& path) {
+    std::FILE* file = std::fopen(path.c_str(), "rb");
+    if (file == nullptr) {
+        return {};
+    }
+
+    std::string bytes;
+    std::array<char, 65536> buffer{};
+    for (std::size_t read = 0; (read = std::fread(buffer.data(), 1, buffer.size(), file)) > 0;) {
+        bytes.append(buffer.data(), read);
+    }
+
+    std::fclose(file);
+    const auto number = [&](const std::size_t at, const std::size_t size) {
+        std::uint64_t value = 0;
+        if (at + size <= bytes.size()) {
+            std::memcpy(&value, bytes.data() + at, size);
+        }
+
+        return value;
+    };
+
+    // A 64-bit image's load commands; each LC_SEGMENT_64 (0x19) has its sections after it.
+    constexpr std::uint64_t thin = 0xFEEDFACF;
+    constexpr std::uint64_t segment = 0x19;
+    constexpr std::size_t header = 32;
+    constexpr std::size_t segment_size = 72;
+    constexpr std::size_t section_size = 80;
+    constexpr std::string_view name = "__fb_build";
+    if (number(0, 4) != thin) {
+        return {};
+    }
+
+    std::size_t at = header;
+    for (std::uint64_t i = 0; i < number(16, 4); ++i) {
+        const std::uint64_t size = number(at + 4, 4);
+        if (size == 0) {
+            break;
+        }
+
+        if (number(at, 4) == segment) {
+            for (std::uint64_t j = 0; j < number(at + 64, 4); ++j) {
+                const std::size_t section = at + segment_size + (j * section_size);
+                if (section + section_size > bytes.size() ||
+                    std::string_view(bytes.data() + section, name.size()) != name) {
+                    continue;
+                }
+
+                const std::uint64_t length = number(section + 40, 8);
+                const std::uint64_t offset = number(section + 48, 4);
+                if (offset + length > bytes.size()) {
+                    return {};
+                }
+
+                std::string record = bytes.substr(offset, length);
+                while (record.ends_with('\0')) {
+                    record.pop_back();
+                }
+
+                return record;
+            }
+        }
+
+        at += size;
+    }
+
+    return {};
+}
+
+} // namespace
+#endif
+
 extern "C" {
 
 void fb_start() {
@@ -524,83 +601,6 @@ void fb_flush() {
 void fb_panic(const char* message, const fb_location_t* location) {
     panic_with(message, location);
 }
-
-#ifdef __APPLE__
-namespace {
-
-/// A library beside the executable's build record, from its file's __DATA,__fb_build section,
-/// read without loading it: empty when it has none.
-std::string build_section(const std::string& path) {
-    std::FILE* file = std::fopen(path.c_str(), "rb");
-    if (file == nullptr) {
-        return {};
-    }
-
-    std::string bytes;
-    std::array<char, 65536> buffer{};
-    for (std::size_t read = 0; (read = std::fread(buffer.data(), 1, buffer.size(), file)) > 0;) {
-        bytes.append(buffer.data(), read);
-    }
-
-    std::fclose(file);
-    const auto number = [&](const std::size_t at, const std::size_t size) {
-        std::uint64_t value = 0;
-        if (at + size <= bytes.size()) {
-            std::memcpy(&value, bytes.data() + at, size);
-        }
-
-        return value;
-    };
-
-    // A 64-bit image's load commands; each LC_SEGMENT_64 (0x19) has its sections after it.
-    constexpr std::uint64_t thin = 0xFEEDFACF;
-    constexpr std::uint64_t segment = 0x19;
-    constexpr std::size_t header = 32;
-    constexpr std::size_t segment_size = 72;
-    constexpr std::size_t section_size = 80;
-    constexpr std::string_view name = "__fb_build";
-    if (number(0, 4) != thin) {
-        return {};
-    }
-
-    std::size_t at = header;
-    for (std::uint64_t i = 0; i < number(16, 4); ++i) {
-        const std::uint64_t size = number(at + 4, 4);
-        if (size == 0) {
-            break;
-        }
-
-        if (number(at, 4) == segment) {
-            for (std::uint64_t j = 0; j < number(at + 64, 4); ++j) {
-                const std::size_t section = at + segment_size + (j * section_size);
-                if (section + section_size > bytes.size() ||
-                    std::string_view(bytes.data() + section, name.size()) != name) {
-                    continue;
-                }
-
-                const std::uint64_t length = number(section + 40, 8);
-                const std::uint64_t offset = number(section + 48, 4);
-                if (offset + length > bytes.size()) {
-                    return {};
-                }
-
-                std::string record = bytes.substr(offset, length);
-                while (record.ends_with('\0')) {
-                    record.pop_back();
-                }
-
-                return record;
-            }
-        }
-
-        at += size;
-    }
-
-    return {};
-}
-
-} // namespace
-#endif
 
 void fb_load_beside(const char* executable, const char* file, const char* build,
                     const char* const* names, void** slots, const std::int64_t count) {

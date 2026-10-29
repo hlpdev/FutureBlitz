@@ -141,6 +141,15 @@ target_compile_definitions(fb_runtime_tests PRIVATE
 # The OS's roots for TLS, inside the runtime's HTTP part, and mbedTLS's X.509, which reads them;
 # and the runtime's TLS, with the HTTP test server's certificates.
 target_link_libraries(fb_runtime_tests PRIVATE fb_runtime_http fb_runtime_tls mbedx509)
+# CMake names a static library again where the link order needs it, which Apple's linker warns
+# about.
+if(APPLE)
+  include(CheckLinkerFlag)
+  check_linker_flag(CXX "LINKER:-no_warn_duplicate_libraries" FB_NO_DUPLICATE_WARNING)
+  if(FB_NO_DUPLICATE_WARNING)
+    target_link_options(fb_runtime_tests PRIVATE "LINKER:-no_warn_duplicate_libraries")
+  endif()
+endif()
 target_compile_definitions(fb_runtime_tests PRIVATE
   FB_TEST_TLS_CERTIFICATE="${CMAKE_CURRENT_SOURCE_DIR}/native/http_server/server.pem"
   FB_TEST_TLS_KEY="${CMAKE_CURRENT_SOURCE_DIR}/native/http_server/server_key.pem"

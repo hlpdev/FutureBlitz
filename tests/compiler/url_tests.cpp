@@ -110,7 +110,8 @@ private:
     }
 
     std::uint32_t hex4() {
-        const std::uint32_t value = std::stoul(std::string(m_text.substr(m_at, 4)), nullptr, 16);
+        const auto value = static_cast<std::uint32_t>(
+            std::stoul(std::string(m_text.substr(m_at, 4)), nullptr, 16));
         m_at += 4;
         return value;
     }

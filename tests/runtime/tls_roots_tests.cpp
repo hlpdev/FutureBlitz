@@ -152,7 +152,6 @@ TEST_CASE("a chain none of the OS's roots signed is trusted as the OS trusts it"
           "[runtime][tls]") {
     REQUIRE(psa_crypto_init() == PSA_SUCCESS);
     const auto not_trusted = static_cast<std::uint32_t>(MBEDTLS_X509_BADCERT_NOT_TRUSTED);
-    const auto cn_mismatch = static_cast<std::uint32_t>(MBEDTLS_X509_BADCERT_CN_MISMATCH);
     // What mbedTLS finds of a certificate, as a server's chain, with no roots of its own, which
     // os_verify checks too when `os` is set.
     const auto check = [](const mbedtls_x509_crt& certificate, const char* name, const bool os) {
@@ -210,6 +209,7 @@ TEST_CASE("a chain none of the OS's roots signed is trusted as the OS trusts it"
     CHECK(checked > 0);
 #ifdef _WIN32
     // A name it isn't for is a flaw the OS's check doesn't undo, and it isn't asked.
+    const auto cn_mismatch = static_cast<std::uint32_t>(MBEDTLS_X509_BADCERT_CN_MISMATCH);
     if (trusted != nullptr) {
         CHECK(check(*trusted, "nothing.invalid", true) == (not_trusted | cn_mismatch));
     }
