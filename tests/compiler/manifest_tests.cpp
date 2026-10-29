@@ -269,6 +269,29 @@ TEST_CASE("a project.toml's paths take '\\' as '/', as an Import's path does", "
     CHECK(manifest.natives[1].path == "vendor/SDL3");
 }
 
+TEST_CASE("[format] gives fb fmt's line width", "[manifest]") {
+    constexpr std::string_view project = "[project]\nname = \"game\"\nversion = \"0.1.0\"\n";
+    CHECK_FALSE(read(project).manifest.value_or(fb::manifest_t{}).format_width);
+    const read_t wide = read(std::format("{}[format]\nwidth = 120\n", project));
+    CHECK(wide.diagnostics.empty());
+    CHECK(wide.manifest.value_or(fb::manifest_t{}).format_width == 120U);
+
+    for (const std::string_view width : { "39", "1001", "\"100\"", "100.5" }) {
+        INFO(width);
+        const read_t bad = read(std::format("{}[format]\nwidth = {}\n", project, width));
+        CHECK_FALSE(bad.manifest);
+        CHECK(bad.diagnostics ==
+              diagnostics_t{ std::format("error: {}: [format]'s width is a whole number of "
+                                         "columns from 40 to 1000, like 100",
+                                         width) });
+    }
+
+    CHECK(read(std::format("{}[format]\nindent = 2\n", project)).diagnostics ==
+          diagnostics_t{ "warning: indent: [format] doesn't use 'indent'" });
+    CHECK(read(std::format("format = 5\n{}", project)).diagnostics ==
+          diagnostics_t{ "error: format: 'format' is a table, [format], with the line width" });
+}
+
 TEST_CASE("text in a project.toml that isn't UTF-8 is reported at its first bad byte",
           "[manifest]") {
     CHECK(read("[project]\nname = \"ab\xff\xfe\"\n").diagnostics ==

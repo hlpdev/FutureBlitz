@@ -29,6 +29,7 @@ std::expected<command_t, std::string> find_command(const std::string_view name) 
              command_t::RUN,
              command_t::TEST,
              command_t::BINDGEN,
+             command_t::FMT,
          }) {
         if (command_name(command) == name) {
             return command;
@@ -106,6 +107,8 @@ std::string_view command_name(const command_t command) {
         return "test";
     case command_t::BINDGEN:
         return "bindgen";
+    case command_t::FMT:
+        return "fmt";
     }
 
     std::unreachable();
@@ -250,6 +253,27 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
             options.program_arguments.assign(arguments.begin() + static_cast<std::ptrdiff_t>(i) + 1,
                                              arguments.end());
             break;
+        }
+
+        // fb fmt takes files and folders, and --check.
+        if (options.command == command_t::FMT && argument == "--check") {
+            options.check = true;
+            continue;
+        }
+
+        if (options.command == command_t::FMT && !argument.starts_with('-')) {
+            options.paths.push_back(path_from_utf8(argument));
+            continue;
+        }
+
+        if (options.command == command_t::FMT && name != "--color") {
+            return std::unexpected(std::format("'{}' doesn't work with 'fb fmt', which takes "
+                                               "--check",
+                                               name));
+        }
+
+        if (argument == "--check") {
+            return std::unexpected("'--check' only works with 'fb fmt'");
         }
 
         // Stays a success unless an option's value is bad.

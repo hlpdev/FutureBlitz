@@ -17,6 +17,10 @@
 namespace fb {
 namespace {
 
+/// The line widths [format] takes.
+constexpr std::int64_t min_format_width = 40;
+constexpr std::int64_t max_format_width = 1000;
+
 /// Whether text could be an identifier: ASCII letters, digits, and '_', not starting with a
 /// digit, and not a keyword.
 bool is_identifier(const std::string_view text) {
@@ -88,6 +92,8 @@ public:
                 read_dependencies(*key, *node, manifest);
             } else if (name == "native") {
                 read_natives(*key, *node, manifest);
+            } else if (name == "format") {
+                read_format(*key, *node, manifest);
             } else {
                 m_diagnostics.warning(span_of(key->source()), "project.toml doesn't use '{}'",
                                       name);
@@ -235,6 +241,35 @@ private:
 
         if (manifest.type == package_type_t::LIBRARY && manifest.main_span) {
             fail(*manifest.main_span, "a library has no main file; its files are its modules");
+        }
+    }
+
+    /// [format]: how `fb fmt` formats the package's code, which is only its line width.
+    void read_format(const toml::key& key, const toml::node& node, manifest_t& manifest) {
+        const toml::table* table = node.as_table();
+        if (table == nullptr) {
+            fail(span_of(key.source()), "'format' is a table, [format], with the line width");
+            return;
+        }
+
+        for (const auto& [key_of_field, node_of_field] : in_order(*table)) {
+            const toml::key& field = *key_of_field;
+            const toml::node& value = *node_of_field;
+            if (field.str() != "width") {
+                m_diagnostics.warning(span_of(field.source()), "[format] doesn't use '{}'",
+                                      field.str());
+                continue;
+            }
+
+            const std::optional<std::int64_t> width = value.value_exact<std::int64_t>();
+            if (!width || *width < min_format_width || *width > max_format_width) {
+                fail(span_of(value.source()),
+                     "[format]'s width is a whole number of columns from {} to {}, like 100",
+                     min_format_width, max_format_width);
+                continue;
+            }
+
+            manifest.format_width = static_cast<std::uint32_t>(*width);
         }
     }
 

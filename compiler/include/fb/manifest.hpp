@@ -76,6 +76,8 @@ struct manifest_t {
     std::vector<dependency_t> dependencies;
     /// Its [native] libraries, in the order the file has them.
     std::vector<native_t> natives;
+    /// `[format] width`: the line width `fb fmt` formats its code to.
+    std::optional<std::uint32_t> format_width;
 };
 
 /// Whether text is a name a native library can have, or a system library's name for the

@@ -72,6 +72,12 @@ std::filesystem::path write_source(const std::string_view name, const std::strin
     return path;
 }
 
+/// A file's bytes.
+std::string read_file(const std::filesystem::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    return { std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
+}
+
 void check_usage_error(const std::vector<std::string>& arguments, const std::string_view message) {
     const fb::process_result_t result = fb_run(arguments);
     INFO(result.output);
@@ -2455,6 +2461,77 @@ TEST_CASE("fb takes a .fb file's extension in any letter case", "[cli]") {
     const fb::process_result_t checked = fb_run({ "check", fb::to_utf8(source) });
     INFO(checked.output);
     CHECK(checked.exit_code == 0);
+}
+
+TEST_CASE("fb fmt formats a package's files in place, and --check lists the ones it would",
+          "[cli]") {
+    const std::filesystem::path root = std::filesystem::path(FB_TEST_OUTPUT) / "fmt_package";
+    std::filesystem::remove_all(root);
+    write_source("fmt_package/project.toml",
+                 "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n[format]\nwidth = 40\n");
+    write_source("fmt_package/main.fb", "Import std.core\nIf 1<2\nPrint( \"yes\" )\nEnd If\n");
+    write_source("fmt_package/ui/hud.fb", "Function Shown(a: Int, b: Int, c: Int, d: Int): Int\n"
+                                          "    Return a + b + c + d\nEnd Function\n");
+    write_source("fmt_package/ui/done.fb", "Print(1)\n");
+    // A package's build/ folder, and hidden ones, aren't its code.
+    write_source("fmt_package/build/old.fb", "Print( 1 )\n");
+    write_source("fmt_package/.hidden/old.fb", "Print( 1 )\n");
+    const std::filesystem::path before = std::filesystem::current_path();
+    std::filesystem::current_path(root / "ui");
+    const fb::process_result_t checked = fb_run({ "fmt", "--check" });
+    std::filesystem::current_path(before);
+
+    INFO(checked.output);
+    CHECK(checked.exit_code == 1);
+    CHECK(checked.output.contains("main.fb\n"));
+    CHECK(checked.output.contains("hud.fb\n"));
+    CHECK_FALSE(checked.output.contains("done.fb"));
+    CHECK_FALSE(checked.output.contains("old.fb"));
+    CHECK(checked.output.contains("2 files aren't formatted; fb fmt formats them"));
+    CHECK(read_file(root / "main.fb") == "Import std.core\nIf 1<2\nPrint( \"yes\" )\nEnd If\n");
+
+    const fb::process_result_t formatted = fb_run({ "fmt", fb::to_utf8(root) });
+    INFO(formatted.output);
+    CHECK(formatted.exit_code == 0);
+    CHECK(formatted.output.contains("Formatted"));
+    CHECK(read_file(root / "main.fb") == "Import std.core\nIf 1 < 2\n    Print(\"yes\")\nEnd If\n");
+    // project.toml's width is 40.
+    CHECK(read_file(root / "ui" / "hud.fb") == "Function Shown(a: Int, b: Int, c: Int,\n"
+                                               "               d: Int): Int\n"
+                                               "    Return a + b + c + d\nEnd Function\n");
+    CHECK(read_file(root / "build" / "old.fb") == "Print( 1 )\n");
+
+    const fb::process_result_t again =
+        fb_run({ "fmt", "--check", fb::to_utf8(root / "main.fb"), fb::to_utf8(root / "ui") });
+    INFO(again.output);
+    CHECK(again.exit_code == 0);
+    CHECK(again.output.empty());
+}
+
+TEST_CASE("fb fmt leaves a file that doesn't parse, with its errors", "[cli]") {
+    const std::filesystem::path broken = write_source("fmt_broken.fb", "Print( 1\n");
+    const fb::process_result_t formatted = fb_run({ "fmt", fb::to_utf8(broken) });
+    INFO(formatted.output);
+    CHECK(formatted.exit_code == 1);
+    CHECK(formatted.output.contains("fmt_broken.fb:1:9: error: expected ')'"));
+    CHECK(formatted.output.contains("couldn't format 1 file"));
+    CHECK(read_file(broken) == "Print( 1\n");
+}
+
+TEST_CASE("fb fmt's usage mistakes", "[cli]") {
+    check_usage_error({ "fmt", fb::to_utf8(std::filesystem::path(FB_TEST_OUTPUT) / "nowhere") },
+                      "there's no file or folder");
+    check_usage_error({ "fmt", fb::to_utf8(write_source("fmt_text.txt", "text")) },
+                      "fmt_text.txt isn't a .fb file");
+    check_usage_error({ "fmt", "--release" },
+                      "'--release' doesn't work with 'fb fmt', which takes --check");
+    check_usage_error({ "build", "--check" }, "'--check' only works with 'fb fmt'");
+
+    const fb::process_result_t help = fb_run({ "help", "fmt" });
+    CHECK(help.exit_code == 0);
+    CHECK(help.output.contains("fb fmt [options] [files and folders]"));
+    CHECK(help.output.contains("--check"));
+    CHECK(fb_run({ "help" }).output.contains("Format .fb files in place"));
 }
 
 TEST_CASE("fb builds a program with a prebuilt library's binary in it", "[cli]") {

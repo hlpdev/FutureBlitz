@@ -24,6 +24,8 @@ enum class command_t : std::uint8_t {
     TEST,
     /// Runs fb-bindgen, which sits next to fb.
     BINDGEN,
+    /// Formats .fb files in place.
+    FMT,
 };
 
 /// The `--color` choice. See use_color for what AUTO means.
@@ -63,6 +65,10 @@ struct options_t {
     /// From `--filter`, which only `fb test` takes: what the names of the tests it runs have in
     /// them. Nullopt runs them all.
     std::optional<std::string> filter;
+    /// What `fb fmt` formats: .fb files and folders. Empty for the current package.
+    std::vector<std::filesystem::path> paths;
+    /// `fb fmt --check`: lists the files it would change, without changing them.
+    bool check = false;
 };
 
 /// The command's name, like "build".

@@ -4,6 +4,7 @@
 #include "fb/diagnostic_render.hpp"
 #include "fb/driver.hpp"
 #include "fb/dump.hpp"
+#include "fb/fmt.hpp"
 #include "fb/interface.hpp"
 #include "fb/lexer.hpp"
 #include "fb/lower.hpp"
@@ -119,6 +120,8 @@ std::string_view summary(const command_t command) {
         return "Compile a package's tests and run them";
     case command_t::BINDGEN:
         return "Turn a C header into a FutureBlitz module, with fb-bindgen";
+    case command_t::FMT:
+        return "Format .fb files in place";
     default:
         return "";
     }
@@ -163,6 +166,18 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
         return bindgen_help(style);
     }
 
+    if (command == command_t::FMT) {
+        std::string out = std::format("{}\n\n{} fb fmt [options] [files and folders]\n",
+                                      summary(command_t::FMT), heading("Usage:"));
+        out += "\nWithout any, it's the package the current folder is in, from it up. Lines are\n"
+               "as wide as project.toml's [format] width, or 100.\n";
+        out += std::format("\n{}\n", heading("Options:"));
+        out += entry("    --check", "List the files it would change, without changing them");
+        out += entry("    --color <when>", "Color the output: auto, always, or never");
+        out += entry("-h, --help", "Show this help");
+        return out;
+    }
+
     std::string out = command ? std::format("{}\n\n", summary(*command))
                               : std::format("FutureBlitz {}: build and run .fb programs\n\n",
                                             build_config::version);
@@ -189,6 +204,7 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
                  command_t::RUN,
                  command_t::TEST,
                  command_t::BINDGEN,
+                 command_t::FMT,
              }) {
             out += entry(command_name(each), summary(each));
         }
@@ -1078,6 +1094,8 @@ int run_command(const options_t& options) {
         return test_command(options);
     case command_t::BINDGEN:
         return bindgen_command(options);
+    case command_t::FMT:
+        return format_command(options);
     }
 
     std::unreachable();
