@@ -1372,8 +1372,14 @@ private:
                         const std::size_t module = std::to_underlying(id);
                         const std::vector<symbol_id_t> declared =
                             names_in(m_modules[module].names, name.text);
-                        if (!seen_names(module, here, name.text).empty()) {
+                        if (const std::vector<symbol_id_t> visible =
+                                seen_names(module, here, name.text);
+                            !visible.empty()) {
                             seen = true;
+                            // The name uses what it brings in, which a rename changes too.
+                            for (const symbol_id_t symbol : visible) {
+                                m_analysis.uses.push_back({ .span = name.span, .symbol = symbol });
+                            }
                         } else if (!declared.empty()) {
                             hidden = declared.front();
                         }

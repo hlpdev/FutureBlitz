@@ -8,6 +8,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <functional>
 #include <optional>
@@ -16297,4 +16298,21 @@ TEST_CASE("analysis keeps where each symbol is used", "[sema]") {
     uses.erase(first, last);
     CHECK(uses == std::vector<std::string>{ "Point New", "Point Point", "Print Print",
                                             "Twice Twice", "X X", "p p", "q q" });
+
+    // A From line's names use what they bring in.
+    std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    files.push_back({ .path = "lib.fb", .text = "Public Function Area(): Int => 1\n" });
+    const fb::compilation_t from =
+        fb::compile("test.fb", "From \"./lib\" Import Area\nLocal a = Area()\n", files);
+    CHECK(from.diagnostics.diagnostics().empty());
+    std::vector<std::uint32_t> areas;
+    for (const fb::symbol_use_t& use : from.analysis.uses) {
+        if (use.span.file == from.file) {
+            areas.push_back(use.span.begin);
+        }
+    }
+
+    std::ranges::sort(areas);
+    CHECK(areas == std::vector<std::uint32_t>{ 20, 35 });
 }
