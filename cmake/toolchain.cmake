@@ -91,7 +91,8 @@ elseif(fb_os STREQUAL "linux")
     endif()
 
     file(READ "${shared}" script)
-    string(REGEX MATCHALL "/[^ ()]+" grouped "${script}")
+    # The files it names, by their paths: its comments name none.
+    string(REGEX MATCHALL "/[^ ()\t\r\n]+\\.(so[.0-9]*|a)" grouped "${script}")
     foreach(file IN LISTS grouped)
       cmake_path(GET file FILENAME name)
       fb_toolchain_copy("${file}" ${name})
