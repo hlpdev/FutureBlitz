@@ -5,6 +5,15 @@ them while each was built. Newest first.
 
 ## M8, tooling
 
+Step 3's Linux and macOS fixes (2026-10-29, db810ec8), found by the user's Mac and narrow CI runs:
+on ELF the trace table is added from .init_array, since lld doesn't run the .ctors that LLVM's C
+API's target machine writes, so Linux printed no trace at all; the runtime's parts have unwind
+tables without exceptions, which Apple's clang leaves out on arm64, so macOS's unwinder gave no
+frames; and FB functions on Apple's targets keep a frame pointer, as its ABI has. A Function's entry
+jumps to its code at its first statement's line, so stepping in stops there; a String?, a Class?,
+and a T[]? are a struct of their Value, so lldb shows Null; and tools/lldb/futureblitz.py hides
+addresses, finds std's Map by its full name, and shows an object's Fields through its pointer.
+
 Step 1, the self-contained toolchain (2026-10-29, e50d0fe6): fb links with its own lld, run directly
 as `lld -flavor gnu` or `-flavor darwin` through a response file, quoted as Windows' command lines
 are on Windows and as a POSIX shell's elsewhere, with each target's startup files and libraries from
