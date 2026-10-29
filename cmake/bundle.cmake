@@ -9,6 +9,9 @@
 # FB_BUNDLE_LLD the lld it was copied from, FB_BUNDLE_FOLDERS where else to look for what they
 # load, and FB_BUNDLE_NOTICES notices/.
 
+# An install script has no project's policies, but this one's.
+cmake_policy(VERSION 3.28)
+
 set(fb_executables "")
 foreach(name IN LISTS FB_BUNDLE_EXECUTABLES)
   list(APPEND fb_executables "${FB_BUNDLE_BIN}/${name}")
