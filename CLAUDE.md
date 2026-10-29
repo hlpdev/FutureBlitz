@@ -62,4 +62,5 @@ docs/history.md; a landed step's notes go there, newest milestone first.
   parameters, picks, and throwing Methods; a parallel verify; and every one of the whole-codebase
   review's fixes.
 - M7 so far: step 0 (the spec), 1 (project types and the interface file), 2 (prebuilt libraries
-  embedded), 5 (dynamic natives and {target}), and 6 (a package with prebuilt natives).
+  embedded), 3 (libraries beside the executable), 4 (across the edge), 5 (dynamic natives and
+  {target}), and 6 (a package with prebuilt natives).

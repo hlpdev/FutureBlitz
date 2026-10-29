@@ -56,6 +56,47 @@ names, debug forms, shared T[] and Channel records, the program's Extends on a l
 objects, fb's own names for the Class list, LLVM's errors as fb's, `--show llvm`, the same
 build wherever it's built, and the docs.
 
+Step 3, libraries beside the executable (7dadf64f): project.toml's `link = "beside"`
+(dependency_t::beside, link_span; "embed", the default, or an error), only a program's own, with a
+warning that a library's is ignored; build_program's beside libraries (beside_library_t,
+compilation_t::beside, module_t::beside), each its prebuilt binary or a build of its source
+(beside_binary()), in dependency order, as the OS's own dynamic library, `<name>.dll`,
+`lib<name>.so`, or `lib<name>.dylib` (beside_file()), which takes the runtime, std, and its own
+dependencies from the executable, as the user chose. The executable links each one's bitcode for the
+code it shares, every beside library's own definitions as declarations (read_beside_names(),
+declaration_of(), declared_like()) and the shared code it lacks as weak_odr (link_beside()), so each
+generic instance and type record is the executable's; once all are linked, each function of theirs
+it calls is a thunk through a slot, `fb.(slot).<name>`, and each Global is reached through its
+file's `fb.(address).<name>` (reach_beside(), thunk(), reach_through(), rebuilt()), and main's
+`fb.(load beside)` calls the runtime's fb_load_beside(), which loads each file beside the
+executable, checks its `fb.(build).<name>` record, "name version hash", and on Windows the
+executable it was built for, and fills the slots, or stops the program with an error naming the
+file. The library's file (emit_beside_object()) declares the shared code, exports its own with
+--export-all-symbols, and reaches another beside library's Globals and the executable's ThreadLocals
+through `fb.(address)` functions, which the executable makes for its own
+(generate_thread_local_addresses()); the executable exports the rest it takes (exports_t,
+--export-all-symbols with an import library, -rdynamic, -export_dynamic), and each library links
+against the import libraries of those before it (link_beside() in link.cpp), or finds them loaded
+first with RTLD_GLOBAL, with -Bsymbolic on Linux. A beside library's static natives are in the
+executable, its system libraries link into both, and its dynamic ones go beside it; its file's name
+can't be another file's there, case-folded, nor a system library's; a Windows executable with
+libraries beside it keeps its ASCII name; and `fb build` prints each file it builds beside the
+executable (program_build_t). In a build that links, a shared ThreadLocal's initializer is always
+lowered, so every build's maker runs it. Its review's 42 findings were fixed
+(docs/review/m7-step3.md): names with ", " that /export directives split, beside libraries using
+each other in either order, Struct Globals' Fields and ThreadLocals across the edge, large results
+in debug builds, static and system natives, two programs in one build folder, paths outside ASCII
+and the ANSI code page, 8.3 names and symlinked executables, names alike but for case, a main file
+given in a package with none, the bundled libraries only a library calls, the IR view, a library's
+errors at their lines, an executable left without its library, and the docs; a review of those fixes
+found 9 more, fixed too: a dependency's natives in each library's file, a beside library the program
+doesn't use, one Callback per Function across the edge, links and missing executables on Windows,
+and clearer errors.
+
+Step 4, across the edge (03202ac0): what step 3 made, one type per instance in every binary, Globals
+reached through accessors, and a program's Class extending a library's, with a test that a generic
+instance made on both sides of a beside library is one type, for `Is`, Interfaces, and debug forms.
+
 Step 5, dynamic natives (537d4680): `[native]`'s `{ dynamic = "native/{target}/engine" }`
 (native_kind_t::DYNAMIC), a path without the file's "lib" and extension, which finds engine.dll
 and its import library (engine.lib, libengine.dll.a, or libengine.a), libengine.so, or
