@@ -71,7 +71,8 @@ other people can install and use every day in an editor. Step 0 settled what was
 
 - Versioned builds of fb for windows-x64, linux-x64, linux-arm64, macos-arm64, and macos-x64,
   from .github/workflows/release.yml, which a pushed `v<version>` tag runs, or a dispatch on a
-  branch to check it. A tag makes a **draft** GitHub Release of the assets, which is published by
+  branch to check it (by the workflow's id, `gh workflow run 401031694 --ref <branch>`, while
+  master hasn't the file, as GitHub finds one by its name only there). A tag makes a **draft** GitHub Release of the assets, which is published by
   hand; the tag has to be CMakeLists.txt's version.
 - Each target's archive, `futureblitz-<version>-<target>.zip` on Windows and `.tar.gz`
   elsewhere, holds one folder of that name, laid out as above. `cmake --install <build> --prefix
@@ -96,7 +97,8 @@ other people can install and use every day in an editor. Step 0 settled what was
   shared libraries. Elsewhere than Windows, cmake/bundle.cmake copies into bin/ the shared
   libraries that fb's executables and lld load, but the system's, and has them found there:
   a RUNPATH of $ORIGIN on Linux (patchelf), and on macOS @rpath names, an @loader_path rpath
-  (install_name_tool), and each binary signed again; each one's license goes in notices/.
+  (install_name_tool), and each binary signed again; each one's license goes in
+  notices/shared/.
 - Linux: fb is built on Ubuntu 22.04 with GCC 14 and apt.llvm.org's LLVM, so it needs Ubuntu
   22.04 or newer (glibc 2.35), while lib/<target>/, with glibc 2.28's and the kernel's headers in
   its include/, comes from a runtime-only build (`FB_RUNTIME_ONLY`, no LLVM) in a
@@ -110,7 +112,8 @@ other people can install and use every day in an editor. Step 0 settled what was
   macOS the SDK's, from `xcrun`; a build folder has libclang's own and the C compiler's.
 - notices/: std's bundled libraries', LLVM's (for LLVM, clang, and lld), MinGW-w64's and GCC's
   on Windows, and GCC's, glibc's, and the Linux headers' on Linux, from cmake/notices/, and the
-  bundled shared libraries' own, from their Debian packages or Homebrew kegs.
+  bundled shared libraries' own, in notices/shared/, from their Debian packages or Homebrew
+  kegs.
 - The workflow checks each release on a fresh machine: Windows' and macOS' runners as they come,
   with PATH cut to the system's, and a plain ubuntu:22.04 container with no compiler, each
   installing with its script, and on Windows and macOS with the MSI and the .pkg too, then

@@ -3,11 +3,11 @@
 # own, and has each binary find them beside it. On Linux that's a RUNPATH of $ORIGIN, which
 # patchelf sets; on macOS, @rpath names and an @loader_path rpath, which install_name_tool sets,
 # after which each binary is signed again, as arm64 Macs run only signed code. Each library's
-# license goes in notices/, from the package it came in.
+# license goes in notices/shared/, from the package it came in.
 #
 # FB_BUNDLE_BIN is bin/, FB_BUNDLE_EXECUTABLES the executables' names there, lld among them,
 # FB_BUNDLE_LLD the lld it was copied from, FB_BUNDLE_FOLDERS where else to look for what they
-# load, and FB_BUNDLE_NOTICES notices/.
+# load, and FB_BUNDLE_NOTICES notices/shared/, apart from the notices of what programs link.
 
 # An install script has no project's policies, but this one's.
 cmake_policy(VERSION 3.28)

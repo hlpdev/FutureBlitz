@@ -12,8 +12,6 @@ on:
   workflow_dispatch:
   push:
     tags: ['v*']
-    # For now only: a run registers the workflow, which can then be dispatched on this branch.
-    branches: [m8-release]
 
 permissions:
   contents: read
