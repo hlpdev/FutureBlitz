@@ -1,9 +1,9 @@
-// What the built-in number types share, for std.math's generic Functions: Bounded, the types with
-// a lowest and a highest value, which every number type is; Integer, the eight integer types; and
-// FloatingPoint, Float32 and Float64, over C's libm. A Function that takes a T of one of them gets
-// its type from its arguments, so Lerp(0, 10, t) works in t's type, and its literals follow. Their
-// Static Methods are for generic code, through a type parameter, as in T.MinValue(); for the types
-// themselves, std.math's Functions are the way, as MinValue<Int>() and Floor(x).
+//! What the built-in number types share, for std.math's generic Functions: Bounded, the types with
+//! a lowest and a highest value, which every number type is; Integer, the eight integer types; and
+//! FloatingPoint, Float32 and Float64, over C's libm. A Function that takes a T of one of them gets
+//! its type from its arguments, so Lerp(0, 10, t) works in t's type, and its literals follow. Their
+//! Static Methods are for generic code, through a type parameter, as in T.MinValue(); for the types
+//! themselves, std.math's Functions are the way, as `MinValue<Int>()` and Floor(x).
 
 Import std.core
 
@@ -65,58 +65,87 @@ Extern "C"
     Function fma(a: Float64, b: Float64, c: Float64): Float64
 End Extern
 
-// The types with a lowest and a highest value: every number type. A float's are its lowest and
-// highest finite values, not the infinities. Each is a Double too, for math like a Mean.
+/// The types with a lowest and a highest value: every number type. A float's are its lowest and
+/// highest finite values, not the infinities. Each is a Double too, for math like a Mean.
 Public Interface Bounded
+    /// The type's lowest value: a float's lowest finite one.
     Static Method MinValue(): Self
+    /// The type's highest value: a float's highest finite one.
     Static Method MaxValue(): Self
-    // The value as a Double, rounded to the nearest one where a Long's is too large to hold.
+    /// The value as a Double, rounded to the nearest one where a Long's is too large to hold.
     Static Method DoubleValue(value: Self): Float64
 End Interface
 
-// The eight integer types, whose bits generic code works on through a UInt64.
+/// The eight integer types, whose bits generic code works on through a UInt64.
 Public Interface Integer Extends Bounded
-    // How many bits the type has: 8, 16, 32, or 64.
+    /// How many bits the type has: 8, 16, 32, or 64.
     Static Method BitWidth(): Int
-    // The value's bits, BitWidth of them, in a UInt64's low bits, the rest 0.
+    /// The value's bits, BitWidth of them, in a UInt64's low bits, the rest 0.
     Static Method LowBits(value: Self): UInt64
-    // The value whose bits are the UInt64's low BitWidth bits.
+    /// The value whose bits are the UInt64's low BitWidth bits.
     Static Method FromLowBits(bits: UInt64): Self
 End Interface
 
-// Float32 and Float64, with what C's libm works out for each. Rounding is half away from 0, and
-// Rem is C's fmod, which is exact.
+/// Float32 and Float64, with what C's libm works out for each. Rounding is half away from 0, and
+/// Rem is C's fmod, which is exact.
 Public Interface FloatingPoint Extends Bounded
-    // The gap between 1 and the next value above it.
+    /// The gap between 1 and the next value above it.
     Static Method Epsilon(): Self
-    // The Double as this type, rounded to the nearest value it holds.
+    /// The Double as this type, rounded to the nearest value it holds.
     Static Method FromDouble(value: Float64): Self
+    /// The largest whole number no larger than `value`.
     Static Method Floor(value: Self): Self
+    /// The smallest whole number no smaller than `value`.
     Static Method Ceil(value: Self): Self
+    /// The whole number nearest `value`, a half away from 0.
     Static Method Round(value: Self): Self
+    /// `value` without what's after its point: the whole number toward 0.
     Static Method Trunc(value: Self): Self
+    /// The square root of `value`, or NaN for a negative one.
     Static Method Sqrt(value: Self): Self
+    /// The cube root of `value`.
     Static Method Cbrt(value: Self): Self
+    /// e to the power of `value`.
     Static Method Exp(value: Self): Self
+    /// 2 to the power of `value`.
     Static Method Exp2(value: Self): Self
+    /// The natural logarithm of `value`.
     Static Method Log(value: Self): Self
+    /// The base 2 logarithm of `value`.
     Static Method Log2(value: Self): Self
+    /// The base 10 logarithm of `value`.
     Static Method Log10(value: Self): Self
+    /// The sine of `value`, in radians.
     Static Method Sin(value: Self): Self
+    /// The cosine of `value`, in radians.
     Static Method Cos(value: Self): Self
+    /// The tangent of `value`, in radians.
     Static Method Tan(value: Self): Self
+    /// The angle, in radians, whose sine is `value`.
     Static Method Asin(value: Self): Self
+    /// The angle, in radians, whose cosine is `value`.
     Static Method Acos(value: Self): Self
+    /// The angle, in radians, whose tangent is `value`.
     Static Method Atan(value: Self): Self
+    /// The angle, in radians, of the point (`x`, `y`) from the positive x axis, from -pi to pi.
     Static Method Atan2(y: Self, x: Self): Self
+    /// The hyperbolic sine of `value`.
     Static Method Sinh(value: Self): Self
+    /// The hyperbolic cosine of `value`.
     Static Method Cosh(value: Self): Self
+    /// The hyperbolic tangent of `value`.
     Static Method Tanh(value: Self): Self
+    /// The inverse hyperbolic sine of `value`.
     Static Method Asinh(value: Self): Self
+    /// The inverse hyperbolic cosine of `value`.
     Static Method Acosh(value: Self): Self
+    /// The inverse hyperbolic tangent of `value`.
     Static Method Atanh(value: Self): Self
+    /// What's left of `a` divided by `b`, with `a`'s sign, as C's fmod gives it.
     Static Method Rem(a: Self, b: Self): Self
+    /// `magnitude`'s size with `sign`'s sign.
     Static Method CopySign(magnitude: Self, sign: Self): Self
+    /// `a` times `b`, plus `c`, rounded once.
     Static Method Fma(a: Self, b: Self, c: Self): Self
 End Interface
 
@@ -263,7 +292,7 @@ Extend Float64 Implements FloatingPoint
 End Extend
 
 Extend Float32
-    // The Float's bits, as IEEE 754 lays them out.
+    /// The Float's bits, as IEEE 754 lays them out.
     Public Method ToBits(): UInt32
         Unsafe
             Local copy = Self
@@ -271,7 +300,7 @@ Extend Float32
         End Unsafe
     End Method
 
-    // The Float whose IEEE 754 bits these are.
+    /// The Float whose IEEE 754 bits these are.
     Public Static Method FromBits(bits: UInt32): Float32
         Unsafe
             Local copy = bits
@@ -281,7 +310,7 @@ Extend Float32
 End Extend
 
 Extend Float64
-    // The Double's bits, as IEEE 754 lays them out.
+    /// The Double's bits, as IEEE 754 lays them out.
     Public Method ToBits(): UInt64
         Unsafe
             Local copy = Self
@@ -289,7 +318,7 @@ Extend Float64
         End Unsafe
     End Method
 
-    // The Double whose IEEE 754 bits these are.
+    /// The Double whose IEEE 754 bits these are.
     Public Static Method FromBits(bits: UInt64): Float64
         Unsafe
             Local copy = bits
@@ -298,8 +327,8 @@ Extend Float64
     End Method
 End Extend
 
-// The lowest value a T holds: for a float, its lowest finite one.
+/// The lowest value a T holds: for a float, its lowest finite one.
 Public Function MinValue<T: Bounded>(): T => T.MinValue()
 
-// The highest value a T holds: for a float, its highest finite one.
+/// The highest value a T holds: for a float, its highest finite one.
 Public Function MaxValue<T: Bounded>(): T => T.MaxValue()

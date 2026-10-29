@@ -1,5 +1,5 @@
-// Blake3, over BLAKE3's C code: a fast cryptographic hash of any length, 32 bytes unless asked
-// for more or fewer, which can be keyed, as a MAC, or derive a key for a context, as a KDF.
+//! Blake3, over BLAKE3's C code: a fast cryptographic hash of any length, 32 bytes unless asked
+//! for more or fewer, which can be keyed, as a MAC, or derive a key for a context, as a KDF.
 
 Import std.core
 Import std.crypto.hashes
@@ -12,35 +12,37 @@ Extern "runtime"
     Function fb_blake3_hasher_free(hasher: Ptr<Void>)
 End Extern
 
+/// BLAKE3's hash of what's added in turn, of any length, for checksums, keys, and anything else a
+/// fast cryptographic hash fits.
 Public Class Blake3 Implements Hasher
     Field State: Ptr<Void>
 
-    // A plain hash.
+    /// A plain hash.
     Public New()
         State = fb_blake3_hasher_new(0, [], "")
     End New
 
-    // A keyed hash, with key, 32 bytes, or one that derives a key for context.
+    /// A keyed hash, with key, 32 bytes, or one that derives a key for context.
     New(mode: Int32, key: UInt8[], context: String)
         State = fb_blake3_hasher_new(mode, key, context)
     End New
 
-    // A hasher whose hash is a MAC with key, 32 bytes. Panics unless key is 32 bytes.
+    /// A hasher whose hash is a MAC with key, 32 bytes. Panics unless key is 32 bytes.
     @PanicsAtCaller
     Public Static Method Keyed(key: UInt8[]): Blake3
         CheckKey(key)
         Return Blake3(1, key, "")
     End Method
 
-    // A hasher whose hash is a key for context, from the material added: context, fixed in the
-    // program, says what the key is for, like "game 2026-10-23 save file encryption", so keys
-    // for different uses differ.
+    /// A hasher whose hash is a key for context, from the material added: context, fixed in the
+    /// program, says what the key is for, like "game 2026-10-23 save file encryption", so keys
+    /// for different uses differ.
     Public Static Method DerivingKey(context: String): Blake3
         Local noKey: UInt8[] = []
         Return Blake3(2, noKey, context)
     End Method
 
-    // data's hash, length bytes long. Panics when length is negative.
+    /// data's hash, length bytes long. Panics when length is negative.
     @PanicsAtCaller
     Public Static Method Hash(data: UInt8[], length: Int = 32): UInt8[]
         Local hasher = Blake3()
@@ -48,6 +50,7 @@ Public Class Blake3 Implements Hasher
         Return hasher.Finish(length)
     End Method
 
+    /// The hash of `text`'s UTF-8 bytes, `length` bytes long. Panics when `length` is negative.
     @PanicsAtCaller
     Public Static Method Hash(text: String, length: Int = 32): UInt8[]
         Local hasher = Blake3()
@@ -55,7 +58,7 @@ Public Class Blake3 Implements Hasher
         Return hasher.Finish(length)
     End Method
 
-    // data's MAC with key, 32 bytes. Panics unless key is 32 bytes, or when length is negative.
+    /// data's MAC with key, 32 bytes. Panics unless key is 32 bytes, or when length is negative.
     @PanicsAtCaller
     Public Static Method KeyedHash(key: UInt8[], data: UInt8[], length: Int = 32): UInt8[]
         Local hasher = Keyed(key)
@@ -63,7 +66,7 @@ Public Class Blake3 Implements Hasher
         Return hasher.Finish(length)
     End Method
 
-    // A key for context from material. Panics when length is negative.
+    /// A key for context from material. Panics when length is negative.
     @PanicsAtCaller
     Public Static Method DeriveKey(context: String, material: UInt8[], length: Int = 32): UInt8[]
         Local hasher = DerivingKey(context)
@@ -71,19 +74,21 @@ Public Class Blake3 Implements Hasher
         Return hasher.Finish(length)
     End Method
 
+    /// Adds `data` to what it hashes.
     Public Method Add(data: UInt8[])
         fb_blake3_hasher_add(State, data)
     End Method
 
+    /// Adds `text`'s UTF-8 bytes to what it hashes.
     Public Method Add(text: String)
         fb_blake3_hasher_add_text(State, text)
     End Method
 
-    // The 32-byte hash of what was added, after which the hasher starts again, empty.
+    /// The 32-byte hash of what was added, after which the hasher starts again, empty.
     Public Method Finish(): UInt8[] => Finish(32)
 
-    // The same, length bytes long, the first 32 of which are the 32-byte hash. Panics when
-    // length is negative.
+    /// The same, length bytes long, the first 32 of which are the 32-byte hash. Panics when
+    /// length is negative.
     @PanicsAtCaller
     Public Method Finish(length: Int): UInt8[]
         If length < 0 Then Panic("Blake3 gives a length that isn't negative, not {length}")

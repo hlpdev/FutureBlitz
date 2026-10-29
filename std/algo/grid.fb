@@ -1,25 +1,25 @@
-// Searches on grids of cells, each a Vec2i from (0, 0) to (width - 1, height - 1): the cells next
-// to one, the path between two by A*, and flow fields, which give every cell its way to the
-// nearest goal at once, for many agents going to the same places. A step goes along an axis, or
-// diagonally too, which costs the square root of 2 times as much and doesn't cut a corner a wall
-// is on.
+//! Searches on grids of cells, each a Vec2i from (0, 0) to (width - 1, height - 1): the cells next
+//! to one, the path between two by A*, and flow fields, which give every cell its way to the
+//! nearest goal at once, for many agents going to the same places. A step goes along an axis, or
+//! diagonally too, which costs the square root of 2 times as much and doesn't cut a corner a wall
+//! is on.
 
 Import std.core
 Import std.collections
 Import std.math
 Import std.algo.search
 
-// How much more a diagonal step costs than one along an axis: the square root of 2.
+/// How much more a diagonal step costs than one along an axis: the square root of 2.
 Const Diagonal: Double = 1.4142135623730951
 
-// The steps from a cell: along the axes, right, down, left, and up, then the diagonals.
+/// The steps from a cell: along the axes, right, down, left, and up, then the diagonals.
 Function Steps(diagonal: Bool): Vec2i[]
     If !diagonal Then Return [Vec2i(1, 0), Vec2i(0, 1), Vec2i(-1, 0), Vec2i(0, -1)]
     Return [Vec2i(1, 0), Vec2i(0, 1), Vec2i(-1, 0), Vec2i(0, -1), Vec2i(1, 1), Vec2i(-1, 1),
             Vec2i(-1, -1), Vec2i(1, -1)]
 End Function
 
-// Panics when the grid's size is negative, or has more cells than an Int counts.
+/// Panics when the grid's size is negative, or has more cells than an Int counts.
 @PanicsAtCaller
 Function CheckSize(width: Int, height: Int)
     If width < 0 || height < 0 Then Panic("a grid can't be {width} by {height}")
@@ -28,20 +28,20 @@ Function CheckSize(width: Int, height: Int)
     End If
 End Function
 
-// Whether the cell is on the grid.
+/// Whether the cell is on the grid.
 Function OnGrid(width: Int, height: Int, cell: Vec2i): Bool
     Return cell.x >= 0 && cell.x < width && cell.y >= 0 && cell.y < height
 End Function
 
-// Panics when the cell is off the grid.
+/// Panics when the cell is off the grid.
 @PanicsAtCaller
 Function CheckCell(width: Int, height: Int, cell: Vec2i)
     If !OnGrid(width, height, cell) Then Panic("{cell} is off a grid {width} by {height}")
 End Function
 
-// The cells next to cell on a grid of width by height, those on it only: the four along the axes,
-// right, down, left, and up, then, when diagonal, the four corners. A negative size, or a cell off
-// the grid, panics.
+/// The cells next to cell on a grid of width by height, those on it only: the four along the axes,
+/// right, down, left, and up, then, when diagonal, the four corners. A negative size, or a cell off
+/// the grid, panics.
 @PanicsAtCaller
 Public Function GridNeighbors(width: Int, height: Int, cell: Vec2i, diagonal: Bool = False): Vec2i[]
     CheckSize(width, height)
@@ -54,8 +54,8 @@ Public Function GridNeighbors(width: Int, height: Int, cell: Vec2i, diagonal: Bo
     Return cells
 End Function
 
-// The cells a step from cell goes to, with how many times a step along an axis each step is: those
-// on the grid that cost gives a cost for, and diagonal ones only between two such cells.
+/// The cells a step from cell goes to, with how many times a step along an axis each step is: those
+/// on the grid that cost gives a cost for, and diagonal ones only between two such cells.
 Function Moves(width: Int, height: Int, cell: Vec2i, cost: Func(Vec2i): Double?,
                diagonal: Bool): (Vec2i, Double)[]
     Local moves: (Vec2i, Double)[] = []
@@ -71,10 +71,10 @@ Function Moves(width: Int, height: Int, cell: Vec2i, cost: Func(Vec2i): Double?,
     Return moves
 End Function
 
-// The path across a grid of width by height from start to goal, by A*, through the cells passable
-// says can be walked, with steps along the axes, or diagonal ones too, and its cost: a step along
-// an axis is 1, and a diagonal one the square root of 2. The start needn't be passable; Null when
-// the goal can't be reached. A start or goal off the grid panics.
+/// The path across a grid of width by height from start to goal, by A*, through the cells passable
+/// says can be walked, with steps along the axes, or diagonal ones too, and its cost: a step along
+/// an axis is 1, and a diagonal one the square root of 2. The start needn't be passable; Null when
+/// the goal can't be reached. A start or goal off the grid panics.
 @PanicsAtCaller
 Public Function GridPath(width: Int, height: Int, start: Vec2i, goal: Vec2i,
                          passable: Func(Vec2i): Bool, diagonal: Bool = False): Path<Vec2i, Double>?
@@ -98,21 +98,22 @@ Public Function GridPath(width: Int, height: Int, start: Vec2i, goal: Vec2i,
                  Function(cell) => cell == goal)
 End Function
 
-// A flow field over a grid: each cell's cheapest way to the nearest of its goals, worked out once
-// from the goals outward, so any number of agents follow it with no search of their own. Entering a
-// cell costs what cost gives for it, and a cell it gives Null for is a wall that no path goes
-// through; a step along an axis costs that, and a diagonal one the square root of 2 times it.
+/// A flow field over a grid: each cell's cheapest way to the nearest of its goals, worked out once
+/// from the goals outward, so any number of agents follow it with no search of their own. Entering
+/// a cell costs what cost gives for it, and a cell it gives Null for is a wall that no path goes
+/// through; a step along an axis costs that, and a diagonal one the square root of 2 times it.
 Public Class FlowField
     Field Columns: Int
     Field Rows: Int
-    // Each cell's cost to its nearest goal, row by row, or -1 for one that can't reach any.
+    /// Each cell's cost to its nearest goal, row by row, or -1 for one that can't reach any.
     Field Distances: Double[]
-    // The cell each steps to, as an index row by row, or -1 for a goal or one that can't reach any.
+    /// The cell each steps to, as an index row by row, or -1 for a goal or one that can't reach
+    /// any.
     Field Nexts: Int[]
 
-    // A flow field over a grid of width by height to the goals, through the cells cost gives a cost
-    // for, along the axes, or diagonally too. A goal that cost gives Null for isn't one. A negative
-    // size, a goal off the grid, or a cost that's negative or NaN panics.
+    /// A flow field over a grid of width by height to the goals, through the cells cost gives a
+    /// cost for, along the axes, or diagonally too. A goal that cost gives Null for isn't one. A
+    /// negative size, a goal off the grid, or a cost that's negative or NaN panics.
     @PanicsAtCaller
     Public New(width: Int, height: Int, goals: Vec2i[], cost: Func(Vec2i): Double?,
                diagonal: Bool = False)
@@ -171,20 +172,22 @@ Public Class FlowField
         End For
     End New
 
+    /// How many cells wide its grid is.
     Public Property Width: Int
         Get => Columns
     End Property
 
+    /// How many cells high its grid is.
     Public Property Height: Int
         Get => Rows
     End Property
 
-    // Whether the cell has a way to a goal, the goals included. A cell off the grid panics.
+    /// Whether the cell has a way to a goal, the goals included. A cell off the grid panics.
     @PanicsAtCaller
     Public Method Reaches(cell: Vec2i): Bool => DistanceAt(cell) >= 0
 
-    // The cost from the cell to its nearest goal, 0 at a goal, or Null where it has no way to one.
-    // A cell off the grid panics.
+    /// The cost from the cell to its nearest goal, 0 at a goal, or Null where it has no way to one.
+    /// A cell off the grid panics.
     @PanicsAtCaller
     Public Method Distance(cell: Vec2i): Double?
         Local distance = DistanceAt(cell)
@@ -192,8 +195,8 @@ Public Class FlowField
         Return distance
     End Method
 
-    // The cell to step to from this one on its cheapest way to a goal, or Null at a goal or where
-    // there's no way to one. A cell off the grid panics.
+    /// The cell to step to from this one on its cheapest way to a goal, or Null at a goal or where
+    /// there's no way to one. A cell off the grid panics.
     @PanicsAtCaller
     Public Method Next(cell: Vec2i): Vec2i?
         CheckCell(Columns, Rows, cell)
@@ -202,8 +205,8 @@ Public Class FlowField
         Return Vec2i(next % Columns, next / Columns)
     End Method
 
-    // Which way to go from the cell, of length 1, toward its next cell: the zero vector at a goal
-    // or where there's no way to one. A cell off the grid panics.
+    /// Which way to go from the cell, of length 1, toward its next cell: the zero vector at a goal
+    /// or where there's no way to one. A cell off the grid panics.
     @PanicsAtCaller
     Public Method Direction(cell: Vec2i): Vec2
         Local next = Next(cell)

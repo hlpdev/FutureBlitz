@@ -1,21 +1,23 @@
-// What std.compress's formats share: Coder, which each one's Compressor and Decompressor is; the
-// most bytes a UInt8[] holds, which is a Decompress's limit unless it's given a smaller one; and
-// the IOErrors the runtime's results mean.
+//! What std.compress's formats share: Coder, which each one's Compressor and Decompressor is; the
+//! most bytes a UInt8[] holds, which is a Decompress's limit unless it's given a smaller one; and
+//! the IOErrors the runtime's results mean.
 
 Import std.core
 
-// What each format's Compressor and Decompressor is: Add gives what the bytes it takes come to so
-// far, and Finish what's left once they've all been added, which ends what it makes, and starts
-// again. A CoderWriter and a CoderReader stream bytes through one.
+/// What each format's Compressor and Decompressor is: Add gives what the bytes it takes come to so
+/// far, and Finish what's left once they've all been added, which ends what it makes, and starts
+/// again. A CoderWriter and a CoderReader stream bytes through one.
 Public Interface Coder
+    /// What `data` comes to so far, which can be nothing yet.
     Method Add(data: UInt8[]): UInt8[] Throws IOError
+    /// What's left once all the bytes are added, which ends what it makes, and starts it again.
     Method Finish(): UInt8[] Throws IOError
 End Interface
 
-// The most bytes a UInt8[] holds, which an Int counts.
+/// The most bytes a UInt8[] holds, which an Int counts.
 Package Const MOST_BYTES = 2147483647
 
-// Panics when a level isn't from `least` to `most`, for a format's Compress or Compressor.
+/// Panics when a level isn't from `least` to `most`, for a format's Compress or Compressor.
 @PanicsAtCaller
 Package Function CheckLevel(level: Int, least: Int, most: Int, format: String)
     If level < least || level > most
@@ -23,16 +25,16 @@ Package Function CheckLevel(level: Int, least: Int, most: Int, format: String)
     End If
 End Function
 
-// Panics when a limit is negative, for a format's Decompress or Decompressor.
+/// Panics when a limit is negative, for a format's Decompress or Decompressor.
 @PanicsAtCaller
 Package Function CheckLimit(limit: Int)
     If limit < 0 Then Panic("a limit of bytes can't be negative, like {limit}")
 End Function
 
-// Throws the IOError that a decoder's or an archive's `result` from the runtime means, which isn't
-// 0, for data in `format`: INVALID_DATA for bytes that aren't the format or are broken,
-// UNEXPECTED_END for ones that end too soon, and OTHER for ones that would come to more than the
-// limit, or use what std.compress doesn't support. `message` is the library's, which may be "".
+/// Throws the IOError that a decoder's or an archive's `result` from the runtime means, which isn't
+/// 0, for data in `format`: INVALID_DATA for bytes that aren't the format or are broken,
+/// UNEXPECTED_END for ones that end too soon, and OTHER for ones that would come to more than the
+/// limit, or use what std.compress doesn't support. `message` is the library's, which may be "".
 Package Function Failed(result: Int32, format: String, limit: Int, message: String) Throws IOError
     Local detail = message == "" ? "" : ": {message}"
     If result == 2 Then Throw IOError(IOErrorKind.UNEXPECTED_END, "the {format} data ends too soon")

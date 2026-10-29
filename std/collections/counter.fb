@@ -1,38 +1,40 @@
-// Counter<T>: how many times each value was added, in the order the values were added. A value's
-// count is never 0: one whose count goes down to 0 goes, so it comes back last, and counter[value]
-// of one that isn't there is 0.
+//! `Counter<T>`: how many times each value was added, in the order the values were added. A value's
+//! count is never 0: one whose count goes down to 0 goes, so it comes back last, and counter[value]
+//! of one that isn't there is 0.
 
 Import std.core
 Import std.collections.array
 Import std.collections.map
 
+/// How many times each value was added, for tallies and histograms.
 @DebugEntries
 Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defaultable, Hashable
     Field Counts: Map<T, Int>
     Field Sum: Int64
 
+    /// A new, empty Counter.
     Public New()
         Counts = Map<T, Int>()
     End New
 
-    // How many values it counts, each once.
+    /// How many values it counts, each once.
     Public Property Count: Int
         Get => Counts.Count
     End Property
 
-    // All the counts added up, which can be more than an Int holds.
+    /// All the counts added up, which can be more than an Int holds.
     Public Property Total: Int64
         Get => Sum
     End Property
 
-    // Counts the value once more.
+    /// Counts the value once more.
     @PanicsAtCaller
     Public Method Add(value: T)
         Add(value, 1)
     End Method
 
-    // Counts the value times more times. A negative times panics, and so does a count past what
-    // an Int holds, which only Total can be.
+    /// Counts the value times more times. A negative times panics, and so does a count past what
+    /// an Int holds, which only Total can be.
     @PanicsAtCaller
     Public Method Add(value: T, times: Int)
         If times < 0 Then Panic("Add takes a count that isn't negative, not {times}")
@@ -47,7 +49,7 @@ Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defa
         Self[value] = count
     End Method
 
-    // Counts each of the values once more, all read first.
+    /// Counts each of the values once more, all read first.
     @PanicsAtCaller
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
@@ -55,11 +57,11 @@ Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defa
         End For
     End Method
 
-    // Counts the value once less, and tells whether it was there.
+    /// Counts the value once less, and tells whether it was there.
     Public Method Remove(value: T): Bool => Remove(value, 1) > 0
 
-    // Counts the value up to times less, and gives how many it took away. A negative times
-    // panics.
+    /// Counts the value up to times less, and gives how many it took away. A negative times
+    /// panics.
     @PanicsAtCaller
     Public Method Remove(value: T, times: Int): Int
         If times < 0 Then Panic("Remove takes a count that isn't negative, not {times}")
@@ -69,10 +71,10 @@ Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defa
         Return taken
     End Method
 
-    // How many times the value was counted, or 0.
+    /// How many times the value was counted, or 0.
     Operator [](value: T): Int => Counts.Get(value, 0)
 
-    // Gives the value a count, and a count of 0 removes it. A negative count panics.
+    /// Gives the value a count, and a count of 0 removes it. A negative count panics.
     @PanicsAtCaller
     Operator []=(value: T, count: Int)
         If count < 0 Then Panic("a Counter's count isn't negative, but this one is {count}")
@@ -86,15 +88,17 @@ Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defa
         Sum = Sum - had + count
     End Operator
 
+    /// Whether `value` has a count.
     Public Method Contains(value: T): Bool => Counts.Contains(value)
 
+    /// Takes every count out.
     Public Method Clear()
         Counts.Clear()
         Sum = 0
     End Method
 
-    // The count most counted values and their counts, most first, and values counted the same
-    // number of times in the Counter's order. A negative count panics.
+    /// The count most counted values and their counts, most first, and values counted the same
+    /// number of times in the Counter's order. A negative count panics.
     @PanicsAtCaller
     Public Method MostCommon(count: Int): (T, Int)[]
         If count < 0 Then Panic("MostCommon takes a count that isn't negative, not {count}")
@@ -109,13 +113,13 @@ Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defa
         Return entries
     End Method
 
-    // The values, each once, in the order they were added, one that came back last.
+    /// The values, each once, in the order they were added, one that came back last.
     Public Method Values(): T[] => Counts.Keys()
 
-    // A new, empty Counter.
+    /// A new, empty Counter.
     Public Static Method DefaultValue(): Counter<T> => Counter<T>()
 
-    // A new Counter with the same counts.
+    /// A new Counter with the same counts.
     Public Method Clone(): Counter<T>
         Local copy = Counter<T>()
         copy.Counts = Counts.Clone()
@@ -123,14 +127,14 @@ Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defa
         Return copy
     End Method
 
-    // Two Counters are equal when they count the same values the same number of times, in any
-    // order.
+    /// Two Counters are equal when they count the same values the same number of times, in any
+    /// order.
     Operator ==(a: Counter<T>, b: Counter<T>): Bool => a.Counts == b.Counts
 
     Public Method Hash(): UInt64 => Counts.Hash()
 
-    // Each value and its count, for 'For value, count In counter'. Changing a count while going
-    // over them is fine, but adding or removing a value panics.
+    /// Each value and its count, for 'For value, count In counter'. Changing a count while going
+    /// over them is fine, but adding or removing a value panics.
     Public Method Iterate(): MapIterator<T, Int> => Counts.IterateAs("Counter")
 End Class
 

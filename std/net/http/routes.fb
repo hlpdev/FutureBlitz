@@ -1,7 +1,7 @@
-// Routes from a Class's Methods: each Async Method with an attribute of its method and path, like
-// `@Get("/users/:id")`, becomes a route, whose one argument, a Struct of what the request gives,
-// is made from the route's path parameters, the query, and a JSON body, by Load<T>, as the
-// command line's arguments are; a request whose values don't fit is a 400.
+//! Routes from a Class's Methods: each Async Method with an attribute of its method and path, like
+//! `@Get("/users/:id")`, becomes a route, whose one argument, a Struct of what the request gives,
+//! is made from the route's path parameters, the query, and a JSON body, by `Load<T>`, as the
+//! command line's arguments are; a request whose values don't fit is a 400.
 
 Import std.core
 Import std.collections
@@ -12,14 +12,18 @@ Import std.net.http.status
 Import std.net.url
 Import std.text
 
-// What a routes Class's Method answers: its method and path, a path as HttpRouter has them.
+/// What a routes Class's Method answers: its method and path, a path as HttpRouter has them.
 Public Attribute Get(Path: String)
+/// A routes Class's Method that answers POST at `Path`.
 Public Attribute Post(Path: String)
+/// A routes Class's Method that answers PUT at `Path`.
 Public Attribute Put(Path: String)
+/// A routes Class's Method that answers PATCH at `Path`.
 Public Attribute Patch(Path: String)
+/// A routes Class's Method that answers DELETE at `Path`.
 Public Attribute Delete(Path: String)
 
-// A route Struct's Field that's the request's body, read as JSON, and Load's to the Field's type.
+/// A route Struct's Field that's the request's body, read as JSON, and Load's to the Field's type.
 Public Attribute JsonBody
 
 // An HttpRequest is only a server's, so Load makes none. A Method of the request alone is a route
@@ -33,28 +37,28 @@ Extend HttpRequest Implements Loadable
 End Extend
 
 Extend HttpRouter
-    // Adds a route for each Async Method of instance's type with a @Get, @Post, @Put, @Patch, or
-    // @Delete, or several, which gives an HttpResponse and takes nothing, the request, one
-    // Struct or Class, or that and the request: `@Get("/users/:id") Async Method Show(args:
-    // ShowUser): HttpResponse`. Each call's Struct or Class is made by Load<T> from an Object of
-    // its Fields' values: a path parameter or, failing that, a query parameter, whose name is
-    // the Field's, or its @Rename's, or else its @Renamed's old one, whatever the letters' case,
-    // as text, which Load reads as a number or a Bool where the Field is one; a @Flatten Field's
-    // own Fields, as Load reads them; and for a @JsonBody Field, the body's JSON. A Field the
-    // request doesn't give keeps its default, or zero, and one with neither, or a value that
-    // doesn't fit, or a body that isn't JSON, is a 400 that says why. Methods without one of
-    // those attributes are left alone, and so are Static Methods and those with a ByRef
-    // parameter, which no For Method loop goes over. Panics as Get does for a path, or a route
-    // with its paths already, and for a Method of up to four arguments with one that isn't a
-    // route's shape: one that isn't Async, throws, gives something else, takes the request
-    // first, or takes what Load doesn't make from an Object, like a number or an HttpRequest?.
+    /// Adds a route for each Async Method of instance's type with a @Get, @Post, @Put, @Patch, or
+    /// @Delete, or several, which gives an HttpResponse and takes nothing, the request, one
+    /// Struct or Class, or that and the request: `@Get("/users/:id") Async Method Show(args:
+    /// ShowUser): HttpResponse`. Each call's Struct or Class is made by Load<T> from an Object of
+    /// its Fields' values: a path parameter or, failing that, a query parameter, whose name is
+    /// the Field's, or its @Rename's, or else its @Renamed's old one, whatever the letters' case,
+    /// as text, which Load reads as a number or a Bool where the Field is one; a @Flatten Field's
+    /// own Fields, as Load reads them; and for a @JsonBody Field, the body's JSON. A Field the
+    /// request doesn't give keeps its default, or zero, and one with neither, or a value that
+    /// doesn't fit, or a body that isn't JSON, is a 400 that says why. Methods without one of
+    /// those attributes are left alone, and so are Static Methods and those with a ByRef
+    /// parameter, which no For Method loop goes over. Panics as Get does for a path, or a route
+    /// with its paths already, and for a Method of up to four arguments with one that isn't a
+    /// route's shape: one that isn't Async, throws, gives something else, takes the request
+    /// first, or takes what Load doesn't make from an Object, like a number or an HttpRequest?.
     @PanicsAtCaller
     Public Method Routes<T>(instance: T)
         Register(Self, instance)
     End Method
 End Extend
 
-// Adds instance's Methods' routes to router.
+/// Adds instance's Methods' routes to router.
 @PanicsAtCaller
 Function Register<T>(router: HttpRouter, instance: T)
     // Each route's Method, by its name and Func type, which tells its overloads apart.
@@ -191,8 +195,8 @@ Function Register<T>(router: HttpRouter, instance: T)
     End For
 End Function
 
-// Panics, where Routes was called, for a Method with a route's attribute that isn't a route's
-// shape.
+/// Panics, where Routes was called, for a Method with a route's attribute that isn't a route's
+/// shape.
 @PanicsAtCaller
 Function Misshapen(name: String)
     Panic("{name} has a route's attribute, but isn't an Async Method that throws nothing, gives " +
@@ -200,8 +204,8 @@ Function Misshapen(name: String)
           "the request")
 End Function
 
-// Whether Load makes an A from an Object, as a route's Struct or Class is made, which it doesn't
-// for a number, a String, an array, or an HttpRequest, whatever the Object has.
+/// Whether Load makes an A from an Object, as a route's Struct or Class is made, which it doesn't
+/// for a number, a String, an array, or an HttpRequest, whatever the Object has.
 Function FromObject<A>(): Bool
     Try
         Local made = Load<A>(Value.Object())
@@ -211,7 +215,7 @@ Function FromObject<A>(): Bool
     Return True
 End Function
 
-// Adds a route for each attribute a Method has.
+/// Adds a route for each attribute a Method has.
 @PanicsAtCaller
 Function AddRoutes(router: HttpRouter, get: Get?, post: Post?, put: Put?, patch: Patch?,
                    delete: Delete?, handler: HttpHandler)
@@ -222,8 +226,8 @@ Function AddRoutes(router: HttpRouter, get: Get?, post: Post?, put: Put?, patch:
     If delete != Null Then router.Route("DELETE", delete.Path, handler)
 End Function
 
-// Makes a route's argument from what the request gives, into `args`, or gives the 400 that says
-// why it can't.
+/// Makes a route's argument from what the request gives, into `args`, or gives the 400 that says
+/// why it can't.
 Function Bound<A>(request: HttpRequest, ByRef args: A?): HttpResponse?
     Local fields = Value.Object()
     Local params = request.Params
@@ -266,9 +270,9 @@ Function Bound<A>(request: HttpRequest, ByRef args: A?): HttpResponse?
     Return Null
 End Function
 
-// The keys Load reads X's Fields by, as it reads them: each Field's name, or its @Rename's, with
-// its @Renamed's old one, or "", and whether it's a @JsonBody's; a @Flatten Field's own Fields'
-// in its place; and none for a @Skip Field.
+/// The keys Load reads X's Fields by, as it reads them: each Field's name, or its @Rename's, with
+/// its @Renamed's old one, or "", and whether it's a @JsonBody's; a @Flatten Field's own Fields'
+/// in its place; and none for a @Skip Field.
 Function KeysOf<X>(keys: String[], olds: String[], bodies: Bool[])
     For Field f: F In X
         If f.Has(Skip) Then Continue
@@ -283,7 +287,7 @@ Function KeysOf<X>(keys: String[], olds: String[], bodies: Bool[])
     End For
 End Function
 
-// A path parameter whose name is key, whatever the letters' case, or else a query parameter's.
+/// A path parameter whose name is key, whatever the letters' case, or else a query parameter's.
 Function Given(params: Map<String, String>, query: QueryParams, key: String): String?
     For name, value In params
         If name.EqualsIgnoreCase(key) Then Return value
@@ -295,7 +299,7 @@ Function Given(params: Map<String, String>, query: QueryParams, key: String): St
     Return Null
 End Function
 
-// A 400 that says why.
+/// A 400 that says why.
 Function Refused(why: String): HttpResponse
     Return HttpResponse.Of(StatusCode.BAD_REQUEST, Body.Text(why))
 End Function

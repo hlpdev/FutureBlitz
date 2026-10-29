@@ -1,34 +1,42 @@
-// std.net.game's settings, which a GameHost and its peers share, and why a connection ends.
+//! std.net.game's settings, which a GameHost and its peers share, and why a connection ends.
 
 Import std.core
 Import std.time.duration
 Import std.net.game.channel
 
-// Why a connection ended: this side ended it, the other did, nothing came for the host's Timeout,
-// or the other host refused it, as full or with settings that don't match this one's.
+/// Why a connection ended: this side ended it, the other did, nothing came for the host's Timeout,
+/// or the other host refused it, as full or with settings that don't match this one's.
 Public Enum DisconnectReason
     NONE, LOCAL, REMOTE, TIMEOUT, FULL, MISMATCH
 End Enum
 
-// What a GameHost does: its channels' kinds, which both sides of a connection must have alike,
-// the most peers that can connect to it, the most bytes a packet takes, the largest message,
-// which both sides must have alike too, the most bytes a connection holds of messages waiting
-// for one before them and of fragments, how long it waits to hear from a peer, how often it sends
-// when it has nothing to, and how often it asks again for a connection.
+/// What a GameHost does: its channels' kinds, which both sides of a connection must have alike,
+/// the most peers that can connect to it, the most bytes a packet takes, the largest message,
+/// which both sides must have alike too, the most bytes a connection holds of messages waiting
+/// for one before them and of fragments, how long it waits to hear from a peer, how often it sends
+/// when it has nothing to, and how often it asks again for a connection.
 Public Struct GameSettings
+    /// Its channels' kinds, which both sides of a connection must have alike.
     Public Field Channels: ChannelKind[]
+    /// The most peers that can connect to it.
     Public Field MaxPeers: Int
+    /// The most bytes a packet takes.
     Public Field Mtu: Int
+    /// The largest message, in bytes, which both sides must have alike.
     Public Field MaxMessageSize: Int
+    /// The most bytes a connection holds of messages waiting for one before them, and of fragments.
     Public Field MaxBuffered: Int
+    /// How long it waits to hear from a peer before it disconnects it.
     Public Field Timeout: Duration
+    /// How often it sends when it has nothing to, so its peers hear from it.
     Public Field KeepAlive: Duration
+    /// How often it asks again for a connection that hasn't answered.
     Public Field ConnectRetry: Duration
 
-    // Channels of those kinds, or else a reliable-ordered, a reliable-unordered, and an
-    // unreliable one; 32 peers; packets of 1200 bytes, which any path takes; messages of up to
-    // 1 MiB, with 4 MiB held; and a timeout of 10 seconds, with a keepalive and a retry each 250
-    // milliseconds.
+    /// Channels of those kinds, or else a reliable-ordered, a reliable-unordered, and an
+    /// unreliable one; 32 peers; packets of 1200 bytes, which any path takes; messages of up to
+    /// 1 MiB, with 4 MiB held; and a timeout of 10 seconds, with a keepalive and a retry each 250
+    /// milliseconds.
     Public New(channels: ChannelKind[]? = Null)
         Channels = channels ?? [ChannelKind.RELIABLE_ORDERED, ChannelKind.RELIABLE_UNORDERED,
                                 ChannelKind.UNRELIABLE]
@@ -42,7 +50,7 @@ Public Struct GameSettings
     End New
 End Struct
 
-// Panics, at the GameHost's caller, unless settings make sense.
+/// Panics, at the GameHost's caller, unless settings make sense.
 @PanicsAtCaller
 Package Function Check(settings: GameSettings)
     If settings.Channels.Count < 1 || settings.Channels.Count > 255
@@ -84,8 +92,8 @@ Package Function Check(settings: GameSettings)
     End If
 End Function
 
-// Panics, at the caller, for a channel settings don't have, or a message past their
-// MaxMessageSize.
+/// Panics, at the caller, for a channel settings don't have, or a message past their
+/// MaxMessageSize.
 @PanicsAtCaller
 Package Function CheckMessage(settings: GameSettings, channel: Int, bytes: UInt8[])
     If channel < 0 || channel >= settings.Channels.Count

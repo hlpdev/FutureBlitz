@@ -1,8 +1,8 @@
-// Aes256Gcm and ChaCha20Poly1305, over mbedTLS: authenticated encryption, which keeps a message
-// secret and tells whether it was changed. Seal takes a new random nonce for each message and puts
-// it first in what it gives, so a nonce is never given, and never reused but by a chance of about
-// 1 in 2^33 after 2^32 messages under one key, which is as many as a key should seal. Open gives
-// Null for anything Seal didn't make with that key and associated data.
+//! Aes256Gcm and ChaCha20Poly1305, over mbedTLS: authenticated encryption, which keeps a message
+//! secret and tells whether it was changed. Seal takes a new random nonce for each message and puts
+//! it first in what it gives, so a nonce is never given, and never reused but by a chance of about
+//! 1 in 2^33 after 2^32 messages under one key, which is as many as a key should seal. Open gives
+//! Null for anything Seal didn't make with that key and associated data.
 
 Import std.core
 Import std.crypto.random
@@ -14,63 +14,65 @@ Extern "runtime"
                             output: UInt8[]): Int32
 End Extern
 
-// The runtime's numbers for the ciphers.
+/// The runtime's numbers for the ciphers.
 Const AES_256_GCM = 1
 Const CHACHA20_POLY1305 = 2
 
-// AES-256 in GCM (NIST SP 800-38D), fast where the CPU has AES instructions.
+/// AES-256 in GCM (NIST SP 800-38D), fast where the CPU has AES instructions.
 Public Struct Aes256Gcm
-    // Aes256Gcm isn't made: it's only its Static Methods.
+    /// Aes256Gcm isn't made: it's only its Static Methods.
     New()
     End New
 
-    // A new random key, 32 bytes.
+    /// A new random key, 32 bytes.
     Public Static Method NewKey(): UInt8[] => SecureRandom.Bytes(32)
 
-    // message, encrypted with key, 32 bytes: the nonce, 12 bytes, the ciphertext, as long as
-    // message, and the tag, 16 bytes, which authenticates them and associated, data that isn't
-    // encrypted but has to be the same to open it. Panics unless key is 32 bytes.
+    /// message, encrypted with key, 32 bytes: the nonce, 12 bytes, the ciphertext, as long as
+    /// message, and the tag, 16 bytes, which authenticates them and associated, data that isn't
+    /// encrypted but has to be the same to open it. Panics unless key is 32 bytes.
     @PanicsAtCaller
     Public Static Method Seal(key: UInt8[], message: UInt8[],
                               associated: UInt8[] = []): UInt8[]
         Return Sealed(AES_256_GCM, key, message, associated)
     End Method
 
+    /// `text`'s UTF-8 bytes, encrypted with `key`, as the Seal that takes bytes does.
     @PanicsAtCaller
     Public Static Method Seal(key: UInt8[], text: String, associated: UInt8[] = []): UInt8[]
         Return Sealed(AES_256_GCM, key, text.Bytes, associated)
     End Method
 
-    // The message Seal sealed, or Null when sealed isn't what Seal gave for key and associated,
-    // or was changed. Panics unless key is 32 bytes.
+    /// The message Seal sealed, or Null when sealed isn't what Seal gave for key and associated,
+    /// or was changed. Panics unless key is 32 bytes.
     @PanicsAtCaller
     Public Static Method Open(key: UInt8[], sealed: UInt8[], associated: UInt8[] = []): UInt8[]?
         Return Opened(AES_256_GCM, key, sealed, associated)
     End Method
 End Struct
 
-// ChaCha20 and Poly1305 (RFC 8439), fast on any CPU, with or without AES instructions.
+/// ChaCha20 and Poly1305 (RFC 8439), fast on any CPU, with or without AES instructions.
 Public Struct ChaCha20Poly1305
-    // ChaCha20Poly1305 isn't made: it's only its Static Methods.
+    /// ChaCha20Poly1305 isn't made: it's only its Static Methods.
     New()
     End New
 
-    // A new random key, 32 bytes.
+    /// A new random key, 32 bytes.
     Public Static Method NewKey(): UInt8[] => SecureRandom.Bytes(32)
 
-    // As Aes256Gcm's Seal.
+    /// As Aes256Gcm's Seal.
     @PanicsAtCaller
     Public Static Method Seal(key: UInt8[], message: UInt8[],
                               associated: UInt8[] = []): UInt8[]
         Return Sealed(CHACHA20_POLY1305, key, message, associated)
     End Method
 
+    /// `text`'s UTF-8 bytes, encrypted with `key`, as the Seal that takes bytes does.
     @PanicsAtCaller
     Public Static Method Seal(key: UInt8[], text: String, associated: UInt8[] = []): UInt8[]
         Return Sealed(CHACHA20_POLY1305, key, text.Bytes, associated)
     End Method
 
-    // As Aes256Gcm's Open.
+    /// As Aes256Gcm's Open.
     @PanicsAtCaller
     Public Static Method Open(key: UInt8[], sealed: UInt8[], associated: UInt8[] = []): UInt8[]?
         Return Opened(CHACHA20_POLY1305, key, sealed, associated)

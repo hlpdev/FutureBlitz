@@ -1,11 +1,11 @@
-// Delaunay triangulation and Voronoi diagrams of points in 2D, and Lloyd relaxation, which moves
-// points apart until they're evenly spread, for maps, meshes, and placing things. The Delaunay
-// triangles are those whose circumcircles hold none of the points, which keeps them as near
-// equilateral as the points allow; a point's Voronoi cell is where's nearer it than any other.
-// The math is in Doubles, with Shewchuk's exact predicates, so points however near each other
-// give a triangulation. The triangulation is Bowyer and Watson's, a point at a time in order of x
-// then y, with a point at infinity whose triangles are the hull's outside, so the hull comes out
-// whole; points on one circle are triangulated by the order they come in.
+//! Delaunay triangulation and Voronoi diagrams of points in 2D, and Lloyd relaxation, which moves
+//! points apart until they're evenly spread, for maps, meshes, and placing things. The Delaunay
+//! triangles are those whose circumcircles hold none of the points, which keeps them as near
+//! equilateral as the points allow; a point's Voronoi cell is where's nearer it than any other.
+//! The math is in Doubles, with Shewchuk's exact predicates, so points however near each other
+//! give a triangulation. The triangulation is Bowyer and Watson's, a point at a time in order of x
+//! then y, with a point at infinity whose triangles are the hull's outside, so the hull comes out
+//! whole; points on one circle are triangulated by the order they come in.
 
 Import std.core
 Import std.collections
@@ -16,7 +16,7 @@ Import std.math
 // that don't overlap, smallest first. Every product a Float's coordinates make fits a Double
 // without overflowing or underflowing, so the signs are exact for any points a Vec2 holds.
 
-// a + b as the Double nearest and what rounding left off.
+/// a + b as the Double nearest and what rounding left off.
 Function TwoSum(a: Double, b: Double): (Double, Double)
     Local sum = a + b
     Local partB = sum - a
@@ -24,20 +24,20 @@ Function TwoSum(a: Double, b: Double): (Double, Double)
     Return (sum, (a - partA) + (b - partB))
 End Function
 
-// a + b, where a's magnitude isn't below b's, as TwoSum gives it.
+/// a + b, where a's magnitude isn't below b's, as TwoSum gives it.
 Function FastTwoSum(a: Double, b: Double): (Double, Double)
     Local sum = a + b
     Return (sum, b - (sum - a))
 End Function
 
-// The Double's high 26 bits and the rest, by Veltkamp's splitting.
+/// The Double's high 26 bits and the rest, by Veltkamp's splitting.
 Function Halves(a: Double): (Double, Double)
     Local scaled = 134217729.0 * a
     Local high = scaled - (scaled - a)
     Return (high, a - high)
 End Function
 
-// a * b as the Double nearest and what rounding left off, by Dekker's product.
+/// a * b as the Double nearest and what rounding left off, by Dekker's product.
 Function TwoProduct(a: Double, b: Double): (Double, Double)
     Local product = a * b
     Local aHigh, aLow = Halves(a)
@@ -46,13 +46,13 @@ Function TwoProduct(a: Double, b: Double): (Double, Double)
     Return (product, aLow * bLow - error)
 End Function
 
-// a * b, exactly, as an expansion.
+/// a * b, exactly, as an expansion.
 Function Exactly(a: Double, b: Double): Double[]
     Local high, low = TwoProduct(a, b)
     Return low == 0 ? [high] : [low, high]
 End Function
 
-// The expansion plus the Double, exactly, without zeros: Shewchuk's grow_expansion_zeroelim.
+/// The expansion plus the Double, exactly, without zeros: Shewchuk's grow_expansion_zeroelim.
 Function Grown(e: Double[], b: Double): Double[]
     Local grown: Double[] = []
     Local carry = b
@@ -65,7 +65,7 @@ Function Grown(e: Double[], b: Double): Double[]
     Return grown
 End Function
 
-// The sum of two expansions, exactly, a Double of f's at a time.
+/// The sum of two expansions, exactly, a Double of f's at a time.
 Function Plus(e: Double[], f: Double[]): Double[]
     Local sum = e
     For component In f
@@ -74,7 +74,7 @@ Function Plus(e: Double[], f: Double[]): Double[]
     Return sum
 End Function
 
-// e - f, exactly.
+/// e - f, exactly.
 Function Minus(e: Double[], f: Double[]): Double[]
     Local negated: Double[] = []
     For component In f
@@ -83,7 +83,7 @@ Function Minus(e: Double[], f: Double[]): Double[]
     Return Plus(e, negated)
 End Function
 
-// The expansion times the Double, exactly, without zeros: Shewchuk's scale_expansion_zeroelim.
+/// The expansion times the Double, exactly, without zeros: Shewchuk's scale_expansion_zeroelim.
 Function Scaled(e: Double[], b: Double): Double[]
     Local scaled: Double[] = []
     Local carry, low = TwoProduct(e[0], b)
@@ -100,16 +100,16 @@ Function Scaled(e: Double[], b: Double): Double[]
     Return scaled
 End Function
 
-// The expansion's sign, its largest component's.
+/// The expansion's sign, its largest component's.
 Function SignOf(e: Double[]): Double => e[e.Count - 1]
 
-// The 2 by 2 cross term a.x * b.y - b.x * a.y, exactly.
+/// The 2 by 2 cross term a.x * b.y - b.x * a.y, exactly.
 Function CrossTerm(ax: Double, ay: Double, bx: Double, by: Double): Double[]
     Return Minus(Exactly(ax, by), Exactly(bx, ay))
 End Function
 
-// Above 0 when a, b, and c go counterclockwise, below when clockwise, and 0 on a line, as twice
-// their triangle's area, whose sign is exact.
+/// Above 0 when a, b, and c go counterclockwise, below when clockwise, and 0 on a line, as twice
+/// their triangle's area, whose sign is exact.
 Function Orient(ax: Double, ay: Double, bx: Double, by: Double, cx: Double, cy: Double): Double
     Local left = (ax - cx) * (by - cy)
     Local right = (ay - cy) * (bx - cx)
@@ -125,8 +125,8 @@ Function Orient(ax: Double, ay: Double, bx: Double, by: Double, cx: Double, cy: 
     Return SignOf(terms)
 End Function
 
-// Above 0 when d is inside the circle through a, b, and c, counterclockwise, below when it's
-// outside, and 0 on it, with an exact sign.
+/// Above 0 when d is inside the circle through a, b, and c, counterclockwise, below when it's
+/// outside, and 0 on it, with an exact sign.
 Function InCircle(ax: Double, ay: Double, bx: Double, by: Double, cx: Double, cy: Double,
                   dx: Double, dy: Double): Double
     Local adx = ax - dx
@@ -152,8 +152,8 @@ Function InCircle(ax: Double, ay: Double, bx: Double, by: Double, cx: Double, cy
     Return ExactInCircle(ax, ay, bx, by, cx, cy, dx, dy)
 End Function
 
-// InCircle's sign, exactly: the 4 by 4 determinant of each point's x, y, x^2 + y^2, and 1,
-// expanded by the lifts, each times the other three points' orientation, from cross terms.
+/// InCircle's sign, exactly: the 4 by 4 determinant of each point's x, y, x^2 + y^2, and 1,
+/// expanded by the lifts, each times the other three points' orientation, from cross terms.
 Function ExactInCircle(ax: Double, ay: Double, bx: Double, by: Double, cx: Double, cy: Double,
                        dx: Double, dy: Double): Double
     Local ab = CrossTerm(ax, ay, bx, by)
@@ -172,25 +172,25 @@ Function ExactInCircle(ax: Double, ay: Double, bx: Double, by: Double, cx: Doubl
     Return SignOf(terms)
 End Function
 
-// The expansion times x^2 + y^2, exactly.
+/// The expansion times x^2 + y^2, exactly.
 Function Lifted(e: Double[], x: Double, y: Double): Double[]
     Return Plus(Scaled(Scaled(e, x), x), Scaled(Scaled(e, y), y))
 End Function
 
-// A triangulation as it's built: three corners to a triangle, counterclockwise, -1 for the point at
-// infinity, and across each edge, from corner k to the next, the triangle there.
+/// A triangulation as it's built: three corners to a triangle, counterclockwise, -1 for the point
+/// at infinity, and across each edge, from corner k to the next, the triangle there.
 Class Mesh
     Field X: Double[] = []
     Field Y: Double[] = []
     Field Corners: Int[] = []
     Field Across: Int[] = []
     Field Alive: Bool[] = []
-    // When each triangle was last found in a cavity, so no marks need clearing.
+    /// When each triangle was last found in a cavity, so no marks need clearing.
     Field Marks: Int[] = []
     Field Mark: Int
-    // Each corner's new triangle as a point goes in, by corner, the point at infinity last.
+    /// Each corner's new triangle as a point goes in, by corner, the point at infinity last.
     Field Starts: Int[] = []
-    // A triangle made last, where a search for the next point starts.
+    /// A triangle made last, where a search for the next point starts.
     Field Last: Int
 
     New(points: Vec2[])
@@ -201,7 +201,7 @@ Class Mesh
         Starts.Resize(points.Count + 1, -1)
     End New
 
-    // Adds a triangle with no neighbors yet, and gives it.
+    /// Adds a triangle with no neighbors yet, and gives it.
     Method AddTriangle(a: Int, b: Int, c: Int): Int
         Local triangle = Alive.Count
         Corners.Add(a)
@@ -213,14 +213,14 @@ Class Mesh
         Return triangle
     End Method
 
-    // Sets which triangles are across each other's edges: a's edge i and b's edge j.
+    /// Sets which triangles are across each other's edges: a's edge i and b's edge j.
     Method Link(a: Int, i: Int, b: Int, j: Int)
         Across[a * 3 + i] = b
         Across[b * 3 + j] = a
     End Method
 
-    // Where the point at infinity is among the triangle's corners, from 0 to 2, or -1 for a real
-    // triangle; the corners after it are the hull edge's.
+    /// Where the point at infinity is among the triangle's corners, from 0 to 2, or -1 for a real
+    /// triangle; the corners after it are the hull edge's.
     Method InfiniteAt(triangle: Int): Int
         For k = 0 Until 3
             If Corners[triangle * 3 + k] < 0 Then Return k
@@ -228,8 +228,8 @@ Class Mesh
         Return -1
     End Method
 
-    // Whether a point going in breaks the triangle: it's inside the triangle's circumcircle, or for
-    // one with the point at infinity, outside the hull's edge, or on it between its ends.
+    /// Whether a point going in breaks the triangle: it's inside the triangle's circumcircle, or
+    /// for one with the point at infinity, outside the hull's edge, or on it between its ends.
     Method Conflicts(triangle: Int, point: Int): Bool
         Local px = X[point]
         Local py = Y[point]
@@ -251,8 +251,8 @@ Class Mesh
         Return (py > Y[u]) == (py < Y[v]) && py != Y[u] && py != Y[v]
     End Method
 
-    // A triangle the point breaks: found by walking from the last triangle made toward the point,
-    // or, should the walk go round, by looking at every triangle.
+    /// A triangle the point breaks: found by walking from the last triangle made toward the point,
+    /// or, should the walk go round, by looking at every triangle.
     Method Locate(point: Int): Int
         Local px = X[point]
         Local py = Y[point]
@@ -286,7 +286,7 @@ Class Mesh
         Return -1
     End Method
 
-    // Puts the point in: the triangles it breaks go, and new ones join it to the cavity's edges.
+    /// Puts the point in: the triangles it breaks go, and new ones join it to the cavity's edges.
     Method Insert(point: Int)
         Local first = Locate(point)
         If first < 0 Then Return
@@ -345,12 +345,12 @@ Class Mesh
         End For
     End Method
 
-    // Where a corner's new triangle is in Starts: the point at infinity's is last.
+    /// Where a corner's new triangle is in Starts: the point at infinity's is last.
     Method StartOf(corner: Int): Int => corner < 0 ? Starts.Count - 1 : corner
 End Class
 
-// The points' indices by x, then y, without repeats: what Delaunay puts in, and, for each point,
-// the first index of a point equal to it. A coordinate that's infinite or NaN panics.
+/// The points' indices by x, then y, without repeats: what Delaunay puts in, and, for each point,
+/// the first index of a point equal to it. A coordinate that's infinite or NaN panics.
 @PanicsAtCaller
 Function Ordered(points: Vec2[]): (Int[], Int[])
     Local order: Int[] = []
@@ -383,8 +383,8 @@ Function Ordered(points: Vec2[]): (Int[], Int[])
     Return (distinct, same)
 End Function
 
-// The triangulation of points that sees each repeat once, its triangles' corners as indices into
-// points, counterclockwise.
+/// The triangulation of points that sees each repeat once, its triangles' corners as indices into
+/// points, counterclockwise.
 Function Triangulate(points: Vec2[], order: Int[]): (Int, Int, Int)[]
     Local none: (Int, Int, Int)[] = []
     If order.Count < 3 Then Return none
@@ -432,18 +432,18 @@ Function Triangulate(points: Vec2[], order: Int[]): (Int, Int, Int)[]
     Return triangles
 End Function
 
-// The Delaunay triangulation of the points: triangles whose circumcircles hold none of the points,
-// each as the indices of its corners in points, counterclockwise. Fewer than three points, or
-// points all on a line, have none, and of points that are equal, only the first is a corner. A
-// coordinate that's infinite or NaN panics.
+/// The Delaunay triangulation of the points: triangles whose circumcircles hold none of the points,
+/// each as the indices of its corners in points, counterclockwise. Fewer than three points, or
+/// points all on a line, have none, and of points that are equal, only the first is a corner. A
+/// coordinate that's infinite or NaN panics.
 @PanicsAtCaller
 Public Function Delaunay(points: Vec2[]): (Int, Int, Int)[]
     Local order, _ = Ordered(points)
     Return Triangulate(points, order)
 End Function
 
-// The polygon, counterclockwise, cut down to the side of the line from a to b's middle, at right
-// angles to it, that a is on: Sutherland and Hodgman's clipping, by one edge.
+/// The polygon, counterclockwise, cut down to the side of the line from a to b's middle, at right
+/// angles to it, that a is on: Sutherland and Hodgman's clipping, by one edge.
 Function KeepNearer(polygon: (Double, Double)[], ax: Double, ay: Double, bx: Double,
                     by: Double): (Double, Double)[]
     // A point is on a's side where (p - middle) . (b - a) is below 0.
@@ -466,7 +466,7 @@ Function KeepNearer(polygon: (Double, Double)[], ax: Double, ay: Double, bx: Dou
     Return kept
 End Function
 
-// Panics unless bounds is somewhere, with a size that isn't negative.
+/// Panics unless bounds is somewhere, with a size that isn't negative.
 @PanicsAtCaller
 Function CheckBounds(bounds: Rect)
     If !IsFinite(bounds.X) || !IsFinite(bounds.Y) || !(bounds.Width >= 0) ||
@@ -475,11 +475,11 @@ Function CheckBounds(bounds: Rect)
     End If
 End Function
 
-// Each point's Voronoi cell inside bounds: the polygon, counterclockwise, with no corner twice in
-// a row, of where in bounds is no nearer another point, and empty for a point whose cell is outside
-// bounds or only touches them, at a corner or along an edge. Points that are equal share a cell,
-// and fewer than two points have bounds' whole rectangle for theirs. A coordinate that's infinite
-// or NaN, or bounds that aren't finite or have a negative size, panic.
+/// Each point's Voronoi cell inside bounds: the polygon, counterclockwise, with no corner twice in
+/// a row, of where in bounds is no nearer another point, and empty for a point whose cell is
+/// outside bounds or only touches them, at a corner or along an edge. Points that are equal share a
+/// cell, and fewer than two points have bounds' whole rectangle for theirs. A coordinate that's
+/// infinite or NaN, or bounds that aren't finite or have a negative size, panic.
 @PanicsAtCaller
 Public Function Voronoi(points: Vec2[], bounds: Rect): Vec2[][]
     CheckBounds(bounds)
@@ -551,10 +551,10 @@ Public Function Voronoi(points: Vec2[], bounds: Rect): Vec2[][]
     Return cells
 End Function
 
-// The points moved, iterations times, each to the middle of its Voronoi cell in bounds, which
-// spreads them evenly: Lloyd's relaxation. A point whose cell is empty stays. A negative number of
-// iterations, a coordinate that's infinite or NaN, or bounds that aren't finite or have a negative
-// size, panics.
+/// The points moved, iterations times, each to the middle of its Voronoi cell in bounds, which
+/// spreads them evenly: Lloyd's relaxation. A point whose cell is empty stays. A negative number of
+/// iterations, a coordinate that's infinite or NaN, or bounds that aren't finite or have a negative
+/// size, panics.
 @PanicsAtCaller
 Public Function LloydRelax(points: Vec2[], bounds: Rect, iterations: Int = 1): Vec2[]
     If iterations < 0
@@ -572,7 +572,7 @@ Public Function LloydRelax(points: Vec2[], bounds: Rect, iterations: Int = 1): V
     Return moved
 End Function
 
-// The polygon's centroid, the middle of its area, or Null for one with none.
+/// The polygon's centroid, the middle of its area, or Null for one with none.
 Function Centroid(polygon: Vec2[]): Vec2?
     Local area: Double = 0
     Local x: Double = 0

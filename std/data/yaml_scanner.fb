@@ -1,12 +1,12 @@
-// YamlScanner: YAML 1.2's tokens, as libyaml scans them: indicators, scalars of each style,
-// anchors, aliases, tags, and directives, and the block structure's starts and ends, which
-// indentation gives, with a key's token put in front of a simple key once its ':' is found.
+//! YamlScanner: YAML 1.2's tokens, as libyaml scans them: indicators, scalars of each style,
+//! anchors, aliases, tags, and directives, and the block structure's starts and ends, which
+//! indentation gives, with a key's token put in front of a simple key once its ':' is found.
 
 Import std.core
 Import std.collections
 Import std.data.text
 
-// What a YamlToken is.
+/// What a YamlToken is.
 Package Enum YamlTokenKind
     STREAM_START, STREAM_END, VERSION, TAG_DIRECTIVE, RESERVED_DIRECTIVE, DOCUMENT_START,
     DOCUMENT_END,
@@ -14,7 +14,7 @@ Package Enum YamlTokenKind
     FLOW_MAPPING_END, BLOCK_ENTRY, FLOW_ENTRY, KEY, VALUE, ALIAS, ANCHOR, TAG, SCALAR
 End Enum
 
-// A scalar's style.
+/// A scalar's style.
 Package Const PLAIN = 0
 Package Const SINGLE = 1
 Package Const DOUBLE = 2
@@ -23,13 +23,13 @@ Package Const FOLDED = 4
 
 Package Class YamlToken
     Package Field Kind: YamlTokenKind
-    // A scalar's text, an anchor's or alias's name, a tag's handle, a %YAML directive's
-    // version, or a %TAG directive's handle.
+    /// A scalar's text, an anchor's or alias's name, a tag's handle, a %YAML directive's
+    /// version, or a %TAG directive's handle.
     Package Field Text: String = ""
-    // A tag's suffix, or a %TAG directive's prefix.
+    /// A tag's suffix, or a %TAG directive's prefix.
     Package Field Suffix: String = ""
     Package Field Style: Int
-    // Where it starts: its byte, and its line and column, from 0.
+    /// Where it starts: its byte, and its line and column, from 0.
     Package Field At: Int
     Package Field Line: Int
     Package Field Column: Int
@@ -42,7 +42,7 @@ Package Class YamlToken
     End New
 End Class
 
-// Where a simple key could start, as the number of tokens before it counts.
+/// Where a simple key could start, as the number of tokens before it counts.
 Class YamlKey
     Field Possible: Bool
     Field Required: Bool
@@ -59,7 +59,7 @@ Package Class YamlScanner
     Field Line: Int
     Field Column: Int
     Field Tokens: YamlToken[] = []
-    // How many tokens were taken from Tokens.
+    /// How many tokens were taken from Tokens.
     Field Taken: Int
     Field Done: Bool
     Field Started: Bool
@@ -67,20 +67,20 @@ Package Class YamlScanner
     Field Indent: Int = -1
     Field Indents: Int[] = []
     Field SimpleAllowed: Bool = True
-    // The possible simple key for each flow level, the block context's first.
+    /// The possible simple key for each flow level, the block context's first.
     Field Keys: YamlKey[] = []
-    // Whether the last token was one after which ':' in a flow collection is a value's right
-    // away: a quoted scalar, or a flow collection's end.
+    /// Whether the last token was one after which ':' in a flow collection is a value's right
+    /// away: a quoted scalar, or a flow collection's end.
     Field JsonLike: Bool
-    // Whether a tab is in the space before the next token on its line, which can't then start a
-    // block's entry or key.
+    /// Whether a tab is in the space before the next token on its line, which can't then start a
+    /// block's entry or key.
     Field TabBefore: Bool
-    // Whether a document can start here, at the stream's start or after a "...", where a byte
-    // order mark can come; and where the last one skipped ends, which is a line's start.
+    /// Whether a document can start here, at the stream's start or after a "...", where a byte
+    /// order mark can come; and where the last one skipped ends, which is a line's start.
     Field Prefixed: Bool = True
     Field Marked: Int = -1
 
-    // A scanner of bytes, whose last line, when it's only spaces and tabs, ends with a line break.
+    /// A scanner of bytes, whose last line, when it's only spaces and tabs, ends with a line break.
     Package New(bytes: UInt8[])
         Bytes = bytes
         Local at = bytes.Count
@@ -95,7 +95,7 @@ Package Class YamlScanner
         Keys.Add(YamlKey())
     End New
 
-    // The next token, without taking it.
+    /// The next token, without taking it.
     Package Method Peek(): YamlToken Throws ParseError
         While Try NeedMore()
             Try FetchMore()
@@ -103,7 +103,7 @@ Package Class YamlScanner
         Return Tokens[0]
     End Method
 
-    // The next token, taking it.
+    /// The next token, taking it.
     Package Method Take(): YamlToken Throws ParseError
         Local token = Try Peek()
         Tokens.RemoveAt(0)
@@ -183,17 +183,17 @@ Package Class YamlScanner
         End If
     End Method
 
-    // Whether a ':' here is a value's indicator: before a space or the end, or in a flow
-    // collection before a flow indicator or right after a JSON-like key.
+    /// Whether a ':' here is a value's indicator: before a space or the end, or in a flow
+    /// collection before a flow indicator or right after a JSON-like key.
     Method IsValueIndicator(): Bool
         If IsBlankAt(1) Then Return True
         If FlowLevel == 0 Then Return False
         Return JsonLike || IsFlowIndicator(ByteAt(1))
     End Method
 
-    // Past spaces, tabs, comments, and line breaks to the next token. In a flow collection in a
-    // block, a line's spaces indent it more than the block's. A byte order mark can start a line
-    // where a document can start, as YAML 1.2's l-document-prefix has it.
+    /// Past spaces, tabs, comments, and line breaks to the next token. In a flow collection in a
+    /// block, a line's spaces indent it more than the block's. A byte order mark can start a line
+    /// where a document can start, as YAML 1.2's l-document-prefix has it.
     Method SkipToToken() Throws ParseError
         TabBefore = False
         Loop
@@ -231,7 +231,7 @@ Package Class YamlScanner
         End Loop
     End Method
 
-    // Whether only spaces and tabs are on the line before the current place.
+    /// Whether only spaces and tabs are on the line before the current place.
     Method LineStart(): Bool
         Local at = At - 1
         While at >= 0 && !IsBreakByte(Bytes[at])
@@ -241,7 +241,7 @@ Package Class YamlScanner
         Return True
     End Method
 
-    // How many spaces start the current line, up to its first character that isn't one.
+    /// How many spaces start the current line, up to its first character that isn't one.
     Method LineSpaces(): Int
         Local at = At
         While at > 0 && !IsBreakByte(Bytes[at - 1])
@@ -310,7 +310,7 @@ Package Class YamlScanner
         Tokens.Add(token)
     End Method
 
-    // Past digits, giving whether there were any.
+    /// Past digits, giving whether there were any.
     Method Digits(): Bool Throws ParseError
         Local start = At
         While IsDigit(ByteAt(0))
@@ -488,7 +488,7 @@ Package Class YamlScanner
         Tokens.Add(token)
     End Method
 
-    // A tag handle in a %TAG directive: `!`, `!!`, or `!name!`.
+    /// A tag handle in a %TAG directive: `!`, `!!`, or `!name!`.
     Method TagHandle(): String Throws ParseError
         Local start = At
         If ByteAt(0) != 33 Then Throw Fail("a tag's handle starts with '!'")
@@ -526,7 +526,7 @@ Package Class YamlScanner
         Tokens.Add(Try Plain())
     End Method
 
-    // A plain scalar, its lines folded into one.
+    /// A plain scalar, its lines folded into one.
     Method Plain(): YamlToken Throws ParseError
         Local token = Token(YamlTokenKind.SCALAR)
         token.Style = PLAIN
@@ -555,8 +555,8 @@ Package Class YamlScanner
         Return token
     End Method
 
-    // The spaces and line breaks after a plain scalar's part, folded: a line break as a space,
-    // or the empty lines after it as line breaks; or Null where the scalar ends.
+    /// The spaces and line breaks after a plain scalar's part, folded: a line break as a space,
+    /// or the empty lines after it as line breaks; or Null where the scalar ends.
     Method PlainSpaces(indent: Int): UInt8[]? Throws ParseError
         Local start = At
         While ByteAt(0) == 32 || ByteAt(0) == 9
@@ -598,7 +598,7 @@ Package Class YamlScanner
         Return folded
     End Method
 
-    // A scalar in '' or "", its lines folded and, in "", its escapes replaced.
+    /// A scalar in '' or "", its lines folded and, in "", its escapes replaced.
     Method FlowScalar(style: Int): YamlToken Throws ParseError
         Local token = Token(YamlTokenKind.SCALAR)
         token.Style = style
@@ -629,7 +629,7 @@ Package Class YamlScanner
         Return token
     End Method
 
-    // A quoted scalar's spaces and line breaks, folded as a plain scalar's are.
+    /// A quoted scalar's spaces and line breaks, folded as a plain scalar's are.
     Method FlowSpaces(out: UInt8[], token: YamlToken) Throws ParseError
         Local start = At
         While ByteAt(0) == 32 || ByteAt(0) == 9
@@ -665,7 +665,7 @@ Package Class YamlScanner
         End If
     End Method
 
-    // A double-quoted scalar's escape, at its '\'.
+    /// A double-quoted scalar's escape, at its '\'.
     Method Escape(out: UInt8[]) Throws ParseError
         Advance(1)
         Local b = ByteAt(0)
@@ -732,7 +732,7 @@ Package Class YamlScanner
         End Select
     End Method
 
-    // The code point of an escape's digits hex digits.
+    /// The code point of an escape's digits hex digits.
     Method Hex(digits: Int): Int Throws ParseError
         Local value: Int64 = 0
         For i = 1 To digits
@@ -754,7 +754,7 @@ Package Class YamlScanner
         Return value As Int
     End Method
 
-    // A literal or folded block scalar, from its header.
+    /// A literal or folded block scalar, from its header.
     Method BlockScalar(style: Int): YamlToken Throws ParseError
         Local token = Token(YamlTokenKind.SCALAR)
         token.Style = style
@@ -844,8 +844,8 @@ Package Class YamlScanner
         Return token
     End Method
 
-    // A block scalar's empty lines, each a line break in breaks, with its indentation's spaces
-    // left out.
+    /// A block scalar's empty lines, each a line break in breaks, with its indentation's spaces
+    /// left out.
     Method BlockBreaks(indent: Int, breaks: UInt8[]) Throws ParseError
         Loop
             While Column < indent && ByteAt(0) == 32
@@ -858,7 +858,7 @@ Package Class YamlScanner
         End Loop
     End Method
 
-    // Whether only spaces and tabs are left on the line.
+    /// Whether only spaces and tabs are left on the line.
     Method BlankAfter(): Bool
         Local ahead = 0
         While ByteAt(ahead) == 32 || ByteAt(ahead) == 9
@@ -867,7 +867,7 @@ Package Class YamlScanner
         Return At + ahead >= Bytes.Count || IsBreakByte(ByteAt(ahead))
     End Method
 
-    // Remembers that a simple key could start here.
+    /// Remembers that a simple key could start here.
     Method SaveKey() Throws ParseError
         If !SimpleAllowed Then Return
         Local required = FlowLevel == 0 && Indent == Column
@@ -892,8 +892,8 @@ Package Class YamlScanner
         key.Possible = False
     End Method
 
-    // Drops the possible simple keys that can't be any more: a simple key is on one line, and
-    // up to 1024 characters long.
+    /// Drops the possible simple keys that can't be any more: a simple key is on one line, and
+    /// up to 1024 characters long.
     Method StaleKeys() Throws ParseError
         For key In Keys
             If key.Possible && (key.Line != Line || Column - key.Column > 1024)
@@ -907,7 +907,7 @@ Package Class YamlScanner
         End For
     End Method
 
-    // Ends the block collections deeper than column.
+    /// Ends the block collections deeper than column.
     Method Unwind(column: Int)
         If FlowLevel > 0 Then Return
         While Indent > column
@@ -923,7 +923,7 @@ Package Class YamlScanner
         Return True
     End Method
 
-    // Whether a plain scalar can start here.
+    /// Whether a plain scalar can start here.
     Method StartsPlain(): Bool
         Local b = ByteAt(0)
         If AtEnd() || IsBlankAt(0) Then Return False
@@ -934,16 +934,16 @@ Package Class YamlScanner
         Return !IsIndicator(b)
     End Method
 
-    // Whether three of marker's byte, "---" or "...", are here, with a space after them.
+    /// Whether three of marker's byte, "---" or "...", are here, with a space after them.
     Method IsMarker(marker: UInt8): Bool
         Return ByteAt(0) == marker && ByteAt(1) == marker && ByteAt(2) == marker && IsBlankAt(3)
     End Method
 
-    // Whether a document's marker starts the line here.
+    /// Whether a document's marker starts the line here.
     Method IsDocumentMarker(): Bool => Column == 0 && (IsMarker(45) || IsMarker(46))
 
-    // Past spaces and tabs, giving whether there were any, and throwing that there aren't when
-    // they're required.
+    /// Past spaces and tabs, giving whether there were any, and throwing that there aren't when
+    /// they're required.
     Method SkipWhite(required: Bool): Bool Throws ParseError
         Local start = At
         While ByteAt(0) == 32 || ByteAt(0) == 9
@@ -953,7 +953,7 @@ Package Class YamlScanner
         Return At > start
     End Method
 
-    // What's here up to a space or the line's end.
+    /// What's here up to a space or the line's end.
     Method Word(): String
         Local start = At
         While !AtEnd() && !IsBlankAt(0)
@@ -962,7 +962,7 @@ Package Class YamlScanner
         Return TextOf(Bytes, start, At)
     End Method
 
-    // Past the character here, checking that YAML can hold it.
+    /// Past the character here, checking that YAML can hold it.
     Method CheckPrintable() Throws ParseError
         Local b = Bytes[At]
         If b < 0x80
@@ -986,8 +986,8 @@ Package Class YamlScanner
         Column += 1
     End Method
 
-    // Past a quoted scalar's character, which can be any but a C0 control other than a tab, as
-    // YAML 1.2 lets JSON's strings be read.
+    /// Past a quoted scalar's character, which can be any but a C0 control other than a tab, as
+    /// YAML 1.2 lets JSON's strings be read.
     Method CheckQuoted() Throws ParseError
         Local b = Bytes[At]
         If b < 0x80
@@ -1003,7 +1003,7 @@ Package Class YamlScanner
         Column += 1
     End Method
 
-    // Past a line break: LF, CR, or CRLF.
+    /// Past a line break: LF, CR, or CRLF.
     Method LineBreak()
         If ByteAt(0) == 13 && ByteAt(1) == 10 Then At += 1
         At += 1
@@ -1011,7 +1011,7 @@ Package Class YamlScanner
         Column = 0
     End Method
 
-    // Past count ASCII characters.
+    /// Past count ASCII characters.
     Method Advance(count: Int)
         At += count
         Column += count
@@ -1019,10 +1019,10 @@ Package Class YamlScanner
 
     Method AtEnd(): Bool => At >= Bytes.Count
 
-    // The byte `ahead` past the current place, or 0 past the end.
+    /// The byte `ahead` past the current place, or 0 past the end.
     Method ByteAt(ahead: Int): UInt8 => At + ahead < Bytes.Count ? Bytes[At + ahead] : 0
 
-    // Whether the byte `ahead` is a space, a tab, a line break, or past the end.
+    /// Whether the byte `ahead` is a space, a tab, a line break, or past the end.
     Method IsBlankAt(ahead: Int): Bool
         If At + ahead >= Bytes.Count Then Return True
         Local b = Bytes[At + ahead]
@@ -1040,7 +1040,7 @@ End Class
 
 Const TAB_IN_BLOCK = "a block scalar's empty lines have no tabs in its indentation"
 
-// The code point at `at`, which starts a character of more than one byte, and its bytes' count.
+/// The code point at `at`, which starts a character of more than one byte, and its bytes' count.
 Package Function CodeOf(bytes: UInt8[], at: Int): (Int64, Int)
     Local b = bytes[at] As Int64
     If b < 0xE0 Then Return (((b & 0x1F) << 6) | ((bytes[at + 1] As Int64) & 0x3F), 2)
@@ -1059,14 +1059,14 @@ Function IsWhiteByte(b: UInt8): Bool => b == 32 || b == 9
 
 Function IsDigit(b: UInt8): Bool => b >= 48 && b <= 57
 
-// Whether b goes in a tag handle's name: a letter, a digit, or '-'.
+/// Whether b goes in a tag handle's name: a letter, a digit, or '-'.
 Function IsWordByte(b: UInt8): Bool
     Return (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || IsDigit(b) || b == 45
 End Function
 
 Function IsFlowIndicator(b: UInt8): Bool => b == 44 || b == 91 || b == 93 || b == 123 || b == 125
 
-// Whether b is one of YAML's indicators, which can't start a plain scalar.
+/// Whether b is one of YAML's indicators, which can't start a plain scalar.
 Function IsIndicator(b: UInt8): Bool
     For c In "-?:,[]{{}}#&*!|>'\"%@`".Bytes
         If b == c Then Return True

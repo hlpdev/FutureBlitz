@@ -1,9 +1,9 @@
-// BigInt: an integer of any size, over libtommath, which never changes once it's made. Its
-// operators are an Int's, without overflow: / rounds toward 0, % takes the sign of what's
-// divided, >> rounds down, and &, |, ^, and ~ work on two's complement, as wide as the numbers
-// need. An Int64 on either side of one works too, so n + 1 and 2 * n do. A BigInt holds up to
-// 2147483640 bits, about 646 million digits, as many as libtommath counts, and a result past that
-// panics. A BigInt stays on its thread, so ToString and Parse are how one goes to another.
+//! BigInt: an integer of any size, over libtommath, which never changes once it's made. Its
+//! operators are an Int's, without overflow: / rounds toward 0, % takes the sign of what's
+//! divided, >> rounds down, and &, |, ^, and ~ work on two's complement, as wide as the numbers
+//! need. An Int64 on either side of one works too, so n + 1 and 2 * n do. A BigInt holds up to
+//! 2147483640 bits, about 646 million digits, as many as libtommath counts, and a result past that
+//! panics. A BigInt stays on its thread, so ToString and Parse are how one goes to another.
 
 Import std.core
 
@@ -45,14 +45,16 @@ Extern "runtime"
     Function fb_bigint_is_probable_prime(a: Ptr<Void>): Int32
 End Extern
 
+/// An integer of any size, which grows as it needs to.
 Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     Field State: Ptr<Void>
 
+    /// The BigInt of `value`.
     Public New(value: Int64)
         State = fb_bigint_from_int(value)
     End New
 
-    // One the runtime made, which it owns from now on.
+    /// One the runtime made, which it owns from now on.
     New(state: Ptr<Void>)
         State = state
     End New
@@ -60,8 +62,8 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     Public Static Method Zero(): BigInt => BigInt(0)
     Public Static Method One(): BigInt => BigInt(1)
 
-    // The Double's whole part, as it is without what's after the point. A NaN or an infinity
-    // panics.
+    /// The Double's whole part, as it is without what's after the point. A NaN or an infinity
+    /// panics.
     @PanicsAtCaller
     Public Static Method FromDouble(value: Double): BigInt
         // Only a finite Double less itself is 0.
@@ -69,14 +71,14 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         Return BigInt(fb_bigint_from_double(value))
     End Method
 
-    // The integer the bytes are, big-endian, which is 0 or more. Past the most bits a BigInt
-    // holds, it panics.
+    /// The integer the bytes are, big-endian, which is 0 or more. Past the most bits a BigInt
+    /// holds, it panics.
     @PanicsAtCaller
     Public Static Method FromBytes(bytes: UInt8[]): BigInt => Made(fb_bigint_from_bytes(bytes))
 
-    // The integer the text is in the radix: a sign or none, then one or more digits, those past 9
-    // letters of either case, as "-ff" is -255 in 16. Other text, or a number past the most bits
-    // a BigInt holds, is Null, and a radix outside 2 to 36 panics.
+    /// The integer the text is in the radix: a sign or none, then one or more digits, those past 9
+    /// letters of either case, as "-ff" is -255 in 16. Other text, or a number past the most bits
+    /// a BigInt holds, is Null, and a radix outside 2 to 36 panics.
     @PanicsAtCaller
     Public Static Method Parse(text: String, radix: Int = 10): BigInt?
         CheckRadix(radix)
@@ -85,18 +87,18 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         Return BigInt(state)
     End Method
 
-    // Its digits in base 10, after a "-" below 0.
+    /// Its digits in base 10, after a "-" below 0.
     Public Method ToString(): String => fb_bigint_to_string(State, 10)
 
-    // Its digits in the radix, those past 9 lowercase letters, after a "-" below 0. A radix
-    // outside 2 to 36 panics.
+    /// Its digits in the radix, those past 9 lowercase letters, after a "-" below 0. A radix
+    /// outside 2 to 36 panics.
     @PanicsAtCaller
     Public Method ToString(radix: Int): String
         CheckRadix(radix)
         Return fb_bigint_to_string(State, radix)
     End Method
 
-    // Its bytes, big-endian, as few as hold it, so 0 has none. One below 0 panics.
+    /// Its bytes, big-endian, as few as hold it, so 0 has none. One below 0 panics.
     @PanicsAtCaller
     Public Method ToBytes(): UInt8[]
         If Sign < 0 Then Panic("ToBytes gives the bytes of a BigInt 0 or more, not {Self}")
@@ -105,29 +107,30 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         Return bytes
     End Method
 
-    // It as an Int64, or Null outside an Int64's range.
+    /// It as an Int64, or Null outside an Int64's range.
     Public Method ToInt64(): Int64?
         If fb_bigint_fits_int64(State) == 0 Then Return Null
         Return fb_bigint_to_int64(State)
     End Method
 
-    // The Double nearest it, ties to even, or an infinity past the largest Double.
+    /// The Double nearest it, ties to even, or an infinity past the largest Double.
     Public Method ToDouble(): Double => fb_bigint_to_double(State)
 
-    // -1, 0, or 1 as it's below, at, or above 0.
+    /// -1, 0, or 1 as it's below, at, or above 0.
     Public Property Sign: Int
         Get => fb_bigint_sign(State)
     End Property
 
-    // How many bits its magnitude takes: 0 for 0, and 8 for 255 and for -255.
+    /// How many bits its magnitude takes: 0 for 0, and 8 for 255 and for -255.
     Public Property BitLength: Int64
         Get => fb_bigint_bit_length(State)
     End Property
 
+    /// Its distance from 0: the same BigInt, without its sign.
     Public Method Abs(): BigInt => BigInt(fb_bigint_abs(State))
 
-    // It to the power, modulo the modulus: from 0 to below the modulus. An exponent below 0, or a
-    // modulus that isn't above 0, panics.
+    /// It to the power, modulo the modulus: from 0 to below the modulus. An exponent below 0, or a
+    /// modulus that isn't above 0, panics.
     @PanicsAtCaller
     Public Method ModPow(exponent: BigInt, modulus: BigInt): BigInt
         If exponent.Sign < 0 Then Panic("ModPow takes an exponent of 0 or more, not {exponent}")
@@ -135,8 +138,8 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         Return BigInt(fb_bigint_mod_power(State, exponent.State, modulus.State))
     End Method
 
-    // The number from 0 to below the modulus that times it is 1 modulo the modulus, or Null when
-    // there's none, since they share a factor. A modulus that isn't above 0 panics.
+    /// The number from 0 to below the modulus that times it is 1 modulo the modulus, or Null when
+    /// there's none, since they share a factor. A modulus that isn't above 0 panics.
     @PanicsAtCaller
     Public Method ModInverse(modulus: BigInt): BigInt?
         CheckModulus(modulus)
@@ -145,25 +148,25 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         Return BigInt(state)
     End Method
 
-    // The greatest number that divides both, which is 0 or more, and 0 only for two 0s.
+    /// The greatest number that divides both, which is 0 or more, and 0 only for two 0s.
     Public Method Gcd(other: BigInt): BigInt => BigInt(fb_bigint_gcd(State, other.State))
 
-    // The least number, 0 or more, that both divide, and 0 when either is 0.
+    /// The least number, 0 or more, that both divide, and 0 when either is 0.
     Public Method Lcm(other: BigInt): BigInt => BigInt(fb_bigint_lcm(State, other.State))
 
-    // Its square root, rounded down. One below 0 panics.
+    /// Its square root, rounded down. One below 0 panics.
     @PanicsAtCaller
     Public Method Sqrt(): BigInt
         If Sign < 0 Then Panic("Sqrt takes a BigInt 0 or more, not {Self}")
         Return BigInt(fb_bigint_sqrt(State))
     End Method
 
-    // Its quotient and remainder by the divisor, as / and % give them. A divisor of 0 panics.
+    /// Its quotient and remainder by the divisor, as / and % give them. A divisor of 0 panics.
     @PanicsAtCaller
     Public Method DivRem(divisor: BigInt): (BigInt, BigInt) => (Self / divisor, Self % divisor)
 
-    // Whether it's prime by the Baillie-PSW test, which no composite number is known to pass,
-    // though some must.
+    /// Whether it's prime by the Baillie-PSW test, which no composite number is known to pass,
+    /// though some must.
     Public Method IsProbablePrime(): Bool => fb_bigint_is_probable_prime(State) != 0
 
     Public Method Hash(): UInt64 => fb_bigint_hash(State)
@@ -181,7 +184,7 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     Operator >=(a: BigInt, b: Int64): Bool => a >= BigInt(b)
     Operator >=(a: Int64, b: BigInt): Bool => BigInt(a) >= b
 
-    // Sums, differences, and products, which panic past the most bits a BigInt holds.
+    /// Sums, differences, and products, which panic past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator +(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_add(a.State, b.State))
     @PanicsAtCaller
@@ -223,8 +226,8 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     @PanicsAtCaller
     Operator %(a: Int64, b: BigInt): BigInt => BigInt(a) % b
 
-    // To the power, which is 0 or more, as an Int's: a negative one panics, and so does a result
-    // past the most bits a BigInt holds, though 0, 1, and -1 go to any power.
+    /// To the power, which is 0 or more, as an Int's: a negative one panics, and so does a result
+    /// past the most bits a BigInt holds, though 0, 1, and -1 go to any power.
     @PanicsAtCaller
     Operator **(a: BigInt, b: Int64): BigInt
         If b < 0 Then Panic("an integer power needs an exponent of 0 or more")
@@ -233,8 +236,8 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         Return BigInt(state)
     End Operator
 
-    // Two's complement's &, |, and ^, which can take a negative number's magnitude a bit past
-    // either's, so they panic past the most bits a BigInt holds too.
+    /// Two's complement's &, |, and ^, which can take a negative number's magnitude a bit past
+    /// either's, so they panic past the most bits a BigInt holds too.
     @PanicsAtCaller
     Operator &(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_and(a.State, b.State))
     @PanicsAtCaller
@@ -254,9 +257,9 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     @PanicsAtCaller
     Operator ^(a: Int64, b: BigInt): BigInt => BigInt(a) ^ b
 
-    // Shifted by a count of bits, 0 or more, which a negative one panics, as an Int's does when
-    // it's outside its bits. Shifting left past the most bits a BigInt holds panics too, unless
-    // it's 0.
+    /// Shifted by a count of bits, 0 or more, which a negative one panics, as an Int's does when
+    /// it's outside its bits. Shifting left past the most bits a BigInt holds panics too, unless
+    /// it's 0.
     @PanicsAtCaller
     Operator <<(a: BigInt, b: Int64): BigInt
         If b < 0 Then Panic("the shift amount must be 0 or more")
@@ -280,21 +283,21 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     End Method
 End Class
 
-// The BigInt the runtime made, which panics where it's null, for a result past the most bits a
-// BigInt holds.
+/// The BigInt the runtime made, which panics where it's null, for a result past the most bits a
+/// BigInt holds.
 @PanicsAtCaller
 Function Made(state: Ptr<Void>): BigInt
     If state == Null Then Panic("the result is past the 2147483640 bits a BigInt holds")
     Return BigInt(state)
 End Function
 
-// Panics unless the radix is from 2 to 36.
+/// Panics unless the radix is from 2 to 36.
 @PanicsAtCaller
 Function CheckRadix(radix: Int)
     If radix < 2 || radix > 36 Then Panic("a radix is from 2 to 36, not {radix}")
 End Function
 
-// Panics unless the modulus is above 0.
+/// Panics unless the modulus is above 0.
 @PanicsAtCaller
 Function CheckModulus(modulus: BigInt)
     If modulus.Sign <= 0 Then Panic("a modulus is above 0, not {modulus}")

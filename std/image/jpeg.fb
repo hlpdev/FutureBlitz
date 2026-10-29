@@ -1,27 +1,28 @@
-// JPEG: Jpeg.Decode reads baseline and progressive JPEGs, gray, YCbCr, and CMYK, as stb_image
-// reads them, and Encode writes a baseline one at a quality, as stb_image_write does, without the
-// image's alpha, which JPEG doesn't have.
+//! JPEG: Jpeg.Decode reads baseline and progressive JPEGs, gray, YCbCr, and CMYK, as stb_image
+//! reads them, and Encode writes a baseline one at a quality, as stb_image_write does, without the
+//! image's alpha, which JPEG doesn't have.
 
 Import std.core
 Import std.image.codec
 Import std.image.image
 
+/// What reads and writes JPEG images, in its Static Methods.
 Public Struct Jpeg
-    // Jpeg isn't made: it's only its Static Methods.
+    /// Jpeg isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The image in data, which is a JPEG, each pixel opaque. Throws an IOError of INVALID_DATA
-    // when the data isn't a JPEG or is broken, and OTHER when the image has more pixels than
-    // `limit`. Panics when the limit is negative.
+    /// The image in data, which is a JPEG, each pixel opaque. Throws an IOError of INVALID_DATA
+    /// when the data isn't a JPEG or is broken, and OTHER when the image has more pixels than
+    /// `limit`. Panics when the limit is negative.
     @PanicsAtCaller
     Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError
         CheckLimit(limit)
         Return Try Decoded(fb_stb_decode(data, 2, Min(limit, MOST_PIXELS)), "JPEG")
     End Method
 
-    // The JPEG of the image's colors, at `quality`, from 1 to 100, its alpha left out. Panics
-    // when the quality is another, or the image has no pixels or a side longer than 65535.
+    /// The JPEG of the image's colors, at `quality`, from 1 to 100, its alpha left out. Panics
+    /// when the quality is another, or the image has no pixels or a side longer than 65535.
     @PanicsAtCaller
     Public Static Method Encode(image: Image, quality: Int = 90): UInt8[]
         CheckRange(quality, 1, 100, "a JPEG's quality")

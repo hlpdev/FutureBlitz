@@ -1,47 +1,52 @@
-// std.term's regions: a Region of a screen's cells, which splits into rows or columns by
-// Constraints, as a full-screen app lays out its panes: a size that's Fixed, a Percent of what
-// there is, at least a Min, or a share of what's left, Fill.
+//! std.term's regions: a Region of a screen's cells, which splits into rows or columns by
+//! Constraints, as a full-screen app lays out its panes: a size that's Fixed, a Percent of what
+//! there is, at least a Min, or a share of what's left, Fill.
 
 Import std.core
 
-// A rectangle of a screen's cells: its top-left Column and Row, from 0, and its Width and
-// Height.
+/// A rectangle of a screen's cells: its top-left Column and Row, from 0, and its Width and
+/// Height.
 Public Struct Region Implements Hashable, Printable
+    /// Its left column, from 0.
     Public Field Column: Int
+    /// Its top row, from 0.
     Public Field Row: Int
+    /// How many columns wide it is.
     Public Field Width: Int
+    /// How many rows high it is.
     Public Field Height: Int
 
-    // The column just past its right edge, and the row just past its bottom.
+    /// The column just past its right edge, and the row just past its bottom.
     Public Property Right: Int
         Get => Column + Width
     End Property
 
+    /// The row just past its bottom.
     Public Property Bottom: Int
         Get => Row + Height
     End Property
 
-    // Whether it has no cells.
+    /// Whether it has no cells.
     Public Property IsEmpty: Bool
         Get => Width <= 0 || Height <= 0
     End Property
 
-    // Whether the cell at column and row is in it.
+    /// Whether the cell at column and row is in it.
     Public Method Contains(column: Int, row: Int): Bool
         Return column >= Column && column < Right && row >= Row && row < Bottom
     End Method
 
-    // It without margin cells on each side, or empty where there aren't that many.
+    /// It without margin cells on each side, or empty where there aren't that many.
     Public Method Inner(margin: Int = 1): Region => Inner(margin, margin)
 
-    // It without horizontal cells on its left and right, and vertical ones on its top and
-    // bottom.
+    /// It without horizontal cells on its left and right, and vertical ones on its top and
+    /// bottom.
     Public Method Inner(horizontal: Int, vertical: Int): Region
         Return Region(Column + horizontal, Row + vertical, Max(Width - 2 * horizontal, 0),
                       Max(Height - 2 * vertical, 0))
     End Method
 
-    // The cells it has in common with other, which may be none.
+    /// The cells it has in common with other, which may be none.
     Public Method Intersect(other: Region): Region
         Local left = Max(Column, other.Column)
         Local top = Max(Row, other.Row)
@@ -50,7 +55,7 @@ Public Struct Region Implements Hashable, Printable
         Return Region(left, top, Max(right - left, 0), Max(bottom - top, 0))
     End Method
 
-    // Its rows, top to bottom, as the sizes say, each its whole width.
+    /// Its rows, top to bottom, as the sizes say, each its whole width.
     Public Method SplitRows(sizes: Constraint...): Region[]
         Local regions: Region[] = []
         Local at = Row
@@ -62,7 +67,7 @@ Public Struct Region Implements Hashable, Printable
         Return regions
     End Method
 
-    // Its columns, left to right, as the sizes say, each its whole height.
+    /// Its columns, left to right, as the sizes say, each its whole height.
     Public Method SplitColumns(sizes: Constraint...): Region[]
         Local regions: Region[] = []
         Local at = Column
@@ -74,20 +79,22 @@ Public Struct Region Implements Hashable, Printable
         Return regions
     End Method
 
-    // Like "(3, 4) 20x10".
+    /// Like "(3, 4) 20x10".
     Public Method ToString(): String => "({Column}, {Row}) {Width}x{Height}"
 End Struct
 
-// How a Constraint sizes its part.
+/// How a Constraint sizes its part.
 Public Enum ConstraintKind
     FIXED, PERCENT, MIN, FILL
 End Enum
 
-// How big one part of a split is: a Fixed number of cells, a Percent of the cells there are, at
-// least a Min of them and a share of what's left like a Fill of 1, or a Fill, a share of what's
-// left by its weight beside the other Fills'.
+/// How big one part of a split is: a Fixed number of cells, a Percent of the cells there are, at
+/// least a Min of them and a share of what's left like a Fill of 1, or a Fill, a share of what's
+/// left by its weight beside the other Fills'.
 Public Struct Constraint Implements Hashable, Printable
+    /// What kind of constraint it is.
     Public ReadOnly Field Kind: ConstraintKind
+    /// Its cells, percent, or weight, as its Kind has it.
     Public ReadOnly Field Value: Int
 
     New(kind: ConstraintKind, value: Int)
@@ -95,14 +102,14 @@ Public Struct Constraint Implements Hashable, Printable
         Value = value
     End New
 
-    // size cells. Panics for a negative size.
+    /// size cells. Panics for a negative size.
     @PanicsAtCaller
     Public Static Method Fixed(size: Int): Constraint
         If size < 0 Then Panic("Constraint.Fixed takes a size that isn't negative, not {size}")
         Return Constraint(ConstraintKind.FIXED, size)
     End Method
 
-    // percent of the cells there are, rounded down. Panics for a percent below 0 or past 100.
+    /// percent of the cells there are, rounded down. Panics for a percent below 0 or past 100.
     @PanicsAtCaller
     Public Static Method Percent(percent: Int): Constraint
         If percent < 0 || percent > 100
@@ -112,23 +119,23 @@ Public Struct Constraint Implements Hashable, Printable
         Return Constraint(ConstraintKind.PERCENT, percent)
     End Method
 
-    // At least size cells, and a share of what's left, as a Fill of 1. Panics for a negative
-    // size.
+    /// At least size cells, and a share of what's left, as a Fill of 1. Panics for a negative
+    /// size.
     @PanicsAtCaller
     Public Static Method Min(size: Int): Constraint
         If size < 0 Then Panic("Constraint.Min takes a size that isn't negative, not {size}")
         Return Constraint(ConstraintKind.MIN, size)
     End Method
 
-    // A share of what's left, by weight beside the other Fills' weights: a Fill of 2 gets twice
-    // a Fill of 1's. Panics for a negative weight.
+    /// A share of what's left, by weight beside the other Fills' weights: a Fill of 2 gets twice
+    /// a Fill of 1's. Panics for a negative weight.
     @PanicsAtCaller
     Public Static Method Fill(weight: Int = 1): Constraint
         If weight < 0 Then Panic("Constraint.Fill takes a weight that isn't negative, not {weight}")
         Return Constraint(ConstraintKind.FILL, weight)
     End Method
 
-    // Like "Fixed(3)" or "Fill(1)".
+    /// Like "Fixed(3)" or "Fill(1)".
     Public Method ToString(): String
         Select Kind
             Case ConstraintKind.FIXED
@@ -143,10 +150,10 @@ Public Struct Constraint Implements Hashable, Printable
     End Method
 End Struct
 
-// The sizes the constraints give total cells: Fixed, Percent, and Min sizes first, from the
-// first, as far as the cells go, then what's left shared by the Fills and Mins by their weights,
-// the first ones taking a cell more where it doesn't share out evenly. They add up to total, but
-// where only Fixed and Percent sizes take less, which leaves the rest.
+/// The sizes the constraints give total cells: Fixed, Percent, and Min sizes first, from the
+/// first, as far as the cells go, then what's left shared by the Fills and Mins by their weights,
+/// the first ones taking a cell more where it doesn't share out evenly. They add up to total, but
+/// where only Fixed and Percent sizes take less, which leaves the rest.
 Package Function Sizes(total: Int, constraints: Constraint[]): Int[]
     Local sizes: Int[] = []
     Local left = Max(total, 0)

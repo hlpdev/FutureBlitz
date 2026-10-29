@@ -1,32 +1,38 @@
-// What Zip's, Tar's, and SevenZip's readers share: an ArchiveEntry for each of an archive's
-// entries, in the order the archive has them, and how a name and a mode are checked before
-// they're written.
+//! What Zip's, Tar's, and SevenZip's readers share: an ArchiveEntry for each of an archive's
+//! entries, in the order the archive has them, and how a name and a mode are checked before
+//! they're written.
 
 Import std.core
 Import std.time.timestamp
 
-// What an entry is: a file, a folder, or a link, whose Target is where it points, as a symbolic
-// link or a tar's hard link does.
+/// What an entry is: a file, a folder, or a link, whose Target is where it points, as a symbolic
+/// link or a tar's hard link does.
 Public Enum ArchiveEntryKind
     FILE, FOLDER, LINK
 End Enum
 
-// One of an archive's entries: its Name, its path in the archive, with '/' between folders and
-// none at its end, its Kind, its Size, the bytes a file's read gives, which is 0 for a folder or
-// a link, a link's Target, which is "" for the rest, when it was Modified, and its Mode, its
-// Unix permissions, like 0o644. Either is Null when the archive doesn't say, as a 7z's aren't
-// read, and a zip made on Windows has no mode. A name is as the archive has it, which can be
-// anything: a program that makes files of them checks them first, for one like "../../x".
+/// One of an archive's entries: its Name, its path in the archive, with '/' between folders and
+/// none at its end, its Kind, its Size, the bytes a file's read gives, which is 0 for a folder or
+/// a link, a link's Target, which is "" for the rest, when it was Modified, and its Mode, its
+/// Unix permissions, like 0o644. Either is Null when the archive doesn't say, as a 7z's aren't
+/// read, and a zip made on Windows has no mode. A name is as the archive has it, which can be
+/// anything: a program that makes files of them checks them first, for one like "../../x".
 Public Struct ArchiveEntry
+    /// Its path in the archive, with '/' between folders and none at its end.
     Public ReadOnly Field Name: String
+    /// Whether it's a file, a folder, or a link.
     Public ReadOnly Field Kind: ArchiveEntryKind
+    /// How many bytes a file's read gives, or 0 for a folder or a link.
     Public ReadOnly Field Size: Int64
+    /// What a link points to, or "" for the rest.
     Public ReadOnly Field Target: String
+    /// When it was modified, or Null when the archive doesn't say.
     Public ReadOnly Field Modified: Timestamp?
+    /// Its Unix permissions, like 0o644, or Null when the archive doesn't say.
     Public ReadOnly Field Mode: Int?
 
-    // An entry of the runtime's numbers, whose time is none when nanos is -1, or when it's past
-    // the years a Timestamp holds, and whose mode is none when it's -1.
+    /// An entry of the runtime's numbers, whose time is none when nanos is -1, or when it's past
+    /// the years a Timestamp holds, and whose mode is none when it's -1.
     Package New(name: String, kind: Int32, size: Int64, target: String, seconds: Int64,
                 nanos: Int32, mode: Int32)
         Name = name
@@ -46,7 +52,7 @@ Public Struct ArchiveEntry
     End New
 End Struct
 
-// The index of the last of the entries named name, as extracting them in order leaves it, or -1.
+/// The index of the last of the entries named name, as extracting them in order leaves it, or -1.
 Package Function LastNamed(entries: ArchiveEntry[], name: String): Int
     For i = entries.Count - 1 To 0 Step -1
         If entries[i].Name == name Then Return i
@@ -54,8 +60,8 @@ Package Function LastNamed(entries: ArchiveEntry[], name: String): Int
     Return -1
 End Function
 
-// Panics when name can't be an entry's: when it's "", holds a NUL, or is longer than `most`
-// bytes, as `format` says.
+/// Panics when name can't be an entry's: when it's "", holds a NUL, or is longer than `most`
+/// bytes, as `format` says.
 @PanicsAtCaller
 Package Function CheckName(name: String, most: Int, format: String)
     If name == "" Then Panic("a {format}'s entry needs a name")
@@ -66,8 +72,8 @@ Package Function CheckName(name: String, most: Int, format: String)
     End For
 End Function
 
-// Panics when a mode, unless it's Null, isn't Unix permissions, from 0 to 0o7777, as `format`
-// says.
+/// Panics when a mode, unless it's Null, isn't Unix permissions, from 0 to 0o7777, as `format`
+/// says.
 @PanicsAtCaller
 Package Function CheckMode(mode: Int?, format: String)
     If mode != Null && (mode < 0 || mode > 0o7777)
@@ -76,7 +82,7 @@ Package Function CheckMode(mode: Int?, format: String)
     End If
 End Function
 
-// Panics as CheckName does, and when name ends with '/', as only a folder's does.
+/// Panics as CheckName does, and when name ends with '/', as only a folder's does.
 @PanicsAtCaller
 Package Function CheckFileName(name: String, most: Int, format: String)
     CheckName(name, most, format)

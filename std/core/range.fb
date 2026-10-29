@@ -1,23 +1,24 @@
-// Range<T>: the integers a range gives, like 0 Until 10, 1 To 10, or 10 To 0 Step -2, which are
-// the values a For loop with those bounds counts. The compiler makes each one from what's written,
-// so a Range holds only the value it gives next, its step, and how many steps come after that
-// value. An empty range is a Range's zero. Ranges are == when they give the same values.
+//! `Range<T>`: the integers a range gives, like 0 Until 10, 1 To 10, or 10 To 0 Step -2, which are
+//! the values a For loop with those bounds counts. The compiler makes each one from what's written,
+//! so a Range holds only the value it gives next, its step, and how many steps come after that
+//! value. An empty range is a Range's zero. Ranges are == when they give the same values.
 
 Import std.core.interfaces
 Import std.core.iterator
 
+/// The integers from a start to an end, by a step, as a range like 0 Until 10 gives them.
 Public Struct Range<T: Numeric> Implements Iterator<T>, Iterable<T>
-    // The value Next gives next. The compiler makes these Fields, in this order.
+    /// The value Next gives next. The compiler makes these Fields, in this order.
     Field Current: T
     Field Step: T
-    // How many steps come after Current. Counting them, rather than comparing with the end, keeps
-    // Current from stepping past the end, even at the end of T's values.
+    /// How many steps come after Current. Counting them, rather than comparing with the end, keeps
+    /// Current from stepping past the end, even at the end of T's values.
     Field Left: UInt64
-    // Whether Current is one of the range's values: False for an empty range, and once Next has
-    // given the last one.
+    /// Whether Current is one of the range's values: False for an empty range, and once Next has
+    /// given the last one.
     Field More: Bool
 
-    // The next value, or Null after the last one.
+    /// The next value, or Null after the last one.
     Public ByRef Method Next(): T?
         If !More Then Return Null
         Local value = Current
@@ -31,7 +32,7 @@ Public Struct Range<T: Numeric> Implements Iterator<T>, Iterable<T>
         Return value
     End Method
 
-    // A copy of the range, which goes over its values from where it is.
+    /// A copy of the range, which goes over its values from where it is.
     Public Method Iterate(): Range<T> => Self
 End Struct
 

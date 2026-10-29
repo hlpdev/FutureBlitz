@@ -1,8 +1,8 @@
-// 7z's archives, read over liblzma: SevenZip.Read gives a SevenZipReader of a 7z's entries. Its
-// folders' coders can be stored, LZMA, LZMA2, Delta, and the branch filters for x86, PowerPC,
-// IA-64, ARM, ARM Thumb, ARM64, SPARC, and RISC-V, in a chain, as 7-Zip writes them by default.
-// Others, like BCJ2, PPMd, BZip2, and AES's encryption, read as an IOError. A solid folder is
-// decoded whole, once for the files read from it in turn. Writing 7z isn't std's.
+//! 7z's archives, read over liblzma: SevenZip.Read gives a SevenZipReader of a 7z's entries. Its
+//! folders' coders can be stored, LZMA, LZMA2, Delta, and the branch filters for x86, PowerPC,
+//! IA-64, ARM, ARM Thumb, ARM64, SPARC, and RISC-V, in a chain, as 7-Zip writes them by default.
+//! Others, like BCJ2, PPMd, BZip2, and AES's encryption, read as an IOError. A solid folder is
+//! decoded whole, once for the files read from it in turn. Writing 7z isn't std's.
 
 Import std.core
 Import std.collections.view
@@ -22,17 +22,18 @@ Extern "runtime"
     Function fb_xz_7z_reader_free(reader: Ptr<Void>)
 End Extern
 
+/// What reads 7z archives, in its Static Methods.
 Public Struct SevenZip
-    // SevenZip isn't made: it's only its Static Methods.
+    /// SevenZip isn't made: it's only its Static Methods.
     New()
     End New
 
-    // A reader of the 7z in data, which it copies, or an IOError when the data isn't a 7z, ends
-    // too soon, or its header uses what isn't supported.
+    /// A reader of the 7z in data, which it copies, or an IOError when the data isn't a 7z, ends
+    /// too soon, or its header uses what isn't supported.
     Public Static Method Read(data: UInt8[]): SevenZipReader Throws IOError => Try Opened(data)
 End Struct
 
-// A 7z's entries, which Read gives the bytes of, from a copy of the 7z's bytes.
+/// A 7z's entries, which Read gives the bytes of, from a copy of the 7z's bytes.
 Public Class SevenZipReader
     Field State: Ptr<Void>
     Field List: ArchiveEntry[]
@@ -49,34 +50,36 @@ Public Class SevenZipReader
         End For
     End New
 
-    // Its entries, in the order the 7z has them.
+    /// Its entries, in the order the 7z has them.
     Public Property Entries: ReadOnlyArray<ArchiveEntry>
         Get => List.AsReadOnly()
     End Property
 
+    /// How many entries it has.
     Public Property Count: Int
         Get => List.Count
     End Property
 
-    // The entry named name, the last of them when there are several, or Null when there's none.
+    /// The entry named name, the last of them when there are several, or Null when there's none.
     Public Method Find(name: String): ArchiveEntry?
         Local index = LastNamed(List, name)
         If index < 0 Then Return Null
         Return List[index]
     End Method
 
+    /// Whether it has an entry named `name`.
     Public Method Contains(name: String): Bool => LastNamed(List, name) >= 0
 
-    // The bytes of the entry named name, the last of them when there are several, or Null when
-    // there's none, as ReadAt gives them.
+    /// The bytes of the entry named name, the last of them when there are several, or Null when
+    /// there's none, as ReadAt gives them.
     Public Method Read(name: String): UInt8[]? Throws IOError
         Local index = LastNamed(List, name)
         If index < 0 Then Return Null
         Return Try ReadAt(index)
     End Method
 
-    // The bytes of the entry at index, which are none for a folder or a link, or an IOError when
-    // they're broken, or use a coder that isn't supported. Panics when the index is out of range.
+    /// The bytes of the entry at index, which are none for a folder or a link, or an IOError when
+    /// they're broken, or use a coder that isn't supported. Panics when the index is out of range.
     @PanicsAtCaller
     Public Method ReadAt(index: Int): UInt8[] Throws IOError
         If index < 0 || index >= List.Count
@@ -99,7 +102,7 @@ Public Class SevenZipReader
     End Method
 End Class
 
-// A reader of the 7z in data, or an IOError when the data isn't a 7z, or ends too soon.
+/// A reader of the 7z in data, or an IOError when the data isn't a 7z, or ends too soon.
 Function Opened(data: UInt8[]): SevenZipReader Throws IOError
     Local state = fb_xz_7z_reader_new(data)
     Local result = fb_xz_7z_reader_result(state)

@@ -1,46 +1,55 @@
-// Error, the Class every error extends, and each area's own: one Error per area, whose Kind says
-// what went wrong, so a Throws list stays short and a Catch can still tell kinds apart.
+//! Error, the Class every error extends, and each area's own: one Error per area, whose Kind says
+//! what went wrong, so a Throws list stays short and a Catch can still tell kinds apart.
 
 Import std.core.interfaces
 
-// Where in a program's source something is: its file, as the build names it, and its line and
-// column, from 1. A Place whose Line is 0 is nowhere yet.
+/// Where in a program's source something is: its file, as the build names it, and its line and
+/// column, from 1. A Place whose Line is 0 is nowhere yet.
 Public Struct Place Implements Printable
+    /// Its file, as the build names it, or "" when it's nowhere.
     Public ReadOnly Field File: String
+    /// Its line, from 1, or 0 when it's nowhere.
     Public ReadOnly Field Line: Int
+    /// Its column, from 1.
     Public ReadOnly Field Column: Int
 
+    /// Its file, line, and column, as "main.fb:3:5".
     Public Method ToString(): String => "{File}:{Line}:{Column}"
 End Struct
 
-// The Class every error extends. Its first fields are Message, Cause, and Place, in that order,
-// which the runtime reads and writes: Throw sets Place, unless the error has one from an earlier
-// Throw, and top-level code that lets an error out shows all three, and its Cause's.
+/// The Class every error extends. Its first fields are Message, Cause, and Place, in that order,
+/// which the runtime reads and writes: Throw sets Place, unless the error has one from an earlier
+/// Throw, and top-level code that lets an error out shows all three, and its Cause's.
 Public Class Error
+    /// What went wrong, for people to read.
     Public Field Message: String
-    // The error this one comes from, as when code that catches one throws its own.
+    /// The error this one comes from, as when code that catches one throws its own.
     Public Field Cause: Error?
-    // Where it was first thrown.
+    /// Where it was first thrown.
     Public ReadOnly Field Place: Place
 
+    /// Makes an error that says `message`, from `cause`, if it has one.
     Public New(message: String = "", cause: Error? = Null)
         Message = message
         Cause = cause
     End New
 End Class
 
-// What kind of ArgumentError: a required argument that's missing, one that isn't known, or one
-// whose value doesn't fit.
+/// What kind of ArgumentError: a required argument that's missing, one that isn't known, or one
+/// whose value doesn't fit.
 Public Enum ArgumentErrorKind
     MISSING, UNKNOWN, INVALID, OTHER
 End Enum
 
-// A program's arguments, or another function's, that it can't take. Name is the argument's,
-// when there is one.
+/// A program's arguments, or another function's, that it can't take. Name is the argument's,
+/// when there is one.
 Public Class ArgumentError Extends Error
+    /// What kind of argument it can't take.
     Public ReadOnly Field Kind: ArgumentErrorKind
+    /// The argument's name, or Null when it has none.
     Public ReadOnly Field Name: String?
 
+    /// Makes an ArgumentError of `kind` that says `message`, about the argument `name`.
     Public New(kind: ArgumentErrorKind, message: String, name: String? = Null,
                cause: Error? = Null)
         Super.New(message, cause)
@@ -49,22 +58,25 @@ Public Class ArgumentError Extends Error
     End New
 End Class
 
-// What kind of IOError: a file or folder that isn't there, or that the program may not use, one
-// that's there already, a stream that ended too soon, bytes that aren't the format or are
-// broken, a call the OS interrupted, a file where a folder should be or a folder where a file
-// should be, a folder with something in it, a file that's in use or locked, a disk that's full, a
-// path no file can have, like one with a NUL in it or one that's too long, or something else.
+/// What kind of IOError: a file or folder that isn't there, or that the program may not use, one
+/// that's there already, a stream that ended too soon, bytes that aren't the format or are
+/// broken, a call the OS interrupted, a file where a folder should be or a folder where a file
+/// should be, a folder with something in it, a file that's in use or locked, a disk that's full, a
+/// path no file can have, like one with a NUL in it or one that's too long, or something else.
 Public Enum IOErrorKind
     NOT_FOUND, PERMISSION_DENIED, ALREADY_EXISTS, UNEXPECTED_END, INVALID_DATA, INTERRUPTED,
     NOT_A_DIRECTORY, IS_A_DIRECTORY, NOT_EMPTY, BUSY, NO_SPACE, INVALID_PATH, OTHER
 End Enum
 
-// Reading or writing a file, a stream, or the console failed. Path is the file's, when there is
-// one.
+/// Reading or writing a file, a stream, or the console failed. Path is the file's, when there is
+/// one.
 Public Class IOError Extends Error
+    /// What kind of IOError it is.
     Public ReadOnly Field Kind: IOErrorKind
+    /// The file or folder it's about, or Null when it's about none.
     Public ReadOnly Field Path: String?
 
+    /// Makes an IOError of `kind` that says `message`, about `path`.
     Public New(kind: IOErrorKind, message: String, path: String? = Null, cause: Error? = Null)
         Super.New(message, cause)
         Kind = kind
@@ -72,24 +84,28 @@ Public Class IOError Extends Error
     End New
 End Class
 
-// What kind of ParseError: text that isn't the format, text that ends too soon, a value of
-// another type than the one asked for, a number too big for its type, or a value that Load<T>
-// needs for a Field and doesn't have.
+/// What kind of ParseError: text that isn't the format, text that ends too soon, a value of
+/// another type than the one asked for, a number too big for its type, or a value that `Load<T>`
+/// needs for a Field and doesn't have.
 Public Enum ParseErrorKind
     SYNTAX, UNEXPECTED_END, WRONG_TYPE, OUT_OF_RANGE, MISSING, OTHER
 End Enum
 
-// Text that doesn't read as its format, at Line and Column, from 1, or 0 when it isn't known, or
-// a Value that Load<T> can't make a T from, at Path.
+/// Text that doesn't read as its format, at Line and Column, from 1, or 0 when it isn't known, or
+/// a Value that `Load<T>` can't make a T from, at Path.
 Public Class ParseError Extends Error
+    /// What kind of ParseError it is.
     Public ReadOnly Field Kind: ParseErrorKind
+    /// The line of what was read where it went wrong, from 1, or 0 when it has no lines.
     Public ReadOnly Field Line: Int
+    /// The column on that line, from 1, or 0.
     Public ReadOnly Field Column: Int
-    // Load's path, from the Value's top, which it works out on the error's way out.
+    /// Load's path, from the Value's top, which it works out on the error's way out.
     Package Field At: String?
-    // The Message, without the path that Load puts before it.
+    /// The Message, without the path that Load puts before it.
     Package Field Plain: String = ""
 
+    /// Makes a ParseError of `kind` that says `message`, at `line` and `column`.
     Public New(kind: ParseErrorKind, message: String, line: Int = 0, column: Int = 0,
                cause: Error? = Null, path: String? = Null)
         Super.New(message, cause)
@@ -101,14 +117,14 @@ Public Class ParseError Extends Error
         If path != Null && path != "" Then Message = "{path}: {message}"
     End New
 
-    // For Load<T>'s: where in the Value it's from, the Field's path, like "options.sizes[2]", or
-    // "" for the Value itself. Null for another error.
+    /// For `Load<T>`'s: where in the Value it's from, the Field's path, like "options.sizes[2]", or
+    /// "" for the Value itself. Null for another error.
     Public Property Path: String?
         Get => At
     End Property
 
-    // Puts a step before Load's path, a key or an index in brackets, on the error's way out of
-    // what that step went into, and the path before the Message, like "sizes[2]: ...".
+    /// Puts a step before Load's path, a key or an index in brackets, on the error's way out of
+    /// what that step went into, and the path before the Message, like "sizes[2]: ...".
     Package Method Within(step: String)
         Local at = At ?? ""
         If at == "" Then Plain = Message
@@ -117,49 +133,54 @@ Public Class ParseError Extends Error
         Message = "{path}: {Plain}"
     End Method
 
-    // Load's error from the Value itself, which a type's own FromValue or OnLoaded threw there:
-    // its path is "".
+    /// Load's error from the Value itself, which a type's own FromValue or OnLoaded threw there:
+    /// its path is "".
     Package Method AtTop()
         If At == Null Then At = ""
     End Method
 End Class
 
-// What kind of FormatError: a template that isn't one, one that names a value it isn't given,
-// or a value its spec doesn't fit.
+/// What kind of FormatError: a template that isn't one, one that names a value it isn't given,
+/// or a value its spec doesn't fit.
 Public Enum FormatErrorKind
     BAD_TEMPLATE, MISSING_VALUE, BAD_VALUE, OTHER
 End Enum
 
-// A template that Format can't fill.
+/// A template that Format can't fill.
 Public Class FormatError Extends Error
+    /// What kind of FormatError it is.
     Public ReadOnly Field Kind: FormatErrorKind
 
+    /// Makes a FormatError of `kind` that says `message`.
     Public New(kind: FormatErrorKind, message: String, cause: Error? = Null)
         Super.New(message, cause)
         Kind = kind
     End New
 End Class
 
-// Something took longer than it was given.
+/// Something took longer than it was given.
 Public Class TimeoutError Extends Error
 End Class
 
-// Work that stopped because a Cancellation said to.
+/// Work that stopped because a Cancellation said to.
 Public Class CancelledError Extends Error
 End Class
 
-// What kind of NetError: a connection the other side refused or reset, a network or host that
-// can't be reached or found, one that's closed, TLS that failed, or an HTTP response whose status
-// isn't success.
+/// What kind of NetError: a connection the other side refused or reset, a network or host that
+/// can't be reached or found, one that's closed, TLS that failed, or an HTTP response whose status
+/// isn't success.
 Public Enum NetErrorKind
     REFUSED, RESET, UNREACHABLE, HOST_NOT_FOUND, CLOSED, TLS, HTTP_STATUS, OTHER
 End Enum
 
-// Talking over a network failed. Address is the other side's, when there is one.
+/// Talking over a network failed. Address is the other side's, when there is one.
 Public Class NetError Extends Error
+    /// What kind of NetError it is.
     Public ReadOnly Field Kind: NetErrorKind
+    /// The address it's about, or Null when it's about none.
     Public ReadOnly Field Address: String?
 
+    /// Makes a NetError of `kind` that says `message`, about `address`.
     Public New(kind: NetErrorKind, message: String, address: String? = Null,
                cause: Error? = Null)
         Super.New(message, cause)
@@ -168,16 +189,18 @@ Public Class NetError Extends Error
     End New
 End Class
 
-// What kind of DatabaseError: a constraint a change breaks, a database that another connection
-// holds, a query that isn't one, or a file that isn't a database.
+/// What kind of DatabaseError: a constraint a change breaks, a database that another connection
+/// holds, a query that isn't one, or a file that isn't a database.
 Public Enum DatabaseErrorKind
     CONSTRAINT, BUSY, QUERY, CORRUPT, OTHER
 End Enum
 
-// A database couldn't do what it was asked.
+/// A database couldn't do what it was asked.
 Public Class DatabaseError Extends Error
+    /// What kind of DatabaseError it is.
     Public ReadOnly Field Kind: DatabaseErrorKind
 
+    /// Makes a DatabaseError of `kind` that says `message`.
     Public New(kind: DatabaseErrorKind, message: String, cause: Error? = Null)
         Super.New(message, cause)
         Kind = kind

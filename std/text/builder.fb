@@ -1,7 +1,7 @@
-// StringBuilder: text built up a piece at a time, in a buffer of its UTF-8 bytes that grows as
-// pieces come, so building a String of many pieces takes time in proportion to its length, where
-// joining them one by one would copy it each time. Positions are byte offsets, as a String's are,
-// and one inside a character panics. It's a std.io Writer too, whose bytes it adds as text.
+//! StringBuilder: text built up a piece at a time, in a buffer of its UTF-8 bytes that grows as
+//! pieces come, so building a String of many pieces takes time in proportion to its length, where
+//! joining them one by one would copy it each time. Positions are byte offsets, as a String's are,
+//! and one inside a character panics. It's a std.io Writer too, whose bytes it adds as text.
 
 Import std.core
 Import std.collections
@@ -16,28 +16,40 @@ Extern "runtime"
     Function fb_string_from_array(bytes: UInt8[]): String
 End Extern
 
+/// Text built up a piece at a time, in a buffer of its UTF-8 bytes that grows as pieces come.
+///
+/// # Examples
+///
+/// ```
+/// Local text = StringBuilder()
+/// For i = 1 To 3
+///     text.Append(i).Append(i < 3 ? ", " : "")
+/// End For
+///
+/// Expect(text.ToString() == "1, 2, 3")
+/// ```
 Public Class StringBuilder Implements Printable, Writer
-    // The text's UTF-8, which only ever holds whole characters.
+    /// The text's UTF-8, which only ever holds whole characters.
     Field Bytes: UInt8[] = []
-    // The first bytes of a character that Write has had, which wait for the rest of it.
+    /// The first bytes of a character that Write has had, which wait for the rest of it.
     Field Pending: UInt8[] = []
 
-    // An empty one.
+    /// An empty one.
     Public New()
     End New
 
-    // One that starts with text.
+    /// One that starts with text.
     Public New(text: String)
         fb_text_append(Bytes, text)
     End New
 
-    // How many bytes its text has, which is also the position just past its end.
+    /// How many bytes its text has, which is also the position just past its end.
     Public Property Length: Int
         Get => Bytes.Count
     End Property
 
-    // Adds text at the end, and gives the StringBuilder, for another call after it. Each Append,
-    // AppendLine, Insert, and [] that makes the text longer than a String holds panics.
+    /// Adds text at the end, and gives the StringBuilder, for another call after it. Each Append,
+    /// AppendLine, Insert, and [] that makes the text longer than a String holds panics.
     @PanicsAtCaller
     Public Method Append(text: String): StringBuilder
         Settle()
@@ -46,15 +58,15 @@ Public Class StringBuilder Implements Printable, Writer
         Return Self
     End Method
 
-    // Adds c at the end.
+    /// Adds c at the end.
     @PanicsAtCaller
     Public Method Append(c: Char): StringBuilder => Append("{c}")
 
-    // Adds the value's text at the end, as "{value}" shows it.
+    /// Adds the value's text at the end, as "{value}" shows it.
     @PanicsAtCaller
     Public Method Append<T: Printable>(value: T): StringBuilder => Append("{value}")
 
-    // Adds text, then a line break, "\n", at the end.
+    /// Adds text, then a line break, "\n", at the end.
     @PanicsAtCaller
     Public Method AppendLine(text: String = ""): StringBuilder
         Settle()
@@ -65,8 +77,8 @@ Public Class StringBuilder Implements Printable, Writer
         Return Self
     End Method
 
-    // Puts text in at the position at. Panics unless at is a position in the text, between two
-    // characters.
+    /// Puts text in at the position at. Panics unless at is a position in the text, between two
+    /// characters.
     @PanicsAtCaller
     Public Method Insert(at: Int, text: String): StringBuilder
         Settle()
@@ -76,8 +88,8 @@ Public Class StringBuilder Implements Printable, Writer
         Return Self
     End Method
 
-    // Takes out the text from start up to finish. Panics unless both are positions in the text,
-    // between characters, with start no later than finish.
+    /// Takes out the text from start up to finish. Panics unless both are positions in the text,
+    /// between characters, with start no later than finish.
     @PanicsAtCaller
     Public Method Remove(start: Int, finish: Int): StringBuilder
         Settle()
@@ -88,7 +100,7 @@ Public Class StringBuilder Implements Printable, Writer
         Return Self
     End Method
 
-    // Replaces each old, from the start, with replacement. An empty old panics.
+    /// Replaces each old, from the start, with replacement. An empty old panics.
     @PanicsAtCaller
     Public Method Replace(old: String, replacement: String): StringBuilder
         Settle()
@@ -98,17 +110,17 @@ Public Class StringBuilder Implements Printable, Writer
         Return Self
     End Method
 
-    // Takes out all its text, and the first bytes of a character Write has had.
+    /// Takes out all its text, and the first bytes of a character Write has had.
     Public Method Clear(): StringBuilder
         Bytes.Clear()
         Pending.Clear()
         Return Self
     End Method
 
-    // Adds from's bytes as text, U+FFFD for each one that doesn't start well-formed UTF-8, as
-    // std.io's StringWriter reads them. A character whose bytes two Writes split is added once its
-    // last byte comes; until then, Flush, or a change of another kind, adds what came of it as
-    // U+FFFD. Throws an IOError past the most a String holds, adding none of it.
+    /// Adds from's bytes as text, U+FFFD for each one that doesn't start well-formed UTF-8, as
+    /// std.io's StringWriter reads them. A character whose bytes two Writes split is added once its
+    /// last byte comes; until then, Flush, or a change of another kind, adds what came of it as
+    /// U+FFFD. Throws an IOError past the most a String holds, adding none of it.
     Public Method Write(from: Buffer<UInt8>) Throws IOError
         Local bytes = Pending.Clone()
         For i = 0 Until from.Count
@@ -127,34 +139,34 @@ Public Class StringBuilder Implements Printable, Writer
         Pending = waiting
     End Method
 
-    // Adds what Write has had of a character whose last bytes haven't come, as U+FFFD. Throws an
-    // IOError past the most a String holds, as Write does, keeping them.
+    /// Adds what Write has had of a character whose last bytes haven't come, as U+FFFD. Throws an
+    /// IOError past the most a String holds, as Write does, keeping them.
     Public Method Flush() Throws IOError
         If Pending.Count > 0 Then Try CheckRoomFor(fb_string_from_array(Pending))
         Settle()
     End Method
 
-    // Makes room for bytes bytes of text in all, so adding up to that many needs no more memory.
-    // A negative count panics.
+    /// Makes room for bytes bytes of text in all, so adding up to that many needs no more memory.
+    /// A negative count panics.
     @PanicsAtCaller
     Public Method Reserve(bytes: Int)
         If bytes < 0 Then Panic("Reserve takes a count that isn't negative, not {bytes}")
         Bytes.Reserve(bytes)
     End Method
 
-    // The text it has built.
+    /// The text it has built.
     Public Method ToString(): String => fb_text_from_utf8(Bytes, 0, Bytes.Count) ?? ""
 
-    // The Char whose first byte is at the position at. Panics unless at is a position in the
-    // text, between characters, before its end.
+    /// The Char whose first byte is at the position at. Panics unless at is a position in the
+    /// text, between characters, before its end.
     @PanicsAtCaller
     Operator [](at: Int): Char
         CheckCharacter(at)
         Return CharIn(Bytes, at)
     End Operator
 
-    // Replaces the Char at the position at with value, whose bytes may be more or fewer. Panics
-    // unless at is a position in the text, between characters, before its end.
+    /// Replaces the Char at the position at with value, whose bytes may be more or fewer. Panics
+    /// unless at is a position in the text, between characters, before its end.
     @PanicsAtCaller
     Operator []=(at: Int, value: Char)
         Settle()
@@ -165,7 +177,7 @@ Public Class StringBuilder Implements Printable, Writer
         Bytes.InsertAll(at, "{value}".Bytes)
     End Operator
 
-    // Panics unless at is a position in the text between two characters, for what.
+    /// Panics unless at is a position in the text between two characters, for what.
     @PanicsAtCaller
     Method CheckPosition(at: Int, what: String)
         If at < 0 || at > Bytes.Count
@@ -178,8 +190,8 @@ Public Class StringBuilder Implements Printable, Writer
         End If
     End Method
 
-    // Adds the first bytes of a character that Write has had as U+FFFD, so what changes the text
-    // next comes after them.
+    /// Adds the first bytes of a character that Write has had as U+FFFD, so what changes the text
+    /// next comes after them.
     @PanicsAtCaller
     Method Settle()
         If Pending.Count == 0 Then Return
@@ -189,8 +201,8 @@ Public Class StringBuilder Implements Printable, Writer
         fb_text_append(Bytes, text)
     End Method
 
-    // Throws an IOError, for Write and Flush, unless the text has room for text's bytes, as a
-    // String holds at most 2147483647.
+    /// Throws an IOError, for Write and Flush, unless the text has room for text's bytes, as a
+    /// String holds at most 2147483647.
     Method CheckRoomFor(text: String) Throws IOError
         Local finish = (Bytes.Count As Int64) + text.Length
         If finish > 2147483647
@@ -199,13 +211,13 @@ Public Class StringBuilder Implements Printable, Writer
         End If
     End Method
 
-    // Panics unless the text has room for more bytes, as a String holds at most 2147483647.
+    /// Panics unless the text has room for more bytes, as a String holds at most 2147483647.
     @PanicsAtCaller
     Method CheckRoom(more: Int)
         If more > 2147483647 - Bytes.Count Then Panic("a String holds at most 2147483647 bytes")
     End Method
 
-    // Panics unless a character starts at the position at.
+    /// Panics unless a character starts at the position at.
     @PanicsAtCaller
     Method CheckCharacter(at: Int)
         If at < 0 || at >= Bytes.Count
@@ -217,7 +229,7 @@ Public Class StringBuilder Implements Printable, Writer
     End Method
 End Class
 
-// The Char whose UTF-8 starts at at in bytes, whose characters are whole.
+/// The Char whose UTF-8 starts at at in bytes, whose characters are whole.
 Function CharIn(bytes: UInt8[], at: Int): Char
     Local lead = bytes[at] As Int
     If lead < 0x80 Then Return lead As Char
@@ -230,8 +242,8 @@ Function CharIn(bytes: UInt8[], at: Int): Char
     Return code As Char
 End Function
 
-// How many bytes at the end of bytes start a character whose last bytes haven't come: a lead
-// byte and the continuation bytes after it, fewer than it takes.
+/// How many bytes at the end of bytes start a character whose last bytes haven't come: a lead
+/// byte and the continuation bytes after it, fewer than it takes.
 Function Unfinished(bytes: UInt8[]): Int
     For back = 1 To Min(3, bytes.Count)
         Local byte = bytes[bytes.Count - back] As Int

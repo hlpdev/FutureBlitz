@@ -1,4 +1,4 @@
-// Process, the program's own: its Id, and Exit, which ends it with a code for what started it.
+//! Process, the program's own: its Id, and Exit, which ends it with a code for what started it.
 
 Import std.core
 
@@ -7,20 +7,20 @@ Extern "runtime"
     Function fb_process_id(): Int64
 End Extern
 
-// Process's Static Members.
+/// Process's Static Members.
 Public Struct Process
-    // Process isn't made: it's only its Static Members.
+    /// Process isn't made: it's only its Static Members.
     New()
     End New
 
-    // The OS's number for the program's process.
+    /// The OS's number for the program's process.
     Public Static Property Id: Int64
         Get => fb_process_id()
     End Property
 
-    // Ends the program at once with code, which the OS gives what started it: 0 says it went
-    // well. What it printed is flushed, but nothing else runs, on any thread: no Defer, Destroy,
-    // or leak report. Linux and macOS give only code's low 8 bits.
+    /// Ends the program at once with code, which the OS gives what started it: 0 says it went
+    /// well. What it printed is flushed, but nothing else runs, on any thread: no Defer, Destroy,
+    /// or leak report. Linux and macOS give only code's low 8 bits.
     Public Static Method Exit(code: Int)
         fb_exit(code)
     End Method

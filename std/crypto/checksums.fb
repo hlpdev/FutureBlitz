@@ -1,7 +1,7 @@
-// Crc32 and XxHash: fast checksums that aren't cryptographic. They catch accidents, like a file
-// that was cut short or a bit that flipped, but not an attacker, who can make data with any of
-// them; that takes a hash, like Sha256 or Blake3. Crc32 is CRC-32 as zlib, Zip, PNG, and Ethernet
-// have it; XxHash is xxHash's XXH3, 64 bits, with a seed.
+//! Crc32 and XxHash: fast checksums that aren't cryptographic. They catch accidents, like a file
+//! that was cut short or a bit that flipped, but not an attacker, who can make data with any of
+//! them; that takes a hash, like Sha256 or Blake3. Crc32 is CRC-32 as zlib, Zip, PNG, and Ethernet
+//! have it; XxHash is xxHash's XXH3, 64 bits, with a seed.
 
 Import std.core
 
@@ -15,22 +15,26 @@ Extern "runtime"
     Function fb_xxhash_hasher_free(hasher: Ptr<Void>)
 End Extern
 
-// CRC-32 of what's added in turn, a bit at a time, with the reversed polynomial 0xEDB88320.
+/// CRC-32 of what's added in turn, a bit at a time, with the reversed polynomial 0xEDB88320.
 Public Class Crc32
-    // The CRC so far, with its bits flipped, as the algorithm keeps it.
+    /// The CRC so far, with its bits flipped, as the algorithm keeps it.
     Field Value: UInt32 = 0xFFFFFFFF
 
+    /// A new Crc32, of nothing yet.
     Public New()
     End New
 
+    /// The CRC-32 of `data`.
     Public Static Method Hash(data: UInt8[]): UInt32
         Local crc = Crc32()
         crc.Add(data)
         Return crc.Finish()
     End Method
 
+    /// The CRC-32 of `text`'s UTF-8 bytes.
     Public Static Method Hash(text: String): UInt32 => Hash(text.Bytes)
 
+    /// Adds `data` to what it checks.
     Public Method Add(data: UInt8[])
         For byte In data
             Value = Value ^ (byte As UInt32)
@@ -40,11 +44,12 @@ Public Class Crc32
         End For
     End Method
 
+    /// Adds `text`'s UTF-8 bytes to what it checks.
     Public Method Add(text: String)
         Add(text.Bytes)
     End Method
 
-    // The CRC of what was added, after which it starts again, empty.
+    /// The CRC of what was added, after which it starts again, empty.
     Public Method Finish(): UInt32
         Local crc = Value ^ 0xFFFFFFFF
         Value = 0xFFFFFFFF
@@ -52,30 +57,35 @@ Public Class Crc32
     End Method
 End Class
 
-// XXH3's 64-bit hash of what's added in turn, with a seed, so the same data hashes differently
-// under different seeds.
+/// XXH3's 64-bit hash of what's added in turn, with a seed, so the same data hashes differently
+/// under different seeds.
 Public Class XxHash
     Field State: Ptr<Void>
 
+    /// A new XxHash, of nothing yet, with `seed`.
     Public New(seed: UInt64 = 0)
         State = fb_xxhash_hasher_new(seed)
     End New
 
+    /// XXH3's 64-bit hash of `data`, with `seed`.
     Public Static Method Hash(data: UInt8[], seed: UInt64 = 0): UInt64 => fb_xxhash_hash(data, seed)
 
+    /// XXH3's 64-bit hash of `text`'s UTF-8 bytes, with `seed`.
     Public Static Method Hash(text: String, seed: UInt64 = 0): UInt64
         Return fb_xxhash_hash_text(text, seed)
     End Method
 
+    /// Adds `data` to what it hashes.
     Public Method Add(data: UInt8[])
         fb_xxhash_hasher_add(State, data)
     End Method
 
+    /// Adds `text`'s UTF-8 bytes to what it hashes.
     Public Method Add(text: String)
         fb_xxhash_hasher_add_text(State, text)
     End Method
 
-    // The hash of what was added, after which it starts again, empty, with its seed.
+    /// The hash of what was added, after which it starts again, empty, with its seed.
     Public Method Finish(): UInt64 => fb_xxhash_hasher_finish(State)
 
     Method Destroy()

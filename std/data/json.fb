@@ -1,8 +1,8 @@
-// JSON, as RFC 8259 has it: Json.Read reads a document into a Value, and Json.Write writes a
-// Value as one; JsonReader reads a document's tokens one at a time, in order, and JsonWriter
-// writes a document a token at a time, so neither holds more than the text. Integers
-// stay exact, as Int64s, or UInt64s past them; other numbers are Doubles. The runtime reads the
-// text, over fast_float for its Doubles.
+//! JSON, as RFC 8259 has it: Json.Read reads a document into a Value, and Json.Write writes a
+//! Value as one; JsonReader reads a document's tokens one at a time, in order, and JsonWriter
+//! writes a document a token at a time, so neither holds more than the text. Integers
+//! stay exact, as Int64s, or UInt64s past them; other numbers are Doubles. The runtime reads the
+//! text, over fast_float for its Doubles.
 
 Import std.core
 Import std.collections
@@ -25,44 +25,45 @@ Extern "runtime"
     Function fb_json_number(value: Double): String?
 End Extern
 
-// How deep a JsonReader reads arrays and objects nested in each other unless it's told.
+/// How deep a JsonReader reads arrays and objects nested in each other unless it's told.
 Const DEPTH = 1000
 
-// What a JsonReader read: a document's END, after its value; the start or end of an object or an
-// array; a KEY of an object's; or a value: a STRING, an INT that fits an Int64, a UINT that's
-// past an Int64's largest but fits a UInt64, a DOUBLE for any other number, a BOOL, or NULL.
+/// What a JsonReader read: a document's END, after its value; the start or end of an object or an
+/// array; a KEY of an object's; or a value: a STRING, an INT that fits an Int64, a UINT that's
+/// past an Int64's largest but fits a UInt64, a DOUBLE for any other number, a BOOL, or NULL.
 Public Enum JsonToken
     END, BEGIN_OBJECT, END_OBJECT, BEGIN_ARRAY, END_ARRAY, KEY
     STRING, INT, UINT, DOUBLE, BOOL, NULL
 End Enum
 
-// Reads a JSON document's tokens, one each time Next is called, from text or from UTF-8 bytes,
-// which it copies: an object's as BEGIN_OBJECT, then each KEY and its value, then END_OBJECT,
-// and an array's as BEGIN_ARRAY, its values, and END_ARRAY. A byte order mark before the JSON
-// is left out. It reads arrays and objects nested in each other up to depth deep.
+/// Reads a JSON document's tokens, one each time Next is called, from text or from UTF-8 bytes,
+/// which it copies: an object's as BEGIN_OBJECT, then each KEY and its value, then END_OBJECT,
+/// and an array's as BEGIN_ARRAY, its values, and END_ARRAY. A byte order mark before the JSON
+/// is left out. It reads arrays and objects nested in each other up to depth deep.
 Public Class JsonReader
     Field State: Ptr<Void>
     Field Current: JsonToken
     Field Truth: Bool
     Field Started: Bool
 
-    // Panics unless depth is 1 or more.
+    /// Panics unless depth is 1 or more.
     @PanicsAtCaller
     Public New(text: String, depth: Int = DEPTH)
         CheckDepth(depth)
         State = fb_json_reader_new(text, depth)
     End New
 
+    /// A JsonReader of `bytes`, UTF-8 JSON, which nests up to `depth` deep.
     @PanicsAtCaller
     Public New(bytes: UInt8[], depth: Int = DEPTH)
         CheckDepth(depth)
         State = fb_json_reader_bytes(bytes, depth)
     End New
 
-    // The next token, END once the document's value is done, and END again after. Throws a
-    // ParseError where the text stops being JSON, with its line and column, each from 1: of
-    // SYNTAX for what can't be there, UNEXPECTED_END for text that ends too soon, and
-    // OUT_OF_RANGE for a number past a Double's range, or arrays and objects nested too deep.
+    /// The next token, END once the document's value is done, and END again after. Throws a
+    /// ParseError where the text stops being JSON, with its line and column, each from 1: of
+    /// SYNTAX for what can't be there, UNEXPECTED_END for text that ends too soon, and
+    /// OUT_OF_RANGE for a number past a Double's range, or arrays and objects nested too deep.
     Public Method Next(): JsonToken Throws ParseError
         Local read = fb_json_next(State)
         If read < 0
@@ -79,7 +80,7 @@ Public Class JsonReader
         Return Current
     End Method
 
-    // The token Next gave last.
+    /// The token Next gave last.
     @PanicsAtCaller
     Public Property Token: JsonToken
         Get
@@ -88,23 +89,24 @@ Public Class JsonReader
         End Get
     End Property
 
-    // How many arrays and objects are open after the token: 0 for a document's lone value, 1
-    // after its BEGIN_ARRAY or BEGIN_OBJECT and for each value in it, and 0 again after its
-    // END_ARRAY or END_OBJECT.
+    /// How many arrays and objects are open after the token: 0 for a document's lone value, 1
+    /// after its BEGIN_ARRAY or BEGIN_OBJECT and for each value in it, and 0 again after its
+    /// END_ARRAY or END_OBJECT.
     Public Property Depth: Int
         Get => fb_json_depth(State) As Int
     End Property
 
-    // The line and column, each from 1, the column in code points, where the token starts.
+    /// The line and column, each from 1, the column in code points, where the token starts.
     Public Property Line: Int
         Get => fb_json_line(State) As Int
     End Property
 
+    /// The column, from 1, in code points, where the token starts.
     Public Property Column: Int
         Get => fb_json_column(State) As Int
     End Property
 
-    // A KEY's or a STRING's text. Panics for another token.
+    /// A KEY's or a STRING's text. Panics for another token.
     @PanicsAtCaller
     Public Method GetString(): String
         Local text = Current == JsonToken.KEY || Current == JsonToken.STRING
@@ -112,14 +114,14 @@ Public Class JsonReader
         Return fb_json_text(State)
     End Method
 
-    // An INT's integer. Panics for another token.
+    /// An INT's integer. Panics for another token.
     @PanicsAtCaller
     Public Method GetInt64(): Int64
         Expect(Current == JsonToken.INT, "GetInt64", "an INT")
         Return fb_json_int(State)
     End Method
 
-    // A UINT's integer, or an INT's that isn't negative. Panics for another token.
+    /// A UINT's integer, or an INT's that isn't negative. Panics for another token.
     @PanicsAtCaller
     Public Method GetUInt64(): UInt64
         If Current == JsonToken.INT && fb_json_int(State) >= 0
@@ -130,8 +132,8 @@ Public Class JsonReader
         Return fb_json_uint(State)
     End Method
 
-    // A number as a Double: a DOUBLE's, or the nearest to an INT's or UINT's. Panics for another
-    // token.
+    /// A number as a Double: a DOUBLE's, or the nearest to an INT's or UINT's. Panics for another
+    /// token.
     @PanicsAtCaller
     Public Method GetDouble(): Double
         If Current == JsonToken.INT Then Return fb_json_int(State) As Double
@@ -140,15 +142,15 @@ Public Class JsonReader
         Return fb_json_double(State)
     End Method
 
-    // A BOOL's. Panics for another token.
+    /// A BOOL's. Panics for another token.
     @PanicsAtCaller
     Public Method GetBool(): Bool
         Expect(Current == JsonToken.BOOL, "GetBool", "a BOOL")
         Return Truth
     End Method
 
-    // Reads past the value whose first token Next gave last, to its END_OBJECT or END_ARRAY when
-    // it's an object or an array. Throws as Next does.
+    /// Reads past the value whose first token Next gave last, to its END_OBJECT or END_ARRAY when
+    /// it's an object or an array. Throws as Next does.
     Public Method Skip() Throws ParseError
         If Current != JsonToken.BEGIN_OBJECT && Current != JsonToken.BEGIN_ARRAY Then Return
         Local depth = Depth - 1
@@ -164,7 +166,7 @@ Public Class JsonReader
         fb_json_reader_free(State)
     End Method
 
-    // Panics unless the token is right for what was called.
+    /// Panics unless the token is right for what was called.
     @PanicsAtCaller
     Method Expect(right: Bool, called: String, wanted: String)
         If !Started Then Panic("JsonReader.{called} needs a token, which Next gives")
@@ -172,54 +174,59 @@ Public Class JsonReader
     End Method
 End Class
 
-// Writes a JSON document a token at a time: BeginObject, then each Key and its value, then
-// EndObject; BeginArray, its values, then EndArray; or one value alone. With an indent of 0, the
-// text is on one line with no spaces, and otherwise each value of an array or an object is on a
-// line of its own, indented that many spaces more than what holds it, and a key's value is after
-// ": ". Each method panics when its token can't come next, as a Key outside an object, or a
-// second value after the document's, at its caller.
+/// Writes a JSON document a token at a time: BeginObject, then each Key and its value, then
+/// EndObject; BeginArray, its values, then EndArray; or one value alone. With an indent of 0, the
+/// text is on one line with no spaces, and otherwise each value of an array or an object is on a
+/// line of its own, indented that many spaces more than what holds it, and a key's value is after
+/// ": ". Each method panics when its token can't come next, as a Key outside an object, or a
+/// second value after the document's, at its caller.
 Public Class JsonWriter Implements Printable
     Field Parts: String[] = []
     Field Spaces: Int
-    // For each array or object open, True for an object, and how many values it has so far.
+    /// For each array or object open, True for an object, and how many values it has so far.
     Field Objects: Bool[] = []
     Field Counts: Int[] = []
     Field Keyed: Bool
     Field Written: Bool
 
-    // Panics when indent is below 0.
+    /// Panics when indent is below 0.
     @PanicsAtCaller
     Public New(indent: Int = 0)
         If indent < 0 Then Panic("a JsonWriter's indent can't be below 0, as {indent} is")
         Spaces = indent
     End New
 
-    // Whether the document's value is all written.
+    /// Whether the document's value is all written.
     Public Property IsComplete: Bool
         Get => Written && Objects.Count == 0
     End Property
 
+    /// Starts an object, whose keys and values come next. Panics where a value can't go.
     @PanicsAtCaller
     Public Method BeginObject()
         Open(True, "BeginObject")
     End Method
 
+    /// Ends the object that's open. Panics when the innermost open one is an array, or a key has no
+    /// value.
     @PanicsAtCaller
     Public Method EndObject()
         Close(True, "EndObject", "}}")
     End Method
 
+    /// Starts an array, whose values come next. Panics where a value can't go.
     @PanicsAtCaller
     Public Method BeginArray()
         Open(False, "BeginArray")
     End Method
 
+    /// Ends the array that's open. Panics when the innermost open one is an object.
     @PanicsAtCaller
     Public Method EndArray()
         Close(False, "EndArray", "]")
     End Method
 
-    // An object's next key, whose value comes next.
+    /// An object's next key, whose value comes next.
     @PanicsAtCaller
     Public Method Key(name: String)
         If Objects.Count == 0 || !Objects[Objects.Count - 1] || Keyed
@@ -232,24 +239,27 @@ Public Class JsonWriter Implements Printable
         Keyed = True
     End Method
 
+    /// Writes `value` as a string, in quotes, with JSON's escapes. Panics where a value can't go.
     @PanicsAtCaller
     Public Method WriteString(value: String)
         Scalar("WriteString", fb_json_quote(value))
     End Method
 
+    /// Writes `value` as a number. Panics where a value can't go.
     @PanicsAtCaller
     Public Method WriteInt(value: Int64)
         Scalar("WriteInt", "{value}")
     End Method
 
+    /// Writes `value` as a number. Panics where a value can't go.
     @PanicsAtCaller
     Public Method WriteUInt(value: UInt64)
         Scalar("WriteUInt", "{value}")
     End Method
 
-    // A Double, as the shortest text that reads back as it, with ".0" after one that would read
-    // as an integer, so it reads back as a DOUBLE. Panics for NaN or an infinity, which JSON
-    // doesn't have.
+    /// A Double, as the shortest text that reads back as it, with ".0" after one that would read
+    /// as an integer, so it reads back as a DOUBLE. Panics for NaN or an infinity, which JSON
+    /// doesn't have.
     @PanicsAtCaller
     Public Method WriteDouble(value: Double)
         Local text = fb_json_number(value)
@@ -260,20 +270,22 @@ Public Class JsonWriter Implements Printable
         Scalar("WriteDouble", text)
     End Method
 
+    /// Writes `value` as true or false. Panics where a value can't go.
     @PanicsAtCaller
     Public Method WriteBool(value: Bool)
         Scalar("WriteBool", value ? "true" : "false")
     End Method
 
+    /// Writes null. Panics where a value can't go.
     @PanicsAtCaller
     Public Method WriteNull()
         Scalar("WriteNull", "null")
     End Method
 
-    // The JSON written so far.
+    /// The JSON written so far.
     Public Method ToString(): String => Parts.Join("")
 
-    // Panics where a value can't come next: after the document's, or in an object before its key.
+    /// Panics where a value can't come next: after the document's, or in an object before its key.
     @PanicsAtCaller
     Method Place(called: String)
         If Objects.Count == 0 && Written
@@ -285,7 +297,7 @@ Public Class JsonWriter Implements Printable
         End If
     End Method
 
-    // Starts a value: after a comma and a line break when an array has others before it.
+    /// Starts a value: after a comma and a line break when an array has others before it.
     Method Separate()
         If Objects.Count == 0 || Keyed Then Return
         If Counts[Counts.Count - 1] > 0 Then Parts.Add(",")
@@ -293,7 +305,7 @@ Public Class JsonWriter Implements Printable
         NewLine(Objects.Count)
     End Method
 
-    // A line break and depth levels of indent, when there's an indent.
+    /// A line break and depth levels of indent, when there's an indent.
     Method NewLine(depth: Int)
         If Spaces == 0 Then Return
         Local text = "\n"
@@ -336,45 +348,45 @@ Public Class JsonWriter Implements Printable
         Ended()
     End Method
 
-    // A value ended: the key it was for is done, or the document is.
+    /// A value ended: the key it was for is done, or the document is.
     Method Ended()
         Keyed = False
         If Objects.Count == 0 Then Written = True
     End Method
 End Class
 
-// Panics, where a JsonReader is made, unless depth is 1 or more.
+/// Panics, where a JsonReader is made, unless depth is 1 or more.
 @PanicsAtCaller
 Function CheckDepth(depth: Int)
     If depth < 1 Then Panic("a JsonReader's depth is 1 or more, not {depth}")
 End Function
 
-// A document's Value, and a Value's document.
+/// A document's Value, and a Value's document.
 Public Struct Json
-    // Json isn't made: it's only its Static Methods.
+    /// Json isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The Value of text's JSON: an object as an OBJECT, its keys in order, the last of a key that
-    // repeats where its first was, and an integer that fits an Int64 as an INT, one past an
-    // Int64's largest that fits a UInt64 as a UINT, and any other number as a DOUBLE. Throws a
-    // ParseError as JsonReader's Next does, and for arrays and objects nested past depth. Panics
-    // unless depth is 1 or more.
+    /// The Value of text's JSON: an object as an OBJECT, its keys in order, the last of a key that
+    /// repeats where its first was, and an integer that fits an Int64 as an INT, one past an
+    /// Int64's largest that fits a UInt64 as a UINT, and any other number as a DOUBLE. Throws a
+    /// ParseError as JsonReader's Next does, and for arrays and objects nested past depth. Panics
+    /// unless depth is 1 or more.
     @PanicsAtCaller
     Public Static Method Read(text: String, depth: Int = DEPTH): Value Throws ParseError
         Return Try ValueOf(JsonReader(text, depth))
     End Method
 
-    // The Value of UTF-8 bytes' JSON, as Read of text gives it.
+    /// The Value of UTF-8 bytes' JSON, as Read of text gives it.
     @PanicsAtCaller
     Public Static Method Read(bytes: UInt8[], depth: Int = DEPTH): Value Throws ParseError
         Return Try ValueOf(JsonReader(bytes, depth))
     End Method
 
-    // value as JSON, as JsonWriter writes it with indent: a DOUBLE with a point or an exponent,
-    // so it reads back as one, and BYTES, which JSON has no kind for, as a string of their
-    // base64 (RFC 4648's, with '=' padding). Panics for a DOUBLE that's NaN or an infinity,
-    // which JSON doesn't have, or an indent below 0.
+    /// value as JSON, as JsonWriter writes it with indent: a DOUBLE with a point or an exponent,
+    /// so it reads back as one, and BYTES, which JSON has no kind for, as a string of their
+    /// base64 (RFC 4648's, with '=' padding). Panics for a DOUBLE that's NaN or an infinity,
+    /// which JSON doesn't have, or an indent below 0.
     @PanicsAtCaller
     Public Static Method Write(value: Value, indent: Int = 0): String
         Local writer = JsonWriter(indent)
@@ -382,28 +394,28 @@ Public Struct Json
         Return writer.ToString()
     End Method
 
-    // The T of text's JSON: Read's Value, made a T by Load<T>. Throws Read's ParseErrors, and
-    // Load's, whose Path says where in the document a value doesn't fit.
+    /// The T of text's JSON: Read's Value, made a T by `Load<T>`. Throws Read's ParseErrors, and
+    /// Load's, whose Path says where in the document a value doesn't fit.
     @PanicsAtCaller
     Public Static Method Read<T>(text: String, depth: Int = DEPTH): T Throws ParseError
         Return Try Load<T>(Try Read(text, depth))
     End Method
 
-    // The T of UTF-8 bytes' JSON, as Read<T> of text gives it.
+    /// The T of UTF-8 bytes' JSON, as `Read<T>` of text gives it.
     @PanicsAtCaller
     Public Static Method Read<T>(bytes: UInt8[], depth: Int = DEPTH): T Throws ParseError
         Return Try Load<T>(Try Read(bytes, depth))
     End Method
 
-    // x as JSON: Save's Value of it, written as Write writes a Value.
+    /// x as JSON: Save's Value of it, written as Write writes a Value.
     @PanicsAtCaller
     Public Static Method Write<T>(x: T, indent: Int = 0): String
         Return Write(Save(x), indent)
     End Method
 End Struct
 
-// Reads a document's tokens into its Value, holding the arrays and objects open as it goes, so
-// none takes a call of its own.
+/// Reads a document's tokens into its Value, holding the arrays and objects open as it goes, so
+/// none takes a call of its own.
 Function ValueOf(reader: JsonReader): Value Throws ParseError
     Local open: Value[] = []
     // The key waiting for its value in each object open.
@@ -457,7 +469,7 @@ Function ValueOf(reader: JsonReader): Value Throws ParseError
     End Loop
 End Function
 
-// An array or object Json.Write is in, with the keys of an object, and how far it's written.
+/// An array or object Json.Write is in, with the keys of an object, and how far it's written.
 Class Writing
     Public Field Item: Value
     Public Field Keys: String[]
@@ -469,8 +481,8 @@ Class Writing
     End New
 End Class
 
-// Writes value, holding the arrays and objects it's in as it goes, so none takes a call of its
-// own.
+/// Writes value, holding the arrays and objects it's in as it goes, so none takes a call of its
+/// own.
 @PanicsAtCaller
 Function WriteValue(writer: JsonWriter, value: Value)
     Local open: Writing[] = []

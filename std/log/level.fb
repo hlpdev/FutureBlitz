@@ -1,6 +1,6 @@
-// LogLevel, how much a log line matters, and LogFilter, the least level written for each module,
-// as FB_LOG's text sets it: "debug" for every module, or "info,net=trace,net.http=off", a level
-// for every module and one for each module named.
+//! LogLevel, how much a log line matters, and LogFilter, the least level written for each module,
+//! as FB_LOG's text sets it: "debug" for every module, or "info,net=trace,net.http=off", a level
+//! for every module and one for each module named.
 
 Import std.core
 Import std.collections
@@ -9,13 +9,13 @@ Extern "runtime"
     Function fb_string_from_array(bytes: UInt8[]): String
 End Extern
 
-// How much a line matters, the least first. A filter at OFF writes nothing.
+/// How much a line matters, the least first. A filter at OFF writes nothing.
 Public Enum LogLevel
     TRACE, DEBUG, INFO, WARN, ERROR, OFF
 End Enum
 
-// The level a name says, in any letter case: "trace", "debug", "info", "warn" or "warning",
-// "error", or "off". Null for anything else.
+/// The level a name says, in any letter case: "trace", "debug", "info", "warn" or "warning",
+/// "error", or "off". Null for anything else.
 Public Function ParseLogLevel(text: String): LogLevel?
     Local name = Lowered(Trimmed(text.Bytes))
     If name == "trace" Then Return LogLevel.TRACE
@@ -27,9 +27,9 @@ Public Function ParseLogLevel(text: String): LogLevel?
     Return Null
 End Function
 
-// The least level written for each module: its own, when it has one, or the nearest module's
-// it's in, so "net.http.client" has "net.http"'s or else "net"'s, or else the base level that
-// every other module has. It's Sendable, so a LogOutput shares it with every thread.
+/// The least level written for each module: its own, when it has one, or the nearest module's
+/// it's in, so "net.http.client" has "net.http"'s or else "net"'s, or else the base level that
+/// every other module has. It's Sendable, so a LogOutput shares it with every thread.
 Public Struct LogFilter Implements Printable
     ReadOnly Field Base: LogLevel
     ReadOnly Field Modules: ImmutableMap<String, LogLevel>
@@ -39,15 +39,15 @@ Public Struct LogFilter Implements Printable
         Modules = modules
     End New
 
-    // Every module at level.
+    /// Every module at level.
     Public Static Method At(level: LogLevel): LogFilter
         Return LogFilter(level, ImmutableMap<String, LogLevel>())
     End Method
 
-    // FB_LOG's text: parts between commas, each a level, which every module gets, or a module, an
-    // '=', and its level, with spaces around them left out. Every module is at INFO unless a part
-    // says otherwise, and a later part wins. Null when a part is neither, or a module's name is
-    // empty.
+    /// FB_LOG's text: parts between commas, each a level, which every module gets, or a module, an
+    /// '=', and its level, with spaces around them left out. Every module is at INFO unless a part
+    /// says otherwise, and a later part wins. Null when a part is neither, or a module's name is
+    /// empty.
     Public Static Method Parse(text: String): LogFilter?
         Local filter = At(LogLevel.INFO)
         Local bytes = text.Bytes
@@ -78,18 +78,18 @@ Public Struct LogFilter Implements Printable
         Return filter
     End Method
 
-    // The same filter, with module, and the modules in it that have no level of their own, at
-    // level.
+    /// The same filter, with module, and the modules in it that have no level of their own, at
+    /// level.
     Public Method With(module: String, level: LogLevel): LogFilter
         Return LogFilter(Base, Modules.Add(module, level))
     End Method
 
-    // The level every module without one of its own has.
+    /// The level every module without one of its own has.
     Public Property Level: LogLevel
         Get => Base
     End Property
 
-    // The least level written for module: its own, or the nearest module's it's in, or the base.
+    /// The least level written for module: its own, or the nearest module's it's in, or the base.
     Public Method LevelOf(module: String): LogLevel
         Local name = module
         Loop
@@ -102,13 +102,13 @@ Public Struct LogFilter Implements Printable
         End Loop
     End Method
 
-    // Whether a line at level, which isn't OFF, is written for module.
+    /// Whether a line at level, which isn't OFF, is written for module.
     Public Method Allows(module: String, level: LogLevel): Bool
         If level == LogLevel.OFF Then Return False
         Return (level As Int) >= (LevelOf(module) As Int)
     End Method
 
-    // As FB_LOG's text has it, its modules by name: "info,net=trace".
+    /// As FB_LOG's text has it, its modules by name: "info,net=trace".
     Public Method ToString(): String
         Local names = Modules.Keys()
         names.Sort()
@@ -120,10 +120,10 @@ Public Struct LogFilter Implements Printable
     End Method
 End Struct
 
-// A level's name in lowercase, as FB_LOG and JSON lines have it.
+/// A level's name in lowercase, as FB_LOG and JSON lines have it.
 Package Function LogLevelName(level: LogLevel): String => Lowered("{level}".Bytes)
 
-// The bytes without the spaces and tabs at either end.
+/// The bytes without the spaces and tabs at either end.
 Function Trimmed(bytes: UInt8[]): UInt8[]
     Local start = 0
     Local finish = bytes.Count
@@ -136,7 +136,7 @@ Function Trimmed(bytes: UInt8[]): UInt8[]
     Return bytes[start..finish]
 End Function
 
-// The bytes as a String, with ASCII's capitals in lowercase.
+/// The bytes as a String, with ASCII's capitals in lowercase.
 Function Lowered(bytes: UInt8[]): String
     Local lower = bytes.Clone()
     For i = 0 Until lower.Count

@@ -1,8 +1,8 @@
-// Deflate (RFC 1951), Zlib (RFC 1950), and Gzip (RFC 1952), over zlib-ng. Each one's Compress and
-// Decompress work at once, and its Compressor and Decompressor take bytes in turn and give what
-// came out of them so far, for data that comes in parts. Levels go from 0, stored as it is, to 9,
-// the smallest, and are 6 by default. A Gzip Decompress reads members one after another, as
-// gunzip does, and a Gzip Compress writes one member, with no name, time, or OS in its header.
+//! Deflate (RFC 1951), Zlib (RFC 1950), and Gzip (RFC 1952), over zlib-ng. Each one's Compress and
+//! Decompress work at once, and its Compressor and Decompressor take bytes in turn and give what
+//! came out of them so far, for data that comes in parts. Levels go from 0, stored as it is, to 9,
+//! the smallest, and are 6 by default. A Gzip Decompress reads members one after another, as
+//! gunzip does, and a Gzip Compress writes one member, with no name, time, or OS in its header.
 
 Import std.core
 Import std.compress.codec
@@ -19,25 +19,25 @@ Extern "runtime"
     Function fb_zlib_decoder_free(decoder: Ptr<Void>)
 End Extern
 
-// The runtime's numbers for the formats.
+/// The runtime's numbers for the formats.
 Const DEFLATE = 1
 Const ZLIB = 2
 Const GZIP = 3
 
-// Deflate's raw bytes, which zip entries and PNG's data are in.
+/// Deflate's raw bytes, which zip entries and PNG's data are in.
 Public Struct Deflate
-    // Deflate isn't made: it's only its Static Methods.
+    /// Deflate isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The data, compressed at the level. Panics when the level isn't from 0 to 9.
+    /// The data, compressed at the level. Panics when the level isn't from 0 to 9.
     @PanicsAtCaller
     Public Static Method Compress(data: UInt8[], level: Int = 6): UInt8[]
         Return Compressed(DEFLATE, data, level)
     End Method
 
-    // The bytes the data is compressed from, or an IOError when it isn't Deflate's, ends too
-    // soon, or would come to more than limit bytes. Panics when the limit is negative.
+    /// The bytes the data is compressed from, or an IOError when it isn't Deflate's, ends too
+    /// soon, or would come to more than limit bytes. Panics when the limit is negative.
     @PanicsAtCaller
     Public Static Method Decompress(data: UInt8[],
                                     limit: Int = MOST_BYTES): UInt8[] Throws IOError
@@ -45,20 +45,20 @@ Public Struct Deflate
     End Method
 End Struct
 
-// Zlib's bytes: Deflate's, with a header and an Adler-32 checksum.
+/// Zlib's bytes: Deflate's, with a header and an Adler-32 checksum.
 Public Struct Zlib
-    // Zlib isn't made: it's only its Static Methods.
+    /// Zlib isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The data, compressed at the level. Panics when the level isn't from 0 to 9.
+    /// The data, compressed at the level. Panics when the level isn't from 0 to 9.
     @PanicsAtCaller
     Public Static Method Compress(data: UInt8[], level: Int = 6): UInt8[]
         Return Compressed(ZLIB, data, level)
     End Method
 
-    // The bytes the data is compressed from, or an IOError when it isn't Zlib's, ends too soon,
-    // or would come to more than limit bytes. Panics when the limit is negative.
+    /// The bytes the data is compressed from, or an IOError when it isn't Zlib's, ends too soon,
+    /// or would come to more than limit bytes. Panics when the limit is negative.
     @PanicsAtCaller
     Public Static Method Decompress(data: UInt8[],
                                     limit: Int = MOST_BYTES): UInt8[] Throws IOError
@@ -66,21 +66,21 @@ Public Struct Zlib
     End Method
 End Struct
 
-// Gzip's bytes, of .gz files and HTTP's gzip: Deflate's, with a header and a CRC-32 checksum.
+/// Gzip's bytes, of .gz files and HTTP's gzip: Deflate's, with a header and a CRC-32 checksum.
 Public Struct Gzip
-    // Gzip isn't made: it's only its Static Methods.
+    /// Gzip isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The data, compressed at the level, as one member. Panics when the level isn't from 0 to 9.
+    /// The data, compressed at the level, as one member. Panics when the level isn't from 0 to 9.
     @PanicsAtCaller
     Public Static Method Compress(data: UInt8[], level: Int = 6): UInt8[]
         Return Compressed(GZIP, data, level)
     End Method
 
-    // The bytes the data is compressed from, each member's after the last's, or an IOError when
-    // it isn't Gzip's, ends too soon, or would come to more than limit bytes. Panics when the
-    // limit is negative.
+    /// The bytes the data is compressed from, each member's after the last's, or an IOError when
+    /// it isn't Gzip's, ends too soon, or would come to more than limit bytes. Panics when the
+    /// limit is negative.
     @PanicsAtCaller
     Public Static Method Decompress(data: UInt8[],
                                     limit: Int = MOST_BYTES): UInt8[] Throws IOError
@@ -88,12 +88,12 @@ Public Struct Gzip
     End Method
 End Struct
 
-// Deflate's bytes made in turn: Add gives what compressing the bytes it takes has made so far,
-// and Finish what's left, which ends them, and starts again.
+/// Deflate's bytes made in turn: Add gives what compressing the bytes it takes has made so far,
+/// and Finish what's left, which ends them, and starts again.
 Public Class DeflateCompressor Implements Coder
     Field State: Ptr<Void>
 
-    // Panics when the level isn't from 0 to 9.
+    /// Panics when the level isn't from 0 to 9.
     @PanicsAtCaller
     Public New(level: Int = 6)
         State = Encoder(DEFLATE, level)
@@ -107,11 +107,11 @@ Public Class DeflateCompressor Implements Coder
     End Method
 End Class
 
-// Zlib's bytes made in turn, as DeflateCompressor makes Deflate's.
+/// Zlib's bytes made in turn, as DeflateCompressor makes Deflate's.
 Public Class ZlibCompressor Implements Coder
     Field State: Ptr<Void>
 
-    // Panics when the level isn't from 0 to 9.
+    /// Panics when the level isn't from 0 to 9.
     @PanicsAtCaller
     Public New(level: Int = 6)
         State = Encoder(ZLIB, level)
@@ -125,11 +125,11 @@ Public Class ZlibCompressor Implements Coder
     End Method
 End Class
 
-// Gzip's bytes made in turn, as DeflateCompressor makes Deflate's, each Finish ending a member.
+/// Gzip's bytes made in turn, as DeflateCompressor makes Deflate's, each Finish ending a member.
 Public Class GzipCompressor Implements Coder
     Field State: Ptr<Void>
 
-    // Panics when the level isn't from 0 to 9.
+    /// Panics when the level isn't from 0 to 9.
     @PanicsAtCaller
     Public New(level: Int = 6)
         State = Encoder(GZIP, level)
@@ -143,15 +143,15 @@ Public Class GzipCompressor Implements Coder
     End Method
 End Class
 
-// Deflate's bytes taken in turn: Add gives what the bytes it takes decompress to so far, and
-// Finish what's left once they've all been added, and starts again. Each throws an IOError
-// when the bytes aren't Deflate's or would come to more than the limit, and Finish when they end
-// too soon. Bytes after the end are an IOError too.
+/// Deflate's bytes taken in turn: Add gives what the bytes it takes decompress to so far, and
+/// Finish what's left once they've all been added, and starts again. Each throws an IOError
+/// when the bytes aren't Deflate's or would come to more than the limit, and Finish when they end
+/// too soon. Bytes after the end are an IOError too.
 Public Class DeflateDecompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
 
-    // Panics when the limit is negative.
+    /// Panics when the limit is negative.
     @PanicsAtCaller
     Public New(limit: Int = MOST_BYTES)
         CheckLimit(limit)
@@ -172,12 +172,12 @@ Public Class DeflateDecompressor Implements Coder
     End Method
 End Class
 
-// Zlib's bytes taken in turn, as DeflateDecompressor takes Deflate's.
+/// Zlib's bytes taken in turn, as DeflateDecompressor takes Deflate's.
 Public Class ZlibDecompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
 
-    // Panics when the limit is negative.
+    /// Panics when the limit is negative.
     @PanicsAtCaller
     Public New(limit: Int = MOST_BYTES)
         CheckLimit(limit)
@@ -198,12 +198,12 @@ Public Class ZlibDecompressor Implements Coder
     End Method
 End Class
 
-// Gzip's bytes taken in turn, as DeflateDecompressor takes Deflate's, a member after another.
+/// Gzip's bytes taken in turn, as DeflateDecompressor takes Deflate's, a member after another.
 Public Class GzipDecompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
 
-    // Panics when the limit is negative.
+    /// Panics when the limit is negative.
     @PanicsAtCaller
     Public New(limit: Int = MOST_BYTES)
         CheckLimit(limit)
@@ -224,7 +224,7 @@ Public Class GzipDecompressor Implements Coder
     End Method
 End Class
 
-// A new encoder of the format, at the level.
+/// A new encoder of the format, at the level.
 @PanicsAtCaller
 Function Encoder(format: Int32, level: Int): Ptr<Void>
     CheckLevel(level, 0, 9, NameOf(format))
@@ -260,7 +260,7 @@ Function Decompressed(format: Int32, data: UInt8[], limit: Int): UInt8[] Throws 
     Return Try Ended(decoder, data, limit, NameOf(format))
 End Function
 
-// What the decoder gives for data, or the IOError its result means.
+/// What the decoder gives for data, or the IOError its result means.
 Function Taken(decoder: Ptr<Void>, data: UInt8[], limit: Int,
                format: String): UInt8[] Throws IOError
     Local output: UInt8[] = []
@@ -269,7 +269,7 @@ Function Taken(decoder: Ptr<Void>, data: UInt8[], limit: Int,
     Return output
 End Function
 
-// What the decoder gives for data, the last there is, or the IOError its result means.
+/// What the decoder gives for data, the last there is, or the IOError its result means.
 Function Ended(decoder: Ptr<Void>, data: UInt8[], limit: Int,
                format: String): UInt8[] Throws IOError
     Local output: UInt8[] = []

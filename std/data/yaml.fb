@@ -1,27 +1,28 @@
-// Yaml: YAML 1.2's documents, read into Values by its core schema and written from them. A
-// mapping is an Object, a sequence an Array, and a scalar Null, a Bool, an integer, a Double, or a
-// String as the core schema resolves its plain text, and a String in quotes or a block. A key is
-// its scalar's text, and the keys of a mapping are each its own. An alias is the node its anchor
-// names. Tags are the core schema's: `!!str`, `!!int`, `!!float`, `!!bool`, `!!null`, `!!seq`,
-// `!!map`, and `!`, under any handle a %TAG directive gives them; a document with another tag
-// isn't read.
+//! Yaml: YAML 1.2's documents, read into Values by its core schema and written from them. A
+//! mapping is an Object, a sequence an Array, and a scalar Null, a Bool, an integer, a Double, or a
+//! String as the core schema resolves its plain text, and a String in quotes or a block. A key is
+//! its scalar's text, and the keys of a mapping are each its own. An alias is the node its anchor
+//! names. Tags are the core schema's: `!!str`, `!!int`, `!!float`, `!!bool`, `!!null`, `!!seq`,
+//! `!!map`, and `!`, under any handle a %TAG directive gives them; a document with another tag
+//! isn't read.
 
 Import std.core
 Import std.collections
 Import std.data.text
 Import std.data.yaml_scanner
 
+/// What reads and writes YAML documents, in its Static Methods.
 Public Struct Yaml
-    // Yaml isn't made: it's only its Static Methods.
+    /// Yaml isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The document text holds, or Null for a text of none. An integer past what an Int64 holds is
-    // a UINT, and past a UInt64 a Double. Throws a ParseError, with its line and column, of
-    // UNEXPECTED_END for text that ends inside a quoted scalar or a flow collection, of
-    // OUT_OF_RANGE for an !!int past what a UInt64 holds, of OTHER for a tag that isn't the core
-    // schema's, a key that's a mapping or a sequence, or a text of more than one document, which
-    // ReadAll reads, at the second's start, and of SYNTAX for the rest that isn't YAML 1.2.
+    /// The document text holds, or Null for a text of none. An integer past what an Int64 holds is
+    /// a UINT, and past a UInt64 a Double. Throws a ParseError, with its line and column, of
+    /// UNEXPECTED_END for text that ends inside a quoted scalar or a flow collection, of
+    /// OUT_OF_RANGE for an !!int past what a UInt64 holds, of OTHER for a tag that isn't the core
+    /// schema's, a key that's a mapping or a sequence, or a text of more than one document, which
+    /// ReadAll reads, at the second's start, and of SYNTAX for the rest that isn't YAML 1.2.
     Public Static Method Read(text: String): Value Throws ParseError
         Local parser = YamlParser(text.Bytes)
         Local documents = Try parser.Documents()
@@ -34,15 +35,15 @@ Public Struct Yaml
         Return documents[0]
     End Method
 
-    // Each document text holds, in order. Throws a ParseError as Read does, but for more than
-    // one document.
+    /// Each document text holds, in order. Throws a ParseError as Read does, but for more than
+    /// one document.
     Public Static Method ReadAll(text: String): Value[] Throws ParseError
         Return Try YamlParser(text.Bytes).Documents()
     End Method
 
-    // value as a document: an Object as a block mapping, an Array as a block sequence, an empty
-    // one as {} or [], and a String plain where the core schema reads it back as that String,
-    // else in double quotes. Panics when value holds bytes, which the core schema hasn't got.
+    /// value as a document: an Object as a block mapping, an Array as a block sequence, an empty
+    /// one as {} or [], and a String plain where the core schema reads it back as that String,
+    /// else in double quotes. Panics when value holds bytes, which the core schema hasn't got.
     @PanicsAtCaller
     Public Static Method Write(value: Value): String
         Local out: UInt8[] = []
@@ -51,7 +52,7 @@ Public Struct Yaml
         Return TextOf(out)
     End Method
 
-    // values as documents, each after a "---". Panics as Write does.
+    /// values as documents, each after a "---". Panics as Write does.
     @PanicsAtCaller
     Public Static Method WriteAll(values: Value[]): String
         Local out: UInt8[] = []
@@ -68,7 +69,7 @@ Public Struct Yaml
         Return TextOf(out)
     End Method
 
-    // Writes value at depth's indent, on the line it's on when inline says so.
+    /// Writes value at depth's indent, on the line it's on when inline says so.
     @PanicsAtCaller
     Static Method WriteNode(out: UInt8[], value: Value, depth: Int, inline: Bool)
         If value.Kind == ValueKind.OBJECT && value.Count > 0
@@ -124,7 +125,7 @@ Public Struct Yaml
         End If
     End Method
 
-    // Whether value is written as a block: an Object or an Array that isn't empty.
+    /// Whether value is written as a block: an Object or an Array that isn't empty.
     Static Method IsBlock(value: Value): Bool
         Return (value.Kind == ValueKind.OBJECT || value.Kind == ValueKind.ARRAY) && value.Count > 0
     End Method
@@ -159,8 +160,8 @@ Public Struct Yaml
         End Select
     End Method
 
-    // Adds text, plain where the core schema reads it back as the same String, else in double
-    // quotes with escapes.
+    /// Adds text, plain where the core schema reads it back as the same String, else in double
+    /// quotes with escapes.
     Static Method AddScalarText(out: UInt8[], text: String)
         If IsPlainText(text)
             AddText(out, text)
@@ -190,7 +191,7 @@ Public Struct Yaml
         out.Add(34)
     End Method
 
-    // Whether text can be written plain and read back as the same String.
+    /// Whether text can be written plain and read back as the same String.
     Static Method IsPlainText(text: String): Bool
         Local bytes = text.Bytes
         If bytes.Count == 0 Then Return False
@@ -224,7 +225,7 @@ Public Struct Yaml
     Static Method IsFlowByte(b: UInt8): Bool => b == 44 || b == 91 || b == 93 || b == 123 ||
                                                 b == 125
 
-    // Whether the character of more than one byte at `at` is one a plain scalar can hold.
+    /// Whether the character of more than one byte at `at` is one a plain scalar can hold.
     Static Method IsPrintableFrom(bytes: UInt8[], at: Int): Bool
         If (bytes[at] & 0xC0) == 0x80 Then Return True
         Local c = CodeOf(bytes, at).0
@@ -232,7 +233,7 @@ Public Struct Yaml
                !(c >= 0xFFFE && c <= 0xFFFF)
     End Method
 
-    // What the core schema resolves a plain scalar's text to.
+    /// What the core schema resolves a plain scalar's text to.
     Package Static Method CoreValue(text: String): Value
         If text == "" || text == "~" || text == "null" || text == "Null" || text == "NULL" Then Return Value()
         If text == "true" || text == "True" || text == "TRUE" Then Return Value(True)
@@ -241,7 +242,7 @@ Public Struct Yaml
         Return number ?? Value(text)
     End Method
 
-    // The integer or Double the core schema reads text as, or Null when it's neither.
+    /// The integer or Double the core schema reads text as, or Null when it's neither.
     Static Method NumberOf(text: String): Value?
         Local bytes = text.Bytes
         Local start = 0
@@ -310,8 +311,8 @@ Public Struct Yaml
         Return Value(value)
     End Method
 
-    // The integer bytes write from `from` in base, its digits all the base's, or Null: an INT, a
-    // UINT past an Int64's largest, or a Double past a UInt64's, which keeps its sign.
+    /// The integer bytes write from `from` in base, its digits all the base's, or Null: an INT, a
+    /// UINT past an Int64's largest, or a Double past a UInt64's, which keeps its sign.
     Static Method IntegerOf(bytes: UInt8[], from: Int, base: Int, negative: Bool): Value?
         Local value: UInt64 = 0
         Local real: Double = 0
@@ -343,7 +344,7 @@ Public Struct Yaml
         Return Value(-(value As Double))
     End Method
 
-    // The nearest Double to the integer the digits from `from` write in base 8 or 16.
+    /// The nearest Double to the integer the digits from `from` write in base 8 or 16.
     Static Method PowerOfTwoReal(bytes: UInt8[], from: Int, base: Int): Double
         Local width = base == 16 ? 4 : 3
         Local top: UInt64 = 0
@@ -372,8 +373,8 @@ Public Struct Yaml
         Return real
     End Method
 
-    // Whether text is one of the core schema's integers: digits with a sign or not, or 0o's or
-    // 0x's.
+    /// Whether text is one of the core schema's integers: digits with a sign or not, or 0o's or
+    /// 0x's.
     Static Method IsIntegerText(text: String): Bool
         Local bytes = text.Bytes
         Local at = 0
@@ -401,7 +402,7 @@ Public Struct Yaml
     End Method
 End Struct
 
-// A node's properties: its anchor and its tag, each Null when it hasn't got one.
+/// A node's properties: its anchor and its tag, each Null when it hasn't got one.
 Class YamlProperties
     Field Anchor: String?
     Field Tag: String?
@@ -411,14 +412,14 @@ End Class
 Class YamlParser
     Field Scanner: YamlScanner
     Field Bytes: UInt8[]
-    // Each anchor's node, and its text when it's a scalar, for a key.
+    /// Each anchor's node, and its text when it's a scalar, for a key.
     Field Anchors: Map<String, Value>
     Field AnchorTexts: Map<String, String>
-    // The %TAG directives' prefixes, by handle.
+    /// The %TAG directives' prefixes, by handle.
     Field Handles: Map<String, String>
-    // The text of the last scalar read, for a key.
+    /// The text of the last scalar read, for a key.
     Field KeyText: String = ""
-    // Where each document starts: its first token's byte.
+    /// Where each document starts: its first token's byte.
     Field Starts: Int[] = []
 
     New(bytes: UInt8[])
@@ -501,14 +502,14 @@ Class YamlParser
         Return documents
     End Method
 
-    // Whether kind is a directive's: %YAML, %TAG, or one YAML 1.2 reserves.
+    /// Whether kind is a directive's: %YAML, %TAG, or one YAML 1.2 reserves.
     Static Method IsDirective(kind: YamlTokenKind): Bool
         Return kind == YamlTokenKind.VERSION || kind == YamlTokenKind.TAG_DIRECTIVE ||
                kind == YamlTokenKind.RESERVED_DIRECTIVE
     End Method
 
-    // A node in the block context: an alias, or a node and its properties, which a block
-    // mapping's values can make an indentless sequence when indentless says so.
+    /// A node in the block context: an alias, or a node and its properties, which a block
+    /// mapping's values can make an indentless sequence when indentless says so.
     Method BlockNode(indentless: Bool): Value Throws ParseError
         Local token = Try Scanner.Peek()
         If token.Kind == YamlTokenKind.ALIAS Then Return Try AliasNode()
@@ -528,14 +529,14 @@ Class YamlParser
         Return Try Finish(value.Expect("a block collection was read"), properties, token)
     End Method
 
-    // A node in the flow context.
+    /// A node in the flow context.
     Method FlowNode(): Value Throws ParseError
         Local token = Try Scanner.Peek()
         If token.Kind == YamlTokenKind.ALIAS Then Return Try AliasNode()
         Return Try FlowNodeAfter(Try Properties())
     End Method
 
-    // A scalar or a flow collection, after its properties; or, with properties, an empty scalar.
+    /// A scalar or a flow collection, after its properties; or, with properties, an empty scalar.
     Method FlowNodeAfter(properties: YamlProperties): Value Throws ParseError
         Local token = Try Scanner.Peek()
         If token.Kind == YamlTokenKind.SCALAR
@@ -554,7 +555,7 @@ Class YamlParser
         Return Try Finish(Try Resolve("", True, properties.Tag, token), properties, token)
     End Method
 
-    // The node an alias names.
+    /// The node an alias names.
     Method AliasNode(): Value Throws ParseError
         Local token = Try Scanner.Take()
         Local value = Anchors.Get(token.Text)
@@ -563,7 +564,7 @@ Class YamlParser
         Return value
     End Method
 
-    // A node's anchor and tag, in either order.
+    /// A node's anchor and tag, in either order.
     Method Properties(): YamlProperties Throws ParseError
         Local properties = YamlProperties()
         Loop
@@ -580,7 +581,7 @@ Class YamlParser
         End Loop
     End Method
 
-    // A tag's full name, its handle's prefix and its suffix, or "!" for the non-specific tag.
+    /// A tag's full name, its handle's prefix and its suffix, or "!" for the non-specific tag.
     Method TagOf(token: YamlToken): String Throws ParseError
         If token.Text == "" Then Return token.Suffix
         If token.Text == "!" && token.Suffix == "" Then Return "!"
@@ -589,7 +590,7 @@ Class YamlParser
         Return prefix + Decoded(token.Suffix)
     End Method
 
-    // A tag's suffix with its %-escapes replaced.
+    /// A tag's suffix with its %-escapes replaced.
     Method Decoded(suffix: String): String
         Local bytes = suffix.Bytes
         Local out: UInt8[] = []
@@ -611,7 +612,7 @@ Class YamlParser
         Return TextOf(out)
     End Method
 
-    // value with its properties: its tag checked against its kind, and its anchor named.
+    /// value with its properties: its tag checked against its kind, and its anchor named.
     Method Finish(value: Value, properties: YamlProperties,
                   token: YamlToken): Value Throws ParseError
         Local tag = properties.Tag
@@ -640,7 +641,7 @@ Class YamlParser
         Return value
     End Method
 
-    // Whether tag is one of the core schema's seven.
+    /// Whether tag is one of the core schema's seven.
     Static Method IsCoreTag(tag: String): Bool
         For name In ["str", "int", "float", "bool", "null", "seq", "map"]
             If tag == "tag:yaml.org,2002:" + name Then Return True
@@ -648,8 +649,8 @@ Class YamlParser
         Return False
     End Method
 
-    // A scalar's Value: by its tag, or for a plain scalar without one, as the core schema has
-    // it, and else a String.
+    /// A scalar's Value: by its tag, or for a plain scalar without one, as the core schema has
+    /// it, and else a String.
     Method Resolve(text: String, plain: Bool, tag: String?,
                    token: YamlToken): Value Throws ParseError
         KeyText = text
@@ -706,7 +707,7 @@ Class YamlParser
         End Loop
     End Method
 
-    // A sequence whose '-'s are as indented as the mapping's keys it's a value of.
+    /// A sequence whose '-'s are as indented as the mapping's keys it's a value of.
     Method IndentlessSequence(): Value Throws ParseError
         Local sequence = Value.Array()
         Loop
@@ -857,8 +858,8 @@ Class YamlParser
         End Loop
     End Method
 
-    // A flow collection's key's or value's node, or Null when it's empty, before a ',', the
-    // collection's end, or for a key, its ':'.
+    /// A flow collection's key's or value's node, or Null when it's empty, before a ',', the
+    /// collection's end, or for a key, its ':'.
     Method FlowEntryNode(end: YamlTokenKind, key: Bool): Value Throws ParseError
         Local token = Try Scanner.Peek()
         If token.Kind == YamlTokenKind.FLOW_ENTRY || token.Kind == end ||
@@ -869,7 +870,7 @@ Class YamlParser
         Return Try FlowCheckedNode()
     End Method
 
-    // A flow node, where a block's tokens can't be.
+    /// A flow node, where a block's tokens can't be.
     Method FlowCheckedNode(): Value Throws ParseError
         Local token = Try Scanner.Peek()
         If token.Kind == YamlTokenKind.STREAM_END
@@ -887,7 +888,7 @@ Class YamlParser
         Return Try FlowNode()
     End Method
 
-    // Adds key's entry: its scalar's text, which no entry before has.
+    /// Adds key's entry: its scalar's text, which no entry before has.
     Method AddEntry(mapping: Value, key: Value, text: String, value: Value,
                     token: YamlToken) Throws ParseError
         If key.Kind == ValueKind.ARRAY || key.Kind == ValueKind.OBJECT
@@ -899,7 +900,7 @@ Class YamlParser
         mapping[text] = value
     End Method
 
-    // Throws message, an UNEXPECTED_END at the flow collection's start, when token ends the text.
+    /// Throws message, an UNEXPECTED_END at the flow collection's start, when token ends the text.
     Method Unended(token: YamlToken, start: YamlToken, message: String) Throws ParseError
         If token.Kind == YamlTokenKind.STREAM_END
             Throw ErrorAt(Bytes, start.At, ParseErrorKind.UNEXPECTED_END, message)

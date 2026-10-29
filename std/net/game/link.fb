@@ -1,36 +1,36 @@
-// std.net.game's links: what a GameHost sends its packets over and takes them from. A UdpSocket
-// is one, through GameHost.Bind, and so is any Class that implements GameLink, as a test's link
-// that loses packets on purpose does.
+//! std.net.game's links: what a GameHost sends its packets over and takes them from. A UdpSocket
+//! is one, through GameHost.Bind, and so is any Class that implements GameLink, as a test's link
+//! that loses packets on purpose does.
 
 Import std.core
 Import std.time.duration
 Import std.net.address
 Import std.net.udp
 
-// What a GameHost's datagrams go over, as UDP's do: each one whole or not at all, maybe more than
-// once, in no promised order.
+/// What a GameHost's datagrams go over, as UDP's do: each one whole or not at all, maybe more than
+/// once, in no promised order.
 Public Interface GameLink
-    // Where it receives, as the other side sends to it.
+    /// Where it receives, as the other side sends to it.
     ReadOnly Property LocalAddress: SocketAddress
 
-    // Sends bytes to `to` as one datagram.
+    /// Sends bytes to `to` as one datagram.
     Method Send(bytes: UInt8[], to: SocketAddress) Throws NetError
 
-    // The next datagram that's come, and where from, waiting for timeout at most, or Null when
-    // none came by then. A timeout of 0 takes what's come without waiting.
+    /// The next datagram that's come, and where from, waiting for timeout at most, or Null when
+    /// none came by then. A timeout of 0 takes what's come without waiting.
     Method Receive(timeout: Duration): (UInt8[], SocketAddress)? Throws NetError
 
-    // Receive's Async twin, which waits on the main thread.
+    /// Receive's Async twin, which waits on the main thread.
     Async Method ReceiveAsync(timeout: Duration): (UInt8[], SocketAddress)? Throws NetError
         Return Try Receive(timeout)
     End Method
 
-    // Closes it, if it holds anything to close.
+    /// Closes it, if it holds anything to close.
     Method Close()
     End Method
 End Interface
 
-// A UdpSocket as a GameLink.
+/// A UdpSocket as a GameLink.
 Package Class UdpLink Implements GameLink
     Field Socket: UdpSocket
 

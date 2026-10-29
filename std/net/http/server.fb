@@ -1,10 +1,10 @@
-// HttpServer: HTTP/1.1 over TCP, or HTTPS, over TLS, whose handlers are Async code on the main
-// thread, so they share its Globals without data races. A request goes through the server's
-// middleware, in the order Use gave it, to the handler of the route that fits its method and path
-// best, through the middleware of the groups that route is in; the response goes back on a
-// connection kept open for the next request, unless the request or the response says to close
-// it. Automatic HTTPS gets the server's certificate from an ACME CA, as Let's Encrypt is, and
-// renews it while the server runs.
+//! HttpServer: HTTP/1.1 over TCP, or HTTPS, over TLS, whose handlers are Async code on the main
+//! thread, so they share its Globals without data races. A request goes through the server's
+//! middleware, in the order Use gave it, to the handler of the route that fits its method and path
+//! best, through the middleware of the groups that route is in; the response goes back on a
+//! connection kept open for the next request, unless the request or the response says to close
+//! it. Automatic HTTPS gets the server's certificate from an ACME CA, as Let's Encrypt is, and
+//! renews it while the server runs.
 
 Import std.core
 Import std.collections
@@ -34,28 +34,35 @@ Extern "runtime"
     Function fb_pool_size(): Int64
 End Extern
 
-// What a route runs: an Async Function of the request, which gives the response.
+/// What a route runs: an Async Function of the request, which gives the response.
 Public Alias HttpHandler = Func(HttpRequest): Task<HttpResponse>
 
-// What runs around a handler: an Async Function of the request and the next handler, which it
-// calls, or doesn't, to give the response.
+/// What runs around a handler: an Async Function of the request and the next handler, which it
+/// calls, or doesn't, to give the response.
 Public Alias HttpMiddleware = Func(HttpRequest, HttpHandler): Task<HttpResponse>
 
-// A request a server read: its method, its Verb, as the client wrote it, like "GET" (Method is
-// a keyword); its target, and the target's path, percent-encoded, without dot segments, and
-// query; its headers and body; the path parameters its route bound; and the client's address.
+/// A request a server read: its method, its Verb, as the client wrote it, like "GET" (Method is
+/// a keyword); its target, and the target's path, percent-encoded, without dot segments, and
+/// query; its headers and body; the path parameters its route bound; and the client's address.
 Public Class HttpRequest
+    /// Its method, as the client wrote it, like "GET".
     Public ReadOnly Field Verb: String
+    /// Its target, as the client wrote it.
     Public ReadOnly Field Target: String
+    /// Its target's path, percent-encoded, without dot segments.
     Public ReadOnly Field Path: String
+    /// Its target's query.
     Public ReadOnly Field Query: QueryParams
+    /// Its headers.
     Public ReadOnly Field Headers: Headers
+    /// Its body's bytes.
     Public ReadOnly Field Bytes: UInt8[]
-    // "HTTP/1.1" or "HTTP/1.0".
+    /// "HTTP/1.1" or "HTTP/1.0".
     Public ReadOnly Field Version: String
+    /// The client's address.
     Public ReadOnly Field RemoteAddress: String
     Field Bound: Map<String, String>
-    // The connection it came on, and its head, which a WebSocket's Accept takes.
+    /// The connection it came on, and its head, which a WebSocket's Accept takes.
     Package ReadOnly Field Connection: ServerConnection
     Package ReadOnly Field Started: Head
 
@@ -78,23 +85,23 @@ Public Class HttpRequest
         Started = head
     End New
 
-    // The body as text, its UTF-8, with U+FFFD for each byte that doesn't start well-formed
-    // UTF-8.
+    /// The body as text, its UTF-8, with U+FFFD for each byte that doesn't start well-formed
+    /// UTF-8.
     Public Property Text: String
         Get => fb_string_from_utf8(Bytes)
     End Property
 
-    // A path parameter its route bound, percent-decoded, like `:id`'s, or Null when it has none
-    // of that name.
+    /// A path parameter its route bound, percent-decoded, like `:id`'s, or Null when it has none
+    /// of that name.
     Public Method Param(name: String): String? => Bound.Get(name)
 
-    // Each path parameter its route bound, by name.
+    /// Each path parameter its route bound, by name.
     Public Property Params: Map<String, String>
         Get => Bound.Clone()
     End Property
 
-    // A form's fields, when the body is application/x-www-form-urlencoded, as a browser sends
-    // them, or none.
+    /// A form's fields, when the body is application/x-www-form-urlencoded, as a browser sends
+    /// them, or none.
     Public Method Form(): QueryParams
         Local kind = TrimSpace((Headers.Get("Content-Type") ?? "").Split(";")[0]).ToLower()
         If kind != "application/x-www-form-urlencoded" Then Return QueryParams()
@@ -106,7 +113,7 @@ Public Class HttpRequest
         Bound[name] = value
     End Method
 
-    // A Sendable copy of it, for a work route's handler on another thread.
+    /// A Sendable copy of it, for a work route's handler on another thread.
     Package Method Copy(): WorkRequest
         Local names: String[] = []
         Local values: String[] = []
@@ -122,9 +129,9 @@ End Class
 
 // Responses a handler gives.
 Extend HttpResponse
-    // A response of status, with body's bytes and its Content-Type, or an empty one. The status
-    // is a final response's, from 200 to 599, or it panics: a 1xx's response comes before the
-    // one that answers, and a WebSocket's 101 comes from its AcceptAsync.
+    /// A response of status, with body's bytes and its Content-Type, or an empty one. The status
+    /// is a final response's, from 200 to 599, or it panics: a 1xx's response comes before the
+    /// one that answers, and a WebSocket's 101 comes from its AcceptAsync.
     @PanicsAtCaller
     Public Static Method Of(status: Int, body: Body? = Null): HttpResponse
         If status < 200 || status > 599
@@ -142,11 +149,11 @@ Extend HttpResponse
         Return HttpResponse(status, headers, bytes, "")
     End Method
 
-    // A 200 with body.
+    /// A 200 with body.
     Public Static Method Of(body: Body): HttpResponse => Of(StatusCode.OK, body)
 
-    // A redirect to url, which a header's value can hold, a 302 Found unless status says another
-    // from 300 to 399, or it panics.
+    /// A redirect to url, which a header's value can hold, a 302 Found unless status says another
+    /// from 300 to 399, or it panics.
     @PanicsAtCaller
     Public Static Method Redirect(url: String, status: Int = 302): HttpResponse
         If status < 300 || status > 399
@@ -159,12 +166,12 @@ Extend HttpResponse
     End Method
 End Extend
 
-// Headers with none, which code with a Headers Field of its own can't make by the type's name.
+/// Headers with none, which code with a Headers Field of its own can't make by the type's name.
 Function NewHeaders(): Headers => Headers()
 
-// A route: its method, its pattern's segments, its handler, and the middleware of the groups
-// it's in, outermost first, which are their own stacks, so what Use adds later runs too.
-// A work route has its WorkHandler instead of a handler, which the server makes as it's called.
+/// A route: its method, its pattern's segments, its handler, and the middleware of the groups
+/// it's in, outermost first, which are their own stacks, so what Use adds later runs too.
+/// A work route has its WorkHandler instead of a handler, which the server makes as it's called.
 Package Class RouteEntry
     Package ReadOnly Field Verb: String
     Package ReadOnly Field Segments: String[]
@@ -181,7 +188,7 @@ Package Class RouteEntry
         Stacks = stacks
     End New
 
-    // A handler inside its groups' middleware.
+    /// A handler inside its groups' middleware.
     Package Method Wrapped(handler: HttpHandler): HttpHandler
         Local wrapped = handler
         For i = Stacks.Count - 1 To 0 Step -1
@@ -191,27 +198,27 @@ Package Class RouteEntry
     End Method
 End Class
 
-// The routes of a server and its groups, in the order they were added.
+/// The routes of a server and its groups, in the order they were added.
 Package Class RouteTable
     Package Field Routes: RouteEntry[] = []
 End Class
 
-// Routes, and the middleware around them: a server's own, or a group's, whose routes' paths
-// start with its prefix and whose middleware runs inside its parent's. A path is segments after
-// a '/' each: text, which the request's segment matches when it's the same once it's
-// percent-decoded, `:name`, which matches any one segment and binds it to name, or, last,
-// `*name`, which matches the rest of the path, empty too, and binds it. Of the routes whose
-// paths match a request's, the one whose segments are text first, segment by segment, takes it,
-// and of those its method fits, the first added; a request whose path some route matches but
-// whose method none has is a 405 Method Not Allowed, and one whose path none matches a 404. A
-// HEAD goes to a GET's route when there's no HEAD's, and its response's body isn't sent.
+/// Routes, and the middleware around them: a server's own, or a group's, whose routes' paths
+/// start with its prefix and whose middleware runs inside its parent's. A path is segments after
+/// a '/' each: text, which the request's segment matches when it's the same once it's
+/// percent-decoded, `:name`, which matches any one segment and binds it to name, or, last,
+/// `*name`, which matches the rest of the path, empty too, and binds it. Of the routes whose
+/// paths match a request's, the one whose segments are text first, segment by segment, takes it,
+/// and of those its method fits, the first added; a request whose path some route matches but
+/// whose method none has is a 405 Method Not Allowed, and one whose path none matches a 404. A
+/// HEAD goes to a GET's route when there's no HEAD's, and its response's body isn't sent.
 Public Class HttpRouter
-    // The server's routes, which its server keeps: a route holds its groups' middleware, so a
-    // group holding the table too would be a cycle.
+    /// The server's routes, which its server keeps: a route holds its groups' middleware, so a
+    /// group holding the table too would be a cycle.
     ReadOnly Field Table: Weak<RouteTable>
     ReadOnly Field Prefix: String[]
-    // The middleware of the groups it's in, outermost first, and its own, but for a server's,
-    // which goes around all of routing.
+    /// The middleware of the groups it's in, outermost first, and its own, but for a server's,
+    /// which goes around all of routing.
     ReadOnly Field Stacks: HttpMiddleware[][]
     Field Stack: HttpMiddleware[] = []
 
@@ -221,64 +228,68 @@ Public Class HttpRouter
         Stacks = stacks
     End New
 
-    // Adds a route for GET and the path, which panics unless it's a path as HttpRouter has
-    // them, or another route has the method and a path that matches what it matches.
+    /// Adds a route for GET and the path, which panics unless it's a path as HttpRouter has
+    /// them, or another route has the method and a path that matches what it matches.
     @PanicsAtCaller
     Public Method Get(path: String, handler: HttpHandler)
         Add("GET", path, handler)
     End Method
 
+    /// Adds a route for POST and `path`, as Get does.
     @PanicsAtCaller
     Public Method Post(path: String, handler: HttpHandler)
         Add("POST", path, handler)
     End Method
 
+    /// Adds a route for PUT and `path`, as Get does.
     @PanicsAtCaller
     Public Method Put(path: String, handler: HttpHandler)
         Add("PUT", path, handler)
     End Method
 
+    /// Adds a route for PATCH and `path`, as Get does.
     @PanicsAtCaller
     Public Method Patch(path: String, handler: HttpHandler)
         Add("PATCH", path, handler)
     End Method
 
+    /// Adds a route for DELETE and `path`, as Get does.
     @PanicsAtCaller
     Public Method Delete(path: String, handler: HttpHandler)
         Add("DELETE", path, handler)
     End Method
 
-    // Adds a route for method, any token, like "PROPFIND", as Get does.
+    /// Adds a route for method, any token, like "PROPFIND", as Get does.
     @PanicsAtCaller
     Public Method Route(method: String, path: String, handler: HttpHandler)
         If !IsToken(method) Then Panic("\"{method}\" isn't an HTTP method")
         Add(method, path, handler)
     End Method
 
-    // Adds a work route for GET and the path, as Get does, whose handler blocks, computing or
-    // waiting, and so runs on one of the server's Workers threads, given a Sendable copy of the
-    // request, while the main thread goes on answering others. The server's and groups'
-    // middleware runs around it on the main thread, as it does around any route.
+    /// Adds a work route for GET and the path, as Get does, whose handler blocks, computing or
+    /// waiting, and so runs on one of the server's Workers threads, given a Sendable copy of the
+    /// request, while the main thread goes on answering others. The server's and groups'
+    /// middleware runs around it on the main thread, as it does around any route.
     @PanicsAtCaller
     Public Method Work(path: String, handler: WorkHandler)
         Add("GET", path, Null, handler)
     End Method
 
-    // Adds a work route for method, as Route does.
+    /// Adds a work route for method, as Route does.
     @PanicsAtCaller
     Public Method Work(method: String, path: String, handler: WorkHandler)
         If !IsToken(method) Then Panic("\"{method}\" isn't an HTTP method")
         Add(method, path, Null, handler)
     End Method
 
-    // Adds middleware, which runs around each of its routes' handlers, after what Use gave it
-    // before, a server's around every request, the ones no route takes too.
+    /// Adds middleware, which runs around each of its routes' handlers, after what Use gave it
+    /// before, a server's around every request, the ones no route takes too.
     Public Method Use(middleware: HttpMiddleware)
         Stack.Add(middleware)
     End Method
 
-    // A group of routes whose paths start with prefix, a path as routes have them, but without
-    // a `*name`, or it panics, and whose middleware runs inside this one's.
+    /// A group of routes whose paths start with prefix, a path as routes have them, but without
+    /// a `*name`, or it panics, and whose middleware runs inside this one's.
     @PanicsAtCaller
     Public Method Group(prefix: String): HttpRouter
         Local segments = SegmentsOf(prefix)
@@ -317,7 +328,7 @@ Public Class HttpRouter
         table.Routes.Add(RouteEntry(method, segments, handler, work, stacks))
     End Method
 
-    // The server's routes, or a panic once the server's gone.
+    /// The server's routes, or a panic once the server's gone.
     @PanicsAtCaller
     Package Method Routes(): RouteTable
         Local table = Table
@@ -325,11 +336,11 @@ Public Class HttpRouter
         Return table
     End Method
 
-    // Its own middleware, around a handler.
+    /// Its own middleware, around a handler.
     Package Method Around(handler: HttpHandler): HttpHandler => Stacked(Stack, handler)
 End Class
 
-// The handler that runs a stack of middleware around another, the first outermost.
+/// The handler that runs a stack of middleware around another, the first outermost.
 Function Stacked(stack: HttpMiddleware[], handler: HttpHandler): HttpHandler
     Local wrapped = handler
     For i = stack.Count - 1 To 0 Step -1
@@ -338,7 +349,7 @@ Function Stacked(stack: HttpMiddleware[], handler: HttpHandler): HttpHandler
     Return wrapped
 End Function
 
-// The handler that runs middleware around next.
+/// The handler that runs middleware around next.
 Function Around(middleware: HttpMiddleware, next: HttpHandler): HttpHandler
     Return Function(request: HttpRequest) => middleware(request, next)
 End Function
@@ -349,8 +360,8 @@ Function Joined(first: String[], second: String[]): String[]
     Return all
 End Function
 
-// A route's path's segments, after the '/' each starts with, or a panic for a path that isn't
-// one: "/" is none.
+/// A route's path's segments, after the '/' each starts with, or a panic for a path that isn't
+/// one: "/" is none.
 @PanicsAtCaller
 Function SegmentsOf(path: String): String[]
     If !path.StartsWith("/") Then Panic("a route's path starts with '/', and \"{path}\" doesn't")
@@ -370,7 +381,7 @@ Function SegmentsOf(path: String): String[]
     Return segments
 End Function
 
-// Whether name is a parameter's: letters, digits, and '_', not starting with a digit.
+/// Whether name is a parameter's: letters, digits, and '_', not starting with a digit.
 Function IsName(name: String): Bool
     If name == "" Then Return False
     For i = 0 Until name.Bytes.Count
@@ -381,14 +392,14 @@ Function IsName(name: String): Bool
     Return True
 End Function
 
-// What a segment of a route's path is: 0 for text, 1 for a :name, 2 for a *name.
+/// What a segment of a route's path is: 0 for text, 1 for a :name, 2 for a *name.
 Function KindOf(segment: String): Int
     If segment.StartsWith("*") Then Return 2
     If segment.StartsWith(":") Then Return 1
     Return 0
 End Function
 
-// Whether two routes' paths match the same paths: the same segments, but for parameters' names.
+/// Whether two routes' paths match the same paths: the same segments, but for parameters' names.
 Function SameShape(a: String[], b: String[]): Bool
     If a.Count != b.Count Then Return False
     For i = 0 Until a.Count
@@ -398,8 +409,8 @@ Function SameShape(a: String[], b: String[]): Bool
     Return True
 End Function
 
-// How well a route's path matches a request's segments, percent-decoded: Null when it doesn't,
-// and otherwise each segment's kind, which Better compares.
+/// How well a route's path matches a request's segments, percent-decoded: Null when it doesn't,
+/// and otherwise each segment's kind, which Better compares.
 Function MatchOf(route: String[], path: String[]): Int[]?
     Local kinds: Int[] = []
     For i = 0 Until route.Count
@@ -418,9 +429,9 @@ Function MatchOf(route: String[], path: String[]): Int[]?
     Return kinds
 End Function
 
-// Whether one match is better than another: text before a parameter, a parameter before the
-// rest, at the first segment where they differ, and the shorter one when one starts the other,
-// since the longer one's last segment can only be a *name that matched none of the path.
+/// Whether one match is better than another: text before a parameter, a parameter before the
+/// rest, at the first segment where they differ, and the shorter one when one starts the other,
+/// since the longer one's last segment can only be a *name that matched none of the path.
 Function Better(a: Int[], b: Int[]): Bool
     For i = 0 Until Min(a.Count, b.Count)
         If a[i] != b[i] Then Return a[i] < b[i]
@@ -428,8 +439,8 @@ Function Better(a: Int[], b: Int[]): Bool
     Return a.Count < b.Count
 End Function
 
-// What a server keeps of a connection: its stream, what it's read of it, the client's address,
-// and whether a request is being answered on it, or a WebSocket took it over.
+/// What a server keeps of a connection: its stream, what it's read of it, the client's address,
+/// and whether a request is being answered on it, or a WebSocket took it over.
 Package Class ServerConnection
     Package ReadOnly Field Stream: Duplex
     Package ReadOnly Field Input: Wire
@@ -444,20 +455,20 @@ Package Class ServerConnection
     End New
 End Class
 
-// A server: routes and middleware, as HttpRouter has them, answering the requests that come to
-// where Listen has it listen, or ListenTls over TLS, as Serve runs. A request that breaks
-// HTTP/1.1's rules is answered as wire.fb has it (400, 413, 414, 431, 501, or 505) and its
-// connection closed; an HTTP/1.1 one without a Host, or any with two, is a 400; an Expect other
-// than 100-continue is a 417. A response has its Content-Length and Date set, and a Connection:
-// close when its connection closes after it.
+/// A server: routes and middleware, as HttpRouter has them, answering the requests that come to
+/// where Listen has it listen, or ListenTls over TLS, as Serve runs. A request that breaks
+/// HTTP/1.1's rules is answered as wire.fb has it (400, 413, 414, 431, 501, or 505) and its
+/// connection closed; an HTTP/1.1 one without a Host, or any with two, is a 400; an Expect other
+/// than 100-continue is a 417. A response has its Content-Length and Date set, and a Connection:
+/// close when its connection closes after it.
 Public Class HttpServer Extends HttpRouter
-    // Its routes, which its groups hold weakly.
+    /// Its routes, which its groups hold weakly.
     ReadOnly Field Own: RouteTable
     Field Listener: TcpListener? = Null
-    // What its connections' TLS is, for ListenTls.
+    /// What its connections' TLS is, for ListenTls.
     Field Tls: TlsServer? = Null
-    // Automatic HTTPS, for ListenAutoAsync, and its renewals, which Serve waits for as it ends,
-    // and how often they check the certificate.
+    /// Automatic HTTPS, for ListenAutoAsync, and its renewals, which Serve waits for as it ends,
+    /// and how often they check the certificate.
     Field Auto: AutoHttps? = Null
     Field Renewal: Task? = Null
     Field Check: Duration
@@ -466,14 +477,15 @@ Public Class HttpServer Extends HttpRouter
     Field Stopping: Bool
     Field BodyLimit: Int64 = 16777216
     Field Idle: Duration
-    // How many Workers threads its work routes have, and the threads, once one is called.
+    /// How many Workers threads its work routes have, and the threads, once one is called.
     Field Count: Int
     Field Waiting: Int = 1024
     Field Pool: WorkPool? = Null
-    // Whether Serve has given, after which the threads end once the last connection it was
-    // answering does.
+    /// Whether Serve has given, after which the threads end once the last connection it was
+    /// answering does.
     Field Served: Bool
 
+    /// A new HttpServer, with no routes, which lets a connection idle for 60 seconds.
     Public New()
         Connections = Map<Int, ServerConnection>()
         Idle = 60.Seconds
@@ -483,8 +495,8 @@ Public Class HttpServer Extends HttpRouter
         Super.New(Own, [], [])
     End New
 
-    // The most bytes a request's body can have, 16 MiB unless it's set, past which it's a 413.
-    // Panics when it's set below 0.
+    /// The most bytes a request's body can have, 16 MiB unless it's set, past which it's a 413.
+    /// Panics when it's set below 0.
     @PanicsAtCaller
     Public Property MaxBodySize: Int64
         Get => BodyLimit
@@ -494,11 +506,11 @@ Public Class HttpServer Extends HttpRouter
         End Set
     End Property
 
-    // How many threads its work routes' handlers run on, at most that many at once, the job
-    // pool's size, a core fewer than the machine's, unless it's set; the threads start when a
-    // work route is first called, and end once Serve has given and the connections it was
-    // answering have ended, so a request being answered as Stop comes is answered. Panics when
-    // it's set below 1, or once the threads have started.
+    /// How many threads its work routes' handlers run on, at most that many at once, the job
+    /// pool's size, a core fewer than the machine's, unless it's set; the threads start when a
+    /// work route is first called, and end once Serve has given and the connections it was
+    /// answering have ended, so a request being answered as Stop comes is answered. Panics when
+    /// it's set below 1, or once the threads have started.
     @PanicsAtCaller
     Public Property Workers: Int
         Get => Count
@@ -511,9 +523,9 @@ Public Class HttpServer Extends HttpRouter
         End Set
     End Property
 
-    // How many work routes' calls wait for a Workers thread at most, 1024 unless it's set, past
-    // which a call is a 503 Service Unavailable. Panics when it's set below 1, or once the
-    // threads have started.
+    /// How many work routes' calls wait for a Workers thread at most, 1024 unless it's set, past
+    /// which a call is a 503 Service Unavailable. Panics when it's set below 1, or once the
+    /// threads have started.
     @PanicsAtCaller
     Public Property MaxQueuedWork: Int
         Get => Waiting
@@ -526,8 +538,8 @@ Public Class HttpServer Extends HttpRouter
         End Set
     End Property
 
-    // How long a connection waits for its next request, or for more of one, before it's closed:
-    // a minute unless it's set.
+    /// How long a connection waits for its next request, or for more of one, before it's closed:
+    /// a minute unless it's set.
     Public Property IdleTimeout: Duration
         Get => Idle
         Set(value)
@@ -535,24 +547,24 @@ Public Class HttpServer Extends HttpRouter
         End Set
     End Property
 
-    // Listens at `address`, whose port 0 has the OS pick one, which LocalAddress tells. Throws a
-    // NetError as TcpListener.Listen does. Panics when it listens already.
+    /// Listens at `address`, whose port 0 has the OS pick one, which LocalAddress tells. Throws a
+    /// NetError as TcpListener.Listen does. Panics when it listens already.
     @PanicsAtCaller
     Public Method Listen(address: SocketAddress) Throws NetError
         If Listener != Null Then Panic("the HttpServer listens already")
         Listener = Try TcpListener.Listen(address)
     End Method
 
-    // Listens at `host`'s first address and `port`.
+    /// Listens at `host`'s first address and `port`.
     @PanicsAtCaller
     Public Method Listen(host: String, port: UInt16) Throws NetError
         If Listener != Null Then Panic("the HttpServer listens already")
         Listener = Try TcpListener.Listen(host, port)
     End Method
 
-    // Listens at `address` as Listen does, for HTTPS: each connection is TLS, as `tls` accepts
-    // it, with its certificate chain and key; a handshake that fails, or takes longer than
-    // IdleTimeout, closes its connection, and the server goes on.
+    /// Listens at `address` as Listen does, for HTTPS: each connection is TLS, as `tls` accepts
+    /// it, with its certificate chain and key; a handshake that fails, or takes longer than
+    /// IdleTimeout, closes its connection, and the server goes on.
     @PanicsAtCaller
     Public Method ListenTls(address: SocketAddress, tls: TlsServer) Throws NetError
         If Listener != Null Then Panic("the HttpServer listens already")
@@ -560,7 +572,7 @@ Public Class HttpServer Extends HttpRouter
         Tls = tls
     End Method
 
-    // Listens at `host`'s first address and `port`, for HTTPS, as `tls` accepts connections.
+    /// Listens at `host`'s first address and `port`, for HTTPS, as `tls` accepts connections.
     @PanicsAtCaller
     Public Method ListenTls(host: String, port: UInt16, tls: TlsServer) Throws NetError
         If Listener != Null Then Panic("the HttpServer listens already")
@@ -568,16 +580,16 @@ Public Class HttpServer Extends HttpRouter
         Tls = tls
     End Method
 
-    // Listens for HTTPS at `https` with a certificate for `names`, DNS names, which `acme` gets
-    // from its CA, or which `folder` keeps from a run before, while it's valid for those names.
-    // On `http`, where the CA checks HTTP-01's challenges, a server of its own answers them, and
-    // redirects every other request to HTTPS, with a 308, once HTTPS listens, and until then
-    // answers a 503. `folder` keeps the certificate's key and chain, as certificate.pem, and its
-    // names, each written atomically. Serve renews the certificate as it runs, as RenewAsync
-    // does, once less than a third of its lifetime is left, which it checks as it starts, as a
-    // kept one can be due, and then every RenewalCheck; connections from then on get the renewed
-    // one, and those before keep theirs. Throws what ObtainAsync, Listen, and writing the folder do.
-    // Panics when it listens already, and as ObtainAsync does for the names.
+    /// Listens for HTTPS at `https` with a certificate for `names`, DNS names, which `acme` gets
+    /// from its CA, or which `folder` keeps from a run before, while it's valid for those names. On
+    /// `http`, where the CA checks HTTP-01's challenges, a server of its own answers them, and
+    /// redirects every other request to HTTPS, with a 308, once HTTPS listens, and until then
+    /// answers a 503. `folder` keeps the certificate's key and chain, as certificate.pem, and its
+    /// names, each written atomically. Serve renews the certificate as it runs, as RenewAsync does,
+    /// once less than a third of its lifetime is left, which it checks as it starts, as a kept one
+    /// can be due, and then every RenewalCheck; connections from then on get the renewed one, and
+    /// those before keep theirs. Throws what ObtainAsync, Listen, and writing the folder do. Panics
+    /// when it listens already, and as ObtainAsync does for the names.
     @PanicsAtCaller
     Public Async Method ListenAutoAsync(acme: AcmeClient, names: String[], folder: Path,
                                         https: SocketAddress,
@@ -613,9 +625,9 @@ Public Class HttpServer Extends HttpRouter
         Renewal = auto.Renewing(check)
     End Method
 
-    // Gets automatic HTTPS's certificate again at once, and gives it to connections from then
-    // on. Throws what ObtainAsync and writing the folder do, which RenewalError then says, and
-    // the certificate before goes on. Panics without ListenAutoAsync.
+    /// Gets automatic HTTPS's certificate again at once, and gives it to connections from then
+    /// on. Throws what ObtainAsync and writing the folder do, which RenewalError then says, and
+    /// the certificate before goes on. Panics without ListenAutoAsync.
     @PanicsAtCaller
     Public Async Method RenewAsync() Throws NetError, TimeoutError, IOError
         Local auto = Auto
@@ -623,9 +635,9 @@ Public Class HttpServer Extends HttpRouter
         Try Await auto.RenewAsync()
     End Method
 
-    // How often automatic HTTPS checks whether its certificate is due to renew: 12 hours unless
-    // it's set, which counts from the check before even while a wait is under way. Panics when
-    // it's set to 0 or less.
+    /// How often automatic HTTPS checks whether its certificate is due to renew: 12 hours unless
+    /// it's set, which counts from the check before even while a wait is under way. Panics when
+    /// it's set to 0 or less.
     @PanicsAtCaller
     Public Property RenewalCheck: Duration
         Get => Check
@@ -635,25 +647,25 @@ Public Class HttpServer Extends HttpRouter
         End Set
     End Property
 
-    // When automatic HTTPS's certificate expires, or Null without it.
+    /// When automatic HTTPS's certificate expires, or Null without it.
     Public Property CertificateNotAfter: Timestamp?
         Get => Auto?.ValidUntil
     End Property
 
-    // Why automatic HTTPS's last renewal failed, which std.log logs too, or Null once one has
-    // worked, or without it.
+    /// Why automatic HTTPS's last renewal failed, which std.log logs too, or Null once one has
+    /// worked, or without it.
     Public Property RenewalError: Error?
         Get => Auto?.Failure
     End Property
 
-    // Where it listens, the port the OS picked included. Panics before Listen.
+    /// Where it listens, the port the OS picked included. Panics before Listen.
     @PanicsAtCaller
     Public Property LocalAddress: SocketAddress
         Get => Listening().LocalAddress
     End Property
 
-    // Takes connections and answers their requests until Stop, and gives once it stops taking
-    // them; requests being answered then are answered. Panics before Listen.
+    /// Takes connections and answers their requests until Stop, and gives once it stops taking
+    /// them; requests being answered then are answered. Panics before Listen.
     @PanicsAtCaller
     Public Async Method Serve()
         Local listener = Listening()
@@ -681,8 +693,8 @@ Public Class HttpServer Extends HttpRouter
         If serving != Null Then Await serving
     End Method
 
-    // Stops taking connections, closes those waiting for a request, and has those answering one
-    // close once it's answered.
+    /// Stops taking connections, closes those waiting for a request, and has those answering one
+    /// close once it's answered.
     Public Method Stop()
         Stopping = True
         Listener?.Close()
@@ -692,7 +704,7 @@ Public Class HttpServer Extends HttpRouter
         End For
     End Method
 
-    // Whether it's listening and hasn't been stopped.
+    /// Whether it's listening and hasn't been stopped.
     Public Property IsRunning: Bool
         Get => Listener != Null && !Stopping
     End Property
@@ -704,8 +716,8 @@ Public Class HttpServer Extends HttpRouter
         Return listener
     End Method
 
-    // Answers a connection's requests, one after another, until one side closes it, once its
-    // TLS handshake is done, for HTTPS.
+    /// Answers a connection's requests, one after another, until one side closes it, once its
+    /// TLS handshake is done, for HTTPS.
     Async Method Answer(id: Int, connection: ServerConnection)
         Defer Left(id)
         Local stream = connection.Stream
@@ -756,8 +768,8 @@ Public Class HttpServer Extends HttpRouter
         Await LingerAsync(stream)
     End Method
 
-    // The request a head starts: its body read, once a 100 Continue is sent when it asks for
-    // one, and its target's path and query.
+    /// The request a head starts: its body read, once a 100 Continue is sent when it asks for
+    /// one, and its target's path and query.
     Async Method Read(head: Head, connection: ServerConnection): HttpRequest Throws IOError,
                                                                                     WireError
         Local hosts = 0
@@ -803,27 +815,27 @@ Public Class HttpServer Extends HttpRouter
         Return HttpRequest(head, url.Path, QueryParams(query ?? ""), bytes, connection)
     End Method
 
-    // The response the server's middleware and the route's handler give.
+    /// The response the server's middleware and the route's handler give.
     Async Method Dispatch(request: HttpRequest): HttpResponse
         Local routed: HttpHandler = Function(asked: HttpRequest) => Routed(asked)
         Return Await Around(routed)(request)
     End Method
 
-    // Serve has given: the Workers threads end now when no connection is being answered, or as
-    // the last one ends.
+    /// Serve has given: the Workers threads end now when no connection is being answered, or as
+    /// the last one ends.
     Method Ended()
         Served = True
         If Connections.Count == 0 Then Pool?.Close()
     End Method
 
-    // A connection has ended.
+    /// A connection has ended.
     Method Left(id: Int)
         Connections.Remove(id)
         If Served && Connections.Count == 0 Then Pool?.Close()
     End Method
 
-    // A work route's response: its handler's, from a Workers thread, which the first call starts
-    // them for, or a 503 Service Unavailable while MaxQueuedWork calls wait for a thread already.
+    /// A work route's response: its handler's, from a Workers thread, which the first call starts
+    /// them for, or a 503 Service Unavailable while MaxQueuedWork calls wait for a thread already.
     Async Method Worked(request: HttpRequest, work: WorkHandler): HttpResponse
         Local pool = Pool
         If pool == Null
@@ -836,8 +848,8 @@ Public Class HttpServer Extends HttpRouter
         Return (Await task).Response()
     End Method
 
-    // The response of the route that takes the request, or a 404 or a 405; an OPTIONS of *, the
-    // server's own, is a 204.
+    /// The response of the route that takes the request, or a 404 or a 405; an OPTIONS of *, the
+    /// server's own, is a 204.
     Async Method Routed(request: HttpRequest): HttpResponse
         If request.Target == "*" Then Return HttpResponse.Of(StatusCode.NO_CONTENT)
         Local path: String[] = []
@@ -896,8 +908,8 @@ Public Class HttpServer Extends HttpRouter
     End Method
 End Class
 
-// Whether a connection stays open after a response: HTTP/1.1's do unless the request or the
-// response says Connection: close, and HTTP/1.0's only when the request says keep-alive.
+/// Whether a connection stays open after a response: HTTP/1.1's do unless the request or the
+/// response says Connection: close, and HTTP/1.0's only when the request says keep-alive.
 Function KeepsOpen(request: HttpRequest, response: HttpResponse): Bool
     If HasToken(response.Headers, "Connection", "close") Then Return False
     If HasToken(request.Headers, "Connection", "close") Then Return False
@@ -914,8 +926,8 @@ Function HasToken(headers: Headers, name: String, token: String): Bool
     Return False
 End Function
 
-// A response's bytes: its status line, its headers with Content-Length, Date, and Connection
-// as the server sets them, and its body, unless it's a HEAD's, or a status that has none.
+/// A response's bytes: its status line, its headers with Content-Length, Date, and Connection
+/// as the server sets them, and its body, unless it's a HEAD's, or a status that has none.
 Function ResponseBytes(request: HttpRequest, response: HttpResponse, open: Bool): UInt8[]
     Local status = response.Status
     Local names: String[] = []
@@ -951,22 +963,22 @@ Function ResponseBytes(request: HttpRequest, response: HttpResponse, open: Bool)
     Return bytes
 End Function
 
-// The answer to a request HTTP/1.1's rules refuse.
+/// The answer to a request HTTP/1.1's rules refuse.
 Function ErrorBytes(status: Int): UInt8[]
     Return HeadBytes("HTTP/1.1 {status} {StatusCode.Reason(status)}",
                      ["Content-Length", "Connection"], ["0", "close"])
 End Function
 
-// Where HTTP-01's challenges are.
+/// Where HTTP-01's challenges are.
 Const CHALLENGES = "/.well-known/acme-challenge/"
 
-// The port HTTPS listens at, which automatic HTTPS's redirects go to once it's Ready, listening.
+/// The port HTTPS listens at, which automatic HTTPS's redirects go to once it's Ready, listening.
 Package Class HttpsPort
     Package Field Port: UInt16
     Package Field Ready: Bool
 End Class
 
-// A certificate chain and its key, and when its certificate is valid.
+/// A certificate chain and its key, and when its certificate is valid.
 Package Class Identity
     Package ReadOnly Field Chain: Certificate[]
     Package ReadOnly Field Key: Key
@@ -981,7 +993,7 @@ Package Class Identity
     End New
 End Class
 
-// Whether `key` is the private key of `certificate`'s, both of ECDSA P-256.
+/// Whether `key` is the private key of `certificate`'s, both of ECDSA P-256.
 Function IsKeyOf(key: Key, certificate: Certificate): Bool
     Local own = certificate.PublicKey
     If own == Null || own.Kind != KeyKind.ECDSA_P256 || key.Kind != KeyKind.ECDSA_P256 ||
@@ -998,8 +1010,8 @@ Function IsKeyOf(key: Key, certificate: Certificate): Bool
     Return True
 End Function
 
-// `chain`, its certificate first, and `key`, or Null for no certificate, or one whose times
-// don't read.
+/// `chain`, its certificate first, and `key`, or Null for no certificate, or one whose times
+/// don't read.
 Function IdentityOf(chain: Certificate[], key: Key): Identity?
     If chain.Count == 0 Then Return Null
     Local notBefore = Timestamp.Parse(chain[0].NotBefore)
@@ -1008,9 +1020,9 @@ Function IdentityOf(chain: Certificate[], key: Key): Identity?
     Return Identity(chain, key, notBefore, notAfter)
 End Function
 
-// A server's automatic HTTPS: the ACME client and the names it gets a certificate for, the folder
-// it keeps the certificate in, the challenges' answers, which a server of its own on HTTP gives,
-// and when the certificate is valid, and why its last renewal failed.
+/// A server's automatic HTTPS: the ACME client and the names it gets a certificate for, the folder
+/// it keeps the certificate in, the challenges' answers, which a server of its own on HTTP gives,
+/// and when the certificate is valid, and why its last renewal failed.
 Package Class AutoHttps
     ReadOnly Field Acme: AcmeClient
     ReadOnly Field Names: String[]
@@ -1043,15 +1055,15 @@ Package Class AutoHttps
         End Function)
     End New
 
-    // The certificate the folder keeps, while it's for the names and hasn't expired, or else one
-    // the CA gives.
+    /// The certificate the folder keeps, while it's for the names and hasn't expired, or else one
+    /// the CA gives.
     Package Async Method FirstAsync(): Identity Throws NetError, TimeoutError, IOError
         Local stored = Stored()
         If stored != Null Then Return stored
         Return Try Await ObtainAsync()
     End Method
 
-    // What the folder keeps, or Null when it keeps nothing, or nothing it can use.
+    /// What the folder keeps, or Null when it keeps nothing, or nothing it can use.
     Method Stored(): Identity?
         Try
             Local names = Try File.ReadText(Folder / Path("names.txt"))
@@ -1072,7 +1084,7 @@ Package Class AutoHttps
         End Try
     End Method
 
-    // A certificate for the names, with a new key, which the folder keeps from then on.
+    /// A certificate for the names, with a new key, which the folder keeps from then on.
     Async Method ObtainAsync(): Identity Throws NetError, TimeoutError, IOError
         Local key = Key(KeyKind.ECDSA_P256, True, EcdsaP256.NewPrivateKey())
         Local pem = Try Await Acme.ObtainAsync(Names, key, Tokens)
@@ -1089,8 +1101,8 @@ Package Class AutoHttps
         Return identity
     End Method
 
-    // Gets the certificate again, which connections from then on get, or keeps why it failed,
-    // and logs either.
+    /// Gets the certificate again, which connections from then on get, or keeps why it failed,
+    /// and logs either.
     Package Async Method RenewAsync() Throws NetError, TimeoutError, IOError
         Try
             Local identity = Try Await ObtainAsync()
@@ -1115,9 +1127,9 @@ Package Class AutoHttps
         Log.Error("the certificate for {NamesText()} wasn't renewed: {e.Message}")
     End Method
 
-    // Renews the certificate once less than a third of its lifetime is left, checking at once,
-    // as a kept one can be due, and then every `check()`, until Stop. It waits a second at a
-    // time, so Stop ends it soon, and a RenewalCheck set meanwhile counts from the check before.
+    /// Renews the certificate once less than a third of its lifetime is left, checking at once,
+    /// as a kept one can be due, and then every `check()`, until Stop. It waits a second at a
+    /// time, so Stop ends it soon, and a RenewalCheck set meanwhile counts from the check before.
     Package Async Method Renewing(check: Func(): Duration)
         While !Stopped
             If ValidUntil - Timestamp.Now() < (ValidUntil - ValidFrom) / 3
@@ -1133,7 +1145,7 @@ Package Class AutoHttps
         End While
     End Method
 
-    // Notes when the certificate it serves from then on is valid.
+    /// Notes when the certificate it serves from then on is valid.
     Package Method Use(identity: Identity)
         ValidFrom = identity.NotBefore
         ValidUntil = identity.NotAfter
@@ -1147,10 +1159,10 @@ Package Class AutoHttps
     End Method
 End Class
 
-// What automatic HTTPS's server on HTTP answers `request` with: a challenge's key authorization
-// from `tokens`, or a 404 for a token it hasn't, and for anything else, a 308 to the same path
-// and query over HTTPS, at its Host, or `fallback` for none, and `secure`'s port, or a 503 until
-// HTTPS listens.
+/// What automatic HTTPS's server on HTTP answers `request` with: a challenge's key authorization
+/// from `tokens`, or a 404 for a token it hasn't, and for anything else, a 308 to the same path
+/// and query over HTTPS, at its Host, or `fallback` for none, and `secure`'s port, or a 503 until
+/// HTTPS listens.
 Function Challenged(request: HttpRequest, tokens: AcmeTokens, secure: HttpsPort,
                     fallback: String): HttpResponse
     If request.Path.StartsWith(CHALLENGES)
@@ -1172,8 +1184,8 @@ Function Challenged(request: HttpRequest, tokens: AcmeTokens, secure: HttpsPort,
     Return HttpResponse.Redirect("https://{authority}{TargetOf(request)}", 308)
 End Function
 
-// A request's target as a path and query: an origin-form one as it is, and an absolute-form
-// one's, which RFC 9112 has a server take too.
+/// A request's target as a path and query: an origin-form one as it is, and an absolute-form
+/// one's, which RFC 9112 has a server take too.
 Function TargetOf(request: HttpRequest): String
     Local target = request.Target
     If target.StartsWith("/") Then Return target
@@ -1183,7 +1195,7 @@ Function TargetOf(request: HttpRequest): String
     Return query == Null ? url.Path : "{url.Path}?{query}"
 End Function
 
-// A Host field's host, without its port: a name, an IPv4 address, or an IPv6 one in brackets.
+/// A Host field's host, without its port: a name, an IPv4 address, or an IPv6 one in brackets.
 Function HostOf(field: String): String
     If field.StartsWith("[")
         Local close = field.Find("]") ?? -1

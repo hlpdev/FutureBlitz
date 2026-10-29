@@ -1,36 +1,40 @@
-// Pool<T>: values kept by Handles that stay valid until their value is removed, like a game's
-// enemies. A removed value's slot is reused, and its Generation counts how many times, so an
-// old Handle to it finds nothing. Generations start at 1, so a Handle's zero finds nothing too.
+//! `Pool<T>`: values kept by Handles that stay valid until their value is removed, like a game's
+//! enemies. A removed value's slot is reused, and its Generation counts how many times, so an
+//! old Handle to it finds nothing. Generations start at 1, so a Handle's zero finds nothing too.
 
 Import std.core
 
-// Where a value is in its Pool, which only the Pool makes. Two are equal when they're the same
-// value's, so a Handle can be a Map's key or a Set's value.
+/// Where a value is in its Pool, which only the Pool makes. Two are equal when they're the same
+/// value's, so a Handle can be a Map's key or a Set's value.
 Public Struct Handle<T> Implements Hashable
+    /// Its slot in the Pool.
     Public ReadOnly Field Index: Int
     ReadOnly Field Generation: Int64
 End Struct
 
+/// Values kept by Handles that stay valid until their value is removed, reusing removed values'
+/// slots.
 @DebugElements
 Public Class Pool<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Items: T?[] = []
-    // Whether each slot holds a value, which can be Null in a Pool of a T?.
+    /// Whether each slot holds a value, which can be Null in a Pool of a T?.
     Field Used: Bool[] = []
     Field Generations: Int64[] = []
-    // The empty slots, to reuse.
+    /// The empty slots, to reuse.
     Field Free: Int[] = []
 
+    /// How many values it holds.
     Public Property Count: Int
         Get => Items.Count - Free.Count
     End Property
 
-    // How many values it has slots for before it needs more memory.
+    /// How many values it has slots for before it needs more memory.
     Public Property Capacity: Int
         Get => Items.Capacity
     End Property
 
-    // Makes room for count slots in all, so adding up to that many values doesn't move them
-    // again.
+    /// Makes room for count slots in all, so adding up to that many values doesn't move them
+    /// again.
     @PanicsAtCaller
     Public Method Reserve(count: Int)
         If count < 0 Then Panic("Reserve takes a count that isn't negative, not {count}")
@@ -39,7 +43,7 @@ Public Class Pool<T> Implements Iterable<T>, Cloneable, Defaultable
         Generations.Reserve(count)
     End Method
 
-    // Adds the value, and gives its Handle.
+    /// Adds the value, and gives its Handle.
     Public Method Add(value: T): Handle<T>
         If Free.Count == 0
             Items.Add(value)
@@ -55,43 +59,43 @@ Public Class Pool<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Handle<T>(index, Generations[index])
     End Method
 
-    // The handle's value, or Null once it's removed.
+    /// The handle's value, or Null once it's removed.
     Public Method Get(handle: Handle<T>): T?
         If !Contains(handle) Then Return Null
         Return Items[handle.Index]
     End Method
 
-    // Gives the handle's value a new value, and tells whether it's still there.
+    /// Gives the handle's value a new value, and tells whether it's still there.
     Public Method Set(handle: Handle<T>, value: T): Bool
         If !Contains(handle) Then Return False
         Items[handle.Index] = value
         Return True
     End Method
 
-    // Whether the handle's value is still there: its slot hasn't been emptied since.
+    /// Whether the handle's value is still there: its slot hasn't been emptied since.
     Public Method Contains(handle: Handle<T>): Bool
         Return handle.Index >= 0 && handle.Index < Items.Count &&
                Generations[handle.Index] == handle.Generation
     End Method
 
-    // Removes the handle's value, and tells whether it was there.
+    /// Removes the handle's value, and tells whether it was there.
     Public Method Remove(handle: Handle<T>): Bool
         If !Contains(handle) Then Return False
         Empty(handle.Index)
         Return True
     End Method
 
-    // Removes every value. Their Handles find nothing after.
+    /// Removes every value. Their Handles find nothing after.
     Public Method Clear()
         For i = 0 Until Items.Count
             If Used[i] Then Empty(i)
         End For
     End Method
 
-    // A new, empty Pool.
+    /// A new, empty Pool.
     Public Static Method DefaultValue(): Pool<T> => Pool<T>()
 
-    // A new Pool with the same values, which the same Handles find.
+    /// A new Pool with the same values, which the same Handles find.
     Public Method Clone(): Pool<T>
         Local copy = Pool<T>()
         copy.Items = Items.Clone()
@@ -101,14 +105,14 @@ Public Class Pool<T> Implements Iterable<T>, Cloneable, Defaultable
         Return copy
     End Method
 
-    // The values, in the order of their slots. Removing values while going over them is fine.
+    /// The values, in the order of their slots. Removing values while going over them is fine.
     Public Method Iterate(): PoolIterator<T> => PoolIterator<T>(Self, 0)
 
-    // Each value with its Handle, in the order of their slots, for 'For handle, value In
-    // pool.IterateHandles()'. Removing values while going over them is fine.
+    /// Each value with its Handle, in the order of their slots, for 'For handle, value In
+    /// pool.IterateHandles()'. Removing values while going over them is fine.
     Public Method IterateHandles(): PoolHandles<T> => PoolHandles<T>(Self, 0)
 
-    // Empties a slot that holds a value, for the next Add to reuse.
+    /// Empties a slot that holds a value, for the next Add to reuse.
     Method Empty(index: Int)
         Items[index] = Null
         Used[index] = False
@@ -117,6 +121,7 @@ Public Class Pool<T> Implements Iterable<T>, Cloneable, Defaultable
     End Method
 End Class
 
+/// The values of a Pool, in slot order, which For ... In goes over.
 Public Struct PoolIterator<T> Implements Iterator<T>
     Field Owner: Pool<T>
     Field Index: Int
@@ -130,6 +135,7 @@ Public Struct PoolIterator<T> Implements Iterator<T>
     End Method
 End Struct
 
+/// The values of a Pool with their Handles, as (handle, value), in slot order.
 Public Struct PoolHandles<T> Implements Iterator<(Handle<T>, T)>
     Field Owner: Pool<T>
     Field Index: Int

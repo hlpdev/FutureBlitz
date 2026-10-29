@@ -1,39 +1,52 @@
-// Queue<T>: first in, first out. Enqueue puts a value at the back, and Dequeue takes the one at
-// the front. The values start at Head. Dequeue empties a value's slot as it takes it, so the
-// value goes as soon as the program lets go of it, and the empty slots are dropped once they're
-// half.
+//! `Queue<T>`: first in, first out. Enqueue puts a value at the back, and Dequeue takes the one at
+//! the front. The values start at Head. Dequeue empties a value's slot as it takes it, so the
+//! value goes as soon as the program lets go of it, and the empty slots are dropped once they're
+//! half.
 
 Import std.core
 
+/// First in, first out: Enqueue puts a value at the back, and Dequeue takes the front one off.
+///
+/// # Examples
+///
+/// ```
+/// Local turns = Queue<String>()
+/// turns.Enqueue("knight")
+/// turns.Enqueue("goblin")
+/// Expect(turns.Dequeue() == "knight")
+/// Expect(turns.Peek() == "goblin")
+/// ```
 @DebugElements
 Public Class Queue<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Items: T?[] = []
     Field Head: Int
-    // How many times values were added or removed, so a For ... In over them can tell.
+    /// How many times values were added or removed, so a For ... In over them can tell.
     Field Changes: Int64
 
+    /// How many values it holds.
     Public Property Count: Int
         Get => Items.Count - Head
     End Property
 
+    /// Puts `value` at the back.
     Public Method Enqueue(value: T)
         Items.Add(value)
         Changes += 1
     End Method
 
-    // The same as Enqueue.
+    /// The same as Enqueue.
     Public Method Add(value: T)
         Enqueue(value)
     End Method
 
-    // Enqueues each of the values, in order.
+    /// Enqueues each of the values, in order.
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
             Enqueue(value)
         End For
     End Method
 
-    // Takes the front value off and gives it. Panics when the Queue is empty.
+    /// Takes the front value off and gives it. Panics when the Queue is empty.
     @PanicsAtCaller
     Public Method Dequeue(): T
         Local front = Peek()
@@ -48,26 +61,26 @@ Public Class Queue<T> Implements Iterable<T>, Cloneable, Defaultable
         Return front
     End Method
 
-    // The front value, which stays. Panics when the Queue is empty.
+    /// The front value, which stays. Panics when the Queue is empty.
     @PanicsAtCaller
     Public Method Peek(): T
         If Head == Items.Count Then Panic("the Queue is empty")
         Return Items[Head].Expect("a Queue's slot from Head on holds a value")
     End Method
 
-    // Takes the front value off and gives it, or Null when the Queue is empty.
+    /// Takes the front value off and gives it, or Null when the Queue is empty.
     Public Method TryDequeue(): T?
         If Head == Items.Count Then Return Null
         Return Dequeue()
     End Method
 
-    // The front value, which stays, or Null when the Queue is empty.
+    /// The front value, which stays, or Null when the Queue is empty.
     Public Method TryPeek(): T?
         If Head == Items.Count Then Return Null
         Return Peek()
     End Method
 
-    // The values from the front, the order Dequeue gives them, in a new array.
+    /// The values from the front, the order Dequeue gives them, in a new array.
     Public Method ToArray(): T[]
         Local values: T[] = []
         values.Reserve(Count)
@@ -77,6 +90,7 @@ Public Class Queue<T> Implements Iterable<T>, Cloneable, Defaultable
         Return values
     End Method
 
+    /// Whether it holds `value`.
     Public Method Contains(value: T): Bool
         Where T: Equatable
         For held In Self
@@ -85,31 +99,33 @@ Public Class Queue<T> Implements Iterable<T>, Cloneable, Defaultable
         Return False
     End Method
 
+    /// Takes every value out.
     Public Method Clear()
         Items.Clear()
         Head = 0
         Changes += 1
     End Method
 
-    // A new, empty Queue.
+    /// A new, empty Queue.
     Public Static Method DefaultValue(): Queue<T> => Queue<T>()
 
-    // A new Queue with the same values.
+    /// A new Queue with the same values.
     Public Method Clone(): Queue<T>
         Local copy = Queue<T>()
         copy.Items = Items[Head..]
         Return copy
     End Method
 
-    // The values from the front, the order Dequeue gives them. Changing the Queue while going
-    // over them panics.
+    /// The values from the front, the order Dequeue gives them. Changing the Queue while going
+    /// over them panics.
     Public Method Iterate(): QueueIterator<T> => QueueIterator<T>(Self, Head, Changes)
 End Class
 
-// Whether a Queue drops its empty slots, the emptied ones before Head of its count: once they're
-// half or more, worked out so it never overflows, as emptied * 2 would.
+/// Whether a Queue drops its empty slots, the emptied ones before Head of its count: once they're
+/// half or more, worked out so it never overflows, as emptied * 2 would.
 Package Function HalfEmptied(emptied: Int, count: Int): Bool => emptied >= count - emptied
 
+/// The values of a Queue, front first, which For ... In goes over.
 Public Struct QueueIterator<T> Implements Iterator<T>
     Field Owner: Queue<T>
     Field Index: Int

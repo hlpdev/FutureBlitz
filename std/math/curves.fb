@@ -1,41 +1,41 @@
-// Curves and splines in 2D and 3D: a point t of the way along a quadratic or cubic Bezier, a
-// Hermite curve, a Catmull-Rom segment, or a uniform cubic B-spline segment; and Curve2 and Curve3,
-// which join a run of points into one curve, through them or near them, and go along it by its
-// length, as a path's followers and its evenly spaced fence posts need.
+//! Curves and splines in 2D and 3D: a point t of the way along a quadratic or cubic Bezier, a
+//! Hermite curve, a Catmull-Rom segment, or a uniform cubic B-spline segment; and Curve2 and
+//! Curve3, which join a run of points into one curve, through them or near them, and go along it by
+//! its length, as a path's followers and its evenly spaced fence posts need.
 
 Import std.core
 Import std.collections
 Import std.math.scalar
 Import std.math.vector
 
-// The point t of the way along the quadratic Bezier from a to c, pulled toward b.
+/// The point t of the way along the quadratic Bezier from a to c, pulled toward b.
 Public Function QuadraticBezier(a: Vec2, b: Vec2, c: Vec2, t: Float): Vec2
     Local rest = 1 - t
     Return a * (rest * rest) + b * (2 * rest * t) + c * (t * t)
 End Function
 
-// The point t of the way along the quadratic Bezier from a to c, pulled toward b.
+/// The point t of the way along the quadratic Bezier from a to c, pulled toward b.
 Public Function QuadraticBezier(a: Vec3, b: Vec3, c: Vec3, t: Float): Vec3
     Local rest = 1 - t
     Return a * (rest * rest) + b * (2 * rest * t) + c * (t * t)
 End Function
 
-// The point t of the way along the cubic Bezier from a to d, pulled toward b, then c.
+/// The point t of the way along the cubic Bezier from a to d, pulled toward b, then c.
 Public Function CubicBezier(a: Vec2, b: Vec2, c: Vec2, d: Vec2, t: Float): Vec2
     Local rest = 1 - t
     Return a * (rest * rest * rest) + b * (3 * rest * rest * t) + c * (3 * rest * t * t) +
            d * (t * t * t)
 End Function
 
-// The point t of the way along the cubic Bezier from a to d, pulled toward b, then c.
+/// The point t of the way along the cubic Bezier from a to d, pulled toward b, then c.
 Public Function CubicBezier(a: Vec3, b: Vec3, c: Vec3, d: Vec3, t: Float): Vec3
     Local rest = 1 - t
     Return a * (rest * rest * rest) + b * (3 * rest * rest * t) + c * (3 * rest * t * t) +
            d * (t * t * t)
 End Function
 
-// The point t of the way along the Hermite curve from start, going in its tangent's direction, to
-// end, arriving in its: a cubic Bezier with control points a third of each tangent along.
+/// The point t of the way along the Hermite curve from start, going in its tangent's direction, to
+/// end, arriving in its: a cubic Bezier with control points a third of each tangent along.
 Public Function Hermite(start: Vec2, startTangent: Vec2, end: Vec2, endTangent: Vec2,
                         t: Float): Vec2
     Local squared = t * t
@@ -44,8 +44,8 @@ Public Function Hermite(start: Vec2, startTangent: Vec2, end: Vec2, endTangent: 
            end * (3 * squared - 2 * cubed) + endTangent * (cubed - squared)
 End Function
 
-// The point t of the way along the Hermite curve from start, going in its tangent's direction, to
-// end, arriving in its: a cubic Bezier with control points a third of each tangent along.
+/// The point t of the way along the Hermite curve from start, going in its tangent's direction, to
+/// end, arriving in its: a cubic Bezier with control points a third of each tangent along.
 Public Function Hermite(start: Vec3, startTangent: Vec3, end: Vec3, endTangent: Vec3,
                         t: Float): Vec3
     Local squared = t * t
@@ -54,20 +54,20 @@ Public Function Hermite(start: Vec3, startTangent: Vec3, end: Vec3, endTangent: 
            end * (3 * squared - 2 * cubed) + endTangent * (cubed - squared)
 End Function
 
-// The point t of the way from b to c on the uniform Catmull-Rom spline through a, b, c, and d: a
-// Hermite curve whose tangents at b and c point from the points on either side.
+/// The point t of the way from b to c on the uniform Catmull-Rom spline through a, b, c, and d: a
+/// Hermite curve whose tangents at b and c point from the points on either side.
 Public Function CatmullRom(a: Vec2, b: Vec2, c: Vec2, d: Vec2, t: Float): Vec2
     Return Hermite(b, (c - a) * 0.5, c, (d - b) * 0.5, t)
 End Function
 
-// The point t of the way from b to c on the uniform Catmull-Rom spline through a, b, c, and d: a
-// Hermite curve whose tangents at b and c point from the points on either side.
+/// The point t of the way from b to c on the uniform Catmull-Rom spline through a, b, c, and d: a
+/// Hermite curve whose tangents at b and c point from the points on either side.
 Public Function CatmullRom(a: Vec3, b: Vec3, c: Vec3, d: Vec3, t: Float): Vec3
     Return Hermite(b, (c - a) * 0.5, c, (d - b) * 0.5, t)
 End Function
 
-// The point t of the way along the segment of the uniform cubic B-spline that a, b, c, and d
-// shape, which passes near b and c rather than through them, and joins the next segment smoothly.
+/// The point t of the way along the segment of the uniform cubic B-spline that a, b, c, and d
+/// shape, which passes near b and c rather than through them, and joins the next segment smoothly.
 Public Function BSpline(a: Vec2, b: Vec2, c: Vec2, d: Vec2, t: Float): Vec2
     Local rest = 1 - t
     Local squared = t * t
@@ -76,8 +76,8 @@ Public Function BSpline(a: Vec2, b: Vec2, c: Vec2, d: Vec2, t: Float): Vec2
             c * (-3 * cubed + 3 * squared + 3 * t + 1) + d * cubed) / 6
 End Function
 
-// The point t of the way along the segment of the uniform cubic B-spline that a, b, c, and d
-// shape, which passes near b and c rather than through them, and joins the next segment smoothly.
+/// The point t of the way along the segment of the uniform cubic B-spline that a, b, c, and d
+/// shape, which passes near b and c rather than through them, and joins the next segment smoothly.
 Public Function BSpline(a: Vec3, b: Vec3, c: Vec3, d: Vec3, t: Float): Vec3
     Local rest = 1 - t
     Local squared = t * t
@@ -86,7 +86,7 @@ Public Function BSpline(a: Vec3, b: Vec3, c: Vec3, d: Vec3, t: Float): Vec3
             c * (-3 * cubed + 3 * squared + 3 * t + 1) + d * cubed) / 6
 End Function
 
-// CatmullRom and BSpline by other names, for the Curves' own Static Methods of those names.
+/// CatmullRom and BSpline by other names, for the Curves' own Static Methods of those names.
 Function CatmullRomPoint(a: Vec2, b: Vec2, c: Vec2, d: Vec2, t: Float): Vec2
     Return CatmullRom(a, b, c, d, t)
 End Function
@@ -98,15 +98,15 @@ End Function
 Function BSplinePoint(a: Vec2, b: Vec2, c: Vec2, d: Vec2, t: Float): Vec2 => BSpline(a, b, c, d, t)
 Function BSplinePoint(a: Vec3, b: Vec3, c: Vec3, d: Vec3, t: Float): Vec3 => BSpline(a, b, c, d, t)
 
-// Which of count segments t from 0 to 1 is in, and how far along it.
+/// Which of count segments t from 0 to 1 is in, and how far along it.
 Function Segment(t: Float, count: Int): (Int, Float)
     Local along = Clamp(t, 0, 1) * (count As Float)
     Local index = Min(Floor(along) As Int, count - 1)
     Return (index, along - (index As Float))
 End Function
 
-// The points with more around the spline's ends: each end's point again on an open one, so it
-// starts and ends at them, or those from the other end on a closed one, so it goes around.
+/// The points with more around the spline's ends: each end's point again on an open one, so it
+/// starts and ends at them, or those from the other end on a closed one, so it goes around.
 Function Padded<V>(points: V[], closed: Bool, before: Int, after: Int): V[]
     Local padded: V[] = []
     For i = before To 1 Step -1
@@ -119,14 +119,14 @@ Function Padded<V>(points: V[], closed: Bool, before: Int, after: Int): V[]
     Return padded
 End Function
 
-// Panics at the spline's caller when it's given fewer than one sample a segment.
+/// Panics at the spline's caller when it's given fewer than one sample a segment.
 @PanicsAtCaller
 Function CheckSamples(samples: Int)
     If samples < 1 Then Panic("a spline takes at least one sample a segment, not {samples}")
 End Function
 
-// How far along each of a curve's samples is, from 0 at the start, which its length is the last
-// of, worked out in Doubles.
+/// How far along each of a curve's samples is, from 0 at the start, which its length is the last
+/// of, worked out in Doubles.
 Function Measure<V>(samples: Int, point: Func(Float): V, distance: Func(V, V): Float): Double[]
     Local lengths: Double[] = [0]
     lengths.Reserve(samples + 1)
@@ -139,7 +139,7 @@ Function Measure<V>(samples: Int, point: Func(Float): V, distance: Func(V, V): F
     Return lengths
 End Function
 
-// The t a distance along a curve is at, between the samples on either side of it.
+/// The t a distance along a curve is at, between the samples on either side of it.
 Function TAtDistance(lengths: Double[], distance: Double): Float
     Local samples = lengths.Count - 1
     Local total = lengths[samples]
@@ -162,14 +162,14 @@ Function TAtDistance(lengths: Double[], distance: Double): Float
     Return ((low + part) / samples) As Float
 End Function
 
-// A curve in 2D from a Function of t from 0 to 1, which it goes along by length too, from a table
-// of samples' lengths, its straight lines' between them, so more samples follow its bends closer.
+/// A curve in 2D from a Function of t from 0 to 1, which it goes along by length too, from a table
+/// of samples' lengths, its straight lines' between them, so more samples follow its bends closer.
 Public Class Curve2
     Field Point: Func(Float): Vec2
     Field Lengths: Double[]
 
-    // The curve point gives for t from 0 to 1, measured at samples places along it. Fewer than one
-    // sample panics.
+    /// The curve point gives for t from 0 to 1, measured at samples places along it. Fewer than one
+    /// sample panics.
     @PanicsAtCaller
     Public New(point: Func(Float): Vec2, samples: Int = 256)
         If samples < 1 Then Panic("a curve takes at least one sample, not {samples}")
@@ -177,9 +177,9 @@ Public Class Curve2
         Lengths = Measure(samples, point, Function(a: Vec2, b: Vec2) => Distance(a, b))
     End New
 
-    // The Catmull-Rom spline through the points, each of them on it, around to the first when
-    // closed, measured at samples places along each segment. Fewer than two points, or than one
-    // sample, panics.
+    /// The Catmull-Rom spline through the points, each of them on it, around to the first when
+    /// closed, measured at samples places along each segment. Fewer than two points, or than one
+    /// sample, panics.
     @PanicsAtCaller
     Public Static Method CatmullRom(points: Vec2[], closed: Bool = False, samples: Int = 64): Curve2
         If points.Count < 2 Then Panic("a spline takes at least two points, not {points.Count}")
@@ -193,9 +193,9 @@ Public Class Curve2
         End Function, samples * count)
     End Method
 
-    // The uniform cubic B-spline the points shape, near them rather than through them: an open one
-    // starts and ends at its ends, and a closed one goes around. It's measured at samples places
-    // along each segment. Fewer than two points, or than one sample, panics.
+    /// The uniform cubic B-spline the points shape, near them rather than through them: an open one
+    /// starts and ends at its ends, and a closed one goes around. It's measured at samples places
+    /// along each segment. Fewer than two points, or than one sample, panics.
     @PanicsAtCaller
     Public Static Method BSpline(points: Vec2[], closed: Bool = False, samples: Int = 64): Curve2
         If points.Count < 2 Then Panic("a spline takes at least two points, not {points.Count}")
@@ -209,9 +209,9 @@ Public Class Curve2
         End Function, samples * count)
     End Method
 
-    // The cubic Beziers one after another, each from the last one's end: a start, then two
-    // control points and an end for each, so 3n + 1 points in all, measured at samples places
-    // along each. Any other count of points, or fewer than one sample, panics.
+    /// The cubic Beziers one after another, each from the last one's end: a start, then two
+    /// control points and an end for each, so 3n + 1 points in all, measured at samples places
+    /// along each. Any other count of points, or fewer than one sample, panics.
     @PanicsAtCaller
     Public Static Method Bezier(points: Vec2[], samples: Int = 64): Curve2
         If points.Count < 4 || points.Count % 3 != 1
@@ -227,27 +227,27 @@ Public Class Curve2
         End Function, samples * count)
     End Method
 
-    // How long the curve is, as its samples measure it.
+    /// How long the curve is, as its samples measure it.
     Public Property Length: Float
         Get => Lengths[Lengths.Count - 1] As Float
     End Property
 
-    // The point the curve's Function gives for t, kept from 0 to 1. A NaN t panics.
+    /// The point the curve's Function gives for t, kept from 0 to 1. A NaN t panics.
     @PanicsAtCaller
     Public Method PointAt(t: Float): Vec2
         If t != t Then Panic("PointAt takes a t that isn't NaN")
         Return Point(Clamp(t, 0, 1))
     End Method
 
-    // The point so far along the curve, kept from 0 to its Length. A NaN distance panics.
+    /// The point so far along the curve, kept from 0 to its Length. A NaN distance panics.
     @PanicsAtCaller
     Public Method PointAtDistance(distance: Float): Vec2
         If distance != distance Then Panic("PointAtDistance takes a distance that isn't NaN")
         Return Point(TAtDistance(Lengths, distance))
     End Method
 
-    // count points along the curve the same distance apart, from its start to its end. Fewer than
-    // two panics.
+    /// count points along the curve the same distance apart, from its start to its end. Fewer than
+    /// two panics.
     @PanicsAtCaller
     Public Method Sample(count: Int): Vec2[]
         If count < 2 Then Panic("Sample takes at least two points, not {count}")
@@ -260,14 +260,14 @@ Public Class Curve2
     End Method
 End Class
 
-// A curve in 3D from a Function of t from 0 to 1, which it goes along by length too, from a table
-// of samples' lengths, its straight lines' between them, so more samples follow its bends closer.
+/// A curve in 3D from a Function of t from 0 to 1, which it goes along by length too, from a table
+/// of samples' lengths, its straight lines' between them, so more samples follow its bends closer.
 Public Class Curve3
     Field Point: Func(Float): Vec3
     Field Lengths: Double[]
 
-    // The curve point gives for t from 0 to 1, measured at samples places along it. Fewer than one
-    // sample panics.
+    /// The curve point gives for t from 0 to 1, measured at samples places along it. Fewer than one
+    /// sample panics.
     @PanicsAtCaller
     Public New(point: Func(Float): Vec3, samples: Int = 256)
         If samples < 1 Then Panic("a curve takes at least one sample, not {samples}")
@@ -275,9 +275,9 @@ Public Class Curve3
         Lengths = Measure(samples, point, Function(a: Vec3, b: Vec3) => Distance(a, b))
     End New
 
-    // The Catmull-Rom spline through the points, each of them on it, around to the first when
-    // closed, measured at samples places along each segment. Fewer than two points, or than one
-    // sample, panics.
+    /// The Catmull-Rom spline through the points, each of them on it, around to the first when
+    /// closed, measured at samples places along each segment. Fewer than two points, or than one
+    /// sample, panics.
     @PanicsAtCaller
     Public Static Method CatmullRom(points: Vec3[], closed: Bool = False, samples: Int = 64): Curve3
         If points.Count < 2 Then Panic("a spline takes at least two points, not {points.Count}")
@@ -291,9 +291,9 @@ Public Class Curve3
         End Function, samples * count)
     End Method
 
-    // The uniform cubic B-spline the points shape, near them rather than through them: an open one
-    // starts and ends at its ends, and a closed one goes around. It's measured at samples places
-    // along each segment. Fewer than two points, or than one sample, panics.
+    /// The uniform cubic B-spline the points shape, near them rather than through them: an open one
+    /// starts and ends at its ends, and a closed one goes around. It's measured at samples places
+    /// along each segment. Fewer than two points, or than one sample, panics.
     @PanicsAtCaller
     Public Static Method BSpline(points: Vec3[], closed: Bool = False, samples: Int = 64): Curve3
         If points.Count < 2 Then Panic("a spline takes at least two points, not {points.Count}")
@@ -307,9 +307,9 @@ Public Class Curve3
         End Function, samples * count)
     End Method
 
-    // The cubic Beziers one after another, each from the last one's end: a start, then two
-    // control points and an end for each, so 3n + 1 points in all, measured at samples places
-    // along each. Any other count of points, or fewer than one sample, panics.
+    /// The cubic Beziers one after another, each from the last one's end: a start, then two
+    /// control points and an end for each, so 3n + 1 points in all, measured at samples places
+    /// along each. Any other count of points, or fewer than one sample, panics.
     @PanicsAtCaller
     Public Static Method Bezier(points: Vec3[], samples: Int = 64): Curve3
         If points.Count < 4 || points.Count % 3 != 1
@@ -325,27 +325,27 @@ Public Class Curve3
         End Function, samples * count)
     End Method
 
-    // How long the curve is, as its samples measure it.
+    /// How long the curve is, as its samples measure it.
     Public Property Length: Float
         Get => Lengths[Lengths.Count - 1] As Float
     End Property
 
-    // The point the curve's Function gives for t, kept from 0 to 1. A NaN t panics.
+    /// The point the curve's Function gives for t, kept from 0 to 1. A NaN t panics.
     @PanicsAtCaller
     Public Method PointAt(t: Float): Vec3
         If t != t Then Panic("PointAt takes a t that isn't NaN")
         Return Point(Clamp(t, 0, 1))
     End Method
 
-    // The point so far along the curve, kept from 0 to its Length. A NaN distance panics.
+    /// The point so far along the curve, kept from 0 to its Length. A NaN distance panics.
     @PanicsAtCaller
     Public Method PointAtDistance(distance: Float): Vec3
         If distance != distance Then Panic("PointAtDistance takes a distance that isn't NaN")
         Return Point(TAtDistance(Lengths, distance))
     End Method
 
-    // count points along the curve the same distance apart, from its start to its end. Fewer than
-    // two panics.
+    /// count points along the curve the same distance apart, from its start to its end. Fewer than
+    /// two panics.
     @PanicsAtCaller
     Public Method Sample(count: Int): Vec3[]
         If count < 2 Then Panic("Sample takes at least two points, not {count}")

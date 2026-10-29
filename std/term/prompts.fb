@@ -1,10 +1,10 @@
-// std.term's prompts: Confirm asks yes or no, Choose for one of some options, and Ask for a line
-// of text, on the console or on a Terminal given. Where both what's written and the keys are a
-// terminal's, keys are read as they're typed: Confirm takes y or n at once, Choose moves through
-// its options with the arrows, and typing filters them, by fuzzy matching, and Ask edits its line
-// as a shell does. Otherwise, as from a pipe or a file, each reads a line, which it writes after
-// its question, and asks again for one it can't take. Each gives Null at the end of the input,
-// and for Escape.
+//! std.term's prompts: Confirm asks yes or no, Choose for one of some options, and Ask for a line
+//! of text, on the console or on a Terminal given. Where both what's written and the keys are a
+//! terminal's, keys are read as they're typed: Confirm takes y or n at once, Choose moves through
+//! its options with the arrows, and typing filters them, by fuzzy matching, and Ask edits its line
+//! as a shell does. Otherwise, as from a pipe or a file, each reads a line, which it writes after
+//! its question, and asks again for one it can't take. Each gives Null at the end of the input,
+//! and for Escape.
 
 Import std.core
 Import std.collections.array
@@ -17,22 +17,22 @@ Import std.term.terminal
 Import std.term.views
 Import std.term.widgets
 
-// How a prompt's parts look: the "?" before its question, the hints after it, the answer, the
-// option that's selected, and an error.
+/// How a prompt's parts look: the "?" before its question, the hints after it, the answer, the
+/// option that's selected, and an error.
 Function QuestionLook(): Style => Style(TermColor.Green).Bold()
 Function HintLook(): Style => Style(Attributes: TextAttributes.DIM)
 Function AnswerLook(): Style => Style(TermColor.Cyan)
 Function ErrorLook(): Style => Style(TermColor.Red)
 
-// Asks question on the console, and gives True for yes or False for no, or default for ENTER
-// alone, when it has one.
+/// Asks question on the console, and gives True for yes or False for no, or default for ENTER
+/// alone, when it has one.
 Public Function Confirm(question: String, default: Bool? = Null): Bool?
     Return Confirm(Terminal.Console(), question, default)
 End Function
 
-// Asks question on terminal, and gives True for yes or False for no, or default for ENTER alone,
-// when it has one: a key, y or n in either case, where it's interactive, and a line otherwise,
-// "y", "yes", "n", or "no", in any case.
+/// Asks question on terminal, and gives True for yes or False for no, or default for ENTER alone,
+/// when it has one: a key, y or n in either case, where it's interactive, and a line otherwise,
+/// "y", "yes", "n", or "no", in any case.
 Public Function Confirm(terminal: Terminal, question: String, default: Bool? = Null): Bool?
     Local hint = default == Null ? "y/n" : (default ? "Y/n" : "y/N")
     Local prompt = QuestionOf(terminal, question) + " " + terminal.Paint("({hint})", HintLook()) +
@@ -78,42 +78,42 @@ Public Function Confirm(terminal: Terminal, question: String, default: Bool? = N
     End Loop
 End Function
 
-// Asks question on the console, and gives what's typed, or default for nothing.
+/// Asks question on the console, and gives what's typed, or default for nothing.
 Public Function Ask(question: String, default: String = ""): String?
     Return AskWith(Terminal.Console(), question, default, Null)
 End Function
 
-// Asks question on the console, and gives what's typed, or default for nothing, once validate
-// gives Null for it; until then, what it gives says what's wrong, and the question goes on.
+/// Asks question on the console, and gives what's typed, or default for nothing, once validate
+/// gives Null for it; until then, what it gives says what's wrong, and the question goes on.
 Public Function Ask(question: String, validate: Func(String): String?,
                     default: String = ""): String?
     Return AskWith(Terminal.Console(), question, default, validate)
 End Function
 
-// Asks question on terminal, and gives what's typed, or default for nothing.
+/// Asks question on terminal, and gives what's typed, or default for nothing.
 Public Function Ask(terminal: Terminal, question: String, default: String = ""): String?
     Return AskWith(terminal, question, default, Null)
 End Function
 
-// Asks question on terminal, and gives what's typed, or default for nothing, once validate gives
-// Null for it; until then, what it gives says what's wrong, and the question goes on.
+/// Asks question on terminal, and gives what's typed, or default for nothing, once validate gives
+/// Null for it; until then, what it gives says what's wrong, and the question goes on.
 Public Function Ask(terminal: Terminal, question: String, validate: Func(String): String?,
                     default: String = ""): String?
     Return AskWith(terminal, question, default, validate)
 End Function
 
-// Asks question on the console, and gives one of options, by its index, from default's at first,
-// or Null for Escape. Panics without an option.
+/// Asks question on the console, and gives one of options, by its index, from default's at first,
+/// or Null for Escape. Panics without an option.
 @PanicsAtCaller
 Public Function Choose(question: String, options: String[], default: Int = 0): Int?
     If options.Count == 0 Then Panic("Choose needs an option to choose")
     Return ChooseOn(Terminal.Console(), question, options, default)
 End Function
 
-// Asks question on terminal, and gives one of options, by its index: where it's interactive, the
-// one selected with the arrows, from default's, at ENTER, among those that match what's typed, by
-// fuzzy matching, the best first; otherwise, a number from 1, or default's for none. Panics
-// without an option.
+/// Asks question on terminal, and gives one of options, by its index: where it's interactive, the
+/// one selected with the arrows, from default's, at ENTER, among those that match what's typed, by
+/// fuzzy matching, the best first; otherwise, a number from 1, or default's for none. Panics
+/// without an option.
 @PanicsAtCaller
 Public Function Choose(terminal: Terminal, question: String, options: String[],
                        default: Int = 0): Int?
@@ -121,17 +121,17 @@ Public Function Choose(terminal: Terminal, question: String, options: String[],
     Return ChooseOn(terminal, question, options, default)
 End Function
 
-// Whether terminal's keys come as they're typed and what's written can be drawn again, so a
-// prompt can be.
+/// Whether terminal's keys come as they're typed and what's written can be drawn again, so a
+/// prompt can be.
 Function IsLive(terminal: Terminal): Bool => terminal.IsInteractive && terminal.IsInputInteractive
 
-// The question after its "?".
+/// The question after its "?".
 Function QuestionOf(terminal: Terminal, question: String): String
     Return terminal.Paint("?", QuestionLook()) + " " + question
 End Function
 
-// A line read from terminal's keys, up to ENTER, and written after what's before it, with its
-// line break, or Null at the end of the input when nothing was typed.
+/// A line read from terminal's keys, up to ENTER, and written after what's before it, with its
+/// line break, or Null at the end of the input when nothing was typed.
 Function ReadLine(terminal: Terminal): String?
     terminal.Flush()
     terminal.StartRawMode()
@@ -228,8 +228,8 @@ Function AskWith(terminal: Terminal, question: String, default: String,
     End Loop
 End Function
 
-// Ask's line: the prompt, then as much of what's typed as fits, scrolled sideways to keep the
-// cursor in view, then what's wrong, if anything, with the cursor where it is.
+/// Ask's line: the prompt, then as much of what's typed as fits, scrolled sideways to keep the
+/// cursor in view, then what's wrong, if anything, with the cursor where it is.
 Function LineOf(terminal: Terminal, prompt: String, editor: LineEditor, ByRef scroll: Int,
                 problem: String?): String
     Local room = Max(terminal.Columns - 1 - VisibleWidth(prompt), 1)
@@ -374,8 +374,8 @@ Function ChooseOn(terminal: Terminal, question: String, options: String[], defau
     End Loop
 End Function
 
-// The indexes of the options that match filter, by fuzzy matching, the best first, and of
-// those as good, the first first; all of them, in order, for no filter.
+/// The indexes of the options that match filter, by fuzzy matching, the best first, and of
+/// those as good, the first first; all of them, in order, for no filter.
 Function MatchesOf(options: String[], filter: String): Int[]
     Local scored: (Int, Int)[] = []
     For i = 0 Until options.Count
@@ -392,15 +392,15 @@ Function MatchesOf(options: String[], filter: String): Int[]
     Return matches
 End Function
 
-// What draws lines over the drawn lines before them: back to the first's start, what's there
-// cleared to the screen's end, then the lines.
+/// What draws lines over the drawn lines before them: back to the first's start, what's there
+/// cleared to the screen's end, then the lines.
 Function Redrawn(drawn: Int, lines: String[]): String
     Local start = drawn > 1 ? "\u{1b}[{drawn - 1}F" : "\r"
     Return start + "\u{1b}[J" + "\r\n".Join(lines)
 End Function
 
-// text's end in width columns, with "…" before it for what's cut, between grapheme clusters, or
-// text as it is when it fits.
+/// text's end in width columns, with "…" before it for what's cut, between grapheme clusters, or
+/// text as it is when it fits.
 Function Ending(text: String, width: Int): String
     If DisplayWidth(text) <= width Then Return text
     If width <= 0 Then Return ""
@@ -421,7 +421,7 @@ Function Ending(text: String, width: Int): String
     Return "…" + kept
 End Function
 
-// The number text's digits are, or 0 for text that isn't.
+/// The number text's digits are, or 0 for text that isn't.
 Function NumberOf(text: String): Int
     Local value = 0
     For c In text.Chars

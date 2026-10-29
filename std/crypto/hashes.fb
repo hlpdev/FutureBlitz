@@ -1,7 +1,7 @@
-// Md5, Sha1, Sha256, and Sha512, over mbedTLS: each one's Hash gives the hash of bytes, or of a
-// String's bytes, at once, and an object of it adds them in turn. MD5 and SHA-1 are broken, since
-// two inputs with one hash can be made, so they're only for checksums and the formats that ask for
-// them; Sha256 and Sha512 are for the rest.
+//! Md5, Sha1, Sha256, and Sha512, over mbedTLS: each one's Hash gives the hash of bytes, or of a
+//! String's bytes, at once, and an object of it adds them in turn. MD5 and SHA-1 are broken, since
+//! two inputs with one hash can be made, so they're only for checksums and the formats that ask for
+//! them; Sha256 and Sha512 are for the rest.
 
 Import std.core
 
@@ -15,29 +15,35 @@ Extern "runtime"
     Function fb_crypto_hasher_free(hasher: Ptr<Void>)
 End Extern
 
-// The runtime's numbers for the hashes.
+/// The runtime's numbers for the hashes.
 Const MD5 = 1
 Const SHA1 = 2
 Const SHA256 = 3
 Const SHA512 = 4
 
-// What hashes bytes added to it in turn. Finish gives the hash of what was added, and starts
-// again, empty.
+/// What hashes bytes added to it in turn. Finish gives the hash of what was added, and starts
+/// again, empty.
 Public Interface Hasher
+    /// Adds `data` to what it hashes.
     Method Add(data: UInt8[])
+    /// Adds `text`'s UTF-8 bytes to what it hashes.
     Method Add(text: String)
+    /// The hash of what was added, which starts it again, empty.
     Method Finish(): UInt8[]
 End Interface
 
-// MD5's 16 bytes, only for checksums.
+/// MD5's 16 bytes, only for checksums.
 Public Class Md5 Implements Hasher
     Field State: Ptr<Void>
 
+    /// A new Md5, of nothing yet.
     Public New()
         State = fb_crypto_hasher_new(MD5)
     End New
 
+    /// The MD5 of `data`.
     Public Static Method Hash(data: UInt8[]): UInt8[] => HashOf(MD5, data)
+    /// The MD5 of `text`'s UTF-8 bytes.
     Public Static Method Hash(text: String): UInt8[] => TextHashOf(MD5, text)
 
     Public Method Add(data: UInt8[])
@@ -55,15 +61,18 @@ Public Class Md5 Implements Hasher
     End Method
 End Class
 
-// SHA-1's 20 bytes, only for checksums and the formats that ask for it, like Git's.
+/// SHA-1's 20 bytes, only for checksums and the formats that ask for it, like Git's.
 Public Class Sha1 Implements Hasher
     Field State: Ptr<Void>
 
+    /// A new Sha1, of nothing yet.
     Public New()
         State = fb_crypto_hasher_new(SHA1)
     End New
 
+    /// The SHA-1 of `data`.
     Public Static Method Hash(data: UInt8[]): UInt8[] => HashOf(SHA1, data)
+    /// The SHA-1 of `text`'s UTF-8 bytes.
     Public Static Method Hash(text: String): UInt8[] => TextHashOf(SHA1, text)
 
     Public Method Add(data: UInt8[])
@@ -81,15 +90,18 @@ Public Class Sha1 Implements Hasher
     End Method
 End Class
 
-// SHA-256's 32 bytes.
+/// SHA-256's 32 bytes.
 Public Class Sha256 Implements Hasher
     Field State: Ptr<Void>
 
+    /// A new Sha256, of nothing yet.
     Public New()
         State = fb_crypto_hasher_new(SHA256)
     End New
 
+    /// The SHA-256 of `data`.
     Public Static Method Hash(data: UInt8[]): UInt8[] => HashOf(SHA256, data)
+    /// The SHA-256 of `text`'s UTF-8 bytes.
     Public Static Method Hash(text: String): UInt8[] => TextHashOf(SHA256, text)
 
     Public Method Add(data: UInt8[])
@@ -107,15 +119,18 @@ Public Class Sha256 Implements Hasher
     End Method
 End Class
 
-// SHA-512's 64 bytes.
+/// SHA-512's 64 bytes.
 Public Class Sha512 Implements Hasher
     Field State: Ptr<Void>
 
+    /// A new Sha512, of nothing yet.
     Public New()
         State = fb_crypto_hasher_new(SHA512)
     End New
 
+    /// The SHA-512 of `data`.
     Public Static Method Hash(data: UInt8[]): UInt8[] => HashOf(SHA512, data)
+    /// The SHA-512 of `text`'s UTF-8 bytes.
     Public Static Method Hash(text: String): UInt8[] => TextHashOf(SHA512, text)
 
     Public Method Add(data: UInt8[])

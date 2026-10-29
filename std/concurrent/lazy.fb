@@ -1,7 +1,7 @@
-// Lazy<T>: a value made the first time a thread asks for it, by the Sendable Func it was given,
-// once however many threads ask at once: the others wait while it's made, and each gets the same
-// value. It's a Shared Class, so a Const or a parameter shares one with the work that Spawn and
-// Thread.Start run.
+//! `Lazy<T>`: a value made the first time a thread asks for it, by the Sendable Func it was given,
+//! once however many threads ask at once: the others wait while it's made, and each gets the same
+//! value. It's a Shared Class, so a Const or a parameter shares one with the work that Spawn and
+//! Thread.Start run.
 
 Import std.core
 
@@ -9,22 +9,23 @@ Extern "runtime"
     Function fb_thread_number(): UInt32
 End Extern
 
+/// A value made the first time a thread asks for it, once however many threads ask at once.
 Public Shared Class Lazy<T: Sendable>
     ReadOnly Field Maker: Sendable Func(): T
-    // The value, once it's made, behind the lock its maker runs in.
+    /// The value, once it's made, behind the lock its maker runs in.
     Field Made: Mutex<T?>
     Field Done: Atomic<Bool>
-    // The number of the thread whose maker is making the value, or 0.
+    /// The number of the thread whose maker is making the value, or 0.
     Field Making: Atomic<UInt32>
 
-    // A Lazy whose value maker makes, the first time Value is read.
+    /// A Lazy whose value maker makes, the first time Value is read.
     Public New(maker: Sendable Func(): T)
         Maker = maker
     End New
 
-    // The value, which the first read makes, on the thread that reads it, while the reads on other
-    // threads wait for it. Panics when the maker reads its own Lazy's Value, which would wait for
-    // itself forever.
+    /// The value, which the first read makes, on the thread that reads it, while the reads on other
+    /// threads wait for it. Panics when the maker reads its own Lazy's Value, which would wait for
+    /// itself forever.
     @PanicsAtCaller
     Public Property Value: T
         Get
@@ -49,8 +50,8 @@ Public Shared Class Lazy<T: Sendable>
         End Get
     End Property
 
-    // Whether the value is made, which a thread that reads it while it's being made doesn't wait
-    // for.
+    /// Whether the value is made, which a thread that reads it while it's being made doesn't wait
+    /// for.
     Public Property IsMade: Bool
         Get => Done.Load()
     End Property

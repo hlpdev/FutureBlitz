@@ -1,23 +1,23 @@
-// Streams over memory: MemoryStream, bytes to read, write, and move around in, as a file's are;
-// StringReader, which reads a String's UTF-8; and StringWriter, which collects text.
+//! Streams over memory: MemoryStream, bytes to read, write, and move around in, as a file's are;
+//! StringReader, which reads a String's UTF-8; and StringWriter, which collects text.
 
 Import std.core
 Import std.collections.array
 Import std.ffi
 Import std.io.streams
 
-// Bytes in memory that it reads, writes, and moves around in, as a file's are, from where it is,
-// which they grow past as they're written. Writing past the end fills what's between with 0s.
+/// Bytes in memory that it reads, writes, and moves around in, as a file's are, from where it is,
+/// which they grow past as they're written. Writing past the end fills what's between with 0s.
 Public Class MemoryStream Implements Reader, Writer, Seeker
     Field Data: UInt8[]
     Field At: Int64
 
-    // One of a copy of the bytes, from their start, or an empty one.
+    /// One of a copy of the bytes, from their start, or an empty one.
     Public New(bytes: UInt8[] = [])
         Data = bytes.Clone()
     End New
 
-    // How many bytes it has.
+    /// How many bytes it has.
     Public Property Count: Int64
         Get => Data.Count
     End Property
@@ -58,20 +58,21 @@ Public Class MemoryStream Implements Reader, Writer, Seeker
         Return At
     End Method
 
-    // Its bytes, in a new array.
+    /// Its bytes, in a new array.
     Public Method ToArray(): UInt8[] => Data.Clone()
 End Class
 
-// Reads a String's UTF-8 bytes, and moves around in them.
+/// Reads a String's UTF-8 bytes, and moves around in them.
 Public Class StringReader Implements Reader, Seeker
     Field Bytes: UInt8[]
     Field At: Int64
 
+    /// A StringReader of `text`'s UTF-8 bytes.
     Public New(text: String)
         Bytes = text.Bytes
     End New
 
-    // How many bytes the text has.
+    /// How many bytes the text has.
     Public Property Count: Int64
         Get => Bytes.Count
     End Property
@@ -94,15 +95,16 @@ Public Class StringReader Implements Reader, Seeker
     End Method
 End Class
 
-// Collects what's written to it, as text, which ToString gives.
+/// Collects what's written to it, as text, which ToString gives.
 Public Class StringWriter Implements Writer
     Field Bytes: UInt8[]
 
+    /// A new StringWriter, with nothing written.
     Public New()
         Bytes = []
     End New
 
-    // How many bytes it has.
+    /// How many bytes it has.
     Public Property Count: Int64
         Get => Bytes.Count
     End Property
@@ -123,11 +125,11 @@ Public Class StringWriter Implements Writer
         End If
     End Method
 
-    // What it has, as text, with U+FFFD for each byte that doesn't start well-formed UTF-8.
+    /// What it has, as text, with U+FFFD for each byte that doesn't start well-formed UTF-8.
     Public Method ToString(): String => TextOf(Buffer<UInt8>.From(Bytes))
 End Class
 
-// Where a Seek of `offset` from `origin` goes in `count` bytes, from `at`.
+/// Where a Seek of `offset` from `origin` goes in `count` bytes, from `at`.
 Package Function SeekIn(at: Int64, count: Int64, offset: Int64,
                         origin: SeekOrigin): Int64 Throws IOError
     Local start = at

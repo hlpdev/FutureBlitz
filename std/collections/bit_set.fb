@@ -1,23 +1,25 @@
-// BitSet: a Set of Ints from 0 up, a bit each in an array of words, which grows to hold the
-// largest. Adding, removing, and finding a value take the same time however many there are, and
-// the Set algebra goes a word at a time.
+//! BitSet: a Set of Ints from 0 up, a bit each in an array of words, which grows to hold the
+//! largest. Adding, removing, and finding a value take the same time however many there are, and
+//! the Set algebra goes a word at a time.
 
 Import std.core
 Import std.collections.array
 
+/// A set of Ints that aren't negative, a bit each, for many small numbers in little space.
 @DebugElements
 Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
-    // Bit b of word w is w * 64 + b. The last word is never 0, so equal BitSets have equal words.
+    /// Bit b of word w is w * 64 + b. The last word is never 0, so equal BitSets have equal words.
     Field Words: UInt64[] = []
     Field Size: Int
-    // How many times values were added or removed, so a For ... In over them can tell.
+    /// How many times values were added or removed, so a For ... In over them can tell.
     Field Changes: Int64
 
+    /// How many values it holds.
     Public Property Count: Int
         Get => Size
     End Property
 
-    // Adds the value, and tells whether it's new. A negative value panics.
+    /// Adds the value, and tells whether it's new. A negative value panics.
     @PanicsAtCaller
     Public Method Add(value: Int): Bool
         If value < 0 Then Panic("a BitSet holds Ints from 0 up, not {value}")
@@ -32,7 +34,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return True
     End Method
 
-    // Adds each of the values, which are all read first. A negative value panics.
+    /// Adds each of the values, which are all read first. A negative value panics.
     @PanicsAtCaller
     Public Method AddAll(values: Iterable<Int>)
         For value In values.Iterate().ToArray()
@@ -40,7 +42,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         End For
     End Method
 
-    // Removes the value, and tells whether it was there.
+    /// Removes the value, and tells whether it was there.
     Public Method Remove(value: Int): Bool
         If !Contains(value) Then Return False
         Words[value / 64] &= ~BitOf(value)
@@ -50,17 +52,19 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return True
     End Method
 
+    /// Whether it holds `value`.
     Public Method Contains(value: Int): Bool
         Return value >= 0 && value / 64 < Words.Count && (Words[value / 64] & BitOf(value)) != 0
     End Method
 
+    /// Takes every value out.
     Public Method Clear()
         Words.Clear()
         Size = 0
         Changes += 1
     End Method
 
-    // The smallest value, or Null when there's none.
+    /// The smallest value, or Null when there's none.
     Public Method First(): Int?
         For i, word In Words
             If word != 0 Then Return i * 64 + LowestBit(word)
@@ -68,7 +72,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return Null
     End Method
 
-    // The largest value, or Null when there's none.
+    /// The largest value, or Null when there's none.
     Public Method Last(): Int?
         If Words.Count == 0 Then Return Null
         Local word = Words[Words.Count - 1]
@@ -79,28 +83,28 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return (Words.Count - 1) * 64 + bit
     End Method
 
-    // A new BitSet of the values in either.
+    /// A new BitSet of the values in either.
     Public Method Union(other: BitSet): BitSet
         Local union = Clone()
         union.AddAll(other)
         Return union
     End Method
 
-    // A new BitSet of the values in both.
+    /// A new BitSet of the values in both.
     Public Method Intersect(other: BitSet): BitSet
         Local both = Clone()
         both.KeepOnly(other)
         Return both
     End Method
 
-    // A new BitSet of this one's values that other doesn't have.
+    /// A new BitSet of this one's values that other doesn't have.
     Public Method Difference(other: BitSet): BitSet
         Local rest = Clone()
         rest.RemoveAll(other)
         Return rest
     End Method
 
-    // A new BitSet of the values in one but not the other.
+    /// A new BitSet of the values in one but not the other.
     Public Method SymmetricDifference(other: BitSet): BitSet
         Local either = BitSet()
         For i = 0 Until Max(Words.Count, other.Words.Count)
@@ -110,7 +114,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return either
     End Method
 
-    // Adds each of other's values.
+    /// Adds each of other's values.
     Public Method AddAll(other: BitSet)
         Local words = other.Words.Clone()
         While Words.Count < words.Count
@@ -123,7 +127,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Recount()
     End Method
 
-    // Removes each of other's values.
+    /// Removes each of other's values.
     Public Method RemoveAll(other: BitSet)
         Local words = other.Words.Clone()
         For i = 0 Until Min(Words.Count, words.Count)
@@ -132,7 +136,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Recount()
     End Method
 
-    // Keeps only the values other has too.
+    /// Keeps only the values other has too.
     Public Method KeepOnly(other: BitSet)
         Local words = other.Words.Clone()
         For i = 0 Until Words.Count
@@ -141,7 +145,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Recount()
     End Method
 
-    // Whether each of its values is in other.
+    /// Whether each of its values is in other.
     Public Method IsSubsetOf(other: BitSet): Bool
         For i, word In Words
             If (word & ~other.WordAt(i)) != 0 Then Return False
@@ -149,10 +153,10 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return True
     End Method
 
-    // Whether it has each of other's values.
+    /// Whether it has each of other's values.
     Public Method IsSupersetOf(other: BitSet): Bool => other.IsSubsetOf(Self)
 
-    // Whether the two have a value in common.
+    /// Whether the two have a value in common.
     Public Method Overlaps(other: BitSet): Bool
         For i, word In Words
             If (word & other.WordAt(i)) != 0 Then Return True
@@ -160,7 +164,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return False
     End Method
 
-    // The values, smallest first, in a new array.
+    /// The values, smallest first, in a new array.
     Public Method ToArray(): Int[]
         Local values: Int[] = []
         values.Reserve(Size)
@@ -170,10 +174,10 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return values
     End Method
 
-    // A new, empty BitSet.
+    /// A new, empty BitSet.
     Public Static Method DefaultValue(): BitSet => BitSet()
 
-    // A new BitSet with the same values.
+    /// A new BitSet with the same values.
     Public Method Clone(): BitSet
         Local copy = BitSet()
         copy.Words = Words.Clone()
@@ -181,19 +185,19 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return copy
     End Method
 
-    // Two BitSets are equal when they have the same values.
+    /// Two BitSets are equal when they have the same values.
     Operator ==(a: BitSet, b: BitSet): Bool => a.Words == b.Words
 
     Public Method Hash(): UInt64 => Words.Hash()
 
-    // The values, smallest first. Adding or removing one while going over them panics.
+    /// The values, smallest first. Adding or removing one while going over them panics.
     Public Method Iterate(): BitSetIterator => BitSetIterator(Self, 0, Changes)
 
-    // The word at index, which is 0 past the last one.
+    /// The word at index, which is 0 past the last one.
     Method WordAt(index: Int): UInt64 => index < Words.Count ? Words[index] : 0
 
-    // Counts the values again, after a change of whole words, and drops the 0 words at the end.
-    // Only adding or removing a value, which changes the count, counts as a change.
+    /// Counts the values again, after a change of whole words, and drops the 0 words at the end.
+    /// Only adding or removing a value, which changes the count, counts as a change.
     Method Recount()
         Local before = Size
         Trim()
@@ -205,7 +209,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         If Size != before Then Changes += 1
     End Method
 
-    // Drops the 0 words at the end.
+    /// Drops the 0 words at the end.
     Method Trim()
         While Words.Count > 0 && Words[Words.Count - 1] == 0
             Words.RemoveLast()
@@ -214,7 +218,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
 
     Static Method BitOf(value: Int): UInt64 => (1 As UInt64) << (value % 64)
 
-    // Where the lowest 1 bit of a word that isn't 0 is.
+    /// Where the lowest 1 bit of a word that isn't 0 is.
     Static Method LowestBit(word: UInt64): Int
         Local bit = 0
         While ((word >> bit) & 1) == 0
@@ -223,7 +227,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
         Return bit
     End Method
 
-    // How many 1 bits a word has.
+    /// How many 1 bits a word has.
     Static Method BitCount(word: UInt64): Int
         Local bits = word - ((word >> 1) & 0x5555555555555555)
         bits = (bits & 0x3333333333333333) + ((bits >> 2) & 0x3333333333333333)
@@ -232,9 +236,10 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
     End Method
 End Class
 
+/// The values of a BitSet, smallest first, which For ... In goes over.
 Public Struct BitSetIterator Implements Iterator<Int>
     Field Owner: BitSet
-    // The next value to look at, which can be past the largest Int.
+    /// The next value to look at, which can be past the largest Int.
     Field At: Int64
     Field Changes: Int64
 

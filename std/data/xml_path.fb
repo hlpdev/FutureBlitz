@@ -1,14 +1,14 @@
-// XmlPath: XPath 1.0's location paths over an XmlNode's tree, a subset of them: steps on the
-// child, descendant, descendant-or-self, parent, ancestor, ancestor-or-self, following-sibling,
-// preceding-sibling, self, and attribute axes, written out or abbreviated ('//', '.', '..',
-// '@'); tests of a name, '*', text(), node(), comment(), and processing-instruction(); and
-// predicates of positions, paths, strings, and numbers, compared with =, !=, <, <=, >, and >=,
-// joined with and and or, and the functions last(), position(), count(), not(), contains(),
-// starts-with(), string(), name(), true(), and false(). Paths can be joined with '|', which binds
-// tighter than the comparisons, as in XPath. A path that starts with '/' starts at a document
-// whose root element is the node it's selecting from. Names are matched as they're written,
-// prefixes and all. A run of text and CDATA next to each other is one text node, as XPath's data
-// model has no CDATA, a TEXT of their text when there are more than one.
+//! XmlPath: XPath 1.0's location paths over an XmlNode's tree, a subset of them: steps on the
+//! child, descendant, descendant-or-self, parent, ancestor, ancestor-or-self, following-sibling,
+//! preceding-sibling, self, and attribute axes, written out or abbreviated ('//', '.', '..',
+//! '@'); tests of a name, '*', text(), node(), comment(), and processing-instruction(); and
+//! predicates of positions, paths, strings, and numbers, compared with =, !=, <, <=, >, and >=,
+//! joined with and and or, and the functions last(), position(), count(), not(), contains(),
+//! starts-with(), string(), name(), true(), and false(). Paths can be joined with '|', which binds
+//! tighter than the comparisons, as in XPath. A path that starts with '/' starts at a document
+//! whose root element is the node it's selecting from. Names are matched as they're written,
+//! prefixes and all. A run of text and CDATA next to each other is one text node, as XPath's data
+//! model has no CDATA, a TEXT of their text when there are more than one.
 
 Import std.core
 Import std.collections
@@ -16,11 +16,12 @@ Import std.data.text
 Import std.data.xml
 Import std.data.xml_reader
 
+/// XPath 1.0's location paths, a subset of them, which select nodes of an XmlNode's tree.
 Public Class XmlPath
     Field Source: String
     Field Tree: PathExpression
 
-    // The path text writes. Panics when it isn't one XmlPath reads.
+    /// The path text writes. Panics when it isn't one XmlPath reads.
     @PanicsAtCaller
     Public New(text: String)
         Source = text
@@ -31,8 +32,8 @@ Public Class XmlPath
         If !Tree.IsPath() Then Panic("the XPath \"{text}\" selects no nodes")
     End New
 
-    // The nodes the path selects from node, in the document's order, each once. An attribute is
-    // a node of its own, an ATTRIBUTE, made for what selects it.
+    /// The nodes the path selects from node, in the document's order, each once. An attribute is
+    /// a node of its own, an ATTRIBUTE, made for what selects it.
     Public Method Query(node: XmlNode): XmlNode[]
         Local document = XmlNode(XmlKind.ELEMENT, "", "")
         document.Children.Add(node)
@@ -47,8 +48,8 @@ Public Class XmlPath
         Return nodes
     End Method
 
-    // Numbers node's tree in the document's order, each element's attributes the numbers after
-    // its own, before its children's.
+    /// Numbers node's tree in the document's order, each element's attributes the numbers after
+    /// its own, before its children's.
     Static Method Number(node: XmlNode)
         Local next = 0
         Local open: (XmlNode, Int)[] = [(node, 0)]
@@ -70,11 +71,12 @@ Public Class XmlPath
         End While
     End Method
 
+    /// The path, as it was written.
     Public Method ToString(): String => Source
 End Class
 
-// A node where a path goes, with the place it's under, its index among the place's children, or
-// -1 for an attribute, and its number in the document's order, which Query gives each node.
+/// A node where a path goes, with the place it's under, its index among the place's children, or
+/// -1 for an attribute, and its number in the document's order, which Query gives each node.
 Class XmlPlace
     Field Node: XmlNode
     Field Parent: XmlPlace?
@@ -88,7 +90,7 @@ Class XmlPlace
         Order = order
     End New
 
-    // Its child at index, which starts a run of text: the run as one TEXT when it's more than one.
+    /// Its child at index, which starts a run of text: the run as one TEXT when it's more than one.
     Method Child(index: Int): XmlPlace
         Local children = Node.Children
         Local child = children[index]
@@ -105,17 +107,17 @@ Class XmlPlace
         Return XmlPlace(child, Self, index, child.Mark)
     End Method
 
-    // Whether its child at index is a place of its own, not the rest of a run of text.
+    /// Whether its child at index is a place of its own, not the rest of a run of text.
     Method Starts(index: Int): Bool
         Local children = Node.Children
         Return index == 0 || !IsText(children[index]) || !IsText(children[index - 1])
     End Method
 End Class
 
-// Whether node is text or CDATA, which XPath's text nodes are made of.
+/// Whether node is text or CDATA, which XPath's text nodes are made of.
 Function IsText(node: XmlNode): Bool => node.Kind == XmlKind.TEXT || node.Kind == XmlKind.CDATA
 
-// The axes, and the node tests.
+/// The axes, and the node tests.
 Const CHILD = 0
 Const DESCENDANT = 1
 Const DESCENDANT_OR_SELF = 2
@@ -147,8 +149,8 @@ Class PathStep
     End New
 End Class
 
-// A part of a path's tree: a path of steps, from the document when it's absolute; '|', or, and,
-// or a comparison of its Parts; a string or a number; or a function's call with its Parts.
+/// A part of a path's tree: a path of steps, from the document when it's absolute; '|', or, and,
+/// or a comparison of its Parts; a string or a number; or a function's call with its Parts.
 Class PathExpression
     Field Kind: String
     Field Absolute: Bool
@@ -161,7 +163,7 @@ Class PathExpression
         Kind = kind
     End New
 
-    // Whether it gives nodes: a path, or paths joined with '|'.
+    /// Whether it gives nodes: a path, or paths joined with '|'.
     Method IsPath(): Bool
         If Kind == "path" Then Return True
         If Kind != "|" Then Return False
@@ -172,7 +174,7 @@ Class PathExpression
     End Method
 End Class
 
-// What an expression gives: nodes, a string, a number, or a Bool.
+/// What an expression gives: nodes, a string, a number, or a Bool.
 Class PathValue
     Field Kind: String
     Field Places: XmlPlace[] = []
@@ -202,8 +204,8 @@ Class PathValue
         Return value
     End Method
 
-    // As XPath's boolean(): nodes when there are any, a string that isn't empty, and a number
-    // that isn't 0 or NaN.
+    /// As XPath's boolean(): nodes when there are any, a string that isn't empty, and a number
+    /// that isn't 0 or NaN.
     Method Truth(): Bool
         If Kind == "nodes" Then Return Places.Count > 0
         If Kind == "string" Then Return Text != ""
@@ -211,7 +213,7 @@ Class PathValue
         Return Flag
     End Method
 
-    // As XPath's string(): the first node's text.
+    /// As XPath's string(): the first node's text.
     Method AsText(): String
         If Kind == "nodes" Then Return Places.Count > 0 ? Places[0].Node.Text : ""
         If Kind == "string" Then Return Text
@@ -219,7 +221,7 @@ Class PathValue
         Return Flag ? "true" : "false"
     End Method
 
-    // As XPath's number().
+    /// As XPath's number().
     Method AsNumber(): Float64
         If Kind == "number" Then Return Number
         If Kind == "bool" Then Return Flag ? 1.0 : 0.0
@@ -305,7 +307,7 @@ Class PathEvaluator
         End Select
     End Method
 
-    // The places a path's steps go to from context.
+    /// The places a path's steps go to from context.
     Method Walk(path: PathExpression, context: XmlPlace): XmlPlace[]
         Local current: XmlPlace[] = [path.Absolute ? Document : context]
         For step In path.Steps
@@ -331,8 +333,8 @@ Class PathEvaluator
         Return current
     End Method
 
-    // The places on axis from place, in its order: the document's, or for the reverse axes,
-    // nearest first.
+    /// The places on axis from place, in its order: the document's, or for the reverse axes,
+    /// nearest first.
     Method Axis(place: XmlPlace, axis: Int): XmlPlace[]
         Local found: XmlPlace[] = []
         Select axis
@@ -389,8 +391,8 @@ Class PathEvaluator
         Return found
     End Method
 
-    // Adds place's descendants to found, in the document's order, through a stack of the places
-    // open and their next children's indexes, however deep they go.
+    /// Adds place's descendants to found, in the document's order, through a stack of the places
+    /// open and their next children's indexes, however deep they go.
     Method Descendants(place: XmlPlace, found: XmlPlace[])
         Local open: (XmlPlace, Int)[] = [(place, 0)]
         While open.Count > 0
@@ -411,8 +413,8 @@ Class PathEvaluator
         End While
     End Method
 
-    // Whether candidate passes step's test: a name or '*' tests the axis's kind of node, an
-    // attribute on the attribute axis and an element on the rest.
+    /// Whether candidate passes step's test: a name or '*' tests the axis's kind of node, an
+    /// attribute on the attribute axis and an element on the rest.
     Method Matches(candidate: XmlPlace, step: PathStep): Bool
         Local node = candidate.Node
         Local principal = step.Axis == ATTRIBUTE_AXIS ? XmlKind.ATTRIBUTE : XmlKind.ELEMENT
@@ -433,7 +435,7 @@ Class PathEvaluator
         End Select
     End Method
 
-    // places in the document's order, each once.
+    /// places in the document's order, each once.
     Static Method Ordered(places: XmlPlace[]): XmlPlace[]
         Local sorted = places.Clone()
         sorted.Sort(Function(a: XmlPlace, b: XmlPlace) => a.Order < b.Order)
@@ -444,8 +446,8 @@ Class PathEvaluator
         Return unique
     End Method
 
-    // XPath's comparison of two values by op: nodes compare by each one's text, as a number
-    // against a number, and as a Bool against a Bool.
+    /// XPath's comparison of two values by op: nodes compare by each one's text, as a number
+    /// against a number, and as a Bool against a Bool.
     Static Method Compare(op: String, left: PathValue, right: PathValue): Bool
         If left.Kind == "nodes" && right.Kind == "nodes"
             For a In left.Places
@@ -499,7 +501,7 @@ Class PathEvaluator
         Return CompareNumbers(op, left.AsNumber(), right.AsNumber())
     End Method
 
-    // Two texts by op: = and != as strings, and the rest as numbers.
+    /// Two texts by op: = and != as strings, and the rest as numbers.
     Static Method CompareTexts(op: String, a: String, b: String): Bool
         If op == "=" Then Return a == b
         If op == "!=" Then Return a != b
@@ -524,7 +526,7 @@ Class PathEvaluator
     End Method
 End Class
 
-// Reads a path's text into its tree, keeping what went wrong in Failure.
+/// Reads a path's text into its tree, keeping what went wrong in Failure.
 Class PathParser
     Field Bytes: UInt8[]
     Field At: Int
@@ -534,8 +536,8 @@ Class PathParser
         Bytes = text.Bytes
     End New
 
-    // A comparison's operand: a primary, or paths joined with '|', which binds tighter than the
-    // comparisons, and joins only paths.
+    /// A comparison's operand: a primary, or paths joined with '|', which binds tighter than the
+    /// comparisons, and joins only paths.
     Method Union(): PathExpression
         Local first = Primary()
         Space()
@@ -693,7 +695,7 @@ Class PathParser
         Return Path()
     End Method
 
-    // A location path.
+    /// A location path.
     Method Path(): PathExpression
         Local path = PathExpression("path")
         Space()
@@ -724,7 +726,7 @@ Class PathParser
         End Loop
     End Method
 
-    // Whether a step starts here.
+    /// Whether a step starts here.
     Method StartsStep(): Bool
         If At >= Bytes.Count Then Return False
         Local b = Bytes[At]
@@ -815,7 +817,7 @@ Class PathParser
         End Loop
     End Method
 
-    // A name, with its prefix and ':', '-', and '.', or "" when there's none here.
+    /// A name, with its prefix and ':', '-', and '.', or "" when there's none here.
     Method Name(): String
         Local start = At
         If At >= Bytes.Count || !IsNameStartByte(Bytes[At]) Then Return ""
@@ -827,7 +829,7 @@ Class PathParser
         Return TextOf(Bytes, start, At)
     End Method
 
-    // Whether word, a whole name, is next.
+    /// Whether word, a whole name, is next.
     Method Word(word: String): Bool
         Space()
         If !Starts(word) Then Return False
@@ -874,10 +876,10 @@ Class PathParser
     End Method
 End Class
 
-// Whether b starts a name in a path: a letter, '_', or a byte of a character past ASCII.
+/// Whether b starts a name in a path: a letter, '_', or a byte of a character past ASCII.
 Function IsNameStartByte(b: UInt8): Bool => IsLetterByte(b) || b == 95 || b >= 128
 
-// Where needle starts in text, by bytes, or -1.
+/// Where needle starts in text, by bytes, or -1.
 Function Find(text: String, needle: String): Int
     Local bytes = text.Bytes
     Local inner = needle.Bytes
@@ -894,7 +896,7 @@ Function Find(text: String, needle: String): Int
     Return -1
 End Function
 
-// text as XPath's number(): a decimal with spaces around it, or NaN.
+/// text as XPath's number(): a decimal with spaces around it, or NaN.
 Function NumberOf(text: String): Float64
     Local bytes = text.Bytes
     Local start = 0
@@ -914,8 +916,8 @@ Function NumberOf(text: String): Float64
     Return FloatOf(bytes, start, finish) ?? nan
 End Function
 
-// A number as XPath's string() writes it: an integer without a point, and no exponent, "NaN", and
-// "Infinity" or "-Infinity".
+/// A number as XPath's string() writes it: an integer without a point, and no exponent, "NaN", and
+/// "Infinity" or "-Infinity".
 Function NumberText(number: Float64): String
     If number != number Then Return "NaN"
     If number - number != 0 Then Return number > 0 ? "Infinity" : "-Infinity"

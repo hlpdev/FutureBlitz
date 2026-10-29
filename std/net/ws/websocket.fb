@@ -1,7 +1,7 @@
-// std.net.ws's WebSocket, per RFC 6455: messages of text or bytes both ways over one connection,
-// a client's from Connect, at a ws:// URL, or a wss:// one over TLS, or a server's from Accept,
-// which answers the client's handshake.
-// Each is blocking or Async, and a Ping gets its Pong while a Receive reads.
+//! std.net.ws's WebSocket, per RFC 6455: messages of text or bytes both ways over one connection,
+//! a client's from Connect, at a ws:// URL, or a wss:// one over TLS, or a server's from Accept,
+//! which answers the client's handshake.
+//! Each is blocking or Async, and a Ping gets its Pong while a Receive reads.
 
 Import std.core
 Import std.collections
@@ -18,7 +18,7 @@ Import std.net.http.wire
 Import std.net.ws.handshake
 Import std.text
 
-// A frame's opcodes.
+/// A frame's opcodes.
 Const CONTINUATION = 0
 Const TEXT = 1
 Const BINARY = 2
@@ -26,32 +26,35 @@ Const CLOSE = 8
 Const PING = 9
 Const PONG = 10
 
-// What a WebSocket is at: OPEN, CLOSING once it's sent its Close and waits for the other side's,
-// and CLOSED once the Close has gone both ways, or the connection ended.
+/// What a WebSocket is at: OPEN, CLOSING once it's sent its Close and waits for the other side's,
+/// and CLOSED once the Close has gone both ways, or the connection ended.
 Public Enum WebSocketState
     OPEN, CLOSING, CLOSED
 End Enum
 
-// A WebSocket's message: text, which is UTF-8, or bytes.
+/// A WebSocket's message: text, which is UTF-8, or bytes.
 Public Struct WebSocketMessage Implements Printable
+    /// Whether it's text, or bytes.
     Public ReadOnly Field IsText: Bool
+    /// Its bytes: a text message's UTF-8.
     Public ReadOnly Field Bytes: UInt8[]
 
+    /// A message of `bytes`, text when `isText`.
     Public New(isText: Bool, bytes: UInt8[])
         IsText = isText
         Bytes = bytes
     End New
 
-    // Its text: a text message's, or a binary one's bytes as UTF-8, or "" when they aren't.
+    /// Its text: a text message's, or a binary one's bytes as UTF-8, or "" when they aren't.
     Public Property Text: String
         Get => String.FromUtf8(Bytes) ?? ""
     End Property
 
-    // A text message's text, or how many bytes a binary one has.
+    /// A text message's text, or how many bytes a binary one has.
     Public Method ToString(): String => IsText ? Text : "{Bytes.Count} bytes"
 End Struct
 
-// A frame as it came: whether it ends its message, its opcode, and its payload, unmasked.
+/// A frame as it came: whether it ends its message, its opcode, and its payload, unmasked.
 Class Frame
     Field Fin: Bool
     Field Opcode: Int
@@ -60,28 +63,28 @@ Class Frame
     Field Payload: UInt8[] = []
 End Class
 
-// A WebSocket connection. A Receive gives each message as it comes, and answers a Ping with a
-// Pong, and the other side's Close with its own, after which it gives Null; only one Receive
-// reads at a time. Send and Ping throw a NetError of CLOSED once Close has been called, and every
-// error is a NetError: of CLOSED for a connection that ended without a Close frame, RESET for
-// one the other side ended badly, and OTHER for a frame that breaks RFC 6455, which closes it
-// with the code the RFC gives. The connection closes when the WebSocket goes, or at Abort.
+/// A WebSocket connection. A Receive gives each message as it comes, and answers a Ping with a
+/// Pong, and the other side's Close with its own, after which it gives Null; only one Receive
+/// reads at a time. Send and Ping throw a NetError of CLOSED once Close has been called, and every
+/// error is a NetError: of CLOSED for a connection that ended without a Close frame, RESET for
+/// one the other side ended badly, and OTHER for a frame that breaks RFC 6455, which closes it
+/// with the code the RFC gives. The connection closes when the WebSocket goes, or at Abort.
 Public Class WebSocket
     ReadOnly Field Stream: Duplex
     ReadOnly Field Input: Wire
     ReadOnly Field IsClient: Bool
-    // The other side's address, for errors.
+    /// The other side's address, for errors.
     ReadOnly Field Peer: String
-    // The subprotocol the handshake chose, or "".
+    /// The subprotocol the handshake chose, or "".
     Public ReadOnly Field Protocol: String
     Field Status: WebSocketState
     Field Receiving: Bool
     Field Limit: Int64 = 16777216
-    // A fragmented message's payloads so far, and whether it's text.
+    /// A fragmented message's payloads so far, and whether it's text.
     Field Parts: UInt8[] = []
     Field PartsText: Bool
     Field Fragmented: Bool
-    // A frame a Receive answers with, a Pong or a Close, and what it throws after.
+    /// A frame a Receive answers with, a Pong or a Close, and what it throws after.
     Field Reply: Buffer<UInt8>? = Null
     Field Failure: NetError? = Null
     Field Code: Int? = Null
@@ -96,13 +99,13 @@ Public Class WebSocket
         Status = WebSocketState.OPEN
     End New
 
-    // Connects to a ws:// URL, or a wss:// one over TLS as `tls` connects, or for a Null one, a
-    // TlsClient that trusts the OS's roots, and opens a WebSocket there, asking for the
-    // subprotocols, if any, in the order it would have them, waiting up to `timeout` to connect
-    // and as long for each read of the TLS handshake and the server's answer, or as long as it
-    // takes for a Null one. Throws a NetError as TcpStream.Connect and TlsClient.Connect do, and
-    // of OTHER for a URL that isn't ws:// or wss:// and an answer that isn't a WebSocket's.
-    // Panics when a subprotocol isn't a token.
+    /// Connects to a ws:// URL, or a wss:// one over TLS as `tls` connects, or for a Null one, a
+    /// TlsClient that trusts the OS's roots, and opens a WebSocket there, asking for the
+    /// subprotocols, if any, in the order it would have them, waiting up to `timeout` to connect
+    /// and as long for each read of the TLS handshake and the server's answer, or as long as it
+    /// takes for a Null one. Throws a NetError as TcpStream.Connect and TlsClient.Connect do, and
+    /// of OTHER for a URL that isn't ws:// or wss:// and an answer that isn't a WebSocket's.
+    /// Panics when a subprotocol isn't a token.
     @PanicsAtCaller
     Public Static Method Connect(url: String, protocols: String[] = [], timeout: Duration? = Null,
                                  tls: TlsClient? = Null): WebSocket Throws NetError, TimeoutError
@@ -140,7 +143,7 @@ Public Class WebSocket
         End Try
     End Method
 
-    // Connect's Async twin, which waits on the main thread.
+    /// Connect's Async twin, which waits on the main thread.
     @PanicsAtCaller
     Public Static Async Method ConnectAsync(
             url: String, protocols: String[] = [], timeout: Duration? = Null,
@@ -181,11 +184,11 @@ Public Class WebSocket
         End Try
     End Method
 
-    // Reads a client's handshake from a connection a TcpListener accepted, and opens a WebSocket
-    // over it, choosing the first of the client's subprotocols that `protocols` has, or none.
-    // A request that isn't a WebSocket's is answered with an error's status, and closed, and
-    // throws a NetError of OTHER; one that ends first throws a NetError of CLOSED. Panics when a
-    // subprotocol isn't a token.
+    /// Reads a client's handshake from a connection a TcpListener accepted, and opens a WebSocket
+    /// over it, choosing the first of the client's subprotocols that `protocols` has, or none.
+    /// A request that isn't a WebSocket's is answered with an error's status, and closed, and
+    /// throws a NetError of OTHER; one that ends first throws a NetError of CLOSED. Panics when a
+    /// subprotocol isn't a token.
     @PanicsAtCaller
     Public Static Method Accept(stream: TcpStream,
                                 protocols: String[] = []): WebSocket Throws NetError
@@ -211,7 +214,7 @@ Public Class WebSocket
         End Try
     End Method
 
-    // Accept's Async twin, which waits on the main thread.
+    /// Accept's Async twin, which waits on the main thread.
     @PanicsAtCaller
     Public Static Async Method AcceptAsync(stream: TcpStream,
                                            protocols: String[] = []): WebSocket Throws NetError
@@ -237,12 +240,12 @@ Public Class WebSocket
         End Try
     End Method
 
-    // Opens a WebSocket over the connection of a request that an HttpServer's handler was given,
-    // answering its handshake as AcceptAsync of a TcpStream does, and takes the connection from
-    // the server, which then sends nothing of the handler's response, and doesn't close it as it
-    // stops. A request that isn't a WebSocket's throws a NetError of OTHER, and the server sends
-    // the handler's response to it. Panics when a subprotocol isn't a token, or the request's
-    // connection is a WebSocket's already.
+    /// Opens a WebSocket over the connection of a request that an HttpServer's handler was given,
+    /// answering its handshake as AcceptAsync of a TcpStream does, and takes the connection from
+    /// the server, which then sends nothing of the handler's response, and doesn't close it as it
+    /// stops. A request that isn't a WebSocket's throws a NetError of OTHER, and the server sends
+    /// the handler's response to it. Panics when a subprotocol isn't a token, or the request's
+    /// connection is a WebSocket's already.
     @PanicsAtCaller
     Public Static Async Method AcceptAsync(request: HttpRequest,
                                            protocols: String[] = []): WebSocket Throws NetError
@@ -266,24 +269,24 @@ Public Class WebSocket
         Return WebSocket(stream, connection.Input, False, peer, answer.Protocol)
     End Method
 
-    // Where it is: OPEN, CLOSING, or CLOSED.
+    /// Where it is: OPEN, CLOSING, or CLOSED.
     Public Property State: WebSocketState
         Get => Status
     End Property
 
-    // The code of the Close that came, 1005 for one without, or 1006 when the connection ended
-    // without one, as one this side failed for breaking RFC 6455 does, or Null while none has.
+    /// The code of the Close that came, 1005 for one without, or 1006 when the connection ended
+    /// without one, as one this side failed for breaking RFC 6455 does, or Null while none has.
     Public Property CloseCode: Int?
         Get => Code
     End Property
 
-    // The reason the other side's Close gave, or "".
+    /// The reason the other side's Close gave, or "".
     Public Property CloseReason: String
         Get => Reason
     End Property
 
-    // The most bytes a message it receives can have, 16 MiB unless it's set; a longer one closes
-    // it with 1009 and throws. Panics when it's set below 1.
+    /// The most bytes a message it receives can have, 16 MiB unless it's set; a longer one closes
+    /// it with 1009 and throws. Panics when it's set below 1.
     @PanicsAtCaller
     Public Property MaxMessageSize: Int64
         Get => Limit
@@ -293,8 +296,8 @@ Public Class WebSocket
         End Set
     End Property
 
-    // The next message, waiting for it, or Null once the other side's Close has come, and after.
-    // Panics when another Receive is reading.
+    /// The next message, waiting for it, or Null once the other side's Close has come, and after.
+    /// Panics when another Receive is reading.
     @PanicsAtCaller
     Public Method Receive(): WebSocketMessage? Throws NetError
         StartReceiving()
@@ -325,7 +328,7 @@ Public Class WebSocket
         Return Null
     End Method
 
-    // Receive's Async twin, which waits on the main thread.
+    /// Receive's Async twin, which waits on the main thread.
     @PanicsAtCaller
     Public Async Method ReceiveAsync(): WebSocketMessage? Throws NetError
         StartReceiving()
@@ -356,43 +359,46 @@ Public Class WebSocket
         Return Null
     End Method
 
-    // Sends a text message.
+    /// Sends a text message.
     Public Method Send(text: String) Throws NetError
         Try Write(TEXT, text.Bytes)
     End Method
 
-    // Sends a binary message.
+    /// Sends a binary message.
     Public Method Send(bytes: UInt8[]) Throws NetError
         Try Write(BINARY, bytes)
     End Method
 
+    /// What [Send] does, without blocking its thread: a call gives its Task.
     Public Async Method SendAsync(text: String) Throws NetError
         Try Await WriteAsync(TEXT, text.Bytes)
     End Method
 
+    /// What [Send] does, without blocking its thread: a call gives its Task.
     Public Async Method SendAsync(bytes: UInt8[]) Throws NetError
         Try Await WriteAsync(BINARY, bytes)
     End Method
 
-    // Sends a Ping, which the other side answers with a Pong of the same bytes, 125 at most, or
-    // it panics. A Receive reads past the Pong.
+    /// Sends a Ping, which the other side answers with a Pong of the same bytes, 125 at most, or
+    /// it panics. A Receive reads past the Pong.
     @PanicsAtCaller
     Public Method Ping(bytes: UInt8[] = []) Throws NetError
         CheckControl(bytes)
         Try Write(PING, bytes)
     End Method
 
+    /// What [Ping] does, without blocking its thread: a call gives its Task.
     @PanicsAtCaller
     Public Async Method PingAsync(bytes: UInt8[] = []) Throws NetError
         CheckControl(bytes)
         Try Await WriteAsync(PING, bytes)
     End Method
 
-    // Sends a Close with `code` and `reason`, unless it has already, and is CLOSING: Receive gives
-    // the messages that came before the other side's Close, and then Null. The code is 1000, a
-    // normal close, or one RFC 6455 has an endpoint send, from 1001 to 1003 or 1007 to 1014, or
-    // one of 3000 to 4999, and the reason's UTF-8 is 123 bytes at most, or it panics. A Close
-    // that can't be sent closes the connection.
+    /// Sends a Close with `code` and `reason`, unless it has already, and is CLOSING: Receive gives
+    /// the messages that came before the other side's Close, and then Null. The code is 1000, a
+    /// normal close, or one RFC 6455 has an endpoint send, from 1001 to 1003 or 1007 to 1014, or
+    /// one of 3000 to 4999, and the reason's UTF-8 is 123 bytes at most, or it panics. A Close
+    /// that can't be sent closes the connection.
     @PanicsAtCaller
     Public Method Close(code: Int = 1000, reason: String = "")
         CheckClose(code, reason)
@@ -405,6 +411,7 @@ Public Class WebSocket
         End Try
     End Method
 
+    /// What [Close] does, without blocking its thread: a call gives its Task.
     @PanicsAtCaller
     Public Async Method CloseAsync(code: Int = 1000, reason: String = "")
         CheckClose(code, reason)
@@ -417,21 +424,21 @@ Public Class WebSocket
         End Try
     End Method
 
-    // Closes the connection at once, without a Close frame, and is CLOSED.
+    /// Closes the connection at once, without a Close frame, and is CLOSED.
     Public Method Abort()
         If Code == Null Then Code = 1006
         Status = WebSocketState.CLOSED
         Stream.Close()
     End Method
 
-    // Panics when a Receive is reading already.
+    /// Panics when a Receive is reading already.
     @PanicsAtCaller
     Method StartReceiving()
         If Receiving Then Panic("a WebSocket's Receive is reading already")
         Receiving = True
     End Method
 
-    // Sends a frame of a whole message, or a Ping, unless it's closing.
+    /// Sends a frame of a whole message, or a Ping, unless it's closing.
     Method Write(opcode: Int, payload: UInt8[]) Throws NetError
         Try CheckOpen()
         Try
@@ -456,15 +463,15 @@ Public Class WebSocket
         Throw NetError(NetErrorKind.CLOSED, "the WebSocket is {doing}", Peer)
     End Method
 
-    // The Close frame it sends.
+    /// The Close frame it sends.
     Method CloseBytes(code: Int, reason: String): Buffer<UInt8>
         Local payload: UInt8[] = [(code >> 8) As UInt8, (code & 0xFF) As UInt8]
         payload.AddAll(reason.Bytes)
         Return FrameBytes(CLOSE, payload, IsClient)
     End Method
 
-    // The next frame, or Null when the connection ended first, or the frame broke the RFC, which
-    // Failure then says.
+    /// The next frame, or Null when the connection ended first, or the frame broke the RFC, which
+    /// Failure then says.
     Method ReadFrame(): Frame? Throws IOError
         Local start = Buffer<UInt8>(2)
         If !Try Input.ReadExact(start) Then Return Null
@@ -507,8 +514,8 @@ Public Class WebSocket
         Return frame
     End Method
 
-    // Reads a frame's first two bytes into it, and gives how many bytes of length come after
-    // them, or -1 when they break the RFC.
+    /// Reads a frame's first two bytes into it, and gives how many bytes of length come after
+    /// them, or -1 when they break the RFC.
     Method Begin(frame: Frame, first: UInt8, second: UInt8): Int
         frame.Fin = (first & 0x80) != 0
         frame.Opcode = (first & 0x0F) As Int
@@ -532,7 +539,7 @@ Public Class WebSocket
         Return 0
     End Method
 
-    // Reads a frame's longer length into it, and tells whether the RFC allows it.
+    /// Reads a frame's longer length into it, and tells whether the RFC allows it.
     Method Measure(frame: Frame, length: Buffer<UInt8>): Bool
         If length.Count == 8 && (length[0] & 0x80) != 0
             Fail(1002, "a frame's length with its top bit set")
@@ -547,7 +554,7 @@ Public Class WebSocket
         Return True
     End Method
 
-    // Whether a data frame's message fits MaxMessageSize, or it fails with 1009.
+    /// Whether a data frame's message fits MaxMessageSize, or it fails with 1009.
     Method Fits(frame: Frame): Bool
         If frame.Opcode >= CLOSE Then Return True
         Local so = frame.Opcode == CONTINUATION ? Parts.Count As Int64 : 0
@@ -556,8 +563,8 @@ Public Class WebSocket
         Return False
     End Method
 
-    // What a frame read gives: a message once one is whole, and the reply to send. A Null frame
-    // is a connection that ended, or a frame that failed.
+    /// What a frame read gives: a message once one is whole, and the reply to send. A Null frame
+    /// is a connection that ended, or a frame that failed.
     Method Took(frame: Frame?): WebSocketMessage?
         If Failure != Null Then Return Null
         If frame == Null
@@ -603,8 +610,8 @@ Public Class WebSocket
         Return WebSocketMessage(PartsText, bytes)
     End Method
 
-    // Answers a Ping with a Pong, reads past a Pong, and answers the other side's Close with its
-    // own, unless it sent one first.
+    /// Answers a Ping with a Pong, reads past a Pong, and answers the other side's Close with its
+    /// own, unless it sent one first.
     Method Control(frame: Frame)
         If frame.Opcode == PING
             If Status == WebSocketState.OPEN Then Reply = FrameBytes(PONG, frame.Payload, IsClient)
@@ -642,7 +649,7 @@ Public Class WebSocket
         Status = WebSocketState.CLOSED
     End Method
 
-    // Fails with a Close of `code`, for a frame that broke the RFC, and gives -1.
+    /// Fails with a Close of `code`, for a frame that broke the RFC, and gives -1.
     Method Fail(code: Int, problem: String): Int
         If Status == WebSocketState.OPEN Then Reply = CloseBytes(code, "")
         Failure = NetError(NetErrorKind.OTHER, "{Peer} sent {problem}", Peer)
@@ -651,33 +658,33 @@ Public Class WebSocket
         Return -1
     End Method
 
-    // Closes the connection once it's CLOSED, and throws what failed.
+    /// Closes the connection once it's CLOSED, and throws what failed.
     Method Settle() Throws NetError
         If Status == WebSocketState.CLOSED Then Stream.Close()
         Local failure = Failure
         If failure != Null Then Throw failure
     End Method
 
-    // An IOError of the connection's as a NetError, which closes it.
+    /// An IOError of the connection's as a NetError, which closes it.
     Method Lost(e: IOError): NetError
         Abort()
         Return LostWith(e, Peer)
     End Method
 End Class
 
-// A ws:// or wss:// URL's host and port to connect to, whether it's over TLS, and its Host
-// field and target.
+/// A ws:// or wss:// URL's host and port to connect to, whether it's over TLS, and its Host
+/// field and target.
 Class Target
     Field Host: String
     Field Port: UInt16
     Field Secure: Bool
     Field HostField: String
     Field Path: String
-    // Host and port, for errors.
+    /// Host and port, for errors.
     Field Address: String
 End Class
 
-// Where a ws:// or wss:// URL is, or a NetError of OTHER when it isn't one.
+/// Where a ws:// or wss:// URL is, or a NetError of OTHER when it isn't one.
 Function TargetOf(text: String): Target Throws NetError
     Local url = Url.Parse(text)
     If url == Null Then Throw NetError(NetErrorKind.OTHER, "\"{text}\" isn't a URL", text)
@@ -704,7 +711,7 @@ Function TargetOf(text: String): Target Throws NetError
     Return target
 End Function
 
-// The WebSocket a client's handshake opens, once its answer is a WebSocket's.
+/// The WebSocket a client's handshake opens, once its answer is a WebSocket's.
 Function Opened(stream: Duplex, wire: Wire, head: Head?, key: String, protocols: String[],
                 address: String): WebSocket Throws NetError
     If head == Null
@@ -722,7 +729,7 @@ Function Opened(stream: Duplex, wire: Wire, head: Head?, key: String, protocols:
     Return WebSocket(stream, wire, True, address, protocol)
 End Function
 
-// What a handshake's IOError throws: its TimeoutError, or a NetError.
+/// What a handshake's IOError throws: its TimeoutError, or a NetError.
 Function Handshaking(stream: Duplex, e: IOError,
                      address: String): NetError Throws TimeoutError
     stream.Close()
@@ -735,7 +742,7 @@ Function ClosedBefore(peer: String): NetError
     Return NetError(NetErrorKind.CLOSED, "{peer} closed before it asked for a WebSocket", peer)
 End Function
 
-// The answer to a request HTTP/1.1 refuses.
+/// The answer to a request HTTP/1.1 refuses.
 Function RefusalBytes(e: WireError): UInt8[]
     Return HeadBytes("HTTP/1.1 {e.Status} {StatusCode.Reason(e.Status)}",
                      ["Content-Length", "Connection"], ["0", "close"])
@@ -746,7 +753,7 @@ Function Refused(e: WireError, peer: String): NetError
                     e.Message, peer)
 End Function
 
-// An IOError of a connection's as a NetError: its Cause's Kind, when that's a NetError.
+/// An IOError of a connection's as a NetError: its Cause's Kind, when that's a NetError.
 Function LostWith(e: IOError, peer: String): NetError
     Local cause = e.Cause
     If cause Is NetError
@@ -757,8 +764,8 @@ Function LostWith(e: IOError, peer: String): NetError
     Return NetError(NetErrorKind.OTHER, e.Message, peer, e)
 End Function
 
-// A frame of a whole message: FIN, the opcode, the length in as few bytes as it fits, and the
-// payload, masked with a random key when a client sends it, as RFC 6455 has it.
+/// A frame of a whole message: FIN, the opcode, the length in as few bytes as it fits, and the
+/// payload, masked with a random key when a client sends it, as RFC 6455 has it.
 Function FrameBytes(opcode: Int, payload: UInt8[], masked: Bool): Buffer<UInt8>
     Local count = payload.Count As Int64
     Local lengthBytes = count < 126 ? 0 : count < 65536 ? 2 : 8
@@ -791,7 +798,7 @@ Function FrameBytes(opcode: Int, payload: UInt8[], masked: Bool): Buffer<UInt8>
     Return frame
 End Function
 
-// A payload as bytes, unmasked with its key when it has one.
+/// A payload as bytes, unmasked with its key when it has one.
 Function Unmasked(payload: Buffer<UInt8>, key: Buffer<UInt8>): UInt8[]
     Local bytes = payload.ToArray()
     If key.Count == 0 Then Return bytes
@@ -801,14 +808,14 @@ Function Unmasked(payload: Buffer<UInt8>, key: Buffer<UInt8>): UInt8[]
     Return bytes
 End Function
 
-// Whether a Close can have code: one RFC 6455 has an endpoint send, or one of 3000 to 4999, for
-// libraries and programs.
+/// Whether a Close can have code: one RFC 6455 has an endpoint send, or one of 3000 to 4999, for
+/// libraries and programs.
 Function IsCloseCode(code: Int): Bool
     If code >= 3000 && code <= 4999 Then Return True
     Return (code >= 1000 && code <= 1003) || (code >= 1007 && code <= 1014)
 End Function
 
-// Panics, where Close was called, unless its code and reason can be sent.
+/// Panics, where Close was called, unless its code and reason can be sent.
 @PanicsAtCaller
 Function CheckClose(code: Int, reason: String)
     If !IsCloseCode(code) Then Panic("a WebSocket can't close with code {code}")
@@ -817,7 +824,7 @@ Function CheckClose(code: Int, reason: String)
     End If
 End Function
 
-// Panics, where Ping was called, unless its bytes fit a control frame.
+/// Panics, where Ping was called, unless its bytes fit a control frame.
 @PanicsAtCaller
 Function CheckControl(bytes: UInt8[])
     If bytes.Count > 125 Then Panic("a WebSocket's Ping has 125 bytes at most, not {bytes.Count}")

@@ -1,7 +1,7 @@
-// Tasks made of other Tasks, and a Task finished by hand: WhenAll waits for each of its tasks,
-// WhenAny for the first, and a TaskSource's Task is done once a thread has given it its result,
-// and a ThrowingTaskSource's once the main thread has given it its result or its error. They give
-// Tasks of Async Functions, so they're the main thread's, as Async code is.
+//! Tasks made of other Tasks, and a Task finished by hand: WhenAll waits for each of its tasks,
+//! WhenAny for the first, and a TaskSource's Task is done once a thread has given it its result,
+//! and a ThrowingTaskSource's once the main thread has given it its result or its error. They give
+//! Tasks of Async Functions, so they're the main thread's, as Async code is.
 
 Import std.core
 
@@ -13,27 +13,28 @@ Extern "runtime"
     Function fb_signal_free(signal: UInt64)
 End Extern
 
-// A Task finished by hand: Finish, on any thread, gives its Task the result, which a Wait or an
-// Await on the Task then gives. A TaskSource no thread finishes leaves its Task never done, like a
-// Task that waits for a Scheduler that nothing ticks.
+/// A Task finished by hand: Finish, on any thread, gives its Task the result, which a Wait or an
+/// Await on the Task then gives. A TaskSource no thread finishes leaves its Task never done, like a
+/// Task that waits for a Scheduler that nothing ticks.
 Public Shared Class TaskSource<T: Sendable>
     ReadOnly Field Signal: UInt64
-    // The result, once there is one.
+    /// The result, once there is one.
     Field Result: Mutex<T?>
 
+    /// A new TaskSource, whose Task isn't done.
     Public New()
         Signal = fb_signal_new()
     End New
 
-    // A Task of the result: done at once when Finish has given it, and otherwise at the main
-    // thread's first tick after Finish does, as an Async Function's Task is once what it awaits
-    // is done. Each one it gives is a new Task of the same result. Only the main thread has one,
-    // as its code is Async code.
+    /// A Task of the result: done at once when Finish has given it, and otherwise at the main
+    /// thread's first tick after Finish does, as an Async Function's Task is once what it awaits
+    /// is done. Each one it gives is a new Task of the same result. Only the main thread has one,
+    /// as its code is Async code.
     Public Property Task: Task<T>
         Get => Finished(Self, fb_signal_task(Signal))
     End Property
 
-    // Whether Finish has given the result.
+    /// Whether Finish has given the result.
     Public Property IsDone: Bool
         Get
             Lock Result As result
@@ -42,14 +43,14 @@ Public Shared Class TaskSource<T: Sendable>
         End Get
     End Property
 
-    // Gives the Task its result, which wakes what waits for it. Panics when it has one already.
+    /// Gives the Task its result, which wakes what waits for it. Panics when it has one already.
     @PanicsAtCaller
     Public Method Finish(value: T)
         If !TryFinish(value) Then Panic("the TaskSource has its result already")
     End Method
 
-    // Gives the Task its result unless it has one already, and tells whether it didn't, so of
-    // threads that finish it at once, one does.
+    /// Gives the Task its result unless it has one already, and tells whether it didn't, so of
+    /// threads that finish it at once, one does.
     Public Method TryFinish(value: T): Bool
         Lock Result As result
             If result != Null Then Return False
@@ -64,7 +65,7 @@ Public Shared Class TaskSource<T: Sendable>
         fb_signal_free(Signal)
     End Method
 
-    // The result, which there is once the signal is given.
+    /// The result, which there is once the signal is given.
     Method Given(): T
         Lock Result As result
             Return result.Expect("a TaskSource has its result once its signal is given")
@@ -72,53 +73,54 @@ Public Shared Class TaskSource<T: Sendable>
     End Method
 End Class
 
-// A TaskSource's Task: its result, at once when its signal is given already, or once it is.
+/// A TaskSource's Task: its result, at once when its signal is given already, or once it is.
 Async Function Finished<T: Sendable>(source: TaskSource<T>, given: Task): T
     If !given.IsDone() Then Await given
     Return source.Given()
 End Function
 
-// A Task finished by hand that can throw: Finish gives its Task the result, and Fail the error,
-// which a Wait or an Await on the Task then gives or throws. An error isn't Sendable, so it's a
-// Class, which stays on the main thread, as its Tasks do; work on other threads finishes a
-// TaskSource instead. One that's never finished leaves its Task never done.
+/// A Task finished by hand that can throw: Finish gives its Task the result, and Fail the error,
+/// which a Wait or an Await on the Task then gives or throws. An error isn't Sendable, so it's a
+/// Class, which stays on the main thread, as its Tasks do; work on other threads finishes a
+/// TaskSource instead. One that's never finished leaves its Task never done.
 Public Class ThrowingTaskSource<T, E: Error>
     Field Settled: TaskSource<Bool>
     Field Result: T?
     Field Failure: E?
 
+    /// A new ThrowingTaskSource, whose Task isn't done.
     Public New()
         Settled = TaskSource<Bool>()
     End New
 
-    // A Task of the result, or of the error: done at once when Finish or Fail has given it, and
-    // otherwise at the main thread's first tick after it does. Each one it gives is a new Task of
-    // the same result.
+    /// A Task of the result, or of the error: done at once when Finish or Fail has given it, and
+    /// otherwise at the main thread's first tick after it does. Each one it gives is a new Task of
+    /// the same result.
     Public Property Task: (Task<T> Throws E)
         Get => Settles(Self, Settled.Task)
     End Property
 
-    // Whether Finish or Fail has given its Task what it gives.
+    /// Whether Finish or Fail has given its Task what it gives.
     Public Property IsDone: Bool
         Get => Settled.IsDone
     End Property
 
-    // Gives the Task its result, which wakes what waits for it. Panics when it has a result or an
-    // error already.
+    /// Gives the Task its result, which wakes what waits for it. Panics when it has a result or an
+    /// error already.
     @PanicsAtCaller
     Public Method Finish(value: T)
         If !TryFinish(value) Then Panic("the ThrowingTaskSource is finished already")
     End Method
 
-    // Gives the Task its error, which a Wait or an Await on it throws. Panics when it has a result
-    // or an error already.
+    /// Gives the Task its error, which a Wait or an Await on it throws. Panics when it has a result
+    /// or an error already.
     @PanicsAtCaller
     Public Method Fail(error: E)
         If !TryFail(error) Then Panic("the ThrowingTaskSource is finished already")
     End Method
 
-    // Gives the Task its result unless it has a result or an error already, and tells whether it
-    // didn't.
+    /// Gives the Task its result unless it has a result or an error already, and tells whether it
+    /// didn't.
     Public Method TryFinish(value: T): Bool
         If IsDone Then Return False
         Result = value
@@ -126,8 +128,8 @@ Public Class ThrowingTaskSource<T, E: Error>
         Return True
     End Method
 
-    // Gives the Task its error unless it has a result or an error already, and tells whether it
-    // didn't.
+    /// Gives the Task its error unless it has a result or an error already, and tells whether it
+    /// didn't.
     Public Method TryFail(error: E): Bool
         If IsDone Then Return False
         Failure = error
@@ -135,7 +137,7 @@ Public Class ThrowingTaskSource<T, E: Error>
         Return True
     End Method
 
-    // What the Task gives, or throws, once it's settled.
+    /// What the Task gives, or throws, once it's settled.
     Method Given(): T Throws E
         Local failure = Failure
         If failure != Null Then Throw failure
@@ -143,17 +145,17 @@ Public Class ThrowingTaskSource<T, E: Error>
     End Method
 End Class
 
-// A ThrowingTaskSource's Task: its result or error, at once when it's settled, or once it is.
+/// A ThrowingTaskSource's Task: its result or error, at once when it's settled, or once it is.
 Async Function Settles<T, E: Error>(source: ThrowingTaskSource<T, E>,
                                     settled: Task<Bool>): T Throws E
     If !settled.IsDone() Then Await settled
     Return Try source.Given()
 End Function
 
-// A Task of each task's result, in their order, done once they all are.
+/// A Task of each task's result, in their order, done once they all are.
 Public Function WhenAll<T>(tasks: Task<T>[]): Task<T[]> => AllOf(tasks.Clone())
 
-// A Task that's done once each of the tasks is.
+/// A Task that's done once each of the tasks is.
 Public Function WhenAll(tasks: Task[]): Task => AllOf(tasks.Clone())
 
 Async Function AllOf<T>(tasks: Task<T>[]): T[]
@@ -171,14 +173,14 @@ Async Function AllOf(tasks: Task[])
     End For
 End Function
 
-// A Task of each task's result, in their order, done once they all are; when any throws, it waits
-// for the rest and then throws the error of the first of them, in their order, that threw.
+/// A Task of each task's result, in their order, done once they all are; when any throws, it waits
+/// for the rest and then throws the error of the first of them, in their order, that threw.
 Public Function WhenAll<T, E: Error>(tasks: (Task<T> Throws E)[]): (Task<T[]> Throws E)
     Return AllOf(tasks.Clone())
 End Function
 
-// A Task that's done once each of the tasks is, which throws the first's error, in their order,
-// when any throw.
+/// A Task that's done once each of the tasks is, which throws the first's error, in their order,
+/// when any throw.
 Public Function WhenAll<E: Error>(tasks: (Task Throws E)[]): (Task Throws E) => AllOf(tasks.Clone())
 
 Async Function AllOf<T, E: Error>(tasks: (Task<T> Throws E)[]): T[] Throws E
@@ -212,10 +214,10 @@ Async Function AllOf<E: Error>(tasks: (Task Throws E)[]) Throws E
     If first != Null Then Throw first
 End Function
 
-// A Task of the index of the first of the tasks found done, whose result a Wait or an Await then
-// gives at once. At a tick of the scheduler it looks at them in their order, so of tasks done
-// before it looks, it's the first in the array, and one done later in the tick doesn't count.
-// Panics when there are none, since none would be done.
+/// A Task of the index of the first of the tasks found done, whose result a Wait or an Await then
+/// gives at once. At a tick of the scheduler it looks at them in their order, so of tasks done
+/// before it looks, it's the first in the array, and one done later in the tick doesn't count.
+/// Panics when there are none, since none would be done.
 @PanicsAtCaller
 Public Function WhenAny<T>(tasks: Task<T>[]): Task<Int>
     If tasks.Count == 0 Then Panic("WhenAny waits for the first of its tasks, so it needs one")
@@ -227,7 +229,7 @@ Public Function WhenAny<T>(tasks: Task<T>[]): Task<Int>
     Return first.Task
 End Function
 
-// A Task of the index of the first of the tasks to be done, as for tasks with results.
+/// A Task of the index of the first of the tasks to be done, as for tasks with results.
 @PanicsAtCaller
 Public Function WhenAny(tasks: Task[]): Task<Int>
     If tasks.Count == 0 Then Panic("WhenAny waits for the first of its tasks, so it needs one")
@@ -239,8 +241,8 @@ Public Function WhenAny(tasks: Task[]): Task<Int>
     Return first.Task
 End Function
 
-// A Task of the index of the first of the tasks found done, as for tasks that don't throw: one
-// that threw is done, and its Wait or Await then throws its error. Panics when there are none.
+/// A Task of the index of the first of the tasks found done, as for tasks that don't throw: one
+/// that threw is done, and its Wait or Await then throws its error. Panics when there are none.
 @PanicsAtCaller
 Public Function WhenAny<T, E: Error>(tasks: (Task<T> Throws E)[]): Task<Int>
     If tasks.Count == 0 Then Panic("WhenAny waits for the first of its tasks, so it needs one")
@@ -252,8 +254,8 @@ Public Function WhenAny<T, E: Error>(tasks: (Task<T> Throws E)[]): Task<Int>
     Return first.Task
 End Function
 
-// A Task of the index of the first of the tasks to be done, or to throw. Panics when there are
-// none.
+/// A Task of the index of the first of the tasks to be done, or to throw. Panics when there are
+/// none.
 @PanicsAtCaller
 Public Function WhenAny<E: Error>(tasks: (Task Throws E)[]): Task<Int>
     If tasks.Count == 0 Then Panic("WhenAny waits for the first of its tasks, so it needs one")
@@ -265,8 +267,8 @@ Public Function WhenAny<E: Error>(tasks: (Task Throws E)[]): Task<Int>
     Return first.Task
 End Function
 
-// Gives `first` the index once the task is done, unless another task's came before. WhenAny's
-// waiters are in the scheduler's order as they were made, so it looks at them in that order.
+/// Gives `first` the index once the task is done, unless another task's came before. WhenAny's
+/// waiters are in the scheduler's order as they were made, so it looks at them in that order.
 Async Function FirstOf<T>(task: Task<T>, index: Int, first: TaskSource<Int>)
     Await task
     first.TryFinish(index)

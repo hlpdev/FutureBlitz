@@ -1,5 +1,5 @@
-// std.log's sinks into files: FileSink adds each line to a file's end, and RotatingFileSink does
-// until the file's as big as it's let be, then moves it aside, keeping a few of the old ones.
+//! std.log's sinks into files: FileSink adds each line to a file's end, and RotatingFileSink does
+//! until the file's as big as it's let be, then moves it aside, keeping a few of the old ones.
 
 Import std.core
 Import std.io.dir
@@ -8,23 +8,23 @@ Import std.io.path
 Import std.log.output
 Import std.log.sinks
 
-// A sink that adds each line, as LogLine has it, with its time and without colors, and a "\n",
-// to the end of the file at `path`, made, with the folders it's in, when it isn't there; a
-// relative path is from the folder that's current when the sink's made. Each line goes in one
-// write, which no other line's comes into, from this program's threads or, on every OS, another
-// program's adding to the file too. A line that can't be written is gone, and the first of those
-// since one was written says so on stderr.
+/// A sink that adds each line, as LogLine has it, with its time and without colors, and a "\n",
+/// to the end of the file at `path`, made, with the folders it's in, when it isn't there; a
+/// relative path is from the folder that's current when the sink's made. Each line goes in one
+/// write, which no other line's comes into, from this program's threads or, on every OS, another
+/// program's adding to the file too. A line that can't be written is gone, and the first of those
+/// since one was written says so on stderr.
 Public Function FileSink(path: Path): Sendable Func(LogRecord)
     Const file = LogFile(path, 0, 0)
     Return Function(record: LogRecord) => file.Add(LogLine(record, True, False) + "\n")
 End Function
 
-// A sink that adds lines as FileSink does, until a line would make the file hold more than
-// `maxBytes`: then the file becomes `path` with ".1" after it, the ".1" before it ".2", and so on,
-// the oldest of `keep` going, and the line starts a new file. A file holds one line at least, so
-// one longer than maxBytes has one of its own. While the file can't be moved aside, which stderr
-// is told once, lines go on being added to it. Panics when maxBytes isn't above 0, or keep is
-// below 0; with a keep of 0, the old lines go.
+/// A sink that adds lines as FileSink does, until a line would make the file hold more than
+/// `maxBytes`: then the file becomes `path` with ".1" after it, the ".1" before it ".2", and so on,
+/// the oldest of `keep` going, and the line starts a new file. A file holds one line at least, so
+/// one longer than maxBytes has one of its own. While the file can't be moved aside, which stderr
+/// is told once, lines go on being added to it. Panics when maxBytes isn't above 0, or keep is
+/// below 0; with a keep of 0, the old lines go.
 @PanicsAtCaller
 Public Function RotatingFileSink(path: Path, maxBytes: Int64,
                                  keep: Int = 5): Sendable Func(LogRecord)
@@ -37,17 +37,17 @@ Public Function RotatingFileSink(path: Path, maxBytes: Int64,
     Return Function(record: LogRecord) => file.Add(LogLine(record, True, False) + "\n")
 End Function
 
-// The path, from the current folder now when it's relative, so a sink's file stays the one it was
-// made for when the current folder changes; or as it is when the OS doesn't say where that is, or
-// it's by the other OS's rules.
+/// The path, from the current folder now when it's relative, so a sink's file stays the one it was
+/// made for when the current folder changes; or as it is when the OS doesn't say where that is, or
+/// it's by the other OS's rules.
 Function Fixed(path: Path): Path
     If path.IsAbsolute() || path.Style != Path.NativeStyle() Then Return path
     Return (Try? path.Absolute()) ?? path
 End Function
 
-// What a file's sink knows: whether it's found how many bytes the file holds, and that size,
-// which its writes count, and whether its last write, and its last move of the file aside,
-// failed, which stderr's been told, and, after a move that failed, the size it's tried again at.
+/// What a file's sink knows: whether it's found how many bytes the file holds, and that size,
+/// which its writes count, and whether its last write, and its last move of the file aside,
+/// failed, which stderr's been told, and, after a move that failed, the size it's tried again at.
 Struct FileState
     Field Known: Bool
     Field Size: Int64
@@ -56,10 +56,10 @@ Struct FileState
     Field RetryAt: Int64
 End Struct
 
-// A file lines are added to, by any thread, one at a time, moved aside once it holds Most bytes
-// unless Most is 0.
+/// A file lines are added to, by any thread, one at a time, moved aside once it holds Most bytes
+/// unless Most is 0.
 Shared Class LogFile
-    // Where it is, from the root, and as the program named it, which stderr's told of.
+    /// Where it is, from the root, and as the program named it, which stderr's told of.
     ReadOnly Field Location: Path
     ReadOnly Field Named: Path
     ReadOnly Field Most: Int64
@@ -73,7 +73,7 @@ Shared Class LogFile
         Keep = keep
     End New
 
-    // Adds the line to the file's end, moving the file aside first when it would be too big.
+    /// Adds the line to the file's end, moving the file aside first when it would be too big.
     Method Add(line: String)
         Lock State As state
             Try
@@ -121,9 +121,9 @@ Shared Class LogFile
         End Lock
     End Method
 
-    // Moves the file to its ".1", and each old one to the next, the oldest going. Nothing old is
-    // deleted or moved until the file's been moved aside, to a name beside it, so one that can't
-    // be leaves the old ones as they were, and one that can't go on to its ".1" goes back.
+    /// Moves the file to its ".1", and each old one to the next, the oldest going. Nothing old is
+    /// deleted or moved until the file's been moved aside, to a name beside it, so one that can't
+    /// be leaves the old ones as they were, and one that can't go on to its ".1" goes back.
     Method Rotate() Throws IOError
         // One that's gone, as another program can take it, has nothing to move aside, and the old
         // ones stay.
@@ -159,6 +159,6 @@ Shared Class LogFile
         End Try
     End Method
 
-    // The old file `index` back.
+    /// The old file `index` back.
     Method Old(index: Int): Path => Path(Location.Text + ".{index}", Location.Style)
 End Class

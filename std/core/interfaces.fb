@@ -1,67 +1,83 @@
-// The Interfaces that the language's operators and strings work through. The built-in types
-// implement the ones that fit them, and a Struct or Class implements one by listing it.
+//! The Interfaces that the language's operators and strings work through. The built-in types
+//! implement the ones that fit them, and a Struct or Class implements one by listing it.
 
-// What == says, and != is always its opposite. A Struct that lists Equatable without an
-// Operator == of its own compares its fields, and a Class compares whether two are the same
-// object.
+/// What == says, and != is always its opposite. A Struct that lists Equatable without an
+/// Operator == of its own compares its fields, and a Class compares whether two are the same
+/// object.
 Public Interface Equatable
+    /// Whether `a` and `b` are equal.
     Operator ==(a: Self, b: Self): Bool
 End Interface
 
-// An order: what < says, which the other comparisons follow unless a type gives its own.
+/// An order: what < says, which the other comparisons follow unless a type gives its own.
 Public Interface Comparable Extends Equatable
+    /// Whether `a` comes before `b`.
     Operator <(a: Self, b: Self): Bool
 
+    /// Whether `a` comes after `b`.
     Operator >(a: Self, b: Self): Bool => b < a
+    /// Whether `a` comes before `b` or is equal to it.
     Operator <=(a: Self, b: Self): Bool => !(b < a)
+    /// Whether `a` comes after `b` or is equal to it.
     Operator >=(a: Self, b: Self): Bool => !(a < b)
 End Interface
 
-// A number for Maps and Sets to find a value by, the same for values that are equal. A Struct
-// that lists Hashable without a Hash of its own combines its fields', and a Class's comes from
-// its object.
+/// A number for Maps and Sets to find a value by, the same for values that are equal. A Struct
+/// that lists Hashable without a Hash of its own combines its fields', and a Class's comes from
+/// its object.
 Public Interface Hashable Extends Equatable
+    /// Its hash, the same for values that are equal.
     Method Hash(): UInt64
 End Interface
 
-// What a value shows in a string, like "{point}".
+/// What a value shows in a string, like "{point}".
 Public Interface Printable
+    /// Its text, as a string interpolation like "{value}" shows it.
     Method ToString(): String
 End Interface
 
-// A value that takes a format spec, the part after the ':' in "{price:.2}" or Format's
-// "{0:>8}": Format gives its text for the spec, or Null when it doesn't take that spec. The
-// numbers, Bool, String, and Enums are Formattable, by the specs the compiler checks.
+/// A value that takes a format spec, the part after the ':' in "{price:.2}" or Format's
+/// "{0:>8}": Format gives its text for the spec, or Null when it doesn't take that spec. The
+/// numbers, Bool, String, and Enums are Formattable, by the specs the compiler checks.
 Public Interface Formattable Extends Printable
+    /// Its text for a format spec, like ".2" or ">8", or Null when it doesn't take that spec.
     Method Format(spec: String): String?
 End Interface
 
-// What arithmetic needs, so generic code like a Sum works on any number.
+/// What arithmetic needs, so generic code like a Sum works on any number.
 Public Interface Numeric
+    /// The number that adding leaves alone: 0.
     Static Method Zero(): Self
+    /// The number that multiplying leaves alone: 1.
     Static Method One(): Self
+    /// `a` and `b` added up.
     Operator +(a: Self, b: Self): Self
+    /// `b` taken away from `a`.
     Operator -(a: Self, b: Self): Self
+    /// `a` and `b` multiplied together.
     Operator *(a: Self, b: Self): Self
+    /// `a` divided by `b`.
     Operator /(a: Self, b: Self): Self
 End Interface
 
-// What makes a copy of itself, which changing one doesn't change the other: arrays and std's
-// collections are Cloneable.
+/// What makes a copy of itself, which changing one doesn't change the other: arrays and std's
+/// collections are Cloneable.
 Public Interface Cloneable
+    /// A new value, equal to this one, that changing this one doesn't change.
     Method Clone(): Self
 End Interface
 
-// What has a value to start from, for generic code that needs one: the numbers' is 0, Bool's
-// False, String's "", an Enum's its zero, its first value or a @Flags Enum's no flags, and std's
-// collections' is empty. It's DefaultValue, since Default is Select's keyword.
+/// What has a value to start from, for generic code that needs one: the numbers' is 0, Bool's
+/// False, String's "", an Enum's its zero, its first value or a @Flags Enum's no flags, and std's
+/// collections' is empty. It's DefaultValue, since Default is Select's keyword.
 Public Interface Defaultable
+    /// The value to start from, like 0 for a number, "" for a String, or an empty collection.
     Static Method DefaultValue(): Self
 End Interface
 
-// What can go to another thread, which the compiler decides: numbers, Bools, Strings, Enums,
-// Callbacks, Channels, Mutexes, Atomics, and a Shared Class's objects and Weaks of them, and the
-// Structs, tuples, and fixed arrays whose fields and elements all are, with a T? of any of them. A type can list
-// it, or an Interface that extends it, to have that checked.
+/// What can go to another thread, which the compiler decides: numbers, Bools, Strings, Enums,
+/// Callbacks, Channels, Mutexes, Atomics, and a Shared Class's objects and Weaks of them, and the
+/// Structs, tuples, and fixed arrays whose fields and elements all are, with a T? of any of them. A
+/// type can list it, or an Interface that extends it, to have that checked.
 Public Interface Sendable
 End Interface

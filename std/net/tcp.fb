@@ -1,6 +1,6 @@
-// std.net's TCP: TcpListener, which takes connections at an address, and TcpStream, a
-// connection's bytes both ways, a Reader and a Writer as std.io's streams are, each blocking or
-// Async.
+//! std.net's TCP: TcpListener, which takes connections at an address, and TcpStream, a
+//! connection's bytes both ways, a Reader and a Writer as std.io's streams are, each blocking or
+//! Async.
 
 Import std.core
 Import std.ffi
@@ -10,15 +10,15 @@ Import std.net.address
 Import std.net.dns
 Import std.net.socket
 
-// How many connections a listener keeps that the OS has and the I/O thread hasn't taken yet,
-// unless it's told: Node's, which the OS lowers to what it allows. Past it, Windows refuses a
-// connection, and other OSes have it try again later.
+/// How many connections a listener keeps that the OS has and the I/O thread hasn't taken yet,
+/// unless it's told: Node's, which the OS lowers to what it allows. Past it, Windows refuses a
+/// connection, and other OSes have it try again later.
 Const BACKLOG = 511
 
-// A TCP connection: bytes both ways, in order, which it reads and writes as std.io's streams do.
-// Nagle's algorithm is off, so a small write goes at once, as a game's messages need. A Read or
-// Write that fails throws an IOError whose Cause is a NetError, of RESET for a connection the
-// other side ended badly, or a TimeoutError. It closes when it goes, or at Close.
+/// A TCP connection: bytes both ways, in order, which it reads and writes as std.io's streams do.
+/// Nagle's algorithm is off, so a small write goes at once, as a game's messages need. A Read or
+/// Write that fails throws an IOError whose Cause is a NetError, of RESET for a connection the
+/// other side ended badly, or a TimeoutError. It closes when it goes, or at Close.
 Public Class TcpStream Implements Reader, Writer
     ReadOnly Field Socket: StreamSocket
 
@@ -26,9 +26,9 @@ Public Class TcpStream Implements Reader, Writer
         Socket = socket
     End New
 
-    // Connects to `address`, waiting up to `timeout`, or as long as the OS does for a Null one.
-    // Throws a NetError of REFUSED when nothing listens there, of UNREACHABLE when the network
-    // can't get there, and a TimeoutError when it takes too long.
+    /// Connects to `address`, waiting up to `timeout`, or as long as the OS does for a Null one.
+    /// Throws a NetError of REFUSED when nothing listens there, of UNREACHABLE when the network
+    /// can't get there, and a TimeoutError when it takes too long.
     Public Static Method Connect(
             address: SocketAddress, timeout: Duration? = Null): TcpStream Throws NetError,
                                                                                  TimeoutError
@@ -38,8 +38,8 @@ Public Class TcpStream Implements Reader, Writer
         Return TcpStream(socket)
     End Method
 
-    // Connects to `host` at `port`, trying its addresses in the order Dns.Resolve gives them,
-    // each for up to `timeout`, and throws what the last one did when none connects.
+    /// Connects to `host` at `port`, trying its addresses in the order Dns.Resolve gives them,
+    /// each for up to `timeout`, and throws what the last one did when none connects.
     Public Static Method Connect(
             host: String, port: UInt16, timeout: Duration? = Null): TcpStream Throws NetError,
                                                                                      TimeoutError
@@ -57,7 +57,7 @@ Public Class TcpStream Implements Reader, Writer
         Throw NetError(NetErrorKind.HOST_NOT_FOUND, "{host} has no address", host)
     End Method
 
-    // Connect's Async twin, which waits on the main thread.
+    /// Connect's Async twin, which waits on the main thread.
     Public Static Async Method ConnectAsync(
             address: SocketAddress, timeout: Duration? = Null): TcpStream Throws NetError,
                                                                                  TimeoutError
@@ -68,7 +68,7 @@ Public Class TcpStream Implements Reader, Writer
         Return TcpStream(socket)
     End Method
 
-    // Connect's Async twin to a host, through Dns.ResolveAsync.
+    /// Connect's Async twin to a host, through Dns.ResolveAsync.
     Public Static Async Method ConnectAsync(
             host: String, port: UInt16, timeout: Duration? = Null): TcpStream Throws NetError,
                                                                                      TimeoutError
@@ -86,18 +86,18 @@ Public Class TcpStream Implements Reader, Writer
         Throw NetError(NetErrorKind.HOST_NOT_FOUND, "{host} has no address", host)
     End Method
 
-    // Its own address.
+    /// Its own address.
     Public Property LocalAddress: SocketAddress
         Get => AddressOfSocket(Socket.Handle, False) ?? SocketAddress(IpAddress.Any, 0)
     End Property
 
-    // The other side's address.
+    /// The other side's address.
     Public Property RemoteAddress: SocketAddress
         Get => AddressOfSocket(Socket.Handle, True) ?? SocketAddress(IpAddress.Any, 0)
     End Property
 
-    // How long a Read or ReadAsync waits for bytes before it throws, or Null, as it starts, to
-    // wait as long as it takes.
+    /// How long a Read or ReadAsync waits for bytes before it throws, or Null, as it starts, to
+    /// wait as long as it takes.
     Public Property ReadTimeout: Duration?
         Get => Socket.ReadTimeout
         Set(value)
@@ -105,20 +105,20 @@ Public Class TcpStream Implements Reader, Writer
         End Set
     End Property
 
-    // Whether Close closed it.
+    /// Whether Close closed it.
     Public Property IsClosed: Bool
         Get => Socket.Closed
     End Property
 
-    // Reads what's come, at least a byte, waiting for some, or 0 once the other side ended what
-    // it writes.
+    /// Reads what's come, at least a byte, waiting for some, or 0 once the other side ended what
+    /// it writes.
     Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError => Try Socket.Read(into)
 
     Public Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
         Return Try Await Socket.ReadAsync(into)
     End Method
 
-    // Writes all of from's bytes, returning once the OS has them.
+    /// Writes all of from's bytes, returning once the OS has them.
     Public Method Write(from: Buffer<UInt8>) Throws IOError
         Try Socket.Write(from)
     End Method
@@ -127,25 +127,26 @@ Public Class TcpStream Implements Reader, Writer
         Try Await Socket.WriteAsync(from)
     End Method
 
-    // Ends what it writes, once what's written is sent, so the other side reads its end; it
-    // still reads what the other side writes.
+    /// Ends what it writes, once what's written is sent, so the other side reads its end; it
+    /// still reads what the other side writes.
     Public Method ShutdownWrite() Throws IOError
         Try Socket.ShutdownWrite()
     End Method
 
+    /// What [ShutdownWrite] does, without blocking its thread: a call gives its Task.
     Public Async Method ShutdownWriteAsync() Throws IOError
         Try Await Socket.ShutdownWriteAsync()
     End Method
 
-    // Closes it at once: a Read or Write waiting for it throws an IOError whose Cause is a
-    // NetError of CLOSED, and so does one after. Going closes it too.
+    /// Closes it at once: a Read or Write waiting for it throws an IOError whose Cause is a
+    /// NetError of CLOSED, and so does one after. Going closes it too.
     Public Method Close()
         Socket.Close()
     End Method
 End Class
 
-// Takes TCP connections at an address, which Accept gives as TcpStreams. It closes when it
-// goes, or at Close, with the connections it has that nothing accepted.
+/// Takes TCP connections at an address, which Accept gives as TcpStreams. It closes when it
+/// goes, or at Close, with the connections it has that nothing accepted.
 Public Class TcpListener
     ReadOnly Field Socket: ListenerSocket
 
@@ -153,9 +154,9 @@ Public Class TcpListener
         Socket = socket
     End New
 
-    // Listens at `address`, whose port 0 has the OS pick one, which LocalAddress tells, keeping
-    // up to `backlog` connections the OS has that aren't taken yet, 1 at least, or it panics.
-    // Throws a NetError when it can't, as when something listens there already.
+    /// Listens at `address`, whose port 0 has the OS pick one, which LocalAddress tells, keeping
+    /// up to `backlog` connections the OS has that aren't taken yet, 1 at least, or it panics.
+    /// Throws a NetError when it can't, as when something listens there already.
     @PanicsAtCaller
     Public Static Method Listen(address: SocketAddress,
                                 backlog: Int = BACKLOG): TcpListener Throws NetError
@@ -168,7 +169,7 @@ Public Class TcpListener
         Return listener
     End Method
 
-    // Listens at `host`'s first address, as Dns.Resolve gives them, and `port`.
+    /// Listens at `host`'s first address, as Dns.Resolve gives them, and `port`.
     @PanicsAtCaller
     Public Static Method Listen(host: String, port: UInt16,
                                 backlog: Int = BACKLOG): TcpListener Throws NetError
@@ -176,38 +177,38 @@ Public Class TcpListener
         Return Try Listen(SocketAddress(addresses[0], port), backlog)
     End Method
 
-    // Where it listens, the port the OS picked included.
+    /// Where it listens, the port the OS picked included.
     Public Property LocalAddress: SocketAddress
         Get => AddressOfSocket(Socket.Handle, False) ?? SocketAddress(IpAddress.Any, 0)
     End Property
 
-    // Whether Close closed it.
+    /// Whether Close closed it.
     Public Property IsClosed: Bool
         Get => Socket.Closed
     End Property
 
-    // The next connection, waiting up to `timeout` for one, or as long as it takes for a Null
-    // one, and throwing a TimeoutError after.
+    /// The next connection, waiting up to `timeout` for one, or as long as it takes for a Null
+    /// one, and throwing a TimeoutError after.
     Public Method Accept(timeout: Duration? = Null): TcpStream Throws NetError, TimeoutError
         Local accepted = Try Socket.Accept(timeout)
         Return TcpStream(StreamSocket(accepted, "TcpStream", PeerOf(accepted)))
     End Method
 
-    // Accept's Async twin, which waits on the main thread.
+    /// Accept's Async twin, which waits on the main thread.
     Public Async Method AcceptAsync(
             timeout: Duration? = Null): TcpStream Throws NetError, TimeoutError
         Local accepted = Try Await Socket.AcceptAsync(timeout)
         Return TcpStream(StreamSocket(accepted, "TcpStream", PeerOf(accepted)))
     End Method
 
-    // Closes it at once, with the connections nothing accepted: what's waiting for it throws a
-    // NetError of CLOSED, and so does what uses it after. Going closes it too.
+    /// Closes it at once, with the connections nothing accepted: what's waiting for it throws a
+    /// NetError of CLOSED, and so does what uses it after. Going closes it too.
     Public Method Close()
         Socket.Close()
     End Method
 End Class
 
-// The text of an accepted connection's other side.
+/// The text of an accepted connection's other side.
 Function PeerOf(accepted: Ptr<Void>): String
     Local address = AddressOfSocket(accepted, True)
     Return address == Null ? "a TCP connection" : address.ToString()

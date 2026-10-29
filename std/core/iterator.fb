@@ -1,98 +1,101 @@
-// What 'For ... In' goes over besides arrays. Each Next gives the next element, or Null when there
-// are no more. The loop goes over a copy of a Struct, since its Next changes it.
-//
-// Its adapters are lazy: each gives an Iterator of its own, which asks the one before it for a
-// value only when it's asked for one. Its consumers go over the values once. They're all Final,
-// so they're what every Iterator has, through its value too. Called on a Struct, they go over a
-// copy of it, and a Class's object is used up, as a For loop over it is. A @PanicsAtCaller Next
-// panics where a consumer is called, and through an adapter or a box, where its panic is, as
-// through any Iterator<T> value.
+//! What 'For ... In' goes over besides arrays. Each Next gives the next element, or Null when there
+//! are no more. The loop goes over a copy of a Struct, since its Next changes it.
+//!
+//! Its adapters are lazy: each gives an Iterator of its own, which asks the one before it for a
+//! value only when it's asked for one. Its consumers go over the values once. They're all Final,
+//! so they're what every Iterator has, through its value too. Called on a Struct, they go over a
+//! copy of it, and a Class's object is used up, as a For loop over it is. A @PanicsAtCaller Next
+//! panics where a consumer is called, and through an adapter or a box, where its panic is, as
+//! through any `Iterator<T>` value.
 
 Import std.core.interfaces
 
+/// What 'For ... In' goes over: each Next gives the next value, and its adapters and consumers work
+/// on the values that are left.
 Public Interface Iterator<T>
+    /// The next value, or Null when there are no more.
     ByRef Method Next(): T?
 
-    // What change gives for each value.
+    /// What change gives for each value.
     Final Method Map<U>(change: Func(T): U): Iterator<U> => Mapped<Self, T, U>(Self, change)
 
-    // The values keep says to keep.
+    /// The values keep says to keep.
     Final Method Filter(keep: Func(T): Bool): Iterator<T> => Filtered<Self, T>(Self, keep)
 
-    // The first count values, or all of them when there are fewer.
+    /// The first count values, or all of them when there are fewer.
     @PanicsAtCaller
     Final Method Take(count: Int): Iterator<T>
         If count < 0 Then Panic("Take takes a count that isn't negative, not {count}")
         Return Taken<Self, T>(Self, count)
     End Method
 
-    // The values after the first count.
+    /// The values after the first count.
     @PanicsAtCaller
     Final Method Skip(count: Int): Iterator<T>
         If count < 0 Then Panic("Skip takes a count that isn't negative, not {count}")
         Return Skipped<Self, T>(Self, count)
     End Method
 
-    // The values before the first that keep says not to keep.
+    /// The values before the first that keep says not to keep.
     Final Method TakeWhile(keep: Func(T): Bool): Iterator<T> => TakenWhile<Self, T>(Self, keep)
 
-    // The values from the first that skip says not to skip.
+    /// The values from the first that skip says not to skip.
     Final Method SkipWhile(skip: Func(T): Bool): Iterator<T> => SkippedWhile<Self, T>(Self, skip)
 
-    // Each value with how many came before it.
+    /// Each value with how many came before it.
     Final Method Enumerate(): Iterator<(Int, T)> => Enumerated<Self, T>(Self)
 
-    // Each value with other's at the same place, as far as the shorter goes.
+    /// Each value with other's at the same place, as far as the shorter goes.
     Final Method Zip<O, U>(other: O): Iterator<(T, U)>
         Where O: Iterator<U>
         Return Zipped<Self, O, T, U>(Self, other)
     End Method
 
-    // These values, then other's.
+    /// These values, then other's.
     Final Method Chain<O>(other: O): Iterator<T>
         Where O: Iterator<T>
         Return Chained<Self, O, T>(Self, other)
     End Method
 
-    // The values of each value, which is an Iterable<U>, one after another.
+    /// The values of each value, which is an `Iterable<U>`, one after another.
     Final Method Flatten<U>(): Iterator<U>
         Where T: Iterable<U>
         Return Flattened<Self, T, U>(Self)
     End Method
 
-    // The first value, then each step-th one after it.
+    /// The first value, then each step-th one after it.
     @PanicsAtCaller
     Final Method StepBy(step: Int): Iterator<T>
         If step < 1 Then Panic("StepBy takes a step of at least 1, not {step}")
         Return Stepped<Self, T>(Self, step)
     End Method
 
-    // The values in arrays of size, the last one shorter when they don't divide evenly.
+    /// The values in arrays of size, the last one shorter when they don't divide evenly.
     @PanicsAtCaller
     Final Method Chunks(size: Int): Iterator<T[]>
         If size < 1 Then Panic("Chunks takes a size of at least 1, not {size}")
         Return Chunked<Self, T>(Self, size)
     End Method
 
-    // Each run of size values in a row, in an array of its own: none when there are fewer.
+    /// Each run of size values in a row, in an array of its own: none when there are fewer.
     @PanicsAtCaller
     Final Method Windows(size: Int): Iterator<T[]>
         If size < 1 Then Panic("Windows takes a size of at least 1, not {size}")
         Return Windowed<Self, T>(Self, size)
     End Method
 
-    // The values, smallest key first, where equal keys keep their order. It goes over them all
-    // when it's first asked for one.
+    /// The values, smallest key first, where equal keys keep their order. It goes over them all
+    /// when it's first asked for one.
     Final Method OrderBy<K: Comparable>(key: Func(T): K): Iterator<T>
         Return Ordered<Self, T, K>(Self, key, False)
     End Method
 
-    // The values, largest key first, where equal keys keep their order.
+    /// The values, largest key first, where equal keys keep their order.
     Final Method OrderByDescending<K: Comparable>(key: Func(T): K): Iterator<T>
         Return Ordered<Self, T, K>(Self, key, True)
     End Method
 
-    // The values, in a new array.
+    /// The values, in a new array.
     @PanicsAtCaller
     Final Method ToArray(): T[]
         Local items: T[] = []
@@ -103,7 +106,7 @@ Public Interface Iterator<T>
         Return items
     End Method
 
-    // How many values there are.
+    /// How many values there are.
     @PanicsAtCaller
     Final Method Count(): Int
         Local count = 0
@@ -114,7 +117,7 @@ Public Interface Iterator<T>
         Return count
     End Method
 
-    // Whether test says yes for any value, going no further than the first.
+    /// Whether test says yes for any value, going no further than the first.
     @PanicsAtCaller
     Final Method Any(test: Func(T): Bool): Bool
         For value In Self
@@ -124,7 +127,7 @@ Public Interface Iterator<T>
         Return False
     End Method
 
-    // Whether test says yes for every value, going no further than the first it doesn't.
+    /// Whether test says yes for every value, going no further than the first it doesn't.
     @PanicsAtCaller
     Final Method All(test: Func(T): Bool): Bool
         For value In Self
@@ -134,7 +137,7 @@ Public Interface Iterator<T>
         Return True
     End Method
 
-    // The first value test says yes for, or Null.
+    /// The first value test says yes for, or Null.
     @PanicsAtCaller
     Final Method Find(test: Func(T): Bool): T?
         For value In Self
@@ -144,7 +147,7 @@ Public Interface Iterator<T>
         Return Null
     End Method
 
-    // The first value, or Null when there's none.
+    /// The first value, or Null when there's none.
     @PanicsAtCaller
     Final Method First(): T?
         For value In Self
@@ -154,7 +157,7 @@ Public Interface Iterator<T>
         Return Null
     End Method
 
-    // The last value, or Null when there's none.
+    /// The last value, or Null when there's none.
     @PanicsAtCaller
     Final Method Last(): T?
         Local last: T? = Null
@@ -165,7 +168,7 @@ Public Interface Iterator<T>
         Return last
     End Method
 
-    // What combine makes of start and each value in turn.
+    /// What combine makes of start and each value in turn.
     @PanicsAtCaller
     Final Method Fold<A>(start: A, combine: Func(A, T): A): A
         Local result = start
@@ -176,8 +179,8 @@ Public Interface Iterator<T>
         Return result
     End Method
 
-    // What combine makes of the values, the first two, then that and the next, and so on: the
-    // first alone when there's one, and Null when there's none.
+    /// What combine makes of the values, the first two, then that and the next, and so on: the
+    /// first alone when there's one, and Null when there's none.
     @PanicsAtCaller
     Final Method Reduce(combine: Func(T, T): T): T?
         Local result: T? = Null
@@ -192,7 +195,7 @@ Public Interface Iterator<T>
         Return result
     End Method
 
-    // Runs action for each value.
+    /// Runs action for each value.
     @PanicsAtCaller
     Final Method ForEach(action: Func(T))
         For value In Self
@@ -200,7 +203,7 @@ Public Interface Iterator<T>
         End For
     End Method
 
-    // The values added up, or zero when there are none.
+    /// The values added up, or zero when there are none.
     @PanicsAtCaller
     Final Method Sum(): T
         Where T: Numeric
@@ -212,7 +215,7 @@ Public Interface Iterator<T>
         Return total
     End Method
 
-    // The values multiplied together, or one when there are none.
+    /// The values multiplied together, or one when there are none.
     @PanicsAtCaller
     Final Method Product(): T
         Where T: Numeric
@@ -224,7 +227,7 @@ Public Interface Iterator<T>
         Return total
     End Method
 
-    // The smallest value, the first of equal ones, or Null when there's none.
+    /// The smallest value, the first of equal ones, or Null when there's none.
     @PanicsAtCaller
     Final Method Min(): T?
         Where T: Comparable
@@ -240,7 +243,7 @@ Public Interface Iterator<T>
         Return least
     End Method
 
-    // The largest value, the first of equal ones, or Null when there's none.
+    /// The largest value, the first of equal ones, or Null when there's none.
     @PanicsAtCaller
     Final Method Max(): T?
         Where T: Comparable
@@ -256,7 +259,7 @@ Public Interface Iterator<T>
         Return most
     End Method
 
-    // The value whose key is smallest, the first of equal ones, or Null when there's none.
+    /// The value whose key is smallest, the first of equal ones, or Null when there's none.
     @PanicsAtCaller
     Final Method MinBy<K: Comparable>(key: Func(T): K): T?
         Local least: T? = Null
@@ -275,7 +278,7 @@ Public Interface Iterator<T>
         Return least
     End Method
 
-    // The value whose key is largest, the first of equal ones, or Null when there's none.
+    /// The value whose key is largest, the first of equal ones, or Null when there's none.
     @PanicsAtCaller
     Final Method MaxBy<K: Comparable>(key: Func(T): K): T?
         Local most: T? = Null
@@ -295,25 +298,26 @@ Public Interface Iterator<T>
     End Method
 End Interface
 
-// What 'For ... In' goes over through its Iterate(), for code that takes any collection. A
-// collection's Iterate() gives a Struct of its own, which an Iterable<T>'s value or generic code
-// gets in a box, an Iterator<T> object.
+/// What 'For ... In' goes over through its Iterate(), for code that takes any collection. A
+/// collection's Iterate() gives a Struct of its own, which an `Iterable<T>`'s value or generic code
+/// gets in a box, an `Iterator<T>` object.
 Public Interface Iterable<T>
+    /// Its values, from the first, in an Iterator of their own.
     Method Iterate(): Iterator<T>
 End Interface
 
-// value, count times.
+/// `value`, `count` times.
 @PanicsAtCaller
 Public Function Repeated<T>(value: T, count: Int): Iterator<T>
     If count < 0 Then Panic("Repeated takes a count that isn't negative, not {count}")
     Return Repeating<T>(value, count)
 End Function
 
-// No values.
+/// No values.
 Public Function Empty<T>(): Iterator<T> => Nothing<T>()
 
-// The box a Struct that implements Iterator<T> goes in where an Iterator<T> value is wanted,
-// which the compiler makes.
+/// The box a Struct that implements `Iterator<T>` goes in where an `Iterator<T>` value is wanted,
+/// which the compiler makes.
 Package Final Class Boxed<S, T> Implements Iterator<T>
     Where S: Iterator<T>
     Field Source: S
@@ -326,8 +330,8 @@ Package Final Class Boxed<S, T> Implements Iterator<T>
     Method Next(): T? => Source.Next()
 End Class
 
-// Sorts to from from, which starts as a copy of it, between start and finish, by what before
-// says comes first. Equal values keep their order.
+/// Sorts to from from, which starts as a copy of it, between start and finish, by what before
+/// says comes first. Equal values keep their order.
 @PanicsAtCaller
 Package Function MergeSort<T>(from: T[], to: T[], start: Int, finish: Int,
                               before: Func(T, T): Bool)

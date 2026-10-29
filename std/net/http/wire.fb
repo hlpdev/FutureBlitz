@@ -1,6 +1,6 @@
-// std.net.http's wire: HTTP/1.1's messages as their bytes go, per RFC 9112. The server reads
-// requests and writes responses in it, and a WebSocket's handshake is a request and a response
-// in it too. A connection is a Duplex, so a TLS stream can be one as a TcpStream is.
+//! std.net.http's wire: HTTP/1.1's messages as their bytes go, per RFC 9112. The server reads
+//! requests and writes responses in it, and a WebSocket's handshake is a request and a response
+//! in it too. A connection is a Duplex, so a TLS stream can be one as a TcpStream is.
 
 Import std.core
 Import std.collections
@@ -12,15 +12,15 @@ Import std.time.timers
 Import std.net.tcp
 Import std.net.tls
 
-// The longest line a head has, its CR LF included, a request's line or a field's.
+/// The longest line a head has, its CR LF included, a request's line or a field's.
 Package Const MAX_LINE: Int = 8192
-// The most a head holds, its lines with their ends, and the most fields it has.
+/// The most a head holds, its lines with their ends, and the most fields it has.
 Package Const MAX_HEAD: Int = 65536
 Package Const MAX_FIELDS: Int = 100
 
-// A connection's bytes both ways, which it ends and closes: a TcpStream, or a TLS stream over one.
+/// A connection's bytes both ways, which it ends and closes: a TcpStream, or a TLS stream over one.
 Package Interface Duplex Extends Reader, Writer
-    // How long a read waits, or Null for as long as it takes.
+    /// How long a read waits, or Null for as long as it takes.
     Property ReadTimeout: Duration?
     Method ShutdownWrite() Throws IOError
     Async Method ShutdownWriteAsync() Throws IOError
@@ -30,9 +30,9 @@ End Interface
 Extend TcpStream Implements Duplex
 End Extend
 
-// A TCP connection that TLS reads and writes through, each of whose reads waits only as long as
-// what's left of its Limit, once one's set, so a client that sends its handshake a byte at a time
-// can't hold it open past that.
+/// A TCP connection that TLS reads and writes through, each of whose reads waits only as long as
+/// what's left of its Limit, once one's set, so a client that sends its handshake a byte at a time
+/// can't hold it open past that.
 Package Class Paced Implements Reader, Writer
     Package ReadOnly Field Tcp: TcpStream
     Package Field Limit: Deadline? = Null
@@ -59,38 +59,38 @@ Package Class Paced Implements Reader, Writer
         Try Await Tcp.WriteAsync(from)
     End Method
 
-    // Has the next read wait for what's left of the Limit at most.
+    /// Has the next read wait for what's left of the Limit at most.
     Method Bound()
         Local limit = Limit
         If limit != Null Then Tcp.ReadTimeout = limit.Remaining
     End Method
 End Class
 
-// TLS over a TCP connection as a Duplex: a server's, whose handshake HandshakeAsync runs, or a
-// client's, made once its handshake is done. It ends what it writes, and closes, with TLS's
-// close_notify first, and its ReadTimeout is the TCP connection's.
+/// TLS over a TCP connection as a Duplex: a server's, whose handshake HandshakeAsync runs, or a
+/// client's, made once its handshake is done. It ends what it writes, and closes, with TLS's
+/// close_notify first, and its ReadTimeout is the TCP connection's.
 Package Class TlsDuplex Implements Duplex
     ReadOnly Field Tcp: TcpStream
     ReadOnly Field Through: Paced
     Field Tls: TlsStream<Paced>? = Null
 
-    // A server's, over `tcp`, before its handshake.
+    /// A server's, over `tcp`, before its handshake.
     Package New(tcp: TcpStream)
         Tcp = tcp
         Through = Paced(tcp)
     End New
 
-    // A client's, whose handshake is done.
+    /// A client's, whose handshake is done.
     Package New(tls: TlsStream<Paced>)
         Through = tls.Stream
         Tcp = Through.Tcp
         Tls = tls
     End New
 
-    // Runs a server's handshake as `server`, and tells whether it's done within `limit`, all of
-    // it, however the client sends it; one that fails, or takes longer, closes the connection as
-    // LingerAsync does, so what the client's still sending doesn't reset it, and the client sees
-    // its alert and its end.
+    /// Runs a server's handshake as `server`, and tells whether it's done within `limit`, all of
+    /// it, however the client sends it; one that fails, or takes longer, closes the connection as
+    /// LingerAsync does, so what the client's still sending doesn't reset it, and the client sees
+    /// its alert and its end.
     Package Async Method HandshakeAsync(server: TlsServer, limit: Duration): Bool
         Through.Limit = Deadline.After(limit)
         Try
@@ -136,15 +136,15 @@ Package Class TlsDuplex Implements Duplex
         Try Await Tcp.ShutdownWriteAsync()
     End Method
 
-    // Sends close_notify, unless the handshake isn't done or the connection has failed, and
-    // closes the TCP connection.
+    /// Sends close_notify, unless the handshake isn't done or the connection has failed, and
+    /// closes the TCP connection.
     Public Method Close()
         Local tls = Tls
         If tls != Null && !Tcp.IsClosed Then Try? tls.Close()
         Tcp.Close()
     End Method
 
-    // The TLS stream, once the handshake is done.
+    /// The TLS stream, once the handshake is done.
     @PanicsAtCaller
     Method Shaken(): TlsStream<Paced>
         Local tls = Tls
@@ -153,8 +153,8 @@ Package Class TlsDuplex Implements Duplex
     End Method
 End Class
 
-// A message that breaks HTTP/1.1's rules, or goes past a limit, with the status a server answers
-// it with.
+/// A message that breaks HTTP/1.1's rules, or goes past a limit, with the status a server answers
+/// it with.
 Package Class WireError Extends Error
     Package ReadOnly Field Status: Int
 
@@ -164,19 +164,19 @@ Package Class WireError Extends Error
     End New
 End Class
 
-// How a request's body comes: none, Content-Length's bytes, or chunks.
+/// How a request's body comes: none, Content-Length's bytes, or chunks.
 Package Enum Framing
     NONE, LENGTH, CHUNKED
 End Enum
 
-// A message's head: its start line's three parts, a request's method, target, and version or a
-// response's version, status, and reason, and its fields, as they came.
+/// A message's head: its start line's three parts, a request's method, target, and version or a
+/// response's version, status, and reason, and its fields, as they came.
 Package Class Head
     Package Field Parts: String[] = []
     Package Field Names: String[] = []
     Package Field Values: String[] = []
 
-    // name's first value, whatever its letters' case, or Null.
+    /// name's first value, whatever its letters' case, or Null.
     Package Method Get(name: String): String?
         For i = 0 Until Names.Count
             If Names[i].EqualsIgnoreCase(name) Then Return Values[i]
@@ -186,8 +186,8 @@ Package Class Head
 
     Package Method Contains(name: String): Bool => Get(name) != Null
 
-    // The comma-separated items of each of name's values, in order, trimmed, without the empty
-    // ones, and in lowercase when `lower` says, as tokens are compared.
+    /// The comma-separated items of each of name's values, in order, trimmed, without the empty
+    /// ones, and in lowercase when `lower` says, as tokens are compared.
     Package Method Items(name: String, lower: Bool = True): String[]
         Local found: String[] = []
         For i = 0 Until Names.Count
@@ -200,17 +200,17 @@ Package Class Head
         Return found
     End Method
 
-    // Whether name's items have `token`, whatever its letters' case.
+    /// Whether name's items have `token`, whatever its letters' case.
     Package Method HasToken(name: String, token: String): Bool
         Return Items(name).Contains(token.ToLower())
     End Method
 
-    // How a request's body comes, per RFC 9112's section 6.3: chunks when its last transfer
-    // coding is chunked, or Content-Length's bytes, all of its values the same. Both at once is
-    // how a request smuggles another past a proxy, so it's refused, as other codings are.
-    // A Transfer-Encoding is refused in an HTTP/1.0 request, whose framing RFC 9112's section 6.1
-    // has a server take as faulty, and so is one with no codings, or whose last isn't chunked,
-    // and a Content-Length that's empty, or has an item that's empty or not digits.
+    /// How a request's body comes, per RFC 9112's section 6.3: chunks when its last transfer
+    /// coding is chunked, or Content-Length's bytes, all of its values the same. Both at once is
+    /// how a request smuggles another past a proxy, so it's refused, as other codings are.
+    /// A Transfer-Encoding is refused in an HTTP/1.0 request, whose framing RFC 9112's section 6.1
+    /// has a server take as faulty, and so is one with no codings, or whose last isn't chunked,
+    /// and a Content-Length that's empty, or has an item that's empty or not digits.
     Package Method BodyFraming(): (Framing, Int64) Throws WireError
         If Contains("Transfer-Encoding")
             If Parts[2] == "HTTP/1.0"
@@ -256,43 +256,43 @@ Package Class Head
     End Method
 End Class
 
-// Reads a head's lines, a line at a time, and checks each.
+/// Reads a head's lines, a line at a time, and checks each.
 Package Class HeadParser
     Field Request: Bool
     Field Built: Head
-    // How many bytes of lines it's taken, their ends included.
+    /// How many bytes of lines it's taken, their ends included.
     Field Taken: Int64
     Field Started: Bool
 
-    // A request's head, or a response's.
+    /// A request's head, or a response's.
     Package New(request: Bool)
         Request = request
         Built = Head()
     End New
 
-    // The status a line too long for MAX_LINE is answered with: a request's line's is 414's, as
-    // its target is too long, and a request's field's 431's.
+    /// The status a line too long for MAX_LINE is answered with: a request's line's is 414's, as
+    /// its target is too long, and a request's field's 431's.
     Package Property LongLine: Int
         Get => !Request ? 400 : Started ? 431 : 414
     End Property
 
-    // Whether it has nothing yet but empty lines.
+    /// Whether it has nothing yet but empty lines.
     Package Property IsEmpty: Bool
         Get => !Started
     End Property
 
-    // The head it's read, once Take says it has it all.
+    /// The head it's read, once Take says it has it all.
     Package Property Result: Head
         Get => Built
     End Property
 
-    // Has it read fields from the start, as a chunked body's trailer is.
+    /// Has it read fields from the start, as a chunked body's trailer is.
     Package Method StartFields()
         Started = True
     End Method
 
-    // Takes the next line, without its end, which was `ending` bytes, and tells whether it ends
-    // the head. Empty lines before a request's line are skipped, as RFC 9112 has a server do.
+    /// Takes the next line, without its end, which was `ending` bytes, and tells whether it ends
+    /// the head. Empty lines before a request's line are skipped, as RFC 9112 has a server do.
     Package Method Take(line: UInt8[], ending: Int): Bool Throws WireError
         Taken += line.Count + ending
         If Taken > MAX_HEAD
@@ -323,8 +323,8 @@ Package Class HeadParser
     End Method
 End Class
 
-// A request's line, method SP target SP version, as its three parts. A version other than 1.0 or
-// 1.1 is a 505.
+/// A request's line, method SP target SP version, as its three parts. A version other than 1.0 or
+/// 1.1 is a 505.
 Function RequestLine(line: UInt8[]): String[] Throws WireError
     Local parts = (TextOf(line)).Split(" ")
     If parts.Count != 3
@@ -352,8 +352,8 @@ Function RequestLine(line: UInt8[]): String[] Throws WireError
     Return parts
 End Function
 
-// A response's line, version SP status SP reason, as its three parts; the reason can be empty,
-// and its space before too.
+/// A response's line, version SP status SP reason, as its three parts; the reason can be empty,
+/// and its space before too.
 Function StatusLine(line: UInt8[]): String[] Throws WireError
     Local text = TextOf(line)
     If (!text.StartsWith("HTTP/1.1 ") && !text.StartsWith("HTTP/1.0 ")) || text.Length < 12
@@ -373,9 +373,9 @@ Function StatusLine(line: UInt8[]): String[] Throws WireError
     Return [text.Slice(0, 8), text.Slice(9, 12), reason]
 End Function
 
-// A field's line as its name and its value, without the spaces and tabs around the value. A line
-// that starts with one folds onto the field before, which RFC 9112 refuses, as it does space
-// before the colon.
+/// A field's line as its name and its value, without the spaces and tabs around the value. A line
+/// that starts with one folds onto the field before, which RFC 9112 refuses, as it does space
+/// before the colon.
 Function FieldLine(line: UInt8[]): (String, String) Throws WireError
     If line[0] == 0x20 || line[0] == 0x09
         Throw WireError(400, "a field's line goes on from the one before, which HTTP/1.1 refuses")
@@ -404,13 +404,13 @@ Function FieldLine(line: UInt8[]): (String, String) Throws WireError
     Return (name, TextOf(line[start..finish]))
 End Function
 
-// A line's text: its UTF-8, or each byte as Latin-1's character when it isn't UTF-8, as HTTP's
-// obs-text was.
+/// A line's text: its UTF-8, or each byte as Latin-1's character when it isn't UTF-8, as HTTP's
+/// obs-text was.
 Function TextOf(bytes: UInt8[]): String
     Return String.FromUtf8(bytes) ?? Decode(bytes, TextEncoding.LATIN1) ?? ""
 End Function
 
-// Text without the spaces and tabs around it, which HTTP's lists have.
+/// Text without the spaces and tabs around it, which HTTP's lists have.
 Package Function TrimSpace(text: String): String
     Local bytes = text.Bytes
     Local start = 0
@@ -426,7 +426,7 @@ End Function
 
 Function IsDigit(c: UInt8): Bool => c >= 0x30 && c <= 0x39
 
-// Whether text is a token, HTTP's names: letters, digits, and !#$%&'*+-.^_`|~, one at least.
+/// Whether text is a token, HTTP's names: letters, digits, and !#$%&'*+-.^_`|~, one at least.
 Package Function IsToken(text: String): Bool
     If text == "" Then Return False
     For c In text.Bytes
@@ -440,8 +440,8 @@ Function IsTokenByte(c: UInt8): Bool
     Return letter || IsDigit(c) || "!#$%&'*+-.^_`|~".Bytes.IndexOf(c) != Null
 End Function
 
-// The number decimal digits write, a length's, or Null for no digits, other characters, or more
-// than 18 digits past any leading zeros, which an Int64 holds.
+/// The number decimal digits write, a length's, or Null for no digits, other characters, or more
+/// than 18 digits past any leading zeros, which an Int64 holds.
 Package Function DigitsOf(text: String): Int64?
     If text == "" Then Return Null
     Local value: Int64 = 0
@@ -456,9 +456,9 @@ Package Function DigitsOf(text: String): Int64?
     Return value
 End Function
 
-// A chunk's size line's size: its hex digits, 15 at most past any leading zeros, and then the
-// extensions RFC 9112's section 7.1.1 has, which it reads past, `;name` or `;name=value`, a
-// value a token or a quoted string, with spaces and tabs around the ';' and '='.
+/// A chunk's size line's size: its hex digits, 15 at most past any leading zeros, and then the
+/// extensions RFC 9112's section 7.1.1 has, which it reads past, `;name` or `;name=value`, a
+/// value a token or a quoted string, with spaces and tabs around the ';' and '='.
 Function ChunkSize(line: UInt8[]): Int64 Throws WireError
     Local value: Int64 = 0
     Local digits = 0
@@ -495,7 +495,7 @@ Function ChunkSize(line: UInt8[]): Int64 Throws WireError
     End Loop
 End Function
 
-// A hex digit's value, or -1.
+/// A hex digit's value, or -1.
 Function HexDigit(c: UInt8): Int
     If IsDigit(c) Then Return (c - 0x30) As Int
     If c >= 0x61 && c <= 0x66 Then Return ((c - 0x61) As Int) + 10
@@ -503,7 +503,7 @@ Function HexDigit(c: UInt8): Int
     Return -1
 End Function
 
-// Where a line's spaces and tabs from `at` end.
+/// Where a line's spaces and tabs from `at` end.
 Function PastSpace(line: UInt8[], at: Int): Int
     Local i = at
     While i < line.Count && (line[i] == 0x20 || line[i] == 0x09)
@@ -512,7 +512,7 @@ Function PastSpace(line: UInt8[], at: Int): Int
     Return i
 End Function
 
-// Where a token from `at` ends, at `at` for none.
+/// Where a token from `at` ends, at `at` for none.
 Function PastToken(line: UInt8[], at: Int): Int
     Local i = at
     While i < line.Count && IsTokenByte(line[i])
@@ -521,8 +521,8 @@ Function PastToken(line: UInt8[], at: Int): Int
     Return i
 End Function
 
-// Where a quoted string from its quote at `at` ends, past its closing quote, or a 400 when it
-// doesn't close, or has a control character.
+/// Where a quoted string from its quote at `at` ends, past its closing quote, or a 400 when it
+/// doesn't close, or has a control character.
 Function PastQuoted(line: UInt8[], at: Int): Int Throws WireError
     Local i = at + 1
     While i < line.Count
@@ -538,8 +538,8 @@ Function PastQuoted(line: UInt8[], at: Int): Int Throws WireError
     Throw WireError(400, "a chunk's extension's quoted value doesn't end")
 End Function
 
-// A head's bytes: its line, then each field as "Name: value", each line ended with CR LF, and an
-// empty line after.
+/// A head's bytes: its line, then each field as "Name: value", each line ended with CR LF, and an
+/// empty line after.
 Package Function HeadBytes(line: String, names: String[], values: String[]): UInt8[]
     Local text = line + "\r\n"
     For i = 0 Until names.Count
@@ -548,14 +548,14 @@ Package Function HeadBytes(line: String, names: String[], values: String[]): UIn
     Return (text + "\r\n").Bytes
 End Function
 
-// How long a refused connection lingers for what its client still sends, and the most it reads.
+/// How long a refused connection lingers for what its client still sends, and the most it reads.
 Const LINGER_SECONDS: Int64 = 1
 Const LINGER_BYTES = 1048576
 
-// Closes a connection a server refused once its answer is written: it ends what it writes, and
-// reads past what the client still sends, for a second at most in all, as RFC 9112's section
-// 9.6 has a server linger, since closing a connection with bytes it hasn't read resets it on
-// some OSes, and the client then loses the answer.
+/// Closes a connection a server refused once its answer is written: it ends what it writes, and
+/// reads past what the client still sends, for a second at most in all, as RFC 9112's section
+/// 9.6 has a server linger, since closing a connection with bytes it hasn't read resets it on
+/// some OSes, and the client then loses the answer.
 Package Function Linger(stream: Duplex)
     Try
         stream.ShutdownWrite()
@@ -592,11 +592,11 @@ Package Async Function LingerAsync(stream: Duplex)
     stream.Close()
 End Function
 
-// Reads a connection a buffer at a time: a head's lines, and bodies' and frames' bytes after.
+/// Reads a connection a buffer at a time: a head's lines, and bodies' and frames' bytes after.
 Package Class Wire
     Field Inner: Reader
     Field Held: Buffer<UInt8>
-    // Where what's left of Held starts, and where it ends.
+    /// Where what's left of Held starts, and where it ends.
     Field Start: Int64
     Field Finish: Int64
 
@@ -605,8 +605,8 @@ Package Class Wire
         Held = Buffer<UInt8>(16384)
     End New
 
-    // A message's head, a request's or a response's, or Null when the connection ends before
-    // its first byte, as one between requests does.
+    /// A message's head, a request's or a response's, or Null when the connection ends before
+    /// its first byte, as one between requests does.
     Package Method ReadHead(request: Bool): Head? Throws IOError, WireError
         Local parser = HeadParser(request)
         Loop
@@ -635,7 +635,7 @@ Package Class Wire
         End Loop
     End Method
 
-    // A request's body, as its head says it comes, of up to `limit` bytes, or a 413.
+    /// A request's body, as its head says it comes, of up to `limit` bytes, or a 413.
     Package Async Method ReadBodyAsync(head: Head, limit: Int64): UInt8[] Throws IOError, WireError
         Local framing, length = Try head.BodyFraming()
         If framing == Framing.NONE Then Return []
@@ -649,8 +649,8 @@ Package Class Wire
         Return body.ToArray()
     End Method
 
-    // A chunked body's chunks, up to `limit` bytes in all, and the trailer fields after them,
-    // which it reads past.
+    /// A chunked body's chunks, up to `limit` bytes in all, and the trailer fields after them,
+    /// which it reads past.
     Async Method ReadChunksAsync(limit: Int64): UInt8[] Throws IOError, WireError
         Local body: UInt8[] = []
         Loop
@@ -691,8 +691,8 @@ Package Class Wire
         End Loop
     End Method
 
-    // Reads up to into.Count bytes, what it has first, and gives how many: one at least, or 0
-    // once the connection's ended.
+    /// Reads up to into.Count bytes, what it has first, and gives how many: one at least, or 0
+    /// once the connection's ended.
     Package Method Read(into: Buffer<UInt8>): Int64 Throws IOError
         If into.Count == 0 Then Return 0
         If Start == Finish
@@ -713,7 +713,7 @@ Package Class Wire
         Return Take(into)
     End Method
 
-    // Fills `into`, and tells whether it could before the connection ended.
+    /// Fills `into`, and tells whether it could before the connection ended.
     Package Method ReadExact(into: Buffer<UInt8>): Bool Throws IOError
         Local at: Int64 = 0
         While at < into.Count
@@ -734,9 +734,9 @@ Package Class Wire
         Return True
     End Method
 
-    // Reads a line into `line`, without its LF or the CR before that, and gives how many bytes
-    // its end was, or -1 when the connection ended before one, with what came of it in `line`.
-    // A line longer than MAX_LINE is a WireError of `status`.
+    /// Reads a line into `line`, without its LF or the CR before that, and gives how many bytes
+    /// its end was, or -1 when the connection ended before one, with what came of it in `line`.
+    /// A line longer than MAX_LINE is a WireError of `status`.
     Method ReadLine(line: UInt8[], status: Int): Int Throws IOError, WireError
         Loop
             Local ending = Try TakeLine(line, status)
@@ -755,8 +755,8 @@ Package Class Wire
         End Loop
     End Method
 
-    // Adds what Held has of the line to `line`, up to its LF, which it takes too, and gives how
-    // many bytes its end was, or -1 when Held ran out first.
+    /// Adds what Held has of the line to `line`, up to its LF, which it takes too, and gives how
+    /// many bytes its end was, or -1 when Held ran out first.
     Method TakeLine(line: UInt8[], status: Int): Int Throws WireError
         While Start < Finish
             Local next = Held[Start]
@@ -780,7 +780,7 @@ Package Class Wire
         Return -1
     End Method
 
-    // Reads the connection into Held, which has nothing left.
+    /// Reads the connection into Held, which has nothing left.
     Method Fill() Throws IOError
         Start = 0
         Finish = 0
@@ -793,7 +793,7 @@ Package Class Wire
         Finish = Try Await Inner.ReadAsync(Held)
     End Method
 
-    // Copies as much of what Held has left as `into` holds, and gives how many bytes that was.
+    /// Copies as much of what Held has left as `into` holds, and gives how many bytes that was.
     Method Take(into: Buffer<UInt8>): Int64
         Local count = Min(into.Count, Finish - Start)
         Held.Slice(Start, Start + count).CopyTo(into)

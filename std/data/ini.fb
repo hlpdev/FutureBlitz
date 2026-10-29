@@ -1,23 +1,24 @@
-// Ini: INI files' sections of keys and values, read into an Object and written from one. Each
-// line, which ends with LF, CRLF, or a CR alone, is a `[section]` header, a `key = value` or
-// `key: value`, a comment, which starts with ';' or '#', or blank. A key and its value have the
-// spaces around them trimmed, and a value in '"'s keeps the spaces inside them, without the '"'s.
-// The keys before any section are the Object's own, as Strings, and each section is an Object of
-// its keys' values, as Strings. INI has no standard; this is the form most programs read.
+//! Ini: INI files' sections of keys and values, read into an Object and written from one. Each
+//! line, which ends with LF, CRLF, or a CR alone, is a `[section]` header, a `key = value` or
+//! `key: value`, a comment, which starts with ';' or '#', or blank. A key and its value have the
+//! spaces around them trimmed, and a value in '"'s keeps the spaces inside them, without the '"'s.
+//! The keys before any section are the Object's own, as Strings, and each section is an Object of
+//! its keys' values, as Strings. INI has no standard; this is the form most programs read.
 
 Import std.core
 Import std.collections
 Import std.data.text
 
+/// What reads and writes INI files, in its Static Methods.
 Public Struct Ini
-    // Ini isn't made: it's only its Static Methods.
+    /// Ini isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The keys and sections text holds. A key given again in a section takes its new value, and
-    // a section named again goes on adding to the first. Throws a ParseError of SYNTAX, with its
-    // line and column, for a line that's none of the four, a key that's empty, a header that
-    // doesn't end with ']', or a section named as a key before it is.
+    /// The keys and sections text holds. A key given again in a section takes its new value, and
+    /// a section named again goes on adding to the first. Throws a ParseError of SYNTAX, with its
+    /// line and column, for a line that's none of the four, a key that's empty, a header that
+    /// doesn't end with ']', or a section named as a key before it is.
     Public Static Method Read(text: String): Value Throws ParseError
         Local bytes = text.Bytes
         Local at = 0
@@ -90,14 +91,14 @@ Public Struct Ini
         Return document
     End Method
 
-    // value, an Object, as INI: its own keys whose values aren't Objects, then a section for each
-    // Object in it, of its keys. A String is written as it is, in '"'s when it starts or ends with
-    // a space, a tab, or a '"', a Bool, an integer, or a Double as its text, and Null as nothing.
-    // Panics at what Read wouldn't read back as the same: when value isn't an Object, a section
-    // holds an Object or anything holds an Array, a key is empty, holds '=', ':', or a line break,
-    // starts with '[', ';', '#', or a byte order mark, or starts or ends with a space or a tab, a
-    // section's name holds ']' or a line break or starts or ends with a space or a tab, or a value
-    // holds a line break.
+    /// value, an Object, as INI: its own keys whose values aren't Objects, then a section for each
+    /// Object in it, of its keys. A String is written as it is, in '"'s when it starts or ends with
+    /// a space, a tab, or a '"', a Bool, an integer, or a Double as its text, and Null as nothing.
+    /// Panics at what Read wouldn't read back as the same: when value isn't an Object, a section
+    /// holds an Object or anything holds an Array, a key is empty, holds '=', ':', or a line break,
+    /// starts with '[', ';', '#', or a byte order mark, or starts or ends with a space or a tab, a
+    /// section's name holds ']' or a line break or starts or ends with a space or a tab, or a value
+    /// holds a line break.
     @PanicsAtCaller
     Public Static Method Write(value: Value): String
         If value.Kind != ValueKind.OBJECT Then Panic("an INI file is an Object, not {value.Kind}")
@@ -135,7 +136,7 @@ Public Struct Ini
         Return TextOf(out)
     End Method
 
-    // Adds `key = value` on its line.
+    /// Adds `key = value` on its line.
     @PanicsAtCaller
     Static Method AddEntry(out: UInt8[], key: String, value: Value)
         Local bytes = key.Bytes
@@ -186,10 +187,10 @@ Public Struct Ini
         End If
     End Method
 
-    // Whether b is a space or a tab, which Read trims.
+    /// Whether b is a space or a tab, which Read trims.
     Static Method IsBlank(b: UInt8): Bool => b == 32 || b == 9
 
-    // The first place from start before finish that isn't a space or tab.
+    /// The first place from start before finish that isn't a space or tab.
     Static Method SkipSpace(bytes: UInt8[], start: Int, finish: Int): Int
         Local at = start
         While at < finish && (bytes[at] == 32 || bytes[at] == 9)
@@ -198,7 +199,7 @@ Public Struct Ini
         Return at
     End Method
 
-    // Where the spaces and tabs at the end of start up to finish start.
+    /// Where the spaces and tabs at the end of start up to finish start.
     Static Method TrimEnd(bytes: UInt8[], start: Int, finish: Int): Int
         Local at = finish
         While at > start && (bytes[at - 1] == 32 || bytes[at - 1] == 9)

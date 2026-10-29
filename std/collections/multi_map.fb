@@ -1,63 +1,66 @@
-// MultiMap<K, V>: keys that each have one value or more, in the order they were added: a Map from
-// each key to an array of its values, in the order they were added too. A key whose last value
-// goes, goes.
+//! `MultiMap<K, V>`: keys that each have one value or more, in the order they were added: a Map
+//! from each key to an array of its values, in the order they were added too. A key whose last
+//! value goes, goes.
 
 Import std.core
 Import std.collections.array
 Import std.collections.map
 
+/// A Map from each key to any number of values, in the order they were added.
 @DebugEntries
 Public Class MultiMap<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     Field Items: Map<K, V[]>
     Field Size: Int
-    // How many times values were added or removed, so a For ... In over them can tell.
+    /// How many times values were added or removed, so a For ... In over them can tell.
     Field Changes: Int64
 
+    /// A new, empty MultiMap.
     Public New()
         Items = Map<K, V[]>()
     End New
 
-    // How many values it has, of all the keys.
+    /// How many values it has, of all the keys.
     Public Property Count: Int
         Get => Size
     End Property
 
-    // How many keys have values.
+    /// How many keys have values.
     Public Property KeyCount: Int
         Get => Items.Count
     End Property
 
-    // Adds a value for the key, after the ones it has.
+    /// Adds a value for the key, after the ones it has.
     Public Method Add(key: K, value: V)
         Items.GetOrAdd(key, Function(): V[] => []).Add(value)
         Size += 1
         Changes += 1
     End Method
 
-    // Adds each of the values for the key, in order, all read first.
+    /// Adds each of the values for the key, in order, all read first.
     Public Method AddAll(key: K, values: Iterable<V>)
         For value In values.Iterate().ToArray()
             Add(key, value)
         End For
     End Method
 
-    // The key's values, in the order they were added, in a new array, which is empty when the
-    // key has none.
+    /// The key's values, in the order they were added, in a new array, which is empty when the
+    /// key has none.
     Public Method Get(key: K): V[] => Items.Get(key)?.Clone() ?? []
 
-    // The same as Get.
+    /// The same as Get.
     Operator [](key: K): V[] => Get(key)
 
+    /// Whether `key` has any values.
     Public Method Contains(key: K): Bool => Items.Contains(key)
 
-    // Whether the key has the value.
+    /// Whether the key has the value.
     Public Method Contains(key: K, value: V): Bool
         Where V: Equatable
         Return Items.Get(key)?.Contains(value) ?? False
     End Method
 
-    // Removes the first of the key's values that's equal to value, and tells whether there was
-    // one.
+    /// Removes the first of the key's values that's equal to value, and tells whether there was
+    /// one.
     Public Method Remove(key: K, value: V): Bool
         Where V: Equatable
         Local values = Items.Get(key)
@@ -68,7 +71,7 @@ Public Class MultiMap<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, De
         Return True
     End Method
 
-    // Removes the key and all its values, and gives how many values went.
+    /// Removes the key and all its values, and gives how many values went.
     Public Method RemoveKey(key: K): Int
         Local values = Items.Get(key)
         If values == Null Then Return 0
@@ -78,19 +81,20 @@ Public Class MultiMap<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, De
         Return values.Count
     End Method
 
+    /// Takes every key and value out.
     Public Method Clear()
         Items.Clear()
         Size = 0
         Changes += 1
     End Method
 
-    // The keys that have values, in the order they were added.
+    /// The keys that have values, in the order they were added.
     Public Method Keys(): K[] => Items.Keys()
 
-    // A new, empty MultiMap.
+    /// A new, empty MultiMap.
     Public Static Method DefaultValue(): MultiMap<K, V> => MultiMap<K, V>()
 
-    // A new MultiMap with the same keys and values.
+    /// A new MultiMap with the same keys and values.
     Public Method Clone(): MultiMap<K, V>
         Local copy = MultiMap<K, V>()
         For key, values In Items
@@ -100,17 +104,18 @@ Public Class MultiMap<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, De
         Return copy
     End Method
 
-    // Each key with each of its values, for 'For key, value In multi', the keys in the order they
-    // were added and each one's values in theirs. Adding or removing a value while going over
-    // them panics.
+    /// Each key with each of its values, for 'For key, value In multi', the keys in the order they
+    /// were added and each one's values in theirs. Adding or removing a value while going over
+    /// them panics.
     Public Method Iterate(): MultiMapIterator<K, V>
         Return MultiMapIterator<K, V>(Self, Items.Keys(), 0, 0, Changes)
     End Method
 End Class
 
+/// The entries of a MultiMap, as (key, value), a key's values in order, which For ... In goes over.
 Public Struct MultiMapIterator<K: Hashable, V> Implements Iterator<(K, V)>
     Field Owner: MultiMap<K, V>
-    // The keys when the loop began, which no change but one that panics reaches.
+    /// The keys when the loop began, which no change but one that panics reaches.
     Field Keys: K[]
     Field KeyIndex: Int
     Field ValueIndex: Int

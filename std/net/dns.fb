@@ -1,5 +1,5 @@
-// std.net's Dns: the addresses a host's name has, as the OS's resolver finds them, through
-// libuv's getaddrinfo on the runtime's I/O thread, blocking or Async.
+//! std.net's Dns: the addresses a host's name has, as the OS's resolver finds them, through
+//! libuv's getaddrinfo on the runtime's I/O thread, blocking or Async.
 
 Import std.core
 Import std.net.address
@@ -10,21 +10,21 @@ Extern "runtime"
     Function fb_io_error_text(code: Int32): String
 End Extern
 
-// libuv's errors for a name with no address, which every OS gives as these.
+/// libuv's errors for a name with no address, which every OS gives as these.
 Const NO_DATA = -3007
 Const NO_NAME = -3008
 
-// Dns's Static Methods.
+/// Dns's Static Methods.
 Public Struct Dns
-    // Dns isn't made: it's only its Static Methods.
+    /// Dns isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The addresses host has, IPv4 and IPv6, each once, in the order the OS prefers them, from
-    // its hosts file and the DNS servers it asks, as getaddrinfo looks them up: "localhost" is
-    // the loopback addresses, and an IP address's text is that address. Throws a NetError of
-    // HOST_NOT_FOUND for a name with no address, an empty one, one with a NUL, or one too long
-    // to look up, of more than 255 bytes, and of OTHER when the lookup fails another way.
+    /// The addresses host has, IPv4 and IPv6, each once, in the order the OS prefers them, from
+    /// its hosts file and the DNS servers it asks, as getaddrinfo looks them up: "localhost" is
+    /// the loopback addresses, and an IP address's text is that address. Throws a NetError of
+    /// HOST_NOT_FOUND for a name with no address, an empty one, one with a NUL, or one too long
+    /// to look up, of more than 255 bytes, and of OTHER when the lookup fails another way.
     Public Static Method Resolve(host: String): IpAddress[] Throws NetError
         Try Named(host)
         Local output: UInt8[] = []
@@ -32,8 +32,8 @@ Public Struct Dns
         Return Addresses(output, 0)
     End Method
 
-    // Resolve's Async twin: a Task of host's addresses, which the I/O thread finishes while the
-    // main thread goes on, with an array of its own, the code then the addresses.
+    /// Resolve's Async twin: a Task of host's addresses, which the I/O thread finishes while the
+    /// main thread goes on, with an array of its own, the code then the addresses.
     Public Static Async Method ResolveAsync(host: String): IpAddress[] Throws NetError
         Try Named(host)
         Local like: UInt8[] = []
@@ -45,7 +45,7 @@ Public Struct Dns
     End Method
 End Struct
 
-// Throws for a name getaddrinfo would read another way, or not at all.
+/// Throws for a name getaddrinfo would read another way, or not at all.
 Function Named(host: String) Throws NetError
     If host == "" Then Throw NetError(NetErrorKind.HOST_NOT_FOUND, "an empty name has no address")
     If host.Bytes.Contains(0)
@@ -53,7 +53,7 @@ Function Named(host: String) Throws NetError
     End If
 End Function
 
-// Throws what a lookup's code says went wrong, unless it's 0.
+/// Throws what a lookup's code says went wrong, unless it's 0.
 Function Check(host: String, code: Int32) Throws NetError
     If code == 0 Then Return
     If code == NO_DATA || code == NO_NAME
@@ -64,7 +64,7 @@ Function Check(host: String, code: Int32) Throws NetError
     Throw NetError(NetErrorKind.OTHER, "looking up {host} failed: {fb_io_error_text(code)}", host)
 End Function
 
-// The addresses a lookup put in output from `start` on, 17 bytes each.
+/// The addresses a lookup put in output from `start` on, 17 bytes each.
 Function Addresses(output: UInt8[], start: Int): IpAddress[]
     Local addresses: IpAddress[] = []
     For at = start Until output.Count Step 17

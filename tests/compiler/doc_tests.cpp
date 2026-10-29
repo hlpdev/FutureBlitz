@@ -504,7 +504,7 @@ TEST_CASE("fb doc has a package's public API, its docs, and what their links nam
     CHECK(grow->signature == "Public ByRef Method Grow(by: Float)");
     CHECK(grow->attributes == std::vector<std::string>{ "@PanicsAtCaller" });
     REQUIRE(grow->doc);
-    CHECK(grow->doc->examples.size() == 2);
+    CHECK(grow->doc->examples.size() == 3);
 
     // A Class's Protected members are its users', and a Private one isn't.
     const fb::doc_item_t* named = item_at(module.items, prefix + "Named");

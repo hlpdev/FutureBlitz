@@ -1,6 +1,6 @@
-// What std.image's formats share: the most pixels an Image holds, which a Decode's limit is
-// unless it's given a smaller one, the images the runtime's decoders give, the IOErrors their
-// results mean, and the checks of what the encoders take.
+//! What std.image's formats share: the most pixels an Image holds, which a Decode's limit is
+//! unless it's given a smaller one, the images the runtime's decoders give, the IOErrors their
+//! results mean, and the checks of what the encoders take.
 
 Import std.core
 Import std.ffi
@@ -59,30 +59,30 @@ Package Extern "runtime"
     Function fb_svg_free(svg: Ptr<Void>)
 End Extern
 
-// The most pixels an Image holds, four bytes each, which an Int counts.
+/// The most pixels an Image holds, four bytes each, which an Int counts.
 Package Const MOST_PIXELS = 536870911
 
-// The most pixels a PNG, or an APNG's frame, std.image writes has: as many as stb_image reads
-// back, 4 bytes each in 2^30 bytes.
+/// The most pixels a PNG, or an APNG's frame, std.image writes has: as many as stb_image reads
+/// back, 4 bytes each in 2^30 bytes.
 Package Const MOST_PNG_PIXELS = 268435456
 
-// The most pixels an HdrImage holds: as many as stb_image reads of an HDR image, 16 bytes each in
-// what an Int counts.
+/// The most pixels an HdrImage holds: as many as stb_image reads of an HDR image, 16 bytes each in
+/// what an Int counts.
 Package Const MOST_HDR_PIXELS = 134217727
 
-// The longest delay a frame has, in milliseconds: APNG's, 65535 seconds.
+/// The longest delay a frame has, in milliseconds: APNG's, 65535 seconds.
 Package Const LONGEST_DELAY = 65535000
 
-// The longest delay a GIF's frame has, in milliseconds: 65535 hundredths of a second.
+/// The longest delay a GIF's frame has, in milliseconds: 65535 hundredths of a second.
 Package Const LONGEST_GIF_DELAY = 655350
 
-// Panics when a limit is negative, for a format's Decode.
+/// Panics when a limit is negative, for a format's Decode.
 @PanicsAtCaller
 Package Function CheckLimit(limit: Int)
     If limit < 0 Then Panic("a limit of pixels can't be negative, like {limit}")
 End Function
 
-// Panics when a quality or a level isn't from `least` to `most`, for a format's Encode.
+/// Panics when a quality or a level isn't from `least` to `most`, for a format's Encode.
 @PanicsAtCaller
 Package Function CheckRange(value: Int, least: Int, most: Int, what: String)
     If value < least || value > most
@@ -90,8 +90,8 @@ Package Function CheckRange(value: Int, least: Int, most: Int, what: String)
     End If
 End Function
 
-// Panics when an image of width by height pixels can't be in `format`, whose sides are at most
-// `most` pixels long, or has no pixels, which no format has.
+/// Panics when an image of width by height pixels can't be in `format`, whose sides are at most
+/// `most` pixels long, or has no pixels, which no format has.
 @PanicsAtCaller
 Package Function CheckEncodable(width: Int, height: Int, most: Int, format: String)
     If width == 0 || height == 0
@@ -104,8 +104,8 @@ Package Function CheckEncodable(width: Int, height: Int, most: Int, format: Stri
     End If
 End Function
 
-// Panics when an image of width by height pixels, at least one, has more than `most`, which
-// stb_image reads no more of back in `format`.
+/// Panics when an image of width by height pixels, at least one, has more than `most`, which
+/// stb_image reads no more of back in `format`.
 @PanicsAtCaller
 Package Function CheckPixelCount(width: Int, height: Int, most: Int, format: String)
     If height > most / width
@@ -114,10 +114,10 @@ Package Function CheckPixelCount(width: Int, height: Int, most: Int, format: Str
     End If
 End Function
 
-// Throws the IOError of the runtime's image when its result isn't 0, from a decoder of data in
-// `format`: INVALID_DATA for bytes that aren't the format or are broken, UNEXPECTED_END for ones
-// that end too soon, and OTHER for ones whose pixels are more than the limit, or that use what
-// std.image doesn't support. It frees the image when it throws.
+/// Throws the IOError of the runtime's image when its result isn't 0, from a decoder of data in
+/// `format`: INVALID_DATA for bytes that aren't the format or are broken, UNEXPECTED_END for ones
+/// that end too soon, and OTHER for ones whose pixels are more than the limit, or that use what
+/// std.image doesn't support. It frees the image when it throws.
 Package Function CheckDecoded(image: Ptr<Void>, format: String) Throws IOError
     Local result = fb_image_result(image)
     If result == 0 Then Return
@@ -133,7 +133,7 @@ Package Function CheckDecoded(image: Ptr<Void>, format: String) Throws IOError
     Throw IOError(IOErrorKind.INVALID_DATA, "the {format} data isn't valid{detail}")
 End Function
 
-// The pixels of the runtime's image's frame, which it decoded without an error.
+/// The pixels of the runtime's image's frame, which it decoded without an error.
 Package Function PixelsOf(image: Ptr<Void>, frame: Int): Buffer<UInt8>
     Local pixels = Buffer<UInt8>(fb_image_width(image) * fb_image_height(image) * 4)
     Unsafe

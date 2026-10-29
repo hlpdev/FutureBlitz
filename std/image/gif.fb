@@ -1,34 +1,35 @@
-// GIF, read and written by the runtime itself: Gif.Decode reads a GIF's first frame, and
-// DecodeAnimation every frame, each as it's shown once the frames before it are, drawn as
-// browsers draw them, on a canvas that starts transparent. Encode and EncodeAnimation make each
-// frame the whole image, with a palette of its own, of its colors when there are 256 or fewer,
-// counting one for those whose alpha is below 128, which are transparent, or else the 256 median
-// cut picks, 255 and the transparent one when one is, with Floyd-Steinberg dithering.
+//! GIF, read and written by the runtime itself: Gif.Decode reads a GIF's first frame, and
+//! DecodeAnimation every frame, each as it's shown once the frames before it are, drawn as
+//! browsers draw them, on a canvas that starts transparent. Encode and EncodeAnimation make each
+//! frame the whole image, with a palette of its own, of its colors when there are 256 or fewer,
+//! counting one for those whose alpha is below 128, which are transparent, or else the 256 median
+//! cut picks, 255 and the transparent one when one is, with Floyd-Steinberg dithering.
 
 Import std.core
 Import std.image.animation
 Import std.image.codec
 Import std.image.image
 
+/// What reads and writes GIF images and animations, in its Static Methods.
 Public Struct Gif
-    // Gif isn't made: it's only its Static Methods.
+    /// Gif isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The first frame of the GIF in data. Throws an IOError of INVALID_DATA when the data isn't a
-    // GIF or is broken, and OTHER when the frame has more pixels than `limit`. Panics when the
-    // limit is negative.
+    /// The first frame of the GIF in data. Throws an IOError of INVALID_DATA when the data isn't a
+    /// GIF or is broken, and OTHER when the frame has more pixels than `limit`. Panics when the
+    /// limit is negative.
     @PanicsAtCaller
     Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError
         CheckLimit(limit)
         Return Try Decoded(fb_image_gif_decode(data, 1, Min(limit, MOST_PIXELS)), "GIF")
     End Method
 
-    // The frames of the GIF in data, each as it's shown once the frames before it are, its delay
-    // in hundredths of a second as milliseconds, and how many times they play, by the NETSCAPE2.0
-    // extension, which counts the times after the first, or once without it. Throws an IOError as
-    // Decode does, of OTHER when the frames, all their pixels counted, have more than `limit`.
-    // Panics when the limit is negative.
+    /// The frames of the GIF in data, each as it's shown once the frames before it are, its delay
+    /// in hundredths of a second as milliseconds, and how many times they play, by the NETSCAPE2.0
+    /// extension, which counts the times after the first, or once without it. Throws an IOError as
+    /// Decode does, of OTHER when the frames, all their pixels counted, have more than `limit`.
+    /// Panics when the limit is negative.
     @PanicsAtCaller
     Public Static Method DecodeAnimation(data: UInt8[],
                                          limit: Int = MOST_PIXELS): Animation Throws IOError
@@ -36,7 +37,7 @@ Public Struct Gif
         Return Try DecodedAnimation(fb_image_gif_decode(data, 0, Min(limit, MOST_PIXELS)), "GIF")
     End Method
 
-    // The GIF of the image, one frame. Panics when it has no pixels or a side longer than 65535.
+    /// The GIF of the image, one frame. Panics when it has no pixels or a side longer than 65535.
     @PanicsAtCaller
     Public Static Method Encode(image: Image): UInt8[]
         CheckEncodable(image.Width, image.Height, 65535, "a GIF")
@@ -47,10 +48,10 @@ Public Struct Gif
         Return Finished(encoder)
     End Method
 
-    // The GIF of the animation's frames, each delay in hundredths of a second, rounded, and each
-    // frame drawn on a transparent canvas. Panics when the animation has no frames, no pixels, a
-    // side longer than 65535, a frame whose image isn't its size, or one longer than 655350
-    // milliseconds, or plays more than 65536 times, which GIF can't count.
+    /// The GIF of the animation's frames, each delay in hundredths of a second, rounded, and each
+    /// frame drawn on a transparent canvas. Panics when the animation has no frames, no pixels, a
+    /// side longer than 65535, a frame whose image isn't its size, or one longer than 655350
+    /// milliseconds, or plays more than 65536 times, which GIF can't count.
     @PanicsAtCaller
     Public Static Method EncodeAnimation(animation: Animation): UInt8[]
         CheckEncodable(animation.Width, animation.Height, 65535, "a GIF")
@@ -77,7 +78,7 @@ Public Struct Gif
     End Method
 End Struct
 
-// The GIF an encoder of the runtime's made, which it frees.
+/// The GIF an encoder of the runtime's made, which it frees.
 Function Finished(encoder: Ptr<Void>): UInt8[]
     Local output: UInt8[] = []
     fb_image_gif_encoder_finish(encoder, output)

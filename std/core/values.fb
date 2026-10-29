@@ -1,5 +1,5 @@
-// Small things for any values: the smaller and larger of two, a value kept between two others,
-// swapping two variables, and a hash of two hashes.
+//! Small things for any values: the smaller and larger of two, a value kept between two others,
+//! swapping two variables, and a hash of two hashes.
 
 Import std.core.interfaces
 
@@ -8,13 +8,21 @@ Extern "runtime"
     Function fb_hash_combine(seed: UInt64, hash: UInt64): UInt64
 End Extern
 
-// The smaller of the two, or the first when neither is.
+/// The smaller of the two, or the first when neither is.
 Public Function Min<T: Comparable>(a: T, b: T): T => b < a ? b : a
 
-// The larger of the two, or the first when neither is.
+/// The larger of the two, or the first when neither is.
 Public Function Max<T: Comparable>(a: T, b: T): T => a < b ? b : a
 
-// The value, or low when it's below low, or high when it's above high. A high below low panics.
+/// The value, or low when it's below low, or high when it's above high. A high below low panics.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Clamp(15, 0, 10) == 10)
+/// Expect(Clamp(-0.5, 0.0, 1.0) == 0.0)
+/// Expect(Clamp("m", "a", "z") == "m")
+/// ```
 @PanicsAtCaller
 Public Function Clamp<T: Comparable>(value: T, low: T, high: T): T
     If high < low Then Panic("Clamp takes a low end that isn't above its high end")
@@ -23,12 +31,12 @@ Public Function Clamp<T: Comparable>(value: T, low: T, high: T): T
     Return value
 End Function
 
-// Gives each of the two variables the other's value.
+/// Gives each of the two variables the other's value.
 Public Function Swap<T>(ByRef a: T, ByRef b: T)
     Local held = a
     a = b
     b = held
 End Function
 
-// A hash of the two hashes together, which depends on their order, for a Hash of several values.
+/// A hash of the two hashes together, which depends on their order, for a Hash of several values.
 Public Function HashCombine(first: UInt64, second: UInt64): UInt64 => fb_hash_combine(first, second)

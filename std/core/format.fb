@@ -1,6 +1,6 @@
-// Formatting by a template that the program has only when it runs: Format, whose fields take
-// interpolation's specs, which the runtime splits; and the debug form, "{x:?}", which the compiler
-// makes for every type, and Dump.
+//! Formatting by a template that the program has only when it runs: Format, whose fields take
+//! interpolation's specs, which the runtime splits; and the debug form, "{x:?}", which the compiler
+//! makes for every type, and Dump.
 
 Import std.core.error
 Import std.core.interfaces
@@ -13,7 +13,7 @@ Extern "runtime"
     Function fb_format_text(text: String, spec: String, string: Int32): String?
 End Extern
 
-// A value that isn't an object, in one, for what takes Formattable values, like Format's.
+/// A value that isn't an object, in one, for what takes Formattable values, like Format's.
 Package Final Class Formatted<T: Formattable> Implements Formattable
     ReadOnly Field Value: T
 
@@ -26,11 +26,11 @@ Package Final Class Formatted<T: Formattable> Implements Formattable
     Method Format(spec: String): String? => Value.Format(spec)
 End Class
 
-// `template` with its fields filled: "{}" is the next value, "{0}" the first, and either can
-// take a format spec after a ':', as "{0:>8}" or "{:.2}" does, or else shows its value as "{x}"
-// does; "{{" and "}}" are braces. In source, a template is a raw string, r"{} of {}", whose
-// braces aren't interpolations. Throws a FormatError for a template that isn't one, a field
-// whose value isn't given, or a spec that its value doesn't take.
+/// `template` with its fields filled: "{}" is the next value, "{0}" the first, and either can
+/// take a format spec after a ':', as "{0:>8}" or "{:.2}" does, or else shows its value as "{x}"
+/// does; "{{" and "}}" are braces. In source, a template is a raw string, r"{} of {}", whose
+/// braces aren't interpolations. Throws a FormatError for a template that isn't one, a field
+/// whose value isn't given, or a spec that its value doesn't take.
 Public Function Format(template: String, values: Formattable...): String Throws FormatError
     Local texts: String[] = []
     Local indexes: Int32[] = []
@@ -86,18 +86,18 @@ Public Function Format(template: String, values: Formattable...): String Throws 
     Return text
 End Function
 
-// The debug form of value, with each part on a line of its own, as "{value:#?}" gives it.
+/// The debug form of value, with each part on a line of its own, as "{value:#?}" gives it.
 Public Function Dump<T>(value: T): String => "{value:#?}"
 
-// On an Iterable type, makes its debug form show its elements in place of its Fields, as
-// "Stack<Int32> [1, 2]".
+/// On an Iterable type, makes its debug form show its elements in place of its Fields, as
+/// "`Stack<Int32>` [1, 2]".
 Public Attribute DebugElements
 
-// On an Iterable type of (key, value) tuples, makes its debug form show them as a Map's, as
-// "Map<String, Int32> {"a": 1}".
+/// On an Iterable type of (key, value) tuples, makes its debug form show them as a Map's, as
+/// "`Map<String, Int32>` {"a": 1}".
 Public Attribute DebugEntries
 
-// The elements a debug form shows for a type with DebugElements or DebugEntries.
+/// The elements a debug form shows for a type with DebugElements or DebugEntries.
 Package Function ElementsOf<C, T>(values: C): T[]
     Where C: Iterable<T>
     Return values.Iterate().ToArray()

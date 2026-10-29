@@ -1,6 +1,6 @@
-// MessagePack, as its spec has it: MessagePack.Read gives the Value of a document's bytes, and
-// MessagePack.Write gives a Value's, each integer, string, and container in the fewest bytes its
-// kind has. Both go through arrays and maps with no call for each, so depth costs nothing.
+//! MessagePack, as its spec has it: MessagePack.Read gives the Value of a document's bytes, and
+//! MessagePack.Write gives a Value's, each integer, string, and container in the fewest bytes its
+//! kind has. Both go through arrays and maps with no call for each, so depth costs nothing.
 
 Import std.core
 Import std.collections
@@ -10,33 +10,33 @@ Extern "runtime"
     Function fb_text_from_utf8(bytes: UInt8[], start: Int64, count: Int64): String?
 End Extern
 
-// How deep MessagePack.Read reads arrays and maps nested in each other unless it's told.
+/// How deep MessagePack.Read reads arrays and maps nested in each other unless it's told.
 Const DEPTH = 1000
 
-// A document's Value, and a Value's document.
+/// A document's Value, and a Value's document.
 Public Struct MessagePack
-    // MessagePack isn't made: it's only its Static Methods.
+    /// MessagePack isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The Value of data's MessagePack: nil as NULL, a bool as BOOL, an integer that fits an
-    // Int64 as an INT and a larger one as a UINT, a float 32 or 64 as a DOUBLE, a str as a
-    // STRING, a bin as BYTES, an array as an ARRAY, and a map as an OBJECT, its keys in order,
-    // the last of a key that repeats where its first was. Throws a ParseError, whose message says
-    // at which byte: SYNTAX for the byte 0xC1, which starts no value, a str that isn't UTF-8,
-    // or bytes after the value; UNEXPECTED_END for data that ends too soon, or says it has more
-    // than it does; WRONG_TYPE for a map's key that isn't a str, or an ext, which a Value has no
-    // kind for; and OUT_OF_RANGE for arrays and maps nested past depth. Panics unless depth is 1
-    // or more.
+    /// The Value of data's MessagePack: nil as NULL, a bool as BOOL, an integer that fits an
+    /// Int64 as an INT and a larger one as a UINT, a float 32 or 64 as a DOUBLE, a str as a
+    /// STRING, a bin as BYTES, an array as an ARRAY, and a map as an OBJECT, its keys in order,
+    /// the last of a key that repeats where its first was. Throws a ParseError, whose message says
+    /// at which byte: SYNTAX for the byte 0xC1, which starts no value, a str that isn't UTF-8,
+    /// or bytes after the value; UNEXPECTED_END for data that ends too soon, or says it has more
+    /// than it does; WRONG_TYPE for a map's key that isn't a str, or an ext, which a Value has no
+    /// kind for; and OUT_OF_RANGE for arrays and maps nested past depth. Panics unless depth is 1
+    /// or more.
     @PanicsAtCaller
     Public Static Method Read(data: UInt8[], depth: Int = DEPTH): Value Throws ParseError
         If depth < 1 Then Panic("MessagePack.Read's depth is 1 or more, not {depth}")
         Return Try Unpacking(data, depth).Document()
     End Method
 
-    // value's MessagePack: an integer in the fewest bytes of a fixint, a uint, or an int, a
-    // DOUBLE as a float 64, a STRING as a str and BYTES as a bin, and an ARRAY and an OBJECT as
-    // an array and a map, each with its count in the fewest bytes.
+    /// value's MessagePack: an integer in the fewest bytes of a fixint, a uint, or an int, a
+    /// DOUBLE as a float 64, a STRING as a str and BYTES as a bin, and an ARRAY and an OBJECT as
+    /// an array and a map, each with its count in the fewest bytes.
     Public Static Method Write(value: Value): UInt8[]
         Local out: UInt8[] = []
         Local open: Packing[] = []
@@ -79,21 +79,21 @@ Public Struct MessagePack
         End Loop
     End Method
 
-    // The T of data's MessagePack: Read's Value, made a T by Load<T>. Throws Read's ParseErrors,
-    // and Load's, whose Path says where in the document a value doesn't fit.
+    /// The T of data's MessagePack: Read's Value, made a T by `Load<T>`. Throws Read's ParseErrors,
+    /// and Load's, whose Path says where in the document a value doesn't fit.
     @PanicsAtCaller
     Public Static Method Read<T>(data: UInt8[], depth: Int = DEPTH): T Throws ParseError
         Return Try Load<T>(Try Read(data, depth))
     End Method
 
-    // x's MessagePack: Save's Value of it, written as Write writes a Value.
+    /// x's MessagePack: Save's Value of it, written as Write writes a Value.
     @PanicsAtCaller
     Public Static Method Write<T>(x: T): UInt8[]
         Return Write(Save(x))
     End Method
 End Struct
 
-// The bytes of value's scalar.
+/// The bytes of value's scalar.
 Function Scalar(out: UInt8[], value: Value)
     Select value.Kind
         Case ValueKind.NULL
@@ -146,8 +146,8 @@ Function Scalar(out: UInt8[], value: Value)
     End Select
 End Function
 
-// A positive integer in the fewest bytes: a fixint below 128, else a uint of 8, 16, 32, or 64
-// bits.
+/// A positive integer in the fewest bytes: a fixint below 128, else a uint of 8, 16, 32, or 64
+/// bits.
 Function Unsigned(out: UInt8[], value: UInt64)
     If value < 128
         out.Add(value As UInt8)
@@ -166,8 +166,8 @@ Function Unsigned(out: UInt8[], value: UInt64)
     End If
 End Function
 
-// A str's bytes, after its length: in its fix byte below 32, else after first, first + 1, or
-// first + 2, for 8, 16, or 32 bits of it.
+/// A str's bytes, after its length: in its fix byte below 32, else after first, first + 1, or
+/// first + 2, for 8, 16, or 32 bits of it.
 Function Text(out: UInt8[], bytes: UInt8[], fix: UInt8, first: UInt8)
     Local count = bytes.Count As UInt64
     If count < 32
@@ -186,8 +186,8 @@ Function Text(out: UInt8[], bytes: UInt8[], fix: UInt8, first: UInt8)
     out.AddAll(bytes)
 End Function
 
-// An array's or a map's count: in its fix byte below 16, else after first or first + 1, for 16
-// or 32 bits of it.
+/// An array's or a map's count: in its fix byte below 16, else after first or first + 1, for 16
+/// or 32 bits of it.
 Function Count(out: UInt8[], count: Int, fix: UInt8, first: UInt8)
     If count < 16
         out.Add(fix | (count As UInt8))
@@ -200,14 +200,14 @@ Function Count(out: UInt8[], count: Int, fix: UInt8, first: UInt8)
     End If
 End Function
 
-// value's last count bytes, the highest first.
+/// value's last count bytes, the highest first.
 Function BigEndian(out: UInt8[], value: UInt64, count: Int)
     For i = count - 1 To 0 Step -1
         out.Add(((value >> ((i * 8) As UInt64)) & 255) As UInt8)
     End For
 End Function
 
-// An array or map MessagePack.Write is in, with a map's keys, and how far it's written.
+/// An array or map MessagePack.Write is in, with a map's keys, and how far it's written.
 Class Packing
     Public Field Item: Value
     Public Field Keys: String[]
@@ -219,8 +219,8 @@ Class Packing
     End New
 End Class
 
-// An array or map MessagePack.Read is in: how many values are left, and, in a map, the key
-// waiting for its value.
+/// An array or map MessagePack.Read is in: how many values are left, and, in a map, the key
+/// waiting for its value.
 Class Unpacked
     Public Field Item: Value
     Public Field Left: Int64
@@ -232,13 +232,13 @@ Class Unpacked
     End New
 End Class
 
-// What MessagePack.Read reads: the data, how far, and the arrays and maps open.
+/// What MessagePack.Read reads: the data, how far, and the arrays and maps open.
 Class Unpacking
     Field Data: UInt8[]
     Field At: Int64
     Field Most: Int
     Field Open: Unpacked[] = []
-    // How many values the array or map Next read last says it has.
+    /// How many values the array or map Next read last says it has.
     Field Pending: Int64
 
     New(data: UInt8[], most: Int)
@@ -246,7 +246,7 @@ Class Unpacking
         Most = most
     End New
 
-    // The document's Value, which ends the data.
+    /// The document's Value, which ends the data.
     Method Document(): Value Throws ParseError
         Local document = Try Next()
         Try Opened(document, 0)
@@ -287,8 +287,8 @@ Class Unpacking
         Return document
     End Method
 
-    // Opens read, the array or map whose header started at start, to read its values into,
-    // unless it has none. An empty one counts toward the depth too, as JSON's does.
+    /// Opens read, the array or map whose header started at start, to read its values into,
+    /// unless it has none. An empty one counts toward the depth too, as JSON's does.
     Method Opened(read: Value, start: Int64) Throws ParseError
         If !read.IsArray && !read.IsObject Then Return
         If Open.Count >= Most
@@ -299,8 +299,8 @@ Class Unpacking
         Open.Add(Unpacked(read, Pending))
     End Method
 
-    // The value whose first byte is next: a scalar whole, or an empty array or map, whose
-    // values come after, Pending of them.
+    /// The value whose first byte is next: a scalar whole, or an empty array or map, whose
+    /// values come after, Pending of them.
     Method Next(): Value Throws ParseError
         Local start = At
         Local first = (Try Number(1)) As Int
@@ -353,14 +353,14 @@ Class Unpacking
         End Select
     End Method
 
-    // An empty array or map that says it has count values, each of at least each bytes.
+    /// An empty array or map that says it has count values, each of at least each bytes.
     Method Container(made: Value, count: Int64, each: Int64, start: Int64): Value Throws ParseError
         Try Room(count, each, start)
         Pending = count
         Return made
     End Method
 
-    // A str of length bytes, which must be UTF-8.
+    /// A str of length bytes, which must be UTF-8.
     Method Str(length: Int64, start: Int64): Value Throws ParseError
         Try Room(length, 1, start)
         Local text = fb_text_from_utf8(Data, At, length)
@@ -369,8 +369,8 @@ Class Unpacking
         Return Value(text)
     End Method
 
-    // Throws unless the data has room for count of each bytes, as an array or map needs for its
-    // values at least, so a count it lies about takes no memory.
+    /// Throws unless the data has room for count of each bytes, as an array or map needs for its
+    /// values at least, so a count it lies about takes no memory.
     Method Room(count: Int64, each: Int64, start: Int64) Throws ParseError
         If count > (Data.Count - At) / each
             Throw Fail(ParseErrorKind.UNEXPECTED_END,
@@ -378,7 +378,7 @@ Class Unpacking
         End If
     End Method
 
-    // The next size bytes as an unsigned integer, the highest first.
+    /// The next size bytes as an unsigned integer, the highest first.
     Method Number(size: Int): UInt64 Throws ParseError
         If size > Data.Count - At
             Throw Fail(ParseErrorKind.UNEXPECTED_END, "the data ends too soon", At)
@@ -397,11 +397,11 @@ Class Unpacking
     End Method
 End Class
 
-// How many bytes the kind of a uint, int, str, bin, array, or map at index of its 8-, 16-, 32-,
-// and 64-bit forms has: 1, 2, 4, or 8.
+/// How many bytes the kind of a uint, int, str, bin, array, or map at index of its 8-, 16-, 32-,
+/// and 64-bit forms has: 1, 2, 4, or 8.
 Function Size(index: Int): Int => 1 << index
 
-// The size bytes of a signed integer's bits as the integer.
+/// The size bytes of a signed integer's bits as the integer.
 Function Signed(bits: UInt64, size: Int): Int64
     If size == 8 Then Return bits As Int64
     Local range = (1 As Int64) << ((size * 8) As Int64)

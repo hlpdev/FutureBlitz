@@ -1,10 +1,10 @@
-// Value: data of any shape, as the data formats have it: Null, a Bool, an integer, a Double, a
-// String, bytes, an Array of Values, or an Object of Values by their keys, in the order they were
-// added. Each format reads its text into one and writes one out. A Value is an object, so a
-// change to an Array's or Object's shows through every reference to it, and Clone() copies one
-// whole. None holds itself, inside it however deep, though one can sit in several places, where
-// a change to it shows in each; ToString, ==, Hash, and Clone go through each place, however
-// deep, without recursing.
+//! Value: data of any shape, as the data formats have it: Null, a Bool, an integer, a Double, a
+//! String, bytes, an Array of Values, or an Object of Values by their keys, in the order they were
+//! added. Each format reads its text into one and writes one out. A Value is an object, so a
+//! change to an Array's or Object's shows through every reference to it, and Clone() copies one
+//! whole. None holds itself, inside it however deep, though one can sit in several places, where
+//! a change to it shows in each; ToString, ==, Hash, and Clone go through each place, however
+//! deep, without recursing.
 
 Import std.core.error
 Import std.core.interfaces
@@ -18,62 +18,73 @@ Extern "runtime"
     Function fb_value_path(path: String, keys: String[], indices: Int64[]): Int32
 End Extern
 
-// What a Value holds. An integer is an INT, an Int64, but for one past an Int64's largest, which
-// is a UINT, a UInt64.
+/// What a Value holds. An integer is an INT, an Int64, but for one past an Int64's largest, which
+/// is a UINT, a UInt64.
 Public Enum ValueKind
     NULL, BOOL, INT, UINT, DOUBLE, STRING, BYTES, ARRAY, OBJECT
 End Enum
 
+/// A value of JSON, MessagePack, TOML, and the other formats, which Load reads types from and Save
+/// writes them to: Null, a Bool, an integer, a Double, a String, bytes, an Array, or an Object of
+/// keys.
 Public Class Value Implements Equatable, Hashable, Printable, Cloneable
     Field Shape: ValueKind
-    // A Bool's or integer's bits, and a Double.
+    /// A Bool's or integer's bits, and a Double.
     Field Bits: UInt64
     Field Real: Double
     Field Text: String = ""
     Field Data: UInt8[]?
     Field Elements: Value[]?
     Field Entries: Map<String, Value>?
-    // The last of Holds' walks that went through it.
+    /// The last of Holds' walks that went through it.
     Field Walked: Walk?
 
-    // Null.
+    /// Null.
     Public New()
     End New
 
+    /// A Bool's Value.
     Public New(value: Bool)
         Shape = ValueKind.BOOL
         Bits = value ? 1 : 0
     End New
 
-    // An integer of any size, which each type has a New of its own for, so none is ambiguous.
+    /// An integer of any size, which each type has a New of its own for, so none is ambiguous.
     Public New(value: Int8)
         SetInteger(value As Int64)
     End New
 
+    /// An integer's Value.
     Public New(value: Int16)
         SetInteger(value As Int64)
     End New
 
+    /// An integer's Value.
     Public New(value: Int32)
         SetInteger(value As Int64)
     End New
 
+    /// An integer's Value.
     Public New(value: Int64)
         SetInteger(value)
     End New
 
+    /// An integer's Value.
     Public New(value: UInt8)
         SetInteger(value As Int64)
     End New
 
+    /// An integer's Value.
     Public New(value: UInt16)
         SetInteger(value As Int64)
     End New
 
+    /// An integer's Value.
     Public New(value: UInt32)
         SetInteger(value As Int64)
     End New
 
+    /// An integer's Value, which is a UInt when it's too large for an Int64.
     Public New(value: UInt64)
         If value > 9223372036854775807
             Shape = ValueKind.UINT
@@ -83,36 +94,37 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         End If
     End New
 
-    // A Double. A Float converts to one, and a decimal literal is read as one.
+    /// A Double. A Float converts to one, and a decimal literal is read as one.
     Public New(value: Double)
         Shape = ValueKind.DOUBLE
         Real = value
     End New
 
+    /// A String's Value.
     Public New(value: String)
         Shape = ValueKind.STRING
         Text = value
     End New
 
-    // Bytes, a copy of them.
+    /// Bytes, a copy of them.
     Public New(bytes: UInt8[])
         Shape = ValueKind.BYTES
         Data = bytes.Clone()
     End New
 
-    // An Array of the Values, in a new array of its own.
+    /// An Array of the Values, in a new array of its own.
     Public New(elements: Value[])
         Shape = ValueKind.ARRAY
         Elements = elements.Clone()
     End New
 
-    // An Object of the Map's keys and Values, in its order, in a new Map of its own.
+    /// An Object of the Map's keys and Values, in its order, in a new Map of its own.
     Public New(entries: Map<String, Value>)
         Shape = ValueKind.OBJECT
         Entries = entries.Clone()
     End New
 
-    // An empty Array or Object, to add to.
+    /// An empty Array or Object, to add to.
     Public Static Method Array(): Value
         Local made = Value()
         made.Shape = ValueKind.ARRAY
@@ -120,6 +132,7 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return made
     End Method
 
+    /// A new, empty Object.
     Public Static Method Object(): Value
         Local made = Value()
         made.Shape = ValueKind.OBJECT
@@ -127,44 +140,52 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return made
     End Method
 
+    /// Which of the kinds it is.
     Public Property Kind: ValueKind
         Get => Shape
     End Property
 
+    /// Whether it's Null.
     Public Property IsNull: Bool
         Get => Shape == ValueKind.NULL
     End Property
 
+    /// Whether it's a Bool.
     Public Property IsBool: Bool
         Get => Shape == ValueKind.BOOL
     End Property
 
-    // An INT or UINT, and a number, those or a DOUBLE.
+    /// An INT or UINT, and a number, those or a DOUBLE.
     Public Property IsInteger: Bool
         Get => Shape == ValueKind.INT || Shape == ValueKind.UINT
     End Property
 
+    /// Whether it's a number: an integer or a Double.
     Public Property IsNumber: Bool
         Get => IsInteger || Shape == ValueKind.DOUBLE
     End Property
 
+    /// Whether it's a String.
     Public Property IsString: Bool
         Get => Shape == ValueKind.STRING
     End Property
 
+    /// Whether it's bytes.
     Public Property IsBytes: Bool
         Get => Shape == ValueKind.BYTES
     End Property
 
+    /// Whether it's an Array.
     Public Property IsArray: Bool
         Get => Shape == ValueKind.ARRAY
     End Property
 
+    /// Whether it's an Object.
     Public Property IsObject: Bool
         Get => Shape == ValueKind.OBJECT
     End Property
 
-    // How many elements an Array has, entries an Object has, or bytes it holds; 0 for the rest.
+    /// How many elements an Array has, entries an Object has, or bytes it holds; 0 for the rest.
     Public Property Count: Int
         Get
             If Shape == ValueKind.ARRAY Then Return Elements.Expect("an Array's").Count
@@ -174,10 +195,11 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         End Get
     End Property
 
-    // What it holds as each type, or Null when it holds another kind. An integer is a Double
-    // too, the nearest there is, and an Int32 or Int64 when it fits.
+    /// What it holds as each type, or Null when it holds another kind. An integer is a Double
+    /// too, the nearest there is, and an Int32 or Int64 when it fits.
     Public Method AsBool(): Bool? => Shape == ValueKind.BOOL ? Bits != 0 : Null
 
+    /// An integer that fits in an Int, or Null for anything else.
     Public Method AsInt(): Int?
         If Shape != ValueKind.INT Then Return Null
         Local value = Bits As Int64
@@ -185,8 +207,10 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return value As Int
     End Method
 
+    /// An integer that fits in an Int64, or Null for anything else.
     Public Method AsInt64(): Int64? => Shape == ValueKind.INT ? Bits As Int64 : Null
 
+    /// An integer that fits in a UInt64, or Null for anything else.
     Public Method AsUInt64(): UInt64?
         If Shape == ValueKind.UINT || (Shape == ValueKind.INT && (Bits As Int64) >= 0)
             Return Bits
@@ -195,6 +219,7 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return Null
     End Method
 
+    /// A number as a Double, or Null for anything else.
     Public Method AsDouble(): Double?
         If Shape == ValueKind.DOUBLE Then Return Real
         If Shape == ValueKind.INT Then Return (Bits As Int64) As Double
@@ -202,26 +227,28 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return Null
     End Method
 
+    /// A String's text, or Null for anything else.
     Public Method AsString(): String? => Shape == ValueKind.STRING ? Text : Null
 
-    // The bytes, in a copy, or an Array's elements, in a new array of the Value's own elements:
-    // adding to it or taking from it doesn't change the Value, but a change to an element does.
+    /// The bytes, in a copy, or an Array's elements, in a new array of the Value's own elements:
+    /// adding to it or taking from it doesn't change the Value, but a change to an element does.
     Public Method AsBytes(): UInt8[]? => Shape == ValueKind.BYTES ? Data?.Clone() : Null
+    /// An Array's elements, in a new array of the Value's own elements, or Null for anything else.
     Public Method AsArray(): Value[]? => Shape == ValueKind.ARRAY ? Elements?.Clone() : Null
 
-    // An Object's keys, in order, in a new array; none for the rest.
+    /// An Object's keys, in order, in a new array; none for the rest.
     Public Method Keys(): String[]
         Local entries = Entries
         Return Shape == ValueKind.OBJECT && entries != Null ? entries.Keys() : []
     End Method
 
-    // Whether an Object has the key.
+    /// Whether an Object has the key.
     Public Method Contains(key: String): Bool
         Local entries = Entries
         Return Shape == ValueKind.OBJECT && entries != Null && entries.Contains(key)
     End Method
 
-    // An Object's Value for the key, or an Array's at the index, or Null where it has none.
+    /// An Object's Value for the key, or an Array's at the index, or Null where it has none.
     Operator [](key: String): Value?
         Local entries = Entries
         Return Shape == ValueKind.OBJECT && entries != Null ? entries.Get(key) : Null
@@ -233,9 +260,9 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return index >= 0 && index < elements.Count ? elements[index] : Null
     End Operator
 
-    // The Value a path names, like "server.ports[0].name": keys after dots and indices in
-    // brackets, each step into what the last gave, or Null where one has nothing. "" is the
-    // Value itself. Panics for text that isn't a path, like "a..b" or "a[x]".
+    /// The Value a path names, like "server.ports[0].name": keys after dots and indices in
+    /// brackets, each step into what the last gave, or Null where one has nothing. "" is the
+    /// Value itself. Panics for text that isn't a path, like "a..b" or "a[x]".
     @PanicsAtCaller
     Public Method Path(path: String): Value?
         Local keys: String[] = []
@@ -259,9 +286,9 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return at
     End Method
 
-    // Gives an Object's key a Value, adding the key when it isn't there, or replaces an Array's
-    // element. Panics on another kind, at an index past the Array's, or for a value that is
-    // this one or holds it.
+    /// Gives an Object's key a Value, adding the key when it isn't there, or replaces an Array's
+    /// element. Panics on another kind, at an index past the Array's, or for a value that is
+    /// this one or holds it.
     @PanicsAtCaller
     Operator []=(key: String, value: Value)
         Local entries = ObjectEntries("a Value's [key] =")
@@ -276,8 +303,8 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         elements[index] = value
     End Operator
 
-    // Adds a Value at an Array's end, or at index, moving those from there up. Panics on
-    // another kind, and for a value that is this one or holds it, as []= does.
+    /// Adds a Value at an Array's end, or at index, moving those from there up. Panics on
+    /// another kind, and for a value that is this one or holds it, as []= does.
     @PanicsAtCaller
     Public Method Add(value: Value)
         Local elements = ArrayElements("Value.Add")
@@ -285,6 +312,8 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         elements.Add(value)
     End Method
 
+    /// Puts `value` in an Array at `index`, moving the ones from there on up. Panics on another
+    /// kind, at an index past its end, and for a value that is this one or holds it.
     @PanicsAtCaller
     Public Method Insert(index: Int, value: Value)
         Local elements = ArrayElements("Value.Insert")
@@ -292,17 +321,19 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         elements.Insert(index, value)
     End Method
 
+    /// Takes the element at `index` out of an Array. Panics on another kind, and at an index that
+    /// isn't in it.
     @PanicsAtCaller
     Public Method RemoveAt(index: Int)
         ArrayElements("Value.RemoveAt").RemoveAt(index)
     End Method
 
-    // Removes an Object's key, and tells whether it had one. Panics on another kind.
+    /// Removes an Object's key, and tells whether it had one. Panics on another kind.
     @PanicsAtCaller
     Public Method Remove(key: String): Bool => ObjectEntries("Value.Remove").Remove(key)
 
-    // Adds an Array's element, or an Object's entry, without the check Add and []= make, for
-    // the new Values that Save makes, none of which can hold another.
+    /// Adds an Array's element, or an Object's entry, without the check Add and []= make, for
+    /// the new Values that Save makes, none of which can hold another.
     Package Method Append(value: Value)
         ArrayElements("Value.Append").Add(value)
     End Method
@@ -311,8 +342,8 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         ObjectEntries("Value.Put")[key] = value
     End Method
 
-    // Copies it, and its elements and entries, whole. A Value held in several places is copied
-    // once for each place.
+    /// Copies it, and its elements and entries, whole. A Value held in several places is copied
+    /// once for each place.
     Public Method Clone(): Value
         Local copy = Shallow()
         Local pending = [(Self, copy)]
@@ -344,9 +375,9 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return copy
     End Method
 
-    // Two Values are equal when they're the same kind and hold the same: an Object the same keys
-    // with equal Values, in any order. A Double compares as Doubles do, so NaN isn't equal to
-    // itself and 0.0 is -0.0.
+    /// Two Values are equal when they're the same kind and hold the same: an Object the same keys
+    /// with equal Values, in any order. A Double compares as Doubles do, so NaN isn't equal to
+    /// itself and 0.0 is -0.0.
     Operator ==(a: Value, b: Value): Bool
         Local pending = [(a, b)]
         While pending.Count > 0
@@ -377,8 +408,8 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return True
     End Operator
 
-    // The same for equal Values, an Object's in any order. Each Array or Object on the way down
-    // keeps what it's added up so far, and adds what each element or entry comes to.
+    /// The same for equal Values, an Object's in any order. Each Array or Object on the way down
+    /// keeps what it's added up so far, and adds what each element or entry comes to.
     Public Method Hash(): UInt64
         If !IsArray && !IsObject Then Return HashAlone()
         Local steps = [Step(Self)]
@@ -407,10 +438,10 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         End Loop
     End Method
 
-    // As JSON writes it, on one line: null, true, 42, 1.5, "text" with JSON's escapes, [1, 2],
-    // and {"key": 1}; a Double always with a point or an exponent, as 1.0; and, as JSON has no
-    // bytes, bytes in hex between angle brackets, as <0a1b>. A Value held in several places is
-    // written in each.
+    /// As JSON writes it, on one line: null, true, 42, 1.5, "text" with JSON's escapes, [1, 2],
+    /// and {"key": 1}; a Double always with a point or an exponent, as 1.0; and, as JSON has no
+    /// bytes, bytes in hex between angle brackets, as <0a1b>. A Value held in several places is
+    /// written in each.
     Public Method ToString(): String
         If !IsArray && !IsObject Then Return TextAlone()
         Local parts: String[] = [IsArray ? "[" : "{{"]
@@ -439,14 +470,14 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return fb_value_joined(parts)
     End Method
 
-    // Panics when value is this Value or holds it, which would make it hold itself.
+    /// Panics when value is this Value or holds it, which would make it hold itself.
     @PanicsAtCaller
     Method CheckHeld(value: Value)
         If value.Holds(Self) Then Panic("a Value can't hold itself, inside it or as it is")
     End Method
 
-    // Whether it's target, or holds it, however deep. Each Value it looks through is marked with
-    // this walk, so one held in several places is looked through once.
+    /// Whether it's target, or holds it, however deep. Each Value it looks through is marked with
+    /// this walk, so one held in several places is looked through once.
     Method Holds(target: Value): Bool
         Local walk = Walk()
         Local pending = [Self]
@@ -474,7 +505,7 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return False
     End Method
 
-    // A copy of it alone: its bytes, but an Array or Object empty, for Clone to fill.
+    /// A copy of it alone: its bytes, but an Array or Object empty, for Clone to fill.
     Method Shallow(): Value
         Local copy = Value()
         copy.Shape = Shape
@@ -487,8 +518,8 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return copy
     End Method
 
-    // Whether it and other are equal but for what an Array's elements or an Object's entries
-    // hold: the same kind, the same scalar, and as many elements or entries.
+    /// Whether it and other are equal but for what an Array's elements or an Object's entries
+    /// hold: the same kind, the same scalar, and as many elements or entries.
     Method SameAlone(other: Value): Bool
         If Shape != other.Shape Then Return False
         Select Shape
@@ -507,7 +538,7 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         End Select
     End Method
 
-    // A scalar's hash and text.
+    /// A scalar's hash and text.
     Method HashAlone(): UInt64
         Local seed = Shape As UInt64
         Select Shape
@@ -542,14 +573,14 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         End Select
     End Method
 
-    // An integer's bits, as an INT.
+    /// An integer's bits, as an INT.
     Method SetInteger(value: Int64)
         Shape = ValueKind.INT
         Bits = value As UInt64
     End Method
 
-    // An Array's elements or an Object's entries, for what changes them, which panic on another
-    // kind.
+    /// An Array's elements or an Object's entries, for what changes them, which panic on another
+    /// kind.
     @PanicsAtCaller
     Method ArrayElements(what: String): Value[]
         Local elements = Elements
@@ -571,7 +602,7 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
     End Method
 End Class
 
-// One of Holds' walks, which marks the Values it looks through with itself.
+/// One of Holds' walks, which marks the Values it looks through with itself.
 Class Walk
     Method Marked(value: Value): Bool
         Local walked = value.Walked
@@ -579,15 +610,15 @@ Class Walk
     End Method
 End Class
 
-// Where Hash and ToString are in an Array or Object, on their way through it without recursing:
-// the next element or entry, and for Hash, what's added up so far.
+/// Where Hash and ToString are in an Array or Object, on their way through it without recursing:
+/// the next element or entry, and for Hash, what's added up so far.
 Struct Step
     Field Item: Value
     Field At: Int
-    // An Object's keys, in order; none for an Array.
+    /// An Object's keys, in order; none for an Array.
     Field Keys: String[]
     Field Total: UInt64
-    // The hash of the key of the entry being added, for an Object.
+    /// The hash of the key of the entry being added, for an Object.
     Field KeyHash: UInt64
 
     New(item: Value)
@@ -597,7 +628,7 @@ Struct Step
         Total = item.IsArray ? HashCombine(item.Shape As UInt64, count) : count
     End New
 
-    // The next element or entry's Value, which it goes past.
+    /// The next element or entry's Value, which it goes past.
     ByRef Method Next(): Value
         Local at = At
         At += 1
@@ -606,8 +637,8 @@ Struct Step
         Return Item.Entries.Expect("an Object's")[Keys[at]]
     End Method
 
-    // Adds the hash of the element or entry it went past: in order for an Array, and for an
-    // Object's, in any order.
+    /// Adds the hash of the element or entry it went past: in order for an Array, and for an
+    /// Object's, in any order.
     ByRef Method Add(hash: UInt64)
         If Item.IsArray
             Total = HashCombine(Total, hash)
@@ -619,7 +650,7 @@ Struct Step
     Method Finished(): UInt64 => Item.IsArray ? Total : HashCombine(Item.Shape As UInt64, Total)
 End Struct
 
-// "a Bool", "an INT", and the rest, for what a panic says.
+/// "a Bool", "an INT", and the rest, for what a panic says.
 Function Article(kind: ValueKind): String
     Select kind
         Case ValueKind.NULL
@@ -641,7 +672,7 @@ Function Article(kind: ValueKind): String
     End Select
 End Function
 
-// A Double's shortest text, with ".0" when it would read as an integer.
+/// A Double's shortest text, with ".0" when it would read as an integer.
 Function DoubleText(value: Double): String
     Local text = "{value}"
     For code In text.Chars

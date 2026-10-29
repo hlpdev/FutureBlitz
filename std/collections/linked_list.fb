@@ -1,18 +1,21 @@
-// LinkedList<T>: values in a chain of nodes, each linked to the ones before and after it, so
-// adding or removing one beside a node takes the same time however many there are. A node is the
-// same object for as long as it's in the list, so code can keep one to add beside or remove
-// later. Each node holds the one after it and, weakly, the one before, so the list makes no
-// cycles, and Clear and the list's end unlink every node, so a node kept elsewhere holds none of
-// the others.
+//! `LinkedList<T>`: values in a chain of nodes, each linked to the ones before and after it, so
+//! adding or removing one beside a node takes the same time however many there are. A node is the
+//! same object for as long as it's in the list, so code can keep one to add beside or remove
+//! later. Each node holds the one after it and, weakly, the one before, so the list makes no
+//! cycles, and Clear and the list's end unlink every node, so a node kept elsewhere holds none of
+//! the others.
 
 Import std.core
 Import std.collections.array
 
+/// One value of a LinkedList, with the ones before and after it, which inserting and removing next
+/// to it go through.
 Public Class LinkedListNode<T>
+    /// Its value.
     Public Field Value: T
     Field After: LinkedListNode<T>?
     Field Before: Weak<LinkedListNode<T>>
-    // The list it's in, or Null once it's removed.
+    /// The list it's in, or Null once it's removed.
     Field Owner: Weak<LinkedList<T>>
 
     New(value: T, owner: LinkedList<T>)
@@ -20,45 +23,47 @@ Public Class LinkedListNode<T>
         Owner = owner
     End New
 
-    // The node after this one, or Null when it's the last or not in a list.
+    /// The node after this one, or Null when it's the last or not in a list.
     Public Property Next: LinkedListNode<T>?
         Get => After
     End Property
 
-    // The node before this one, or Null when it's the first or not in a list.
+    /// The node before this one, or Null when it's the first or not in a list.
     Public Property Previous: LinkedListNode<T>?
         Get => Before
     End Property
 
-    // The list it's in, or Null once it's removed.
+    /// The list it's in, or Null once it's removed.
     Public Property List: LinkedList<T>?
         Get => Owner
     End Property
 End Class
 
+/// A doubly linked list, which inserts and removes anywhere it has a node without moving the rest.
 @DebugElements
 Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Head: LinkedListNode<T>?
     Field Tail: LinkedListNode<T>?
     Field Size: Int
-    // How many times values were added or removed, so a For ... In over them can tell.
+    /// How many times values were added or removed, so a For ... In over them can tell.
     Field Changes: Int64
 
+    /// How many values it holds.
     Public Property Count: Int
         Get => Size
     End Property
 
-    // The first node, or Null when the list is empty.
+    /// The first node, or Null when the list is empty.
     Public Property FirstNode: LinkedListNode<T>?
         Get => Head
     End Property
 
-    // The last node, or Null when the list is empty.
+    /// The last node, or Null when the list is empty.
     Public Property LastNode: LinkedListNode<T>?
         Get => Tail
     End Property
 
-    // The first value. Panics when the list is empty.
+    /// The first value. Panics when the list is empty.
     @PanicsAtCaller
     Public Method First(): T
         Local first = Head
@@ -66,7 +71,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return first.Value
     End Method
 
-    // The last value. Panics when the list is empty.
+    /// The last value. Panics when the list is empty.
     @PanicsAtCaller
     Public Method Last(): T
         Local last = Tail
@@ -74,19 +79,19 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return last.Value
     End Method
 
-    // The first value, or Null when the list is empty.
+    /// The first value, or Null when the list is empty.
     Public Method TryFirst(): T?
         If Size == 0 Then Return Null
         Return First()
     End Method
 
-    // The last value, or Null when the list is empty.
+    /// The last value, or Null when the list is empty.
     Public Method TryLast(): T?
         If Size == 0 Then Return Null
         Return Last()
     End Method
 
-    // Adds the value at the start, and gives its node.
+    /// Adds the value at the start, and gives its node.
     Public Method AddFirst(value: T): LinkedListNode<T>
         Local node = LinkedListNode<T>(value, Self)
         Local first = Head
@@ -102,7 +107,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return node
     End Method
 
-    // Adds the value at the end, and gives its node.
+    /// Adds the value at the end, and gives its node.
     Public Method AddLast(value: T): LinkedListNode<T>
         Local node = LinkedListNode<T>(value, Self)
         Local last = Tail
@@ -118,17 +123,17 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return node
     End Method
 
-    // The same as AddLast.
+    /// The same as AddLast.
     Public Method Add(value: T): LinkedListNode<T> => AddLast(value)
 
-    // Adds each of the values at the end, in order, all read first.
+    /// Adds each of the values at the end, in order, all read first.
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
             AddLast(value)
         End For
     End Method
 
-    // Adds the value just before node, which has to be in this list, and gives its node.
+    /// Adds the value just before node, which has to be in this list, and gives its node.
     @PanicsAtCaller
     Public Method AddBefore(node: LinkedListNode<T>, value: T): LinkedListNode<T>
         Check(node)
@@ -137,7 +142,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return AddAfter(before, value)
     End Method
 
-    // Adds the value just after node, which has to be in this list, and gives its node.
+    /// Adds the value just after node, which has to be in this list, and gives its node.
     @PanicsAtCaller
     Public Method AddAfter(node: LinkedListNode<T>, value: T): LinkedListNode<T>
         Check(node)
@@ -152,7 +157,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return added
     End Method
 
-    // Takes node, which has to be in this list, out of it.
+    /// Takes node, which has to be in this list, out of it.
     @PanicsAtCaller
     Public Method RemoveNode(node: LinkedListNode<T>)
         Check(node)
@@ -177,7 +182,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Changes += 1
     End Method
 
-    // Takes out the first value equal to value, and tells whether there was one.
+    /// Takes out the first value equal to value, and tells whether there was one.
     Public Method Remove(value: T): Bool
         Where T: Equatable
         Local found = NodeOf(value)
@@ -186,7 +191,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return True
     End Method
 
-    // Takes the first value out and gives it. Panics when the list is empty.
+    /// Takes the first value out and gives it. Panics when the list is empty.
     @PanicsAtCaller
     Public Method RemoveFirst(): T
         Local first = Head
@@ -195,7 +200,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return first.Value
     End Method
 
-    // Takes the last value out and gives it. Panics when the list is empty.
+    /// Takes the last value out and gives it. Panics when the list is empty.
     @PanicsAtCaller
     Public Method RemoveLast(): T
         Local last = Tail
@@ -204,19 +209,19 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return last.Value
     End Method
 
-    // Takes the first value out and gives it, or Null when the list is empty.
+    /// Takes the first value out and gives it, or Null when the list is empty.
     Public Method TryRemoveFirst(): T?
         If Size == 0 Then Return Null
         Return RemoveFirst()
     End Method
 
-    // Takes the last value out and gives it, or Null when the list is empty.
+    /// Takes the last value out and gives it, or Null when the list is empty.
     Public Method TryRemoveLast(): T?
         If Size == 0 Then Return Null
         Return RemoveLast()
     End Method
 
-    // The first node whose value is equal to value, or Null.
+    /// The first node whose value is equal to value, or Null.
     Public Method NodeOf(value: T): LinkedListNode<T>?
         Where T: Equatable
         Local node = Head
@@ -227,7 +232,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Null
     End Method
 
-    // The last node whose value is equal to value, or Null.
+    /// The last node whose value is equal to value, or Null.
     Public Method LastNodeOf(value: T): LinkedListNode<T>?
         Where T: Equatable
         Local node = Tail
@@ -238,12 +243,13 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Null
     End Method
 
+    /// Whether it holds `value`.
     Public Method Contains(value: T): Bool
         Where T: Equatable
         Return NodeOf(value) != Null
     End Method
 
-    // The first value that test says is the one, or Null.
+    /// The first value that test says is the one, or Null.
     Public Method Find(test: Func(T): Bool): T?
         Local node = Head
         While node != Null
@@ -253,7 +259,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Null
     End Method
 
-    // The last value that test says is the one, or Null.
+    /// The last value that test says is the one, or Null.
     Public Method FindLast(test: Func(T): Bool): T?
         Local node = Tail
         While node != Null
@@ -263,13 +269,13 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Null
     End Method
 
-    // Takes every value out. Their nodes are no longer in a list.
+    /// Takes every value out. Their nodes are no longer in a list.
     Public Method Clear()
         LetGo()
         Changes += 1
     End Method
 
-    // The values, first to last, in a new array.
+    /// The values, first to last, in a new array.
     Public Method ToArray(): T[]
         Local values: T[] = []
         values.Reserve(Size)
@@ -279,10 +285,10 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return values
     End Method
 
-    // A new, empty LinkedList.
+    /// A new, empty LinkedList.
     Public Static Method DefaultValue(): LinkedList<T> => LinkedList<T>()
 
-    // A new LinkedList with the same values, in nodes of its own.
+    /// A new LinkedList with the same values, in nodes of its own.
     Public Method Clone(): LinkedList<T>
         Local copy = LinkedList<T>()
         For value In Self
@@ -291,11 +297,11 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Return copy
     End Method
 
-    // The values, first to last. Setting a node's Value while going over them is fine, but adding
-    // or removing one panics.
+    /// The values, first to last. Setting a node's Value while going over them is fine, but adding
+    /// or removing one panics.
     Public Method Iterate(): LinkedListIterator<T> => LinkedListIterator<T>(Self, Head, Changes)
 
-    // Panics unless node is in this list.
+    /// Panics unless node is in this list.
     @PanicsAtCaller
     Method Check(node: LinkedListNode<T>)
         Local owner = node.Owner
@@ -307,7 +313,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Changes += 1
     End Method
 
-    // Unlinks every node.
+    /// Unlinks every node.
     Method LetGo()
         Local node = Head
         Head = Null
@@ -327,6 +333,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
     End Method
 End Class
 
+/// The values of a LinkedList, first to last, which For ... In goes over.
 Public Struct LinkedListIterator<T> Implements Iterator<T>
     Field Owner: LinkedList<T>
     Field Node: LinkedListNode<T>?

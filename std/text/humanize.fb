@@ -1,8 +1,8 @@
-// std.text.humanize: values as people say them, in English. Plurals ("3 enemies"), how long ago
-// or from now a time is ("3 minutes ago"), ordinals ("22nd"), numbers in words ("forty-two"),
-// and a name in each case style a program uses: snake_case, camelCase, PascalCase, and
-// kebab-case. FormatBytes and FormatDuration say a size ("1.2 MB") and a Duration ("1 hour and 30
-// minutes").
+//! std.text.humanize: values as people say them, in English. Plurals ("3 enemies"), how long ago
+//! or from now a time is ("3 minutes ago"), ordinals ("22nd"), numbers in words ("forty-two"),
+//! and a name in each case style a program uses: snake_case, camelCase, PascalCase, and
+//! kebab-case. FormatBytes and FormatDuration say a size ("1.2 MB") and a Duration ("1 hour and 30
+//! minutes").
 
 Import std.core
 Import std.text.char
@@ -13,28 +13,28 @@ Extern "runtime"
     Function fb_unicode_category(code: UInt32): Int32
 End Extern
 
-// Humanize's operations.
+/// Humanize's operations.
 Public Class Humanize
-    // word's plural: "enemy" is "enemies", "box" "boxes", "leaf" "leaves", "child" "children",
-    // and "sheep" "sheep". Of several words, the last one's. A word keeps its capitals, as
-    // "GameObject" does in "GameObjects", and one in capitals has its ending in them too.
+    /// word's plural: "enemy" is "enemies", "box" "boxes", "leaf" "leaves", "child" "children",
+    /// and "sheep" "sheep". Of several words, the last one's. A word keeps its capitals, as
+    /// "GameObject" does in "GameObjects", and one in capitals has its ending in them too.
     Public Static Method Plural(word: String): String
         Local space = word.FindLast(" ")
         Local start = space == Null ? 0 : space + 1
         Return word.Slice(0, start) + PluralOf(word.Slice(start, word.Length))
     End Method
 
-    // count and word, the word in its plural unless count is 1 or -1: "3 enemies", "1 enemy",
-    // and "0 enemies".
+    /// count and word, the word in its plural unless count is 1 or -1: "3 enemies", "1 enemy",
+    /// and "0 enemies".
     Public Static Method Plural(count: Int64, word: String): String
         If count == 1 || count == -1 Then Return "{count} {word}"
         Return "{count} {Plural(word)}"
     End Method
 
-    // How long ago a time seconds from now was, when seconds is negative, "3 minutes ago", or how
-    // soon it will be, "in 3 minutes", rounded to the unit people would say: "just now" under 45
-    // seconds either way, then a minute, minutes, an hour, hours, a day, days, a month, months,
-    // a year, and years.
+    /// How long ago a time seconds from now was, when seconds is negative, "3 minutes ago", or how
+    /// soon it will be, "in 3 minutes", rounded to the unit people would say: "just now" under 45
+    /// seconds either way, then a minute, minutes, an hour, hours, a day, days, a month, months,
+    /// a year, and years.
     Public Static Method Relative(seconds: Int64): String
         // The size without the sign, which the most negative Int64 has no room for.
         Local size: UInt64 = seconds < 0 ? ((-(seconds + 1)) As UInt64) + 1 : seconds As UInt64
@@ -44,11 +44,11 @@ Public Class Humanize
         Return "in {said}"
     End Method
 
-    // How long ago a time d before now was, when d is before 0, or how soon one d from now will
-    // be, as Relative says it of d's whole seconds: "3 minutes ago" and "in 2 hours".
+    /// How long ago a time d before now was, when d is before 0, or how soon one d from now will
+    /// be, as Relative says it of d's whole seconds: "3 minutes ago" and "in 2 hours".
     Public Static Method Relative(d: Duration): String => Relative(d.Nanoseconds / 1000000000)
 
-    // n with its ordinal's ending: "1st", "2nd", "3rd", "4th", "11th", "22nd", and "113th".
+    /// n with its ordinal's ending: "1st", "2nd", "3rd", "4th", "11th", "22nd", and "113th".
     Public Static Method Ordinal(n: Int64): String
         Local size = Magnitude(n)
         Local last = size % 10
@@ -62,8 +62,8 @@ Public Class Humanize
         Return "{n}{ending}"
     End Method
 
-    // n in words: "zero", "forty-two", "one thousand two hundred thirty-four", and "minus
-    // seven".
+    /// n in words: "zero", "forty-two", "one thousand two hundred thirty-four", and "minus
+    /// seven".
     Public Static Method Words(n: Int64): String
         If n == 0 Then Return "zero"
         Local words = WordsOf(Magnitude(n))
@@ -71,15 +71,15 @@ Public Class Humanize
         Return words
     End Method
 
-    // text's words in snake_case: "Hello World", "helloWorld", and "HTTPServer2" are
-    // "hello_world", "hello_world", and "http_server2". Words are split at spaces, punctuation,
-    // and capitals that start one, and a run of capitals is one word.
+    /// text's words in snake_case: "Hello World", "helloWorld", and "HTTPServer2" are
+    /// "hello_world", "hello_world", and "http_server2". Words are split at spaces, punctuation,
+    /// and capitals that start one, and a run of capitals is one word.
     Public Static Method SnakeCase(text: String): String => "_".Join(Lowered(WordsIn(text)))
 
-    // text's words in kebab-case: "hello-world".
+    /// text's words in kebab-case: "hello-world".
     Public Static Method KebabCase(text: String): String => "-".Join(Lowered(WordsIn(text)))
 
-    // text's words in camelCase: "helloWorld", "httpServer2".
+    /// text's words in camelCase: "helloWorld", "httpServer2".
     Public Static Method CamelCase(text: String): String
         Local words = WordsIn(text)
         Local joined = ""
@@ -90,7 +90,7 @@ Public Class Humanize
         Return joined
     End Method
 
-    // text's words in PascalCase: "HelloWorld", "HttpServer2".
+    /// text's words in PascalCase: "HelloWorld", "HttpServer2".
     Public Static Method PascalCase(text: String): String
         Local joined = ""
         For word In WordsIn(text)
@@ -101,11 +101,11 @@ Public Class Humanize
     End Method
 End Class
 
-// Nouns that are the same in the plural.
+/// Nouns that are the same in the plural.
 Const SAME = ["sheep", "fish", "deer", "moose", "series", "species", "aircraft", "salmon",
               "trout", "bison", "swine", "news", "information", "equipment", "rice", "money"]
 
-// Plurals that follow no rule, each after its singular.
+/// Plurals that follow no rule, each after its singular.
 Const IRREGULAR = ["person", "people", "man", "men", "woman", "women", "child", "children",
                    "mouse", "mice", "goose", "geese", "tooth", "teeth", "foot", "feet", "ox",
                    "oxen", "louse", "lice", "die", "dice", "cactus", "cacti", "fungus", "fungi",
@@ -126,7 +126,7 @@ Const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", 
               "ninety"]
 Const GROUPS = ["", "thousand", "million", "billion", "trillion", "quadrillion", "quintillion"]
 
-// word's plural, word in lowercase.
+/// word's plural, word in lowercase.
 Function PluralOf(word: String): String
     Local lower = word.ToLower()
     If lower == "" Then Return word
@@ -152,7 +152,7 @@ Function PluralOf(word: String): String
     Return word + (capitals ? "S" : "s")
 End Function
 
-// An irregular plural in the case like's letters are: all capitals, or a capital first.
+/// An irregular plural in the case like's letters are: all capitals, or a capital first.
 Function Cased(plural: String, like: String): String
     If like != "" && like == like.ToUpper() && like != like.ToLower() Then Return plural.ToUpper()
     Local chars = like.Chars
@@ -160,7 +160,7 @@ Function Cased(plural: String, like: String): String
     Return plural
 End Function
 
-// word with its first letter a capital and the rest lowercase.
+/// word with its first letter a capital and the rest lowercase.
 Function Capitalized(word: String): String
     Local chars = word.Chars
     If chars.Count == 0 Then Return word
@@ -177,9 +177,9 @@ Function Lowered(words: String[]): String[]
     Return lowered
 End Function
 
-// text's words: runs of letters and digits, with the combining marks after them, split where a
-// capital follows a lowercase letter or a digit, or starts a word after a run of capitals, as
-// the S in "HTTPServer" does.
+/// text's words: runs of letters and digits, with the combining marks after them, split where a
+/// capital follows a lowercase letter or a digit, or starts a word after a run of capitals, as
+/// the S in "HTTPServer" does.
 Function WordsIn(text: String): String[]
     Local words: String[] = []
     Local word = ""
@@ -216,13 +216,13 @@ Function WordsIn(text: String): String[]
     Return words
 End Function
 
-// Whether c is a combining mark, Unicode's Mn, Mc, or Me, which goes with the character before.
+/// Whether c is a combining mark, Unicode's Mn, Mc, or Me, which goes with the character before.
 Function IsMark(c: Char): Bool
     Local category = fb_unicode_category(c As UInt32)
     Return category >= 6 && category <= 8
 End Function
 
-// The first place from at, going by step, whose character isn't a combining mark.
+/// The first place from at, going by step, whose character isn't a combining mark.
 Function Unmarked(chars: Char[], at: Int, step: Int): Int
     Local place = at
     While place >= 0 && place < chars.Count && IsMark(chars[place])
@@ -232,7 +232,7 @@ Function Unmarked(chars: Char[], at: Int, step: Int): Int
     Return place
 End Function
 
-// How long size seconds is, as people say it.
+/// How long size seconds is, as people say it.
 Function Span(size: UInt64): String
     Local minutes = (size + 30) / 60
     Local hours = (size + 1800) / 3600
@@ -251,9 +251,9 @@ Function Span(size: UInt64): String
     Return "{Max((size + 15778800) / 31557600, 2)} years"
 End Function
 
-// count bytes as people say them, in the largest unit they make at least 1 of, to a tenth,
-// rounded half up: "1.2 MB", "999 B", and "-3.4 GB". The units are 1000 apart, or with binary,
-// 1024: "1.2 MiB".
+/// count bytes as people say them, in the largest unit they make at least 1 of, to a tenth,
+/// rounded half up: "1.2 MB", "999 B", and "-3.4 GB". The units are 1000 apart, or with binary,
+/// 1024: "1.2 MiB".
 Public Function FormatBytes(count: Int64, binary: Bool = False): String
     Local size = Magnitude(count)
     Local sign = count < 0 ? "-" : ""
@@ -274,10 +274,10 @@ Public Function FormatBytes(count: Int64, binary: Bool = False): String
     Return "{sign}{tenths / 10}.{tenths % 10} {units[unit]}"
 End Function
 
-// d in words: each of its days, hours, minutes, and seconds that isn't 0, the seconds with their
-// fraction, as "1 hour, 2 minutes, and 3.5 seconds" and "2 days and 1 minute". Under a second,
-// it's in its largest unit: "250 milliseconds", "1.5 microseconds", and "80 nanoseconds". It's
-// "0 seconds", and one before 0 is "minus" one after.
+/// d in words: each of its days, hours, minutes, and seconds that isn't 0, the seconds with their
+/// fraction, as "1 hour, 2 minutes, and 3.5 seconds" and "2 days and 1 minute". Under a second,
+/// it's in its largest unit: "250 milliseconds", "1.5 microseconds", and "80 nanoseconds". It's
+/// "0 seconds", and one before 0 is "minus" one after.
 Public Function FormatDuration(d: Duration): String
     Local size = Magnitude(d.Nanoseconds)
     Local sign = d.Nanoseconds < 0 ? "minus " : ""
@@ -298,8 +298,8 @@ Public Function FormatDuration(d: Duration): String
     Return sign + ", ".Join(parts)
 End Function
 
-// count of a unit, as a number with decimals digits after its point, and the unit's name, in
-// its plural unless the number is 1: "1 day", "1.5 seconds", and "250 milliseconds".
+/// count of a unit, as a number with decimals digits after its point, and the unit's name, in
+/// its plural unless the number is 1: "1 day", "1.5 seconds", and "250 milliseconds".
 Function Counted(count: UInt64, decimals: Int, unit: String): String
     Local scale: UInt64 = 1
     For i = 1 To decimals
@@ -320,7 +320,7 @@ Function Counted(count: UInt64, decimals: Int, unit: String): String
     Return number == "1" ? "1 {unit}" : "{number} {unit}s"
 End Function
 
-// size / divisor in tenths, rounded half up, in parts that don't overflow.
+/// size / divisor in tenths, rounded half up, in parts that don't overflow.
 Function Tenths(size: UInt64, divisor: UInt64): UInt64
     Return size / divisor * 10 + (size % divisor * 10 + divisor / 2) / divisor
 End Function
@@ -330,7 +330,7 @@ Function Magnitude(n: Int64): UInt64
     Return ((-(n + 1)) As UInt64) + 1
 End Function
 
-// size, at least 1, in words.
+/// size, at least 1, in words.
 Function WordsOf(size: UInt64): String
     Local groups: String[] = []
     Local rest = size
@@ -350,7 +350,7 @@ Function WordsOf(size: UInt64): String
     Return " ".Join(groups)
 End Function
 
-// part, from 1 to 999, in words.
+/// part, from 1 to 999, in words.
 Function Hundreds(part: Int): String
     Local words: String[] = []
     If part >= 100 Then words.Add(ONES[part / 100] + " hundred")

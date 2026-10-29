@@ -1,7 +1,7 @@
-// std.net's IPC: IpcListener, which takes connections at a name, and IpcStream, a connection's
-// bytes both ways, between programs on one machine. libuv chooses what a name is: a named pipe,
-// \\.\pipe\<name>, on Windows, and a Unix socket, <name>.sock in the temporary folder, elsewhere.
-// A Reader and a Writer, blocking or Async, as TCP's are.
+//! std.net's IPC: IpcListener, which takes connections at a name, and IpcStream, a connection's
+//! bytes both ways, between programs on one machine. libuv chooses what a name is: a named pipe,
+//! \\.\pipe\<name>, on Windows, and a Unix socket, <name>.sock in the temporary folder, elsewhere.
+//! A Reader and a Writer, blocking or Async, as TCP's are.
 
 Import std.core
 Import std.ffi
@@ -9,18 +9,18 @@ Import std.io.streams
 Import std.time.duration
 Import std.net.socket
 
-// How many connections a listener keeps that the OS has and the I/O thread hasn't taken yet,
-// unless it's told: Node's, which the OS lowers to what it allows. Past it, Windows refuses a
-// connection, and other OSes have it try again later.
+/// How many connections a listener keeps that the OS has and the I/O thread hasn't taken yet,
+/// unless it's told: Node's, which the OS lowers to what it allows. Past it, Windows refuses a
+/// connection, and other OSes have it try again later.
 Const BACKLOG = 511
 
-// The most bytes an IPC name has.
+/// The most bytes an IPC name has.
 Const LONGEST = 64
 
-// A connection to an IpcListener: bytes both ways, in order, which it reads and writes as std.io's
-// streams do. A Read or Write that fails throws an IOError whose Cause is a NetError or a
-// TimeoutError. It closes when it goes, or at Close, which the other side reads as its end. A
-// named pipe can't end one way only, so it has no ShutdownWrite, as a TcpStream has.
+/// A connection to an IpcListener: bytes both ways, in order, which it reads and writes as std.io's
+/// streams do. A Read or Write that fails throws an IOError whose Cause is a NetError or a
+/// TimeoutError. It closes when it goes, or at Close, which the other side reads as its end. A
+/// named pipe can't end one way only, so it has no ShutdownWrite, as a TcpStream has.
 Public Class IpcStream Implements Reader, Writer
     ReadOnly Field Socket: StreamSocket
 
@@ -28,9 +28,9 @@ Public Class IpcStream Implements Reader, Writer
         Socket = socket
     End New
 
-    // Connects to the IpcListener of `name`, waiting up to `timeout`, or as long as it takes for
-    // a Null one. Throws a NetError of REFUSED when nothing listens at it, and a TimeoutError when
-    // it takes too long. A name that isn't one panics.
+    /// Connects to the IpcListener of `name`, waiting up to `timeout`, or as long as it takes for
+    /// a Null one. Throws a NetError of REFUSED when nothing listens at it, and a TimeoutError when
+    /// it takes too long. A name that isn't one panics.
     @PanicsAtCaller
     Public Static Method Connect(
             name: String, timeout: Duration? = Null): IpcStream Throws NetError, TimeoutError
@@ -41,7 +41,7 @@ Public Class IpcStream Implements Reader, Writer
         Return IpcStream(socket)
     End Method
 
-    // Connect's Async twin, which waits on the main thread.
+    /// Connect's Async twin, which waits on the main thread.
     @PanicsAtCaller
     Public Static Async Method ConnectAsync(
             name: String, timeout: Duration? = Null): IpcStream Throws NetError, TimeoutError
@@ -53,13 +53,13 @@ Public Class IpcStream Implements Reader, Writer
         Return IpcStream(socket)
     End Method
 
-    // The name of the listener it's connected to, or that it came to.
+    /// The name of the listener it's connected to, or that it came to.
     Public Property Name: String
         Get => Socket.Peer
     End Property
 
-    // How long a Read or ReadAsync waits for bytes before it throws, or Null, as it starts, to
-    // wait as long as it takes.
+    /// How long a Read or ReadAsync waits for bytes before it throws, or Null, as it starts, to
+    /// wait as long as it takes.
     Public Property ReadTimeout: Duration?
         Get => Socket.ReadTimeout
         Set(value)
@@ -67,20 +67,20 @@ Public Class IpcStream Implements Reader, Writer
         End Set
     End Property
 
-    // Whether Close closed it.
+    /// Whether Close closed it.
     Public Property IsClosed: Bool
         Get => Socket.Closed
     End Property
 
-    // Reads what's come, at least a byte, waiting for some, or 0 once the other side ended what
-    // it writes.
+    /// Reads what's come, at least a byte, waiting for some, or 0 once the other side ended what
+    /// it writes.
     Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError => Try Socket.Read(into)
 
     Public Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
         Return Try Await Socket.ReadAsync(into)
     End Method
 
-    // Writes all of from's bytes, returning once the OS has them.
+    /// Writes all of from's bytes, returning once the OS has them.
     Public Method Write(from: Buffer<UInt8>) Throws IOError
         Try Socket.Write(from)
     End Method
@@ -89,17 +89,17 @@ Public Class IpcStream Implements Reader, Writer
         Try Await Socket.WriteAsync(from)
     End Method
 
-    // Closes it at once: a Read or Write waiting for it throws an IOError whose Cause is a
-    // NetError of CLOSED, and so does one after. Going closes it too.
+    /// Closes it at once: a Read or Write waiting for it throws an IOError whose Cause is a
+    /// NetError of CLOSED, and so does one after. Going closes it too.
     Public Method Close()
         Socket.Close()
     End Method
 End Class
 
-// Takes connections at a name, from programs on the same machine, which Accept gives as
-// IpcStreams. It closes when it goes, or at Close, with the connections nothing accepted, and
-// its name is free again, but on Windows, where a named pipe is there until its connections
-// close too, both ends: a connection to it meanwhile waits, for up to 30 seconds.
+/// Takes connections at a name, from programs on the same machine, which Accept gives as
+/// IpcStreams. It closes when it goes, or at Close, with the connections nothing accepted, and
+/// its name is free again, but on Windows, where a named pipe is there until its connections
+/// close too, both ends: a connection to it meanwhile waits, for up to 30 seconds.
 Public Class IpcListener
     ReadOnly Field Socket: ListenerSocket
 
@@ -107,11 +107,11 @@ Public Class IpcListener
         Socket = socket
     End New
 
-    // Listens at `name`: 1 to 64 ASCII letters, digits, '.', '-', and '_', or it panics, with a
-    // `backlog` of 1 at least. A name is the same whatever its letters' case, as Windows' named
-    // pipes are, so "Game" and "game" are one name on every OS. Throws a NetError when something
-    // listens at it already. A Unix socket's file that a program left when it ended without
-    // closing its listener is taken over, and any other file there stays.
+    /// Listens at `name`: 1 to 64 ASCII letters, digits, '.', '-', and '_', or it panics, with a
+    /// `backlog` of 1 at least. A name is the same whatever its letters' case, as Windows' named
+    /// pipes are, so "Game" and "game" are one name on every OS. Throws a NetError when something
+    /// listens at it already. A Unix socket's file that a program left when it ended without
+    /// closing its listener is taken over, and any other file there stays.
     @PanicsAtCaller
     Public Static Method Listen(name: String, backlog: Int = BACKLOG): IpcListener Throws NetError
         CheckName(name)
@@ -122,38 +122,38 @@ Public Class IpcListener
         Return IpcListener(socket)
     End Method
 
-    // Where it listens.
+    /// Where it listens.
     Public Property Name: String
         Get => Socket.Address
     End Property
 
-    // Whether Close closed it.
+    /// Whether Close closed it.
     Public Property IsClosed: Bool
         Get => Socket.Closed
     End Property
 
-    // The next connection, waiting up to `timeout` for one, or as long as it takes for a Null
-    // one, and throwing a TimeoutError after.
+    /// The next connection, waiting up to `timeout` for one, or as long as it takes for a Null
+    /// one, and throwing a TimeoutError after.
     Public Method Accept(timeout: Duration? = Null): IpcStream Throws NetError, TimeoutError
         Local accepted = Try Socket.Accept(timeout)
         Return IpcStream(StreamSocket(accepted, "IpcStream", Socket.Address))
     End Method
 
-    // Accept's Async twin, which waits on the main thread.
+    /// Accept's Async twin, which waits on the main thread.
     Public Async Method AcceptAsync(
             timeout: Duration? = Null): IpcStream Throws NetError, TimeoutError
         Local accepted = Try Await Socket.AcceptAsync(timeout)
         Return IpcStream(StreamSocket(accepted, "IpcStream", Socket.Address))
     End Method
 
-    // Closes it at once, with the connections nothing accepted: what's waiting for it throws a
-    // NetError of CLOSED, and so does what uses it after. Going closes it too.
+    /// Closes it at once, with the connections nothing accepted: what's waiting for it throws a
+    /// NetError of CLOSED, and so does what uses it after. Going closes it too.
     Public Method Close()
         Socket.Close()
     End Method
 End Class
 
-// Panics for a name that isn't an IPC name.
+/// Panics for a name that isn't an IPC name.
 @PanicsAtCaller
 Function CheckName(name: String)
     Local bytes = name.Bytes

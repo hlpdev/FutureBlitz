@@ -1,8 +1,8 @@
-// std.term's line widgets: a Table and a Box, which give their text, and a ProgressBar and a
-// Spinner, which draw themselves on a terminal's line again as they go, where it's interactive,
-// and once they're done where it isn't, as for a pipe or a file. Each draws to the console, the
-// bars to stderr, or to a Terminal given, and goes by the colors it shows. Widths are in a
-// terminal's columns, as VisibleWidth counts them.
+//! std.term's line widgets: a Table and a Box, which give their text, and a ProgressBar and a
+//! Spinner, which draw themselves on a terminal's line again as they go, where it's interactive,
+//! and once they're done where it isn't, as for a pipe or a file. Each draws to the console, the
+//! bars to stderr, or to a Terminal given, and goes by the colors it shows. Widths are in a
+//! terminal's columns, as VisibleWidth counts them.
 
 Import std.core
 Import std.collections.map
@@ -19,18 +19,18 @@ Extern "runtime"
     Function fb_write(texts: String[], to_error: Int32, line: Int32)
 End Extern
 
-// Where text goes in a width wider than it.
+/// Where text goes in a width wider than it.
 Public Enum Alignment
     LEFT, CENTER, RIGHT
 End Enum
 
-// The lines a Table, a Box, or a Canvas's box is drawn with: NONE, ASCII's - | +, SINGLE ─ │ ┌,
-// ROUNDED's corners ╭, DOUBLE ═ ║ ╔, and HEAVY ━ ┃ ┏.
+/// The lines a Table, a Box, or a Canvas's box is drawn with: NONE, ASCII's - | +, SINGLE ─ │ ┌,
+/// ROUNDED's corners ╭, DOUBLE ═ ║ ╔, and HEAVY ━ ┃ ┏.
 Public Enum BorderStyle
     NONE, ASCII, SINGLE, ROUNDED, DOUBLE, HEAVY
 End Enum
 
-// What a BorderStyle draws with: its lines, its corners, and where lines meet.
+/// What a BorderStyle draws with: its lines, its corners, and where lines meet.
 Package Struct BorderLines
     Package Field Horizontal: String
     Package Field Vertical: String
@@ -45,7 +45,7 @@ Package Struct BorderLines
     Package Field Cross: String
 End Struct
 
-// The lines border draws with; NONE's are spaces.
+/// The lines border draws with; NONE's are spaces.
 Package Function LinesOf(border: BorderStyle): BorderLines
     Select border
         Case BorderStyle.NONE
@@ -63,8 +63,8 @@ Package Function LinesOf(border: BorderStyle): BorderLines
     End Select
 End Function
 
-// text in width columns: padded with spaces as alignment says, or as it is when it's as wide
-// or wider.
+/// text in width columns: padded with spaces as alignment says, or as it is when it's as wide
+/// or wider.
 Public Function Aligned(text: String, width: Int, alignment: Alignment): String
     Local gap = width - VisibleWidth(text)
     If gap <= 0 Then Return text
@@ -78,8 +78,8 @@ Public Function Aligned(text: String, width: Int, alignment: Alignment): String
     End Select
 End Function
 
-// text cut to width columns, with "…" for what's cut, between grapheme clusters, or as it is
-// when it fits. It has no escape codes, which this would cut too.
+/// text cut to width columns, with "…" for what's cut, between grapheme clusters, or as it is
+/// when it fits. It has no escape codes, which this would cut too.
 Public Function Truncated(text: String, width: Int): String
     If DisplayWidth(text) <= width Then Return text
     If width <= 0 Then Return ""
@@ -95,54 +95,54 @@ Public Function Truncated(text: String, width: Int): String
     Return kept + "…"
 End Function
 
-// A table of text, with a header row or not, its columns as wide as their widest cell, which
-// Render draws with a BorderStyle's lines. A cell can have several lines, and each column its
-// own Alignment. With a MaxWidth, the widest columns give way first, down to their widest
-// character, and their cells wrap.
+/// A table of text, with a header row or not, its columns as wide as their widest cell, which
+/// Render draws with a BorderStyle's lines. A cell can have several lines, and each column its
+/// own Alignment. With a MaxWidth, the widest columns give way first, down to their widest
+/// character, and their cells wrap.
 Public Class Table
     Field Header: String[]
     Field Body: String[][] = []
-    // Each column's Alignment that isn't LEFT.
+    /// Each column's Alignment that isn't LEFT.
     Field Aligns: Map<Int, Alignment>
-    // The lines it's drawn with.
+    /// The lines it's drawn with.
     Public Field Border: BorderStyle = BorderStyle.ROUNDED
-    // How the header's cells look: bold, at first.
+    /// How the header's cells look: bold, at first.
     Public Field HeaderStyle: Style
-    // How the lines look.
+    /// How the lines look.
     Public Field BorderColor: Style
-    // The most columns it takes, lines and all, or 0 for as many as it needs.
+    /// The most columns it takes, lines and all, or 0 for as many as it needs.
     Public Field MaxWidth: Int
-    // The spaces on each side of a cell's text.
+    /// The spaces on each side of a cell's text.
     Public Field Padding: Int = 1
 
-    // A table whose header row is headers, or that has none, without any.
+    /// A table whose header row is headers, or that has none, without any.
     Public New(headers: String...)
         Header = headers
         Aligns = Map<Int, Alignment>()
         HeaderStyle = Style(Attributes: TextAttributes.BOLD)
     End New
 
-    // How many rows it has, after its header.
+    /// How many rows it has, after its header.
     Public Property RowCount: Int
         Get => Body.Count
     End Property
 
-    // Adds a row of cells, from the first column. A row with fewer cells than another has empty
-    // ones after them.
+    /// Adds a row of cells, from the first column. A row with fewer cells than another has empty
+    /// ones after them.
     Public Method AddRow(cells: String...)
         Body.Add(cells)
     End Method
 
-    // Puts the column's cells where alignment says, the header's too. Panics for a column below
-    // 0.
+    /// Puts the column's cells where alignment says, the header's too. Panics for a column below
+    /// 0.
     @PanicsAtCaller
     Public Method Align(column: Int, alignment: Alignment)
         If column < 0 Then Panic("a table's columns are from 0, not {column}")
         Aligns[column] = alignment
     End Method
 
-    // Its lines, with a line break between each two, styled as colors shows them, or plain for
-    // NONE. A table without a header or a row is "".
+    /// Its lines, with a line break between each two, styled as colors shows them, or plain for
+    /// NONE. A table without a header or a row is "".
     Public Method Render(colors: ColorLevel = ColorLevel.NONE): String
         Local count = Header.Count
         For row In Body
@@ -224,18 +224,18 @@ Public Class Table
         Return "\n".Join(rows)
     End Method
 
-    // Writes it to stdout, with a line break after, as stdout shows colors.
+    /// Writes it to stdout, with a line break after, as stdout shows colors.
     Public Method Print()
         fb_write([Render(ConsoleColors(StandardStream.OUTPUT))], 0, 1)
     End Method
 
-    // Writes it to terminal, with a line break after, as it shows colors.
+    /// Writes it to terminal, with a line break after, as it shows colors.
     Public Method Draw(terminal: Terminal)
         terminal.WriteLine(Render(terminal.Colors))
         terminal.Flush()
     End Method
 
-    // A line across, from left to right, with between where columns meet.
+    /// A line across, from left to right, with between where columns meet.
     Method Rule(left: String, between: String, right: String, lines: BorderLines, widths: Int[],
                 colors: ColorLevel): String
         // Without a border, a column's rule is as wide as its text, with two spaces between.
@@ -249,8 +249,8 @@ Public Class Table
         Return BorderColor.Apply(left + (framed ? between : "  ").Join(parts) + right, colors)
     End Method
 
-    // The lines a row of cells takes, each cell wrapped to its column's width, and as many lines
-    // as its tallest cell.
+    /// The lines a row of cells takes, each cell wrapped to its column's width, and as many lines
+    /// as its tallest cell.
     Method RowLines(cells: String[], widths: Int[], colors: ColorLevel, header: Bool): String[]
         Local wrapped: String[][] = []
         Local height = 1
@@ -296,32 +296,35 @@ Public Class Table
     End Method
 End Class
 
-// Text in a box, with a Title in its top line or not, which Render draws with a BorderStyle's
-// lines. It's as wide as its widest line, or Width wide inside its lines, where the lines
-// wider than that wrap.
+/// Text in a box, with a Title in its top line or not, which Render draws with a BorderStyle's
+/// lines. It's as wide as its widest line, or Width wide inside its lines, where the lines
+/// wider than that wrap.
 Public Class Box
+    /// Its text.
     Public Field Content: String
+    /// What's in its top line, or "" for nothing.
     Public Field Title: String
-    // The lines it's drawn with.
+    /// The lines it's drawn with.
     Public Field Border: BorderStyle = BorderStyle.ROUNDED
-    // How the lines look.
+    /// How the lines look.
     Public Field BorderColor: Style
-    // How the title looks.
+    /// How the title looks.
     Public Field TitleStyle: Style
-    // Where the content's lines go inside it.
+    /// Where the content's lines go inside it.
     Public Field Align: Alignment = Alignment.LEFT
-    // The spaces on each side of the content.
+    /// The spaces on each side of the content.
     Public Field Padding: Int = 1
-    // The columns inside its lines, padding and all, or 0 for as many as the content needs.
+    /// The columns inside its lines, padding and all, or 0 for as many as the content needs.
     Public Field Width: Int
 
+    /// A Box of `content`, with `title` in its top line.
     Public New(content: String, title: String = "")
         Content = content
         Title = title
     End New
 
-    // Its lines, with a line break between each two, styled as colors shows them, or plain for
-    // NONE.
+    /// Its lines, with a line break between each two, styled as colors shows them, or plain for
+    /// NONE.
     Public Method Render(colors: ColorLevel = ColorLevel.NONE): String
         Local pad = Max(Padding, 0)
         // Its content has a column at least, and as many as its widest grapheme cluster takes.
@@ -377,46 +380,47 @@ Public Class Box
         Return "\n".Join(rows)
     End Method
 
-    // Writes it to stdout, with a line break after, as stdout shows colors.
+    /// Writes it to stdout, with a line break after, as stdout shows colors.
     Public Method Print()
         fb_write([Render(ConsoleColors(StandardStream.OUTPUT))], 0, 1)
     End Method
 
-    // Writes it to terminal, with a line break after, as it shows colors.
+    /// Writes it to terminal, with a line break after, as it shows colors.
     Public Method Draw(terminal: Terminal)
         terminal.WriteLine(Render(terminal.Colors))
         terminal.Flush()
     End Method
 End Class
 
-// What a ProgressBar shows after its bar: the PERCENT done, the COUNT done of the total, the time
-// ELAPSED, the ETA, an estimate of the time left, and the RATE, how many a second.
+/// What a ProgressBar shows after its bar: the PERCENT done, the COUNT done of the total, the time
+/// ELAPSED, the ETA, an estimate of the time left, and the RATE, how many a second.
 @Flags
 Public Enum ProgressParts
     NONE = 0, PERCENT, COUNT, ELAPSED, ETA, RATE
 End Enum
 
-// A bar of how much of a Total is done, on a line of its own, with a Label before it and its
-// Parts after it, which it draws again in place as its Value changes, no more often than
-// Interval but at its start and its end, on an interactive terminal; on another, it's drawn
-// once, at its Finish. It goes to stderr, or to a Terminal given. What reads the clock also
-// takes an Instant, so a test gives the time.
+/// A bar of how much of a Total is done, on a line of its own, with a Label before it and its
+/// Parts after it, which it draws again in place as its Value changes, no more often than
+/// Interval but at its start and its end, on an interactive terminal; on another, it's drawn
+/// once, at its Finish. It goes to stderr, or to a Terminal given. What reads the clock also
+/// takes an Instant, so a test gives the time.
 Public Class ProgressBar
-    // How many make the bar full.
+    /// How many make the bar full.
     Public Field Total: Int64
-    // What goes before the bar.
+    /// What goes before the bar.
     Public Field Label: String
-    // The bar's columns, which give way to the rest where the terminal's line is narrower.
+    /// The bar's columns, which give way to the rest where the terminal's line is narrower.
     Public Field Width: Int = 30
-    // What follows the bar.
+    /// What follows the bar.
     Public Field Parts: ProgressParts
-    // The bar's characters: a full column first, an empty one last, and any between, for a
-    // column that's partly full, from the fullest down, as "█▉▊▋▌▍▎▏ " or "#>-" has them.
+    /// The bar's characters: a full column first, an empty one last, and any between, for a
+    /// column that's partly full, from the fullest down, as "█▉▊▋▌▍▎▏ " or "#>-" has them.
     Public Field Characters: String = "█░"
-    // How its full and its empty columns look.
+    /// How its full and its empty columns look.
     Public Field FilledStyle: Style
+    /// How its empty columns look.
     Public Field EmptyStyle: Style
-    // The least time between two draws.
+    /// The least time between two draws.
     Public Field Interval: Duration
     Field Term: Terminal
     Field Started: Instant
@@ -425,61 +429,61 @@ Public Class ProgressBar
     Field Done: Bool
     Field Current: Int64
 
-    // A bar of total on stderr, from now.
+    /// A bar of total on stderr, from now.
     Public New(total: Int64)
         Term = Terminal.Console(StandardStream.ERROR)
         Start(total, Instant.Now())
     End New
 
-    // A bar of total on terminal, from now.
+    /// A bar of total on terminal, from now.
     Public New(total: Int64, terminal: Terminal)
         Term = terminal
         Start(total, Instant.Now())
     End New
 
-    // A bar of total on terminal, from start.
+    /// A bar of total on terminal, from start.
     Public New(total: Int64, terminal: Terminal, start: Instant)
         Term = terminal
         Start(total, start)
     End New
 
-    // How many are done.
+    /// How many are done.
     Public Property Value: Int64
         Get => Current
     End Property
 
-    // Whether Finish has drawn it for the last time.
+    /// Whether Finish has drawn it for the last time.
     Public Property IsFinished: Bool
         Get => Done
     End Property
 
-    // Sets how many are done, and draws it, if it's time to.
+    /// Sets how many are done, and draws it, if it's time to.
     Public Method Set(value: Int64)
         Set(value, Instant.Now())
     End Method
 
-    // Sets how many are done at now, and draws it, if it's time to.
+    /// Sets how many are done at now, and draws it, if it's time to.
     Public Method Set(value: Int64, now: Instant)
         Current = value
         Draw(now, value >= Total)
     End Method
 
-    // Adds count to how many are done, and draws it, if it's time to.
+    /// Adds count to how many are done, and draws it, if it's time to.
     Public Method Add(count: Int64 = 1)
         Set(Current + count, Instant.Now())
     End Method
 
-    // Adds count to how many are done at now, and draws it, if it's time to.
+    /// Adds count to how many are done at now, and draws it, if it's time to.
     Public Method Add(count: Int64, now: Instant)
         Set(Current + count, now)
     End Method
 
-    // Writes text on a line of its own above the bar, which is drawn again below it.
+    /// Writes text on a line of its own above the bar, which is drawn again below it.
     Public Method PrintAbove(text: String)
         PrintAbove(text, Instant.Now())
     End Method
 
-    // Writes text on a line of its own above the bar at now.
+    /// Writes text on a line of its own above the bar at now.
     Public Method PrintAbove(text: String, now: Instant)
         If Term.IsInteractive && HasDrawn && !Done
             Term.Write("\r\u{1b}[K" + text + "\n")
@@ -490,12 +494,12 @@ Public Class ProgressBar
         End If
     End Method
 
-    // Draws it for the last time, as it is, and ends its line.
+    /// Draws it for the last time, as it is, and ends its line.
     Public Method Finish()
         Finish(Instant.Now())
     End Method
 
-    // Draws it for the last time at now, and ends its line.
+    /// Draws it for the last time at now, and ends its line.
     Public Method Finish(now: Instant)
         If Done Then Return
         Local line = Render(now)
@@ -504,7 +508,7 @@ Public Class ProgressBar
         Term.Flush()
     End Method
 
-    // The line it draws at now, as its terminal shows colors, in its columns.
+    /// The line it draws at now, as its terminal shows colors, in its columns.
     Public Method Render(now: Instant): String
         Local level = Term.Colors
         Local fraction: Double = 1.0
@@ -549,8 +553,8 @@ Public Class ProgressBar
         Return " ".Join(pieces)
     End Method
 
-    // How much of Total is done, in whole percent, rounded down, in Int64s, where a Double's
-    // 0.29 * 100 is 28.999.
+    /// How much of Total is done, in whole percent, rounded down, in Int64s, where a Double's
+    /// 0.29 * 100 is 28.999.
     Method PercentDone(): Int
         If Total <= 0 Then Return 100
         Local done = Clamp(Current, 0, Total)
@@ -558,7 +562,7 @@ Public Class ProgressBar
         Return Min(done / (Total / 100), 100) As Int
     End Method
 
-    // Starts it, as each New does.
+    /// Starts it, as each New does.
     Method Start(total: Int64, start: Instant)
         Total = total
         Started = start
@@ -568,8 +572,8 @@ Public Class ProgressBar
         EmptyStyle = Style(Attributes: TextAttributes.DIM)
     End Method
 
-    // Draws it again, if it's on an interactive terminal and it's been Interval since it last
-    // was, or now must.
+    /// Draws it again, if it's on an interactive terminal and it's been Interval since it last
+    /// was, or now must.
     Method Draw(now: Instant, must: Bool)
         If Done || !Term.IsInteractive Then Return
         If HasDrawn && !must && now.Nanoseconds - Drawn.Nanoseconds < Interval.Nanoseconds Then Return
@@ -579,7 +583,7 @@ Public Class ProgressBar
         Drawn = now
     End Method
 
-    // The bar, width columns of which fraction are full.
+    /// The bar, width columns of which fraction are full.
     Method Bar(fraction: Double, width: Int, level: ColorLevel): String
         Local characters: String[] = []
         For grapheme In Characters.Graphemes()
@@ -606,18 +610,18 @@ Public Class ProgressBar
     End Method
 End Class
 
-// A spinner, on a line of its own, whose frame turns each Interval, with its Message after it,
-// for work whose end isn't known. Tick draws it again when its frame or message has changed, on
-// an interactive terminal; on another, only its Finish's line is written. It goes to stderr, or
-// to a Terminal given. What reads the clock also takes an Instant, so a test gives the time.
+/// A spinner, on a line of its own, whose frame turns each Interval, with its Message after it,
+/// for work whose end isn't known. Tick draws it again when its frame or message has changed, on
+/// an interactive terminal; on another, only its Finish's line is written. It goes to stderr, or
+/// to a Terminal given. What reads the clock also takes an Instant, so a test gives the time.
 Public Class Spinner
-    // What it shows, one frame after another.
+    /// What it shows, one frame after another.
     Public Field Frames: String[] = []
-    // What goes after it.
+    /// What goes after it.
     Public Field Message: String
-    // How long each frame shows.
+    /// How long each frame shows.
     Public Field Interval: Duration
-    // How its frame looks.
+    /// How its frame looks.
     Public Field FrameStyle: Style
     Field Term: Terminal
     Field Started: Instant
@@ -625,35 +629,35 @@ Public Class Spinner
     Field ShownMessage: String
     Field Done: Bool
 
-    // A spinner on stderr, from now.
+    /// A spinner on stderr, from now.
     Public New(message: String)
         Term = Terminal.Console(StandardStream.ERROR)
         Start(message, Instant.Now())
     End New
 
-    // A spinner on terminal, from now.
+    /// A spinner on terminal, from now.
     Public New(message: String, terminal: Terminal)
         Term = terminal
         Start(message, Instant.Now())
     End New
 
-    // A spinner on terminal, from start.
+    /// A spinner on terminal, from start.
     Public New(message: String, terminal: Terminal, start: Instant)
         Term = terminal
         Start(message, start)
     End New
 
-    // Whether a Finish has written its last line.
+    /// Whether a Finish has written its last line.
     Public Property IsFinished: Bool
         Get => Done
     End Property
 
-    // Draws it again, when its frame or its message has changed since it last was.
+    /// Draws it again, when its frame or its message has changed since it last was.
     Public Method Tick()
         Tick(Instant.Now())
     End Method
 
-    // Draws it again at now, when its frame or its message has changed.
+    /// Draws it again at now, when its frame or its message has changed.
     Public Method Tick(now: Instant)
         If Done || !Term.IsInteractive || Frames.Count == 0 Then Return
         Local frame = FrameAt(now)
@@ -669,7 +673,7 @@ Public Class Spinner
         Term.Flush()
     End Method
 
-    // Takes it away, and writes text on its line, which ends.
+    /// Takes it away, and writes text on its line, which ends.
     Public Method Finish(text: String)
         If Done Then Return
         Done = True
@@ -677,17 +681,17 @@ Public Class Spinner
         Term.Flush()
     End Method
 
-    // Finishes it with a green ✔ before text.
+    /// Finishes it with a green ✔ before text.
     Public Method Succeed(text: String)
         Finish(Term.Paint("✔", Style(TermColor.Green)) + " " + text)
     End Method
 
-    // Finishes it with a red ✖ before text.
+    /// Finishes it with a red ✖ before text.
     Public Method Fail(text: String)
         Finish(Term.Paint("✖", Style(TermColor.Red)) + " " + text)
     End Method
 
-    // Starts it, as each New does.
+    /// Starts it, as each New does.
     Method Start(message: String, start: Instant)
         Message = message
         Started = start
@@ -696,7 +700,7 @@ Public Class Spinner
         FrameStyle = Style(TermColor.Cyan)
     End Method
 
-    // The frame that shows at now.
+    /// The frame that shows at now.
     Method FrameAt(now: Instant): Int
         Local interval = Max(Interval.Nanoseconds, 1)
         Local elapsed = Max(now.Nanoseconds - Started.Nanoseconds, 0)
@@ -704,8 +708,8 @@ Public Class Spinner
     End Method
 End Class
 
-// A time in seconds as "m:ss", or "h:mm:ss" from an hour, or "-:--", as for one that isn't known,
-// from 10000 hours, or for one that isn't a number.
+/// A time in seconds as "m:ss", or "h:mm:ss" from an hour, or "-:--", as for one that isn't known,
+/// from 10000 hours, or for one that isn't a number.
 Function TimeText(seconds: Double): String
     If !(seconds < 36000000.0) Then Return "-:--"
     Local whole = seconds As Int64

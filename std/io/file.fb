@@ -1,8 +1,8 @@
-// std.io's files, a call at a time: reading and writing a whole file's bytes, text, or lines,
-// adding to one, writing one atomically, what's at a path, and copying, moving, and deleting.
-// Each has an Async twin, which libuv's thread pool does while the main thread goes on, and
-// whose Await resumes there. A file that can't be used throws an IOError whose Kind says why.
-// Open and Create give a FileStream, for reading and writing a file a part at a time.
+//! std.io's files, a call at a time: reading and writing a whole file's bytes, text, or lines,
+//! adding to one, writing one atomically, what's at a path, and copying, moving, and deleting.
+//! Each has an Async twin, which libuv's thread pool does while the main thread goes on, and
+//! whose Await resumes there. A file that can't be used throws an IOError whose Kind says why.
+//! Open and Create give a FileStream, for reading and writing a file a part at a time.
 
 Import std.core
 Import std.io.file_stream
@@ -41,15 +41,15 @@ Extern "runtime"
                                             readOnly: Int32): Task<Int64>
 End Extern
 
-// How the runtime writes: replacing what the file held, adding to its end, or atomically.
+/// How the runtime writes: replacing what the file held, adding to its end, or atomically.
 Const REPLACE: Int32 = 0
 Const APPEND: Int32 = 1
 Const ATOMIC: Int32 = 2
-// The most bytes a read takes by default: an array's most for bytes, and all of them for text.
+/// The most bytes a read takes by default: an array's most for bytes, and all of them for text.
 Const ARRAY_MOST: Int64 = 2147483647
 Const ALL: Int64 = 9223372036854775807
 
-// What's at a path: a file, a folder, a link, or something else, like a device or a pipe.
+/// What's at a path: a file, a folder, a link, or something else, like a device or a pipe.
 Public Enum FileKind
     FILE
     DIRECTORY
@@ -57,23 +57,28 @@ Public Enum FileKind
     OTHER
 End Enum
 
-// What ends each line a file's lines are written with: "\n", as on every OS unless asked, or
-// "\r\n", as some Windows programs want.
+/// What ends each line a file's lines are written with: "\n", as on every OS unless asked, or
+/// "\r\n", as some Windows programs want.
 Public Enum LineEnding
     LF
     CRLF
 End Enum
 
-// What's at a path, as File.Metadata found it: when it was last changed and read, and when it was
-// made, which is Null where the OS or the disk doesn't say. IsReadOnly is whether its owner may
-// not write it.
+/// What's at a path, as File.Metadata found it: when it was last changed and read, and when it was
+/// made, which is Null where the OS or the disk doesn't say. IsReadOnly is whether its owner may
+/// not write it.
 Public Struct Metadata
+    /// Whether it's a file, a folder, or a link.
     Public ReadOnly Field Kind: FileKind
-    // In bytes.
+    /// How many bytes it holds.
     Public ReadOnly Field Size: Int64
+    /// When it was last changed.
     Public ReadOnly Field Modified: Timestamp
+    /// When it was last read.
     Public ReadOnly Field Accessed: Timestamp
+    /// When it was made, or Null where the OS or the disk doesn't say.
     Public ReadOnly Field Created: Timestamp?
+    /// Whether its owner may not write it.
     Public ReadOnly Field IsReadOnly: Bool
 
     Package New(kind: FileKind, size: Int64, modified: Timestamp, accessed: Timestamp,
@@ -86,21 +91,24 @@ Public Struct Metadata
         IsReadOnly = readOnly
     End New
 
+    /// Whether it's a file.
     Public Method IsFile(): Bool => Kind == FileKind.FILE
+    /// Whether it's a folder.
     Public Method IsDirectory(): Bool => Kind == FileKind.DIRECTORY
+    /// Whether it's a link.
     Public Method IsLink(): Bool => Kind == FileKind.LINK
 End Struct
 
-// A file's Static Methods, each a call that opens the file, does its work, and closes it.
+/// A file's Static Methods, each a call that opens the file, does its work, and closes it.
 Public Class File
-    // File isn't made yet: it's only its Static Methods.
+    /// File isn't made yet: it's only its Static Methods.
     New()
     End New
 
-    // The file's bytes. One that holds more than `most` bytes, which an array's most is the
-    // default for, throws an IOError of OTHER, found before reading them where the OS knows a
-    // file's size, and so does one that memory can't hold. Panics for a most below 0 or above an
-    // array's, 2^31 - 1.
+    /// The file's bytes. One that holds more than `most` bytes, which an array's most is the
+    /// default for, throws an IOError of OTHER, found before reading them where the OS knows a
+    /// file's size, and so does one that memory can't hold. Panics for a most below 0 or above an
+    /// array's, 2^31 - 1.
     @PanicsAtCaller
     Public Static Method ReadBytes(path: Path, most: Int64 = ARRAY_MOST): UInt8[] Throws IOError
         CheckMost(most, ARRAY_MOST)
@@ -109,6 +117,7 @@ Public Class File
         Return BytesOf(request)
     End Method
 
+    /// What [ReadBytes] does, without blocking its thread: a call gives its Task.
     @PanicsAtCaller
     Public Static Async Method ReadBytesAsync(path: Path,
                                               most: Int64 = ARRAY_MOST): UInt8[] Throws IOError
@@ -118,9 +127,9 @@ Public Class File
         Return BytesOf(request)
     End Method
 
-    // The file's bytes as text, with U+FFFD for each one that doesn't start well-formed UTF-8.
-    // Its line breaks stay as they are, and so does a byte order mark. One that holds more than
-    // `most` bytes, or more than memory does, throws an IOError of OTHER, as ReadBytes does.
+    /// The file's bytes as text, with U+FFFD for each one that doesn't start well-formed UTF-8.
+    /// Its line breaks stay as they are, and so does a byte order mark. One that holds more than
+    /// `most` bytes, or more than memory does, throws an IOError of OTHER, as ReadBytes does.
     @PanicsAtCaller
     Public Static Method ReadText(path: Path, most: Int64 = ALL): String Throws IOError
         CheckMost(most, ALL)
@@ -129,6 +138,7 @@ Public Class File
         Return fb_io_request_text(request.Native)
     End Method
 
+    /// What [ReadText] does, without blocking its thread: a call gives its Task.
     @PanicsAtCaller
     Public Static Async Method ReadTextAsync(path: Path, most: Int64 = ALL): String Throws IOError
         CheckMost(most, ALL)
@@ -137,9 +147,9 @@ Public Class File
         Return fb_io_request_text(request.Native)
     End Method
 
-    // The file's text in lines, split at "\n" and at "\r\n", without them. A last line with no
-    // line break after it is one too, and an empty file has none. One that holds more than `most`
-    // bytes throws as ReadText does.
+    /// The file's text in lines, split at "\n" and at "\r\n", without them. A last line with no
+    /// line break after it is one too, and an empty file has none. One that holds more than `most`
+    /// bytes throws as ReadText does.
     @PanicsAtCaller
     Public Static Method ReadLines(path: Path, most: Int64 = ALL): String[] Throws IOError
         CheckMost(most, ALL)
@@ -150,6 +160,7 @@ Public Class File
         Return lines
     End Method
 
+    /// What [ReadLines] does, without blocking its thread: a call gives its Task.
     @PanicsAtCaller
     Public Static Async Method ReadLinesAsync(path: Path,
                                               most: Int64 = ALL): String[] Throws IOError
@@ -161,32 +172,34 @@ Public Class File
         Return lines
     End Method
 
-    // Makes the file hold the bytes, made when it isn't there, and replacing what it held when it
-    // is.
+    /// Makes the file hold the bytes, made when it isn't there, and replacing what it held when it
+    /// is.
     Public Static Method WriteBytes(path: Path, bytes: UInt8[]) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_write(request.Native, path.Text, bytes, REPLACE), "write", path)
     End Method
 
+    /// What [WriteBytes] does, without blocking its thread: a call gives its Task.
     Public Static Async Method WriteBytesAsync(path: Path, bytes: UInt8[]) Throws IOError
         Local request = Request()
         Try Checked(Await fb_io_file_write_async(request.Native, path.Text, bytes, REPLACE),
                     "write", path)
     End Method
 
-    // Makes the file hold the text's UTF-8 bytes, as they are, as WriteBytes does.
+    /// Makes the file hold the text's UTF-8 bytes, as they are, as WriteBytes does.
     Public Static Method WriteText(path: Path, text: String) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_write_text(request.Native, path.Text, text, REPLACE), "write", path)
     End Method
 
+    /// What [WriteText] does, without blocking its thread: a call gives its Task.
     Public Static Async Method WriteTextAsync(path: Path, text: String) Throws IOError
         Local request = Request()
         Try Checked(Await fb_io_file_write_text_async(request.Native, path.Text, text, REPLACE),
                     "write", path)
     End Method
 
-    // Makes the file hold the lines, each with `ending` after it, as WriteBytes does.
+    /// Makes the file hold the lines, each with `ending` after it, as WriteBytes does.
     Public Static Method WriteLines(path: Path, lines: String[],
                                     ending: LineEnding = LineEnding.LF) Throws IOError
         Local request = Request()
@@ -195,6 +208,7 @@ Public Class File
                     "write", path)
     End Method
 
+    /// What [WriteLines] does, without blocking its thread: a call gives its Task.
     Public Static Async Method WriteLinesAsync(path: Path, lines: String[],
                                                ending: LineEnding = LineEnding.LF) Throws IOError
         Local request = Request()
@@ -202,31 +216,33 @@ Public Class File
                                                        CrlfOf(ending), REPLACE), "write", path)
     End Method
 
-    // Adds the bytes to the end of the file, made when it isn't there.
+    /// Adds the bytes to the end of the file, made when it isn't there.
     Public Static Method AppendBytes(path: Path, bytes: UInt8[]) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_write(request.Native, path.Text, bytes, APPEND), "add to", path)
     End Method
 
+    /// What [AppendBytes] does, without blocking its thread: a call gives its Task.
     Public Static Async Method AppendBytesAsync(path: Path, bytes: UInt8[]) Throws IOError
         Local request = Request()
         Try Checked(Await fb_io_file_write_async(request.Native, path.Text, bytes, APPEND),
                     "add to", path)
     End Method
 
-    // Adds the text's UTF-8 bytes to the end of the file, as AppendBytes does.
+    /// Adds the text's UTF-8 bytes to the end of the file, as AppendBytes does.
     Public Static Method AppendText(path: Path, text: String) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_write_text(request.Native, path.Text, text, APPEND), "add to", path)
     End Method
 
+    /// What [AppendText] does, without blocking its thread: a call gives its Task.
     Public Static Async Method AppendTextAsync(path: Path, text: String) Throws IOError
         Local request = Request()
         Try Checked(Await fb_io_file_write_text_async(request.Native, path.Text, text, APPEND),
                     "add to", path)
     End Method
 
-    // Adds the lines, each with `ending` after it, to the end of the file, as AppendBytes does.
+    /// Adds the lines, each with `ending` after it, to the end of the file, as AppendBytes does.
     Public Static Method AppendLines(path: Path, lines: String[],
                                      ending: LineEnding = LineEnding.LF) Throws IOError
         Local request = Request()
@@ -235,6 +251,7 @@ Public Class File
                     "add to", path)
     End Method
 
+    /// What [AppendLines] does, without blocking its thread: a call gives its Task.
     Public Static Async Method AppendLinesAsync(path: Path, lines: String[],
                                                 ending: LineEnding = LineEnding.LF) Throws IOError
         Local request = Request()
@@ -242,69 +259,74 @@ Public Class File
                                                        CrlfOf(ending), APPEND), "add to", path)
     End Method
 
-    // Writes the bytes to a new temporary file in the file's folder, onto the disk, then renames
-    // it over the file, so the file holds either all of them or what it held before, even if the
-    // program or the machine stops partway. On POSIX it keeps the permissions the file had. For
-    // a link, the file it leads to is replaced, as a plain write writes through it, and the link
-    // stays.
+    /// Writes the bytes to a new temporary file in the file's folder, onto the disk, then renames
+    /// it over the file, so the file holds either all of them or what it held before, even if the
+    /// program or the machine stops partway. On POSIX it keeps the permissions the file had. For
+    /// a link, the file it leads to is replaced, as a plain write writes through it, and the link
+    /// stays.
     Public Static Method WriteBytesAtomic(path: Path, bytes: UInt8[]) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_write(request.Native, path.Text, bytes, ATOMIC), "write", path)
     End Method
 
+    /// What [WriteBytesAtomic] does, without blocking its thread: a call gives its Task.
     Public Static Async Method WriteBytesAtomicAsync(path: Path, bytes: UInt8[]) Throws IOError
         Local request = Request()
         Try Checked(Await fb_io_file_write_async(request.Native, path.Text, bytes, ATOMIC), "write",
                     path)
     End Method
 
-    // Writes the text's UTF-8 bytes atomically, as WriteBytesAtomic does.
+    /// Writes the text's UTF-8 bytes atomically, as WriteBytesAtomic does.
     Public Static Method WriteTextAtomic(path: Path, text: String) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_write_text(request.Native, path.Text, text, ATOMIC), "write", path)
     End Method
 
+    /// What [WriteTextAtomic] does, without blocking its thread: a call gives its Task.
     Public Static Async Method WriteTextAtomicAsync(path: Path, text: String) Throws IOError
         Local request = Request()
         Try Checked(Await fb_io_file_write_text_async(request.Native, path.Text, text, ATOMIC),
                     "write", path)
     End Method
 
-    // Whether there's a file at the path, or a link to one; not a folder. One the program can't
-    // look at isn't there, as far as it can tell.
+    /// Whether there's a file at the path, or a link to one; not a folder. One the program can't
+    /// look at isn't there, as far as it can tell.
     Public Static Method Exists(path: Path): Bool
         Local request = Request()
         Return fb_io_file_stat(request.Native, path.Text, 1) >= 0 &&
                StatOf(request).Kind == FileKind.FILE
     End Method
 
+    /// What [Exists] does, without blocking its thread: a call gives its Task.
     Public Static Async Method ExistsAsync(path: Path): Bool
         Local request = Request()
         Return (Await fb_io_file_stat_async(request.Native, path.Text, 1)) >= 0 &&
                StatOf(request).Kind == FileKind.FILE
     End Method
 
-    // How many bytes the file holds. A folder throws an IOError of IS_A_DIRECTORY.
+    /// How many bytes the file holds. A folder throws an IOError of IS_A_DIRECTORY.
     Public Static Method Size(path: Path): Int64 Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_stat(request.Native, path.Text, 1), "find", path)
         Return Try SizeOf(request, path)
     End Method
 
+    /// What [Size] does, without blocking its thread: a call gives its Task.
     Public Static Async Method SizeAsync(path: Path): Int64 Throws IOError
         Local request = Request()
         Try Checked(Await fb_io_file_stat_async(request.Native, path.Text, 1), "find", path)
         Return Try SizeOf(request, path)
     End Method
 
-    // What's at the path, or at what it links to unless `followLinks` is False, which gives a
-    // link's own.
+    /// What's at the path, or at what it links to unless `followLinks` is False, which gives a
+    /// link's own.
     Public Static Method Metadata(path: Path, followLinks: Bool = True): Metadata Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_stat(request.Native, path.Text, followLinks ? 1 : 0), "find", path)
         Return StatOf(request)
     End Method
 
+    /// What [Metadata] does, without blocking its thread: a call gives its Task.
     Public Static Async Method MetadataAsync(path: Path,
                                              followLinks: Bool = True): Metadata Throws IOError
         Local request = Request()
@@ -313,41 +335,44 @@ Public Class File
         Return StatOf(request)
     End Method
 
-    // Copies the file at `from` to `to`, replacing a file there. A folder at either end throws an
-    // IOError of IS_A_DIRECTORY.
+    /// Copies the file at `from` to `to`, replacing a file there. A folder at either end throws an
+    /// IOError of IS_A_DIRECTORY.
     Public Static Method Copy(from: Path, to: Path) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_copy(request.Native, from.Text, to.Text), "copy", from, to)
     End Method
 
+    /// What [Copy] does, without blocking its thread: a call gives its Task.
     Public Static Async Method CopyAsync(from: Path, to: Path) Throws IOError
         Local request = Request()
         Try Checked(Await fb_io_file_copy_async(request.Native, from.Text, to.Text), "copy", from,
                     to)
     End Method
 
-    // Moves, or renames, the file or folder at `from` to `to`, replacing a file there. A file
-    // moved to another disk is copied there, then deleted. A folder goes only where nothing is,
-    // else an IOError of ALREADY_EXISTS onto a folder and NOT_A_DIRECTORY onto anything else, and
-    // a file onto a folder is IS_A_DIRECTORY, the same on every OS.
+    /// Moves, or renames, the file or folder at `from` to `to`, replacing a file there. A file
+    /// moved to another disk is copied there, then deleted. A folder goes only where nothing is,
+    /// else an IOError of ALREADY_EXISTS onto a folder and NOT_A_DIRECTORY onto anything else, and
+    /// a file onto a folder is IS_A_DIRECTORY, the same on every OS.
     Public Static Method Move(from: Path, to: Path) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_move(request.Native, from.Text, to.Text), "move", from, to)
     End Method
 
+    /// What [Move] does, without blocking its thread: a call gives its Task.
     Public Static Async Method MoveAsync(from: Path, to: Path) Throws IOError
         Local request = Request()
         Try Checked(Await fb_io_file_move_async(request.Native, from.Text, to.Text), "move", from,
                     to)
     End Method
 
-    // Deletes the file, or the link, at the path, and gives whether there was one. A folder
-    // throws an IOError of IS_A_DIRECTORY; Dir.Remove deletes one.
+    /// Deletes the file, or the link, at the path, and gives whether there was one. A folder
+    /// throws an IOError of IS_A_DIRECTORY; Dir.Remove deletes one.
     Public Static Method Delete(path: Path): Bool Throws IOError
         Local request = Request()
         Return (Try Checked(fb_io_file_delete(request.Native, path.Text), "delete", path)) == 1
     End Method
 
+    /// What [Delete] does, without blocking its thread: a call gives its Task.
     Public Static Async Method DeleteAsync(path: Path): Bool Throws IOError
         Local request = Request()
         Local deleted = Try Checked(Await fb_io_file_delete_async(request.Native, path.Text),
@@ -355,46 +380,50 @@ Public Class File
         Return deleted == 1
     End Method
 
-    // The file opened to read, as a FileStream from its start.
+    /// The file opened to read, as a FileStream from its start.
     Public Static Method Open(path: Path): FileStream Throws IOError
         Return Try FileStream.Opened(path, OpenOptions(Read: True))
     End Method
 
+    /// What [Open] does, without blocking its thread: a call gives its Task.
     Public Static Async Method OpenAsync(path: Path): FileStream Throws IOError
         Return Try Await FileStream.OpenedAsync(path, OpenOptions(Read: True))
     End Method
 
-    // The file opened as the options say, as a FileStream from its start, or at its end when it
-    // appends. Panics for options no file opens with: none of Read, Write, and Append, or Create,
-    // CreateNew, or Truncate without Write or Append, or Truncate with Append.
+    /// The file opened as the options say, as a FileStream from its start, or at its end when it
+    /// appends. Panics for options no file opens with: none of Read, Write, and Append, or Create,
+    /// CreateNew, or Truncate without Write or Append, or Truncate with Append.
     @PanicsAtCaller
     Public Static Method Open(path: Path, options: OpenOptions): FileStream Throws IOError
         Return Try FileStream.Opened(path, options)
     End Method
 
+    /// What [Open] does, without blocking its thread: a call gives its Task.
     @PanicsAtCaller
     Public Static Async Method OpenAsync(path: Path,
                                          options: OpenOptions): FileStream Throws IOError
         Return Try Await FileStream.OpenedAsync(path, options)
     End Method
 
-    // A FileStream to write the file, made when it isn't there, and emptied when it is.
+    /// A FileStream to write the file, made when it isn't there, and emptied when it is.
     Public Static Method Create(path: Path): FileStream Throws IOError
         Return Try FileStream.Opened(path, OpenOptions(Write: True, Create: True, Truncate: True))
     End Method
 
+    /// What [Create] does, without blocking its thread: a call gives its Task.
     Public Static Async Method CreateAsync(path: Path): FileStream Throws IOError
         Return Try Await FileStream.OpenedAsync(path, OpenOptions(Write: True, Create: True,
                                                                   Truncate: True))
     End Method
 
-    // Makes the file read-only, or, when `readOnly` is False, writable by its owner.
+    /// Makes the file read-only, or, when `readOnly` is False, writable by its owner.
     Public Static Method SetReadOnly(path: Path, readOnly: Bool) Throws IOError
         Local request = Request()
         Try Checked(fb_io_file_set_read_only(request.Native, path.Text, readOnly ? 1 : 0), "change",
                     path)
     End Method
 
+    /// What [SetReadOnly] does, without blocking its thread: a call gives its Task.
     Public Static Async Method SetReadOnlyAsync(path: Path, readOnly: Bool) Throws IOError
         Local request = Request()
         Local flag = readOnly ? 1 : 0
@@ -405,14 +434,14 @@ End Class
 
 Function CrlfOf(ending: LineEnding): Int32 => ending == LineEnding.CRLF ? 1 : 0
 
-// The bytes a request read.
+/// The bytes a request read.
 Function BytesOf(request: Request): UInt8[]
     Local bytes: UInt8[] = []
     fb_io_request_bytes(request.Native, bytes)
     Return bytes
 End Function
 
-// Panics unless a read's most is from 0 to `limit`.
+/// Panics unless a read's most is from 0 to `limit`.
 @PanicsAtCaller
 Function CheckMost(most: Int64, limit: Int64)
     If most < 0 || most > limit
@@ -420,7 +449,7 @@ Function CheckMost(most: Int64, limit: Int64)
     End If
 End Function
 
-// What a request found at a path.
+/// What a request found at a path.
 Package Function StatOf(request: Request): Metadata
     Local values: Int64[] = []
     fb_io_request_stat(request.Native, values)
@@ -431,8 +460,8 @@ Package Function StatOf(request: Request): Metadata
                     TimeOf(values[4], values[5]), created, values[8] != 0)
 End Function
 
-// A time a file keeps, past the years a Timestamp holds only by a disk's mistake, so it's the
-// nearest a Timestamp holds.
+/// A time a file keeps, past the years a Timestamp holds only by a disk's mistake, so it's the
+/// nearest a Timestamp holds.
 Function TimeOf(seconds: Int64, nanoseconds: Int64): Timestamp
     If seconds < Timestamp.MinValue().UnixSeconds Then Return Timestamp.MinValue()
     If seconds > Timestamp.MaxValue().UnixSeconds Then Return Timestamp.MaxValue()
@@ -452,7 +481,7 @@ Function FileKindOf(number: Int64): FileKind
     End Select
 End Function
 
-// The size a request found, unless what it found is a folder.
+/// The size a request found, unless what it found is a folder.
 Function SizeOf(request: Request, path: Path): Int64 Throws IOError
     Local found = StatOf(request)
     If found.IsDirectory()

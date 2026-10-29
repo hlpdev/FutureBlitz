@@ -1,10 +1,10 @@
-// std.net.game's peers: the other side of a connection, as a GameHost has it. A peer sends its
-// messages on its channels, which go at the host's next Update, and keeps what the connection
-// knows: its state, the round-trip time it measures from acks, and the packets it's sent,
-// received, and lost. Every packet acks the 33 latest of the other side's it received, and a
-// reliable part not acked once its round-trip time and a margin have passed goes again, each
-// time waiting twice as long, up to 8 times. A Flush sends 16 packets at most, and a peer that
-// takes 16 acks them at once, so the acks of a packet lost cover what was before it.
+//! std.net.game's peers: the other side of a connection, as a GameHost has it. A peer sends its
+//! messages on its channels, which go at the host's next Update, and keeps what the connection
+//! knows: its state, the round-trip time it measures from acks, and the packets it's sent,
+//! received, and lost. Every packet acks the 33 latest of the other side's it received, and a
+//! reliable part not acked once its round-trip time and a margin have passed goes again, each
+//! time waiting twice as long, up to 8 times. A Flush sends 16 packets at most, and a peer that
+//! takes 16 acks them at once, so the acks of a packet lost cover what was before it.
 
 Import std.core
 Import std.collections
@@ -14,27 +14,27 @@ Import std.net.game.channel
 Import std.net.game.packet
 Import std.net.game.settings
 
-// Where a connection is: asking for it, open, sending what's left before it ends, or ended.
+/// Where a connection is: asking for it, open, sending what's left before it ends, or ended.
 Public Enum PeerState
     CONNECTING, CONNECTED, DISCONNECTING, DISCONNECTED
 End Enum
 
-// How many of the packets it sent a peer remembers, to take their acks.
+/// How many of the packets it sent a peer remembers, to take their acks.
 Const RECORDS = 1024
 
-// The most packets a Flush sends, and the most a peer takes before it acks them, both half of
-// what an ack covers, so a lost ack's packets are acked by the next.
+/// The most packets a Flush sends, and the most a peer takes before it acks them, both half of
+/// what an ack covers, so a lost ack's packets are acked by the next.
 Const MOST_PACKETS = 16
 
-// The least and the most a reliable part waits to go again, in nanoseconds, and the round-trip
-// time and its variance a peer starts with, before it measures them.
+/// The least and the most a reliable part waits to go again, in nanoseconds, and the round-trip
+/// time and its variance a peer starts with, before it measures them.
 Const LEAST_RESEND: Int64 = 20000000
 Const MOST_RESEND: Int64 = 2000000000
 Const FIRST_ROUND_TRIP: Int64 = 100000000
 Const FIRST_VARIANCE: Int64 = 50000000
 
-// A packet a peer sent: its sequence, when, the reliable parts in it, and whether it asked to be
-// acked at once, so its ack times a round trip, until it's acked or counted lost.
+/// A packet a peer sent: its sequence, when, the reliable parts in it, and whether it asked to be
+/// acked at once, so its ack times a round trip, until it's acked or counted lost.
 Class SentRecord
     Field Sequence: Int
     Field Sent: Int64
@@ -50,38 +50,38 @@ Class SentRecord
     End New
 End Class
 
-// The other side of a connection, which a GameHost makes when it connects or is connected to.
-// Its Send queues a message on one of the host's channels, which goes at the host's next Update,
-// along with what it sends again and its acks.
+/// The other side of a connection, which a GameHost makes when it connects or is connected to.
+/// Its Send queues a message on one of the host's channels, which goes at the host's next Update,
+/// along with what it sends again and its acks.
 Public Class GamePeer Implements Printable
     Package Field Remote: SocketAddress
     Package Field Settings: GameSettings
     Package Field Status: PeerState
-    // Whether the other side connected to this one, the connecting side's salt, and the
-    // connection's, both salts XORed.
+    /// Whether the other side connected to this one, the connecting side's salt, and the
+    /// connection's, both salts XORed.
     Package Field Incoming: Bool
     Package Field Salt: UInt32
     Package Field Connection: UInt32
-    // This side's first sequence and message id.
+    /// This side's first sequence and message id.
     Package Field First: Int
     Package Field Outbound: OutChannel[] = []
     Package Field Inbound: InChannel[] = []
     Field Sequence: Int
     Field Records: SentRecord?[] = []
-    // When it last sent a packet that asks to be acked, which a keepalive goes KeepAlive after.
+    /// When it last sent a packet that asks to be acked, which a keepalive goes KeepAlive after.
     Field LastAsked: Int64 = -1
     Field AckPending: Bool
-    // How many of the other side's packets have come since this one last sent one.
+    /// How many of the other side's packets have come since this one last sent one.
     Package Field Unanswered: Int
-    // The latest of this side's packets the other side has acked.
+    /// The latest of this side's packets the other side has acked.
     Field LastAck: Int
     Field HasAck: Bool
-    // The latest of the other side's packets this one got, and a bit for each of the 32 before.
+    /// The latest of the other side's packets this one got, and a bit for each of the 32 before.
     Field HasLatest: Bool
     Field Latest: Int
     Field Bits: UInt32
     Package Field LastReceived: Int64
-    // When it started connecting, and last asked to.
+    /// When it started connecting, and last asked to.
     Package Field Started: Int64
     Package Field LastConnect: Int64 = -1
     Package Field Leaving: Bool
@@ -97,8 +97,8 @@ Public Class GamePeer Implements Printable
     Field SentBytes: Int64
     Field ReceivedBytes: Int64
 
-    // A peer at address, of a host of settings, the other side having connected to it, or not,
-    // whose connection's salt is salt and whose first sequence is first, made at now.
+    /// A peer at address, of a host of settings, the other side having connected to it, or not,
+    /// whose connection's salt is salt and whose first sequence is first, made at now.
     Package New(address: SocketAddress, settings: GameSettings, incoming: Bool, salt: UInt32,
                 first: Int, now: Int64)
         Remote = address
@@ -119,63 +119,70 @@ Public Class GamePeer Implements Printable
         End For
     End New
 
-    // Where the other side is.
+    /// Where the other side is.
     Public Property Address: SocketAddress
         Get => Remote
     End Property
 
+    /// Whether it's connecting, connected, or disconnected, and how.
     Public Property State: PeerState
         Get => Status
     End Property
 
-    // Why it disconnected, once it has, or NONE.
+    /// Why it disconnected, once it has, or NONE.
     Public Property Reason: DisconnectReason
         Get => Why
     End Property
 
-    // The round-trip time, smoothed as TCP smooths it, from the acks of what it sent, and how
-    // much it varies. Before the first ack, 100 and 50 milliseconds.
+    /// The round-trip time, smoothed as TCP smooths it, from the acks of what it sent, and how
+    /// much it varies. Before the first ack, 100 and 50 milliseconds.
     Public Property RoundTripTime: Duration
         Get => Duration.FromNanoseconds(Smoothed)
     End Property
 
+    /// How much its round-trip time varies.
     Public Property RoundTripVariance: Duration
         Get => Duration.FromNanoseconds(Variance)
     End Property
 
-    // About how much of what it sends is lost, from 0 to 1: of its packets acked or counted lost,
-    // the recent ones counting most.
+    /// About how much of what it sends is lost, from 0 to 1: of its packets acked or counted lost,
+    /// the recent ones counting most.
     Public Property PacketLoss: Double
         Get => Loss
     End Property
 
-    // The packets it's sent, received, and counted lost, the reliable parts it sent again, and
-    // the bytes of its packets each way.
+    /// The packets it's sent, received, and counted lost, the reliable parts it sent again, and
+    /// the bytes of its packets each way.
     Public Property PacketsSent: Int64
         Get => SentCount
     End Property
 
+    /// How many packets it's received.
     Public Property PacketsReceived: Int64
         Get => ReceivedCount
     End Property
 
+    /// How many of its packets it's counted lost.
     Public Property PacketsLost: Int64
         Get => LostCount
     End Property
 
+    /// How many reliable parts it's sent again.
     Public Property Resends: Int64
         Get => ResentCount
     End Property
 
+    /// How many bytes of packets it's sent.
     Public Property BytesSent: Int64
         Get => SentBytes
     End Property
 
+    /// How many bytes of packets it's received.
     Public Property BytesReceived: Int64
         Get => ReceivedBytes
     End Property
 
-    // How many reliable messages it has that the other side hasn't acked yet, sent or not.
+    /// How many reliable messages it has that the other side hasn't acked yet, sent or not.
     Public Property Unacked: Int
         Get
             Local count = 0
@@ -187,10 +194,10 @@ Public Class GamePeer Implements Printable
         End Get
     End Property
 
-    // Sends bytes on the host's channel, from 0, as the channel's kind says; it goes at the host's
-    // next Update, once it's connected. A peer that's disconnecting or disconnected sends
-    // nothing more. Panics for a channel the host doesn't have, or a message past its
-    // MaxMessageSize.
+    /// Sends bytes on the host's channel, from 0, as the channel's kind says; it goes at the host's
+    /// next Update, once it's connected. A peer that's disconnecting or disconnected sends
+    /// nothing more. Panics for a channel the host doesn't have, or a message past its
+    /// MaxMessageSize.
     @PanicsAtCaller
     Public Method Send(channel: Int, bytes: UInt8[])
         CheckMessage(Settings, channel, bytes)
@@ -202,32 +209,32 @@ Public Class GamePeer Implements Printable
         Outbound[channel].Add(channel, bytes, PartSize())
     End Method
 
-    // Sends text's UTF-8 on the host's channel.
+    /// Sends text's UTF-8 on the host's channel.
     @PanicsAtCaller
     Public Method Send(channel: Int, text: String)
         Send(channel, text.Bytes)
     End Method
 
-    // Ends the connection once the other side has acked every reliable message sent so far, or
-    // at the host's Timeout: the host's Update then tells the other side, and gives a DISCONNECT
-    // event of LOCAL. A peer that's still connecting stops at once.
+    /// Ends the connection once the other side has acked every reliable message sent so far, or
+    /// at the host's Timeout: the host's Update then tells the other side, and gives a DISCONNECT
+    /// event of LOCAL. A peer that's still connecting stops at once.
     Public Method Disconnect()
         If Status == PeerState.CONNECTED Then Status = PeerState.DISCONNECTING
         If Status == PeerState.CONNECTING Then Leaving = True
     End Method
 
-    // Ends the connection at the host's next Update, dropping what hasn't gone.
+    /// Ends the connection at the host's next Update, dropping what hasn't gone.
     Public Method DisconnectNow()
         If Status != PeerState.DISCONNECTED Then Leaving = True
     End Method
 
-    // Its address, as "127.0.0.1:5000".
+    /// Its address, as "127.0.0.1:5000".
     Public Method ToString(): String => "{Remote}"
 
-    // The most of a message one packet takes.
+    /// The most of a message one packet takes.
     Package Method PartSize(): Int => Settings.Mtu - DATA_HEADER - MESSAGE_HEADER - FRAGMENT_HEADER
 
-    // Opens its channels' receiving sides, once the other side's first id is known.
+    /// Opens its channels' receiving sides, once the other side's first id is known.
     Package Method Open(first: Int)
         Inbound = []
         For kind In Settings.Channels
@@ -235,7 +242,7 @@ Public Class GamePeer Implements Printable
         End For
     End Method
 
-    // Whether it has nothing left to send or to have acked.
+    /// Whether it has nothing left to send or to have acked.
     Package Property IsDone: Bool
         Get
             For channel In Outbound
@@ -246,10 +253,10 @@ Public Class GamePeer Implements Printable
         End Get
     End Property
 
-    // The packets it sends at now: the reliable parts due, the queued ones the window lets go, and
-    // the unreliable ones, as many to a packet as its Mtu takes; or, with nothing to send, one
-    // that only acks, when it got what needs acking, or when it's been KeepAlive since it last
-    // sent, so the other side knows it's there.
+    /// The packets it sends at now: the reliable parts due, the queued ones the window lets go, and
+    /// the unreliable ones, as many to a packet as its Mtu takes; or, with nothing to send, one
+    /// that only acks, when it got what needs acking, or when it's been KeepAlive since it last
+    /// sent, so the other side knows it's there.
     Package Method Flush(now: Int64): UInt8[][]
         Local rto = ResendTime()
         // What's in flight is kept to MaxBuffered, from each channel's oldest message not acked,
@@ -324,9 +331,9 @@ Public Class GamePeer Implements Printable
         Return packets
     End Method
 
-    // Takes a DATA packet's bytes after its connection, which reader reads, received at now, and
-    // gives the messages it makes whole, by channel. A packet it got before gives none, though it
-    // acks it again.
+    /// Takes a DATA packet's bytes after its connection, which reader reads, received at now, and
+    /// gives the messages it makes whole, by channel. A packet it got before gives none, though it
+    /// acks it again.
     Package Method Receive(reader: PacketReader, size: Int, now: Int64): (Int, UInt8[])[]
         Local given: (Int, UInt8[])[] = []
         Local flags = reader.Byte()
@@ -377,20 +384,20 @@ Public Class GamePeer Implements Printable
         Return given
     End Method
 
-    // A packet that only acks, at now, for the other side's packets that have come since it last
-    // sent one, which a host sends before its next Update when there are MOST_PACKETS of them.
+    /// A packet that only acks, at now, for the other side's packets that have come since it last
+    /// sent one, which a host sends before its next Update when there are MOST_PACKETS of them.
     Package Method Ack(now: Int64): UInt8[]
         Local sequence = Sequence
         Return Finish(Begin(False), sequence, [], False, now)
     End Method
 
-    // Whether it's taken as many packets as it can before it acks them.
+    /// Whether it's taken as many packets as it can before it acks them.
     Package Property MustAck: Bool
         Get => Unanswered >= MOST_PACKETS
     End Property
 
-    // How long until it has something to do after now, in nanoseconds: something to send again,
-    // an ack, a keepalive, or its timeout.
+    /// How long until it has something to do after now, in nanoseconds: something to send again,
+    /// an ack, a keepalive, or its timeout.
     Package Method Wait(now: Int64): Int64
         Local timeout = Settings.Timeout.Nanoseconds
         If Status == PeerState.CONNECTING
@@ -413,8 +420,8 @@ Public Class GamePeer Implements Printable
         Return Max(soonest - now, 0)
     End Method
 
-    // A DATA packet's start: its connection, whether it acks and asks to be acked, its sequence,
-    // which it takes, and its ack and ack bits.
+    /// A DATA packet's start: its connection, whether it acks and asks to be acked, its sequence,
+    /// which it takes, and its ack and ack bits.
     Method Begin(ask: Bool): PacketWriter
         Local writer = PacketWriter(PacketKind.DATA)
         writer.U32(Connection)
@@ -426,8 +433,8 @@ Public Class GamePeer Implements Printable
         Return writer
     End Method
 
-    // A packet's bytes, once it's remembered as sent at now, with the reliable parts in it, and
-    // whether it asks to be acked.
+    /// A packet's bytes, once it's remembered as sent at now, with the reliable parts in it, and
+    /// whether it asks to be acked.
     Method Finish(writer: PacketWriter, sequence: Int, parts: OutPart[], ask: Bool,
                   now: Int64): UInt8[]
         Local slot = sequence & (RECORDS - 1)
@@ -443,7 +450,7 @@ Public Class GamePeer Implements Printable
         Return writer.Bytes
     End Method
 
-    // Whether the other side's packet of sequence came before, as far as the bits go back.
+    /// Whether the other side's packet of sequence came before, as far as the bits go back.
     Method Had(sequence: Int): Bool
         If !HasLatest Then Return False
         If sequence == Latest Then Return True
@@ -453,7 +460,7 @@ Public Class GamePeer Implements Printable
         Return (Bits & ((1 As UInt32) << (behind - 1))) != 0
     End Method
 
-    // Notes the other side's packet of sequence as received, and gives whether it was before.
+    /// Notes the other side's packet of sequence as received, and gives whether it was before.
     Method Note(sequence: Int): Bool
         If !HasLatest
             HasLatest = True
@@ -487,8 +494,8 @@ Public Class GamePeer Implements Printable
         Return False
     End Method
 
-    // Takes the other side's acks: of ack, and of each of the 32 before it whose bit is set. What
-    // the acks move past without acking is lost.
+    /// Takes the other side's acks: of ack, and of each of the 32 before it whose bit is set. What
+    /// the acks move past without acking is lost.
     Method TakeAcks(ack: Int, bits: UInt32, now: Int64)
         If !HasAck || IsAfter(ack, LastAck)
             If HasAck
@@ -522,14 +529,14 @@ Public Class GamePeer Implements Printable
         End For
     End Method
 
-    // Counts a packet lost.
+    /// Counts a packet lost.
     Method Lose(record: SentRecord)
         record.Resolved = True
         LostCount += 1
         Loss = Loss * 15.0 / 16.0 + 1.0 / 16.0
     End Method
 
-    // Takes a round trip's time, as RFC 6298 smooths it.
+    /// Takes a round trip's time, as RFC 6298 smooths it.
     Method Measure(time: Int64)
         Local sample = Max(time, 0)
         If !HasRoundTrip
@@ -544,8 +551,8 @@ Public Class GamePeer Implements Printable
         Smoothed = (7 * Smoothed + sample) / 8
     End Method
 
-    // How long a reliable part waits for its ack before it goes again: the round-trip time and
-    // four times its variance, between 20 milliseconds and 2 seconds.
+    /// How long a reliable part waits for its ack before it goes again: the round-trip time and
+    /// four times its variance, between 20 milliseconds and 2 seconds.
     Method ResendTime(): Int64
         Return Clamp(Smoothed + Max(4 * Variance, 1000000), LEAST_RESEND, MOST_RESEND)
     End Method

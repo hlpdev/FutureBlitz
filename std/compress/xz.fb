@@ -1,9 +1,9 @@
-// The .xz format, over liblzma: LZMA2, in streams with a CRC64 check. Its Compress and Decompress
-// work at once, and its Compressor and Decompressor take bytes in turn and give what came out of
-// them so far, for data that comes in parts. Levels are xz's presets, from 0, the fastest, to 9,
-// the smallest, and are 6 by default, as xz's; the higher ones take much more memory, up to 674
-// MiB to compress at 9, and 65 MiB to decompress. A Decompress reads streams one after another,
-// and the padding between them, as xz does.
+//! The .xz format, over liblzma: LZMA2, in streams with a CRC64 check. Its Compress and Decompress
+//! work at once, and its Compressor and Decompressor take bytes in turn and give what came out of
+//! them so far, for data that comes in parts. Levels are xz's presets, from 0, the fastest, to 9,
+//! the smallest, and are 6 by default, as xz's; the higher ones take much more memory, up to 674
+//! MiB to compress at 9, and 65 MiB to decompress. A Decompress reads streams one after another,
+//! and the padding between them, as xz does.
 
 Import std.core
 Import std.compress.codec
@@ -20,13 +20,13 @@ Extern "runtime"
     Function fb_xz_decoder_free(decoder: Ptr<Void>)
 End Extern
 
-// The .xz format's streams.
+/// The .xz format's streams.
 Public Struct XZ
-    // XZ isn't made: it's only its Static Methods.
+    /// XZ isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The data, compressed at the level. Panics when the level isn't from 0 to 9.
+    /// The data, compressed at the level. Panics when the level isn't from 0 to 9.
     @PanicsAtCaller
     Public Static Method Compress(data: UInt8[], level: Int = 6): UInt8[]
         Local encoder = Encoder(level)
@@ -36,9 +36,9 @@ Public Struct XZ
         Return output
     End Method
 
-    // The bytes the data is compressed from, each stream's after the last's, or an IOError when it
-    // isn't XZ's, ends too soon, or would come to more than limit bytes. Panics when the limit is
-    // negative.
+    /// The bytes the data is compressed from, each stream's after the last's, or an IOError when it
+    /// isn't XZ's, ends too soon, or would come to more than limit bytes. Panics when the limit is
+    /// negative.
     @PanicsAtCaller
     Public Static Method Decompress(data: UInt8[],
                                     limit: Int = MOST_BYTES): UInt8[] Throws IOError
@@ -49,12 +49,12 @@ Public Struct XZ
     End Method
 End Struct
 
-// XZ's bytes made in turn: Add gives what compressing the bytes it takes has made so far, and
-// Finish what's left, which ends a stream, and starts again.
+/// XZ's bytes made in turn: Add gives what compressing the bytes it takes has made so far, and
+/// Finish what's left, which ends a stream, and starts again.
 Public Class XZCompressor Implements Coder
     Field State: Ptr<Void>
 
-    // Panics when the level isn't from 0 to 9.
+    /// Panics when the level isn't from 0 to 9.
     @PanicsAtCaller
     Public New(level: Int = 6)
         State = Encoder(level)
@@ -77,15 +77,15 @@ Public Class XZCompressor Implements Coder
     End Method
 End Class
 
-// XZ's bytes taken in turn, a stream after another: Add gives what the bytes it takes decompress
-// to so far, and Finish what's left once they've all been added, and starts again. Each throws
-// an IOError when the bytes aren't XZ's or would come to more than the limit, and Finish when
-// they end too soon.
+/// XZ's bytes taken in turn, a stream after another: Add gives what the bytes it takes decompress
+/// to so far, and Finish what's left once they've all been added, and starts again. Each throws
+/// an IOError when the bytes aren't XZ's or would come to more than the limit, and Finish when
+/// they end too soon.
 Public Class XZDecompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
 
-    // Panics when the limit is negative.
+    /// Panics when the limit is negative.
     @PanicsAtCaller
     Public New(limit: Int = MOST_BYTES)
         CheckLimit(limit)
@@ -107,14 +107,14 @@ Public Class XZDecompressor Implements Coder
     End Method
 End Class
 
-// A new encoder at the level.
+/// A new encoder at the level.
 @PanicsAtCaller
 Function Encoder(level: Int): Ptr<Void>
     CheckLevel(level, 0, 9, "XZ")
     Return fb_xz_encoder_new(level)
 End Function
 
-// What the decoder gives for data, the last there is, or the IOError its result means.
+/// What the decoder gives for data, the last there is, or the IOError its result means.
 Function Ended(decoder: Ptr<Void>, data: UInt8[], limit: Int): UInt8[] Throws IOError
     Local output: UInt8[] = []
     Local result = fb_xz_decoder_finish(decoder, data, output)

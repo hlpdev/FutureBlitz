@@ -1,23 +1,26 @@
-// Uuid, RFC 9562's 128-bit identifiers: V4 makes a random one, from SecureRandom, and Parse reads
-// the text ToString writes, the 16 bytes as 32 hex digits in groups of 8, 4, 4, 4, and 12, like
-// "f81d4fae-7dec-11d0-a765-00a0c91e6bf6".
+//! Uuid, RFC 9562's 128-bit identifiers: V4 makes a random one, from SecureRandom, and Parse reads
+//! the text ToString writes, the 16 bytes as 32 hex digits in groups of 8, 4, 4, 4, and 12, like
+//! "f81d4fae-7dec-11d0-a765-00a0c91e6bf6".
 
 Import std.core
 Import std.crypto.random
 
-// A 128-bit identifier, its 16 bytes in the order its text has them: High's 8, the most
-// significant first, then Low's. Uuids compare as their bytes do, and so as their texts do.
+/// A 128-bit identifier, its 16 bytes in the order its text has them: High's 8, the most
+/// significant first, then Low's. Uuids compare as their bytes do, and so as their texts do.
 Public Struct Uuid Implements Hashable, Comparable, Printable
+    /// Its first 8 bytes, the most significant first.
     Public ReadOnly Field High: UInt64
+    /// Its last 8 bytes, the most significant first.
     Public ReadOnly Field Low: UInt64
 
+    /// The Uuid of `high`'s bytes and then `low`'s.
     Public New(high: UInt64, low: UInt64)
         High = high
         Low = low
     End New
 
-    // A new random Uuid of version 4: 122 bits from the OS's randomness, through SecureRandom,
-    // with the version and variant RFC 9562 gives it, so two match by a chance of 1 in 2^122.
+    /// A new random Uuid of version 4: 122 bits from the OS's randomness, through SecureRandom,
+    /// with the version and variant RFC 9562 gives it, so two match by a chance of 1 in 2^122.
     Public Static Method V4(): Uuid
         Local bytes = SecureRandom.Bytes(16)
         bytes[6] = (bytes[6] & 0x0F) | 0x40
@@ -25,7 +28,7 @@ Public Struct Uuid Implements Hashable, Comparable, Printable
         Return FromBytes(bytes)
     End Method
 
-    // The Uuid of 16 bytes, in the order Bytes gives them. Panics unless there are 16.
+    /// The Uuid of 16 bytes, in the order Bytes gives them. Panics unless there are 16.
     @PanicsAtCaller
     Public Static Method FromBytes(bytes: UInt8[]): Uuid
         If bytes.Count != 16 Then Panic("a Uuid is 16 bytes, not {bytes.Count}")
@@ -38,7 +41,7 @@ Public Struct Uuid Implements Hashable, Comparable, Printable
         Return Uuid(high, low)
     End Method
 
-    // The Uuid text writes, as ToString does, in either case, or Null when it isn't one.
+    /// The Uuid text writes, as ToString does, in either case, or Null when it isn't one.
     Public Static Method Parse(text: String): Uuid?
         Local chars = text.Bytes
         If chars.Count != 36 Then Return Null
@@ -73,7 +76,7 @@ Public Struct Uuid Implements Hashable, Comparable, Printable
         Return Uuid(high, low)
     End Method
 
-    // Its 16 bytes, as its text has them.
+    /// Its 16 bytes, as its text has them.
     Public Property Bytes: UInt8[]
         Get
             Local bytes: UInt8[] = []
@@ -85,12 +88,12 @@ Public Struct Uuid Implements Hashable, Comparable, Printable
         End Get
     End Property
 
-    // Its version, the 13th hex digit: 4 for V4's.
+    /// Its version, the 13th hex digit: 4 for V4's.
     Public Property Version: Int
         Get => ((High >> 12) & 0x0F) As Int
     End Property
 
-    // Its 32 hex digits, in lowercase, with a dash between each group.
+    /// Its 32 hex digits, in lowercase, with a dash between each group.
     Public Method ToString(): String
         Local hex = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
         Local text = ""

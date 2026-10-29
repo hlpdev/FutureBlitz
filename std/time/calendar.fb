@@ -1,9 +1,9 @@
-// The calendar's types, in the proleptic Gregorian calendar and without a zone: Date, a day;
-// TimeOfDay, a time on a day's clock, to the nanosecond; and LocalDateTime, the two together.
-// Their zeros are 1970-01-01, midnight, and the two of those. Adding months or years clamps the
-// day to the month's last, so Jan 31 plus a month is Feb 28 or 29. ToString and Parse write and
-// read ISO 8601, like "2026-10-23", "12:30:00.5", and "2026-10-23T12:30:00", and Format and
-// Parse take patterns too (in format.fb).
+//! The calendar's types, in the proleptic Gregorian calendar and without a zone: Date, a day;
+//! TimeOfDay, a time on a day's clock, to the nanosecond; and LocalDateTime, the two together.
+//! Their zeros are 1970-01-01, midnight, and the two of those. Adding months or years clamps the
+//! day to the month's last, so Jan 31 plus a month is Feb 28 or 29. ToString and Parse write and
+//! read ISO 8601, like "2026-10-23", "12:30:00.5", and "2026-10-23T12:30:00", and Format and
+//! Parse take patterns too (in format.fb).
 
 Import std.core
 Import std.time.duration
@@ -11,17 +11,17 @@ Import std.time.format
 Import std.time.timestamp
 Import std.time.zone
 
-// A day of the week, as ISO 8601 numbers them, from Monday's 1 to Sunday's 7.
+/// A day of the week, as ISO 8601 numbers them, from Monday's 1 to Sunday's 7.
 Public Enum Weekday
     MONDAY = 1, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY
 End Enum
 
-// A day, from the year -2147483648 to 2147483647, the years an Int holds.
+/// A day, from the year -2147483648 to 2147483647, the years an Int holds.
 Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
-    // Its days since 1970-01-01, before it when below 0.
+    /// Its days since 1970-01-01, before it when below 0.
     Field Days: Int64
 
-    // The date, which panics when it isn't one, like 2026-02-30.
+    /// The date, which panics when it isn't one, like 2026-02-30.
     @PanicsAtCaller
     Public New(year: Int, month: Int, day: Int)
         If !IsValid(year, month, day)
@@ -31,8 +31,8 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         Days = DaysFromCivil(year, month, day)
     End New
 
-    // The date that many days after 1970-01-01, or before it for a count below 0. One whose year
-    // isn't an Int panics.
+    /// The date that many days after 1970-01-01, or before it for a count below 0. One whose year
+    /// isn't an Int panics.
     @PanicsAtCaller
     Public Static Method FromDays(days: Int64): Date
         If days < -784353015833 || days > 784351576776
@@ -43,40 +43,43 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
     End Method
 
     Public Static Method DefaultValue(): Date => Date(0)
+    /// The earliest Date there is.
     Public Static Method MinValue(): Date => Date(-784353015833)
+    /// The latest Date there is.
     Public Static Method MaxValue(): Date => Date(784351576776)
 
-    // Today, where the zone is, or the OS's zone.
+    /// Today, where the zone is, or the OS's zone.
     Public Static Method Today(zone: TimeZone): Date => Timestamp.Now().InZone(zone).Date
+    /// Today, in the OS's zone.
     Public Static Method Today(): Date => Today(TimeZone.System())
 
-    // Whether the year, month, and day are a date.
+    /// Whether the year, month, and day are a date.
     Public Static Method IsValid(year: Int, month: Int, day: Int): Bool
         Return month >= 1 && month <= 12 && day >= 1 && day <= DaysIn(year, month)
     End Method
 
-    // Whether the year has a Feb 29.
+    /// Whether the year has a Feb 29.
     Public Static Method IsLeap(year: Int64): Bool
         Return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
     End Method
 
-    // How many days the month has in the year, or 0 for a month that isn't from 1 to 12.
+    /// How many days the month has in the year, or 0 for a month that isn't from 1 to 12.
     Public Static Method DaysIn(year: Int64, month: Int): Int
         If month < 1 || month > 12 Then Return 0
         If month == 2 Then Return IsLeap(year) ? 29 : 28
         Return month == 4 || month == 6 || month == 9 || month == 11 ? 30 : 31
     End Method
 
-    // The date ISO 8601 writes, like "2026-10-23", with a sign before a year past 4 digits, or
-    // Null.
+    /// The date ISO 8601 writes, like "2026-10-23", with a sign before a year past 4 digits, or
+    /// Null.
     Public Static Method Parse(text: String): Date?
         Local parts = ParseIso(text, IsoForm.DATE)
         If parts == Null Then Return Null
         Return DateOf(parts.Year, parts.Month, parts.Day)
     End Method
 
-    // The date the text writes as the pattern says (see format.fb), or Null. A pattern without
-    // the year, or without the month and day or the day of the year, panics.
+    /// The date the text writes as the pattern says (see format.fb), or Null. A pattern without
+    /// the year, or without the month and day or the day of the year, panics.
     @PanicsAtCaller
     Public Static Method Parse(text: String, pattern: String): Date?
         Local parts = ParsePattern(text, pattern, PartKind.DATE)
@@ -84,38 +87,42 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         Return DateOf(parts.Year, parts.Month, parts.Day)
     End Method
 
+    /// Its year.
     Public Property Year: Int
         Get => CivilFromDays(Days).0 As Int
     End Property
 
-    // From 1, January's, to 12.
+    /// From 1, January's, to 12.
     Public Property Month: Int
         Get => CivilFromDays(Days).1
     End Property
 
-    // Of the month, from 1.
+    /// Of the month, from 1.
     Public Property Day: Int
         Get => CivilFromDays(Days).2
     End Property
 
+    /// Its day of the week.
     Public Property DayOfWeek: Weekday
         Get => (FloorModulo(Days + 3, 7) + 1) As Weekday
     End Property
 
-    // From 1, Jan 1's, to 365, or 366 in a leap year.
+    /// From 1, Jan 1's, to 365, or 366 in a leap year.
     Public Property DayOfYear: Int
         Get => (Days - DaysFromCivil(Year, 1, 1) + 1) As Int
     End Property
 
-    // Its days since 1970-01-01, below 0 before it.
+    /// Its days since 1970-01-01, below 0 before it.
     Public Property DaysSinceEpoch: Int64
         Get => Days
     End Property
 
+    /// Whether its year is a leap year.
     Public Property IsLeapYear: Bool
         Get => IsLeap(Year)
     End Property
 
+    /// How many days its month has.
     Public Property DaysInMonth: Int
         Get
             Local year, month, _ = CivilFromDays(Days)
@@ -123,7 +130,7 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         End Get
     End Property
 
-    // That many days later, or earlier for a count below 0.
+    /// That many days later, or earlier for a count below 0.
     @PanicsAtCaller
     Public Method AddDays(count: Int64): Date
         Local days = Days.CheckedAdd(count)
@@ -131,8 +138,8 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         Return FromDays(days)
     End Method
 
-    // That many months later, or earlier, on the same day, or the month's last when it's
-    // shorter: Jan 31 plus a month is Feb 28, or 29 in a leap year.
+    /// That many months later, or earlier, on the same day, or the month's last when it's
+    /// shorter: Jan 31 plus a month is Feb 28, or 29 in a leap year.
     @PanicsAtCaller
     Public Method AddMonths(count: Int64): Date
         Local year, month, day = CivilFromDays(Days)
@@ -146,8 +153,8 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         Return Date(DaysFromCivil(newYear, newMonth, Min(day, DaysIn(newYear, newMonth))))
     End Method
 
-    // That many years later, or earlier, on the same day, or Feb 28 for Feb 29 in a year that
-    // has none.
+    /// That many years later, or earlier, on the same day, or Feb 28 for Feb 29 in a year that
+    /// has none.
     @PanicsAtCaller
     Public Method AddYears(count: Int64): Date
         Local year, month, day = CivilFromDays(Days)
@@ -159,65 +166,70 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         Return Date(DaysFromCivil(newYear, month, Min(day, DaysIn(newYear, month))))
     End Method
 
-    // How many days it is to the other date, below 0 when it's earlier.
+    /// How many days it is to the other date, below 0 when it's earlier.
     Public Method DaysUntil(other: Date): Int64 => other.Days - Days
 
-    // The first and last days of its week, from Monday to Sunday, of its month, and of its year.
-    // The first Date's week starts before it, and the last's ends after it, so theirs panic.
+    /// The first and last days of its week, from Monday to Sunday, of its month, and of its year.
+    /// The first Date's week starts before it, and the last's ends after it, so theirs panic.
     @PanicsAtCaller
     Public Method StartOfWeek(): Date => FromDays(Days - FloorModulo(Days + 3, 7))
+    /// The last day of its week, a Sunday.
     @PanicsAtCaller
     Public Method EndOfWeek(): Date => FromDays(Days - FloorModulo(Days + 3, 7) + 6)
 
+    /// The first day of its month.
     Public Method StartOfMonth(): Date
         Local year, month, _ = CivilFromDays(Days)
         Return Date(DaysFromCivil(year, month, 1))
     End Method
 
+    /// The last day of its month.
     Public Method EndOfMonth(): Date
         Local year, month, _ = CivilFromDays(Days)
         Return Date(DaysFromCivil(year, month, DaysIn(year, month)))
     End Method
 
+    /// The first day of its year.
     Public Method StartOfYear(): Date => Date(DaysFromCivil(Year, 1, 1))
+    /// The last day of its year.
     Public Method EndOfYear(): Date => Date(DaysFromCivil(Year, 12, 31))
 
-    // It at that time of day.
+    /// It at that time of day.
     Public Method At(time: TimeOfDay): LocalDateTime => LocalDateTime(Self, time)
 
-    // Its first moment where the zone is: midnight, or when its clocks reach the day, where they
-    // skip midnight.
+    /// Its first moment where the zone is: midnight, or when its clocks reach the day, where they
+    /// skip midnight.
     @PanicsAtCaller
     Public Method StartOfDay(zone: TimeZone): ZonedDateTime
         Return LocalDateTime(Self, TimeOfDay.Midnight()).InZone(zone)
     End Method
 
-    // As ISO 8601 writes it, like "2026-10-23".
+    /// As ISO 8601 writes it, like "2026-10-23".
     Public Method ToString(): String
         Local year, month, day = CivilFromDays(Days)
         Return "{YearText(year)}-{Padded(month, 2)}-{Padded(day, 2)}"
     End Method
 
-    // As the pattern says (see format.fb): Format("EEE d MMM yyyy") is "Fri 23 Oct 2026". A
-    // pattern letter of a time or a zone panics.
+    /// As the pattern says (see format.fb): Format("EEE d MMM yyyy") is "Fri 23 Oct 2026". A
+    /// pattern letter of a time or a zone panics.
     @PanicsAtCaller
     Public Method Format(pattern: String): String => FormatPattern(pattern, PartsOf(Self))
 
     Operator <(a: Date, b: Date): Bool => a.Days < b.Days
 
-    // The date of days already checked.
+    /// The date of days already checked.
     Package New(days: Int64)
         Self.Days = days
     End New
 End Struct
 
-// A time on a day's clock, from midnight to a nanosecond before the next.
+/// A time on a day's clock, from midnight to a nanosecond before the next.
 Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
-    // Its nanoseconds since midnight.
+    /// Its nanoseconds since midnight.
     Field Nanoseconds: Int64
 
-    // The time, which panics when it isn't one: hours from 0 to 23, minutes and seconds from 0
-    // to 59, and nanoseconds from 0 to 999999999.
+    /// The time, which panics when it isn't one: hours from 0 to 23, minutes and seconds from 0
+    /// to 59, and nanoseconds from 0 to 999999999.
     @PanicsAtCaller
     Public New(hour: Int, minute: Int, second: Int = 0, nanosecond: Int = 0)
         If !IsValid(hour, minute, second, nanosecond)
@@ -228,7 +240,7 @@ Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
         Nanoseconds = ((hour * 3600 + minute * 60 + second) As Int64) * 1000000000 + nanosecond
     End New
 
-    // The time that many nanoseconds after midnight, which panics when it's not on the day.
+    /// The time that many nanoseconds after midnight, which panics when it's not on the day.
     @PanicsAtCaller
     Public Static Method FromNanosecondOfDay(nanoseconds: Int64): TimeOfDay
         If nanoseconds < 0 || nanoseconds >= 86400000000000
@@ -238,30 +250,36 @@ Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
         Return TimeOfDay(nanoseconds)
     End Method
 
+    /// The time at the start of a day: 00:00.
     Public Static Method Midnight(): TimeOfDay => TimeOfDay(0)
+    /// The time in the middle of a day: 12:00.
     Public Static Method Noon(): TimeOfDay => TimeOfDay(43200000000000)
     Public Static Method DefaultValue(): TimeOfDay => TimeOfDay(0)
+    /// The earliest time of day: 00:00.
     Public Static Method MinValue(): TimeOfDay => TimeOfDay(0)
+    /// The latest time of day: a nanosecond before midnight.
     Public Static Method MaxValue(): TimeOfDay => TimeOfDay(86399999999999)
 
-    // Now, where the zone is, or the OS's zone.
+    /// Now, where the zone is, or the OS's zone.
     Public Static Method Now(zone: TimeZone): TimeOfDay => Timestamp.Now().InZone(zone).Time
+    /// Now, in the OS's zone.
     Public Static Method Now(): TimeOfDay => Now(TimeZone.System())
 
+    /// Whether `hour`, `minute`, `second`, and `nanosecond` are a time of day.
     Public Static Method IsValid(hour: Int, minute: Int, second: Int = 0, nanosecond: Int = 0): Bool
         Return hour >= 0 && hour < 24 && minute >= 0 && minute < 60 && second >= 0 && second < 60 &&
                nanosecond >= 0 && nanosecond < 1000000000
     End Method
 
-    // The time ISO 8601 writes, like "12:30", "12:30:15", or "12:30:15.25", or Null.
+    /// The time ISO 8601 writes, like "12:30", "12:30:15", or "12:30:15.25", or Null.
     Public Static Method Parse(text: String): TimeOfDay?
         Local parts = ParseIso(text, IsoForm.TIME)
         If parts == Null Then Return Null
         Return TimeOfDay(parts.Nanoseconds)
     End Method
 
-    // The time the text writes as the pattern says (see format.fb), or Null. A pattern without
-    // the hour panics.
+    /// The time the text writes as the pattern says (see format.fb), or Null. A pattern without
+    /// the hour panics.
     @PanicsAtCaller
     Public Static Method Parse(text: String, pattern: String): TimeOfDay?
         Local parts = ParsePattern(text, pattern, PartKind.TIME)
@@ -269,34 +287,38 @@ Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
         Return TimeOfDay(parts.Nanoseconds)
     End Method
 
-    // From 0 to 23.
+    /// From 0 to 23.
     Public Property Hour: Int
         Get => (Nanoseconds / 3600000000000) As Int
     End Property
 
+    /// From 0 to 59.
     Public Property Minute: Int
         Get => (Nanoseconds / 60000000000 % 60) As Int
     End Property
 
+    /// From 0 to 59.
     Public Property Second: Int
         Get => (Nanoseconds / 1000000000 % 60) As Int
     End Property
 
-    // Of the second, from 0 to 999999999.
+    /// Of the second, from 0 to 999999999.
     Public Property Nanosecond: Int
         Get => (Nanoseconds % 1000000000) As Int
     End Property
 
+    /// How many seconds of the day have gone by, from 0 to 86399.
     Public Property SecondOfDay: Int
         Get => (Nanoseconds / 1000000000) As Int
     End Property
 
+    /// How many nanoseconds of the day have gone by.
     Public Property NanosecondOfDay: Int64
         Get => Nanoseconds
     End Property
 
-    // It on the clock that much later, or earlier, around midnight as a clock goes: 23:00 plus
-    // 2 hours is 01:00.
+    /// It on the clock that much later, or earlier, around midnight as a clock goes: 23:00 plus
+    /// 2 hours is 01:00.
     Operator +(a: TimeOfDay, b: Duration): TimeOfDay
         Local day: Int64 = 86400000000000
         Return TimeOfDay(FloorModulo(a.Nanoseconds + b.Nanoseconds % day, day))
@@ -307,41 +329,42 @@ Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
         Return TimeOfDay(FloorModulo(a.Nanoseconds - b.Nanoseconds % day, day))
     End Operator
 
-    // How long it is from b to a on the same day, below 0 when a is earlier.
+    /// How long it is from b to a on the same day, below 0 when a is earlier.
     Operator -(a: TimeOfDay, b: TimeOfDay): Duration
         Return Duration.FromNanoseconds(a.Nanoseconds - b.Nanoseconds)
     End Operator
 
     Operator <(a: TimeOfDay, b: TimeOfDay): Bool => a.Nanoseconds < b.Nanoseconds
 
-    // As ISO 8601 writes it, with seconds, and a fraction only when there is one, like
-    // "12:30:00" and "12:30:00.25".
+    /// As ISO 8601 writes it, with seconds, and a fraction only when there is one, like
+    /// "12:30:00" and "12:30:00.25".
     Public Method ToString(): String
         Return "{Padded(Hour, 2)}:{Padded(Minute, 2)}:{Padded(Second, 2)}{FractionText(Nanosecond)}"
     End Method
 
-    // As the pattern says (see format.fb): Format("h:mm a") is "1:30 PM". A pattern letter of a
-    // date or a zone panics.
+    /// As the pattern says (see format.fb): Format("h:mm a") is "1:30 PM". A pattern letter of a
+    /// date or a zone panics.
     @PanicsAtCaller
     Public Method Format(pattern: String): String => FormatPattern(pattern, PartsOf(Self))
 
-    // The time of nanoseconds already checked.
+    /// The time of nanoseconds already checked.
     Package New(nanoseconds: Int64)
         Self.Nanoseconds = nanoseconds
     End New
 End Struct
 
-// A date and a time of day, without a zone, as a wall calendar and clock show them.
+/// A date and a time of day, without a zone, as a wall calendar and clock show them.
 Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaultable
     Field Day: Date
     Field Clock: TimeOfDay
 
+    /// The time of day `time` on `date`.
     Public New(date: Date, time: TimeOfDay)
         Day = date
         Clock = time
     End New
 
-    // The date and time, which panics when either isn't one.
+    /// The date and time, which panics when either isn't one.
     @PanicsAtCaller
     Public New(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0, second: Int = 0,
                nanosecond: Int = 0)
@@ -351,20 +374,23 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
 
     Public Static Method DefaultValue(): LocalDateTime => LocalDateTime(DayOf(0), ClockOf(0))
 
+    /// The earliest LocalDateTime there is.
     Public Static Method MinValue(): LocalDateTime
         Return LocalDateTime(DayOf(-784353015833), ClockOf(0))
     End Method
 
+    /// The latest LocalDateTime there is.
     Public Static Method MaxValue(): LocalDateTime
         Return LocalDateTime(DayOf(784351576776), ClockOf(86399999999999))
     End Method
 
-    // Now, where the zone is, or the OS's zone.
+    /// Now, where the zone is, or the OS's zone.
     Public Static Method Now(zone: TimeZone): LocalDateTime => Timestamp.Now().InZone(zone).DateTime
+    /// Now, in the OS's zone.
     Public Static Method Now(): LocalDateTime => Now(TimeZone.System())
 
-    // The date and time ISO 8601 writes, like "2026-10-23T12:30:00", with "T", "t", or a space
-    // between them, or Null.
+    /// The date and time ISO 8601 writes, like "2026-10-23T12:30:00", with "T", "t", or a space
+    /// between them, or Null.
     Public Static Method Parse(text: String): LocalDateTime?
         Local parts = ParseIso(text, IsoForm.DATE_TIME)
         If parts == Null Then Return Null
@@ -373,9 +399,9 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
         Return LocalDateTime(date, ClockOf(parts.Nanoseconds))
     End Method
 
-    // The date and time the text writes as the pattern says (see format.fb), or Null. A pattern
-    // without the year, or without the month and day or the day of the year, panics; the time's
-    // parts it doesn't have are 0.
+    /// The date and time the text writes as the pattern says (see format.fb), or Null. A pattern
+    /// without the year, or without the month and day or the day of the year, panics; the time's
+    /// parts it doesn't have are 0.
     @PanicsAtCaller
     Public Static Method Parse(text: String, pattern: String): LocalDateTime?
         Local parts = ParsePattern(text, pattern, PartKind.DATE_TIME)
@@ -385,80 +411,93 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
         Return LocalDateTime(date, ClockOf(parts.Nanoseconds))
     End Method
 
+    /// Its date.
     Public Property Date: Date
         Get => Day
     End Property
 
+    /// Its time of day.
     Public Property Time: TimeOfDay
         Get => Clock
     End Property
 
+    /// Its date's year.
     Public Property Year: Int
         Get => Day.Year
     End Property
 
+    /// Its date's month, from 1 to 12.
     Public Property Month: Int
         Get => Day.Month
     End Property
 
+    /// Its date's day of the month, from 1.
     Public Property DayOfMonth: Int
         Get => Day.Day
     End Property
 
+    /// Its hour, from 0 to 23.
     Public Property Hour: Int
         Get => Clock.Hour
     End Property
 
+    /// Its minute, from 0 to 59.
     Public Property Minute: Int
         Get => Clock.Minute
     End Property
 
+    /// Its second, from 0 to 59.
     Public Property Second: Int
         Get => Clock.Second
     End Property
 
+    /// Its nanosecond of the second.
     Public Property Nanosecond: Int
         Get => Clock.Nanosecond
     End Property
 
+    /// Its date's day of the week.
     Public Property DayOfWeek: Weekday
         Get => Day.DayOfWeek
     End Property
 
+    /// Its date's day of the year, from 1.
     Public Property DayOfYear: Int
         Get => Day.DayOfYear
     End Property
 
-    // The same time that many days, months, or years later, or earlier, as Date's AddDays,
-    // AddMonths, and AddYears go.
+    /// The same time that many days, months, or years later, or earlier, as Date's AddDays,
+    /// AddMonths, and AddYears go.
     @PanicsAtCaller
     Public Method AddDays(count: Int64): LocalDateTime
         Return LocalDateTime(Day.AddDays(count), Clock)
     End Method
 
+    /// The same time `count` months later, or earlier, as Date's AddMonths goes.
     @PanicsAtCaller
     Public Method AddMonths(count: Int64): LocalDateTime
         Return LocalDateTime(Day.AddMonths(count), Clock)
     End Method
 
+    /// The same time `count` years later, or earlier, as Date's AddYears goes.
     @PanicsAtCaller
     Public Method AddYears(count: Int64): LocalDateTime
         Return LocalDateTime(Day.AddYears(count), Clock)
     End Method
 
-    // Midnight on its day.
+    /// Midnight on its day.
     Public Method StartOfDay(): LocalDateTime => LocalDateTime(Day, ClockOf(0))
 
-    // It where the zone is. When the zone's clocks show it twice, as they're turned back, or
-    // never, as they skip it, the disambiguation says which moment it is (see zone.fb).
+    /// It where the zone is. When the zone's clocks show it twice, as they're turned back, or
+    /// never, as they skip it, the disambiguation says which moment it is (see zone.fb).
     @PanicsAtCaller
     Public Method InZone(zone: TimeZone,
                          disambiguation: Disambiguation = Disambiguation.COMPATIBLE): ZonedDateTime
         Return ZonedDateTime(Self, zone, disambiguation)
     End Method
 
-    // That much later, or earlier, on a clock that's never turned: 23:00 plus 2 hours is 01:00
-    // the next day.
+    /// That much later, or earlier, on a clock that's never turned: 23:00 plus 2 hours is 01:00
+    /// the next day.
     @PanicsAtCaller
     Operator +(a: LocalDateTime, b: Duration): LocalDateTime => a.Plus(b.Nanoseconds)
 
@@ -468,8 +507,8 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
         Return a.Plus(-b.Nanoseconds)
     End Operator
 
-    // How long it is from b to a, on a clock that's never turned, which panics past the longest
-    // Duration.
+    /// How long it is from b to a, on a clock that's never turned, which panics past the longest
+    /// Duration.
     @PanicsAtCaller
     Operator -(a: LocalDateTime, b: LocalDateTime): Duration
         Return Between(a.Day.Days - b.Day.Days, a.Clock.Nanoseconds - b.Clock.Nanoseconds)
@@ -479,15 +518,15 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
         Return a.Day < b.Day || (a.Day == b.Day && a.Clock < b.Clock)
     End Operator
 
-    // As ISO 8601 writes it, like "2026-10-23T12:30:00".
+    /// As ISO 8601 writes it, like "2026-10-23T12:30:00".
     Public Method ToString(): String => "{Day}T{Clock}"
 
-    // As the pattern says (see format.fb): Format("yyyy-MM-dd HH:mm") is "2026-10-23 12:30". A
-    // pattern letter of a zone panics.
+    /// As the pattern says (see format.fb): Format("yyyy-MM-dd HH:mm") is "2026-10-23 12:30". A
+    /// pattern letter of a zone panics.
     @PanicsAtCaller
     Public Method Format(pattern: String): String => FormatPattern(pattern, PartsOf(Self))
 
-    // Its seconds since 1970-01-01T00:00 on its own clock.
+    /// Its seconds since 1970-01-01T00:00 on its own clock.
     Package Property LocalSeconds: Int64
         Get => Day.Days * 86400 + Clock.Nanoseconds / 1000000000
     End Property
@@ -501,7 +540,7 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
     End Method
 End Struct
 
-// The types by their Fields, for code where Date and Time name Properties.
+/// The types by their Fields, for code where Date and Time name Properties.
 Package Function DayOf(days: Int64): Date => Date(days)
 Package Function ClockOf(nanoseconds: Int64): TimeOfDay => TimeOfDay(nanoseconds)
 
@@ -516,7 +555,7 @@ Package Function TimeFrom(hour: Int, minute: Int, second: Int, nanosecond: Int):
     Return TimeOfDay(hour, minute, second, nanosecond)
 End Function
 
-// The Duration of that many days and nanoseconds, which panics past the longest Duration.
+/// The Duration of that many days and nanoseconds, which panics past the longest Duration.
 @PanicsAtCaller
 Package Function Between(days: Int64, nanoseconds: Int64): Duration
     Local total = Combined(days, 86400000000000, nanoseconds)
@@ -524,24 +563,24 @@ Package Function Between(days: Int64, nanoseconds: Int64): Duration
     Return Duration.FromNanoseconds(total)
 End Function
 
-// whole * unit + rest, for a rest under a unit either way, or Null when that's past what an Int64
-// holds. A rest of the other sign takes one unit from the whole first, so the product isn't past
-// what the sum is.
+/// whole * unit + rest, for a rest under a unit either way, or Null when that's past what an Int64
+/// holds. A rest of the other sign takes one unit from the whole first, so the product isn't past
+/// what the sum is.
 Package Function Combined(whole: Int64, unit: Int64, rest: Int64): Int64?
     If whole > 0 && rest < 0 Then Return (whole - 1).CheckedMultiply(unit)?.CheckedAdd(rest + unit)
     If whole < 0 && rest > 0 Then Return (whole + 1).CheckedMultiply(unit)?.CheckedAdd(rest - unit)
     Return whole.CheckedMultiply(unit)?.CheckedAdd(rest)
 End Function
 
-// The date, or Null when it isn't one or its year isn't an Int.
+/// The date, or Null when it isn't one or its year isn't an Int.
 Package Function DateOf(year: Int64, month: Int, day: Int): Date?
     If year < -2147483648 || year > 2147483647 Then Return Null
     If !Date.IsValid(year As Int, month, day) Then Return Null
     Return Date(DaysFromCivil(year, month, day))
 End Function
 
-// Days since 1970-01-01 of a date in the proleptic Gregorian calendar, as Howard Hinnant's
-// days_from_civil works them out.
+/// Days since 1970-01-01 of a date in the proleptic Gregorian calendar, as Howard Hinnant's
+/// days_from_civil works them out.
 Package Function DaysFromCivil(year: Int64, month: Int, day: Int): Int64
     Local y = month <= 2 ? year - 1 : year
     Local era = FloorDivide(y, 400)
@@ -551,7 +590,7 @@ Package Function DaysFromCivil(year: Int64, month: Int, day: Int): Int64
     Return era * 146097 + dayOfEra - 719468
 End Function
 
-// The year, month, and day of a day since 1970-01-01, as civil_from_days works them out.
+/// The year, month, and day of a day since 1970-01-01, as civil_from_days works them out.
 Package Function CivilFromDays(days: Int64): (Int64, Int, Int)
     Local shifted = days + 719468
     Local era = FloorDivide(shifted, 146097)
@@ -564,7 +603,7 @@ Package Function CivilFromDays(days: Int64): (Int64, Int, Int)
     Return (yearOfEra + era * 400 + (month <= 2 ? 1 : 0), month As Int, day As Int)
 End Function
 
-// a over b, rounded down, and what's left, which has b's sign.
+/// a over b, rounded down, and what's left, which has b's sign.
 Package Function FloorDivide(a: Int64, b: Int64): Int64
     Local quotient = a / b
     Return a % b != 0 && (a < 0) != (b < 0) ? quotient - 1 : quotient
@@ -575,7 +614,7 @@ Package Function FloorModulo(a: Int64, b: Int64): Int64
     Return rest != 0 && (rest < 0) != (b < 0) ? rest + b : rest
 End Function
 
-// The value's digits, with 0s before them up to width, and a "-" before those below 0.
+/// The value's digits, with 0s before them up to width, and a "-" before those below 0.
 Package Function Padded(value: Int64, width: Int): String
     Local digits = Magnitude(value)
     Local zeros = ""
@@ -586,20 +625,20 @@ Package Function Padded(value: Int64, width: Int): String
     Return value < 0 ? "-{zeros}{digits}" : "{zeros}{digits}"
 End Function
 
-// The value's digits without its sign.
+/// The value's digits without its sign.
 Function Magnitude(value: Int64): String
     If value == -9223372036854775807 - 1 Then Return "9223372036854775808"
     Return "{value < 0 ? -value : value}"
 End Function
 
-// A year as ISO 8601 writes it: 4 digits, with a "-" before one below 0, or a "+" before one
-// past 9999.
+/// A year as ISO 8601 writes it: 4 digits, with a "-" before one below 0, or a "+" before one
+/// past 9999.
 Package Function YearText(year: Int64): String
     If year > 9999 Then Return "+{year}"
     Return Padded(year, 4)
 End Function
 
-// A fraction of a second, with a "." and no 0s at its end, or "" for none.
+/// A fraction of a second, with a "." and no 0s at its end, or "" for none.
 Package Function FractionText(nanosecond: Int): String
     If nanosecond == 0 Then Return ""
     Local digits = Padded(nanosecond, 9)

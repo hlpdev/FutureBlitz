@@ -1,9 +1,9 @@
-// std.db: SQLite databases, through the runtime's fb_db_ functions. A Database runs SQL with its
-// parameters bound to values, and gives the Rows a query reads, or with Query<T> each as a T that
-// Load<T> makes of its columns; Prepare makes a Statement to run many times, Begin a Transaction,
-// which keeps all of what it does or none of it, and Migrate brings a database up to date, a
-// numbered migration at a time. What SQLite can't do throws a DatabaseError of its kind, with
-// SQLite's message.
+//! std.db: SQLite databases, through the runtime's fb_db_ functions. A Database runs SQL with its
+//! parameters bound to values, and gives the Rows a query reads, or with `Query<T>` each as a T
+//! that `Load<T>` makes of its columns; Prepare makes a Statement to run many times, Begin a
+//! Transaction, which keeps all of what it does or none of it, and Migrate brings a database up to
+//! date, a numbered migration at a time. What SQLite can't do throws a DatabaseError of its kind,
+//! with SQLite's message.
 
 Import std.core
 Import std.collections
@@ -37,26 +37,26 @@ Extern "runtime"
     Function fb_db_in_transaction(database: Ptr<Void>): Int32
 End Extern
 
-// What fb_db_step gives for a row, and when the statement's done; and what the runtime gives for
-// SQL that isn't one statement, for SQL or a path that holds a NUL, and for SQL that takes
-// parameters fb_db_run can't bind.
+/// What fb_db_step gives for a row, and when the statement's done; and what the runtime gives for
+/// SQL that isn't one statement, for SQL or a path that holds a NUL, and for SQL that takes
+/// parameters fb_db_run can't bind.
 Const ROW = 100
 Const DONE = 101
 Const NOT_ONE_STATEMENT = -1
 Const HOLDS_NUL = -2
 Const TAKES_PARAMETERS = -3
 
-// SQLite's types of values: which one a Row's column holds.
+/// SQLite's types of values: which one a Row's column holds.
 Public Enum ColumnType
     INTEGER, REAL, TEXT, BLOB, NULL
 End Enum
 
-// What a statement's parameter takes: an integer, a Bool as 1 or 0, a Float32 or Float64 as a
-// real, but for NaN, a String as text, a UInt8[] as a blob, or a Nullable, NULL when its value is
-// Null. A type of the program's is one too when its BindTo binds one of these, with
-// statement.Bind(index, value).
+/// What a statement's parameter takes: an integer, a Bool as 1 or 0, a Float32 or Float64 as a
+/// real, but for NaN, a String as text, a UInt8[] as a blob, or a Nullable, NULL when its value is
+/// Null. A type of the program's is one too when its BindTo binds one of these, with
+/// statement.Bind(index, value).
 Public Interface SqlValue
-    // Binds statement's parameter at index, from 1, to the value.
+    /// Binds statement's parameter at index, from 1, to the value.
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
 End Interface
 
@@ -150,11 +150,13 @@ Extend UInt8[] Implements SqlValue
     End Method
 End Extend
 
-// A value that may be Null, for a parameter that's NULL when it is: Nullable(name) for a String?
-// name.
+/// A value that may be Null, for a parameter that's NULL when it is: Nullable(name) for a String?
+/// name.
 Public Struct Nullable<T: SqlValue> Implements SqlValue
+    /// The value, or Null for SQL's NULL.
     Public ReadOnly Field Value: T?
 
+    /// A Nullable of `value`.
     Public New(value: T?)
         Value = value
     End New
@@ -169,7 +171,7 @@ Public Struct Nullable<T: SqlValue> Implements SqlValue
     End Method
 End Struct
 
-// A column's value in a Row: its type, as fb_db_column_type gives it, and what that type keeps.
+/// A column's value in a Row: its type, as fb_db_column_type gives it, and what that type keeps.
 Struct Cell
     Field Type: Int32
     Field Integer: Int64
@@ -178,36 +180,42 @@ Struct Cell
     Field Blob: UInt8[]?
 End Struct
 
-// A row a query read: its columns' names and values, which Integer, Real, Text, and Blob give by
-// the column's index, from 0, or its name, as the SQL gives it, like "id" or "count(*)". Each
-// gives Null for NULL, and panics for a value of another type, but Real takes an integer too, so
-// a column of either reads as one. Type says which a column holds. A name that two columns have
-// is the first's.
+/// A row a query read: its columns' names and values, which Integer, Real, Text, and Blob give by
+/// the column's index, from 0, or its name, as the SQL gives it, like "id" or "count(*)". Each
+/// gives Null for NULL, and panics for a value of another type, but Real takes an integer too, so
+/// a column of either reads as one. Type says which a column holds. A name that two columns have
+/// is the first's.
 Public Struct Row
     Field Names: String[]
     Field Cells: Cell[]
 
-    // How many columns it has.
+    /// How many columns it has.
     Public Property Count: Int
         Get => Cells.Count
     End Property
 
-    // The name of the column at index. Panics when there's none there.
+    /// The name of the column at index. Panics when there's none there.
     @PanicsAtCaller
     Public Method Name(column: Int): String => Names[At(column)]
 
+    /// The type of the column at `column`'s value. Panics when there's none there.
     @PanicsAtCaller
     Public Method Type(column: Int): ColumnType => (Cells[At(column)].Type - 1) As ColumnType
 
+    /// The type of the column named `name`'s value. Panics when there's none of that name.
     @PanicsAtCaller
     Public Method Type(name: String): ColumnType => Type(Find(name))
 
+    /// Whether the column at `column` is NULL. Panics when there's none there.
     @PanicsAtCaller
     Public Method IsNull(column: Int): Bool => Type(column) == ColumnType.NULL
 
+    /// Whether the column named `name` is NULL. Panics when there's none of that name.
     @PanicsAtCaller
     Public Method IsNull(name: String): Bool => IsNull(Find(name))
 
+    /// The integer at `column`, or Null for NULL. Panics when there's no column there, or it's of
+    /// another type.
     @PanicsAtCaller
     Public Method Integer(column: Int): Int64?
         Local cell = Cells[At(column)]
@@ -216,9 +224,13 @@ Public Struct Row
         Return cell.Integer
     End Method
 
+    /// The integer in the column named `name`, or Null for NULL. Panics when there's no column of
+    /// that name, or it's of another type.
     @PanicsAtCaller
     Public Method Integer(name: String): Int64? => Integer(Find(name))
 
+    /// The real number at `column`, an integer's too, or Null for NULL. Panics when there's no
+    /// column there, or it's of another type.
     @PanicsAtCaller
     Public Method Real(column: Int): Float64?
         Local cell = Cells[At(column)]
@@ -228,9 +240,13 @@ Public Struct Row
         Return cell.Real
     End Method
 
+    /// The real number in the column named `name`, an integer's too, or Null for NULL. Panics when
+    /// there's no column of that name, or it's of another type.
     @PanicsAtCaller
     Public Method Real(name: String): Float64? => Real(Find(name))
 
+    /// The text at `column`, or Null for NULL. Panics when there's no column there, or it's of
+    /// another type.
     @PanicsAtCaller
     Public Method Text(column: Int): String?
         Local cell = Cells[At(column)]
@@ -239,9 +255,13 @@ Public Struct Row
         Return cell.Text
     End Method
 
+    /// The text in the column named `name`, or Null for NULL. Panics when there's no column of that
+    /// name, or it's of another type.
     @PanicsAtCaller
     Public Method Text(name: String): String? => Text(Find(name))
 
+    /// The blob at `column`, or Null for NULL. Panics when there's no column there, or it's of
+    /// another type.
     @PanicsAtCaller
     Public Method Blob(column: Int): UInt8[]?
         Local cell = Cells[At(column)]
@@ -250,10 +270,12 @@ Public Struct Row
         Return cell.Blob
     End Method
 
+    /// The blob in the column named `name`, or Null for NULL. Panics when there's no column of that
+    /// name, or it's of another type.
     @PanicsAtCaller
     Public Method Blob(name: String): UInt8[]? => Blob(Find(name))
 
-    // column, when the row has a column there.
+    /// column, when the row has a column there.
     @PanicsAtCaller
     Method At(column: Int): Int
         If column < 0 || column >= Cells.Count
@@ -263,7 +285,7 @@ Public Struct Row
         Return column
     End Method
 
-    // Where the first column of name is.
+    /// Where the first column of name is.
     @PanicsAtCaller
     Method Find(name: String): Int
         For column = 0 Until Names.Count
@@ -272,16 +294,16 @@ Public Struct Row
         Panic("the row has no column named '{name}'")
     End Method
 
-    // What a read of the column at index as what it takes says when the column holds another
-    // type.
+    /// What a read of the column at index as what it takes says when the column holds another
+    /// type.
     Method Mismatch(column: Int, takes: String): String
         Local holds = ["an integer", "a real", "text", "a blob"][Cells[column].Type - 1]
         Return "column {column}, '{Names[column]}', holds {holds}, not {takes}"
     End Method
 End Struct
 
-// The rows as Ts, each loaded from an Object of its columns by their names, a name two columns
-// have being the first's.
+/// The rows as Ts, each loaded from an Object of its columns by their names, a name two columns
+/// have being the first's.
 Function Loaded<T>(rows: Row[]): T[] Throws ParseError
     Local values = Value.Array()
     For row In rows
@@ -309,13 +331,13 @@ Function Loaded<T>(rows: Row[]): T[] Throws ParseError
     Return Try Load<T[]>(values)
 End Function
 
-// A connection to an SQLite database, which closes when Close is called, or when its last
-// reference goes, and those of its Statements and Transactions. One thread uses it at a time.
+/// A connection to an SQLite database, which closes when Close is called, or when its last
+/// reference goes, and those of its Statements and Transactions. One thread uses it at a time.
 Public Class Database
-    // SQLite's connection, or Null once it's closed.
+    /// SQLite's connection, or Null once it's closed.
     Field Handle: Ptr<Void>
-    // The numbers of the Transactions that are open, the outermost first, and how many have
-    // begun.
+    /// The numbers of the Transactions that are open, the outermost first, and how many have
+    /// begun.
     Field Transactions: Int64[] = []
     Field Begun: Int64
 
@@ -327,12 +349,12 @@ Public Class Database
         Close()
     End Method
 
-    // The database at path, made when there's none: a file, ":memory:" for a new one in memory
-    // that only this Database reaches, or a URI file name, like "file:data.db?mode=ro" to only
-    // read one, or "file:name?mode=memory&cache=shared" for one in memory that each Database of
-    // that name shares while one is open. Its foreign keys are checked, and it waits up to 5
-    // seconds for another connection that holds the database before it throws a DatabaseError of
-    // BUSY.
+    /// The database at path, made when there's none: a file, ":memory:" for a new one in memory
+    /// that only this Database reaches, or a URI file name, like "file:data.db?mode=ro" to only
+    /// read one, or "file:name?mode=memory&cache=shared" for one in memory that each Database of
+    /// that name shares while one is open. Its foreign keys are checked, and it waits up to 5
+    /// seconds for another connection that holds the database before it throws a DatabaseError of
+    /// BUSY.
     Public Static Method Open(path: String): Database Throws DatabaseError
         Local handle: Ptr<Void> = Null
         Local code = fb_db_open(path, ByRef handle)
@@ -345,9 +367,9 @@ Public Class Database
         Return database
     End Method
 
-    // Closes it now, and rolls back what an open Transaction did, as its last reference going
-    // would, and finalizes its Statements, so it lets go of its file and locks then. Using it,
-    // or them, after that panics, but for Close, which does nothing then.
+    /// Closes it now, and rolls back what an open Transaction did, as its last reference going
+    /// would, and finalizes its Statements, so it lets go of its file and locks then. Using it,
+    /// or them, after that panics, but for Close, which does nothing then.
     Public Method Close()
         If Handle == Null Then Return
         If fb_db_in_transaction(Handle) != 0 Then fb_db_run(Handle, "ROLLBACK")
@@ -356,26 +378,26 @@ Public Class Database
         Handle = Null
     End Method
 
-    // Whether Close has closed it.
+    /// Whether Close has closed it.
     Public Property IsClosed: Bool
         Get => Handle == Null
     End Property
 
-    // How many rows the last INSERT, UPDATE, or DELETE changed.
+    /// How many rows the last INSERT, UPDATE, or DELETE changed.
     @PanicsAtCaller
     Public Property Changes: Int64
         Get => fb_db_changes(Connection())
     End Property
 
-    // The rowid of the last row an INSERT added, or 0 before one has.
+    /// The rowid of the last row an INSERT added, or 0 before one has.
     @PanicsAtCaller
     Public Property LastId: Int64
         Get => fb_db_last_id(Connection())
     End Property
 
-    // Runs each statement in sql, in turn, and throws what the first that fails fails with,
-    // leaving what the ones before it did, but for what a Transaction undoes. Panics when one
-    // takes parameters, which Execute(sql, values) binds.
+    /// Runs each statement in sql, in turn, and throws what the first that fails fails with,
+    /// leaving what the ones before it did, but for what a Transaction undoes. Panics when one
+    /// takes parameters, which Execute(sql, values) binds.
     @PanicsAtCaller
     Public Method Execute(sql: String) Throws DatabaseError
         Local code = fb_db_run(Connection(), sql)
@@ -386,13 +408,15 @@ Public Class Database
         Try Check(code)
     End Method
 
-    // Runs sql's one statement with its parameters bound to values, in order, a value for each, as
-    // a Statement's Execute does. Throws a DatabaseError of QUERY when sql isn't one statement.
+    /// Runs sql's one statement with its parameters bound to values, in order, a value for each, as
+    /// a Statement's Execute does. Throws a DatabaseError of QUERY when sql isn't one statement.
     @PanicsAtCaller
     Public Method Execute<A: SqlValue>(sql: String, a: A) Throws DatabaseError
         Try Prepare(sql).Execute(a)
     End Method
 
+    /// Runs `sql`'s one statement with its parameters bound to `a` through `b`, in order, as the
+    /// one that takes `a` alone does.
     @PanicsAtCaller
     Public Method Execute<A, B>(sql: String, a: A, b: B) Throws DatabaseError
         Where A: SqlValue
@@ -400,6 +424,8 @@ Public Class Database
         Try Prepare(sql).Execute(a, b)
     End Method
 
+    /// Runs `sql`'s one statement with its parameters bound to `a` through `c`, in order, as the
+    /// one that takes `a` alone does.
     @PanicsAtCaller
     Public Method Execute<A, B, C>(sql: String, a: A, b: B, c: C) Throws DatabaseError
         Where A: SqlValue
@@ -408,6 +434,8 @@ Public Class Database
         Try Prepare(sql).Execute(a, b, c)
     End Method
 
+    /// Runs `sql`'s one statement with its parameters bound to `a` through `d`, in order, as the
+    /// one that takes `a` alone does.
     @PanicsAtCaller
     Public Method Execute<A, B, C, D>(sql: String, a: A, b: B, c: C, d: D) Throws DatabaseError
         Where A: SqlValue
@@ -417,6 +445,8 @@ Public Class Database
         Try Prepare(sql).Execute(a, b, c, d)
     End Method
 
+    /// Runs `sql`'s one statement with its parameters bound to `a` through `e`, in order, as the
+    /// one that takes `a` alone does.
     @PanicsAtCaller
     Public Method Execute<A, B, C, D, E>(sql: String, a: A, b: B, c: C, d: D,
                                          e: E) Throws DatabaseError
@@ -428,6 +458,8 @@ Public Class Database
         Try Prepare(sql).Execute(a, b, c, d, e)
     End Method
 
+    /// Runs `sql`'s one statement with its parameters bound to `a` through `f`, in order, as the
+    /// one that takes `a` alone does.
     @PanicsAtCaller
     Public Method Execute<A, B, C, D, E, F>(sql: String, a: A, b: B, c: C, d: D, e: E,
                                             f: F) Throws DatabaseError
@@ -440,6 +472,8 @@ Public Class Database
         Try Prepare(sql).Execute(a, b, c, d, e, f)
     End Method
 
+    /// Runs `sql`'s one statement with its parameters bound to `a` through `g`, in order, as the
+    /// one that takes `a` alone does.
     @PanicsAtCaller
     Public Method Execute<A, B, C, D, E, F, G>(sql: String, a: A, b: B, c: C, d: D, e: E, f: F,
                                                g: G) Throws DatabaseError
@@ -453,6 +487,8 @@ Public Class Database
         Try Prepare(sql).Execute(a, b, c, d, e, f, g)
     End Method
 
+    /// Runs `sql`'s one statement with its parameters bound to `a` through `h`, in order, as the
+    /// one that takes `a` alone does.
     @PanicsAtCaller
     Public Method Execute<A, B, C, D, E, F, G, H>(sql: String, a: A, b: B, c: C, d: D, e: E, f: F,
                                                   g: G, h: H) Throws DatabaseError
@@ -467,8 +503,8 @@ Public Class Database
         Try Prepare(sql).Execute(a, b, c, d, e, f, g, h)
     End Method
 
-    // The rows sql's one query reads, with its parameters bound to values as Execute's are, so
-    // Rows(sql) panics when it takes any.
+    /// The rows sql's one query reads, with its parameters bound to values as Execute's are, so
+    /// Rows(sql) panics when it takes any.
     @PanicsAtCaller
     Public Method Rows(sql: String): Row[] Throws DatabaseError
         Local statement = Try Prepare(sql)
@@ -476,8 +512,8 @@ Public Class Database
         Return Try statement.Rows()
     End Method
 
-    // The rows sql's one query reads, each a T, as a Statement's Query<T>() gives them. Panics
-    // when sql takes parameters, which a Statement binds.
+    /// The rows sql's one query reads, each a T, as a Statement's `Query<T>()` gives them. Panics
+    /// when sql takes parameters, which a Statement binds.
     @PanicsAtCaller
     Public Method Query<T>(sql: String): T[] Throws DatabaseError, ParseError
         Local statement = Try Prepare(sql)
@@ -485,12 +521,14 @@ Public Class Database
         Return Try statement.Query<T>()
     End Method
 
-    // The rows sql's one query reads as Ts, with its parameters bound to values as Execute's are.
+    /// The rows sql's one query reads as Ts, with its parameters bound to values as Execute's are.
     @PanicsAtCaller
     Public Method Query<T, A: SqlValue>(sql: String, a: A): T[] Throws DatabaseError, ParseError
         Return Try Prepare(sql).Query<T, A>(a)
     End Method
 
+    /// The rows `sql`'s one query reads as Ts, with its parameters bound to `a` through `b`, in
+    /// order.
     @PanicsAtCaller
     Public Method Query<T, A, B>(sql: String, a: A, b: B): T[] Throws DatabaseError, ParseError
         Where A: SqlValue
@@ -498,6 +536,8 @@ Public Class Database
         Return Try Prepare(sql).Query<T, A, B>(a, b)
     End Method
 
+    /// The rows `sql`'s one query reads as Ts, with its parameters bound to `a` through `c`, in
+    /// order.
     @PanicsAtCaller
     Public Method Query<T, A, B, C>(sql: String, a: A, b: B,
                                     c: C): T[] Throws DatabaseError, ParseError
@@ -507,6 +547,8 @@ Public Class Database
         Return Try Prepare(sql).Query<T, A, B, C>(a, b, c)
     End Method
 
+    /// The rows `sql`'s one query reads as Ts, with its parameters bound to `a` through `d`, in
+    /// order.
     @PanicsAtCaller
     Public Method Query<T, A, B, C, D>(sql: String, a: A, b: B, c: C,
                                        d: D): T[] Throws DatabaseError, ParseError
@@ -517,6 +559,8 @@ Public Class Database
         Return Try Prepare(sql).Query<T, A, B, C, D>(a, b, c, d)
     End Method
 
+    /// The rows `sql`'s one query reads as Ts, with its parameters bound to `a` through `e`, in
+    /// order.
     @PanicsAtCaller
     Public Method Query<T, A, B, C, D, E>(sql: String, a: A, b: B, c: C, d: D,
                                           e: E): T[] Throws DatabaseError, ParseError
@@ -528,6 +572,8 @@ Public Class Database
         Return Try Prepare(sql).Query<T, A, B, C, D, E>(a, b, c, d, e)
     End Method
 
+    /// The rows `sql`'s one query reads as Ts, with its parameters bound to `a` through `f`, in
+    /// order.
     @PanicsAtCaller
     Public Method Query<T, A, B, C, D, E, F>(sql: String, a: A, b: B, c: C, d: D, e: E,
                                              f: F): T[] Throws DatabaseError, ParseError
@@ -540,6 +586,8 @@ Public Class Database
         Return Try Prepare(sql).Query<T, A, B, C, D, E, F>(a, b, c, d, e, f)
     End Method
 
+    /// The rows `sql`'s one query reads as Ts, with its parameters bound to `a` through `g`, in
+    /// order.
     @PanicsAtCaller
     Public Method Query<T, A, B, C, D, E, F, G>(sql: String, a: A, b: B, c: C, d: D, e: E, f: F,
                                                 g: G): T[] Throws DatabaseError, ParseError
@@ -553,6 +601,8 @@ Public Class Database
         Return Try Prepare(sql).Query<T, A, B, C, D, E, F, G>(a, b, c, d, e, f, g)
     End Method
 
+    /// The rows `sql`'s one query reads as Ts, with its parameters bound to `a` through `h`, in
+    /// order.
     @PanicsAtCaller
     Public Method Query<T, A, B, C, D, E, F, G, H>(sql: String, a: A, b: B, c: C, d: D, e: E, f: F,
                                                    g: G, h: H): T[] Throws DatabaseError, ParseError
@@ -567,11 +617,13 @@ Public Class Database
         Return Try Prepare(sql).Query<T, A, B, C, D, E, F, G, H>(a, b, c, d, e, f, g, h)
     End Method
 
+    /// The rows `sql`'s one query reads, with its parameters bound to `a`, in order.
     @PanicsAtCaller
     Public Method Rows<A: SqlValue>(sql: String, a: A): Row[] Throws DatabaseError
         Return Try Prepare(sql).Rows(a)
     End Method
 
+    /// The rows `sql`'s one query reads, with its parameters bound to `a` through `b`, in order.
     @PanicsAtCaller
     Public Method Rows<A, B>(sql: String, a: A, b: B): Row[] Throws DatabaseError
         Where A: SqlValue
@@ -579,6 +631,7 @@ Public Class Database
         Return Try Prepare(sql).Rows(a, b)
     End Method
 
+    /// The rows `sql`'s one query reads, with its parameters bound to `a` through `c`, in order.
     @PanicsAtCaller
     Public Method Rows<A, B, C>(sql: String, a: A, b: B, c: C): Row[] Throws DatabaseError
         Where A: SqlValue
@@ -587,6 +640,7 @@ Public Class Database
         Return Try Prepare(sql).Rows(a, b, c)
     End Method
 
+    /// The rows `sql`'s one query reads, with its parameters bound to `a` through `d`, in order.
     @PanicsAtCaller
     Public Method Rows<A, B, C, D>(sql: String, a: A, b: B, c: C, d: D): Row[] Throws DatabaseError
         Where A: SqlValue
@@ -596,6 +650,7 @@ Public Class Database
         Return Try Prepare(sql).Rows(a, b, c, d)
     End Method
 
+    /// The rows `sql`'s one query reads, with its parameters bound to `a` through `e`, in order.
     @PanicsAtCaller
     Public Method Rows<A, B, C, D, E>(sql: String, a: A, b: B, c: C, d: D,
                                       e: E): Row[] Throws DatabaseError
@@ -607,6 +662,7 @@ Public Class Database
         Return Try Prepare(sql).Rows(a, b, c, d, e)
     End Method
 
+    /// The rows `sql`'s one query reads, with its parameters bound to `a` through `f`, in order.
     @PanicsAtCaller
     Public Method Rows<A, B, C, D, E, F>(sql: String, a: A, b: B, c: C, d: D, e: E,
                                          f: F): Row[] Throws DatabaseError
@@ -619,6 +675,7 @@ Public Class Database
         Return Try Prepare(sql).Rows(a, b, c, d, e, f)
     End Method
 
+    /// The rows `sql`'s one query reads, with its parameters bound to `a` through `g`, in order.
     @PanicsAtCaller
     Public Method Rows<A, B, C, D, E, F, G>(sql: String, a: A, b: B, c: C, d: D, e: E, f: F,
                                             g: G): Row[] Throws DatabaseError
@@ -632,6 +689,7 @@ Public Class Database
         Return Try Prepare(sql).Rows(a, b, c, d, e, f, g)
     End Method
 
+    /// The rows `sql`'s one query reads, with its parameters bound to `a` through `h`, in order.
     @PanicsAtCaller
     Public Method Rows<A, B, C, D, E, F, G, H>(sql: String, a: A, b: B, c: C, d: D, e: E, f: F,
                                                g: G, h: H): Row[] Throws DatabaseError
@@ -646,9 +704,9 @@ Public Class Database
         Return Try Prepare(sql).Rows(a, b, c, d, e, f, g, h)
     End Method
 
-    // sql's one statement, prepared to run many times. Throws a DatabaseError of QUERY when sql
-    // holds no statement or more than one, or one that doesn't prepare, like one that names a
-    // table the database hasn't got.
+    /// sql's one statement, prepared to run many times. Throws a DatabaseError of QUERY when sql
+    /// holds no statement or more than one, or one that doesn't prepare, like one that names a
+    /// table the database hasn't got.
     @PanicsAtCaller
     Public Method Prepare(sql: String): Statement Throws DatabaseError
         Local handle: Ptr<Void> = Null
@@ -662,9 +720,9 @@ Public Class Database
         Return Statement(Self, handle)
     End Method
 
-    // A new Transaction, which keeps all of what this Database does until its Commit, or undoes
-    // it: see Transaction. One begun while another is open is a part of that one. The outermost
-    // is SQLite's IMMEDIATE, which waits for other connections to finish writing when it begins.
+    /// A new Transaction, which keeps all of what this Database does until its Commit, or undoes
+    /// it: see Transaction. One begun while another is open is a part of that one. The outermost
+    /// is SQLite's IMMEDIATE, which waits for other connections to finish writing when it begins.
     @PanicsAtCaller
     Public Method Begin(): Transaction Throws DatabaseError
         Local handle = Connection()
@@ -676,12 +734,12 @@ Public Class Database
         Return Transaction(Self, Begun, level)
     End Method
 
-    // Brings the database up to date with migrations, the SQL that makes each version of it from
-    // the one before: the first makes version 1 from an empty database, the second version 2,
-    // and so on. The database keeps its version, as PRAGMA user_version, so each migration runs
-    // once, in order, in a Transaction of its own with the version it makes, and one that fails
-    // leaves the database as the one before it left it, and throws. Throws a DatabaseError too
-    // when the database's version is past the last migration's, as a newer program's would be.
+    /// Brings the database up to date with migrations, the SQL that makes each version of it from
+    /// the one before: the first makes version 1 from an empty database, the second version 2,
+    /// and so on. The database keeps its version, as PRAGMA user_version, so each migration runs
+    /// once, in order, in a Transaction of its own with the version it makes, and one that fails
+    /// leaves the database as the one before it left it, and throws. Throws a DatabaseError too
+    /// when the database's version is past the last migration's, as a newer program's would be.
     @PanicsAtCaller
     Public Method Migrate(migrations: String...) Throws DatabaseError
         Local version = Try Version(migrations.Count)
@@ -698,8 +756,8 @@ Public Class Database
         End For
     End Method
 
-    // The database's version, which Migrate sets. Throws a DatabaseError when it's past count
-    // migrations, or negative.
+    /// The database's version, which Migrate sets. Throws a DatabaseError when it's past count
+    /// migrations, or negative.
     @PanicsAtCaller
     Method Version(count: Int): Int Throws DatabaseError
         Local version = ((Try Rows("PRAGMA user_version"))[0].Integer(0) ?? 0) As Int
@@ -711,26 +769,26 @@ Public Class Database
         Return version
     End Method
 
-    // SQLite's connection. Panics when it's closed.
+    /// SQLite's connection. Panics when it's closed.
     @PanicsAtCaller
     Method Connection(): Ptr<Void>
         If Handle == Null Then Panic("the Database is closed")
         Return Handle
     End Method
 
-    // Throws what failed when code isn't 0.
+    /// Throws what failed when code isn't 0.
     Method Check(code: Int32) Throws DatabaseError
         If code != 0 Then Throw Failure(Handle, code)
     End Method
 
-    // Forgets the open Transactions when SQLite has ended them, as it does after some errors, and
-    // as SQL that commits or rolls back does. Closing the Database ends them too.
+    /// Forgets the open Transactions when SQLite has ended them, as it does after some errors, and
+    /// as SQL that commits or rolls back does. Closing the Database ends them too.
     Method Settle()
         If Transactions.Count > 0 && fb_db_in_transaction(Handle) == 0 Then Transactions.Clear()
     End Method
 
-    // Rolls back the open Transaction at level, and those begun inside it, and gives SQLite's
-    // code. The Database is open, since closing it ends its Transactions.
+    /// Rolls back the open Transaction at level, and those begun inside it, and gives SQLite's
+    /// code. The Database is open, since closing it ends its Transactions.
     Method Undo(level: Int): Int32
         Local code = fb_db_run(Handle, level == 1 ? "ROLLBACK" :
                                "ROLLBACK TO fb_{level}; RELEASE fb_{level}")
@@ -745,14 +803,14 @@ Public Class Database
     End Method
 End Class
 
-// A statement prepared once, to run many times, its parameters bound to new values each time:
-// what Database.Prepare makes. Its parameters are ?, ?NNN, :name, @name, and $name, numbered
-// from 1 in order, as SQLite numbers them, and keep the values they're bound to until they're
-// bound again, or Clear sets them to NULL. Closing its Database finalizes it, and using it
-// after that panics, but for Parameters.
+/// A statement prepared once, to run many times, its parameters bound to new values each time:
+/// what Database.Prepare makes. Its parameters are ?, ?NNN, :name, @name, and $name, numbered
+/// from 1 in order, as SQLite numbers them, and keep the values they're bound to until they're
+/// bound again, or Clear sets them to NULL. Closing its Database finalizes it, and using it
+/// after that panics, but for Parameters.
 Public Class Statement
     Field Owner: Database
-    // SQLite's statement, which Close finalizes with the rest of the Database's.
+    /// SQLite's statement, which Close finalizes with the rest of the Database's.
     Field Handle: Ptr<Void>
     Field Count: Int
 
@@ -766,12 +824,12 @@ Public Class Statement
         If !Owner.IsClosed Then fb_db_finalize(Handle)
     End Method
 
-    // How many parameters it takes: the largest number one has.
+    /// How many parameters it takes: the largest number one has.
     Public Property Parameters: Int
         Get => Count
     End Property
 
-    // Binds the parameter at index, from 1, to value. Panics when it has none there.
+    /// Binds the parameter at index, from 1, to value. Panics when it has none there.
     @PanicsAtCaller
     Public Method Bind<A: SqlValue>(index: Int, value: A) Throws DatabaseError
         Owner.Connection()
@@ -783,7 +841,7 @@ Public Class Statement
         Try value.BindTo(Self, index)
     End Method
 
-    // Binds the parameter of name, like ":id", to value. Panics when it has none of that name.
+    /// Binds the parameter of name, like ":id", to value. Panics when it has none of that name.
     @PanicsAtCaller
     Public Method Bind<A: SqlValue>(name: String, value: A) Throws DatabaseError
         Owner.Connection()
@@ -792,21 +850,21 @@ Public Class Statement
         Try value.BindTo(Self, index)
     End Method
 
-    // Sets each parameter to NULL.
+    /// Sets each parameter to NULL.
     @PanicsAtCaller
     Public Method Clear()
         Owner.Connection()
         fb_db_clear(Handle)
     End Method
 
-    // Runs it, with its parameters as they're bound, and throws a DatabaseError when it fails.
+    /// Runs it, with its parameters as they're bound, and throws a DatabaseError when it fails.
     @PanicsAtCaller
     Public Method Execute() Throws DatabaseError
         Try Run()
     End Method
 
-    // Binds its parameters to values, in order, then runs it. Panics when it takes another number
-    // of them.
+    /// Binds its parameters to values, in order, then runs it. Panics when it takes another number
+    /// of them.
     @PanicsAtCaller
     Public Method Execute<A: SqlValue>(a: A) Throws DatabaseError
         Expect(1)
@@ -814,6 +872,8 @@ Public Class Statement
         Try Run()
     End Method
 
+    /// Binds its parameters to `a` through `b`, in order, then runs it. Panics when it takes
+    /// another number of them.
     @PanicsAtCaller
     Public Method Execute<A, B>(a: A, b: B) Throws DatabaseError
         Where A: SqlValue
@@ -824,6 +884,8 @@ Public Class Statement
         Try Run()
     End Method
 
+    /// Binds its parameters to `a` through `c`, in order, then runs it. Panics when it takes
+    /// another number of them.
     @PanicsAtCaller
     Public Method Execute<A, B, C>(a: A, b: B, c: C) Throws DatabaseError
         Where A: SqlValue
@@ -836,6 +898,8 @@ Public Class Statement
         Try Run()
     End Method
 
+    /// Binds its parameters to `a` through `d`, in order, then runs it. Panics when it takes
+    /// another number of them.
     @PanicsAtCaller
     Public Method Execute<A, B, C, D>(a: A, b: B, c: C, d: D) Throws DatabaseError
         Where A: SqlValue
@@ -850,6 +914,8 @@ Public Class Statement
         Try Run()
     End Method
 
+    /// Binds its parameters to `a` through `e`, in order, then runs it. Panics when it takes
+    /// another number of them.
     @PanicsAtCaller
     Public Method Execute<A, B, C, D, E>(a: A, b: B, c: C, d: D, e: E) Throws DatabaseError
         Where A: SqlValue
@@ -866,6 +932,8 @@ Public Class Statement
         Try Run()
     End Method
 
+    /// Binds its parameters to `a` through `f`, in order, then runs it. Panics when it takes
+    /// another number of them.
     @PanicsAtCaller
     Public Method Execute<A, B, C, D, E, F>(a: A, b: B, c: C, d: D, e: E, f: F) Throws DatabaseError
         Where A: SqlValue
@@ -884,6 +952,8 @@ Public Class Statement
         Try Run()
     End Method
 
+    /// Binds its parameters to `a` through `g`, in order, then runs it. Panics when it takes
+    /// another number of them.
     @PanicsAtCaller
     Public Method Execute<A, B, C, D, E, F, G>(a: A, b: B, c: C, d: D, e: E, f: F,
                                                g: G) Throws DatabaseError
@@ -905,6 +975,8 @@ Public Class Statement
         Try Run()
     End Method
 
+    /// Binds its parameters to `a` through `h`, in order, then runs it. Panics when it takes
+    /// another number of them.
     @PanicsAtCaller
     Public Method Execute<A, B, C, D, E, F, G, H>(a: A, b: B, c: C, d: D, e: E, f: F, g: G,
                                                   h: H) Throws DatabaseError
@@ -928,30 +1000,31 @@ Public Class Statement
         Try Run()
     End Method
 
-    // The rows it reads, with its parameters as they're bound.
+    /// The rows it reads, with its parameters as they're bound.
     @PanicsAtCaller
     Public Method Rows(): Row[] Throws DatabaseError
         Return Try Collect()
     End Method
 
-    // The rows it reads, with its parameters as they're bound, each a T that Load<T> makes of an
-    // Object of its columns by their names, each an integer, a Double, text, bytes, or Null, so
-    // a T's Fields of numbers, Bools as 0 or 1, Strings, UInt8[]s, Enums by their names, and T?s
-    // take them, and a Field no column has takes its default, or else its zero. Throws a
-    // ParseError for a row that doesn't make a T, whose Path starts with the row's index, as
-    // "[2].Age" does.
+    /// The rows it reads, with its parameters as they're bound, each a T that `Load<T>` makes of an
+    /// Object of its columns by their names, each an integer, a Double, text, bytes, or Null, so
+    /// a T's Fields of numbers, Bools as 0 or 1, Strings, UInt8[]s, Enums by their names, and T?s
+    /// take them, and a Field no column has takes its default, or else its zero. Throws a
+    /// ParseError for a row that doesn't make a T, whose Path starts with the row's index, as
+    /// "[2].Age" does.
     @PanicsAtCaller
     Public Method Query<T>(): T[] Throws DatabaseError, ParseError
         Return Try Loaded<T>(Try Collect())
     End Method
 
-    // Binds its parameters to values, in order, as Execute does, then gives the rows it reads as
-    // Ts, as Query<T>() does.
+    /// Binds its parameters to values, in order, as Execute does, then gives the rows it reads as
+    /// Ts, as `Query<T>()` does.
     @PanicsAtCaller
     Public Method Query<T, A: SqlValue>(a: A): T[] Throws DatabaseError, ParseError
         Return Try Loaded<T>(Try Rows(a))
     End Method
 
+    /// Binds its parameters to `a` through `b`, in order, then gives the rows it reads as Ts.
     @PanicsAtCaller
     Public Method Query<T, A, B>(a: A, b: B): T[] Throws DatabaseError, ParseError
         Where A: SqlValue
@@ -959,6 +1032,7 @@ Public Class Statement
         Return Try Loaded<T>(Try Rows(a, b))
     End Method
 
+    /// Binds its parameters to `a` through `c`, in order, then gives the rows it reads as Ts.
     @PanicsAtCaller
     Public Method Query<T, A, B, C>(a: A, b: B, c: C): T[] Throws DatabaseError, ParseError
         Where A: SqlValue
@@ -967,6 +1041,7 @@ Public Class Statement
         Return Try Loaded<T>(Try Rows(a, b, c))
     End Method
 
+    /// Binds its parameters to `a` through `d`, in order, then gives the rows it reads as Ts.
     @PanicsAtCaller
     Public Method Query<T, A, B, C, D>(a: A, b: B, c: C, d: D): T[] Throws DatabaseError, ParseError
         Where A: SqlValue
@@ -976,6 +1051,7 @@ Public Class Statement
         Return Try Loaded<T>(Try Rows(a, b, c, d))
     End Method
 
+    /// Binds its parameters to `a` through `e`, in order, then gives the rows it reads as Ts.
     @PanicsAtCaller
     Public Method Query<T, A, B, C, D, E>(a: A, b: B, c: C, d: D,
                                           e: E): T[] Throws DatabaseError, ParseError
@@ -987,6 +1063,7 @@ Public Class Statement
         Return Try Loaded<T>(Try Rows(a, b, c, d, e))
     End Method
 
+    /// Binds its parameters to `a` through `f`, in order, then gives the rows it reads as Ts.
     @PanicsAtCaller
     Public Method Query<T, A, B, C, D, E, F>(a: A, b: B, c: C, d: D, e: E,
                                              f: F): T[] Throws DatabaseError, ParseError
@@ -999,6 +1076,7 @@ Public Class Statement
         Return Try Loaded<T>(Try Rows(a, b, c, d, e, f))
     End Method
 
+    /// Binds its parameters to `a` through `g`, in order, then gives the rows it reads as Ts.
     @PanicsAtCaller
     Public Method Query<T, A, B, C, D, E, F, G>(a: A, b: B, c: C, d: D, e: E, f: F,
                                                 g: G): T[] Throws DatabaseError, ParseError
@@ -1012,6 +1090,7 @@ Public Class Statement
         Return Try Loaded<T>(Try Rows(a, b, c, d, e, f, g))
     End Method
 
+    /// Binds its parameters to `a` through `h`, in order, then gives the rows it reads as Ts.
     @PanicsAtCaller
     Public Method Query<T, A, B, C, D, E, F, G, H>(a: A, b: B, c: C, d: D, e: E, f: F, g: G,
                                                    h: H): T[] Throws DatabaseError, ParseError
@@ -1026,7 +1105,7 @@ Public Class Statement
         Return Try Loaded<T>(Try Rows(a, b, c, d, e, f, g, h))
     End Method
 
-    // Binds its parameters to values, in order, as Execute does, then gives the rows it reads.
+    /// Binds its parameters to values, in order, as Execute does, then gives the rows it reads.
     @PanicsAtCaller
     Public Method Rows<A: SqlValue>(a: A): Row[] Throws DatabaseError
         Expect(1)
@@ -1034,6 +1113,7 @@ Public Class Statement
         Return Try Collect()
     End Method
 
+    /// Binds its parameters to `a` through `b`, in order, then gives the rows it reads.
     @PanicsAtCaller
     Public Method Rows<A, B>(a: A, b: B): Row[] Throws DatabaseError
         Where A: SqlValue
@@ -1044,6 +1124,7 @@ Public Class Statement
         Return Try Collect()
     End Method
 
+    /// Binds its parameters to `a` through `c`, in order, then gives the rows it reads.
     @PanicsAtCaller
     Public Method Rows<A, B, C>(a: A, b: B, c: C): Row[] Throws DatabaseError
         Where A: SqlValue
@@ -1056,6 +1137,7 @@ Public Class Statement
         Return Try Collect()
     End Method
 
+    /// Binds its parameters to `a` through `d`, in order, then gives the rows it reads.
     @PanicsAtCaller
     Public Method Rows<A, B, C, D>(a: A, b: B, c: C, d: D): Row[] Throws DatabaseError
         Where A: SqlValue
@@ -1070,6 +1152,7 @@ Public Class Statement
         Return Try Collect()
     End Method
 
+    /// Binds its parameters to `a` through `e`, in order, then gives the rows it reads.
     @PanicsAtCaller
     Public Method Rows<A, B, C, D, E>(a: A, b: B, c: C, d: D, e: E): Row[] Throws DatabaseError
         Where A: SqlValue
@@ -1086,6 +1169,7 @@ Public Class Statement
         Return Try Collect()
     End Method
 
+    /// Binds its parameters to `a` through `f`, in order, then gives the rows it reads.
     @PanicsAtCaller
     Public Method Rows<A, B, C, D, E, F>(a: A, b: B, c: C, d: D, e: E,
                                          f: F): Row[] Throws DatabaseError
@@ -1105,6 +1189,7 @@ Public Class Statement
         Return Try Collect()
     End Method
 
+    /// Binds its parameters to `a` through `g`, in order, then gives the rows it reads.
     @PanicsAtCaller
     Public Method Rows<A, B, C, D, E, F, G>(a: A, b: B, c: C, d: D, e: E, f: F,
                                             g: G): Row[] Throws DatabaseError
@@ -1126,6 +1211,7 @@ Public Class Statement
         Return Try Collect()
     End Method
 
+    /// Binds its parameters to `a` through `h`, in order, then gives the rows it reads.
     @PanicsAtCaller
     Public Method Rows<A, B, C, D, E, F, G, H>(a: A, b: B, c: C, d: D, e: E, f: F, g: G,
                                                h: H): Row[] Throws DatabaseError
@@ -1149,12 +1235,12 @@ Public Class Statement
         Return Try Collect()
     End Method
 
-    // Throws what failed when code isn't 0.
+    /// Throws what failed when code isn't 0.
     Method Check(code: Int32) Throws DatabaseError
         If code != 0 Then Throw Failure(Owner.Handle, code)
     End Method
 
-    // Panics when its Database is closed, or it takes another number of parameters than count.
+    /// Panics when its Database is closed, or it takes another number of parameters than count.
     @PanicsAtCaller
     Method Expect(count: Int)
         Owner.Connection()
@@ -1164,7 +1250,7 @@ Public Class Statement
         End If
     End Method
 
-    // Runs it to its end, and gets it ready to run again. Panics when its Database is closed.
+    /// Runs it to its end, and gets it ready to run again. Panics when its Database is closed.
     @PanicsAtCaller
     Method Run() Throws DatabaseError
         Owner.Connection()
@@ -1176,7 +1262,7 @@ Public Class Statement
         End Loop
     End Method
 
-    // Runs it to its end, as Run does, and gives each row it read.
+    /// Runs it to its end, as Run does, and gives each row it read.
     @PanicsAtCaller
     Method Collect(): Row[] Throws DatabaseError
         Owner.Connection()
@@ -1203,7 +1289,7 @@ Public Class Statement
         End Loop
     End Method
 
-    // The value of the column at index in the row it's on.
+    /// The value of the column at index in the row it's on.
     Method Read(column: Int32): Cell
         Local type = fb_db_column_type(Handle, column)
         Select type
@@ -1222,16 +1308,16 @@ Public Class Statement
     End Method
 End Class
 
-// What Database.Begin gives. What the Database does from then on is kept when it commits, and
-// undone when it rolls back, or when it's let go of without a Commit, as when an error leaves the
-// code that holds it, so a transaction that fails leaves nothing. One begun while another was
-// open is a part of that one: its Commit keeps what it did only as far as that one does, and that
-// one's Rollback undoes it too.
+/// What Database.Begin gives. What the Database does from then on is kept when it commits, and
+/// undone when it rolls back, or when it's let go of without a Commit, as when an error leaves the
+/// code that holds it, so a transaction that fails leaves nothing. One begun while another was
+/// open is a part of that one: its Commit keeps what it did only as far as that one does, and that
+/// one's Rollback undoes it too.
 Public Class Transaction
     Field Owner: Database
     Field Number: Int64
     Field Level: Int
-    // Whether its Commit or Rollback has run.
+    /// Whether its Commit or Rollback has run.
     Field Ended: Bool
 
     New(owner: Database, number: Int64, level: Int)
@@ -1244,8 +1330,8 @@ Public Class Transaction
         If IsOpen Then Owner.Undo(Level)
     End Method
 
-    // Whether it's open: not committed or rolled back, by its own Methods, with the Transaction
-    // it's a part of, or by SQLite, as some errors do.
+    /// Whether it's open: not committed or rolled back, by its own Methods, with the Transaction
+    /// it's a part of, or by SQLite, as some errors do.
     Public Property IsOpen: Bool
         Get
             Owner.Settle()
@@ -1253,9 +1339,9 @@ Public Class Transaction
         End Get
     End Property
 
-    // Keeps what it did. Throws a DatabaseError when SQLite can't, and it stays open, as when
-    // another connection is reading the database, or when it isn't open. Panics after its Commit
-    // or Rollback, or while a Transaction begun inside it is open.
+    /// Keeps what it did. Throws a DatabaseError when SQLite can't, and it stays open, as when
+    /// another connection is reading the database, or when it isn't open. Panics after its Commit
+    /// or Rollback, or while a Transaction begun inside it is open.
     @PanicsAtCaller
     Public Method Commit() Throws DatabaseError
         If Ended Then Panic("the Transaction has ended already")
@@ -1280,8 +1366,8 @@ Public Class Transaction
         Ended = True
     End Method
 
-    // Undoes what it did, and what each Transaction begun inside it did, or nothing when it isn't
-    // open. Panics after its Commit or Rollback.
+    /// Undoes what it did, and what each Transaction begun inside it did, or nothing when it isn't
+    /// open. Panics after its Commit or Rollback.
     @PanicsAtCaller
     Public Method Rollback() Throws DatabaseError
         If Ended Then Panic("the Transaction has ended already")
@@ -1292,7 +1378,7 @@ Public Class Transaction
     End Method
 End Class
 
-// The DatabaseError for SQLite's code, of its kind, with SQLite's message from database.
+/// The DatabaseError for SQLite's code, of its kind, with SQLite's message from database.
 Function Failure(database: Ptr<Void>, code: Int32): DatabaseError
     If code == HOLDS_NUL
         Return DatabaseError(DatabaseErrorKind.QUERY, "SQL can't hold a NUL, where SQLite stops " +

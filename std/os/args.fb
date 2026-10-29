@@ -1,7 +1,7 @@
-// Args: a program's command line, read into a Struct or Class. Args.Parse<T>() reads T's Fields'
-// attributes, @Positional, @Option, and @Flag, and @Program on T itself, into an ArgsParser,
-// which reads the arguments into a Value that Load<T> makes the T from, with the help and errors
-// they make. An ArgsParser can be built at run time too, for options a program only knows then.
+//! Args: a program's command line, read into a Struct or Class. `Args.Parse<T>()` reads T's Fields'
+//! attributes, @Positional, @Option, and @Flag, and @Program on T itself, into an ArgsParser,
+//! which reads the arguments into a Value that `Load<T>` makes the T from, with the help and errors
+//! they make. An ArgsParser can be built at run time too, for options a program only knows then.
 
 Import std.core
 Import std.collections
@@ -12,47 +12,47 @@ Import std.os.folders
 Import std.os.process
 Import std.os.process_command
 
-// The program a Struct or Class reads the command line of: its name, which is otherwise its
-// executable's, what it does, and its version, which --version and -V print.
+/// The program a Struct or Class reads the command line of: its name, which is otherwise its
+/// executable's, what it does, and its version, which --version and -V print.
 Public Attribute Program(Name: String = "", About: String = "", Version: String = "")
-// A Field an argument goes to by its place, after any before it. One that's a T[] takes the rest,
-// and one that's a T? or Optional can be left out, when it keeps its default.
+/// A Field an argument goes to by its place, after any before it. One that's a T[] takes the rest,
+/// and one that's a T? or Optional can be left out, when it keeps its default.
 Public Attribute Positional(Help: String = "", Name: String = "", Optional: Bool = False)
-// A Field that "--name value", "--name=value", or "-s value" sets, its long name the Field's in
-// kebab case unless Long says otherwise. One that's a T[] takes each time it's given. Name is
-// what its value is called in the help.
+/// A Field that "--name value", "--name=value", or "-s value" sets, its long name the Field's in
+/// kebab case unless Long says otherwise. One that's a T[] takes each time it's given. Name is
+/// what its value is called in the help.
 Public Attribute Option(Help: String = "", Short: String = "", Long: String = "", Name: String = "",
                         Required: Bool = False)
-// A Bool Field that "--name" or "-s" sets, or an integer one that counts how many times it's
-// given, as -vvv is 3.
+/// A Bool Field that "--name" or "-s" sets, or an integer one that counts how many times it's
+/// given, as -vvv is 3.
 Public Attribute Flag(Help: String = "", Short: String = "", Long: String = "")
-// A T? Field of a Struct or Class that its command fills from the rest of the command line, as
-// "git commit -m x" fills a Commit's. Its command is its name in kebab case unless Name says
-// otherwise. One of them, or none, is given; the others stay Null.
+/// A T? Field of a Struct or Class that its command fills from the rest of the command line, as
+/// "git commit -m x" fills a Commit's. Its command is its name in kebab case unless Name says
+/// otherwise. One of them, or none, is given; the others stay Null.
 Public Attribute Subcommand(Help: String = "", Name: String = "")
 
-// What an ArgsParser reads each argument as.
+/// What an ArgsParser reads each argument as.
 Enum ArgKind
     FLAG, COUNT, OPTION, POSITIONAL
 End Enum
 
-// One flag, option, or positional argument of an ArgsParser.
+/// One flag, option, or positional argument of an ArgsParser.
 Struct ArgSpec
-    // Its key in the Value Parse gives.
+    /// Its key in the Value Parse gives.
     Field Key: String
     Field Kind: ArgKind
-    // Without its dashes, or "" for none.
+    /// Without its dashes, or "" for none.
     Field Long: String
     Field Short: String
     Field Help: String
-    // What its value is called in the help, as <path>.
+    /// What its value is called in the help, as <path>.
     Field ValueName: String
     Field Required: Bool
-    // An option or positional that takes more than one value, each of which goes in an Array.
+    /// An option or positional that takes more than one value, each of which goes in an Array.
     Field Repeated: Bool
-    // A Repeated one is an empty Array when it isn't given, but for a T[]? Field, which is Null.
+    /// A Repeated one is an empty Array when it isn't given, but for a T[]? Field, which is Null.
     Field Fills: Bool
-    // What it is without its argument, for the help, or "".
+    /// What it is without its argument, for the help, or "".
     Field Fallback: String
 
     New(key: String, kind: ArgKind, long: String, short: String, help: String,
@@ -69,14 +69,14 @@ Struct ArgSpec
         Fallback = fallback
     End New
 
-    // How the help and errors name it.
+    /// How the help and errors name it.
     Method Shown(): String
         If Kind == ArgKind.POSITIONAL Then Return "<{ValueName}>"
         Return Long != "" ? "--{Long}" : "-{Short}"
     End Method
 End Struct
 
-// A command an ArgsParser reads the rest of the command line with, after its name.
+/// A command an ArgsParser reads the rest of the command line with, after its name.
 Struct CommandSpec
     Field Name: String
     Field Key: String
@@ -91,18 +91,22 @@ Struct CommandSpec
     End New
 End Struct
 
-// What --help or --version asks for, which isn't an error: its text, which Args.Parse<T>()
-// prints before the program ends with 0.
+/// What --help or --version asks for, which isn't an error: its text, which `Args.Parse<T>()`
+/// prints before the program ends with 0.
 Public Class ArgsHelp Extends ArgumentError
+    /// An ArgsHelp of `text`, the help or version that was asked for.
     Public New(text: String)
         Super.New(ArgumentErrorKind.OTHER, text)
     End New
 End Class
 
-// A command line an ArgsParser can't read, with the usage of the command it was reading.
+/// A command line an ArgsParser can't read, with the usage of the command it was reading.
 Public Class ArgsError Extends ArgumentError
+    /// The usage of the command it was reading.
     Public ReadOnly Field Usage: String
 
+    /// An ArgsError of `kind` that says `message`, with the command's `usage`, about the argument
+    /// `name`.
     Public New(kind: ArgumentErrorKind, message: String, usage: String, name: String? = Null,
                cause: Error? = Null)
         Super.New(kind, message, name, cause)
@@ -110,18 +114,20 @@ Public Class ArgsError Extends ArgumentError
     End New
 End Class
 
-// Reads a command line into a Value's Object: each flag's Bool or count, each option's and
-// positional argument's String, or Array of them, and a command's Object, by their keys. Its
-// methods give the ArgsParser back, so they chain.
+/// Reads a command line into a Value's Object: each flag's Bool or count, each option's and
+/// positional argument's String, or Array of them, and a command's Object, by their keys. Its
+/// methods give the ArgsParser back, so they chain.
 Public Class ArgsParser
     Field Name: String
     Field About: String
     Field Version: String
     Field Specs: ArgSpec[]
     Field Commands: CommandSpec[]
-    // A command has to be given, which any Command but an optional one says.
+    /// A command has to be given, which any Command but an optional one says.
     Field CommandRequired: Bool
 
+    /// A new ArgsParser for the program `name`, which --help describes by `about` and --version
+    /// shows `version` for.
     Public New(name: String, about: String = "", version: String = "")
         Name = name
         About = about
@@ -130,9 +136,9 @@ Public Class ArgsParser
         Commands = []
     End New
 
-    // A flag, "--long" or "-s", which is True once given, or with counts, how many times it was.
-    // Panics for a key, long name, or short name another has, a short name that isn't one ASCII
-    // letter or digit, or neither name.
+    /// A flag, "--long" or "-s", which is True once given, or with counts, how many times it was.
+    /// Panics for a key, long name, or short name another has, a short name that isn't one ASCII
+    /// letter or digit, or neither name.
     @PanicsAtCaller
     Public Method Flag(key: String, long: String = "", short: String = "", help: String = "",
                        counts: Bool = False): ArgsParser
@@ -141,8 +147,8 @@ Public Class ArgsParser
         Return Self
     End Method
 
-    // An option that takes a value, "--long value", "--long=value", "-s value", or "-svalue",
-    // which can be given once, or with repeated, any number of times. Panics as Flag does.
+    /// An option that takes a value, "--long value", "--long=value", "-s value", or "-svalue",
+    /// which can be given once, or with repeated, any number of times. Panics as Flag does.
     @PanicsAtCaller
     Public Method Option(key: String, long: String = "", short: String = "", help: String = "",
                          valueName: String = "", required: Bool = False, repeated: Bool = False,
@@ -153,8 +159,8 @@ Public Class ArgsParser
         Return Self
     End Method
 
-    // The next argument by its place, which with rest takes all that are left. Panics for one
-    // after one that takes the rest, a required one after one that isn't, or one beside commands.
+    /// The next argument by its place, which with rest takes all that are left. Panics for one
+    /// after one that takes the rest, a required one after one that isn't, or one beside commands.
     @PanicsAtCaller
     Public Method Positional(key: String, help: String = "", valueName: String = "",
                              required: Bool = True, rest: Bool = False): ArgsParser
@@ -172,9 +178,9 @@ Public Class ArgsParser
         Return Self
     End Method
 
-    // A command, which reads the rest of the command line after its name, into an Object at its
-    // key. One of the commands has to be given, unless every one is optional. Panics beside
-    // positional arguments, or for a name another command has.
+    /// A command, which reads the rest of the command line after its name, into an Object at its
+    /// key. One of the commands has to be given, unless every one is optional. Panics beside
+    /// positional arguments, or for a name another command has.
     @PanicsAtCaller
     Public Method Command(name: String, key: String, parser: ArgsParser, help: String = "",
                           optional: Bool = False): ArgsParser
@@ -193,8 +199,8 @@ Public Class ArgsParser
         Return Self
     End Method
 
-    // Reads `arguments` into an Object. Throws an ArgsHelp for --help or -h, or --version or -V
-    // where there's a version, and an ArgsError for what it can't read, which says why.
+    /// Reads `arguments` into an Object. Throws an ArgsHelp for --help or -h, or --version or -V
+    /// where there's a version, and an ArgsError for what it can't read, which says why.
     Public Method Parse(arguments: String[]): Value Throws ArgumentError
         Local read = Value.Object()
         Local place = 0
@@ -259,7 +265,7 @@ Public Class ArgsParser
         Return read
     End Method
 
-    // How the program is run, as the help's first line has it.
+    /// How the program is run, as the help's first line has it.
     Public Method Usage(): String
         Local line = "Usage: {Name}"
         If Specs.Any(Function(spec: ArgSpec) => spec.Kind != ArgKind.POSITIONAL)
@@ -276,8 +282,8 @@ Public Class ArgsParser
         Return line
     End Method
 
-    // What --help prints: what the program does, how it's run, and each argument, option, and
-    // command, with what it does.
+    /// What --help prints: what the program does, how it's run, and each argument, option, and
+    /// command, with what it does.
     Public Method Help(): String
         Local text = About != "" ? About + "\n\n" : ""
         text += Usage() + "\n"
@@ -346,12 +352,12 @@ Public Class ArgsParser
         Specs.Add(spec)
     End Method
 
-    // An ArgsError, with this parser's usage.
+    /// An ArgsError, with this parser's usage.
     Method Mistake(kind: ArgumentErrorKind, message: String, name: String? = Null): ArgsError
         Return ArgsError(kind, message, Usage(), name)
     End Method
 
-    // --help, -h, --version, or -V, unless an option has the name.
+    /// --help, -h, --version, or -V, unless an option has the name.
     Method Asked(long: String, short: String) Throws ArgumentError
         If (long == "help" || short == "h") && !Has(long, short) Then Throw ArgsHelp(Help())
         If Version != "" && (long == "version" || short == "V") && !Has(long, short)
@@ -359,8 +365,8 @@ Public Class ArgsParser
         End If
     End Method
 
-    // The help's row for --help or --version: the names of the two no option has, or "" when
-    // options have both.
+    /// The help's row for --help or --version: the names of the two no option has, or "" when
+    /// options have both.
     Method Builtin(long: String, short: String): String
         Local shortFree = !Has("", short)
         If Has(long, "") Then Return shortFree ? "-{short}" : ""
@@ -422,8 +428,8 @@ Public Class ArgsParser
         Return ", ".Join(names)
     End Method
 
-    // Gives a flag or option what it was given, and where the arguments go on from: past the
-    // option's value, when it took the next one.
+    /// Gives a flag or option what it was given, and where the arguments go on from: past the
+    /// option's value, when it took the next one.
     Method Take(spec: ArgSpec, shown: String, value: String?, arguments: String[], at: Int,
                 read: Value): Int Throws ArgumentError
         If spec.Kind == ArgKind.FLAG || spec.Kind == ArgKind.COUNT
@@ -453,8 +459,8 @@ Public Class ArgsParser
         Return next
     End Method
 
-    // Puts an option's or positional argument's value at its key, in an Array when it takes more
-    // than one.
+    /// Puts an option's or positional argument's value at its key, in an Array when it takes more
+    /// than one.
     Method Put(spec: ArgSpec, shown: String, value: String, read: Value) Throws ArgumentError
         Local held = read[spec.Key]
         If spec.Repeated
@@ -471,7 +477,7 @@ Public Class ArgsParser
         End If
     End Method
 
-    // Gives the positional argument at `place` the word, and where the next one goes.
+    /// Gives the positional argument at `place` the word, and where the next one goes.
     Method Place(word: String, place: Int, read: Value): Int Throws ArgumentError
         Local seen = 0
         For spec In Specs
@@ -487,8 +493,8 @@ Public Class ArgsParser
         Throw Mistake(ArgumentErrorKind.UNKNOWN, "unexpected argument '{word}'", word)
     End Method
 
-    // The required ones that weren't given, and an empty Array for each that takes more than one
-    // value and wasn't given, which Load then has for it.
+    /// The required ones that weren't given, and an empty Array for each that takes more than one
+    /// value and wasn't given, which Load then has for it.
     Method Check(read: Value) Throws ArgumentError
         For spec In Specs
             If spec.Required && !read.Contains(spec.Key)
@@ -505,8 +511,8 @@ Public Class ArgsParser
         End For
     End Method
 
-    // Leaves the argument at `key` out when it isn't given, where Parse would give an empty
-    // Array, as for a T[]? Field, which is Null then.
+    /// Leaves the argument at `key` out when it isn't given, where Parse would give an empty
+    /// Array, as for a T[]? Field, which is Null then.
     Package Method Unfilled(key: String)
         For i = 0 Until Specs.Count
             If Specs[i].Key != key Then Continue
@@ -516,7 +522,7 @@ Public Class ArgsParser
         End For
     End Method
 
-    // Each option's default, for the help, from what Defaults<T>() gives, by its key.
+    /// Each option's default, for the help, from what `Defaults<T>()` gives, by its key.
     Package Method ShowDefaults(defaults: Value)
         For i = 0 Until Specs.Count
             If Specs[i].Kind != ArgKind.OPTION Then Continue
@@ -526,8 +532,8 @@ Public Class ArgsParser
         End For
     End Method
 
-    // What the help and errors call the argument at `key`, which a Load path starts with, and
-    // its command's parser, for the rest of the path.
+    /// What the help and errors call the argument at `key`, which a Load path starts with, and
+    /// its command's parser, for the rest of the path.
     Package Method Shown(path: String): String
         Local key = path
         Local rest = ""
@@ -551,7 +557,7 @@ Public Class ArgsParser
         Return key
     End Method
 
-    // The usage of the command the path goes into.
+    /// The usage of the command the path goes into.
     Package Method UsageAt(path: String): String
         For command In Commands
             If path == command.Key || path.StartsWith(command.Key + ".")
@@ -563,15 +569,15 @@ Public Class ArgsParser
     End Method
 End Class
 
-// Args' Static Methods.
+/// Args' Static Methods.
 Public Struct Args
-    // Args isn't made: it's only its Static Methods.
+    /// Args isn't made: it's only its Static Methods.
     New()
     End New
 
-    // Reads the program's command line into a T. --help, -h, --version, and -V print what they
-    // ask for, and a command line it can't read prints why, with how the program is run, to
-    // stderr; either way the program then ends, with 0 or 2.
+    /// Reads the program's command line into a T. --help, -h, --version, and -V print what they
+    /// ask for, and a command line it can't read prints why, with how the program is run, to
+    /// stderr; either way the program then ends, with 0 or 2.
     Public Static Method Parse<T>(): T
         Local parser = ParserOf<T>()
         Try
@@ -590,20 +596,20 @@ Public Struct Args
         Panic("Process.Exit returned")
     End Method
 
-    // Reads `arguments` into a T. Throws an ArgsHelp for --help, -h, --version, and -V, and an
-    // ArgsError for what it can't read, which says why.
+    /// Reads `arguments` into a T. Throws an ArgsHelp for --help, -h, --version, and -V, and an
+    /// ArgsError for what it can't read, which says why.
     Public Static Method Parse<T>(arguments: String[]): T Throws ArgumentError
         Return Try Read<T>(ParserOf<T>(), arguments)
     End Method
 
-    // The ArgsParser that Parse<T> reads with, made from T's Fields' attributes.
+    /// The ArgsParser that `Parse<T>` reads with, made from T's Fields' attributes.
     Public Static Method Parser<T>(): ArgsParser => ParserOf<T>()
 
-    // What --help prints for a T.
+    /// What --help prints for a T.
     Public Static Method Help<T>(): String => ParserOf<T>().Help()
 End Struct
 
-// Reads `arguments` with the parser, and makes a T of what it read.
+/// Reads `arguments` with the parser, and makes a T of what it read.
 Function Read<T>(parser: ArgsParser, arguments: String[]): T Throws ArgumentError
     Local read = Try parser.Parse(arguments)
     Try
@@ -620,10 +626,10 @@ Function Read<T>(parser: ArgsParser, arguments: String[]): T Throws ArgumentErro
     End Try
 End Function
 
-// The ArgsParser of a T's Fields: a @Positional's, @Option's, and @Flag's each, and a Field
-// without one an option, or a flag for a Bool. Load's @Skip leaves one out, and its @Rename
-// gives the key, and the option's long name too. A command's parser has its name, and its
-// @Subcommand's Help where its own @Program has no About.
+/// The ArgsParser of a T's Fields: a @Positional's, @Option's, and @Flag's each, and a Field
+/// without one an option, or a flag for a Bool. Load's @Skip leaves one out, and its @Rename
+/// gives the key, and the option's long name too. A command's parser has its name, and its
+/// @Subcommand's Help where its own @Program has no About.
 Function ParserOf<T>(command: String = "", about: String = ""): ArgsParser
     Local program = T.Attribute(Program)
     Local name = Given(program?.Name, command != "" ? command : ExecutableName())
@@ -676,13 +682,13 @@ Function ParserOf<T>(command: String = "", about: String = ""): ArgsParser
     Return parser
 End Function
 
-// An attribute's text, or `otherwise` where it gives none.
+/// An attribute's text, or `otherwise` where it gives none.
 Function Given(text: String?, otherwise: String): String
     Return text != Null && text != "" ? text : otherwise
 End Function
 
-// A default's text for the help, or "" for nothing worth showing: Null, False, a zero of any
-// kind, "", or an empty Array.
+/// A default's text for the help, or "" for nothing worth showing: Null, False, a zero of any
+/// kind, "", or an empty Array.
 Function DefaultText(value: Value?): String
     If value == Null || value.IsNull || value == Value(False) || value == Value("") Then Return ""
     If value.IsNumber && (value.AsDouble() ?? 1.0) == 0.0 Then Return ""
@@ -704,7 +710,7 @@ Function IsAsciiWord(text: String): Bool
     Return True
 End Function
 
-// The executable's name, without its folder or its extension.
+/// The executable's name, without its folder or its extension.
 Function ExecutableName(): String
     Local path = Folders.Executable ?? "program"
     Local slash = Max(path.FindLast("/") ?? -1, path.FindLast("\\") ?? -1)
@@ -713,7 +719,7 @@ Function ExecutableName(): String
     Return dot != Null && dot > 0 ? name.Slice(0, dot) : name
 End Function
 
-// The name closest to `word`, when one is close enough to be what was meant.
+/// The name closest to `word`, when one is close enough to be what was meant.
 Function Closest(word: String, names: String[]): String?
     Local best: String? = Null
     Local distance = Max(2, word.CharCount / 3) + 1
@@ -728,7 +734,7 @@ Function Closest(word: String, names: String[]): String?
     Return best
 End Function
 
-// A titled section of the help, its rows' names in a column `width` wide.
+/// A titled section of the help, its rows' names in a column `width` wide.
 Function Section(title: String, rows: (String, String)[], width: Int): String
     If rows.Count == 0 Then Return ""
     Local text = "\n{title}:\n"

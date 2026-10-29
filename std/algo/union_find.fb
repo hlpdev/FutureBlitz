@@ -1,19 +1,20 @@
-// UnionFind: the Ints from 0 to Count - 1 in sets that start one to each and only ever join, for
-// what's connected to what, as Kruskal's spanning tree and a map's regions ask. Each set has a root
-// that Find gives, and a Find halves its path to the root as it goes, while Union hangs the smaller
-// set under the larger, so either takes nearly constant time.
+//! UnionFind: the Ints from 0 to Count - 1 in sets that start one to each and only ever join, for
+//! what's connected to what, as Kruskal's spanning tree and a map's regions ask. Each set has a
+//! root that Find gives, and a Find halves its path to the root as it goes, while Union hangs the
+//! smaller set under the larger, so either takes nearly constant time.
 
 Import std.core
 Import std.collections
 
+/// The Ints from 0 to Count - 1 in sets that only ever join, for what's connected to what.
 Public Class UnionFind
-    // Each value's parent, itself for a root.
+    /// Each value's parent, itself for a root.
     Field Parents: Int[] = []
-    // The size of each root's set.
+    /// The size of each root's set.
     Field Sizes: Int[] = []
     Field Sets: Int
 
-    // count values, each in a set of its own. A negative count panics.
+    /// count values, each in a set of its own. A negative count panics.
     @PanicsAtCaller
     Public New(count: Int)
         If count < 0 Then Panic("a UnionFind holds a count that isn't negative, not {count}")
@@ -26,17 +27,17 @@ Public Class UnionFind
         Sets = count
     End New
 
-    // How many values there are, from 0 to Count - 1.
+    /// How many values there are, from 0 to Count - 1.
     Public Property Count: Int
         Get => Parents.Count
     End Property
 
-    // How many sets the values are in.
+    /// How many sets the values are in.
     Public Property SetCount: Int
         Get => Sets
     End Property
 
-    // Adds a value in a set of its own, and gives it: the Count before.
+    /// Adds a value in a set of its own, and gives it: the Count before.
     Public Method Add(): Int
         Local value = Parents.Count
         Parents.Add(value)
@@ -45,8 +46,8 @@ Public Class UnionFind
         Return value
     End Method
 
-    // The root of the value's set, which every value in it has. A value outside 0 to Count - 1
-    // panics.
+    /// The root of the value's set, which every value in it has. A value outside 0 to Count - 1
+    /// panics.
     @PanicsAtCaller
     Public Method Find(value: Int): Int
         CheckValue(value)
@@ -58,8 +59,8 @@ Public Class UnionFind
         Return at
     End Method
 
-    // Joins the two values' sets, and tells whether they were apart. A value outside 0 to Count - 1
-    // panics.
+    /// Joins the two values' sets, and tells whether they were apart. A value outside 0 to Count -
+    /// 1 panics.
     @PanicsAtCaller
     Public Method Union(a: Int, b: Int): Bool
         Local rootA = Find(a)
@@ -72,15 +73,16 @@ Public Class UnionFind
         Return True
     End Method
 
-    // Whether the two values are in one set. A value outside 0 to Count - 1 panics.
+    /// Whether the two values are in one set. A value outside 0 to Count - 1 panics.
     @PanicsAtCaller
     Public Method Connected(a: Int, b: Int): Bool => Find(a) == Find(b)
 
-    // How many values are in the value's set, the value too. A value outside 0 to Count - 1 panics.
+    /// How many values are in the value's set, the value too. A value outside 0 to Count - 1
+    /// panics.
     @PanicsAtCaller
     Public Method SizeOf(value: Int): Int => Sizes[Find(value)]
 
-    // The sets, each its values from the least up, in the order of their least values.
+    /// The sets, each its values from the least up, in the order of their least values.
     Public Method Groups(): Int[][]
         Local groups: Int[][] = []
         Local placed: Int[] = []

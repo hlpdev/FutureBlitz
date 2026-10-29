@@ -1,6 +1,6 @@
-// std.net.game's hosts: GameHost, one end of any number of connections over a GameLink, a
-// UdpSocket's or a test's, which it services at each Update, giving what happened as GameEvents:
-// a peer that connected, a message that came, and a peer that disconnected.
+//! std.net.game's hosts: GameHost, one end of any number of connections over a GameLink, a
+//! UdpSocket's or a test's, which it services at each Update, giving what happened as GameEvents:
+//! a peer that connected, a message that came, and a peer that disconnected.
 
 Import std.core
 Import std.collections
@@ -20,34 +20,39 @@ Extern "runtime"
     Function fb_string_from_array(bytes: UInt8[]): String
 End Extern
 
-// What a REFUSE says, by its byte.
+/// What a REFUSE says, by its byte.
 Const REFUSED_FULL: UInt8 = 1
 Const REFUSED_MISMATCH: UInt8 = 2
 
-// The most datagrams an Update takes, so a flood can't keep it from the rest.
+/// The most datagrams an Update takes, so a flood can't keep it from the rest.
 Const MOST_READS = 4096
 
-// How many times a DISCONNECT goes, since nothing acks it.
+/// How many times a DISCONNECT goes, since nothing acks it.
 Const DISCONNECTS = 3
 
-// Whether a link's error is one for good, a socket closed or what isn't a network's, rather
-// than one a peer that's gone gives.
+/// Whether a link's error is one for good, a socket closed or what isn't a network's, rather
+/// than one a peer that's gone gives.
 Function IsFatal(error: NetError): Bool
     Return error.Kind == NetErrorKind.CLOSED || error.Kind == NetErrorKind.OTHER
 End Function
 
-// What a GameEvent says happened.
+/// What a GameEvent says happened.
 Public Enum GameEventKind
     CONNECT, RECEIVE, DISCONNECT
 End Enum
 
-// Something that happened at a GameHost's Update: a peer connected, a message came from one on a
-// channel, or a peer disconnected, and why.
+/// Something that happened at a GameHost's Update: a peer connected, a message came from one on a
+/// channel, or a peer disconnected, and why.
 Public Struct GameEvent Implements Printable
+    /// What happened.
     Public ReadOnly Field Kind: GameEventKind
+    /// The peer it happened to.
     Public ReadOnly Field Peer: GamePeer
+    /// The channel a RECEIVE's message came on.
     Public ReadOnly Field Channel: Int
+    /// A RECEIVE's message.
     Public ReadOnly Field Bytes: UInt8[]
+    /// Why a DISCONNECT's peer went.
     Public ReadOnly Field Reason: DisconnectReason
 
     Package New(kind: GameEventKind, peer: GamePeer, channel: Int, bytes: UInt8[],
@@ -59,13 +64,13 @@ Public Struct GameEvent Implements Printable
         Reason = reason
     End New
 
-    // A message's bytes as UTF-8.
+    /// A message's bytes as UTF-8.
     Public Property Text: String
         Get => fb_string_from_array(Bytes)
     End Property
 
-    // As "CONNECT 127.0.0.1:5000", "RECEIVE 127.0.0.1:5000 on 0, 5 bytes", or
-    // "DISCONNECT 127.0.0.1:5000, TIMEOUT".
+    /// As "CONNECT 127.0.0.1:5000", "RECEIVE 127.0.0.1:5000 on 0, 5 bytes", or
+    /// "DISCONNECT 127.0.0.1:5000, TIMEOUT".
     Public Method ToString(): String
         Select Kind
             Case GameEventKind.CONNECT
@@ -78,22 +83,22 @@ Public Struct GameEvent Implements Printable
     End Method
 End Struct
 
-// One end of connections over a GameLink. Connect asks another host for one, and a host takes
-// those others ask for, up to its MaxPeers; each is a GamePeer, whose Send queues messages. Update
-// takes what's come, sends what's due, and gives the events since the last; Service waits for
-// some. A host whose link is its own, from Bind, closes it at Close.
+/// One end of connections over a GameLink. Connect asks another host for one, and a host takes
+/// those others ask for, up to its MaxPeers; each is a GamePeer, whose Send queues messages. Update
+/// takes what's come, sends what's due, and gives the events since the last; Service waits for
+/// some. A host whose link is its own, from Bind, closes it at Close.
 Public Class GameHost
     Field Link: GameLink
     Field Settings: GameSettings
     Field Generator: Random
     Field Connections: Map<String, GamePeer>
     Field Pending: GameEvent[] = []
-    // The time of the latest Update, in nanoseconds.
+    /// The time of the latest Update, in nanoseconds.
     Field Clock: Int64
     Field Closed: Bool
 
-    // A host over link, with settings, whose salts and first sequences are random, or come from
-    // seed, so a test repeats. Panics for settings that don't make sense.
+    /// A host over link, with settings, whose salts and first sequences are random, or come from
+    /// seed, so a test repeats. Panics for settings that don't make sense.
     @PanicsAtCaller
     Public New(link: GameLink, settings: GameSettings, seed: Int64? = Null)
         Check(settings)
@@ -105,7 +110,7 @@ Public Class GameHost
         Clock = Instant.Now().Nanoseconds
     End New
 
-    // A host over a UDP socket bound to address, as UdpSocket.Bind binds it, with settings.
+    /// A host over a UDP socket bound to address, as UdpSocket.Bind binds it, with settings.
     @PanicsAtCaller
     Public Static Method Bind(
             address: SocketAddress, settings: GameSettings): GameHost Throws NetError
@@ -113,29 +118,30 @@ Public Class GameHost
         Return GameHost(UdpLink(socket), settings)
     End Method
 
-    // A host over a UDP socket bound to address, with GameSettings().
+    /// A host over a UDP socket bound to address, with GameSettings().
     Public Static Method Bind(address: SocketAddress): GameHost Throws NetError
         Return Try Bind(address, GameSettings())
     End Method
 
-    // Where its link receives.
+    /// Where its link receives.
     Public Property LocalAddress: SocketAddress
         Get => Link.LocalAddress
     End Property
 
-    // The peers it's connected to, connecting to, or disconnecting from.
+    /// The peers it's connected to, connecting to, or disconnecting from.
     Public Property Peers: GamePeer[]
         Get => Connections.Values()
     End Property
 
+    /// Whether it's closed.
     Public Property IsClosed: Bool
         Get => Closed
     End Property
 
-    // Asks the host at address for a connection, at the next Update and each ConnectRetry after,
-    // which gives a CONNECT event once it's accepted, or a DISCONNECT one when it's refused or
-    // the Timeout passes. A peer it has at address already is the one it gives. MaxPeers limits
-    // only the peers that connect to it. Panics once it's closed.
+    /// Asks the host at address for a connection, at the next Update and each ConnectRetry after,
+    /// which gives a CONNECT event once it's accepted, or a DISCONNECT one when it's refused or
+    /// the Timeout passes. A peer it has at address already is the one it gives. MaxPeers limits
+    /// only the peers that connect to it. Panics once it's closed.
     @PanicsAtCaller
     Public Method Connect(address: SocketAddress): GamePeer
         If Closed Then Panic("the GameHost at {Link.LocalAddress} is closed")
@@ -147,8 +153,8 @@ Public Class GameHost
         Return peer
     End Method
 
-    // Sends bytes on channel to every peer that's connected. Panics, peers or not, for a channel
-    // the host doesn't have, or a message past its MaxMessageSize, as a peer's Send does.
+    /// Sends bytes on channel to every peer that's connected. Panics, peers or not, for a channel
+    /// the host doesn't have, or a message past its MaxMessageSize, as a peer's Send does.
     @PanicsAtCaller
     Public Method Broadcast(channel: Int, bytes: UInt8[])
         CheckMessage(Settings, channel, bytes)
@@ -157,8 +163,8 @@ Public Class GameHost
         End For
     End Method
 
-    // Takes what's come, then sends what's due, all as of now, and gives the events since the last
-    // Update. A closed host gives none. Throws a NetError only when its link fails for good.
+    /// Takes what's come, then sends what's due, all as of now, and gives the events since the last
+    /// Update. A closed host gives none. Throws a NetError only when its link fails for good.
     Public Method Update(now: Instant): GameEvent[] Throws NetError
         If Closed Then Return []
         Clock = now.Nanoseconds
@@ -174,11 +180,11 @@ Public Class GameHost
         Return events
     End Method
 
-    // Update as of the clock's now.
+    /// Update as of the clock's now.
     Public Method Update(): GameEvent[] Throws NetError => Try Update(Instant.Now())
 
-    // Updates until there are events, waiting for what comes, up to timeout, and gives them, or
-    // none once timeout passes. A timeout too long for the clock waits as long as it takes.
+    /// Updates until there are events, waiting for what comes, up to timeout, and gives them, or
+    /// none once timeout passes. A timeout too long for the clock waits as long as it takes.
     Public Method Service(timeout: Duration): GameEvent[] Throws NetError
         Local until = Later(timeout)
         Loop
@@ -190,7 +196,7 @@ Public Class GameHost
         End Loop
     End Method
 
-    // Service's Async twin, which waits on the main thread.
+    /// Service's Async twin, which waits on the main thread.
     Public Async Method ServiceAsync(timeout: Duration): GameEvent[] Throws NetError
         Local until = Later(timeout)
         Loop
@@ -202,8 +208,8 @@ Public Class GameHost
         End Loop
     End Method
 
-    // Tells each peer it's connected to that it's going, without waiting for acks, and closes its
-    // link, giving no more events.
+    /// Tells each peer it's connected to that it's going, without waiting for acks, and closes its
+    /// link, giving no more events.
     Public Method Close()
         If Closed Then Return
         For peer In Connections.Values()
@@ -221,8 +227,8 @@ Public Class GameHost
         Link.Close()
     End Method
 
-    // The clock's time timeout from now, or its last for a timeout too long for it, and now for
-    // a negative one.
+    /// The clock's time timeout from now, or its last for a timeout too long for it, and now for
+    /// a negative one.
     Method Later(timeout: Duration): Instant
         Local now = Instant.Now()
         Local most: Int64 = 9223372036854775807
@@ -230,8 +236,8 @@ Public Class GameHost
         Return now + Duration.FromNanoseconds(Max(timeout.Nanoseconds, 0))
     End Method
 
-    // How long Service waits for a datagram after now: until a peer has something to do, a
-    // millisecond at least, or until.
+    /// How long Service waits for a datagram after now: until a peer has something to do, a
+    /// millisecond at least, or until.
     Method WaitFor(now: Instant, until: Instant): Int64
         Local wait = (until - now).Nanoseconds
         For peer In Connections.Values()
@@ -241,9 +247,9 @@ Public Class GameHost
         Return Max(wait, 0)
     End Method
 
-    // The next datagram from the link, waiting for timeout at most. A peer that's gone fails some
-    // OSes' next receive, as REFUSED, RESET, or UNREACHABLE, which isn't the host's to stop for, so
-    // that gives an empty datagram, which Handle drops.
+    /// The next datagram from the link, waiting for timeout at most. A peer that's gone fails some
+    /// OSes' next receive, as REFUSED, RESET, or UNREACHABLE, which isn't the host's to stop for,
+    /// so that gives an empty datagram, which Handle drops.
     Method Take(timeout: Duration): (UInt8[], SocketAddress)? Throws NetError
         Try
             Return Try Link.Receive(timeout)
@@ -264,7 +270,7 @@ Public Class GameHost
         End Try
     End Method
 
-    // Sends bytes to `to`, as Take takes errors.
+    /// Sends bytes to `to`, as Take takes errors.
     Method SendTo(bytes: UInt8[], to: SocketAddress) Throws NetError
         Try
             Try Link.Send(bytes, to)
@@ -273,8 +279,8 @@ Public Class GameHost
         End Try
     End Method
 
-    // Takes a datagram from `from` that came at now; one that isn't this protocol's, or that
-    // doesn't fit what it knows of `from`, it drops.
+    /// Takes a datagram from `from` that came at now; one that isn't this protocol's, or that
+    /// doesn't fit what it knows of `from`, it drops.
     Method Handle(bytes: UInt8[], from: SocketAddress, now: Int64)
         Local kind = KindOf(bytes)
         If kind == Null Then Return
@@ -294,7 +300,7 @@ Public Class GameHost
         End Select
     End Method
 
-    // A CONNECT: its salt, its first sequence, its largest message, and its channels' kinds.
+    /// A CONNECT: its salt, its first sequence, its largest message, and its channels' kinds.
     Method OnConnect(reader: PacketReader, from: SocketAddress, peer: GamePeer?, now: Int64)
         Local salt = reader.U32()
         Local first = reader.U16()
@@ -342,7 +348,7 @@ Public Class GameHost
         Pending.Add(GameEvent(GameEventKind.CONNECT, taken, 0, [], DisconnectReason.NONE))
     End Method
 
-    // How many of its peers connected to it, which MaxPeers limits.
+    /// How many of its peers connected to it, which MaxPeers limits.
     Method IncomingCount(): Int
         Local count = 0
         For peer In Connections.Values()
@@ -352,7 +358,7 @@ Public Class GameHost
         Return count
     End Method
 
-    // An ACCEPT: the asker's salt, the accepter's, and the accepter's first sequence.
+    /// An ACCEPT: the asker's salt, the accepter's, and the accepter's first sequence.
     Method OnAccept(reader: PacketReader, peer: GamePeer, now: Int64)
         Local salt = reader.U32()
         Local theirs = reader.U32()
@@ -366,7 +372,7 @@ Public Class GameHost
         Pending.Add(GameEvent(GameEventKind.CONNECT, peer, 0, [], DisconnectReason.NONE))
     End Method
 
-    // A REFUSE: the asker's salt, and why.
+    /// A REFUSE: the asker's salt, and why.
     Method OnRefuse(reader: PacketReader, peer: GamePeer)
         Local salt = reader.U32()
         Local why = reader.Byte()
@@ -395,7 +401,7 @@ Public Class GameHost
         Finish(peer, DisconnectReason.REMOTE)
     End Method
 
-    // Each peer's timers as of now, and what it sends.
+    /// Each peer's timers as of now, and what it sends.
     Method Tick(now: Int64) Throws NetError
         Local timeout = Settings.Timeout.Nanoseconds
         For peer In Connections.Values()
@@ -437,7 +443,7 @@ Public Class GameHost
         End For
     End Method
 
-    // Ends peer's connection, for reason, with an event.
+    /// Ends peer's connection, for reason, with an event.
     Method Finish(peer: GamePeer, reason: DisconnectReason)
         peer.Status = PeerState.DISCONNECTED
         peer.Why = reason
@@ -445,7 +451,7 @@ Public Class GameHost
         Pending.Add(GameEvent(GameEventKind.DISCONNECT, peer, 0, [], reason))
     End Method
 
-    // Whether a CONNECT's largest message and channels' kinds are this host's.
+    /// Whether a CONNECT's largest message and channels' kinds are this host's.
     Method Matches(most: UInt32, kinds: UInt8[]): Bool
         If (most As Int64) != (Settings.MaxMessageSize As Int64) Then Return False
         If kinds.Count != Settings.Channels.Count Then Return False
@@ -471,7 +477,7 @@ Public Class GameHost
         Try SendTo(writer.Bytes, peer.Remote)
     End Method
 
-    // An ACCEPT, which goes again at each CONNECT again; its errors wait for the next send's.
+    /// An ACCEPT, which goes again at each CONNECT again; its errors wait for the next send's.
     Method SendAccept(peer: GamePeer)
         Local writer = PacketWriter(PacketKind.ACCEPT)
         writer.U32(peer.Salt)

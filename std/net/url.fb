@@ -1,11 +1,11 @@
-// std.net's Url and QueryParams, as the WHATWG URL Standard has them: a URL read from its text,
-// against a base or not, its parts and its origin, and the text it writes back, with what isn't
-// in a part's set of code points percent-encoded; and a query's name and value pairs, as an HTML
-// form sends them. A host that isn't ASCII becomes its Punycode; UTS #46's mapping of one, which
-// the standard's domain to ASCII has, waits for std.text.unicode, so until then a host's ASCII
-// letters map to lowercase, fullwidth ASCII to ASCII, and the ideographic full stops to a dot;
-// its spaces map to a space, which no host has; soft hyphens and zero widths are left out; U+FFFD,
-// C1 controls, and noncharacters fail it; and its other code points stay as they are.
+//! std.net's Url and QueryParams, as the WHATWG URL Standard has them: a URL read from its text,
+//! against a base or not, its parts and its origin, and the text it writes back, with what isn't
+//! in a part's set of code points percent-encoded; and a query's name and value pairs, as an HTML
+//! form sends them. A host that isn't ASCII becomes its Punycode; UTS #46's mapping of one, which
+//! the standard's domain to ASCII has, waits for std.text.unicode, so until then a host's ASCII
+//! letters map to lowercase, fullwidth ASCII to ASCII, and the ideographic full stops to a dot;
+//! its spaces map to a space, which no host has; soft hyphens and zero widths are left out; U+FFFD,
+//! C1 controls, and noncharacters fail it; and its other code points stay as they are.
 
 Import std.core
 Import std.collections
@@ -15,27 +15,29 @@ Extern "runtime"
     Function fb_string_from_array(bytes: UInt8[]): String
 End Extern
 
-// What isn't EOF: every code point is 0 or more.
+/// What isn't EOF: every code point is 0 or more.
 Const EOF = -1
 
-// A URL. Parse reads one, and ToString gives its text, which reads back as the same URL.
+/// A URL. Parse reads one, and ToString gives its text, which reads back as the same URL.
 Public Struct Url Implements Hashable, Printable
-    // Its scheme, in lowercase, like "https".
+    /// Its scheme, in lowercase, like "https".
     Public ReadOnly Field Scheme: String
-    // Who it's for, percent-encoded, or "".
+    /// Who it's for, percent-encoded, or "".
     Public ReadOnly Field Username: String
+    /// Its password, percent-encoded, or "".
     Public ReadOnly Field Password: String
-    // Its host as its text has it, without the port: a domain in lowercase ASCII, an IPv4
-    // address, an IPv6 one in brackets, or an opaque host; "" for an empty one, as file:/// has,
-    // and Null for none, as mailto:a@b.com has.
+    /// Its host as its text has it, without the port: a domain in lowercase ASCII, an IPv4
+    /// address, an IPv6 one in brackets, or an opaque host; "" for an empty one, as file:/// has,
+    /// and Null for none, as mailto:a@b.com has.
     Public ReadOnly Field Host: String?
-    // Its port, or Null for none, or the scheme's own, like 443 for https.
+    /// Its port, or Null for none, or the scheme's own, like 443 for https.
     Public ReadOnly Field Port: Int?
-    // Its path's segments, or its opaque path, a URL like mailto:'s, which has no segments.
+    /// Its path's segments, or its opaque path, a URL like mailto:'s, which has no segments.
     Field Segments: String[]
     Field Opaque: String?
-    // Its query, after its ?, and its fragment, after its #, or Null for none.
+    /// Its query, after its ?, and its fragment, after its #, or Null for none.
     Public ReadOnly Field Query: String?
+    /// Its fragment, after its #, or Null for none.
     Public ReadOnly Field Fragment: String?
 
     New(scheme: String, username: String, password: String, host: String?, port: Int?,
@@ -51,28 +53,29 @@ Public Struct Url Implements Hashable, Printable
         Fragment = fragment
     End New
 
-    // The URL text writes, or Null when it isn't one. Space and controls around it, and tabs and
-    // line breaks in it, are left out.
+    /// The URL text writes, or Null when it isn't one. Space and controls around it, and tabs and
+    /// line breaks in it, are left out.
     Public Static Method Parse(text: String): Url?
         Return Parser(Trimmed(PointsOf(text)), Null).Run()
     End Method
 
-    // The URL text writes, relative to base: a whole URL, or a path, query, or fragment to
-    // resolve against base, as a link in a page is.
+    /// The URL text writes, relative to base: a whole URL, or a path, query, or fragment to
+    /// resolve against base, as a link in a page is.
     Public Static Method Parse(text: String, base: Url): Url?
         Return Parser(Trimmed(PointsOf(text)), base).Run()
     End Method
 
+    /// The URL `text` writes, relative to `base`'s text, or Null when either isn't one.
     Public Static Method Parse(text: String, base: String): Url?
         Local parsed = Parse(base)
         If parsed == Null Then Return Null
         Return Parse(text, parsed)
     End Method
 
-    // What text resolves to, relative to this URL.
+    /// What text resolves to, relative to this URL.
     Public Method Resolve(text: String): Url? => Parse(text, Self)
 
-    // Its path as its text has it: each segment after a /, or its opaque path.
+    /// Its path as its text has it: each segment after a /, or its opaque path.
     Public Property Path: String
         Get
             Local opaque = Opaque
@@ -85,19 +88,19 @@ Public Struct Url Implements Hashable, Printable
         End Get
     End Property
 
-    // Whether its path is opaque, as mailto:a@b.com's and data:text/plain,hi's are, so it's no
-    // base for a relative path.
+    /// Whether its path is opaque, as mailto:a@b.com's and data:text/plain,hi's are, so it's no
+    /// base for a relative path.
     Public Property HasOpaquePath: Bool
         Get => Opaque != Null
     End Property
 
-    // Its port, or its scheme's own when it has none, or Null for a scheme without one.
+    /// Its port, or its scheme's own when it has none, or Null for a scheme without one.
     Public Property PortOrDefault: Int?
         Get => Port ?? DefaultPort(Scheme)
     End Property
 
-    // Its query's names and values, a new QueryParams each time. A ? the query starts with is
-    // part of its first name.
+    /// Its query's names and values, a new QueryParams each time. A ? the query starts with is
+    /// part of its first name.
     Public Property Params: QueryParams
         Get
             Local params = QueryParams()
@@ -106,9 +109,9 @@ Public Struct Url Implements Hashable, Printable
         End Get
     End Property
 
-    // Where it's from, as a browser compares sites: its scheme, host, and port, like
-    // "https://example.com:8080", for http, https, ws, wss, and ftp, the origin of the URL a
-    // blob: URL's path is, and "null" for the rest.
+    /// Where it's from, as a browser compares sites: its scheme, host, and port, like
+    /// "https://example.com:8080", for http, https, ws, wss, and ftp, the origin of the URL a
+    /// blob: URL's path is, and "null" for the rest.
     Public Property Origin: String
         Get
             If Scheme == "blob"
@@ -127,7 +130,7 @@ Public Struct Url Implements Hashable, Printable
         End Get
     End Property
 
-    // Its text, as the WHATWG URL serializer writes it.
+    /// Its text, as the WHATWG URL serializer writes it.
     Public Method ToString(): String
         Local text = Scheme + ":"
         Local host = Host
@@ -155,8 +158,8 @@ Public Struct Url Implements Hashable, Printable
         Return text
     End Method
 
-    // text with what isn't a letter, a digit, or one of !'()*-._~ percent-encoded as its UTF-8
-    // bytes, as a query's name or value, or a path's segment, takes any text.
+    /// text with what isn't a letter, a digit, or one of !'()*-._~ percent-encoded as its UTF-8
+    /// bytes, as a query's name or value, or a path's segment, takes any text.
     Public Static Method Encode(text: String): String
         Local bytes: UInt8[] = []
         For c In PointsOf(text)
@@ -165,34 +168,35 @@ Public Struct Url Implements Hashable, Printable
         Return fb_string_from_array(bytes)
     End Method
 
-    // text with each % and two hex digits as the byte they stand for, read as UTF-8 as the
-    // Encoding Standard's decoder reads it: one U+FFFD for each byte that can't start a code
-    // point, and one for each start of one that's cut short, before the byte that cuts it.
+    /// text with each % and two hex digits as the byte they stand for, read as UTF-8 as the
+    /// Encoding Standard's decoder reads it: one U+FFFD for each byte that can't start a code
+    /// point, and one for each start of one that's cut short, before the byte that cuts it.
     Public Static Method Decode(text: String): String
         Return Utf8Decoded(PercentDecoded(text.Bytes))
     End Method
 End Struct
 
-// A query's names and values, in order, as an HTML form sends them: "a=1&b=two%20words", where
-// a + is a space. One name can have many values.
+/// A query's names and values, in order, as an HTML form sends them: "a=1&b=two%20words", where
+/// a + is a space. One name can have many values.
 Public Class QueryParams Implements Printable, Iterable<(String, String)>
     Field Pairs: (String, String)[] = []
 
+    /// A new, empty QueryParams.
     Public New()
     End New
 
-    // The names and values query has, after its ?, if it starts with one.
+    /// The names and values query has, after its ?, if it starts with one.
     Public New(query: String)
         Local bytes = query.Bytes
         Pairs = FormParsed(bytes, bytes.Count > 0 && bytes[0] == 63 ? 1 : 0)
     End New
 
-    // How many pairs it has.
+    /// How many pairs it has.
     Public Property Count: Int
         Get => Pairs.Count
     End Property
 
-    // The first value of name, or Null when it has none.
+    /// The first value of name, or Null when it has none.
     Public Method Get(name: String): String?
         For pair In Pairs
             If pair.0 == name Then Return pair.1
@@ -200,7 +204,7 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
         Return Null
     End Method
 
-    // Each value of name, in order.
+    /// Each value of name, in order.
     Public Method GetAll(name: String): String[]
         Local values: String[] = []
         For pair In Pairs
@@ -209,9 +213,10 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
         Return values
     End Method
 
-    // Whether it has name, or name with value.
+    /// Whether it has name, or name with value.
     Public Method Contains(name: String): Bool => Get(name) != Null
 
+    /// Whether it has `name` with `value`.
     Public Method Contains(name: String, value: String): Bool
         For pair In Pairs
             If pair.0 == name && pair.1 == value Then Return True
@@ -219,12 +224,12 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
         Return False
     End Method
 
-    // Adds name and value at the end, after any values name has.
+    /// Adds name and value at the end, after any values name has.
     Public Method Add(name: String, value: String)
         Pairs.Add((name, value))
     End Method
 
-    // Gives name value: its first pair's, taking the others out, or a new one at the end.
+    /// Gives name value: its first pair's, taking the others out, or a new one at the end.
     Public Method Set(name: String, value: String)
         Local found = False
         Local kept: (String, String)[] = []
@@ -240,21 +245,22 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
         Pairs = kept
     End Method
 
-    // Takes out each pair of name, or of name and value, and gives whether there was one.
+    /// Takes out each pair of name, or of name and value, and gives whether there was one.
     Public Method Remove(name: String): Bool
         Local count = Pairs.Count
         Pairs = Pairs.Filter(Function(pair: (String, String)) => pair.0 != name)
         Return Pairs.Count != count
     End Method
 
+    /// Takes out each of `name`'s values that are `value`, and tells whether it had any.
     Public Method Remove(name: String, value: String): Bool
         Local count = Pairs.Count
         Pairs = Pairs.Filter(Function(pair: (String, String)) => pair.0 != name || pair.1 != value)
         Return Pairs.Count != count
     End Method
 
-    // Puts the pairs in the order of their names, by UTF-16 code units, as the standard says,
-    // keeping the order of one name's values: a merge sort, by each name's order worked out once.
+    /// Puts the pairs in the order of their names, by UTF-16 code units, as the standard says,
+    /// keeping the order of one name's values: a merge sort, by each name's order worked out once.
     Public Method Sort()
         Local entries: (Int[], (String, String))[] = []
         For pair In Pairs
@@ -268,11 +274,11 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
         End For
     End Method
 
-    // Each name and value, in order.
+    /// Each name and value, in order.
     Public Method Iterate(): ArrayIterator<(String, String)> => Pairs.Clone().Iterate()
 
-    // The query's text, without a ?: each name, =, and value, with & between pairs, a space as a
-    // +, and what isn't a letter, a digit, or one of *-._ percent-encoded.
+    /// The query's text, without a ?: each name, =, and value, with & between pairs, a space as a
+    /// +, and what isn't a letter, a digit, or one of *-._ percent-encoded.
     Public Method ToString(): String
         Local bytes: UInt8[] = []
         For i = 0 Until Pairs.Count
@@ -285,13 +291,13 @@ Public Class QueryParams Implements Printable, Iterable<(String, String)>
     End Method
 End Class
 
-// The sets of code points that each part of a URL percent-encodes: past ~ and the C0 controls,
-// then each set has the one before it, but SPECIAL_QUERY, which is QUERY's.
+/// The sets of code points that each part of a URL percent-encodes: past ~ and the C0 controls,
+/// then each set has the one before it, but SPECIAL_QUERY, which is QUERY's.
 Enum PercentSet
     C0, FRAGMENT, QUERY, SPECIAL_QUERY, PATH, USERINFO, COMPONENT, FORM
 End Enum
 
-// Whether a set percent-encodes c.
+/// Whether a set percent-encodes c.
 Function InSet(c: Int, set: PercentSet): Bool
     If c < 0x20 || c > 0x7E Then Return True
     Select set
@@ -318,7 +324,7 @@ Function InSet(c: Int, set: PercentSet): Bool
     End Select
 End Function
 
-// Adds c's UTF-8 bytes.
+/// Adds c's UTF-8 bytes.
 Function AddUtf8(bytes: UInt8[], c: Int)
     If c < 0x80
         bytes.Add(c As UInt8)
@@ -337,7 +343,7 @@ Function AddUtf8(bytes: UInt8[], c: Int)
     End If
 End Function
 
-// The text of code points.
+/// The text of code points.
 Function Text(points: Int[]): String
     Local bytes: UInt8[] = []
     For c In points
@@ -346,17 +352,17 @@ Function Text(points: Int[]): String
     Return fb_string_from_array(bytes)
 End Function
 
-// An uppercase hex digit's code point.
+/// An uppercase hex digit's code point.
 Function HexOf(digit: Int): UInt8 => (digit < 10 ? 48 + digit : 55 + digit) As UInt8
 
-// Adds byte as %XX.
+/// Adds byte as %XX.
 Function AddPercent(bytes: UInt8[], byte: UInt8)
     bytes.Add(37)
     bytes.Add(HexOf((byte >> 4) As Int))
     bytes.Add(HexOf((byte & 15) As Int))
 End Function
 
-// Adds c, or its UTF-8 bytes percent-encoded when set has it.
+/// Adds c, or its UTF-8 bytes percent-encoded when set has it.
 Function PercentEncode(bytes: UInt8[], c: Int, set: PercentSet)
     If !InSet(c, set)
         bytes.Add(c As UInt8)
@@ -370,7 +376,7 @@ Function PercentEncode(bytes: UInt8[], c: Int, set: PercentSet)
     End For
 End Function
 
-// The same, as code points.
+/// The same, as code points.
 Function EncodePoints(points: Int[], c: Int, set: PercentSet)
     Local bytes: UInt8[] = []
     PercentEncode(bytes, c, set)
@@ -379,7 +385,7 @@ Function EncodePoints(points: Int[], c: Int, set: PercentSet)
     End For
 End Function
 
-// The value of a hex digit's code point, or -1.
+/// The value of a hex digit's code point, or -1.
 Function HexValue(c: Int): Int
     If c >= 48 && c <= 57 Then Return c - 48
     If c >= 97 && c <= 102 Then Return c - 87
@@ -387,7 +393,7 @@ Function HexValue(c: Int): Int
     Return -1
 End Function
 
-// bytes with each % and two hex digits as the byte they stand for.
+/// bytes with each % and two hex digits as the byte they stand for.
 Function PercentDecoded(bytes: UInt8[]): UInt8[]
     Local decoded: UInt8[] = []
     Local i = 0
@@ -404,8 +410,8 @@ Function PercentDecoded(bytes: UInt8[]): UInt8[]
     Return decoded
 End Function
 
-// The names and values in a form's bytes from start on: name=value pairs with & between them,
-// where a pair without an = has an empty value.
+/// The names and values in a form's bytes from start on: name=value pairs with & between them,
+/// where a pair without an = has an empty value.
 Function FormParsed(bytes: UInt8[], from: Int): (String, String)[]
     Local pairs: (String, String)[] = []
     Local start = from
@@ -428,7 +434,7 @@ Function FormParsed(bytes: UInt8[], from: Int): (String, String)[]
     Return pairs
 End Function
 
-// A form's name or value, from start until finish in bytes: a + as a space, then decoded.
+/// A form's name or value, from start until finish in bytes: a + as a space, then decoded.
 Function FormDecoded(bytes: UInt8[], start: Int, finish: Int): String
     Local spaced: UInt8[] = []
     For i = start Until finish
@@ -437,10 +443,10 @@ Function FormDecoded(bytes: UInt8[], start: Int, finish: Int): String
     Return Utf8Decoded(PercentDecoded(spaced))
 End Function
 
-// The text of bytes as the Encoding Standard's UTF-8 decoder reads them, which the URL
-// Standard's form parser uses: one U+FFFD for each byte that can't start a code point, and one
-// for the bytes that start one, up to where it's cut short, by their end or by a byte that
-// can't go next, which then starts again.
+/// The text of bytes as the Encoding Standard's UTF-8 decoder reads them, which the URL
+/// Standard's form parser uses: one U+FFFD for each byte that can't start a code point, and one
+/// for the bytes that start one, up to where it's cut short, by their end or by a byte that
+/// can't go next, which then starts again.
 Function Utf8Decoded(bytes: UInt8[]): String
     Local text: UInt8[] = []
     // The code point under way: where it starts, the bytes it needs after its first, and the
@@ -489,7 +495,7 @@ Function Utf8Decoded(bytes: UInt8[]): String
     Return fb_string_from_array(text)
 End Function
 
-// Adds a form's name or value: a space as a +, and the rest as FORM encodes it.
+/// Adds a form's name or value: a space as a +, and the rest as FORM encodes it.
 Function FormEncode(bytes: UInt8[], text: String)
     For byte In text.Bytes
         If byte == 32
@@ -502,7 +508,7 @@ Function FormEncode(bytes: UInt8[], text: String)
     End For
 End Function
 
-// text's code points, as the URL Standard's parsing goes over them.
+/// text's code points, as the URL Standard's parsing goes over them.
 Function PointsOf(text: String): Int[]
     Local points: Int[] = []
     For c In text.Chars
@@ -511,9 +517,9 @@ Function PointsOf(text: String): Int[]
     Return points
 End Function
 
-// The text's code points, each as a number that orders them as their UTF-16 code units do:
-// those from U+E000 to U+FFFF come after the ones past U+FFFF, whose units start with a
-// surrogate, so they're moved above U+10FFFF.
+/// The text's code points, each as a number that orders them as their UTF-16 code units do:
+/// those from U+E000 to U+FFFF come after the ones past U+FFFF, whose units start with a
+/// surrogate, so they're moved above U+10FFFF.
 Function Utf16Order(text: String): Int[]
     Local order: Int[] = []
     For c In PointsOf(text)
@@ -522,7 +528,7 @@ Function Utf16Order(text: String): Int[]
     Return order
 End Function
 
-// Whether a comes before b, each a text's Utf16Order.
+/// Whether a comes before b, each a text's Utf16Order.
 Function OrderBefore(a: Int[], b: Int[]): Bool
     For i = 0 Until Min(a.Count, b.Count)
         If a[i] != b[i] Then Return a[i] < b[i]
@@ -530,8 +536,8 @@ Function OrderBefore(a: Int[], b: Int[]): Bool
     Return a.Count < b.Count
 End Function
 
-// text's code points without the C0 controls and spaces it starts and ends with, or the tabs
-// and line breaks in it.
+/// text's code points without the C0 controls and spaces it starts and ends with, or the tabs
+/// and line breaks in it.
 Function Trimmed(text: Int[]): Int[]
     Local start = 0
     Local finish = text.Count
@@ -555,8 +561,8 @@ Function IsDigit(c: Int): Bool => c >= 48 && c <= 57
 
 Function Lower(c: Int): Int => c >= 65 && c <= 90 ? c + 32 : c
 
-// Whether a scheme is one of the special ones, whose URLs have hosts and paths of their own
-// kind, and the default port of one: ftp's 21, http's and ws's 80, https's and wss's 443.
+/// Whether a scheme is one of the special ones, whose URLs have hosts and paths of their own
+/// kind, and the default port of one: ftp's 21, http's and ws's 80, https's and wss's 443.
 Function IsSpecial(scheme: String): Bool
     Return scheme == "http" || scheme == "https" || scheme == "ws" || scheme == "wss" ||
            scheme == "ftp" || scheme == "file"
@@ -575,8 +581,8 @@ Function DefaultPort(scheme: String): Int?
     End Select
 End Function
 
-// Whether points are a Windows drive letter, a letter and a : or |, or a normalized one, with a
-// : only, as file URLs keep them.
+/// Whether points are a Windows drive letter, a letter and a : or |, or a normalized one, with a
+/// : only, as file URLs keep them.
 Function IsDrive(points: Int[]): Bool
     Return points.Count == 2 && IsAlpha(points[0]) && (points[1] == 58 || points[1] == 124)
 End Function
@@ -585,7 +591,7 @@ Function IsNormalizedDrive(points: Int[]): Bool
     Return points.Count == 2 && IsAlpha(points[0]) && points[1] == 58
 End Function
 
-// How many code points at i are a dot, as . or %2e: 1, 3, or 0 for none.
+/// How many code points at i are a dot, as . or %2e: 1, 3, or 0 for none.
 Function DotAt(points: Int[], i: Int): Int
     If i < points.Count && points[i] == 46 Then Return 1
     If i + 2 < points.Count && points[i] == 37 && points[i + 1] == 50 &&
@@ -608,15 +614,15 @@ Function IsDoubleDot(points: Int[]): Bool
     Return second > 0 && first + second == points.Count
 End Function
 
-// The states of the WHATWG basic URL parser.
+/// The states of the WHATWG basic URL parser.
 Enum State
     SCHEME_START, SCHEME, NO_SCHEME, SPECIAL_RELATIVE_OR_AUTHORITY, PATH_OR_AUTHORITY, RELATIVE,
     RELATIVE_SLASH, SPECIAL_AUTHORITY_SLASHES, SPECIAL_AUTHORITY_IGNORE_SLASHES, AUTHORITY, HOST,
     PORT, FILE, FILE_SLASH, FILE_HOST, PATH_START, PATH, OPAQUE_PATH, QUERY, FRAGMENT
 End Enum
 
-// One run of the basic URL parser over Input's code points, against Base, and the URL record it
-// fills, its parts as their bytes until it's done.
+/// One run of the basic URL parser over Input's code points, against Base, and the URL record it
+/// fills, its parts as their bytes until it's done.
 Class Parser
     Field Input: Int[]
     Field Base: Url?
@@ -643,11 +649,11 @@ Class Parser
         Get => IsSpecial(Scheme)
     End Property
 
-    // The code point at i, or EOF past the end.
+    /// The code point at i, or EOF past the end.
     Method At(i: Int): Int => i >= 0 && i < Input.Count ? Input[i] : EOF
 
-    // Whether the code points from at start with a Windows drive letter, and nothing but a /,
-    // \, ?, or # after it.
+    /// Whether the code points from at start with a Windows drive letter, and nothing but a /,
+    /// \, ?, or # after it.
     Method StartsWithDrive(at: Int): Bool
         If at + 1 >= Input.Count || !IsAlpha(Input[at]) ||
            (Input[at + 1] != 58 && Input[at + 1] != 124)
@@ -658,7 +664,7 @@ Class Parser
         Return next == EOF || next == 47 || next == 92 || next == 63 || next == 35
     End Method
 
-    // Takes the last segment off the path, but not a file URL's drive letter.
+    /// Takes the last segment off the path, but not a file URL's drive letter.
     Method Shorten()
         If Scheme == "file" && Segments.Count == 1 && IsNormalizedDrive(PointsOf(Segments[0]))
             Return
@@ -667,7 +673,7 @@ Class Parser
         If Segments.Count > 0 Then Segments.RemoveAt(Segments.Count - 1)
     End Method
 
-    // Takes the base's credentials, host, and port.
+    /// Takes the base's credentials, host, and port.
     Method Inherit(base: Url)
         Username = base.Username.Bytes
         Password = base.Password.Bytes
@@ -687,7 +693,7 @@ Class Parser
         state = State.FRAGMENT
     End Method
 
-    // The URL, or Null when the input isn't one.
+    /// The URL, or Null when the input isn't one.
     Method Run(): Url?
         // A base that's Null is never read: what needs one checks hasBase first.
         Local hasBase = Base != Null
@@ -1005,9 +1011,9 @@ Class Parser
     End Method
 End Class
 
-// A host as its URL writes it, from its code points: an IPv6 address in brackets, an opaque host
-// for a URL that isn't special, percent-encoded, or else a domain, as ASCII, or the IPv4 address
-// one that ends in a number is. Null when it isn't one.
+/// A host as its URL writes it, from its code points: an IPv6 address in brackets, an opaque host
+/// for a URL that isn't special, percent-encoded, or else a domain, as ASCII, or the IPv4 address
+/// one that ends in a number is. Null when it isn't one.
 Function ParseHost(input: Int[], opaque: Bool): String?
     If input.Count > 0 && input[0] == 91
         If input[input.Count - 1] != 93 Then Return Null
@@ -1044,14 +1050,14 @@ Function ParseHost(input: Int[], opaque: Bool): String?
     Return "{v4 >> 24}.{v4 >> 16 & 255}.{v4 >> 8 & 255}.{v4 & 255}"
 End Function
 
-// The code points no host can have.
+/// The code points no host can have.
 Function IsForbiddenHost(c: Int): Bool
     Return c == 0x00 || c == 0x09 || c == 0x0A || c == 0x0D || c == 0x20 || c == 0x23 ||
            c == 0x2F || c == 0x3A || c == 0x3C || c == 0x3E || c == 0x3F || c == 0x40 ||
            c == 0x5B || c == 0x5C || c == 0x5D || c == 0x5E || c == 0x7C
 End Function
 
-// A domain's labels, split on its dots.
+/// A domain's labels, split on its dots.
 Function Labels(points: Int[]): Int[][]
     Local labels: Int[][] = [[]]
     For c In points
@@ -1064,8 +1070,8 @@ Function Labels(points: Int[]): Int[][]
     Return labels
 End Function
 
-// A domain's code points as UTS #46 maps them, without its tables, but for what the start of
-// this file says, or Null when one is disallowed.
+/// A domain's code points as UTS #46 maps them, without its tables, but for what the start of
+/// this file says, or Null when one is disallowed.
 Function Mapped(domain: Int[]): Int[]?
     Local mapped: Int[] = []
     For c In domain
@@ -1091,16 +1097,16 @@ Function Mapped(domain: Int[]): Int[]?
     Return mapped
 End Function
 
-// Whether a label starts with xn--, the start of Punycode's.
+/// Whether a label starts with xn--, the start of Punycode's.
 Function IsAce(label: Int[]): Bool
     Return label.Count >= 4 && label[0] == 120 && label[1] == 110 && label[2] == 45 &&
            label[3] == 45
 End Function
 
-// A domain as ASCII, as UTS #46's ToASCII has it for URLs, without its mapping of what isn't
-// ASCII but for what the start of this file says: each label as Mapped gives it, and one with
-// code points past ASCII as xn-- and its Punycode, where an xn-- label has to decode to one
-// Mapped keeps as it is. Null when it can't be, or comes out empty.
+/// A domain as ASCII, as UTS #46's ToASCII has it for URLs, without its mapping of what isn't
+/// ASCII but for what the start of this file says: each label as Mapped gives it, and one with
+/// code points past ASCII as xn-- and its Punycode, where an xn-- label has to decode to one
+/// Mapped keeps as it is. Null when it can't be, or comes out empty.
 Function DomainToAscii(domain: Int[]): String?
     Local mapped = Mapped(domain)
     If mapped == Null Then Return Null
@@ -1141,7 +1147,7 @@ Function DomainToAscii(domain: Int[]): String?
     Return fb_string_from_array(ascii)
 End Function
 
-// RFC 3492's Punycode, for an IDN's labels.
+/// RFC 3492's Punycode, for an IDN's labels.
 Const BASE = 36
 Const TMIN = 1
 Const TMAX = 26
@@ -1165,7 +1171,7 @@ End Function
 
 Function DigitOf(d: Int64): Int => (d < 26 ? 97 + d : 22 + d) As Int
 
-// A label's code points as Punycode's ASCII, or Null when they're too many to count.
+/// A label's code points as Punycode's ASCII, or Null when they're too many to count.
 Function PunycodeEncode(label: Int[]): Int[]?
     Local output: Int[] = []
     For c In label
@@ -1209,7 +1215,7 @@ Function PunycodeEncode(label: Int[]): Int[]?
     Return output
 End Function
 
-// The code points Punycode's ASCII stands for, or Null when it isn't Punycode.
+/// The code points Punycode's ASCII stands for, or Null when it isn't Punycode.
 Function PunycodeDecode(input: Int[]): Int[]?
     Local output: Int[] = []
     Local last = -1
@@ -1253,8 +1259,8 @@ Function PunycodeDecode(input: Int[]): Int[]?
     Return output
 End Function
 
-// Whether a domain's last label, before a dot it ends with, is a number, decimal, or hex after
-// a 0x, so the domain is an IPv4 address's.
+/// Whether a domain's last label, before a dot it ends with, is a number, decimal, or hex after
+/// a 0x, so the domain is an IPv4 address's.
 Function EndsInNumber(domain: String): Bool
     Local labels = Labels(PointsOf(domain))
     If labels[labels.Count - 1].Count == 0
@@ -1268,9 +1274,9 @@ Function EndsInNumber(domain: String): Bool
            last[2..last.Count].All(Function(c: Int) => HexValue(c) >= 0)
 End Function
 
-// The IPv4 address a domain that ends in a number stands for, as 32 bits: up to four parts, in
-// decimal, octal after a 0, or hex after a 0x, where the last part fills what the others leave.
-// Null when it isn't one.
+/// The IPv4 address a domain that ends in a number stands for, as 32 bits: up to four parts, in
+/// decimal, octal after a 0, or hex after a 0x, where the last part fills what the others leave.
+/// Null when it isn't one.
 Function ParseIpv4(domain: String): Int64?
     Local parts = Labels(PointsOf(domain))
     If parts[parts.Count - 1].Count == 0 && parts.Count > 1 Then parts.RemoveAt(parts.Count - 1)
@@ -1293,7 +1299,7 @@ Function ParseIpv4(domain: String): Int64?
     Return address
 End Function
 
-// An IPv4 address's part, or Null. One past 32 bits stays just past, which the checks refuse.
+/// An IPv4 address's part, or Null. One past 32 bits stays just past, which the checks refuse.
 Function Ipv4Number(part: Int[]): Int64?
     If part.Count == 0 Then Return Null
     Local radix = 10

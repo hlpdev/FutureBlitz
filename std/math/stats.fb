@@ -1,14 +1,14 @@
-// Statistics of numbers of any type, worked out in Doubles: the mean, the median, the variance and
-// standard deviation of a sample and of a whole population, percentiles, and histograms. Too few
-// values for what's asked panics, as Python's statistics raises.
+//! Statistics of numbers of any type, worked out in Doubles: the mean, the median, the variance and
+//! standard deviation of a sample and of a whole population, percentiles, and histograms. Too few
+//! values for what's asked panics, as Python's statistics raises.
 
 Import std.core
 Import std.collections
 Import std.math.numbers
 Import std.math.scalar
 
-// The values as Doubles, sorted, which Median, Percentile, and Histogram go by. NaN, which no
-// order places, panics, naming what.
+/// The values as Doubles, sorted, which Median, Percentile, and Histogram go by. NaN, which no
+/// order places, panics, naming what.
 @PanicsAtCaller
 Function SortedDoubles<T: Bounded>(values: T[], what: String): Double[]
     Local sorted: Double[] = []
@@ -22,7 +22,7 @@ Function SortedDoubles<T: Bounded>(values: T[], what: String): Double[]
     Return sorted
 End Function
 
-// Panics when there are fewer values than what's asked needs.
+/// Panics when there are fewer values than what's asked needs.
 @PanicsAtCaller
 Function CheckCount(what: String, count: Int, least: Int)
     If count < least
@@ -30,8 +30,8 @@ Function CheckCount(what: String, count: Int, least: Int)
     End If
 End Function
 
-// The mean, the sum over the count, or the sum of each value's share where the sum overflows and
-// the values don't. No values panics.
+/// The mean, the sum over the count, or the sum of each value's share where the sum overflows and
+/// the values don't. No values panics.
 @PanicsAtCaller
 Public Function Mean<T: Bounded>(values: T[]): Double
     CheckCount("Mean", values.Count, 1)
@@ -50,8 +50,8 @@ Public Function Mean<T: Bounded>(values: T[]): Double
     Return shares
 End Function
 
-// The middle value, or the mean of the two middle ones for an even count. No values, or a NaN,
-// panics.
+/// The middle value, or the mean of the two middle ones for an even count. No values, or a NaN,
+/// panics.
 @PanicsAtCaller
 Public Function Median<T: Bounded>(values: T[]): Double
     CheckCount("Median", values.Count, 1)
@@ -61,8 +61,8 @@ Public Function Median<T: Bounded>(values: T[]): Double
     Return Midpoint(sorted[middle - 1], sorted[middle])
 End Function
 
-// The mean and the sum of squared differences from it, by Welford's way, which stays exact where
-// a sum of squares wouldn't.
+/// The mean and the sum of squared differences from it, by Welford's way, which stays exact where
+/// a sum of squares wouldn't.
 Function Spread<T: Bounded>(values: T[]): (Double, Double)
     Local mean: Double = 0
     Local squares: Double = 0
@@ -77,41 +77,41 @@ Function Spread<T: Bounded>(values: T[]): (Double, Double)
     Return (mean, squares)
 End Function
 
-// The variance of a sample, the squared differences from the mean over the count less 1, as an
-// estimate of the variance of all it was drawn from. Fewer than two values panics.
+/// The variance of a sample, the squared differences from the mean over the count less 1, as an
+/// estimate of the variance of all it was drawn from. Fewer than two values panics.
 @PanicsAtCaller
 Public Function Variance<T: Bounded>(values: T[]): Double
     CheckCount("Variance", values.Count, 2)
     Return Spread(values).1 / (values.Count - 1)
 End Function
 
-// The standard deviation of a sample: the square root of its Variance. Fewer than two values
-// panics.
+/// The standard deviation of a sample: the square root of its Variance. Fewer than two values
+/// panics.
 @PanicsAtCaller
 Public Function StdDev<T: Bounded>(values: T[]): Double
     CheckCount("StdDev", values.Count, 2)
     Return Sqrt(Variance(values))
 End Function
 
-// The variance of the values as the whole population: the squared differences from the mean over
-// the count. No values panics.
+/// The variance of the values as the whole population: the squared differences from the mean over
+/// the count. No values panics.
 @PanicsAtCaller
 Public Function PopulationVariance<T: Bounded>(values: T[]): Double
     CheckCount("PopulationVariance", values.Count, 1)
     Return Spread(values).1 / values.Count
 End Function
 
-// The standard deviation of the values as the whole population: the square root of their
-// PopulationVariance. No values panics.
+/// The standard deviation of the values as the whole population: the square root of their
+/// PopulationVariance. No values panics.
 @PanicsAtCaller
 Public Function PopulationStdDev<T: Bounded>(values: T[]): Double
     CheckCount("PopulationStdDev", values.Count, 1)
     Return Sqrt(PopulationVariance(values))
 End Function
 
-// The value below which percent of them lie, from 0 for the least to 100 for the largest, between
-// the two nearest when it falls between them, as NumPy's percentile does: 50 is the Median. No
-// values, a NaN, or a percent outside 0 to 100, panics.
+/// The value below which percent of them lie, from 0 for the least to 100 for the largest, between
+/// the two nearest when it falls between them, as NumPy's percentile does: 50 is the Median. No
+/// values, a NaN, or a percent outside 0 to 100, panics.
 @PanicsAtCaller
 Public Function Percentile<T: Bounded>(values: T[], percent: Double): Double
     CheckCount("Percentile", values.Count, 1)
@@ -126,10 +126,10 @@ Public Function Percentile<T: Bounded>(values: T[], percent: Double): Double
     Return Between(sorted[below], sorted[below + 1], rank - below)
 End Function
 
-// The value t of the way from a to b, as NumPy's percentile works it out from their difference:
-// a itself at t = 0 or where b is a, and their Midpoint at a half, as Median has it. Where the
-// difference overflows, or an end is infinite, it's from each one's share, which can't overflow
-// between finite ends and keeps an infinite one.
+/// The value t of the way from a to b, as NumPy's percentile works it out from their difference:
+/// a itself at t = 0 or where b is a, and their Midpoint at a half, as Median has it. Where the
+/// difference overflows, or an end is infinite, it's from each one's share, which can't overflow
+/// between finite ends and keeps an infinite one.
 Function Between(a: Double, b: Double, t: Double): Double
     If t == 0 || a == b Then Return a
     If t == 0.5 Then Return Midpoint(a, b)
@@ -138,16 +138,16 @@ Function Between(a: Double, b: Double, t: Double): Double
     Return t < 0.5 ? a + difference * t : b - difference * (1 - t)
 End Function
 
-// The mean of two values, from their halves where their sum overflows.
+/// The mean of two values, from their halves where their sum overflows.
 Function Midpoint(a: Double, b: Double): Double
     Local sum = a + b
     If IsFinite(sum) || !IsFinite(a) || !IsFinite(b) Then Return sum / 2
     Return a / 2 + b / 2
 End Function
 
-// How many values fall in each of bins equal ranges from low to high, the last range holding high
-// too; those outside, and NaN, are left out. A count of bins that isn't above 0, or a low that
-// isn't below high, or isn't finite, panics.
+/// How many values fall in each of bins equal ranges from low to high, the last range holding high
+/// too; those outside, and NaN, are left out. A count of bins that isn't above 0, or a low that
+/// isn't below high, or isn't finite, panics.
 @PanicsAtCaller
 Public Function Histogram<T: Bounded>(values: T[], bins: Int, low: Double, high: Double): Int[]
     If bins <= 0 Then Panic("Histogram takes a count of bins above 0, not {bins}")
@@ -166,10 +166,10 @@ Public Function Histogram<T: Bounded>(values: T[], bins: Int, low: Double, high:
     Return counts
 End Function
 
-// The edges of bins equal ranges from low to high, from low to high itself: low + (high - low) i
-// / bins, multiplied before it's divided, so an edge a Double holds is that edge exactly, and in
-// halves where that overflows, which halving leaves the edges of, so a Double's whole range
-// doesn't. Each is kept from below the one before.
+/// The edges of bins equal ranges from low to high, from low to high itself: low + (high - low) i
+/// / bins, multiplied before it's divided, so an edge a Double holds is that edge exactly, and in
+/// halves where that overflows, which halving leaves the edges of, so a Double's whole range
+/// doesn't. Each is kept from below the one before.
 Function Edges(bins: Int, low: Double, high: Double): Double[]
     Local edges: Double[] = [low]
     edges.Reserve(bins + 1)
@@ -187,8 +187,8 @@ Function Edges(bins: Int, low: Double, high: Double): Double[]
     Return edges
 End Function
 
-// The bin x, from low to high, falls in: the last whose lower edge isn't above it, the last bin
-// holding high too.
+/// The bin x, from low to high, falls in: the last whose lower edge isn't above it, the last bin
+/// holding high too.
 Function BinOf(edges: Double[], x: Double): Int
     Local low = 0
     Local high = edges.Count - 2
@@ -203,8 +203,8 @@ Function BinOf(edges: Double[], x: Double): Int
     Return low
 End Function
 
-// How many values fall in each of bins equal ranges from the least value to the largest, which
-// all do. No values, a NaN or an infinite one, or a count of bins that isn't above 0, panics.
+/// How many values fall in each of bins equal ranges from the least value to the largest, which
+/// all do. No values, a NaN or an infinite one, or a count of bins that isn't above 0, panics.
 @PanicsAtCaller
 Public Function Histogram<T: Bounded>(values: T[], bins: Int): Int[]
     CheckCount("Histogram", values.Count, 1)

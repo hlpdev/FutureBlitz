@@ -1,34 +1,40 @@
-// PriorityQueue<T>: Pop gives the value that comes first, the smallest unless a before function
-// says what comes first. The values are a binary heap: each one comes before its two children,
-// at 2i + 1 and 2i + 2. In the smallest-first order, a value that isn't equal to itself, like
-// NaN, panics where it's added, as with SortedSet, since the order can't place it.
+//! `PriorityQueue<T>`: Pop gives the value that comes first, the smallest unless a before function
+//! says what comes first. The values are a binary heap: each one comes before its two children,
+//! at 2i + 1 and 2i + 2. In the smallest-first order, a value that isn't equal to itself, like
+//! NaN, panics where it's added, as with SortedSet, since the order can't place it.
 
 Import std.core
 Import std.collections.array
 
+/// A heap that gives its values out first by a priority: the smallest first, or what a Function
+/// says comes first.
 @DebugElements
 Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
     Field Items: T[] = []
     Field Before: Func(T, T): Bool
-    // In the smallest-first order, what tells a value that isn't equal to itself.
+    /// In the smallest-first order, what tells a value that isn't equal to itself.
     Field Unplaced: (Func(T): Bool)? = Null
-    // How many times values were added or removed, so a For ... In over them can tell.
+    /// How many times values were added or removed, so a For ... In over them can tell.
     Field Changes: Int64
 
+    /// A new, empty PriorityQueue that gives its smallest value first.
     Public New()
         Where T: Comparable
         Before = Function(a: T, b: T) => a < b
         Unplaced = Function(value: T) => value != value
     End New
 
+    /// A new, empty PriorityQueue that gives first the value `before` says comes before the others.
     Public New(before: Func(T, T): Bool)
         Before = before
     End New
 
+    /// How many values it holds.
     Public Property Count: Int
         Get => Items.Count
     End Property
 
+    /// Puts `value` in.
     @PanicsAtCaller
     Public Method Add(value: T)
         CheckPlace(value)
@@ -44,8 +50,8 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
         Changes += 1
     End Method
 
-    // Adds each of the values, putting the heap in order once, in time that grows with the
-    // count.
+    /// Adds each of the values, putting the heap in order once, in time that grows with the
+    /// count.
     @PanicsAtCaller
     Public Method AddAll(values: Iterable<T>)
         Local added = values.Iterate().ToArray()
@@ -61,7 +67,7 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
         Changes += 1
     End Method
 
-    // Takes the first value off and gives it. Panics when the PriorityQueue is empty.
+    /// Takes the first value off and gives it. Panics when the PriorityQueue is empty.
     @PanicsAtCaller
     Public Method Pop(): T
         Local first = Peek()
@@ -73,19 +79,19 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
         Return first
     End Method
 
-    // Takes the first value off and gives it, or Null when the PriorityQueue is empty.
+    /// Takes the first value off and gives it, or Null when the PriorityQueue is empty.
     Public Method TryPop(): T?
         If Items.Count == 0 Then Return Null
         Return Pop()
     End Method
 
-    // The first value, which stays, or Null when the PriorityQueue is empty.
+    /// The first value, which stays, or Null when the PriorityQueue is empty.
     Public Method TryPeek(): T?
         If Items.Count == 0 Then Return Null
         Return Items[0]
     End Method
 
-    // Takes every value off, and gives them in the order Pop would.
+    /// Takes every value off, and gives them in the order Pop would.
     Public Method Drain(): T[]
         Local drained: T[] = []
         drained.Reserve(Items.Count)
@@ -95,27 +101,29 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
         Return drained
     End Method
 
-    // The values, in no particular order, in a new array.
+    /// The values, in no particular order, in a new array.
     Public Method ToArray(): T[] => Items.Clone()
 
-    // The first value, which stays. Panics when the PriorityQueue is empty.
+    /// The first value, which stays. Panics when the PriorityQueue is empty.
     @PanicsAtCaller
     Public Method Peek(): T
         If Items.Count == 0 Then Panic("the PriorityQueue is empty")
         Return Items[0]
     End Method
 
+    /// Whether it holds `value`.
     Public Method Contains(value: T): Bool
         Where T: Equatable
         Return Items.Contains(value)
     End Method
 
+    /// Takes every value out.
     Public Method Clear()
         Items.Clear()
         Changes += 1
     End Method
 
-    // A new PriorityQueue with the same values and order.
+    /// A new PriorityQueue with the same values and order.
     Public Method Clone(): PriorityQueue<T>
         Local copy = PriorityQueue<T>(Before)
         copy.Unplaced = Unplaced
@@ -123,11 +131,11 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
         Return copy
     End Method
 
-    // The values, in no particular order: Pop gives them in order. Changing the PriorityQueue
-    // while going over them panics.
+    /// The values, in no particular order: Pop gives them in order. Changing the PriorityQueue
+    /// while going over them panics.
     Public Method Iterate(): PriorityQueueIterator<T> => PriorityQueueIterator<T>(Self, 0, Changes)
 
-    // Panics at a value the smallest-first order can't place.
+    /// Panics at a value the smallest-first order can't place.
     @PanicsAtCaller
     Method CheckPlace(value: T)
         Local unplaced = Unplaced
@@ -137,7 +145,7 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
         End If
     End Method
 
-    // Moves the value at at down the heap while a child comes before it.
+    /// Moves the value at at down the heap while a child comes before it.
     Method SiftDown(at: Int)
         Local parent = at
         Loop
@@ -166,6 +174,7 @@ Extend PriorityQueue<T> Implements Defaultable
     Public Static Method DefaultValue(): PriorityQueue<T> => PriorityQueue<T>()
 End Extend
 
+/// The values of a PriorityQueue, in no order to count on, which For ... In goes over.
 Public Struct PriorityQueueIterator<T> Implements Iterator<T>
     Field Owner: PriorityQueue<T>
     Field Index: Int

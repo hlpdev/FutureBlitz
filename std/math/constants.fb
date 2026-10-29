@@ -1,21 +1,28 @@
-// The constants of math, as Floats, the type std.math works in, and as Doubles, named with 64:
-// Pi64. Inf and NaN are a Float's, which a Double holds the same.
+//! The constants of math, as Floats, the type std.math works in, and as Doubles, named with 64:
+//! Pi64. Inf and NaN are a Float's, which a Double holds the same.
 
 Import std.math.numbers
 
+/// Pi, half a turn: a circle's circumference over its diameter.
 Public Const Pi: Float = 3.14159265358979323846
-// A turn: 2 Pi.
+/// A turn: 2 Pi.
 Public Const Tau: Float = 6.28318530717958647692
+/// Euler's number, e: the base of the natural logarithm.
 Public Const E: Float = 2.71828182845904523536
-// The gap between 1 and the next Float above it.
+/// The gap between 1 and the next Float above it.
 Public Const Epsilon: Float = 1.1920929e-7
 
+/// Pi, as a Double.
 Public Const Pi64: Double = 3.14159265358979323846
+/// A turn, 2 Pi, as a Double.
 Public Const Tau64: Double = 6.28318530717958647692
+/// Euler's number, e, as a Double.
 Public Const E64: Double = 2.71828182845904523536
-// The gap between 1 and the next Double above it.
+/// The gap between 1 and the next Double above it.
 Public Const Epsilon64: Double = 2.220446049250313e-16
 
-// Infinity and not-a-number, which the compiler doesn't work out, so the program does as it starts.
+/// Infinity and not-a-number, which the compiler doesn't work out, so the program does as it
+/// starts.
 Public Const Inf: Float = Float.FromBits(0x7F800000)
+/// Not a number, which isn't equal to itself, as 0 / 0 gives.
 Public Const NaN: Float = Float.FromBits(0x7FC00000)

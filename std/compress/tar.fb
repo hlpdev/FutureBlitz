@@ -1,12 +1,12 @@
-// Tar's archives: Tar.Read gives a TarReader of a tar's entries, and a TarWriter makes a new tar.
-// A .tar.gz, .tar.zst, .tar.xz, or .tar.lz4 reads as its tar, which Tar.Read decompresses first,
-// and a TarWriter's tar compresses to one, as Gzip.Compress(writer.Finish()) does. It reads
-// POSIX's ustar, with pax's extended headers, GNU's long names and large numbers, and old tars
-// without a magic, and leaves out devices and FIFOs. Names are UTF-8, with U+FFFD for each byte of
-// one that isn't. An entry's time is a pax header's, which can be before 1970 and has a fraction,
-// or else its header's. A TarWriter writes ustar, with a pax header for a name ustar can't hold
-// or that isn't ASCII, or a time it can't, owned by root: unless it's told otherwise, a file's
-// mode is 644 and a folder's 755, at 1970's start, so every program and OS makes the same bytes.
+//! Tar's archives: Tar.Read gives a TarReader of a tar's entries, and a TarWriter makes a new tar.
+//! A .tar.gz, .tar.zst, .tar.xz, or .tar.lz4 reads as its tar, which Tar.Read decompresses first,
+//! and a TarWriter's tar compresses to one, as Gzip.Compress(writer.Finish()) does. It reads
+//! POSIX's ustar, with pax's extended headers, GNU's long names and large numbers, and old tars
+//! without a magic, and leaves out devices and FIFOs. Names are UTF-8, with U+FFFD for each byte of
+//! one that isn't. An entry's time is a pax header's, which can be before 1970 and has a fraction,
+//! or else its header's. A TarWriter writes ustar, with a pax header for a name ustar can't hold
+//! or that isn't ASCII, or a time it can't, owned by root: unless it's told otherwise, a file's
+//! mode is 644 and a folder's 755, at 1970's start, so every program and OS makes the same bytes.
 
 Import std.core
 Import std.collections.view
@@ -39,31 +39,33 @@ Extern "runtime"
     Function fb_tar_writer_free(writer: Ptr<Void>)
 End Extern
 
+/// What makes and reads tar archives, in its Static Methods.
 Public Struct Tar
-    // Tar isn't made: it's only its Static Methods.
+    /// Tar isn't made: it's only its Static Methods.
     New()
     End New
 
-    // A reader of the tar in data, or in the data decompressed when it starts as Gzip's, Zstd's,
-    // XZ's, or LZ4's does, which it copies, or an IOError when it isn't a tar, or its compression
-    // is broken. A decompressed tar holds no more bytes than an array does.
+    /// A reader of the tar in data, or in the data decompressed when it starts as Gzip's, Zstd's,
+    /// XZ's, or LZ4's does, which it copies, or an IOError when it isn't a tar, or its compression
+    /// is broken. A decompressed tar holds no more bytes than an array does.
     Public Static Method Read(data: UInt8[]): TarReader Throws IOError
         Return Try Opened(Try Unwrapped(data))
     End Method
 End Struct
 
-// A new tar, an entry at a time: Add puts in a file, AddFolder a folder, and Finish gives the tar
-// and starts again, empty.
+/// A new tar, an entry at a time: Add puts in a file, AddFolder a folder, and Finish gives the tar
+/// and starts again, empty.
 Public Class TarWriter
     Field State: Ptr<Void>
 
+    /// A new TarWriter, with no entries yet.
     Public New()
         State = fb_tar_writer_new()
     End New
 
-    // Adds a file named name of data, last changed at modified, or at 1970's start when that's
-    // Null, and with mode, or 644 when that's Null. Panics when the mode isn't from 0 to 0o7777,
-    // or when the name is "", holds a NUL, or ends with '/', as a folder's does.
+    /// Adds a file named name of data, last changed at modified, or at 1970's start when that's
+    /// Null, and with mode, or 644 when that's Null. Panics when the mode isn't from 0 to 0o7777,
+    /// or when the name is "", holds a NUL, or ends with '/', as a folder's does.
     @PanicsAtCaller
     Public Method Add(name: String, data: UInt8[], modified: Timestamp? = Null, mode: Int? = Null)
         CheckFileName(name, MOST_BYTES, "tar")
@@ -71,9 +73,9 @@ Public Class TarWriter
         Added(name, data, 0, modified, mode)
     End Method
 
-    // Adds a folder named name, with '/' after it unless it has one, last changed at modified, as
-    // Add's are, with mode, or 755 when that's Null. Panics when the mode isn't from 0 to 0o7777,
-    // or when the name is "" or holds a NUL.
+    /// Adds a folder named name, with '/' after it unless it has one, last changed at modified, as
+    /// Add's are, with mode, or 755 when that's Null. Panics when the mode isn't from 0 to 0o7777,
+    /// or when the name is "" or holds a NUL.
     @PanicsAtCaller
     Public Method AddFolder(name: String, modified: Timestamp? = Null, mode: Int? = Null)
         CheckName(name, MOST_BYTES, "tar")
@@ -81,19 +83,19 @@ Public Class TarWriter
         Added(name, [], 1, modified, mode)
     End Method
 
-    // Adds an entry the runtime's way.
+    /// Adds an entry the runtime's way.
     Method Added(name: String, data: UInt8[], folder: Int32, modified: Timestamp?, mode: Int?)
         fb_tar_writer_add(State, name, data, folder, modified == Null ? 0 : 1,
                           modified?.UnixSeconds ?? 0, (modified?.Nanosecond ?? 0) As Int32,
                           (mode ?? -1) As Int32)
     End Method
 
-    // The tar, of the entries added since it started, and then it starts again, empty. Panics
-    // when it's more bytes than a UInt8[] holds.
+    /// The tar, of the entries added since it started, and then it starts again, empty. Panics
+    /// when it's more bytes than a UInt8[] holds.
     @PanicsAtCaller
     Public Method Finish(): UInt8[] => FinishedWithin(MOST_BYTES)
 
-    // The tar, as Finish gives it, but panicking when it's more than `limit` bytes.
+    /// The tar, as Finish gives it, but panicking when it's more than `limit` bytes.
     @PanicsAtCaller
     Package Method FinishedWithin(limit: Int): UInt8[]
         Local output: UInt8[] = []
@@ -108,7 +110,7 @@ Public Class TarWriter
     End Method
 End Class
 
-// The data, decompressed when it starts as a compressed format's does.
+/// The data, decompressed when it starts as a compressed format's does.
 Function Unwrapped(data: UInt8[]): UInt8[] Throws IOError
     If MagicAt(data, 0, [0x1f, 0x8b]) Then Return Try Gzip.Decompress(data)
     If MagicAt(data, 0, [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]) Then Return Try XZ.Decompress(data)
@@ -129,7 +131,7 @@ Function Unwrapped(data: UInt8[]): UInt8[] Throws IOError
     Return data
 End Function
 
-// Whether the data has `magic` at `at`.
+/// Whether the data has `magic` at `at`.
 Function MagicAt(data: UInt8[], at: Int64, magic: UInt8[]): Bool
     If at < 0 || data.Count - at < magic.Count Then Return False
     For i = 0 Until magic.Count
@@ -138,7 +140,7 @@ Function MagicAt(data: UInt8[], at: Int64, magic: UInt8[]): Bool
     Return True
 End Function
 
-// A tar's entries, which Read gives the bytes of, from a copy of the tar's bytes.
+/// A tar's entries, which Read gives the bytes of, from a copy of the tar's bytes.
 Public Class TarReader
     Field State: Ptr<Void>
     Field List: ArchiveEntry[]
@@ -156,35 +158,37 @@ Public Class TarReader
         End For
     End New
 
-    // Its entries, in the order the tar has them.
+    /// Its entries, in the order the tar has them.
     Public Property Entries: ReadOnlyArray<ArchiveEntry>
         Get => List.AsReadOnly()
     End Property
 
+    /// How many entries it has.
     Public Property Count: Int
         Get => List.Count
     End Property
 
-    // The entry named name, the last of them when there are several, or Null when there's none.
+    /// The entry named name, the last of them when there are several, or Null when there's none.
     Public Method Find(name: String): ArchiveEntry?
         Local index = LastNamed(List, name)
         If index < 0 Then Return Null
         Return List[index]
     End Method
 
+    /// Whether it has an entry named `name`.
     Public Method Contains(name: String): Bool => LastNamed(List, name) >= 0
 
-    // The bytes of the entry named name, the last of them when there are several, or Null when
-    // there's none, as ReadAt gives them.
+    /// The bytes of the entry named name, the last of them when there are several, or Null when
+    /// there's none, as ReadAt gives them.
     Public Method Read(name: String): UInt8[]? Throws IOError
         Local index = LastNamed(List, name)
         If index < 0 Then Return Null
         Return Try ReadAt(index)
     End Method
 
-    // The bytes of the entry at index, which are none for a folder or a link, or an IOError when
-    // they're broken, or are a GNU sparse file's, which isn't supported. Panics when the index is
-    // out of range.
+    /// The bytes of the entry at index, which are none for a folder or a link, or an IOError when
+    /// they're broken, or are a GNU sparse file's, which isn't supported. Panics when the index is
+    /// out of range.
     @PanicsAtCaller
     Public Method ReadAt(index: Int): UInt8[] Throws IOError
         If index < 0 || index >= List.Count
@@ -207,7 +211,7 @@ Public Class TarReader
     End Method
 End Class
 
-// A reader of the tar in data, or an IOError when the data isn't a tar, or ends too soon.
+/// A reader of the tar in data, or an IOError when the data isn't a tar, or ends too soon.
 Function Opened(data: UInt8[]): TarReader Throws IOError
     Local state = fb_tar_reader_new(data)
     Local result = fb_tar_reader_result(state)

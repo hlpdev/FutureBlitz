@@ -1,30 +1,32 @@
-// std.algo's searches of graphs: breadth-first and depth-first search, Dijkstra, and A*. A graph is
-// any values a successors Function steps between, so a grid's cells, a level's rooms, and a game's
-// states are graphs alike, and a node is Hashable, so a search knows where it's been. A search
-// takes its start, its successors, and a Function that says which nodes are the goal, and goes
-// over a node's successors in the order successors gives them, so a run finds what the last did.
-// A weighted step's cost is of any Numeric and Comparable type, Ints for exact sums, and isn't
-// negative or NaN.
+//! std.algo's searches of graphs: breadth-first and depth-first search, Dijkstra, and A*. A graph
+//! is any values a successors Function steps between, so a grid's cells, a level's rooms, and a
+//! game's states are graphs alike, and a node is Hashable, so a search knows where it's been. A
+//! search takes its start, its successors, and a Function that says which nodes are the goal, and
+//! goes over a node's successors in the order successors gives them, so a run finds what the last
+//! did. A weighted step's cost is of any Numeric and Comparable type, Ints for exact sums, and
+//! isn't negative or NaN.
 
 Import std.core
 Import std.collections
 
-// A path a search found: its nodes from the start to the goal, both of them included, and its
-// cost, the sum of its steps' weights.
+/// A path a search found: its nodes from the start to the goal, both of them included, and its
+/// cost, the sum of its steps' weights.
 Public Struct Path<N, C>
+    /// Its nodes, from the start to the goal, both of them included.
     Public Field Nodes: N[]
+    /// The sum of its steps' weights.
     Public Field Cost: C
 End Struct
 
-// The cheapest paths from a start to every node it reaches, as DijkstraAll finds them.
+/// The cheapest paths from a start to every node it reaches, as DijkstraAll finds them.
 Public Class ShortestPaths<N, C>
     Where N: Hashable
     Where C: Numeric & Comparable
 
-    // Where each node reached is in Reached, which Parents and Costs follow.
+    /// Where each node reached is in Reached, which Parents and Costs follow.
     Field Index: Map<N, Int>
     Field Reached: N[]
-    // The node before each on its cheapest path, or -1 for the start.
+    /// The node before each on its cheapest path, or -1 for the start.
     Field Parents: Int[]
     Field Costs: C[]
 
@@ -35,23 +37,23 @@ Public Class ShortestPaths<N, C>
         Costs = costs
     End New
 
-    // The nodes reached, the cheapest first, the start among them.
+    /// The nodes reached, the cheapest first, the start among them.
     Public Property Nodes: N[]
         Get => Reached.Clone()
     End Property
 
-    // Whether the search reached the node.
+    /// Whether the search reached the node.
     Public Method Contains(node: N): Bool => Index.Contains(node)
 
-    // The cost of the cheapest path from the start to the node, or Null for one it didn't reach.
+    /// The cost of the cheapest path from the start to the node, or Null for one it didn't reach.
     Public Method CostTo(node: N): C?
         Local at = Index.Get(node)
         If at == Null Then Return Null
         Return Costs[at]
     End Method
 
-    // The node before this one on its cheapest path from the start, or Null for the start or one
-    // the search didn't reach.
+    /// The node before this one on its cheapest path from the start, or Null for the start or one
+    /// the search didn't reach.
     Public Method Parent(node: N): N?
         Local at = Index.Get(node)
         If at == Null Then Return Null
@@ -60,8 +62,8 @@ Public Class ShortestPaths<N, C>
         Return Reached[parent]
     End Method
 
-    // The cheapest path from the start to the node, both included, or Null for one it didn't
-    // reach.
+    /// The cheapest path from the start to the node, both included, or Null for one it didn't
+    /// reach.
     Public Method PathTo(node: N): N[]?
         Local at = Index.Get(node)
         If at == Null Then Return Null
@@ -69,7 +71,7 @@ Public Class ShortestPaths<N, C>
     End Method
 End Class
 
-// The nodes from the start to the one at `last`, by each one's parent.
+/// The nodes from the start to the one at `last`, by each one's parent.
 Function Chain<N>(nodes: N[], parents: Int[], last: Int): N[]
     Local path: N[] = []
     Local at = last
@@ -81,8 +83,8 @@ Function Chain<N>(nodes: N[], parents: Int[], last: Int): N[]
     Return path
 End Function
 
-// The path with the fewest steps from start to the first node that goal says is one, by
-// breadth-first search, or Null when none it reaches is.
+/// The path with the fewest steps from start to the first node that goal says is one, by
+/// breadth-first search, or Null when none it reaches is.
 Public Function Bfs<N: Hashable>(start: N, successors: Func(N): N[], goal: Func(N): Bool): N[]?
     Local nodes = [start]
     Local parents = [-1]
@@ -103,8 +105,8 @@ Public Function Bfs<N: Hashable>(start: N, successors: Func(N): N[], goal: Func(
     Return Null
 End Function
 
-// The nodes start reaches, itself first, in the order breadth-first search meets them: those fewer
-// steps away first.
+/// The nodes start reaches, itself first, in the order breadth-first search meets them: those fewer
+/// steps away first.
 Public Function BfsOrder<N: Hashable>(start: N, successors: Func(N): N[]): N[]
     Local nodes = [start]
     Local seen = Set<N>()
@@ -119,16 +121,16 @@ Public Function BfsOrder<N: Hashable>(start: N, successors: Func(N): N[]): N[]
     Return nodes
 End Function
 
-// A step of a depth-first search: a node, its successors, and the next of them to go to.
+/// A step of a depth-first search: a node, its successors, and the next of them to go to.
 Struct DepthStep<N>
     Field Node: Int
     Field Successors: N[]
     Field Next: Int
 End Struct
 
-// A path from start to the first node that goal says is one, by depth-first search, which follows
-// each successor as far as it goes before the next: not the shortest path, but found with only the
-// path in hand. Null when none it reaches is the goal.
+/// A path from start to the first node that goal says is one, by depth-first search, which follows
+/// each successor as far as it goes before the next: not the shortest path, but found with only the
+/// path in hand. Null when none it reaches is the goal.
 Public Function Dfs<N: Hashable>(start: N, successors: Func(N): N[], goal: Func(N): Bool): N[]?
     Local nodes = [start]
     Local parents = [-1]
@@ -156,8 +158,8 @@ Public Function Dfs<N: Hashable>(start: N, successors: Func(N): N[], goal: Func(
     Return Null
 End Function
 
-// The nodes start reaches, itself first, in the order depth-first search meets them: a successor,
-// and all it reaches, before the next successor.
+/// The nodes start reaches, itself first, in the order depth-first search meets them: a successor,
+/// and all it reaches, before the next successor.
 Public Function DfsOrder<N: Hashable>(start: N, successors: Func(N): N[]): N[]
     Local nodes = [start]
     Local seen = Set<N>()
@@ -181,8 +183,8 @@ Public Function DfsOrder<N: Hashable>(start: N, successors: Func(N): N[]): N[]
     Return nodes
 End Function
 
-// A node waiting in a search's queue: its cost so far plus its guess, the guess, the order it was
-// added in, and where it is.
+/// A node waiting in a search's queue: its cost so far plus its guess, the guess, the order it was
+/// added in, and where it is.
 Struct Waiting<C>
     Field Total: C
     Field Guess: C
@@ -190,16 +192,16 @@ Struct Waiting<C>
     Field Node: Int
 End Struct
 
-// Whether a comes out of the queue before b: the least total, then the least guess, so ties go
-// to what's nearer the goal, then the first added.
+/// Whether a comes out of the queue before b: the least total, then the least guess, so ties go
+/// to what's nearer the goal, then the first added.
 Function Before<C: Comparable>(a: Waiting<C>, b: Waiting<C>): Bool
     If a.Total != b.Total Then Return a.Total < b.Total
     If a.Guess != b.Guess Then Return a.Guess < b.Guess
     Return a.Order < b.Order
 End Function
 
-// A best-first search, A*'s, or Dijkstra's with a guess of 0: what it reached, with each node's
-// parent and cost, and where the goal is, or -1 for none, or for every node when goal is Null.
+/// A best-first search, A*'s, or Dijkstra's with a guess of 0: what it reached, with each node's
+/// parent and cost, and where the goal is, or -1 for none, or for every node when goal is Null.
 Class Search<N, C>
     Where N: Hashable
     Where C: Numeric & Comparable
@@ -208,8 +210,8 @@ Class Search<N, C>
     Field Nodes: N[] = []
     Field Parents: Int[] = []
     Field Costs: C[] = []
-    // The nodes in the order they first came out of the queue, each once: with a guess of 0, as
-    // Dijkstra's is, each at its cheapest.
+    /// The nodes in the order they first came out of the queue, each once: with a guess of 0, as
+    /// Dijkstra's is, each at its cheapest.
     Field Settled: Int[] = []
     Field Goal: Int = -1
 
@@ -280,16 +282,16 @@ Class Search<N, C>
         End While
     End New
 
-    // The path to the goal, or Null when there was none.
+    /// The path to the goal, or Null when there was none.
     Method ToPath(): Path<N, C>?
         If Goal < 0 Then Return Null
         Return Path<N, C>(Chain(Nodes, Parents, Goal), Costs[Goal])
     End Method
 End Class
 
-// The cheapest path from start to the first node that goal says is one, by Dijkstra's algorithm,
-// with each step's weight from successors, or Null when none it reaches is. A negative or NaN
-// weight panics.
+/// The cheapest path from start to the first node that goal says is one, by Dijkstra's algorithm,
+/// with each step's weight from successors, or Null when none it reaches is. A negative or NaN
+/// weight panics.
 @PanicsAtCaller
 Public Function Dijkstra<N, C>(start: N, successors: Func(N): (N, C)[],
                                goal: Func(N): Bool): Path<N, C>?
@@ -298,8 +300,8 @@ Public Function Dijkstra<N, C>(start: N, successors: Func(N): (N, C)[],
     Return Search<N, C>(start, successors, Function(node: N) => C.Zero(), goal).ToPath()
 End Function
 
-// The cheapest paths from start to every node it reaches, by Dijkstra's algorithm, with each step's
-// weight from successors. A negative or NaN weight panics.
+/// The cheapest paths from start to every node it reaches, by Dijkstra's algorithm, with each
+/// step's weight from successors. A negative or NaN weight panics.
 @PanicsAtCaller
 Public Function DijkstraAll<N, C>(start: N, successors: Func(N): (N, C)[]): ShortestPaths<N, C>
     Where N: Hashable
@@ -323,11 +325,11 @@ Public Function DijkstraAll<N, C>(start: N, successors: Func(N): (N, C)[]): Shor
     Return ShortestPaths<N, C>(index, reached, parents, costs)
 End Function
 
-// The cheapest path from start to the first node that goal says is one, by A*, which goes on
-// first from where the cost so far, plus heuristic's guess of what's left to the goal, is least.
-// For the path to be the cheapest, the guess can't be more than what's left, as a straight line's
-// length isn't. Null when no node it reaches is the goal. A negative or NaN weight, or a NaN
-// guess, panics.
+/// The cheapest path from start to the first node that goal says is one, by A*, which goes on
+/// first from where the cost so far, plus heuristic's guess of what's left to the goal, is least.
+/// For the path to be the cheapest, the guess can't be more than what's left, as a straight line's
+/// length isn't. Null when no node it reaches is the goal. A negative or NaN weight, or a NaN
+/// guess, panics.
 @PanicsAtCaller
 Public Function AStar<N, C>(start: N, successors: Func(N): (N, C)[], heuristic: Func(N): C,
                             goal: Func(N): Bool): Path<N, C>?

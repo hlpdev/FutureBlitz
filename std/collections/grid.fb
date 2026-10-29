@@ -1,18 +1,19 @@
-// Grid<T> and Grid3<T>: a fixed number of values in columns and rows, and in layers too, read and
-// set by position, like a map's tiles or a volume's voxels. A position is (x, y), or (x, y, z),
-// each from 0, and one outside the Grid panics where it's used. The cells are in one array, row
-// by row, and layer by layer.
+//! `Grid<T>` and `Grid3<T>`: a fixed number of values in columns and rows, and in layers too, read
+//! and set by position, like a map's tiles or a volume's voxels. A position is (x, y), or (x, y,
+//! z), each from 0, and one outside the Grid panics where it's used. The cells are in one array,
+//! row by row, and layer by layer.
 
 Import std.core
 Import std.collections.array
 
+/// A rectangle of cells, Width by Height, each a T, indexed as grid[x, y].
 Public Class Grid<T> Implements Iterable<T>, Cloneable
     Field Cells: T[] = []
     Field Columns: Int
     Field Rows: Int
 
-    // A Grid width cells across and height down, each holding fill. A negative size panics, and
-    // so does one with more cells than an Int counts.
+    /// A Grid width cells across and height down, each holding fill. A negative size panics, and
+    /// so does one with more cells than an Int counts.
     @PanicsAtCaller
     Public New(width: Int, height: Int, fill: T)
         If width < 0 || height < 0 Then Panic("a Grid can't be {width} by {height}")
@@ -23,24 +24,26 @@ Public Class Grid<T> Implements Iterable<T>, Cloneable
         Cells.Resize(count, fill)
     End New
 
-    // An empty one, for Clone to fill.
+    /// An empty one, for Clone to fill.
     New()
     End New
 
+    /// How many cells wide it is.
     Public Property Width: Int
         Get => Columns
     End Property
 
+    /// How many cells high it is.
     Public Property Height: Int
         Get => Rows
     End Property
 
-    // How many cells it has, Width times Height.
+    /// How many cells it has, Width times Height.
     Public Property Count: Int
         Get => Cells.Count
     End Property
 
-    // Whether (x, y) is one of the Grid's cells.
+    /// Whether (x, y) is one of the Grid's cells.
     Public Method InBounds(x: Int, y: Int): Bool => x >= 0 && x < Columns && y >= 0 && y < Rows
 
     @PanicsAtCaller
@@ -51,28 +54,28 @@ Public Class Grid<T> Implements Iterable<T>, Cloneable
         Cells[CellOf(x, y)] = value
     End Operator
 
-    // The positions beside (x, y) that are in the Grid: above, left, right, and below it.
+    /// The positions beside (x, y) that are in the Grid: above, left, right, and below it.
     @PanicsAtCaller
     Public Method Neighbors4(x: Int, y: Int): (Int, Int)[]
         Return Beside(x, y, [(0, -1), (-1, 0), (1, 0), (0, 1)])
     End Method
 
-    // The positions around (x, y) that are in the Grid, its corners too, row by row.
+    /// The positions around (x, y) that are in the Grid, its corners too, row by row.
     @PanicsAtCaller
     Public Method Neighbors8(x: Int, y: Int): (Int, Int)[]
         Local offsets = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
         Return Beside(x, y, offsets)
     End Method
 
-    // Gives every cell the value.
+    /// Gives every cell the value.
     Public Method Fill(value: T)
         Cells.Fill(value)
     End Method
 
-    // The values, row by row, in a new array.
+    /// The values, row by row, in a new array.
     Public Method ToArray(): T[] => Cells.Clone()
 
-    // A new Grid with the same size and values.
+    /// A new Grid with the same size and values.
     Public Method Clone(): Grid<T>
         Local copy = Grid<T>()
         copy.Cells = Cells.Clone()
@@ -81,10 +84,10 @@ Public Class Grid<T> Implements Iterable<T>, Cloneable
         Return copy
     End Method
 
-    // The values, row by row.
+    /// The values, row by row.
     Public Method Iterate(): GridIterator<T> => GridIterator<T>(Cells, 0)
 
-    // The positions offset from (x, y) by each of the offsets that are in the Grid.
+    /// The positions offset from (x, y) by each of the offsets that are in the Grid.
     @PanicsAtCaller
     Method Beside(x: Int, y: Int, offsets: (Int, Int)[]): (Int, Int)[]
         CellOf(x, y)
@@ -95,7 +98,7 @@ Public Class Grid<T> Implements Iterable<T>, Cloneable
         Return found
     End Method
 
-    // Where (x, y) is in Cells, which panics when it's outside the Grid.
+    /// Where (x, y) is in Cells, which panics when it's outside the Grid.
     @PanicsAtCaller
     Method CellOf(x: Int, y: Int): Int
         If !InBounds(x, y) Then Panic("({x}, {y}) is outside a Grid {Columns} by {Rows}")
@@ -103,7 +106,7 @@ Public Class Grid<T> Implements Iterable<T>, Cloneable
     End Method
 End Class
 
-// Goes over a Grid's or a Grid3's cells, which never change in number.
+/// Goes over a Grid's or a Grid3's cells, which never change in number.
 Public Struct GridIterator<T> Implements Iterator<T>
     Field Cells: T[]
     Field Index: Int
@@ -137,14 +140,15 @@ Extend Grid<T> Implements Printable
     End Method
 End Extend
 
+/// A box of cells, Width by Height by Depth, each a T, indexed as grid[x, y, z].
 Public Class Grid3<T> Implements Iterable<T>, Cloneable
     Field Cells: T[] = []
     Field Columns: Int
     Field Rows: Int
     Field Layers: Int
 
-    // A Grid3 width cells across, height down, and depth deep, each holding fill. A negative size
-    // panics, and so does one with more cells than an Int counts.
+    /// A Grid3 width cells across, height down, and depth deep, each holding fill. A negative size
+    /// panics, and so does one with more cells than an Int counts.
     @PanicsAtCaller
     Public New(width: Int, height: Int, depth: Int, fill: T)
         If width < 0 || height < 0 || depth < 0
@@ -167,28 +171,31 @@ Public Class Grid3<T> Implements Iterable<T>, Cloneable
         Cells.Resize(count, fill)
     End New
 
-    // An empty one, for Clone to fill.
+    /// An empty one, for Clone to fill.
     New()
     End New
 
+    /// How many cells wide it is.
     Public Property Width: Int
         Get => Columns
     End Property
 
+    /// How many cells high it is.
     Public Property Height: Int
         Get => Rows
     End Property
 
+    /// How many cells deep it is.
     Public Property Depth: Int
         Get => Layers
     End Property
 
-    // How many cells it has, Width times Height times Depth.
+    /// How many cells it has, Width times Height times Depth.
     Public Property Count: Int
         Get => Cells.Count
     End Property
 
-    // Whether (x, y, z) is one of the Grid3's cells.
+    /// Whether (x, y, z) is one of the Grid3's cells.
     Public Method InBounds(x: Int, y: Int, z: Int): Bool
         Return x >= 0 && x < Columns && y >= 0 && y < Rows && z >= 0 && z < Layers
     End Method
@@ -201,16 +208,16 @@ Public Class Grid3<T> Implements Iterable<T>, Cloneable
         Cells[CellOf(x, y, z)] = value
     End Operator
 
-    // The positions that share a face with (x, y, z) and are in the Grid3: the layer before, then
-    // above, left, right, and below, then the layer after.
+    /// The positions that share a face with (x, y, z) and are in the Grid3: the layer before, then
+    /// above, left, right, and below, then the layer after.
     @PanicsAtCaller
     Public Method Neighbors6(x: Int, y: Int, z: Int): (Int, Int, Int)[]
         Local offsets = [(0, 0, -1), (0, -1, 0), (-1, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1)]
         Return Beside(x, y, z, offsets)
     End Method
 
-    // The positions around (x, y, z) that are in the Grid3, its edges and corners too, layer by
-    // layer and row by row.
+    /// The positions around (x, y, z) that are in the Grid3, its edges and corners too, layer by
+    /// layer and row by row.
     @PanicsAtCaller
     Public Method Neighbors26(x: Int, y: Int, z: Int): (Int, Int, Int)[]
         Local offsets: (Int, Int, Int)[] = []
@@ -224,15 +231,15 @@ Public Class Grid3<T> Implements Iterable<T>, Cloneable
         Return Beside(x, y, z, offsets)
     End Method
 
-    // Gives every cell the value.
+    /// Gives every cell the value.
     Public Method Fill(value: T)
         Cells.Fill(value)
     End Method
 
-    // The values, layer by layer and row by row, in a new array.
+    /// The values, layer by layer and row by row, in a new array.
     Public Method ToArray(): T[] => Cells.Clone()
 
-    // A new Grid3 with the same size and values.
+    /// A new Grid3 with the same size and values.
     Public Method Clone(): Grid3<T>
         Local copy = Grid3<T>()
         copy.Cells = Cells.Clone()
@@ -242,7 +249,7 @@ Public Class Grid3<T> Implements Iterable<T>, Cloneable
         Return copy
     End Method
 
-    // The values, layer by layer and row by row.
+    /// The values, layer by layer and row by row.
     Public Method Iterate(): GridIterator<T> => GridIterator<T>(Cells, 0)
 
     @PanicsAtCaller

@@ -1,10 +1,10 @@
-// std.io's paths: a Path is where a file or folder is, as text, read by Windows' rules or POSIX's,
-// the target's unless it's made with the other's. A String converts to one wherever a Path is
-// expected. Its own separator is '/' on every OS, which it
-// writes wherever it joins or rebuilds a path, and Windows takes it, so a program's paths read the
-// same everywhere; on Windows '\' is one too, and a path can start with a drive, like "C:", or a
-// server's share, like "//server/share". What a Path does to its text is only text: nothing here
-// looks at the disk but Absolute, which asks for the current folder.
+//! std.io's paths: a Path is where a file or folder is, as text, read by Windows' rules or POSIX's,
+//! the target's unless it's made with the other's. A String converts to one wherever a Path is
+//! expected. Its own separator is '/' on every OS, which it
+//! writes wherever it joins or rebuilds a path, and Windows takes it, so a program's paths read the
+//! same everywhere; on Windows '\' is one too, and a path can start with a drive, like "C:", or a
+//! server's share, like "//server/share". What a Path does to its text is only text: nothing here
+//! looks at the disk but Absolute, which asks for the current folder.
 
 Import std.core
 
@@ -14,7 +14,7 @@ Extern "runtime"
     Function fb_io_dir_current(): String?
 End Extern
 
-// Whose rules a Path reads its text by.
+/// Whose rules a Path reads its text by.
 Public Enum PathStyle
     POSIX
     WINDOWS
@@ -25,28 +25,29 @@ Const BACKSLASH: UInt8 = 92
 Const COLON: UInt8 = 58
 Const DOT: UInt8 = 46
 
-// Where a file or folder is. Paths are equal when their texts and styles are, so "a/b" and
-// "a//b" aren't until Normalize makes them so, and they sort by their styles, POSIX's first, then
-// by their texts' bytes. A Path's zero, as a Struct's Field starts with, is "" by the target's
-// rules, as Path("") is.
+/// Where a file or folder is. Paths are equal when their texts and styles are, so "a/b" and
+/// "a//b" aren't until Normalize makes them so, and they sort by their styles, POSIX's first, then
+/// by their texts' bytes. A Path's zero, as a Struct's Field starts with, is "" by the target's
+/// rules, as Path("") is.
 Public Struct Path Implements Comparable, Hashable, Printable
+    /// Its text, as it was given.
     Public ReadOnly Field Text: String
-    // Whose rules it reads its text by: 0 for the target's, as a Path's zero is, 1 for POSIX's,
-    // and 2 for Windows'.
+    /// Whose rules it reads its text by: 0 for the target's, as a Path's zero is, 1 for POSIX's,
+    /// and 2 for Windows'.
     ReadOnly Field Rules: Int8
 
-    // A path by the target's rules.
+    /// A path by the target's rules.
     Public New(text: String)
         Text = text
     End New
 
-    // A path by `style`'s rules, whatever the target's are.
+    /// A path by `style`'s rules, whatever the target's are.
     Public New(text: String, style: PathStyle)
         Text = text
         Rules = style == PathStyle.POSIX ? 1 : 2
     End New
 
-    // Whose rules it reads its text by.
+    /// Whose rules it reads its text by.
     Public Property Style: PathStyle
         Get
             If Rules == 0 Then Return NativeStyle()
@@ -54,12 +55,12 @@ Public Struct Path Implements Comparable, Hashable, Printable
         End Get
     End Property
 
-    // The target's style: WINDOWS on Windows, and POSIX everywhere else.
+    /// The target's style: WINDOWS on Windows, and POSIX everywhere else.
     Public Static Method NativeStyle(): PathStyle
         Return fb_path_windows() != 0 ? PathStyle.WINDOWS : PathStyle.POSIX
     End Method
 
-    // `b` after `a`, as Join puts it: `saves / "one.dat"`, since a String converts to a Path.
+    /// `b` after `a`, as Join puts it: `saves / "one.dat"`, since a String converts to a Path.
     Operator /(a: Path, b: Path): Path => a.Join(b)
 
     Operator <(a: Path, b: Path): Bool
@@ -73,9 +74,9 @@ Public Struct Path Implements Comparable, Hashable, Printable
 
     Public Method ToString(): String => Text
 
-    // `other` after this one, with a '/' between them unless this one ends with a separator. An
-    // `other` that's absolute is where it says, and on Windows one that starts at a root, like
-    // "/saves", is on this one's drive. An empty one adds nothing, and this one empty gives it.
+    /// `other` after this one, with a '/' between them unless this one ends with a separator. An
+    /// `other` that's absolute is where it says, and on Windows one that starts at a root, like
+    /// "/saves", is on this one's drive. An empty one adds nothing, and this one empty gives it.
     Public Method Join(other: Path): Path
         Local windows = Style == PathStyle.WINDOWS
         Local bytes = Text.Bytes
@@ -104,8 +105,8 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Return Joined(bytes, prefix, anchor, other.Text)
     End Method
 
-    // `added` after the path, with a '/' between unless the path ends with a separator or is a
-    // drive alone, like "C:", which the next name goes right after.
+    /// `added` after the path, with a '/' between unless the path ends with a separator or is a
+    /// drive alone, like "C:", which the next name goes right after.
     Method Joined(bytes: UInt8[], prefix: Int, anchor: Int, added: String): Path
         Local windows = Style == PathStyle.WINDOWS
         If IsSeparator(bytes[bytes.Count - 1], windows) ||
@@ -116,8 +117,8 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Return Path(Text + "/" + added, Style)
     End Method
 
-    // The last name in the path, "" when it has none, as a root doesn't: "save.dat" for
-    // "games/save.dat" and for "games/save.dat/" too.
+    /// The last name in the path, "" when it has none, as a root doesn't: "save.dat" for
+    /// "games/save.dat" and for "games/save.dat/" too.
     Public Method FileName(): String
         Local bytes = Text.Bytes
         Local windows = Style == PathStyle.WINDOWS
@@ -125,16 +126,16 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Return names.Count == 0 ? "" : names[names.Count - 1]
     End Method
 
-    // The file name without its extension: "save" for "save.dat", ".config" for ".config", and
-    // "archive.tar" for "archive.tar.gz".
+    /// The file name without its extension: "save" for "save.dat", ".config" for ".config", and
+    /// "archive.tar" for "archive.tar.gz".
     Public Method Stem(): String
         Local name = FileName()
         Local dot = ExtensionAt(name.Bytes)
         Return dot < 0 ? name : TextOfBytes(name.Bytes[0..dot])
     End Method
 
-    // The file name's extension with its dot, like ".dat", or "" when it has none. A name that
-    // starts with its only dot, like ".config", or ends with one has none.
+    /// The file name's extension with its dot, like ".dat", or "" when it has none. A name that
+    /// starts with its only dot, like ".config", or ends with one has none.
     Public Method Extension(): String
         Local name = FileName()
         Local bytes = name.Bytes
@@ -142,11 +143,11 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Return dot < 0 ? "" : TextOfBytes(bytes[dot..bytes.Count])
     End Method
 
-    // The path with its file name's extension `extension`, which a dot is put before when it
-    // has none, or without one when it's "": "save.bak" for "save.dat" and ".bak". The name is
-    // FileName's, so "a/b/." and "a/b/" give "a/b.bak", without what follows the name. Panics
-    // when the path has no file name to give one, as a root or ".." doesn't, or for an extension
-    // with a separator in it, or that ends with a dot, which a name can't end its extension with.
+    /// The path with its file name's extension `extension`, which a dot is put before when it
+    /// has none, or without one when it's "": "save.bak" for "save.dat" and ".bak". The name is
+    /// FileName's, so "a/b/." and "a/b/" give "a/b.bak", without what follows the name. Panics
+    /// when the path has no file name to give one, as a root or ".." doesn't, or for an extension
+    /// with a separator in it, or that ends with a dot, which a name can't end its extension with.
     @PanicsAtCaller
     Public Method WithExtension(extension: String): Path
         Local windows = Style == PathStyle.WINDOWS
@@ -189,9 +190,9 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Return Path(TextOfBytes(bytes[0..(dot < 0 ? finish : start + dot)]) + added, Style)
     End Method
 
-    // The folder the path's in: "games" for "games/save.dat", "." for "save.dat", and the root for
-    // a root, worked out from its text alone, so the parent of ".." is ".". It has '/' between
-    // its names.
+    /// The folder the path's in: "games" for "games/save.dat", "." for "save.dat", and the root for
+    /// a root, worked out from its text alone, so the parent of ".." is ".". It has '/' between
+    /// its names.
     Public Method Parent(): Path
         Local windows = Style == PathStyle.WINDOWS
         Local bytes = Text.Bytes
@@ -203,8 +204,8 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Return Path(text == "" ? "." : text, Style)
     End Method
 
-    // Whether the path says where it is without the current folder: one from a POSIX root, and
-    // on Windows one from a drive's root, like "C:/games", or a share, like "//server/share".
+    /// Whether the path says where it is without the current folder: one from a POSIX root, and
+    /// on Windows one from a drive's root, like "C:/games", or a share, like "//server/share".
     Public Method IsAbsolute(): Bool
         Local windows = Style == PathStyle.WINDOWS
         Local bytes = Text.Bytes
@@ -213,10 +214,10 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Return (anchor > prefix && prefix > 0) || prefix > 2
     End Method
 
-    // The same place in the fewest names: '/' between them, no "." or empty ones, and each ".."
-    // taking out the name before it, which is only text, so a link's ".." isn't followed. One
-    // with no names left is "." or its root. On Windows, a drive or share keeps its case, and a
-    // share is written without a separator after it, which "//server/share/" has.
+    /// The same place in the fewest names: '/' between them, no "." or empty ones, and each ".."
+    /// taking out the name before it, which is only text, so a link's ".." isn't followed. One
+    /// with no names left is "." or its root. On Windows, a drive or share keeps its case, and a
+    /// share is written without a separator after it, which "//server/share/" has.
     Public Method Normalize(): Path
         Local windows = Style == PathStyle.WINDOWS
         Local bytes = Text.Bytes
@@ -228,11 +229,11 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Return Path(text == "" ? "." : text, Style)
     End Method
 
-    // The path from `base` to this one, by their texts, with ".." for each of base's names they
-    // don't share: "saves/one.dat" from "games" to "games/saves/one.dat", and "../music" from
-    // "games" to "music". On Windows, names that differ only in their ASCII letters' case are the
-    // same. Null when one is absolute and the other isn't, they're on different drives, or base
-    // goes up past where this one starts, as "../other" from "a" does.
+    /// The path from `base` to this one, by their texts, with ".." for each of base's names they
+    /// don't share: "saves/one.dat" from "games" to "games/saves/one.dat", and "../music" from
+    /// "games" to "music". On Windows, names that differ only in their ASCII letters' case are the
+    /// same. Null when one is absolute and the other isn't, they're on different drives, or base
+    /// goes up past where this one starts, as "../other" from "a" does.
     Public Method RelativeTo(base: Path): Path?
         Local windows = Style == PathStyle.WINDOWS
         Local bytes = Normalize().Text.Bytes
@@ -266,10 +267,10 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Return Path(text == "" ? "." : text, Style)
     End Method
 
-    // The path from the current folder's root, normalized: the path itself when it's absolute.
-    // On Windows, one from a root without a drive is on the current folder's drive. Throws an
-    // IOError when the OS doesn't say what the current folder is. Panics for a path by the other
-    // OS's rules that isn't absolute by them, since the current folder is by the target's.
+    /// The path from the current folder's root, normalized: the path itself when it's absolute.
+    /// On Windows, one from a root without a drive is on the current folder's drive. Throws an
+    /// IOError when the OS doesn't say what the current folder is. Panics for a path by the other
+    /// OS's rules that isn't absolute by them, since the current folder is by the target's.
     @PanicsAtCaller
     Public Method Absolute(): Path Throws IOError
         If IsAbsolute() Then Return Normalize()
@@ -303,7 +304,7 @@ Public Struct Path Implements Comparable, Hashable, Printable
     End Method
 End Struct
 
-// The bytes as text, with U+FFFD for each one that doesn't start well-formed UTF-8.
+/// The bytes as text, with U+FFFD for each one that doesn't start well-formed UTF-8.
 Package Function TextOfBytes(bytes: UInt8[]): String
     If bytes.Count == 0 Then Return ""
     Unsafe
@@ -317,16 +318,16 @@ End Function
 
 Function IsLetter(byte: UInt8): Bool => (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122)
 
-// Whether a name is "." or "..".
+/// Whether a name is "." or "..".
 Function IsDots(name: UInt8[]): Bool
     Return (name.Count == 1 && name[0] == DOT) ||
            (name.Count == 2 && name[0] == DOT && name[1] == DOT)
 End Function
 
-// How many of a path's bytes say where it starts, and how many of those are a Windows drive's or
-// share's: (prefix, anchor). A POSIX path's anchor is its root, "/", or nothing. A Windows one's
-// prefix is "C:" or "//server/share", and its anchor that and the separator after it, if any,
-// or just a separator, for a path from the current drive's root.
+/// How many of a path's bytes say where it starts, and how many of those are a Windows drive's or
+/// share's: (prefix, anchor). A POSIX path's anchor is its root, "/", or nothing. A Windows one's
+/// prefix is "C:" or "//server/share", and its anchor that and the separator after it, if any,
+/// or just a separator, for a path from the current drive's root.
 Function AnchorOf(bytes: UInt8[], windows: Bool): (Int, Int)
     Local count = bytes.Count
     If !windows Then Return (0, count > 0 && bytes[0] == SLASH ? 1 : 0)
@@ -352,8 +353,8 @@ Function AnchorOf(bytes: UInt8[], windows: Bool): (Int, Int)
     Return (0, count > 0 && IsSeparator(bytes[0], True) ? 1 : 0)
 End Function
 
-// The anchor's text, with '/' for each separator. A share's is the share, without the separator
-// after it, which it's rooted at with or without.
+/// The anchor's text, with '/' for each separator. A share's is the share, without the separator
+/// after it, which it's rooted at with or without.
 Function AnchorText(bytes: UInt8[], prefix: Int, anchor: Int): String
     Local start = bytes[0..(prefix > 2 ? prefix : anchor)]
     For i = 0 Until start.Count
@@ -363,7 +364,7 @@ Function AnchorText(bytes: UInt8[], prefix: Int, anchor: Int): String
     Return TextOfBytes(start)
 End Function
 
-// The names after the anchor, from `start`, without empty ones or ".".
+/// The names after the anchor, from `start`, without empty ones or ".".
 Function NamesOf(bytes: UInt8[], start: Int, windows: Bool): String[]
     Local names: String[] = []
     Local at = start
@@ -383,8 +384,8 @@ Function NamesOf(bytes: UInt8[], start: Int, windows: Bool): String[]
     Return names
 End Function
 
-// The names with each ".." taking out the name before it. One with none before it stays,
-// unless the path is from a root, which has nothing above it.
+/// The names with each ".." taking out the name before it. One with none before it stays,
+/// unless the path is from a root, which has nothing above it.
 Function Resolved(names: String[], rooted: Bool): String[]
     Local kept: String[] = []
     For name In names
@@ -400,7 +401,7 @@ Function Resolved(names: String[], rooted: Bool): String[]
     Return kept
 End Function
 
-// The anchor's text, then the first `count` names, with '/' between them, and after a share.
+/// The anchor's text, then the first `count` names, with '/' between them, and after a share.
 Function Rebuilt(start: String, share: Bool, names: String[], count: Int): String
     Local text = start
     For i = 0 Until count
@@ -410,7 +411,7 @@ Function Rebuilt(start: String, share: Bool, names: String[], count: Int): Strin
     Return text
 End Function
 
-// Whether two Windows paths start with the same drive letter, either case, or the same share.
+/// Whether two Windows paths start with the same drive letter, either case, or the same share.
 Function SameDrive(a: UInt8[], aPrefix: Int, b: UInt8[], bPrefix: Int): Bool
     If aPrefix != bPrefix Then Return False
     For i = 0 Until aPrefix
@@ -420,7 +421,7 @@ Function SameDrive(a: UInt8[], aPrefix: Int, b: UInt8[], bPrefix: Int): Bool
     Return True
 End Function
 
-// Whether two names are the same, on Windows with their ASCII letters in either case.
+/// Whether two names are the same, on Windows with their ASCII letters in either case.
 Function SameName(a: String, b: String, windows: Bool): Bool
     If !windows || a == b Then Return a == b
     Local aBytes = a.Bytes
@@ -433,14 +434,14 @@ Function SameName(a: String, b: String, windows: Bool): Bool
     Return True
 End Function
 
-// An ASCII letter in lower case, and a separator as '/'.
+/// An ASCII letter in lower case, and a separator as '/'.
 Function Folded(byte: UInt8): UInt8
     If byte >= 65 && byte <= 90 Then Return byte + 32
     Return byte == BACKSLASH ? SLASH : byte
 End Function
 
-// Where a file name's extension starts, at its last dot, or -1 when it has none: a name that
-// starts with its only dot, or ends with a dot, has none.
+/// Where a file name's extension starts, at its last dot, or -1 when it has none: a name that
+/// starts with its only dot, or ends with a dot, has none.
 Function ExtensionAt(name: UInt8[]): Int
     Local at = name.Count - 1
     While at > 0 && name[at] != DOT

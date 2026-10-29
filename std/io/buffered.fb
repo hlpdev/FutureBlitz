@@ -1,24 +1,24 @@
-// Buffered streams: BufferedReader reads another Reader a buffer at a time, so that many small
-// reads, a byte or a line at a time, cost one of its; BufferedWriter writes another Writer a
-// buffer at a time. Their Async twins go through the other stream's.
+//! Buffered streams: BufferedReader reads another Reader a buffer at a time, so that many small
+//! reads, a byte or a line at a time, cost one of its; BufferedWriter writes another Writer a
+//! buffer at a time. Their Async twins go through the other stream's.
 
 Import std.core
 Import std.collections.array
 Import std.ffi
 Import std.io.streams
 
-// Reads another Reader `size` bytes at a time, and gives them as they're asked for, a byte or a
-// line at a time too.
+/// Reads another Reader `size` bytes at a time, and gives them as they're asked for, a byte or a
+/// line at a time too.
 Public Class BufferedReader Implements Reader
     Field Inner: Reader
     Field Held: Buffer<UInt8>
-    // Where what's left of Held starts, and where it ends.
+    /// Where what's left of Held starts, and where it ends.
     Field Start: Int64
     Field Finish: Int64
-    // What ReadLine has taken of a line, which a read that throws leaves for the next ReadLine.
+    /// What ReadLine has taken of a line, which a read that throws leaves for the next ReadLine.
     Field Line: UInt8[]
 
-    // Reads `inner` `size` bytes at a time. Panics when size is below 1.
+    /// Reads `inner` `size` bytes at a time. Panics when size is below 1.
     @PanicsAtCaller
     Public New(inner: Reader, size: Int64 = 4096)
         If size < 1 Then Panic("a BufferedReader reads 1 byte at a time at least, not {size}")
@@ -27,8 +27,8 @@ Public Class BufferedReader Implements Reader
         Line = []
     End New
 
-    // As many as it has of what's next, or a read of the other Reader's. One for a whole buffer
-    // or more goes straight to the other Reader when it has none.
+    /// As many as it has of what's next, or a read of the other Reader's. One for a whole buffer
+    /// or more goes straight to the other Reader when it has none.
     Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError
         If into.Count == 0 Then Return 0
         If Start == Finish
@@ -49,7 +49,7 @@ Public Class BufferedReader Implements Reader
         Return Take(into)
     End Method
 
-    // The next byte, or Null once the stream has ended.
+    /// The next byte, or Null once the stream has ended.
     Public Method ReadByte(): UInt8? Throws IOError
         If Start == Finish Then Try Fill()
         If Start == Finish Then Return Null
@@ -57,7 +57,7 @@ Public Class BufferedReader Implements Reader
         Return Held[Start - 1]
     End Method
 
-    // ReadByte's Async twin, through the other Reader's ReadAsync.
+    /// ReadByte's Async twin, through the other Reader's ReadAsync.
     Public Async Method ReadByteAsync(): UInt8? Throws IOError
         If Start == Finish Then Try Await FillAsync()
         If Start == Finish Then Return Null
@@ -65,9 +65,9 @@ Public Class BufferedReader Implements Reader
         Return Held[Start - 1]
     End Method
 
-    // The next line, without the \n or \r\n that ends it, or Null once the stream has ended. A
-    // last line without one is a line too. When the other Reader throws, what it had of the line
-    // waits for the next ReadLine, which goes on with it.
+    /// The next line, without the \n or \r\n that ends it, or Null once the stream has ended. A
+    /// last line without one is a line too. When the other Reader throws, what it had of the line
+    /// waits for the next ReadLine, which goes on with it.
     Public Method ReadLine(): String? Throws IOError
         Loop
             If TakeLine() Then Return LineText(True)
@@ -76,7 +76,7 @@ Public Class BufferedReader Implements Reader
         End Loop
     End Method
 
-    // ReadLine's Async twin, through the other Reader's ReadAsync.
+    /// ReadLine's Async twin, through the other Reader's ReadAsync.
     Public Async Method ReadLineAsync(): String? Throws IOError
         Loop
             If TakeLine() Then Return LineText(True)
@@ -85,8 +85,8 @@ Public Class BufferedReader Implements Reader
         End Loop
     End Method
 
-    // Reads the other Reader into Held, which has nothing left, so a read that throws leaves it
-    // with nothing.
+    /// Reads the other Reader into Held, which has nothing left, so a read that throws leaves it
+    /// with nothing.
     Method Fill() Throws IOError
         Start = 0
         Finish = 0
@@ -99,7 +99,7 @@ Public Class BufferedReader Implements Reader
         Finish = Try Await Inner.ReadAsync(Held)
     End Method
 
-    // Copies as much of what Held has left as `into` holds, and gives how many bytes that was.
+    /// Copies as much of what Held has left as `into` holds, and gives how many bytes that was.
     Method Take(into: Buffer<UInt8>): Int64
         Local count = Min(into.Count, Finish - Start)
         Held.Slice(Start, Start + count).CopyTo(into)
@@ -107,8 +107,8 @@ Public Class BufferedReader Implements Reader
         Return count
     End Method
 
-    // Adds what Held has of the line to Line, up to the \n that ends it, which it takes too:
-    // whether it found one.
+    /// Adds what Held has of the line to Line, up to the \n that ends it, which it takes too:
+    /// whether it found one.
     Method TakeLine(): Bool
         While Start < Finish
             Local next = Held[Start]
@@ -120,8 +120,8 @@ Public Class BufferedReader Implements Reader
         Return False
     End Method
 
-    // The line's text, without the \r before its \n, when `ended` says it had a \n, and the
-    // next one starts empty.
+    /// The line's text, without the \r before its \n, when `ended` says it had a \n, and the
+    /// next one starts empty.
     Method LineText(ended: Bool): String
         If ended && Line.Count > 0 && Line[Line.Count - 1] == 13 Then Line.RemoveLast()
         Local text = TextOf(Buffer<UInt8>.From(Line))
@@ -130,15 +130,15 @@ Public Class BufferedReader Implements Reader
     End Method
 End Class
 
-// Writes another Writer `size` bytes at a time: what's written waits in a buffer until a write
-// doesn't fit what's left of it, or Flush sends it on. What's still waiting when it goes is
-// written then, without the errors that Flush would give.
+/// Writes another Writer `size` bytes at a time: what's written waits in a buffer until a write
+/// doesn't fit what's left of it, or Flush sends it on. What's still waiting when it goes is
+/// written then, without the errors that Flush would give.
 Public Class BufferedWriter Implements Writer
     Field Inner: Writer
     Field Held: Buffer<UInt8>
     Field Length: Int64
 
-    // Writes `inner` `size` bytes at a time. Panics when size is below 1.
+    /// Writes `inner` `size` bytes at a time. Panics when size is below 1.
     @PanicsAtCaller
     Public New(inner: Writer, size: Int64 = 4096)
         If size < 1 Then Panic("a BufferedWriter writes 1 byte at a time at least, not {size}")
@@ -146,9 +146,9 @@ Public Class BufferedWriter Implements Writer
         Held = Buffer<UInt8>(size)
     End New
 
-    // Keeps the bytes, sending on what waits first when they don't fit what's left of the
-    // buffer. A write of a whole buffer or more goes straight to the other Writer, after what
-    // waits.
+    /// Keeps the bytes, sending on what waits first when they don't fit what's left of the
+    /// buffer. A write of a whole buffer or more goes straight to the other Writer, after what
+    /// waits.
     Public Method Write(from: Buffer<UInt8>) Throws IOError
         If Length + from.Count > Held.Count Then Try Send()
         If from.Count >= Held.Count
@@ -169,7 +169,7 @@ Public Class BufferedWriter Implements Writer
         Keep(from)
     End Method
 
-    // Sends on what waits, and flushes the other Writer.
+    /// Sends on what waits, and flushes the other Writer.
     Public Method Flush() Throws IOError
         Try Send()
         Try Inner.Flush()
@@ -180,7 +180,7 @@ Public Class BufferedWriter Implements Writer
         Try Await Inner.FlushAsync()
     End Method
 
-    // Writes what waits to the other Writer.
+    /// Writes what waits to the other Writer.
     Method Send() Throws IOError
         If Length == 0 Then Return
         Local waiting = Held.Slice(0, Length)
@@ -200,8 +200,8 @@ Public Class BufferedWriter Implements Writer
         Length += from.Count
     End Method
 
-    // What still waits goes on as it goes, and an error writing it is lost, as Flush would have
-    // given it.
+    /// What still waits goes on as it goes, and an error writing it is lost, as Flush would have
+    /// given it.
     Method Destroy()
         Try
             Try Send()

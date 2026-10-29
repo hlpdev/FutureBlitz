@@ -1,6 +1,6 @@
-// Command, a program to start, with its arguments, environment, folder, and streams, and no
-// shell, so each argument reaches it as it is, on every OS: Spawn starts it beside this program,
-// and Output and Status wait for it to end. Process.Arguments gives this program's own.
+//! Command, a program to start, with its arguments, environment, folder, and streams, and no
+//! shell, so each argument reaches it as it is, on every OS: Spawn starts it beside this program,
+//! and Output and Status wait for it to end. Process.Arguments gives this program's own.
 
 Import std.core
 Import std.collections
@@ -16,16 +16,19 @@ Extern "runtime"
     Function fb_os_process_arguments(into: String[])
 End Extern
 
-// Where a child's stream goes: to this program's own, through a pipe that this program writes
-// or reads, or nowhere, so its stdin has nothing, and what it writes is dropped.
+/// Where a child's stream goes: to this program's own, through a pipe that this program writes
+/// or reads, or nowhere, so its stdin has nothing, and what it writes is dropped.
 Public Enum Stdio
     INHERIT, PIPED, NONE
 End Enum
 
-// What a child wrote to its stdout and stderr, and how it ended.
+/// What a child wrote to its stdout and stderr, and how it ended.
 Public Struct ProcessOutput
+    /// How it ended.
     Public ReadOnly Field Status: ExitStatus
+    /// What it wrote to its stdout.
     Public ReadOnly Field Stdout: UInt8[]
+    /// What it wrote to its stderr.
     Public ReadOnly Field Stderr: UInt8[]
 
     Package New(status: ExitStatus, stdout: UInt8[], stderr: UInt8[])
@@ -34,34 +37,35 @@ Public Struct ProcessOutput
         Stderr = stderr
     End New
 
-    // Stdout as text, its UTF-8, with U+FFFD for each byte that doesn't start well-formed UTF-8.
+    /// Stdout as text, its UTF-8, with U+FFFD for each byte that doesn't start well-formed UTF-8.
     Public Property Text: String
         Get => TextOf(Buffer<UInt8>.From(Stdout))
     End Property
 
-    // Stderr as text, as Text is.
+    /// Stderr as text, as Text is.
     Public Property ErrorText: String
         Get => TextOf(Buffer<UInt8>.From(Stderr))
     End Property
 End Struct
 
-// A program to start, and what it starts with. It's found as a path, from the Folder it runs in
-// when it's relative, or by its name on the PATH it gets, never in a current folder; on Windows,
-// with .com or .exe after the name too. Its methods give the Command back, so they chain:
-// Command("git").Arg("log").Folder(repo).Output(). It can start the program any number of times.
+/// A program to start, and what it starts with. It's found as a path, from the Folder it runs in
+/// when it's relative, or by its name on the PATH it gets, never in a current folder; on Windows,
+/// with .com or .exe after the name too. Its methods give the Command back, so they chain:
+/// Command("git").Arg("log").Folder(repo).Output(). It can start the program any number of times.
 Public Class Command
     Field Program: String
     Field Arguments: String[]
-    // The environment's changes, in order: a name's value, or Null to take it out.
+    /// The environment's changes, in order: a name's value, or Null to take it out.
     Field Names: String[]
     Field Values: String?[]
     Field Cleared: Bool
-    // The folder it runs in, or "" for this program's.
+    /// The folder it runs in, or "" for this program's.
     Field InFolder: String
     Field InputHow: Stdio?
     Field OutputHow: Stdio?
     Field ErrorHow: Stdio?
 
+    /// A new ProcessCommand that runs `program`, with no arguments yet.
     Public New(program: String)
         Program = program
         Arguments = []
@@ -70,41 +74,41 @@ Public Class Command
         InFolder = ""
     End New
 
-    // Adds an argument, which the program gets as it is: nothing splits it, or reads quotes or
-    // anything else in it. On Windows, a .bat or .cmd file runs in cmd.exe, which gets one as
-    // Rust gives it there, so nothing in it runs: in quotes when it has anything but letters,
-    // digits, and #$*+-./:?@\_, with each quote doubled, and every % kept from expanding, so the
-    // batch file reads it with %~1. One with a line break, which cmd.exe can't take, throws an
-    // IOError as it starts.
+    /// Adds an argument, which the program gets as it is: nothing splits it, or reads quotes or
+    /// anything else in it. On Windows, a .bat or .cmd file runs in cmd.exe, which gets one as
+    /// Rust gives it there, so nothing in it runs: in quotes when it has anything but letters,
+    /// digits, and #$*+-./:?@\_, with each quote doubled, and every % kept from expanding, so the
+    /// batch file reads it with %~1. One with a line break, which cmd.exe can't take, throws an
+    /// IOError as it starts.
     Public Method Arg(argument: String): Command
         Arguments.Add(argument)
         Return Self
     End Method
 
-    // Adds the arguments, in order, as Arg does.
+    /// Adds the arguments, in order, as Arg does.
     Public Method Args(arguments: String[]): Command
         Arguments.AddAll(arguments)
         Return Self
     End Method
 
-    // Sets the variable name to value for the program, whose environment is otherwise this
-    // program's. On Windows a name is the same in any case, so "Path" is "PATH".
+    /// Sets the variable name to value for the program, whose environment is otherwise this
+    /// program's. On Windows a name is the same in any case, so "Path" is "PATH".
     Public Method Env(name: String, value: String): Command
         Names.Add(name)
         Values.Add(value)
         Return Self
     End Method
 
-    // Takes the variable name out of the program's environment. On Windows, the ones every
-    // program needs, PATH, SYSTEMROOT, TEMP, and the like, stay, with this program's values.
+    /// Takes the variable name out of the program's environment. On Windows, the ones every
+    /// program needs, PATH, SYSTEMROOT, TEMP, and the like, stay, with this program's values.
     Public Method Unset(name: String): Command
         Names.Add(name)
         Values.Add(Null)
         Return Self
     End Method
 
-    // Starts the program with no variables but the ones Env sets after this, and on Windows the
-    // ones every program needs, as Unset leaves them.
+    /// Starts the program with no variables but the ones Env sets after this, and on Windows the
+    /// ones every program needs, as Unset leaves them.
     Public Method ClearEnv(): Command
         Cleared = True
         Names.Clear()
@@ -112,43 +116,43 @@ Public Class Command
         Return Self
     End Method
 
-    // Runs the program in folder, not this program's current one.
+    /// Runs the program in folder, not this program's current one.
     Public Method Folder(folder: String): Command
         InFolder = folder
         Return Self
     End Method
 
-    // Where its stdin comes from.
+    /// Where its stdin comes from.
     Public Method Stdin(how: Stdio): Command
         InputHow = how
         Return Self
     End Method
 
-    // Where its stdout goes.
+    /// Where its stdout goes.
     Public Method Stdout(how: Stdio): Command
         OutputHow = how
         Return Self
     End Method
 
-    // Where its stderr goes.
+    /// Where its stderr goes.
     Public Method Stderr(how: Stdio): Command
         ErrorHow = how
         Return Self
     End Method
 
-    // Starts the program, which runs beside this one, and gives its Child, once what this program
-    // printed is out. Its streams are this program's unless Stdin, Stdout, or Stderr said
-    // otherwise. Throws an IOError when it can't start, one of NOT_FOUND for a program that isn't
-    // there. Panics when a text has a NUL, or a variable's name is empty or has an '=', which
-    // none can.
+    /// Starts the program, which runs beside this one, and gives its Child, once what this program
+    /// printed is out. Its streams are this program's unless Stdin, Stdout, or Stderr said
+    /// otherwise. Throws an IOError when it can't start, one of NOT_FOUND for a program that isn't
+    /// there. Panics when a text has a NUL, or a variable's name is empty or has an '=', which
+    /// none can.
     @PanicsAtCaller
     Public Method Spawn(): Child Throws IOError
         Return Try Started(Stdio.INHERIT, Stdio.INHERIT, Stdio.INHERIT)
     End Method
 
-    // Runs the program to its end, and gives what it wrote to its stdout and stderr, and how it
-    // ended. Its stdin has nothing, or closes at once when Stdin pipes it. Throws and panics as
-    // Spawn does.
+    /// Runs the program to its end, and gives what it wrote to its stdout and stderr, and how it
+    /// ended. Its stdin has nothing, or closes at once when Stdin pipes it. Throws and panics as
+    /// Spawn does.
     @PanicsAtCaller
     Public Method Output(): ProcessOutput Throws IOError
         Local child = Try Started(Stdio.NONE, Stdio.PIPED, Stdio.PIPED)
@@ -158,7 +162,7 @@ Public Class Command
         Return ProcessOutput(child.Wait(), stdout, stderr)
     End Method
 
-    // Output's Async twin, which waits on the main thread instead of blocking it.
+    /// Output's Async twin, which waits on the main thread instead of blocking it.
     @PanicsAtCaller
     Public Async Method OutputAsync(): ProcessOutput Throws IOError
         Local child = Try Started(Stdio.NONE, Stdio.PIPED, Stdio.PIPED)
@@ -168,22 +172,22 @@ Public Class Command
         Return ProcessOutput(Await child.WaitAsync(), stdout, stderr)
     End Method
 
-    // Runs the program to its end, with this program's streams unless Stdin, Stdout, or Stderr
-    // said otherwise, and gives how it ended. Throws and panics as Spawn does.
+    /// Runs the program to its end, with this program's streams unless Stdin, Stdout, or Stderr
+    /// said otherwise, and gives how it ended. Throws and panics as Spawn does.
     @PanicsAtCaller
     Public Method Status(): ExitStatus Throws IOError
         Local child = Try Started(Stdio.INHERIT, Stdio.INHERIT, Stdio.INHERIT)
         Return child.Wait()
     End Method
 
-    // Status's Async twin.
+    /// Status's Async twin.
     @PanicsAtCaller
     Public Async Method StatusAsync(): ExitStatus Throws IOError
         Local child = Try Started(Stdio.INHERIT, Stdio.INHERIT, Stdio.INHERIT)
         Return Await child.WaitAsync()
     End Method
 
-    // Starts the program with the streams it was given, or these.
+    /// Starts the program with the streams it was given, or these.
     @PanicsAtCaller
     Method Started(input: Stdio, output: Stdio, errors: Stdio): Child Throws IOError
         Local streams = [InputHow ?? input, OutputHow ?? output, ErrorHow ?? errors]
@@ -209,8 +213,8 @@ Public Class Command
 End Class
 
 Extend Process
-    // The program's arguments, after its own name, as what started it gave them. On Windows,
-    // they're its command line, split as a C program splits it.
+    /// The program's arguments, after its own name, as what started it gave them. On Windows,
+    /// they're its command line, split as a C program splits it.
     Public Static Method Arguments(): String[]
         Local arguments: String[] = []
         fb_os_process_arguments(arguments)
@@ -218,9 +222,9 @@ Extend Process
     End Method
 End Extend
 
-// Readies a child for Output to read: its stdin closes, since nothing writes to it, and its
-// stderr is read as it comes, so reading its stdout to the end never waits for the child, while
-// it waits for room in its stderr.
+/// Readies a child for Output to read: its stdin closes, since nothing writes to it, and its
+/// stderr is read as it comes, so reading its stdout to the end never waits for the child, while
+/// it waits for room in its stderr.
 Function Ready(child: Child)
     Local input = child.Stdin
     If input != Null Then input.Close()
@@ -228,13 +232,13 @@ Function Ready(child: Child)
     If errors != Null Then errors.Drain()
 End Function
 
-// What's left of a piped stream, or nothing for one that isn't.
+/// What's left of a piped stream, or nothing for one that isn't.
 Function ReadOutput(stream: ChildOutput?): UInt8[] Throws IOError
     If stream == Null Then Return []
     Return Try ReadAll(stream)
 End Function
 
-// ReadOutput's Async twin.
+/// ReadOutput's Async twin.
 Async Function ReadOutputAsync(stream: ChildOutput?): UInt8[] Throws IOError
     If stream == Null Then Return []
     Return Try Await ReadAllAsync(stream)

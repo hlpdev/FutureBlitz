@@ -1,17 +1,17 @@
-// SortedMap<K, V> and SortedSet<T>: keys in order, in a B-tree. Each node holds from Order - 1 to
-// 2 * Order - 1 keys in order, but the root, which can hold fewer, and a node that isn't a leaf
-// has a child before, between, and after its keys, which hold the keys between them. Finding,
-// adding, and removing a key looks at about log(Count) nodes.
+//! `SortedMap<K, V>` and `SortedSet<T>`: keys in order, in a B-tree. Each node holds from Order - 1
+//! to 2 * Order - 1 keys in order, but the root, which can hold fewer, and a node that isn't a leaf
+//! has a child before, between, and after its keys, which hold the keys between them. Finding,
+//! adding, and removing a key looks at about log(Count) nodes.
 
 Import std.core
 Import std.collections.array
 
-// One more than the fewest keys a node holds, but the root: a node holds at most twice that, less
-// one.
+/// One more than the fewest keys a node holds, but the root: a node holds at most twice that, less
+/// one.
 Const Order = 16
 
-// Panics at a key that isn't equal to itself, like NaN, which has no place in an order. what says
-// whose key it would be.
+/// Panics at a key that isn't equal to itself, like NaN, which has no place in an order. what says
+/// whose key it would be.
 @PanicsAtCaller
 Function CheckKey<K: Comparable>(key: K, what: String)
     If key != key Then Panic("{what} can't be NaN, or anything else that isn't equal to itself")
@@ -20,14 +20,14 @@ End Function
 Class SortedNode<K, V>
     Field Keys: K[] = []
     Field Values: V[] = []
-    // None for a leaf.
+    /// None for a leaf.
     Field Children: SortedNode<K, V>[] = []
 
     Method IsLeaf(): Bool => Children.Count == 0
 
     Method IsFull(): Bool => Keys.Count == 2 * Order - 1
 
-    // A copy of the node and what's under it.
+    /// A copy of the node and what's under it.
     Method Clone(): SortedNode<K, V>
         Local copy = SortedNode<K, V>()
         copy.Keys = Keys.Clone()
@@ -39,23 +39,26 @@ Class SortedNode<K, V>
     End Method
 End Class
 
+/// A Map that keeps its keys in order, smallest first, for ranges and the nearest key to another.
 @DebugEntries
 Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     Field Root: SortedNode<K, V>
     Field Size: Int
-    // How many times keys were added or removed, so a For ... In over the entries can tell.
+    /// How many times keys were added or removed, so a For ... In over the entries can tell.
     Field Changes: Int64
 
+    /// A new, empty SortedMap.
     Public New()
         Root = SortedNode<K, V>()
     End New
 
+    /// How many entries it holds.
     Public Property Count: Int
         Get => Size
     End Property
 
-    // Adds an entry, or gives an existing key its new value, which leaves the tree as it is. A key
-    // that isn't equal to itself, like NaN, panics.
+    /// Adds an entry, or gives an existing key its new value, which leaves the tree as it is. A key
+    /// that isn't equal to itself, like NaN, panics.
     @PanicsAtCaller
     Public Method Add(key: K, value: V)
         CheckKey(key, "a SortedMap's key")
@@ -78,21 +81,21 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         End If
     End Method
 
-    // The key's value, or Null when it isn't there.
+    /// The key's value, or Null when it isn't there.
     Public Method Get(key: K): V?
         Local found = Find(key)
         If found == Null Then Return Null
         Return found.0.Values[found.1]
     End Method
 
-    // The key's value, or fallback when it isn't there.
+    /// The key's value, or fallback when it isn't there.
     Public Method Get(key: K, fallback: V): V
         Local found = Find(key)
         If found == Null Then Return fallback
         Return found.0.Values[found.1]
     End Method
 
-    // The key's value. A key that isn't there panics.
+    /// The key's value. A key that isn't there panics.
     @PanicsAtCaller
     Operator [](key: K): V
         Local found = Find(key)
@@ -100,16 +103,17 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return found.0.Values[found.1]
     End Operator
 
-    // Gives the key a value, adding it when it isn't there.
+    /// Gives the key a value, adding it when it isn't there.
     @PanicsAtCaller
     Operator []=(key: K, value: V)
         Add(key, value)
     End Operator
 
+    /// Whether `key` has an entry.
     Public Method Contains(key: K): Bool => Find(key) != Null
 
-    // Removes the key's entry, and tells whether there was one. A key that isn't there leaves the
-    // tree as it is.
+    /// Removes the key's entry, and tells whether there was one. A key that isn't there leaves the
+    /// tree as it is.
     Public Method Remove(key: K): Bool
         If Find(key) == Null Then Return False
         Delete(Root, key)
@@ -120,13 +124,14 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return True
     End Method
 
+    /// Takes every entry out.
     Public Method Clear()
         Root = SortedNode<K, V>()
         Size = 0
         Changes += 1
     End Method
 
-    // The smallest key and its value, or Null when there's none.
+    /// The smallest key and its value, or Null when there's none.
     Public Method First(): (K, V)?
         If Size == 0 Then Return Null
         Local node = Root
@@ -136,7 +141,7 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return (node.Keys[0], node.Values[0])
     End Method
 
-    // The largest key and its value, or Null when there's none.
+    /// The largest key and its value, or Null when there's none.
     Public Method Last(): (K, V)?
         If Size == 0 Then Return Null
         Local node = Root
@@ -146,8 +151,8 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return (node.Keys[node.Keys.Count - 1], node.Values[node.Values.Count - 1])
     End Method
 
-    // The largest key that isn't above key, and its value, or Null when there's none, as for a
-    // key that isn't equal to itself.
+    /// The largest key that isn't above key, and its value, or Null when there's none, as for a
+    /// key that isn't equal to itself.
     Public Method Floor(key: K): (K, V)?
         If key != key Then Return Null
         Local best: (K, V)? = Null
@@ -164,8 +169,8 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         End Loop
     End Method
 
-    // The smallest key that isn't below key, and its value, or Null when there's none, as for a
-    // key that isn't equal to itself.
+    /// The smallest key that isn't below key, and its value, or Null when there's none, as for a
+    /// key that isn't equal to itself.
     Public Method Ceiling(key: K): (K, V)?
         If key != key Then Return Null
         Local best: (K, V)? = Null
@@ -182,8 +187,8 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         End Loop
     End Method
 
-    // The entries from low up to high, without high itself, in order, in a new array. An end
-    // that isn't equal to itself finds none.
+    /// The entries from low up to high, without high itself, in order, in a new array. An end
+    /// that isn't equal to itself finds none.
     Public Method Range(low: K, high: K): (K, V)[]
         Local found: (K, V)[] = []
         If low != low || high != high Then Return found
@@ -191,7 +196,7 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return found
     End Method
 
-    // The keys, in order.
+    /// The keys, in order.
     Public Method Keys(): K[]
         Local keys: K[] = []
         keys.Reserve(Size)
@@ -201,7 +206,7 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return keys
     End Method
 
-    // The values, in their keys' order.
+    /// The values, in their keys' order.
     Public Method Values(): V[]
         Local values: V[] = []
         values.Reserve(Size)
@@ -211,10 +216,10 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return values
     End Method
 
-    // A new, empty SortedMap.
+    /// A new, empty SortedMap.
     Public Static Method DefaultValue(): SortedMap<K, V> => SortedMap<K, V>()
 
-    // A new SortedMap with the same entries.
+    /// A new SortedMap with the same entries.
     Public Method Clone(): SortedMap<K, V>
         Local copy = SortedMap<K, V>()
         copy.Root = Root.Clone()
@@ -222,18 +227,18 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return copy
     End Method
 
-    // Each key and its value, in order, for 'For key, value In map'. Giving a key a new value
-    // while going over them is fine, but adding or removing one panics.
+    /// Each key and its value, in order, for 'For key, value In map'. Giving a key a new value
+    /// while going over them is fine, but adding or removing one panics.
     Public Method Iterate(): SortedMapIterator<K, V> => IterateAs("SortedMap")
 
-    // The same, for a SortedSet, whose values are a SortedMap's keys, naming it when it changes.
+    /// The same, for a SortedSet, whose values are a SortedMap's keys, naming it when it changes.
     Package Method IterateAs(name: String): SortedMapIterator<K, V>
         Local iterator = SortedMapIterator<K, V>(Self, Null, 0, Null, Changes, name)
         iterator.Descend(Root)
         Return iterator
     End Method
 
-    // The node that has key, and where it is among the node's keys, or Null.
+    /// The node that has key, and where it is among the node's keys, or Null.
     Method Find(key: K): (SortedNode<K, V>, Int)?
         Local node = Root
         Loop
@@ -244,7 +249,7 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         End Loop
     End Method
 
-    // Where key goes among keys: the first place whose key isn't below it.
+    /// Where key goes among keys: the first place whose key isn't below it.
     Static Method Place(keys: K[], key: K): Int
         Local low = 0
         Local high = keys.Count
@@ -259,8 +264,8 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return low
     End Method
 
-    // Puts an entry in a node that isn't full, or what's under it, and tells whether the key is
-    // new; an existing key gets the value.
+    /// Puts an entry in a node that isn't full, or what's under it, and tells whether the key is
+    /// new; an existing key gets the value.
     Method Insert(node: SortedNode<K, V>, key: K, value: V): Bool
         Local at = Place(node.Keys, key)
         If at < node.Keys.Count && node.Keys[at] == key
@@ -287,8 +292,8 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return Insert(node.Children[at], key, value)
     End Method
 
-    // Splits the full child at index of a node that isn't full in two, with the key between
-    // them moving up into the node.
+    /// Splits the full child at index of a node that isn't full in two, with the key between
+    /// them moving up into the node.
     Method Split(node: SortedNode<K, V>, index: Int)
         Local full = node.Children[index]
         Local right = SortedNode<K, V>()
@@ -306,9 +311,9 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         full.Values.RemoveRange(Order - 1, Order)
     End Method
 
-    // Takes key out of what's under node, which has Order keys or more, but the root, and tells
-    // whether it was there. On the way down, each node it goes into gets Order keys or more, so
-    // one can always be taken.
+    /// Takes key out of what's under node, which has Order keys or more, but the root, and tells
+    /// whether it was there. On the way down, each node it goes into gets Order keys or more, so
+    /// one can always be taken.
     Method Delete(node: SortedNode<K, V>, key: K): Bool
         Local at = Place(node.Keys, key)
         Local here = at < node.Keys.Count && node.Keys[at] == key
@@ -345,8 +350,8 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return Delete(node.Children[at], key)
     End Method
 
-    // Gives the child at index, which has Order - 1 keys, one more: from a sibling that can spare
-    // one, through the node, or else by merging it with a sibling. Gives where the child is then.
+    /// Gives the child at index, which has Order - 1 keys, one more: from a sibling that can spare
+    /// one, through the node, or else by merging it with a sibling. Gives where the child is then.
     Method Fill(node: SortedNode<K, V>, index: Int): Int
         Local child = node.Children[index]
         If index > 0 && node.Children[index - 1].Keys.Count >= Order
@@ -390,7 +395,7 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return index
     End Method
 
-    // Makes the children at index and index + 1, with the node's key between them, one child.
+    /// Makes the children at index and index + 1, with the node's key between them, one child.
     Method Merge(node: SortedNode<K, V>, index: Int)
         Local left = node.Children[index]
         Local right = node.Children[index + 1]
@@ -404,7 +409,7 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         node.Children.RemoveAt(index + 1)
     End Method
 
-    // The largest key under a node, and its value.
+    /// The largest key under a node, and its value.
     Static Method Largest(node: SortedNode<K, V>): (K, V)
         Local at = node
         While !at.IsLeaf()
@@ -413,7 +418,7 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return (at.Keys[at.Keys.Count - 1], at.Values[at.Values.Count - 1])
     End Method
 
-    // The smallest key under a node, and its value.
+    /// The smallest key under a node, and its value.
     Static Method Smallest(node: SortedNode<K, V>): (K, V)
         Local at = node
         While !at.IsLeaf()
@@ -422,7 +427,7 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
         Return (at.Keys[0], at.Values[0])
     End Method
 
-    // Adds the entries under node from low up to high, without high, in order.
+    /// Adds the entries under node from low up to high, without high, in order.
     Static Method Gather(node: SortedNode<K, V>, low: K, high: K, found: (K, V)[])
         Local at = Place(node.Keys, low)
         Loop
@@ -434,8 +439,8 @@ Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable,
     End Method
 End Class
 
-// The nodes above a SortedMapIterator's node, the lowest first, each with where it's at. A step
-// makes new ones rather than changing these, so a copy of the iterator keeps its place.
+/// The nodes above a SortedMapIterator's node, the lowest first, each with where it's at. A step
+/// makes new ones rather than changing these, so a copy of the iterator keeps its place.
 Class SortedPath<K, V>
     ReadOnly Field Node: SortedNode<K, V>
     ReadOnly Field Place: Int
@@ -448,15 +453,15 @@ Class SortedPath<K, V>
     End New
 End Class
 
-// The entries in order: the node the next one is in, or Null at the end, where it's at among the
-// node's keys, and the nodes on the way down to it.
+/// The entries in order: the node the next one is in, or Null at the end, where it's at among the
+/// node's keys, and the nodes on the way down to it.
 Public Struct SortedMapIterator<K: Comparable, V> Implements Iterator<(K, V)>
     Field Owner: SortedMap<K, V>
     Field Node: SortedNode<K, V>?
     Field Place: Int
     Field Up: SortedPath<K, V>?
     Field Changes: Int64
-    // What the loop goes over: "SortedMap", or "SortedSet".
+    /// What the loop goes over: "SortedMap", or "SortedSet".
     Field Name: String
 
     @PanicsAtCaller
@@ -483,7 +488,7 @@ Public Struct SortedMapIterator<K: Comparable, V> Implements Iterator<(K, V)>
         End Loop
     End Method
 
-    // Goes down from node to its smallest key, keeping each node above it on the way.
+    /// Goes down from node to its smallest key, keeping each node above it on the way.
     ByRef Method Descend(node: SortedNode<K, V>)
         Local at = node
         Loop
@@ -526,21 +531,23 @@ Extend SortedMap<K, V> Implements Printable
     End Method
 End Extend
 
-// Values without repeats, in order, which a SortedMap holds as its keys.
+/// Values without repeats, in order, which a SortedMap holds as its keys.
 @DebugElements
 Public Class SortedSet<T: Comparable> Implements Iterable<T>, Cloneable, Defaultable, Equatable
     Field Items: SortedMap<T, Bool>
 
+    /// A new, empty SortedSet.
     Public New()
         Items = SortedMap<T, Bool>()
     End New
 
+    /// How many values it holds.
     Public Property Count: Int
         Get => Items.Count
     End Property
 
-    // Adds the value, and tells whether it's new. A value that isn't equal to itself, like NaN,
-    // panics.
+    /// Adds the value, and tells whether it's new. A value that isn't equal to itself, like NaN,
+    /// panics.
     @PanicsAtCaller
     Public Method Add(value: T): Bool
         CheckKey(value, "a SortedSet's value")
@@ -549,49 +556,51 @@ Public Class SortedSet<T: Comparable> Implements Iterable<T>, Cloneable, Default
         Return True
     End Method
 
-    // Removes the value, and tells whether it was there.
+    /// Removes the value, and tells whether it was there.
     Public Method Remove(value: T): Bool => Items.Remove(value)
 
+    /// Whether it holds `value`.
     Public Method Contains(value: T): Bool => Items.Contains(value)
 
+    /// Takes every value out.
     Public Method Clear()
         Items.Clear()
     End Method
 
-    // The smallest value, or Null when there's none.
+    /// The smallest value, or Null when there's none.
     Public Method First(): T? => Key(Items.First())
 
-    // The largest value, or Null when there's none.
+    /// The largest value, or Null when there's none.
     Public Method Last(): T? => Key(Items.Last())
 
-    // The largest value that isn't above value, or Null when there's none.
+    /// The largest value that isn't above value, or Null when there's none.
     Public Method Floor(value: T): T? => Key(Items.Floor(value))
 
-    // The smallest value that isn't below value, or Null when there's none.
+    /// The smallest value that isn't below value, or Null when there's none.
     Public Method Ceiling(value: T): T? => Key(Items.Ceiling(value))
 
-    // The values from low up to high, without high itself, in order, in a new array.
+    /// The values from low up to high, without high itself, in order, in a new array.
     Public Method Range(low: T, high: T): T[]
         Return Items.Range(low, high).Map(Function(entry: (T, Bool)) => entry.0)
     End Method
 
-    // The values, in order, in a new array.
+    /// The values, in order, in a new array.
     Public Method ToArray(): T[] => Items.Keys()
 
-    // A new, empty SortedSet.
+    /// A new, empty SortedSet.
     Public Static Method DefaultValue(): SortedSet<T> => SortedSet<T>()
 
-    // A new SortedSet with the same values.
+    /// A new SortedSet with the same values.
     Public Method Clone(): SortedSet<T>
         Local copy = SortedSet<T>()
         copy.Items = Items.Clone()
         Return copy
     End Method
 
-    // Two SortedSets are equal when they have the same values.
+    /// Two SortedSets are equal when they have the same values.
     Operator ==(a: SortedSet<T>, b: SortedSet<T>): Bool => a.Items == b.Items
 
-    // The values, in order. Adding or removing one while going over them panics.
+    /// The values, in order. Adding or removing one while going over them panics.
     Public Method Iterate(): SortedSetIterator<T>
         Return SortedSetIterator<T>(Items.IterateAs("SortedSet"))
     End Method
@@ -602,6 +611,7 @@ Public Class SortedSet<T: Comparable> Implements Iterable<T>, Cloneable, Default
     End Method
 End Class
 
+/// The values of a SortedSet, smallest first, which For ... In goes over.
 Public Struct SortedSetIterator<T: Comparable> Implements Iterator<T>
     Field Entries: SortedMapIterator<T, Bool>
 

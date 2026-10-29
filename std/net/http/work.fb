@@ -1,7 +1,7 @@
-// Work routes' threads: a blocking handler, which computes or waits, runs on one of a server's
-// Workers threads, given a Sendable copy of its request, while the main thread goes on answering
-// the others; what it gives goes back to the main thread as a Sendable copy too, which the
-// connection's response is made from.
+//! Work routes' threads: a blocking handler, which computes or waits, runs on one of a server's
+//! Workers threads, given a Sendable copy of its request, while the main thread goes on answering
+//! the others; what it gives goes back to the main thread as a Sendable copy too, which the
+//! connection's response is made from.
 
 Import std.core
 Import std.collections
@@ -16,18 +16,24 @@ Extern "runtime"
     Function fb_string_from_utf8(bytes: UInt8[]): String
 End Extern
 
-// What a work route runs, on a Workers thread: a blocking function of a copy of the request,
-// which gives the response.
+/// What a work route runs, on a Workers thread: a blocking function of a copy of the request,
+/// which gives the response.
 Public Alias WorkHandler = Sendable Func(WorkRequest): HttpResponse
 
-// A copy of a request that a work route's handler gets on another thread: what HttpRequest has
-// but the connection, as Sendable values.
+/// A copy of a request that a work route's handler gets on another thread: what HttpRequest has
+/// but the connection, as Sendable values.
 Public Struct WorkRequest
+    /// Its method, as the client wrote it, like "GET".
     Public ReadOnly Field Verb: String
+    /// Its target, as the client wrote it.
     Public ReadOnly Field Target: String
+    /// Its target's path, percent-encoded, without dot segments.
     Public ReadOnly Field Path: String
+    /// "HTTP/1.1" or "HTTP/1.0".
     Public ReadOnly Field Version: String
+    /// The client's address.
     Public ReadOnly Field RemoteAddress: String
+    /// Its body's bytes.
     Public ReadOnly Field Bytes: ImmutableArray<UInt8>
     ReadOnly Field Names: ImmutableArray<String>
     ReadOnly Field Values: ImmutableArray<String>
@@ -49,7 +55,7 @@ Public Struct WorkRequest
         QueryText = query
     End New
 
-    // Its headers, new Headers each time, made on the thread that asks.
+    /// Its headers, new Headers each time, made on the thread that asks.
     Public Property Headers: Headers
         Get
             Local headers = NewHeaders()
@@ -60,21 +66,21 @@ Public Struct WorkRequest
         End Get
     End Property
 
-    // Its query's names and values, a new QueryParams each time.
+    /// Its query's names and values, a new QueryParams each time.
     Public Property Query: QueryParams
         Get => QueryParams(QueryText)
     End Property
 
-    // The body as text, its UTF-8, with U+FFFD for each byte that doesn't start well-formed
-    // UTF-8.
+    /// The body as text, its UTF-8, with U+FFFD for each byte that doesn't start well-formed
+    /// UTF-8.
     Public Property Text: String
         Get => fb_string_from_utf8(Bytes.ToArray())
     End Property
 
-    // A path parameter its route bound, percent-decoded, or Null when it has none of that name.
+    /// A path parameter its route bound, percent-decoded, or Null when it has none of that name.
     Public Method Param(name: String): String? => Bound.Get(name)
 
-    // Each path parameter its route bound, by name, a new Map each time.
+    /// Each path parameter its route bound, by name, a new Map each time.
     Public Property Params: Map<String, String>
         Get
             Local params = Map<String, String>()
@@ -85,7 +91,7 @@ Public Struct WorkRequest
         End Get
     End Property
 
-    // A form's fields, when the body is application/x-www-form-urlencoded, or none.
+    /// A form's fields, when the body is application/x-www-form-urlencoded, or none.
     Public Method Form(): QueryParams
         Local kind = TrimSpace((Headers.Get("Content-Type") ?? "").Split(";")[0]).ToLower()
         If kind != "application/x-www-form-urlencoded" Then Return QueryParams()
@@ -93,7 +99,7 @@ Public Struct WorkRequest
     End Method
 End Struct
 
-// A response as it comes back from a Workers thread.
+/// A response as it comes back from a Workers thread.
 Package Struct WorkReply
     Package ReadOnly Field Status: Int
     Package ReadOnly Field Names: ImmutableArray<String>
@@ -114,7 +120,7 @@ Package Struct WorkReply
         Bytes = ImmutableArray<UInt8>.From(response.Bytes)
     End New
 
-    // The response again, on the main thread.
+    /// The response again, on the main thread.
     Package Method Response(): HttpResponse
         Local headers = NewHeaders()
         For i = 0 Until Names.Count
@@ -124,10 +130,10 @@ Package Struct WorkReply
     End Method
 End Struct
 
-// Headers with none, which code with a Headers Property of its own can't make by the type's name.
+/// Headers with none, which code with a Headers Property of its own can't make by the type's name.
 Function NewHeaders(): Headers => Headers()
 
-// A work route's call, for a Workers thread to make, and where its reply goes.
+/// A work route's call, for a Workers thread to make, and where its reply goes.
 Struct WorkJob
     Field Handler: WorkHandler
     Field Request: WorkRequest
@@ -140,12 +146,12 @@ Struct WorkJob
     End New
 End Struct
 
-// A server's Workers threads, and the calls waiting for one.
+/// A server's Workers threads, and the calls waiting for one.
 Package Class WorkPool
     ReadOnly Field Jobs: Channel<WorkJob>
 
-    // Starts `count` threads, each making the calls that come, in order, until Close, with room
-    // for `waiting` calls that wait for one.
+    /// Starts `count` threads, each making the calls that come, in order, until Close, with room
+    /// for `waiting` calls that wait for one.
     Package New(count: Int, waiting: Int)
         Jobs = Channel<WorkJob>(waiting)
         Const jobs = Jobs
@@ -161,8 +167,8 @@ Package Class WorkPool
         End For
     End New
 
-    // The Task of a call's reply, once a thread has made it, or Null when the pool is closed,
-    // or has as many calls waiting as it has room for already.
+    /// The Task of a call's reply, once a thread has made it, or Null when the pool is closed,
+    /// or has as many calls waiting as it has room for already.
     Package Method Run(handler: WorkHandler, request: WorkRequest): Task<WorkReply>?
         If Jobs.IsClosed() Then Return Null
         Local done = TaskSource<WorkReply>()
@@ -170,7 +176,7 @@ Package Class WorkPool
         Return done.Task
     End Method
 
-    // Has the threads end once they've made the calls waiting.
+    /// Has the threads end once they've made the calls waiting.
     Package Method Close()
         Jobs.Close()
     End Method

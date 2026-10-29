@@ -1,8 +1,8 @@
-// HttpClient, which sends HTTP and HTTPS requests and gives their responses, over libcurl, whose
-// TLS is mbedTLS's: it follows redirects, decompresses what comes compressed, keeps cookies, and
-// trusts the OS's roots unless it's given its own. A download goes to memory, or atomically to a
-// file as it comes. Each request has an Async twin, which the I/O thread runs. Http's Static
-// Methods send one request each, through a client of their own.
+//! HttpClient, which sends HTTP and HTTPS requests and gives their responses, over libcurl, whose
+//! TLS is mbedTLS's: it follows redirects, decompresses what comes compressed, keeps cookies, and
+//! trusts the OS's roots unless it's given its own. A download goes to memory, or atomically to a
+//! file as it comes. Each request has an Async twin, which the I/O thread runs. Http's Static
+//! Methods send one request each, through a client of their own.
 
 Import std.core
 Import std.collections
@@ -44,7 +44,7 @@ Extern "runtime"
     Function fb_percent_encode(text: String): String
 End Extern
 
-// The runtime's outcomes of a transfer: a response, or what failed.
+/// The runtime's outcomes of a transfer: a response, or what failed.
 Const RESPONSE = 0
 Const NO_HOST = 1
 Const REFUSED = 2
@@ -57,19 +57,21 @@ Const BAD_URL = 9
 Const BAD_REDIRECT = 12
 Const FILE_FAILED = 13
 
-// The methods a request can have.
+/// The methods a request can have.
 Public Enum HttpMethod
     GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS
 End Enum
 
-// What a request sends: its bytes, and what they are, as its Content-Type header says unless the
-// request's headers say it themselves. Panics for a contentType a header's value can't be, as
-// Headers.Add does.
+/// What a request sends: its bytes, and what they are, as its Content-Type header says unless the
+/// request's headers say it themselves. Panics for a contentType a header's value can't be, as
+/// Headers.Add does.
 Public Struct Body
+    /// Its bytes.
     Public ReadOnly Field Bytes: UInt8[]
-    // Its Content-Type, or Null to send none.
+    /// Its Content-Type, or Null to send none.
     Public ReadOnly Field ContentType: String?
 
+    /// A Body of `bytes`, which are what `contentType` says.
     @PanicsAtCaller
     Public New(bytes: UInt8[], contentType: String? = "application/octet-stream")
         If contentType != Null Then CheckField("Content-Type", contentType)
@@ -77,19 +79,19 @@ Public Struct Body
         ContentType = contentType
     End New
 
-    // text's UTF-8, as plain text unless contentType says another kind.
+    /// text's UTF-8, as plain text unless contentType says another kind.
     @PanicsAtCaller
     Public Static Method Text(text: String,
                               contentType: String = "text/plain; charset=utf-8"): Body
         Return Body(text.Bytes, contentType)
     End Method
 
-    // JSON's text, as application/json.
+    /// JSON's text, as application/json.
     Public Static Method Json(json: String): Body => Body(json.Bytes, "application/json")
 
-    // A form's fields, in their order, as application/x-www-form-urlencoded: each name and value
-    // with each byte but the letters, digits, '-', '.', '_', and '~' as %XX, which servers read
-    // as they read a browser's '+' for a space, each pair as name=value, and '&' between them.
+    /// A form's fields, in their order, as application/x-www-form-urlencoded: each name and value
+    /// with each byte but the letters, digits, '-', '.', '_', and '~' as %XX, which servers read
+    /// as they read a browser's '+' for a space, each pair as name=value, and '&' between them.
     Public Static Method Form(fields: Map<String, String>): Body
         Local pairs: String[] = []
         For name, value In fields
@@ -99,15 +101,21 @@ Public Struct Body
     End Method
 End Struct
 
-// What a server answered: its status, its headers, its body's bytes, the URL it came from,
-// after the redirects followed, and the HTTP it came over, "HTTP/1.1" or "HTTP/2".
+/// What a server answered: its status, its headers, its body's bytes, the URL it came from,
+/// after the redirects followed, and the HTTP it came over, "HTTP/1.1" or "HTTP/2".
 Public Class HttpResponse
+    /// Its status, like 200 or 404.
     Public ReadOnly Field Status: Int
+    /// Its headers.
     Public ReadOnly Field Headers: Headers
+    /// Its body's bytes.
     Public ReadOnly Field Bytes: UInt8[]
+    /// The URL it came from, after the redirects followed.
     Public ReadOnly Field Url: String
+    /// The HTTP it came over: "HTTP/1.1" or "HTTP/2".
     Public ReadOnly Field Version: String
 
+    /// A response of `status`, with `headers` and `bytes`, from `url`, over `version`.
     Public New(status: Int, headers: Headers, bytes: UInt8[], url: String,
                version: String = "HTTP/1.1")
         Status = status
@@ -117,18 +125,18 @@ Public Class HttpResponse
         Version = version
     End New
 
-    // The body as text, its UTF-8, with U+FFFD for each byte that doesn't start well-formed
-    // UTF-8.
+    /// The body as text, its UTF-8, with U+FFFD for each byte that doesn't start well-formed
+    /// UTF-8.
     Public Property Text: String
         Get => fb_string_from_utf8(Bytes)
     End Property
 
-    // Whether its Status says the request worked: from 200 to 299.
+    /// Whether its Status says the request worked: from 200 to 299.
     Public Property IsSuccess: Bool
         Get => StatusCode.IsSuccess(Status)
     End Property
 
-    // Throws a NetError of HTTP_STATUS unless IsSuccess.
+    /// Throws a NetError of HTTP_STATUS unless IsSuccess.
     Public Method EnsureSuccess() Throws NetError
         If IsSuccess Then Return
         Local reason = StatusCode.Reason(Status)
@@ -137,41 +145,42 @@ Public Class HttpResponse
     End Method
 End Class
 
-// Sends requests and gives their responses. A client keeps the cookies its responses set, for
-// the requests after, and the connections it made, which those reuse; its DefaultHeaders go with
-// each request, before the request's own, which replace those of their names. It follows up to
-// MaxRedirects redirects, as a browser does: a POST changes to a GET after a 301, 302, or 303,
-// and any request but a HEAD after a 303, and a redirect to another origin takes no
-// Authorization, Cookie, or Host of the request's own. It asks for gzip, deflate, and zstd, and
-// decompresses what comes so. It speaks HTTP/2 to an HTTPS server that agrees to it, and
-// HTTP/1.1 otherwise. It goes through Proxy, or else the proxy the environment names, as
-// http_proxy, https_proxy, and no_proxy do. A failure throws: a NetError for the network's or the
-// server's, or for a URL that isn't HTTP's or HTTPS's, and a TimeoutError for a request that took
-// longer than its Timeout, or connecting that took longer than its ConnectTimeout.
+/// Sends requests and gives their responses. A client keeps the cookies its responses set, for
+/// the requests after, and the connections it made, which those reuse; its DefaultHeaders go with
+/// each request, before the request's own, which replace those of their names. It follows up to
+/// MaxRedirects redirects, as a browser does: a POST changes to a GET after a 301, 302, or 303,
+/// and any request but a HEAD after a 303, and a redirect to another origin takes no
+/// Authorization, Cookie, or Host of the request's own. It asks for gzip, deflate, and zstd, and
+/// decompresses what comes so. It speaks HTTP/2 to an HTTPS server that agrees to it, and
+/// HTTP/1.1 otherwise. It goes through Proxy, or else the proxy the environment names, as
+/// http_proxy, https_proxy, and no_proxy do. A failure throws: a NetError for the network's or the
+/// server's, or for a URL that isn't HTTP's or HTTPS's, and a TimeoutError for a request that took
+/// longer than its Timeout, or connecting that took longer than its ConnectTimeout.
 Public Class HttpClient
     Field State: Ptr<Void>
-    // The headers each request sends, before its own.
+    /// The headers each request sends, before its own.
     Public ReadOnly Field DefaultHeaders: Headers
-    // Whether a request follows redirects, or gives a redirect's response.
+    /// Whether a request follows redirects, or gives a redirect's response.
     Public Field FollowRedirects: Bool = True
-    // Whether a request asks for its response compressed, which it decompresses.
+    /// Whether a request asks for its response compressed, which it decompresses.
     Public Field Decompress: Bool = True
-    // The proxy each request goes through, like "http://proxy:3128", "" for none, or Null for the
-    // environment's.
+    /// The proxy each request goes through, like "http://proxy:3128", "" for none, or Null for the
+    /// environment's.
     Public Field Proxy: String? = Null
     Field Agent: String = "FutureBlitz"
     Field Redirects: Int = 10
     Field Whole: Duration?
     Field Connecting: Duration
 
+    /// A new HttpClient, with no default headers, and 30 seconds to connect.
     Public New()
         DefaultHeaders = Headers()
         Connecting = 30.Seconds
         State = fb_http_client_new()
     End New
 
-    // How long a request may take in all, after which it throws a TimeoutError, or Null for as
-    // long as it takes, as it is to start. Panics when it's set to a Duration that isn't above 0.
+    /// How long a request may take in all, after which it throws a TimeoutError, or Null for as
+    /// long as it takes, as it is to start. Panics when it's set to a Duration that isn't above 0.
     @PanicsAtCaller
     Public Property Timeout: Duration?
         Get => Whole
@@ -181,8 +190,8 @@ Public Class HttpClient
         End Set
     End Property
 
-    // How long a request's connecting, TLS's handshake too, may take, 30 seconds unless it's set,
-    // after which it throws a TimeoutError. Panics when it's set to a Duration that isn't above 0.
+    /// How long a request's connecting, TLS's handshake too, may take, 30 seconds unless it's set,
+    /// after which it throws a TimeoutError. Panics when it's set to a Duration that isn't above 0.
     @PanicsAtCaller
     Public Property ConnectTimeout: Duration
         Get => Connecting
@@ -192,8 +201,8 @@ Public Class HttpClient
         End Set
     End Property
 
-    // The User-Agent header a request sends unless its headers have one. Panics when it's set to
-    // what a header's value can't be, as Headers.Add does.
+    /// The User-Agent header a request sends unless its headers have one. Panics when it's set to
+    /// what a header's value can't be, as Headers.Add does.
     @PanicsAtCaller
     Public Property UserAgent: String
         Get => Agent
@@ -203,8 +212,8 @@ Public Class HttpClient
         End Set
     End Property
 
-    // The most redirects a request follows before it throws a NetError. Panics when it's set
-    // below 0.
+    /// The most redirects a request follows before it throws a NetError. Panics when it's set
+    /// below 0.
     @PanicsAtCaller
     Public Property MaxRedirects: Int
         Get => Redirects
@@ -214,8 +223,8 @@ Public Class HttpClient
         End Set
     End Property
 
-    // Trusts only roots for HTTPS from then on, instead of the OS's roots, as for a server whose
-    // certificate a private authority signed.
+    /// Trusts only roots for HTTPS from then on, instead of the OS's roots, as for a server whose
+    /// certificate a private authority signed.
     Public Method TrustOnly(roots: Certificate[])
         fb_http_client_trust_own(State, 1)
         For root In roots
@@ -223,51 +232,57 @@ Public Class HttpClient
         End For
     End Method
 
-    // Trusts the OS's roots again, from then on.
+    /// Trusts the OS's roots again, from then on.
     Public Method TrustOsRoots()
         fb_http_client_trust_own(State, 0)
     End Method
 
-    // Forgets the cookies it keeps.
+    /// Forgets the cookies it keeps.
     Public Method ClearCookies()
         fb_http_client_clear_cookies(State)
     End Method
 
+    /// Sends a GET to `url`, and gives the response.
     Public Method Get(url: String): HttpResponse Throws NetError, TimeoutError
         Return Try Send(HttpMethod.GET, url)
     End Method
 
+    /// Sends a HEAD to `url`, and gives the response, without a body.
     Public Method Head(url: String): HttpResponse Throws NetError, TimeoutError
         Return Try Send(HttpMethod.HEAD, url)
     End Method
 
+    /// Sends a POST of `body` to `url`, and gives the response.
     Public Method Post(url: String, body: Body): HttpResponse Throws NetError, TimeoutError
         Return Try Send(HttpMethod.POST, url, body)
     End Method
 
+    /// Sends a PUT of `body` to `url`, and gives the response.
     Public Method Put(url: String, body: Body): HttpResponse Throws NetError, TimeoutError
         Return Try Send(HttpMethod.PUT, url, body)
     End Method
 
+    /// Sends a PATCH of `body` to `url`, and gives the response.
     Public Method Patch(url: String, body: Body): HttpResponse Throws NetError, TimeoutError
         Return Try Send(HttpMethod.PATCH, url, body)
     End Method
 
+    /// Sends a DELETE to `url`, and gives the response.
     Public Method Delete(url: String): HttpResponse Throws NetError, TimeoutError
         Return Try Send(HttpMethod.DELETE, url)
     End Method
 
-    // A request of method to url, with body, if it has one, and headers, after the client's.
+    /// A request of method to url, with body, if it has one, and headers, after the client's.
     Public Method Send(method: HttpMethod, url: String, body: Body? = Null,
                        headers: Headers? = Null): HttpResponse Throws NetError, TimeoutError
         Local transfer = Transfer(Self, method, url, body, headers)
         Return Try transfer.Finish(fb_http_perform(transfer.State))
     End Method
 
-    // The body of url's response, which progress, unless it's Null, is told of as it comes: how
-    // many bytes came, and how many the response said it has, or -1 when it didn't say, but
-    // nothing of a redirect's own body. Throws a NetError of HTTP_STATUS when the response's
-    // status isn't success.
+    /// The body of url's response, which progress, unless it's Null, is told of as it comes: how
+    /// many bytes came, and how many the response said it has, or -1 when it didn't say, but
+    /// nothing of a redirect's own body. Throws a NetError of HTTP_STATUS when the response's
+    /// status isn't success.
     Public Method Download(
             url: String,
             progress: Func(Int64, Int64)? = Null): UInt8[] Throws NetError, TimeoutError
@@ -276,12 +291,12 @@ Public Class HttpClient
         Return response.Bytes
     End Method
 
-    // Writes url's body to the file at path as it comes, atomically, as File.WriteBytesAtomic
-    // does: to a new temporary file in its folder, which is renamed over the file, onto the disk,
-    // once all of it came, so the file holds either all of it or what it held before. progress
-    // is told of it as Download's is. Throws a NetError of HTTP_STATUS when the response's
-    // status isn't success, and an IOError when the file can't be written, which a folder that
-    // isn't there throws before anything's sent; each leaves the file as it was.
+    /// Writes url's body to the file at path as it comes, atomically, as File.WriteBytesAtomic
+    /// does: to a new temporary file in its folder, which is renamed over the file, onto the disk,
+    /// once all of it came, so the file holds either all of it or what it held before. progress
+    /// is told of it as Download's is. Throws a NetError of HTTP_STATUS when the response's
+    /// status isn't success, and an IOError when the file can't be written, which a folder that
+    /// isn't there throws before anything's sent; each leaves the file as it was.
     Public Method Download(
             url: String, path: Path,
             progress: Func(Int64, Int64)? = Null) Throws NetError, TimeoutError, IOError
@@ -290,34 +305,40 @@ Public Class HttpClient
         Try transfer.Written(transfer.Run(progress), progress, path)
     End Method
 
+    /// What [Get] does, without blocking its thread: a call gives its Task.
     Public Async Method GetAsync(url: String): HttpResponse Throws NetError, TimeoutError
         Return Try Await SendAsync(HttpMethod.GET, url)
     End Method
 
+    /// What [Head] does, without blocking its thread: a call gives its Task.
     Public Async Method HeadAsync(url: String): HttpResponse Throws NetError, TimeoutError
         Return Try Await SendAsync(HttpMethod.HEAD, url)
     End Method
 
+    /// What [Post] does, without blocking its thread: a call gives its Task.
     Public Async Method PostAsync(url: String,
                                   body: Body): HttpResponse Throws NetError, TimeoutError
         Return Try Await SendAsync(HttpMethod.POST, url, body)
     End Method
 
+    /// What [Put] does, without blocking its thread: a call gives its Task.
     Public Async Method PutAsync(url: String,
                                  body: Body): HttpResponse Throws NetError, TimeoutError
         Return Try Await SendAsync(HttpMethod.PUT, url, body)
     End Method
 
+    /// What [Patch] does, without blocking its thread: a call gives its Task.
     Public Async Method PatchAsync(url: String,
                                    body: Body): HttpResponse Throws NetError, TimeoutError
         Return Try Await SendAsync(HttpMethod.PATCH, url, body)
     End Method
 
+    /// What [Delete] does, without blocking its thread: a call gives its Task.
     Public Async Method DeleteAsync(url: String): HttpResponse Throws NetError, TimeoutError
         Return Try Await SendAsync(HttpMethod.DELETE, url)
     End Method
 
-    // Send's Async twin, whose request the I/O thread runs while the main thread goes on.
+    /// Send's Async twin, whose request the I/O thread runs while the main thread goes on.
     Public Async Method SendAsync(
             method: HttpMethod, url: String, body: Body? = Null,
             headers: Headers? = Null): HttpResponse Throws NetError, TimeoutError
@@ -326,7 +347,7 @@ Public Class HttpClient
         Return Try transfer.Finish(outcome - 1)
     End Method
 
-    // Download's Async twin, whose progress is told on the main thread.
+    /// Download's Async twin, whose progress is told on the main thread.
     Public Async Method DownloadAsync(
             url: String,
             progress: Func(Int64, Int64)? = Null): UInt8[] Throws NetError, TimeoutError
@@ -336,8 +357,8 @@ Public Class HttpClient
         Return response.Bytes
     End Method
 
-    // The Async twin of Download to a file, whose progress is told on the main thread, and whose
-    // file the I/O thread writes and puts onto the disk.
+    /// The Async twin of Download to a file, whose progress is told on the main thread, and whose
+    /// file the I/O thread writes and puts onto the disk.
     Public Async Method DownloadAsync(
             url: String, path: Path,
             progress: Func(Int64, Int64)? = Null) Throws NetError, TimeoutError, IOError
@@ -359,7 +380,7 @@ Public Class HttpClient
         Get => FollowRedirects ? Redirects : -1
     End Property
 
-    // The Timeout's milliseconds, rounded up, or 0 for none, and the ConnectTimeout's.
+    /// The Timeout's milliseconds, rounded up, or 0 for none, and the ConnectTimeout's.
     Package Property TimeoutMilliseconds: Int64
         Get
             Local whole = Whole
@@ -372,7 +393,7 @@ Public Class HttpClient
     End Property
 End Class
 
-// One request and its response, in the runtime, which goes when this does.
+/// One request and its response, in the runtime, which goes when this does.
 Class Transfer
     Field State: Ptr<Void>
     Field Url: String
@@ -416,7 +437,7 @@ Class Transfer
         fb_http_free(State)
     End Method
 
-    // The response, once the transfer ended with outcome, or what failed, thrown.
+    /// The response, once the transfer ended with outcome, or what failed, thrown.
     Method Finish(outcome: Int32): HttpResponse Throws NetError, TimeoutError
         If outcome != RESPONSE Then Try Fail(outcome)
         Local names: String[] = []
@@ -433,13 +454,13 @@ Class Transfer
                             VersionOf(fb_http_version(State)))
     End Method
 
-    // Has the transfer write its body to the file at path, or throws why it can't.
+    /// Has the transfer write its body to the file at path, or throws why it can't.
     Method WriteTo(path: Path) Throws IOError
         Try Checked(fb_http_to_file(State, path.Text), "write", path)
     End Method
 
-    // Runs the transfer to its end on this thread, telling progress, unless it's Null, how much
-    // came as it comes, and gives its outcome.
+    /// Runs the transfer to its end on this thread, telling progress, unless it's Null, how much
+    /// came as it comes, and gives its outcome.
     Method Run(progress: Func(Int64, Int64)?): Int32
         If progress == Null Then Return fb_http_perform(State)
         Local outcome: Int32 = 0
@@ -455,7 +476,7 @@ Class Transfer
         Return outcome
     End Method
 
-    // Run's Async twin, which the I/O thread runs, telling progress on the main thread.
+    /// Run's Async twin, which the I/O thread runs, telling progress on the main thread.
     Async Method RunAsync(progress: Func(Int64, Int64)?): Int32
         Local outcome: Int32 = 0
         Loop
@@ -470,8 +491,8 @@ Class Transfer
         Return outcome
     End Method
 
-    // A download's response, once it ended with outcome, after telling progress how much came
-    // in all.
+    /// A download's response, once it ended with outcome, after telling progress how much came
+    /// in all.
     Method Downloaded(outcome: Int32,
                       progress: Func(Int64, Int64)?): HttpResponse Throws NetError, TimeoutError
         Local response = Try Finish(outcome)
@@ -483,14 +504,14 @@ Class Transfer
         Return response
     End Method
 
-    // Throws what failed of a download to the file at path that ended with outcome.
+    /// Throws what failed of a download to the file at path that ended with outcome.
     Method Written(outcome: Int32, progress: Func(Int64, Int64)?,
                    path: Path) Throws NetError, TimeoutError, IOError
         If outcome == FILE_FAILED Then Throw ErrorOf(fb_http_file_error(State), "write", path)
         Try Downloaded(outcome, progress)
     End Method
 
-    // Throws what the outcome says failed.
+    /// Throws what the outcome says failed.
     Method Fail(outcome: Int32) Throws NetError, TimeoutError
         Local message = fb_http_message(State)
         Select outcome
@@ -519,89 +540,101 @@ Class Transfer
     End Method
 End Class
 
-// One request each, through a client of its own, with HttpClient's settings as they start.
+/// One request each, through a client of its own, with HttpClient's settings as they start.
 Public Struct Http
-    // Http isn't made: it's only its Static Methods.
+    /// Http isn't made: it's only its Static Methods.
     New()
     End New
 
+    /// Sends a GET to `url`, through a client of its own, and gives the response.
     Public Static Method Get(url: String): HttpResponse Throws NetError, TimeoutError
         Return Try HttpClient().Get(url)
     End Method
 
-    // The text of url's response. Throws a NetError of HTTP_STATUS when its status isn't
-    // success.
+    /// The text of url's response. Throws a NetError of HTTP_STATUS when its status isn't
+    /// success.
     Public Static Method GetText(url: String): String Throws NetError, TimeoutError
         Local response = Try HttpClient().Get(url)
         Try response.EnsureSuccess()
         Return response.Text
     End Method
 
-    // The bytes of url's response. Throws a NetError of HTTP_STATUS when its status isn't
-    // success.
+    /// The bytes of url's response. Throws a NetError of HTTP_STATUS when its status isn't
+    /// success.
     Public Static Method GetBytes(url: String): UInt8[] Throws NetError, TimeoutError
         Return Try HttpClient().Download(url)
     End Method
 
+    /// Sends a HEAD to `url`, through a client of its own, and gives the response.
     Public Static Method Head(url: String): HttpResponse Throws NetError, TimeoutError
         Return Try HttpClient().Head(url)
     End Method
 
+    /// Sends a POST of `body` to `url`, through a client of its own, and gives the response.
     Public Static Method Post(url: String, body: Body): HttpResponse Throws NetError, TimeoutError
         Return Try HttpClient().Post(url, body)
     End Method
 
+    /// Sends a PUT of `body` to `url`, through a client of its own, and gives the response.
     Public Static Method Put(url: String, body: Body): HttpResponse Throws NetError, TimeoutError
         Return Try HttpClient().Put(url, body)
     End Method
 
+    /// Sends a PATCH of `body` to `url`, through a client of its own, and gives the response.
     Public Static Method Patch(url: String, body: Body): HttpResponse Throws NetError, TimeoutError
         Return Try HttpClient().Patch(url, body)
     End Method
 
+    /// Sends a DELETE to `url`, through a client of its own, and gives the response.
     Public Static Method Delete(url: String): HttpResponse Throws NetError, TimeoutError
         Return Try HttpClient().Delete(url)
     End Method
 
-    // url's body, as HttpClient's Download gives it.
+    /// url's body, as HttpClient's Download gives it.
     Public Static Method Download(
             url: String,
             progress: Func(Int64, Int64)? = Null): UInt8[] Throws NetError, TimeoutError
         Return Try HttpClient().Download(url, progress)
     End Method
 
-    // Writes url's body to the file at path, as HttpClient's Download does.
+    /// Writes url's body to the file at path, as HttpClient's Download does.
     Public Static Method Download(
             url: String, path: Path,
             progress: Func(Int64, Int64)? = Null) Throws NetError, TimeoutError, IOError
         Try HttpClient().Download(url, path, progress)
     End Method
 
+    /// What [Get] does, without blocking its thread: a call gives its Task.
     Public Static Async Method GetAsync(url: String): HttpResponse Throws NetError, TimeoutError
         Return Try Await HttpClient().GetAsync(url)
     End Method
 
+    /// What [GetText] does, without blocking its thread: a call gives its Task.
     Public Static Async Method GetTextAsync(url: String): String Throws NetError, TimeoutError
         Local response = Try Await HttpClient().GetAsync(url)
         Try response.EnsureSuccess()
         Return response.Text
     End Method
 
+    /// What [GetBytes] does, without blocking its thread: a call gives its Task.
     Public Static Async Method GetBytesAsync(url: String): UInt8[] Throws NetError, TimeoutError
         Return Try Await HttpClient().DownloadAsync(url)
     End Method
 
+    /// What [Post] does, without blocking its thread: a call gives its Task.
     Public Static Async Method PostAsync(url: String,
                                          body: Body): HttpResponse Throws NetError, TimeoutError
         Return Try Await HttpClient().PostAsync(url, body)
     End Method
 
+    /// What [Download] does, without blocking its thread: a call gives its Task.
     Public Static Async Method DownloadAsync(
             url: String,
             progress: Func(Int64, Int64)? = Null): UInt8[] Throws NetError, TimeoutError
         Return Try Await HttpClient().DownloadAsync(url, progress)
     End Method
 
+    /// What [Download] does, without blocking its thread: a call gives its Task.
     Public Static Async Method DownloadAsync(
             url: String, path: Path,
             progress: Func(Int64, Int64)? = Null) Throws NetError, TimeoutError, IOError
@@ -609,7 +642,7 @@ Public Struct Http
     End Method
 End Struct
 
-// The HTTP the runtime's version is, as 11 is "HTTP/1.1".
+/// The HTTP the runtime's version is, as 11 is "HTTP/1.1".
 Function VersionOf(version: Int32): String
     Select version
         Case 10
@@ -623,13 +656,13 @@ Function VersionOf(version: Int32): String
     End Select
 End Function
 
-// Panics, where a timeout is set, unless it's above 0.
+/// Panics, where a timeout is set, unless it's above 0.
 @PanicsAtCaller
 Function CheckTimeout(name: String, value: Duration)
     If value.Nanoseconds <= 0 Then Panic("an HttpClient's {name} is above 0, not {value}")
 End Function
 
-// A Duration above 0 in milliseconds, rounded up, so the shortest is one.
+/// A Duration above 0 in milliseconds, rounded up, so the shortest is one.
 Function Milliseconds(value: Duration): Int64
     Local nanoseconds = value.Nanoseconds
     Return nanoseconds / 1000000 + (nanoseconds % 1000000 != 0 ? 1 : 0)

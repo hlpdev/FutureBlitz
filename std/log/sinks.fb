@@ -1,7 +1,7 @@
-// The sinks std.log has: the console's, which writes readable lines to stderr, colored on a
-// terminal that shows colors, and JSON lines, one object a line, to what the program gives. A
-// sink is a Sendable Func(LogRecord), so a program's own is a lambda. Files and rotating files
-// wait for std.io's.
+//! The sinks std.log has: the console's, which writes readable lines to stderr, colored on a
+//! terminal that shows colors, and JSON lines, one object a line, to what the program gives. A
+//! sink is a Sendable Func(LogRecord), so a program's own is a lambda. Files and rotating files
+//! wait for std.io's.
 
 Import std.core
 Import std.time.timestamp
@@ -13,25 +13,25 @@ Extern "runtime"
     Function fb_string_from_array(bytes: UInt8[]): String
 End Extern
 
-// A sink that writes each line to stderr as LogLine has it, with its time, colored when stderr is
-// a terminal that shows colors and NO_COLOR isn't set. Lines from threads at once don't mix.
+/// A sink that writes each line to stderr as LogLine has it, with its time, colored when stderr is
+/// a terminal that shows colors and NO_COLOR isn't set. Lines from threads at once don't mix.
 Public Function ConsoleSink(): Sendable Func(LogRecord) => ConsoleSink(fb_log_colors() != 0, True)
 
-// A sink that writes each line to stderr, with its level colored or not, and its time or not.
+/// A sink that writes each line to stderr, with its level colored or not, and its time or not.
 Public Function ConsoleSink(colors: Bool, times: Bool): Sendable Func(LogRecord)
     Return Function(record: LogRecord) => PrintError(LogLine(record, times, colors))
 End Function
 
-// A sink that gives write each line as JSON, an object without line breaks, as JsonLine has it.
+/// A sink that gives write each line as JSON, an object without line breaks, as JsonLine has it.
 Public Function JsonLinesSink(write: Sendable Func(String)): Sendable Func(LogRecord)
     Return Function(record: LogRecord) => write(JsonLine(record))
 End Function
 
-// The line as the console's sink writes it: its time in UTC, to the millisecond, its level, its
-// module, its message, and its fields, as name=value, where a name or a value with a space, a
-// quote, an '=', or a control character, or none, is quoted, as JSON quotes it:
-// "2026-10-24T04:12:00.123Z INFO  net.http: connected host=example.com port=443". The message's
-// control characters but a tab are escaped as JSON escapes them, so a line stays one line.
+/// The line as the console's sink writes it: its time in UTC, to the millisecond, its level, its
+/// module, its message, and its fields, as name=value, where a name or a value with a space, a
+/// quote, an '=', or a control character, or none, is quoted, as JSON quotes it:
+/// "2026-10-24T04:12:00.123Z INFO  net.http: connected host=example.com port=443". The message's
+/// control characters but a tab are escaped as JSON escapes them, so a line stays one line.
 Public Function LogLine(record: LogRecord, times: Bool = True, colors: Bool = False): String
     Local line = ""
     If times Then line = record.Time.Format("yyyy-MM-dd'T'HH:mm:ss.SSSX") + " "
@@ -54,9 +54,9 @@ Public Function LogLine(record: LogRecord, times: Bool = True, colors: Bool = Fa
     Return line
 End Function
 
-// The line as JSON lines have it: an object of its "time", "level", "module", and "message", and
-// then its fields, a number's or a Bool's as it is, each in the order it has them:
-// {"time":"2026-10-24T04:12:00.123Z","level":"info","module":"net","message":"up","port":443}.
+/// The line as JSON lines have it: an object of its "time", "level", "module", and "message", and
+/// then its fields, a number's or a Bool's as it is, each in the order it has them:
+/// {"time":"2026-10-24T04:12:00.123Z","level":"info","module":"net","message":"up","port":443}.
 Public Function JsonLine(record: LogRecord): String
     Local time = record.Time.Format("yyyy-MM-dd'T'HH:mm:ss.SSSX")
     Local level = Escaped(LogLevelName(record.Level), True)
@@ -71,7 +71,7 @@ Public Function JsonLine(record: LogRecord): String
     Return line + "}}"
 End Function
 
-// The color a level's name has on a terminal.
+/// The color a level's name has on a terminal.
 Function ColorOf(level: LogLevel): String
     If level == LogLevel.TRACE Then Return "\x1b[2m"
     If level == LogLevel.DEBUG Then Return "\x1b[34m"
@@ -80,8 +80,8 @@ Function ColorOf(level: LogLevel): String
     Return "\x1b[31m"
 End Function
 
-// Whether a field's value needs quotes to read back as one value: when it's empty, or has a
-// space, a quote, an '=', or a control character.
+/// Whether a field's value needs quotes to read back as one value: when it's empty, or has a
+/// space, a quote, an '=', or a control character.
 Function NeedsQuotes(text: String): Bool
     Local bytes = text.Bytes
     If bytes.Count == 0 Then Return True
@@ -91,8 +91,8 @@ Function NeedsQuotes(text: String): Bool
     Return False
 End Function
 
-// The text as a JSON string, in quotes, with a quote, a backslash, and the control characters
-// escaped; or, without quotes, as it is but for the control characters other than a tab.
+/// The text as a JSON string, in quotes, with a quote, a backslash, and the control characters
+/// escaped; or, without quotes, as it is but for the control characters other than a tab.
 Function Escaped(text: String, quotes: Bool): String
     Local out: UInt8[] = []
     If quotes Then out.Add(34)

@@ -1,8 +1,8 @@
-// A String's Methods, by byte position. A String is UTF-8: its Length is its bytes, and a position
-// is a byte offset, which Find gives and Slice takes, so neither counts characters. A position
-// outside the String, or inside one of its characters, panics. CharCount and GraphemeCount count
-// its characters and what people see as one. The runtime's fb_text_ functions read the bytes, and
-// its fb_unicode_ ones, over utf8proc, know Unicode's case and grapheme clusters.
+//! A String's Methods, by byte position. A String is UTF-8: its Length is its bytes, and a position
+//! is a byte offset, which Find gives and Slice takes, so neither counts characters. A position
+//! outside the String, or inside one of its characters, panics. CharCount and GraphemeCount count
+//! its characters and what people see as one. The runtime's fb_text_ functions read the bytes, and
+//! its fb_unicode_ ones, over utf8proc, know Unicode's case and grapheme clusters.
 
 Import std.core
 Import std.text.char
@@ -27,50 +27,50 @@ Extern "runtime"
 End Extern
 
 Extend String
-    // How many bytes its UTF-8 has, which is also the position just past its end.
+    /// How many bytes its UTF-8 has, which is also the position just past its end.
     Public Property Length: Int
         Get => fb_text_length(Self) As Int
     End Property
 
-    // How many characters, code points, it has.
+    /// How many characters, code points, it has.
     Public Property CharCount: Int
         Get => fb_text_char_count(Self, 0, fb_text_length(Self)) As Int
     End Property
 
-    // How many grapheme clusters it has: what people see as one character, like an "e" with its
-    // accent after it, or an emoji made of several.
+    /// How many grapheme clusters it has: what people see as one character, like an "e" with its
+    /// accent after it, or an emoji made of several.
     Public Property GraphemeCount: Int
         Get => fb_unicode_grapheme_count(Self) As Int
     End Property
 
-    // A String of the UTF-8 in bytes, or Null when they aren't well-formed UTF-8.
+    /// A String of the UTF-8 in bytes, or Null when they aren't well-formed UTF-8.
     Public Static Method FromUtf8(bytes: UInt8[]): String?
         Return fb_text_from_utf8(bytes, 0, bytes.Count)
     End Method
 
-    // Whether it has no characters.
+    /// Whether it has no characters.
     Public Method IsEmpty(): Bool => fb_text_length(Self) == 0
 
-    // Whether it has no characters but whitespace.
+    /// Whether it has no characters but whitespace.
     Public Method IsBlank(): Bool => Skipped(0) == Length
 
-    // Whether part is in it. Every String has "" in it.
+    /// Whether part is in it. Every String has "" in it.
     Public Method Contains(part: String): Bool => fb_text_find(Self, part, 0) >= 0
 
-    // Whether c is in it.
+    /// Whether c is in it.
     Public Method Contains(c: Char): Bool => fb_text_find(Self, "{c}", 0) >= 0
 
-    // Whether it starts with prefix.
+    /// Whether it starts with prefix.
     Public Method StartsWith(prefix: String): Bool => fb_text_matches_at(Self, prefix, 0) != 0
 
-    // Whether it ends with suffix.
+    /// Whether it ends with suffix.
     Public Method EndsWith(suffix: String): Bool
         Local start = Length - suffix.Length
         Return start >= 0 && fb_text_matches_at(Self, suffix, start) != 0
     End Method
 
-    // Where part first starts, at from or after, or Null when it isn't there. Panics when from
-    // isn't a position in the String.
+    /// Where part first starts, at from or after, or Null when it isn't there. Panics when from
+    /// isn't a position in the String.
     @PanicsAtCaller
     Public Method Find(part: String, from: Int = 0): Int?
         CheckPosition(from, "Find")
@@ -79,15 +79,15 @@ Extend String
         Return found As Int
     End Method
 
-    // Where part last starts, or Null when it isn't there.
+    /// Where part last starts, or Null when it isn't there.
     Public Method FindLast(part: String): Int?
         Local found = fb_text_find_last(Self, part, Length)
         If found < 0 Then Return Null
         Return found As Int
     End Method
 
-    // Where part last starts that ends at before or sooner, or Null when it isn't there. Panics
-    // when before isn't a position in the String.
+    /// Where part last starts that ends at before or sooner, or Null when it isn't there. Panics
+    /// when before isn't a position in the String.
     @PanicsAtCaller
     Public Method FindLast(part: String, before: Int): Int?
         CheckPosition(before, "FindLast")
@@ -96,8 +96,8 @@ Extend String
         Return found As Int
     End Method
 
-    // Where part starts, each time, from the start: after one is found, the next is looked for
-    // after its end. An empty part panics.
+    /// Where part starts, each time, from the start: after one is found, the next is looked for
+    /// after its end. An empty part panics.
     @PanicsAtCaller
     Public Method FindAll(part: String): Int[]
         CheckPart(part, "FindAll")
@@ -111,16 +111,16 @@ Extend String
         Return found
     End Method
 
-    // How many times part is in it, counting each from the end of the one before, as FindAll
-    // does. An empty part panics.
+    /// How many times part is in it, counting each from the end of the one before, as FindAll
+    /// does. An empty part panics.
     @PanicsAtCaller
     Public Method Count(part: String): Int
         CheckPart(part, "Count")
         Return FindAll(part).Count
     End Method
 
-    // The text from start up to finish. Panics unless both are positions in the String, between
-    // its characters, with start no later than finish.
+    /// The text from start up to finish. Panics unless both are positions in the String, between
+    /// its characters, with start no later than finish.
     @PanicsAtCaller
     Public Method Slice(start: Int, finish: Int): String
         CheckPosition(start, "Slice")
@@ -129,37 +129,37 @@ Extend String
         Return fb_text_slice(Self, start, finish)
     End Method
 
-    // The text before the first part, or Null when part isn't there.
+    /// The text before the first part, or Null when part isn't there.
     Public Method Before(part: String): String?
         Local at = fb_text_find(Self, part, 0)
         If at < 0 Then Return Null
         Return fb_text_slice(Self, 0, at)
     End Method
 
-    // The text after the first part, or Null when part isn't there.
+    /// The text after the first part, or Null when part isn't there.
     Public Method After(part: String): String?
         Local at = fb_text_find(Self, part, 0)
         If at < 0 Then Return Null
         Return fb_text_slice(Self, at + part.Length, Length)
     End Method
 
-    // The text before the first separator and after it, or Null when separator isn't there.
+    /// The text before the first separator and after it, or Null when separator isn't there.
     Public Method SplitOnce(separator: String): (String, String)?
         Local at = fb_text_find(Self, separator, 0)
         If at < 0 Then Return Null
         Return (fb_text_slice(Self, 0, at), fb_text_slice(Self, at + separator.Length, Length))
     End Method
 
-    // The parts between each separator: "a,,b" split by "," is "a", "", and "b". An empty
-    // separator panics.
+    /// The parts between each separator: "a,,b" split by "," is "a", "", and "b". An empty
+    /// separator panics.
     @PanicsAtCaller
     Public Method Split(separator: String): String[]
         CheckPart(separator, "Split")
         Return Parts(separator, 0)
     End Method
 
-    // The parts between each separator, at most count of them, the last holding the rest. An
-    // empty separator, or a count below 1, panics.
+    /// The parts between each separator, at most count of them, the last holding the rest. An
+    /// empty separator, or a count below 1, panics.
     @PanicsAtCaller
     Public Method SplitN(separator: String, count: Int): String[]
         CheckPart(separator, "SplitN")
@@ -167,8 +167,8 @@ Extend String
         Return Parts(separator, count)
     End Method
 
-    // Its lines, without their line breaks: "\n", "\r\n", or "\r". A line break at the end makes
-    // no empty line after it, and an empty String has no lines.
+    /// Its lines, without their line breaks: "\n", "\r\n", or "\r". A line break at the end makes
+    /// no empty line after it, and an empty String has no lines.
     Public Method SplitLines(): String[]
         Local lines: String[] = []
         Local reader = Lines()
@@ -181,7 +181,7 @@ Extend String
         Return lines
     End Method
 
-    // Its words: the parts between runs of whitespace, which make no empty ones.
+    /// Its words: the parts between runs of whitespace, which make no empty ones.
     Public Method SplitWhitespace(): String[]
         Local words: String[] = []
         Local at = Skipped(0)
@@ -194,8 +194,8 @@ Extend String
         Return words
     End Method
 
-    // The parts with this String between each two: ", ".Join(["a", "b"]) is "a, b". Panics past
-    // the most a String holds.
+    /// The parts with this String between each two: ", ".Join(["a", "b"]) is "a, b". Panics past
+    /// the most a String holds.
     @PanicsAtCaller
     Public Method Join(parts: String[]): String
         Local joined = fb_text_join(parts, Self)
@@ -203,16 +203,16 @@ Extend String
         Return joined
     End Method
 
-    // A copy with each old, from the start, replaced by replacement. An empty old panics, and so
-    // does a copy past the most a String holds.
+    /// A copy with each old, from the start, replaced by replacement. An empty old panics, and so
+    /// does a copy past the most a String holds.
     @PanicsAtCaller
     Public Method Replace(old: String, replacement: String): String
         CheckPart(old, "Replace")
         Return replacement.Join(Split(old))
     End Method
 
-    // A copy with the first old replaced by replacement, or the String itself when old isn't
-    // there. An empty old panics.
+    /// A copy with the first old replaced by replacement, or the String itself when old isn't
+    /// there. An empty old panics.
     @PanicsAtCaller
     Public Method ReplaceFirst(old: String, replacement: String): String
         CheckPart(old, "ReplaceFirst")
@@ -222,32 +222,32 @@ Extend String
                fb_text_slice(Self, at + old.Length, Length)
     End Method
 
-    // A copy without the whitespace at its start and end.
+    /// A copy without the whitespace at its start and end.
     Public Method Trim(): String
         Local start = Skipped(0)
         Return fb_text_slice(Self, start, SkippedBack(Length, start))
     End Method
 
-    // A copy without the whitespace at its start.
+    /// A copy without the whitespace at its start.
     Public Method TrimStart(): String => fb_text_slice(Self, Skipped(0), Length)
 
-    // A copy without the whitespace at its end.
+    /// A copy without the whitespace at its end.
     Public Method TrimEnd(): String => fb_text_slice(Self, 0, SkippedBack(Length, 0))
 
-    // A copy without prefix at its start, or the String itself when it doesn't start with it.
+    /// A copy without prefix at its start, or the String itself when it doesn't start with it.
     Public Method TrimPrefix(prefix: String): String
         If !StartsWith(prefix) Then Return Self
         Return fb_text_slice(Self, prefix.Length, Length)
     End Method
 
-    // A copy without suffix at its end, or the String itself when it doesn't end with it.
+    /// A copy without suffix at its end, or the String itself when it doesn't end with it.
     Public Method TrimSuffix(suffix: String): String
         If !EndsWith(suffix) Then Return Self
         Return fb_text_slice(Self, 0, Length - suffix.Length)
     End Method
 
-    // A copy in uppercase, by Unicode's full case mapping, so "straße" is "STRASSE". Panics past
-    // the most a String holds.
+    /// A copy in uppercase, by Unicode's full case mapping, so "straße" is "STRASSE". Panics past
+    /// the most a String holds.
     @PanicsAtCaller
     Public Method ToUpper(): String
         Local upper = fb_unicode_to_upper(Self)
@@ -255,8 +255,8 @@ Extend String
         Return upper
     End Method
 
-    // A copy in lowercase, by Unicode's full case mapping, with a capital sigma that ends a word
-    // as a final sigma: "ΣΑΣ" is "σας". Panics past the most a String holds.
+    /// A copy in lowercase, by Unicode's full case mapping, with a capital sigma that ends a word
+    /// as a final sigma: "ΣΑΣ" is "σας". Panics past the most a String holds.
     @PanicsAtCaller
     Public Method ToLower(): String
         Local lower = fb_unicode_to_lower(Self)
@@ -264,7 +264,7 @@ Extend String
         Return lower
     End Method
 
-    // The String count times over, as std.core's Repeated gives a value. A negative count panics.
+    /// The String count times over, as std.core's Repeated gives a value. A negative count panics.
     @PanicsAtCaller
     Public Method Repeated(count: Int): String
         If count < 0 Then Panic("Repeated takes a count that isn't negative, not {count}")
@@ -275,8 +275,8 @@ Extend String
         Return fb_text_repeat(Self, count)
     End Method
 
-    // A copy with fill before it, as many as it takes to make width characters, or the String
-    // itself when it has as many already. Panics past the most a String holds.
+    /// A copy with fill before it, as many as it takes to make width characters, or the String
+    /// itself when it has as many already. Panics past the most a String holds.
     @PanicsAtCaller
     Public Method PadLeft(width: Int, fill: Char = ' '): String
         Local count = CharCount
@@ -284,8 +284,8 @@ Extend String
         Return "{fill}".Repeated(width - count) + Self
     End Method
 
-    // A copy with fill after it, as many as it takes to make width characters, or the String
-    // itself when it has as many already. Panics past the most a String holds.
+    /// A copy with fill after it, as many as it takes to make width characters, or the String
+    /// itself when it has as many already. Panics past the most a String holds.
     @PanicsAtCaller
     Public Method PadRight(width: Int, fill: Char = ' '): String
         Local count = CharCount
@@ -293,9 +293,9 @@ Extend String
         Return Self + "{fill}".Repeated(width - count)
     End Method
 
-    // A copy with fill on both sides, as many as it takes to make width characters, one more
-    // after it than before when they don't split evenly, or the String itself when it has as many
-    // already. Panics past the most a String holds.
+    /// A copy with fill on both sides, as many as it takes to make width characters, one more
+    /// after it than before when they don't split evenly, or the String itself when it has as many
+    /// already. Panics past the most a String holds.
     @PanicsAtCaller
     Public Method Center(width: Int, fill: Char = ' '): String
         Local count = CharCount
@@ -305,16 +305,16 @@ Extend String
         Return "{fill}".Repeated(before) + Self + "{fill}".Repeated(missing - before)
     End Method
 
-    // -1 when it comes before other, 0 when they're equal, and 1 when it comes after, by their code
-    // points, as < compares them.
+    /// -1 when it comes before other, 0 when they're equal, and 1 when it comes after, by their
+    /// code points, as < compares them.
     Public Method Compare(other: String): Int
         If Self == other Then Return 0
         Return Self < other ? -1 : 1
     End Method
 
-    // Whether it's equal to other but for case, as Unicode's case folding has it: "STRASSE" and
-    // "straße" are. Panics when both fold past the most a String holds, where one alone is
-    // longer than the other.
+    /// Whether it's equal to other but for case, as Unicode's case folding has it: "STRASSE" and
+    /// "straße" are. Panics when both fold past the most a String holds, where one alone is
+    /// longer than the other.
     @PanicsAtCaller
     Public Method EqualsIgnoreCase(other: String): Bool
         Local mine = fb_unicode_case_fold(Self)
@@ -323,9 +323,9 @@ Extend String
         Return mine == theirs
     End Method
 
-    // -1, 0, or 1, as Compare gives, but with each run of the digits 0 to 9 compared as a number,
-    // so "file9" comes before "file10". Runs equal as numbers, like "07" and "7", go by their
-    // length after that, the shorter first.
+    /// -1, 0, or 1, as Compare gives, but with each run of the digits 0 to 9 compared as a number,
+    /// so "file9" comes before "file10". Runs equal as numbers, like "07" and "7", go by their
+    /// length after that, the shorter first.
     Public Method NaturalCompare(other: String): Int
         Local a = 0
         Local b = 0
@@ -352,22 +352,22 @@ Extend String
         Return Compare(other)
     End Method
 
-    // Its lines, one at a time, as SplitLines gives them.
+    /// Its lines, one at a time, as SplitLines gives them.
     Public Method Lines(): LineIterator => LineIterator(Self, 0)
 
-    // Its grapheme clusters, one at a time: what people see as one character each.
+    /// Its grapheme clusters, one at a time: what people see as one character each.
     Public Method Graphemes(): GraphemeIterator => GraphemeIterator(Self, 0)
 
-    // The Char whose first byte is at the position at.
+    /// The Char whose first byte is at the position at.
     Package Method CharAt(at: Int): Char => fb_text_char_at(Self, at) As Char
 
-    // Whether at is a position between two of its characters, or at either end.
+    /// Whether at is a position between two of its characters, or at either end.
     Package Method IsBoundary(at: Int): Bool
         If at <= 0 || at >= Length Then Return at == 0 || at == Length
         Return (fb_text_byte(Self, at) & 0xC0) != 0x80
     End Method
 
-    // Panics unless at is a position in the String between two characters, for what.
+    /// Panics unless at is a position in the String between two characters, for what.
     @PanicsAtCaller
     Package Method CheckPosition(at: Int, what: String)
         If at < 0 || at > Length
@@ -377,14 +377,14 @@ Extend String
         If !IsBoundary(at) Then Panic("{what} takes a position between characters, not {at}")
     End Method
 
-    // Panics when part is empty, for what.
+    /// Panics when part is empty, for what.
     @PanicsAtCaller
     Method CheckPart(part: String, what: String)
         If part.IsEmpty() Then Panic("{what} takes a String to look for that isn't empty")
     End Method
 
-    // The parts between each separator, at most count of them, the last holding the rest, or all
-    // of them when count is 0.
+    /// The parts between each separator, at most count of them, the last holding the rest, or all
+    /// of them when count is 0.
     Method Parts(separator: String, count: Int): String[]
         Local parts: String[] = []
         Local start = 0
@@ -399,7 +399,7 @@ Extend String
         Return parts
     End Method
 
-    // The first position from at on that isn't whitespace, or the Length.
+    /// The first position from at on that isn't whitespace, or the Length.
     Method Skipped(at: Int): Int
         Local position = at
         While position < Length
@@ -411,7 +411,7 @@ Extend String
         Return position
     End Method
 
-    // The first position from at on that's whitespace, or the Length.
+    /// The first position from at on that's whitespace, or the Length.
     Method Unskipped(at: Int): Int
         Local position = at
         While position < Length
@@ -423,7 +423,7 @@ Extend String
         Return position
     End Method
 
-    // The position just after the last character before at that isn't whitespace, or floor.
+    /// The position just after the last character before at that isn't whitespace, or floor.
     Method SkippedBack(at: Int, floor: Int): Int
         Local position = at
         While position > floor
@@ -439,7 +439,7 @@ Extend String
         Return position
     End Method
 
-    // The position just after the run of digits 0 to 9 that starts at at.
+    /// The position just after the run of digits 0 to 9 that starts at at.
     Method DigitsEnd(at: Int): Int
         Local position = at
         While position < Length && IsAsciiDigit(CharAt(position))
@@ -450,12 +450,12 @@ Extend String
     End Method
 End Extend
 
-// A String's lines, one at a time, without their line breaks: "\n", "\r\n", or "\r".
+/// A String's lines, one at a time, without their line breaks: "\n", "\r\n", or "\r".
 Public Struct LineIterator Implements Iterator<String>
     Field Text: String
     Field At: Int
 
-    // The next line, or Null after the last one.
+    /// The next line, or Null after the last one.
     Public ByRef Method Next(): String?
         Local length = Text.Length
         If At >= length Then Return Null
@@ -477,12 +477,12 @@ Public Struct LineIterator Implements Iterator<String>
     End Method
 End Struct
 
-// A String's grapheme clusters, one at a time, each a String.
+/// A String's grapheme clusters, one at a time, each a String.
 Public Struct GraphemeIterator Implements Iterator<String>
     Field Text: String
     Field At: Int
 
-    // The next grapheme cluster, or Null after the last one.
+    /// The next grapheme cluster, or Null after the last one.
     Public ByRef Method Next(): String?
         If At >= Text.Length Then Return Null
         Local start = At
@@ -491,12 +491,12 @@ Public Struct GraphemeIterator Implements Iterator<String>
     End Method
 End Struct
 
-// Whether c is one of the digits 0 to 9, which NaturalCompare reads as numbers.
+/// Whether c is one of the digits 0 to 9, which NaturalCompare reads as numbers.
 Function IsAsciiDigit(c: Char): Bool => c >= '0' && c <= '9'
 
-// -1, 0, or 1 for two runs of the digits 0 to 9 as numbers, of any length: the one with more
-// digits after its leading zeros is larger, and else the first digit that differs decides. Equal
-// ones go by their length, the shorter first.
+/// -1, 0, or 1 for two runs of the digits 0 to 9 as numbers, of any length: the one with more
+/// digits after its leading zeros is larger, and else the first digit that differs decides. Equal
+/// ones go by their length, the shorter first.
 Function CompareDigits(a: String, b: String): Int
     Local x = a.TrimLeadingZeros()
     Local y = b.TrimLeadingZeros()
@@ -508,7 +508,7 @@ Function CompareDigits(a: String, b: String): Int
 End Function
 
 Extend String
-    // A copy without its leading "0"s, for a run of digits.
+    /// A copy without its leading "0"s, for a run of digits.
     Method TrimLeadingZeros(): String
         Local at = 0
         While at < Length && fb_text_byte(Self, at) == 48

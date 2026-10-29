@@ -1,5 +1,5 @@
-// The program's console: what it writes to stdout and stderr, which show what it wrote in its
-// order, and the lines it reads from stdin. std reaches the runtime through Extern "runtime".
+//! The program's console: what it writes to stdout and stderr, which show what it wrote in its
+//! order, and the lines it reads from stdin. std reaches the runtime through Extern "runtime".
 
 Import std.core.interfaces
 
@@ -16,40 +16,40 @@ Extern "runtime"
     Function fb_io_input_async(prompt: String): Task<String?>
 End Extern
 
-// Prints the values, as "{x}" shows each, with a space between each two, and a line break. A
-// String holding a NUL prints whole.
+/// Prints the values, as "{x}" shows each, with a space between each two, and a line break. A
+/// String holding a NUL prints whole.
 Public Function Print(values: Printable...)
     fb_write(values, 0, 1)
 End Function
 
-// Prints the values like Print, without the line break.
+/// Prints the values like Print, without the line break.
 Public Function Write(values: Printable...)
     fb_write(values, 0, 0)
 End Function
 
-// Prints the values like Print, to stderr.
+/// Prints the values like Print, to stderr.
 Public Function PrintError(values: Printable...)
     fb_write(values, 1, 1)
 End Function
 
-// Prints the values like Write, to stderr.
+/// Prints the values like Write, to stderr.
 Public Function WriteError(values: Printable...)
     fb_write(values, 1, 0)
 End Function
 
-// Sends on what's been written to stdout and stderr, as the program's end and Input do anyway.
+/// Sends on what's been written to stdout and stderr, as the program's end and Input do anyway.
 Public Function Flush()
     fb_flush()
 End Function
 
-// Writes the prompt, then reads a line, without its line break, "\r\n" too. Null at the end of
-// the input. Nothing else runs meanwhile.
+/// Writes the prompt, then reads a line, without its line break, "\r\n" too. Null at the end of
+/// the input. Nothing else runs meanwhile.
 Public Function Input(prompt: String = ""): String?
     Return fb_io_input(prompt)
 End Function
 
-// Input's Async twin: writes the prompt, then gives a Task of the line, which the main thread
-// goes on from meanwhile. Lines go to Input and InputAsync in the order they ask.
+/// Input's Async twin: writes the prompt, then gives a Task of the line, which the main thread
+/// goes on from meanwhile. Lines go to Input and InputAsync in the order they ask.
 Public Function InputAsync(prompt: String = ""): Task<String?>
     Return fb_io_input_async(prompt)
 End Function

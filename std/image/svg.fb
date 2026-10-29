@@ -1,13 +1,14 @@
-// SVG, over nanosvg: Svg.Parse reads an SVG's shapes, paths, strokes, fills, and gradients into an
-// Svg, whose Width and Height are its size in pixels at 96 dots an inch, and Rasterize draws it
-// into an Image, its edges antialiased. nanosvg leaves out SVG's text, images, filters, masks,
-// and clipping, and style sheets but for style attributes.
+//! SVG, over nanosvg: Svg.Parse reads an SVG's shapes, paths, strokes, fills, and gradients into an
+//! Svg, whose Width and Height are its size in pixels at 96 dots an inch, and Rasterize draws it
+//! into an Image, its edges antialiased. nanosvg leaves out SVG's text, images, filters, masks,
+//! and clipping, and style sheets but for style attributes.
 
 Import std.core
 Import std.math.scalar
 Import std.image.codec
 Import std.image.image
 
+/// An SVG's shapes, which Rasterize draws into an Image.
 Public Class Svg
     Field State: Ptr<Void>
 
@@ -15,8 +16,8 @@ Public Class Svg
         State = state
     End New
 
-    // The SVG in text. Throws an IOError of INVALID_DATA when the text isn't an SVG, or is one
-    // without a size, by its width and height or its viewBox.
+    /// The SVG in text. Throws an IOError of INVALID_DATA when the text isn't an SVG, or is one
+    /// without a size, by its width and height or its viewBox.
     Public Static Method Parse(text: String): Svg Throws IOError
         Local state = fb_svg_parse(text)
         If state == Null
@@ -26,18 +27,18 @@ Public Class Svg
         Return Svg(state)
     End Method
 
-    // How wide it is, in pixels at 96 dots an inch.
+    /// How wide it is, in pixels at 96 dots an inch.
     Public Property Width: Double
         Get => fb_svg_width(State)
     End Property
 
-    // How tall it is, in pixels at 96 dots an inch.
+    /// How tall it is, in pixels at 96 dots an inch.
     Public Property Height: Double
         Get => fb_svg_height(State)
     End Property
 
-    // It drawn at `scale`, in an image of its size times the scale, each side rounded up. Panics
-    // when the scale isn't above 0, or the image would have more pixels than an Image holds.
+    /// It drawn at `scale`, in an image of its size times the scale, each side rounded up. Panics
+    /// when the scale isn't above 0, or the image would have more pixels than an Image holds.
     @PanicsAtCaller
     Public Method Rasterize(scale: Double = 1): Image
         If !(scale > 0) Then Panic("an SVG is drawn at a scale above 0, not {scale}")
@@ -50,8 +51,8 @@ Public Class Svg
         Return Drawn(width As Int, height As Int, scale, 0, 0)
     End Method
 
-    // It drawn as large as it fits in an image of width by height, in the middle of it. Panics
-    // when the size is one an Image can't be.
+    /// It drawn as large as it fits in an image of width by height, in the middle of it. Panics
+    /// when the size is one an Image can't be.
     @PanicsAtCaller
     Public Method Rasterize(width: Int, height: Int): Image
         CheckSize(width, height)

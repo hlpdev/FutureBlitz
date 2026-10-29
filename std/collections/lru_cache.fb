@@ -1,17 +1,19 @@
-// LruCache<K, V>: up to Capacity entries, dropping the one used least recently to make room for a
-// new key. Get and Add count as uses, but Peek, Contains, and going over the entries don't. Its
-// entries are a Map's, in the order they were last used, so a use moves an entry to the end.
+//! `LruCache<K, V>`: up to Capacity entries, dropping the one used least recently to make room for
+//! a new key. Get and Add count as uses, but Peek, Contains, and going over the entries don't. Its
+//! entries are a Map's, in the order they were last used, so a use moves an entry to the end.
 
 Import std.core
 Import std.collections.array
 Import std.collections.map
 
+/// A Map that holds up to its Capacity, letting go of the entry used least recently to make room
+/// for a new one.
 @DebugEntries
 Public Class LruCache<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable
     Field Items: Map<K, V>
     Field Room: Int
 
-    // An empty LruCache that holds up to capacity entries, which must be 1 or more.
+    /// An empty LruCache that holds up to capacity entries, which must be 1 or more.
     @PanicsAtCaller
     Public New(capacity: Int)
         If capacity < 1 Then Panic("an LruCache holds 1 entry or more, not {capacity}")
@@ -19,15 +21,17 @@ Public Class LruCache<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable
         Room = capacity
     End New
 
+    /// How many entries it holds.
     Public Property Count: Int
         Get => Items.Count
     End Property
 
+    /// How many entries it holds at most.
     Public Property Capacity: Int
         Get => Room
     End Property
 
-    // The key's value, or Null when it isn't there. A key that's there is used.
+    /// The key's value, or Null when it isn't there. A key that's there is used.
     Public Method Get(key: K): V?
         If !Items.Contains(key) Then Return Null
         Local value = Items[key]
@@ -36,14 +40,15 @@ Public Class LruCache<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable
         Return value
     End Method
 
-    // The key's value, or Null when it isn't there, without using the key.
+    /// The key's value, or Null when it isn't there, without using the key.
     Public Method Peek(key: K): V? => Items.Get(key)
 
+    /// Whether `key` has an entry, which doesn't count as using it.
     Public Method Contains(key: K): Bool => Items.Contains(key)
 
-    // Adds an entry, or gives an existing key its new value, and uses the key. When that leaves
-    // more than Capacity entries, the least recently used one goes, and Add gives it, or else
-    // Null.
+    /// Adds an entry, or gives an existing key its new value, and uses the key. When that leaves
+    /// more than Capacity entries, the least recently used one goes, and Add gives it, or else
+    /// Null.
     Public Method Add(key: K, value: V): (K, V)?
         Items.Remove(key)
         Items.Add(key, value)
@@ -53,15 +58,16 @@ Public Class LruCache<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable
         Return oldest
     End Method
 
-    // Removes the key's entry, and tells whether there was one.
+    /// Removes the key's entry, and tells whether there was one.
     Public Method Remove(key: K): Bool => Items.Remove(key)
 
+    /// Takes every entry out.
     Public Method Clear()
         Items.Clear()
     End Method
 
-    // Holds up to capacity entries from now on, which must be 1 or more, dropping the least
-    // recently used ones beyond it.
+    /// Holds up to capacity entries from now on, which must be 1 or more, dropping the least
+    /// recently used ones beyond it.
     @PanicsAtCaller
     Public Method Resize(capacity: Int)
         If capacity < 1 Then Panic("an LruCache holds 1 entry or more, not {capacity}")
@@ -71,24 +77,24 @@ Public Class LruCache<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable
         End While
     End Method
 
-    // The keys, least recently used first.
+    /// The keys, least recently used first.
     Public Method Keys(): K[] => Items.Keys()
 
-    // The values, in their keys' order.
+    /// The values, in their keys' order.
     Public Method Values(): V[] => Items.Values()
 
-    // A new LruCache with the same entries, in the same order, and Capacity.
+    /// A new LruCache with the same entries, in the same order, and Capacity.
     Public Method Clone(): LruCache<K, V>
         Local copy = LruCache<K, V>(Room)
         copy.Items = Items.Clone()
         Return copy
     End Method
 
-    // Each key and its value, least recently used first. Giving a key a new value or using one
-    // while going over them panics, as adding or removing one does.
+    /// Each key and its value, least recently used first. Giving a key a new value or using one
+    /// while going over them panics, as adding or removing one does.
     Public Method Iterate(): MapIterator<K, V> => Items.IterateAs("LruCache")
 
-    // The least recently used entry, of an LruCache that isn't empty.
+    /// The least recently used entry, of an LruCache that isn't empty.
     Method Oldest(): (K, V)
         For key, value In Items
             Return (key, value)

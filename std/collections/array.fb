@@ -1,15 +1,15 @@
-// What every collection has, on T[], besides the built-in Add, Insert, RemoveAt, Clear, Contains,
-// Clone, Reserve, TrimExcess, Count, and Capacity: searching, the ends, many elements at once,
-// order, and shape. A lookup gives a T?, or a T?? where the elements can be Null, and what's
-// wrong with its arguments panics where it's called. A function given to one that changes the
-// array changes what's left to go over, as in a For ... In, and an element it takes away panics
-// where the Method was called.
+//! What every collection has, on T[], besides the built-in Add, Insert, RemoveAt, Clear, Contains,
+//! Clone, Reserve, TrimExcess, Count, and Capacity: searching, the ends, many elements at once,
+//! order, and shape. A lookup gives a T?, or a T?? where the elements can be Null, and what's
+//! wrong with its arguments panics where it's called. A function given to one that changes the
+//! array changes what's left to go over, as in a For ... In, and an element it takes away panics
+//! where the Method was called.
 
 Import std.core
 Import std.collections.map
 
 Extend T[]
-    // Removes the first element equal to value, and tells whether there was one.
+    /// Removes the first element equal to value, and tells whether there was one.
     Public Method Remove(value: T): Bool
         Where T: Equatable
         For i, element In Self
@@ -21,15 +21,15 @@ Extend T[]
         Return False
     End Method
 
-    // Sorts the elements in place, smallest first. Equal elements keep their order.
+    /// Sorts the elements in place, smallest first. Equal elements keep their order.
     @PanicsAtCaller
     Public Method Sort()
         Where T: Comparable
         Sort(Function(a: T, b: T) => a < b)
     End Method
 
-    // Sorts the elements in place, by what before says comes first. It's a merge sort, so equal
-    // elements keep their order.
+    /// Sorts the elements in place, by what before says comes first. It's a merge sort, so equal
+    /// elements keep their order.
     @PanicsAtCaller
     Public Method Sort(before: Func(T, T): Bool)
         If Count < 2 Then Return
@@ -37,7 +37,7 @@ Extend T[]
         MergeSort(from, Self, 0, Count, before)
     End Method
 
-    // Each element that keep says to keep, in a new array.
+    /// Each element that keep says to keep, in a new array.
     Public Method Filter(keep: Func(T): Bool): T[]
         Local kept: T[] = []
         For element In Self
@@ -46,7 +46,7 @@ Extend T[]
         Return kept
     End Method
 
-    // What change gives for each element, in a new array.
+    /// What change gives for each element, in a new array.
     Public Method Map<U>(change: Func(T): U): U[]
         Local changed: U[] = []
         For element In Self
@@ -55,7 +55,7 @@ Extend T[]
         Return changed
     End Method
 
-    // The first element that test says is the one, or Null.
+    /// The first element that test says is the one, or Null.
     Public Method Find(test: Func(T): Bool): T?
         For element In Self
             If test(element) Then Return element
@@ -63,7 +63,7 @@ Extend T[]
         Return Null
     End Method
 
-    // The last element that test says is the one, or Null.
+    /// The last element that test says is the one, or Null.
     Public Method FindLast(test: Func(T): Bool): T?
         Local i = Count - 1
         While i >= 0
@@ -74,7 +74,7 @@ Extend T[]
         Return Null
     End Method
 
-    // Where the first element that test says is the one is, or Null.
+    /// Where the first element that test says is the one is, or Null.
     Public Method FindIndex(test: Func(T): Bool): Int?
         For i, element In Self
             If test(element) Then Return i
@@ -82,7 +82,7 @@ Extend T[]
         Return Null
     End Method
 
-    // Where the first element equal to value is, or Null.
+    /// Where the first element equal to value is, or Null.
     Public Method IndexOf(value: T): Int?
         Where T: Equatable
         For i, element In Self
@@ -91,7 +91,7 @@ Extend T[]
         Return Null
     End Method
 
-    // Where the last element equal to value is, or Null.
+    /// Where the last element equal to value is, or Null.
     Public Method LastIndexOf(value: T): Int?
         Where T: Equatable
         For i = Count - 1 To 0 Step -1
@@ -100,8 +100,8 @@ Extend T[]
         Return Null
     End Method
 
-    // Where an element equal to value is in an array sorted smallest first, or Null, looking at
-    // about log2(Count) of them.
+    /// Where an element equal to value is in an array sorted smallest first, or Null, looking at
+    /// about log2(Count) of them.
     Public Method BinarySearch(value: T): Int?
         Where T: Comparable
         Local low = 0
@@ -119,7 +119,7 @@ Extend T[]
         Return Null
     End Method
 
-    // Whether test says yes for any element, going no further than the first.
+    /// Whether test says yes for any element, going no further than the first.
     Public Method Any(test: Func(T): Bool): Bool
         For element In Self
             If test(element) Then Return True
@@ -127,7 +127,7 @@ Extend T[]
         Return False
     End Method
 
-    // Whether test says yes for every element, going no further than the first it doesn't.
+    /// Whether test says yes for every element, going no further than the first it doesn't.
     Public Method All(test: Func(T): Bool): Bool
         For element In Self
             If !test(element) Then Return False
@@ -135,19 +135,19 @@ Extend T[]
         Return True
     End Method
 
-    // The first element, or Null when there's none.
+    /// The first element, or Null when there's none.
     Public Method First(): T?
         If Count == 0 Then Return Null
         Return Self[0]
     End Method
 
-    // The last element, or Null when there's none.
+    /// The last element, or Null when there's none.
     Public Method Last(): T?
         If Count == 0 Then Return Null
         Return Self[Count - 1]
     End Method
 
-    // Takes the last element off, and gives it. The array can't be empty.
+    /// Takes the last element off, and gives it. The array can't be empty.
     @PanicsAtCaller
     Public Method RemoveLast(): T
         If Count == 0 Then Panic("RemoveLast takes the last element, but the array is empty")
@@ -156,7 +156,7 @@ Extend T[]
         Return last
     End Method
 
-    // Takes the last element off, and gives it, or Null when there's none.
+    /// Takes the last element off, and gives it, or Null when there's none.
     Public Method TryRemoveLast(): T?
         If Count == 0 Then Return Null
         Local last = Self[Count - 1]
@@ -164,7 +164,7 @@ Extend T[]
         Return last
     End Method
 
-    // Adds each of the values at the end, in order.
+    /// Adds each of the values at the end, in order.
     Public Method AddAll(values: T[])
         // A copy first, so adding an array to itself adds what it had.
         For value In values.Clone()
@@ -172,12 +172,12 @@ Extend T[]
         End For
     End Method
 
-    // The same, from any Iterable<T>, all of which is read first.
+    /// The same, from any `Iterable<T>`, all of which is read first.
     Public Method AddAll(values: Iterable<T>)
         AddAll(values.Iterate().ToArray())
     End Method
 
-    // Puts the values in, in order, from index on, which can be from 0 to Count.
+    /// Puts the values in, in order, from index on, which can be from 0 to Count.
     @PanicsAtCaller
     Public Method InsertAll(index: Int, values: T[])
         If index < 0 || index > Count
@@ -190,13 +190,13 @@ Extend T[]
         End For
     End Method
 
-    // The same, from any Iterable<T>, all of which is read first.
+    /// The same, from any `Iterable<T>`, all of which is read first.
     @PanicsAtCaller
     Public Method InsertAll(index: Int, values: Iterable<T>)
         InsertAll(index, values.Iterate().ToArray())
     End Method
 
-    // Takes out count elements, from start on, which must all be in the array.
+    /// Takes out count elements, from start on, which must all be in the array.
     @PanicsAtCaller
     Public Method RemoveRange(start: Int, count: Int)
         If start < 0 || count < 0 || start > Count - count
@@ -212,8 +212,8 @@ Extend T[]
         End For
     End Method
 
-    // Takes out each element that test says to, keeping the others in order, and tells how many
-    // went. An element test adds is tested too.
+    /// Takes out each element that test says to, keeping the others in order, and tells how many
+    /// went. An element test adds is tested too.
     Public Method RemoveAll(test: Func(T): Bool): Int
         Local kept = 0
         Local i = 0
@@ -236,7 +236,7 @@ Extend T[]
         Return removed
     End Method
 
-    // Makes the array count elements long, taking elements off the end or adding fill.
+    /// Makes the array count elements long, taking elements off the end or adding fill.
     @PanicsAtCaller
     Public Method Resize(count: Int, fill: T)
         If count < 0 Then Panic("Resize takes a count that isn't negative, not {count}")
@@ -248,21 +248,21 @@ Extend T[]
         End While
     End Method
 
-    // Gives every element the value.
+    /// Gives every element the value.
     Public Method Fill(value: T)
         For i = 0 Until Count
             Self[i] = value
         End For
     End Method
 
-    // Puts the elements in the opposite order, in place.
+    /// Puts the elements in the opposite order, in place.
     Public Method Reverse()
         For i = 0 Until Count / 2
             Swap(i, Count - 1 - i)
         End For
     End Method
 
-    // Gives each of the two elements the other's place.
+    /// Gives each of the two elements the other's place.
     @PanicsAtCaller
     Public Method Swap(a: Int, b: Int)
         Local held = Self[a]
@@ -270,8 +270,8 @@ Extend T[]
         Self[b] = held
     End Method
 
-    // Sorts the elements in place by what key gives for each, smallest first. Equal keys keep
-    // their elements' order, and ThenBy on what it gives breaks their ties.
+    /// Sorts the elements in place by what key gives for each, smallest first. Equal keys keep
+    /// their elements' order, and ThenBy on what it gives breaks their ties.
     @PanicsAtCaller
     Public Method SortBy<K: Comparable>(key: Func(T): K): Sorting<T>
         Local before = Function(a: T, b: T) => key(a) < key(b)
@@ -279,7 +279,7 @@ Extend T[]
         Return Sorting<T>(Self, before)
     End Method
 
-    // The same, largest key first.
+    /// The same, largest key first.
     @PanicsAtCaller
     Public Method SortByDescending<K: Comparable>(key: Func(T): K): Sorting<T>
         Local before = Function(a: T, b: T) => key(b) < key(a)
@@ -287,16 +287,16 @@ Extend T[]
         Return Sorting<T>(Self, before)
     End Method
 
-    // Sorts the elements in place, smallest first, without making another array: a heap sort,
-    // so equal elements may change places.
+    /// Sorts the elements in place, smallest first, without making another array: a heap sort,
+    /// so equal elements may change places.
     @PanicsAtCaller
     Public Method SortUnstable()
         Where T: Comparable
         SortUnstable(Function(a: T, b: T) => a < b)
     End Method
 
-    // Sorts the elements in place, by what before says comes first, without making another
-    // array: a heap sort, so equal elements may change places.
+    /// Sorts the elements in place, by what before says comes first, without making another
+    /// array: a heap sort, so equal elements may change places.
     @PanicsAtCaller
     Public Method SortUnstable(before: Func(T, T): Bool)
         For start = Count / 2 - 1 To 0 Step -1
@@ -308,8 +308,8 @@ Extend T[]
         End For
     End Method
 
-    // Moves the element at index down the heap in the first count elements, where each comes
-    // after its two children, by before.
+    /// Moves the element at index down the heap in the first count elements, where each comes
+    /// after its two children, by before.
     @PanicsAtCaller
     Method SiftDown(index: Int, count: Int, before: Func(T, T): Bool)
         Local at = index
@@ -326,7 +326,7 @@ Extend T[]
         End Loop
     End Method
 
-    // The elements, each only the first time it comes, in a new array.
+    /// The elements, each only the first time it comes, in a new array.
     Public Method Distinct(): T[]
         Where T: Hashable
         Local seen = map.Map<T, Bool>()
@@ -340,7 +340,7 @@ Extend T[]
         Return kept
     End Method
 
-    // The elements' text, as "{x}" shows each, with separator between each two.
+    /// The elements' text, as "{x}" shows each, with separator between each two.
     Public Method Join(separator: String): String
         Where T: Printable
         Local parts: String[] = []
@@ -350,7 +350,7 @@ Extend T[]
         Return Joined(parts, separator)
     End Method
 
-    // What combine gives for each element in turn, starting from start.
+    /// What combine gives for each element in turn, starting from start.
     Public Method Fold<A>(start: A, combine: Func(A, T): A): A
         Local total = start
         For element In Self
@@ -359,8 +359,8 @@ Extend T[]
         Return total
     End Method
 
-    // What combine gives for each element in turn, starting from the first, or Null when there's
-    // none.
+    /// What combine gives for each element in turn, starting from the first, or Null when there's
+    /// none.
     Public Method Reduce(combine: Func(T, T): T): T?
         If Count == 0 Then Return Null
         Local total = Self[0]
@@ -379,7 +379,7 @@ Extend T[] Implements Iterable<T>
     Public Method Iterate(): ArrayIterator<T> => ArrayIterator<T>(Self, 0)
 End Extend
 
-// An array's elements, in order, as far as its Count when each is read.
+/// An array's elements, in order, as far as its Count when each is read.
 Public Struct ArrayIterator<T> Implements Iterator<T>
     Field Items: T[]
     Field Index: Int
@@ -391,20 +391,20 @@ Public Struct ArrayIterator<T> Implements Iterator<T>
     End Method
 End Struct
 
-// An array SortBy or SortByDescending sorted, whose ThenBy and ThenByDescending sort it again
-// where the keys so far tie, in place.
+/// An array SortBy or SortByDescending sorted, whose ThenBy and ThenByDescending sort it again
+/// where the keys so far tie, in place.
 Public Struct Sorting<T>
     Field Items: T[]
     Field Before: Func(T, T): Bool
 
-    // Sorts the array again by what key gives, smallest first, where the keys so far tie.
+    /// Sorts the array again by what key gives, smallest first, where the keys so far tie.
     @PanicsAtCaller
     Public Method ThenBy<K: Comparable>(key: Func(T): K): Sorting<T>
         Local first = Before
         Return Again(Function(a: T, b: T) => first(a, b) || (!first(b, a) && key(a) < key(b)))
     End Method
 
-    // The same, largest key first.
+    /// The same, largest key first.
     @PanicsAtCaller
     Public Method ThenByDescending<K: Comparable>(key: Func(T): K): Sorting<T>
         Local first = Before
@@ -418,16 +418,16 @@ Public Struct Sorting<T>
     End Method
 End Struct
 
-// The first of the two children of the value at index at in a binary heap of count values, at
-// 2 * at + 1, or Null when it has none. Only a value before count / 2 has one, so working it out
-// never overflows.
+/// The first of the two children of the value at index at in a binary heap of count values, at
+/// 2 * at + 1, or Null when it has none. Only a value before count / 2 has one, so working it out
+/// never overflows.
 Package Function HeapChild(at: Int, count: Int): Int?
     If at >= count / 2 Then Return Null
     Return 2 * at + 1
 End Function
 
-// The parts with separator between them, joined in pairs, then pairs of those, and so on, so the
-// time grows with their length times its logarithm, not with its square.
+/// The parts with separator between them, joined in pairs, then pairs of those, and so on, so the
+/// time grows with their length times its logarithm, not with its square.
 Function Joined(parts: String[], separator: String): String
     If parts.Count == 0 Then Return ""
     Local joined = parts

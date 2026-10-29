@@ -1,7 +1,7 @@
-// Easing: how far along an animation is at a time t from 0 to 1, from 0 at its start to 1 at its
-// end, for each of the usual curves, as easings.net draws them. In starts slow and ends fast, Out
-// starts fast and ends slow, and InOut does both, each half a curve's In and Out. Back overshoots
-// below 0 or past 1, Elastic springs past them, and Bounce bounces.
+//! Easing: how far along an animation is at a time t from 0 to 1, from 0 at its start to 1 at its
+//! end, for each of the usual curves, as easings.net draws them. In starts slow and ends fast, Out
+//! starts fast and ends slow, and InOut does both, each half a curve's In and Out. Back overshoots
+//! below 0 or past 1, Elastic springs past them, and Bounce bounces.
 
 Import std.core
 Import std.math.constants
@@ -12,74 +12,92 @@ Const BackPullInOut: Float = BackPull * 1.525
 Const ElasticTurn: Float = Tau / 3
 Const ElasticTurnInOut: Float = Tau / 4.5
 
-// Along a quarter of a sine wave.
+/// Along a quarter of a sine wave.
 Public Function EaseInSine(t: Float): Float => 1 - Cos(t * Pi / 2)
+/// Out along a quarter of a sine wave.
 Public Function EaseOutSine(t: Float): Float => Sin(t * Pi / 2)
+/// In and out along a quarter of a sine wave.
 Public Function EaseInOutSine(t: Float): Float => -(Cos(Pi * t) - 1) / 2
 
-// t squared.
+/// t squared.
 Public Function EaseInQuad(t: Float): Float => t * t
+/// Out along t squared.
 Public Function EaseOutQuad(t: Float): Float => 1 - (1 - t) * (1 - t)
+/// In and out along t squared.
 Public Function EaseInOutQuad(t: Float): Float => t < 0.5 ? 2 * t * t : 1 - (2 - 2 * t) ** 2 / 2
 
-// t cubed.
+/// t cubed.
 Public Function EaseInCubic(t: Float): Float => t ** 3
+/// Out along t cubed.
 Public Function EaseOutCubic(t: Float): Float => 1 - (1 - t) ** 3
+/// In and out along t cubed.
 Public Function EaseInOutCubic(t: Float): Float => t < 0.5 ? 4 * t ** 3 : 1 - (2 - 2 * t) ** 3 / 2
 
-// t to the fourth.
+/// t to the fourth.
 Public Function EaseInQuart(t: Float): Float => t ** 4
+/// Out along t to the fourth.
 Public Function EaseOutQuart(t: Float): Float => 1 - (1 - t) ** 4
+/// In and out along t to the fourth.
 Public Function EaseInOutQuart(t: Float): Float => t < 0.5 ? 8 * t ** 4 : 1 - (2 - 2 * t) ** 4 / 2
 
-// t to the fifth.
+/// t to the fifth.
 Public Function EaseInQuint(t: Float): Float => t ** 5
+/// Out along t to the fifth.
 Public Function EaseOutQuint(t: Float): Float => 1 - (1 - t) ** 5
+/// In and out along t to the fifth.
 Public Function EaseInOutQuint(t: Float): Float => t < 0.5 ? 16 * t ** 5 : 1 - (2 - 2 * t) ** 5 / 2
 
-// 2 to the power of 10 t, from 0 to 1 at the ends.
+/// 2 to the power of 10 t, from 0 to 1 at the ends.
 Public Function EaseInExpo(t: Float): Float => t <= 0 ? 0 : Exp2(10 * t - 10)
+/// Out along 2 to the power of 10 t, from 0 to 1 at the ends.
 Public Function EaseOutExpo(t: Float): Float => t >= 1 ? 1 : 1 - Exp2(-10 * t)
 
+/// In and out along 2 to the power of 10 t, from 0 to 1 at the ends.
 Public Function EaseInOutExpo(t: Float): Float
     If t <= 0 Then Return 0
     If t >= 1 Then Return 1
     Return t < 0.5 ? Exp2(20 * t - 10) / 2 : (2 - Exp2(10 - 20 * t)) / 2
 End Function
 
-// Along a quarter of a circle.
+/// Along a quarter of a circle.
 Public Function EaseInCirc(t: Float): Float => 1 - Sqrt(1 - t * t)
+/// Out along a quarter of a circle.
 Public Function EaseOutCirc(t: Float): Float => Sqrt(1 - (t - 1) * (t - 1))
 
+/// In and out along a quarter of a circle.
 Public Function EaseInOutCirc(t: Float): Float
     If t < 0.5 Then Return (1 - Sqrt(1 - 4 * t * t)) / 2
     Return (Sqrt(1 - (2 - 2 * t) ** 2) + 1) / 2
 End Function
 
-// Pulling back below 0 before going, or past 1 before stopping.
+/// Pulling back below 0 before going, or past 1 before stopping.
 Public Function EaseInBack(t: Float): Float => (BackPull + 1) * t ** 3 - BackPull * t * t
+/// Out, past 1 before stopping.
 Public Function EaseOutBack(t: Float): Float
     Return 1 + (BackPull + 1) * (t - 1) ** 3 + BackPull * (t - 1) ** 2
 End Function
 
+/// In and out, pulling back below 0 before going and past 1 before stopping.
 Public Function EaseInOutBack(t: Float): Float
     If t < 0.5 Then Return (2 * t) ** 2 * ((BackPullInOut + 1) * 2 * t - BackPullInOut) / 2
     Return ((2 * t - 2) ** 2 * ((BackPullInOut + 1) * (2 * t - 2) + BackPullInOut) + 2) / 2
 End Function
 
-// Springing past 0 or 1, as on an elastic, the swings shrinking.
+/// Springing past 0 or 1, as on an elastic, the swings shrinking.
 Public Function EaseInElastic(t: Float): Float
     If t <= 0 Then Return 0
     If t >= 1 Then Return 1
     Return -Exp2(10 * t - 10) * Sin((10 * t - 10.75) * ElasticTurn)
 End Function
 
+/// Out, springing past 1, as on an elastic, the swings shrinking.
 Public Function EaseOutElastic(t: Float): Float
     If t <= 0 Then Return 0
     If t >= 1 Then Return 1
     Return Exp2(-10 * t) * Sin((10 * t - 0.75) * ElasticTurn) + 1
 End Function
 
+/// In and out, springing past 0 and 1, as on an elastic, the swings shrinking.
 Public Function EaseInOutElastic(t: Float): Float
     If t <= 0 Then Return 0
     If t >= 1 Then Return 1
@@ -88,10 +106,10 @@ Public Function EaseInOutElastic(t: Float): Float
     Return Exp2(10 - 20 * t) * wave / 2 + 1
 End Function
 
-// Bouncing, as a ball dropped does, the bounces shrinking.
+/// Bouncing, as a ball dropped does, the bounces shrinking.
 Public Function EaseInBounce(t: Float): Float => 1 - EaseOutBounce(1 - t)
 
-// Four bounces, each lower, the last ending at 1.
+/// Four bounces, each lower, the last ending at 1.
 Public Function EaseOutBounce(t: Float): Float
     Local strength: Float = 7.5625
     Local span: Float = 2.75
@@ -108,6 +126,7 @@ Public Function EaseOutBounce(t: Float): Float
     Return strength * x * x + 0.984375
 End Function
 
+/// In and out, bouncing, as a ball dropped does, the bounces shrinking.
 Public Function EaseInOutBounce(t: Float): Float
     If t < 0.5 Then Return (1 - EaseOutBounce(1 - 2 * t)) / 2
     Return (1 + EaseOutBounce(2 * t - 1)) / 2

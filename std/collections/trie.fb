@@ -1,27 +1,27 @@
-// Trie<V>: String keys and their values in a tree with a node for each prefix of the keys' bytes,
-// so the keys with a prefix, or the longest key a text starts with, are found by going down the
-// prefix alone. The keys go in the order of their bytes, which is their code points' order.
+//! `Trie<V>`: String keys and their values in a tree with a node for each prefix of the keys'
+//! bytes, so the keys with a prefix, or the longest key a text starts with, are found by going down
+//! the prefix alone. The keys go in the order of their bytes, which is their code points' order.
 
 Import std.core
 Import std.collections.array
 
 Class TrieNode<V>
-    // The bytes that come next in the keys under this node, smallest first, and the nodes they
-    // lead to.
+    /// The bytes that come next in the keys under this node, smallest first, and the nodes they
+    /// lead to.
     Field Bytes: UInt8[] = []
     Field Children: TrieNode<V>[] = []
-    // The key that ends here and its value, or Null.
+    /// The key that ends here and its value, or Null.
     Field Key: String?
     Field Value: V?
 
-    // Where byte leads, or Null.
+    /// Where byte leads, or Null.
     Method Child(byte: UInt8): TrieNode<V>?
         Local at = Place(byte)
         If at < Bytes.Count && Bytes[at] == byte Then Return Children[at]
         Return Null
     End Method
 
-    // Where byte leads, which it makes when nothing does yet.
+    /// Where byte leads, which it makes when nothing does yet.
     Method ChildOrAdd(byte: UInt8): TrieNode<V>
         Local at = Place(byte)
         If at < Bytes.Count && Bytes[at] == byte Then Return Children[at]
@@ -31,7 +31,7 @@ Class TrieNode<V>
         Return child
     End Method
 
-    // Where byte is among Bytes, or would go.
+    /// Where byte is among Bytes, or would go.
     Method Place(byte: UInt8): Int
         Local at = 0
         While at < Bytes.Count && Bytes[at] < byte
@@ -41,22 +41,25 @@ Class TrieNode<V>
     End Method
 End Class
 
+/// A Map from Strings that finds the keys that start with a prefix.
 @DebugEntries
 Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
     Field Root: TrieNode<V>
     Field Size: Int
-    // How many times keys were added or removed, so a For ... In over them can tell.
+    /// How many times keys were added or removed, so a For ... In over them can tell.
     Field Changes: Int64
 
+    /// A new, empty Trie.
     Public New()
         Root = TrieNode<V>()
     End New
 
+    /// How many entries it holds.
     Public Property Count: Int
         Get => Size
     End Property
 
-    // Adds an entry, or gives an existing key its new value.
+    /// Adds an entry, or gives an existing key its new value.
     Public Method Add(key: String, value: V)
         Local node = Root
         For byte In key.Bytes
@@ -72,21 +75,21 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         node.Value = value
     End Method
 
-    // The key's value, or Null when it isn't there.
+    /// The key's value, or Null when it isn't there.
     Public Method Get(key: String): V?
         Local node = Find(key)
         If node == Null || node.Key == Null Then Return Null
         Return node.Value.Expect("a Trie's key has a value")
     End Method
 
-    // The key's value, or fallback when it isn't there.
+    /// The key's value, or fallback when it isn't there.
     Public Method Get(key: String, fallback: V): V
         Local node = Find(key)
         If node == Null || node.Key == Null Then Return fallback
         Return node.Value.Expect("a Trie's key has a value")
     End Method
 
-    // The key's value. A key that isn't there panics.
+    /// The key's value. A key that isn't there panics.
     @PanicsAtCaller
     Operator [](key: String): V
         Local node = Find(key)
@@ -94,17 +97,18 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Return node.Value.Expect("a Trie's key has a value")
     End Operator
 
-    // Gives the key a value, adding it when it isn't there.
+    /// Gives the key a value, adding it when it isn't there.
     Operator []=(key: String, value: V)
         Add(key, value)
     End Operator
 
+    /// Whether `key` has an entry.
     Public Method Contains(key: String): Bool
         Local node = Find(key)
         Return node != Null && node.Key != Null
     End Method
 
-    // Removes the key's entry, and tells whether there was one.
+    /// Removes the key's entry, and tells whether there was one.
     Public Method Remove(key: String): Bool
         // The nodes on the way down, so the ones only this key needed can go.
         Local path: TrieNode<V>[] = [Root]
@@ -133,21 +137,22 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Return True
     End Method
 
+    /// Takes every entry out.
     Public Method Clear()
         Root = TrieNode<V>()
         Size = 0
         Changes += 1
     End Method
 
-    // Whether a key starts with prefix, as every key starts with "", so an empty Trie has none.
-    // Every node but the root is on the way to a key, since Remove takes out what only its key
-    // needed.
+    /// Whether a key starts with prefix, as every key starts with "", so an empty Trie has none.
+    /// Every node but the root is on the way to a key, since Remove takes out what only its key
+    /// needed.
     Public Method HasPrefix(prefix: String): Bool
         Local node = Find(prefix)
         Return node != Null && (node.Key != Null || node.Children.Count > 0)
     End Method
 
-    // The keys that start with prefix, in order, in a new array.
+    /// The keys that start with prefix, in order, in a new array.
     Public Method KeysWithPrefix(prefix: String): String[]
         Local keys: String[] = []
         Local start = Find(prefix)
@@ -160,7 +165,7 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         End Loop
     End Method
 
-    // The longest key that text starts with, or Null when none does.
+    /// The longest key that text starts with, or Null when none does.
     Public Method LongestPrefixOf(text: String): String?
         Local node = Root
         Local longest = node.Key
@@ -173,10 +178,10 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Return longest
     End Method
 
-    // The keys, in order.
+    /// The keys, in order.
     Public Method Keys(): String[] => KeysWithPrefix("")
 
-    // The values, in their keys' order.
+    /// The values, in their keys' order.
     Public Method Values(): V[]
         Local values: V[] = []
         values.Reserve(Size)
@@ -186,10 +191,10 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Return values
     End Method
 
-    // A new, empty Trie.
+    /// A new, empty Trie.
     Public Static Method DefaultValue(): Trie<V> => Trie<V>()
 
-    // A new Trie with the same entries.
+    /// A new Trie with the same entries.
     Public Method Clone(): Trie<V>
         Local copy = Trie<V>()
         For key, value In Self
@@ -198,11 +203,11 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Return copy
     End Method
 
-    // Each key and its value, in order, for 'For key, value In trie'. Giving a key a new value
-    // while going over them is fine, but adding or removing one panics.
+    /// Each key and its value, in order, for 'For key, value In trie'. Giving a key a new value
+    /// while going over them is fine, but adding or removing one panics.
     Public Method Iterate(): TrieIterator<V> => TrieIterator<V>(Self, Root, -1, Null, Changes)
 
-    // The node where prefix ends, or Null when no key starts with it.
+    /// The node where prefix ends, or Null when no key starts with it.
     Method Find(prefix: String): TrieNode<V>?
         Local node = Root
         For byte In prefix.Bytes
@@ -214,9 +219,9 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
     End Method
 End Class
 
-// The nodes above a TrieIterator's node, the lowest first, each with the next of its children to
-// go into. A step makes new ones rather than changing these, so a copy of the iterator keeps its
-// place.
+/// The nodes above a TrieIterator's node, the lowest first, each with the next of its children to
+/// go into. A step makes new ones rather than changing these, so a copy of the iterator keeps its
+/// place.
 Class TriePath<V>
     ReadOnly Field Node: TrieNode<V>
     ReadOnly Field Place: Int
@@ -229,8 +234,8 @@ Class TriePath<V>
     End New
 End Class
 
-// The keys in order: the node it's at, or Null at the end, with the next of its children to go
-// into, or -1 before its own key, and the nodes on the way down to it.
+/// The keys in order: the node it's at, or Null at the end, with the next of its children to go
+/// into, or -1 before its own key, and the nodes on the way down to it.
 Public Struct TrieIterator<V> Implements Iterator<(String, V)>
     Field Owner: Trie<V>
     Field Node: TrieNode<V>?

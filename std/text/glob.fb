@@ -1,21 +1,21 @@
-// std.text.glob: a shell's wildcards, matched against all of a String, a character at a time. *
-// is any run of characters but /, and ** any run at all, so "src/**/*.fb" reaches into folders,
-// and "**/", as a whole folder, can be no folder, as in bash's globstar; ? is one character but
-// /; [abc] and [a-z] are one of a set, and [!abc] or [^abc] one that isn't, never /; {a,b} is
-// either; and \ makes the character after it itself. A [ or { without its end is itself.
+//! std.text.glob: a shell's wildcards, matched against all of a String, a character at a time. * is
+//! any run of characters but /, and ** any run at all, so "src/**/*.fb" reaches into folders, and
+//! "**/", as a whole folder, can be no folder, as in bash's globstar; ? is one character but /;
+//! `[abc]` and `[a-z]` are one of a set, and `[!abc]` or `[^abc]` one that isn't, never /; {a,b} is
+//! either; and \ makes the character after it itself. A [ or { without its end is itself.
 
 Import std.core
 Import std.collections.array
 Import std.text.char
 Import std.text.unicode
 
-// What a piece of a pattern matches.
+/// What a piece of a pattern matches.
 Enum PieceKind
     LITERAL, ONE, STAR, GLOBSTAR, FOLDERS, SET
 End Enum
 
-// A piece: a literal Char, one character, a star, two, two and a slash, which is any folders
-// or none, or a set, of Chars from Lows to Highs, or not, when Negated.
+/// A piece: a literal Char, one character, a star, two, two and a slash, which is any folders
+/// or none, or a set, of Chars from Lows to Highs, or not, when Negated.
 Struct Piece
     Field Kind: PieceKind
     Field Literal: Char
@@ -24,17 +24,17 @@ Struct Piece
     Field Negated: Bool
 End Struct
 
-// A pattern, read once, which Matches tells text against.
+/// A pattern, read once, which Matches tells text against.
 Public Class Glob
-    // Each of the pattern's alternatives, its braces taken apart, as its pieces.
+    /// Each of the pattern's alternatives, its braces taken apart, as its pieces.
     ReadOnly Field Alternatives: Piece[][]
-    // The pattern, as it was given.
+    /// The pattern, as it was given.
     Public ReadOnly Field Pattern: String
-    // Whether letters match in either case.
+    /// Whether letters match in either case.
     Public ReadOnly Field IgnoreCase: Bool
 
-    // A Glob of pattern. With ignoreCase, letters match in either case, as Unicode folds each
-    // one, so the pattern matches all it does without it, and more.
+    /// A Glob of pattern. With ignoreCase, letters match in either case, as Unicode folds each
+    /// one, so the pattern matches all it does without it, and more.
     Public New(pattern: String, ignoreCase: Bool = False)
         Pattern = pattern
         IgnoreCase = ignoreCase
@@ -53,7 +53,7 @@ Public Class Glob
         Alternatives = alternatives
     End New
 
-    // Whether all of text matches the pattern.
+    /// Whether all of text matches the pattern.
     Public Method Matches(text: String): Bool
         Local chars = text.Chars
         Local folded: Char[] = []
@@ -70,14 +70,14 @@ Public Class Glob
         Return False
     End Method
 
-    // Whether all of text matches pattern, as Glob(pattern, ignoreCase).Matches(text) tells.
+    /// Whether all of text matches pattern, as Glob(pattern, ignoreCase).Matches(text) tells.
     Public Static Method Match(pattern: String, text: String, ignoreCase: Bool = False): Bool
         Return Glob(pattern, ignoreCase).Matches(text)
     End Method
 End Class
 
-// pattern with its braces taken apart: "{a,b}c" is "ac" and "bc". A { without a } after it, or
-// without a comma inside, is itself.
+/// pattern with its braces taken apart: "{a,b}c" is "ac" and "bc". A { without a } after it, or
+/// without a comma inside, is itself.
 Function Expanded(pattern: String): String[]
     Local chars = pattern.Chars
     Local open = -1
@@ -106,7 +106,7 @@ Function Expanded(pattern: String): String[]
     Return expanded
 End Function
 
-// Where the } that closes the { at open is, when there's a comma at its own depth inside, or -1.
+/// Where the } that closes the { at open is, when there's a comma at its own depth inside, or -1.
 Function Closing(chars: Char[], open: Int): Int
     Local depth = 0
     Local comma = False
@@ -134,7 +134,7 @@ Function Closing(chars: Char[], open: Int): Int
     Return -1
 End Function
 
-// The choices between the { at open and its } at close, split at its own commas.
+/// The choices between the { at open and its } at close, split at its own commas.
 Function Choices(chars: Char[], open: Int, close: Int): String[]
     Local choices: String[] = []
     Local depth = 0
@@ -170,7 +170,7 @@ Function Joined(chars: Char[], start: Int, finish: Int): String
     Return joined
 End Function
 
-// An alternative's pieces.
+/// An alternative's pieces.
 Function PiecesOf(pattern: String): Piece[]
     Local chars = pattern.Chars
     Local pieces: Piece[] = []
@@ -218,8 +218,8 @@ End Function
 
 Function Literal(c: Char): Piece => Piece(PieceKind.LITERAL, c, [], [], False)
 
-// Where the ] that ends the set at open is, or -1. A ] first in the set, after any ! or ^, is in
-// it.
+/// Where the ] that ends the set at open is, or -1. A ] first in the set, after any ! or ^, is in
+/// it.
 Function SetEnd(chars: Char[], open: Int): Int
     Local i = open + 1
     If i < chars.Count && (chars[i] == '!' || chars[i] == '^') Then i += 1
@@ -237,7 +237,7 @@ Function SetEnd(chars: Char[], open: Int): Int
     Return -1
 End Function
 
-// The set from the [ at open to the ] at finish.
+/// The set from the [ at open to the ] at finish.
 Function SetOf(chars: Char[], open: Int, finish: Int): Piece
     Local lows: Char[] = []
     Local highs: Char[] = []
@@ -271,17 +271,17 @@ Function SetOf(chars: Char[], open: Int, finish: Int): Piece
     Return Piece(PieceKind.SET, ' ', lows, highs, negated)
 End Function
 
-// c as a glob that ignores case compares it: its case folding, where that's one character, as
-// it is for nearly all, or else its lowercase, as for "ß", whose folding is "ss".
+/// c as a glob that ignores case compares it: its case folding, where that's one character, as
+/// it is for nearly all, or else its lowercase, as for "ß", whose folding is "ss".
 Function Fold(c: Char): Char
     Local folded = CaseFold("{c}").Chars
     Return folded.Count == 1 ? folded[0] : c.ToLower()
 End Function
 
-// Whether pieces match all of text: a table, from the last piece back, of whether the pieces
-// from each on match the text from each place on. Ignoring case, folded holds text's characters
-// folded, which a literal piece, folded too, is compared with, and a set has a letter in it when
-// it has the letter in any case.
+/// Whether pieces match all of text: a table, from the last piece back, of whether the pieces
+/// from each on match the text from each place on. Ignoring case, folded holds text's characters
+/// folded, which a literal piece, folded too, is compared with, and a set has a letter in it when
+/// it has the letter in any case.
 Function Matched(pieces: Piece[], text: Char[], folded: Char[]): Bool
     Local ignoring = folded.Count > 0
     Local count = text.Count
@@ -328,7 +328,7 @@ Function Matched(pieces: Piece[], text: Char[], folded: Char[]): Bool
     Return after[0]
 End Function
 
-// Whether c is one of the set's Chars, from one of its Lows to its High, negated or not.
+/// Whether c is one of the set's Chars, from one of its Lows to its High, negated or not.
 Function Inside(piece: Piece, c: Char): Bool
     For i = 0 Until piece.Lows.Count
         If c >= piece.Lows[i] && c <= piece.Highs[i] Then Return True

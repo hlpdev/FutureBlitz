@@ -1,17 +1,17 @@
-// ConcurrentQueue<T>: first in, first out, for any number of threads at once, with no limit but
-// memory and what an Int counts. The values are in a Channel, which is a ring, behind a Mutex,
-// and a Channel twice the size takes its place once it's full, so Enqueue never waits for room,
-// and TryDequeue never waits for a value: a Channel is what waits.
+//! `ConcurrentQueue<T>`: first in, first out, for any number of threads at once, with no limit but
+//! memory and what an Int counts. The values are in a Channel, which is a ring, behind a Mutex,
+//! and a Channel twice the size takes its place once it's full, so Enqueue never waits for room,
+//! and TryDequeue never waits for a value: a Channel is what waits.
 
 Import std.core
 
-// How many values a ConcurrentQueue's first ring holds, and the most it holds, which an Int
-// counts.
+/// How many values a ConcurrentQueue's first ring holds, and the most it holds, which an Int
+/// counts.
 Const FIRST_RING = 16
 Const MOST_VALUES = 2147483647
 
-// A ConcurrentQueue's values: the front one, once TryPeek has taken it out of the ring, then the
-// ring's.
+/// A ConcurrentQueue's values: the front one, once TryPeek has taken it out of the ring, then the
+/// ring's.
 Struct QueueValues<T: Sendable>
     Field Ring: Channel<T>?
     Field Capacity: Int
@@ -20,19 +20,21 @@ Struct QueueValues<T: Sendable>
     Field Count: Int
 End Struct
 
+/// A first in, first out queue that threads share, which any of them adds to and takes from.
 Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
     Field Values: Mutex<QueueValues<T>>
     Field Size: Atomic<Int>
 
+    /// A new, empty ConcurrentQueue.
     Public New()
     End New
 
-    // How many values there are, which other threads may change at any time.
+    /// How many values there are, which other threads may change at any time.
     Public Property Count: Int
         Get => Size.Load()
     End Property
 
-    // Puts value at the back. Panics when the ConcurrentQueue has as many values as an Int counts.
+    /// Puts value at the back. Panics when the ConcurrentQueue has as many values as an Int counts.
     @PanicsAtCaller
     Public Method Enqueue(value: T)
         Lock Values As values
@@ -44,13 +46,13 @@ Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
         End Lock
     End Method
 
-    // The same as Enqueue.
+    /// The same as Enqueue.
     @PanicsAtCaller
     Public Method Add(value: T)
         Enqueue(value)
     End Method
 
-    // Enqueues each of the values, in order, all read first. Other threads' may come between them.
+    /// Enqueues each of the values, in order, all read first. Other threads' may come between them.
     @PanicsAtCaller
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
@@ -58,7 +60,7 @@ Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
         End For
     End Method
 
-    // Takes the front value off and gives it, or Null when the ConcurrentQueue is empty.
+    /// Takes the front value off and gives it, or Null when the ConcurrentQueue is empty.
     Public Method TryDequeue(): T?
         Lock Values As values
             If values.Count == 0 Then Return Null
@@ -72,7 +74,7 @@ Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
         End Lock
     End Method
 
-    // The front value, which stays, or Null when the ConcurrentQueue is empty.
+    /// The front value, which stays, or Null when the ConcurrentQueue is empty.
     Public Method TryPeek(): T?
         Lock Values As values
             If values.Count == 0 Then Return Null
@@ -85,7 +87,7 @@ Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
         End Lock
     End Method
 
-    // The values from the front, the order TryDequeue gives them, in a new array.
+    /// The values from the front, the order TryDequeue gives them, in a new array.
     Public Method ToArray(): T[]
         Local taken: T[] = []
         Lock Values As values
@@ -108,8 +110,8 @@ Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
         Return taken
     End Method
 
-    // Removes every value. They go once it holds no lock, so a Destroy that their going runs can
-    // use the ConcurrentQueue.
+    /// Removes every value. They go once it holds no lock, so a Destroy that their going runs can
+    /// use the ConcurrentQueue.
     Public Method Clear()
         Local old = QueueValues<T>()
         Lock Values As values
@@ -119,10 +121,10 @@ Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
         End Lock
     End Method
 
-    // A new, empty ConcurrentQueue.
+    /// A new, empty ConcurrentQueue.
     Public Static Method DefaultValue(): ConcurrentQueue<T> => ConcurrentQueue<T>()
 
-    // Gives the values a larger ring, or their first, with the old ring's values in order.
+    /// Gives the values a larger ring, or their first, with the old ring's values in order.
     Method Grow(ByRef values: QueueValues<T>)
         Local capacity = GrownRing(values.Capacity)
         Local grown = Channel<T>(capacity)
@@ -134,24 +136,24 @@ Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
         values.Capacity = capacity
     End Method
 
-    // How many of the values are in the ring.
+    /// How many of the values are in the ring.
     Method InRing(values: QueueValues<T>): Int => values.Count - (values.HasFront ? 1 : 0)
 
-    // Takes the ring's front value, which it has, off and gives it.
+    /// Takes the ring's front value, which it has, off and gives it.
     Method Received(values: QueueValues<T>): T
         Local ring = values.Ring.Expect("a ConcurrentQueue with values has a ring")
         Return ring.Receive().Expect("a ConcurrentQueue's ring holds its values")
     End Method
 End Class
 
-// Panics when a ConcurrentQueue of `count` values can't count one more in an Int.
+/// Panics when a ConcurrentQueue of `count` values can't count one more in an Int.
 @PanicsAtCaller
 Package Function CheckQueueRoom(count: Int)
     If count == MOST_VALUES Then Panic("a ConcurrentQueue holds no more values than an Int counts")
 End Function
 
-// The capacity of the ring that takes the place of a full one: twice the size, but no more than
-// an Int counts, or the first ring's for none.
+/// The capacity of the ring that takes the place of a full one: twice the size, but no more than
+/// an Int counts, or the first ring's for none.
 Package Function GrownRing(capacity: Int): Int
     If capacity == 0 Then Return FIRST_RING
     If capacity > MOST_VALUES / 2 Then Return MOST_VALUES

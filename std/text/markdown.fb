@@ -1,5 +1,5 @@
-// std.text.markdown: CommonMark, with tables, task lists, strikethrough, and autolinks as asked,
-// over md4c: Markdown as HTML, and as a tree of its blocks, spans, and text to walk.
+//! std.text.markdown: CommonMark, with tables, task lists, strikethrough, and autolinks as asked,
+//! over md4c: Markdown as HTML, and as a tree of its blocks, spans, and text to walk.
 
 Import std.core
 Import std.collections
@@ -17,31 +17,31 @@ Extern "runtime"
     Function fb_string_from_array(bytes: UInt8[]): String
 End Extern
 
-// What a document can have past CommonMark, as md4c reads them, which is mostly as GitHub's
-// Markdown does: tables, task lists ("- [x] done"), ~~strikethrough~~, and links from bare URLs,
-// www. addresses, and e-mail addresses.
+/// What a document can have past CommonMark, as md4c reads them, which is mostly as GitHub's
+/// Markdown does: tables, task lists (`- [x] done`), ~~strikethrough~~, and links from bare URLs,
+/// www. addresses, and e-mail addresses.
 @Flags
 Public Enum MarkdownExtensions
-    // CommonMark alone.
+    /// CommonMark alone.
     None = 0
-    // A table's delimiter row sets its columns, up to 128, so a row's cells past them are left
-    // out, and those it lacks are empty. A '|' in a code span doesn't split cells, and a "\|"
-    // in a cell is a '|', a code span's too.
+    /// A table's delimiter row sets its columns, up to 128, so a row's cells past them are left
+    /// out, and those it lacks are empty. A '|' in a code span doesn't split cells, and a "\|"
+    /// in a cell is a '|', a code span's too.
     Tables
     TaskLists
     Strikethrough
-    // A link from an http://, https://, or ftp:// URL, a www. address, or an e-mail address, with
-    // a space, a line's start, or an opening bracket before it, and a space, a line's end, a
-    // closing bracket, or '.', '!', '?', ',', or ';' after it. A host is letters, digits, '.',
-    // '-', and '_', a path those and '/', and then a query of those, '&', '+', '=', '(', and ')',
-    // and a fragment can follow; one with a port, a '%', or a '~', say, is a link only between
-    // '<' and '>', as CommonMark has it.
+    /// A link from an http://, https://, or ftp:// URL, a www. address, or an e-mail address, with
+    /// a space, a line's start, or an opening bracket before it, and a space, a line's end, a
+    /// closing bracket, or '.', '!', '?', ',', or ';' after it. A host is letters, digits, '.',
+    /// '-', and '_', a path those and '/', and then a query of those, '&', '+', '=', '(', and ')',
+    /// and a fragment can follow; one with a port, a '%', or a '~', say, is a link only between
+    /// '<' and '>', as CommonMark has it.
     Autolinks
-    // All four, as md4c's dialect of GitHub's Markdown has them.
+    /// All four, as md4c's dialect of GitHub's Markdown has them.
     GitHub = Tables | TaskLists | Strikethrough | Autolinks
 End Enum
 
-// What a node of a document is: a block, a span inside one, or text.
+/// What a node of a document is: a block, a span inside one, or text.
 Public Enum MarkdownKind
     Document
     Quote
@@ -71,7 +71,7 @@ Public Enum MarkdownKind
     Html
 End Enum
 
-// How a table's column lines up its cells: as HTML does unless it says.
+/// How a table's column lines up its cells: as HTML does unless it says.
 Public Enum MarkdownAlignment
     None
     Left
@@ -79,44 +79,49 @@ Public Enum MarkdownAlignment
     Right
 End Enum
 
-// A node of a document: a block, like a paragraph or a list, with the blocks, spans, and text in
-// it; a span, like a link, with what's in it; or text.
+/// A node of a document: a block, like a paragraph or a list, with the blocks, spans, and text in
+/// it; a span, like a link, with what's in it; or text.
 Public Class MarkdownNode
+    /// What kind of node it is.
     Public Field Kind: MarkdownKind
-    // What's in it, in order.
+    /// What's in it, in order.
     Public Field Children: MarkdownNode[] = []
-    // A Text's or an Html's text, and a CodeBlock's, a Code's, or an HtmlBlock's, which have no
-    // children.
+    /// A Text's or an Html's text, and a CodeBlock's, a Code's, or an HtmlBlock's, which have no
+    /// children.
     Public Field Text = ""
-    // A Heading's level, from 1 to 6.
+    /// A Heading's level, from 1 to 6.
     Public Field Level: Int
-    // An OrderedList's first number.
+    /// An OrderedList's first number.
     Public Field Start: Int
-    // Whether a list is tight, with no blank lines between its items. Its items have no
-    // Paragraphs, in HTML or here: each holds its spans and text itself.
+    /// Whether a list is tight, with no blank lines between its items. Its items have no
+    /// Paragraphs, in HTML or here: each holds its spans and text itself.
     Public Field Tight: Bool
-    // Whether a ListItem is a task, "- [ ] to do", and whether it's done, "- [x] done".
+    /// Whether a ListItem is a task, `- [ ] to do`, and whether it's done, `- [x] done`.
     Public Field Task: Bool
+    /// Whether a task ListItem is done.
     Public Field Done: Bool
-    // A Link's URL or an Image's source, and its title.
+    /// A Link's URL or an Image's source, and its title.
     Public Field Url = ""
+    /// A Link's or an Image's title.
     Public Field Title = ""
-    // Whether a Link is an autolink: <https://example.com>, or a bare URL with Autolinks.
+    /// Whether a Link is an autolink: <https://example.com>, or a bare URL with Autolinks.
     Public Field Autolink: Bool
-    // A CodeBlock's info string, like "rust ignore", and its language, the first word of it.
+    /// A CodeBlock's info string, like "rust ignore", and its language, the first word of it.
     Public Field Info = ""
+    /// A CodeBlock's language, the first word of its info string.
     Public Field Language = ""
-    // A TableHeaderCell's or TableCell's alignment.
+    /// A TableHeaderCell's or TableCell's alignment.
     Public Field Alignment: MarkdownAlignment
 
+    /// A new node of `kind`, with nothing in it.
     Public New(kind: MarkdownKind)
         Kind = kind
     End New
 
-    // The text in it, without the markup: a heading's words, a link's, or an image's
-    // description, with a newline for each break. Each block in it, like a paragraph, a list
-    // item, or a table's row, is on lines of its own, and a row's cells are apart by a tab. A
-    // code block's text has no newline at its end, and raw HTML has none.
+    /// The text in it, without the markup: a heading's words, a link's, or an image's
+    /// description, with a newline for each break. Each block in it, like a paragraph, a list
+    /// item, or a table's row, is on lines of its own, and a row's cells are apart by a tab. A
+    /// code block's text has no newline at its end, and raw HTML has none.
     Public Method PlainText(): String
         If Children.Count == 0 Then Return OwnText(Self)
         Local parts: String[] = []
@@ -159,11 +164,11 @@ Public Class MarkdownNode
     End Method
 End Class
 
-// Whether a kind is a block, which PlainText puts on lines of its own, rather than a span or text.
+/// Whether a kind is a block, which PlainText puts on lines of its own, rather than a span or text.
 Function IsBlock(kind: MarkdownKind): Bool => (kind As Int) <= (MarkdownKind.TableCell As Int)
 
-// What a node's own text is in PlainText: a Text's or Code's, a CodeBlock's without its last
-// newline, and a newline for a break.
+/// What a node's own text is in PlainText: a Text's or Code's, a CodeBlock's without its last
+/// newline, and a newline for a break.
 Function OwnText(node: MarkdownNode): String
     Select node.Kind
         Case MarkdownKind.Text, MarkdownKind.Code
@@ -179,24 +184,24 @@ Function OwnText(node: MarkdownNode): String
     End Select
 End Function
 
-// What a block's start or end owes before the next text: a tab for a cell's, unless a newline is
-// owed already, and a newline for the rest.
+/// What a block's start or end owes before the next text: a tab for a cell's, unless a newline is
+/// owed already, and a newline for the rest.
 Function Owed(owed: String, kind: MarkdownKind): String
     Local cell = kind == MarkdownKind.TableCell || kind == MarkdownKind.TableHeaderCell
     Return cell && owed != "\n" ? "\t" : "\n"
 End Function
 
-// The extensions MarkdownToHtml and ParseMarkdown take unless they're given others.
+/// The extensions MarkdownToHtml and ParseMarkdown take unless they're given others.
 Const Usual = MarkdownExtensions.Tables | MarkdownExtensions.TaskLists
 
-// The Markdown as HTML: CommonMark, and the extensions, tables and task lists unless they say
-// others; with None, it's CommonMark alone.
+/// The Markdown as HTML: CommonMark, and the extensions, tables and task lists unless they say
+/// others; with None, it's CommonMark alone.
 Public Function MarkdownToHtml(text: String, extensions: MarkdownExtensions = Usual): String
     Return fb_markdown_html(text, extensions As Int32)
 End Function
 
-// The Markdown as a tree, from its Document down, with the extensions, tables and task lists
-// unless they say others.
+/// The Markdown as a tree, from its Document down, with the extensions, tables and task lists
+/// unless they say others.
 Public Function ParseMarkdown(text: String, extensions: MarkdownExtensions = Usual): MarkdownNode
     Local events = fb_markdown_parse(text, extensions As Int32)
     Defer fb_markdown_free(events)
@@ -222,7 +227,7 @@ Public Function ParseMarkdown(text: String, extensions: MarkdownExtensions = Usu
     Return document
 End Function
 
-// The node an event enters, or the text it is.
+/// The node an event enters, or the text it is.
 Function NodeOf(events: Ptr<Void>, index: Int64): MarkdownNode
     Local node = MarkdownNode(fb_markdown_kind(events, index) As MarkdownKind)
     Local number = fb_markdown_number(events, index) As Int

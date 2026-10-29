@@ -1,61 +1,71 @@
-// Binary streams: BinaryReader reads numbers, Bools, bytes, and text from a Reader, and
-// BinaryWriter writes them to a Writer, each number's bytes in the order its ByteOrder says,
-// whatever the machine's own order is.
+//! Binary streams: BinaryReader reads numbers, Bools, bytes, and text from a Reader, and
+//! BinaryWriter writes them to a Writer, each number's bytes in the order its ByteOrder says,
+//! whatever the machine's own order is.
 
 Import std.core
 Import std.ffi
 Import std.math
 Import std.io.streams
 
-// The order of a number's bytes: its lowest first, as x86-64's and AArch64's memory has them, or
-// its highest first, as network protocols do.
+/// The order of a number's bytes: its lowest first, as x86-64's and AArch64's memory has them, or
+/// its highest first, as network protocols do.
 Public Enum ByteOrder
     LITTLE
     BIG
 End Enum
 
-// Reads numbers, Bools, bytes, and text from another Reader. Each read throws an IOError of
-// UNEXPECTED_END when the stream ends before what it reads, and ReadBytes and ReadText one of
-// OTHER for a count past the 2147483647 bytes an array holds.
+/// Reads numbers, Bools, bytes, and text from another Reader. Each read throws an IOError of
+/// UNEXPECTED_END when the stream ends before what it reads, and ReadBytes and ReadText one of
+/// OTHER for a count past the 2147483647 bytes an array holds.
 Public Class BinaryReader
     Field Inner: Reader
     Field Order: ByteOrder
     Field Scratch: Buffer<UInt8>
 
-    // Reads `inner`, its numbers' bytes in `order`.
+    /// Reads `inner`, its numbers' bytes in `order`.
     Public New(inner: Reader, order: ByteOrder = ByteOrder.LITTLE)
         Inner = inner
         Order = order
         Scratch = Buffer<UInt8>(8)
     End New
 
+    /// Reads a UInt8.
     Public Method ReadUInt8(): UInt8 Throws IOError => (Try Bits(1)) As UInt8
+    /// Reads an Int8.
     Public Method ReadInt8(): Int8 Throws IOError => (Try Bits(1)) As Int8
+    /// Reads a UInt16, in its ByteOrder.
     Public Method ReadUInt16(): UInt16 Throws IOError => (Try Bits(2)) As UInt16
+    /// Reads an Int16, in its ByteOrder.
     Public Method ReadInt16(): Int16 Throws IOError => (Try Bits(2)) As Int16
+    /// Reads a UInt32, in its ByteOrder.
     Public Method ReadUInt32(): UInt32 Throws IOError => (Try Bits(4)) As UInt32
+    /// Reads an Int32, in its ByteOrder.
     Public Method ReadInt32(): Int32 Throws IOError => (Try Bits(4)) As Int32
+    /// Reads a UInt64, in its ByteOrder.
     Public Method ReadUInt64(): UInt64 Throws IOError => Try Bits(8)
+    /// Reads an Int64, in its ByteOrder.
     Public Method ReadInt64(): Int64 Throws IOError => (Try Bits(8)) As Int64
+    /// Reads a Float32, its bits in its ByteOrder.
     Public Method ReadFloat32(): Float32 Throws IOError
         Return Float32.FromBits((Try Bits(4)) As UInt32)
     End Method
 
+    /// Reads a Float64, its bits in its ByteOrder.
     Public Method ReadFloat64(): Float64 Throws IOError => Float64.FromBits(Try Bits(8))
 
-    // A byte that's 0 for False, and anything else for True.
+    /// A byte that's 0 for False, and anything else for True.
     Public Method ReadBool(): Bool Throws IOError => (Try Bits(1)) != 0
 
-    // The next `count` bytes, read a chunk at a time, so a count that the stream doesn't have,
-    // like a broken file's, ends in an IOError, not in asking for all that memory. Panics when
-    // count is negative.
+    /// The next `count` bytes, read a chunk at a time, so a count that the stream doesn't have,
+    /// like a broken file's, ends in an IOError, not in asking for all that memory. Panics when
+    /// count is negative.
     @PanicsAtCaller
     Public Method ReadBytes(count: Int64): UInt8[] Throws IOError
         If count < 0 Then Panic("ReadBytes reads a count of bytes that isn't negative, not {count}")
         Return Try BytesOf(count, "ReadBytes")
     End Method
 
-    // The next `count` bytes, for the Method of `name`.
+    /// The next `count` bytes, for the Method of `name`.
     Method BytesOf(count: Int64, name: String): UInt8[] Throws IOError
         If count > 2147483647
             Throw IOError(IOErrorKind.OTHER, "{name} reads up to the 2147483647 bytes an array " +
@@ -75,15 +85,15 @@ Public Class BinaryReader
         Return bytes
     End Method
 
-    // The next `count` bytes as text, with U+FFFD for each one that doesn't start well-formed
-    // UTF-8, read as ReadBytes reads them. Panics when count is negative.
+    /// The next `count` bytes as text, with U+FFFD for each one that doesn't start well-formed
+    /// UTF-8, read as ReadBytes reads them. Panics when count is negative.
     @PanicsAtCaller
     Public Method ReadText(count: Int64): String Throws IOError
         If count < 0 Then Panic("ReadText reads a count of bytes that isn't negative, not {count}")
         Return TextOf(Buffer<UInt8>.From(Try BytesOf(count, "ReadText")))
     End Method
 
-    // The next `size` bytes, as an integer of their bits in Order.
+    /// The next `size` bytes, as an integer of their bits in Order.
     Method Bits(size: Int64): UInt64 Throws IOError
         Local bytes = Scratch.Slice(0, size)
         Try ReadExact(Inner, bytes)
@@ -97,74 +107,85 @@ Public Class BinaryReader
     End Method
 End Class
 
-// Writes numbers, Bools, bytes, and text to another Writer.
+/// Writes numbers, Bools, bytes, and text to another Writer.
 Public Class BinaryWriter
     Field Inner: Writer
     Field Order: ByteOrder
     Field Scratch: Buffer<UInt8>
 
-    // Writes `inner`, its numbers' bytes in `order`.
+    /// Writes `inner`, its numbers' bytes in `order`.
     Public New(inner: Writer, order: ByteOrder = ByteOrder.LITTLE)
         Inner = inner
         Order = order
         Scratch = Buffer<UInt8>(8)
     End New
 
+    /// Writes `value`, a byte.
     Public Method WriteUInt8(value: UInt8) Throws IOError
         Try Put(value, 1)
     End Method
 
+    /// Writes `value`, a byte.
     Public Method WriteInt8(value: Int8) Throws IOError
         Try Put(value As UInt64, 1)
     End Method
 
+    /// Writes `value`, in its ByteOrder.
     Public Method WriteUInt16(value: UInt16) Throws IOError
         Try Put(value, 2)
     End Method
 
+    /// Writes `value`, in its ByteOrder.
     Public Method WriteInt16(value: Int16) Throws IOError
         Try Put(value As UInt64, 2)
     End Method
 
+    /// Writes `value`, in its ByteOrder.
     Public Method WriteUInt32(value: UInt32) Throws IOError
         Try Put(value, 4)
     End Method
 
+    /// Writes `value`, in its ByteOrder.
     Public Method WriteInt32(value: Int32) Throws IOError
         Try Put(value As UInt64, 4)
     End Method
 
+    /// Writes `value`, in its ByteOrder.
     Public Method WriteUInt64(value: UInt64) Throws IOError
         Try Put(value, 8)
     End Method
 
+    /// Writes `value`, in its ByteOrder.
     Public Method WriteInt64(value: Int64) Throws IOError
         Try Put(value As UInt64, 8)
     End Method
 
+    /// Writes `value`, its bits in its ByteOrder.
     Public Method WriteFloat32(value: Float32) Throws IOError
         Try Put(value.ToBits(), 4)
     End Method
 
+    /// Writes `value`, its bits in its ByteOrder.
     Public Method WriteFloat64(value: Float64) Throws IOError
         Try Put(value.ToBits(), 8)
     End Method
 
-    // A byte: 1 for True, and 0 for False.
+    /// A byte: 1 for True, and 0 for False.
     Public Method WriteBool(value: Bool) Throws IOError
         Try Put(value ? 1 : 0, 1)
     End Method
 
+    /// Writes `bytes` as they are.
     Public Method WriteBytes(bytes: UInt8[]) Throws IOError
         Try Inner.WriteBytes(bytes)
     End Method
 
-    // The text's UTF-8 bytes, without anything to say how many there are.
+    /// The text's UTF-8 bytes, without anything to say how many there are.
     Public Method WriteText(text: String) Throws IOError
         Try Inner.WriteText(text)
     End Method
 
-    // Writes the low `size` bytes of `bits`, in Order.
+    /// Writes the low `size` bytes of `bits`, in Order.
     Method Put(bits: UInt64, size: Int64) Throws IOError
         For i = 0 Until size
             Local next = ((bits >> (8 * i)) & 255) As UInt8

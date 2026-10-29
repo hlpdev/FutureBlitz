@@ -1,27 +1,29 @@
-// Vec2i and Vec3i: points and steps on a grid, as Ints, for cells, tiles, and voxels, and as Map
-// keys. Their Operators work component by component, and an Int scales; dividing rounds toward 0,
-// as Ints do, and dividing by 0, or overflow in debug builds, panics where it's called, as it does
-// for an Int.
+//! Vec2i and Vec3i: points and steps on a grid, as Ints, for cells, tiles, and voxels, and as Map
+//! keys. Their Operators work component by component, and an Int scales; dividing rounds toward 0,
+//! as Ints do, and dividing by 0, or overflow in debug builds, panics where it's called, as it does
+//! for an Int.
 
 Import std.core
 Import std.math.scalar
 Import std.math.vector
 
-// A cell or step on a 2D grid.
+/// A cell or step on a 2D grid.
 Public Struct Vec2i Implements Numeric, Hashable, Printable, Defaultable
+    /// Its x component.
     Public Field x: Int
+    /// Its y component.
     Public Field y: Int
 
     Public Static Method Zero(): Vec2i => Vec2i(0, 0)
     Public Static Method One(): Vec2i => Vec2i(1, 1)
     Public Static Method DefaultValue(): Vec2i => Vec2i(0, 0)
 
-    // The components as Floats, rounded to the nearest one a Float holds.
+    /// The components as Floats, rounded to the nearest one a Float holds.
     Public Method ToVec2(): Vec2 => Vec2(x As Float, y As Float)
 
     Public Method ToString(): String => "({x}, {y})"
 
-    // The component at the index: x at 0, and y at 1. Any other index panics.
+    /// The component at the index: x at 0, and y at 1. Any other index panics.
     @PanicsAtCaller
     Operator [](index: Int): Int
         If index == 0 Then Return x
@@ -54,22 +56,25 @@ Public Struct Vec2i Implements Numeric, Hashable, Printable, Defaultable
     Operator -(a: Vec2i): Vec2i => Vec2i(-a.x, -a.y)
 End Struct
 
-// A cell or step on a 3D grid.
+/// A cell or step on a 3D grid.
 Public Struct Vec3i Implements Numeric, Hashable, Printable, Defaultable
+    /// Its x component.
     Public Field x: Int
+    /// Its y component.
     Public Field y: Int
+    /// Its z component.
     Public Field z: Int
 
     Public Static Method Zero(): Vec3i => Vec3i(0, 0, 0)
     Public Static Method One(): Vec3i => Vec3i(1, 1, 1)
     Public Static Method DefaultValue(): Vec3i => Vec3i(0, 0, 0)
 
-    // The components as Floats, rounded to the nearest one a Float holds.
+    /// The components as Floats, rounded to the nearest one a Float holds.
     Public Method ToVec3(): Vec3 => Vec3(x As Float, y As Float, z As Float)
 
     Public Method ToString(): String => "({x}, {y}, {z})"
 
-    // The component at the index: x at 0, y at 1, and z at 2. Any other index panics.
+    /// The component at the index: x at 0, y at 1, and z at 2. Any other index panics.
     @PanicsAtCaller
     Operator [](index: Int): Int
         If index == 0 Then Return x
@@ -103,65 +108,70 @@ Public Struct Vec3i Implements Numeric, Hashable, Printable, Defaultable
     Operator -(a: Vec3i): Vec3i => Vec3i(-a.x, -a.y, -a.z)
 End Struct
 
-// The sum of the products of the components.
+/// The sum of the products of the components.
 @PanicsAtCaller
 Public Function Dot(a: Vec2i, b: Vec2i): Int => a.x * b.x + a.y * b.y
 
+/// The dot product of `a` and `b`.
 @PanicsAtCaller
 Public Function Dot(a: Vec3i, b: Vec3i): Int => a.x * b.x + a.y * b.y + a.z * b.z
 
-// The length times itself, which is a whole number.
+/// The length times itself, which is a whole number.
 @PanicsAtCaller
 Public Function LengthSquared(v: Vec2i): Int => Dot(v, v)
 
+/// The length of `v` times itself.
 @PanicsAtCaller
 Public Function LengthSquared(v: Vec3i): Int => Dot(v, v)
 
-// How many steps along the axes go from a to b: the taxicab distance.
+/// How many steps along the axes go from a to b: the taxicab distance.
 @PanicsAtCaller
 Public Function ManhattanDistance(a: Vec2i, b: Vec2i): Int => Abs(b.x - a.x) + Abs(b.y - a.y)
 
-// How many steps along the axes go from a to b: the taxicab distance.
+/// How many steps along the axes go from a to b: the taxicab distance.
 @PanicsAtCaller
 Public Function ManhattanDistance(a: Vec3i, b: Vec3i): Int
     Return Abs(b.x - a.x) + Abs(b.y - a.y) + Abs(b.z - a.z)
 End Function
 
-// How many steps go from a to b where a diagonal is one step too: the chessboard distance.
+/// How many steps go from a to b where a diagonal is one step too: the chessboard distance.
 @PanicsAtCaller
 Public Function ChebyshevDistance(a: Vec2i, b: Vec2i): Int => Max(Abs(b.x - a.x), Abs(b.y - a.y))
 
-// How many steps go from a to b where a diagonal is one step too: the chessboard distance.
+/// How many steps go from a to b where a diagonal is one step too: the chessboard distance.
 @PanicsAtCaller
 Public Function ChebyshevDistance(a: Vec3i, b: Vec3i): Int
     Return Max(Max(Abs(b.x - a.x), Abs(b.y - a.y)), Abs(b.z - a.z))
 End Function
 
-// The smaller of each component.
+/// The smaller of each component.
 Public Function Min(a: Vec2i, b: Vec2i): Vec2i => Vec2i(Min(a.x, b.x), Min(a.y, b.y))
+/// The smaller of each component.
 Public Function Min(a: Vec3i, b: Vec3i): Vec3i => Vec3i(Min(a.x, b.x), Min(a.y, b.y), Min(a.z, b.z))
 
-// The larger of each component.
+/// The larger of each component.
 Public Function Max(a: Vec2i, b: Vec2i): Vec2i => Vec2i(Max(a.x, b.x), Max(a.y, b.y))
+/// The larger of each component.
 Public Function Max(a: Vec3i, b: Vec3i): Vec3i => Vec3i(Max(a.x, b.x), Max(a.y, b.y), Max(a.z, b.z))
 
-// Each component kept between low's and high's, as Clamp keeps an Int. A component whose low is
-// above its high panics.
+/// Each component kept between low's and high's, as Clamp keeps an Int. A component whose low is
+/// above its high panics.
 @PanicsAtCaller
 Public Function Clamp(v: Vec2i, low: Vec2i, high: Vec2i): Vec2i
     Return Vec2i(Clamp(v.x, low.x, high.x), Clamp(v.y, low.y, high.y))
 End Function
 
-// Each component kept between low's and high's, as Clamp keeps an Int. A component whose low is
-// above its high panics.
+/// Each component kept between low's and high's, as Clamp keeps an Int. A component whose low is
+/// above its high panics.
 @PanicsAtCaller
 Public Function Clamp(v: Vec3i, low: Vec3i, high: Vec3i): Vec3i
     Return Vec3i(Clamp(v.x, low.x, high.x), Clamp(v.y, low.y, high.y), Clamp(v.z, low.z, high.z))
 End Function
 
-// Each component's Abs.
+/// Each component's Abs.
 @PanicsAtCaller
 Public Function Abs(v: Vec2i): Vec2i => Vec2i(Abs(v.x), Abs(v.y))
 
+/// Each component without its sign.
 @PanicsAtCaller
 Public Function Abs(v: Vec3i): Vec3i => Vec3i(Abs(v.x), Abs(v.y), Abs(v.z))

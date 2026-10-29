@@ -1,9 +1,9 @@
-// Image: a picture's pixels, in rows from the top, each RGBA, 8 bits a channel, its alpha
-// straight, in a Buffer<UInt8>, which C code can read and write through its Pointer, and which
-// the formats' Decodes give and their Encodes take. Image.Decode reads any format std.image
-// knows, by how its bytes start, but HDR's, whose pixels are an HdrImage's, and Image.Load a file
-// of one. Its transforms, Resize, Crop, the flips and turns, Draw, Paste, and Fill, change it in
-// place.
+//! Image: a picture's pixels, in rows from the top, each RGBA, 8 bits a channel, its alpha
+//! straight, in a `Buffer<UInt8>`, which C code can read and write through its Pointer, and which
+//! the formats' Decodes give and their Encodes take. Image.Decode reads any format std.image
+//! knows, by how its bytes start, but HDR's, whose pixels are an HdrImage's, and Image.Load a file
+//! of one. Its transforms, Resize, Crop, the flips and turns, Draw, Paste, and Fill, change it in
+//! place.
 
 Import std.core
 Import std.ffi
@@ -12,26 +12,27 @@ Import std.io.path
 Import std.math.color
 Import std.image.codec
 
-// The formats std.image reads, which Image.FormatOf tells apart.
+/// The formats std.image reads, which Image.FormatOf tells apart.
 Public Enum ImageFormat
     PNG, JPEG, BMP, TGA, GIF, HDR, QOI, WEBP
 End Enum
 
-// How Resize gives a pixel the colors of those under it: the nearest one's, or a weighted sum by
-// a box, a triangle, Keys's cubic, or Lanczos's 3 lobes, the filter widened as the image shrinks,
-// as Pillow resamples. LANCZOS is the sharpest, and BOX the average of what shrinks into a pixel.
+/// How Resize gives a pixel the colors of those under it: the nearest one's, or a weighted sum by
+/// a box, a triangle, Keys's cubic, or Lanczos's 3 lobes, the filter widened as the image shrinks,
+/// as Pillow resamples. LANCZOS is the sharpest, and BOX the average of what shrinks into a pixel.
 Public Enum ResizeFilter
     NEAREST, BOX, BILINEAR, BICUBIC, LANCZOS
 End Enum
 
+/// A picture's pixels, in rows from the top, each RGBA, 8 bits a channel, its alpha straight.
 Public Class Image
-    // Its pixels' bytes, 4 for each, red, green, blue, and alpha.
+    /// Its pixels' bytes, 4 for each, red, green, blue, and alpha.
     Field Memory: Buffer<UInt8>
     Field Columns: Int
     Field Rows: Int
 
-    // An image of width by height pixels, each transparent black. Panics when either is negative,
-    // or there'd be more pixels than an Image holds, 536870911.
+    /// An image of width by height pixels, each transparent black. Panics when either is negative,
+    /// or there'd be more pixels than an Image holds, 536870911.
     @PanicsAtCaller
     Public New(width: Int, height: Int)
         CheckSize(width, height)
@@ -46,9 +47,9 @@ Public Class Image
         Memory = pixels
     End New
 
-    // An image of width by height pixels whose bytes, 4 for each pixel, red, green, blue, and
-    // alpha, are a copy of `bytes`. Panics when there aren't that many, or the size is one New
-    // panics for.
+    /// An image of width by height pixels whose bytes, 4 for each pixel, red, green, blue, and
+    /// alpha, are a copy of `bytes`. Panics when there aren't that many, or the size is one New
+    /// panics for.
     @PanicsAtCaller
     Public Static Method FromBytes(width: Int, height: Int, bytes: UInt8[]): Image
         CheckSize(width, height)
@@ -60,10 +61,10 @@ Public Class Image
         Return Image(width, height, Buffer<UInt8>.From(bytes))
     End Method
 
-    // An image of width by height pixels whose bytes, 4 for each pixel, red, green, blue, and
-    // alpha, are the Buffer's own, not a copy: what changes in one changes in the other, until a
-    // transform gives the image new ones. Panics when the Buffer doesn't have that many, or the
-    // size is one New panics for.
+    /// An image of width by height pixels whose bytes, 4 for each pixel, red, green, blue, and
+    /// alpha, are the Buffer's own, not a copy: what changes in one changes in the other, until a
+    /// transform gives the image new ones. Panics when the Buffer doesn't have that many, or the
+    /// size is one New panics for.
     @PanicsAtCaller
     Public Static Method Over(width: Int, height: Int, pixels: Buffer<UInt8>): Image
         CheckSize(width, height)
@@ -75,35 +76,37 @@ Public Class Image
         Return Image(width, height, pixels)
     End Method
 
-    // An image of pixels the runtime or a format made, which it keeps.
+    /// An image of pixels the runtime or a format made, which it keeps.
     Package Static Method Of(width: Int, height: Int, pixels: Buffer<UInt8>): Image
         Return Image(width, height, pixels)
     End Method
 
-    // Its pixels' bytes, 4 for each, red, green, blue, and alpha, in rows from the top: the
-    // image's own, not a copy, which C code can read and write through its Pointer. Resize, Crop,
-    // and the flips and turns give it new ones, which a Buffer from before doesn't see.
+    /// Its pixels' bytes, 4 for each, red, green, blue, and alpha, in rows from the top: the
+    /// image's own, not a copy, which C code can read and write through its Pointer. Resize, Crop,
+    /// and the flips and turns give it new ones, which a Buffer from before doesn't see.
     Public Property Pixels: Buffer<UInt8>
         Get => Memory
     End Property
 
+    /// How many pixels wide it is.
     Public Property Width: Int
         Get => Columns
     End Property
 
+    /// How many pixels high it is.
     Public Property Height: Int
         Get => Rows
     End Property
 
-    // The pixel `x` from the left and `y` from the top. Panics when it's outside the image.
+    /// The pixel `x` from the left and `y` from the top. Panics when it's outside the image.
     @PanicsAtCaller
     Operator [](x: Int, y: Int): Color32
         Local at = ByteOf(x, y)
         Return Color32(Memory[at], Memory[at + 1], Memory[at + 2], Memory[at + 3])
     End Operator
 
-    // Gives the pixel `x` from the left and `y` from the top a color. Panics when it's outside
-    // the image.
+    /// Gives the pixel `x` from the left and `y` from the top a color. Panics when it's outside
+    /// the image.
     @PanicsAtCaller
     Operator []=(x: Int, y: Int, color: Color32)
         Local at = ByteOf(x, y)
@@ -113,17 +116,17 @@ Public Class Image
         Memory[at + 3] = color.a
     End Operator
 
-    // A copy of its pixels' bytes, 4 for each, red, green, blue, and alpha.
+    /// A copy of its pixels' bytes, 4 for each, red, green, blue, and alpha.
     Public Method ToBytes(): UInt8[] => Memory.ToArray()
 
-    // A new image of the same pixels, in a Buffer of its own.
+    /// A new image of the same pixels, in a Buffer of its own.
     Public Method Clone(): Image => Image(Columns, Rows, Copied(Memory))
 
-    // The image in data, a PNG, JPEG, BMP, TGA, GIF's first frame, QOI, or WebP, by how its
-    // bytes start. Throws an IOError of INVALID_DATA when they're none of those, or broken,
-    // UNEXPECTED_END when they end too soon, and OTHER when they're an HDR image, which
-    // Hdr.Decode reads, or use what isn't supported, or the image has more pixels than `limit`.
-    // Panics when the limit is negative.
+    /// The image in data, a PNG, JPEG, BMP, TGA, GIF's first frame, QOI, or WebP, by how its
+    /// bytes start. Throws an IOError of INVALID_DATA when they're none of those, or broken,
+    /// UNEXPECTED_END when they end too soon, and OTHER when they're an HDR image, which
+    /// Hdr.Decode reads, or use what isn't supported, or the image has more pixels than `limit`.
+    /// Panics when the limit is negative.
     @PanicsAtCaller
     Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError
         CheckLimit(limit)
@@ -143,17 +146,17 @@ Public Class Image
         Return Try Decoded(fb_stb_decode(data, format, most), FormatName(format))
     End Method
 
-    // The image in the file at `path`, which Decode reads from its bytes. Throws the IOError
-    // File.ReadBytes does for a file that can't be read, and Decode's, its Path the file's, for
-    // one it can't read an image of. Panics when the limit is negative.
+    /// The image in the file at `path`, which Decode reads from its bytes. Throws the IOError
+    /// File.ReadBytes does for a file that can't be read, and Decode's, its Path the file's, for
+    /// one it can't read an image of. Panics when the limit is negative.
     @PanicsAtCaller
     Public Static Method Load(path: Path, limit: Int = MOST_PIXELS): Image Throws IOError
         CheckLimit(limit)
         Return Try LoadedFrom(Try File.ReadBytes(path), path, limit)
     End Method
 
-    // Load's Async twin, which reads the file on libuv's thread pool while the thread that called
-    // it goes on, and decodes it there once the Await resumes.
+    /// Load's Async twin, which reads the file on libuv's thread pool while the thread that called
+    /// it goes on, and decodes it there once the Await resumes.
     @PanicsAtCaller
     Public Static Async Method LoadAsync(path: Path,
                                          limit: Int = MOST_PIXELS): Image Throws IOError
@@ -161,17 +164,17 @@ Public Class Image
         Return Try LoadedFrom(Try Await File.ReadBytesAsync(path), path, limit)
     End Method
 
-    // The format the data's bytes start as, or Null when they start as none of std.image's. A TGA
-    // has no signature, so it's what starts as a TGA's header does once no other format matches.
+    /// The format the data's bytes start as, or Null when they start as none of std.image's. A TGA
+    /// has no signature, so it's what starts as a TGA's header does once no other format matches.
     Public Static Method FormatOf(data: UInt8[]): ImageFormat?
         Local format = fb_image_format(data)
         If format == 0 Then Return Null
         Return (format - 1) As ImageFormat
     End Method
 
-    // Makes it width by height pixels, each one the colors under it by the filter, weighted by
-    // their alpha, so a transparent pixel's color counts for nothing. Panics when the size is one
-    // New panics for, or the image has no pixels and the new size does.
+    /// Makes it width by height pixels, each one the colors under it by the filter, weighted by
+    /// their alpha, so a transparent pixel's color counts for nothing. Panics when the size is one
+    /// New panics for, or the image has no pixels and the new size does.
     @PanicsAtCaller
     Public Method Resize(width: Int, height: Int, filter: ResizeFilter = ResizeFilter.LANCZOS)
         CheckSize(width, height)
@@ -189,7 +192,7 @@ Public Class Image
         Rows = height
     End Method
 
-    // Keeps only its width by height pixels from (x, y). Panics when they aren't all in it.
+    /// Keeps only its width by height pixels from (x, y). Panics when they aren't all in it.
     @PanicsAtCaller
     Public Method Crop(x: Int, y: Int, width: Int, height: Int)
         If x < 0 || y < 0 || width < 0 || height < 0 || x > Columns - width || y > Rows - height
@@ -206,44 +209,44 @@ Public Class Image
         Rows = height
     End Method
 
-    // Flips it across, so its left is its right.
+    /// Flips it across, so its left is its right.
     Public Method FlipHorizontal()
         Orient(0)
     End Method
 
-    // Flips it down, so its top is its bottom.
+    /// Flips it down, so its top is its bottom.
     Public Method FlipVertical()
         Orient(1)
     End Method
 
-    // Turns it a quarter clockwise, so its height is its width.
+    /// Turns it a quarter clockwise, so its height is its width.
     Public Method RotateClockwise()
         Orient(2)
     End Method
 
-    // Turns it a quarter counterclockwise, so its height is its width.
+    /// Turns it a quarter counterclockwise, so its height is its width.
     Public Method RotateCounterclockwise()
         Orient(3)
     End Method
 
-    // Turns it a half.
+    /// Turns it a half.
     Public Method Rotate180()
         Orient(4)
     End Method
 
-    // Draws image on it, its top-left pixel at (x, y), over these by its alpha, as "over" does
-    // with straight alpha; what falls outside is left out.
+    /// Draws image on it, its top-left pixel at (x, y), over these by its alpha, as "over" does
+    /// with straight alpha; what falls outside is left out.
     Public Method Draw(image: Image, x: Int, y: Int)
         Blit(image, x, y, 1)
     End Method
 
-    // Puts image's pixels in place of these, alpha too, its top-left pixel at (x, y); what falls
-    // outside is left out.
+    /// Puts image's pixels in place of these, alpha too, its top-left pixel at (x, y); what falls
+    /// outside is left out.
     Public Method Paste(image: Image, x: Int, y: Int)
         Blit(image, x, y, 0)
     End Method
 
-    // Gives every pixel the color.
+    /// Gives every pixel the color.
     Public Method Fill(color: Color32)
         Local rgba = ((color.r As UInt32) << 24) | ((color.g As UInt32) << 16) |
                      ((color.b As UInt32) << 8) | (color.a As UInt32)
@@ -252,7 +255,7 @@ Public Class Image
         End Unsafe
     End Method
 
-    // Flips or turns it as fb_image_orient's how says.
+    /// Flips or turns it as fb_image_orient's how says.
     Method Orient(how: Int32)
         Local oriented = Buffer<UInt8>(Memory.Count)
         Unsafe
@@ -273,7 +276,7 @@ Public Class Image
         End Unsafe
     End Method
 
-    // Where the pixel's bytes start in Memory. Panics when it's outside the image.
+    /// Where the pixel's bytes start in Memory. Panics when it's outside the image.
     @PanicsAtCaller
     Method ByteOf(x: Int, y: Int): Int
         If x < 0 || x >= Columns || y < 0 || y >= Rows
@@ -284,7 +287,7 @@ Public Class Image
     End Method
 End Class
 
-// Panics when an image can't be width by height pixels.
+/// Panics when an image can't be width by height pixels.
 @PanicsAtCaller
 Package Function CheckSize(width: Int, height: Int)
     If width < 0 || height < 0
@@ -297,7 +300,7 @@ Package Function CheckSize(width: Int, height: Int)
     End If
 End Function
 
-// The Image the runtime decoded, or the IOError its result means, for data in `format`.
+/// The Image the runtime decoded, or the IOError its result means, for data in `format`.
 Package Function Decoded(image: Ptr<Void>, format: String): Image Throws IOError
     Try CheckDecoded(image, format)
     Local decoded = Image.Of(fb_image_width(image) As Int, fb_image_height(image) As Int,
@@ -306,7 +309,7 @@ Package Function Decoded(image: Ptr<Void>, format: String): Image Throws IOError
     Return decoded
 End Function
 
-// The image Decode reads from the file's bytes, its IOError naming the file.
+/// The image Decode reads from the file's bytes, its IOError naming the file.
 Function LoadedFrom(data: UInt8[], path: Path, limit: Int): Image Throws IOError
     Try
         Return Image.Decode(data, limit)
@@ -315,14 +318,14 @@ Function LoadedFrom(data: UInt8[], path: Path, limit: Int): Image Throws IOError
     End Try
 End Function
 
-// A copy of the Buffer, in one of its own.
+/// A copy of the Buffer, in one of its own.
 Package Function Copied<T: CData>(values: Buffer<T>): Buffer<T>
     Local copy = Buffer<T>(values.Count)
     values.CopyTo(copy)
     Return copy
 End Function
 
-// A format's name, by the runtime's number for it.
+/// A format's name, by the runtime's number for it.
 Package Function FormatName(format: Int32): String
     Return ["PNG", "JPEG", "BMP", "TGA", "GIF", "HDR", "QOI", "WebP"][format - 1]
 End Function

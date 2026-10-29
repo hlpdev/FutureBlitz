@@ -1,6 +1,6 @@
-// Scanner: reads text from its start, a character, a word, a line, or a number at a time, for a
-// parser, and keeps the Line and Column of what it reads next, where an error can point. A line
-// ends at "\n", and a column counts characters, code points, from 1.
+//! Scanner: reads text from its start, a character, a word, a line, or a number at a time, for a
+//! parser, and keeps the Line and Column of what it reads next, where an error can point. A line
+//! ends at "\n", and a column counts characters, code points, from 1.
 
 Import std.core
 Import std.text.char
@@ -12,44 +12,46 @@ Extern "runtime"
     Function fb_text_slice(text: String, start: Int64, finish: Int64): String
 End Extern
 
+/// Reads text from its start, a character, a word, a line, or a number at a time, keeping the Line
+/// and Column of what it reads next.
 Public Class Scanner
-    // The text it reads.
+    /// The text it reads.
     Public ReadOnly Field Text: String
-    // The position of the next character, a byte offset, as a String's positions are.
+    /// The position of the next character, a byte offset, as a String's positions are.
     Field At: Int = 0
     Field CurrentLine: Int = 1
     Field CurrentColumn: Int = 1
 
-    // One that reads text from its start.
+    /// One that reads text from its start.
     Public New(text: String)
         Text = text
     End New
 
-    // The position of the next character it reads, a byte offset in Text.
+    /// The position of the next character it reads, a byte offset in Text.
     Public Property Position: Int
         Get => At
     End Property
 
-    // The line of the next character it reads, from 1.
+    /// The line of the next character it reads, from 1.
     Public Property Line: Int
         Get => CurrentLine
     End Property
 
-    // The column of the next character it reads, from 1, counting characters.
+    /// The column of the next character it reads, from 1, counting characters.
     Public Property Column: Int
         Get => CurrentColumn
     End Property
 
-    // Whether it has read all of Text.
+    /// Whether it has read all of Text.
     Public Method AtEnd(): Bool => At >= Text.Length
 
-    // The next character, without reading it, or Null at the end.
+    /// The next character, without reading it, or Null at the end.
     Public Method Peek(): Char?
         If AtEnd() Then Return Null
         Return Text.CharAt(At)
     End Method
 
-    // Reads the next character, and gives it, or Null at the end.
+    /// Reads the next character, and gives it, or Null at the end.
     Public Method Next(): Char?
         If AtEnd() Then Return Null
         Local c = Text.CharAt(At)
@@ -57,14 +59,14 @@ Public Class Scanner
         Return c
     End Method
 
-    // Reads text when it comes next, and gives whether it did.
+    /// Reads text when it comes next, and gives whether it did.
     Public Method Take(text: String): Bool
         If fb_text_matches_at(Text, text, At) == 0 Then Return False
         PassUntil(At + text.Length)
         Return True
     End Method
 
-    // Reads the characters keep says to, up to the first it doesn't, and gives them.
+    /// Reads the characters keep says to, up to the first it doesn't, and gives them.
     Public Method TakeWhile(keep: Func(Char): Bool): String
         Local start = At
         While !AtEnd()
@@ -76,7 +78,7 @@ Public Class Scanner
         Return fb_text_slice(Text, start, At)
     End Method
 
-    // Reads the whitespace that comes next, up to the first other character.
+    /// Reads the whitespace that comes next, up to the first other character.
     Public Method SkipWhitespace()
         While !AtEnd()
             Local c = Text.CharAt(At)
@@ -85,8 +87,8 @@ Public Class Scanner
         End While
     End Method
 
-    // Reads up to text, or to the end when text doesn't come, and gives what it read, without
-    // text, which comes next.
+    /// Reads up to text, or to the end when text doesn't come, and gives what it read, without
+    /// text, which comes next.
     Public Method TakeUntil(text: String): String
         Local start = At
         Local found = fb_text_find(Text, text, At)
@@ -94,8 +96,8 @@ Public Class Scanner
         Return fb_text_slice(Text, start, At)
     End Method
 
-    // Reads the rest of the line and its line break, "\n" or "\r\n", and gives the line without
-    // it, or Null at the end. The last line, with no "\n" after it, is all of what's left.
+    /// Reads the rest of the line and its line break, "\n" or "\r\n", and gives the line without
+    /// it, or Null at the end. The last line, with no "\n" after it, is all of what's left.
     Public Method TakeLine(): String?
         If AtEnd() Then Return Null
         Local line = TakeUntil("\n")
@@ -103,16 +105,16 @@ Public Class Scanner
         Return line
     End Method
 
-    // Reads the whitespace that comes next and the word after it, the characters up to the next
-    // whitespace, and gives the word, or Null when only whitespace is left.
+    /// Reads the whitespace that comes next and the word after it, the characters up to the next
+    /// whitespace, and gives the word, or Null when only whitespace is left.
     Public Method TakeWord(): String?
         SkipWhitespace()
         If AtEnd() Then Return Null
         Return TakeWhile(Function(c: Char) => !c.IsWhitespace())
     End Method
 
-    // Reads an integer that comes next: a "-" or "+", or neither, then the digits 0 to 9, and
-    // gives it, or Null, reading nothing, when no digit comes or it doesn't fit in an Int64.
+    /// Reads an integer that comes next: a "-" or "+", or neither, then the digits 0 to 9, and
+    /// gives it, or Null, reading nothing, when no digit comes or it doesn't fit in an Int64.
     Public Method TakeInt(): Int64?
         Local position = At
         Local negative = False
@@ -145,14 +147,14 @@ Public Class Scanner
         Return value
     End Method
 
-    // Reads the rest of Text, and gives it.
+    /// Reads the rest of Text, and gives it.
     Public Method TakeRest(): String
         Local start = At
         PassUntil(Text.Length)
         Return fb_text_slice(Text, start, At)
     End Method
 
-    // Reads c, the next character, counting its line and column.
+    /// Reads c, the next character, counting its line and column.
     Method Pass(c: Char)
         At += c.Utf8Length
         If c == '\n'
@@ -163,7 +165,7 @@ Public Class Scanner
         End If
     End Method
 
-    // Reads the characters up to the position finish.
+    /// Reads the characters up to the position finish.
     Method PassUntil(finish: Int)
         While At < finish
             Pass(Text.CharAt(At))

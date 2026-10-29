@@ -1,6 +1,6 @@
-// std.term's views for full-screen apps, each drawn on a Canvas in a Region, which take the keys
-// and the mouse's events that are theirs: a TextInput, a line of text that's edited as a shell's
-// is, and a ListView, a list of items with one selected, which scrolls to keep it in view.
+//! std.term's views for full-screen apps, each drawn on a Canvas in a Region, which take the keys
+//! and the mouse's events that are theirs: a TextInput, a line of text that's edited as a shell's
+//! is, and a ListView, a list of items with one selected, which scrolls to keep it in view.
 
 Import std.core
 Import std.text.string
@@ -11,8 +11,8 @@ Import std.term.screen
 Import std.term.style
 Import std.term.widgets
 
-// A line of text being edited, and where its cursor is, a byte position between its grapheme
-// clusters. Prompts' Ask and TextInput edit with it.
+/// A line of text being edited, and where its cursor is, a byte position between its grapheme
+/// clusters. Prompts' Ask and TextInput edit with it.
 Package Class LineEditor
     Package Field Text: String
     Package Field Cursor: Int
@@ -22,7 +22,7 @@ Package Class LineEditor
         Cursor = text.Length
     End New
 
-    // Where each grapheme cluster starts, and the text's end.
+    /// Where each grapheme cluster starts, and the text's end.
     Method Boundaries(): Int[]
         Local boundaries: Int[] = []
         Local at = 0
@@ -35,7 +35,7 @@ Package Class LineEditor
         Return boundaries
     End Method
 
-    // The boundary before the cursor, or the start.
+    /// The boundary before the cursor, or the start.
     Method Before(): Int
         Local found = 0
         For boundary In Boundaries()
@@ -46,7 +46,7 @@ Package Class LineEditor
         Return found
     End Method
 
-    // The boundary after the cursor, or the end.
+    /// The boundary after the cursor, or the end.
     Method After(): Int
         For boundary In Boundaries()
             If boundary > Cursor Then Return boundary
@@ -55,10 +55,10 @@ Package Class LineEditor
         Return Text.Length
     End Method
 
-    // Whether the grapheme cluster from start to finish is whitespace.
+    /// Whether the grapheme cluster from start to finish is whitespace.
     Method IsSpace(start: Int, finish: Int): Bool => Text.Slice(start, finish).IsBlank()
 
-    // The start of the word before the cursor, past the spaces before it.
+    /// The start of the word before the cursor, past the spaces before it.
     Method WordBefore(): Int
         Local boundaries = Boundaries()
         Local i = boundaries.Count - 1
@@ -77,7 +77,7 @@ Package Class LineEditor
         Return boundaries[i]
     End Method
 
-    // The end of the word after the cursor, past the spaces before it.
+    /// The end of the word after the cursor, past the spaces before it.
     Method WordAfter(): Int
         Local boundaries = Boundaries()
         Local i = 0
@@ -96,22 +96,22 @@ Package Class LineEditor
         Return boundaries[i]
     End Method
 
-    // Puts text in at the cursor, which goes after it.
+    /// Puts text in at the cursor, which goes after it.
     Package Method Insert(text: String)
         Text = Text.Slice(0, Cursor) + text + Text.Slice(Cursor, Text.Length)
         Cursor += text.Length
     End Method
 
-    // Takes out the text from start to finish, the cursor going to start.
+    /// Takes out the text from start to finish, the cursor going to start.
     Method Remove(start: Int, finish: Int)
         Text = Text.Slice(0, start) + Text.Slice(finish, Text.Length)
         Cursor = start
     End Method
 
-    // Edits as key says, as a shell's line does: Left and Right, by words with Ctrl or Alt;
-    // Home and End, or Ctrl+A and Ctrl+E; Backspace and Delete, a word before with Ctrl+W or
-    // Alt+Backspace; Ctrl+U and Ctrl+K, all before or after the cursor; and a character typed.
-    // Gives whether it was one of those.
+    /// Edits as key says, as a shell's line does: Left and Right, by words with Ctrl or Alt;
+    /// Home and End, or Ctrl+A and Ctrl+E; Backspace and Delete, a word before with Ctrl+W or
+    /// Alt+Backspace; Ctrl+U and Ctrl+K, all before or after the cursor; and a character typed.
+    /// Gives whether it was one of those.
     Package Method Handle(key: KeyEvent): Bool
         Local word = key.Modifiers.Has(KeyModifiers.CONTROL) || key.Modifiers.Has(KeyModifiers.ALT)
         Select key.Code
@@ -154,30 +154,33 @@ Package Class LineEditor
         Return True
     End Method
 
-    // The text before the cursor, to measure where it is.
+    /// The text before the cursor, to measure where it is.
     Package Method BeforeCursor(): String => Text.Slice(0, Cursor)
 End Class
 
-// A line of text to type in, edited as a shell's line is (see LineEditor's Handle), which Draw
-// shows in a Region's first row, scrolled sideways to keep its cursor in view. A Placeholder
-// shows while it's empty, and a Mask, like "•", in place of each character, as for a password.
+/// A line of text to type in, edited as a shell's line is (see LineEditor's Handle), which Draw
+/// shows in a Region's first row, scrolled sideways to keep its cursor in view. A Placeholder
+/// shows while it's empty, and a Mask, like "•", in place of each character, as for a password.
 Public Class TextInput
     Field Editor: LineEditor
-    // The first of the text's columns that shows.
+    /// The first of the text's columns that shows.
     Field Scroll: Int
+    /// What shows while it's empty.
     Public Field Placeholder: String
+    /// What shows in place of each character, like "•", or "" for the characters themselves.
     Public Field Mask: String
-    // How its text looks, and its placeholder.
+    /// How its text looks, and its placeholder.
     Public Field TextLook: Style
+    /// How its placeholder looks.
     Public Field PlaceholderLook: Style
 
-    // An input holding text, its cursor after it.
+    /// An input holding text, its cursor after it.
     Public New(text: String = "")
         Editor = LineEditor(text)
         PlaceholderLook = Style(Attributes: TextAttributes.DIM)
     End New
 
-    // What's typed; setting it puts the cursor at its end.
+    /// What's typed; setting it puts the cursor at its end.
     Public Property Text: String
         Get => Editor.Text
         Set(value)
@@ -186,15 +189,15 @@ Public Class TextInput
         End Set
     End Property
 
-    // Where the cursor is, a byte position in Text.
+    /// Where the cursor is, a byte position in Text.
     Public Property Cursor: Int
         Get => Editor.Cursor
     End Property
 
-    // Edits it as key says, and gives whether the key was one it takes.
+    /// Edits it as key says, and gives whether the key was one it takes.
     Public Method HandleKey(key: KeyEvent): Bool => Editor.Handle(key)
 
-    // Takes a key, or what's pasted, its line breaks as spaces, and gives whether it took it.
+    /// Takes a key, or what's pasted, its line breaks as spaces, and gives whether it took it.
     Public Method HandleEvent(event: InputEvent): Bool
         If event.Kind == InputKind.KEY Then Return Editor.Handle(event.Key)
         If event.Kind != InputKind.PASTE Then Return False
@@ -202,8 +205,8 @@ Public Class TextInput
         Return True
     End Method
 
-    // Draws it in area's first row, and gives the column its cursor is at, for a Screen's
-    // ShowCursor.
+    /// Draws it in area's first row, and gives the column its cursor is at, for a Screen's
+    /// ShowCursor.
     Public Method Draw(canvas: Canvas, area: Region): Int
         If area.IsEmpty Then Return area.Column
         Local width = area.Width
@@ -234,35 +237,38 @@ Public Class TextInput
         Return area.Column + cursor - Scroll
     End Method
 
-    // text as it shows: itself, or a Mask for each grapheme cluster.
+    /// text as it shows: itself, or a Mask for each grapheme cluster.
     Method Shown(text: String): String
         If Mask == "" Then Return text
         Return Mask.Repeated(text.GraphemeCount)
     End Method
 End Class
 
-// A list of Items, one of which is Selected, which Draw shows in a Region, scrolled to keep the
-// selected one in view, with its Marker before it and drawn in SelectedLook, over ItemLook.
-// HandleKey moves the selection with Up, Down, Page Up, Page Down, Home, and End, and
-// HandleMouse with a click or the wheel.
+/// A list of Items, one of which is Selected, which Draw shows in a Region, scrolled to keep the
+/// selected one in view, with its Marker before it and drawn in SelectedLook, over ItemLook.
+/// HandleKey moves the selection with Up, Down, Page Up, Page Down, Home, and End, and
+/// HandleMouse with a click or the wheel.
 Public Class ListView
+    /// Its items, in order.
     Public Field Items: String[]
     Field Chosen: Int
-    // The first item that shows, and how many rows showed at the last Draw.
+    /// The first item that shows, and how many rows showed at the last Draw.
     Field Offset: Int
     Field Shown: Int = 1
-    // What's before the selected item, with as many spaces before each other one.
+    /// What's before the selected item, with as many spaces before each other one.
     Public Field Marker: String = "› "
+    /// How the items look.
     Public Field ItemLook: Style
+    /// How the selected item looks.
     Public Field SelectedLook: Style
 
-    // A list of items, the first selected.
+    /// A list of items, the first selected.
     Public New(items: String[])
         Items = items
         SelectedLook = Style(Attributes: TextAttributes.REVERSE)
     End New
 
-    // Which item is selected, from 0, or -1 for an empty list. Setting it keeps it in the list.
+    /// Which item is selected, from 0, or -1 for an empty list. Setting it keeps it in the list.
     Public Property Selected: Int
         Get => Items.Count == 0 ? -1 : Clamp(Chosen, 0, Items.Count - 1)
         Set(value)
@@ -270,13 +276,13 @@ Public Class ListView
         End Set
     End Property
 
-    // The selected item, or Null for an empty list.
+    /// The selected item, or Null for an empty list.
     Public Property SelectedItem: String?
         Get => Items.Count == 0 ? Null : Items[Selected]
     End Property
 
-    // Moves the selection as key says, and gives whether it was one of its keys, which an empty
-    // list has none of.
+    /// Moves the selection as key says, and gives whether it was one of its keys, which an empty
+    /// list has none of.
     Public Method HandleKey(key: KeyEvent): Bool
         If key.Modifiers != KeyModifiers.NONE || Items.Count == 0 Then Return False
         Local page = Max(Shown - 1, 1)
@@ -300,8 +306,8 @@ Public Class ListView
         Return True
     End Method
 
-    // Selects the item a press of the left button in area is on, or moves the selection three
-    // items for the wheel, and gives whether it did.
+    /// Selects the item a press of the left button in area is on, or moves the selection three
+    /// items for the wheel, and gives whether it did.
     Public Method HandleMouse(mouse: MouseEvent, area: Region): Bool
         If Items.Count == 0 || !area.Contains(mouse.Column, mouse.Row) Then Return False
         Select mouse.Action
@@ -321,14 +327,14 @@ Public Class ListView
         Return True
     End Method
 
-    // Takes a key or the mouse's event in area, and gives whether it took it.
+    /// Takes a key or the mouse's event in area, and gives whether it took it.
     Public Method HandleEvent(event: InputEvent, area: Region): Bool
         If event.Kind == InputKind.KEY Then Return HandleKey(event.Key)
         If event.Kind == InputKind.MOUSE Then Return HandleMouse(event.Mouse, area)
         Return False
     End Method
 
-    // Draws the items that fit in area, one a row, scrolled to keep the selected one in view.
+    /// Draws the items that fit in area, one a row, scrolled to keep the selected one in view.
     Public Method Draw(canvas: Canvas, area: Region)
         If area.IsEmpty Then Return
         Shown = area.Height

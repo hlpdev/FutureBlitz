@@ -1,9 +1,9 @@
-// std.net's LAN discovery: LanAnnouncer, which offers a service to the LAN, and Lan.Find, which
-// finds those of a type there, over mDNS and DNS-SD (RFCs 6762 and 6763), as Bonjour and Avahi
-// have them, so the dns-sd and avahi-browse tools find what a program offers, and it finds what
-// they offer. It goes over IPv4, through each of the machine's interfaces but loopback's, or
-// through loopback's when nothing reaches the LAN, so programs on the machine still find each
-// other.
+//! std.net's LAN discovery: LanAnnouncer, which offers a service to the LAN, and Lan.Find, which
+//! finds those of a type there, over mDNS and DNS-SD (RFCs 6762 and 6763), as Bonjour and Avahi
+//! have them, so the dns-sd and avahi-browse tools find what a program offers, and it finds what
+//! they offer. It goes over IPv4, through each of the machine's interfaces but loopback's, or
+//! through loopback's when nothing reaches the LAN, so programs on the machine still find each
+//! other.
 
 Import std.core
 Import std.collections.array
@@ -19,11 +19,11 @@ Extern "runtime"
     Function fb_string_from_array(bytes: UInt8[]): String
 End Extern
 
-// mDNS's port, which a program can trade for one of its own to keep its discovery to itself.
+/// mDNS's port, which a program can trade for one of its own to keep its discovery to itself.
 Const MDNS_PORT: UInt16 = 5353
 
-// The DNS record types DNS-SD has, and the class, IN, whose top bit asks for an answer by
-// unicast in a question, and in a record says it replaces what's kept of its name and type.
+/// The DNS record types DNS-SD has, and the class, IN, whose top bit asks for an answer by
+/// unicast in a question, and in a record says it replaces what's kept of its name and type.
 Const TYPE_A: UInt16 = 1
 Const TYPE_PTR: UInt16 = 12
 Const TYPE_TXT: UInt16 = 16
@@ -33,38 +33,44 @@ Const TYPE_ANY: UInt16 = 255
 Const CLASS_IN: UInt16 = 1
 Const TOP_BIT: UInt16 = 32768
 
-// How long others keep the records, in seconds, as RFC 6762 has them: a host's for 2 minutes,
-// and a service's for 75; a one-shot query's answers for 10 at most.
+/// How long others keep the records, in seconds, as RFC 6762 has them: a host's for 2 minutes,
+/// and a service's for 75; a one-shot query's answers for 10 at most.
 Const HOST_TTL: UInt32 = 120
 Const SERVICE_TTL: UInt32 = 4500
 Const ONE_SHOT_TTL: UInt32 = 10
 
-// What Find listens for answers for when it isn't told.
+/// What Find listens for answers for when it isn't told.
 Const LISTENING_NANOSECONDS: Int64 = 1000000000
 
-// The most bytes a service's text has, so a response with it fits in one of mDNS's packets of
-// 9000 bytes (RFC 6762 17).
+/// The most bytes a service's text has, so a response with it fits in one of mDNS's packets of
+/// 9000 bytes (RFC 6762 17).
 Const LONGEST_TEXT = 8192
 
-// An interface's record of fb_io_net_interfaces: its address, then its netmask, as SocketBytes
-// writes them.
+/// An interface's record of fb_io_net_interfaces: its address, then its netmask, as SocketBytes
+/// writes them.
 Const INTERFACE_SIZE = 46
 
-// The name DNS-SD enumerates the types of services under.
+/// The name DNS-SD enumerates the types of services under.
 Function Enumeration(): String[] => ["_services", "_dns-sd", "_udp", "local"]
 
-// mDNS's group.
+/// mDNS's group.
 Function Group(): IpAddress => IpAddress.V4(224, 0, 0, 251)
 
-// A service on the LAN, as DNS-SD has one: its type, like "_mygame._udp", its name, which none
-// of its type shares, the host it's on and that host's addresses, its port, and its text, a map
-// of keys to values, each key once whatever its letters' case, as the first of them is written.
+/// A service on the LAN, as DNS-SD has one: its type, like "_mygame._udp", its name, which none
+/// of its type shares, the host it's on and that host's addresses, its port, and its text, a map
+/// of keys to values, each key once whatever its letters' case, as the first of them is written.
 Public Struct LanService Implements Printable
+    /// Its type, like "_mygame._udp".
     Public ReadOnly Field Type: String
+    /// Its name, which none of its type shares.
     Public ReadOnly Field Name: String
+    /// The host it's on.
     Public ReadOnly Field Host: String
+    /// Its port.
     Public ReadOnly Field Port: UInt16
+    /// Its host's addresses.
     Public ReadOnly Field Addresses: IpAddress[]
+    /// Its text: keys and their values.
     Public ReadOnly Field Text: Map<String, String>
 
     Package New(type: String, name: String, host: String, port: UInt16, addresses: IpAddress[],
@@ -77,8 +83,8 @@ Public Struct LanService Implements Printable
         Self.Text = text
     End New
 
-    // Its first address and port, or Null when it has no address: the address its answer came
-    // from, which the finder can reach, then those it gave for its host.
+    /// Its first address and port, or Null when it has no address: the address its answer came
+    /// from, which the finder can reach, then those it gave for its host.
     Public Property Address: SocketAddress?
         Get => Addresses.Count == 0 ? Null : SocketAddress(Addresses[0], Port)
     End Property
@@ -86,11 +92,11 @@ Public Struct LanService Implements Printable
     Public Method ToString(): String => "{Name} ({Type}) at {Host}:{Port}"
 End Struct
 
-// Offers a service to the LAN: it answers what Lan.Find and DNS-SD's other browsers ask, on the
-// main thread, as Async code does, from Start until Stop, or until it goes, keeping the program
-// running meanwhile, as a listener's AcceptAsync does. It doesn't check that no other service of
-// its type has its name, as a DNS-SD responder's probe would, so names should differ, by the
-// machine's name, say.
+/// Offers a service to the LAN: it answers what Lan.Find and DNS-SD's other browsers ask, on the
+/// main thread, as Async code does, from Start until Stop, or until it goes, keeping the program
+/// running meanwhile, as a listener's AcceptAsync does. It doesn't check that no other service of
+/// its type has its name, as a DNS-SD responder's probe would, so names should differ, by the
+/// machine's name, say.
 Public Class LanAnnouncer
     ReadOnly Field Socket: UdpSocket
     ReadOnly Field Offer: Offered
@@ -107,12 +113,12 @@ Public Class LanAnnouncer
         Stop()
     End Method
 
-    // Starts offering the service `name` of `type`, which is "_" and up to 15 lowercase letters,
-    // digits, and '-', then "._udp" or "._tcp", at `port` of this machine, with `text` as its
-    // keys and values, each pair 255 bytes at most and 8192 in all, each key once whatever its
-    // letters' case. A type, name, or text that isn't one panics. It answers at mDNS's port, 5353,
-    // or at `discoveryPort`, which Find has to be given too. What it sends through an interface
-    // gives that interface's address alone, as RFC 6762 has it.
+    /// Starts offering the service `name` of `type`, which is "_" and up to 15 lowercase letters,
+    /// digits, and '-', then "._udp" or "._tcp", at `port` of this machine, with `text` as its
+    /// keys and values, each pair 255 bytes at most and 8192 in all, each key once whatever its
+    /// letters' case. A type, name, or text that isn't one panics. It answers at mDNS's port, 5353,
+    /// or at `discoveryPort`, which Find has to be given too. What it sends through an interface
+    /// gives that interface's address alone, as RFC 6762 has it.
     @PanicsAtCaller
     Public Static Method Start(
             type: String, name: String, port: UInt16, text: Map<String, String>? = Null,
@@ -126,18 +132,18 @@ Public Class LanAnnouncer
         Return announcer
     End Method
 
-    // Its service, as Find gives it, with this machine's addresses.
+    /// Its service, as Find gives it, with this machine's addresses.
     Public Property Service: LanService
         Get => Offer.Service()
     End Property
 
-    // Whether Stop stopped it.
+    /// Whether Stop stopped it.
     Public Property IsStopped: Bool
         Get => Stopped
     End Property
 
-    // Says goodbye to the LAN, so other mDNS caches drop the service's records, but not its host's
-    // addresses, which other services can have, and stops answering.
+    /// Says goodbye to the LAN, so other mDNS caches drop the service's records, but not its host's
+    /// addresses, which other services can have, and stops answering.
     Public Method Stop()
         If Stopped Then Return
         Stopped = True
@@ -151,16 +157,16 @@ Public Class LanAnnouncer
     End Method
 End Class
 
-// Finds the services on the LAN.
+/// Finds the services on the LAN.
 Public Struct Lan
-    // Lan isn't made: it's only its Static Methods.
+    /// Lan isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The services of `type`, as LanAnnouncer.Start takes it, that answer within `timeout`, a
-    // second unless it's given, in the order they answered, each once. It asks again a third of
-    // the way through, as answers can be lost. Throws a NetError when it can't ask, as when the
-    // machine has no network. A type that isn't one panics.
+    /// The services of `type`, as LanAnnouncer.Start takes it, that answer within `timeout`, a
+    /// second unless it's given, in the order they answered, each once. It asks again a third of
+    /// the way through, as answers can be lost. Throws a NetError when it can't ask, as when the
+    /// machine has no network. A type that isn't one panics.
     @PanicsAtCaller
     Public Static Method Find(type: String, timeout: Duration? = Null,
                               discoveryPort: UInt16 = MDNS_PORT): LanService[] Throws NetError
@@ -194,7 +200,7 @@ Public Struct Lan
         Return found.Services()
     End Method
 
-    // Find's Async twin, which waits on the main thread.
+    /// Find's Async twin, which waits on the main thread.
     @PanicsAtCaller
     Public Static Async Method FindAsync(
             type: String, timeout: Duration? = Null,
@@ -229,8 +235,8 @@ Public Struct Lan
         Return found.Services()
     End Method
 
-    // The addresses this machine has on its networks, but loopback's, IPv4's and IPv6's, as a
-    // LAN game shows its players where to join.
+    /// The addresses this machine has on its networks, but loopback's, IPv4's and IPv6's, as a
+    /// LAN game shows its players where to join.
     Public Static Method LocalAddresses(): IpAddress[]
         Local bytes: UInt8[] = []
         Local addresses: IpAddress[] = []
@@ -241,12 +247,12 @@ Public Struct Lan
         Return addresses
     End Method
 
-    // This machine's name, as its OS has it.
+    /// This machine's name, as its OS has it.
     Public Static Method HostName(): String => fb_io_net_host_name()
 End Struct
 
-// What a LanAnnouncer offers: the names of its service, its type, and its host, as DNS labels,
-// and the records that say them.
+/// What a LanAnnouncer offers: the names of its service, its type, and its host, as DNS labels,
+/// and the records that say them.
 Class Offered
     ReadOnly Field Type: String[]
     ReadOnly Field Instance: String[]
@@ -264,13 +270,13 @@ Class Offered
         Self.Text = text
     End New
 
-    // The service as Find gives it.
+    /// The service as Find gives it.
     Method Service(): LanService
         Return LanService(Joined(Type[0..Type.Count - 1]), Instance[0], Joined(Host), Port,
                           V4Addresses(), TextOf(Text))
     End Method
 
-    // A response with all of its records, which announces them, with the host's `addresses`.
+    /// A response with all of its records, which announces them, with the host's `addresses`.
     Method Records(addresses: IpAddress[]): UInt8[]
         Local records: UInt8[][] = [Pointer(Type, Instance, SERVICE_TTL),
                                     Pointer(Enumeration(), Type, SERVICE_TTL)]
@@ -278,8 +284,8 @@ Class Offered
         Return Response(0, [], records, [])
     End Method
 
-    // A goodbye, its own records with a TTL of 0, so others drop them: not its host's addresses
-    // or its type's place in DNS-SD's enumeration, which other services can still have.
+    /// A goodbye, its own records with a TTL of 0, so others drop them: not its host's addresses
+    /// or its type's place in DNS-SD's enumeration, which other services can still have.
     Method Goodbye(): UInt8[]
         Local records: UInt8[][] = [Pointer(Type, Instance, 0),
                                     Record(Instance, TYPE_SRV, True, 0, ServerData()),
@@ -287,9 +293,9 @@ Class Offered
         Return Response(0, [], records, [])
     End Method
 
-    // The answer to `query`, with the host's `addresses`, and what goes with it, or Null when it
-    // asks nothing of this service's that it doesn't know already: for a one-shot query, from a
-    // port that isn't the discovery port, with the query's ID and questions.
+    /// The answer to `query`, with the host's `addresses`, and what goes with it, or Null when it
+    /// asks nothing of this service's that it doesn't know already: for a one-shot query, from a
+    /// port that isn't the discovery port, with the query's ID and questions.
     Method Answer(query: Message, oneShot: Bool, addresses: IpAddress[]): UInt8[]?
         Local answers: UInt8[][] = []
         Local extra = False
@@ -323,16 +329,16 @@ Class Offered
                         additional)
     End Method
 
-    // The answer to a query that goes through an interface of `addresses`, or nothing.
+    /// The answer to a query that goes through an interface of `addresses`, or nothing.
     Method AnswerThrough(query: Message, addresses: IpAddress[]): UInt8[]
         Local answer = Answer(query, False, addresses)
         If answer == Null Then Return []
         Return answer
     End Method
 
-    // The records that go with the service's: its SRV, its TXT, and the host's `addresses`, which
-    // replace what others have of their names, but in a one-shot query's answer, and those that
-    // `query` knows already go.
+    /// The records that go with the service's: its SRV, its TXT, and the host's `addresses`, which
+    /// replace what others have of their names, but in a one-shot query's answer, and those that
+    /// `query` knows already go.
     Method Extra(query: Message?, oneShot: Bool, addresses: IpAddress[]): UInt8[][]
         Local records: UInt8[][] = []
         If !KnowsServer(query)
@@ -348,7 +354,7 @@ Class Offered
         Return records
     End Method
 
-    // The A records of `addresses`, but those `query` knows.
+    /// The A records of `addresses`, but those `query` knows.
     Method AddressRecords(query: Message?, oneShot: Bool, addresses: IpAddress[]): UInt8[][]
         Local records: UInt8[][] = []
         For address In addresses
@@ -365,14 +371,14 @@ Class Offered
         Return records
     End Method
 
-    // The SRV record's data: its priority, its weight, its port, and the host.
+    /// The SRV record's data: its priority, its weight, its port, and the host.
     Method ServerData(): UInt8[]
         Local server: UInt8[] = [0, 0, 0, 0, (Port >> 8) As UInt8, (Port & 255) As UInt8]
         server.AddAll(NameBytes(Host))
         Return server
     End Method
 
-    // Whether `query` knows the PTR from `name` to `target`.
+    /// Whether `query` knows the PTR from `name` to `target`.
     Method KnowsPointer(query: Message?, name: String[], target: String[]): Bool
         For record In KnownAnswers(query, name, TYPE_PTR, SERVICE_TTL)
             Local known = record.Target
@@ -381,7 +387,7 @@ Class Offered
         Return False
     End Method
 
-    // Whether `query` knows the service's SRV.
+    /// Whether `query` knows the service's SRV.
     Method KnowsServer(query: Message?): Bool
         For record In KnownAnswers(query, Instance, TYPE_SRV, HOST_TTL)
             Local known = record.Target
@@ -390,7 +396,7 @@ Class Offered
         Return False
     End Method
 
-    // Whether `query` knows the service's TXT.
+    /// Whether `query` knows the service's TXT.
     Method KnowsText(query: Message?): Bool
         For record In KnownAnswers(query, Instance, TYPE_TXT, SERVICE_TTL)
             If record.Data == Text Then Return True
@@ -399,12 +405,12 @@ Class Offered
     End Method
 End Class
 
-// How long others keep a record they'd keep for `full` seconds: 10 at most from a one-shot
-// query's answer.
+/// How long others keep a record they'd keep for `full` seconds: 10 at most from a one-shot
+/// query's answer.
 Function TtlOf(full: UInt32, oneShot: Bool): UInt32 => oneShot ? Min(full, ONE_SHOT_TTL) : full
 
-// The records of `name` and `type` that `query` lists as known answers with half of `ttl` left
-// at least, which RFC 6762 doesn't give again.
+/// The records of `name` and `type` that `query` lists as known answers with half of `ttl` left
+/// at least, which RFC 6762 doesn't give again.
 Function KnownAnswers(query: Message?, name: String[], type: UInt16, ttl: UInt32): ReadRecord[]
     Local known: ReadRecord[] = []
     If query == Null Then Return known
@@ -417,16 +423,16 @@ Function KnownAnswers(query: Message?, name: String[], type: UInt16, ttl: UInt32
     Return known
 End Function
 
-// The services that answered a Find, as their records come.
+/// The services that answered a Find, as their records come.
 Class Found
     ReadOnly Field Service: String[]
-    // Each service's name, in the order they came, and what came of each.
+    /// Each service's name, in the order they came, and what came of each.
     Field Names: String[][]
     Field Ports: Map<String, UInt16>
     Field Hosts: Map<String, String[]>
     Field Texts: Map<String, UInt8[]>
     Field Senders: Map<String, IpAddress>
-    // Each host's addresses, by its name in lowercase.
+    /// Each host's addresses, by its name in lowercase.
     Field Addresses: Map<String, IpAddress[]>
 
     New(service: String[])
@@ -439,7 +445,7 @@ Class Found
         Addresses = Map<String, IpAddress[]>()
     End New
 
-    // Keeps what a response says of the service's names, and its hosts' addresses.
+    /// Keeps what a response says of the service's names, and its hosts' addresses.
     Method Read(datagram: Datagram)
         Local message = ReadMessage(datagram.Bytes)
         If message == Null || !message.Response Then Return
@@ -468,7 +474,7 @@ Class Found
         End For
     End Method
 
-    // The services whose SRV came, so their host and port are known.
+    /// The services whose SRV came, so their host and port are known.
     Method Services(): LanService[]
         Local services: LanService[] = []
         For name In Names
@@ -490,8 +496,8 @@ Class Found
     End Method
 End Class
 
-// A question of a DNS message, which asks for its answer by unicast, as mDNS has it, when
-// `Unicast`.
+/// A question of a DNS message, which asks for its answer by unicast, as mDNS has it, when
+/// `Unicast`.
 Struct Question
     ReadOnly Field Name: String[]
     ReadOnly Field Type: UInt16
@@ -504,8 +510,8 @@ Struct Question
     End New
 End Struct
 
-// A record of a DNS message, its TTL in seconds, with what DNS-SD reads of its data: a PTR's or
-// SRV's target, an SRV's port, and an A's or AAAA's address.
+/// A record of a DNS message, its TTL in seconds, with what DNS-SD reads of its data: a PTR's or
+/// SRV's target, an SRV's port, and an A's or AAAA's address.
 Struct ReadRecord
     ReadOnly Field Name: String[]
     ReadOnly Field Type: UInt16
@@ -527,8 +533,8 @@ Struct ReadRecord
     End New
 End Struct
 
-// A DNS message: its ID, whether it's a response, its questions, and its records, the first
-// AnswerCount of them those that answer, which a query lists as what it knows, and the rest.
+/// A DNS message: its ID, whether it's a response, its questions, and its records, the first
+/// AnswerCount of them those that answer, which a query lists as what it knows, and the rest.
 Class Message
     ReadOnly Field Id: UInt16
     ReadOnly Field Response: Bool
@@ -545,7 +551,7 @@ Class Message
         Self.AnswerCount = answerCount
     End New
 
-    // Whether a question asks for its answer by unicast.
+    /// Whether a question asks for its answer by unicast.
     Method Unicast(): Bool
         For question In Questions
             If question.Unicast Then Return True
@@ -554,8 +560,8 @@ Class Message
     End Method
 End Class
 
-// Reads a DNS message's bytes, which can come from anything on the LAN, so what doesn't read as
-// one is Null.
+/// Reads a DNS message's bytes, which can come from anything on the LAN, so what doesn't read as
+/// one is Null.
 Function ReadMessage(bytes: UInt8[]): Message?
     Local reader = MessageReader(bytes)
     Local id = reader.Short()
@@ -600,8 +606,8 @@ Function ReadMessage(bytes: UInt8[]): Message?
     Return Message(id, (flags & TOP_BIT) != 0, questions, records, Min(answerCount, records.Count))
 End Function
 
-// Reads a DNS message's parts, from its start on, noting when it would read past its end, or
-// read a name that doesn't end, in which case what it gives is 0s.
+/// Reads a DNS message's parts, from its start on, noting when it would read past its end, or
+/// read a name that doesn't end, in which case what it gives is 0s.
 Class MessageReader
     ReadOnly Field Data: UInt8[]
     Field At: Int
@@ -633,22 +639,22 @@ Class MessageReader
         Return bytes
     End Method
 
-    // The name from here on, past which it moves.
+    /// The name from here on, past which it moves.
     Method Name(): String[]
         Local name: String[] = []
         At = Labels(At, name)
         Return name
     End Method
 
-    // The name at `start`, where it doesn't move.
+    /// The name at `start`, where it doesn't move.
     Method NameAt(start: Int): String[]
         Local name: String[] = []
         Labels(start, name)
         Return name
     End Method
 
-    // Reads the labels from `start` into name, through compression's pointers to earlier ones,
-    // and gives where the name ends at `start`.
+    /// Reads the labels from `start` into name, through compression's pointers to earlier ones,
+    /// and gives where the name ends at `start`.
     Method Labels(start: Int, name: String[]): Int
         Local at = start
         Local finish = -1
@@ -687,7 +693,7 @@ Class MessageReader
     End Method
 End Class
 
-// A query for the PTR records of a service's type.
+/// A query for the PTR records of a service's type.
 Function Query(service: String[]): UInt8[]
     Local bytes: UInt8[] = [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]
     bytes.AddAll(NameBytes(service))
@@ -696,8 +702,8 @@ Function Query(service: String[]): UInt8[]
     Return bytes
 End Function
 
-// A response of `answers`, with its `additional` records, and for a one-shot query, its `id`
-// and its `questions`.
+/// A response of `answers`, with its `additional` records, and for a one-shot query, its `id`
+/// and its `questions`.
 Function Response(id: UInt16, questions: Question[], answers: UInt8[][],
                   additional: UInt8[][]): UInt8[]
     Local bytes: UInt8[] = []
@@ -723,13 +729,13 @@ Function Response(id: UInt16, questions: Question[], answers: UInt8[][],
     Return bytes
 End Function
 
-// A PTR record, from `name` to `target`, which others share, so it never replaces theirs.
+/// A PTR record, from `name` to `target`, which others share, so it never replaces theirs.
 Function Pointer(name: String[], target: String[], ttl: UInt32): UInt8[]
     Return Record(name, TYPE_PTR, False, ttl, NameBytes(target))
 End Function
 
-// A record's bytes, which replaces what's kept of its name and type when `unique`, but for a
-// one-shot query's answers, which never do.
+/// A record's bytes, which replaces what's kept of its name and type when `unique`, but for a
+/// one-shot query's answers, which never do.
 Function Record(name: String[], type: UInt16, unique: Bool, ttl: UInt32, data: UInt8[]): UInt8[]
     Local bytes = NameBytes(name)
     AddShort(bytes, type)
@@ -741,7 +747,7 @@ Function Record(name: String[], type: UInt16, unique: Bool, ttl: UInt32, data: U
     Return bytes
 End Function
 
-// A name's bytes, each label after its length, then a 0.
+/// A name's bytes, each label after its length, then a 0.
 Function NameBytes(name: String[]): UInt8[]
     Local bytes: UInt8[] = []
     For label In name
@@ -759,7 +765,7 @@ Function AddShort(bytes: UInt8[], value: UInt16)
     bytes.Add((value & 255) As UInt8)
 End Function
 
-// Whether two names are the same, as DNS compares them: ASCII letters by either case.
+/// Whether two names are the same, as DNS compares them: ASCII letters by either case.
 Function SameName(a: String[], b: String[]): Bool
     If a.Count != b.Count Then Return False
     For i = 0 Until a.Count
@@ -768,7 +774,7 @@ Function SameName(a: String[], b: String[]): Bool
     Return True
 End Function
 
-// A name in lowercase, its labels joined with dots, what Found keeps names by.
+/// A name in lowercase, its labels joined with dots, what Found keeps names by.
 Function Key(name: String[]): String
     Local bytes: UInt8[] = []
     For label In name
@@ -780,7 +786,7 @@ Function Key(name: String[]): String
     Return fb_string_from_array(bytes)
 End Function
 
-// A name's labels joined with dots.
+/// A name's labels joined with dots.
 Function Joined(name: String[]): String
     Local text = ""
     For label In name
@@ -789,9 +795,9 @@ Function Joined(name: String[]): String
     Return text
 End Function
 
-// A TXT record's strings, each a key, '=', and a value, or a key alone, as a map. A key is the
-// same whatever its letters' case, as RFC 6763 has it, so only its first goes in, as it's
-// written.
+/// A TXT record's strings, each a key, '=', and a value, or a key alone, as a map. A key is the
+/// same whatever its letters' case, as RFC 6763 has it, so only its first goes in, as it's
+/// written.
 Function TextOf(data: UInt8[]): Map<String, String>
     Local text = Map<String, String>()
     Local seen = Set<String>()
@@ -810,7 +816,7 @@ Function TextOf(data: UInt8[]): Map<String, String>
     Return text
 End Function
 
-// A TXT record's data of `text`, which is one empty string when there's no text.
+/// A TXT record's data of `text`, which is one empty string when there's no text.
 @PanicsAtCaller
 Function TextData(text: Map<String, String>?): UInt8[]
     Local data: UInt8[] = []
@@ -848,7 +854,7 @@ Function TextData(text: Map<String, String>?): UInt8[]
     Return data
 End Function
 
-// A service type's labels and "local", for "_mygame._udp", or a panic for one that isn't one.
+/// A service type's labels and "local", for "_mygame._udp", or a panic for one that isn't one.
 @PanicsAtCaller
 Function TypeLabels(type: String): String[]
     Local bytes = type.Bytes
@@ -869,7 +875,7 @@ Function TypeLabels(type: String): String[]
     Return [fb_string_from_array(bytes[0..dot]), protocol, "local"]
 End Function
 
-// A service's name, as DNS's one label of it, or a panic for one that isn't one.
+/// A service's name, as DNS's one label of it, or a panic for one that isn't one.
 @PanicsAtCaller
 Function InstanceLabel(name: String): String
     Local count = name.Bytes.Count
@@ -880,8 +886,8 @@ Function InstanceLabel(name: String): String
     Return name
 End Function
 
-// This machine's name as a DNS label: its letters, digits, and '-', with '-' for the rest, at
-// most 63 of them.
+/// This machine's name as a DNS label: its letters, digits, and '-', with '-' for the rest, at
+/// most 63 of them.
 Function HostLabel(): String
     Local bytes: UInt8[] = []
     For byte In fb_io_net_host_name().Bytes
@@ -895,8 +901,8 @@ Function HostLabel(): String
     Return fb_string_from_array(bytes)
 End Function
 
-// One of this machine's IPv4 networks: its interface's address, and its netmask, which says
-// what's on it.
+/// One of this machine's IPv4 networks: its interface's address, and its netmask, which says
+/// what's on it.
 Struct Network
     ReadOnly Field Address: IpAddress
     ReadOnly Field Mask: IpAddress
@@ -906,7 +912,7 @@ Struct Network
         Self.Mask = mask
     End New
 
-    // Whether `other` is on its network.
+    /// Whether `other` is on its network.
     Method Has(other: IpAddress): Bool
         If !other.IsV4 Then Return False
         Local mine = Address.Bytes
@@ -919,7 +925,7 @@ Struct Network
     End Method
 End Struct
 
-// The networks of this machine's IPv4 interfaces but loopback's.
+/// The networks of this machine's IPv4 interfaces but loopback's.
 Function V4Networks(): Network[]
     Local bytes: UInt8[] = []
     Local networks: Network[] = []
@@ -933,7 +939,7 @@ Function V4Networks(): Network[]
     Return networks
 End Function
 
-// This machine's IPv4 addresses on its networks.
+/// This machine's IPv4 addresses on its networks.
 Function V4Addresses(): IpAddress[]
     Local addresses: IpAddress[] = []
     For each In V4Networks()
@@ -942,9 +948,9 @@ Function V4Addresses(): IpAddress[]
     Return addresses
 End Function
 
-// The addresses an answer to `querier` gives: its interface's on the querier's network, as RFC
-// 6762 has an answer give only those, or all of them for a querier on none of its networks, as
-// this machine's own loopback is.
+/// The addresses an answer to `querier` gives: its interface's on the querier's network, as RFC
+/// 6762 has an answer give only those, or all of them for a querier on none of its networks, as
+/// this machine's own loopback is.
 Function AddressesFor(querier: IpAddress): IpAddress[]
     For each In V4Networks()
         If each.Has(querier) Then Return [each.Address]
@@ -952,9 +958,9 @@ Function AddressesFor(querier: IpAddress): IpAddress[]
     Return V4Addresses()
 End Function
 
-// Joins mDNS's group on each interface, or the one the OS picks, when that can't, and on
-// loopback's, which SendEverywhere sends through when nothing reaches the LAN, and says what it
-// sends goes to TTL 255, as mDNS has it.
+/// Joins mDNS's group on each interface, or the one the OS picks, when that can't, and on
+/// loopback's, which SendEverywhere sends through when nothing reaches the LAN, and says what it
+/// sends goes to TTL 255, as mDNS has it.
 Function JoinEverywhere(socket: UdpSocket) Throws NetError
     Local joined = False
     For address In V4Addresses()
@@ -975,12 +981,12 @@ Function JoinEverywhere(socket: UdpSocket) Throws NetError
     Try socket.SetMulticastLoopback(True)
 End Function
 
-// Multicasts to mDNS's group at `port` through each interface what `message` gives with that
-// interface's address, as what goes through one gives only its own, or, when none can, through
-// the one the OS picks what it gives with all of them, or through loopback's when nothing
-// reaches the LAN, so programs on the machine still find each other: macOS's Local Network
-// privacy has every send to the LAN unreachable for a program it doesn't allow, and a machine
-// can have no network. What it gives empty isn't sent.
+/// Multicasts to mDNS's group at `port` through each interface what `message` gives with that
+/// interface's address, as what goes through one gives only its own, or, when none can, through
+/// the one the OS picks what it gives with all of them, or through loopback's when nothing
+/// reaches the LAN, so programs on the machine still find each other: macOS's Local Network
+/// privacy has every send to the LAN unreachable for a program it doesn't allow, and a machine
+/// can have no network. What it gives empty isn't sent.
 Function SendEverywhere(socket: UdpSocket, port: UInt16,
                         message: Func(IpAddress[]): UInt8[]) Throws NetError
     Local target = SocketAddress(Group(), port)
@@ -1011,7 +1017,7 @@ Function SendEverywhere(socket: UdpSocket, port: UInt16,
     End Try
 End Function
 
-// Answers the queries that come to the socket, until it closes.
+/// Answers the queries that come to the socket, until it closes.
 Async Function Answer(socket: UdpSocket, offered: Offered, port: UInt16)
     Loop
         Try
@@ -1036,7 +1042,7 @@ Async Function Answer(socket: UdpSocket, offered: Offered, port: UInt16)
     End Loop
 End Function
 
-// Announces the service twice, a second apart, as RFC 6762 says, unless it stops first.
+/// Announces the service twice, a second apart, as RFC 6762 says, unless it stops first.
 Async Function Announce(socket: UdpSocket, offered: Offered, port: UInt16)
     Local records = Function(addresses: IpAddress[]) => offered.Records(addresses)
     For time = 1 To 2

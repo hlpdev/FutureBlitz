@@ -1,10 +1,10 @@
-// Decimal: a decimal number, over mpdecimal, which never changes once it's made. It holds what
-// it's made from exactly, as 0.1 is, and its arithmetic keeps 28 significant digits, rounded half
-// to even, as Python's decimal does by default, so 1 / 3 is 0.3333333333333333333333333333. A
-// result's exponent stays from -999999 to 999999: past that panics, and below it goes toward 0.
-// Trailing 0s stay, as in 1.50, and ToString shows them, but == doesn't count them, so 1.5 ==
-// 1.50. An Int64 on either side of an operator works too. A Decimal stays on its thread, so
-// ToString and Parse are how one goes to another.
+//! Decimal: a decimal number, over mpdecimal, which never changes once it's made. It holds what
+//! it's made from exactly, as 0.1 is, and its arithmetic keeps 28 significant digits, rounded half
+//! to even, as Python's decimal does by default, so 1 / 3 is 0.3333333333333333333333333333. A
+//! result's exponent stays from -999999 to 999999: past that panics, and below it goes toward 0.
+//! Trailing 0s stay, as in 1.50, and ToString shows them, but == doesn't count them, so 1.5 ==
+//! 1.50. An Int64 on either side of an operator works too. A Decimal stays on its thread, so
+//! ToString and Parse are how one goes to another.
 
 Import std.core
 Import std.math.big.bigint
@@ -39,36 +39,40 @@ Extern "runtime"
     Function fb_decimal_round_whole(a: Ptr<Void>, mode: Int32): Ptr<Void>
 End Extern
 
-// How rounding treats what it drops.
+/// How rounding treats what it drops.
 Public Enum RoundingMode
-    // To the nearest, and a half to the even one, as banks round: 2.5 to 2, and 3.5 to 4.
+    /// To the nearest, and a half to the even one, as banks round: 2.5 to 2, and 3.5 to 4.
     HALF_EVEN
-    // To the nearest, and a half away from 0: 2.5 to 3, and -2.5 to -3.
+    /// To the nearest, and a half away from 0: 2.5 to 3, and -2.5 to -3.
     HALF_UP
-    // To the nearest, and a half toward 0: 2.5 to 2, and -2.5 to -2.
+    /// To the nearest, and a half toward 0: 2.5 to 2, and -2.5 to -2.
     HALF_DOWN
-    // Away from 0: 2.1 to 3, and -2.1 to -3.
+    /// Away from 0: 2.1 to 3, and -2.1 to -3.
     UP
-    // Toward 0, dropping the rest: 2.9 to 2, and -2.9 to -2.
+    /// Toward 0, dropping the rest: 2.9 to 2, and -2.9 to -2.
     DOWN
-    // Up: 2.1 to 3, and -2.9 to -2.
+    /// Up: 2.1 to 3, and -2.9 to -2.
     CEILING
-    // Down: 2.9 to 2, and -2.1 to -3.
+    /// Down: 2.9 to 2, and -2.1 to -3.
     FLOOR
 End Enum
 
+/// A decimal number, which holds what it's made from exactly, as 0.1 is, and keeps 28 significant
+/// digits in its arithmetic.
 Public Class Decimal Implements Comparable, Hashable, Printable, Numeric
     Field State: Ptr<Void>
 
+    /// The Decimal of `value`.
     Public New(value: Int64)
         State = fb_decimal_from_int(value)
     End New
 
+    /// The Decimal of `value`.
     Public New(value: BigInt)
         State = fb_decimal_parse(value.ToString())
     End New
 
-    // One the runtime made, which it owns from now on.
+    /// One the runtime made, which it owns from now on.
     New(state: Ptr<Void>)
         State = state
     End New
@@ -76,8 +80,8 @@ Public Class Decimal Implements Comparable, Hashable, Printable, Numeric
     Public Static Method Zero(): Decimal => Decimal(0)
     Public Static Method One(): Decimal => Decimal(1)
 
-    // The shortest Decimal that reads back as the Double, the digits it prints, so 0.1 is 0.1. A
-    // NaN or an infinity panics.
+    /// The shortest Decimal that reads back as the Double, the digits it prints, so 0.1 is 0.1. A
+    /// NaN or an infinity panics.
     @PanicsAtCaller
     Public Static Method FromDouble(value: Double): Decimal
         // Only a finite Double less itself is 0.
@@ -85,54 +89,55 @@ Public Class Decimal Implements Comparable, Hashable, Printable, Numeric
         Return Decimal(fb_decimal_from_double(value))
     End Method
 
-    // The number the text is, exactly: a sign or none, then digits with a "." or not, then an
-    // exponent or none, an "E" or "e" and an integer, as "-1.50" and "2.5e-3" are. Other text,
-    // NaN and the infinities too, is Null.
+    /// The number the text is, exactly: a sign or none, then digits with a "." or not, then an
+    /// exponent or none, an "E" or "e" and an integer, as "-1.50" and "2.5e-3" are. Other text,
+    /// NaN and the infinities too, is Null.
     Public Static Method Parse(text: String): Decimal?
         Local state = fb_decimal_parse(text)
         If state == Null Then Return Null
         Return Decimal(state)
     End Method
 
-    // What Python's str gives: its digits with a point where it goes, as in "-1.50", unless its
-    // exponent is above 0 or it's quite small, as in "1.5E+3" and "1E-7".
+    /// What Python's str gives: its digits with a point where it goes, as in "-1.50", unless its
+    /// exponent is above 0 or it's quite small, as in "1.5E+3" and "1E-7".
     Public Method ToString(): String => fb_decimal_to_string(State)
 
-    // Its digits with no exponent, as in "1500" and "0.0000001".
+    /// Its digits with no exponent, as in "1500" and "0.0000001".
     Public Method ToPlainString(): String => fb_decimal_to_plain_string(State)
 
-    // The Double nearest it, ties to even: an infinity past the largest Double, and 0 below the
-    // smallest.
+    /// The Double nearest it, ties to even: an infinity past the largest Double, and 0 below the
+    /// smallest.
     Public Method ToDouble(): Double => fb_decimal_to_double(State)
 
-    // It as an Int64, or Null when it isn't a whole number in an Int64's range.
+    /// It as an Int64, or Null when it isn't a whole number in an Int64's range.
     Public Method ToInt64(): Int64?
         If fb_decimal_fits_int64(State) == 0 Then Return Null
         Return fb_decimal_to_int64(State)
     End Method
 
-    // It as a BigInt, or Null when it isn't a whole number.
+    /// It as a BigInt, or Null when it isn't a whole number.
     Public Method ToBigInt(): BigInt?
         If !IsInteger Then Return Null
         Return BigInt.Parse(Truncate().ToPlainString())
     End Method
 
-    // -1, 0, or 1 as it's below, at, or above 0.
+    /// -1, 0, or 1 as it's below, at, or above 0.
     Public Property Sign: Int
         Get => fb_decimal_sign(State)
     End Property
 
-    // Whether it's a whole number, as 2.00 and 1E+3 are.
+    /// Whether it's a whole number, as 2.00 and 1E+3 are.
     Public Property IsInteger: Bool
         Get => fb_decimal_is_integer(State) != 0
     End Property
 
+    /// Its distance from 0: the same Decimal, without its sign.
     Public Method Abs(): Decimal => Decimal(fb_decimal_abs(State))
 
-    // It rounded by the mode to the places after the point, or before it when negative: 2.675 is
-    // 2.68 to 2 places, and 1234 is 1.2E+3 to -2. Rounding to more digits than 28, or than it
-    // has when that's more, panics, and so does a result whose exponent is past 999999 either
-    // way, as with Python's quantize.
+    /// It rounded by the mode to the places after the point, or before it when negative: 2.675 is
+    /// 2.68 to 2 places, and 1234 is 1.2E+3 to -2. Rounding to more digits than 28, or than it
+    /// has when that's more, panics, and so does a result whose exponent is past 999999 either
+    /// way, as with Python's quantize.
     @PanicsAtCaller
     Public Method Round(places: Int = 0, mode: RoundingMode = RoundingMode.HALF_EVEN): Decimal
         Local state = fb_decimal_round(State, places, mode As Int32)
@@ -143,42 +148,45 @@ Public Class Decimal Implements Comparable, Hashable, Printable, Numeric
         Return Decimal(state)
     End Method
 
-    // It rounded to a whole number, toward 0, down, or up. One with an exponent above 0 keeps
-    // it, as 1.5E+3 does.
+    /// It rounded to a whole number, toward 0, down, or up. One with an exponent above 0 keeps
+    /// it, as 1.5E+3 does.
     Public Method Truncate(): Decimal => RoundedWhole(RoundingMode.DOWN)
+    /// It rounded down to a whole number, toward negative infinity.
     Public Method Floor(): Decimal => RoundedWhole(RoundingMode.FLOOR)
+    /// It rounded up to a whole number, toward positive infinity.
     Public Method Ceiling(): Decimal => RoundedWhole(RoundingMode.CEILING)
 
     Method RoundedWhole(mode: RoundingMode): Decimal
         Return Decimal(fb_decimal_round_whole(State, mode As Int32))
     End Method
 
-    // Its square root. One below 0 panics.
+    /// Its square root. One below 0 panics.
     @PanicsAtCaller
     Public Method Sqrt(): Decimal
         If Sign < 0 Then Panic("Sqrt takes a Decimal 0 or more, not {Self}")
         Return Made(fb_decimal_sqrt(State))
     End Method
 
-    // e to its power.
+    /// e to its power.
     @PanicsAtCaller
     Public Method Exp(): Decimal => Made(fb_decimal_exp(State))
 
-    // Its natural logarithm, and its logarithm in base 10. One that isn't above 0 panics.
+    /// Its natural logarithm, and its logarithm in base 10. One that isn't above 0 panics.
     @PanicsAtCaller
     Public Method Ln(): Decimal
         If Sign <= 0 Then Panic("Ln takes a Decimal above 0, not {Self}")
         Return Made(fb_decimal_ln(State))
     End Method
 
+    /// Its base 10 logarithm. Panics unless it's above 0.
     @PanicsAtCaller
     Public Method Log10(): Decimal
         If Sign <= 0 Then Panic("Log10 takes a Decimal above 0, not {Self}")
         Return Made(fb_decimal_log10(State))
     End Method
 
-    // It to the power, which needn't be whole: 2 to 0.5 is the square root of 2. Anything to 0
-    // is 1, 0 to a power below 0 panics, and so does a number below 0 to one that isn't whole.
+    /// It to the power, which needn't be whole: 2 to 0.5 is the square root of 2. Anything to 0
+    /// is 1, 0 to a power below 0 panics, and so does a number below 0 to one that isn't whole.
     @PanicsAtCaller
     Public Method Pow(exponent: Decimal): Decimal
         If exponent.Sign == 0 Then Return One()
@@ -235,8 +243,8 @@ Public Class Decimal Implements Comparable, Hashable, Printable, Numeric
     @PanicsAtCaller
     Operator /(a: Int64, b: Decimal): Decimal => Decimal(a) / b
 
-    // What's left of a / b with its quotient rounded toward 0, so it has a's sign, exactly. A
-    // quotient of more digits than 28, or than a or b has when that's more, panics.
+    /// What's left of a / b with its quotient rounded toward 0, so it has a's sign, exactly. A
+    /// quotient of more digits than 28, or than a or b has when that's more, panics.
     @PanicsAtCaller
     Operator %(a: Decimal, b: Decimal): Decimal
         If b.Sign == 0 Then Panic("division by zero")
@@ -250,7 +258,7 @@ Public Class Decimal Implements Comparable, Hashable, Printable, Numeric
     @PanicsAtCaller
     Operator %(a: Int64, b: Decimal): Decimal => Decimal(a) % b
 
-    // To a whole power: anything to 0 is 1, and 0 to a power below 0 panics.
+    /// To a whole power: anything to 0 is 1, and 0 to a power below 0 panics.
     @PanicsAtCaller
     Operator **(a: Decimal, b: Int64): Decimal => a.Pow(Decimal(b))
 
@@ -261,8 +269,8 @@ Public Class Decimal Implements Comparable, Hashable, Printable, Numeric
     End Method
 End Class
 
-// The Decimal the runtime made, which panics when it gave none, since the result's exponent was
-// past 999999.
+/// The Decimal the runtime made, which panics when it gave none, since the result's exponent was
+/// past 999999.
 @PanicsAtCaller
 Function Made(state: Ptr<Void>): Decimal
     If state == Null

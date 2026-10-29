@@ -1,8 +1,8 @@
-// Waiting and pacing: Timer, on the I/O thread's loop, for Tasks that are done after a while,
-// which any thread can wait for; Deadline, a time to give up at, as blocking calls take one;
-// FixedStep, for a game loop's updates at a fixed rate; RateLimiter, which lets so many things
-// happen in so long; and Debounce, for acting once a burst of events has stopped. What reads the
-// monotonic clock also takes an Instant, so code, and its tests, can give the time as a value.
+//! Waiting and pacing: Timer, on the I/O thread's loop, for Tasks that are done after a while,
+//! which any thread can wait for; Deadline, a time to give up at, as blocking calls take one;
+//! FixedStep, for a game loop's updates at a fixed rate; RateLimiter, which lets so many things
+//! happen in so long; and Debounce, for acting once a burst of events has stopped. What reads the
+//! monotonic clock also takes an Instant, so code, and its tests, can give the time as a value.
 
 Import std.core
 Import std.time.clock
@@ -12,10 +12,10 @@ Extern "runtime"
     Function fb_io_after(nanoseconds: Int64): Task
 End Extern
 
-// Ticks of the monotonic clock, every so often, on the I/O thread's loop. A tick is never early,
-// and comes as soon after its time as the OS's timer lets it: within a couple of milliseconds on
-// Linux and macOS, and within about 16 on Windows, whose timer ticks every 15.6 or so by
-// default.
+/// Ticks of the monotonic clock, every so often, on the I/O thread's loop. A tick is never early,
+/// and comes as soon after its time as the OS's timer lets it: within a couple of milliseconds on
+/// Linux and macOS, and within about 16 on Windows, whose timer ticks every 15.6 or so by
+/// default.
 Public Class Timer
     Field Interval: Duration
     Field Start: Instant
@@ -27,15 +27,17 @@ Public Class Timer
         Stopped = False
     End New
 
-    // A Task that's done once that long has passed, which Await, or Wait() on any thread, waits
-    // for. Wait and RealWait's Tasks, by contrast, are the main thread's coroutines'.
+    /// A Task that's done once that long has passed, which Await, or Wait() on any thread, waits
+    /// for. Wait and RealWait's Tasks, by contrast, are the main thread's coroutines'.
     Public Static Method After(time: Duration): Task => fb_io_after(time.Nanoseconds)
 
-    // A Timer that ticks every interval from now, or from the Instant, which panics for an
-    // interval that isn't above 0.
+    /// A Timer that ticks every interval from now, or from the Instant, which panics for an
+    /// interval that isn't above 0.
     @PanicsAtCaller
     Public Static Method Every(interval: Duration): Timer => Every(interval, Instant.Now())
 
+    /// A Timer that ticks every `interval` from `start`, which panics for an interval that isn't
+    /// above 0.
     @PanicsAtCaller
     Public Static Method Every(interval: Duration, start: Instant): Timer
         If interval.Nanoseconds <= 0
@@ -45,19 +47,20 @@ Public Class Timer
         Return Timer(interval, start)
     End Method
 
+    /// Whether it's stopped.
     Public Property IsStopped: Bool
         Get => Stopped
     End Property
 
-    // A Task that's done at its next tick after now, so a tick that's gone by while nothing
-    // waited is skipped, not caught up on. A stopped Timer's panics.
+    /// A Task that's done at its next tick after now, so a tick that's gone by while nothing
+    /// waited is skipped, not caught up on. A stopped Timer's panics.
     @PanicsAtCaller
     Public Method Next(): Task
         If Stopped Then Panic("a stopped Timer has no next tick")
         Return fb_io_after(UntilNext(Instant.Now()).Nanoseconds)
     End Method
 
-    // How long it is from now, the Instant, to its next tick.
+    /// How long it is from now, the Instant, to its next tick.
     Public Method UntilNext(now: Instant): Duration
         Local since = (now - Start).Nanoseconds
         Local interval = Interval.Nanoseconds
@@ -65,16 +68,16 @@ Public Class Timer
         Return Duration.FromNanoseconds(ticks * interval - since)
     End Method
 
-    // Stops it, though a tick already asked for is still done.
+    /// Stops it, though a tick already asked for is still done.
     Public Method Stop()
         Stopped = True
     End Method
 End Class
 
-// A time to give up at, on the monotonic clock, as blocking calls take one; or none, which is
-// every Deadline's zero.
+/// A time to give up at, on the monotonic clock, as blocking calls take one; or none, which is
+/// every Deadline's zero.
 Public Struct Deadline Implements Comparable, Hashable, Defaultable
-    // Whether it has a time, and the time.
+    /// Whether it has a time, and the time.
     Field Limited: Bool
     Field When: Instant
 
@@ -83,9 +86,10 @@ Public Struct Deadline Implements Comparable, Hashable, Defaultable
         When = time
     End New
 
-    // That long after now, or after the Instant. One too far to count is none.
+    /// That long after now, or after the Instant. One too far to count is none.
     Public Static Method After(time: Duration): Deadline => After(time, Instant.Now())
 
+    /// That long after `now`. One too far to count is none.
     Public Static Method After(time: Duration, now: Instant): Deadline
         Local at = now.Nanoseconds.CheckedAdd(time.Nanoseconds)
         If at == Null
@@ -96,23 +100,25 @@ Public Struct Deadline Implements Comparable, Hashable, Defaultable
         Return Deadline(True, Instant.FromNanoseconds(at))
     End Method
 
-    // At the Instant.
+    /// At the Instant.
     Public Static Method At(time: Instant): Deadline => Deadline(True, time)
 
-    // None: it never passes.
+    /// None: it never passes.
     Public Static Method Never(): Deadline => Deadline(False, Instant.FromNanoseconds(0))
     Public Static Method DefaultValue(): Deadline => Never()
 
+    /// Whether it's none, which never passes.
     Public Property IsNever: Bool
         Get => !Limited
     End Property
 
-    // How long is left before it, now or at the Instant: 0 once it's passed, and the longest
-    // Duration for none.
+    /// How long is left before it, now or at the Instant: 0 once it's passed, and the longest
+    /// Duration for none.
     Public Property Remaining: Duration
         Get => RemainingAt(Instant.Now())
     End Property
 
+    /// How long is left before it at `now`: 0 once it's passed, and the longest Duration for none.
     Public Method RemainingAt(now: Instant): Duration
         If !Limited Then Return Duration.MaxValue()
         Local left = When.Nanoseconds.CheckedSubtract(now.Nanoseconds)
@@ -120,17 +126,18 @@ Public Struct Deadline Implements Comparable, Hashable, Defaultable
         Return Duration.FromNanoseconds(left < 0 ? 0 : left)
     End Method
 
-    // Whether it's passed, now or at the Instant.
+    /// Whether it's passed, now or at the Instant.
     Public Property HasPassed: Bool
         Get => HasPassedAt(Instant.Now())
     End Property
 
+    /// Whether it's passed at `now`.
     Public Method HasPassedAt(now: Instant): Bool => Limited && !(now < When)
 
-    // The sooner Deadline is the lesser; none is after every time.
+    /// The sooner Deadline is the lesser; none is after every time.
     Operator <(a: Deadline, b: Deadline): Bool => a.Limited && (!b.Limited || a.When < b.When)
 
-    // As == goes, two Deadlines of none are the same, whatever their time.
+    /// As == goes, two Deadlines of none are the same, whatever their time.
     Operator ==(a: Deadline, b: Deadline): Bool
         Return a.Limited == b.Limited && (!a.Limited || a.When == b.When)
     End Operator
@@ -138,19 +145,19 @@ Public Struct Deadline Implements Comparable, Hashable, Defaultable
     Public Method Hash(): UInt64 => Limited ? When.Hash() : 0
 End Struct
 
-// A game loop's updates at a fixed rate, whatever the frames' lengths: Advance, or Tick, takes
-// the time a frame took and gives how many steps to run, keeping what's left for the next, and
-// Alpha says how far into the next step that is, for drawing between two steps' states.
+/// A game loop's updates at a fixed rate, whatever the frames' lengths: Advance, or Tick, takes
+/// the time a frame took and gives how many steps to run, keeping what's left for the next, and
+/// Alpha says how far into the next step that is, for drawing between two steps' states.
 Public Class FixedStep
-    // Time counts in parts: a nanosecond is Scale of them, and a step PerStep, so a rate's steps
-    // add up to its second exactly, as 60 a second's do though none is a whole nanosecond.
+    /// Time counts in parts: a nanosecond is Scale of them, and a step PerStep, so a rate's steps
+    /// add up to its second exactly, as 60 a second's do though none is a whole nanosecond.
     Field Scale: Int64
     Field PerStep: Int64
     Field Left: Int64
     Field Most: Int
     Field Last: Instant?
 
-    // Steps at a rate of that many a second, which panics for one that isn't above 0.
+    /// Steps at a rate of that many a second, which panics for one that isn't above 0.
     @PanicsAtCaller
     Public New(rate: Int)
         If rate <= 0
@@ -163,7 +170,7 @@ Public Class FixedStep
         Last = Null
     End New
 
-    // Steps of that length, which panics for one that isn't above 0.
+    /// Steps of that length, which panics for one that isn't above 0.
     @PanicsAtCaller
     Public New(step: Duration)
         If step.Nanoseconds <= 0 Then Panic("a FixedStep's step is longer than 0, not {step}")
@@ -173,19 +180,20 @@ Public Class FixedStep
         Last = Null
     End New
 
-    // How long a step is, to the nearest nanosecond, and in seconds, for an update that takes
-    // them.
+    /// How long a step is, to the nearest nanosecond, and in seconds, for an update that takes
+    /// them.
     Public Property Step: Duration
         Get => Duration.FromNanoseconds((PerStep + Scale / 2) / Scale)
     End Property
 
+    /// How long a step is, in seconds.
     Public Property StepSeconds: Double
         Get => (PerStep As Double) / ((Scale As Double) * 1.0e9)
     End Property
 
-    // The most steps a frame gives, 8 unless it's set, so a long frame doesn't make the next one
-    // longer still: the whole steps past them are dropped, and the part of a step left over
-    // stays. One below 1 panics.
+    /// The most steps a frame gives, 8 unless it's set, so a long frame doesn't make the next one
+    /// longer still: the whole steps past them are dropped, and the part of a step left over
+    /// stays. One below 1 panics.
     @PanicsAtCaller
     Public Property MaxSteps: Int
         Get => Most
@@ -195,12 +203,12 @@ Public Class FixedStep
         End Set
     End Property
 
-    // How far into the next step the time left over is, from 0 up to 1.
+    /// How far into the next step the time left over is, from 0 up to 1.
     Public Property Alpha: Double
         Get => (Left As Double) / (PerStep As Double)
     End Property
 
-    // How many steps to run for a frame that took that long. A Duration below 0 counts as 0.
+    /// How many steps to run for a frame that took that long. A Duration below 0 counts as 0.
     Public Method Advance(elapsed: Duration): Int
         // The frame's whole steps, and the part of one left over, which with the part kept from
         // before makes less than two steps: one more step when it's a whole one. A frame too
@@ -219,48 +227,52 @@ Public Class FixedStep
         Return Min(steps, Most As Int64) As Int
     End Method
 
-    // How many steps to run for the time since the last Tick, now or at the Instant; the first
-    // Tick starts the clock and gives 0.
+    /// How many steps to run for the time since the last Tick, now or at the Instant; the first
+    /// Tick starts the clock and gives 0.
     Public Method Tick(): Int => Tick(Instant.Now())
 
+    /// How many steps to run for the time from the last Tick to `now`; the first Tick starts the
+    /// clock and gives 0.
     Public Method Tick(now: Instant): Int
         Local last = Last
         Last = now
         Return last == Null ? 0 : Advance(now - last)
     End Method
 
-    // Forgets the time left over and the last Tick.
+    /// Forgets the time left over and the last Tick.
     Public Method Reset()
         Left = 0
         Last = Null
     End Method
 End Class
 
-// Lets so many things happen in so long, as a bucket of that many tokens that refills one at a
-// time, evenly, so a burst can take the bucket at once and then they go at the rate.
+/// Lets so many things happen in so long, as a bucket of that many tokens that refills one at a
+/// time, evenly, so a burst can take the bucket at once and then they go at the rate.
 Public Class RateLimiter
-    // How long a token takes to come back, how long a full bucket's worth of them takes, and
-    // when the bucket is full again, before which it isn't.
+    /// How long a token takes to come back, how long a full bucket's worth of them takes, and
+    /// when the bucket is full again, before which it isn't.
     Field Interval: Int64
     Field Tolerance: Int64
     Field Full: Instant?
 
-    // count every per, with a bucket of count tokens, or of burst, which panics for a count,
-    // per, or burst that isn't above 0.
+    /// count every per, with a bucket of count tokens, or of burst, which panics for a count,
+    /// per, or burst that isn't above 0.
     @PanicsAtCaller
     Public New(count: Int, per: Duration)
         Setup(count, per, count)
     End New
 
+    /// `count` tokens every `per`, with a bucket of `burst`, which panics for a count, per, or
+    /// burst that isn't above 0.
     @PanicsAtCaller
     Public New(count: Int, per: Duration, burst: Int)
         Setup(count, per, burst)
     End New
 
-    // Takes a token, now or at the Instant, when there is one, and gives whether it did.
+    /// Takes a token, now or at the Instant, when there is one, and gives whether it did.
     Public Method TryTake(): Bool => TryTake(Instant.Now())
 
-    // A bucket that won't be full for longer than an Instant counts is full at the last one.
+    /// A bucket that won't be full for longer than an Instant counts is full at the last one.
     Public Method TryTake(now: Instant): Bool
         If !Remaining(now).IsZero Then Return False
         Local full = Full
@@ -270,11 +282,12 @@ Public Class RateLimiter
         Return True
     End Method
 
-    // How long it is, from now or the Instant, until there's a token to take.
+    /// How long it is, from now or the Instant, until there's a token to take.
     Public Method UntilNext(): Duration => UntilNext(Instant.Now())
+    /// How long it is from `now` until there's a token to take.
     Public Method UntilNext(now: Instant): Duration => Remaining(now)
 
-    // Takes a token, sleeping until there's one.
+    /// Takes a token, sleeping until there's one.
     Public Method Take()
         While !TryTake()
             Sleep(UntilNext())
@@ -293,9 +306,9 @@ Public Class RateLimiter
         Full = Null
     End Method
 
-    // How long until the bucket has a token: until it's full but for its burst. A wait longer
-    // than a Duration holds is the longest one, and one past the tolerance below the shortest
-    // is none.
+    /// How long until the bucket has a token: until it's full but for its burst. A wait longer
+    /// than a Duration holds is the longest one, and one past the tolerance below the shortest
+    /// is none.
     Method Remaining(now: Instant): Duration
         Local full = Full
         If full == Null Then Return Duration.Zero()
@@ -306,13 +319,13 @@ Public Class RateLimiter
     End Method
 End Class
 
-// Acts once a burst of events has stopped: each Signal starts the delay again, and Ready says
-// True once the delay has gone by since the latest, and then not again until another Signal.
+/// Acts once a burst of events has stopped: each Signal starts the delay again, and Ready says
+/// True once the delay has gone by since the latest, and then not again until another Signal.
 Public Class Debounce
     Field Delay: Duration
     Field Latest: Instant?
 
-    // A Debounce of that delay, which panics for one below 0.
+    /// A Debounce of that delay, which panics for one below 0.
     @PanicsAtCaller
     Public New(delay: Duration)
         If delay.IsNegative Then Panic("a Debounce's delay isn't below 0, as {delay} is")
@@ -320,24 +333,27 @@ Public Class Debounce
         Latest = Null
     End New
 
-    // An event, now or at the Instant.
+    /// An event, now or at the Instant.
     Public Method Signal()
         Signal(Instant.Now())
     End Method
 
+    /// An event at `now`.
     Public Method Signal(now: Instant)
         Latest = now
     End Method
 
-    // Whether a Signal waits for its delay.
+    /// Whether a Signal waits for its delay.
     Public Property IsPending: Bool
         Get => Latest != Null
     End Property
 
-    // Whether to act, now or at the Instant: True once the delay has gone by since the latest
-    // Signal, which it then forgets.
+    /// Whether to act, now or at the Instant: True once the delay has gone by since the latest
+    /// Signal, which it then forgets.
     Public Method Ready(): Bool => Ready(Instant.Now())
 
+    /// Whether to act at `now`: True once the delay has gone by since the latest Signal, which it
+    /// then forgets.
     Public Method Ready(now: Instant): Bool
         Local latest = Latest
         If latest == Null || now - latest < Delay Then Return False
@@ -345,7 +361,7 @@ Public Class Debounce
         Return True
     End Method
 
-    // Forgets the latest Signal.
+    /// Forgets the latest Signal.
     Public Method Cancel()
         Latest = Null
     End Method

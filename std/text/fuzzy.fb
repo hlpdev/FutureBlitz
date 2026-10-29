@@ -1,16 +1,16 @@
-// std.text.fuzzy: fuzzy matching, as fzf does it. A pattern matches text that has its characters
-// in order, with anything between them, and the best way to place them scores most: characters
-// that follow each other, and ones at the start of a word, after a space, a /, or a _, or a
-// capital in camelCase, score more, and gaps between them less. A pattern without capitals
-// ignores case. Positions are byte positions, as a String's are.
+//! std.text.fuzzy: fuzzy matching, as fzf does it. A pattern matches text that has its characters
+//! in order, with anything between them, and the best way to place them scores most: characters
+//! that follow each other, and ones at the start of a word, after a space, a /, or a _, or a
+//! capital in camelCase, score more, and gaps between them less. A pattern without capitals
+//! ignores case. Positions are byte positions, as a String's are.
 
 Import std.core
 Import std.collections.array
 Import std.text.char
 Import std.text.string
 
-// fzf's scores: a matched character's, a gap's first character and each one after, and the
-// bonuses for where a character is.
+/// fzf's scores: a matched character's, a gap's first character and each one after, and the
+/// bonuses for where a character is.
 Const SCORE_MATCH = 16
 Const GAP_START = -3
 Const GAP_EXTENSION = -1
@@ -22,22 +22,24 @@ Const BONUS_CAMEL = 7
 Const BONUS_CONSECUTIVE = 4
 Const FIRST_MULTIPLIER = 2
 
-// What kind of character, in fzf's order: a word's characters are after NON_WORD.
+/// What kind of character, in fzf's order: a word's characters are after NON_WORD.
 Enum CharClass
     WHITE, NON_WORD, DELIMITER, LOWER, UPPER, LETTER, NUMBER
 End Enum
 
-// What a fuzzy match found: its Score, higher for a better match, and the byte Positions of the
-// text's characters that the pattern's matched, in order.
+/// What a fuzzy match found: its Score, higher for a better match, and the byte Positions of the
+/// text's characters that the pattern's matched, in order.
 Public Struct FuzzyMatch
+    /// How well the pattern matched: higher for a better match.
     Public ReadOnly Field Score: Int
+    /// The byte positions of the characters the pattern's matched, in order.
     Public ReadOnly Field Positions: Int[]
 End Struct
 
-// Fuzzy matching's operations.
+/// Fuzzy matching's operations.
 Public Class Fuzzy
-    // The best match of pattern in text, or Null when text doesn't have pattern's characters in
-    // order. An empty pattern matches anything, scoring 0.
+    /// The best match of pattern in text, or Null when text doesn't have pattern's characters in
+    /// order. An empty pattern matches anything, scoring 0.
     Public Static Method Match(pattern: String, text: String): FuzzyMatch?
         Local wanted = pattern.Chars
         Local chars = text.Chars
@@ -74,15 +76,15 @@ Public Class Fuzzy
         Return Best(wanted, folded, chars, firsts)
     End Method
 
-    // pattern's score in text, or Null when it doesn't match.
+    /// pattern's score in text, or Null when it doesn't match.
     Public Static Method Score(pattern: String, text: String): Int?
         Local found = Match(pattern, text)
         If found == Null Then Return Null
         Return found.Score
     End Method
 
-    // The candidates that match pattern, the best first: by score, then the shorter, then in
-    // the order given.
+    /// The candidates that match pattern, the best first: by score, then the shorter, then in
+    /// the order given.
     Public Static Method Rank(pattern: String, candidates: String[]): String[]
         Local scored: (Int, String)[] = []
         For candidate In candidates
@@ -100,9 +102,9 @@ Public Class Fuzzy
     End Method
 End Class
 
-// The best score of the pattern's characters, wanted, in order in folded, the text's characters
-// as compared, and where they are: fzf's table of each prefix of the pattern ending at each
-// character, from where it can first match, then the way back from the best score.
+/// The best score of the pattern's characters, wanted, in order in folded, the text's characters
+/// as compared, and where they are: fzf's table of each prefix of the pattern ending at each
+/// character, from where it can first match, then the way back from the best score.
 Function Best(wanted: Char[], folded: Char[], chars: Char[], firsts: Int[]): FuzzyMatch
     Local count = folded.Count
     Local last = wanted.Count - 1
@@ -213,8 +215,8 @@ Function Best(wanted: Char[], folded: Char[], chars: Char[], firsts: Int[]): Fuz
     Return FuzzyMatch(best, BytesOf(found, chars))
 End Function
 
-// The byte positions, in order, of chars' characters at found's places, which go from the last
-// back.
+/// The byte positions, in order, of chars' characters at found's places, which go from the last
+/// back.
 Function BytesOf(found: Int[], chars: Char[]): Int[]
     Local positions: Int[] = []
     Local bytes = 0
@@ -241,7 +243,7 @@ Function ClassOf(c: Char): CharClass
     Return CharClass.NON_WORD
 End Function
 
-// The bonus for a character of kind after one of previous.
+/// The bonus for a character of kind after one of previous.
 Function BonusFor(previous: CharClass, kind: CharClass): Int
     If (kind As Int) > (CharClass.NON_WORD As Int)
         If previous == CharClass.WHITE Then Return BONUS_BOUNDARY_WHITE

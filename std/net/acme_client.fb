@@ -1,11 +1,11 @@
-// An ACME client (RFC 8555), as Let's Encrypt's are: AcmeClient makes an account with a CA, from
-// its directory's URL, and orders a certificate for names it proves it holds by HTTP-01,
-// publishing each challenge's key authorization through AcmeTokens, which a server answers on port
-// 80 at /.well-known/acme-challenge/<token>. Each request is a JWS of the account's key, ES256,
-// with a nonce from the CA, which a refused nonce is tried again with, once. Its requests are
-// Async, as the server that answers the challenges runs Async code. A CA's refusal is a NetError
-// of HTTP_STATUS that says what it said; a name it couldn't check, or an order it gave up on, is
-// a NetError of OTHER.
+//! An ACME client (RFC 8555), as Let's Encrypt's are: AcmeClient makes an account with a CA, from
+//! its directory's URL, and orders a certificate for names it proves it holds by HTTP-01,
+//! publishing each challenge's key authorization through AcmeTokens, which a server answers on port
+//! 80 at /.well-known/acme-challenge/<token>. Each request is a JWS of the account's key, ES256,
+//! with a nonce from the CA, which a refused nonce is tried again with, once. Its requests are
+//! Async, as the server that answers the challenges runs Async code. A CA's refusal is a NetError
+//! of HTTP_STATUS that says what it said; a name it couldn't check, or an order it gave up on, is
+//! a NetError of OTHER.
 
 Import std.core
 Import std.collections
@@ -21,31 +21,34 @@ Import std.net.http.headers
 Import std.text
 Import std.time
 
-// How many times a client asks about what the CA hasn't finished, waiting as RetryAfter says.
+/// How many times a client asks about what the CA hasn't finished, waiting as RetryAfter says.
 Const POLL_LIMIT = 30
 
-// What a CA's error types start with.
+/// What a CA's error types start with.
 Const ERROR_PREFIX = "urn:ietf:params:acme:error:"
 
-// The key authorizations of an ACME client's HTTP-01 challenges, by token, which a server gives
-// for /.well-known/acme-challenge/<token>, through Answer, from any thread.
+/// The key authorizations of an ACME client's HTTP-01 challenges, by token, which a server gives
+/// for /.well-known/acme-challenge/<token>, through Answer, from any thread.
 Public Shared Class AcmeTokens
     ReadOnly Field Published: ConcurrentMap<String, String>
 
+    /// A new AcmeTokens, with none published.
     Public New()
         Published = ConcurrentMap<String, String>()
     End New
 
+    /// Gives `token`'s challenge its `keyAuthorization`, which Answer gives until it's withdrawn.
     Public Method Publish(token: String, keyAuthorization: String)
         Published.Add(token, keyAuthorization)
     End Method
 
+    /// Takes `token`'s key authorization out, once its challenge is done.
     Public Method Withdraw(token: String)
         Published.Remove(token)
     End Method
 
-    // What a request for `path` is answered with: the key authorization for
-    // /.well-known/acme-challenge/<token>, or Null for another path, or a token it hasn't.
+    /// What a request for `path` is answered with: the key authorization for
+    /// /.well-known/acme-challenge/<token>, or Null for another path, or a token it hasn't.
     Public Method Answer(path: String): String?
         Local prefix = "/.well-known/acme-challenge/"
         If !path.StartsWith(prefix) Then Return Null
@@ -53,19 +56,19 @@ Public Shared Class AcmeTokens
     End Method
 End Class
 
-// A client of one ACME CA, with an account key, an ECDSA P-256 private key, which signs each
-// request, and Http, which it sends them with, which can trust a test CA's roots.
+/// A client of one ACME CA, with an account key, an ECDSA P-256 private key, which signs each
+/// request, and Http, which it sends them with, which can trust a test CA's roots.
 Public Class AcmeClient
     ReadOnly Field DirectoryUrl: String
     ReadOnly Field AccountKey: Key
     ReadOnly Field Client: HttpClient
-    // The directory, once it's read, the next nonce, and the account's URL, its kid.
+    /// The directory, once it's read, the next nonce, and the account's URL, its kid.
     Field Urls: Value?
     Field Nonce: String?
     Field Kid: String?
 
-    // A client of the CA whose directory is at `directory`. Panics unless accountKey is an ECDSA
-    // P-256 private key, of 32 bytes that are one.
+    /// A client of the CA whose directory is at `directory`. Panics unless accountKey is an ECDSA
+    /// P-256 private key, of 32 bytes that are one.
     @PanicsAtCaller
     Public New(directory: String, accountKey: Key)
         If accountKey.Kind != KeyKind.ECDSA_P256
@@ -84,12 +87,12 @@ Public Class AcmeClient
         Client = HttpClient()
     End New
 
-    // A client of the CA whose directory is at `directory`, with the account key `folder` keeps
-    // as account.pem, or a new ECDSA P-256 key, which it writes there atomically, making the
-    // folder, for the runs after; automatic HTTPS's ListenAutoAsync keeps its certificate in the
-    // same folder. Throws an IOError when the folder can't be read or written, or a ParseError
-    // when its account.pem isn't a key's PEM. Panics as New does for a key it keeps that isn't
-    // an ECDSA P-256 private key.
+    /// A client of the CA whose directory is at `directory`, with the account key `folder` keeps
+    /// as account.pem, or a new ECDSA P-256 key, which it writes there atomically, making the
+    /// folder, for the runs after; automatic HTTPS's ListenAutoAsync keeps its certificate in the
+    /// same folder. Throws an IOError when the folder can't be read or written, or a ParseError
+    /// when its account.pem isn't a key's PEM. Panics as New does for a key it keeps that isn't
+    /// an ECDSA P-256 private key.
     @PanicsAtCaller
     Public Static Method InFolder(directory: String,
                                   folder: Path): AcmeClient Throws IOError, ParseError
@@ -102,18 +105,18 @@ Public Class AcmeClient
         Return AcmeClient(directory, key)
     End Method
 
-    // What its requests go through.
+    /// What its requests go through.
     Public Property Http: HttpClient
         Get => Client
     End Property
 
-    // The account's URL, once Register or Obtain has made it or found it.
+    /// The account's URL, once Register or Obtain has made it or found it.
     Public Property Account: String?
         Get => Kid
     End Property
 
-    // Makes the account, agreeing to the CA's terms of service, with `contact`, mailto: URLs, or
-    // finds the one the key has, and gives its URL.
+    /// Makes the account, agreeing to the CA's terms of service, with `contact`, mailto: URLs, or
+    /// finds the one the key has, and gives its URL.
     Public Async Method RegisterAsync(contact: String[] = []): String Throws NetError, TimeoutError
         Local payload = Value.Object()
         payload["termsOfServiceAgreed"] = Value(True)
@@ -136,11 +139,11 @@ Public Class AcmeClient
         Return location
     End Method
 
-    // A certificate for `names`, DNS names, of `certificateKey`, an ECDSA P-256 private key, as
-    // PEM, its chain after it: it orders one, publishes each name's HTTP-01 key authorization
-    // through `tokens` while the CA checks it, finalizes the order with a CSR, and gives what the
-    // CA issued. It registers first, with no contact, when Register hasn't. Panics as
-    // Acme.CertificateRequest does for the key and names.
+    /// A certificate for `names`, DNS names, of `certificateKey`, an ECDSA P-256 private key, as
+    /// PEM, its chain after it: it orders one, publishes each name's HTTP-01 key authorization
+    /// through `tokens` while the CA checks it, finalizes the order with a CSR, and gives what the
+    /// CA issued. It registers first, with no contact, when Register hasn't. Panics as
+    /// Acme.CertificateRequest does for the key and names.
     @PanicsAtCaller
     Public Async Method ObtainAsync(names: String[], certificateKey: Key,
                                     tokens: AcmeTokens): String Throws NetError, TimeoutError
@@ -172,8 +175,8 @@ Public Class AcmeClient
         Return issued.Text
     End Method
 
-    // Proves the name of the authorization at `url` by its HTTP-01 challenge, unless it's valid
-    // already.
+    /// Proves the name of the authorization at `url` by its HTTP-01 challenge, unless it's valid
+    /// already.
     Async Method AuthorizeAsync(url: String, tokens: AcmeTokens) Throws NetError, TimeoutError
         Local authorization = Try ReadOf(Try Await PostAsync(url, Null))
         If Text(authorization, "status") == "valid" Then Return
@@ -197,8 +200,8 @@ Public Class AcmeClient
         End Try
     End Method
 
-    // The object at `url` once its status is `wanted`, asking again while the CA works on it.
-    // Throws a NetError of OTHER when it's invalid, or still isn't after POLL_LIMIT times.
+    /// The object at `url` once its status is `wanted`, asking again while the CA works on it.
+    /// Throws a NetError of OTHER when it's invalid, or still isn't after POLL_LIMIT times.
     Async Method AwaitStatusAsync(url: String, wanted: String,
                                   what: String): Value Throws NetError, TimeoutError
         For attempt = 1 To POLL_LIMIT
@@ -217,9 +220,9 @@ Public Class AcmeClient
         Throw NetError(NetErrorKind.OTHER, "{what} isn't {wanted} after {POLL_LIMIT} tries", url)
     End Method
 
-    // A JWS of `payload` to `url`, POSTed, or a POST-as-GET for a Null one, and the CA's answer,
-    // naming the key by its JWK when `byKey` says, or there's no account yet. A refused nonce is
-    // tried again, once, with the nonce that came with the refusal.
+    /// A JWS of `payload` to `url`, POSTed, or a POST-as-GET for a Null one, and the CA's answer,
+    /// naming the key by its JWK when `byKey` says, or there's no account yet. A refused nonce is
+    /// tried again, once, with the nonce that came with the refusal.
     Async Method PostAsync(url: String, payload: String?,
                            byKey: Bool = False): HttpResponse Throws NetError, TimeoutError
         For attempt = 1 To 2
@@ -244,7 +247,7 @@ Public Class AcmeClient
         Unreachable()
     End Method
 
-    // The nonce the last answer gave, or a new one from the CA.
+    /// The nonce the last answer gave, or a new one from the CA.
     Async Method NextNonceAsync(): String Throws NetError, TimeoutError
         Local kept = Nonce
         Nonce = Null
@@ -253,7 +256,7 @@ Public Class AcmeClient
         Return response.Headers.Get("Replay-Nonce") ?? ""
     End Method
 
-    // The URL the directory gives for `name`, reading it the first time.
+    /// The URL the directory gives for `name`, reading it the first time.
     Async Method UrlOfAsync(name: String): String Throws NetError, TimeoutError
         If Urls == Null
             Local response = Try Await Client.GetAsync(DirectoryUrl)
@@ -269,8 +272,8 @@ Public Class AcmeClient
         Return url
     End Method
 
-    // A flattened JWS (RFC 7515) of `payload` to `url`, with `nonce`: its protected header names
-    // the account by its kid, or by its key's JWK when `byKey` says, or before there's one.
+    /// A flattened JWS (RFC 7515) of `payload` to `url`, with `nonce`: its protected header names
+    /// the account by its kid, or by its key's JWK when `byKey` says, or before there's one.
     Method Signed(url: String, nonce: String, payload: String, byKey: Bool): String
         Local header = Value.Object()
         header["alg"] = Value("ES256")
@@ -294,15 +297,15 @@ Public Class AcmeClient
     End Method
 End Class
 
-// The member `key` of `object`, or Null when it isn't an object, or has none.
+/// The member `key` of `object`, or Null when it isn't an object, or has none.
 Function At(object: Value?, key: String): Value? => object == Null ? Null : object[key]
 
-// The text of the member `key` of `object`, or `fallback` when it has no string there.
+/// The text of the member `key` of `object`, or `fallback` when it has no string there.
 Function Text(object: Value?, key: String, fallback: String = ""): String
     Return At(object, key)?.AsString() ?? fallback
 End Function
 
-// A response's JSON. Throws a NetError of OTHER for one that isn't.
+/// A response's JSON. Throws a NetError of OTHER for one that isn't.
 Function ReadOf(response: HttpResponse): Value Throws NetError
     Local read = Try? Json.Read(response.Text)
     If read == Null
@@ -311,7 +314,7 @@ Function ReadOf(response: HttpResponse): Value Throws NetError
     Return read
 End Function
 
-// What an authorization's or order's error says, or its challenge's, or Null.
+/// What an authorization's or order's error says, or its challenge's, or Null.
 Function ErrorDetail(object: Value): String?
     Local detail = At(At(object, "error"), "detail")?.AsString()
     If detail != Null Then Return detail
@@ -323,7 +326,7 @@ Function ErrorDetail(object: Value): String?
     Return Null
 End Function
 
-// How long to wait before asking again: the response's Retry-After in seconds, or a second.
+/// How long to wait before asking again: the response's Retry-After in seconds, or a second.
 Function RetryAfter(response: HttpResponse): Duration
     Local seconds = Int64.Parse(response.Headers.Get("Retry-After") ?? "")
     Return (seconds != Null && seconds > 0 && seconds < 60 ? seconds : 1).Seconds

@@ -1,6 +1,6 @@
-// Static files: a folder's files as a router's routes, for GET and HEAD, with their Content-Type,
-// ETag, and Last-Modified, a 304 Not Modified for a request whose copy is current, and a 206
-// Partial Content for a request for one range of a file's bytes.
+//! Static files: a folder's files as a router's routes, for GET and HEAD, with their Content-Type,
+//! ETag, and Last-Modified, a 304 Not Modified for a request whose copy is current, and a 206
+//! Partial Content for a request for one range of a file's bytes.
 
 Import std.core
 Import std.collections
@@ -18,21 +18,21 @@ Extern "runtime"
     Function fb_io_real_path(path: String): String?
 End Extern
 
-// The most bytes a file it serves can have, which it reads whole, as an array holds them.
+/// The most bytes a file it serves can have, which it reads whole, as an array holds them.
 Const MOST_BYTES: Int64 = 2147483647
 
 Extend HttpRouter
-    // Serves folder's files at prefix, a path as routes have them, without a *name,
-    // or "/" for the router's own: a GET or a HEAD of prefix/a/b.png gives folder's a/b.png, and
-    // one of a folder gives its index.html, once its path ends with '/', to which one that
-    // doesn't is redirected. A segment that starts with a '.', or has a '\', a ':', or a control
-    // character, or ends with a '.' or a space, or is a name Windows keeps for a device, like
-    // NUL or COM1, is a 404, as is what isn't there, whatever the OS; and so is a file whose path
-    // on the disk, its links followed and its names the disk's own, isn't inside the folder's,
-    // or has such a name there, as a link out of the folder, or Windows' 8.3 short name SECRET~1
-    // for .secret, would; so a request never reaches outside the folder, nor a name it refuses.
-    // A file of more than 2 GiB, which it reads whole, is a 500. Panics when prefix isn't a
-    // path, or a route has its paths already.
+    /// Serves folder's files at prefix, a path as routes have them, without a *name,
+    /// or "/" for the router's own: a GET or a HEAD of prefix/a/b.png gives folder's a/b.png, and
+    /// one of a folder gives its index.html, once its path ends with '/', to which one that
+    /// doesn't is redirected. A segment that starts with a '.', or has a '\', a ':', or a control
+    /// character, or ends with a '.' or a space, or is a name Windows keeps for a device, like
+    /// NUL or COM1, is a 404, as is what isn't there, whatever the OS; and so is a file whose path
+    /// on the disk, its links followed and its names the disk's own, isn't inside the folder's,
+    /// or has such a name there, as a link out of the folder, or Windows' 8.3 short name SECRET~1
+    /// for .secret, would; so a request never reaches outside the folder, nor a name it refuses.
+    /// A file of more than 2 GiB, which it reads whole, is a 500. Panics when prefix isn't a
+    /// path, or a route has its paths already.
     @PanicsAtCaller
     Public Method Files(prefix: String, folder: Path)
         If !prefix.StartsWith("/")
@@ -44,7 +44,7 @@ Extend HttpRouter
     End Method
 End Extend
 
-// A folder's files, as Files serves them.
+/// A folder's files, as Files serves them.
 Class FileServer
     ReadOnly Field Folder: Path
 
@@ -52,7 +52,7 @@ Class FileServer
         Folder = folder
     End New
 
-    // The response to a request for one of the folder's files.
+    /// The response to a request for one of the folder's files.
     Async Method Answer(request: HttpRequest): HttpResponse
         Local name = request.Param("file") ?? ""
         Local segments: String[] = name == "" ? [] : name.Split("/")
@@ -130,8 +130,8 @@ Class FileServer
         Return response
     End Method
 
-    // Whether a file's path on the disk, its links followed and its names the disk's own, is
-    // inside the folder's, with no name past it that Servable refuses.
+    /// Whether a file's path on the disk, its links followed and its names the disk's own, is
+    /// inside the folder's, with no name past it that Servable refuses.
     Method Within(path: Path): Bool
         Local folder = fb_io_real_path(Folder.Text)
         Local file = fb_io_real_path(path.Text)
@@ -145,9 +145,9 @@ Class FileServer
     End Method
 End Class
 
-// Whether a request's copy of a file is current, as RFC 9110's section 13.2.2 checks it: by its
-// If-None-Match, when it has one, a tag of the file's, weak or not, or "*", or otherwise by its
-// If-Modified-Since, a date the file hasn't changed since, to the second.
+/// Whether a request's copy of a file is current, as RFC 9110's section 13.2.2 checks it: by its
+/// If-None-Match, when it has one, a tag of the file's, weak or not, or "*", or otherwise by its
+/// If-Modified-Since, a date the file hasn't changed since, to the second.
 Function Unchanged(headers: Headers, tag: String, modified: Timestamp): Bool
     Local matches = headers.GetAll("If-None-Match")
     If matches.Count > 0
@@ -167,9 +167,9 @@ Function Unchanged(headers: Headers, tag: String, modified: Timestamp): Bool
     Return modified.UnixMilliseconds / 1000 <= date.UnixMilliseconds / 1000
 End Function
 
-// The one range of a file's `size` bytes that a Range of bytes asks for, its first and last
-// byte, a first past the last when it's past the file's end, or Null for a Range it serves the
-// whole file for: of another unit, of more than one range, or that isn't a Range's.
+/// The one range of a file's `size` bytes that a Range of bytes asks for, its first and last
+/// byte, a first past the last when it's past the file's end, or Null for a Range it serves the
+/// whole file for: of another unit, of more than one range, or that isn't a Range's.
 Function RangeOf(range: String, size: Int): (Int, Int)?
     Local equals = range.Find("=")
     If equals == Null || !range.Slice(0, equals).Trim().EqualsIgnoreCase("bytes") Then Return Null
@@ -195,8 +195,8 @@ Function RangeOf(range: String, size: Int): (Int, Int)?
     Return (start As Int, Min(finish, (size - 1) As Int64) As Int)
 End Function
 
-// A byte position a range's digits write, past any file's end when there are more than an Int64
-// holds, or Null for text that isn't digits.
+/// A byte position a range's digits write, past any file's end when there are more than an Int64
+/// holds, or Null for text that isn't digits.
 Function PositionOf(text: String): Int64?
     Local value = DigitsOf(text)
     If value != Null || text == "" Then Return value
@@ -206,7 +206,7 @@ Function PositionOf(text: String): Int64?
     Return 9223372036854775807
 End Function
 
-// Whether a path's segment can name one of the folder's files on any OS.
+/// Whether a path's segment can name one of the folder's files on any OS.
 Function Servable(segment: String): Bool
     If segment == "" || segment.StartsWith(".") || segment.EndsWith(".") || segment.EndsWith(" ")
         Return False
@@ -226,7 +226,7 @@ Function Servable(segment: String): Bool
     Return True
 End Function
 
-// A file's Content-Type, by its extension, with UTF-8 for text, or application/octet-stream.
+/// A file's Content-Type, by its extension, with UTF-8 for text, or application/octet-stream.
 Function ContentTypeOf(path: Path): String
     Local extension = path.Extension().TrimPrefix(".").ToLower()
     Local text = "; charset=utf-8"
@@ -290,15 +290,15 @@ Function ContentTypeOf(path: Path): String
     Return "application/octet-stream"
 End Function
 
-// A time as HTTP writes one, RFC 9110's IMF-fixdate: "Sun, 06 Nov 1994 08:49:37 GMT".
+/// A time as HTTP writes one, RFC 9110's IMF-fixdate: "Sun, 06 Nov 1994 08:49:37 GMT".
 Package Function HttpDate(time: Timestamp): String
     Return time.Format("EEE, dd MMM yyyy HH:mm:ss 'GMT'")
 End Function
 
-// The time an HTTP-date writes, in any of the three forms RFC 9110's section 5.6.7 has a recipient
-// read: IMF-fixdate, "Sun, 06 Nov 1994 08:49:37 GMT"; RFC 850's, "Sunday, 06-Nov-94 08:49:37 GMT",
-// whose year is the one of its last two digits not more than 50 years ahead; and asctime's,
-// "Sun Nov  6 08:49:37 1994"; or Null for other text. The weekday isn't checked.
+/// The time an HTTP-date writes, in any of the three forms RFC 9110's section 5.6.7 has a recipient
+/// read: IMF-fixdate, "Sun, 06 Nov 1994 08:49:37 GMT"; RFC 850's, "Sunday, 06-Nov-94 08:49:37 GMT",
+/// whose year is the one of its last two digits not more than 50 years ahead; and asctime's,
+/// "Sun Nov  6 08:49:37 1994"; or Null for other text. The weekday isn't checked.
 Package Function ParseHttpDate(text: String): Timestamp?
     Local parts = text.SplitWhitespace()
     Local day = ""

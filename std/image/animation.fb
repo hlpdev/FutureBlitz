@@ -1,25 +1,28 @@
-// Animation: frames of one size, each an Image shown for its delay, played a number of times or
-// forever, which Gif's and Png's DecodeAnimation give and their EncodeAnimation take.
+//! Animation: frames of one size, each an Image shown for its delay, played a number of times or
+//! forever, which Gif's and Png's DecodeAnimation give and their EncodeAnimation take.
 
 Import std.core
 Import std.collections.view
 Import std.image.codec
 Import std.image.image
 
-// One of an Animation's frames: its image, and how long it's shown, in milliseconds.
+/// One of an Animation's frames: its image, and how long it's shown, in milliseconds.
 Public Struct Frame
+    /// What the frame shows.
     Public Field Image: Image
+    /// How long it's shown, in milliseconds.
     Public Field Delay: Int
 End Struct
 
+/// Frames of one size, each an Image shown for its delay, played a number of times or forever.
 Public Class Animation
     Field Columns: Int
     Field Rows: Int
     Field Times: Int
     Field List: Frame[]
 
-    // An animation of frames of width by height pixels, with none yet, played `plays` times, or
-    // forever for 0. Panics when the size is one an Image can't be, or plays is negative.
+    /// An animation of frames of width by height pixels, with none yet, played `plays` times, or
+    /// forever for 0. Panics when the size is one an Image can't be, or plays is negative.
     @PanicsAtCaller
     Public New(width: Int, height: Int, plays: Int = 0)
         CheckSize(width, height)
@@ -30,15 +33,17 @@ Public Class Animation
         List = []
     End New
 
+    /// How many pixels wide its frames are.
     Public Property Width: Int
         Get => Columns
     End Property
 
+    /// How many pixels high its frames are.
     Public Property Height: Int
         Get => Rows
     End Property
 
-    // How many times its frames play, or 0 for forever. Panics when it's given a negative one.
+    /// How many times its frames play, or 0 for forever. Panics when it's given a negative one.
     @PanicsAtCaller
     Public Property Plays: Int
         Get => Times
@@ -48,23 +53,24 @@ Public Class Animation
         End Set
     End Property
 
+    /// How many frames it has.
     Public Property Count: Int
         Get => List.Count
     End Property
 
-    // Its frames, in the order they play.
+    /// Its frames, in the order they play.
     Public Property Frames: ReadOnlyArray<Frame>
         Get => List.AsReadOnly()
     End Property
 
-    // The frame at index. Panics when it's out of range.
+    /// The frame at index. Panics when it's out of range.
     @PanicsAtCaller
     Operator [](index: Int): Frame => List[index]
 
-    // Adds a frame of `image`, which it keeps rather than copies, so what changes the image
-    // changes the frame, shown for `delay` milliseconds. Panics when the image isn't the
-    // animation's size, or the delay is negative or longer than 65535000, APNG's longest, 65535
-    // seconds.
+    /// Adds a frame of `image`, which it keeps rather than copies, so what changes the image
+    /// changes the frame, shown for `delay` milliseconds. Panics when the image isn't the
+    /// animation's size, or the delay is negative or longer than 65535000, APNG's longest, 65535
+    /// seconds.
     @PanicsAtCaller
     Public Method Add(image: Image, delay: Int)
         If image.Width != Columns || image.Height != Rows
@@ -85,8 +91,8 @@ Function CheckPlays(plays: Int)
     If plays < 0 Then Panic("an animation plays 0 times, for forever, or more, not {plays}")
 End Function
 
-// Panics when a frame's image isn't the animation's size, as one resized or cropped since it was
-// added isn't, for an encoder of `format`.
+/// Panics when a frame's image isn't the animation's size, as one resized or cropped since it was
+/// added isn't, for an encoder of `format`.
 @PanicsAtCaller
 Package Function CheckFrames(animation: Animation, format: String)
     For i = 0 Until animation.Count
@@ -98,7 +104,7 @@ Package Function CheckFrames(animation: Animation, format: String)
     End For
 End Function
 
-// The Animation the runtime decoded, or the IOError its result means, for data in `format`.
+/// The Animation the runtime decoded, or the IOError its result means, for data in `format`.
 Package Function DecodedAnimation(image: Ptr<Void>, format: String): Animation Throws IOError
     Try CheckDecoded(image, format)
     Local width = fb_image_width(image) As Int

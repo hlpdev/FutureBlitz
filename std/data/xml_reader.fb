@@ -1,29 +1,30 @@
-// XmlReader: XML 1.0's documents read as a stream of events, a start and an end for each element
-// and one for each run of text, CDATA section, comment, and processing instruction in them, as a
-// non-validating processor reads them. Line ends are LFs, entity and character references are
-// replaced by their text, attributes are normalized, and the document type's internal subset is
-// read for its entities and its attributes' defaults and types. The document type's external
-// subset, and external entities, aren't read; a reference to an undeclared entity is an error,
-// but in a document whose external subset or external parameter entities could declare it, where
-// it's left out. Names keep their namespaces' prefixes, which aren't resolved.
+//! XmlReader: XML 1.0's documents read as a stream of events, a start and an end for each element
+//! and one for each run of text, CDATA section, comment, and processing instruction in them, as a
+//! non-validating processor reads them. Line ends are LFs, entity and character references are
+//! replaced by their text, attributes are normalized, and the document type's internal subset is
+//! read for its entities and its attributes' defaults and types. The document type's external
+//! subset, and external entities, aren't read; a reference to an undeclared entity is an error,
+//! but in a document whose external subset or external parameter entities could declare it, where
+//! it's left out. Names keep their namespaces' prefixes, which aren't resolved.
 
 Import std.core
 Import std.collections
 Import std.data.text
 
-// What an XmlEvent is.
+/// What an XmlEvent is.
 Public Enum XmlEventKind
     START, END, TEXT, CDATA, COMMENT, INSTRUCTION
 End Enum
 
-// One part of a document, from an XmlReader.
+/// One part of a document, from an XmlReader.
 Public Class XmlEvent
+    /// Which part of the document it is.
     Public ReadOnly Field Kind: XmlEventKind
-    // A START's or END's element name, or an INSTRUCTION's target.
+    /// A START's or END's element name, or an INSTRUCTION's target.
     Public ReadOnly Field Name: String
-    // A TEXT's, CDATA's, COMMENT's, or INSTRUCTION's text.
+    /// A TEXT's, CDATA's, COMMENT's, or INSTRUCTION's text.
     Public ReadOnly Field Text: String
-    // A START's attributes, by name, in the order they're written, then their defaults'.
+    /// A START's attributes, by name, in the order they're written, then their defaults'.
     Public ReadOnly Field Attributes: Map<String, String>
 
     New(kind: XmlEventKind, name: String, text: String, attributes: Map<String, String>)
@@ -34,32 +35,34 @@ Public Class XmlEvent
     End New
 End Class
 
+/// Reads an XML document as a stream of events: a start and an end for each element, and one for
+/// each run of text, CDATA section, comment, and processing instruction.
 Public Class XmlReader
     Field Sources: XmlSource[] = []
-    // The open elements' names, the innermost last.
+    /// The open elements' names, the innermost last.
     Field Open: String[] = []
-    // 0 before the root element, 1 in it, 2 after it.
+    /// 0 before the root element, 1 in it, 2 after it.
     Field State: Int
     Field Pending: XmlEvent?
     Field General: Map<String, XmlEntity>
     Field Parameter: Map<String, XmlEntity>
-    // Each element's declared attributes, by name.
+    /// Each element's declared attributes, by name.
     Field Lists: Map<String, Map<String, XmlAttribute>>
-    // Whether declarations past what was read could declare an entity: an external subset, or an
-    // external parameter entity's reference, in a document that isn't standalone.
+    /// Whether declarations past what was read could declare an entity: an external subset, or an
+    /// external parameter entity's reference, in a document that isn't standalone.
     Field Unread: Bool
-    // Whether a parameter entity wasn't read, after which declarations aren't taken.
+    /// Whether a parameter entity wasn't read, after which declarations aren't taken.
     Field Stopped: Bool
     Field Standalone: Bool
     Field Typed: Bool
-    // Whether the text starts with a byte order mark, which says it's UTF-8.
+    /// Whether the text starts with a byte order mark, which says it's UTF-8.
     Field Marked: Bool
-    // How many bytes of entities' text have been read, and the most that may be: ten times the
-    // document's size and a MiB, as expat and libxml2 cap what entities make of a document.
+    /// How many bytes of entities' text have been read, and the most that may be: ten times the
+    /// document's size and a MiB, as expat and libxml2 cap what entities make of a document.
     Field Expanded: Int64
     Field MostExpanded: Int64
 
-    // A reader of text's document, its line ends LFs, and past a byte order mark at its start.
+    /// A reader of text's document, its line ends LFs, and past a byte order mark at its start.
     Public New(text: String)
         Local bytes = text.Bytes
         Local normal: UInt8[] = []
@@ -84,9 +87,9 @@ Public Class XmlReader
         Lists = {}
     End New
 
-    // The next event, or Null at the document's end. Throws a ParseError, with its line and
-    // column, of UNEXPECTED_END for a document that ends inside an element or markup, and of
-    // SYNTAX for the rest that isn't well-formed XML 1.0.
+    /// The next event, or Null at the document's end. Throws a ParseError, with its line and
+    /// column, of UNEXPECTED_END for a document that ends inside an element or markup, and of
+    /// SYNTAX for the rest that isn't well-formed XML 1.0.
     Public Method Next(): XmlEvent? Throws ParseError
         If Pending != Null
             Local ended = Pending
@@ -123,7 +126,7 @@ Public Class XmlReader
         End Loop
     End Method
 
-    // Content's next event, or Null when what was read gives none.
+    /// Content's next event, or Null when what was read gives none.
     Method Content(): XmlEvent? Throws ParseError
         Local source = Current()
         If source.Bytes[source.At] != 60 Then Return Try Text()
@@ -135,8 +138,8 @@ Public Class XmlReader
         Return Try StartTag()
     End Method
 
-    // What's before or after the root element: spaces, comments, processing instructions, and
-    // before it the document type.
+    /// What's before or after the root element: spaces, comments, processing instructions, and
+    /// before it the document type.
     Method Misc(): XmlEvent? Throws ParseError
         If SkipSpace() Then Return Null
         If Starts("<?") Then Return Try Instruction()
@@ -154,7 +157,7 @@ Public Class XmlReader
                    "text can't come after the root element")
     End Method
 
-    // The XML declaration at the document's start, if it has one.
+    /// The XML declaration at the document's start, if it has one.
     Method Declaration() Throws ParseError
         If !Starts("<?xml") Then Return
         Local after = ByteAt(5)
@@ -168,7 +171,7 @@ Public Class XmlReader
         Advance(2)
     End Method
 
-    // A pseudo-attribute of the XML declaration, `name="value"`, giving whether it's there.
+    /// A pseudo-attribute of the XML declaration, `name="value"`, giving whether it's there.
     Method Pseudo(name: String, required: Bool): Bool Throws ParseError
         Local source = Current()
         Local start = source.At
@@ -278,13 +281,13 @@ Public Class XmlReader
         Return XmlEvent(XmlEventKind.END, name, "", {})
     End Method
 
-    // Closes the innermost element.
+    /// Closes the innermost element.
     Method Close()
         Open.RemoveLast()
         If Open.Count == 0 Then State = 2
     End Method
 
-    // A run of text, through references and the entities they name, or Null when there's none.
+    /// A run of text, through references and the entities they name, or Null when there's none.
     Method Text(): XmlEvent? Throws ParseError
         Local out: UInt8[] = []
         Loop
@@ -309,7 +312,7 @@ Public Class XmlReader
         Return XmlEvent(XmlEventKind.TEXT, "", TextOf(out), {})
     End Method
 
-    // A reference in content: its character added to out, or its entity's text read next.
+    /// A reference in content: its character added to out, or its entity's text read next.
     Method ContentReference(out: UInt8[]) Throws ParseError
         If Starts("&#")
             Try CharReference(out)
@@ -337,9 +340,9 @@ Public Class XmlReader
         Try Enter(entity, Open.Count)
     End Method
 
-    // Starts reading entity's text, which a reference to it in the text being read names. Throws a
-    // ParseError for an entity that refers to itself, past 64 entities deep, and once entities'
-    // text comes to more than MostExpanded bytes.
+    /// Starts reading entity's text, which a reference to it in the text being read names. Throws a
+    /// ParseError for an entity that refers to itself, past 64 entities deep, and once entities'
+    /// text comes to more than MostExpanded bytes.
     Method Enter(entity: XmlEntity, depth: Int) Throws ParseError
         For source In Sources
             If source.Entity == entity.Name Then Throw Fail("the entity {entity.Name} refers to itself")
@@ -349,7 +352,7 @@ Public Class XmlReader
         Sources.Add(XmlSource(entity.Text, entity.Name, depth))
     End Method
 
-    // Counts count bytes more of entities' text, which may come to no more than MostExpanded.
+    /// Counts count bytes more of entities' text, which may come to no more than MostExpanded.
     Method Expand(count: Int) Throws ParseError
         Expanded += count
         If Expanded > MostExpanded
@@ -358,7 +361,7 @@ Public Class XmlReader
         End If
     End Method
 
-    // The end of an entity's text, which ends what it starts.
+    /// The end of an entity's text, which ends what it starts.
     Method LeaveEntity() Throws ParseError
         Local source = Current()
         If Open.Count != source.Depth
@@ -368,7 +371,7 @@ Public Class XmlReader
         Sources.RemoveLast()
     End Method
 
-    // A character reference, `&#N;` or `&#xH;`, its character added to out.
+    /// A character reference, `&#N;` or `&#xH;`, its character added to out.
     Method CharReference(out: UInt8[]) Throws ParseError
         Advance(2)
         Local hex = Starts("x")
@@ -397,7 +400,7 @@ Public Class XmlReader
         AddChar(out, value As Int)
     End Method
 
-    // Adds the character at the current place to out, checking that XML has it.
+    /// Adds the character at the current place to out, checking that XML has it.
     Method TakeChar(out: UInt8[]) Throws ParseError
         Local source = Current()
         Local code = CodeAt(source.Bytes, source.At)
@@ -408,7 +411,7 @@ Public Class XmlReader
         source.At += code.1
     End Method
 
-    // An attribute's value in quotes, its references replaced and its spaces normalized.
+    /// An attribute's value in quotes, its references replaced and its spaces normalized.
     Method AttributeValue(): String Throws ParseError
         Local quote = ByteAt(0)
         If quote != 34 && quote != 39 Then Throw Fail("an attribute's value is in quotes")
@@ -436,8 +439,8 @@ Public Class XmlReader
         End Loop
     End Method
 
-    // Adds the attribute value's character or reference at the current place to out, or starts
-    // reading the text of an entity a reference names, which AttributeValue reads in turn.
+    /// Adds the attribute value's character or reference at the current place to out, or starts
+    /// reading the text of an entity a reference names, which AttributeValue reads in turn.
     Method AttributeChar(out: UInt8[]) Throws ParseError
         Local b = ByteAt(0)
         If b == 60 Then Throw Fail("an attribute's value can't hold '<'")
@@ -480,8 +483,8 @@ Public Class XmlReader
         Try Enter(entity, Open.Count)
     End Method
 
-    // An attribute's value as its declared type has it: a type other than CDATA's has its
-    // spaces trimmed, and each run of them made one.
+    /// An attribute's value as its declared type has it: a type other than CDATA's has its
+    /// spaces trimmed, and each run of them made one.
     Method Normalized(element: String, name: String, value: String): String
         Local declared = Lists.Get(element)
         If declared == Null Then Return value
@@ -543,7 +546,7 @@ Public Class XmlReader
         Return XmlEvent(XmlEventKind.INSTRUCTION, target, TextOf(out), {})
     End Method
 
-    // The document type: its name, its external ID, and its internal subset's declarations.
+    /// The document type: its name, its external ID, and its internal subset's declarations.
     Method DocumentType() Throws ParseError
         Advance(9)
         If !SkipSpace() Then Throw Fail("DOCTYPE is followed by a space and the root's name")
@@ -566,7 +569,7 @@ Public Class XmlReader
         Advance(1)
     End Method
 
-    // The internal subset's declarations, up to its ']'.
+    /// The internal subset's declarations, up to its ']'.
     Method Subset() Throws ParseError
         Loop
             If SkipSpace() Then Continue
@@ -606,9 +609,9 @@ Public Class XmlReader
         End Loop
     End Method
 
-    // A parameter entity's reference between declarations, whose text is read as declarations. In
-    // a document that isn't standalone, a reference to an undeclared entity is then left out, and
-    // past an external one, which isn't read, declarations aren't taken (XML 1.0's 5.1).
+    /// A parameter entity's reference between declarations, whose text is read as declarations. In
+    /// a document that isn't standalone, a reference to an undeclared entity is then left out, and
+    /// past an external one, which isn't read, declarations aren't taken (XML 1.0's 5.1).
     Method SubsetReference() Throws ParseError
         Unread = True
         Advance(1)
@@ -670,8 +673,8 @@ Public Class XmlReader
         If table.Get(name) == Null Then table[name] = entity
     End Method
 
-    // An entity's value in quotes: its character references replaced, and its general entity
-    // references kept for where it's used.
+    /// An entity's value in quotes: its character references replaced, and its general entity
+    /// references kept for where it's used.
     Method EntityValue(): UInt8[] Throws ParseError
         Local quote = ByteAt(0)
         Advance(1)
@@ -704,7 +707,7 @@ Public Class XmlReader
         End Loop
     End Method
 
-    // `SYSTEM "literal"` or `PUBLIC "id" "literal"`, or with public, PUBLIC's id alone.
+    /// `SYSTEM "literal"` or `PUBLIC "id" "literal"`, or with public, PUBLIC's id alone.
     Method ExternalId(alone: Bool) Throws ParseError
         If Starts("SYSTEM")
             Advance(6)
@@ -778,8 +781,8 @@ Public Class XmlReader
         End Loop
     End Method
 
-    // An attribute's declared type: CDATA, a tokenized type, NOTATION's names, or an
-    // enumeration of name tokens.
+    /// An attribute's declared type: CDATA, a tokenized type, NOTATION's names, or an
+    /// enumeration of name tokens.
     Method AttributeType(): String Throws ParseError
         For kind In ["CDATA", "IDREFS", "IDREF", "ID", "ENTITIES", "ENTITY", "NMTOKENS", "NMTOKEN"]
             If Starts(kind)
@@ -843,7 +846,7 @@ Public Class XmlReader
         Advance(1)
     End Method
 
-    // Mixed content, after `(` and #PCDATA: `)`, or `|` and names and `)*`.
+    /// Mixed content, after `(` and #PCDATA: `)`, or `|` and names and `)*`.
     Method Mixed() Throws ParseError
         Advance(7)
         Local names = False
@@ -868,8 +871,8 @@ Public Class XmlReader
         End Loop
     End Method
 
-    // A content model's particle: a name, or a choice or sequence in parentheses, and maybe '?',
-    // '*', or '+'.
+    /// A content model's particle: a name, or a choice or sequence in parentheses, and maybe '?',
+    /// '*', or '+'.
     Method Particle() Throws ParseError
         If Starts("(")
             Advance(1)
@@ -914,7 +917,7 @@ Public Class XmlReader
         Advance(1)
     End Method
 
-    // A literal in quotes, as it's written.
+    /// A literal in quotes, as it's written.
     Method Literal(): String Throws ParseError
         Local quote = ByteAt(0)
         If quote != 34 && quote != 39 Then Throw Fail("a literal is in quotes")
@@ -931,7 +934,7 @@ Public Class XmlReader
         End Loop
     End Method
 
-    // An XML name.
+    /// An XML name.
     Method Name(): String Throws ParseError
         Local source = Current()
         Local start = source.At
@@ -947,7 +950,7 @@ Public Class XmlReader
         Return TextOf(source.Bytes, start, source.At)
     End Method
 
-    // A name token: name characters, of which there's at least one.
+    /// A name token: name characters, of which there's at least one.
     Method Token() Throws ParseError
         Local source = Current()
         Local start = source.At
@@ -959,7 +962,7 @@ Public Class XmlReader
         If source.At == start Then Throw Fail("a name token holds name characters")
     End Method
 
-    // Past spaces, giving whether there were any.
+    /// Past spaces, giving whether there were any.
     Method SkipSpace(): Bool
         Local source = Current()
         Local start = source.At
@@ -980,14 +983,14 @@ Public Class XmlReader
         Current().At += count
     End Method
 
-    // The byte `ahead` past the current place, or 0 past the end.
+    /// The byte `ahead` past the current place, or 0 past the end.
     Method ByteAt(ahead: Int): UInt8
         Local source = Current()
         Local at = source.At + ahead
         Return at < source.Bytes.Count ? source.Bytes[at] : 0
     End Method
 
-    // Whether text's ASCII bytes are at the current place.
+    /// Whether text's ASCII bytes are at the current place.
     Method Starts(text: String): Bool
         Local source = Current()
         Local bytes = text.Bytes
@@ -998,27 +1001,27 @@ Public Class XmlReader
         Return True
     End Method
 
-    // A ParseError at the document's place, the reference's when the reader is in an entity.
+    /// A ParseError at the document's place, the reference's when the reader is in an entity.
     Method Fail(message: String): ParseError
         Return ErrorAt(Sources[0].Bytes, Sources[0].At, ParseErrorKind.SYNTAX, message)
     End Method
 
-    // A ParseError of UNEXPECTED_END at the document's end, or of SYNTAX at an entity's, where the
-    // document goes on.
+    /// A ParseError of UNEXPECTED_END at the document's end, or of SYNTAX at an entity's, where the
+    /// document goes on.
     Method Ended(message: String): ParseError
         If Sources.Count > 1 Then Return Fail(message + " before its entity's text ends")
         Return ErrorAt(Sources[0].Bytes, Sources[0].At, ParseErrorKind.UNEXPECTED_END, message)
     End Method
 End Class
 
-// Text being read: the document's, or an entity's.
+/// Text being read: the document's, or an entity's.
 Class XmlSource
     Field Bytes: UInt8[]
     Field At: Int
-    // The entity it's the text of, "%" and its name for a parameter entity, or "" for the
-    // document.
+    /// The entity it's the text of, "%" and its name for a parameter entity, or "" for the
+    /// document.
     Field Entity: String
-    // How many elements were open where it started.
+    /// How many elements were open where it started.
     Field Depth: Int
 
     New(bytes: UInt8[], entity: String, depth: Int)
@@ -1028,13 +1031,13 @@ Class XmlSource
     End New
 End Class
 
-// An entity the document type declares.
+/// An entity the document type declares.
 Class XmlEntity
     Field Name: String
-    // Its replacement text, for an internal entity.
+    /// Its replacement text, for an internal entity.
     Field Text: UInt8[] = []
     Field External: Bool
-    // Whether it's an unparsed entity, a NOTATION's, which only an ENTITY attribute names.
+    /// Whether it's an unparsed entity, a NOTATION's, which only an ENTITY attribute names.
     Field Unparsed: Bool
 
     New(name: String)
@@ -1042,7 +1045,7 @@ Class XmlEntity
     End New
 End Class
 
-// An attribute an ATTLIST declares: its type, and its default value, if it has one.
+/// An attribute an ATTLIST declares: its type, and its default value, if it has one.
 Class XmlAttribute
     Field Type: String
     Field Fallback: String?
@@ -1052,7 +1055,7 @@ Class XmlAttribute
     End New
 End Class
 
-// The code point at `at` in bytes, which hold UTF-8, and how many bytes it takes.
+/// The code point at `at` in bytes, which hold UTF-8, and how many bytes it takes.
 Function CodeAt(bytes: UInt8[], at: Int): (Int64, Int)
     Local b = bytes[at] As Int64
     If b < 0x80 Then Return (b, 1)
@@ -1066,13 +1069,13 @@ Function CodeAt(bytes: UInt8[], at: Int): (Int64, Int)
             (((bytes[at + 2] As Int64) & 0x3F) << 6) | ((bytes[at + 3] As Int64) & 0x3F), 4)
 End Function
 
-// Whether XML 1.0 has character c.
+/// Whether XML 1.0 has character c.
 Package Function IsXmlChar(c: Int64): Bool
     Return c == 9 || c == 10 || c == 13 || (c >= 0x20 && c <= 0xD7FF) ||
            (c >= 0xE000 && c <= 0xFFFD) || (c >= 0x10000 && c <= 0x10FFFF)
 End Function
 
-// Whether c starts an XML name.
+/// Whether c starts an XML name.
 Package Function IsNameStart(c: Int64): Bool
     Return c == 58 || (c >= 65 && c <= 90) || c == 95 || (c >= 97 && c <= 122) ||
            (c >= 0xC0 && c <= 0xD6) || (c >= 0xD8 && c <= 0xF6) || (c >= 0xF8 && c <= 0x2FF) ||
@@ -1083,13 +1086,13 @@ Package Function IsNameStart(c: Int64): Bool
            (c >= 0x10000 && c <= 0xEFFFF)
 End Function
 
-// Whether c goes in an XML name after its first character.
+/// Whether c goes in an XML name after its first character.
 Package Function IsNameChar(c: Int64): Bool
     Return IsNameStart(c) || c == 45 || c == 46 || (c >= 48 && c <= 57) || c == 0xB7 ||
            (c >= 0x300 && c <= 0x36F) || (c >= 0x203F && c <= 0x2040)
 End Function
 
-// Whether text is an XML name.
+/// Whether text is an XML name.
 Package Function IsXmlName(text: String): Bool
     Local bytes = text.Bytes
     If bytes.Count == 0 Then Return False
@@ -1102,14 +1105,14 @@ Package Function IsXmlName(text: String): Bool
     Return True
 End Function
 
-// XML's spaces: a space, a tab, and the line ends.
+/// XML's spaces: a space, a tab, and the line ends.
 Package Function IsSpace(b: UInt8): Bool => b == 32 || b == 9 || b == 10 || b == 13
 
 Package Function IsDigitByte(b: UInt8): Bool => b >= 48 && b <= 57
 
 Package Function IsLetterByte(b: UInt8): Bool => (b >= 65 && b <= 90) || (b >= 97 && b <= 122)
 
-// Whether b goes in a public ID.
+/// Whether b goes in a public ID.
 Function IsPublicByte(b: UInt8): Bool
     If IsLetterByte(b) || IsDigitByte(b) || b == 32 || b == 10 || b == 13 Then Return True
     For c In "-'()+,./:=?;!*#@$_%".Bytes
@@ -1118,7 +1121,7 @@ Function IsPublicByte(b: UInt8): Bool
     Return False
 End Function
 
-// The character a predefined entity stands for, or -1 for another name.
+/// The character a predefined entity stands for, or -1 for another name.
 Function PredefinedOf(name: String): Int
     If name == "lt" Then Return 60
     If name == "gt" Then Return 62
@@ -1128,7 +1131,7 @@ Function PredefinedOf(name: String): Int
     Return -1
 End Function
 
-// text with its ASCII letters lowercase.
+/// text with its ASCII letters lowercase.
 Function Lowered(text: String): String
     Local out: UInt8[] = []
     For b In text.Bytes
@@ -1137,7 +1140,7 @@ Function Lowered(text: String): String
     Return TextOf(out)
 End Function
 
-// value with its spaces trimmed, and each run of them made one.
+/// value with its spaces trimmed, and each run of them made one.
 Function Collapsed(value: String): String
     Local bytes = value.Bytes
     Local out: UInt8[] = []

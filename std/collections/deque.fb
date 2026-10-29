@@ -1,23 +1,25 @@
-// Deque<T>: values added and taken at either end. Front holds the first values backwards, so
-// both ends are at the end of an array, and when one side runs out as values are taken, it takes
-// half of the other.
+//! `Deque<T>`: values added and taken at either end. Front holds the first values backwards, so
+//! both ends are at the end of an array, and when one side runs out as values are taken, it takes
+//! half of the other.
 
 Import std.core
 Import std.collections.array
 
+/// A double-ended queue: values go on and come off at either end.
 @DebugElements
 Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Front: T[] = []
     Field Back: T[] = []
-    // How many times values were added or removed, so a For ... In over them can tell.
+    /// How many times values were added or removed, so a For ... In over them can tell.
     Field Changes: Int64
 
+    /// How many values it holds.
     Public Property Count: Int
         Get => Front.Count + Back.Count
     End Property
 
-    // Adds the value first, or last. A Deque holds at most 2147483647 values, as many as its
-    // Int Count counts, as an array does, and one more panics.
+    /// Adds the value first, or last. A Deque holds at most 2147483647 values, as many as its
+    /// Int Count counts, as an array does, and one more panics.
     @PanicsAtCaller
     Public Method AddFirst(value: T)
         CheckRoom()
@@ -25,6 +27,7 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Changes += 1
     End Method
 
+    /// Puts `value` at the back.
     @PanicsAtCaller
     Public Method AddLast(value: T)
         CheckRoom()
@@ -32,13 +35,13 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Changes += 1
     End Method
 
-    // The same as AddLast.
+    /// The same as AddLast.
     @PanicsAtCaller
     Public Method Add(value: T)
         AddLast(value)
     End Method
 
-    // Adds each of the values last, in order.
+    /// Adds each of the values last, in order.
     @PanicsAtCaller
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
@@ -46,7 +49,7 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         End For
     End Method
 
-    // Takes the first value off and gives it. Panics when the Deque is empty.
+    /// Takes the first value off and gives it. Panics when the Deque is empty.
     @PanicsAtCaller
     Public Method RemoveFirst(): T
         If Front.Count == 0 Then Balance(Back, Front)
@@ -56,7 +59,7 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Return value
     End Method
 
-    // Takes the last value off and gives it. Panics when the Deque is empty.
+    /// Takes the last value off and gives it. Panics when the Deque is empty.
     @PanicsAtCaller
     Public Method RemoveLast(): T
         If Back.Count == 0 Then Balance(Front, Back)
@@ -66,7 +69,7 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Return value
     End Method
 
-    // The first value, which stays, as everything else does. Panics when the Deque is empty.
+    /// The first value, which stays, as everything else does. Panics when the Deque is empty.
     @PanicsAtCaller
     Public Method First(): T
         If Front.Count > 0 Then Return Front[Front.Count - 1]
@@ -74,7 +77,7 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Back[0]
     End Method
 
-    // The last value, which stays, as everything else does. Panics when the Deque is empty.
+    /// The last value, which stays, as everything else does. Panics when the Deque is empty.
     @PanicsAtCaller
     Public Method Last(): T
         If Back.Count > 0 Then Return Back[Back.Count - 1]
@@ -82,32 +85,32 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Front[0]
     End Method
 
-    // Takes the first value off and gives it, or Null when the Deque is empty.
+    /// Takes the first value off and gives it, or Null when the Deque is empty.
     Public Method TryRemoveFirst(): T?
         If Count == 0 Then Return Null
         Return RemoveFirst()
     End Method
 
-    // Takes the last value off and gives it, or Null when the Deque is empty.
+    /// Takes the last value off and gives it, or Null when the Deque is empty.
     Public Method TryRemoveLast(): T?
         If Count == 0 Then Return Null
         Return RemoveLast()
     End Method
 
-    // The first value, which stays, or Null when the Deque is empty.
+    /// The first value, which stays, or Null when the Deque is empty.
     Public Method TryFirst(): T?
         If Count == 0 Then Return Null
         Return First()
     End Method
 
-    // The last value, which stays, or Null when the Deque is empty.
+    /// The last value, which stays, or Null when the Deque is empty.
     Public Method TryLast(): T?
         If Count == 0 Then Return Null
         Return Last()
     End Method
 
-    // The value at index, counting from the first, which is 0. Panics unless index is from 0
-    // to Count minus 1.
+    /// The value at index, counting from the first, which is 0. Panics unless index is from 0
+    /// to Count minus 1.
     @PanicsAtCaller
     Operator [](index: Int): T
         If index < 0 || index >= Count Then OutOfRange(index)
@@ -115,8 +118,8 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Back[index - Front.Count]
     End Operator
 
-    // Gives the value at index, counting from the first, a new value. Panics unless index is
-    // from 0 to Count minus 1.
+    /// Gives the value at index, counting from the first, a new value. Panics unless index is
+    /// from 0 to Count minus 1.
     @PanicsAtCaller
     Operator []=(index: Int, value: T)
         If index < 0 || index >= Count Then OutOfRange(index)
@@ -127,12 +130,13 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         End If
     End Operator
 
+    /// Whether it holds `value`.
     Public Method Contains(value: T): Bool
         Where T: Equatable
         Return Front.Contains(value) || Back.Contains(value)
     End Method
 
-    // The values from first to last, in a new array.
+    /// The values from first to last, in a new array.
     Public Method ToArray(): T[]
         Local values = Front.Clone()
         values.Reverse()
@@ -140,16 +144,17 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Return values
     End Method
 
+    /// Takes every value out.
     Public Method Clear()
         Front.Clear()
         Back.Clear()
         Changes += 1
     End Method
 
-    // A new, empty Deque.
+    /// A new, empty Deque.
     Public Static Method DefaultValue(): Deque<T> => Deque<T>()
 
-    // A new Deque with the same values.
+    /// A new Deque with the same values.
     Public Method Clone(): Deque<T>
         Local copy = Deque<T>()
         copy.Front = Front.Clone()
@@ -157,7 +162,7 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Return copy
     End Method
 
-    // The values from first to last. Adding or removing a value while going over them panics.
+    /// The values from first to last. Adding or removing a value while going over them panics.
     Public Method Iterate(): DequeIterator<T> => DequeIterator<T>(Self, Front.Count, 0, Changes)
 
     @PanicsAtCaller
@@ -170,8 +175,8 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Panic("index {index} is out of range for {Count} element{Count == 1 ? "" : "s"}")
     End Method
 
-    // Moves the half of from that's nearest the middle into to, which is empty, so that from's
-    // start is to's end.
+    /// Moves the half of from that's nearest the middle into to, which is empty, so that from's
+    /// start is to's end.
     @PanicsAtCaller
     Method Balance(from: T[], to: T[])
         If from.Count == 0 Then Panic("the Deque is empty")
@@ -188,14 +193,14 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
     End Method
 End Class
 
-// Whether a Deque of front and back values has room for one more, which its Int Count counts.
+/// Whether a Deque of front and back values has room for one more, which its Int Count counts.
 Package Function HasRoom(front: Int, back: Int): Bool => back < 2147483647 - front
 
-// The larger half of a count, the middle one of an odd count with it, without adding past what
-// an Int holds.
+/// The larger half of a count, the middle one of an odd count with it, without adding past what
+/// an Int holds.
 Package Function HalfUp(count: Int): Int => count - count / 2
 
-// Front's values backwards from FrontLeft, then Back's from BackAt on.
+/// Front's values backwards from FrontLeft, then Back's from BackAt on.
 Public Struct DequeIterator<T> Implements Iterator<T>
     Field Owner: Deque<T>
     Field FrontLeft: Int

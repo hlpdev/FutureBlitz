@@ -1,12 +1,12 @@
-// TopologicalSort and FindCycle: an order of nodes where each comes before the nodes it leads to,
-// as build steps, dependencies, and a tech tree need, and the cycle that keeps there from being
-// one. The graph is the nodes given and every node their successors reach.
+//! TopologicalSort and FindCycle: an order of nodes where each comes before the nodes it leads to,
+//! as build steps, dependencies, and a tech tree need, and the cycle that keeps there from being
+//! one. The graph is the nodes given and every node their successors reach.
 
 Import std.core
 Import std.collections
 
-// The nodes given, in their order without repeats, then what their successors reach, in the order
-// breadth-first search meets them, with each one's successors, by where they are in the order.
+/// The nodes given, in their order without repeats, then what their successors reach, in the order
+/// breadth-first search meets them, with each one's successors, by where they are in the order.
 Function Gather<N: Hashable>(nodes: N[], successors: Func(N): N[]): (N[], Int[][])
     Local all: N[] = []
     Local index = Map<N, Int>()
@@ -33,11 +33,11 @@ Function Gather<N: Hashable>(nodes: N[], successors: Func(N): N[]): (N[], Int[][
     Return (all, edges)
 End Function
 
-// The nodes, and every node their successors reach, in an order where each comes before its
-// successors, or Null where they make a cycle, which FindCycle gives. Of the nodes that could come
-// next, the earliest goes first, by where it is in the nodes given, or past them, in the order the
-// rest were reached, which gives the least such order by those places; nodes that nothing leads to
-// keep the order they were given in.
+/// The nodes, and every node their successors reach, in an order where each comes before its
+/// successors, or Null where they make a cycle, which FindCycle gives. Of the nodes that could come
+/// next, the earliest goes first, by where it is in the nodes given, or past them, in the order the
+/// rest were reached, which gives the least such order by those places; nodes that nothing leads to
+/// keep the order they were given in.
 Public Function TopologicalSort<N: Hashable>(nodes: N[], successors: Func(N): N[]): N[]?
     Local all, edges = Gather(nodes, successors)
     Local waiting: Int[] = []
@@ -67,9 +67,9 @@ Public Function TopologicalSort<N: Hashable>(nodes: N[], successors: Func(N): N[
     Return order.Count == all.Count ? order : Null
 End Function
 
-// A cycle among the nodes and what their successors reach, its nodes in the order they lead to each
-// other, each once, or Null when there's none. It's the first that depth-first search meets, going
-// from the nodes given in their order: a node that's its own successor is a cycle of one.
+/// A cycle among the nodes and what their successors reach, its nodes in the order they lead to
+/// each other, each once, or Null when there's none. It's the first that depth-first search meets,
+/// going from the nodes given in their order: a node that's its own successor is a cycle of one.
 Public Function FindCycle<N: Hashable>(nodes: N[], successors: Func(N): N[]): N[]?
     Local all, edges = Gather(nodes, successors)
     // 0 for a node not met yet, 1 for one on the path now, 2 for one whose successors are done.

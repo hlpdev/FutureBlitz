@@ -1,18 +1,22 @@
-// What a Logger writes, and where: a LogRecord, with its LogFields, for each line, given to each
-// sink of a LogOutput whose filter writes it.
+//! What a Logger writes, and where: a LogRecord, with its LogFields, for each line, given to each
+//! sink of a LogOutput whose filter writes it.
 
 Import std.core
 Import std.collections
 Import std.time.timestamp
 Import std.log.level
 
-// One of a line's fields: its name and the text of its value, which a JSON line quotes when it's
-// text, and writes as it is when it's a number or a Bool.
+/// One of a line's fields: its name and the text of its value, which a JSON line quotes when it's
+/// text, and writes as it is when it's a number or a Bool.
 Public Struct LogField
+    /// The field's name.
     Public ReadOnly Field Name: String
+    /// The text of its value.
     Public ReadOnly Field Text: String
+    /// Whether its value is text, which a JSON line quotes, rather than a number or a Bool.
     Public ReadOnly Field IsText: Bool
 
+    /// A field `name` of `text`, which is a number's or a Bool's when `isText` is False.
     Public New(name: String, text: String, isText: Bool = True)
         Name = name
         Text = text
@@ -20,14 +24,20 @@ Public Struct LogField
     End New
 End Struct
 
-// A line, as a Logger gives it to its output's sinks.
+/// A line, as a Logger gives it to its output's sinks.
 Public Struct LogRecord
+    /// When it was written.
     Public ReadOnly Field Time: Timestamp
+    /// How much it matters.
     Public ReadOnly Field Level: LogLevel
+    /// The module of the Logger that wrote it.
     Public ReadOnly Field Module: String
+    /// What it says.
     Public ReadOnly Field Message: String
+    /// Its fields, the Logger's and its own.
     Public ReadOnly Field Fields: ImmutableArray<LogField>
 
+    /// A line of `message`, at `level`, from `module`, at `time`, without fields.
     Public New(time: Timestamp, level: LogLevel, module: String, message: String)
         Time = time
         Level = level
@@ -35,6 +45,7 @@ Public Struct LogRecord
         Message = message
     End New
 
+    /// A line of `message`, at `level`, from `module`, at `time`, with `fields`.
     Public New(time: Timestamp, level: LogLevel, module: String, message: String,
                fields: ImmutableArray<LogField>)
         Time = time
@@ -45,35 +56,35 @@ Public Struct LogRecord
     End New
 End Struct
 
-// Where Loggers' lines go: to each of its sinks, in the order they were added, once its filter
-// writes the line's level for its module. Each sink gets the lines of every thread that logs, at
-// once, so it must take them at once, as the console's does.
+/// Where Loggers' lines go: to each of its sinks, in the order they were added, once its filter
+/// writes the line's level for its module. Each sink gets the lines of every thread that logs, at
+/// once, so it must take them at once, as the console's does.
 Public Shared Class LogOutput
     Field Chosen: Mutex<LogFilter>
     Field Sinks: Mutex<ImmutableArray<Sendable Func(LogRecord)>>
 
-    // An output with no sinks, whose filter is filter.
+    /// An output with no sinks, whose filter is filter.
     Public New(filter: LogFilter)
         Lock Chosen As chosen
             chosen = filter
         End Lock
     End New
 
-    // Adds sink, which each line written after this goes to, after the sinks added before it.
+    /// Adds sink, which each line written after this goes to, after the sinks added before it.
     Public Method Add(sink: Sendable Func(LogRecord))
         Lock Sinks As sinks
             sinks = sinks.Add(sink)
         End Lock
     End Method
 
-    // Takes every sink out, so lines go nowhere until one is added.
+    /// Takes every sink out, so lines go nowhere until one is added.
     Public Method Clear()
         Lock Sinks As sinks
             sinks = ImmutableArray<Sendable Func(LogRecord)>()
         End Lock
     End Method
 
-    // The filter, which says what's written, or a new one, which the lines logged after it go by.
+    /// The filter, which says what's written, or a new one, which the lines logged after it go by.
     Public Property Filter: LogFilter
         Get
             Lock Chosen As chosen
@@ -87,11 +98,11 @@ Public Shared Class LogOutput
         End Set
     End Property
 
-    // Whether its filter writes a line at level for module.
+    /// Whether its filter writes a line at level for module.
     Public Method Allows(module: String, level: LogLevel): Bool => Filter.Allows(module, level)
 
-    // Gives record to each sink, if its filter writes it. The sinks are called outside the lock,
-    // so one can log, or add a sink, which the next line goes to.
+    /// Gives record to each sink, if its filter writes it. The sinks are called outside the lock,
+    /// so one can log, or add a sink, which the next line goes to.
     Public Method Write(record: LogRecord)
         If !Allows(record.Module, record.Level) Then Return
         Local sinks = ImmutableArray<Sendable Func(LogRecord)>()

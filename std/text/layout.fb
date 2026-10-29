@@ -1,6 +1,6 @@
-// std.text.layout: a String's lines laid out again. WordWrap fills lines up to a width in a
-// terminal's columns, Dedent takes away the indentation every line has, and Indent puts a prefix
-// before each line. A line ends at "\n", "\r\n", or "\r", and each keeps its line break.
+//! std.text.layout: a String's lines laid out again. WordWrap fills lines up to a width in a
+//! terminal's columns, Dedent takes away the indentation every line has, and Indent puts a prefix
+//! before each line. A line ends at "\n", "\r\n", or "\r", and each keeps its line break.
 
 Import std.core
 Import std.text.char
@@ -12,13 +12,13 @@ Extern "runtime"
 End Extern
 
 Extend String
-    // Its lines filled with words up to width columns each, as a terminal shows them, with
-    // DisplayWidth and a tab going on to the next multiple of 8 columns: each line breaks before
-    // the word that would go past it, at the spaces before
-    // that word, which go, while the spaces between words that stay on a line stay as they are.
-    // A no-break space, U+00A0, U+2007, or U+202F, is part of its word, not a place to break. A
-    // line's leading whitespace starts each line it becomes, and a word wider than the rest of
-    // the width is broken between its grapheme clusters. Panics when width is below 1.
+    /// Its lines filled with words up to width columns each, as a terminal shows them, with
+    /// DisplayWidth and a tab going on to the next multiple of 8 columns: each line breaks before
+    /// the word that would go past it, at the spaces before
+    /// that word, which go, while the spaces between words that stay on a line stay as they are.
+    /// A no-break space, U+00A0, U+2007, or U+202F, is part of its word, not a place to break. A
+    /// line's leading whitespace starts each line it becomes, and a word wider than the rest of
+    /// the width is broken between its grapheme clusters. Panics when width is below 1.
     @PanicsAtCaller
     Public Method WordWrap(width: Int): String
         If width < 1 Then Panic("WordWrap takes a width of at least 1, not {width}")
@@ -60,8 +60,8 @@ Extend String
         Return wrapped
     End Method
 
-    // A copy without the leading spaces and tabs that each line that isn't blank starts with, all
-    // alike, as when text is written indented in code. A blank line becomes empty.
+    /// A copy without the leading spaces and tabs that each line that isn't blank starts with, all
+    /// alike, as when text is written indented in code. A blank line becomes empty.
     Public Method Dedent(): String
         Local common: String? = Null
         Local lines = LinesOf(Self)
@@ -94,7 +94,7 @@ Extend String
         Return dedented
     End Method
 
-    // A copy with prefix before each line that isn't blank.
+    /// A copy with prefix before each line that isn't blank.
     Public Method Indent(prefix: String): String
         Local indented = ""
         For line In LinesOf(Self)
@@ -107,9 +107,9 @@ Extend String
     End Method
 End Extend
 
-// Each line of text: where it starts, where its line break starts, and where that ends. Text
-// that ends in a line break has no empty line after it, and "" has no lines. A line break's
-// bytes are never inside a character, so they're looked for byte by byte.
+/// Each line of text: where it starts, where its line break starts, and where that ends. Text
+/// that ends in a line break has no empty line after it, and "" has no lines. A line break's
+/// bytes are never inside a character, so they're looked for byte by byte.
 Function LinesOf(text: String): (Int, Int, Int)[]
     Local lines: (Int, Int, Int)[] = []
     Local start = 0
@@ -129,7 +129,7 @@ Function LinesOf(text: String): (Int, Int, Int)[]
     Return lines
 End Function
 
-// How many bytes of spaces and tabs text starts with.
+/// How many bytes of spaces and tabs text starts with.
 Function Leading(text: String): Int
     Local count = 0
     While count < text.Length
@@ -141,11 +141,11 @@ Function Leading(text: String): Int
     Return count
 End Function
 
-// word in pieces no wider than room each, broken between its grapheme clusters, each piece at
-// least one of them.
-// line's words, each with the whitespace before it, which a line can break at, the first one's
-// being the line's indentation. A no-break space is part of its word, and whitespace after the
-// last word goes.
+/// word in pieces no wider than room each, broken between its grapheme clusters, each piece at
+/// least one of them.
+/// line's words, each with the whitespace before it, which a line can break at, the first one's
+/// being the line's indentation. A no-break space is part of its word, and whitespace after the
+/// last word goes.
 Function WordsOf(line: String): (String, String)[]
     Local words: (String, String)[] = []
     Local spaces = 0
@@ -168,8 +168,8 @@ Function WordsOf(line: String): (String, String)[]
     Return words
 End Function
 
-// The column after text, written from the column at, as a terminal shows it: a tab goes on to
-// the next multiple of 8, and the rest take DisplayWidth's columns.
+/// The column after text, written from the column at, as a terminal shows it: a tab goes on to
+/// the next multiple of 8, and the rest take DisplayWidth's columns.
 Function Advanced(at: Int, text: String): Int
     Local column = at
     For c In text.Chars
@@ -183,7 +183,7 @@ Function Advanced(at: Int, text: String): Int
     Return column
 End Function
 
-// Whether a line can break at c: whitespace, but not a no-break space.
+/// Whether a line can break at c: whitespace, but not a no-break space.
 Function Breaks(c: Char): Bool
     If c.Code == 0xA0 || c.Code == 0x2007 || c.Code == 0x202F Then Return False
     Return c.IsWhitespace()
@@ -209,8 +209,8 @@ Function Pieces(word: String, room: Int): String[]
     Return pieces
 End Function
 
-// How many single-character edits, inserting, deleting, or changing a character, turn a into b,
-// counting characters, code points.
+/// How many single-character edits, inserting, deleting, or changing a character, turn a into b,
+/// counting characters, code points.
 Public Function Levenshtein(a: String, b: String): Int
     Local from = a.Chars
     Local to = b.Chars

@@ -1,10 +1,10 @@
-// std.text.template: Mustache-style templates, which a Value fills, or a Struct, a Class, or a
-// Map, through the Value that Save makes of it. A template is text with tags in "{{ }}", each
-// filled in when it's rendered: {{name}} gives a value, the blocks {{#each name}}, {{#if name}},
-// and {{#unless name}} go over or test one, with an {{else}} for when there's nothing,
-// {{> name}} renders another template there, and {{! }} is a comment. A value can take a format
-// spec, as {{price:.2}} does, as interpolation's "{price:.2}" would. A block's tag alone on its
-// line takes the line with it. A template for HTML escapes its values.
+//! std.text.template: Mustache-style templates, which a Value fills, or a Struct, a Class, or a
+//! Map, through the Value that Save makes of it. A template is text with tags in "{{ }}", each
+//! filled in when it's rendered: {{name}} gives a value, the blocks {{#each name}}, {{#if name}},
+//! and {{#unless name}} go over or test one, with an {{else}} for when there's nothing,
+//! {{> name}} renders another template there, and {{! }} is a comment. A value can take a format
+//! spec, as {{price:.2}} does, as interpolation's "{price:.2}" would. A block's tag alone on its
+//! line takes the line with it. A template for HTML escapes its values.
 
 Import std.core
 Import std.collections
@@ -14,48 +14,49 @@ Extern "runtime"
     Function fb_format_exact(magnitude: UInt64, negative: Int32, spec: String): String?
 End Extern
 
-// A template, read once, which Render fills from what it's given each time.
+/// A template, read once, which Render fills from what it's given each time.
 Public Class Template
     Field Parts: Part[] = []
     Field Html: Bool
 
-    // The template that `text` is, which escapes its values for HTML with `html`. Throws a
-    // FormatError of BAD_TEMPLATE where the text isn't one, which says the line and column.
+    /// The template that `text` is, which escapes its values for HTML with `html`. Throws a
+    /// FormatError of BAD_TEMPLATE where the text isn't one, which says the line and column.
     Public New(text: String, html: Bool = False) Throws FormatError
         Parts = Try Parsed(text, "")
         Html = html
     End New
 
-    // The template, filled from a Value, whose Object's keys are the names the tags give.
-    // Throws a FormatError of MISSING_VALUE at a partial, which only Templates have.
+    /// The template, filled from a Value, whose Object's keys are the names the tags give.
+    /// Throws a FormatError of MISSING_VALUE at a partial, which only Templates have.
     Public Method Render(data: Value): String Throws FormatError
         Return Try Rendered(Parts, data, Html, Null)
     End Method
 
-    // The template, filled from the Value that Save makes of data: a Struct's or Class's Fields
-    // by name, a Map's keys, and the rest as Save has them. Panics, as Save does, for data that
-    // nests more than 256 levels deep.
+    /// The template, filled from the Value that Save makes of data: a Struct's or Class's Fields
+    /// by name, a Map's keys, and the rest as Save has them. Panics, as Save does, for data that
+    /// nests more than 256 levels deep.
     @PanicsAtCaller
     Public Method Render<T>(data: T): String Throws FormatError => Try Render(Save(data))
 End Class
 
-// Templates by name, which render each other as partials: {{> header}} is the template named
-// "header". One whose name ends with ".html" or ".htm" escapes its values for HTML, as a partial
-// too, and so do the partials it renders, whatever their names.
+/// Templates by name, which render each other as partials: {{> header}} is the template named
+/// "header". One whose name ends with ".html" or ".htm" escapes its values for HTML, as a partial
+/// too, and so do the partials it renders, whatever their names.
 Public Class Templates
     Field Sources: Map<String, String>
-    // Each template read, by its name, then by the indentation it's read with, which is "" but for
-    // a partial indented on its line.
+    /// Each template read, by its name, then by the indentation it's read with, which is "" but for
+    /// a partial indented on its line.
     Field Read: Map<String, Map<String, Part[]>>
 
+    /// A new Templates, with none added.
     Public New()
         Sources = Map<String, String>()
         Read = Map<String, Map<String, Part[]>>()
     End New
 
-    // Adds the template that `text` is as `name`, in place of one that has the name already.
-    // Throws a FormatError of BAD_TEMPLATE where the text isn't one, which says the template's
-    // name, the line, and the column.
+    /// Adds the template that `text` is as `name`, in place of one that has the name already.
+    /// Throws a FormatError of BAD_TEMPLATE where the text isn't one, which says the template's
+    /// name, the line, and the column.
     Public Method Add(name: String, text: String) Throws FormatError
         Local parts = Try Parsed(text, name)
         Sources[name] = text
@@ -65,24 +66,24 @@ Public Class Templates
         Read[name] = read
     End Method
 
-    // Whether it has a template of the name.
+    /// Whether it has a template of the name.
     Public Method Contains(name: String): Bool => Sources.Contains(name)
 
-    // The template of the name, filled from a Value, whose Object's keys are the names the tags
-    // give. Throws a FormatError of MISSING_VALUE where it has no template of the name, or of a
-    // partial's, and of OTHER for partials more than 1000 deep inside each other.
+    /// The template of the name, filled from a Value, whose Object's keys are the names the tags
+    /// give. Throws a FormatError of MISSING_VALUE where it has no template of the name, or of a
+    /// partial's, and of OTHER for partials more than 1000 deep inside each other.
     Public Method Render(name: String, data: Value): String Throws FormatError
         Return Try Rendered(Try PartsOf(name, ""), data, IsHtml(name), Self)
     End Method
 
-    // The template of the name, filled from the Value that Save makes of data. Panics, as Save
-    // does, for data that nests more than 256 levels deep.
+    /// The template of the name, filled from the Value that Save makes of data. Panics, as Save
+    /// does, for data that nests more than 256 levels deep.
     @PanicsAtCaller
     Public Method Render<T>(name: String, data: T): String Throws FormatError =>
         Try Render(name, Save(data))
 
-    // A template's parts, as a partial indented on its line by `indent` has them, with each of
-    // its lines indented, read the first time they're needed.
+    /// A template's parts, as a partial indented on its line by `indent` has them, with each of
+    /// its lines indented, read the first time they're needed.
     Method PartsOf(name: String, indent: String): Part[] Throws FormatError
         Local source = Sources.Get(name)
         If source == Null
@@ -98,11 +99,11 @@ Public Class Templates
     End Method
 End Class
 
-// How deep partials go inside each other, past which Render throws, as for one that renders
-// itself without end.
+/// How deep partials go inside each other, past which Render throws, as for one that renders
+/// itself without end.
 Const MostPartials = 1000
 
-// The bytes the tags are made of, and the blanks around them.
+/// The bytes the tags are made of, and the blanks around them.
 Const OpenBrace: UInt8 = 123
 Const CloseBrace: UInt8 = 125
 Const Backslash: UInt8 = 92
@@ -117,26 +118,26 @@ Enum PartKind
     TEXT, VALUE, EACH, IF, UNLESS, PARTIAL
 End Enum
 
-// A part of a template: text, a value, a block with the parts it holds, or a partial.
+/// A part of a template: text, a value, a block with the parts it holds, or a partial.
 Class Part
     Field Kind: PartKind
-    // A TEXT's text, a PARTIAL's name, and the word a block was opened with.
+    /// A TEXT's text, a PARTIAL's name, and the word a block was opened with.
     Field Text = ""
-    // A VALUE's or a block's name, as its steps, like ["user", "name"], or none for this, and
-    // ["this", "name"] for this.name.
+    /// A VALUE's or a block's name, as its steps, like ["user", "name"], or none for this, and
+    /// ["this", "name"] for this.name.
     Field Path: String[] = []
-    // A VALUE that's never escaped, as {{{name}}} and {{& name}} are.
+    /// A VALUE that's never escaped, as {{{name}}} and {{& name}} are.
     Field Raw: Bool
-    // A VALUE's format spec, what's after the ':' in {{price:.2}}, or "" for none, and where its
-    // tag is, as "page, line 2, column 5", for the error a value it doesn't take throws.
+    /// A VALUE's format spec, what's after the ':' in {{price:.2}}, or "" for none, and where its
+    /// tag is, as "page, line 2, column 5", for the error a value it doesn't take throws.
     Field Spec = ""
     Field Location = ""
-    // A block's parts, and those after its {{else}}.
+    /// A block's parts, and those after its {{else}}.
     Field Body: Part[] = []
     Field Otherwise: Part[] = []
-    // A PARTIAL's indentation, when it's alone on its line, which each of its lines takes.
+    /// A PARTIAL's indentation, when it's alone on its line, which each of its lines takes.
     Field Indent = ""
-    // While the template's read, whether a block's {{else}} has come, and where the block opens.
+    /// While the template's read, whether a block's {{else}} has come, and where the block opens.
     Field InElse: Bool
     Field Opens: Int
 
@@ -145,9 +146,9 @@ Class Part
     End New
 End Class
 
-// The parts that a template's text is. The blocks it's inside are a stack, not calls, so one
-// nested however deep is read. `name` is the template's, for messages, or "" for one alone, and
-// `indent` how many characters an indented partial's lines start with.
+/// The parts that a template's text is. The blocks it's inside are a stack, not calls, so one
+/// nested however deep is read. `name` is the template's, for messages, or "" for one alone, and
+/// `indent` how many characters an indented partial's lines start with.
 Function Parsed(text: String, name: String, indent: Int = 0): Part[] Throws FormatError
     Local bytes = text.Bytes
     Local root = Part(PartKind.TEXT)
@@ -222,8 +223,8 @@ Function Parsed(text: String, name: String, indent: Int = 0): Part[] Throws Form
     Return root.Body
 End Function
 
-// Adds what a tag is, whose `content` is what's between its braces, trimmed, to the innermost
-// block open, or opens or closes a block. `position` is the tag's.
+/// Adds what a tag is, whose `content` is what's between its braces, trimmed, to the innermost
+/// block open, or opens or closes a block. `position` is the tag's.
 Function Tag(open: Part[], triple: Bool, content: UInt8[], indent: String, name: String,
              bytes: UInt8[], at: Int, position: Position) Throws FormatError
     Local block = open[open.Count - 1]
@@ -312,8 +313,8 @@ Function Tag(open: Part[], triple: Bool, content: UInt8[], indent: String, name:
     Into(block).Add(Try ValuePart(content, False, name, bytes, at, position))
 End Function
 
-// A VALUE of a tag's name, and of the format spec after its ':', as "price:.2" is, which has to
-// be one that a number, a String, or a Bool takes.
+/// A VALUE of a tag's name, and of the format spec after its ':', as "price:.2" is, which has to
+/// be one that a number, a String, or a Bool takes.
 Function ValuePart(written: UInt8[], raw: Bool, name: String, bytes: UInt8[], at: Int,
                    position: Position): Part Throws FormatError
     Local value = Part(PartKind.VALUE)
@@ -342,9 +343,9 @@ Function ValuePart(written: UInt8[], raw: Bool, name: String, bytes: UInt8[], at
     Return value
 End Function
 
-// A name's steps, from `from` in `name`'s bytes: "user.name" is ["user", "name"], "this" or "."
-// is none, the scope itself, and "this.name" is ["this", "name"], the scope's own name. @index,
-// @key, @first, and @last are an {{#each}}'s.
+/// A name's steps, from `from` in `name`'s bytes: "user.name" is ["user", "name"], "this" or "."
+/// is none, the scope itself, and "this.name" is ["this", "name"], the scope's own name. @index,
+/// @key, @first, and @last are an {{#each}}'s.
 Function PathOf(written: UInt8[], from: Int, name: String, bytes: UInt8[],
                 at: Int): String[] Throws FormatError
     Local whole = Text(written[from..written.Count])
@@ -385,7 +386,7 @@ Function PathOf(written: UInt8[], from: Int, name: String, bytes: UInt8[],
     Return steps
 End Function
 
-// Where the next "{{" is, from `at`, or -1.
+/// Where the next "{{" is, from `at`, or -1.
 Function OpeningAt(bytes: UInt8[], at: Int): Int
     For i = at Until bytes.Count - 1
         If bytes[i] == OpenBrace && bytes[i + 1] == OpenBrace Then Return i
@@ -394,7 +395,7 @@ Function OpeningAt(bytes: UInt8[], at: Int): Int
     Return -1
 End Function
 
-// Where the "}}", or for {{{ the "}}}", that closes a tag is, from `at`, or -1.
+/// Where the "}}", or for {{{ the "}}}", that closes a tag is, from `at`, or -1.
 Function ClosingAt(bytes: UInt8[], at: Int, braces: Int): Int
     For i = at To bytes.Count - braces
         Local closes = True
@@ -408,7 +409,7 @@ Function ClosingAt(bytes: UInt8[], at: Int, braces: Int): Int
     Return -1
 End Function
 
-// The bytes from `from` to `to`, without the blanks at either end.
+/// The bytes from `from` to `to`, without the blanks at either end.
 Function Trimmed(bytes: UInt8[], from: Int, to: Int): UInt8[]
     Local first = from
     Local last = to
@@ -427,10 +428,10 @@ Function IsBlank(c: UInt8): Bool => c == Space || c == Tab || c == LineFeed || c
 
 Function Text(bytes: UInt8[]): String => fb_string_from_array(bytes)
 
-// The parts a block adds to: its body, or after its {{else}}, what's in that.
+/// The parts a block adds to: its body, or after its {{else}}, what's in that.
 Function Into(block: Part): Part[] => block.InElse ? block.Otherwise : block.Body
 
-// Adds the text from `from` to `to`, if there's any, to the innermost block open.
+/// Adds the text from `from` to `to`, if there's any, to the innermost block open.
 Function AddText(open: Part[], bytes: UInt8[], from: Int, to: Int)
     If to <= from Then Return
     Local text = Part(PartKind.TEXT)
@@ -438,9 +439,9 @@ Function AddText(open: Part[], bytes: UInt8[], from: Int, to: Int)
     Into(open[open.Count - 1]).Add(text)
 End Function
 
-// How far a template's text is read, by its line and column, from 1: a line feed starts a line,
-// and a column is a character, each UTF-8 lead byte. An indented partial's lines start with its
-// indentation's characters, which its columns leave out.
+/// How far a template's text is read, by its line and column, from 1: a line feed starts a line,
+/// and a column is a character, each UTF-8 lead byte. An indented partial's lines start with its
+/// indentation's characters, which its columns leave out.
 Class Position
     Field At = 0
     Field Line = 1
@@ -451,7 +452,7 @@ Class Position
         Indent = indent
     End New
 
-    // Reads on to `to` in bytes.
+    /// Reads on to `to` in bytes.
     Method Advance(bytes: UInt8[], to: Int)
         For i = At Until to
             If bytes[i] == LineFeed
@@ -466,21 +467,21 @@ Class Position
     End Method
 End Class
 
-// Where a position is: its template's name, when it has one, then its line and column.
+/// Where a position is: its template's name, when it has one, then its line and column.
 Function Location(name: String, position: Position): String
     Local named = name == "" ? "" : "{name}, "
     Return "{named}line {position.Line}, column {position.Column - position.Indent}"
 End Function
 
-// A FormatError of BAD_TEMPLATE, which says where `at` is, as Location does.
+/// A FormatError of BAD_TEMPLATE, which says where `at` is, as Location does.
 Function Bad(name: String, bytes: UInt8[], at: Int, message: String): FormatError
     Local position = Position(0)
     position.Advance(bytes, at)
     Return FormatError(FormatErrorKind.BAD_TEMPLATE, "{Location(name, position)}: {message}")
 End Function
 
-// A partial's text with each of its lines indented: after each line break, but the one that ends
-// it.
+/// A partial's text with each of its lines indented: after each line break, but the one that ends
+/// it.
 Function Indented(text: String, indent: String): String
     If indent == "" Then Return text
     Local bytes = text.Bytes
@@ -494,13 +495,13 @@ Function Indented(text: String, indent: String): String
     Return fb_string_from_array(out)
 End Function
 
-// Whether a template's name is an HTML file's, which ends with ".html" or ".htm".
+/// Whether a template's name is an HTML file's, which ends with ".html" or ".htm".
 Function IsHtml(name: String): Bool
     Local bytes = name.Bytes
     Return EndsWith(bytes, ".html") || EndsWith(bytes, ".htm")
 End Function
 
-// Whether the bytes end with the ASCII suffix, in any case.
+/// Whether the bytes end with the ASCII suffix, in any case.
 Function EndsWith(bytes: UInt8[], suffix: String): Bool
     Local ending = suffix.Bytes
     If bytes.Count < ending.Count Then Return False
@@ -513,13 +514,13 @@ Function EndsWith(bytes: UInt8[], suffix: String): Bool
     Return True
 End Function
 
-// A scope names are looked up in: a Value, and for an {{#each}}'s item, where it is in what the
-// each goes over.
+/// A scope names are looked up in: a Value, and for an {{#each}}'s item, where it is in what the
+/// each goes over.
 Class Scope
     Field Data: Value
     Field Each: Bool
     Field Index: Int
-    // An Object's key, or Null for an Array's item.
+    /// An Object's key, or Null for an Array's item.
     Field Key: Value
     Field Last: Bool
 
@@ -529,12 +530,12 @@ Class Scope
     End New
 End Class
 
-// Parts being rendered, and which comes next. An {{#each}}'s are its body, which it renders for
-// each of the items it goes over in turn.
+/// Parts being rendered, and which comes next. An {{#each}}'s are its body, which it renders for
+/// each of the items it goes over in turn.
 Class Frame
     Field Parts: Part[]
     Field Next: Int
-    // Whether its values are escaped for HTML.
+    /// Whether its values are escaped for HTML.
     Field Html: Bool
     Field Each: Bool
     Field Items: Value[] = []
@@ -548,9 +549,9 @@ Class Frame
     End New
 End Class
 
-// The parts rendered from data. What's being rendered is a stack, not calls, so a template or
-// data nested however deep renders. `templates` has the partials, or is Null for a Template. A
-// partial escapes for HTML when what renders it does, or its name says it's HTML.
+/// The parts rendered from data. What's being rendered is a stack, not calls, so a template or
+/// data nested however deep renders. `templates` has the partials, or is Null for a Template. A
+/// partial escapes for HTML when what renders it does, or its name says it's HTML.
 Function Rendered(parts: Part[], data: Value, html: Bool,
                   templates: Templates?): String Throws FormatError
     Local out: String[] = []
@@ -627,8 +628,8 @@ Function Rendered(parts: Part[], data: Value, html: Bool,
     Return out.Join("")
 End Function
 
-// An {{#each}}'s frame, over an Array's elements or an Object's values, or nothing for anything
-// else. It starts done, so its first item comes first.
+/// An {{#each}}'s frame, over an Array's elements or an Object's values, or nothing for anything
+/// else. It starts done, so its first item comes first.
 Function Each(part: Part, value: Value, html: Bool): Frame
     Local frame = Frame(part.Body, html)
     frame.Each = True
@@ -645,9 +646,9 @@ Function Each(part: Part, value: Value, html: Bool): Frame
     Return frame
 End Function
 
-// What a name gives: the first of its steps from the innermost scope that has it, then each step
-// from what the last gave, or Null where nothing has it. A name after "this." is the innermost
-// scope's alone, and an {{#each}}'s @ names are its innermost item's.
+/// What a name gives: the first of its steps from the innermost scope that has it, then each step
+/// from what the last gave, or Null where nothing has it. A name after "this." is the innermost
+/// scope's alone, and an {{#each}}'s @ names are its innermost item's.
 Function Lookup(scopes: Scope[], path: String[]): Value
     Local innermost = scopes[scopes.Count - 1]
     If path.Count == 0 Then Return innermost.Data
@@ -677,8 +678,8 @@ Function Lookup(scopes: Scope[], path: String[]): Value
     Return Value()
 End Function
 
-// What a name's steps from `from` give, each from what the last gave, starting at `at`, or Null
-// where nothing has them.
+/// What a name's steps from `from` give, each from what the last gave, starting at `at`, or Null
+/// where nothing has them.
 Function Stepped(at: Value?, path: String[], from: Int): Value
     Local value = at
     For k = from Until path.Count
@@ -690,8 +691,8 @@ Function Stepped(at: Value?, path: String[], from: Int): Value
     Return value ?? Value()
 End Function
 
-// A value's text in the template: a String's own, a number or Bool as Print shows it, nothing for
-// Null, and the rest as their ToString gives them.
+/// A value's text in the template: a String's own, a number or Bool as Print shows it, nothing for
+/// Null, and the rest as their ToString gives them.
 Function TextOf(value: Value): String
     Select value.Kind
         Case ValueKind.NULL
@@ -711,11 +712,11 @@ Function TextOf(value: Value): String
     End Select
 End Function
 
-// A value's text by a VALUE's format spec, as "{x:spec}" gives it: a number's, an integer's by a
-// Double's spec where an integer's doesn't take it, as {{count:.1}} gives 3.0 for 3, with every
-// digit, as a Double past 2^53 wouldn't have; a String's or Bool's; an Array's or Object's
-// ToString as a String's; and nothing for Null. Throws a FormatError of BAD_VALUE for a value the
-// spec doesn't fit, which says where the tag is.
+/// A value's text by a VALUE's format spec, as "{x:spec}" gives it: a number's, an integer's by a
+/// Double's spec where an integer's doesn't take it, as {{count:.1}} gives 3.0 for 3, with every
+/// digit, as a Double past 2^53 wouldn't have; a String's or Bool's; an Array's or Object's
+/// ToString as a String's; and nothing for Null. Throws a FormatError of BAD_VALUE for a value the
+/// spec doesn't fit, which says where the tag is.
 Function SpecText(value: Value, part: Part): String Throws FormatError
     Local text: String? = Null
     Select value.Kind
@@ -747,8 +748,8 @@ Function SpecText(value: Value, part: Part): String Throws FormatError
     Return text
 End Function
 
-// Whether a value makes an {{#if}} true: anything but Null, False, 0, NaN, "", and an empty Array,
-// Object, or bytes.
+/// Whether a value makes an {{#if}} true: anything but Null, False, 0, NaN, "", and an empty Array,
+/// Object, or bytes.
 Function Holds(value: Value): Bool
     Select value.Kind
         Case ValueKind.NULL
@@ -769,7 +770,7 @@ Function Holds(value: Value): Bool
     End Select
 End Function
 
-// Text with &, <, >, ", and ' escaped for HTML.
+/// Text with &, <, >, ", and ' escaped for HTML.
 Function Escaped(text: String): String
     Local bytes = text.Bytes
     Local parts: String[] = []

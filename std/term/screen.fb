@@ -1,7 +1,7 @@
-// std.term's full-screen apps: a Screen takes the whole terminal, on its alternate screen, in raw
-// mode, with the cursor hidden, and shows a Canvas of cells there, writing only the cells that
-// changed since it last did. A Canvas holds a grapheme cluster and a Style in each cell, two cells
-// for a wide one, and draws text, fills, and boxes, each kept to the canvas, or to a Region of it.
+//! std.term's full-screen apps: a Screen takes the whole terminal, on its alternate screen, in raw
+//! mode, with the cursor hidden, and shows a Canvas of cells there, writing only the cells that
+//! changed since it last did. A Canvas holds a grapheme cluster and a Style in each cell, two cells
+//! for a wide one, and draws text, fills, and boxes, each kept to the canvas, or to a Region of it.
 
 Import std.core
 Import std.text.string
@@ -15,44 +15,49 @@ Import std.term.style
 Import std.term.terminal
 Import std.term.widgets
 
-// One of a canvas's cells: the grapheme cluster that shows there, a space where it's blank, and
-// how it looks. The right half of a wide one, which the cell before it shows, holds "".
+/// One of a canvas's cells: the grapheme cluster that shows there, a space where it's blank, and
+/// how it looks. The right half of a wide one, which the cell before it shows, holds "".
 Public Struct Cell Implements Hashable, Printable
+    /// The grapheme cluster that shows there, a space where it's blank, or "" for a wide one's
+    /// right half.
     Public Field Text: String
+    /// How it looks.
     Public Field Look: Style
 
-    // Its text.
+    /// Its text.
     Public Method ToString(): String => Text
 End Struct
 
-// A grid of Cells, Columns by Rows, each blank at first, which a Screen shows. What's drawn on it
-// stops at its edges, and a wide grapheme cluster that doesn't fit before an edge isn't drawn.
+/// A grid of Cells, Columns by Rows, each blank at first, which a Screen shows. What's drawn on it
+/// stops at its edges, and a wide grapheme cluster that doesn't fit before an edge isn't drawn.
 Public Class Canvas Implements Printable
     Field Cells: Cell[] = []
     Field Width: Int
     Field Height: Int
 
-    // A canvas of columns by rows, each cell blank. Panics for a negative size.
+    /// A canvas of columns by rows, each cell blank. Panics for a negative size.
     @PanicsAtCaller
     Public New(columns: Int, rows: Int)
         CheckSize(columns, rows)
         Resize(columns, rows)
     End New
 
+    /// How many columns it has.
     Public Property Columns: Int
         Get => Width
     End Property
 
+    /// How many rows it has.
     Public Property Rows: Int
         Get => Height
     End Property
 
-    // All of it, from (0, 0).
+    /// All of it, from (0, 0).
     Public Property Area: Region
         Get => Region(0, 0, Width, Height)
     End Property
 
-    // The cell at column and row. Panics outside it.
+    /// The cell at column and row. Panics outside it.
     @PanicsAtCaller
     Operator [](column: Int, row: Int): Cell
         If column < 0 || column >= Width || row < 0 || row >= Height
@@ -62,20 +67,20 @@ Public Class Canvas Implements Printable
         Return Cells[row * Width + column]
     End Operator
 
-    // Makes every cell blank, as the terminal shows plain text.
+    /// Makes every cell blank, as the terminal shows plain text.
     Public Method Clear()
         Clear(Style())
     End Method
 
-    // Makes every cell a space in look, as behind a screen's text.
+    /// Makes every cell a space in look, as behind a screen's text.
     Public Method Clear(look: Style)
         For i = 0 Until Cells.Count
             Cells[i] = Cell(" ", look)
         End For
     End Method
 
-    // Makes it columns by rows, keeping the cells it still has, and blank ones past them. Panics
-    // for a negative size.
+    /// Makes it columns by rows, keeping the cells it still has, and blank ones past them. Panics
+    /// for a negative size.
     @PanicsAtCaller
     Public Method Resize(columns: Int, rows: Int)
         CheckSize(columns, rows)
@@ -104,20 +109,20 @@ Public Class Canvas Implements Printable
         End For
     End Method
 
-    // Writes text on row from column, a grapheme cluster a cell, or two for a wide one, in plain
-    // text, as far as the canvas goes. Control characters, like tabs and line breaks, take no
-    // cell. Gives the column after what it wrote.
+    /// Writes text on row from column, a grapheme cluster a cell, or two for a wide one, in plain
+    /// text, as far as the canvas goes. Control characters, like tabs and line breaks, take no
+    /// cell. Gives the column after what it wrote.
     Public Method Print(column: Int, row: Int, text: String): Int
         Return PutText(column, row, text, Style(), Width)
     End Method
 
-    // Writes text on row from column in look, as far as the canvas goes.
+    /// Writes text on row from column in look, as far as the canvas goes.
     Public Method Print(column: Int, row: Int, text: String, look: Style): Int
         Return PutText(column, row, text, look, Width)
     End Method
 
-    // Writes text in area in look, its lines wrapped to its width, as many as fit, and gives how
-    // many rows it took.
+    /// Writes text in area in look, its lines wrapped to its width, as many as fit, and gives how
+    /// many rows it took.
     Public Method Print(area: Region, text: String, look: Style): Int
         If area.IsEmpty Then Return 0
         Local rows = 0
@@ -130,9 +135,9 @@ Public Class Canvas Implements Printable
         Return rows
     End Method
 
-    // Fills area's cells with text, a grapheme cluster, in look: each cell, or each two for a wide
-    // one, with a space in a last column that has no room for it. Panics for text that isn't one
-    // grapheme cluster, one or two columns wide.
+    /// Fills area's cells with text, a grapheme cluster, in look: each cell, or each two for a wide
+    /// one, with a space in a last column that has no room for it. Panics for text that isn't one
+    /// grapheme cluster, one or two columns wide.
     @PanicsAtCaller
     Public Method Fill(area: Region, text: String, look: Style)
         Local width = DisplayWidth(text)
@@ -155,7 +160,7 @@ Public Class Canvas Implements Printable
         End For
     End Method
 
-    // Makes each of area's cells look as look says, keeping their text, as a selection does.
+    /// Makes each of area's cells look as look says, keeping their text, as a selection does.
     Public Method SetLook(area: Region, look: Style)
         Local shown = area.Intersect(Self.Area)
         For row = shown.Row Until shown.Bottom
@@ -166,8 +171,8 @@ Public Class Canvas Implements Printable
         End For
     End Method
 
-    // Draws a box around area's edge with border's lines in look, with title in its top line or
-    // not, and gives what's inside it. An area narrower or shorter than 2 has nothing inside.
+    /// Draws a box around area's edge with border's lines in look, with title in its top line or
+    /// not, and gives what's inside it. An area narrower or shorter than 2 has nothing inside.
     Public Method DrawBox(area: Region, border: BorderStyle, look: Style,
                           title: String = ""): Region
         If area.Width < 2 || area.Height < 2 Then Return Region(area.Column, area.Row, 0, 0)
@@ -187,8 +192,8 @@ Public Class Canvas Implements Printable
         Return area.Inner(1)
     End Method
 
-    // Its cells' text, row by row, with a line break after each but the last, and without the
-    // spaces at each row's end.
+    /// Its cells' text, row by row, with a line break after each but the last, and without the
+    /// spaces at each row's end.
     Public Method ToString(): String
         Local rows: String[] = []
         For row = 0 Until Height
@@ -203,19 +208,19 @@ Public Class Canvas Implements Printable
         Return "\n".Join(rows)
     End Method
 
-    // Takes other's cells, which is as big.
+    /// Takes other's cells, which is as big.
     Package Method CopyFrom(other: Canvas)
         Cells = other.Cells.Clone()
         Width = other.Width
         Height = other.Height
     End Method
 
-    // Whether the cell at column and row is the left half of a wide grapheme cluster.
+    /// Whether the cell at column and row is the left half of a wide grapheme cluster.
     Package Method IsWide(column: Int, row: Int): Bool
         Return column + 1 < Width && Cells[row * Width + column + 1].Text == ""
     End Method
 
-    // Writes text on row from column in look, stopping before limit, and gives the column after.
+    /// Writes text on row from column in look, stopping before limit, and gives the column after.
     Method PutText(column: Int, row: Int, text: String, look: Style, limit: Int): Int
         If row < 0 || row >= Height Then Return column
         Local stop = Min(limit, Width)
@@ -238,7 +243,7 @@ Public Class Canvas Implements Printable
         Return at
     End Method
 
-    // Panics, at the caller, for a negative size.
+    /// Panics, at the caller, for a negative size.
     @PanicsAtCaller
     Method CheckSize(columns: Int, rows: Int)
         If columns < 0 || rows < 0
@@ -246,8 +251,8 @@ Public Class Canvas Implements Printable
         End If
     End Method
 
-    // Sets the cell at column and row, and the one after it for a wide one, making blank what's
-    // left of a wide one either covers half of.
+    /// Sets the cell at column and row, and the one after it for a wide one, making blank what's
+    /// left of a wide one either covers half of.
     Method Put(column: Int, row: Int, text: String, wide: Bool, look: Style)
         Local at = row * Width + column
         Local rowEnd = row * Width + Width
@@ -262,27 +267,27 @@ Public Class Canvas Implements Printable
     End Method
 End Class
 
-// The whole terminal, for a full-screen app: made, it changes to the terminal's alternate screen,
-// hides the cursor, takes pasted text as a paste and the mouse's reports, if it's asked to, and
-// starts raw mode, all of which Close puts back, as does the program's end, however it ends.
-// Draw on its Frame, then Present shows what changed since the last Present; ReadEvent and
-// PollEvent give keys, the mouse, pastes, and resizes, after which the next Present draws it all.
+/// The whole terminal, for a full-screen app: made, it changes to the terminal's alternate screen,
+/// hides the cursor, takes pasted text as a paste and the mouse's reports, if it's asked to, and
+/// starts raw mode, all of which Close puts back, as does the program's end, however it ends.
+/// Draw on its Frame, then Present shows what changed since the last Present; ReadEvent and
+/// PollEvent give keys, the mouse, pastes, and resizes, after which the next Present draws it all.
 Public Class Screen
     Field Term: Terminal
-    // What the terminal shows, as far as it's known, and what the next Present shows.
+    /// What the terminal shows, as far as it's known, and what the next Present shows.
     Field Front: Canvas
     Field Back: Canvas
-    // Whether the next Present writes every cell.
+    /// Whether the next Present writes every cell.
     Field Whole: Bool
     Field Open: Bool
     Field Mouse: Bool
-    // Where the cursor shows, with a row of -1 while it's hidden, and where the terminal shows it.
+    /// Where the cursor shows, with a row of -1 while it's hidden, and where the terminal shows it.
     Field CursorColumn: Int
     Field CursorRow: Int = -1
     Field ShownColumn: Int
     Field ShownRow: Int = -1
 
-    // The console's whole screen, with the mouse's reports, and Ctrl+C ending the program.
+    /// The console's whole screen, with the mouse's reports, and Ctrl+C ending the program.
     Public New()
         Term = Terminal.Console()
         Front = Canvas(0, 0)
@@ -290,8 +295,8 @@ Public Class Screen
         Start(True, False)
     End New
 
-    // terminal's whole screen, with the mouse's reports or not, and Ctrl+C a key with ctrlCIsKey,
-    // or ending the program without it.
+    /// terminal's whole screen, with the mouse's reports or not, and Ctrl+C a key with ctrlCIsKey,
+    /// or ending the program without it.
     Public New(terminal: Terminal, mouse: Bool = True, ctrlCIsKey: Bool = False)
         Term = terminal
         Front = Canvas(0, 0)
@@ -299,53 +304,55 @@ Public Class Screen
         Start(mouse, ctrlCIsKey)
     End New
 
+    /// How many columns it has, the terminal's.
     Public Property Columns: Int
         Get => Back.Columns
     End Property
 
+    /// How many rows it has, the terminal's.
     Public Property Rows: Int
         Get => Back.Rows
     End Property
 
-    // All of it, from (0, 0).
+    /// All of it, from (0, 0).
     Public Property Area: Region
         Get => Back.Area
     End Property
 
-    // What the next Present shows, to draw on, as the last Present left it.
+    /// What the next Present shows, to draw on, as the last Present left it.
     Public Property Frame: Canvas
         Get => Back
     End Property
 
-    // Whether it's still the terminal's, until Close.
+    /// Whether it's still the terminal's, until Close.
     Public Property IsOpen: Bool
         Get => Open
     End Property
 
-    // Makes its Frame blank, to draw it all again.
+    /// Makes its Frame blank, to draw it all again.
     Public Method Clear()
         Back.Clear()
     End Method
 
-    // Shows the cursor at column and row once the next Present is done, as for a text input.
+    /// Shows the cursor at column and row once the next Present is done, as for a text input.
     Public Method ShowCursor(column: Int, row: Int)
         CursorColumn = column
         CursorRow = row
     End Method
 
-    // Hides the cursor once the next Present is done.
+    /// Hides the cursor once the next Present is done.
     Public Method HideCursor()
         CursorRow = -1
     End Method
 
-    // Has the next Present write every cell, as when something else has written on the screen.
+    /// Has the next Present write every cell, as when something else has written on the screen.
     Public Method Redraw()
         Whole = True
     End Method
 
-    // Shows its Frame: writes the cells that changed since the last Present, or every cell after
-    // a resize or a Redraw, moving the cursor only to where they are, and sends them on at once.
-    // Gives how many cells it wrote. Panics once it's closed.
+    /// Shows its Frame: writes the cells that changed since the last Present, or every cell after
+    /// a resize or a Redraw, moving the cursor only to where they are, and sends them on at once.
+    /// Gives how many cells it wrote. Panics once it's closed.
     @PanicsAtCaller
     Public Method Present(): Int
         If !Open Then Panic("Present on a Screen that's closed")
@@ -411,15 +418,15 @@ Public Class Screen
         Return written
     End Method
 
-    // The next event, which waits for it, or Null at the end of the input. A RESIZE resizes its
-    // Frame, keeping what's on it, and has the next Present draw it all.
+    /// The next event, which waits for it, or Null at the end of the input. A RESIZE resizes its
+    /// Frame, keeping what's on it, and has the next Present draw it all.
     Public Method ReadEvent(): InputEvent? => Track(Term.ReadEvent())
 
-    // The next event, which waits for timeout at most, or Null when none came by then.
+    /// The next event, which waits for timeout at most, or Null when none came by then.
     Public Method PollEvent(timeout: Duration): InputEvent? => Track(Term.PollEvent(timeout))
 
-    // Runs an app until handle gives False or the input ends: draw draws each frame on a blank
-    // Frame, which is presented, then handle takes the next event.
+    /// Runs an app until handle gives False or the input ends: draw draws each frame on a blank
+    /// Frame, which is presented, then handle takes the next event.
     Public Method Run(draw: Func(Canvas), handle: Func(InputEvent): Bool)
         Loop
             Back.Clear()
@@ -431,8 +438,8 @@ Public Class Screen
         End Loop
     End Method
 
-    // Gives the terminal back: the mouse's reports and pastes off, the cursor shown, its first
-    // screen back, and raw mode over. Once is enough, and its Destroy does it too.
+    /// Gives the terminal back: the mouse's reports and pastes off, the cursor shown, its first
+    /// screen back, and raw mode over. Once is enough, and its Destroy does it too.
     Public Method Close()
         If !Open Then Return
         Open = False
@@ -446,7 +453,7 @@ Public Class Screen
         Close()
     End Method
 
-    // Takes the terminal, as each New does.
+    /// Takes the terminal, as each New does.
     Method Start(mouse: Bool, ctrlCIsKey: Bool)
         Mouse = mouse
         Term.StartRawMode(ctrlCIsKey, mouse)
@@ -461,14 +468,14 @@ Public Class Screen
         Open = True
     End Method
 
-    // What gives the terminal back.
+    /// What gives the terminal back.
     Method LeaveText(): String
         Local leave = "\u{1b}[0m"
         If Mouse Then leave += "\u{1b}[?1006l\u{1b}[?1002l\u{1b}[?1000l"
         Return leave + "\u{1b}[?2004l\u{1b}[?25h\u{1b}[?1049l"
     End Method
 
-    // An event, after a RESIZE has resized the Frame.
+    /// An event, after a RESIZE has resized the Frame.
     Method Track(event: InputEvent?): InputEvent?
         If event != Null && event.Kind == InputKind.RESIZE
             // A terminal that resizes to nothing has no cells. What the console writes again after

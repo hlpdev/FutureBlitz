@@ -1,19 +1,19 @@
-// Breakpoint and IsDebuggerAttached, for a program's own debugging: a breakpoint written in its
-// code, which stops in the debugger that's attached, and asking whether one is. Each asks the OS
-// through the runtime.
+//! Breakpoint and IsDebuggerAttached, for a program's own debugging: a breakpoint written in its
+//! code, which stops in the debugger that's attached, and asking whether one is. Each asks the OS
+//! through the runtime.
 
 Extern "runtime"
     Function fb_debug_attached(): Int32
     Function fb_debug_break()
 End Extern
 
-// Whether a debugger is attached to the program, as the OS says: Windows', macOS's, and Linux's
-// tell it, and another's is always False.
+/// Whether a debugger is attached to the program, as the OS says: Windows', macOS's, and Linux's
+/// tell it, and another's is always False.
 Public Function IsDebuggerAttached(): Bool => fb_debug_attached() != 0
 
-// Stops in the debugger that's attached, as a breakpoint set there would, and does nothing when
-// none is, so one left in a program that runs without a debugger doesn't end it, nor one that
-// runs under a tracer that hands the trap back, as strace does.
+/// Stops in the debugger that's attached, as a breakpoint set there would, and does nothing when
+/// none is, so one left in a program that runs without a debugger doesn't end it, nor one that
+/// runs under a tracer that hands the trap back, as strace does.
 Public Function Breakpoint()
     fb_debug_break()
 End Function

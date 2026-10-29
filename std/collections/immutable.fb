@@ -1,14 +1,14 @@
-// ImmutableArray<T>, ImmutableMap<K, V>, and ImmutableSet<T>: collections that never change, so
-// any thread can read one. A change gives a new collection, which shares all of the old one's
-// nodes but the ones on the way down to what changed, in a balanced tree, about log(Count) of
-// them. Their values are Sendable, as the collections are.
+//! `ImmutableArray<T>`, `ImmutableMap<K, V>`, and `ImmutableSet<T>`: collections that never change,
+//! so any thread can read one. A change gives a new collection, which shares all of the old one's
+//! nodes but the ones on the way down to what changed, in a balanced tree, about log(Count) of
+//! them. Their values are Sendable, as the collections are.
 
 Import std.core
 Import std.collections.array
 Import std.collections.map
 
-// A node of an ImmutableArray's tree: its values are its left child's, then Value, then its right
-// child's.
+/// A node of an ImmutableArray's tree: its values are its left child's, then Value, then its right
+/// child's.
 Shared Class ArrayNode<T: Sendable>
     ReadOnly Field Value: T
     ReadOnly Field Left: ArrayNode<T>?
@@ -25,20 +25,23 @@ Shared Class ArrayNode<T: Sendable>
     End New
 End Class
 
+/// An array that never changes: each change gives a new one, which shares what it can with the old,
+/// so threads can share it.
 @DebugElements
 Public Struct ImmutableArray<T: Sendable> Implements Iterable<T>, Defaultable, Sendable
     Field Root: ArrayNode<T>?
 
-    // An empty one.
+    /// An empty one.
     Public New()
     End New
 
-    // One with the values, in order, all read first.
+    /// One with the values, in order, all read first.
     Public Static Method From(values: Iterable<T>): ImmutableArray<T>
         Local all = values.Iterate().ToArray()
         Return Of(Built(all, 0, all.Count))
     End Method
 
+    /// How many values it holds.
     Public Property Count: Int
         Get => Root?.Size ?? 0
     End Property
@@ -60,17 +63,17 @@ Public Struct ImmutableArray<T: Sendable> Implements Iterable<T>, Defaultable, S
         End Loop
     End Operator
 
-    // A copy with value at index in place of what's there.
+    /// A copy with value at index in place of what's there.
     @PanicsAtCaller
     Public Method Set(index: Int, value: T): ImmutableArray<T>
         Check(index, Count)
         Return Of(Changed(Root.Expect("an ImmutableArray with values has a root"), index, value))
     End Method
 
-    // A copy with value added at the end.
+    /// A copy with value added at the end.
     Public Method Add(value: T): ImmutableArray<T> => Of(Inserted(Root, Count, value))
 
-    // A copy with each of the values added at the end, in order, all read first.
+    /// A copy with each of the values added at the end, in order, all read first.
     Public Method AddAll(values: Iterable<T>): ImmutableArray<T>
         Local added = Self
         For value In values.Iterate().ToArray()
@@ -79,8 +82,8 @@ Public Struct ImmutableArray<T: Sendable> Implements Iterable<T>, Defaultable, S
         Return added
     End Method
 
-    // A copy with value at index, moving what's there and after it along, where index is from 0
-    // to Count.
+    /// A copy with value at index, moving what's there and after it along, where index is from 0
+    /// to Count.
     @PanicsAtCaller
     Public Method Insert(index: Int, value: T): ImmutableArray<T>
         If index < 0 || index > Count
@@ -90,13 +93,14 @@ Public Struct ImmutableArray<T: Sendable> Implements Iterable<T>, Defaultable, S
         Return Of(Inserted(Root, index, value))
     End Method
 
-    // A copy without the value at index.
+    /// A copy without the value at index.
     @PanicsAtCaller
     Public Method RemoveAt(index: Int): ImmutableArray<T>
         Check(index, Count)
         Return Of(Removed(Root.Expect("an ImmutableArray with values has a root"), index))
     End Method
 
+    /// Whether it holds `value`.
     Public Method Contains(value: T): Bool
         Where T: Equatable
         For held In Self
@@ -105,7 +109,7 @@ Public Struct ImmutableArray<T: Sendable> Implements Iterable<T>, Defaultable, S
         Return False
     End Method
 
-    // The values, in order, in a new array.
+    /// The values, in order, in a new array.
     Public Method ToArray(): T[]
         Local values: T[] = []
         values.Reserve(Count)
@@ -115,10 +119,10 @@ Public Struct ImmutableArray<T: Sendable> Implements Iterable<T>, Defaultable, S
         Return values
     End Method
 
-    // An empty one.
+    /// An empty one.
     Public Static Method DefaultValue(): ImmutableArray<T> => ImmutableArray<T>()
 
-    // The values, in order.
+    /// The values, in order.
     Public Method Iterate(): ImmutableArrayIterator<T>
         Local iterator = ImmutableArrayIterator<T>(Null)
         iterator.Descend(Root)
@@ -138,7 +142,7 @@ Public Struct ImmutableArray<T: Sendable> Implements Iterable<T>, Defaultable, S
         End If
     End Method
 
-    // A balanced tree of the values from start up to finish.
+    /// A balanced tree of the values from start up to finish.
     Static Method Built(values: T[], start: Int, finish: Int): ArrayNode<T>?
         If start >= finish Then Return Null
         Local middle = start + (finish - start) / 2
@@ -196,8 +200,8 @@ Public Struct ImmutableArray<T: Sendable> Implements Iterable<T>, Defaultable, S
 
     Static Method HeightOf(node: ArrayNode<T>?): Int => node?.Height ?? 0
 
-    // A node with the value between left and right, whose heights differ by 2 at most, turned so
-    // its children's differ by 1 at most.
+    /// A node with the value between left and right, whose heights differ by 2 at most, turned so
+    /// its children's differ by 1 at most.
     Static Method Balanced(value: T, left: ArrayNode<T>?, right: ArrayNode<T>?): ArrayNode<T>
         If HeightOf(left) > HeightOf(right) + 1
             Local tall = left.Expect("the taller side has a node")
@@ -225,8 +229,8 @@ Public Struct ImmutableArray<T: Sendable> Implements Iterable<T>, Defaultable, S
     End Method
 End Struct
 
-// The nodes on the way down to an ImmutableArrayIterator's next value, the lowest first. A step
-// makes new ones rather than changing these, so a copy of the iterator keeps its place.
+/// The nodes on the way down to an ImmutableArrayIterator's next value, the lowest first. A step
+/// makes new ones rather than changing these, so a copy of the iterator keeps its place.
 Class ArrayPath<T: Sendable>
     ReadOnly Field Node: ArrayNode<T>
     ReadOnly Field Up: ArrayPath<T>?
@@ -237,7 +241,7 @@ Class ArrayPath<T: Sendable>
     End New
 End Class
 
-// An ImmutableArray's values in order: the nodes on the way down to the next one.
+/// An ImmutableArray's values in order: the nodes on the way down to the next one.
 Public Struct ImmutableArrayIterator<T: Sendable> Implements Iterator<T>
     Field Path: ArrayPath<T>?
 
@@ -249,7 +253,7 @@ Public Struct ImmutableArrayIterator<T: Sendable> Implements Iterator<T>
         Return path.Node.Value
     End Method
 
-    // Keeps node and each left child down from it, which come before it.
+    /// Keeps node and each left child down from it, which come before it.
     ByRef Method Descend(node: ArrayNode<T>?)
         Local at = node
         While at != Null
@@ -293,7 +297,7 @@ Extend ImmutableArray<T> Implements Printable
     Public Method ToString(): String => "{ToArray()}"
 End Extend
 
-// One of an ImmutableMap's entries, and the next whose key has the same hash.
+/// One of an ImmutableMap's entries, and the next whose key has the same hash.
 Shared Class HashEntry<K, V>
     Where K: Hashable
     Where K: Sendable
@@ -310,8 +314,8 @@ Shared Class HashEntry<K, V>
     End New
 End Class
 
-// A node of an ImmutableMap's tree, by hash: the entries whose keys have its Hash, in the order
-// they were added, with the smaller hashes to its left and the larger to its right.
+/// A node of an ImmutableMap's tree, by hash: the entries whose keys have its Hash, in the order
+/// they were added, with the smaller hashes to its left and the larger to its right.
 Shared Class HashNode<K, V>
     Where K: Hashable
     Where K: Sendable
@@ -332,6 +336,8 @@ Shared Class HashNode<K, V>
     End New
 End Class
 
+/// A Map that never changes: each change gives a new one, which shares what it can with the old, so
+/// threads can share it.
 @DebugEntries
 Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Sendable
     Where K: Hashable
@@ -341,12 +347,12 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
     Field Root: HashNode<K, V>?
     Field Size: Int
 
-    // An empty one.
+    /// An empty one.
     Public New()
     End New
 
-    // One with the entries, all read first, a later entry's value for a key taking the place of an
-    // earlier one's.
+    /// One with the entries, all read first, a later entry's value for a key taking the place of an
+    /// earlier one's.
     Public Static Method From(entries: Iterable<(K, V)>): ImmutableMap<K, V>
         Local made = ImmutableMap<K, V>()
         For entry In entries.Iterate().ToArray()
@@ -355,25 +361,26 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
         Return made
     End Method
 
+    /// How many entries it holds.
     Public Property Count: Int
         Get => Size
     End Property
 
-    // The key's value, or Null when it isn't there.
+    /// The key's value, or Null when it isn't there.
     Public Method Get(key: K): V?
         Local entry = EntryOf(key)
         If entry == Null Then Return Null
         Return entry.Value
     End Method
 
-    // The key's value, or fallback when it isn't there.
+    /// The key's value, or fallback when it isn't there.
     Public Method Get(key: K, fallback: V): V
         Local entry = EntryOf(key)
         If entry == Null Then Return fallback
         Return entry.Value
     End Method
 
-    // The key's value. A key that isn't there panics.
+    /// The key's value. A key that isn't there panics.
     @PanicsAtCaller
     Operator [](key: K): V
         Local entry = EntryOf(key)
@@ -381,15 +388,16 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
         Return entry.Value
     End Operator
 
+    /// Whether `key` has an entry.
     Public Method Contains(key: K): Bool => EntryOf(key) != Null
 
-    // A copy with the key's value, which takes the place of the one it has.
+    /// A copy with the key's value, which takes the place of the one it has.
     Public Method Add(key: K, value: V): ImmutableMap<K, V>
         Local put = Put(Root, key.Hash(), key, value)
         Return Of(put.0, put.1 ? Size + 1 : Size)
     End Method
 
-    // A copy with each of the entries added in turn, as Add adds one, all read first.
+    /// A copy with each of the entries added in turn, as Add adds one, all read first.
     Public Method AddAll(entries: Iterable<(K, V)>): ImmutableMap<K, V>
         Local added = Self
         For entry In entries.Iterate().ToArray()
@@ -398,13 +406,13 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
         Return added
     End Method
 
-    // A copy without the key's entry, or the same one when it has none.
+    /// A copy without the key's entry, or the same one when it has none.
     Public Method Remove(key: K): ImmutableMap<K, V>
         If !Contains(key) Then Return Self
         Return Of(Deleted(Root, key.Hash(), key), Size - 1)
     End Method
 
-    // The keys, in the order the entries go in.
+    /// The keys, in the order the entries go in.
     Public Method Keys(): K[]
         Local keys: K[] = []
         keys.Reserve(Size)
@@ -414,7 +422,7 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
         Return keys
     End Method
 
-    // The values, in their keys' order.
+    /// The values, in their keys' order.
     Public Method Values(): V[]
         Local values: V[] = []
         values.Reserve(Size)
@@ -424,7 +432,7 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
         Return values
     End Method
 
-    // A new Map with the same entries, in the same order.
+    /// A new Map with the same entries, in the same order.
     Public Method ToMap(): Map<K, V>
         Local map = Map<K, V>()
         map.Reserve(Size)
@@ -434,18 +442,18 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
         Return map
     End Method
 
-    // An empty one.
+    /// An empty one.
     Public Static Method DefaultValue(): ImmutableMap<K, V> => ImmutableMap<K, V>()
 
-    // Each key and its value, for 'For key, value In map', by their keys' hashes, and keys of one
-    // hash in the order they were added.
+    /// Each key and its value, for 'For key, value In map', by their keys' hashes, and keys of one
+    /// hash in the order they were added.
     Public Method Iterate(): ImmutableMapIterator<K, V>
         Local iterator = ImmutableMapIterator<K, V>(Null, Null)
         iterator.Descend(Root)
         Return iterator
     End Method
 
-    // The key's entry, or Null.
+    /// The key's entry, or Null.
     Method EntryOf(key: K): HashEntry<K, V>?
         Local hash = key.Hash()
         Local node = Root
@@ -473,7 +481,7 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
         Return made
     End Method
 
-    // The tree under node with the key's value, and whether the key is new.
+    /// The tree under node with the key's value, and whether the key is new.
     Static Method Put(node: HashNode<K, V>?, hash: UInt64, key: K, value: V): (HashNode<K, V>, Bool)
         If node == Null
             Return (HashNode<K, V>(hash, HashEntry<K, V>(key, value, Null), Null, Null), True)
@@ -507,7 +515,7 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
                                node.Left, node.Right), entry == Null)
     End Method
 
-    // The tree under node, which has the key, without it.
+    /// The tree under node, which has the key, without it.
     Static Method Deleted(node: HashNode<K, V>?, hash: UInt64, key: K): HashNode<K, V>?
         Local at = node.Expect("an ImmutableMap's tree has the key it deletes")
         If hash < at.Hash
@@ -545,8 +553,8 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
         Return Balanced(next.Hash, next.Entries, left, WithoutFirst(right))
     End Method
 
-    // New entries with the keys and values of before, in order, then rest, which mustn't be Null
-    // when before is empty.
+    /// New entries with the keys and values of before, in order, then rest, which mustn't be Null
+    /// when before is empty.
     Static Method Chained(before: HashEntry<K, V>[], rest: HashEntry<K, V>?): HashEntry<K, V>
         Local chain = rest
         For i = before.Count - 1 To 0 Step -1
@@ -555,7 +563,7 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
         Return chain.Expect("a node's entries aren't empty")
     End Method
 
-    // The tree under node without its first node.
+    /// The tree under node without its first node.
     Static Method WithoutFirst(node: HashNode<K, V>): HashNode<K, V>?
         Local left = node.Left
         If left == Null Then Return node.Right
@@ -564,8 +572,8 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
 
     Static Method HeightOf(node: HashNode<K, V>?): Int => node?.Height ?? 0
 
-    // A node with the entries between left and right, whose heights differ by 2 at most, turned so
-    // its children's differ by 1 at most.
+    /// A node with the entries between left and right, whose heights differ by 2 at most, turned so
+    /// its children's differ by 1 at most.
     Static Method Balanced(hash: UInt64, entries: HashEntry<K, V>, left: HashNode<K, V>?,
                            right: HashNode<K, V>?): HashNode<K, V>
         If HeightOf(left) > HeightOf(right) + 1
@@ -598,8 +606,8 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
     End Method
 End Struct
 
-// The nodes on the way down to an ImmutableMapIterator's next one, the lowest first. A step makes
-// new ones rather than changing these, so a copy of the iterator keeps its place.
+/// The nodes on the way down to an ImmutableMapIterator's next one, the lowest first. A step makes
+/// new ones rather than changing these, so a copy of the iterator keeps its place.
 Class HashPath<K, V>
     Where K: Hashable
     Where K: Sendable
@@ -614,7 +622,7 @@ Class HashPath<K, V>
     End New
 End Class
 
-// An ImmutableMap's entries: the nodes on the way down to the next one, and the entry it's at.
+/// An ImmutableMap's entries: the nodes on the way down to the next one, and the entry it's at.
 Public Struct ImmutableMapIterator<K, V> Implements Iterator<(K, V)>
     Where K: Hashable
     Where K: Sendable
@@ -637,7 +645,7 @@ Public Struct ImmutableMapIterator<K, V> Implements Iterator<(K, V)>
         Return (entry.Key, entry.Value)
     End Method
 
-    // Keeps node and each left child down from it, which come before it.
+    /// Keeps node and each left child down from it, which come before it.
     ByRef Method Descend(node: HashNode<K, V>?)
         Local at = node
         While at != Null
@@ -688,6 +696,8 @@ Extend ImmutableMap<K, V> Implements Printable
     End Method
 End Extend
 
+/// A Set that never changes: each change gives a new one, which shares what it can with the old, so
+/// threads can share it.
 @DebugElements
 Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Hashable
     Where T: Hashable
@@ -695,11 +705,11 @@ Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Has
 
     Field Items: ImmutableMap<T, Bool>
 
-    // An empty one.
+    /// An empty one.
     Public New()
     End New
 
-    // One with the values, all read first.
+    /// One with the values, all read first.
     Public Static Method From(values: Iterable<T>): ImmutableSet<T>
         Local made = ImmutableSet<T>()
         For value In values.Iterate().ToArray()
@@ -708,13 +718,15 @@ Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Has
         Return made
     End Method
 
+    /// How many values it holds.
     Public Property Count: Int
         Get => Items.Count
     End Property
 
+    /// Whether it holds `value`.
     Public Method Contains(value: T): Bool => Items.Contains(value)
 
-    // A copy with the value, or the same one when it has it.
+    /// A copy with the value, or the same one when it has it.
     Public Method Add(value: T): ImmutableSet<T>
         If Contains(value) Then Return Self
         Local made = ImmutableSet<T>()
@@ -722,7 +734,7 @@ Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Has
         Return made
     End Method
 
-    // A copy with each of the values added, all read first.
+    /// A copy with each of the values added, all read first.
     Public Method AddAll(values: Iterable<T>): ImmutableSet<T>
         Local added = Self
         For value In values.Iterate().ToArray()
@@ -731,29 +743,30 @@ Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Has
         Return added
     End Method
 
-    // A copy without the value, or the same one when it hasn't got it.
+    /// A copy without the value, or the same one when it hasn't got it.
     Public Method Remove(value: T): ImmutableSet<T>
         Local made = ImmutableSet<T>()
         made.Items = Items.Remove(value)
         Return made
     End Method
 
-    // The values, in a new array, in the order they go in.
+    /// The values, in a new array, in the order they go in.
     Public Method ToArray(): T[] => Items.Keys()
 
-    // An empty one.
+    /// An empty one.
     Public Static Method DefaultValue(): ImmutableSet<T> => ImmutableSet<T>()
 
-    // Two ImmutableSets are equal when they have the same values.
+    /// Two ImmutableSets are equal when they have the same values.
     Operator ==(a: ImmutableSet<T>, b: ImmutableSet<T>): Bool => a.Items == b.Items
 
-    // Equal ImmutableSets have equal hashes, whatever order their values go in.
+    /// Equal ImmutableSets have equal hashes, whatever order their values go in.
     Public Method Hash(): UInt64 => Items.Hash()
 
-    // The values, by their hashes, and values of one hash in the order they were added.
+    /// The values, by their hashes, and values of one hash in the order they were added.
     Public Method Iterate(): ImmutableSetIterator<T> => ImmutableSetIterator<T>(Items.Iterate())
 End Struct
 
+/// The values of an ImmutableSet, which For ... In goes over.
 Public Struct ImmutableSetIterator<T> Implements Iterator<T>
     Where T: Hashable
     Where T: Sendable

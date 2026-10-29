@@ -1,6 +1,6 @@
-// Hmac, Hkdf, and Pbkdf2, over mbedTLS: a MAC, which a key makes and checks, a key from other key
-// material, and a key from a password: HMAC and PBKDF2 by SHA-1, SHA-256, or SHA-512, and HKDF by
-// SHA-256 or SHA-512.
+//! Hmac, Hkdf, and Pbkdf2, over mbedTLS: a MAC, which a key makes and checks, a key from other key
+//! material, and a key from a password: HMAC and PBKDF2 by SHA-1, SHA-256, or SHA-512, and HKDF by
+//! SHA-256 or SHA-512.
 
 Import std.core
 
@@ -12,51 +12,54 @@ Extern "runtime"
                               iterations: Int64, length: Int64, output: UInt8[])
 End Extern
 
-// The runtime's numbers for the hashes.
+/// The runtime's numbers for the hashes.
 Const SHA1 = 2
 Const SHA256 = 3
 Const SHA512 = 4
 
-// HMAC (RFC 2104) of data with key, of any length: a MAC as long as its hash, which only who has
-// the key can make. Check one with ConstantTimeEquals.
+/// HMAC (RFC 2104) of data with key, of any length: a MAC as long as its hash, which only who has
+/// the key can make. Check one with ConstantTimeEquals.
 Public Struct Hmac
-    // Hmac isn't made: it's only its Static Methods.
+    /// Hmac isn't made: it's only its Static Methods.
     New()
     End New
 
-    // HMAC-SHA1's 20 bytes, for the formats that ask for it.
+    /// HMAC-SHA1's 20 bytes, for the formats that ask for it.
     Public Static Method Sha1(key: UInt8[], data: UInt8[]): UInt8[] => MacOf(SHA1, key, data)
+    /// HMAC-SHA1 of `text`'s UTF-8 bytes with `key`.
     Public Static Method Sha1(key: UInt8[], text: String): UInt8[] => MacOf(SHA1, key, text.Bytes)
 
-    // HMAC-SHA256's 32 bytes.
+    /// HMAC-SHA256's 32 bytes.
     Public Static Method Sha256(key: UInt8[], data: UInt8[]): UInt8[] => MacOf(SHA256, key, data)
+    /// HMAC-SHA256 of `text`'s UTF-8 bytes with `key`.
     Public Static Method Sha256(key: UInt8[], text: String): UInt8[]
         Return MacOf(SHA256, key, text.Bytes)
     End Method
 
-    // HMAC-SHA512's 64 bytes.
+    /// HMAC-SHA512's 64 bytes.
     Public Static Method Sha512(key: UInt8[], data: UInt8[]): UInt8[] => MacOf(SHA512, key, data)
+    /// HMAC-SHA512 of `text`'s UTF-8 bytes with `key`.
     Public Static Method Sha512(key: UInt8[], text: String): UInt8[]
         Return MacOf(SHA512, key, text.Bytes)
     End Method
 End Struct
 
-// HKDF (RFC 5869): length bytes of new key from material, a secret like a shared one from X25519,
-// with salt, which can be empty, and info, which says what the key is for, so keys for different
-// uses differ.
+/// HKDF (RFC 5869): length bytes of new key from material, a secret like a shared one from X25519,
+/// with salt, which can be empty, and info, which says what the key is for, so keys for different
+/// uses differ.
 Public Struct Hkdf
-    // Hkdf isn't made: it's only its Static Methods.
+    /// Hkdf isn't made: it's only its Static Methods.
     New()
     End New
 
-    // By SHA-256. Panics unless length is from 0 to 8160, 255 hashes.
+    /// By SHA-256. Panics unless length is from 0 to 8160, 255 hashes.
     @PanicsAtCaller
     Public Static Method Sha256(material: UInt8[], salt: UInt8[], info: UInt8[],
                                 length: Int): UInt8[]
         Return HkdfOf(SHA256, 32, material, salt, info, length)
     End Method
 
-    // By SHA-512. Panics unless length is from 0 to 16320, 255 hashes.
+    /// By SHA-512. Panics unless length is from 0 to 16320, 255 hashes.
     @PanicsAtCaller
     Public Static Method Sha512(material: UInt8[], salt: UInt8[], info: UInt8[],
                                 length: Int): UInt8[]
@@ -64,48 +67,51 @@ Public Struct Hkdf
     End Method
 End Struct
 
-// PBKDF2 (RFC 8018) with HMAC: length bytes of key from password and salt, in iterations
-// rounds, which make a guess at the password cost that many. For keeping passwords, Argon2id is
-// stronger, since it needs memory too. Each panics unless iterations is 1 or more and length isn't
-// negative.
+/// PBKDF2 (RFC 8018) with HMAC: length bytes of key from password and salt, in iterations
+/// rounds, which make a guess at the password cost that many. For keeping passwords, Argon2id is
+/// stronger, since it needs memory too. Each panics unless iterations is 1 or more and length isn't
+/// negative.
 Public Struct Pbkdf2
-    // Pbkdf2 isn't made: it's only its Static Methods.
+    /// Pbkdf2 isn't made: it's only its Static Methods.
     New()
     End New
 
-    // By SHA-1, for the formats that ask for it.
+    /// By SHA-1, for the formats that ask for it.
     @PanicsAtCaller
     Public Static Method Sha1(password: String, salt: UInt8[], iterations: Int,
                               length: Int): UInt8[]
         Return Pbkdf2Of(SHA1, password.Bytes, salt, iterations, length)
     End Method
 
+    /// A key derived from the bytes of `password` by SHA-1, as the one that takes a String does.
     @PanicsAtCaller
     Public Static Method Sha1(password: UInt8[], salt: UInt8[], iterations: Int,
                               length: Int): UInt8[]
         Return Pbkdf2Of(SHA1, password, salt, iterations, length)
     End Method
 
-    // By SHA-256.
+    /// By SHA-256.
     @PanicsAtCaller
     Public Static Method Sha256(password: String, salt: UInt8[], iterations: Int,
                                 length: Int): UInt8[]
         Return Pbkdf2Of(SHA256, password.Bytes, salt, iterations, length)
     End Method
 
+    /// A key derived from the bytes of `password` by SHA-256, as the one that takes a String does.
     @PanicsAtCaller
     Public Static Method Sha256(password: UInt8[], salt: UInt8[], iterations: Int,
                                 length: Int): UInt8[]
         Return Pbkdf2Of(SHA256, password, salt, iterations, length)
     End Method
 
-    // By SHA-512.
+    /// By SHA-512.
     @PanicsAtCaller
     Public Static Method Sha512(password: String, salt: UInt8[], iterations: Int,
                                 length: Int): UInt8[]
         Return Pbkdf2Of(SHA512, password.Bytes, salt, iterations, length)
     End Method
 
+    /// A key derived from the bytes of `password` by SHA-512, as the one that takes a String does.
     @PanicsAtCaller
     Public Static Method Sha512(password: UInt8[], salt: UInt8[], iterations: Int,
                                 length: Int): UInt8[]

@@ -1,8 +1,8 @@
-// Font: a TrueType or OpenType font, read by the runtime itself, which checks each offset in it
-// before it follows it, so a broken font or one made to mislead is an IOError, or draws boxes,
-// but never reads past its bytes: its glyphs' outlines, TrueType's, simple and composite, or
-// CFF's, cmap's formats 4 and 12, and kern's kerning, from bytes or a file. Its sizes are in
-// pixels an em; a Canvas's FillText draws its text.
+//! Font: a TrueType or OpenType font, read by the runtime itself, which checks each offset in it
+//! before it follows it, so a broken font or one made to mislead is an IOError, or draws boxes,
+//! but never reads past its bytes: its glyphs' outlines, TrueType's, simple and composite, or
+//! CFF's, cmap's formats 4 and 12, and kern's kerning, from bytes or a file. Its sizes are in
+//! pixels an em; a Canvas's FillText draws its text.
 
 Import std.core
 Import std.io.file
@@ -23,6 +23,7 @@ Package Extern "runtime"
     Function fb_font_width(font: Ptr<Void>, text: String, size: Float64): Float64
 End Extern
 
+/// A TrueType or OpenType font, whose glyphs a Canvas draws text with.
 Public Class Font
     Package Field State: Ptr<Void>
 
@@ -30,9 +31,9 @@ Public Class Font
         State = state
     End New
 
-    // The font in data, a font file or a collection's first font. Throws an IOError of
-    // INVALID_DATA when it isn't one, or is broken, and of OTHER when it's a kind std.image
-    // doesn't read, like one of CFF2's outlines.
+    /// The font in data, a font file or a collection's first font. Throws an IOError of
+    /// INVALID_DATA when it isn't one, or is broken, and of OTHER when it's a kind std.image
+    /// doesn't read, like one of CFF2's outlines.
     Public Static Method Parse(data: UInt8[]): Font Throws IOError
         Local state = fb_font_parse(data)
         Local error = fb_font_error(state)
@@ -48,68 +49,68 @@ Public Class Font
         Return Font(state)
     End Method
 
-    // The font in the file at `path`, which Parse reads from its bytes. Throws the IOError
-    // File.ReadBytes does for a file that can't be read, and Parse's, its Path the file's, for one
-    // it can't read a font of.
+    /// The font in the file at `path`, which Parse reads from its bytes. Throws the IOError
+    /// File.ReadBytes does for a file that can't be read, and Parse's, its Path the file's, for one
+    /// it can't read a font of.
     Public Static Method Load(path: Path): Font Throws IOError
         Return Try FontFrom(Try File.ReadBytes(path), path)
     End Method
 
-    // Load's Async twin, which reads the file on libuv's thread pool while the thread that called
-    // it goes on, and parses it there once the Await resumes.
+    /// Load's Async twin, which reads the file on libuv's thread pool while the thread that called
+    /// it goes on, and parses it there once the Await resumes.
     Public Static Async Method LoadAsync(path: Path): Font Throws IOError
         Return Try FontFrom(Try Await File.ReadBytesAsync(path), path)
     End Method
 
-    // The units its glyphs are in, an em of them.
+    /// The units its glyphs are in, an em of them.
     Public Property UnitsPerEm: Int
         Get => fb_font_units(State)
     End Property
 
-    // How far its glyphs go above the baseline, at `size` pixels an em. Panics when the size
-    // isn't finite or is negative, as each of its metrics does.
+    /// How far its glyphs go above the baseline, at `size` pixels an em. Panics when the size
+    /// isn't finite or is negative, as each of its metrics does.
     @PanicsAtCaller
     Public Method Ascent(size: Float): Float
         Return Scaled(fb_font_ascent(State), size)
     End Method
 
-    // How far its glyphs go below the baseline, at `size` pixels an em, above 0.
+    /// How far its glyphs go below the baseline, at `size` pixels an em, above 0.
     @PanicsAtCaller
     Public Method Descent(size: Float): Float
         Return Scaled(-fb_font_descent(State), size)
     End Method
 
-    // The gap between one line's descent and the next one's ascent, at `size` pixels an em.
+    /// The gap between one line's descent and the next one's ascent, at `size` pixels an em.
     @PanicsAtCaller
     Public Method LineGap(size: Float): Float
         Return Scaled(fb_font_line_gap(State), size)
     End Method
 
-    // How far apart its lines' baselines are, at `size` pixels an em: its ascent, descent, and
-    // line gap.
+    /// How far apart its lines' baselines are, at `size` pixels an em: its ascent, descent, and
+    /// line gap.
     @PanicsAtCaller
     Public Method LineHeight(size: Float): Float
         Return Scaled(fb_font_ascent(State) - fb_font_descent(State) + fb_font_line_gap(State),
                       size)
     End Method
 
-    // How wide the text is at `size` pixels an em, its widest line's, as FillText lays it out:
-    // each glyph's advance and the kerning between them. Panics when the size isn't finite or is
-    // negative.
+    /// How wide the text is at `size` pixels an em, its widest line's, as FillText lays it out:
+    /// each glyph's advance and the kerning between them. Panics when the size isn't finite or is
+    /// negative.
     @PanicsAtCaller
     Public Method Width(text: String, size: Float): Float
         CheckSize(size)
         Return fb_font_width(State, text, size) As Float
     End Method
 
-    // Whether it has a glyph for the code point, rather than its .notdef, which draws in its
-    // place.
+    /// Whether it has a glyph for the code point, rather than its .notdef, which draws in its
+    /// place.
     Public Method HasGlyph(codePoint: Int): Bool
         If codePoint < 0 Then Return False
         Return fb_font_has(State, codePoint As UInt32) != 0
     End Method
 
-    // Font units at `size` pixels an em. Panics when the size isn't finite or is negative.
+    /// Font units at `size` pixels an em. Panics when the size isn't finite or is negative.
     @PanicsAtCaller
     Method Scaled(units: Int32, size: Float): Float
         CheckSize(size)
@@ -121,7 +122,7 @@ Public Class Font
     End Method
 End Class
 
-// Panics when a size of text isn't finite, or is negative.
+/// Panics when a size of text isn't finite, or is negative.
 @PanicsAtCaller
 Package Function CheckSize(size: Float)
     If !IsFinite(size) || size < 0
@@ -129,7 +130,7 @@ Package Function CheckSize(size: Float)
     End If
 End Function
 
-// The font Parse reads from the file's bytes, its IOError naming the file.
+/// The font Parse reads from the file's bytes, its IOError naming the file.
 Function FontFrom(data: UInt8[], path: Path): Font Throws IOError
     Try
         Return Font.Parse(data)

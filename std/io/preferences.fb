@@ -1,5 +1,5 @@
-// std.io's preferences: a program's settings, kept between its runs in the folder each OS keeps
-// its users' programs' settings in, in a file of the program's own, which a save replaces whole.
+//! std.io's preferences: a program's settings, kept between its runs in the folder each OS keeps
+//! its users' programs' settings in, in a file of the program's own, which a save replaces whole.
 
 Import std.collections.array
 Import std.collections.map
@@ -18,26 +18,27 @@ Const EQUALS: UInt8 = 61
 Const HASH: UInt8 = 35
 Const SPACE: UInt8 = 32
 
-// A program's settings, by name, kept in <folder>/<app>/preferences.txt, where the folder is the
-// OS's for its users' settings (Windows' %APPDATA%, macOS's ~/Library/Application Support, and
-// elsewhere $XDG_CONFIG_HOME or ~/.config) unless one's given. Nothing is written until Save,
-// which writes them atomically; IsChanged says whether there's something to save. The file is
-// UTF-8 text a person can read and change: a "key=value" line for each setting, with "\\", "\n",
-// and "\r" for a backslash, a line break, and a carriage return in both, "\=" for an '=' in a
-// key and "\#" for a '#' at its start; a line that starts with '#', or has no '=', is skipped,
-// and so is a byte order mark an editor writes before the first.
+/// A program's settings, by name, kept in <folder>/<app>/preferences.txt, where the folder is the
+/// OS's for its users' settings (Windows' %APPDATA%, macOS's ~/Library/Application Support, and
+/// elsewhere $XDG_CONFIG_HOME or ~/.config) unless one's given. Nothing is written until Save,
+/// which writes them atomically; IsChanged says whether there's something to save. The file is
+/// UTF-8 text a person can read and change: a "key=value" line for each setting, with "\\", "\n",
+/// and "\r" for a backslash, a line break, and a carriage return in both, "\=" for an '=' in a
+/// key and "\#" for a '#' at its start; a line that starts with '#', or has no '=', is skipped,
+/// and so is a byte order mark an editor writes before the first.
 Public Class Preferences
+    /// The program the preferences are for.
     Public ReadOnly Field App: String
-    // The file they're kept in.
+    /// The file they're kept in.
     Public ReadOnly Field Location: Path
     Field Values: Map<String, String>
     Field Changed: Bool
-    // How many changes there have been, so a save knows whether one came while it wrote.
+    /// How many changes there have been, so a save knows whether one came while it wrote.
     Field Version: Int64
 
-    // The program `app`'s preferences, read from the OS's folder for them, or none when there's
-    // no file yet. Panics for an app's name that can't be a file's, and throws an IOError when the
-    // OS doesn't say where its folder is, or the file can't be read.
+    /// The program `app`'s preferences, read from the OS's folder for them, or none when there's
+    /// no file yet. Panics for an app's name that can't be a file's, and throws an IOError when the
+    /// OS doesn't say where its folder is, or the file can't be read.
     @PanicsAtCaller
     Public New(app: String) Throws IOError
         CheckApp(app)
@@ -46,8 +47,8 @@ Public Class Preferences
         Values = Try Loaded(Location)
     End New
 
-    // The preferences of `app` kept in `folder` in place of the OS's folder, as tests keep theirs
-    // in a temporary folder.
+    /// The preferences of `app` kept in `folder` in place of the OS's folder, as tests keep theirs
+    /// in a temporary folder.
     @PanicsAtCaller
     Public New(app: String, folder: Path) Throws IOError
         CheckApp(app)
@@ -62,12 +63,13 @@ Public Class Preferences
         Values = values
     End New
 
-    // The OS's folder for its users' programs' settings, which Preferences keep theirs in: Windows'
-    // %APPDATA%, macOS's ~/Library/Application Support, and elsewhere $XDG_CONFIG_HOME when it's
-    // a path from the root, or ~/.config. Throws an IOError of OTHER when the OS doesn't say.
+    /// The OS's folder for its users' programs' settings, which Preferences keep theirs in:
+    /// Windows' %APPDATA%, macOS's ~/Library/Application Support, and elsewhere $XDG_CONFIG_HOME
+    /// when it's a path from the root, or ~/.config. Throws an IOError of OTHER when the OS doesn't
+    /// say.
     Public Static Method Folder(): Path Throws IOError => Try ConfigFolder()
 
-    // New's Async twin, which reads the file without blocking the main thread.
+    /// New's Async twin, which reads the file without blocking the main thread.
     @PanicsAtCaller
     Public Static Async Method OpenAsync(app: String): Preferences Throws IOError
         CheckApp(app)
@@ -75,6 +77,7 @@ Public Class Preferences
         Return Preferences(app, file, Try Await LoadedAsync(file))
     End Method
 
+    /// New's Async twin, for `folder`, which reads the file without blocking the main thread.
     @PanicsAtCaller
     Public Static Async Method OpenAsync(app: String, folder: Path): Preferences Throws IOError
         CheckApp(app)
@@ -82,89 +85,93 @@ Public Class Preferences
         Return Preferences(app, file, Try Await LoadedAsync(file))
     End Method
 
-    // The setting `key`, or Null when there's none.
+    /// The setting `key`, or Null when there's none.
     Public Method Get(key: String): String? => Values.Get(key)
 
-    // The setting `key`, or `fallback` when there's none.
+    /// The setting `key`, or `fallback` when there's none.
     Public Method Get(key: String, fallback: String): String => Values.Get(key, fallback)
 
-    // The setting `key` as an integer, as Int64.Parse reads it, or Null when there's none, or it
-    // isn't one.
+    /// The setting `key` as an integer, as Int64.Parse reads it, or Null when there's none, or it
+    /// isn't one.
     Public Method GetInt(key: String): Int64?
         Local text = Values.Get(key)
         Return text == Null ? Null : Int64.Parse(text)
     End Method
 
-    // The setting `key` as an integer, or `fallback` when there's none, or it isn't one.
+    /// The setting `key` as an integer, or `fallback` when there's none, or it isn't one.
     Public Method GetInt(key: String, fallback: Int64): Int64 => GetInt(key) ?? fallback
 
-    // The setting `key` as a Double, as Double.Parse reads it, or Null when there's none, or it
-    // isn't one.
+    /// The setting `key` as a Double, as Double.Parse reads it, or Null when there's none, or it
+    /// isn't one.
     Public Method GetDouble(key: String): Double?
         Local text = Values.Get(key)
         Return text == Null ? Null : Double.Parse(text)
     End Method
 
+    /// The setting `key` as a Double, or `fallback` when there's none, or it isn't one.
     Public Method GetDouble(key: String, fallback: Double): Double => GetDouble(key) ?? fallback
 
-    // The setting `key` as a Bool, "True" or "False", or Null when there's none, or it's another.
+    /// The setting `key` as a Bool, "True" or "False", or Null when there's none, or it's another.
     Public Method GetBool(key: String): Bool?
         Local text = Values.Get(key)
         Return text == Null ? Null : Bool.Parse(text)
     End Method
 
+    /// The setting `key` as a Bool, or `fallback` when there's none, or it's another.
     Public Method GetBool(key: String, fallback: Bool): Bool => GetBool(key) ?? fallback
 
-    // Sets `key` to `value`, which Save keeps.
+    /// Sets `key` to `value`, which Save keeps.
     Public Method Set(key: String, value: String)
         If Values.Get(key) == value Then Return
         Values[key] = value
         Change()
     End Method
 
-    // Sets `key` to the integer's text, which GetInt reads back.
+    /// Sets `key` to the integer's text, which GetInt reads back.
     Public Method SetInt(key: String, value: Int64)
         Set(key, "{value}")
     End Method
 
-    // Sets `key` to the Double's text, the shortest that reads back as it, which GetDouble does,
-    // NaN and the infinities too.
+    /// Sets `key` to the Double's text, the shortest that reads back as it, which GetDouble does,
+    /// NaN and the infinities too.
     Public Method SetDouble(key: String, value: Double)
         Set(key, "{value}")
     End Method
 
-    // Sets `key` to "True" or "False", which GetBool reads back.
+    /// Sets `key` to "True" or "False", which GetBool reads back.
     Public Method SetBool(key: String, value: Bool)
         Set(key, "{value}")
     End Method
 
-    // Takes out the setting `key`, and gives whether there was one.
+    /// Takes out the setting `key`, and gives whether there was one.
     Public Method Remove(key: String): Bool
         If !Values.Remove(key) Then Return False
         Change()
         Return True
     End Method
 
+    /// Whether there's a setting `key`.
     Public Method Contains(key: String): Bool => Values.Contains(key)
 
-    // The settings' names, in the order they were set, where one that's taken out and set again
-    // goes last, and in the file's order after a read.
+    /// The settings' names, in the order they were set, where one that's taken out and set again
+    /// goes last, and in the file's order after a read.
     Public Method Keys(): String[] => Values.Keys()
 
+    /// How many settings there are.
     Public Method Count(): Int => Values.Count
 
-    // Whether they've changed since they were read or saved.
+    /// Whether they've changed since they were read or saved.
     Public Method IsChanged(): Bool => Changed
 
-    // Takes out every setting.
+    /// Takes out every setting.
     Public Method Clear()
         If Values.Count == 0 Then Return
         Values.Clear()
         Change()
     End Method
 
-    // Writes the settings to their file, making its folder when it isn't there, atomically, so it
-    // holds either all of them or what it held before.
+    /// Writes the settings to their file, making its folder when it isn't there, atomically, so it
+    /// holds either all of them or what it held before.
     Public Method Save() Throws IOError
         Try Dir.CreateAll(Location.Parent())
         Local saving = Version
@@ -172,7 +179,7 @@ Public Class Preferences
         If Version == saving Then Changed = False
     End Method
 
-    // Save's Async twin. A change made while it writes isn't in the file, so IsChanged stays True.
+    /// Save's Async twin. A change made while it writes isn't in the file, so IsChanged stays True.
     Public Async Method SaveAsync() Throws IOError
         Try Await Dir.CreateAllAsync(Location.Parent())
         Local saving = Version
@@ -186,7 +193,7 @@ Public Class Preferences
     End Method
 End Class
 
-// The OS's folder for its users' programs' settings.
+/// The OS's folder for its users' programs' settings.
 Function ConfigFolder(): Path Throws IOError
     Local folder = fb_io_dir_config()
     If folder == Null
@@ -196,10 +203,10 @@ Function ConfigFolder(): Path Throws IOError
     Return Path(folder)
 End Function
 
-// Panics unless `app` can be a file's name on every OS: one of 1 to 255 bytes, not "." or "..",
-// without a separator, a NUL or another control character, or what else Windows doesn't take in
-// a name, not ending with a '.' or a space, which Windows drops, and not a name Windows keeps for
-// a device, like "nul" or "COM1.txt".
+/// Panics unless `app` can be a file's name on every OS: one of 1 to 255 bytes, not "." or "..",
+/// without a separator, a NUL or another control character, or what else Windows doesn't take in
+/// a name, not ending with a '.' or a space, which Windows drops, and not a name Windows keeps for
+/// a device, like "nul" or "COM1.txt".
 @PanicsAtCaller
 Function CheckApp(app: String)
     Local bytes = app.Bytes
@@ -219,8 +226,8 @@ Function CheckApp(app: String)
     End If
 End Function
 
-// Whether a name is one Windows keeps for a device, in any case, alone or before an extension:
-// CON, PRN, AUX, NUL, and COM and LPT with a digit, or with a superscript 1, 2, or 3.
+/// Whether a name is one Windows keeps for a device, in any case, alone or before an extension:
+/// CON, PRN, AUX, NUL, and COM and LPT with a digit, or with a superscript 1, 2, or 3.
 Function IsDevice(name: UInt8[]): Bool
     Local stem: UInt8[] = []
     For byte In name
@@ -243,8 +250,8 @@ Function IsDevice(name: UInt8[]): Bool
             number == "\u{B2}" || number == "\u{B3}")
 End Function
 
-// The settings in the file, or none when it isn't there, as it can't be when a file is where its
-// folder goes.
+/// The settings in the file, or none when it isn't there, as it can't be when a file is where its
+/// folder goes.
 Function Loaded(file: Path): Map<String, String> Throws IOError
     Try
         Return ValuesOf(File.ReadLines(file))
@@ -263,13 +270,13 @@ Async Function LoadedAsync(file: Path): Map<String, String> Throws IOError
     End Try
 End Function
 
-// Whether a read's IOError says there's no file: Windows says NOT_FOUND where a file is in the
-// way of its folder, and POSIX NOT_A_DIRECTORY.
+/// Whether a read's IOError says there's no file: Windows says NOT_FOUND where a file is in the
+/// way of its folder, and POSIX NOT_A_DIRECTORY.
 Function NoFile(e: IOError): Bool
     Return e.Kind == IOErrorKind.NOT_FOUND || e.Kind == IOErrorKind.NOT_A_DIRECTORY
 End Function
 
-// The settings a file's lines hold.
+/// The settings a file's lines hold.
 Function ValuesOf(lines: String[]): Map<String, String>
     Local values = Map<String, String>()
     For i = 0 Until lines.Count
@@ -303,7 +310,7 @@ Function ValuesOf(lines: String[]): Map<String, String>
     Return values
 End Function
 
-// The text that keeps `app`'s settings.
+/// The text that keeps `app`'s settings.
 Function TextOf(app: String, values: Map<String, String>): String
     Local lines = ["# {Escaped(app, False)}'s preferences, which std.io's Preferences keeps"]
     For key, value In values
@@ -325,8 +332,8 @@ Function TextOf(app: String, values: Map<String, String>): String
     Return joined[0] + "\n"
 End Function
 
-// `text` with its backslashes, line breaks, and carriage returns escaped, and a key's '='s and
-// '#' at its start.
+/// `text` with its backslashes, line breaks, and carriage returns escaped, and a key's '='s and
+/// '#' at its start.
 Function Escaped(text: String, key: Bool): String
     Local bytes: UInt8[] = []
     Local first = True
@@ -349,7 +356,7 @@ Function Escaped(text: String, key: Bool): String
     Return TextOfBytes(bytes)
 End Function
 
-// Escaped's text back as it was. A backslash before anything else stays as it is.
+/// Escaped's text back as it was. A backslash before anything else stays as it is.
 Function Unescaped(bytes: UInt8[]): String
     Local text: UInt8[] = []
     Local at = 0

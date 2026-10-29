@@ -1,6 +1,6 @@
-// std.net's addresses: IpAddress, an IPv4 or IPv6 address, read from and written as its text,
-// with what kind of address it is, and SocketAddress, one with a port, which sockets connect to
-// and listen on.
+//! std.net's addresses: IpAddress, an IPv4 or IPv6 address, read from and written as its text,
+//! with what kind of address it is, and SocketAddress, one with a port, which sockets connect to
+//! and listen on.
 
 Import std.core
 
@@ -8,16 +8,17 @@ Extern "runtime"
     Function fb_string_from_array(bytes: UInt8[]): String
 End Extern
 
-// Which version of IP an address is.
+/// Which version of IP an address is.
 Public Enum IpFamily
     V4, V6
 End Enum
 
-// An IPv4 or IPv6 address. Addresses compare by family, IPv4 first, then as their bytes do.
+/// An IPv4 or IPv6 address. Addresses compare by family, IPv4 first, then as their bytes do.
 Public Struct IpAddress Implements Hashable, Comparable, Printable
+    /// Whether it's an IPv4 address or an IPv6 one.
     Public ReadOnly Field Family: IpFamily
-    // Its bytes, the most significant first, IPv6's 16 in two halves, and IPv4's 4 at the end of
-    // Low, with High 0.
+    /// Its bytes, the most significant first, IPv6's 16 in two halves, and IPv4's 4 at the end of
+    /// Low, with High 0.
     Field High: UInt64
     Field Low: UInt64
 
@@ -27,20 +28,20 @@ Public Struct IpAddress Implements Hashable, Comparable, Printable
         Low = low
     End New
 
-    // The IPv4 address a.b.c.d.
+    /// The IPv4 address a.b.c.d.
     Public Static Method V4(a: UInt8, b: UInt8, c: UInt8, d: UInt8): IpAddress
         Return IpAddress(IpFamily.V4, 0, (a As UInt64) << 24 | (b As UInt64) << 16 |
                          (c As UInt64) << 8 | (d As UInt64))
     End Method
 
-    // The IPv6 address of eight 16-bit groups, a:b:c:d:e:f:g:h.
+    /// The IPv6 address of eight 16-bit groups, a:b:c:d:e:f:g:h.
     Public Static Method V6(a: UInt16, b: UInt16, c: UInt16, d: UInt16, e: UInt16, f: UInt16,
                             g: UInt16, h: UInt16): IpAddress
         Return IpAddress(IpFamily.V6, Joined(a, b, c, d), Joined(e, f, g, h))
     End Method
 
-    // The address of 4 bytes, IPv4, or 16, IPv6, in the order Bytes gives them. Panics for
-    // another count.
+    /// The address of 4 bytes, IPv4, or 16, IPv6, in the order Bytes gives them. Panics for
+    /// another count.
     @PanicsAtCaller
     Public Static Method FromBytes(bytes: UInt8[]): IpAddress
         If bytes.Count != 4 && bytes.Count != 16
@@ -59,10 +60,10 @@ Public Struct IpAddress Implements Hashable, Comparable, Printable
         Return IpAddress(bytes.Count == 4 ? IpFamily.V4 : IpFamily.V6, high, low)
     End Method
 
-    // The address text writes: IPv4's four decimal numbers from 0 to 255 with dots between, with
-    // no leading zeros, or IPv6's eight groups of up to four hex digits, in either case, with
-    // colons between, where one :: can stand for groups of zeros and the last two can be
-    // IPv4's, as RFC 4291 has them. Null for anything else, a zone like "%eth0" too.
+    /// The address text writes: IPv4's four decimal numbers from 0 to 255 with dots between, with
+    /// no leading zeros, or IPv6's eight groups of up to four hex digits, in either case, with
+    /// colons between, where one :: can stand for groups of zeros and the last two can be
+    /// IPv4's, as RFC 4291 has them. Null for anything else, a zone like "%eth0" too.
     Public Static Method Parse(text: String): IpAddress?
         Local chars = text.Bytes
         Local v4 = ParseV4(chars, 0, chars.Count)
@@ -70,36 +71,42 @@ Public Struct IpAddress Implements Hashable, Comparable, Printable
         Return ParseV6(chars)
     End Method
 
-    // 127.0.0.1, ::1, 0.0.0.0, ::, and 255.255.255.255.
+    /// 127.0.0.1, ::1, 0.0.0.0, ::, and 255.255.255.255.
     Public Static Property Loopback: IpAddress
         Get => V4(127, 0, 0, 1)
     End Property
 
+    /// ::1, IPv6's loopback address.
     Public Static Property LoopbackV6: IpAddress
         Get => IpAddress(IpFamily.V6, 0, 1)
     End Property
 
+    /// 0.0.0.0, IPv4's address of every interface, to listen on.
     Public Static Property Any: IpAddress
         Get => IpAddress(IpFamily.V4, 0, 0)
     End Property
 
+    /// ::, IPv6's address of every interface, to listen on.
     Public Static Property AnyV6: IpAddress
         Get => IpAddress(IpFamily.V6, 0, 0)
     End Property
 
+    /// 255.255.255.255, IPv4's broadcast address.
     Public Static Property Broadcast: IpAddress
         Get => V4(255, 255, 255, 255)
     End Property
 
+    /// Whether it's an IPv4 address.
     Public Property IsV4: Bool
         Get => Family == IpFamily.V4
     End Property
 
+    /// Whether it's an IPv6 address.
     Public Property IsV6: Bool
         Get => Family == IpFamily.V6
     End Property
 
-    // Its 4 bytes, or 16, the most significant first.
+    /// Its 4 bytes, or 16, the most significant first.
     Public Property Bytes: UInt8[]
         Get
             Local bytes: UInt8[] = []
@@ -117,18 +124,18 @@ Public Struct IpAddress Implements Hashable, Comparable, Printable
         End Get
     End Property
 
-    // 127.0.0.0/8, or ::1.
+    /// 127.0.0.0/8, or ::1.
     Public Property IsLoopback: Bool
         Get => IsV4 ? Low >> 24 == 127 : High == 0 && Low == 1
     End Property
 
-    // 0.0.0.0, or ::, which a socket listens on to take every address.
+    /// 0.0.0.0, or ::, which a socket listens on to take every address.
     Public Property IsUnspecified: Bool
         Get => High == 0 && Low == 0
     End Property
 
-    // A private network's: 10.0.0.0/8, 172.16.0.0/12, and 192.168.0.0/16, as RFC 1918 has them,
-    // or IPv6's unique local fc00::/7, RFC 4193's.
+    /// A private network's: 10.0.0.0/8, 172.16.0.0/12, and 192.168.0.0/16, as RFC 1918 has them,
+    /// or IPv6's unique local fc00::/7, RFC 4193's.
     Public Property IsPrivate: Bool
         Get
             If IsV6 Then Return High >> 57 == 0x7E
@@ -136,23 +143,23 @@ Public Struct IpAddress Implements Hashable, Comparable, Printable
         End Get
     End Property
 
-    // A link's own, not routed: 169.254.0.0/16, or fe80::/10.
+    /// A link's own, not routed: 169.254.0.0/16, or fe80::/10.
     Public Property IsLinkLocal: Bool
         Get => IsV4 ? Low >> 16 == 0xA9FE : High >> 54 == 0x3FA
     End Property
 
-    // 224.0.0.0/4, or ff00::/8.
+    /// 224.0.0.0/4, or ff00::/8.
     Public Property IsMulticast: Bool
         Get => IsV4 ? Low >> 28 == 0xE : High >> 56 == 0xFF
     End Property
 
-    // 255.255.255.255.
+    /// 255.255.255.255.
     Public Property IsBroadcast: Bool
         Get => IsV4 && Low == 0xFFFFFFFF
     End Property
 
-    // For examples, as RFC 5737, RFC 3849, and RFC 9637 set them aside: 192.0.2.0/24,
-    // 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32, and 3fff::/20.
+    /// For examples, as RFC 5737, RFC 3849, and RFC 9637 set them aside: 192.0.2.0/24,
+    /// 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32, and 3fff::/20.
     Public Property IsDocumentation: Bool
         Get
             If IsV6 Then Return High >> 32 == 0x20010DB8 || High >> 44 == 0x3FFF0
@@ -161,27 +168,27 @@ Public Struct IpAddress Implements Hashable, Comparable, Printable
         End Get
     End Property
 
-    // The IPv4 address an IPv4-mapped IPv6 one stands for, ::ffff:a.b.c.d, the IPv4 one itself,
-    // or Null for another IPv6 one.
+    /// The IPv4 address an IPv4-mapped IPv6 one stands for, ::ffff:a.b.c.d, the IPv4 one itself,
+    /// or Null for another IPv6 one.
     Public Method ToV4(): IpAddress?
         If IsV4 Then Return Self
         If High != 0 || Low >> 32 != 0xFFFF Then Return Null
         Return IpAddress(IpFamily.V4, 0, Low & 0xFFFFFFFF)
     End Method
 
-    // An IPv4 address as the IPv6 one that maps it, ::ffff:a.b.c.d, or the IPv6 one itself.
+    /// An IPv4 address as the IPv6 one that maps it, ::ffff:a.b.c.d, or the IPv6 one itself.
     Public Method ToV6(): IpAddress
         If IsV6 Then Return Self
         Return IpAddress(IpFamily.V6, 0, 0xFFFF00000000 | Low)
     End Method
 
-    // IPv4's dotted text, or IPv6's as RFC 5952 writes it: lowercase, without leading zeros, with
-    // :: for the longest run of two zero groups or more, the first of equal ones, and an
-    // IPv4-mapped address's last two groups as IPv4's text.
+    /// IPv4's dotted text, or IPv6's as RFC 5952 writes it: lowercase, without leading zeros, with
+    /// :: for the longest run of two zero groups or more, the first of equal ones, and an
+    /// IPv4-mapped address's last two groups as IPv4's text.
     Public Method ToString(): String => Text(True)
 
-    // Its text, with an IPv4-mapped address's last two groups as IPv4's text only when dotted
-    // says to, as a URL's host doesn't.
+    /// Its text, with an IPv4-mapped address's last two groups as IPv4's text only when dotted
+    /// says to, as a URL's host doesn't.
     Package Method Text(dotted: Bool): String
         Local text: UInt8[] = []
         If IsV4
@@ -236,14 +243,17 @@ Public Struct IpAddress Implements Hashable, Comparable, Printable
     End Operator
 End Struct
 
-// An IpAddress with a port: where a socket connects to or listens on. An IPv6 one can have a
-// scope, its zone's index, for a link-local address, as in [fe80::1%3]:80.
+/// An IpAddress with a port: where a socket connects to or listens on. An IPv6 one can have a
+/// scope, its zone's index, for a link-local address, as in [fe80::1%3]:80.
 Public Struct SocketAddress Implements Hashable, Comparable, Printable
+    /// Its address.
     Public ReadOnly Field Address: IpAddress
+    /// Its port.
     Public ReadOnly Field Port: UInt16
+    /// An IPv6 link-local address's scope, its zone's index, or 0 for none.
     Public ReadOnly Field ScopeId: UInt32
 
-    // Panics for a ScopeId on an IPv4 address, which has none.
+    /// Panics for a ScopeId on an IPv4 address, which has none.
     @PanicsAtCaller
     Public New(address: IpAddress, port: UInt16, scopeId: UInt32 = 0)
         If address.IsV4 && scopeId != 0
@@ -255,9 +265,9 @@ Public Struct SocketAddress Implements Hashable, Comparable, Printable
         ScopeId = scopeId
     End New
 
-    // The address text writes as ToString does: an IPv4 address and its port, as in
-    // 127.0.0.1:80, or an IPv6 one in brackets, with its scope's number after a %, as in [::1]:80
-    // and [fe80::1%3]:80. Null for anything else, a scope's name like %eth0 too.
+    /// The address text writes as ToString does: an IPv4 address and its port, as in
+    /// 127.0.0.1:80, or an IPv6 one in brackets, with its scope's number after a %, as in [::1]:80
+    /// and [fe80::1%3]:80. Null for anything else, a scope's name like %eth0 too.
     Public Static Method Parse(text: String): SocketAddress?
         Local chars = text.Bytes
         Local colon = -1
@@ -295,6 +305,7 @@ Public Struct SocketAddress Implements Hashable, Comparable, Printable
         Return SocketAddress(address, port As UInt16, scope As UInt32)
     End Method
 
+    /// Its address's family.
     Public Property Family: IpFamily
         Get => Address.Family
     End Property
@@ -312,13 +323,13 @@ Public Struct SocketAddress Implements Hashable, Comparable, Printable
     End Operator
 End Struct
 
-// Four 16-bit groups as 64 bits, the first most significant.
+/// Four 16-bit groups as 64 bits, the first most significant.
 Function Joined(a: UInt16, b: UInt16, c: UInt16, d: UInt16): UInt64
     Return (a As UInt64) << 48 | (b As UInt64) << 32 | (c As UInt64) << 16 | (d As UInt64)
 End Function
 
-// The decimal number in chars from start until finish, without a sign or leading zeros, if it's
-// at most most, or Null.
+/// The decimal number in chars from start until finish, without a sign or leading zeros, if it's
+/// at most most, or Null.
 Function Number(chars: UInt8[], start: Int, finish: Int, most: Int64): Int64?
     If finish <= start || finish - start > 10 || (chars[start] == 48 && finish - start > 1)
         Return Null
@@ -333,7 +344,7 @@ Function Number(chars: UInt8[], start: Int, finish: Int, most: Int64): Int64?
     Return value <= most ? value : Null
 End Function
 
-// The IPv4 address in chars from start until finish, as 32 bits, or Null.
+/// The IPv4 address in chars from start until finish, as 32 bits, or Null.
 Function ParseV4(chars: UInt8[], start: Int, finish: Int): Int64?
     Local value: Int64 = 0
     Local parts = 0
@@ -349,7 +360,7 @@ Function ParseV4(chars: UInt8[], start: Int, finish: Int): Int64?
     Return parts == 4 ? value : Null
 End Function
 
-// The value of a hex digit, or -1.
+/// The value of a hex digit, or -1.
 Function HexDigit(c: UInt8): Int
     If c >= 48 && c <= 57 Then Return c - 48
     If c >= 97 && c <= 102 Then Return c - 87
@@ -357,7 +368,7 @@ Function HexDigit(c: UInt8): Int
     Return -1
 End Function
 
-// The IPv6 address chars hold, or Null.
+/// The IPv6 address chars hold, or Null.
 Package Function ParseV6(chars: UInt8[]): IpAddress?
     // The groups before a ::, and after it, where an IPv4 address's two can end them.
     Local before: Int[] = []
@@ -423,7 +434,7 @@ Package Function ParseV6(chars: UInt8[]): IpAddress?
                             all[7] As UInt16))
 End Function
 
-// Whether chars from start on hold the byte c.
+/// Whether chars from start on hold the byte c.
 Function Contains(chars: UInt8[], start: Int, c: UInt8): Bool
     For i = start Until chars.Count
         If chars[i] == c Then Return True
@@ -431,7 +442,7 @@ Function Contains(chars: UInt8[], start: Int, c: UInt8): Bool
     Return False
 End Function
 
-// Adds an IPv4 address's text, of the last 32 bits of value.
+/// Adds an IPv4 address's text, of the last 32 bits of value.
 Function AddV4(text: UInt8[], value: UInt64)
     For i = 0 Until 4
         If i > 0 Then text.Add(46)
@@ -439,13 +450,13 @@ Function AddV4(text: UInt8[], value: UInt64)
     End For
 End Function
 
-// Adds a number's decimal digits.
+/// Adds a number's decimal digits.
 Function AddDecimal(text: UInt8[], value: Int)
     If value >= 10 Then AddDecimal(text, value / 10)
     text.Add((48 + value % 10) As UInt8)
 End Function
 
-// Adds a number's lowercase hex digits, without leading zeros.
+/// Adds a number's lowercase hex digits, without leading zeros.
 Function AddHex(text: UInt8[], value: Int)
     If value >= 16 Then AddHex(text, value / 16)
     Local digit = value % 16

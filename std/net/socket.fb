@@ -1,6 +1,6 @@
-// What std.net's sockets share: the runtime's functions, which work over libuv's handles on the
-// I/O thread, an address as they pass it, a timeout as they take it, what their codes mean, and
-// StreamSocket, which TcpStream and IpcStream read and write through.
+//! What std.net's sockets share: the runtime's functions, which work over libuv's handles on the
+//! I/O thread, an address as they pass it, a timeout as they take it, what their codes mean, and
+//! StreamSocket, which TcpStream and IpcStream read and write through.
 
 Import std.core
 Import std.ffi
@@ -48,24 +48,24 @@ Package Extern "runtime"
     Function fb_io_error_text(code: Int32): String
 End Extern
 
-// The kinds of socket fb_io_net_new makes.
+/// The kinds of socket fb_io_net_new makes.
 Package Enum SocketKind: Int32
     TCP, IPC, TCP_LISTENER, IPC_LISTENER, UDP
 End Enum
 
-// What fb_io_net_error_kind gives for a timeout, past NetErrorKind's ordinals.
+/// What fb_io_net_error_kind gives for a timeout, past NetErrorKind's ordinals.
 Const TIMED_OUT = 8
 
-// A timeout as the runtime's functions take it, in nanoseconds: -1 waits as long as it takes,
-// and 0, for one that isn't positive, doesn't wait.
+/// A timeout as the runtime's functions take it, in nanoseconds: -1 waits as long as it takes,
+/// and 0, for one that isn't positive, doesn't wait.
 Package Function NanosecondsOf(timeout: Duration?): Int64
     If timeout == Null Then Return -1
     Return Max(timeout.Nanoseconds, 0)
 End Function
 
-// An address's bytes, as the runtime's functions take them: 4 or 6 for its family, its 16 bytes,
-// an IPv4 address's 4 first, its port, the most significant byte first, and its scope, the
-// least significant first.
+/// An address's bytes, as the runtime's functions take them: 4 or 6 for its family, its 16 bytes,
+/// an IPv4 address's 4 first, its port, the most significant byte first, and its scope, the
+/// least significant first.
 Package Function SocketBytes(address: SocketAddress): UInt8[]
     Local bytes: UInt8[] = [address.Address.IsV4 ? 4 : 6]
     Local raw = address.Address.Bytes
@@ -81,7 +81,7 @@ Package Function SocketBytes(address: SocketAddress): UInt8[]
     Return bytes
 End Function
 
-// The address of bytes a runtime function gave, as SocketBytes writes them.
+/// The address of bytes a runtime function gave, as SocketBytes writes them.
 Package Function SocketOfBytes(bytes: UInt8[]): SocketAddress
     Local size = bytes[0] == 4 ? 4 : 16
     Local address = IpAddress.FromBytes(bytes[1..1 + size])
@@ -93,43 +93,43 @@ Package Function SocketOfBytes(bytes: UInt8[]): SocketAddress
     Return SocketAddress(address, port, scope)
 End Function
 
-// The socket's address, or the other side's when `remote`, or Null for one it hasn't.
+/// The socket's address, or the other side's when `remote`, or Null for one it hasn't.
 Package Function AddressOfSocket(socket: Ptr<Void>, remote: Bool): SocketAddress?
     Local bytes: UInt8[] = []
     If fb_io_net_address(socket, remote ? 1 : 0, bytes) != 0 Then Return Null
     Return SocketOfBytes(bytes)
 End Function
 
-// Whether a runtime function's code says it took longer than it was given.
+/// Whether a runtime function's code says it took longer than it was given.
 Package Function TimedOut(code: Int32): Bool => fb_io_net_error_kind(code) == TIMED_OUT
 
-// The NetError a runtime function's code means, as `doing` that failed.
+/// The NetError a runtime function's code means, as `doing` that failed.
 Package Function NetErrorOf(code: Int32, doing: String, address: String?): NetError
     Local kind = fb_io_net_error_kind(code)
     Return NetError(kind As NetErrorKind, "{doing} failed: {fb_io_error_text(code)}", address)
 End Function
 
-// Throws what a runtime function's code means, as `doing` that failed: a TimeoutError for a
-// timeout, and otherwise a NetError of its kind.
+/// Throws what a runtime function's code means, as `doing` that failed: a TimeoutError for a
+/// timeout, and otherwise a NetError of its kind.
 Package Function ThrowSocketError(code: Int32, doing: String,
                                   address: String?) Throws NetError, TimeoutError
     If TimedOut(code) Then Throw TimeoutError("{doing} took longer than it was given")
     Throw NetErrorOf(code, doing, address)
 End Function
 
-// Panics for a listener's backlog below 1, which libuv refuses on Windows.
+/// Panics for a listener's backlog below 1, which libuv refuses on Windows.
 @PanicsAtCaller
 Package Function CheckBacklog(backlog: Int)
     If backlog < 1 Then Panic("a listener keeps a backlog of 1 connection at least, not {backlog}")
 End Function
 
-// The NetError for using a socket that's closed.
+/// The NetError for using a socket that's closed.
 Package Function ClosedError(what: String, address: String?): NetError
     Return NetError(NetErrorKind.CLOSED, "the {what} is closed", address)
 End Function
 
-// The IOError a stream's read or write throws, as Reader and Writer do, whose Cause is the
-// NetError, or the TimeoutError, that it means.
+/// The IOError a stream's read or write throws, as Reader and Writer do, whose Cause is the
+/// NetError, or the TimeoutError, that it means.
 Function StreamError(code: Int32, doing: String, address: String?): IOError
     If TimedOut(code)
         Local timeout = TimeoutError("{doing} took longer than it was given")
@@ -140,11 +140,11 @@ Function StreamError(code: Int32, doing: String, address: String?): IOError
     Return IOError(IOErrorKind.OTHER, error.Message, Null, error)
 End Function
 
-// A connected stream's socket, TCP's or IPC's, which TcpStream and IpcStream read and write
-// through, and which goes with them.
+/// A connected stream's socket, TCP's or IPC's, which TcpStream and IpcStream read and write
+/// through, and which goes with them.
 Package Class StreamSocket
     Package ReadOnly Field Handle: Ptr<Void>
-    // What it is, and what its errors name: the other side's address, or the IPC name.
+    /// What it is, and what its errors name: the other side's address, or the IPC name.
     Package ReadOnly Field What: String
     Package ReadOnly Field Peer: String
     Package Field ReadTimeout: Duration?
@@ -156,7 +156,7 @@ Package Class StreamSocket
         Peer = peer
     End New
 
-    // One of a connection a listener accepted, which it holds from here on.
+    /// One of a connection a listener accepted, which it holds from here on.
     Package New(handle: Ptr<Void>, what: String, peer: String)
         Handle = handle
         What = what
@@ -167,7 +167,7 @@ Package Class StreamSocket
         fb_io_net_release(Handle)
     End Method
 
-    // Throws for a stream that's closed.
+    /// Throws for a stream that's closed.
     Package Method Open() Throws IOError
         If Closed
             Local error = ClosedError(What, Peer)
@@ -186,8 +186,8 @@ Package Class StreamSocket
         Return count
     End Method
 
-    // Takes what's there without waiting, and otherwise waits on the main thread until there's
-    // something, as long as ReadTimeout says.
+    /// Takes what's there without waiting, and otherwise waits on the main thread until there's
+    /// something, as long as ReadTimeout says.
     Package Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
         Try Open()
         If into.Count == 0 Then Return 0
@@ -217,7 +217,7 @@ Package Class StreamSocket
         If code != 0 Then Throw StreamError(code, "writing to {Peer}", Peer)
     End Method
 
-    // Copies from's bytes, so the caller can change them while they're written.
+    /// Copies from's bytes, so the caller can change them while they're written.
     Package Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
         Try Open()
         If from.Count == 0 Then Return
@@ -248,7 +248,7 @@ Package Class StreamSocket
     End Method
 End Class
 
-// A listener's socket, TCP's or IPC's, which TcpListener and IpcListener accept through.
+/// A listener's socket, TCP's or IPC's, which TcpListener and IpcListener accept through.
 Package Class ListenerSocket
     Package ReadOnly Field Handle: Ptr<Void>
     Package ReadOnly Field What: String
@@ -269,7 +269,7 @@ Package Class ListenerSocket
         If Closed Then Throw ClosedError(What, Address)
     End Method
 
-    // Waits for a connection, as long as timeout says, and gives it.
+    /// Waits for a connection, as long as timeout says, and gives it.
     Package Method Accept(timeout: Duration?): Ptr<Void> Throws NetError, TimeoutError
         Loop
             Try Open()

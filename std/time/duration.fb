@@ -1,11 +1,11 @@
-// Duration: a span of time to the nanosecond, as an Int64 of them, from about 292 years before
-// to 292 years after. An Int64's or a Double's Nanoseconds, Microseconds, Milliseconds, Seconds,
-// Minutes, Hours, and Days make one, as 2.Seconds, 1.5.Minutes, and 500.Milliseconds do, a
-// literal taking whichever has them; a Double's round to the nearest nanosecond, ties to even,
-// and one longer than a Duration holds panics. Its operators add and
-// subtract Durations, scale one by a number, and divide one by a number or another Duration.
-// Wait and RealWait take one, and ToString and Parse write and read one as Go does, like
-// "1h30m0s" and "1.5ms".
+//! Duration: a span of time to the nanosecond, as an Int64 of them, from about 292 years before
+//! to 292 years after. An Int64's or a Double's Nanoseconds, Microseconds, Milliseconds, Seconds,
+//! Minutes, Hours, and Days make one, as 2.Seconds, 1.5.Minutes, and 500.Milliseconds do, a
+//! literal taking whichever has them; a Double's round to the nearest nanosecond, ties to even,
+//! and one longer than a Duration holds panics. Its operators add and
+//! subtract Durations, scale one by a number, and divide one by a number or another Duration.
+//! Wait and RealWait take one, and ToString and Parse write and read one as Go does, like
+//! "1h30m0s" and "1.5ms".
 
 Import std.core
 
@@ -17,75 +17,85 @@ Extern "C"
     Function fma(a: Float64, b: Float64, c: Float64): Float64
 End Extern
 
+/// A length of time, in nanoseconds, below 0 for one that goes back.
 Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
-    // Its nanoseconds. Wait and RealWait read it, so it's the only Field.
+    /// Its nanoseconds. Wait and RealWait read it, so it's the only Field.
     Field Count: Int64
 
+    /// No time at all.
     Public Static Method Zero(): Duration => Duration(0)
     Public Static Method DefaultValue(): Duration => Duration(0)
 
-    // The longest Durations, about 292 years either way.
+    /// The longest Durations, about 292 years either way.
     Public Static Method MaxValue(): Duration => Duration(9223372036854775807)
+    /// The shortest Duration, about 292 years back.
     Public Static Method MinValue(): Duration => Duration(-9223372036854775807 - 1)
 
-    // The Duration of that many nanoseconds.
+    /// The Duration of that many nanoseconds.
     Public Static Method FromNanoseconds(count: Int64): Duration => Duration(count)
 
-    // Its nanoseconds, all of them.
+    /// Its nanoseconds, all of them.
     Public Property Nanoseconds: Int64
         Get => Count
     End Property
 
-    // It in a unit, with a fraction for what's left: 90 seconds' TotalMinutes is 1.5.
+    /// It in a unit, with a fraction for what's left: 90 seconds' TotalMinutes is 1.5.
     Public Property TotalMicroseconds: Double
         Get => (Count As Double) / 1.0e3
     End Property
 
+    /// It in milliseconds, with a fraction for what's left.
     Public Property TotalMilliseconds: Double
         Get => (Count As Double) / 1.0e6
     End Property
 
+    /// It in seconds, with a fraction for what's left.
     Public Property TotalSeconds: Double
         Get => (Count As Double) / 1.0e9
     End Property
 
+    /// It in minutes, with a fraction for what's left.
     Public Property TotalMinutes: Double
         Get => (Count As Double) / 6.0e10
     End Property
 
+    /// It in hours, with a fraction for what's left.
     Public Property TotalHours: Double
         Get => (Count As Double) / 3.6e12
     End Property
 
+    /// It in days, of 24 hours, with a fraction for what's left.
     Public Property TotalDays: Double
         Get => (Count As Double) / 8.64e13
     End Property
 
+    /// Whether it's no time at all.
     Public Property IsZero: Bool
         Get => Count == 0
     End Property
 
+    /// Whether it goes back.
     Public Property IsNegative: Bool
         Get => Count < 0
     End Property
 
-    // It without its sign. MinValue's has none that fits, so it panics.
+    /// It without its sign. MinValue's has none that fits, so it panics.
     @PanicsAtCaller
     Public Method Abs(): Duration
         If Count == -9223372036854775807 - 1 Then Panic("MinValue's Duration has no Abs that fits")
         Return Duration(Count < 0 ? -Count : Count)
     End Method
 
-    // It rounded toward 0 to a multiple of unit, as 1h15m truncated to an hour is 1h. A unit
-    // that isn't above 0 leaves it as it is.
+    /// It rounded toward 0 to a multiple of unit, as 1h15m truncated to an hour is 1h. A unit
+    /// that isn't above 0 leaves it as it is.
     Public Method Truncate(unit: Duration): Duration
         If unit.Count <= 0 Then Return Self
         Return Duration(Count - Count % unit.Count)
     End Method
 
-    // It rounded to the nearest multiple of unit, a half away from 0, as 1h30m rounded to an
-    // hour is 2h; past the longest Duration, it's the longest. A unit that isn't above 0 leaves
-    // it as it is.
+    /// It rounded to the nearest multiple of unit, a half away from 0, as 1h30m rounded to an
+    /// hour is 2h; past the longest Duration, it's the longest. A unit that isn't above 0 leaves
+    /// it as it is.
     Public Method Round(unit: Duration): Duration
         If unit.Count <= 0 Then Return Self
         Local rest = Count % unit.Count
@@ -104,8 +114,8 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
         Return rounded == Null ? MaxValue() : Duration(rounded)
     End Method
 
-    // As Go writes it: hours, minutes, and seconds with a fraction, like "1h2m3.5s" and "2m0s",
-    // or below a second, one unit with a fraction, like "1.5ms", "250µs", and "80ns"; and "0s".
+    /// As Go writes it: hours, minutes, and seconds with a fraction, like "1h2m3.5s" and "2m0s",
+    /// or below a second, one unit with a fraction, like "1.5ms", "250µs", and "80ns"; and "0s".
     Public Method ToString(): String
         If Count == -9223372036854775807 - 1 Then Return "-2562047h47m16.854775808s"
         Local magnitude = Count < 0 ? -Count : Count
@@ -125,10 +135,10 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
         Return "{sign}{hours}h{text}"
     End Method
 
-    // The Duration the text is, as Go's ParseDuration reads it: a sign or none, then one or more
-    // numbers, each with a fraction or not and a unit, "ns", "us" (or "µs" or "μs"), "ms", "s",
-    // "m", or "h", as in "1h30m" and "-1.5s"; or "0". Other text, or a Duration longer than one
-    // holds, is Null.
+    /// The Duration the text is, as Go's ParseDuration reads it: a sign or none, then one or more
+    /// numbers, each with a fraction or not and a unit, "ns", "us" (or "µs" or "μs"), "ms", "s",
+    /// "m", or "h", as in "1h30m" and "-1.5s"; or "0". Other text, or a Duration longer than one
+    /// holds, is Null.
     Public Static Method Parse(text: String): Duration?
         Local chars = text.Chars
         Local at = 0
@@ -214,7 +224,7 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
 
     Operator <(a: Duration, b: Duration): Bool => a.Count < b.Count
 
-    // Sums and differences, which panic past the longest Durations, as an Int64's overflow does.
+    /// Sums and differences, which panic past the longest Durations, as an Int64's overflow does.
     @PanicsAtCaller
     Operator +(a: Duration, b: Duration): Duration => Duration(a.Count + b.Count)
     @PanicsAtCaller
@@ -222,9 +232,9 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
     @PanicsAtCaller
     Operator -(a: Duration): Duration => Duration(-a.Count)
 
-    // Scaled by a whole number of any type an Int64 holds, exactly, or by a Double, to the
-    // nearest nanosecond, ties to even. One longer than a Duration holds panics, as an Int64's
-    // overflow does, and so does a Double that isn't a number.
+    /// Scaled by a whole number of any type an Int64 holds, exactly, or by a Double, to the
+    /// nearest nanosecond, ties to even. One longer than a Duration holds panics, as an Int64's
+    /// overflow does, and so does a Double that isn't a number.
     @PanicsAtCaller
     Operator *(a: Duration, b: Int8): Duration => Duration(a.Count * (b As Int64))
     @PanicsAtCaller
@@ -258,9 +268,9 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
     @PanicsAtCaller
     Operator *(a: Double, b: Duration): Duration => Scaled(b, a)
 
-    // Divided by a whole number, rounded toward 0, or by a Double, to the nearest nanosecond,
-    // ties to even; or by another Duration, as how many of it fit, with a fraction. Dividing by
-    // 0 panics, as an Int's / does, and so does dividing by a Double that isn't a number.
+    /// Divided by a whole number, rounded toward 0, or by a Double, to the nearest nanosecond,
+    /// ties to even; or by another Duration, as how many of it fit, with a fraction. Dividing by
+    /// 0 panics, as an Int's / does, and so does dividing by a Double that isn't a number.
     @PanicsAtCaller
     Operator /(a: Duration, b: Int8): Duration => Duration(a.Count / (b As Int64))
     @PanicsAtCaller
@@ -300,13 +310,13 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
         Return (a.Count As Double) / (b.Count As Double)
     End Operator
 
-    // What's left of a over b, with a's sign, as an Int's % has, which panics for a b of 0.
+    /// What's left of a over b, with a's sign, as an Int's % has, which panics for a b of 0.
     @PanicsAtCaller
     Operator %(a: Duration, b: Duration): Duration => Duration(a.Count % b.Count)
 End Struct
 
-// The digits of count over 10 to the power places, with a "." and those of the fraction there
-// is, and no 0s at its end, as "1.5" is of 1500 and 3.
+/// The digits of count over 10 to the power places, with a "." and those of the fraction there
+/// is, and no 0s at its end, as "1.5" is of 1500 and 3.
 Function Decimals(count: Int64, places: Int): String
     Local whole = count
     Local fraction = ""
@@ -321,8 +331,8 @@ End Function
 
 Function IsDigit(c: Char): Bool => c >= '0' && c <= '9'
 
-// The nanoseconds of the unit the characters from start to before finish name, or 0 when it's
-// none of Go's: ns, us, µs and μs (two Unicode characters for micro), ms, s, m, and h.
+/// The nanoseconds of the unit the characters from start to before finish name, or 0 when it's
+/// none of Go's: ns, us, µs and μs (two Unicode characters for micro), ms, s, m, and h.
 Function UnitOf(chars: Char[], start: Int, finish: Int): UInt64
     Local length = finish - start
     If length == 1
@@ -338,9 +348,9 @@ Function UnitOf(chars: Char[], start: Int, finish: Int): UInt64
     Return 0
 End Function
 
-// a scaled by b, to the nearest nanosecond, ties to even. Its count is a part a Double holds and
-// what's left, and each product's rounding error, which fma gives exactly, counts too, so a
-// count past a Double's 53 bits stays exact.
+/// a scaled by b, to the nearest nanosecond, ties to even. Its count is a part a Double holds and
+/// what's left, and each product's rounding error, which fma gives exactly, counts too, so a
+/// count past a Double's 53 bits stays exact.
 @PanicsAtCaller
 Function Scaled(a: Duration, b: Double): Duration
     If b != b Then Panic("a Duration can't be scaled by NaN")
@@ -357,9 +367,9 @@ Function Scaled(a: Duration, b: Double): Duration
     Return Nearest(whole, fraction, "{a} * {b}")
 End Function
 
-// Adds the whole part of part to whole, which is Null once that's past what an Int64 holds, and
-// the rest to fraction. A whole part as large as 2^63 counts in two halves, so a sum that comes
-// back under it after the smaller parts stays.
+/// Adds the whole part of part to whole, which is Null once that's past what an Int64 holds, and
+/// the rest to fraction. A whole part as large as 2^63 counts in two halves, so a sum that comes
+/// back under it after the smaller parts stays.
 Function AddPart(ByRef whole: Int64?, ByRef fraction: Double, part: Double)
     Local sum = whole
     If sum == Null Then Return
@@ -379,8 +389,8 @@ Function AddPart(ByRef whole: Int64?, ByRef fraction: Double, part: Double)
     whole = sum.CheckedAdd(half)?.CheckedAdd(half)
 End Function
 
-// The Duration of whole and fraction's nanoseconds, to the nearest, ties to even, or a panic that
-// says what was worked out is longer than a Duration holds.
+/// The Duration of whole and fraction's nanoseconds, to the nearest, ties to even, or a panic that
+/// says what was worked out is longer than a Duration holds.
 @PanicsAtCaller
 Function Nearest(whole: Int64?, fraction: Double, what: String): Duration
     Local below = floor(fraction)
@@ -392,7 +402,7 @@ Function Nearest(whole: Int64?, fraction: Double, what: String): Duration
     Return Duration(count)
 End Function
 
-// count of a unit of nanoseconds, which panics when it's longer than a Duration holds.
+/// count of a unit of nanoseconds, which panics when it's longer than a Duration holds.
 @PanicsAtCaller
 Function Whole(count: Int64, unit: Int64, name: String): Duration
     Local nanoseconds = count.CheckedMultiply(unit)
@@ -415,36 +425,49 @@ End Function
 // seconds'. Another number type converts first, as (f As Double).Seconds does a Float's.
 
 Extend Int64
+    /// This many nanoseconds, as a Duration, as `5.Nanoseconds` is.
     @PanicsAtCaller
     Public Property Nanoseconds: Duration
         Get => Whole(Self, 1, "nanoseconds")
     End Property
 
+    /// This many microseconds, as a Duration, as `5.Microseconds` is. Panics when it's longer than
+    /// a Duration holds.
     @PanicsAtCaller
     Public Property Microseconds: Duration
         Get => Whole(Self, 1000, "microseconds")
     End Property
 
+    /// This many milliseconds, as a Duration, as `5.Milliseconds` is. Panics when it's longer than
+    /// a Duration holds.
     @PanicsAtCaller
     Public Property Milliseconds: Duration
         Get => Whole(Self, 1000000, "milliseconds")
     End Property
 
+    /// This many seconds, as a Duration, as `5.Seconds` is. Panics when it's longer than a Duration
+    /// holds.
     @PanicsAtCaller
     Public Property Seconds: Duration
         Get => Whole(Self, 1000000000, "seconds")
     End Property
 
+    /// This many minutes, as a Duration, as `5.Minutes` is. Panics when it's longer than a Duration
+    /// holds.
     @PanicsAtCaller
     Public Property Minutes: Duration
         Get => Whole(Self, 60000000000, "minutes")
     End Property
 
+    /// This many hours, as a Duration, as `5.Hours` is. Panics when it's longer than a Duration
+    /// holds.
     @PanicsAtCaller
     Public Property Hours: Duration
         Get => Whole(Self, 3600000000000, "hours")
     End Property
 
+    /// This many days, of 24 hours, as a Duration, as `5.Days` is. Panics when it's longer than a
+    /// Duration holds.
     @PanicsAtCaller
     Public Property Days: Duration
         Get => Whole(Self, 86400000000000, "days")
@@ -452,36 +475,50 @@ Extend Int64
 End Extend
 
 Extend Float64
+    /// This many nanoseconds, to the nearest, as a Duration. Panics for NaN, an infinity, or one
+    /// longer than a Duration holds.
     @PanicsAtCaller
     Public Property Nanoseconds: Duration
         Get => Fraction(Self, 1, "nanoseconds")
     End Property
 
+    /// This many microseconds, to the nearest nanosecond, as a Duration, as `1.5.Microseconds` is.
+    /// Panics for NaN, an infinity, or one longer than a Duration holds.
     @PanicsAtCaller
     Public Property Microseconds: Duration
         Get => Fraction(Self, 1000, "microseconds")
     End Property
 
+    /// This many milliseconds, to the nearest nanosecond, as a Duration, as `1.5.Milliseconds` is.
+    /// Panics for NaN, an infinity, or one longer than a Duration holds.
     @PanicsAtCaller
     Public Property Milliseconds: Duration
         Get => Fraction(Self, 1000000, "milliseconds")
     End Property
 
+    /// This many seconds, to the nearest nanosecond, as a Duration, as `1.5.Seconds` is. Panics for
+    /// NaN, an infinity, or one longer than a Duration holds.
     @PanicsAtCaller
     Public Property Seconds: Duration
         Get => Fraction(Self, 1000000000, "seconds")
     End Property
 
+    /// This many minutes, to the nearest nanosecond, as a Duration, as `1.5.Minutes` is. Panics for
+    /// NaN, an infinity, or one longer than a Duration holds.
     @PanicsAtCaller
     Public Property Minutes: Duration
         Get => Fraction(Self, 60000000000, "minutes")
     End Property
 
+    /// This many hours, to the nearest nanosecond, as a Duration, as `1.5.Hours` is. Panics for
+    /// NaN, an infinity, or one longer than a Duration holds.
     @PanicsAtCaller
     Public Property Hours: Duration
         Get => Fraction(Self, 3600000000000, "hours")
     End Property
 
+    /// This many days, to the nearest nanosecond, as a Duration, as `1.5.Days` is. Panics for NaN,
+    /// an infinity, or one longer than a Duration holds.
     @PanicsAtCaller
     Public Property Days: Duration
         Get => Fraction(Self, 86400000000000, "days")

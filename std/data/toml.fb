@@ -1,33 +1,34 @@
-// Toml: TOML 1.0's documents, read into an Object Value and written from one. A table is an
-// Object, an array an Array, a string a String, an integer an INT, a float a DOUBLE, inf and nan
-// too, and a boolean a Bool. A date, a time, or both, with an offset or local, is a String of its
-// RFC 3339 text, with 'T' between the date and the time, 'Z' for UTC, and its fraction of a second
-// without the 0s at its end, as it's written otherwise. Which tables a document may define, and
-// where, follows TOML 1.0 as tomli reads it. Arrays and inline tables nest 256 deep at most, which
-// is a ParseError past that when read, and a panic when written.
+//! Toml: TOML 1.0's documents, read into an Object Value and written from one. A table is an
+//! Object, an array an Array, a string a String, an integer an INT, a float a DOUBLE, inf and nan
+//! too, and a boolean a Bool. A date, a time, or both, with an offset or local, is a String of its
+//! RFC 3339 text, with 'T' between the date and the time, 'Z' for UTC, and its fraction of a second
+//! without the 0s at its end, as it's written otherwise. Which tables a document may define, and
+//! where, follows TOML 1.0 as tomli reads it. Arrays and inline tables nest 256 deep at most, which
+//! is a ParseError past that when read, and a panic when written.
 
 Import std.core
 Import std.collections
 Import std.data.text
 
+/// What reads and writes TOML documents, in its Static Methods.
 Public Struct Toml
-    // Toml isn't made: it's only its Static Methods.
+    /// Toml isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The document text holds, as an Object. Throws a ParseError, with its line and column, of
-    // UNEXPECTED_END for text that ends inside a string, an array, or an inline table, of
-    // OUT_OF_RANGE for an integer an Int64 doesn't hold, and of SYNTAX for the rest that isn't
-    // TOML 1.0, and for arrays and inline tables nested more than 256 deep.
+    /// The document text holds, as an Object. Throws a ParseError, with its line and column, of
+    /// UNEXPECTED_END for text that ends inside a string, an array, or an inline table, of
+    /// OUT_OF_RANGE for an integer an Int64 doesn't hold, and of SYNTAX for the rest that isn't
+    /// TOML 1.0, and for arrays and inline tables nested more than 256 deep.
     Public Static Method Read(text: String): Value Throws ParseError
         Return Try TomlReader(text).Document()
     End Method
 
-    // value, an Object, as a TOML document: each table's keys and values, then its tables, each
-    // under its header, an Array of Objects as an array of tables, and an Object in an Array as
-    // an inline table. TOML has no null, so an Object's Null is left out. Panics when value isn't
-    // an Object, an Array holds a Null, it holds bytes or an integer past an Int64, or its arrays
-    // and inline tables nest more than 256 deep.
+    /// value, an Object, as a TOML document: each table's keys and values, then its tables, each
+    /// under its header, an Array of Objects as an array of tables, and an Object in an Array as
+    /// an inline table. TOML has no null, so an Object's Null is left out. Panics when value isn't
+    /// an Object, an Array holds a Null, it holds bytes or an integer past an Int64, or its arrays
+    /// and inline tables nest more than 256 deep.
     @PanicsAtCaller
     Public Static Method Write(value: Value): String
         If value.Kind != ValueKind.OBJECT Then Panic("a TOML document is an Object, not {value.Kind}")
@@ -71,8 +72,8 @@ Public Struct Toml
         Return TextOf(out)
     End Method
 
-    // Writes value on the line it's on: an Array in brackets, and an Object as an inline table,
-    // depth of them around it. Panics past 256 of them, which Read wouldn't read.
+    /// Writes value on the line it's on: an Array in brackets, and an Object as an inline table,
+    /// depth of them around it. Panics past 256 of them, which Read wouldn't read.
     @PanicsAtCaller
     Static Method WriteInline(out: UInt8[], value: Value, depth: Int)
         Select value.Kind
@@ -116,7 +117,7 @@ Public Struct Toml
         End Select
     End Method
 
-    // Whether value is an Array of Objects, which is written as an array of tables.
+    /// Whether value is an Array of Objects, which is written as an array of tables.
     Static Method IsTableArray(value: Value): Bool
         If value.Kind != ValueKind.ARRAY || value.Count == 0 Then Return False
         For item In ElementsOf(value)
@@ -125,7 +126,7 @@ Public Struct Toml
         Return True
     End Method
 
-    // key as TOML writes it: bare when it's letters, digits, '_', and '-', else quoted.
+    /// key as TOML writes it: bare when it's letters, digits, '_', and '-', else quoted.
     Static Method KeyText(key: String): String
         Local bytes = key.Bytes
         If bytes.Count == 0 Then Return "\"\""
@@ -139,7 +140,7 @@ Public Struct Toml
         Return key
     End Method
 
-    // Adds text as a basic string, with escapes for '"', '\', and control characters.
+    /// Adds text as a basic string, with escapes for '"', '\', and control characters.
     Static Method AddQuoted(out: UInt8[], text: String)
         out.Add(34)
         For b In text.Bytes
@@ -163,7 +164,7 @@ Public Struct Toml
     End Method
 End Struct
 
-// How deep arrays and inline tables nest, at most, as TOML is read and written.
+/// How deep arrays and inline tables nest, at most, as TOML is read and written.
 Const MOST_NESTED = 256
 
 @PanicsAtCaller
@@ -171,7 +172,7 @@ Function TooDeep()
     Panic("TOML's arrays and inline tables nest {MOST_NESTED} deep at most")
 End Function
 
-// Whether b goes in a bare key: a letter, a digit, '_', or '-'.
+/// Whether b goes in a bare key: a letter, a digit, '_', or '-'.
 Function IsBare(b: UInt8): Bool
     Return (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || (b >= 48 && b <= 57) || b == 95 ||
            b == 45
@@ -181,18 +182,18 @@ Function IsDigit(b: UInt8): Bool => b >= 48 && b <= 57
 
 Function IsHex(b: UInt8): Bool => IsDigit(b) || (b >= 65 && b <= 70) || (b >= 97 && b <= 102)
 
-// A hex digit's value.
+/// A hex digit's value.
 Function HexValue(b: UInt8): Int
     If IsDigit(b) Then Return (b As Int) - 48
     If b >= 97 Then Return (b As Int) - 87
     Return (b As Int) - 55
 End Function
 
-// Whether b is a control character TOML's strings and comments can't hold: below a space but a
-// tab, or DEL.
+/// Whether b is a control character TOML's strings and comments can't hold: below a space but a
+/// tab, or DEL.
 Function IsControl(b: UInt8): Bool => (b < 32 && b != 9) || b == 127
 
-// How many days month has in year, by the Gregorian calendar.
+/// How many days month has in year, by the Gregorian calendar.
 Function DaysIn(year: Int, month: Int): Int
     If month == 2
         Local leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
@@ -203,9 +204,9 @@ Function DaysIn(year: Int, month: Int): Int
     Return 31
 End Function
 
-// What's known of a key of the document as it's read: whether a header named it, or dotted keys
-// in a section before made it, so no other header or dotted key can, and whether it's an inline
-// table or an array, which nothing can add to, and so neither can anything under it.
+/// What's known of a key of the document as it's read: whether a header named it, or dotted keys
+/// in a section before made it, so no other header or dotted key can, and whether it's an inline
+/// table or an array, which nothing can add to, and so neither can anything under it.
 Class TomlFlags
     Field Explicit: Bool
     Field Frozen: Bool
@@ -215,7 +216,7 @@ Class TomlFlags
         Nested = {}
     End New
 
-    // The flags of path, made where they're missing.
+    /// The flags of path, made where they're missing.
     Method Of(path: String[]): TomlFlags
         Local node = Self
         For key In path
@@ -241,7 +242,7 @@ Class TomlFlags
         Return node.Explicit
     End Method
 
-    // Whether path or a key it's under is frozen.
+    /// Whether path or a key it's under is frozen.
     Method IsFrozen(path: String[]): Bool
         Local node = Self
         For key In path
@@ -253,7 +254,7 @@ Class TomlFlags
         Return False
     End Method
 
-    // Forgets path's flags, and those of the keys under it.
+    /// Forgets path's flags, and those of the keys under it.
     Method Clear(path: String[])
         Local node = Self
         For i = 0 Until path.Count - 1
@@ -270,14 +271,14 @@ Class TomlReader
     Field At: Int
     Field Root: Value
     Field Flags: TomlFlags
-    // The keys dotted keys made in the section being read, which no later section can add to.
+    /// The keys dotted keys made in the section being read, which no later section can add to.
     Field Pending: String[][] = []
-    // How many strings, arrays, and inline tables the reader is in, where text that ends is an
-    // UNEXPECTED_END, and how many arrays and inline tables.
+    /// How many strings, arrays, and inline tables the reader is in, where text that ends is an
+    /// UNEXPECTED_END, and how many arrays and inline tables.
     Field Inside: Int
     Field Nested: Int
 
-    // A reader of text, with its CRLFs as LFs, and past a byte order mark at its start.
+    /// A reader of text, with its CRLFs as LFs, and past a byte order mark at its start.
     New(text: String)
         Local bytes = text.Bytes
         Bytes = []
@@ -328,7 +329,7 @@ Class TomlReader
         Return Root
     End Method
 
-    // Reads `key = value` into the table header names.
+    /// Reads `key = value` into the table header names.
     Method KeyValue(header: String[]) Throws ParseError
         Local start = At
         Local key = Try Key()
@@ -368,7 +369,7 @@ Class TomlReader
         table[stem] = value
     End Method
 
-    // Reads `[key]`, giving its key.
+    /// Reads `[key]`, giving its key.
     Method Table(): String[] Throws ParseError
         Local start = At
         At += 1
@@ -389,7 +390,7 @@ Class TomlReader
         Return key
     End Method
 
-    // Reads `[[key]]`, adding a table to its array, and gives its key.
+    /// Reads `[[key]]`, adding a table to its array, and gives its key.
     Method ArrayTable(): String[] Throws ParseError
         Local start = At
         At += 2
@@ -428,7 +429,7 @@ Class TomlReader
         Throw Fail(start, "[[{Joined(key)}]] names a value that isn't an array of tables")
     End Method
 
-    // The keys dotted keys made in the section just read can't be added to after it.
+    /// The keys dotted keys made in the section just read can't be added to after it.
     Method FinishSection()
         For path In Pending
             Flags.Of(path).Explicit = True
@@ -436,8 +437,8 @@ Class TomlReader
         Pending.Clear()
     End Method
 
-    // The table at path from table, made where it's missing, going into an array's last table
-    // when lists says to, or Null when a value that isn't a table is in the way.
+    /// The table at path from table, made where it's missing, going into an array's last table
+    /// when lists says to, or Null when a value that isn't a table is in the way.
     Static Method NestOf(table: Value, path: String[], lists: Bool): Value?
         Local at = table
         For key In path
@@ -454,7 +455,7 @@ Class TomlReader
         Return at
     End Method
 
-    // A key, of one part or more, and the spaces after it.
+    /// A key, of one part or more, and the spaces after it.
     Method Key(): String[] Throws ParseError
         Local key: String[] = [Try SimpleKey()]
         Loop
@@ -591,7 +592,7 @@ Class TomlReader
         End Loop
     End Method
 
-    // A string in '"'s, on one line, with escapes.
+    /// A string in '"'s, on one line, with escapes.
     Method BasicString(): String Throws ParseError
         Local start = At
         At += 1
@@ -618,8 +619,8 @@ Class TomlReader
         End Loop
     End Method
 
-    // A string in '"""'s, of lines, with escapes; a newline right after the first '"""' isn't in
-    // it, and a '\' at a line's end takes out the spaces and newlines after it.
+    /// A string in '"""'s, of lines, with escapes; a newline right after the first '"""' isn't in
+    /// it, and a '\' at a line's end takes out the spaces and newlines after it.
     Method MultilineBasicString(): String Throws ParseError
         Local start = At
         At += 3
@@ -647,7 +648,7 @@ Class TomlReader
         End Loop
     End Method
 
-    // A string in "'"s, on one line, as it's written.
+    /// A string in "'"s, on one line, as it's written.
     Method LiteralString(): String Throws ParseError
         Local start = At
         At += 1
@@ -665,8 +666,8 @@ Class TomlReader
         End Loop
     End Method
 
-    // A string in "'''"s, of lines, as it's written; a newline right after the first "'''" isn't
-    // in it.
+    /// A string in "'''"s, of lines, as it's written; a newline right after the first "'''" isn't
+    /// in it.
     Method MultilineLiteralString(): String Throws ParseError
         Local start = At
         At += 3
@@ -687,7 +688,7 @@ Class TomlReader
         End Loop
     End Method
 
-    // Past a multi-line string's closing quotes, the 1 or 2 before them going in the string.
+    /// Past a multi-line string's closing quotes, the 1 or 2 before them going in the string.
     Method Closing(out: UInt8[], quote: UInt8) Throws ParseError
         At += 3
         For i = 1 To 2
@@ -700,7 +701,7 @@ Class TomlReader
         End If
     End Method
 
-    // Reads an escape at the '\', adding what it stands for to out.
+    /// Reads an escape at the '\', adding what it stands for to out.
     Method Escape(out: UInt8[], lines: Bool) Throws ParseError
         Local start = At
         At += 1
@@ -744,7 +745,7 @@ Class TomlReader
         End Select
     End Method
 
-    // The code point of an escape's digits hex digits.
+    /// The code point of an escape's digits hex digits.
     Method CodePoint(start: Int, digits: Int): Int Throws ParseError
         Local value: Int64 = 0
         For i = 1 To digits
@@ -759,7 +760,7 @@ Class TomlReader
         Return value As Int
     End Method
 
-    // A number, a date, a time, or both.
+    /// A number, a date, a time, or both.
     Method Scalar(): Value Throws ParseError
         Local start = At
         Local b = Bytes[At]
@@ -861,7 +862,7 @@ Class TomlReader
         Return Value(-whole)
     End Method
 
-    // Adds the decimal digits at At to out, with a '_' only between two of them.
+    /// Adds the decimal digits at At to out, with a '_' only between two of them.
     Method Digits(out: UInt8[], start: Int) Throws ParseError
         Loop
             out.Add(Bytes[At])
@@ -879,7 +880,7 @@ Class TomlReader
         End Loop
     End Method
 
-    // An integer in hex, octal, or binary, after its "0x", "0o", or "0b".
+    /// An integer in hex, octal, or binary, after its "0x", "0o", or "0b".
     Method Based(base: Int): Value Throws ParseError
         Local start = At
         At += 2
@@ -913,7 +914,7 @@ Class TomlReader
         Return Value(value)
     End Method
 
-    // A date, and maybe a time after it and an offset after that.
+    /// A date, and maybe a time after it and an offset after that.
     Method DateTime(): Value Throws ParseError
         Local start = At
         Local year = Try Number(4, 0, 9999)
@@ -947,7 +948,7 @@ Class TomlReader
         Return Value(TextOf(out))
     End Method
 
-    // Adds a time, hours, minutes, seconds, and maybe a fraction of one, to out.
+    /// Adds a time, hours, minutes, seconds, and maybe a fraction of one, to out.
     Method Time(out: UInt8[]) Throws ParseError
         Local start = At
         Try Number(2, 0, 23)
@@ -975,7 +976,7 @@ Class TomlReader
         out.AddAll(Bytes[start..finish])
     End Method
 
-    // A number of exactly digits digits, from least to most.
+    /// A number of exactly digits digits, from least to most.
     Method Number(digits: Int, least: Int, most: Int): Int Throws ParseError
         If !DigitsAt(At, digits) Then Throw Fail(At, "the date or time has {digits} digits here")
         Local value = 0
@@ -993,7 +994,7 @@ Class TomlReader
         At += 1
     End Method
 
-    // Whether count digits are at `at`.
+    /// Whether count digits are at `at`.
     Method DigitsAt(at: Int, count: Int): Bool
         If at + count > Bytes.Count Then Return False
         For i = at Until at + count
@@ -1002,10 +1003,10 @@ Class TomlReader
         Return True
     End Method
 
-    // The byte at `at`, or 0 past the end.
+    /// The byte at `at`, or 0 past the end.
     Method ByteAt(at: Int): UInt8 => at < Bytes.Count ? Bytes[at] : 0
 
-    // Whether the word's ASCII bytes are at `at`.
+    /// Whether the word's ASCII bytes are at `at`.
     Method Word(at: Int, word: String): Bool
         Local bytes = word.Bytes
         If at + bytes.Count > Bytes.Count Then Return False
@@ -1015,20 +1016,20 @@ Class TomlReader
         Return True
     End Method
 
-    // Whether three of quote start at At.
+    /// Whether three of quote start at At.
     Method Tripled(quote: UInt8): Bool
         Return At + 2 < Bytes.Count && Bytes[At] == quote && Bytes[At + 1] == quote &&
                Bytes[At + 2] == quote
     End Method
 
-    // Past spaces and tabs.
+    /// Past spaces and tabs.
     Method SkipSpaces()
         While At < Bytes.Count && (Bytes[At] == 32 || Bytes[At] == 9)
             At += 1
         End While
     End Method
 
-    // Past a comment, up to its line's end.
+    /// Past a comment, up to its line's end.
     Method SkipComment() Throws ParseError
         If At >= Bytes.Count || Bytes[At] != 35 Then Return
         While At < Bytes.Count && Bytes[At] != 10
@@ -1037,7 +1038,7 @@ Class TomlReader
         End While
     End Method
 
-    // Past spaces, newlines, and comments, in an array.
+    /// Past spaces, newlines, and comments, in an array.
     Method SkipBlank() Throws ParseError
         Loop
             SkipSpaces()
@@ -1052,7 +1053,7 @@ Class TomlReader
         End Loop
     End Method
 
-    // One more array or inline table, which starts at start. Throws past MOST_NESTED.
+    /// One more array or inline table, which starts at start. Throws past MOST_NESTED.
     Method Nest(start: Int) Throws ParseError
         Inside += 1
         Nested += 1
@@ -1061,14 +1062,14 @@ Class TomlReader
         End If
     End Method
 
-    // The end of an array or an inline table.
+    /// The end of an array or an inline table.
     Method Unnest()
         Inside -= 1
         Nested -= 1
     End Method
 
-    // A ParseError of SYNTAX at at, or of UNEXPECTED_END where the text ends inside a string, an
-    // array, or an inline table.
+    /// A ParseError of SYNTAX at at, or of UNEXPECTED_END where the text ends inside a string, an
+    /// array, or an inline table.
     Method Fail(at: Int, message: String): ParseError
         If At >= Bytes.Count && Inside > 0 Then Return Ended(at, message)
         Return ErrorAt(Bytes, at, ParseErrorKind.SYNTAX, message)
@@ -1078,6 +1079,6 @@ Class TomlReader
         Return ErrorAt(Bytes, at, ParseErrorKind.UNEXPECTED_END, message)
     End Method
 
-    // A dotted key as it's shown in a message.
+    /// A dotted key as it's shown in a message.
     Static Method Joined(key: String[]): String => key.Join(".")
 End Class

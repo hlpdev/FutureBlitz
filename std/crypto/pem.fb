@@ -1,7 +1,7 @@
-// Key and Certificate, which read keys and X.509 certificates from PEM, the text between
-// "-----BEGIN ...-----" and "-----END ...-----" lines that keys and certificates are kept in,
-// over mbedTLS. A Key's Bytes are what its kind's Methods take, so a key read from PEM signs,
-// verifies, or exchanges. RSA keys are of up to 8192 bits.
+//! Key and Certificate, which read keys and X.509 certificates from PEM, the text between
+//! "-----BEGIN ...-----" and "-----END ...-----" lines that keys and certificates are kept in,
+//! over mbedTLS. A Key's Bytes are what its kind's Methods take, so a key read from PEM signs,
+//! verifies, or exchanges. RSA keys are of up to 8192 bits.
 
 Import std.core
 
@@ -21,30 +21,34 @@ Extern "runtime"
     Function fb_crypto_certificates_free(certificates: Ptr<Void>)
 End Extern
 
-// What a Key is for, which says what its Bytes are.
+/// What a Key is for, which says what its Bytes are.
 Public Enum KeyKind
     ECDSA_P256, RSA, X25519, ED25519
 End Enum
 
-// A private or public key, as its kind's Methods take it: an ECDSA P-256 private key's 32 bytes
-// or public key's 65; an RSA key's PKCS #1 DER, whose public one Rsa verifies with; and an X25519
-// or Ed25519 key's 32 bytes.
+/// A private or public key, as its kind's Methods take it: an ECDSA P-256 private key's 32 bytes
+/// or public key's 65; an RSA key's PKCS #1 DER, whose public one Rsa verifies with; and an X25519
+/// or Ed25519 key's 32 bytes.
 Public Struct Key
+    /// What kind of key it is.
     Public ReadOnly Field Kind: KeyKind
+    /// Whether it's a private key, or a public one.
     Public ReadOnly Field IsPrivate: Bool
+    /// Its bytes, as its kind's Methods take them.
     Public ReadOnly Field Bytes: UInt8[]
 
+    /// A key of `kind`, private or public, of `bytes`.
     Public New(kind: KeyKind, isPrivate: Bool, bytes: UInt8[])
         Kind = kind
         IsPrivate = isPrivate
         Bytes = bytes
     End New
 
-    // The first key in pem, whatever comes after it: a private one in PKCS #8 ("PRIVATE KEY"),
-    // SEC 1 ("EC PRIVATE KEY"), or PKCS #1 ("RSA PRIVATE KEY"), or a public one ("PUBLIC KEY", or
-    // "RSA PUBLIC KEY"). Throws a ParseError of SYNTAX when pem has no key, or one that doesn't
-    // read, and of WRONG_TYPE when it's encrypted, or of a kind there's no KeyKind for, like
-    // another curve's.
+    /// The first key in pem, whatever comes after it: a private one in PKCS #8 ("PRIVATE KEY"),
+    /// SEC 1 ("EC PRIVATE KEY"), or PKCS #1 ("RSA PRIVATE KEY"), or a public one ("PUBLIC KEY", or
+    /// "RSA PUBLIC KEY"). Throws a ParseError of SYNTAX when pem has no key, or one that doesn't
+    /// read, and of WRONG_TYPE when it's encrypted, or of a kind there's no KeyKind for, like
+    /// another curve's.
     Public Static Method FromPem(pem: String): Key Throws ParseError
         Local bytes: UInt8[] = []
         Local found = fb_crypto_key_from_pem(pem, bytes)
@@ -58,9 +62,9 @@ Public Struct Key
         Return Key((found / 2) As KeyKind, found % 2 == 1, bytes)
     End Method
 
-    // The key as PEM, as OpenSSL writes it: a private one in PKCS #8, but an RSA one in PKCS #1
-    // and a P-256 one in SEC 1, and a public one, RSA's too, in SubjectPublicKeyInfo. Panics
-    // when Bytes isn't a key of its Kind.
+    /// The key as PEM, as OpenSSL writes it: a private one in PKCS #8, but an RSA one in PKCS #1
+    /// and a P-256 one in SEC 1, and a public one, RSA's too, in SubjectPublicKeyInfo. Panics
+    /// when Bytes isn't a key of its Kind.
     @PanicsAtCaller
     Public Method ToPem(): String
         Local pem = fb_crypto_key_to_pem(Kind As Int32, IsPrivate ? 1 : 0, Bytes)
@@ -69,19 +73,25 @@ Public Struct Key
     End Method
 End Struct
 
-// An X.509 certificate, read from PEM: who it's for and who signed it, as Python's ssl shows
-// them, "C=NL, O=Example, CN=example.com", in the certificate's order, as UTF-8 text with RFC
-// 4514's escapes; its serial number as hex bytes with colons between them; the UTC times it's
-// valid from and to, as "2026-10-23T12:00:00Z"; its public key; and its DER. Checking that one
-// certificate signed another, or that one is trusted, is TLS's.
+/// An X.509 certificate, read from PEM: who it's for and who signed it, as Python's ssl shows
+/// them, "C=NL, O=Example, CN=example.com", in the certificate's order, as UTF-8 text with RFC
+/// 4514's escapes; its serial number as hex bytes with colons between them; the UTC times it's
+/// valid from and to, as "2026-10-23T12:00:00Z"; its public key; and its DER. Checking that one
+/// certificate signed another, or that one is trusted, is TLS's.
 Public Struct Certificate
+    /// Who it's for, like "C=NL, O=Example, CN=example.com".
     Public ReadOnly Field Subject: String
+    /// Who signed it, as Subject says who it's for.
     Public ReadOnly Field Issuer: String
+    /// Its serial number, as hex bytes with colons between them.
     Public ReadOnly Field SerialNumber: String
+    /// The UTC time it's valid from, like "2026-10-23T12:00:00Z".
     Public ReadOnly Field NotBefore: String
+    /// The UTC time it's valid until, like "2026-10-23T12:00:00Z".
     Public ReadOnly Field NotAfter: String
-    // Its public key, or Null when it's of a kind there's no KeyKind for.
+    /// Its public key, or Null when it's of a kind there's no KeyKind for.
     Public ReadOnly Field PublicKey: Key?
+    /// Its DER bytes.
     Public ReadOnly Field Der: UInt8[]
 
     New(subject: String, issuer: String, serialNumber: String, notBefore: String,
@@ -95,14 +105,14 @@ Public Struct Certificate
         Der = der
     End New
 
-    // The first certificate in pem. Throws a ParseError when pem has none, or one that doesn't
-    // read.
+    /// The first certificate in pem. Throws a ParseError when pem has none, or one that doesn't
+    /// read.
     Public Static Method FromPem(pem: String): Certificate Throws ParseError
         Return (Try AllFromPem(pem))[0]
     End Method
 
-    // Each certificate in pem, in order, as a chain or a bundle of trusted ones has them. Throws a
-    // ParseError when pem has none, or one that doesn't read.
+    /// Each certificate in pem, in order, as a chain or a bundle of trusted ones has them. Throws a
+    /// ParseError when pem has none, or one that doesn't read.
     Public Static Method AllFromPem(pem: String): Certificate[] Throws ParseError
         Local chain = fb_crypto_certificates_new(pem)
         If chain == Null

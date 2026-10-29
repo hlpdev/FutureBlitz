@@ -1,7 +1,7 @@
-// Ed25519, over Monocypher, and EcdsaP256, Rsa, and X25519, over mbedTLS: signatures, which a
-// private key makes and its public key checks, and key exchange, which gives two sides one secret
-// from their own private keys and each other's public ones. Keys are bytes, as each one's Methods
-// say; Key reads and writes them as PEM. A key or signature that isn't one verifies nothing.
+//! Ed25519, over Monocypher, and EcdsaP256, Rsa, and X25519, over mbedTLS: signatures, which a
+//! private key makes and its public key checks, and key exchange, which gives two sides one secret
+//! from their own private keys and each other's public ones. Keys are bytes, as each one's Methods
+//! say; Key reads and writes them as PEM. A key or signature that isn't one verifies nothing.
 
 Import std.core
 Import std.crypto.random
@@ -20,24 +20,24 @@ Extern "runtime"
     Function fb_ed25519_verify(publicKey: UInt8[], message: UInt8[], signature: UInt8[]): Int32
 End Extern
 
-// The runtime's numbers for the keys and the signatures.
+/// The runtime's numbers for the keys and the signatures.
 Const P256_KEY = 0
 Const X25519_KEY = 2
 Const ECDSA_SHA256 = 1
 Const RSA_PKCS1_SHA256 = 2
 Const RSA_PSS_SHA256 = 3
 
-// Ed25519 (RFC 8032), EdDSA on Curve25519 with SHA-512: a private key is a 32-byte seed, a public
-// key 32 bytes, and a signature 64 bytes, deterministic, so signing needs no random number.
+/// Ed25519 (RFC 8032), EdDSA on Curve25519 with SHA-512: a private key is a 32-byte seed, a public
+/// key 32 bytes, and a signature 64 bytes, deterministic, so signing needs no random number.
 Public Struct Ed25519
-    // Ed25519 isn't made: it's only its Static Methods.
+    /// Ed25519 isn't made: it's only its Static Methods.
     New()
     End New
 
-    // A new random private key.
+    /// A new random private key.
     Public Static Method NewPrivateKey(): UInt8[] => SecureRandom.Bytes(32)
 
-    // privateKey's public key. Panics unless privateKey is 32 bytes.
+    /// privateKey's public key. Panics unless privateKey is 32 bytes.
     @PanicsAtCaller
     Public Static Method PublicKeyOf(privateKey: UInt8[]): UInt8[]
         CheckSeed(privateKey)
@@ -46,7 +46,7 @@ Public Struct Ed25519
         Return key
     End Method
 
-    // message's signature with privateKey. Panics unless privateKey is 32 bytes.
+    /// message's signature with privateKey. Panics unless privateKey is 32 bytes.
     @PanicsAtCaller
     Public Static Method Sign(privateKey: UInt8[], message: UInt8[]): UInt8[]
         CheckSeed(privateKey)
@@ -55,36 +55,39 @@ Public Struct Ed25519
         Return signature
     End Method
 
+    /// `text`'s signature, by its UTF-8 bytes, with `privateKey`. Panics unless `privateKey` is 32
+    /// bytes.
     @PanicsAtCaller
     Public Static Method Sign(privateKey: UInt8[], text: String): UInt8[]
         Return Sign(privateKey, text.Bytes)
     End Method
 
-    // Whether signature is publicKey's of message.
+    /// Whether signature is publicKey's of message.
     Public Static Method Verify(publicKey: UInt8[], message: UInt8[], signature: UInt8[]): Bool
         Return fb_ed25519_verify(publicKey, message, signature) != 0
     End Method
 
+    /// Whether `signature` is `publicKey`'s of `text`'s UTF-8 bytes.
     Public Static Method Verify(publicKey: UInt8[], text: String, signature: UInt8[]): Bool
         Return Verify(publicKey, text.Bytes, signature)
     End Method
 End Struct
 
-// ECDSA on NIST's P-256 with SHA-256 (ES256): a private key is 32 bytes, a public key its point,
-// uncompressed, 65 bytes, and a signature r then s, 64 bytes.
+/// ECDSA on NIST's P-256 with SHA-256 (ES256): a private key is 32 bytes, a public key its point,
+/// uncompressed, 65 bytes, and a signature r then s, 64 bytes.
 Public Struct EcdsaP256
-    // EcdsaP256 isn't made: it's only its Static Methods.
+    /// EcdsaP256 isn't made: it's only its Static Methods.
     New()
     End New
 
-    // A new random private key.
+    /// A new random private key.
     Public Static Method NewPrivateKey(): UInt8[]
         Local key: UInt8[] = []
         fb_crypto_key_new(P256_KEY, key)
         Return key
     End Method
 
-    // privateKey's public key. Panics unless privateKey is a P-256 private key.
+    /// privateKey's public key. Panics unless privateKey is a P-256 private key.
     @PanicsAtCaller
     Public Static Method PublicKeyOf(privateKey: UInt8[]): UInt8[]
         Local key: UInt8[] = []
@@ -95,8 +98,8 @@ Public Struct EcdsaP256
         Return key
     End Method
 
-    // message's signature with privateKey, deterministic, as RFC 6979 makes it, so it needs no
-    // random number. Panics unless privateKey is a P-256 private key.
+    /// message's signature with privateKey, deterministic, as RFC 6979 makes it, so it needs no
+    /// random number. Panics unless privateKey is a P-256 private key.
     @PanicsAtCaller
     Public Static Method Sign(privateKey: UInt8[], message: UInt8[]): UInt8[]
         Local signature: UInt8[] = []
@@ -107,71 +110,76 @@ Public Struct EcdsaP256
         Return signature
     End Method
 
+    /// `text`'s signature, by its UTF-8 bytes, with `privateKey`. Panics unless `privateKey` is 32
+    /// bytes, a number from 1 up to the curve's order.
     @PanicsAtCaller
     Public Static Method Sign(privateKey: UInt8[], text: String): UInt8[]
         Return Sign(privateKey, text.Bytes)
     End Method
 
-    // Whether signature is publicKey's of message.
+    /// Whether signature is publicKey's of message.
     Public Static Method Verify(publicKey: UInt8[], message: UInt8[], signature: UInt8[]): Bool
         Return fb_crypto_verify(ECDSA_SHA256, publicKey, message, signature) != 0
     End Method
 
+    /// Whether `signature` is `publicKey`'s of `text`'s UTF-8 bytes.
     Public Static Method Verify(publicKey: UInt8[], text: String, signature: UInt8[]): Bool
         Return Verify(publicKey, text.Bytes, signature)
     End Method
 End Struct
 
-// RSA signatures, to verify, with SHA-256: a public key is PKCS #1's DER of its modulus and
-// exponent, which PublicKey makes from them, or Key reads from PEM. A modulus has up to 8192
-// bits, of any number, and a key with a larger one verifies nothing.
+/// RSA signatures, to verify, with SHA-256: a public key is PKCS #1's DER of its modulus and
+/// exponent, which PublicKey makes from them, or Key reads from PEM. A modulus has up to 8192
+/// bits, of any number, and a key with a larger one verifies nothing.
 Public Struct Rsa
-    // Rsa isn't made: it's only its Static Methods.
+    /// Rsa isn't made: it's only its Static Methods.
     New()
     End New
 
-    // The public key of modulus and exponent, big-endian bytes, as JWK's "n" and "e" are.
+    /// The public key of modulus and exponent, big-endian bytes, as JWK's "n" and "e" are.
     Public Static Method PublicKey(modulus: UInt8[], exponent: UInt8[]): UInt8[]
         Local key: UInt8[] = []
         fb_crypto_rsa_key(modulus, exponent, key)
         Return key
     End Method
 
-    // Whether signature is publicKey's of message by RSASSA-PKCS1-v1_5 (RS256).
+    /// Whether signature is publicKey's of message by RSASSA-PKCS1-v1_5 (RS256).
     Public Static Method Verify(publicKey: UInt8[], message: UInt8[], signature: UInt8[]): Bool
         Return fb_crypto_verify(RSA_PKCS1_SHA256, publicKey, message, signature) != 0
     End Method
 
+    /// Whether `signature` is `publicKey`'s of `text`'s UTF-8 bytes, by RSASSA-PKCS1-v1_5 (RS256).
     Public Static Method Verify(publicKey: UInt8[], text: String, signature: UInt8[]): Bool
         Return Verify(publicKey, text.Bytes, signature)
     End Method
 
-    // Whether signature is publicKey's of message by RSASSA-PSS, with MGF1 by SHA-256 and a salt
-    // of 32 bytes, as long as the hash (PS256).
+    /// Whether signature is publicKey's of message by RSASSA-PSS, with MGF1 by SHA-256 and a salt
+    /// of 32 bytes, as long as the hash (PS256).
     Public Static Method VerifyPss(publicKey: UInt8[], message: UInt8[], signature: UInt8[]): Bool
         Return fb_crypto_verify(RSA_PSS_SHA256, publicKey, message, signature) != 0
     End Method
 
+    /// Whether `signature` is `publicKey`'s of `text`'s UTF-8 bytes, by RSASSA-PSS (PS256).
     Public Static Method VerifyPss(publicKey: UInt8[], text: String, signature: UInt8[]): Bool
         Return VerifyPss(publicKey, text.Bytes, signature)
     End Method
 End Struct
 
-// X25519 key exchange (RFC 7748): private and public keys are 32 bytes each, and so is the secret
-// two sides share, which a KDF, like Hkdf, makes keys from.
+/// X25519 key exchange (RFC 7748): private and public keys are 32 bytes each, and so is the secret
+/// two sides share, which a KDF, like Hkdf, makes keys from.
 Public Struct X25519
-    // X25519 isn't made: it's only its Static Methods.
+    /// X25519 isn't made: it's only its Static Methods.
     New()
     End New
 
-    // A new random private key.
+    /// A new random private key.
     Public Static Method NewPrivateKey(): UInt8[]
         Local key: UInt8[] = []
         fb_crypto_key_new(X25519_KEY, key)
         Return key
     End Method
 
-    // privateKey's public key, to give the other side. Panics unless privateKey is 32 bytes.
+    /// privateKey's public key, to give the other side. Panics unless privateKey is 32 bytes.
     @PanicsAtCaller
     Public Static Method PublicKeyOf(privateKey: UInt8[]): UInt8[]
         CheckKey(privateKey, "private")
@@ -180,8 +188,8 @@ Public Struct X25519
         Return key
     End Method
 
-    // The secret of privateKey and the other side's publicKey, or Null when publicKey is one of
-    // the few that make every secret 0. Panics unless both are 32 bytes.
+    /// The secret of privateKey and the other side's publicKey, or Null when publicKey is one of
+    /// the few that make every secret 0. Panics unless both are 32 bytes.
     @PanicsAtCaller
     Public Static Method SharedSecret(privateKey: UInt8[], publicKey: UInt8[]): UInt8[]?
         CheckKey(privateKey, "private")

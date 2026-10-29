@@ -1,9 +1,9 @@
-// std.text.diff: what changed between two texts, by Myers' algorithm, which finds the fewest
-// lines, or characters, to delete and insert. Diff.Lines and Diff.Chars give the runs of what's
-// the same, deleted, and inserted; Diff.Unified the text that diff -u and git diff show; and
-// Diff.Merge a three-way merge, as git merge-file makes it, with conflict markers where both
-// sides changed the same lines differently. A line keeps its line break, "\n", "\r\n", or "\r",
-// and a text's last line can have none.
+//! std.text.diff: what changed between two texts, by Myers' algorithm, which finds the fewest
+//! lines, or characters, to delete and insert. Diff.Lines and Diff.Chars give the runs of what's
+//! the same, deleted, and inserted; Diff.Unified the text that diff -u and git diff show; and
+//! Diff.Merge a three-way merge, as git merge-file makes it, with conflict markers where both
+//! sides changed the same lines differently. A line keeps its line break, "\n", "\r\n", or "\r",
+//! and a text's last line can have none.
 
 Import std.core
 Import std.collections.array
@@ -15,26 +15,30 @@ Extern "runtime"
     Function fb_text_byte(text: String, at: Int64): UInt8
 End Extern
 
-// What a run of a diff is: the same in both texts, deleted from the first, or inserted for the
-// second.
+/// What a run of a diff is: the same in both texts, deleted from the first, or inserted for the
+/// second.
 Public Enum DiffKind
     SAME, DELETED, INSERTED
 End Enum
 
-// A run of a diff: what kind it is, and its text, whole lines for Diff.Lines.
+/// A run of a diff: what kind it is, and its text, whole lines for Diff.Lines.
 Public Struct DiffRun
+    /// What kind of run it is.
     Public ReadOnly Field Kind: DiffKind
+    /// Its text, whole lines for Diff.Lines.
     Public ReadOnly Field Text: String
 End Struct
 
-// A three-way merge: its text, and how many conflicts in it are marked.
+/// A three-way merge: its text, and how many conflicts in it are marked.
 Public Struct Merged
+    /// The merged text.
     Public ReadOnly Field Text: String
+    /// How many conflicts in it are marked.
     Public ReadOnly Field Conflicts: Int
 End Struct
 
-// A change from a base: its lines from Start up to Finish are replaced by the other text's from
-// OtherStart up to OtherFinish.
+/// A change from a base: its lines from Start up to Finish are replaced by the other text's from
+/// OtherStart up to OtherFinish.
 Struct Change
     Field Start: Int
     Field Finish: Int
@@ -42,18 +46,18 @@ Struct Change
     Field OtherFinish: Int
 End Struct
 
-// Diffing's operations.
+/// Diffing's operations.
 Public Class Diff
-    // The runs of lines that are the same in a and b, deleted from a, and inserted for b, in
-    // order, as few lines as can be deleted and inserted. Where lines are replaced, the deleted
-    // ones come before the inserted ones.
+    /// The runs of lines that are the same in a and b, deleted from a, and inserted for b, in
+    /// order, as few lines as can be deleted and inserted. Where lines are replaced, the deleted
+    /// ones come before the inserted ones.
     Public Static Method Lines(a: String, b: String): DiffRun[]
         Local from = LinesOf(a)
         Local to = LinesOf(b)
         Return Runs(Script(from, to), from, to)
     End Method
 
-    // The runs of characters that are the same in a and b, deleted from a, and inserted for b.
+    /// The runs of characters that are the same in a and b, deleted from a, and inserted for b.
     Public Static Method Chars(a: String, b: String): DiffRun[]
         Local from: String[] = []
         For c In a.Chars
@@ -68,9 +72,9 @@ Public Class Diff
         Return Runs(Script(from, to), from, to)
     End Method
 
-    // The unified diff of a and b, as diff -u and git diff write it, with context lines of each
-    // change's around it, and fromName and toName in its first two lines. "" when they're the
-    // same. Panics when context is negative.
+    /// The unified diff of a and b, as diff -u and git diff write it, with context lines of each
+    /// change's around it, and fromName and toName in its first two lines. "" when they're the
+    /// same. Panics when context is negative.
     @PanicsAtCaller
     Public Static Method Unified(a: String, b: String, fromName: String = "a",
                                  toName: String = "b", context: Int = 3): String
@@ -125,13 +129,13 @@ Public Class Diff
         Return text
     End Method
 
-    // ours and theirs, both changed from base, merged as git merge-file merges them: what each
-    // changed, and where both changed the same lines, or lines that touch, what they both made
-    // of them, or else a conflict, marked "<<<<<<< ours", ours' lines, "=======", theirs', and
-    // ">>>>>>> theirs", with oursName and theirsName, on lines that end in "\r\n" where the
-    // texts' lines do. A conflict holds only the lines that differ between the two, and two
-    // conflicts with at most 3 lines between them, or lines without an ASCII letter or digit,
-    // are one.
+    /// ours and theirs, both changed from base, merged as git merge-file merges them: what each
+    /// changed, and where both changed the same lines, or lines that touch, what they both made
+    /// of them, or else a conflict, marked "<<<<<<< ours", ours' lines, "=======", theirs', and
+    /// ">>>>>>> theirs", with oursName and theirsName, on lines that end in "\r\n" where the
+    /// texts' lines do. A conflict holds only the lines that differ between the two, and two
+    /// conflicts with at most 3 lines between them, or lines without an ASCII letter or digit,
+    /// are one.
     Public Static Method Merge(base: String, ours: String, theirs: String,
                                oursName: String = "ours", theirsName: String = "theirs"): Merged
         Local lines = LinesOf(base)
@@ -209,7 +213,7 @@ Public Class Diff
     End Method
 End Class
 
-// text's lines, each with its line break.
+/// text's lines, each with its line break.
 Function LinesOf(text: String): String[]
     Local lines: String[] = []
     Local start = 0
@@ -232,12 +236,12 @@ Function LinesOf(text: String): String[]
     Return lines
 End Function
 
-// The fewest deletions from a and insertions from b that turn a into b, as what each step does,
-// in order, with the deletions before the insertions where lines are replaced. It goes as git's
-// xdiff does, without the shortcuts that let a diff of many lines be longer than the fewest:
-// past the lines both start and end with, a line with no equal in the other text is changed
-// without a search, Myers' search in linear space marks the rest, and each run of changes then
-// slides as git's does, so the diff is the one git and diff -u give.
+/// The fewest deletions from a and insertions from b that turn a into b, as what each step does,
+/// in order, with the deletions before the insertions where lines are replaced. It goes as git's
+/// xdiff does, without the shortcuts that let a diff of many lines be longer than the fewest:
+/// past the lines both start and end with, a line with no equal in the other text is changed
+/// without a search, Myers' search in linear space marks the rest, and each run of changes then
+/// slides as git's does, so the diff is the one git and diff -u give.
 Function Script(a: String[], b: String[]): DiffKind[]
     // Each line as its class, which equal lines share, and how many of each class each text has.
     Local classes = Map<String, Int>()
@@ -313,8 +317,8 @@ Function Script(a: String[], b: String[]): DiffKind[]
     Return steps
 End Function
 
-// Each of lines' class, which equal lines share, adding a class to classes for each line that
-// has none yet.
+/// Each of lines' class, which equal lines share, adding a class to classes for each line that
+/// has none yet.
 Function ClassesOf(lines: String[], classes: Map<String, Int>): Int[]
     Local found: Int[] = []
     For line In lines
@@ -330,7 +334,7 @@ Function ClassesOf(lines: String[], classes: Map<String, Int>): Int[]
     Return found
 End Function
 
-// The values at each of indexes.
+/// The values at each of indexes.
 Function Picked(values: Int[], indexes: Int[]): Int[]
     Local picked: Int[] = []
     For index In indexes
@@ -340,16 +344,16 @@ Function Picked(values: Int[], indexes: Int[]): Int[]
     Return picked
 End Function
 
-// Myers' search for the fewest changes between two texts' lines, as their classes, in linear
-// space, as git's xdl_recs_cmp and xdl_split search with XDF_NEED_MINIMAL: it marks which of A's
-// lines are Deleted and which of B's are Inserted.
+/// Myers' search for the fewest changes between two texts' lines, as their classes, in linear
+/// space, as git's xdl_recs_cmp and xdl_split search with XDF_NEED_MINIMAL: it marks which of A's
+/// lines are Deleted and which of B's are Inserted.
 Class Myers
     Field A: Int[]
     Field B: Int[]
     Field Deleted: Bool[] = []
     Field Inserted: Bool[] = []
-    // How far along A the path on each diagonal, a line of A less a line of B, reaches forward
-    // and backward. A diagonal's place is it plus Offset.
+    /// How far along A the path on each diagonal, a line of A less a line of B, reaches forward
+    /// and backward. A diagonal's place is it plus Offset.
     Field Forward: Int[] = []
     Field Backward: Int[] = []
     Field Offset: Int
@@ -364,9 +368,9 @@ Class Myers
         Offset = b.Count + 1
     End New
 
-    // Marks the changes between A's lines from aStart up to aEnd and B's from bStart up to bEnd:
-    // past the lines they start and end with alike, every line of one when the other has none
-    // left, or else the changes on each side of where a path of the fewest crosses its middle.
+    /// Marks the changes between A's lines from aStart up to aEnd and B's from bStart up to bEnd:
+    /// past the lines they start and end with alike, every line of one when the other has none
+    /// left, or else the changes on each side of where a path of the fewest crosses its middle.
     Method Compare(aStart: Int, aEnd: Int, bStart: Int, bEnd: Int)
         Local x = aStart
         Local y = bStart
@@ -397,9 +401,9 @@ Class Myers
         End If
     End Method
 
-    // Where a path of the fewest changes from (aStart, bStart) to (aEnd, bEnd) crosses its
-    // middle, as xdl_split finds it: paths go forward from the start and back from the end, a
-    // change at a time on each diagonal, until one reaches the other's on the same diagonal.
+    /// Where a path of the fewest changes from (aStart, bStart) to (aEnd, bEnd) crosses its
+    /// middle, as xdl_split finds it: paths go forward from the start and back from the end, a
+    /// change at a time on each diagonal, until one reaches the other's on the same diagonal.
     Method Middle(aStart: Int, aEnd: Int, bStart: Int, bEnd: Int): (Int, Int)
         Local lowest = aStart - bEnd
         Local highest = aEnd - bStart
@@ -479,9 +483,9 @@ Class Myers
     End Method
 End Class
 
-// A run of a text's changed lines, from Start up to Finish, which is empty between two lines
-// that aren't changed, as git's xdlgroup is: it moves to the next run, or the one before, and
-// slides over the lines around it. Lines are the text's lines' classes.
+/// A run of a text's changed lines, from Start up to Finish, which is empty between two lines
+/// that aren't changed, as git's xdlgroup is: it moves to the next run, or the one before, and
+/// slides over the lines around it. Lines are the text's lines' classes.
 Class Run
     Field Lines: Int[]
     Field Changed: Bool[]
@@ -498,7 +502,7 @@ Class Run
 
     Method IsChanged(line: Int): Bool => line >= 0 && line < Changed.Count && Changed[line]
 
-    // Moves to the next run, or tells that there's none.
+    /// Moves to the next run, or tells that there's none.
     Method Next(): Bool
         If Finish == Changed.Count Then Return False
         Start = Finish + 1
@@ -510,7 +514,7 @@ Class Run
         Return True
     End Method
 
-    // Moves to the run before, or tells that there's none.
+    /// Moves to the run before, or tells that there's none.
     Method Previous(): Bool
         If Start == 0 Then Return False
         Finish = Start - 1
@@ -522,8 +526,8 @@ Class Run
         Return True
     End Method
 
-    // Slides the run a line down, where the line after it is the same as its first, taking in
-    // the run it then touches, or tells that it can't.
+    /// Slides the run a line down, where the line after it is the same as its first, taking in
+    /// the run it then touches, or tells that it can't.
     Method SlideDown(): Bool
         If Finish >= Changed.Count || Lines[Start] != Lines[Finish] Then Return False
         Changed[Start] = False
@@ -537,8 +541,8 @@ Class Run
         Return True
     End Method
 
-    // Slides the run a line up, where the line before it is the same as its last, taking in the
-    // run it then touches, or tells that it can't.
+    /// Slides the run a line up, where the line before it is the same as its last, taking in the
+    /// run it then touches, or tells that it can't.
     Method SlideUp(): Bool
         If Start == 0 || Lines[Start - 1] != Lines[Finish - 1] Then Return False
         Start -= 1
@@ -553,10 +557,10 @@ Class Run
     End Method
 End Class
 
-// Slides each run of a text's changed lines as git's xdl_change_compact does without its indent
-// heuristic: as far up as its lines allow, then as far down, taking in the runs it meets, and
-// then back up to the last place where it lines up with a run of the other text's changes, if
-// it passed one. lines and changed are the text's, and others and otherChanged the other's.
+/// Slides each run of a text's changed lines as git's xdl_change_compact does without its indent
+/// heuristic: as far up as its lines allow, then as far down, taking in the runs it meets, and
+/// then back up to the last place where it lines up with a run of the other text's changes, if
+/// it passed one. lines and changed are the text's, and others and otherChanged the other's.
 Function Compact(lines: Int[], changed: Bool[], others: Int[], otherChanged: Bool[])
     Local run = Run(lines, changed)
     Local other = Run(others, otherChanged)
@@ -593,7 +597,7 @@ Function Compact(lines: Int[], changed: Bool[], others: Int[], otherChanged: Boo
     End Loop
 End Function
 
-// The runs that steps make of a and b.
+/// The runs that steps make of a and b.
 Function Runs(steps: DiffKind[], a: String[], b: String[]): DiffRun[]
     Local runs: DiffRun[] = []
     Local x = 0
@@ -621,8 +625,8 @@ Function Runs(steps: DiffKind[], a: String[], b: String[]): DiffRun[]
     Return runs
 End Function
 
-// The changes that steps make: each run of deletions and insertions, as the lines of a it
-// replaces and the lines of b it puts there.
+/// The changes that steps make: each run of deletions and insertions, as the lines of a it
+/// replaces and the lines of b it puts there.
 Function ChangesOf(steps: DiffKind[]): Change[]
     Local changes: Change[] = []
     Local x = 0
@@ -649,13 +653,13 @@ Function ChangesOf(steps: DiffKind[]): Change[]
     Return changes
 End Function
 
-// What a chunk of a merge is: lines both sides have, lines one side changed, or a conflict.
+/// What a chunk of a merge is: lines both sides have, lines one side changed, or a conflict.
 Enum ChunkKind
     SAME, TAKEN, CONFLICT
 End Enum
 
-// A chunk of a merge: its Lines, ours' for a conflict, and theirs' Other, and for a conflict,
-// where its lines start in ours and in theirs.
+/// A chunk of a merge: its Lines, ours' for a conflict, and theirs' Other, and for a conflict,
+/// where its lines start in ours and in theirs.
 Struct Chunk
     Field Kind: ChunkKind
     Field Lines: String[]
@@ -664,8 +668,8 @@ Struct Chunk
     Field Theirs: Int = 0
 End Struct
 
-// The lines of other in place of base's from start up to finish, as the changes from first up
-// to after map them: before the first change, and after the last, its lines line up with base's.
+/// The lines of other in place of base's from start up to finish, as the changes from first up
+/// to after map them: before the first change, and after the last, its lines line up with base's.
 Function Mapped(changes: Change[], first: Int, after: Int, start: Int, finish: Int,
                 other: String[]): String[]
     Local otherStart = start
@@ -686,10 +690,10 @@ Function Mapped(changes: Change[], first: Int, after: Int, start: Int, finish: I
     Return Part(other, otherStart, otherFinish)
 End Function
 
-// The chunks of where both sides changed the same lines, mine in ours from mineAt and others in
-// theirs from othersAt: the lines they both have, and between them, a conflict of each run that
-// differs, unless one side has none, which is one conflict. Two sides that made the same of
-// them, none included, have it as lines both have, as git's merge has the same change on both.
+/// The chunks of where both sides changed the same lines, mine in ours from mineAt and others in
+/// theirs from othersAt: the lines they both have, and between them, a conflict of each run that
+/// differs, unless one side has none, which is one conflict. Two sides that made the same of
+/// them, none included, have it as lines both have, as git's merge has the same change on both.
 Function Refine(chunks: Chunk[], mine: String[], others: String[], mineAt: Int, othersAt: Int)
     If mine.Count == 0 && others.Count == 0 Then Return
     If mine.Count == 0 || others.Count == 0
@@ -710,9 +714,9 @@ Function Refine(chunks: Chunk[], mine: String[], others: String[], mineAt: Int, 
     chunks.Add(Chunk(ChunkKind.SAME, Part(mine, at, mine.Count), []))
 End Function
 
-// chunks with the lines both sides have, next to each other, as one run of them, and each two
-// conflicts with only such a run between them, of at most 3 lines or none with an ASCII letter
-// or digit, made one conflict that holds those lines on both sides.
+/// chunks with the lines both sides have, next to each other, as one run of them, and each two
+/// conflicts with only such a run between them, of at most 3 lines or none with an ASCII letter
+/// or digit, made one conflict that holds those lines on both sides.
 Function Simplified(chunks: Chunk[]): Chunk[]
     Local simplified: Chunk[] = []
     For chunk In chunks
@@ -752,7 +756,7 @@ Function Simplified(chunks: Chunk[]): Chunk[]
     Return simplified
 End Function
 
-// Whether any of lines has an ASCII letter or digit, as git's lines_contain_alnum asks.
+/// Whether any of lines has an ASCII letter or digit, as git's lines_contain_alnum asks.
 Function HasAlnum(lines: String[]): Bool
     For line In lines
         For c In line.Chars
@@ -763,10 +767,10 @@ Function HasAlnum(lines: String[]): Bool
     Return False
 End Function
 
-// The line break of a conflict's markers, as git's is_cr_needed picks it: "\r\n" when base's
-// first line ends in one, and neither ours' line before the conflict, which starts at mineAt,
-// nor theirs', at othersAt, ends in "\n" alone, a side's first line standing in for it when the
-// conflict starts the side; "\n" otherwise.
+/// The line break of a conflict's markers, as git's is_cr_needed picks it: "\r\n" when base's
+/// first line ends in one, and neither ours' line before the conflict, which starts at mineAt,
+/// nor theirs', at othersAt, ends in "\n" alone, a side's first line standing in for it when the
+/// conflict starts the side; "\n" otherwise.
 Function MarkerBreak(mine: String[], mineAt: Int, others: String[], othersAt: Int,
                      base: String[]): String
     Local crlf = EndsInCrLf(mine, Max(mineAt - 1, 0))
@@ -775,9 +779,9 @@ Function MarkerBreak(mine: String[], mineAt: Int, others: String[], othersAt: In
     Return crlf > 0 ? "\r\n" : "\n"
 End Function
 
-// Whether line at of lines ends in "\r\n", as git's is_eol_crlf tells it: 1 when it does, 0 when
-// it ends in "\n" alone, and -1 when it can't tell. The last line without a "\n" tells by the
-// line before it.
+/// Whether line at of lines ends in "\r\n", as git's is_eol_crlf tells it: 1 when it does, 0 when
+/// it ends in "\n" alone, and -1 when it can't tell. The last line without a "\n" tells by the
+/// line before it.
 Function EndsInCrLf(lines: String[], at: Int): Int
     If lines.Count == 0 Then Return -1
     If at < lines.Count - 1 || lines[at].EndsWith("\n")
@@ -788,7 +792,7 @@ Function EndsInCrLf(lines: String[], at: Int): Int
     Return lines[at - 1].EndsWith("\r\n") ? 1 : 0
 End Function
 
-// lines from start up to finish.
+/// lines from start up to finish.
 Function Part(lines: String[], start: Int, finish: Int): String[]
     Local part: String[] = []
     For i = start Until finish
@@ -798,8 +802,8 @@ Function Part(lines: String[], start: Int, finish: Int): String[]
     Return part
 End Function
 
-// A hunk's range, from start up to finish, as diff -u writes it: its first line, from 1, and its
-// count unless that's 1; an empty range names the line before it.
+/// A hunk's range, from start up to finish, as diff -u writes it: its first line, from 1, and its
+/// count unless that's 1; an empty range names the line before it.
 Function Range(start: Int, finish: Int): String
     Local count = finish - start
     If count == 1 Then Return "{start + 1}"
@@ -807,13 +811,13 @@ Function Range(start: Int, finish: Int): String
     Return "{start + 1},{count}"
 End Function
 
-// A line of a unified diff: its mark, the line, and a note when the line has no line break.
+/// A line of a unified diff: its mark, the line, and a note when the line has no line break.
 Function Shown(mark: String, line: String): String
     If line.EndsWith("\n") || line.EndsWith("\r") Then Return mark + line
     Return mark + line + "\n\\ No newline at end of file\n"
 End Function
 
-// text, ending in a line break: ending, when it has none.
+/// text, ending in a line break: ending, when it has none.
 Function Ended(text: String, ending: String): String
     If text == "" || text.EndsWith("\n") || text.EndsWith("\r") Then Return text
     Return text + ending

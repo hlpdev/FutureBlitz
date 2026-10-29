@@ -1,24 +1,25 @@
-// Typed units: a Quantity is a value in SI's base units, meters, kilograms, and seconds, with the
-// exponents of its length, mass, and time as Const type arguments, so the compiler keeps Meters
-// apart from Seconds and works out what Meters / Seconds is. Each unit is an Alias of its
-// Quantity: Meters is Quantity<1, 0, 0>, and MetersPerSecond Quantity<1, 0, -1>. + and - take
-// quantities of the same units, * and / any two, adding or taking away their exponents, and a
-// Double scales one.
+//! Typed units: a Quantity is a value in SI's base units, meters, kilograms, and seconds, with the
+//! exponents of its length, mass, and time as Const type arguments, so the compiler keeps Meters
+//! apart from Seconds and works out what Meters / Seconds is. Each unit is an Alias of its
+//! Quantity: Meters is `Quantity<1, 0, 0>`, and MetersPerSecond `Quantity<1, 0, -1>`. + and - take
+//! quantities of the same units, * and / any two, adding or taking away their exponents, and a
+//! Double scales one.
 
 Import std.core
 
-// A value of so many meters, kilograms, and seconds, to the powers L, M, and T: 5 m/s^2 is a
-// Quantity<1, 0, -2> of Value 5.
+/// A value of so many meters, kilograms, and seconds, to the powers L, M, and T: 5 m/s^2 is a
+/// `Quantity<1, 0, -2>` of Value 5.
 Public Struct Quantity<Const L: Int, Const M: Int, Const T: Int> Implements Comparable, Hashable,
                                                                             Printable, Defaultable
-    // The value in the base units, and the units they make.
+    /// The value in the base units, and the units they make.
     Public Field Value: Double
 
+    /// A quantity of 0 of these units.
     Public Static Method Zero(): Quantity<L, M, T> => Quantity<L, M, T>(0)
     Public Static Method DefaultValue(): Quantity<L, M, T> => Quantity<L, M, T>(0)
 
-    // The value and its units, as SI writes them: "9.8 m/s^2", "3 kg m/s^2", "50 1/s", or
-    // "4 kg/(m s^2)", and the value alone without any.
+    /// The value and its units, as SI writes them: "9.8 m/s^2", "3 kg m/s^2", "50 1/s", or
+    /// "4 kg/(m s^2)", and the value alone without any.
     Public Method ToString(): String
         Local above = ""
         Local below = ""
@@ -60,7 +61,7 @@ Public Struct Quantity<Const L: Int, Const M: Int, Const T: Int> Implements Comp
         Return Quantity<L, M, T>(a.Value / scale)
     End Operator
 
-    // A product's exponents are the sum of its operands', and a quotient's their difference.
+    /// A product's exponents are the sum of its operands', and a quotient's their difference.
     Operator *<Const L2: Int, Const M2: Int, Const T2: Int>(
             a: Quantity<L, M, T>, b: Quantity<L2, M2, T2>): Quantity<L + L2, M + M2, T + T2>
         Return Quantity<L + L2, M + M2, T + T2>(a.Value * b.Value)
@@ -74,41 +75,62 @@ Public Struct Quantity<Const L: Int, Const M: Int, Const T: Int> Implements Comp
     Operator <(a: Quantity<L, M, T>, b: Quantity<L, M, T>): Bool => a.Value < b.Value
 End Struct
 
-// A unit to a power, as "m" or "s^2".
+/// A unit to a power, as "m" or "s^2".
 Function Power(unit: String, exponent: Int64): String => exponent == 1 ? unit : "{unit}^{exponent}"
 
-// Units with a space between them.
+/// Units with a space between them.
 Function Joined(units: String, unit: String): String => units == "" ? unit : "{units} {unit}"
 
-// How big a quantity is, of the same units, as the scalar Abs has it: 0 for -0.
+/// How big a quantity is, of the same units, as the scalar Abs has it: 0 for -0.
 Public Function Abs<Const L: Int, Const M: Int, Const T: Int>(
         q: Quantity<L, M, T>): Quantity<L, M, T>
     Return Quantity<L, M, T>(q.Value <= 0 ? 0 - q.Value : q.Value)
 End Function
 
-// The base units, and those made from them.
+/// The base units, and those made from them.
 Public Alias Meters = Quantity<1, 0, 0>
+/// Kilograms, of mass.
 Public Alias Kilograms = Quantity<0, 1, 0>
+/// Seconds, of time.
 Public Alias Seconds = Quantity<0, 0, 1>
+/// Square meters, of area.
 Public Alias SquareMeters = Quantity<2, 0, 0>
+/// Cubic meters, of volume.
 Public Alias CubicMeters = Quantity<3, 0, 0>
+/// Meters per second, of speed.
 Public Alias MetersPerSecond = Quantity<1, 0, -1>
+/// Meters per second squared, of acceleration.
 Public Alias MetersPerSecondSquared = Quantity<1, 0, -2>
+/// Hertz, a time each second, of frequency.
 Public Alias Hertz = Quantity<0, 0, -1>
+/// Newtons, of force.
 Public Alias Newtons = Quantity<1, 1, -2>
+/// Newton seconds, of momentum.
 Public Alias NewtonSeconds = Quantity<1, 1, -1>
+/// Joules, of energy.
 Public Alias Joules = Quantity<2, 1, -2>
+/// Watts, of power.
 Public Alias Watts = Quantity<2, 1, -3>
+/// Pascals, of pressure.
 Public Alias Pascals = Quantity<-1, 1, -2>
+/// Kilograms per cubic meter, of density.
 Public Alias KilogramsPerCubicMeter = Quantity<-3, 1, 0>
 
-// Other units, as the base units' quantities.
+/// Other units, as the base units' quantities.
 Public Function Kilometers(value: Double): Meters => Meters(value * 1000)
+/// The meters of `value` centimeters.
 Public Function Centimeters(value: Double): Meters => Meters(value / 100)
+/// The meters of `value` millimeters.
 Public Function Millimeters(value: Double): Meters => Meters(value / 1000)
+/// The kilograms of `value` grams.
 Public Function Grams(value: Double): Kilograms => Kilograms(value / 1000)
+/// The kilograms of `value` tonnes.
 Public Function Tonnes(value: Double): Kilograms => Kilograms(value * 1000)
+/// The seconds of `value` milliseconds.
 Public Function Milliseconds(value: Double): Seconds => Seconds(value / 1000)
+/// The seconds of `value` minutes.
 Public Function Minutes(value: Double): Seconds => Seconds(value * 60)
+/// The seconds of `value` hours.
 Public Function Hours(value: Double): Seconds => Seconds(value * 3600)
+/// The meters per second of `value` kilometers per hour.
 Public Function KilometersPerHour(value: Double): MetersPerSecond => MetersPerSecond(value / 3.6)

@@ -1,6 +1,6 @@
-// std.io's file watcher: what happens to a file, or to what's in a folder, as the OS tells libuv,
-// which a FileWatcher queues for the program to take in turn, waiting for it, awaiting it, or
-// not.
+//! std.io's file watcher: what happens to a file, or to what's in a folder, as the OS tells libuv,
+//! which a FileWatcher queues for the program to take in turn, waiting for it, awaiting it, or
+//! not.
 
 Import std.core
 Import std.io.path
@@ -17,18 +17,20 @@ Extern "runtime"
     Function fb_io_watcher_free(watcher: Ptr<Void>)
 End Extern
 
-// What happened at a path: something came there, it changed, or it went, which a watcher tells
-// by the names it knows are there, since OSes call these differently. A rename is the old name's
-// REMOVED and the new one's CREATED, and a file renamed over another is the other's CHANGED.
+/// What happened at a path: something came there, it changed, or it went, which a watcher tells
+/// by the names it knows are there, since OSes call these differently. A rename is the old name's
+/// REMOVED and the new one's CREATED, and a file renamed over another is the other's CHANGED.
 Public Enum FileEventKind
     CREATED
     CHANGED
     REMOVED
 End Enum
 
-// What happened, and where.
+/// What happened, and where.
 Public Struct FileEvent
+    /// What happened.
     Public ReadOnly Field Kind: FileEventKind
+    /// The file or folder it happened to.
     Public ReadOnly Field Path: Path
 
     Package New(kind: FileEventKind, path: Path)
@@ -37,17 +39,18 @@ Public Struct FileEvent
     End New
 End Struct
 
-// Watches a file, or what's in a folder, but not the folders in it, from when it's made until
-// it's closed or its last reference goes. An OS can tell of one change more than once, as when a
-// write comes in parts, and of a change it makes itself, as of a folder's times. A watched file
-// or folder that's removed may go unwatched on some OSes, even once it's back.
+/// Watches a file, or what's in a folder, but not the folders in it, from when it's made until
+/// it's closed or its last reference goes. An OS can tell of one change more than once, as when a
+/// write comes in parts, and of a change it makes itself, as of a folder's times. A watched file
+/// or folder that's removed may go unwatched on some OSes, even once it's back.
 Public Class FileWatcher
+    /// The file or folder it watches.
     Public ReadOnly Field Path: Path
-    // The runtime's watcher, which keeps whether it's closed, so no Field of this one changes
-    // once it's made.
+    /// The runtime's watcher, which keeps whether it's closed, so no Field of this one changes
+    /// once it's made.
     ReadOnly Field Native: Ptr<Void>
 
-    // Starts watching what's at the path, which has to be there.
+    /// Starts watching what's at the path, which has to be there.
     Public New(path: Path) Throws IOError
         Path = path
         Native = fb_io_watcher_new(path.Text)
@@ -58,14 +61,14 @@ Public Class FileWatcher
         End If
     End New
 
-    // The next event, waiting for it, or Null once it's closed. Nothing else runs on this thread
-    // meanwhile, so one that nothing comes to waits forever.
+    /// The next event, waiting for it, or Null once it's closed. Nothing else runs on this thread
+    /// meanwhile, so one that nothing comes to waits forever.
     Public Method Next(): FileEvent? => Taken(1)
 
-    // The next event if one's come, or Null.
+    /// The next event if one's come, or Null.
     Public Method TryNext(): FileEvent? => Taken(0)
 
-    // Next's Async twin, which waits on the main thread instead of blocking it.
+    /// Next's Async twin, which waits on the main thread instead of blocking it.
     Public Async Method NextAsync(): FileEvent?
         Loop
             Local taken = Taken(0)
@@ -74,8 +77,8 @@ Public Class FileWatcher
         End Loop
     End Method
 
-    // Stops watching, dropping the events not taken yet, so what waits for one, and each later
-    // Next, gets Null. A second Close does nothing.
+    /// Stops watching, dropping the events not taken yet, so what waits for one, and each later
+    /// Next, gets Null. A second Close does nothing.
     Public Method Close()
         fb_io_watcher_close(Native)
     End Method
@@ -84,14 +87,14 @@ Public Class FileWatcher
         fb_io_watcher_free(Native)
     End Method
 
-    // The next event, waiting for one unless `wait` is 0.
+    /// The next event, waiting for one unless `wait` is 0.
     Method Taken(wait: Int32): FileEvent?
         If fb_io_watcher_next(Native, wait) == 0 Then Return Null
         Return EventOf(Native, Path.Style)
     End Method
 End Class
 
-// The event a watcher took last, with a path of `style`.
+/// The event a watcher took last, with a path of `style`.
 Function EventOf(watcher: Ptr<Void>, style: PathStyle): FileEvent
     Local kind = EventKindOf(fb_io_watcher_kind(watcher))
     Return FileEvent(kind, Path(fb_io_watcher_path(watcher), style))

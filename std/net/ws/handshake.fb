@@ -1,5 +1,5 @@
-// A WebSocket's opening handshake, per RFC 6455's section 4: the client's GET with Upgrade, and
-// the server's 101 with the key's answer, over HTTP/1.1's wire.
+//! A WebSocket's opening handshake, per RFC 6455's section 4: the client's GET with Upgrade, and
+//! the server's 101 with the key's answer, over HTTP/1.1's wire.
 
 Import std.core
 Import std.collections
@@ -9,17 +9,17 @@ Import std.text.encoding
 Import std.net.http.wire
 Import std.text
 
-// What RFC 6455 has a server add to the client's key before it hashes it.
+/// What RFC 6455 has a server add to the client's key before it hashes it.
 Const KEY_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-// The Sec-WebSocket-Accept that answers a Sec-WebSocket-Key.
+/// The Sec-WebSocket-Accept that answers a Sec-WebSocket-Key.
 Package Function AcceptOf(key: String): String => Base64.Encode(Sha1.Hash(key + KEY_GUID))
 
-// A new Sec-WebSocket-Key: 16 random bytes, in Base64.
+/// A new Sec-WebSocket-Key: 16 random bytes, in Base64.
 Package Function NewKey(): String => Base64.Encode(SecureRandom.Bytes(16))
 
-// Panics, where Connect or Accept was called, unless each subprotocol is a token, as RFC 6455
-// has them.
+/// Panics, where Connect or Accept was called, unless each subprotocol is a token, as RFC 6455
+/// has them.
 @PanicsAtCaller
 Package Function CheckProtocols(protocols: String[])
     For protocol In protocols
@@ -27,7 +27,7 @@ Package Function CheckProtocols(protocols: String[])
     End For
 End Function
 
-// The client's request for a URL's host and target, asking for the subprotocols, if any.
+/// The client's request for a URL's host and target, asking for the subprotocols, if any.
 Package Function RequestBytes(host: String, target: String, key: String,
                               protocols: String[]): UInt8[]
     Local names = ["Host", "Upgrade", "Connection", "Sec-WebSocket-Key", "Sec-WebSocket-Version"]
@@ -40,7 +40,7 @@ Package Function RequestBytes(host: String, target: String, key: String,
     Return HeadBytes("GET {target} HTTP/1.1", names, values)
 End Function
 
-// The subprotocol a server's answer chose, or the text of what's wrong with the answer.
+/// The subprotocol a server's answer chose, or the text of what's wrong with the answer.
 Package Function CheckAnswer(head: Head, key: String, protocols: String[]): (String, String?)
     If head.Parts[1] != "101"
         Return ("", "answered {head.Parts[1]} {head.Parts[2]}, not 101 Switching Protocols")
@@ -68,18 +68,18 @@ Package Function CheckAnswer(head: Head, key: String, protocols: String[]): (Str
     Return (chosen[0], Null)
 End Function
 
-// What a server answers a request to upgrade with: a status, and its fields, the 101's with the
-// key's answer and the subprotocol it chose when the request is a WebSocket's, or an error's.
+/// What a server answers a request to upgrade with: a status, and its fields, the 101's with the
+/// key's answer and the subprotocol it chose when the request is a WebSocket's, or an error's.
 Package Class Answer
     Package Field Status: Int = 101
     Package Field Reason: String = "Switching Protocols"
     Package Field Names: String[] = []
     Package Field Values: String[] = []
     Package Field Protocol: String = ""
-    // What's wrong with the request, when it isn't a WebSocket's.
+    /// What's wrong with the request, when it isn't a WebSocket's.
     Package Field Problem: String? = Null
 
-    // The answer's bytes.
+    /// The answer's bytes.
     Package Method Bytes(): UInt8[]
         If Status != 101
             Names.Add("Content-Length")
@@ -91,7 +91,7 @@ Package Class Answer
         Return HeadBytes("HTTP/1.1 {Status} {Reason}", Names, Values)
     End Method
 
-    // Refuses the request with `status`, for `problem`.
+    /// Refuses the request with `status`, for `problem`.
     Package Method Refuse(status: Int, reason: String, problem: String): Answer
         Status = status
         Reason = reason
@@ -100,8 +100,8 @@ Package Class Answer
     End Method
 End Class
 
-// The answer to a request to upgrade, choosing the first of the client's subprotocols that the
-// server has, per RFC 6455's section 4.2.
+/// The answer to a request to upgrade, choosing the first of the client's subprotocols that the
+/// server has, per RFC 6455's section 4.2.
 Package Function AnswerOf(head: Head, protocols: String[]): Answer
     Local answer = Answer()
     If head.Parts[0] != "GET"

@@ -1,6 +1,6 @@
-// Views that don't copy what they show: part of an array, which reads and sets it in place, and
-// an array, Map, or Set to read but not change, to hand out. Each keeps what it shows alive and
-// sees its changes. A slice, items[a..b], is still a copy.
+//! Views that don't copy what they show: part of an array, which reads and sets it in place, and
+//! an array, Map, or Set to read but not change, to hand out. Each keeps what it shows alive and
+//! sees its changes. A slice, items[a..b], is still a copy.
 
 Import std.core
 Import std.collections.array
@@ -8,8 +8,8 @@ Import std.collections.map
 Import std.collections.set
 
 Extend T[]
-    // The elements from start up to finish, without the one at finish, as a view of them in the
-    // array. They have to be in the array.
+    /// The elements from start up to finish, without the one at finish, as a view of them in the
+    /// array. They have to be in the array.
     @PanicsAtCaller
     Public Method View(start: Int, finish: Int): ArrayView<T>
         If start < 0 || finish < start || finish > Count
@@ -20,23 +20,23 @@ Extend T[]
         Return ArrayView<T>(Self, start, finish - start)
     End Method
 
-    // The array, to read but not change.
+    /// The array, to read but not change.
     Public Method AsReadOnly(): ReadOnlyArray<T> => ReadOnlyArray<T>(Self)
 End Extend
 
 Extend Map<K, V>
-    // The Map, to read but not change.
+    /// The Map, to read but not change.
     Public Method AsReadOnly(): ReadOnlyMap<K, V> => ReadOnlyMap<K, V>(Self)
 End Extend
 
 Extend Set<T>
-    // The Set, to read but not change.
+    /// The Set, to read but not change.
     Public Method AsReadOnly(): ReadOnlySet<T> => ReadOnlySet<T>(Self)
 End Extend
 
-// Part of an array, whose elements it reads and sets in place, counting from its own start. Its
-// Count is the part's own, which stays as the array changes, and an element the array no longer
-// has panics.
+/// Part of an array, whose elements it reads and sets in place, counting from its own start. Its
+/// Count is the part's own, which stays as the array changes, and an element the array no longer
+/// has panics.
 @DebugElements
 Public Class ArrayView<T> Implements Iterable<T>
     Field Items: T[]
@@ -49,21 +49,22 @@ Public Class ArrayView<T> Implements Iterable<T>
         Length = length
     End New
 
+    /// How many elements it shows.
     Public Property Count: Int
         Get => Length
     End Property
 
-    // The element at index, from 0 to Count minus 1.
+    /// The element at index, from 0 to Count minus 1.
     @PanicsAtCaller
     Operator [](index: Int): T => Items[Place(index)]
 
-    // Gives the element at index, from 0 to Count minus 1, a new value, in the array.
+    /// Gives the element at index, from 0 to Count minus 1, a new value, in the array.
     @PanicsAtCaller
     Operator []=(index: Int, value: T)
         Items[Place(index)] = value
     End Operator
 
-    // Part of this view, from start up to finish, without the one at finish.
+    /// Part of this view, from start up to finish, without the one at finish.
     @PanicsAtCaller
     Public Method View(start: Int, finish: Int): ArrayView<T>
         If start < 0 || finish < start || finish > Length
@@ -74,7 +75,7 @@ Public Class ArrayView<T> Implements Iterable<T>
         Return ArrayView<T>(Items, Start + start, finish - start)
     End Method
 
-    // The elements, in a new array.
+    /// The elements, in a new array.
     @PanicsAtCaller
     Public Method ToArray(): T[]
         Local copy: T[] = []
@@ -85,10 +86,10 @@ Public Class ArrayView<T> Implements Iterable<T>
         Return copy
     End Method
 
-    // The elements, in order.
+    /// The elements, in order.
     Public Method Iterate(): ArrayViewIterator<T> => ArrayViewIterator<T>(Self, 0)
 
-    // Where the element at index of the view is in its array, which still has to have it.
+    /// Where the element at index of the view is in its array, which still has to have it.
     @PanicsAtCaller
     Method Place(index: Int): Int
         Local s = Length == 1 ? "" : "s"
@@ -105,6 +106,7 @@ Public Class ArrayView<T> Implements Iterable<T>
     End Method
 End Class
 
+/// The elements of an ArrayView, in order, which For ... In goes over.
 Public Struct ArrayViewIterator<T> Implements Iterator<T>
     Field View: ArrayView<T>
     Field Index: Int
@@ -117,7 +119,7 @@ Public Struct ArrayViewIterator<T> Implements Iterator<T>
     End Method
 End Struct
 
-// An array to read but not change, which AsReadOnly gives.
+/// An array to read but not change, which AsReadOnly gives.
 @DebugElements
 Public Class ReadOnlyArray<T> Implements Iterable<T>
     Field Items: T[]
@@ -126,6 +128,7 @@ Public Class ReadOnlyArray<T> Implements Iterable<T>
         Items = items
     End New
 
+    /// How many elements it holds.
     Public Property Count: Int
         Get => Items.Count
     End Property
@@ -133,18 +136,19 @@ Public Class ReadOnlyArray<T> Implements Iterable<T>
     @PanicsAtCaller
     Operator [](index: Int): T => Items[index]
 
+    /// Whether it holds `value`.
     Public Method Contains(value: T): Bool
         Where T: Equatable
         Return Items.Contains(value)
     End Method
 
-    // The elements, in a new array, which can change.
+    /// The elements, in a new array, which can change.
     Public Method ToArray(): T[] => Items.Clone()
 
     Public Method Iterate(): ArrayIterator<T> => Items.Iterate()
 End Class
 
-// A Map to read but not change, which AsReadOnly gives.
+/// A Map to read but not change, which AsReadOnly gives.
 @DebugEntries
 Public Class ReadOnlyMap<K: Hashable, V> Implements Iterable<(K, V)>
     Field Items: Map<K, V>
@@ -153,31 +157,37 @@ Public Class ReadOnlyMap<K: Hashable, V> Implements Iterable<(K, V)>
         Items = items
     End New
 
+    /// How many entries it holds.
     Public Property Count: Int
         Get => Items.Count
     End Property
 
-    // The key's value, or the Map's default when it isn't there, or a panic when it has none.
+    /// The key's value, or the Map's default when it isn't there, or a panic when it has none.
     @PanicsAtCaller
     Operator [](key: K): V => Items[key]
 
+    /// The value of `key`, or Null when it has none.
     Public Method Get(key: K): V? => Items.Get(key)
 
+    /// The value of `key`, or `fallback` when it has none.
     Public Method Get(key: K, fallback: V): V => Items.Get(key, fallback)
 
+    /// Whether `key` has an entry.
     Public Method Contains(key: K): Bool => Items.Contains(key)
 
+    /// Its keys, in order, in a new array.
     Public Method Keys(): K[] => Items.Keys()
 
+    /// Its values, in order, in a new array.
     Public Method Values(): V[] => Items.Values()
 
-    // The entries, in a new Map, which can change.
+    /// The entries, in a new Map, which can change.
     Public Method ToMap(): Map<K, V> => Items.Clone()
 
     Public Method Iterate(): MapIterator<K, V> => Items.Iterate()
 End Class
 
-// A Set to read but not change, which AsReadOnly gives.
+/// A Set to read but not change, which AsReadOnly gives.
 @DebugElements
 Public Class ReadOnlySet<T: Hashable> Implements Iterable<T>
     Field Items: Set<T>
@@ -186,16 +196,18 @@ Public Class ReadOnlySet<T: Hashable> Implements Iterable<T>
         Items = items
     End New
 
+    /// How many values it holds.
     Public Property Count: Int
         Get => Items.Count
     End Property
 
+    /// Whether it holds `value`.
     Public Method Contains(value: T): Bool => Items.Contains(value)
 
-    // The values, in a new array.
+    /// The values, in a new array.
     Public Method ToArray(): T[] => Items.ToArray()
 
-    // The values, in a new Set, which can change.
+    /// The values, in a new Set, which can change.
     Public Method ToSet(): Set<T> => Items.Clone()
 
     Public Method Iterate(): SetIterator<T> => Items.Iterate()

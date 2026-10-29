@@ -1,25 +1,25 @@
-// std.time's formats: ISO 8601, as each type's ToString and Parse write and read it; RFC 2822,
-// as email has it, like "Fri, 23 Oct 2026 14:30:00 +0200"; and patterns, for Format and the
-// Parse that takes one, whose letters stand for the parts of a date, time, or zone:
-//
-//   y      the year: yyyy at least 4 digits, yy its last 2 (read as 2000 to 2099), y as is
-//   M      the month: M 1 to 12, MM 01 to 12, MMM "Oct", MMMM "October"
-//   d, D   the day of the month (d, dd) and of the year (D, DD, DDD)
-//   E      the day of the week: E, EE, or EEE "Fri", EEEE "Friday"
-//   H, h   the hour, 0 to 23 (H, HH), or 1 to 12 (h, hh), with a's "AM" or "PM"
-//   m, s   the minute and second (m, mm, s, ss)
-//   S      a fraction of the second, as many digits as there are S's, up to 9
-//   X, x   the offset: X "+02" (with minutes when it has any), XX "+0200", XXX "+02:00", each
-//          "Z" for UTC; x, xx, and xxx the same without "Z"
-//   Z      the offset as "+0200"
-//   z      the zone's abbreviation, like "CEST", which only Format writes
-//   VV     the zone's name, like "Europe/Paris"
-//
-// Text between single quotes is as it is, and '' is a quote. Other letters panic, as do a
-// type's patterns with letters of parts it doesn't have; anything else is as it is. A number of
-// one letter reads as many digits as it can have, and of two or more, that many, but DD reads two
-// or three, as Format writes the days of the year past 99. Names are English and read in any
-// letter case.
+//! std.time's formats: ISO 8601, as each type's ToString and Parse write and read it; RFC 2822,
+//! as email has it, like "Fri, 23 Oct 2026 14:30:00 +0200"; and patterns, for Format and the
+//! Parse that takes one, whose letters stand for the parts of a date, time, or zone:
+//!
+//!   y      the year: yyyy at least 4 digits, yy its last 2 (read as 2000 to 2099), y as is
+//!   M      the month: M 1 to 12, MM 01 to 12, MMM "Oct", MMMM "October"
+//!   d, D   the day of the month (d, dd) and of the year (D, DD, DDD)
+//!   E      the day of the week: E, EE, or EEE "Fri", EEEE "Friday"
+//!   H, h   the hour, 0 to 23 (H, HH), or 1 to 12 (h, hh), with a's "AM" or "PM"
+//!   m, s   the minute and second (m, mm, s, ss)
+//!   S      a fraction of the second, as many digits as there are S's, up to 9
+//!   X, x   the offset: X "+02" (with minutes when it has any), XX "+0200", XXX "+02:00", each
+//!          "Z" for UTC; x, xx, and xxx the same without "Z"
+//!   Z      the offset as "+0200"
+//!   z      the zone's abbreviation, like "CEST", which only Format writes
+//!   VV     the zone's name, like "Europe/Paris"
+//!
+//! Text between single quotes is as it is, and '' is a quote. Other letters panic, as do a
+//! type's patterns with letters of parts it doesn't have; anything else is as it is. A number of
+//! one letter reads as many digits as it can have, and of two or more, that many, but DD reads two
+//! or three, as Format writes the days of the year past 99. Names are English and read in any
+//! letter case.
 
 Import std.core
 Import std.time.calendar
@@ -29,24 +29,24 @@ Extern "runtime"
     Function fb_time_text(chars: Char[], start: Int64, finish: Int64): String
 End Extern
 
-// The text of the characters from start to before finish.
+/// The text of the characters from start to before finish.
 Package Function TextOf(chars: Char[], start: Int, finish: Int): String
     Return fb_time_text(chars, start, finish)
 End Function
 
-// What ISO 8601 text has: a date, a time, both, both with an offset, or both with an offset and
-// a zone's name or not.
+/// What ISO 8601 text has: a date, a time, both, both with an offset, or both with an offset and
+/// a zone's name or not.
 Package Enum IsoForm
     DATE, TIME, DATE_TIME, TIMESTAMP, ZONED
 End Enum
 
-// What a pattern is for, which says which letters it can have.
+/// What a pattern is for, which says which letters it can have.
 Package Enum PartKind
     DATE, TIME, DATE_TIME, ZONED
 End Enum
 
-// What a format reads or writes: a date, a time as nanoseconds since midnight, an offset's
-// seconds, and a zone, with its name and abbreviation for Format.
+/// What a format reads or writes: a date, a time as nanoseconds since midnight, an offset's
+/// seconds, and a zone, with its name and abbreviation for Format.
 Package Struct Parts
     Package Field Year: Int64 = 1970
     Package Field Month: Int = 1
@@ -82,12 +82,12 @@ End Function
 
 // ISO 8601
 
-// The parts of ISO 8601 text of the form, or Null. A date is a year of 4 digits, or of 4 or more
-// after a sign, a month, and a day, with "-" between; a time is hours and minutes, and seconds
-// with a fraction or not, with ":" between, the fraction's digits past nanoseconds dropped, and at
-// an offset, a leap second the second before it; and "T", "t", or a space goes between the two. An
-// offset is "Z" or a sign and hours, with minutes, and seconds, or not (see ReadOffset), and a
-// zone's name goes in brackets after it.
+/// The parts of ISO 8601 text of the form, or Null. A date is a year of 4 digits, or of 4 or more
+/// after a sign, a month, and a day, with "-" between; a time is hours and minutes, and seconds
+/// with a fraction or not, with ":" between, the fraction's digits past nanoseconds dropped, and at
+/// an offset, a leap second the second before it; and "T", "t", or a space goes between the two. An
+/// offset is "Z" or a sign and hours, with minutes, and seconds, or not (see ReadOffset), and a
+/// zone's name goes in brackets after it.
 Package Function ParseIso(text: String, form: IsoForm): Parts?
     Local chars = text.Chars
     Local parts = Parts()
@@ -135,7 +135,7 @@ Package Function ParseIso(text: String, form: IsoForm): Parts?
     Return at == chars.Count ? parts : Null
 End Function
 
-// A date's year, month, and day, and where it ends, or Null.
+/// A date's year, month, and day, and where it ends, or Null.
 Function ReadIsoDate(chars: Char[]): (Int64, Int, Int, Int)?
     Local at = 0
     Local negative = False
@@ -156,9 +156,9 @@ Function ReadIsoDate(chars: Char[]): (Int64, Int, Int, Int)?
     Return (negative ? -year.0 : year.0, month.0 As Int, day.0 As Int, day.1)
 End Function
 
-// A time's nanoseconds since midnight, and where it ends, or Null. A fraction's digits past its
-// nanoseconds are dropped. With leap, a leap second, as a time at an offset can have, is the
-// second before it, as RFC 3339's "1990-12-31T23:59:60Z" is 23:59:59.
+/// A time's nanoseconds since midnight, and where it ends, or Null. A fraction's digits past its
+/// nanoseconds are dropped. With leap, a leap second, as a time at an offset can have, is the
+/// second before it, as RFC 3339's "1990-12-31T23:59:60Z" is 23:59:59.
 Function ReadIsoTime(chars: Char[], start: Int, leap: Bool): (Int64, Int)?
     Local hour = ReadDigits(chars, start, 2, 2)
     If hour == Null || hour.1 >= chars.Count || chars[hour.1] != ':' Then Return Null
@@ -188,10 +188,10 @@ Function ReadIsoTime(chars: Char[], start: Int, leap: Bool): (Int64, Int)?
     Return (((hour.0 * 60 + minute.0) * 60 + second) * 1000000000 + fraction, at)
 End Function
 
-// An offset's seconds east of UTC, and where it ends, or Null: "Z" or "z" when z says it can
-// be, or a sign and two digits of hours, then minutes, and then seconds, or not, each two digits,
-// with ":" before each or neither, as "+02", "+0530", "-08:00", and "+05:30:15" are. Hours go up
-// to 23.
+/// An offset's seconds east of UTC, and where it ends, or Null: "Z" or "z" when z says it can
+/// be, or a sign and two digits of hours, then minutes, and then seconds, or not, each two digits,
+/// with ":" before each or neither, as "+02", "+0530", "-08:00", and "+05:30:15" are. Hours go up
+/// to 23.
 Package Function ReadOffset(chars: Char[], start: Int, z: Bool): (Int, Int)?
     If start >= chars.Count Then Return Null
     If z && (chars[start] == 'Z' || chars[start] == 'z') Then Return (0, start + 1)
@@ -221,8 +221,8 @@ Package Function ReadOffset(chars: Char[], start: Int, z: Bool): (Int, Int)?
     Return ((chars[start] == '-' ? -seconds : seconds) As Int, at)
 End Function
 
-// The value of from fewest to most digits at start, as many as there are, and where they end, or
-// Null when there are fewer.
+/// The value of from fewest to most digits at start, as many as there are, and where they end, or
+/// Null when there are fewer.
 Package Function ReadDigits(chars: Char[], start: Int, fewest: Int, most: Int): (Int64, Int)?
     Local value: Int64 = 0
     Local at = start
@@ -234,7 +234,7 @@ Package Function ReadDigits(chars: Char[], start: Int, fewest: Int, most: Int): 
     Return at - start < fewest ? Null : (value, at)
 End Function
 
-// A fraction's digits as nanoseconds, and where they end, or Null.
+/// A fraction's digits as nanoseconds, and where they end, or Null.
 Function ReadFraction(chars: Char[], start: Int, fewest: Int, most: Int): (Int64, Int)?
     Local digits = ReadDigits(chars, start, fewest, most)
     If digits == Null Then Return Null
@@ -248,8 +248,8 @@ End Function
 
 Function IsDigit(c: Char): Bool => c >= '0' && c <= '9'
 
-// An offset as ISO 8601 writes it, "+02:00", or "+05:30:15" with seconds, and as "Z" when it's
-// 0 and z says so.
+/// An offset as ISO 8601 writes it, "+02:00", or "+05:30:15" with seconds, and as "Z" when it's
+/// 0 and z says so.
 Package Function OffsetText(seconds: Int, z: Bool): String
     If seconds == 0 && z Then Return "Z"
     Local magnitude = seconds < 0 ? -seconds : seconds
@@ -260,8 +260,8 @@ End Function
 
 // RFC 2822
 
-// The date and time at an offset as RFC 2822 writes them: "Fri, 23 Oct 2026 14:30:00 +0200",
-// with the offset's seconds left out.
+/// The date and time at an offset as RFC 2822 writes them: "Fri, 23 Oct 2026 14:30:00 +0200",
+/// with the offset's seconds left out.
 Package Function Rfc2822Of(local: LocalDateTime, offset: Int): String
     Local magnitude = offset < 0 ? -offset : offset
     Local sign = offset < 0 ? "-" : "+"
@@ -272,11 +272,11 @@ Package Function Rfc2822Of(local: LocalDateTime, offset: Int): String
     Return "{weekday}, {local.DayOfMonth} {month} {Padded(local.Year, 4)} {time} {zone}"
 End Function
 
-// The parts of RFC 2822 text, or Null: a day of the week and a comma, or not; the day; the
-// month's name; the year, of 4 digits or more, or of 2 or 3, the old way; hours and minutes, and
-// seconds or not; and the zone, an offset like "+0200", or "UT", "GMT", "Z", or a US zone's
-// abbreviation, like "EST". Spaces and comments in parentheses can go between them, and a
-// military zone's letter means UTC, as RFC 2822 says.
+/// The parts of RFC 2822 text, or Null: a day of the week and a comma, or not; the day; the
+/// month's name; the year, of 4 digits or more, or of 2 or 3, the old way; hours and minutes, and
+/// seconds or not; and the zone, an offset like "+0200", or "UT", "GMT", "Z", or a US zone's
+/// abbreviation, like "EST". Spaces and comments in parentheses can go between them, and a
+/// military zone's letter means UTC, as RFC 2822 says.
 Package Function ParseRfc2822Parts(text: String): Parts?
     Local chars = text.Chars
     Local at = SkipSpace(chars, 0)
@@ -336,7 +336,7 @@ Package Function ParseRfc2822Parts(text: String): Parts?
                  HasOffset: True, Offset: zone.0, Kind: PartKind.ZONED)
 End Function
 
-// A zone of RFC 2822's, as an offset's seconds, and where it ends, or Null.
+/// A zone of RFC 2822's, as an offset's seconds, and where it ends, or Null.
 Function ReadRfc2822Zone(chars: Char[], at: Int): (Int, Int)?
     If at >= chars.Count Then Return Null
     If chars[at] == '+' || chars[at] == '-'
@@ -375,7 +375,7 @@ Function ReadRfc2822Zone(chars: Char[], at: Int): (Int, Int)?
     Return Null
 End Function
 
-// Where the spaces, tabs, line breaks, and comments in parentheses from start end.
+/// Where the spaces, tabs, line breaks, and comments in parentheses from start end.
 Function SkipSpace(chars: Char[], start: Int): Int
     Local at = start
     Local depth = 0
@@ -397,15 +397,15 @@ End Function
 
 // Patterns
 
-// One part of a pattern: a letter that many times, or text when the letter is '\0'.
+/// One part of a pattern: a letter that many times, or text when the letter is '\0'.
 Struct Piece
     Field Letter: Char
     Field Count: Int
     Field Text: String
 End Struct
 
-// The pattern's pieces, which panic when a letter isn't a pattern's or the kind doesn't have
-// its part.
+/// The pattern's pieces, which panic when a letter isn't a pattern's or the kind doesn't have
+/// its part.
 @PanicsAtCaller
 Function PiecesOf(pattern: String, kind: PartKind): Piece[]
     Local chars = pattern.Chars
@@ -478,14 +478,14 @@ End Function
 
 Function IsLetter(c: Char): Bool => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 
-// Whether the character can be in a zone's name, like "America/Port-au-Prince" or "Etc/GMT+5".
+/// Whether the character can be in a zone's name, like "America/Port-au-Prince" or "Etc/GMT+5".
 Function IsZoneLetter(c: Char): Bool
     Return IsLetter(c) || IsDigit(c) || c == '/' || c == '_' || c == '-' || c == '+'
 End Function
 
 Function Lower(c: Char): Char => c >= 'A' && c <= 'Z' ? ((c As Int) + 32) As Char : c
 
-// Whether the letter, that many times, is one of a pattern's.
+/// Whether the letter, that many times, is one of a pattern's.
 Function IsPatternLetter(c: Char, count: Int): Bool
     If c == 'y' Then Return count <= 10
     If c == 'M' || c == 'E' Then Return count <= 4
@@ -522,7 +522,7 @@ Function KindName(kind: PartKind): String
     End Select
 End Function
 
-// The parts as the pattern says, which panics when the pattern doesn't fit their kind.
+/// The parts as the pattern says, which panics when the pattern doesn't fit their kind.
 @PanicsAtCaller
 Package Function FormatPattern(pattern: String, parts: Parts): String
     Local text = ""
@@ -574,7 +574,7 @@ Function FormatPiece(piece: Piece, parts: Parts): String
     End Select
 End Function
 
-// An offset as X, x, or Z that many times writes it.
+/// An offset as X, x, or Z that many times writes it.
 Function OffsetPattern(offset: Int, letter: Char, count: Int): String
     If offset == 0 && letter == 'X' Then Return "Z"
     Local magnitude = offset < 0 ? -offset : offset
@@ -585,8 +585,8 @@ Function OffsetPattern(offset: Int, letter: Char, count: Int): String
     Return magnitude / 60 % 60 == 0 ? hours : "{hours}{minutes}"
 End Function
 
-// The parts the text has as the pattern says, or Null when it doesn't fit. A pattern that
-// doesn't fit the kind, or can't make one, panics.
+/// The parts the text has as the pattern says, or Null when it doesn't fit. A pattern that
+/// doesn't fit the kind, or can't make one, panics.
 @PanicsAtCaller
 Package Function ParsePattern(text: String, pattern: String, kind: PartKind): Parts?
     Local pieces = PiecesOf(pattern, kind)
@@ -639,7 +639,7 @@ Function IsNumberPiece(piece: Piece): Bool
            c == 'S' || (c == 'M' && piece.Count <= 2)
 End Function
 
-// What a pattern read, each part Null until it does.
+/// What a pattern read, each part Null until it does.
 Class Fields
     Field Year: Int64? = Null
     Field Month: Int? = Null
@@ -656,8 +656,8 @@ Class Fields
     Field Zone: TimeZone? = Null
 End Class
 
-// Reads a piece at start into the fields, and gives where it ends, or Null when the text doesn't
-// fit it. A number that a number piece follows has as many digits as the pattern says.
+/// Reads a piece at start into the fields, and gives where it ends, or Null when the text doesn't
+/// fit it. A number that a number piece follows has as many digits as the pattern says.
 Function ReadPiece(chars: Char[], start: Int, piece: Piece, adjacent: Bool, fields: Fields): Int?
     Local c = piece.Letter
     Local count = piece.Count
@@ -769,8 +769,8 @@ Function ReadPiece(chars: Char[], start: Int, piece: Piece, adjacent: Bool, fiel
     Return digits.1
 End Function
 
-// The parts of what a pattern read, or Null when they aren't a date, a time, or a zone's, or
-// disagree.
+/// The parts of what a pattern read, or Null when they aren't a date, a time, or a zone's, or
+/// disagree.
 Function PartsFrom(fields: Fields, kind: PartKind): Parts?
     Local parts = Parts(Kind: kind)
     If kind != PartKind.TIME
@@ -828,7 +828,7 @@ End Function
 
 // Names
 
-// Whether the word is at start, in any letter case.
+/// Whether the word is at start, in any letter case.
 Function MatchesWord(chars: Char[], start: Int, word: String): Bool
     Local letters = word.Chars
     If start + letters.Count > chars.Count Then Return False
@@ -839,7 +839,7 @@ Function MatchesWord(chars: Char[], start: Int, word: String): Bool
     Return True
 End Function
 
-// A month's name, like "October", or its first 3 letters.
+/// A month's name, like "October", or its first 3 letters.
 Package Function MonthName(month: Int, long: Bool): String
     Local name = ""
     Select month
@@ -872,7 +872,7 @@ Package Function MonthName(month: Int, long: Bool): String
     Return long ? name : TextOf(name.Chars, 0, 3)
 End Function
 
-// A day of the week's name, like "Friday", or its first 3 letters.
+/// A day of the week's name, like "Friday", or its first 3 letters.
 Package Function WeekdayName(day: Weekday, long: Bool): String
     Local name = ""
     Select day
