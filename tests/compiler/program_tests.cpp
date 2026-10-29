@@ -47,7 +47,7 @@
 // release mode. One starting with "http_", after any "release_", runs under tests/native's HTTP
 // test server, whose URLs and test CA are the first lines of its input. A panic's or uncaught
 // error's stack trace is left out of what's compared, but where the rest of the name, after
-// those, starts with "trace", as "panic_trace_calls" does.
+// "panic_" or "uncaught_", starts with "trace", as "panic_trace_calls" does.
 
 namespace {
 
@@ -78,10 +78,24 @@ std::string from_folder(std::string output, const std::filesystem::path& folder)
     return output;
 }
 
-/// `output` without the stack trace after its panic or uncaught error, the lines that start
-/// "    at ", which only the programs whose ending names "trace" keep, as "panic_trace_calls"
-/// does: the others' traces would change with every line std gains. A panic's or error's line
-/// can start with what the program wrote without a line break, as a terminal's escapes.
+/// `line` without the terminal escapes at its start, as a program that ends by panicking can
+/// write before the panic's report, on its line.
+std::string_view without_escapes(std::string_view line) {
+    while (line.starts_with("\x1b[")) {
+        std::size_t end = 2;
+        while (end < line.size() && (line[end] < 0x40 || line[end] > 0x7E)) {
+            ++end;
+        }
+
+        line.remove_prefix(std::min(end + 1, line.size()));
+    }
+
+    return line;
+}
+
+/// `output` without the stack trace after its panic's or uncaught error's report, the lines
+/// that start "    at ", which the others' .out files leave out: their traces would change with
+/// every line std gains.
 std::string without_trace(const std::string& output) {
     std::string kept;
     bool reported = false;
@@ -89,9 +103,11 @@ std::string without_trace(const std::string& output) {
         const std::size_t end = output.find('\n', at);
         const std::size_t next = end == std::string::npos ? output.size() : end + 1;
         const std::string_view line = std::string_view(output).substr(at, next - at);
-        if (line.contains("panic: ") || line.contains("uncaught ")) {
+        const std::string_view text = without_escapes(line);
+        if (text.starts_with("panic: ") || text.starts_with("uncaught ")) {
             reported = true;
-        } else if (reported && line.starts_with("    at ")) {
+        } else if (reported && (line.starts_with("    at ") ||
+                                line == "    and more calls, which aren't shown\n")) {
             at = next;
             continue;
         }
@@ -103,16 +119,18 @@ std::string without_trace(const std::string& output) {
     return kept;
 }
 
-/// Whether a program's or package's name keeps its trace: one whose ending, after "release_"
-/// and "panic_" or "uncaught_", starts with "trace".
-bool keeps_trace(std::string_view name) {
-    for (const std::string_view prefix : { "release_", "panic_", "uncaught_" }) {
+/// Whether a program's or package's output is compared without its trace: one whose name,
+/// after "release_", says it ends by panicking or letting an error out, unless what follows
+/// starts with "trace", as "panic_trace_calls" does.
+bool leaves_out_trace(std::string_view name) {
+    name.remove_prefix(name.starts_with("release_") ? 8 : 0);
+    for (const std::string_view prefix : { "panic_", "uncaught_" }) {
         if (name.starts_with(prefix)) {
-            name.remove_prefix(prefix.size());
+            return !name.substr(prefix.size()).starts_with("trace");
         }
     }
 
-    return name.starts_with("trace");
+    return false;
 }
 
 /// The standard library, and the files in the folder named like the program, by their paths
@@ -374,7 +392,7 @@ TEST_CASE("programs print what they should", "[programs][.]") {
 
             std::filesystem::path expected = source;
             expected.replace_extension(".out");
-            CHECK((keeps_trace(name) ? result->output : without_trace(result->output)) ==
+            CHECK((leaves_out_trace(name) ? without_trace(result->output) : result->output) ==
                   read_file(expected));
             const std::string_view ending =
                 std::string_view(name).substr(release ? release_prefix.size() : 0);
@@ -425,7 +443,7 @@ TEST_CASE("packages build and print what they should", "[programs]") {
             INFO((result ? result->output : result.error()));
             REQUIRE(result);
             const std::string output = from_folder(result->output, packages);
-            CHECK((keeps_trace(name) ? output : without_trace(output)) ==
+            CHECK((leaves_out_trace(name) ? without_trace(output) : output) ==
                   read_file(packages / (name + ".out")));
             CHECK(result->exit_code == (name.starts_with("panic_") ? 101 : 0));
         }
