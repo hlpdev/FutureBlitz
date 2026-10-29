@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <format>
 #include <string>
+#include <string_view>
 
 // The runtime's stack walks for traces: one walk, up to a limit it says it passed, what a thrown
 // error keeps of it, and a table's markers, which name the frames.
@@ -17,15 +18,17 @@ namespace {
 /// A table of one marker, as a binary's has before each call: where the code is, from the
 /// entry, and its frame, which marked() fills in for its call of traced().
 std::array<std::int32_t, 2> marker{};
-constexpr std::array<fb_trace_frame_t, 1> marked_frames{ {
-    { .name = 0, .file = 7, .line = 12, .parent = 0xFFFFFFFF },
-} };
-constexpr char marked_names[] = "Marked\0marked.fb";
+constexpr std::array<fb_trace_frame_t, 1> marked_frames{
+    {
+        { .name = 0, .file = 7, .line = 12, .parent = 0xFFFFFFFF },
+    },
+};
+constexpr std::string_view marked_names{ "Marked\0marked.fb", 17 };
 const fb_trace_t marked_table{
     .begin = marker.data(),
     .end = marker.data() + marker.size(),
     .frames = marked_frames.data(),
-    .names = marked_names,
+    .names = marked_names.data(),
 };
 
 /// What the stack's trace says, and its frames, from the call in marked().
@@ -54,7 +57,7 @@ struct traced_t {
     std::FILE* file = std::tmpfile();
     REQUIRE(file != nullptr);
     fb::runtime::write_trace(stack, file);
-    std::rewind(file);
+    REQUIRE(std::fseek(file, 0, SEEK_SET) == 0);
     std::array<char, 256> line{};
     while (std::fgets(line.data(), static_cast<int>(line.size()), file) != nullptr) {
         made.trace += line.data();
