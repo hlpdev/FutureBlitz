@@ -36,6 +36,42 @@ std::string ir_of(const std::string_view text, const fb::build_mode_t mode,
 
 } // namespace
 
+TEST_CASE("a build leaves out the code only tests reach, which a test build has", "[codegen]") {
+    const std::string_view text = "Import std.test\n"
+                                  "Function OnlyTested(): Int => 41\n"
+                                  "Function Used(): Int => 1\n"
+                                  "Local n = Used()\n"
+                                  "@Test Function Checks()\n"
+                                  "    Expect(OnlyTested() + Used() == 42)\n"
+                                  "End Function\n";
+    for (const fb::build_mode_t mode : { fb::build_mode_t::DEBUG, fb::build_mode_t::RELEASE }) {
+        const fb::compilation_t compilation =
+            fb::compile("main.fb", std::string(text),
+                        fb::standard_library().value_or(std::vector<fb::library_file_t>{}), mode);
+        REQUIRE_FALSE(compilation.diagnostics.has_errors());
+        const std::string built =
+            fb::emit_ir(fb::lower(compilation.ast, compilation.analysis), compilation.sources,
+                        compilation.file, { .mode = mode })
+                .value_or("");
+        REQUIRE_FALSE(built.empty());
+        CHECK_FALSE(built.contains("OnlyTested"));
+        CHECK_FALSE(built.contains("Checks"));
+        CHECK_FALSE(built.contains("fb_test_"));
+
+        // Debug builds keep what main calls, and release builds inline it.
+        const std::string tested =
+            fb::emit_ir(fb::lower_tests(compilation.ast, compilation.analysis,
+                                        fb::package_tests(compilation)),
+                        compilation.sources, compilation.file, { .mode = mode })
+                .value_or("");
+        REQUIRE_FALSE(tested.empty());
+        CHECK(tested.contains("fb_test_run"));
+        if (mode == fb::build_mode_t::DEBUG) {
+            CHECK(tested.contains("OnlyTested"));
+        }
+    }
+}
+
 TEST_CASE("release builds turn a Vec4's and a Mat4's Operators into SIMD instructions",
           "[codegen]") {
     // Where the results go to memory, in a loop or not.

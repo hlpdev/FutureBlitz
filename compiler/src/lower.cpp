@@ -171,6 +171,9 @@ struct handler_t {
     bool optional = false;
     std::optional<local_id_t> result;
     std::size_t temporaries = 0;
+    /// For ExpectThrows, which is a Try? that keeps the error: where it goes, in place of being
+    /// let go.
+    std::optional<local_id_t> caught;
     /// A Try block: the scopes inside it start at `scope_depth`, and `error` holds the error for
     /// its Catches.
     std::size_t scope_depth = 0;
@@ -292,7 +295,8 @@ public:
         for (const symbol_id_t id : m_analysis.functions) {
             const symbol_t& function = m_analysis.symbol(id);
             if (in_library(function) && type_parameters_of(function).empty() &&
-                !function.default_method && external_of(function) == nullptr) {
+                !function.default_method && external_of(function) == nullptr &&
+                !function.modifiers.is_test) {
                 (void)function_of(id);
             }
         }
@@ -306,7 +310,8 @@ public:
             // Generic code is lowered for each set of type arguments it's used with.
             const stmt_node_t& node = m_ast.get(id).node;
             if (const auto* function = std::get_if<function_stmt_t>(&node);
-                function != nullptr && function->type_parameters.empty()) {
+                function != nullptr && function->type_parameters.empty() &&
+                !(function->modifiers.is_test && left_out(expect(m_analysis.stmt(id).symbol)))) {
                 lower_function(id, *function);
             } else if (const auto* declared = std::get_if<type_stmt_t>(&node);
                        declared != nullptr && declared->type_parameters.empty() &&
@@ -328,6 +333,10 @@ public:
 
         if (m_module.library) {
             lower_initializers();
+        }
+
+        if (m_testing) {
+            lower_test_runs();
         }
 
         lower_top_level();
@@ -389,6 +398,17 @@ public:
     }
 
     /// One function, and the ones it calls, after it.
+    /// A test build's: run(), with `tests` in place of the main file's top-level code.
+    mir_module_t run_tests(const std::vector<test_case_t>& tests) {
+        m_testing = true;
+        m_tests = tests;
+        for (const test_case_t& test : tests) {
+            m_test_functions.insert(test.function);
+        }
+
+        return run();
+    }
+
     mir_module_t run_one(const symbol_id_t id, const std::vector<type_id_t>& type_arguments) {
         (void)function_of(id, type_arguments);
         lower_library();
@@ -403,6 +423,16 @@ private:
     const ast_t& m_ast;
     const analysis_t& m_analysis;
     mir_module_t m_module;
+    /// A test build's: its tests, which main runs, and their @Test Functions, the only ones it
+    /// has.
+    bool m_testing = false;
+    std::vector<test_case_t> m_tests;
+    std::unordered_set<symbol_id_t> m_test_functions;
+    /// What runs each of them, as the runner calls it, in their order.
+    std::vector<function_id_t> m_test_runs;
+    /// The runtime's functions for std.test, by their symbols, which its built-ins and a test
+    /// build's main call.
+    std::unordered_map<std::string_view, function_id_t> m_test_runtime;
     /// In a library's build, its own modules' files.
     std::unordered_set<file_id_t> m_library_files;
     std::unordered_map<symbol_id_t, function_id_t> m_functions;
@@ -809,10 +839,15 @@ private:
     /// The main module's functions get their ids before any body is lowered, so a call can reach
     /// a function declared further down. "main" comes after them, then the other modules'
     /// functions and the instances of generic ones, as the program uses them.
+    /// Whether a function is a test the build leaves out: in a test build, one it doesn't run.
+    [[nodiscard]] bool left_out(const symbol_id_t id) const {
+        return m_analysis.symbol(id).modifiers.is_test && !m_test_functions.contains(id);
+    }
+
     void declare_functions() {
         for (const symbol_id_t id : m_analysis.functions) {
             if (!outside_main(m_analysis.symbol(id)) &&
-                type_parameters_of(m_analysis.symbol(id)).empty()) {
+                type_parameters_of(m_analysis.symbol(id)).empty() && !left_out(id)) {
                 declare_function(id);
             }
         }
@@ -2494,6 +2529,13 @@ private:
             }
         }
 
+        // A test build runs its tests in place of the main file's top-level code.
+        if (m_testing) {
+            add_tests();
+            finish_function();
+            return;
+        }
+
         for (const stmt_id_t id : m_ast.items()) {
             const stmt_node_t& node = m_ast.get(id).node;
             const auto* variable = std::get_if<variable_stmt_t>(&node);
@@ -2510,6 +2552,97 @@ private:
         }
 
         finish_function();
+    }
+
+    /// One of the runtime's functions for std.test, by its symbol, which takes `parameters` and
+    /// gives nothing.
+    function_id_t test_runtime(const std::string_view symbol,
+                               const std::vector<type_id_t>& parameters) {
+        if (const auto found = m_test_runtime.find(symbol); found != m_test_runtime.end()) {
+            return found->second;
+        }
+
+        mir_function_t declared{
+            .name = std::string(symbol),
+            .external = mir_extern_t{ .symbol = std::string(symbol), .c_abi = false },
+        };
+        for (const type_id_t type : parameters) {
+            declared.locals.push_back({ .type = type });
+        }
+
+        declared.parameter_count = parameters.size();
+        const auto function = static_cast<function_id_t>(m_module.functions.size());
+        m_module.functions.push_back(std::move(declared));
+        m_test_runtime.emplace(symbol, function);
+        return function;
+    }
+
+    /// Each test as the runner calls it, by the C ABI: a function that takes nothing and gives
+    /// nothing, and reports what the test throws.
+    void lower_test_runs() {
+        for (const test_case_t& test : m_tests) {
+            const symbol_t& function = m_analysis.symbol(test.function);
+            const auto run = static_cast<function_id_t>(m_module.functions.size());
+            m_module.functions.push_back({ .name = std::format("(test) {}", test.name) });
+            m_test_runs.push_back(run);
+            begin_function(run);
+            call_t call{ .function = function_of(test.function) };
+            if (!takes_error(test.function)) {
+                emit(evaluate_t{ std::move(call) });
+                terminate(return_t{});
+                continue;
+            }
+
+            const local_id_t error = error_variable();
+            call.arguments.push_back({ .value = place_t{ error }, .by_ref = true });
+            emit(evaluate_t{ std::move(call) });
+            const operand_t failed = has_value(place_t{ error }, function.span);
+            const block_id_t test_block = here();
+            m_block.reset();
+            const block_id_t threw = new_block();
+            const block_id_t done = new_block();
+            block_at(test_block).terminator =
+                branch_t{ .condition = failed, .if_true = threw, .if_false = done };
+            start(threw);
+            const function_id_t report = test_runtime("fb_test_threw", { m_analysis.error_class });
+            emit(evaluate_t{
+                call_t{ .function = report,
+                        .arguments = { { .value = unwrap(place_t{ error }) } } },
+            });
+            jump(done);
+            start(done);
+            emit(release_t{ .target = error });
+            terminate(return_t{});
+        }
+    }
+
+    /// A test build's main, once the Globals are set: hands the runtime's runner each test, by
+    /// its name, with its run and where it runs, then runs them.
+    void add_tests() {
+        const type_id_t callback = types().callback({}, type_id_t::NONE);
+        const function_id_t add =
+            test_runtime("fb_test_add", { type_id_t::STRING, callback, type_id_t::BOOL });
+        for (std::size_t i = 0; i < m_tests.size(); ++i) {
+            const operand_t code = temporary(
+                callback_t{
+                    .function = m_test_runs[i],
+                    .type = callback,
+                    .span = m_analysis.symbol(m_tests[i].function).span,
+                },
+                callback);
+            emit(evaluate_t{
+                call_t{
+                    .function = add,
+                    .arguments = {
+                        { .value = make_string(m_tests[i].name) },
+                        { .value = code },
+                        { .value = make_bool(m_tests[i].main_thread) },
+                    },
+                },
+            });
+        }
+
+        emit(evaluate_t{ call_t{ .function = test_runtime("fb_test_run", {}) } });
     }
 
     /// Where main reaches a prebuilt library's module, at `place` in the Globals' order: a call of
@@ -5273,7 +5406,15 @@ private:
                 emit(release_t{ .target = m_temporaries[i] });
             }
 
-            emit(release_t{ .target = error });
+            if (handler.caught) {
+                emit(assign_t{
+                    .target = *handler.caught,
+                    .value = use_t{ .value = place_t{ error } },
+                });
+            } else {
+                emit(release_t{ .target = error });
+            }
+
             if (handler.result) {
                 const type_id_t type = current().locals[index(*handler.result)].type;
                 emit(assign_t{
@@ -9397,6 +9538,189 @@ private:
         }
     }
 
+    [[nodiscard]] static bool is_comparison(const binary_op_t op) {
+        return op == binary_op_t::EQUAL || op == binary_op_t::NOT_EQUAL || is_ordering(op);
+    }
+
+    /// The test the code runs for fails, as `text` says, which the runtime takes, and goes on.
+    void fail_test(const operand_t& text) {
+        const function_id_t failed = test_runtime("fb_test_failed", { type_id_t::STRING });
+        emit(evaluate_t{ call_t{ .function = failed, .arguments = { { .value = text } } } });
+    }
+
+    /// Expect checks its condition, and when it's False, its test fails, saying what it checked
+    /// and where, and for a comparison, each side's debug form, which are worked out once, before
+    /// it compares them; then the test goes on. Fail always fails, saying where. The message, if
+    /// any, is only made then.
+    void lower_expect(const expr_id_t id, const symbol_t& function) {
+        const expr_info_t& info = m_analysis.expr(id);
+        const expectation_t& expectation = m_analysis.expectations.at(id);
+        const bool checks = function.name == "Expect";
+        std::vector<std::pair<operand_t, type_id_t>> sides;
+        std::optional<block_id_t> ok;
+        if (checks) {
+            const expr_id_t condition = expect(info.arguments[0]);
+            const auto* compared = std::get_if<binary_expr_t>(&m_ast.get(condition).node);
+            const bool shows = compared != nullptr && is_comparison(compared->op);
+            if (shows) {
+                const operand_t left =
+                    settled(lower_value(compared->left), may_change(compared->right));
+                const operand_t right = lower_value(compared->right);
+                sides = {
+                    { left, converted_type(compared->left) },
+                    { right, converted_type(compared->right) },
+                };
+                m_reused[compared->left] = left;
+                m_reused[compared->right] = right;
+            }
+
+            const operand_t value = lower_value(condition);
+            if (shows) {
+                m_reused.erase(compared->left);
+                m_reused.erase(compared->right);
+            }
+
+            ok = new_block();
+            const block_id_t failed = new_block();
+            terminate(branch_t{ .condition = value, .if_true = *ok, .if_false = failed });
+            start(failed);
+        }
+
+        const std::size_t mark = m_temporaries.size();
+        const std::optional<expr_id_t> message = info.arguments[checks ? 1 : 0];
+        std::vector<operand_t> parts;
+        if (checks) {
+            parts.push_back(make_string(
+                std::format("expect failed: {} at {}", expectation.text, expectation.place)));
+            const operand_t indent{ const_value_t{ .type = type_id_t::INT32,
+                                                   .data = std::int64_t{ -1 } } };
+            for (std::size_t i = 0; i < sides.size(); ++i) {
+                parts.push_back(make_string(i == 0 ? "\n  left: " : "\n  right: "));
+                parts.push_back(debug_of(sides[i].first, sides[i].second, indent));
+            }
+
+            if (message) {
+                parts.push_back(make_string("\n  "));
+                parts.push_back(lower_value(*message));
+            }
+        } else if (message) {
+            parts = {
+                make_string("failed: "),
+                lower_value(*message),
+                make_string(std::format(" at {}", expectation.place)),
+            };
+        } else {
+            parts.push_back(make_string(std::format("failed at {}", expectation.place)));
+        }
+
+        fail_test(parts.size() == 1 ? parts.front()
+                                    : runtime_call(runtime_function_t::JOIN, std::move(parts),
+                                                   type_id_t::STRING, true));
+        release_temporaries_from(mark);
+        if (ok) {
+            jump(*ok);
+            start(*ok);
+        }
+    }
+
+    /// Skip says its test is skipped, for its reason, and ends the test, as a Return would.
+    void lower_skip(const expr_id_t id) {
+        const expr_info_t& info = m_analysis.expr(id);
+        const operand_t reason =
+            info.arguments.front() ? lower_value(*info.arguments.front()) : make_string("");
+        const function_id_t skipped = test_runtime("fb_test_skipped", { type_id_t::STRING });
+        emit(evaluate_t{ call_t{ .function = skipped, .arguments = { { .value = reason } } } });
+        finish_statement();
+        release_scopes(0);
+        terminate(return_t{});
+    }
+
+    /// "ExpectThrows(x)": x, whose error a handler keeps, where a Try? would drop it. When x
+    /// throws nothing, or nothing of the Class asked for, its test fails, and it gives Null, and
+    /// otherwise the error, which it owns.
+    operand_t lower_expect_throws(const expr_id_t id) {
+        const expr_info_t& info = m_analysis.expr(id);
+        const expectation_t& expectation = m_analysis.expectations.at(id);
+        const expr_id_t argument = expect(info.arguments.front());
+        const type_id_t expected = concrete(info.tested);
+        const type_id_t type = expr_type(id);
+        const span_t span = span_of(id);
+        const local_id_t result = add_local(type);
+        emit(assign_t{ .target = result, .value = use_t{ .value = null_of(type) } });
+        const local_id_t error = error_variable();
+        m_handlers.push_back(
+            { .optional = true, .temporaries = m_temporaries.size(), .caught = error });
+        const expr_node_t& inner = m_ast.get(argument).node;
+        if (std::holds_alternative<call_expr_t>(inner) ||
+            std::holds_alternative<try_expr_t>(inner) ||
+            std::holds_alternative<await_expr_t>(inner)) {
+            (void)lower_effect(argument);
+        } else {
+            (void)lower_value(argument);
+        }
+
+        const handler_t handler = std::move(m_handlers.back());
+        m_handlers.pop_back();
+        // What x gave is only made on the way where it threw nothing.
+        release_temporaries_from(handler.temporaries);
+        const std::string wanted = expected == m_analysis.error_class
+                                       ? std::string()
+                                       : std::format(" {}", types().name(expected));
+        const std::string failure = std::format("expect failed: {} didn't throw{} at {}",
+                                                expectation.text, wanted, expectation.place);
+        std::vector<block_id_t> exits;
+        if (m_block) {
+            fail_test(make_string(failure));
+            leave(exits);
+        }
+
+        if (!handler.exits.empty()) {
+            join(handler.exits);
+            if (expected == m_analysis.error_class) {
+                emit(assign_t{ .target = result, .value = use_t{ .value = place_t{ error } } });
+            } else {
+                use_class(expected);
+                const operand_t matched =
+                    temporary(is_t{ .value = place_t{ error }, .type = expected }, type_id_t::BOOL);
+                const block_id_t test = here();
+                m_block.reset();
+                const block_id_t right = new_block();
+                const block_id_t wrong = new_block();
+                block_at(test).terminator =
+                    branch_t{ .condition = matched, .if_true = right, .if_false = wrong };
+                start(right);
+                const operand_t caught = temporary(
+                    downcast_t{ .value = place_t{ error }, .type = expected, .span = span },
+                    expected);
+                emit(assign_t{ .target = result,
+                               .value = use_t{ .value = convert(caught, type, span) } });
+                leave(exits);
+                start(wrong);
+                const function_id_t other = test_runtime(
+                    "fb_test_threw_other", { type_id_t::STRING, m_analysis.error_class });
+                emit(evaluate_t{
+                    call_t{
+                        .function = other,
+                        .arguments = {
+                            { .value = make_string(failure) },
+                            { .value = unwrap(place_t{ error }) },
+                        },
+                    },
+                });
+                emit(release_t{ .target = error });
+            }
+
+            leave(exits);
+        }
+
+        join(exits);
+        if (has_references(type)) {
+            m_temporaries.push_back(result);
+        }
+
+        return place_t{ result };
+    }
+
     /// "Atomic<Int>(0)" or "Mutex(value)": what a Global or Field starts with. A Mutex starts
     /// with no thread holding it.
     operand_t make_in_place(const expr_id_t id) {
@@ -10344,6 +10668,21 @@ private:
             return std::nullopt;
         }
 
+        if (function.kind == symbol_kind_t::BUILTIN_FUNCTION &&
+            (function.name == "Expect" || function.name == "Fail")) {
+            lower_expect(id, function);
+            return std::nullopt;
+        }
+
+        if (function.kind == symbol_kind_t::BUILTIN_FUNCTION && function.name == "Skip") {
+            lower_skip(id);
+            return std::nullopt;
+        }
+
+        if (function.kind == symbol_kind_t::BUILTIN_FUNCTION && function.name == "ExpectThrows") {
+            return lower_expect_throws(id);
+        }
+
         if (function.owner != type_id_t::INVALID && is_interface(function.owner)) {
             return call_interface_member(id, receiver);
         }
@@ -10980,6 +11319,11 @@ private:
 mir_module_t lower(const ast_t& ast, const analysis_t& analysis,
                    const std::optional<std::string>& library) {
     return lowerer_t(ast, analysis, library).run();
+}
+
+mir_module_t lower_tests(const ast_t& ast, const analysis_t& analysis,
+                         const std::vector<test_case_t>& tests) {
+    return lowerer_t(ast, analysis).run_tests(tests);
 }
 
 mir_module_t lower_function(const ast_t& ast, const analysis_t& analysis,

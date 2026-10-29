@@ -2479,6 +2479,70 @@ TEST_CASE("a quoted Import names a file, and only a .fb file builds", "[driver]"
     packages.remove();
 }
 
+TEST_CASE("a package's tests are in its files, and its tests/ folder's use it from outside",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n"
+                                       "[dependencies]\nlib = { path = \"../lib\" }\n");
+    packages.write("app/main.fb", "Import std.test\n"
+                                  "@Test Function InMain()\n"
+                                  "End Function\n");
+    // Nothing imports it, but its tests are the package's.
+    packages.write("app/math.fb", "Import std.test\n"
+                                  "Public Function Double(n: Int): Int => Twice(n)\n"
+                                  "Package Function Twice(n: Int): Int => n * 2\n"
+                                  "Function Secret(): Int => 7\n"
+                                  "@Test Function Doubles()\n"
+                                  "    Expect(Double(Secret()) == 14)\n"
+                                  "End Function\n");
+    packages.write("app/tests/outside.fb", "Import std.test\n"
+                                           "Import app.math\n"
+                                           "Import lib.shared\n"
+                                           "@Test Function FromOutside()\n"
+                                           "    Expect(Double(One()) == 2)\n"
+                                           "End Function\n");
+    packages.write("lib/project.toml", "[project]\nname = \"lib\"\nversion = \"1.0.0\"\n");
+    packages.write("lib/shared.fb", "Import std.test\n"
+                                    "Public Function One(): Int => 1\n"
+                                    "@Test Function LibsOwn()\n"
+                                    "End Function\n");
+    const std::expected<fb::compilation_t, std::string> tested =
+        fb::compile_tests(packages / "app");
+    REQUIRE(tested);
+    CHECK(packages.messages(*tested) == std::vector<std::string>());
+    std::vector<std::string> names;
+    for (const fb::test_case_t& test : fb::package_tests(*tested)) {
+        names.push_back(test.name);
+    }
+
+    // A dependency's tests are its own.
+    CHECK(names == std::vector<std::string>{ "app.main.InMain", "app.math.Doubles",
+                                             "app.tests.outside.FromOutside" });
+
+    // A build has neither, as a check of a library doesn't.
+    const std::expected<fb::compilation_t, std::string> built = fb::compile_file(packages / "app");
+    REQUIRE(built);
+    CHECK(fb::package_tests(*built).size() == 1);
+    for (const fb::module_t& module : built->ast.modules().modules()) {
+        CHECK_FALSE(module.path.contains("tests"));
+        CHECK(module.path != "app/math.fb");
+    }
+
+    // The tests/ folder's files see only what the package makes Public.
+    packages.write("app/tests/outside.fb", "Import app.math\n"
+                                           "Function Uses(): Int => Twice(1) + Secret()\n");
+    const std::expected<fb::compilation_t, std::string> outside =
+        fb::compile_tests(packages / "app");
+    REQUIRE(outside);
+    CHECK(packages.messages(*outside) ==
+          std::vector<std::string>{
+              "app/tests/outside.fb: Twice: 'Twice' is Package in app/math.fb, so only the "
+              "package app can use it",
+              "app/tests/outside.fb: Secret: 'Secret' is private to app/math.fb",
+          });
+    packages.remove();
+}
+
 TEST_CASE("a dependency's project.toml is checked as its own package's is", "[driver]") {
     const packages_t packages;
     packages.write("app/main.fb", "Print(\"app\")\n");

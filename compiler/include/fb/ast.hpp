@@ -443,6 +443,8 @@ struct modifiers_t {
     bool is_main_thread = false;
     /// "@PanicsAtCaller": its panics report where it's called, as std's do for misuse.
     bool panics_at_caller = false;
+    /// "@Test": a Function that `fb test` runs, which builds leave out.
+    bool is_test = false;
     /// "Async Function": a call starts it on the main thread and gives its Task, and its code
     /// can Await.
     bool is_async = false;

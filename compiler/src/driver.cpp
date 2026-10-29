@@ -394,8 +394,9 @@ public:
         }
 
         m_map = load("std/collections/map.fb");
+        // The main file, which fb test's extras can name again, stays the last to initialize.
         for (const std::string& extra : m_files.extra) {
-            if (const std::optional<std::size_t> loaded = load(extra)) {
+            if (const std::optional<std::size_t> loaded = load(extra); loaded && *loaded != 0) {
                 m_extra.push_back(*loaded);
             }
         }
@@ -2489,8 +2490,8 @@ std::string program_path(const std::filesystem::path& root, const std::filesyste
 }
 
 /// A library's files, which its check loads: each .fb file from its folder down, but not its
-/// build/ folder, hidden folders, links, or the folders of other packages in it, which have
-/// their own project.toml.
+/// build/ folder, its tests/ folder, whose tests use it from outside, hidden folders, links, or
+/// the folders of other packages in it, which have their own project.toml.
 std::vector<std::string> library_files(const package_t& package) {
     std::vector<std::string> files;
     std::error_code error;
@@ -2502,7 +2503,8 @@ std::vector<std::string> library_files(const package_t& package) {
         if (is_link(entry->path())) {
             entry.disable_recursion_pending();
         } else if (entry->is_directory(ignored)) {
-            if (name.starts_with('.') || (entry.depth() == 0 && name == "build") ||
+            if (name.starts_with('.') ||
+                (entry.depth() == 0 && (name == "build" || name == "tests")) ||
                 std::filesystem::exists(entry->path() / "project.toml", ignored)) {
                 entry.disable_recursion_pending();
             }
@@ -2515,11 +2517,34 @@ std::vector<std::string> library_files(const package_t& package) {
     return files;
 }
 
+/// For fb test, the package of a package's tests/ folder, if it has one: "<name>.tests", whose
+/// files use the package from outside, as one that depends on it does, with what it depends on.
+std::optional<package_t> tests_package(const package_t& own) {
+    std::error_code error;
+    const std::filesystem::path root = own.root / "tests";
+    if (!std::filesystem::is_directory(root, error) || is_link(root)) {
+        return std::nullopt;
+    }
+
+    package_t tests{
+        .name = own.name + ".tests",
+        .version = own.version,
+        .root = root,
+        .prefix = own.name + ".tests/",
+        .dependencies = { own.name },
+    };
+    std::ranges::copy(own.dependencies, std::back_inserter(tests.dependencies));
+    return tests;
+}
+
 /// A package's program: its main file, given or its project.toml's, or for a library, its
-/// files, each a module of its own, so it's checked.
+/// files, each a module of its own, so it's checked. For fb test, when `testing`, each of its
+/// files is a module, the main file too, and so is each file of its tests/ folder, in a package
+/// of its own.
 std::expected<compilation_t, std::string>
 compile_package(const std::filesystem::path& folder,
-                const std::optional<std::filesystem::path>& main, const build_mode_t mode) {
+                const std::optional<std::filesystem::path>& main, const build_mode_t mode,
+                const bool testing = false) {
     compilation_t compilation;
     package_loader_t reader(compilation, mode, main.has_value());
     std::optional<std::vector<package_t>> packages = reader.run(folder);
@@ -2537,7 +2562,8 @@ compile_package(const std::filesystem::path& folder,
         return stopped();
     }
 
-    const package_t& own = packages->front();
+    // A copy, since fb test's build adds a package.
+    const package_t own = packages->front();
     const manifest_t& manifest = reader.main();
     compilation.natives = natives_of(*packages, compilation.system_spans);
     const std::vector<package_t> others(std::next(packages->begin()), packages->end());
@@ -2585,12 +2611,28 @@ compile_package(const std::filesystem::path& folder,
             !std::filesystem::equivalent(main_path, written, error)) {
             compilation.package->program = to_utf8(main_path.stem());
         }
-    } else if (manifest.type == package_type_t::LIBRARY || own.main.empty()) {
+    }
+
+    // fb test's build has each of the package's files, and its tests/ folder's, in a package of
+    // its own.
+    std::vector<std::string> extra;
+    if (testing) {
+        extra = library_files(own);
+        if (std::optional<package_t> tests = tests_package(own)) {
+            std::ranges::copy(library_files(*tests), std::back_inserter(extra));
+            packages->push_back(std::move(*tests));
+        }
+    }
+
+    if (!main && (manifest.type == package_type_t::LIBRARY || own.main.empty())) {
         // Without a main file, it's a library, whose files are each checked. The main file is
         // empty, and named unlike any of them.
         compilation.package->library = true;
         // A prebuilt library's modules are in its interface file.
-        std::vector<std::string> extra = library_files(own);
+        if (!testing) {
+            extra = library_files(own);
+        }
+
         for (const library_file_t& module : own.modules) {
             extra.push_back(module.path);
         }
@@ -2620,7 +2662,10 @@ compile_package(const std::filesystem::path& folder,
     compilation.file = *file;
     const std::filesystem::path root = own.root;
     const std::string path = own.prefix + program_path(own.root, main_path);
-    run_front_end(compilation, { .root = root, .packages = std::move(*packages) }, path, mode);
+    std::erase(extra, path);
+    run_front_end(compilation,
+                  { .root = root, .packages = std::move(*packages), .extra = std::move(extra) },
+                  path, mode);
     record_builds(compilation, others);
     return compilation;
 }
@@ -2773,16 +2818,30 @@ compilation_t compile(std::string path, std::string text, std::vector<library_fi
     return compilation;
 }
 
-std::expected<compilation_t, std::string> compile_file(const std::filesystem::path& path,
-                                                       const build_mode_t mode) {
+namespace {
+
+/// Why the standard library can't be read, which every program loads std/core/ and
+/// std.collections.map of, or nullopt when it can.
+std::optional<std::string> unreadable_std() {
     std::error_code error;
-    // Every program loads std/core/ and std.collections.map.
     const std::filesystem::path std_folder = path_from_utf8(build_config::std_directory);
     if (!std::filesystem::is_regular_file(std_folder / "core" / "error.fb", error) ||
         !std::filesystem::is_regular_file(std_folder / "collections" / "map.fb", error)) {
-        return std::unexpected(
-            std::format("cannot read the standard library in '{}'", to_utf8(std_folder)));
+        return std::format("cannot read the standard library in '{}'", to_utf8(std_folder));
     }
+
+    return std::nullopt;
+}
+
+} // namespace
+
+std::expected<compilation_t, std::string> compile_file(const std::filesystem::path& path,
+                                                       const build_mode_t mode) {
+    std::error_code error;
+    if (const std::optional<std::string> unreadable = unreadable_std()) {
+        return std::unexpected(*unreadable);
+    }
+
     if (std::filesystem::is_directory(path, error)) {
         if (!std::filesystem::is_regular_file(path / "project.toml", error)) {
             return std::unexpected(std::format(
@@ -2819,6 +2878,58 @@ std::expected<compilation_t, std::string> compile_file(const std::filesystem::pa
     const std::filesystem::path folder = path.has_parent_path() ? path.parent_path() : ".";
     run_front_end(compilation, { .root = folder }, to_utf8(path.filename()), mode);
     return compilation;
+}
+
+std::expected<compilation_t, std::string> compile_tests(const std::filesystem::path& path,
+                                                        const build_mode_t mode) {
+    if (const std::optional<std::string> unreadable = unreadable_std()) {
+        return std::unexpected(*unreadable);
+    }
+
+    std::error_code error;
+    std::optional<std::filesystem::path> root;
+    if (std::filesystem::is_directory(path, error) &&
+        std::filesystem::is_regular_file(path / "project.toml", error)) {
+        root = path;
+    } else if (std::filesystem::is_regular_file(path, error) &&
+               folded(to_utf8(path.extension())) == ".fb") {
+        root = find_package(path.has_parent_path() ? path.parent_path()
+                                                   : std::filesystem::current_path(error));
+    }
+
+    // A file outside a package is tested with the files it imports, as it's built.
+    return root ? compile_package(*root, std::nullopt, mode, true) : compile_file(path, mode);
+}
+
+std::vector<test_case_t> package_tests(const compilation_t& compilation) {
+    const module_table_t& modules = compilation.ast.modules();
+    const std::optional<module_id_t> main = modules.main();
+    if (!main) {
+        return {};
+    }
+
+    const package_id_t own = modules.get(*main).package;
+    const std::string outside = modules.package_name(own) + ".tests";
+    std::vector<test_case_t> tests;
+    for (const test_function_t& test : compilation.analysis.tests) {
+        const symbol_t& function = compilation.analysis.symbol(test.function);
+        const std::optional<module_id_t> module = modules.of(function.span.file);
+        if (!module) {
+            continue;
+        }
+
+        const module_t& declared = modules.get(*module);
+        if (declared.package == own ||
+            (modules.has_manifest(own) && modules.package_name(declared.package) == outside)) {
+            tests.push_back({
+                .function = test.function,
+                .name = std::format("{}.{}", declared.name, function.name),
+                .main_thread = test.main_thread,
+            });
+        }
+    }
+
+    return tests;
 }
 
 std::optional<std::filesystem::path> find_package(const std::filesystem::path& folder) {

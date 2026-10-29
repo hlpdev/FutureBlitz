@@ -6,6 +6,7 @@
 #include "fb/diagnostic.hpp"
 #include "fb/library.hpp"
 #include "fb/link.hpp"
+#include "fb/lower.hpp"
 #include "fb/mir.hpp"
 #include "fb/sema.hpp"
 #include "fb/source.hpp"
@@ -165,6 +166,20 @@ resolve_import(std::string_view target, bool quoted, std::string_view importer);
 /// project.toml; a project.toml's mistakes are the compilation's diagnostics.
 [[nodiscard]] std::expected<compilation_t, std::string>
 compile_file(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG);
+
+/// For fb test: the package that `path` is the folder of, or that a .fb file at `path` is in,
+/// like compile_file(), with each of its .fb files a module, the main file's too, whose
+/// top-level code a test build leaves out, and each .fb file of its tests/ folder a module of a
+/// package of its own, "<name>.tests", which depends on it and on what it depends on, as another
+/// package would. A .fb file outside a package is compiled as compile_file() compiles it. Fails
+/// as compile_file() does.
+[[nodiscard]] std::expected<compilation_t, std::string>
+compile_tests(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG);
+
+/// The tests fb test runs from a compilation: the @Test Functions of its main file's package and
+/// that package's tests/ folder, in source order, each named by its module, like
+/// "game.shapes.Area".
+[[nodiscard]] std::vector<test_case_t> package_tests(const compilation_t& compilation);
 
 /// The folder of the package that `folder` is in: the nearest one from it up with a
 /// project.toml. nullopt when there's none.

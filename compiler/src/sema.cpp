@@ -310,6 +310,12 @@ bool is_value_builtin(const std::string_view name) {
     return name == "SizeOf" || name == "TypeName" || name == "AddressOf" || is_embed(name);
 }
 
+/// Whether a name is one of std.test's built-ins, which only a file that imports std.test has:
+/// Expect, ExpectThrows, Fail, and Skip.
+bool is_test_builtin(const std::string_view name) {
+    return name == "Expect" || name == "ExpectThrows" || name == "Fail" || name == "Skip";
+}
+
 /// Whether a name is Load<T>(value), Save(x), or Defaults<T>(), which make a T from a std.core
 /// Value, a Value from an x, and a Value from a T's Fields' defaults, when the code doesn't
 /// declare one of its own.
@@ -356,6 +362,10 @@ public:
         for (std::size_t i = 0; i < modules.size(); ++i) {
             if (modules[i].is_main) {
                 m_main_module = i;
+            }
+
+            if (modules[i].name == "std.test" && modules[i].path == "std/test.fb") {
+                m_test_module = i;
             }
         }
     }
@@ -501,6 +511,12 @@ private:
     std::size_t m_main_module = 0;
     /// The built-in functions, like Print, which every module sees after what it imports.
     names_t m_builtins;
+    /// ExpectThrows, which check_expect_throws() finds by its name, as calls of it are checked
+    /// apart.
+    symbol_id_t m_expect_throws{};
+    /// std.test's module's index in m_modules, when the program loads it, whose importers see
+    /// its built-ins.
+    std::optional<std::size_t> m_test_module;
     /// Where a name that two imported modules give was reported, so each use is reported once.
     std::set<std::pair<file_id_t, std::uint32_t>> m_ambiguous;
 
@@ -1159,6 +1175,30 @@ private:
                 .parameters = { note },
             }));
         }
+
+        // std.test's: Expect is an Assert whose test goes on, and Fail one that always fails.
+        // Skip ends the test. ExpectThrows takes any expression, which check_expect_throws()
+        // checks, so it's found by its name.
+        m_builtins["Expect"].push_back(add_symbol({
+            .kind = symbol_kind_t::BUILTIN_FUNCTION,
+            .name = "Expect",
+            .type = type_id_t::NONE,
+            .parameters = { condition, note },
+        }));
+        for (const std::string_view name : { "Fail", "Skip" }) {
+            m_builtins[name].push_back(add_symbol({
+                .kind = symbol_kind_t::BUILTIN_FUNCTION,
+                .name = name,
+                .type = type_id_t::NONE,
+                .parameters = { note },
+            }));
+        }
+
+        m_expect_throws = add_symbol({
+            .kind = symbol_kind_t::BUILTIN_FUNCTION,
+            .name = "ExpectThrows",
+            .type = type_id_t::NONE,
+        });
 
         // NextFrame(), Wait(time), and RealWait(time) give a Task that the scheduler running the
         // code finishes later, for an Async Function to Await, so only the main thread calls
@@ -7928,6 +7968,10 @@ private:
             check_unsafe_function(node, owner);
         }
 
+        if (node.modifiers.is_test) {
+            check_test_function(node, owner);
+        }
+
         const symbol_id_t function = add_symbol({
             .kind = kind,
             .name = node.name.text,
@@ -7958,6 +8002,32 @@ private:
         }
 
         return function;
+    }
+
+    /// A @Test Function is fb test's, which calls it with nothing, so it's a top-level Function
+    /// with a body, which takes nothing and gives nothing back, though it can throw.
+    void check_test_function(const function_stmt_t& node, const type_id_t owner) {
+        if (owner != type_id_t::INVALID || node.kind != function_kind_t::FUNCTION) {
+            error(node.name.span,
+                  "@Test only goes before a top-level Function, which fb test runs");
+        } else if (node.external) {
+            error(node.name.span, "an Extern Function can't be @Test, since its code is {}'s",
+                  node.external->convention == convention_t::RUNTIME ? "the runtime" : "C");
+        } else if (!node.type_parameters.empty()) {
+            error(node.name.span,
+                  "a @Test Function can't be generic, since fb test calls it without type "
+                  "arguments");
+        } else if (!node.parameters.empty()) {
+            error(node.parameters.front().name.span,
+                  "a @Test Function takes nothing, since fb test calls it without arguments");
+        } else if (node.return_type) {
+            error(m_ast.get(*node.return_type).span,
+                  "a @Test Function gives nothing back, since fb test has no use for it; Expect "
+                  "checks what it works out");
+        } else if (node.modifiers.visibility_span) {
+            error(*node.modifiers.visibility_span,
+                  "a @Test Function is only fb test's to run, so it takes no visibility");
+        }
     }
 
     /// "Operator [](indices): T" reads an element of Self, and "Operator []=(indices, value)"
@@ -8704,6 +8774,11 @@ private:
         });
     }
 
+    /// Whether module `here` imports std.test, whose built-ins, like Expect, it then has.
+    [[nodiscard]] bool sees_test_builtins(const std::size_t here) const {
+        return m_test_module && imports_module(here, *m_test_module);
+    }
+
     /// What a top-level name means in code at `span`: what the code's module declares, or the
     /// qualifier one of its Imports gives, then what the modules it imports declare, then the
     /// built-ins. A type or variable hides what comes after it. Functions of one name are one
@@ -8764,8 +8839,13 @@ private:
             }
         }
 
-        // A built-in comes last, unless a Function found already takes its types.
+        // A built-in comes last, unless a Function found already takes its types. std.test's are
+        // only its importers'.
         const std::size_t declared = found.size();
+        if (is_test_builtin(name) && !sees_test_builtins(here)) {
+            return found;
+        }
+
         for (const symbol_id_t builtin : names_in(m_builtins, name)) {
             const bool hidden =
                 std::ranges::any_of(std::span(found).first(declared), [&](const symbol_id_t mine) {
@@ -10934,6 +11014,19 @@ private:
                 m_analysis.main_thread_only.emplace(function, std::move(why->first));
             }
         }
+
+        // A test whose code uses what only the main thread can runs there, and the rest on the
+        // pool.
+        for (const symbol_id_t function : m_analysis.functions) {
+            const symbol_t& declared = symbol(function);
+            if (declared.modifiers.is_test && declared.kind == symbol_kind_t::FUNCTION) {
+                m_analysis.tests.push_back({
+                    .function = function,
+                    .main_thread = declared.modifiers.is_main_thread ||
+                                   m_analysis.main_thread_only.contains(function),
+                });
+            }
+        }
     }
 
     /// A Struct that implements Equatable without an Operator == of its own compares its
@@ -11431,11 +11524,17 @@ private:
         return std::nullopt;
     }
 
-    /// A use of `id` at `span`, for the main-thread rules, and a warning at a use of something
-    /// @Deprecated, or of a New of a @Deprecated type. Its own code, and its type's, can use it.
+    /// A use of `id` at `span`, for the main-thread rules, an error at a use of a @Test Function,
+    /// and a warning at a use of something @Deprecated, or of a New of a @Deprecated type. Its own
+    /// code, and its type's, can use it.
     void note_use(const symbol_id_t id, const span_t span) {
         note_thread_use(id, span);
         const symbol_t* used = &symbol(id);
+        // Builds leave tests out, so no other code can use one.
+        if (used->kind == symbol_kind_t::FUNCTION && used->modifiers.is_test) {
+            error(span, "'{}' is a @Test Function, which only fb test runs", used->name);
+        }
+
         if (!used->modifiers.deprecated && used->kind == symbol_kind_t::CONSTRUCTOR) {
             const auto type = m_declared_types.find(definition_of(used->owner));
             if (type == m_declared_types.end()) {
@@ -14858,8 +14957,9 @@ private:
             return;
         }
 
-        // A DebugAssert narrows nothing, since a release build doesn't check it.
-        if (ends_program(symbol(*call.symbol))) {
+        // A DebugAssert narrows nothing, since a release build doesn't check it. Skip ends its
+        // test.
+        if (ends_program(symbol(*call.symbol)) || symbol(*call.symbol).name == "Skip") {
             m_flow = unreachable_flow;
         } else if (symbol(*call.symbol).name == "Assert" && !call.arguments.empty() &&
                    call.arguments.front()) {
@@ -18923,6 +19023,8 @@ private:
         } else if (const std::optional<symbol_id_t> member = unusable_own_member(name)) {
             report_unusable(*member, span,
                             m_function ? symbol(*m_function).owner : type_id_t::INVALID);
+        } else if (is_test_builtin(name) && !sees_test_builtins(module_of(span.file))) {
+            error(span, "'{}' is in std.test, which this file doesn't import", name);
         } else if (const std::optional<hint_t> hint = import_hint(name, span)) {
             report_hint(span, *hint);
         } else if (is_later_name(name)) {
@@ -21322,6 +21424,12 @@ private:
             return name->name == "Load" ? check_load(id, node, *name) : check_save(id, node, *name);
         }
 
+        if (const auto* name = std::get_if<name_expr_t>(&m_ast.get(node.callee).node);
+            name != nullptr && name->name == "ExpectThrows" &&
+            !declared_here(name->name, span_of(node.callee))) {
+            return check_expect_throws(id, node, *name);
+        }
+
         if (const std::optional<type_kind_t> kind = in_place_maker(node.callee)) {
             if (*kind == type_kind_t::SCHEDULER) {
                 return check_scheduler_made(id, node);
@@ -22368,6 +22476,7 @@ private:
         check_receiver(node, function);
         check_arguments(id, node, function);
         check_special_call(node, symbol(function));
+        check_test_call(id, node, symbol(function));
         check_pattern_argument(id, symbol(function));
         // The constructor a Struct gets takes its fields, which may not have types yet.
         if (symbol(function).kind == symbol_kind_t::CONSTRUCTOR && !symbol(function).declaration) {
@@ -22461,6 +22570,110 @@ private:
                 mark_assigned(field);
             }
         }
+    }
+
+    /// What a failure of the std.test built-in called at `id` says: where the call is, as a
+    /// panic says it, and what it checks, as it's written.
+    void record_expectation(const expr_id_t id, const std::string_view written) {
+        const span_t span = span_of(id);
+        const source_file_t& file = m_sources.get(span.file);
+        const location_t at = file.location_of(span.begin, column_unit_t::CODEPOINT);
+        m_analysis.expectations[id] = {
+            .place = std::format("{}:{}:{}", file.path(), at.line + 1, at.column + 1),
+            .text = std::string(written),
+        };
+    }
+
+    /// Expect and Fail say where they are when they fail, and Expect what it checks. Skip ends
+    /// its test, as a Return would, so it's only in a @Test Function's own code.
+    void check_test_call(const expr_id_t id, const call_expr_t& node, const symbol_t& function) {
+        if (function.kind != symbol_kind_t::BUILTIN_FUNCTION || !is_test_builtin(function.name)) {
+            return;
+        }
+
+        if (function.name == "Skip") {
+            if (!m_function || !symbol(*m_function).modifiers.is_test || !m_lambdas.empty()) {
+                error(span_of(node.callee),
+                      "Skip ends the test, so it's only in a @Test Function's own code");
+            }
+
+            return;
+        }
+
+        const std::vector<std::optional<expr_id_t>>& arguments = info(id).arguments;
+        const bool checks = function.name == "Expect" && !arguments.empty() && arguments.front();
+        record_expectation(id, checks ? text(*arguments.front()) : std::string_view());
+    }
+
+    /// "ExpectThrows(x)" catches what x throws, as Try? does, and its test fails when x throws
+    /// nothing, or with a type argument, "ExpectThrows<ParseError>(x)", nothing of that Class. It
+    /// gives the error, an E? or an Error?, which is Null when its test failed.
+    type_id_t check_expect_throws(const expr_id_t id, const call_expr_t& node,
+                                  const name_expr_t& name) {
+        if (!sees_test_builtins(module_of(span_of(id).file))) {
+            error(span_of(node.callee), "'ExpectThrows' is in std.test, which this file doesn't "
+                                        "import");
+            check_alone(node.arguments);
+            return type_id_t::INVALID;
+        }
+
+        if (name.type_arguments.size() > 1 || node.arguments.size() != 1 ||
+            node.arguments.front().name || node.arguments.front().by_ref) {
+            error(span_of(id), "ExpectThrows takes what should throw, like "
+                               "ExpectThrows(Parse(text)), and the error's Class as its type "
+                               "argument, if it's to be one, like ExpectThrows<ParseError>(...)");
+            // What it was given can throw, as what it takes can.
+            m_handlers.push_back({ .kind = handler_kind_t::TRY_OPTIONAL });
+            check_alone(node.arguments);
+            m_handlers.pop_back();
+            return type_id_t::INVALID;
+        }
+
+        type_id_t expected = m_analysis.error_class;
+        if (!name.type_arguments.empty()) {
+            const type_expr_id_t written = name.type_arguments.front();
+            expected = resolve_type(written);
+            if (expected != type_id_t::INVALID && !is_error(expected)) {
+                error(m_ast.get(written).span, "ExpectThrows takes a Class that extends {}, not {}",
+                      error_name(expected, m_ast.get(written).span),
+                      name_of(expected, m_analysis.error_class));
+                expected = type_id_t::INVALID;
+            }
+        }
+
+        // Like Try?'s operand, which nothing needs to Try inside.
+        const expr_id_t argument = node.arguments.front().value;
+        m_handlers.push_back({ .kind = handler_kind_t::TRY_OPTIONAL });
+        const std::size_t errors = m_diagnostics->error_count();
+        const bool outer_unparsed = std::exchange(m_unparsed, false);
+        (void)check_any(argument, type_id_t::NONE);
+        const bool unparsed = m_unparsed;
+        m_unparsed = outer_unparsed || unparsed;
+        const std::vector<type_id_t> reached = std::move(m_handlers.back().reached);
+        m_handlers.pop_back();
+        if (expected == type_id_t::INVALID || unparsed || m_diagnostics->error_count() != errors) {
+            return type_id_t::INVALID;
+        }
+
+        // A type parameter's errors are each instance's, which may be related or not.
+        const auto may_be = [&](const type_id_t thrown) {
+            return thrown == type_id_t::INVALID || is_parameter(thrown) || is_parameter(expected) ||
+                   related(thrown, expected);
+        };
+        if (reached.empty()) {
+            error(span_of(argument), "'{}' doesn't throw, so ExpectThrows would always fail",
+                  text(argument));
+        } else if (std::ranges::none_of(reached, may_be)) {
+            error(span_of(argument), "nothing in '{}' throws {}", text(argument),
+                  shown_name(expected));
+        }
+
+        info(node.callee).symbol = m_expect_throws;
+        info(id).symbol = m_expect_throws;
+        info(id).arguments = { argument };
+        info(id).tested = expected;
+        record_expectation(id, text(argument));
+        return nullable_of(expected);
     }
 
     /// Wait and RealWait take std.time's Duration, a Struct of one Int64 of nanoseconds, which
@@ -23615,10 +23828,17 @@ private:
             return members;
         }
 
-        const std::vector<symbol_id_t> found = top_level(name->name, span);
+        std::vector<symbol_id_t> found = top_level(name->name, span);
         if (found.empty()) {
             report_undeclared(name->name, span, "a type; convert to it with 'As'");
             return {};
+        }
+
+        // std.test's Skip is called where std.core's Attribute Skip is only a type.
+        if (is_test_builtin(name->name) && sees_test_builtins(module_of(span.file)) &&
+            symbol(found.front()).kind == symbol_kind_t::TYPE &&
+            in_std(symbol(found.front()).span.file)) {
+            found = names_in(m_builtins, name->name);
         }
 
         return callable(callee, found, name->name, value);

@@ -6687,6 +6687,155 @@ TEST_CASE("@PanicsAtCaller goes on what code calls", "[sema]") {
           });
 }
 
+TEST_CASE("a @Test Function takes nothing and gives nothing, though it can throw", "[sema]") {
+    CHECK(errors_of("Import std.core\n"
+                    "Import std.test\n"
+                    "Function Helper(): Int => 1\n"
+                    "@Test\n"
+                    "Function Adds()\n"
+                    "    Expect(Helper() + 1 == 2)\n"
+                    "End Function\n"
+                    "@Test Function LetsOut() Throws Error\n"
+                    "    Throw Error(\"no\")\n"
+                    "End Function")
+              .empty());
+    CHECK(errors_of("@Test Function A(n: Int)\nEnd Function\n"
+                    "@Test Function B(): Int => 1\n"
+                    "@Test Function C<T>()\nEnd Function\n"
+                    "@Test Public Function D()\nEnd Function\n"
+                    "Extern \"C\"\n    @Test Function abs(n: Int32): Int32\nEnd Extern") ==
+          errors_t{
+              "n: a @Test Function takes nothing, since fb test calls it without arguments",
+              "Int: a @Test Function gives nothing back, since fb test has no use for it; "
+              "Expect checks what it works out",
+              "C: a @Test Function can't be generic, since fb test calls it without type "
+              "arguments",
+              "Public: a @Test Function is only fb test's to run, so it takes no visibility",
+              "abs: an Extern Function can't be @Test, since its code is C's",
+          });
+    const std::string only = "Test: @Test only goes before a Function, which fb test runs";
+    CHECK(errors_of("@Test Struct S\nEnd Struct\n"
+                    "@Test Async Function F()\nEnd Function\n"
+                    "Class C\n    @Test Method M()\n    End Method\nEnd Class\n"
+                    "@Test @Test Function G()\nEnd Function") ==
+          errors_t{ only, only, only, "Test: @Test is written twice" });
+}
+
+TEST_CASE("no code uses a @Test Function, which only fb test runs", "[sema]") {
+    const std::string used = "'Check' is a @Test Function, which only fb test runs";
+    CHECK(errors_of("@Test Function Check()\nEnd Function\n"
+                    "Function Other()\n    Check()\nEnd Function\n"
+                    "Local f: Func() = Check\n") == errors_t{ "Check: " + used, "Check: " + used });
+}
+
+TEST_CASE("std.test's built-ins are only its importers'", "[sema]") {
+    CHECK(errors_of("Expect(1 == 1)\nFail()\nLocal e = ExpectThrows(1)\n") ==
+          errors_t{
+              "Expect: 'Expect' is in std.test, which this file doesn't import",
+              "Fail: 'Fail' is in std.test, which this file doesn't import",
+              "ExpectThrows: 'ExpectThrows' is in std.test, which this file doesn't import",
+          });
+    // A program's own Function of the name hides the built-in, as with any built-in, and a
+    // Method of a type's own hides it in its code.
+    CHECK(errors_of("Import std.test\n"
+                    "Function Fail(code: Int): Int => code\n"
+                    "Local n = Fail(2)\n"
+                    "Class Parser\n"
+                    "    Method Expect(text: String)\n"
+                    "    End Method\n"
+                    "    Method Run()\n"
+                    "        Expect(\"x\")\n"
+                    "    End Method\n"
+                    "End Class")
+              .empty());
+    // std.core's Attribute Skip is a type, so a call of Skip is std.test's.
+    CHECK(errors_of("Import std.core\n"
+                    "Import std.test\n"
+                    "@Test Function Later()\n"
+                    "    Skip(\"not yet\")\n"
+                    "End Function")
+              .empty());
+}
+
+TEST_CASE("Skip ends its test, so it's only in a @Test Function's own code", "[sema]") {
+    const std::string only =
+        "Skip: Skip ends the test, so it's only in a @Test Function's own code";
+    CHECK(errors_of("Import std.test\n"
+                    "Skip()\n"
+                    "Function Helper()\n    Skip()\nEnd Function\n"
+                    "@Test Function T()\n"
+                    "    Local f = Function()\n"
+                    "        Skip()\n"
+                    "    End Function\n"
+                    "End Function") == errors_t{ only, only, only });
+    // Code after it doesn't run, as after a Return, so what it reads needn't be assigned.
+    CHECK(errors_of("Import std.test\n"
+                    "Class Box\nEnd Class\n"
+                    "@Test Function T()\n"
+                    "    Local box: Box\n"
+                    "    If 1 > 2 Then box = Box() Else Skip(\"later\")\n"
+                    "    Local again = box\n"
+                    "End Function")
+              .empty());
+}
+
+TEST_CASE("ExpectThrows takes what throws, and an error's Class", "[sema]") {
+    const std::string_view errors = "Import std.core\n"
+                                    "Import std.test\n"
+                                    "Class Late Extends Error\nEnd Class\n"
+                                    "Class Other Extends Error\nEnd Class\n"
+                                    "Function Parse(text: String): Int Throws Late\n"
+                                    "    Throw Late(text)\n"
+                                    "End Function\n"
+                                    "Function Any(): Int Throws Error\n"
+                                    "    Throw Error(\"any\")\n"
+                                    "End Function\n";
+    CHECK(errors_of(std::string(errors) + "Local a: Late? = ExpectThrows<Late>(Parse(\"x\"))\n"
+                                          "Local b: Error? = ExpectThrows(Parse(\"x\") + 1)\n"
+                                          "Local c: Other? = ExpectThrows<Other>(Any())\n")
+              .empty());
+    CHECK(errors_of(std::string(errors) + "Local a = ExpectThrows(1 + 1)\n"
+                                          "Local b = ExpectThrows<Other>(Parse(\"x\"))\n"
+                                          "Local c = ExpectThrows<Int>(Parse(\"x\"))\n"
+                                          "Local d = ExpectThrows(Parse(\"x\"), 2)\n") ==
+          errors_t{
+              "1 + 1: '1 + 1' doesn't throw, so ExpectThrows would always fail",
+              "Parse(\"x\"): nothing in 'Parse(\"x\")' throws Other",
+              "Int: ExpectThrows takes a Class that extends Error, not Int32",
+              "ExpectThrows(Parse(\"x\"), 2): ExpectThrows takes what should throw, like "
+              "ExpectThrows(Parse(text)), and the error's Class as its type argument, if it's to "
+              "be one, like ExpectThrows<ParseError>(...)",
+          });
+}
+
+TEST_CASE("a test that uses what only the main thread can runs there", "[sema]") {
+    const fb::compilation_t compilation = fb::compile("test.fb", "Import std.core\n"
+                                                                 "Import std.test\n"
+                                                                 "Global count = 0\n"
+                                                                 "Function Bump()\n"
+                                                                 "    count += 1\n"
+                                                                 "End Function\n"
+                                                                 "@MainThread Function Draw()\n"
+                                                                 "End Function\n"
+                                                                 "@Test Function Pure()\n"
+                                                                 "    Expect(1 + 1 == 2)\n"
+                                                                 "End Function\n"
+                                                                 "@Test Function Bumps()\n"
+                                                                 "    Bump()\n"
+                                                                 "End Function\n"
+                                                                 "@Test Function Draws()\n"
+                                                                 "    Draw()\n"
+                                                                 "End Function\n");
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    std::vector<std::pair<std::string, bool>> tests;
+    for (const fb::test_function_t& test : compilation.analysis.tests) {
+        tests.emplace_back(compilation.analysis.symbol(test.function).name, test.main_thread);
+    }
+
+    CHECK(tests == std::vector<std::pair<std::string, bool>>{
+                       { "Pure", false }, { "Bumps", true }, { "Draws", true } });
+}
+
 TEST_CASE("a Const known at compile time can be used before its line", "[sema]") {
     CHECK(probe("Const A = B * 2\nConst B = 3\nLocal x = A") == "Int32 6");
     CHECK(probe("Struct S\n    Field a: Int[N]\nEnd Struct\n"

@@ -1297,6 +1297,7 @@ private:
         bool open = false;
         span_t open_span;
         span_t c_layout_span;
+        span_t test_span;
         while (at(token_kind_t::AT)) {
             advance();
             name_t name = expect_name();
@@ -1313,10 +1314,11 @@ private:
                 !qualifier &&
                 (name.text == "Flags" || name.text == "Open" || name.text == "Inline" ||
                  name.text == "Deprecated" || name.text == "CLayout" ||
-                 name.text == "PanicsAtCaller" || name.text == "MainThread");
+                 name.text == "PanicsAtCaller" || name.text == "MainThread" || name.text == "Test");
             const bool repeated =
                 !qualifier && ((name.text == "Flags" && flags) || (name.text == "Open" && open) ||
                                (name.text == "Inline" && modifiers.is_inline) ||
+                               (name.text == "Test" && modifiers.is_test) ||
                                (name.text == "CLayout" && modifiers.is_c_layout) ||
                                (name.text == "MainThread" && modifiers.is_main_thread) ||
                                (name.text == "PanicsAtCaller" && modifiers.panics_at_caller) ||
@@ -1341,6 +1343,9 @@ private:
                 modifiers.is_main_thread = true;
             } else if (name.text == "PanicsAtCaller") {
                 modifiers.panics_at_caller = true;
+            } else if (name.text == "Test") {
+                modifiers.is_test = true;
+                test_span = name.span;
             } else if (name.text == "Deprecated") {
                 modifiers.deprecated = deprecation(arguments, span);
             } else if (name.text == "CLayout") {
@@ -1377,6 +1382,12 @@ private:
         if (modifiers.is_c_layout && !before_struct) {
             error(c_layout_span, "@CLayout only goes before a Struct, which it lays out as C does");
             modifiers.is_c_layout = false;
+        }
+
+        // A test is a plain Function, not an Async, Const, or Unsafe one, which fb test runs.
+        if (modifiers.is_test && !at(token_kind_t::KW_FUNCTION)) {
+            error(test_span, "@Test only goes before a Function, which fb test runs");
+            modifiers.is_test = false;
         }
 
         // A @Flags Enum's values that aren't its members are combinations of them already.

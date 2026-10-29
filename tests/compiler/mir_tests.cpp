@@ -1289,6 +1289,99 @@ TEST_CASE("a function that throws puts its error in its caller's variable", "[mi
           "    return\n");
 }
 
+TEST_CASE("Expect works out a comparison's sides once, and shows them when it fails", "[mir]") {
+    CHECK(lower_text("Import std.test\n"
+                     "Function Check(a: Int, b: Int)\n"
+                     "    Expect(a + 1 == b)\n"
+                     "End Function") ==
+          "function Check(Int32, Int32)\n"
+          "    _0 a: Int32\n"
+          "    _1 b: Int32\n"
+          "    _2: Int32\n"
+          "    _3: Bool\n"
+          "    _4: String\n"
+          "    _5: String\n"
+          "    _6: String\n"
+          "bb0:\n"
+          "    _2 = _0 + 1\n"
+          "    _3 = _2 == _1\n"
+          "    branch _3, bb1, bb2\n"
+          "bb1:\n"
+          "    return\n"
+          "bb2:\n"
+          "    _4 = to_text(_2)\n"
+          "    _5 = to_text(_1)\n"
+          "    _6 = join(\"expect failed: a + 1 == b at test.fb:3:5\", \"\\n  left: \", _4, "
+          "\"\\n  right: \", _5)\n"
+          "    call fb_test_failed(_6)\n"
+          "    release _6\n"
+          "    release _5\n"
+          "    release _4\n"
+          "    goto bb1\n"
+          "\n" +
+              std::string(empty_main) +
+              "\n"
+              "extern runtime function fb_test_failed = \"fb_test_failed\"\n"
+              "    _0: String\n");
+}
+
+TEST_CASE("a build leaves tests out, and a test build runs them in place of main's code", "[mir]") {
+    const std::string_view text = "Import std.core\n"
+                                  "Import std.test\n"
+                                  "Print(\"main\")\n"
+                                  "@Test Function Adds()\n"
+                                  "    Expect(1 + 1 == 2)\n"
+                                  "End Function\n"
+                                  "@Test Function LetsOut() Throws Error\n"
+                                  "    Throw Error(\"no\")\n"
+                                  "End Function\n";
+    const fb::compilation_t compilation = fb::compile("test.fb", std::string(text));
+    REQUIRE(compilation.diagnostics.diagnostics().empty());
+    const std::string built = fb::dump(fb::lower(compilation.ast, compilation.analysis));
+    INFO(built);
+    CHECK_FALSE(built.contains("Adds"));
+    CHECK_FALSE(built.contains("LetsOut"));
+    CHECK(built.contains("Print"));
+
+    const std::vector<fb::test_case_t> tests = fb::package_tests(compilation);
+    REQUIRE(tests.size() == 2);
+    CHECK(tests[0].name == "test.Adds");
+    CHECK(tests[1].name == "test.LetsOut");
+    const std::string tested =
+        fb::dump(fb::lower_tests(compilation.ast, compilation.analysis, tests));
+    INFO(tested);
+    // Each test's run reports what it lets out, and main hands the runner each one, then runs
+    // them, without the main file's own code.
+    CHECK(tested.contains("function (test) test.Adds\n"
+                          "bb0:\n"
+                          "    call Adds()()\n"
+                          "    return\n"));
+    CHECK(tested.contains("function (test) test.LetsOut\n"
+                          "    _0: std.core.error.Error?\n"
+                          "    _1: Bool\n"
+                          "bb0:\n"
+                          "    _0 = Null\n"
+                          "    call LetsOut()(ByRef _0)\n"
+                          "    _1 = _0 != Null\n"
+                          "    branch _1, bb1, bb2\n"
+                          "bb1:\n"
+                          "    call fb_test_threw(_0.value)\n"
+                          "    goto bb2\n"
+                          "bb2:\n"
+                          "    release _0\n"
+                          "    return\n"));
+    CHECK(tested.contains("call fb_test_add(\"test.Adds\", "));
+    CHECK(tested.contains("call fb_test_add(\"test.LetsOut\", "));
+    CHECK(tested.contains("call fb_test_run()\n"));
+    CHECK_FALSE(tested.contains("\"main\""));
+
+    // A test build of some of them has only those.
+    const std::string one = fb::dump(fb::lower_tests(compilation.ast, compilation.analysis,
+                                                     { tests.begin(), tests.begin() + 1 }));
+    CHECK(one.contains("function Adds()"));
+    CHECK_FALSE(one.contains("LetsOut"));
+}
+
 TEST_CASE("a Try's Catches test the error's Class, and its Finally runs on every way out",
           "[mir]") {
     // Where no Catch matches, top-level code lets the error out, after the Finally.

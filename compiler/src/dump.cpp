@@ -680,6 +680,10 @@ private:
             out.items.push_back(atom("@PanicsAtCaller", tone_t::KEYWORD));
         }
 
+        if (modifiers.is_test) {
+            out.items.push_back(atom("@Test", tone_t::KEYWORD));
+        }
+
         for (const attribute_t& attribute : modifiers.attributes) {
             std::string text =
                 attribute.qualifier

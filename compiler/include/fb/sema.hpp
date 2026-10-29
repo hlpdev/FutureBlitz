@@ -417,6 +417,22 @@ struct load_support_t { // NOLINT(bugprone-exception-escape)
     std::unordered_map<std::string_view, symbol_id_t> helpers;
 };
 
+/// A @Test Function, which fb test runs.
+struct test_function_t {
+    symbol_id_t function{};
+    /// Its code uses what only the main thread can, like a Global, so it runs there, not on the
+    /// pool.
+    bool main_thread = false;
+};
+
+/// What a failure of one of std.test's built-ins, Expect, ExpectThrows, or Fail, says of it:
+/// where it is, as a panic says it, like "tests/shapes.fb:12:5", and for Expect and ExpectThrows,
+/// what it checks, as it's written.
+struct expectation_t {
+    std::string place;
+    std::string text;
+};
+
 /// Everything analysis found out about a file, for lowering and tools. `exprs` and `stmts` have
 /// one entry per AST node, indexed by its id; nodes in code with errors may keep the defaults.
 /// Making its deque can allocate, which clang-tidy reports as an exception escaping.
@@ -464,6 +480,10 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     /// 'score', which only the main thread can, unless it's an Atomic or a Mutex", for a
     /// library's interface file, which keeps its first line without its code.
     std::unordered_map<symbol_id_t, std::string> main_thread_only;
+    /// The @Test Functions, in source order.
+    std::vector<test_function_t> tests;
+    /// What each call of Expect, ExpectThrows, and Fail says when it fails, by the call.
+    std::unordered_map<expr_id_t, expectation_t> expectations;
     /// The function values the program makes. The expression that makes each one, a lambda or
     /// a Function's name, has its index.
     std::vector<closure_t> closures;

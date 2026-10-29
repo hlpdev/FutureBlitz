@@ -414,9 +414,11 @@ private:
         candidate.shown = candidate.shown || std::holds_alternative<extend_stmt_t>(node);
         candidate.always = member && !is_block(m_candidates[*owner]);
 
-        // An Import isn't a declaration: every one is kept, as other code can need its names.
+        // An Import isn't a declaration: every one is kept, as other code can need its names. A
+        // test is only fb test's, which runs the library's source.
         if (std::holds_alternative<import_stmt_t>(node) ||
-            std::holds_alternative<error_stmt_t>(node)) {
+            std::holds_alternative<error_stmt_t>(node) ||
+            (modifiers != nullptr && modifiers->is_test)) {
             return;
         }
 
