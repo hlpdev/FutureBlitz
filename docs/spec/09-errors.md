@@ -3,8 +3,7 @@
 Two tiers:
 
 - **Errors**: expected failures (missing file, bad input). Checked, recoverable.
-- **Panics**: bugs. Crash with a message and where it happened. A stack trace comes with debug
-  info (see [open-questions.md](../open-questions.md)).
+- **Panics**: bugs. Crash with a message, where it happened, and a stack trace.
 
 ## Errors
 
@@ -88,7 +87,8 @@ A call to a throwing function must be inside a `Try` block or prefixed with `Try
 - Top-level code can let any error out. Its Defers and Finallys run on the way, then it prints
   `uncaught <Class>: <Message> at <file>:<line>:<column>`, at the error's Place, then a
   `caused by <Class>: <Message> at ...` line for each Cause, up to 100, then says there are
-  more when the chain goes on, as one that goes in a circle does, and exits with code 1.
+  more when the chain goes on, as one that goes in a circle does, then the stack trace of where
+  the error was first thrown (see [Stack traces](#stack-traces)), and exits with code 1.
 
 ## Panics
 
@@ -110,8 +110,8 @@ A call to a throwing function must be inside a `Try` block or prefixed with `Try
 - Panics are not catchable, and don't run Defers or Finallys.
 - A panic on any thread ends the whole program. When two threads panic at once, only the first
   one's message shows.
-- A panic prints `panic: <message> at <file>:<line>:<column>` and exits with code 101, so
-  tests and tools can tell it from a normal exit.
+- A panic prints `panic: <message> at <file>:<line>:<column>`, then its stack trace, and exits
+  with code 101, so tests and tools can tell it from a normal exit.
 - `@PanicsAtCaller` on a Function, Method, Operator, New, or Property makes every panic in its
   code report where it's called, as Rust's `#[track_caller]` does, so misuse points at the
   program's line: popping an empty Stack panics where `Pop` is called. A call of another
@@ -122,6 +122,34 @@ A call to a throwing function must be inside a `Try` block or prefixed with `Try
   value runs it directly, giving its place, as `Take(-1)` on an `Iterator<T>` value does.
   An Override of a @PanicsAtCaller Method is one too, and one that isn't can't be overridden by
   one that is, since a call through the Method table gives a place or doesn't.
+
+## Stack traces
+
+```text
+panic: index 5 is out of range for 3 elements at game.fb:12:17
+    at Counter.Take (game.fb:12)
+    at Function at game.fb:22:20 (game.fb:22)
+    at Apply<Counter> (game.fb:17)
+    at Run (game.fb:22)
+    at top-level code (game.fb:25)
+```
+
+- A panic's trace, and an uncaught error's, has a line for each call of the program's code that
+  it's in, the innermost first: `    at <function> (<file>:<line>)`, with the file named as the
+  panic names it. A Method is `Class.Method`, a generic Function's instance names its type
+  arguments, a function value's code is named by where it's written, and a module's top-level
+  code is `top-level code`. The runtime's frames, and the C code's, are left out.
+- An uncaught error's trace is where it was first thrown, the Throw that set its Place, though a
+  Catch threw it again further out.
+- Every build has them, debug and release, with no debug files: the compiler writes a table into
+  each binary, a library beside the executable's too, of where each call is in the source, which
+  the runtime reads as it walks the stack. A call that a release build inlines still has its line
+  of its own, after the call it's in, and no call is made a tail call, which would take its
+  caller out of the trace.
+- Debug builds have full debug info, DWARF and on Windows CodeView too, so a debugger stops at
+  lines and shows the Locals; release builds have the line tables. tools/lldb/futureblitz.py,
+  which VS Code's debugger loads, shows a String, an array, a Map, a `T?`, and an object as its
+  value (see [tooling.md](../tooling.md)).
 
 ## Tasks
 

@@ -1989,7 +1989,8 @@ Built in step 23, but for `V7`. `Import std.uuid` brings in std/uuid/.
   Linux's TracerPid, and False on an OS that can't be asked; `Breakpoint()`, which stops in the
   debugger that's attached, as a breakpoint set there would, and does nothing when none is, so
   one left in a program doesn't end it, nor under a tracer that hands the trap back, as strace
-  does. Stack traces wait for debug info (spec 09 already says so).
+  does. Panics and uncaught errors print stack traces, which every build has (M8 step 3, spec
+  09's Stack traces).
 
 #### std.ffi (after M5's reorganization)
 
