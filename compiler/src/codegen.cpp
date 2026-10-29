@@ -2520,6 +2520,8 @@ private:
     std::map<std::pair<std::uint32_t, file_id_t>, LLVMMetadataRef> m_file_scopes;
     /// Where the code being generated is, which code that has no place of its own keeps.
     LLVMMetadataRef m_line = nullptr;
+    /// Where the function being generated's first statement with a line is.
+    LLVMMetadataRef m_first_line = nullptr;
     /// An object's header, as an Interface's value points at one, made when it's first needed.
     LLVMMetadataRef m_object_debug_type = nullptr;
     // DWARF's numbers for what the C API takes as numbers.
@@ -2690,6 +2692,7 @@ private:
         m_file_scopes.clear();
         m_subprogram = nullptr;
         m_line = nullptr;
+        m_first_line = nullptr;
         const std::optional<span_t> place = place_of(m_mir.functions[function_index]);
         if (!place) {
             LLVMSetCurrentDebugLocation2(builder(), nullptr);
@@ -2791,6 +2794,9 @@ private:
             const location_t start = start_of(*place.span);
             m_line = LLVMDIBuilderCreateDebugLocation(context(), start.line, start.column,
                                                       scope_for(*place.span, place.scope), nullptr);
+            if (m_first_line == nullptr && start.line != 0) {
+                m_first_line = m_line;
+            }
         }
 
         LLVMSetCurrentDebugLocation2(builder(), m_line);
@@ -2946,8 +2952,8 @@ private:
 
     /// A type's debug info, as tools/lldb/futureblitz.py shows it: a number, Bool, or Char as
     /// itself, a Struct, tuple, or value T? as its fields, an Enum as its members, and a String,
-    /// Class, or T[] as its name for a pointer to its object, whose header comes first. A String?
-    /// or Class? is its name for the String's or Class's.
+    /// Class, or T[] as its name for a pointer to its object, whose header comes first. A String?,
+    /// Class?, or T[]? is a struct of its Value, the String, Class, or T[].
     LLVMMetadataRef debug_type(const type_id_t type) {
         if (const auto found = m_debug_types.find(type); found != m_debug_types.end()) {
             return found->second;
@@ -3053,8 +3059,15 @@ private:
             });
         case type_kind_t::NULLABLE:
             if (is_nullable_reference(type)) {
-                made = named(debug_type(inner_of(type)), name);
-                break;
+                // A struct of its Value, the reference, as lldb would show a null pointer as its
+                // own "NULL", without asking the script.
+                LLVMTypeRef reference = m_ptr;
+                LLVMTypeRef held = LLVMStructTypeInContext(context(), &reference, 1, 0);
+                return debug_struct(type, name, held, false, [this, type] {
+                    return std::vector<debug_member_t>{
+                        { .name = "Value", .type = debug_type(inner_of(type)) },
+                    };
+                });
             }
 
             return debug_struct(type, name, layout, false, [this, type] {
@@ -3272,9 +3285,12 @@ private:
         }
 
         m_next_block = nullptr;
-        // The entry block gets its jump last, since join adds allocas to it along the way.
+        // The entry block gets its jump last, since join adds allocas to it along the way. The
+        // jump is at the first statement: where a jump stays at -O0, as on AArch64, the prologue
+        // ends at the first code with a line, and a debugger stops there when it steps in, which
+        // would otherwise be the Function's line, at the parameters' stores.
         LLVMPositionBuilderAtEnd(builder(), m_entry);
-        LLVMSetCurrentDebugLocation2(builder(), nullptr);
+        LLVMSetCurrentDebugLocation2(builder(), m_first_line);
         LLVMBuildBr(builder(), m_blocks[0]);
         end_subprogram();
     }

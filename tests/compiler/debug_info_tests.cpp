@@ -4,12 +4,15 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
+#include <format>
 #include <functional>
+#include <initializer_list>
 #include <map>
 #include <regex>
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // The debug info a debugger reads, in a debug build's LLVM IR: where a line's code is, which
@@ -175,6 +178,53 @@ TEST_CASE("code with no place at a block's start is at line 0, not the last bloc
     for (const int line : joins) {
         CHECK(line != 8);
     }
+}
+
+TEST_CASE("a Function's entry jumps to its code at its first statement", "[codegen][debug]") {
+    // At -O0 on AArch64 the jump stays, and the prologue ends at the first code with a line, so
+    // a step into Describe stopped at its Function line, at the parameter's store.
+    const std::string ir = debug_ir("Import std.core\n"
+                                    "Function Describe(name: String): String\n"
+                                    "    Return \"shape {name}\"\n"
+                                    "End Function\n"
+                                    "Print(Describe(\"wheel\"))\n");
+    const std::string body = body_of(ir, "fb.Describe(String)");
+    INFO(body);
+    std::smatch jump;
+    REQUIRE(std::regex_search(body, jump, std::regex(R"(\n  br label %bb0, !dbg (![0-9]+)\n)")));
+    CHECK(location_lines(ir).at(jump.str(1)) == 3);
+}
+
+TEST_CASE("a String?, a Class?, and a T[]? are a struct of their Value, which can be null",
+          "[codegen][debug]") {
+    // lldb shows a null pointer as its own "NULL", without asking the script.
+    const std::string ir = debug_ir("Import std.core\n"
+                                    "Import std.collections\n"
+                                    "Class Shape\n"
+                                    "End Class\n"
+                                    "Local nothing: String? = Null\n"
+                                    "Local none: Shape? = Null\n"
+                                    "Local empty: Int32[]? = Null\n"
+                                    "Local ages = Map<String, Int32>()\n"
+                                    "Print(\"{nothing ?? \"\"} {ages.Count}\")\n");
+    for (const auto& [name, pattern] : std::initializer_list<std::pair<std::string, std::string>>{
+             { "String?", R"(String\?)" },
+             { "Shape?", R"(Shape\?)" },
+             { "Int32[]?", R"(Int32\[\]\?)" },
+         }) {
+        INFO(name);
+        const std::regex type(std::format(
+            R"(\n(![0-9]+) = !DICompositeType\(tag: DW_TAG_structure_type, name: "{}",[^\n]* size: 64,)",
+            pattern));
+        std::smatch found;
+        REQUIRE(std::regex_search(ir, found, type));
+        CHECK(ir.contains(std::format("DW_TAG_member, name: \"Value\", scope: {},", found.str(1))));
+        CHECK_FALSE(ir.contains(std::format("DW_TAG_typedef, name: \"{}\"", name)));
+    }
+
+    // The script knows a Map by its struct's name, its full name.
+    CHECK(
+        ir.contains("DW_TAG_structure_type, name: \"fb.std.collections.map.Map<String, Int32>\""));
 }
 
 TEST_CASE("a library's file is named by its path in the program, from the folder it's in",
