@@ -31,6 +31,7 @@ std::expected<command_t, std::string> find_command(const std::string_view name) 
              command_t::TEST,
              command_t::BINDGEN,
              command_t::FMT,
+             command_t::DOC,
          }) {
         if (command_name(command) == name) {
             return command;
@@ -112,6 +113,8 @@ std::string_view command_name(const command_t command) {
         return "bindgen";
     case command_t::FMT:
         return "fmt";
+    case command_t::DOC:
+        return "doc";
     }
 
     std::unreachable();
@@ -293,16 +296,23 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
         if (argument == "--release") {
             options.mode = build_mode_t::RELEASE;
         } else if (name == "-o" || name == "--output") {
-            if (options.command != command_t::BUILD) {
-                return std::unexpected(std::format("'{}' only works with 'fb build'", name));
+            if (options.command != command_t::BUILD && options.command != command_t::DOC) {
+                return std::unexpected(
+                    std::format("'{}' only works with 'fb build' and 'fb doc'", name));
             }
 
             parsed = value().and_then(
                 [&](const std::string_view path) -> std::expected<void, std::string> {
-                    // A name the executable can have, not a folder's.
+                    // A name the executable or the JSON can have, not a folder's.
                     if (path.empty() || path.ends_with('/') || path.ends_with('\\')) {
-                        return std::unexpected(std::format(
-                            "'{}' takes the executable's file name, like 'out/game'", name));
+                        return std::unexpected(
+                            options.command == command_t::DOC
+                                ? std::format("'{}' takes the JSON's file name, like "
+                                              "'out/game.json', or '-' for stdout",
+                                              name)
+                                : std::format("'{}' takes the executable's file name, like "
+                                              "'out/game'",
+                                              name));
                     }
 
                     options.output = path_from_utf8(path);
@@ -313,7 +323,7 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
                 options.color = color;
             });
         } else if (name == "--show") {
-            if (options.command == command_t::TEST) {
+            if (options.command == command_t::TEST || options.command == command_t::DOC) {
                 return std::unexpected("'--show' only works with 'fb check', 'fb build', and "
                                        "'fb run'");
             }

@@ -42,8 +42,9 @@ std::uint32_t width_in(const column_unit_t unit, const decoded_t decoded) {
 
 } // namespace
 
-source_file_t::source_file_t(const file_id_t id, std::string path, std::string text)
-    : m_id(id), m_path(std::move(path)), m_text(std::move(text)) {
+source_file_t::source_file_t(const file_id_t id, std::string path, std::string text,
+                             std::optional<line_origin_t> origin)
+    : m_id(id), m_path(std::move(path)), m_text(std::move(text)), m_origin(std::move(origin)) {
     if (m_text.starts_with(utf8_bom)) {
         m_text.erase(0, utf8_bom.size());
     }
@@ -105,6 +106,11 @@ location_t source_file_t::location_of(const std::uint32_t offset, const column_u
         column += width_in(unit, decoded);
     }
 
+    if (m_origin && line < m_origin->lines.size()) {
+        const location_t from = m_origin->lines[line];
+        return { .line = from.line, .column = from.column + column };
+    }
+
     return { .line = line, .column = column };
 }
 
@@ -128,10 +134,29 @@ std::uint32_t source_file_t::offset_of(const location_t location, const column_u
     return m_line_starts[location.line] + pos;
 }
 
-file_id_t source_manager_t::add(std::string path, std::string text) {
+file_id_t source_manager_t::add(std::string path, std::string text,
+                                std::optional<line_origin_t> origin) {
+    assert(!origin || std::to_underlying(origin->file) < m_files.size());
     const auto id = static_cast<file_id_t>(m_files.size());
-    m_files.push_back(std::make_unique<source_file_t>(id, std::move(path), std::move(text)));
+    m_files.push_back(
+        std::make_unique<source_file_t>(id, std::move(path), std::move(text), std::move(origin)));
     return id;
+}
+
+span_t source_manager_t::shown(const span_t span) const {
+    const source_file_t& file = get(span.file);
+    const std::optional<line_origin_t>& origin = file.origin();
+    if (!origin) {
+        return span;
+    }
+
+    // A column in bytes, which the ASCII before each line's origin column keeps.
+    const source_file_t& shown = get(origin->file);
+    const auto at = [&](const std::uint32_t offset) {
+        return shown.offset_of(file.location_of(offset, column_unit_t::UTF8), column_unit_t::UTF8);
+    };
+    const std::uint32_t begin = at(span.begin);
+    return { .file = origin->file, .begin = begin, .end = std::max(begin, at(span.end)) };
 }
 
 std::expected<file_id_t, std::string> source_manager_t::load(const std::filesystem::path& path) {

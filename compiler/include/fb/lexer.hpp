@@ -13,9 +13,11 @@ namespace fb {
 /// Splits a file into tokens, skipping spaces and comments, and reports errors to
 /// `diagnostics`. It always finishes: bad input gives INVALID tokens or reported errors, and
 /// the last token is END_OF_FILE. The lines an #If leaves out give no tokens; `defined` has the
-/// symbols that are true.
+/// symbols that are true. `docs`, when given, gets the doc comments between the tokens, each
+/// "///" and "//!" line comment, in order, which parse() attaches to what they document.
 [[nodiscard]] std::vector<token_t> lex(const source_file_t& file, diagnostic_bag_t& diagnostics,
-                                       std::span<const std::string_view> defined = {});
+                                       std::span<const std::string_view> defined = {},
+                                       std::vector<span_t>* docs = nullptr);
 
 /// What lex() skips that the formatter places: the comments, and the lines from each outermost
 /// #If to its #End If, which it leaves as they are.

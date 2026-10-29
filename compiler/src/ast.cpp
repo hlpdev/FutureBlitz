@@ -6,7 +6,9 @@
 #include <limits>
 #include <optional>
 #include <string_view>
+#include <type_traits>
 #include <utility>
+#include <variant>
 
 namespace fb {
 
@@ -119,6 +121,67 @@ const type_expr_t& ast_t::get(const type_expr_id_t id) const {
     const auto index = std::to_underlying(id);
     assert(index < m_types.size());
     return m_types[index];
+}
+
+std::optional<name_t> declared_name(const stmt_node_t& node) {
+    return std::visit(
+        [](const auto& declared) -> std::optional<name_t> {
+            using node_t = std::decay_t<decltype(declared)>;
+            if constexpr (std::is_same_v<node_t, function_stmt_t> ||
+                          std::is_same_v<node_t, type_stmt_t> ||
+                          std::is_same_v<node_t, enum_stmt_t> ||
+                          std::is_same_v<node_t, variable_stmt_t> ||
+                          std::is_same_v<node_t, property_stmt_t> ||
+                          std::is_same_v<node_t, alias_stmt_t>) {
+                return declared.name;
+            } else {
+                return std::nullopt;
+            }
+        },
+        node);
+}
+
+namespace {
+
+/// A doc comment's key: where the name it's on starts, its file in the high 32 bits.
+std::uint64_t doc_key(const span_t name) {
+    return (std::uint64_t{ std::to_underlying(name.file) } << 32U) | name.begin;
+}
+
+} // namespace
+
+void ast_t::set_doc(const span_t name, doc_comment_t doc) {
+    m_docs.insert_or_assign(doc_key(name), std::move(doc));
+}
+
+const doc_comment_t* ast_t::doc(const span_t name) const {
+    const auto found = m_docs.find(doc_key(name));
+    return found != m_docs.end() ? &found->second : nullptr;
+}
+
+const doc_comment_t* ast_t::doc(const stmt_id_t id) const {
+    const std::optional<name_t> name = declared_name(get(id).node);
+    return name ? doc(name->span) : nullptr;
+}
+
+std::vector<const doc_comment_t*> ast_t::docs_in(const file_id_t file) const {
+    std::vector<const doc_comment_t*> found;
+    for (const auto& [key, doc] : m_docs) {
+        if (key >> 32U == std::to_underlying(file)) {
+            found.push_back(&doc);
+        }
+    }
+
+    return found;
+}
+
+void ast_t::set_module_doc(const file_id_t file, doc_comment_t doc) {
+    m_module_docs.insert_or_assign(file, std::move(doc));
+}
+
+const doc_comment_t* ast_t::module_doc(const file_id_t file) const {
+    const auto found = m_module_docs.find(file);
+    return found != m_module_docs.end() ? &found->second : nullptr;
 }
 
 void ast_t::sort_items() {

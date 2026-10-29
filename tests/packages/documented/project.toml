@@ -1,0 +1,6 @@
+# A library whose doc comments fb doc writes as JSON and whose examples fb test runs: two pass, one
+# only compiles, and one fails, at its line in its doc comment.
+[project]
+name = "documented"
+version = "0.3.0"
+type = "library"

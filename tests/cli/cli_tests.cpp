@@ -2203,6 +2203,223 @@ TEST_CASE("fb test gives a test the work it starts, and fails a run that fails o
     CHECK_FALSE(stopped.output.contains("test result:"));
 }
 
+namespace {
+
+/// A copy of tests/packages/<name> in the test output folder, so what fb writes into a package's
+/// build/ folder isn't in the source tree.
+std::filesystem::path copied_package(const std::string_view name) {
+    const std::filesystem::path copy = std::filesystem::path(FB_TEST_OUTPUT) / "copied" / name;
+    std::filesystem::remove_all(copy);
+    std::filesystem::create_directories(copy.parent_path());
+    std::filesystem::copy(std::filesystem::path(FB_TEST_PACKAGES) / name, copy,
+                          std::filesystem::copy_options::recursive);
+    return copy;
+}
+
+/// A file as messages show it: by its path from the current folder, with '/'s.
+std::string shown_file(const std::filesystem::path& file) {
+    std::error_code ignored;
+    const std::filesystem::path path = std::filesystem::weakly_canonical(file, ignored);
+    const std::filesystem::path relative =
+        path.lexically_relative(std::filesystem::current_path(ignored));
+    std::string text = fb::to_utf8(relative.empty() || *relative.begin() == ".." ? path : relative);
+    std::ranges::replace(text, '\\', '/');
+    return text;
+}
+
+} // namespace
+
+TEST_CASE("fb test runs a package's examples, each a test named after its declaration", "[cli]") {
+    const std::filesystem::path documented = copied_package("documented");
+    const fb::process_result_t ran =
+        fb_run({ "test", fb::to_utf8(documented), "--color", "never" });
+    INFO(ran.output);
+    CHECK(ran.exit_code == 1);
+    CHECK(ran.output.contains("     Running 5 tests\n"));
+    for (const std::string_view line : {
+             "test documented.shapes.Circle (example) ... ok\n",
+             "test documented.shapes.Circle.Grow (example) ... ok\n",
+             "test documented.shapes.Circle.Grow (example 2) ... ok\n",
+             "test documented.shapes.Circle.Grow (example 3) ... FAILED\n",
+             "test documented.shapes.TotalArea (example) ... FAILED\n",
+         }) {
+        CHECK(ran.output.contains(line));
+    }
+
+    // What fails says where, in the doc comment, as a panic at its caller does too.
+    const std::string shapes = shown_file(documented / "shapes.fb");
+    CHECK(ran.output.contains(std::format(
+        "\n---- documented.shapes.Circle.Grow (example 3) ----\n"
+        "panic: a circle can't grow by less than 0 at {0}:61:9\n"
+        "\n---- documented.shapes.TotalArea (example) ----\n"
+        "expect failed: TotalArea(shapes) == 3 at {0}:110:5\n"
+        "  left: 2\n"
+        "  right: 3\n"
+        "\ntest result: FAILED. 3 passed; 2 failed; 0 skipped; 0 filtered out; finished in ",
+        shapes)));
+
+    // An example's test is filtered by its name.
+    const fb::process_result_t filtered = fb_run(
+        { "test", fb::to_utf8(documented), "--filter", "Grow (example 2)", "--color", "never" });
+    INFO(filtered.output);
+    CHECK(filtered.exit_code == 0);
+    CHECK(filtered.output.contains("test documented.shapes.Circle.Grow (example 2) ... ok\n"));
+    CHECK(filtered.output.contains("4 filtered out"));
+
+    // An example's mistake is shown at its line in the doc comment, and stops the tests.
+    std::string text = read_file(documented / "shapes.fb");
+    text.replace(text.find("/// Expect(circle.Radius == 2)"), 30,
+                 "/// Expect(circle.Radius == \"2\")");
+    std::ofstream(documented / "shapes.fb", std::ios::binary) << text;
+    const fb::process_result_t broken =
+        fb_run({ "test", fb::to_utf8(documented), "--color", "never" });
+    INFO(broken.output);
+    CHECK(broken.exit_code == 1);
+    CHECK(broken.output.contains(
+        std::format("{}:25:12: error: '==' can't combine Float32 and String\n", shapes)));
+    CHECK(broken.output.contains("25 | /// Expect(circle.Radius == \"2\")\n"));
+    CHECK_FALSE(broken.output.contains("Running"));
+}
+
+TEST_CASE("fb doc writes a package's public API as JSON, and warns about its doc comments",
+          "[cli]") {
+    const std::filesystem::path documented = copied_package("documented");
+    const fb::process_result_t ran = fb_run({ "doc", fb::to_utf8(documented), "--color", "never" });
+    INFO(ran.output);
+    CHECK(ran.exit_code == 0);
+    CHECK(ran.output.contains(" Documenting documented v0.3.0 ("));
+    const std::string shapes = shown_file(documented / "shapes.fb");
+    CHECK(ran.output.contains(
+        std::format("{}:19:22: warning: 'Missing' names nothing that code here sees\n", shapes)));
+    CHECK(ran.output.contains(std::format(
+        "{}:142:1: warning: this doc comment documents nothing: a /// comment goes on the lines "
+        "right before a declaration\n",
+        shapes)));
+    const std::filesystem::path written = documented / "build" / "documented.json";
+    CHECK(ran.output.contains(std::format("    Finished 1 module and 11 declarations in ")));
+    CHECK(ran.output.contains(fb::to_utf8(written)));
+
+    const std::string json = read_file(written);
+    CHECK(json.starts_with("{\n"
+                           "  \"format\": 1,\n"
+                           "  \"package\": \"documented\",\n"
+                           "  \"version\": \"0.3.0\",\n"
+                           "  \"modules\": [\n"
+                           "    {\n"
+                           "      \"name\": \"documented.shapes\",\n"
+                           "      \"file\": \"shapes.fb\",\n"
+                           "      \"doc\": {\n"
+                           "        \"summary\": \"Shapes, and what they cover: see [Shape] and "
+                           "[Circle].\",\n"));
+    // A member as M9's reference pages read it, with the doc it has from its Interface's.
+    CHECK(
+        json.contains("            {\n"
+                      "              \"kind\": \"method\",\n"
+                      "              \"name\": \"Area\",\n"
+                      "              \"path\": \"documented.shapes.Square.Area\",\n"
+                      "              \"signature\": \"Public Method Area(): Float\",\n"
+                      "              \"attributes\": [],\n"
+                      "              \"visibility\": \"Public\",\n"
+                      "              \"file\": \"shapes.fb\",\n"
+                      "              \"line\": 90,\n"
+                      "              \"doc\": {\n"
+                      "                \"summary\": \"How much of the plane it covers, in square "
+                      "units.\",\n"
+                      "                \"markdown\": \"How much of the plane it covers, in square "
+                      "units.\",\n"
+                      "                \"sections\": [\n"
+                      "                  {\n"
+                      "                    \"heading\": \"\",\n"
+                      "                    \"markdown\": \"How much of the plane it covers, in "
+                      "square units.\"\n"
+                      "                  }\n"
+                      "                ],\n"
+                      "                \"links\": [],\n"
+                      "                \"examples\": []\n"
+                      "              },\n"
+                      "              \"doc_from\": \"documented.shapes.Shape.Area\"\n"
+                      "            }\n"));
+    // An example, without its hidden lines, and a link, found.
+    CHECK(json.contains("\"code\": \"circle.Grow(3)\\nExpect(circle.Radius == 3)\\n\",\n"
+                        "                    \"line\": 46,\n"
+                        "                    \"runs\": true\n"));
+    CHECK(json.contains("\"text\": \"stacks.Stack\",\n"
+                        "                \"path\": \"std.collections.stack.Stack\",\n"
+                        "                \"builtin\": false\n"));
+
+    // -o names the file, and - writes to stdout; a file of the package documents it.
+    const std::filesystem::path elsewhere = documented / "out" / "api.json";
+    const fb::process_result_t named = fb_run({ "doc", fb::to_utf8(documented / "shapes.fb"), "-o",
+                                                fb::to_utf8(elsewhere), "--color", "never" });
+    INFO(named.output);
+    CHECK(named.exit_code == 0);
+    CHECK(read_file(elsewhere) == json);
+    const fb::process_result_t printed =
+        fb_run({ "doc", fb::to_utf8(documented), "-o", "-", "--color", "never" });
+    CHECK(printed.exit_code == 0);
+    CHECK(printed.output.contains(json));
+
+    // A .fb file outside a package, and a folder without a project.toml, aren't packages.
+    const std::filesystem::path lone =
+        write_source("doc/lone.fb", "Public Function F()\nEnd Function\n");
+    const fb::process_result_t outside = fb_run({ "doc", fb::to_utf8(lone), "--color", "never" });
+    CHECK(outside.exit_code == 2);
+    CHECK(outside.output.contains("isn't in a package, which a project.toml makes; fb doc "
+                                  "documents a package, or std"));
+    const fb::process_result_t folder =
+        fb_run({ "doc", fb::to_utf8(lone.parent_path()), "--color", "never" });
+    CHECK(folder.exit_code == 2);
+    CHECK(folder.output.contains("there's no project.toml in"));
+
+    // A package with errors isn't documented.
+    std::ofstream(documented / "broken.fb", std::ios::binary)
+        << "Public Function F(): Int\nEnd Function\n";
+    const fb::process_result_t broken =
+        fb_run({ "doc", fb::to_utf8(documented), "--color", "never" });
+    CHECK(broken.exit_code == 1);
+    CHECK(broken.output.contains("error: couldn't document documented v0.3.0 ("));
+
+    check_usage_error({ "doc", fb::to_utf8(documented), "--show", "ast" },
+                      "'--show' only works with 'fb check', 'fb build', and 'fb run'");
+    check_usage_error({ "doc", fb::to_utf8(documented), "--filter", "x" },
+                      "'--filter' only works with 'fb test'");
+    check_usage_error({ "doc", "-o", "out/" },
+                      "'-o' takes the JSON's file name, like 'out/game.json', or '-' for stdout");
+    check_usage_error({ "check", "-o", "x" }, "'-o' only works with 'fb build' and 'fb doc'");
+    CHECK(fb_run({}).output.contains(
+        "doc                  Write a package's public API as JSON, docs and all"));
+    const std::string help = fb_run({ "doc", "--help" }).output;
+    CHECK(help.contains("Usage: fb doc [options] [file.fb | package folder | std]"));
+    CHECK(help.contains("With std, it's the standard library's API."));
+    CHECK_FALSE(help.contains("--show"));
+}
+
+TEST_CASE("fb doc std writes the standard library's API, and fb test std runs its examples",
+          "[cli]") {
+    const std::filesystem::path written =
+        std::filesystem::path(FB_TEST_OUTPUT) / "doc" / "std.json";
+    std::filesystem::remove(written);
+    const fb::process_result_t documented =
+        fb_run({ "doc", "std", "-o", fb::to_utf8(written), "--color", "never" });
+    INFO(documented.output);
+    CHECK(documented.exit_code == 0);
+    CHECK(documented.output.contains(" Documenting std\n"));
+    // std's doc comments each document something, and each of their links names something.
+    CHECK_FALSE(documented.output.contains("warning:"));
+    const std::string json = read_file(written);
+    CHECK(json.contains("\"package\": \"std\",\n"));
+    CHECK(json.contains("\"path\": \"std.collections.stack.Stack.Push\",\n"));
+
+    const fb::process_result_t tested = fb_run({ "test", "std", "--color", "never" });
+    INFO(tested.output);
+    CHECK(tested.exit_code == 0);
+    CHECK(tested.output.contains("   Compiling std\n"));
+    CHECK(tested.output.contains("test std.collections.stack.Stack (example) ... ok\n"));
+    CHECK(tested.output.contains("\ntest result: ok. "));
+    CHECK(fb_run({ "test", "--help" })
+              .output.contains("With std, it runs the examples in the standard library's docs."));
+}
+
 TEST_CASE("fb runs a package that links a C library", "[cli]") {
     const std::filesystem::path packages =
         std::filesystem::path(FB_TEST_OUTPUT) / "native_packages";

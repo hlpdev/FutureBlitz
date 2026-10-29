@@ -1,0 +1,145 @@
+//! Shapes, and what they cover: see [Shape] and [Circle].
+
+Import std.core
+Import std.collections.stack As stacks
+From std.math Import Clamp
+
+/// Why a declaration is shown.
+Public Attribute Shown(Why: String)
+
+/// What has an area.
+Public Interface Shape
+    /// How much of the plane it covers, in square units.
+    Method Area(): Float
+End Interface
+
+/// A circle, by its radius, which is a [Shape]: its [Area] grows with the square of its
+/// [Radius], and [Circle.Grow] grows it. [Printable], [Print], [core.Print], [String],
+/// [stacks.Stack], [Clamp], [std.collections.stack.Stack.Push], and [Kind.Round] are what its
+/// module sees, and [Missing] and [Circle.Missing] name nothing.
+///
+/// # Examples
+///
+/// ```
+/// Local circle = Circle(2)
+/// Expect(circle.Radius == 2)
+/// ```
+@Shown("it's round")
+Public Struct Circle Implements Shape
+    /// How far its edge is from its center.
+    Public Field Radius: Float
+
+    Static Field made: Int
+
+    Public Method Area(): Float
+        Return 3 * Radius * Radius
+    End Method
+
+    /// Makes it `by` times as wide, as `circle.Grow(2)` does.
+    ///
+    /// # Panics
+    ///
+    /// When `by` is less than 0.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Local circle = Circle(1)
+    /// circle.Grow(3)
+    /// Expect(circle.Radius == 3)
+    /// ```
+    ///
+    /// ```fb no_run
+    /// Local circle = Circle(1)
+    /// Loop
+    ///     circle.Grow(2)
+    /// End Loop
+    /// ```
+    ///
+    /// ```
+    /// Local circle = Circle(1)
+    /// circle.Grow(-1)
+    /// ```
+    @PanicsAtCaller
+    Public ByRef Method Grow(by: Float)
+        If by < 0 Then Panic("a circle can't grow by less than 0")
+        Radius *= by
+    End Method
+End Struct
+
+/// A shape that knows its name.
+Public Class Named
+    /// Its name, as people see it.
+    Public Field Name: String
+
+    /// What a [Named] shape has to say.
+    Public Method Describe(): String => Name
+
+    /// For the Classes that extend it.
+    Protected Method Hidden(): Int => 1
+
+    Method Secret(): Int => 2
+End Class
+
+/// A square, with its side.
+Public Class Square Extends Named Implements Shape
+    Public Field Side: Float
+
+    Public Override Method Describe(): String => "a square"
+
+    Public Method Area(): Float => Side * Side
+End Class
+
+/// How a shape's edge goes.
+Public Enum Kind: UInt8
+    /// It curves all the way around.
+    Round = 1
+    Straight
+End Enum
+
+/// The area of each of `shapes`, added up.
+///
+/// # Examples
+///
+/// ```
+/// Class Unit Implements Shape
+///     Public Method Area(): Float => 1
+/// End Class
+///
+/// Local shapes: Shape[] = [Unit(), Unit()]
+/// Expect(TotalArea(shapes) == 3)
+/// ```
+Public Function TotalArea(shapes: Shape[]): Float
+    Local total = 0.0
+    For shape In shapes
+        total += shape.Area()
+    End For
+
+    Return total
+End Function
+
+/// Pi, near enough.
+Public Const Pi: Float = 3.14159
+
+Public Global Made = 0
+
+Function Helper()
+End Function
+
+Package Function Internal()
+End Function
+
+Extend Circle
+    /// Shrinks it to half its size, as [Grow] with 0.5 would.
+    Public ByRef Method Halve()
+        Radius /= 2
+    End Method
+
+    Method Unseen()
+    End Method
+End Extend
+
+/// This documents nothing.
+
+//! Nor this.
+Public Alias Shapes = Shape[]

@@ -84,9 +84,10 @@ constexpr bool is_digit(const char c, const std::uint32_t base) {
 class lexer_t {
 public:
     lexer_t(const source_file_t& file, diagnostic_bag_t& diagnostics,
-            const std::span<const std::string_view> defined, trivia_t* trivia = nullptr)
+            const std::span<const std::string_view> defined, trivia_t* trivia = nullptr,
+            std::vector<span_t>* docs = nullptr)
         : m_file(file), m_text(file.text()), m_diagnostics(diagnostics), m_defined(defined),
-          m_trivia(trivia) {}
+          m_trivia(trivia), m_docs(docs) {}
 
     std::vector<token_t> run() {
         while (true) {
@@ -144,6 +145,8 @@ private:
     trivia_t* m_trivia = nullptr;
     /// Where the outermost #If that's open starts its line.
     std::uint32_t m_conditional_begin = 0;
+    /// For lex()'s caller: the doc comments outside the branches that aren't taken.
+    std::vector<span_t>* m_docs = nullptr;
 
     [[nodiscard]] bool at_end() const {
         return m_pos >= m_text.size();
@@ -183,6 +186,7 @@ private:
             } else if (c == '/' && peek(1) == '/') {
                 skip_to_line_end();
                 note_comment(begin);
+                note_doc(begin);
             } else if (c == '/' && peek(1) == '*') {
                 skip_block_comment();
                 note_comment(begin);
@@ -196,6 +200,17 @@ private:
     void note_comment(const std::uint32_t begin) {
         if (m_trivia != nullptr) {
             m_trivia->comments.push_back(span(begin, m_pos));
+        }
+    }
+
+    /// Keeps the line comment that started at `begin` when it's a doc comment, "///" but not
+    /// "////", or "//!", in code that's lexed.
+    void note_doc(const std::uint32_t begin) {
+        const std::string_view comment = m_text.substr(begin, m_pos - begin);
+        if (m_docs != nullptr && !m_skipped_from &&
+            ((comment.starts_with("///") && !comment.starts_with("////")) ||
+             comment.starts_with("//!"))) {
+            m_docs->push_back(span(begin, m_pos));
         }
     }
 
@@ -902,8 +917,13 @@ private:
 } // namespace
 
 std::vector<token_t> lex(const source_file_t& file, diagnostic_bag_t& diagnostics,
-                         const std::span<const std::string_view> defined) {
-    return lexer_t(file, diagnostics, defined).run();
+                         const std::span<const std::string_view> defined,
+                         std::vector<span_t>* const docs) {
+    if (docs != nullptr) {
+        docs->clear();
+    }
+
+    return lexer_t(file, diagnostics, defined, nullptr, docs).run();
 }
 
 std::vector<token_t> lex_layout(const source_file_t& file, diagnostic_bag_t& diagnostics,

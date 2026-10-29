@@ -127,9 +127,9 @@ class parser_t {
 public:
     parser_t(const source_file_t& file, const std::span<const token_t> tokens,
              diagnostic_bag_t& diagnostics, ast_t& ast, const bool interface_file,
-             layout_t* layout = nullptr)
+             layout_t* layout = nullptr, const std::span<const span_t> docs = {})
         : m_file(file), m_diagnostics(diagnostics), m_ast(ast), m_interface_file(interface_file),
-          m_layout(layout) {
+          m_layout(layout), m_docs(docs) {
         // ">=" comes as '>' then '=', as ">>" comes as two '>', so "Stack<Int>= s" closes its
         // type arguments before the '='. Touching, they make the operator again.
         m_split.reserve(tokens.size());
@@ -155,6 +155,10 @@ public:
     }
 
     void run() {
+        if (std::optional<doc_comment_t> doc = module_doc()) {
+            m_ast.set_module_doc(m_file.id(), std::move(*doc));
+        }
+
         while (!at(token_kind_t::END_OF_FILE)) {
             const std::size_t start = m_pos;
             // No block is open at the top level, so a block-ending keyword has nothing to end.
@@ -211,6 +215,8 @@ private:
     /// For parse_layout(): what the formatter learns, and how many blocks the parse is in.
     layout_t* m_layout = nullptr;
     std::uint32_t m_layout_depth = 0;
+    /// The doc comments lex() found, in order.
+    std::span<const span_t> m_docs;
 
     // Tokens
 
@@ -590,11 +596,145 @@ private:
         }
     }
 
+    // Doc comments
+
+    /// Whether a 0-based line, from its first character that isn't a space or a tab, is a doc
+    /// comment the lexer found that starts with `marker`, "///" or "//!".
+    [[nodiscard]] bool doc_line(const std::uint32_t line, const std::string_view marker) const {
+        const std::string_view written = m_file.line_text(line);
+        const std::size_t text = written.find_first_not_of(" \t");
+        if (text == std::string_view::npos || !written.substr(text).starts_with(marker)) {
+            return false;
+        }
+
+        const std::uint32_t begin = m_file.offset_of({ .line = line }, column_unit_t::UTF8) +
+                                    static_cast<std::uint32_t>(text);
+        const auto found = std::ranges::lower_bound(m_docs, begin, {}, &span_t::begin);
+        return found != m_docs.end() && found->begin == begin;
+    }
+
+    /// The doc comment made of the 0-based lines from `first` up to `last`, each a doc comment
+    /// line with `marker`.
+    [[nodiscard]] doc_comment_t doc_of(const std::uint32_t first, const std::uint32_t last,
+                                       const std::string_view marker) const {
+        // Where each line's text starts, after its marker, and its text.
+        std::vector<std::pair<std::uint32_t, std::string_view>> lines;
+        std::size_t indent = std::string_view::npos;
+        for (std::uint32_t line = first; line <= last; ++line) {
+            const std::string_view written = m_file.line_text(line);
+            const std::size_t after = written.find(marker) + marker.size();
+            const std::string_view text = written.substr(after);
+            const std::uint32_t start = m_file.offset_of({ .line = line }, column_unit_t::UTF8);
+            lines.emplace_back(start + static_cast<std::uint32_t>(after), text);
+            if (const std::size_t spaces = text.find_first_not_of(" \t");
+                spaces != std::string_view::npos) {
+                indent = std::min(indent, spaces);
+            }
+        }
+
+        doc_comment_t doc;
+        for (const auto& [start, text] : lines) {
+            const std::size_t cut = std::min(indent, text.size());
+            const auto begin = static_cast<std::uint32_t>(start + cut);
+            doc.text += std::string(doc.lines.empty() ? "" : "\n") + std::string(text.substr(cut));
+            doc.lines.push_back({
+                .file = m_file.id(),
+                .begin = begin,
+                .end = begin + static_cast<std::uint32_t>(text.size() - cut),
+            });
+        }
+
+        return doc;
+    }
+
+    /// The "///" lines right before the declaration that starts at `begin`, after the token
+    /// before it, which ends at `after`. nullopt when there are none, or when the declaration
+    /// isn't first on its line.
+    [[nodiscard]] std::optional<doc_comment_t> doc_before(const std::uint32_t begin,
+                                                          const std::uint32_t after) const {
+        if (m_docs.empty()) {
+            return std::nullopt;
+        }
+
+        const location_t at = m_file.location_of(begin, column_unit_t::UTF8);
+        if (m_file.line_text(at.line).substr(0, at.column).find_first_not_of(" \t") !=
+            std::string_view::npos) {
+            return std::nullopt;
+        }
+
+        // Only whole lines between the token before and the declaration: what's in a string or
+        // a block comment that ends on one isn't a doc comment.
+        std::uint32_t first = at.line;
+        while (first > 0 && m_file.offset_of({ .line = first - 1 }, column_unit_t::UTF8) >= after &&
+               doc_line(first - 1, "///")) {
+            --first;
+        }
+
+        if (first == at.line) {
+            return std::nullopt;
+        }
+
+        return doc_of(first, at.line - 1, "///");
+    }
+
+    /// The file's "//!" lines before its first token, which follow each other: its module's doc
+    /// comment. nullopt when it has none.
+    [[nodiscard]] std::optional<doc_comment_t> module_doc() const {
+        if (m_docs.empty()) {
+            return std::nullopt;
+        }
+
+        // The lines that end before the first token, which is END_OF_FILE in a file of
+        // comments.
+        const std::uint32_t end = m_tokens.front().span.begin;
+        const auto before = [&](const std::uint32_t line) {
+            return line < m_file.line_count() &&
+                   m_file.offset_of({ .line = line }, column_unit_t::UTF8) +
+                           m_file.line_text(line).size() <=
+                       end;
+        };
+        for (std::uint32_t line = 0; before(line); ++line) {
+            if (!doc_line(line, "//!")) {
+                continue;
+            }
+
+            std::uint32_t through = line;
+            while (before(through + 1) && doc_line(through + 1, "//!")) {
+                ++through;
+            }
+
+            return doc_of(line, through, "//!");
+        }
+
+        return std::nullopt;
+    }
+
     // Statements
 
-    /// One statement, without its line break: the caller ends the line with finish_line().
-    /// Block statements end their own header line and parse through to the end of the block.
+    /// One statement, without its line break, with the doc comment before it if it declares
+    /// something: the caller ends the line with finish_line(). Block statements end their own
+    /// header line and parse through to the end of the block.
     stmt_id_t parse_statement() {
+        const std::uint32_t begin = peek().span.begin;
+        const std::uint32_t after = m_previous_end;
+        const stmt_id_t id = parse_undocumented();
+        const stmt_node_t& node = m_ast.get(id).node;
+        const auto* variable = std::get_if<variable_stmt_t>(&node);
+        if (variable != nullptr && variable->kind == variable_kind_t::LOCAL) {
+            return id;
+        }
+
+        if (const std::optional<name_t> name = declared_name(node); name && !name->text.empty()) {
+            if (std::optional<doc_comment_t> doc = doc_before(begin, after)) {
+                m_ast.set_doc(name->span, std::move(*doc));
+            }
+        }
+
+        return id;
+    }
+
+    /// parse_statement() without its doc comment.
+    stmt_id_t parse_undocumented() {
         if (at(token_kind_t::AT)) {
             return parse_attributed();
         }
@@ -808,6 +948,8 @@ private:
         enter_layout();
         while (!is_block_end(peek().kind)) {
             const std::size_t line = m_pos;
+            // The doc comment before a line goes on its first member.
+            std::optional<doc_comment_t> doc = doc_before(peek().span.begin, m_previous_end);
             while (at(token_kind_t::IDENTIFIER) || visibility_of(peek().kind)) {
                 if (const std::optional<visibility_t> written = visibility_of(peek().kind)) {
                     error(advance().span,
@@ -818,6 +960,11 @@ private:
                 }
 
                 const name_t member = take_name();
+                if (doc) {
+                    m_ast.set_doc(member.span, std::move(*doc));
+                    doc.reset();
+                }
+
                 std::optional<expr_id_t> value;
                 if (accept(token_kind_t::EQUAL)) {
                     skip_continuation_newlines();
@@ -4281,15 +4428,16 @@ private:
 } // namespace
 
 ast_t parse(const source_file_t& file, const std::span<const token_t> tokens,
-            diagnostic_bag_t& diagnostics) {
+            diagnostic_bag_t& diagnostics, const std::span<const span_t> docs) {
     ast_t ast;
-    parse_into(file, tokens, diagnostics, ast);
+    parse_into(file, tokens, diagnostics, ast, false, docs);
     return ast;
 }
 
 void parse_into(const source_file_t& file, const std::span<const token_t> tokens,
-                diagnostic_bag_t& diagnostics, ast_t& ast, const bool interface_file) {
-    parser_t(file, tokens, diagnostics, ast, interface_file).run();
+                diagnostic_bag_t& diagnostics, ast_t& ast, const bool interface_file,
+                const std::span<const span_t> docs) {
+    parser_t(file, tokens, diagnostics, ast, interface_file, nullptr, docs).run();
 }
 
 ast_t parse_layout(const source_file_t& file, const std::span<const token_t> tokens,

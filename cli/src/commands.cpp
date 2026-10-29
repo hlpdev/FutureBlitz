@@ -3,6 +3,7 @@
 #include "fb/build_config.hpp"
 #include "fb/commit.hpp"
 #include "fb/diagnostic_render.hpp"
+#include "fb/doc.hpp"
 #include "fb/driver.hpp"
 #include "fb/dump.hpp"
 #include "fb/fmt.hpp"
@@ -133,6 +134,8 @@ std::string_view summary(const command_t command) {
         return "Turn a C header into a FutureBlitz module, with fb-bindgen";
     case command_t::FMT:
         return "Format .fb files in place";
+    case command_t::DOC:
+        return "Write a package's public API as JSON, docs and all";
     default:
         return "";
     }
@@ -204,12 +207,18 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
     std::string out = command ? std::format("{}\n\n", summary(*command))
                               : std::format("FutureBlitz {}: build and run .fb programs\n\n",
                                             build_config::version);
+    const bool standard = command == command_t::TEST || command == command_t::DOC;
     if (command) {
-        out += std::format("{} fb {} [options] [file.fb | package folder]{}\n", heading("Usage:"),
-                           command_name(*command),
+        out += std::format("{} fb {} [options] [file.fb | package folder{}]{}\n", heading("Usage:"),
+                           command_name(*command), standard ? " | std" : "",
                            command == command_t::RUN ? " [-- <arguments>]" : "");
         out +=
             "\nWithout a file or folder, it's the package the current folder is in, from it up.\n";
+        if (command == command_t::TEST) {
+            out += "With std, it runs the examples in the standard library's docs.\n";
+        } else if (command == command_t::DOC) {
+            out += "With std, it's the standard library's API.\n";
+        }
     } else {
         out += std::format("{} fb [--color <when>] <command> [options] [<file or folder>]\n",
                            heading("Usage:"));
@@ -229,6 +238,7 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
                  command_t::TEST,
                  command_t::BINDGEN,
                  command_t::FMT,
+                 command_t::DOC,
              }) {
             out += entry(command_name(each), summary(each));
         }
@@ -240,12 +250,21 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
     if (!command || command == command_t::BUILD) {
         out += entry("-o, --output <path>",
                      "Where to write the executable (next to the source, or in build/)");
+    } else if (command == command_t::DOC) {
+        out += entry("-o, --output <path>",
+                     "Where to write the JSON, or - for stdout (build/<name>.json, or std.json)");
     }
 
-    out += entry("    --release", "Optimize, and let integer overflow wrap instead of panicking");
+    if (command == command_t::DOC) {
+        out += entry("    --release", "Document a release build's #If branches");
+    } else {
+        out +=
+            entry("    --release", "Optimize, and let integer overflow wrap instead of panicking");
+    }
+
     if (command == command_t::TEST) {
         out += entry("    --filter <name>", "Run only the tests whose names have <name> in them");
-    } else {
+    } else if (command != command_t::DOC) {
         out += entry("    --show <stages>", "Print stages: tokens, ast, types, mir, llvm, or all");
     }
 
@@ -978,14 +997,17 @@ int test_command(const options_t& options) {
         return usage_exit_code;
     }
 
-    const std::expected<compilation_t, std::string> compiled = compile_tests(*input, options.mode);
+    // "std" is the standard library, whose tests are its docs' examples.
+    const bool standard = options.input == "std";
+    const std::expected<compilation_t, std::string> compiled =
+        standard ? compile_standard_tests(options.mode) : compile_tests(*input, options.mode);
     if (!compiled) {
         console.error(compiled.error());
         return usage_exit_code;
     }
 
     const compilation_t& compilation = *compiled;
-    const std::string name = shown_name(compilation, *input);
+    const std::string name = standard ? "std" : shown_name(compilation, *input);
     console.status("Compiling", name);
     if (const std::size_t errors = report_diagnostics(console, compilation); errors > 0) {
         console.error(
@@ -1075,6 +1097,77 @@ int test_command(const options_t& options) {
     return ok ? 0 : tests_failed_exit_code;
 }
 
+/// `fb doc`: writes the package's public API as JSON, to the `-o` path, or to its build/ folder,
+/// named after it, or for std, to std.json in the current folder, after the warnings about its
+/// doc comments. Returns 0 when it compiles.
+int doc_command(const options_t& options) {
+    const auto start = std::chrono::steady_clock::now();
+    const console_t console(options.color);
+    const std::optional<std::filesystem::path> input = input_of(console, options);
+    if (!input) {
+        return usage_exit_code;
+    }
+
+    const bool standard = options.input == "std";
+    const std::expected<compilation_t, std::string> compiled =
+        standard ? compile_standard_docs(options.mode) : compile_docs(*input, options.mode);
+    if (!compiled) {
+        console.error(compiled.error());
+        return usage_exit_code;
+    }
+
+    const compilation_t& compilation = *compiled;
+    const std::string name = standard ? "std" : shown_name(compilation, *input);
+    console.status("Documenting", name);
+    if (const std::size_t errors = report_diagnostics(console, compilation); errors > 0) {
+        console.error(
+            std::format("couldn't document {} because of {}", name, count(errors, "error")));
+        return compile_errors_exit_code;
+    }
+
+    diagnostic_bag_t warnings;
+    const doc_package_t package = document(compilation, standard, options.mode, warnings);
+    for (const diagnostic_t& warning : warnings.diagnostics()) {
+        console_t::print_error(
+            render_pretty(warning, compilation.sources, { .color = console.err().color }));
+    }
+
+    const std::string json = doc_json(package, compilation.sources);
+    std::filesystem::path output =
+        options.output.value_or(standard ? std::filesystem::path("std.json")
+                                         : compilation.package->root / "build" /
+                                               path_from_utf8(compilation.package->name + ".json"));
+    std::size_t items = 0;
+    for (const doc_module_t& module : package.modules) {
+        items += module.items.size();
+    }
+
+    const std::string what = std::format("{} and {}", count(package.modules.size(), "module"),
+                                         count(items, "declaration"));
+    if (output == "-") {
+        console_t::print(json);
+        console.status("Finished", std::format("{} in {}", what, seconds_since(start)));
+        return 0;
+    }
+
+    std::error_code error;
+    if (output.has_parent_path()) {
+        std::filesystem::create_directories(output.parent_path(), error);
+    }
+
+    std::ofstream file(output, std::ios::binary);
+    file << json;
+    file.close();
+    if (!file) {
+        console.error(std::format("couldn't write {}", to_utf8(output)));
+        return compile_errors_exit_code;
+    }
+
+    console.status("Finished",
+                   std::format("{} in {}, in {}", what, seconds_since(start), to_utf8(output)));
+    return 0;
+}
+
 /// Runs fb-bindgen, next to fb, with what `fb bindgen` was given, and gives its exit code.
 int bindgen_command(const options_t& options) {
     const console_t console(options.color);
@@ -1123,6 +1216,8 @@ int run_command(const options_t& options) {
         return bindgen_command(options);
     case command_t::FMT:
         return format_command(options);
+    case command_t::DOC:
+        return doc_command(options);
     }
 
     std::unreachable();

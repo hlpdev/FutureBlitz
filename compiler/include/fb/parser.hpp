@@ -15,15 +15,19 @@ namespace fb {
 /// Builds the AST of a file from its tokens, which must end with END_OF_FILE. It always returns
 /// an AST: errors are reported, broken code becomes error nodes, and constructs that come after
 /// M1 are reported and skipped. Names in the AST view `file`'s text, so the file must outlive it.
+/// `docs` are the doc comments lex() found: the "///" lines right before a declaration, and
+/// before its attributes, each on a line of its own, become its doc comment in the AST, and the
+/// "//!" lines before the first token, which follow each other, its module's.
 [[nodiscard]] ast_t parse(const source_file_t& file, std::span<const token_t> tokens,
-                          diagnostic_bag_t& diagnostics);
+                          diagnostic_bag_t& diagnostics, std::span<const span_t> docs = {});
 
 /// Like parse(), but adds the file's nodes and items to `ast`, which may hold other files of the
 /// same program already. In a library's interface file, `interface_file`, a declaration can be
 /// its first line and "=> ...", or for a Global or a Static Field, its type and "= ...", when the
 /// library's binary has its code, and @MainThreadOnly says what that code does.
 void parse_into(const source_file_t& file, std::span<const token_t> tokens,
-                diagnostic_bag_t& diagnostics, ast_t& ast, bool interface_file = false);
+                diagnostic_bag_t& diagnostics, ast_t& ast, bool interface_file = false,
+                std::span<const span_t> docs = {});
 
 /// What a token is to the formatter, where its spelling alone doesn't say.
 enum class token_role_t : std::uint8_t {

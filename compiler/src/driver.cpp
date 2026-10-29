@@ -2,6 +2,7 @@
 
 #include "fb/build_config.hpp"
 #include "fb/diagnostic_render.hpp"
+#include "fb/doc.hpp"
 #include "fb/dynamic_library.hpp"
 #include "fb/interface.hpp"
 #include "fb/lexer.hpp"
@@ -99,6 +100,17 @@ struct package_t {
     std::vector<library_file_t> modules;
 };
 
+/// A file the compiler makes, in memory: a module of a doc comment's example, which messages show
+/// where its lines come from.
+struct generated_file_t {
+    /// Its path in the program.
+    std::string path;
+    std::string text;
+    /// How messages name it: as they name the file its lines come from.
+    std::string shown;
+    line_origin_t origin;
+};
+
 /// Where a program's files come from, by their paths in the program: "std/core/error.fb" for
 /// the standard library's, and in a package, its name and then a path from its folder, like
 /// "game/ui/hud.fb" or "physics/shapes.fb". Without a project.toml, the program's own are paths
@@ -123,6 +135,9 @@ struct file_set_t {
     source_reader_t read;
     /// The std names that checks share, for the LSP.
     std_names_cache_t* cache = nullptr;
+    /// In memory, whether or not the rest is: the modules fb test makes of doc comments'
+    /// examples.
+    std::vector<generated_file_t> generated;
 };
 
 /// Notes that `id`'s file is at `path` on disk.
@@ -156,6 +171,12 @@ std::optional<std::string> read_disk(const std::filesystem::path& where,
     }
 
     return std::string{ std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
+}
+
+/// The generated file at `path`, a path in the program, if there's one.
+const generated_file_t* generated_file(const file_set_t& files, const std::string_view path) {
+    const auto found = std::ranges::find(files.generated, path, &generated_file_t::path);
+    return found != files.generated.end() ? &*found : nullptr;
 }
 
 /// The package whose files `path`, a path in the program, is in, or whose folder it names: its
@@ -242,6 +263,10 @@ std::filesystem::path shown_disk_path(const std::filesystem::path& path) {
 /// How messages name a file: by its path in the program, or for the program's own files on
 /// disk, by where they are.
 std::string shown_path(const file_set_t& files, const std::string_view path) {
+    if (const generated_file_t* generated = generated_file(files, path)) {
+        return generated->shown;
+    }
+
     if (!files.root || path.starts_with("std/")) {
         return std::string(path);
     }
@@ -283,6 +308,10 @@ std::vector<std::string_view> path_parts(const std::string_view path) {
 
 /// A file's text, or nullopt when there's no such file.
 std::optional<std::string> read_file(const file_set_t& files, const std::string_view path) {
+    if (const generated_file_t* generated = generated_file(files, path)) {
+        return generated->text;
+    }
+
     if (!files.root) {
         const auto found = std::ranges::find(files.files, path, &library_file_t::path);
         return found != files.files.end() ? std::optional(found->text) : std::nullopt;
@@ -870,6 +899,10 @@ private:
             return std::string(path);
         }
 
+        if (generated_file(m_files, path) != nullptr) {
+            return std::format("generated {}", path);
+        }
+
         // A prebuilt library's modules are in its interface file, by their paths.
         if (prebuilt_package(m_files, path) != nullptr) {
             return std::format("prebuilt {}", path);
@@ -888,7 +921,8 @@ private:
     /// system gives a real path in the letter case it was asked for, on a disk that ignores
     /// letter case, "UI/Hud.fb" is "ui/hud.fb".
     [[nodiscard]] std::optional<std::size_t> same_file(const std::string_view path) const {
-        if (!m_files.root || prebuilt_package(m_files, path) != nullptr) {
+        if (!m_files.root || prebuilt_package(m_files, path) != nullptr ||
+            generated_file(m_files, path) != nullptr) {
             return std::nullopt;
         }
 
@@ -924,9 +958,11 @@ private:
             return std::nullopt;
         }
 
-        const file_id_t file =
-            m_compilation.sources.add(shown_path(m_files, path), std::move(*text));
-        if (m_files.root && prebuilt_package(m_files, path) == nullptr) {
+        const generated_file_t* generated = generated_file(m_files, path);
+        const file_id_t file = m_compilation.sources.add(
+            shown_path(m_files, path), std::move(*text),
+            generated != nullptr ? std::optional(generated->origin) : std::nullopt);
+        if (m_files.root && generated == nullptr && prebuilt_package(m_files, path) == nullptr) {
             std::error_code ignored;
             note_disk_path(m_compilation, file,
                            std::filesystem::absolute(disk_path(m_files, path), ignored));
@@ -1275,10 +1311,11 @@ private:
     /// Lexes and parses a loaded file into the AST, keeping its tokens in `tokens` if given.
     void parse_file(const std::size_t index, std::vector<token_t>* tokens) {
         const source_file_t& file = m_compilation.sources.get(m_loaded[index].file);
-        std::vector<token_t> lexed = lex(file, m_compilation.diagnostics, m_defined);
+        std::vector<span_t> docs;
+        std::vector<token_t> lexed = lex(file, m_compilation.diagnostics, m_defined, &docs);
         const std::size_t before = m_compilation.ast.items().size();
         parse_into(file, lexed, m_compilation.diagnostics, m_compilation.ast,
-                   prebuilt_package(m_files, m_loaded[index].path) != nullptr);
+                   prebuilt_package(m_files, m_loaded[index].path) != nullptr, docs);
         m_items.resize(m_loaded.size());
         m_items[index].assign(m_compilation.ast.items().begin() +
                                   static_cast<std::ptrdiff_t>(before),
@@ -2687,15 +2724,76 @@ std::expected<file_id_t, std::string> load_main(compilation_t& compilation,
     return file;
 }
 
+/// What a package is compiled for.
+enum class purpose_t : std::uint8_t {
+    /// fb check, build, and run.
+    BUILD,
+    /// fb test: every file of it, its tests/ folder's, and its examples.
+    TEST,
+    /// fb doc: every file of it.
+    DOC,
+    /// check_files(): the files its request names, each a module of its own, as fb test's are.
+    CHECK,
+};
+
+/// For fb test: the examples of the doc comments in `paths`, files of `files`, each a module of
+/// its own at a path that starts with `prefix`, which the front end loads from memory. Its lines
+/// show where they are in their file, a copy of which goes in the compilation's sources for
+/// messages to show. `standard` files are std's, which an Import names by their folders.
+void add_examples(compilation_t& compilation, file_set_t& files,
+                  const std::vector<std::string>& paths, const std::string& prefix,
+                  const build_mode_t mode, const bool standard) {
+    const std::vector<std::string_view> defined = defined_symbols(mode);
+    for (const std::string& path : paths) {
+        std::optional<std::string> text = read_file(files, path);
+        if (!text) {
+            continue;
+        }
+
+        const source_file_t file(file_id_t{}, path, *text);
+        diagnostic_bag_t ignored;
+        std::vector<span_t> docs;
+        const std::vector<token_t> tokens = lex(file, ignored, defined, &docs);
+        if (docs.empty()) {
+            continue;
+        }
+
+        const ast_t ast = parse(file, tokens, ignored, docs);
+        const std::string module = module_name(path);
+        std::vector<example_module_t> examples =
+            example_modules(ast, file, module, standard ? std_import_name(path) : module);
+        if (examples.empty()) {
+            continue;
+        }
+
+        const std::string shown = shown_path(files, path);
+        const file_id_t origin = compilation.sources.add(shown, std::move(*text));
+        for (example_module_t& example : examples) {
+            const std::string generated =
+                std::format("{}{}.fb", prefix, compilation.doc_tests.size() + 1);
+            compilation.doc_tests.push_back({ .path = generated, .name = std::move(example.name) });
+            files.extra.push_back(generated);
+            files.generated.push_back({
+                .path = generated,
+                .text = std::move(example.text),
+                .shown = shown,
+                .origin = { .file = origin, .lines = std::move(example.lines) },
+            });
+        }
+    }
+}
+
 /// A package's program: its main file, given or its project.toml's, or for a library, its
-/// files, each a module of its own, so it's checked. For fb test, when `testing`, each of its
-/// files is a module, the main file too, and so is each file of its tests/ folder, in a package
-/// of its own. For check_files(), `request` names the files that are modules, and `testing` is
-/// set.
+/// files, each a module of its own, so it's checked. For fb test and fb doc, each of its files
+/// is a module, the main file too, and for fb test, so is each file of its tests/ folder, in a
+/// package of its own, and each of its examples, in another. For check_files(), `request`
+/// names the files that are modules.
 std::expected<compilation_t, std::string>
 compile_package(const std::filesystem::path& folder,
                 const std::optional<std::filesystem::path>& main, const build_mode_t mode,
-                const bool testing = false, const check_request_t* request = nullptr) {
+                const purpose_t purpose = purpose_t::BUILD,
+                const check_request_t* request = nullptr) {
+    const bool testing = purpose != purpose_t::BUILD;
     compilation_t compilation;
     package_loader_t reader(compilation, mode, main.has_value());
     std::optional<std::vector<package_t>> packages = reader.run(folder);
@@ -2765,19 +2863,41 @@ compile_package(const std::filesystem::path& folder,
     }
 
     // fb test's build has each of the package's files, and its tests/ folder's, in a package of
-    // its own.
+    // its own, and its examples, in another, as fb doc has the package's files.
     std::vector<std::string> extra;
-    // The package's own folders: its own, and its tests/ folder's.
-    std::vector<const package_t*> folders{ &packages->front() };
-    if (testing) {
-        extra = request != nullptr ? std::vector<std::string>{} : library_files(own);
+    std::vector<generated_file_t> generated;
+    if (purpose == purpose_t::TEST || purpose == purpose_t::DOC) {
+        extra = library_files(own);
+    }
+
+    // The package's own folders: its own, and its tests/ folder's, by their places in `packages`.
+    std::vector<std::size_t> folders{ 0 };
+    if (purpose == purpose_t::TEST || purpose == purpose_t::CHECK) {
+        // The package's own files' examples, the main file's among them, not its tests'.
+        const std::vector<std::string> documented = extra;
         if (std::optional<package_t> tests = tests_package(own)) {
             if (request == nullptr) {
                 std::ranges::copy(library_files(*tests), std::back_inserter(extra));
             }
 
             packages->push_back(std::move(*tests));
-            folders = { &packages->front(), &packages->back() };
+            folders.push_back(packages->size() - 1);
+        }
+
+        if (purpose == purpose_t::TEST) {
+            file_set_t files{ .root = own.root, .packages = *packages };
+            add_examples(compilation, files, documented, own.name + ".doctests/", mode, false);
+            std::ranges::copy(files.extra, std::back_inserter(extra));
+            generated = std::move(files.generated);
+            package_t examples{
+                .name = own.name + ".doctests",
+                .version = own.version,
+                .root = own.root,
+                .prefix = own.name + ".doctests/",
+                .dependencies = { own.name },
+            };
+            std::ranges::copy(own.dependencies, std::back_inserter(examples.dependencies));
+            packages->push_back(std::move(examples));
         }
     }
 
@@ -2788,10 +2908,11 @@ compile_package(const std::filesystem::path& folder,
         // an editor may name a file in other cases.
         for (const std::filesystem::path& file : request->files) {
             const std::optional<std::filesystem::path> real = real_path(file);
-            for (const package_t* package : folders | std::views::reverse) {
-                const std::optional<std::filesystem::path> root = real_path(package->root);
+            for (const std::size_t index : folders | std::views::reverse) {
+                const package_t& package = packages->at(index);
+                const std::optional<std::filesystem::path> root = real_path(package.root);
                 if (real && root && is_under(*real, *root)) {
-                    extra.push_back(package->prefix + program_path(*root, *real));
+                    extra.push_back(package.prefix + program_path(*root, *real));
                     break;
                 }
             }
@@ -2832,6 +2953,7 @@ compile_package(const std::filesystem::path& folder,
                           .testing = testing,
                           .read = read,
                           .cache = request != nullptr ? request->cache : nullptr,
+                          .generated = std::move(generated),
                       },
                       path, mode);
         record_builds(compilation, others);
@@ -2857,6 +2979,7 @@ compile_package(const std::filesystem::path& folder,
                       .testing = testing,
                       .read = read,
                       .cache = request != nullptr ? request->cache : nullptr,
+                      .generated = std::move(generated),
                   },
                   path, mode);
     record_builds(compilation, others);
@@ -3092,7 +3215,8 @@ std::expected<compilation_t, std::string> check_files(const check_request_t& req
     }
 
     if (const std::optional<std::filesystem::path> root = find_package(first.parent_path())) {
-        return compile_package(*root, request.main, request.mode, true, &request);
+        return compile_package(*root, request.main, request.mode, purpose_t::CHECK,
+                               &request);
     }
 
     return compile_loose(first, request.mode, request.read, request.cache);
@@ -3152,7 +3276,84 @@ std::expected<compilation_t, std::string> compile_tests(const std::filesystem::p
     }
 
     // A file outside a package is tested with the files it imports, as it's built.
-    return root ? compile_package(*root, std::nullopt, mode, true) : compile_file(path, mode);
+    return root ? compile_package(*root, std::nullopt, mode, purpose_t::TEST)
+                : compile_file(path, mode);
+}
+
+namespace {
+
+/// The standard library's program: an empty main file, named unlike any of std's, and `files`'
+/// extras, std's files or the modules of their examples.
+compilation_t compile_standard(compilation_t compilation, file_set_t files,
+                               const build_mode_t mode) {
+    const std::string path = "(std).fb";
+    compilation.file = compilation.sources.add(path, std::string());
+    files.testing = true;
+    run_front_end(compilation, std::move(files), path, mode);
+    return compilation;
+}
+
+} // namespace
+
+std::expected<compilation_t, std::string> compile_standard_tests(const build_mode_t mode) {
+    if (const std::optional<std::string> unreadable = unreadable_std()) {
+        return std::unexpected(*unreadable);
+    }
+
+    // A program of std's examples, which load what they import.
+    compilation_t compilation;
+    std::error_code error;
+    file_set_t files{ .root = std::filesystem::current_path(error) };
+    add_examples(compilation, files, std_files(files), "(doc tests)/", mode, true);
+    return compile_standard(std::move(compilation), std::move(files), mode);
+}
+
+std::expected<compilation_t, std::string> compile_docs(const std::filesystem::path& path,
+                                                       const build_mode_t mode) {
+    if (const std::optional<std::string> unreadable = unreadable_std()) {
+        return std::unexpected(*unreadable);
+    }
+
+    std::error_code error;
+    std::optional<std::filesystem::path> root;
+    if (std::filesystem::is_directory(path, error)) {
+        if (!std::filesystem::is_regular_file(path / "project.toml", error)) {
+            return std::unexpected(std::format(
+                "there's no project.toml in '{}'; fb doc documents a package, from its folder or "
+                "one of its .fb files, or std",
+                to_utf8(path)));
+        }
+
+        root = path;
+    } else if (std::filesystem::is_regular_file(path, error) &&
+               folded(to_utf8(path.extension())) == ".fb") {
+        root = find_package(path.has_parent_path() ? path.parent_path()
+                                                   : std::filesystem::current_path(error));
+    } else if (std::filesystem::is_regular_file(path, error)) {
+        return std::unexpected(std::format(
+            "'{}' isn't a .fb file; give a package's folder, one of its .fb files, or std",
+            to_utf8(path)));
+    }
+
+    if (!root) {
+        return std::unexpected(std::format(
+            "'{}' isn't in a package, which a project.toml makes; fb doc documents a package, or "
+            "std",
+            to_utf8(path)));
+    }
+
+    return compile_package(*root, std::nullopt, mode, purpose_t::DOC);
+}
+
+std::expected<compilation_t, std::string> compile_standard_docs(const build_mode_t mode) {
+    if (const std::optional<std::string> unreadable = unreadable_std()) {
+        return std::unexpected(*unreadable);
+    }
+
+    std::error_code error;
+    file_set_t files{ .root = std::filesystem::current_path(error) };
+    files.extra = std_files(files);
+    return compile_standard(compilation_t(), std::move(files), mode);
 }
 
 std::vector<test_case_t> package_tests(const compilation_t& compilation) {
@@ -3173,8 +3374,17 @@ std::vector<test_case_t> package_tests(const compilation_t& compilation) {
         }
 
         const module_t& declared = modules.get(*module);
-        if (declared.package == own ||
-            (modules.has_manifest(own) && modules.package_name(declared.package) == outside)) {
+        // An example's test is named after what it's an example of.
+        const auto example =
+            std::ranges::find(compilation.doc_tests, declared.path, &doc_test_t::path);
+        if (example != compilation.doc_tests.end()) {
+            tests.push_back({
+                .function = test.function,
+                .name = example->name,
+                .main_thread = test.main_thread,
+            });
+        } else if (declared.package == own || (modules.has_manifest(own) &&
+                                               modules.package_name(declared.package) == outside)) {
             tests.push_back({
                 .function = test.function,
                 .name = std::format("{}.{}", declared.name, function.name),

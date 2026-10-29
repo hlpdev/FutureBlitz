@@ -28,6 +28,8 @@ enum class command_t : std::uint8_t {
     BINDGEN,
     /// Formats .fb files in place.
     FMT,
+    /// Writes a package's public API as JSON, for its reference pages.
+    DOC,
 };
 
 /// The `--color` choice. See use_color for what AUTO means.
@@ -50,11 +52,12 @@ enum class stage_t : std::uint8_t {
 struct options_t {
     command_t command = command_t::HELP;
     std::optional<command_t> help_for; // "fb help build" or "fb build --help"
-    /// The .fb file, or a package's folder, which for NEW is the one it makes. Empty for the
-    /// current folder, and for HELP and VERSION.
+    /// The .fb file, or a package's folder, which for NEW is the one it makes, or for `fb test`
+    /// and `fb doc`, "std", the standard library. Empty for the current folder, and for HELP and
+    /// VERSION.
     std::filesystem::path input;
-    /// From `-o`, which only `fb build` takes. Nullopt puts the executable next to the source, or
-    /// in a package's build/ folder.
+    /// From `-o`, which only `fb build` and `fb doc` take. Nullopt puts the executable next to the
+    /// source, or in a package's build/ folder, and fb doc's JSON in that folder too.
     std::optional<std::filesystem::path> output;
     /// RELEASE with `--release`.
     build_mode_t mode = build_mode_t::DEBUG;

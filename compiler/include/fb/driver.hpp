@@ -58,6 +58,13 @@ struct beside_library_t {
     native_libraries_t natives;
 };
 
+/// A module fb test makes of a doc comment's example, by its path in the program, and its test's
+/// name, like "game.shapes.Circle.Area (example)".
+struct doc_test_t {
+    std::string path;
+    std::string name;
+};
+
 /// Everything the front end makes from a program: its main file, and the files it imports, which
 /// come after it in `sources`. Each file is a module, which the AST's module table names. The
 /// tokens are the main file's, and the AST and analysis cover every file. They refer to the files
@@ -95,6 +102,8 @@ struct compilation_t { // NOLINT(bugprone-exception-escape)
     /// compile()'s, in memory, a prebuilt library's modules, in its interface file, and a
     /// library's empty main file.
     std::vector<std::filesystem::path> on_disk;
+    /// For fb test: the modules made of its package's doc comments' examples.
+    std::vector<doc_test_t> doc_tests;
 
     [[nodiscard]] const source_file_t& source() const {
         return sources.get(file);
@@ -182,8 +191,9 @@ compile_file(const std::filesystem::path& path, build_mode_t mode = build_mode_t
 /// like compile_file(), with each of its .fb files a module, the main file's too, whose
 /// top-level code a test build leaves out, and each .fb file of its tests/ folder a module of a
 /// package of its own, "<name>.tests", which depends on it and on what it depends on, as another
-/// package would. A .fb file outside a package is compiled as compile_file() compiles it. Fails
-/// as compile_file() does.
+/// package would. Each example in its files' doc comments is a module too, in a package of its
+/// own, "<name>.doctests", which depends on it as "<name>.tests" does. A .fb file outside a
+/// package is compiled as compile_file() compiles it. Fails as compile_file() does.
 [[nodiscard]] std::expected<compilation_t, std::string>
 compile_tests(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG);
 
@@ -231,9 +241,25 @@ struct check_request_t {
 /// package. Fails as compile_file() does.
 [[nodiscard]] std::expected<compilation_t, std::string> check_files(const check_request_t& request);
 
+/// For `fb test std`: the examples in the standard library's doc comments, each a module of a
+/// program that uses std, with what they import. Fails when the standard library can't be read.
+[[nodiscard]] std::expected<compilation_t, std::string>
+compile_standard_tests(build_mode_t mode = build_mode_t::DEBUG);
+
+/// For fb doc: the package that `path` is the folder of, or that a .fb file at `path` is in, with
+/// each of its .fb files a module, as compile_tests() has them, without its tests or examples.
+/// Fails as compile_file() does, and for a path in no package.
+[[nodiscard]] std::expected<compilation_t, std::string>
+compile_docs(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG);
+
+/// For `fb doc std`: every module of the standard library, with an empty main file. Fails when
+/// the standard library can't be read.
+[[nodiscard]] std::expected<compilation_t, std::string>
+compile_standard_docs(build_mode_t mode = build_mode_t::DEBUG);
+
 /// The tests fb test runs from a compilation: the @Test Functions of its main file's package and
 /// that package's tests/ folder, in source order, each named by its module, like
-/// "game.shapes.Area".
+/// "game.shapes.Area", and its examples' tests, named as its doc_tests are.
 [[nodiscard]] std::vector<test_case_t> package_tests(const compilation_t& compilation);
 
 /// The folder of the package that `folder` is in: the nearest one from it up with a

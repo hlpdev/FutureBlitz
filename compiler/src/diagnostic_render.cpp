@@ -111,9 +111,11 @@ std::vector<cell_t> cells_of(const std::string_view line, const std::uint32_t li
 /// The span's first line with `marker`s under the span, by the columns the terminal shows: a
 /// wide character takes two, and a combining mark none. A span over several lines is underlined
 /// to the end of its first line. A line wider than 120 columns shows a part of it around the
-/// span, with "..." for what's left out.
-std::string snippet(const source_manager_t& sources, const span_t span, const char marker,
+/// span, with "..." for what's left out. A span in a file made from another's lines is shown in
+/// that one, where its text is.
+std::string snippet(const source_manager_t& sources, const span_t written, const char marker,
                     const tone_t marker_tone, const std::size_t width, const style_t& style) {
+    const span_t span = sources.shown(written);
     constexpr std::size_t widest = 120;
     constexpr std::size_t context = 40;
     const source_file_t& file = sources.get(span.file);

@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -901,6 +902,22 @@ struct stmt_t {
     stmt_node_t node;
 };
 
+/// The name a declaration declares, as it's written: a Function's, Method's, New's, or Operator's,
+/// a Struct's, Class's, Interface's, or Attribute's, an Enum's, a Global's, Const's, Field's, or
+/// Local's, a Property's, or an Alias's. nullopt for any other statement.
+[[nodiscard]] std::optional<name_t> declared_name(const stmt_node_t& node);
+
+/// A doc comment, whose text is Markdown: the "///" lines right before a declaration, or the
+/// "//!" lines at the top of a file, before its first statement, which are its module's.
+struct doc_comment_t {
+    /// Its lines after their "///" or "//!", without the spaces that every one of them with text
+    /// starts with, joined by '\n'.
+    std::string text;
+    /// Where each of its lines in `text` is in the file: an empty span for a line with nothing
+    /// after its "///", where its text would start.
+    std::vector<span_t> lines;
+};
+
 /// A parsed program: every module's file, in one AST. It holds every node, and its items are the
 /// top-level statements in source order, module by module in the module table's order, the main
 /// module's last. Names and spans refer to the source files' text.
@@ -951,12 +968,35 @@ public:
         return !m_modules.is_main(get(id).span.file);
     }
 
+    /// Gives the declaration whose name is at `name` its doc comment, as the parser does.
+    void set_doc(span_t name, doc_comment_t doc);
+
+    /// The doc comment of the declaration whose name is at `name` where it's declared, as a
+    /// symbol's span is, an Enum member's too. Null when it has none.
+    [[nodiscard]] const doc_comment_t* doc(span_t name) const;
+
+    /// The doc comment of the declaration `id`, at its declared_name(). Null when it has none, or
+    /// declares nothing.
+    [[nodiscard]] const doc_comment_t* doc(stmt_id_t id) const;
+
+    /// The doc comments on a file's declarations, in no order.
+    [[nodiscard]] std::vector<const doc_comment_t*> docs_in(file_id_t file) const;
+
+    /// Gives a file's module its doc comment, as the parser does.
+    void set_module_doc(file_id_t file, doc_comment_t doc);
+
+    /// The doc comment of a file's module: its "//!" lines. Null when it has none.
+    [[nodiscard]] const doc_comment_t* module_doc(file_id_t file) const;
+
 private:
     std::vector<expr_t> m_exprs;
     std::vector<stmt_t> m_stmts;
     std::vector<type_expr_t> m_types;
     block_t m_items;
     module_table_t m_modules;
+    /// The doc comments, by where their declarations' names start: the file in the high 32 bits.
+    std::unordered_map<std::uint64_t, doc_comment_t> m_docs;
+    std::unordered_map<file_id_t, doc_comment_t> m_module_docs;
 };
 
 } // namespace fb
