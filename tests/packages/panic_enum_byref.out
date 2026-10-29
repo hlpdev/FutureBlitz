@@ -1,2 +1,2 @@
 Red 50 Red Red
-panic: 'vm_shade_edge' set Field edges of 'shade' to a value that isn't one of Color's at vmath/vmath.fb:158:5
+panic: 'vm_shade_edge' set Field edges of 'shade' to a value that isn't one of Color's at vmath/vmath.fb:159:5

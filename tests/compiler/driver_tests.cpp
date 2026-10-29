@@ -418,19 +418,19 @@ TEST_CASE("a module's own generic Function hides an imported one of the same sha
     CHECK(declared_in(compilation, "Pick(items, 0)") == "lib/a.fb");
 
     // One whose constraints ask more is another overload, which hides nothing.
-    const fb::compilation_t constrained = fb::compile("test.fb",
-                                                      "Import \"./lib/a\"\n"
-                                                      "Interface Ranked\n"
-                                                      "End Interface\n"
-                                                      "Struct P\n"
-                                                      "    Field x: Int\n"
-                                                      "End Struct\n"
-                                                      "Function Pick<U>(values: U[], at: Int): U\n"
-                                                      "    Where U: Ranked\n"
-                                                      "    Return values[at + 1]\n"
-                                                      "End Function\n"
-                                                      "Local p = Pick([P(1)], 0)",
-                                                      library);
+    const fb::compilation_t constrained =
+        fb::compile("test.fb",
+                    "Import \"./lib/a\"\n"
+                    "Interface Ranked\n"
+                    "End Interface\n"
+                    "Struct P\n"
+                    "    Field x: Int\n"
+                    "End Struct\n"
+                    "Function Pick<U: Ranked>(values: U[], at: Int): U\n"
+                    "    Return values[at + 1]\n"
+                    "End Function\n"
+                    "Local p = Pick([P(1)], 0)",
+                    library);
     CHECK(errors_of(constrained).empty());
     CHECK(declared_in(constrained, "Pick([P(1)], 0)") == "lib/a.fb");
 }
@@ -562,8 +562,7 @@ TEST_CASE("the reasons in messages tell two modules' types of one name apart", "
                  "Struct Node\n"
                  "    Field W: Wrapper\n"
                  "End Struct\n"
-                 "Function Send<T>(x: T): Int\n"
-                 "    Where T: Sendable\n"
+                 "Function Send<T: Sendable>(x: T): Int\n"
                  "    Return 1\n"
                  "End Function\n"
                  "Local k = Send(Node(MakeWrapper()))") ==

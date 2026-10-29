@@ -3156,7 +3156,9 @@ TEST_CASE("lowering stops where code needs a larger instance each time, which an
     // One that doubles each time stops before its names grow long, and one that grows by a
     // Const type parameter, which never nests, once it has made more instances than a program
     // needs.
-    constexpr std::string_view pair = "Class Pair<A: Shown, B: Shown> Implements Shown\n"
+    constexpr std::string_view pair = "Class Pair<A, B> Implements Shown\n"
+                                      "    Where A: Shown\n"
+                                      "    Where B: Shown\n"
                                       "    Method Show(): Int => 1\n"
                                       "End Class\n"
                                       "Class Leaf Implements Shown\n"
