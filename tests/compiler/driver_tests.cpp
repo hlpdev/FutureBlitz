@@ -1,4 +1,5 @@
 #include "binary_images.hpp"
+#include "fb/doc.hpp"
 #include "fb/driver.hpp"
 #include "fb/interface.hpp"
 #include "fb/lower.hpp"
@@ -3204,6 +3205,114 @@ TEST_CASE("a library's interface file holds what programs compile against", "[dr
     CHECK(from_source.front() == "app/main.fb: Hidden: 'Hidden' is private to <physics>");
     CHECK(app_messages(packages, "physics", "prebuilt", main, fb::build_mode_t::DEBUG, files) ==
           from_source);
+    packages.remove();
+}
+
+TEST_CASE("an interface file keeps its library's docs, which its ABI hash leaves out", "[driver]") {
+    const packages_t packages;
+    const auto built = [&](const std::string_view circle) {
+        packages.write("docs/project.toml",
+                       "[project]\nname = \"docs\"\nversion = \"1.0.0\"\ntype = \"library\"\n");
+        packages.write("docs/shapes.fb",
+                       std::format("//! Shapes.\n"
+                                   "\n"
+                                   "Import std.core\n"
+                                   "\n"
+                                   "/// {}\n"
+                                   "Public Class Circle\n"
+                                   "    /// Its radius.\n"
+                                   "    Public Field Radius: Float64\n"
+                                   "\n"
+                                   "    /// Its area.\n"
+                                   "    Public Method Area(): Float64 => Radius * 3\n"
+                                   "End Class\n"
+                                   "\n"
+                                   "/// The larger.\n"
+                                   "Public Function Larger<T: Comparable>(a: T, b: T): T\n"
+                                   "    Return a > b ? a : b\n"
+                                   "End Function\n"
+                                   "\n"
+                                   "/// Kinds.\n"
+                                   "Public Enum Kind\n"
+                                   "    /// Round.\n"
+                                   "    Round\n"
+                                   "End Enum\n",
+                                   circle));
+        const std::expected<fb::compilation_t, std::string> library =
+            fb::compile_file(packages / "docs");
+        REQUIRE(library);
+        REQUIRE(packages.messages(*library).empty());
+        fb::diagnostic_bag_t diagnostics;
+        const std::expected<fb::library_build_t, std::string> build =
+            fb::build_library(*library, fb::build_mode_t::DEBUG, diagnostics);
+        REQUIRE(build);
+        return *build;
+    };
+
+    const fb::library_build_t first = built("A circle.");
+    const std::string& text = first.interface;
+    // The module's doc first, and each declaration's before it, its members' and an Enum's too.
+    CHECK(text.contains("// module docs/shapes.fb 18\n"
+                        "//! Shapes.\n"
+                        "Import std.core\n"
+                        "/// A circle.\n"
+                        "Public Class Circle\n"
+                        "    /// Its radius.\n"
+                        "    Public Field Radius: Float64\n"
+                        "    /// Its area.\n"
+                        "    Public Method Area(): Float64 => ...\n"
+                        "End Class\n"
+                        "/// The larger.\n"
+                        "Public Function Larger<T: Comparable>(a: T, b: T): T\n"));
+    CHECK(text.contains("/// Kinds.\n"
+                        "Public Enum Kind\n"
+                        "    /// Round.\n"
+                        "    Round\n"
+                        "End Enum\n"));
+
+    // A doc that only changes its words is the same build: the hash leaves the docs out.
+    const fb::library_build_t second = built("A round shape.");
+    CHECK(second.interface.contains("/// A round shape.\n"));
+    const auto hash = [](const std::string& interface) {
+        return fb::read_interface_header(interface).value_or(fb::interface_header_t{}).hash;
+    };
+    CHECK(hash(first.interface) == hash(second.interface));
+    CHECK(fb::abi_hash("// module a.fb 2\n/// One.\nPublic Const A = 1\n", "",
+                       fb::build_mode_t::DEBUG) ==
+          fb::abi_hash("// module a.fb 3\n/// Two\n/// lines.\nPublic Const A = 1\n", "",
+                       fb::build_mode_t::DEBUG));
+    // What isn't a doc is the build's.
+    CHECK(fb::abi_hash("// module a.fb 1\nPublic Const A = 1\n", "", fb::build_mode_t::DEBUG) !=
+          fb::abi_hash("// module a.fb 1\nPublic Const A = 2\n", "", fb::build_mode_t::DEBUG));
+    CHECK(
+        fb::abi_hash("// module a.fb 1\nPublic Const A = \"///\"\n", "", fb::build_mode_t::DEBUG) !=
+        fb::abi_hash("// module a.fb 1\nPublic Const A = \"\"\n", "", fb::build_mode_t::DEBUG));
+
+    // fb doc documents the prebuilt package from its interface file.
+    const std::string folder = std::format("prebuilt/lib/{}/debug/", fb::build_target());
+    packages.write("prebuilt/project.toml",
+                   "[project]\nname = \"docs\"\nversion = \"1.0.0\"\ntype = \"library\"\n");
+    packages.write(folder + "docs.fbi", second.interface);
+    packages.write(folder + "docs.fblib", second.binary);
+    const std::expected<fb::compilation_t, std::string> prebuilt =
+        fb::compile_docs(packages / "prebuilt");
+    REQUIRE(prebuilt);
+    REQUIRE(packages.messages(*prebuilt).empty());
+    fb::diagnostic_bag_t warnings;
+    const fb::doc_package_t api = fb::document(*prebuilt, false, fb::build_mode_t::DEBUG, warnings);
+    CHECK(warnings.diagnostics().empty());
+    REQUIRE(api.modules.size() == 1);
+    const fb::doc_module_t& module = api.modules.front();
+    CHECK(module.name == "docs.shapes");
+    CHECK(module.doc.value_or(fb::doc_t{}).summary == "Shapes.");
+    REQUIRE(module.items.size() == 3);
+    const fb::doc_item_t& circle = module.items[0];
+    CHECK(circle.doc.value_or(fb::doc_t{}).summary == "A round shape.");
+    REQUIRE(circle.members.size() == 2);
+    CHECK(circle.members[1].doc.value_or(fb::doc_t{}).summary == "Its area.");
+    CHECK(module.items[1].doc.value_or(fb::doc_t{}).summary == "The larger.");
+    REQUIRE(module.items[2].members.size() == 1);
+    CHECK(module.items[2].members[0].doc.value_or(fb::doc_t{}).summary == "Round.");
     packages.remove();
 }
 

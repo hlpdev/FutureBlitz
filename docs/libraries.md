@@ -104,6 +104,9 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
   and fb links the one that matches the build.
 - The ABI hash covers the interface file, the library's compiled code, the compiler's version,
   the target, and the mode, and a program checks it as it reads a prebuilt library. The interface
+  file keeps the library's `///` and `//!` docs, for fb doc and the LSP, but the hash leaves out
+  their lines, and the modules' line counts they change, so rewording a doc is the same build
+  (decided 2026-10-29). The interface
   file records the build of each package the library was built with, a prebuilt one's hash or a
   hash of a source one's files, and a program that has another build of one is an error naming
   both.

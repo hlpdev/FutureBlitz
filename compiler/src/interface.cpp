@@ -43,6 +43,8 @@ struct module_text_t { // NOLINT(bugprone-exception-escape)
     const module_t* module = nullptr;
     const source_file_t* file = nullptr;
     std::vector<token_t> tokens;
+    /// Its doc comments, which the interface file keeps, for fb doc and the LSP.
+    std::vector<span_t> docs;
     std::map<module_id_t, std::string> qualifiers;
 };
 
@@ -183,10 +185,13 @@ public:
 
             diagnostic_bag_t ignored;
             const source_file_t& file = compilation.sources.get(module.file);
+            std::vector<span_t> docs;
+            std::vector<token_t> tokens = lex(file, ignored, defined, &docs);
             m_modules.push_back({
                 .module = &module,
                 .file = &file,
-                .tokens = lex(file, ignored, defined),
+                .tokens = std::move(tokens),
+                .docs = std::move(docs),
             });
         }
 
@@ -650,8 +655,8 @@ private:
     }
 
     /// The text of [begin, end) of a module as its tokens have it: with the indentation of its
-    /// first line, the spacing between its tokens, and line breaks, but without comments or
-    /// the lines an #If leaves out.
+    /// first line, the spacing between its tokens, line breaks, and the doc comments on lines of
+    /// their own, but without other comments or the lines an #If leaves out.
     [[nodiscard]] static std::string text_of(const module_text_t& module, const std::uint32_t begin,
                                              const std::uint32_t end) {
         const std::span<const token_t> tokens = tokens_in(module, begin, end);
@@ -666,6 +671,7 @@ private:
                     line == std::string_view::npos ? gap : gap.substr(line + 1);
                 const bool blank = after.find_first_not_of(" \t") == std::string_view::npos;
                 if (tokens[i - 1].kind == token_kind_t::NEWLINE) {
+                    out += docs_between(module, tokens[i - 1].span.end, tokens[i].span.begin);
                     out += blank ? after : std::string_view();
                 } else if (blank && line == std::string_view::npos) {
                     out += gap;
@@ -676,6 +682,45 @@ private:
 
             out += tokens[i].kind == token_kind_t::NEWLINE ? std::string_view("\n")
                                                            : module.file->slice(tokens[i].span);
+        }
+
+        return out;
+    }
+
+    /// The doc comments in [begin, end) of a module that are first on their lines, each a line
+    /// with its indentation.
+    [[nodiscard]] static std::string
+    docs_between(const module_text_t& module, const std::uint32_t begin, const std::uint32_t end) {
+        std::string out;
+        const auto first = std::ranges::lower_bound(module.docs, begin, {}, &span_t::begin);
+        for (auto at = first; at != module.docs.end() && at->end <= end; ++at) {
+            const std::string_view source = module.file->text().substr(0, at->begin);
+            const std::size_t line = source.find_last_of("\r\n");
+            const std::string_view before =
+                line == std::string_view::npos ? source : source.substr(line + 1);
+            if (before.find_first_not_of(" \t") == std::string_view::npos) {
+                out += std::format("{}{}\n", before, module.file->slice(*at));
+            }
+        }
+
+        return out;
+    }
+
+    /// A declaration's own doc comment, or with no `id`, its module's, as "///" or "//!" lines
+    /// after `indent`.
+    [[nodiscard]] std::string doc_lines(const module_text_t& module,
+                                        const std::optional<stmt_id_t> id,
+                                        const std::string_view indent) const {
+        const doc_comment_t* doc = id ? m_ast.doc(*id) : m_ast.module_doc(module.module->file);
+        if (doc == nullptr) {
+            return {};
+        }
+
+        const std::string_view marker = id ? "///" : "//!";
+        std::string out;
+        for (const auto part : std::views::split(std::string_view(doc->text), '\n')) {
+            const std::string_view line(part.begin(), part.end());
+            out += std::format("{}{}{}{}\n", indent, marker, line.empty() ? "" : " ", line);
         }
 
         return out;
@@ -715,7 +760,7 @@ private:
             imports += std::format("Import {} As {}\n", import_name(module, target), qualifier);
         }
 
-        return imports + declarations;
+        return doc_lines(module, std::nullopt, "") + imports + declarations;
     }
 
     /// What an Import in `module` writes for `target`: a module of another package by its
@@ -750,8 +795,16 @@ private:
                            file.ends_with(".fb") ? file.substr(0, file.size() - 3) : file);
     }
 
-    /// A declaration as the interface file writes it, with its line break.
+    /// A declaration as the interface file writes it, with its doc comment and its line break.
     std::string declaration_text(const std::size_t index) {
+        const candidate_t& candidate = m_candidates[index];
+        const module_text_t& module = m_modules[candidate.module];
+        return doc_lines(module, candidate.id, indentation(module, start_of(candidate.id))) +
+               undocumented_text(index);
+    }
+
+    /// declaration_text() without its doc comment.
+    std::string undocumented_text(const std::size_t index) {
         const candidate_t& candidate = m_candidates[index];
         module_text_t& module = m_modules[candidate.module];
         const stmt_id_t id = candidate.id;
@@ -1090,6 +1143,48 @@ std::string hex_of(const std::array<std::uint8_t, 16>& digest) {
     return hex;
 }
 
+/// An interface file's body as its ABI hash covers it: without its doc comments' lines, and its
+/// modules' lines without how many lines each has, which the doc comments count in, so a change
+/// to a doc alone is the same build.
+std::string undocumented(const std::string_view body) {
+    const source_file_t file(file_id_t{}, "", std::string(body));
+    diagnostic_bag_t ignored;
+    trivia_t trivia;
+    static_cast<void>(lex_layout(file, ignored, trivia));
+    const std::string_view text = file.text();
+    std::string out;
+    std::size_t kept = 0;
+    for (const span_t comment : trivia.comments) {
+        const std::size_t line =
+            text.find_last_of("\r\n", comment.begin == 0 ? 0 : comment.begin - 1);
+        const std::size_t start =
+            comment.begin == 0 || line == std::string_view::npos ? 0 : line + 1;
+        if (start < kept || text.substr(start, comment.begin - start).find_first_not_of(" \t") !=
+                                std::string_view::npos) {
+            continue;
+        }
+
+        const std::string_view written = file.slice(comment);
+        const bool doc = (written.starts_with("///") && !written.starts_with("////")) ||
+                         written.starts_with("//!");
+        if (doc) {
+            // The whole line, its line break too.
+            std::size_t end = comment.end;
+            end += end < text.size() && text[end] == '\r' ? 1 : 0;
+            end += end < text.size() && text[end] == '\n' ? 1 : 0;
+            out += text.substr(kept, start - kept);
+            kept = end;
+        } else if (written.starts_with(module_start)) {
+            const std::size_t space = written.rfind(' ');
+            out += text.substr(kept, comment.begin + space - kept);
+            kept = comment.end;
+        }
+    }
+
+    out += text.substr(kept);
+    return out;
+}
+
 } // namespace
 
 std::string abi_hash(const std::string_view body, const std::string_view code,
@@ -1099,7 +1194,8 @@ std::string abi_hash(const std::string_view body, const std::string_view code,
     const std::string build =
         std::format("{}\n{}\n{}\n", build_config::version, build_target(), mode_folder(mode));
     blake3_hasher_update(&hasher, build.data(), build.size());
-    blake3_hasher_update(&hasher, body.data(), body.size());
+    const std::string hashed = undocumented(body);
+    blake3_hasher_update(&hasher, hashed.data(), hashed.size());
     const std::string size = std::format("\n{}\n", code.size());
     blake3_hasher_update(&hasher, size.data(), size.size());
     blake3_hasher_update(&hasher, code.data(), code.size());

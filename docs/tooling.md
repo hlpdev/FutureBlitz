@@ -374,7 +374,8 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
   leaks it didn't check; filters by name, a summary, and leaks reported per test.
 - Doc tests: the examples in `///` comments' `# Examples` compile and run as tests, each a test
   named after its declaration, like `game.shapes.Circle.Grow (example)`, in a package of their
-  own, `<name>.doctests`, that uses the package from outside (spec 09). `fb test std` runs std's.
+  own, `<name>.doctests`, that uses the package from outside (spec 09). `fb test std` runs std's,
+  and `fb test` on a `.fb` file outside a package runs that file's.
 
 ## Docs from the code (step 8)
 
@@ -386,6 +387,11 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
   `ast_t::doc()` gives a declaration's by where its name is, as a symbol's span is, which is what
   the LSP's hover shows, and `module_doc()` a file's. `read_doc()` (compiler/include/fb/doc.hpp)
   reads one's Markdown into its summary, sections, links, and examples.
+- A prebuilt library's interface file keeps its `///` and `//!` docs, so `fb doc` and the hover
+  have them for a prebuilt package. Its ABI hash leaves their lines out, and the module line
+  counts they change, so a doc's new words are the same build; a doc that adds or takes out lines
+  moves the code's lines, which the binary's stack traces and debug info name, and so is another
+  (spec 11).
 - std's comments on its declarations became `///` ones, and its files' first comments `//!`
   ones. Every Public declaration of std's, and every member its users see, has a summary, of its
   own or from the Interface member it implements or the Class member it overrides; a test checks

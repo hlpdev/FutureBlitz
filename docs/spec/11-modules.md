@@ -273,10 +273,15 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
   which is written for one that had none; `@MainThreadOnly("why")` before one says that its code
   can only run on the main thread, and why, as [10](10-concurrency.md)'s message would. Only an
   interface file can write them. Each module, a `.proto` file's as the module fb makes from it, is
-  its part of the file, after a line `// module <path> <lines>`, with its Imports.
+  its part of the file, after a line `// module <path> <lines>`, with its `//!` doc comment and its
+  Imports, and each declaration it keeps has its `///` doc comment, its members' and an Enum's
+  members' too, so `fb doc` and the LSP show a prebuilt package's docs (see
+  [01](01-lexical.md#doc-comments)); its other comments are left out.
 - Its first line is the library's build: its name, its version, and its ABI hash, which covers
-  the rest of the interface file, the library's compiled code, the compiler's version, the target,
-  and the mode. A program is built against one exact build of each library, and linking or
+  the rest of the interface file but for its doc comments' lines and its modules' line counts,
+  the library's compiled code, the compiler's version, the target, and the mode. A change to a
+  doc's words alone is the same build; one that adds or takes out lines moves the code after it,
+  whose lines the binary's stack traces and debug info name, so that's another. A program is built against one exact build of each library, and linking or
   loading another is an error that names both builds' names, versions, and hashes. Between
   versions a library's layouts and Method tables can change freely.
 - After it, a line `// uses <name> <version> <build>` names each package the library was built
