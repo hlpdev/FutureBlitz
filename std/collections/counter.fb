@@ -7,8 +7,7 @@ Import std.collections.array
 Import std.collections.map
 
 @DebugEntries
-Public Class Counter<T> Implements Iterable<(T, Int)>, Cloneable, Defaultable, Hashable
-    Where T: Hashable
+Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defaultable, Hashable
 
     Field Counts: Map<T, Int>
     Field Sum: Int64

@@ -19,7 +19,8 @@ Unsafe Function Fill<T: CData>(count: Int64, value: T): Ptr<T>
     Return items
 End Function
 
-Unsafe Function Sum<T: CData & Numeric>(items: Ptr<T>, count: Int64): T
+Unsafe Function Sum<T>(items: Ptr<T>, count: Int64): T
+    Where T: CData & Numeric
     Local total = T.Zero()
     Local at = items
     Local finish = items + count

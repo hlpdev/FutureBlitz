@@ -66,8 +66,7 @@ End Class
 
 // A handler that Subscribe(owner, handler) adds, which holds its owner weakly and gives it to the
 // handler, so the handler needn't capture it. Once the owner goes, it's off.
-Class OwnedHandler<T, O> Extends EventHandler<T>
-    Where O: Class
+Class OwnedHandler<T, O: Class> Extends EventHandler<T>
     Field Owner: Weak<O>
     Field Handler: (Func(O, T))?
 

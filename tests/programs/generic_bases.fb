@@ -30,8 +30,7 @@ Class Names Extends Container<String>
 End Class
 
 // A generic Class that extends the base with its own type parameter.
-Class Sorted<T> Extends Container<T>
-    Where T: Comparable
+Class Sorted<T: Comparable> Extends Container<T>
 
     Override Method Add(item: T)
         Local at = 0

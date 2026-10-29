@@ -40,8 +40,7 @@ Class SortedNode<K, V>
 End Class
 
 @DebugEntries
-Public Class SortedMap<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
-    Where K: Comparable
+Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
 
     Field Root: SortedNode<K, V>
     Field Size: Int
@@ -452,8 +451,7 @@ End Class
 
 // The entries in order: the node the next one is in, or Null at the end, where it's at among the
 // node's keys, and the nodes on the way down to it.
-Public Struct SortedMapIterator<K, V> Implements Iterator<(K, V)>
-    Where K: Comparable
+Public Struct SortedMapIterator<K: Comparable, V> Implements Iterator<(K, V)>
 
     Field Owner: SortedMap<K, V>
     Field Node: SortedNode<K, V>?
@@ -532,8 +530,7 @@ End Extend
 
 // Values without repeats, in order, which a SortedMap holds as its keys.
 @DebugElements
-Public Class SortedSet<T> Implements Iterable<T>, Cloneable, Defaultable, Equatable
-    Where T: Comparable
+Public Class SortedSet<T: Comparable> Implements Iterable<T>, Cloneable, Defaultable, Equatable
 
     Field Items: SortedMap<T, Bool>
 
@@ -608,8 +605,7 @@ Public Class SortedSet<T> Implements Iterable<T>, Cloneable, Defaultable, Equata
     End Method
 End Class
 
-Public Struct SortedSetIterator<T> Implements Iterator<T>
-    Where T: Comparable
+Public Struct SortedSetIterator<T: Comparable> Implements Iterator<T>
 
     Field Entries: SortedMapIterator<T, Bool>
 

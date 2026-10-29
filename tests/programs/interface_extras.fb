@@ -47,8 +47,7 @@ Interface Sorted<T: Comparable>
     Method Smallest(): T
 End Interface
 
-Struct Pair<T> Implements Sorted<T>
-    Where T: Comparable
+Struct Pair<T: Comparable> Implements Sorted<T>
     Field A: T
     Field B: T
     Method Smallest(): T => A < B ? A : B

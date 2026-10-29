@@ -22,7 +22,9 @@ Public Function ParallelForEach<T: Sendable>(items: T[], action: Sendable Func(T
 End Function
 
 // A new array of what change makes of each item, in the items' order, made on the pool at once.
-Public Function ParallelMap<T: Sendable, R: Sendable>(items: T[], change: Sendable Func(T): R): R[]
+Public Function ParallelMap<T, R>(items: T[], change: Sendable Func(T): R): R[]
+    Where T: Sendable
+    Where R: Sendable
     Local results: R[] = []
     If items.Count == 0 Then Return results
     // The first result fills the array, which each pass then sets at its own index.
@@ -62,7 +64,8 @@ End Function
 // Sorts the items in place, smallest first, keeping equal ones in their order, as T[]'s Sort
 // does: parts sorted on the pool at once, then merged in pairs, each round's merges at once too.
 // A value that isn't equal to itself, like NaN, has no place in the order, and goes where it may.
-Public Function ParallelSort<T: Comparable & Sendable>(items: T[])
+Public Function ParallelSort<T>(items: T[])
+    Where T: Comparable & Sendable
     ParallelSort(items, Function(a: T, b: T) => a < b)
 End Function
 

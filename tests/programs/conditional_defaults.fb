@@ -82,8 +82,7 @@ Function AsTripled(t: Tripled): Int => t.Twice()
 Class Sub<T> Extends Base<T> Implements Sized
 End Class
 
-Class Keyed<T> Extends Base<T> Implements Sized
-    Where T: Hashable
+Class Keyed<T: Hashable> Extends Base<T> Implements Sized
 End Class
 
 Print("{AsSized(Sub<Rock>())} {AsSized(Sub<Int>())} {Sub<Int>().Twice()} {AsTripled(Sub<Int>())}")

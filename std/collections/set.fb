@@ -5,8 +5,7 @@ Import std.collections.array
 Import std.collections.map
 
 @DebugElements
-Public Class Set<T> Implements Iterable<T>, Cloneable, Defaultable, Hashable
-    Where T: Hashable
+Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Hashable
 
     Field Items: Map<T, Bool>
 
@@ -170,8 +169,7 @@ Public Class Set<T> Implements Iterable<T>, Cloneable, Defaultable, Hashable
     End Method
 End Class
 
-Public Struct SetIterator<T> Implements Iterator<T>
-    Where T: Hashable
+Public Struct SetIterator<T: Hashable> Implements Iterator<T>
 
     Field Entries: MapIterator<T, Bool>
 

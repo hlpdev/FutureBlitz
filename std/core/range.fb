@@ -6,8 +6,7 @@
 Import std.core.interfaces
 Import std.core.iterator
 
-Public Struct Range<T> Implements Iterator<T>, Iterable<T>
-    Where T: Numeric
+Public Struct Range<T: Numeric> Implements Iterator<T>, Iterable<T>
     // The value Next gives next. The compiler makes these Fields, in this order.
     Field Current: T
     Field Step: T

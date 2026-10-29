@@ -32,8 +32,7 @@ Class Tag
     Operator ==(a: Tag, b: Tag): Bool => a.Text == b.Text
 End Class
 
-Class Holder<T>
-    Where T: Class
+Class Holder<T: Class>
     Field Item: Weak<T>
 
     Method Get(): T? => Item

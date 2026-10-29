@@ -25,8 +25,7 @@ Public Class Event<T>
     End Method
 End Class
 
-Public Class Holder<T>
-    Where T: Class
+Public Class Holder<T: Class>
     Public Field Item: Weak<T>
 End Class
 

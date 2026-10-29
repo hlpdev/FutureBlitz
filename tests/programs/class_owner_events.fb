@@ -3,8 +3,7 @@
 Import std.core
 
 // One handler, and the owner it runs for, which it doesn't keep.
-Class OwnedHandler<T, O>
-    Where O: Class
+Class OwnedHandler<T, O: Class>
     Field Owner: Weak<O>
     ReadOnly Field Handler: Func(O, T)
 

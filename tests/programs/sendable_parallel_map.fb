@@ -4,7 +4,9 @@
 Import std.core
 Import std.collections
 
-Function ParallelMap<T: Sendable, R: Sendable>(items: T[], f: Sendable Func(T): R): R[]
+Function ParallelMap<T, R>(items: T[], f: Sendable Func(T): R): R[]
+    Where T: Sendable
+    Where R: Sendable
     Local results: R[] = []
     If items.Count == 0 Then Return results
     // The first result fills the array, which each pass then changes at its own index.

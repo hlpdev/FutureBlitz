@@ -18,8 +18,7 @@ Struct MapEntry<K, V>
 End Struct
 
 @DebugEntries
-Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
-    Where K: Hashable
+Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
 
     Field Entries: MapEntry<K, V>[] = []
     // The first entry in each bucket, or -1. There are none until the first Add, or a Reserve of
@@ -386,8 +385,7 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     End Method
 End Class
 
-Public Struct MapIterator<K, V> Implements Iterator<(K, V)>
-    Where K: Hashable
+Public Struct MapIterator<K: Hashable, V> Implements Iterator<(K, V)>
 
     Field Owner: Map<K, V>
     // The next entry, or -1.

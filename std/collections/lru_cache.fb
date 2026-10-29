@@ -7,8 +7,7 @@ Import std.collections.array
 Import std.collections.map
 
 @DebugEntries
-Public Class LruCache<K, V> Implements Iterable<(K, V)>, Cloneable
-    Where K: Hashable
+Public Class LruCache<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable
 
     Field Items: Map<K, V>
     Field Room: Int

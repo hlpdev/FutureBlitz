@@ -54,8 +54,7 @@ Function Describe<T>(x: T): String
     Return "{x.Show()} ranks {x.Rank()}, {x.Key()}, {x.Address()}"
 End Function
 
-Function Total<T>(items: T[]): Int
-    Where T: Numeric
+Function Total<T: Numeric>(items: T[]): Int
     Local sum = 0
     For item In items
         sum += item.Value()

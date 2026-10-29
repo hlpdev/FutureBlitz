@@ -45,8 +45,7 @@ Function Sum<T: Summable>(items: T[]): T
     Return total
 End Function
 
-Function Largest<T>(items: T[]): T
-    Where T: Ordered
+Function Largest<T: Ordered>(items: T[]): T
     Local best = items[0]
     For item In items
         If best < item Then best = item

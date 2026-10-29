@@ -6,7 +6,8 @@ Import std.core.interfaces
 
 // Panics when actual isn't expected, saying what each is, after the message when there's one.
 @PanicsAtCaller
-Public Function AssertEqual<T: Equatable & Printable>(actual: T, expected: T, message: String = "")
+Public Function AssertEqual<T>(actual: T, expected: T, message: String = "")
+    Where T: Equatable & Printable
     If actual == expected Then Return
     Panic("{message == "" ? "AssertEqual failed" : message}: {actual} isn't {expected}")
 End Function

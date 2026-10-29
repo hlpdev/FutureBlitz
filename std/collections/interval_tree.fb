@@ -26,8 +26,7 @@ Class IntervalNode<K, V>
 End Class
 
 @DebugElements
-Public Class IntervalTree<K, V> Implements Iterable<(K, K, V)>, Cloneable, Defaultable
-    Where K: Comparable
+Public Class IntervalTree<K: Comparable, V> Implements Iterable<(K, K, V)>, Cloneable, Defaultable
 
     Field Root: IntervalNode<K, V>?
     Field Size: Int
@@ -287,8 +286,7 @@ End Class
 
 // The intervals in order: the nodes on the way down to the next one, the node it's at, and which
 // of its values comes next.
-Public Struct IntervalTreeIterator<K, V> Implements Iterator<(K, K, V)>
-    Where K: Comparable
+Public Struct IntervalTreeIterator<K: Comparable, V> Implements Iterator<(K, K, V)>
 
     Field Owner: IntervalTree<K, V>
     Field Path: IntervalPath<K, V>?
