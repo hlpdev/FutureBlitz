@@ -518,7 +518,7 @@ private:
             }
         }
 
-        return breaks >= 2 && !(m_state.after_code && depth > m_state.statement_depth);
+        return breaks >= 2 && (!m_state.after_code || depth <= m_state.statement_depth);
     }
 
     /// The next line of code from `index` on, if any.
@@ -563,11 +563,8 @@ private:
             newline(m_out);
         }
 
-        if (unit.conditional) {
-            m_out += slice(unit.begin, unit.end);
-            newline(m_out);
-        } else if (unit.code) {
-            // A line that goes on with nothing, which only broken code has.
+        // #If lines, or a line that goes on with nothing, which only broken code has, as written.
+        if (unit.conditional || unit.code) {
             m_out += slice(unit.begin, unit.end);
             newline(m_out);
         } else {
@@ -657,7 +654,7 @@ private:
             }
 
             if (bracket.hanging) {
-                return bracket.line_indent + (bracket.signature ? 2 : 1) * indent_width;
+                return bracket.line_indent + ((bracket.signature ? 2 : 1) * indent_width);
             }
 
             return bracket.align;
@@ -673,7 +670,7 @@ private:
                                  : unit.depth * indent_width;
     }
 
-    [[nodiscard]] bool is_declaration(const unit_t& unit) const {
+    [[nodiscard]] static bool is_declaration(const unit_t& unit) {
         for (const item_t& item : unit.items) {
             if (item.comment || is_modifier(item.kind)) {
                 continue;
@@ -806,12 +803,12 @@ private:
         const bool operand = a.kind == IDENTIFIER || a.kind == RIGHT_PAREN ||
                              a.kind == RIGHT_BRACKET || a.kind == KW_SELF || a.kind == KW_SUPER;
         if (b.kind == LEFT_PAREN) {
-            return !(operand || a.kind == KW_NEW || a.kind == KW_FUNCTION || a.kind == KW_FUNC ||
-                     a.kind == KW_CALLBACK);
+            return !operand && a.kind != KW_NEW && a.kind != KW_FUNCTION && a.kind != KW_FUNC &&
+                   a.kind != KW_CALLBACK;
         }
 
         if (b.kind == LEFT_BRACKET) {
-            return !(operand || a.kind == STRING || a.kind == STRING_END || a.kind == KW_FUNCTION);
+            return !operand && a.kind != STRING && a.kind != STRING_END && a.kind != KW_FUNCTION;
         }
 
         return true;
@@ -822,8 +819,8 @@ private:
         const std::vector<item_t>& items = unit.items;
         std::vector<item_info_t> info(items.size());
         const segment_t& segment = m_state.segments.back();
-        std::uint32_t depth = static_cast<std::uint32_t>(m_state.brackets.size() - segment.base);
-        std::uint32_t generic = static_cast<std::uint32_t>(
+        auto depth = static_cast<std::uint32_t>(m_state.brackets.size() - segment.base);
+        auto generic = static_cast<std::uint32_t>(
             std::ranges::count_if(std::span(m_state.brackets).subspan(segment.base),
                                   [](const bracket_t& bracket) { return bracket.generic; }));
         std::uint32_t interpolation = 0;
@@ -889,10 +886,11 @@ private:
 
             const item_t& next = items[i + 1];
             const bool inside = before > 0 || is_opener(item.kind);
-            const bool binary = item.has(token_role_t::BINARY) &&
-                                !(item.kind == token_kind_t::GREATER && item.end == next.begin &&
-                                  (next.kind == token_kind_t::GREATER ||
-                                   next.kind == token_kind_t::GREATER_EQUAL)) &&
+            // A '>' that touches another, or a ">=", is the first piece of one operator.
+            const bool piece =
+                item.kind == token_kind_t::GREATER && item.end == next.begin &&
+                (next.kind == token_kind_t::GREATER || next.kind == token_kind_t::GREATER_EQUAL);
+            const bool binary = item.has(token_role_t::BINARY) && !piece &&
                                 !std::ranges::contains(ternaries, group_of[i]);
             // Before a ternary's ':', which then lines up with its '?', inside brackets.
             const bool ternary =
@@ -916,9 +914,13 @@ private:
             info[i].breakable = true;
             info[i].tier = *tier;
             info[i].depth = ternary ? depth : before;
-            info[i].rank = item.kind == token_kind_t::COMMA ? 0
-                           : ternary                        ? 1
-                                                            : operator_rank(item.kind) + 1;
+            if (item.kind == token_kind_t::COMMA) {
+                info[i].rank = 0;
+            } else if (ternary) {
+                info[i].rank = 1;
+            } else {
+                info[i].rank = operator_rank(item.kind) + 1;
+            }
         }
 
         return info;
@@ -995,8 +997,7 @@ private:
         const std::vector<item_info_t> info = describe_items(unit);
         std::uint32_t indent = next_indent(unit);
         std::uint32_t line_depth = 0;
-        const std::size_t first_token =
-            static_cast<std::size_t>(&unit.first_token() - items.data());
+        const auto first_token = static_cast<std::size_t>(&unit.first_token() - items.data());
         // How wide what follows each item is, to the end of the line.
         std::vector<std::uint32_t> after(items.size() + 1, 0);
         for (std::size_t k = items.size(); k-- > 1;) {
@@ -1054,12 +1055,17 @@ private:
                     const bool whole =
                         info[i].tier == 2 && info[i].depth == 0 &&
                         m_state.segments.back().indent + indent_width + rest <= m_width;
+                    std::uint32_t tier = info[i].tier + 1;
+                    if (info[i].tier == 0) {
+                        tier = 0;
+                    } else if (whole) {
+                        tier = 1;
+                    }
+
                     candidates.push_back({
                         .item = i,
                         .length = text.size(),
-                        .tier = info[i].tier == 0 ? 0U
-                                : whole           ? 1U
-                                                  : info[i].tier + 1,
+                        .tier = tier,
                         .depth = info[i].depth,
                         .rank = info[i].rank,
                         .brackets = m_state.brackets,

@@ -246,7 +246,8 @@ private:
             return;
         }
 
-        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        // Opening for writing truncates the file.
+        std::ofstream out(path, std::ios::binary);
         out << *formatted;
         out.close();
         if (!out) {

@@ -1972,6 +1972,7 @@ private:
             check_constraint_form(type->type_parameters, type->value_types, type->constraints,
                                   type->header_end, true, outer);
             std::vector<std::string_view> inside;
+            inside.reserve(type->type_parameters.size());
             for (const name_t& name : type->type_parameters) {
                 inside.push_back(name.text);
             }
@@ -2120,10 +2121,13 @@ private:
             warning(inline_ones.front()->parameter.span,
                     "a declaration with more than one constraint has each on a Where line");
         for (const constraint_t* constraint : inline_ones) {
-            reported.with_fix({ .file = file.id(),
-                                .begin = constraint->parameter.span.end,
-                                .end = written(*constraint).end },
-                              "");
+            reported.with_fix(
+                {
+                    .file = file.id(),
+                    .begin = constraint->parameter.span.end,
+                    .end = written(*constraint).end,
+                },
+                "");
         }
 
         reported.with_fix({ .file = file.id(), .begin = header.end, .end = header.end }, lines);
