@@ -67,7 +67,9 @@ Print(Shown(scrolled.Output))
 
 // With a check, what's wrong shows after the line until it's typed again.
 Local checked = Live("x\r\u{7f}42\r")
-Local number = Ask(checked, "Age?", Function(text) => text.Chars.All(Function(c) => c >= '0' && c <= '9') ? Null : "not a number")
+Local number = Ask(checked, "Age?",
+                   Function(text) => text.Chars.All(Function(c) => c >= '0' &&
+                                                    c <= '9') ? Null : "not a number")
 Print("checked:", number ?? "Null")
 Print(Shown(checked.Output))
 Local fromPipe = Piped("x\n\n7\n")

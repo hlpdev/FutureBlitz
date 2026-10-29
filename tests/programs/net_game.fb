@@ -200,7 +200,8 @@ Function Shown(events: GameEvent[]): String[]
 End Function
 
 // Ticks until a host gives a DISCONNECT, at most limit, and gives the events and the ticks.
-Function UntilDisconnect(network: LossyNetwork, hosts: GameHost[], limit: Int): (String[], Int) Throws NetError
+Function UntilDisconnect(network: LossyNetwork, hosts: GameHost[],
+                         limit: Int): (String[], Int) Throws NetError
     Local shown: String[] = []
     For i = 1 To limit
         Local events = Try Tick(network, hosts)

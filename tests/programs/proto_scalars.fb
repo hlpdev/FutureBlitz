@@ -30,7 +30,8 @@ Local made = Scalars(f_double: 1.7976931348623157e308, f_float: 3.40282346638528
                      f_sint64: 9223372036854775807, f_fixed32: 4294967295,
                      f_fixed64: 18446744073709551615, f_sfixed32: 2147483647,
                      f_sfixed64: 9223372036854775807, f_bool: True,
-                     f_string: "héllo, 世界 😀 \"quoted\"\n\ttabbed", f_bytes: [0, 1, 127, 128, 255])
+                     f_string: "héllo, 世界 😀 \"quoted\"\n\ttabbed",
+                     f_bytes: [0, 1, 127, 128, 255])
 Print("encoded max.txtpb {made.Encode()}")
 Print("made like max: {made == max} {made.Encode() == MaxBytes()}")
 
