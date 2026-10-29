@@ -1223,11 +1223,13 @@ std::vector<diagnostic_t> errors_of(const diagnostic_bag_t& diagnostics) {
 
 /// Whether the file parses as some build reads it, with its #If branches.
 bool parses_in_a_build(const source_file_t& file) {
-    static constexpr std::array<std::array<std::string_view, 2>, 3> builds = { {
-        { "DEBUG", "PLATFORM_WINDOWS" },
-        { "RELEASE", "PLATFORM_LINUX" },
-        { "DEBUG", "PLATFORM_MACOS" },
-    } };
+    static constexpr std::array<std::array<std::string_view, 2>, 3> builds = {
+        {
+            { "DEBUG", "PLATFORM_WINDOWS" },
+            { "RELEASE", "PLATFORM_LINUX" },
+            { "DEBUG", "PLATFORM_MACOS" },
+        },
+    };
     return std::ranges::any_of(builds, [&](const std::array<std::string_view, 2>& defined) {
         diagnostic_bag_t diagnostics;
         const std::vector<token_t> tokens = lex(file, diagnostics, defined);
