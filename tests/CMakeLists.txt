@@ -87,6 +87,13 @@ if(TARGET fb_console_probe)
   target_compile_definitions(fb_cli_tests PRIVATE
     FB_TEST_CONSOLE_PROBE="$<TARGET_FILE:fb_console_probe>")
 endif()
+# lldb, which debugger_tests.cpp runs with tools/lldb/futureblitz.py where it's found.
+find_program(FB_LLDB lldb HINTS "${FB_LLVM_ROOT}/bin" "${LLVM_TOOLS_BINARY_DIR}")
+target_compile_definitions(fb_cli_tests PRIVATE
+  FB_LLDB_SCRIPT="${PROJECT_SOURCE_DIR}/tools/lldb/futureblitz.py")
+if(FB_LLDB)
+  target_compile_definitions(fb_cli_tests PRIVATE FB_TEST_LLDB="${FB_LLDB}")
+endif()
 # `fb bindgen` runs fb-bindgen, which is next to fb where it's built.
 if(TARGET fb_bindgen_cli)
   add_dependencies(fb_cli_tests fb_bindgen_cli)
