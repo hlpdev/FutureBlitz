@@ -47,10 +47,34 @@ query_t::query_t(const compilation_t& compilation, const file_id_t file)
     const analysis_t& analysis = compilation.analysis;
     for (std::size_t i = 0; i < analysis.symbols.size(); ++i) {
         const symbol_t& symbol = analysis.symbols[i];
-        if (symbol.kind == symbol_kind_t::TYPE) {
-            m_types.try_emplace(symbol.type, static_cast<symbol_id_t>(i));
+        if (symbol.kind != symbol_kind_t::TYPE) {
+            continue;
+        }
+
+        m_types.try_emplace(symbol.type, static_cast<symbol_id_t>(i));
+        // An Enum's values, by where their names are.
+        if (symbol.declaration) {
+            if (const auto* enumeration =
+                    std::get_if<enum_stmt_t>(&compilation.ast.get(*symbol.declaration).node)) {
+                for (const enum_member_t& member : enumeration->members) {
+                    m_enum_values.try_emplace(
+                        { std::to_underlying(member.name.span.file), member.name.span.begin },
+                        symbol.type);
+                }
+            }
         }
     }
+}
+
+std::optional<type_id_t> query_t::enum_of(const symbol_id_t id) const {
+    const symbol_t& symbol = analysis().symbol(id);
+    if (symbol.kind != symbol_kind_t::CONSTANT) {
+        return std::nullopt;
+    }
+
+    const auto found =
+        m_enum_values.find({ std::to_underlying(symbol.span.file), symbol.span.begin });
+    return found != m_enum_values.end() ? std::optional(found->second) : std::nullopt;
 }
 
 std::optional<symbol_id_t> query_t::type_symbol(const type_id_t type) const {
@@ -122,9 +146,9 @@ std::vector<named_t> query_t::names(const std::optional<file_id_t> file) const {
             continue;
         }
 
-        // A Property's Get and Set are Methods named where it is.
-        if (symbol.kind == symbol_kind_t::METHOD &&
-            m_compilation.sources.get(in).slice(symbol.span) != symbol.name) {
+        // What's declared where another name is, as a Method's Self, a Set's value, and a
+        // Property's Get and Set are, isn't what the name there names.
+        if (m_compilation.sources.get(in).slice(symbol.span) != symbol.name) {
             continue;
         }
 
@@ -132,14 +156,23 @@ std::vector<named_t> query_t::names(const std::optional<file_id_t> file) const {
             { .span = symbol.span, .symbol = static_cast<symbol_id_t>(i), .declaration = true });
     }
 
-    // One name each, its declaration's first, and of a generic one's copies, the first.
-    std::ranges::sort(found, [](const named_t& a, const named_t& b) {
+    // One name each: its declaration's first, and of the copies that checks of the same code
+    // made, as a generic one's or a lambda's while its call's types are worked out, the first
+    // whose type is known.
+    const auto unknown = [this](const named_t& named) {
+        return analysis().symbol(named.symbol).type == type_id_t::INVALID;
+    };
+    std::ranges::sort(found, [&](const named_t& a, const named_t& b) {
         if (a.span.begin != b.span.begin) {
             return a.span.begin < b.span.begin;
         }
 
         if (a.declaration != b.declaration) {
             return a.declaration;
+        }
+
+        if (unknown(a) != unknown(b)) {
+            return !unknown(a);
         }
 
         return std::to_underlying(a.symbol) < std::to_underlying(b.symbol);
@@ -234,6 +267,15 @@ std::string query_t::signature(const symbol_id_t id) const {
         std::string text;
         for (const type_id_t parameter : symbol.type_parameters) {
             text += (text.empty() ? "<" : ", ") + type_name(parameter);
+            // Its constraints, as "T: Comparable" or "T: Hashable & Equatable".
+            std::string bounds;
+            for (const bound_t& bound : symbol.constraints) {
+                if (bound.parameter == parameter && bound.field == type_id_t::INVALID) {
+                    bounds += (bounds.empty() ? ": " : " & ") + type_name(bound.interface);
+                }
+            }
+
+            text += bounds;
         }
 
         return text.empty() ? text : text + ">";
@@ -277,6 +319,12 @@ std::string query_t::signature(const symbol_id_t id) const {
 
         return typed(symbol.modifiers.is_thread_local ? "ThreadLocal Global " : "Global ");
     case symbol_kind_t::CONSTANT: {
+        // An Enum's value, as "Color.Green = 1".
+        if (const std::optional<type_id_t> enumeration = enum_of(id)) {
+            std::string const text = type_name(*enumeration) + "." + std::string(symbol.name);
+            return symbol.value ? text + " = " + to_text(*symbol.value) : text;
+        }
+
         std::string text = typed("Const ");
         if (symbol.value) {
             text += " = " + to_text(*symbol.value);

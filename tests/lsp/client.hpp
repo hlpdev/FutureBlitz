@@ -2,6 +2,7 @@
 
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/server.hpp"
+#include "fb/source.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -80,6 +81,15 @@ public:
     /// Replaces the document's whole text.
     void change(const std::string& uri, std::string_view text);
     void close(const std::string& uri);
+    /// Sends didChange with `changes`, contentChanges with ranges in `unit`, which the client's
+    /// copy of the text takes too.
+    void edit(const std::string& uri, const json_t& changes,
+              column_unit_t unit = column_unit_t::UTF16);
+
+    /// The document's text as the client has it.
+    [[nodiscard]] const std::string& text(const std::string& uri) const {
+        return m_texts.at(uri);
+    }
 
     /// Waits until the server's checks are done.
     void settle();

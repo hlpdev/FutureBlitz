@@ -1,4 +1,7 @@
 #include "fb/ast.hpp"
+#include "fb/diagnostic.hpp"
+#include "fb/driver.hpp"
+#include "fb/lexer.hpp"
 #include "fb/lsp/features.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/query.hpp"
@@ -51,6 +54,11 @@ constexpr std::array keywords = {
 #include "fb/token_kinds.def"
 };
 
+/// The types the language has by name besides the numbers, Bool, String, CString, and Char,
+/// and the names code writes some of those with, separated by spaces.
+constexpr std::string_view built_in_types =
+    "Int Long Byte Float Double Atomic Mutex Task Thread Channel Scheduler Ptr Weak";
+
 bool is_name_char(const char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' ||
            static_cast<unsigned char>(c) >= 0x80;
@@ -63,6 +71,79 @@ std::string_view left_trimmed(std::string_view text) {
     }
 
     return text;
+}
+
+/// Whether `offset` is in a string's text, a quoted Import's path, a character literal, or a
+/// comment, where no name goes. An interpolation's code is code.
+bool in_text(const source_file_t& file, const std::uint32_t offset) {
+    diagnostic_bag_t ignored;
+    const std::vector<std::string_view> defined = defined_symbols(build_mode_t::DEBUG);
+    for (const token_t& token : lex(file, ignored, defined)) {
+        const bool literal =
+            token.kind == token_kind_t::STRING || token.kind == token_kind_t::STRING_START ||
+            token.kind == token_kind_t::STRING_MIDDLE || token.kind == token_kind_t::STRING_END ||
+            token.kind == token_kind_t::CHARACTER;
+        if (!literal || offset <= token.span.begin || offset > token.span.end) {
+            continue;
+        }
+
+        // At its end, it's in only one whose quote isn't there yet, while it's typed.
+        const std::string_view text = file.slice(token.span);
+        const bool closed =
+            text.size() > 1 && (text.ends_with('"') || text.ends_with('\'') || text.ends_with('{'));
+        if (offset < token.span.end || !closed) {
+            return true;
+        }
+    }
+
+    trivia_t trivia;
+    static_cast<void>(lex_layout(file, ignored, trivia));
+    return std::ranges::any_of(trivia.comments, [&](const span_t comment) {
+        const bool block = file.slice(comment).starts_with("/*");
+        return offset > comment.begin && (block ? offset < comment.end : offset <= comment.end);
+    });
+}
+
+/// Whether what's before the word being typed on its line, `before`, says a type goes there:
+/// after a declaration's name and ':', or after As, Extends, or Implements.
+bool names_type(std::string_view before) {
+    while (!before.empty() && (before.back() == ' ' || before.back() == '\t')) {
+        before.remove_suffix(1);
+    }
+
+    const std::size_t last = before.find_last_of(" \t(,");
+    const std::string_view word = before.substr(last == std::string_view::npos ? 0 : last + 1);
+    if (word == "As" || word == "Extends" || word == "Implements" ||
+        (before.ends_with(',') && before.contains(" Implements "))) {
+        return true;
+    }
+
+    if (!before.ends_with(':') || before.contains('?') || before.contains('=')) {
+        return false;
+    }
+
+    // A declaration's, or a parameter's in a Function's or a lambda's first line, but not a
+    // named argument's, whose value is code.
+    // Its first word past the modifiers.
+    constexpr std::string_view modifiers =
+        " Public Private Package Protected Static ReadOnly ThreadLocal Override Async Unsafe "
+        "Abstract Final ByRef ";
+    constexpr std::string_view declarations = " Local Global Const Field Property Function Method "
+                                              "Operator ";
+    std::string_view rest = before;
+    std::string_view first;
+    while (!rest.empty()) {
+        const std::size_t end = std::min(rest.find_first_of(" (<"), rest.size());
+        first = rest.substr(0, end);
+        if (!modifiers.contains(" " + std::string(first) + " ")) {
+            break;
+        }
+
+        rest = left_trimmed(rest.substr(end));
+    }
+
+    return declarations.contains(" " + std::string(first) + " ") || rest.starts_with("New(") ||
+           before.contains("Function(");
 }
 
 /// A block of statements and the part of the file it covers, which a position in it is in,
@@ -111,6 +192,27 @@ public:
 
     [[nodiscard]] json_t take() {
         return { { "isIncomplete", false }, { "items", std::move(m_items) } };
+    }
+
+    /// The items that name types: types, type parameters, Aliases, and modules, before a '.'.
+    [[nodiscard]] json_t take_types() {
+        json_t types = json_t::array();
+        for (json_t& item : m_items) {
+            switch (static_cast<item_kind_t>(item["kind"].get<int>())) {
+            case item_kind_t::CLASS:
+            case item_kind_t::INTERFACE:
+            case item_kind_t::ENUM:
+            case item_kind_t::STRUCT:
+            case item_kind_t::MODULE:
+            case item_kind_t::TYPE_PARAMETER:
+                types.push_back(std::move(item));
+                break;
+            default:
+                break;
+            }
+        }
+
+        return { { "isIncomplete", false }, { "items", std::move(types) } };
     }
 
 private:
@@ -237,8 +339,23 @@ public:
     }
 
     /// The names in scope at the offset, and the keywords.
-    json_t names() {
+    json_t names(const bool types_only) {
         add_locals();
+        // The built-in types, by each name code writes them with.
+        for (auto type = static_cast<std::uint32_t>(type_id_t::BOOL);
+             type < static_cast<std::uint32_t>(type_id_t::BUILTIN_COUNT); ++type) {
+            m_items.add(std::string(builtin_name(static_cast<type_id_t>(type))),
+                        item_kind_t::STRUCT, "built-in type");
+        }
+
+        for (std::size_t begin = 0; begin < built_in_types.size();) {
+            const std::size_t end =
+                std::min(built_in_types.find(' ', begin), built_in_types.size());
+            m_items.add(std::string(built_in_types.substr(begin, end - begin)), item_kind_t::STRUCT,
+                        "built-in type");
+            begin = end + 1;
+        }
+
         if (const std::optional<module_id_t> module = m_query.module()) {
             add_own_names();
             for (const module_import_t& imported : m_ast.modules().get(*module).imports) {
@@ -251,6 +368,11 @@ public:
                     add_module_names(from, node->from ? std::optional(&node->names) : std::nullopt);
                 }
             }
+        }
+
+        // Where a type is written, only what names one.
+        if (types_only) {
+            return m_items.take_types();
         }
 
         for (std::size_t i = 0; i < m_analysis.symbols.size(); ++i) {
@@ -364,6 +486,16 @@ private:
             work.push_back(entry.generic);
             work.push_back(entry.base);
             std::ranges::copy(entry.interfaces, std::back_inserter(work));
+            // A type parameter has what its constraints' Interfaces have.
+            if (entry.kind == type_kind_t::PARAMETER) {
+                for (const symbol_t& symbol : m_analysis.symbols) {
+                    for (const bound_t& bound : symbol.constraints) {
+                        if (bound.parameter == at && bound.field == type_id_t::INVALID) {
+                            work.push_back(bound.interface);
+                        }
+                    }
+                }
+            }
         }
 
         return owners;
@@ -630,6 +762,15 @@ private:
                 continue;
             }
 
+            // A generic type's type parameters, in its body.
+            if (std::holds_alternative<type_stmt_t>(statement.node)) {
+                for (const symbol_t& symbol : m_analysis.symbols) {
+                    if (symbol.kind == symbol_kind_t::TYPE && symbol.declaration == id) {
+                        add_type_parameters(m_analysis.types.get(symbol.type).parameters);
+                    }
+                }
+            }
+
             for (const region_t& region : regions(id)) {
                 if (region.begin <= m_offset && m_offset <= region.end) {
                     std::ranges::copy(region.variables, std::back_inserter(found));
@@ -648,18 +789,39 @@ private:
             return;
         }
 
+        // A Static Method has no Self, so only its type's Statics.
         const symbol_t& symbol = m_analysis.symbol(*function);
         if (symbol.owner != type_id_t::INVALID) {
-            add_instance_members(symbol.owner);
+            if (!std::get<function_stmt_t>(m_ast.get(id).node).modifiers.is_static) {
+                add_instance_members(symbol.owner);
+            }
+
             add_statics(symbol.owner);
+            add_type_parameters(m_analysis.types.get(symbol.owner).parameters);
+        }
+
+        add_type_parameters(symbol.type_parameters);
+    }
+
+    /// Type parameters in scope, by their names.
+    void add_type_parameters(const std::vector<type_id_t>& parameters) {
+        for (const type_id_t parameter : parameters) {
+            if (parameter != type_id_t::INVALID &&
+                m_analysis.types.get(parameter).kind == type_kind_t::PARAMETER) {
+                m_items.add(std::string(m_analysis.types.name(parameter)),
+                            item_kind_t::TYPE_PARAMETER);
+            }
         }
     }
 
     /// The variables a statement before the offset declares in its block.
     void declared_by(const stmt_id_t id, std::vector<symbol_id_t>& found) const {
+        // A type's Fields are its members, which only its Methods see, and a Static Method only
+        // its Static ones.
         const stmt_node_t& node = m_ast.get(id).node;
         const stmt_info_t& info = m_analysis.stmt(id);
-        if (std::holds_alternative<variable_stmt_t>(node) && info.symbol) {
+        if (const auto* variable = std::get_if<variable_stmt_t>(&node);
+            variable != nullptr && variable->kind != variable_kind_t::FIELD && info.symbol) {
             found.push_back(*info.symbol);
         } else if (std::holds_alternative<destructure_stmt_t>(node)) {
             std::ranges::copy(info.matches, std::back_inserter(found));
@@ -669,6 +831,17 @@ private:
 
 } // namespace
 
+std::set<std::string> visible_names(const query_t& query, const std::uint32_t offset) {
+    std::set<std::string> names;
+    for (const json_t& item : completer_t(query, offset).names(false)["items"]) {
+        if (item["kind"].get<int>() != static_cast<int>(item_kind_t::KEYWORD)) {
+            names.insert(item["label"].get<std::string>());
+        }
+    }
+
+    return names;
+}
+
 json_t completion(const query_t& query, const std::uint32_t offset,
                   const std::vector<std::string>& modules, const positions_t& positions) {
     const std::string_view text = query.source().text();
@@ -677,6 +850,11 @@ json_t completion(const query_t& query, const std::uint32_t offset,
     std::uint32_t word = at;
     while (word > 0 && is_name_char(text[word - 1])) {
         --word;
+    }
+
+    // Nothing in a string's text, a quoted Import's path, a character, or a comment.
+    if (in_text(query.source(), at)) {
+        return { { "isIncomplete", false }, { "items", json_t::array() } };
     }
 
     const std::size_t line_start = word == 0 ? 0 : text.rfind('\n', word - 1) + 1;
@@ -708,7 +886,7 @@ json_t completion(const query_t& query, const std::uint32_t offset,
         return completer.members(word - (safe ? 2 : 1));
     }
 
-    return completer.names();
+    return completer.names(names_type(before));
 }
 
 } // namespace fb::lsp

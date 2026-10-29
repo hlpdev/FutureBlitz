@@ -8,9 +8,11 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace fb::lsp {
@@ -97,6 +99,9 @@ public:
     /// A type as code names it.
     [[nodiscard]] std::string type_name(type_id_t type) const;
 
+    /// The Enum whose value a Const is, or nullopt for another symbol.
+    [[nodiscard]] std::optional<type_id_t> enum_of(symbol_id_t id) const;
+
     /// The module this file is.
     [[nodiscard]] std::optional<module_id_t> module() const;
 
@@ -105,6 +110,8 @@ private:
     file_id_t m_file;
     /// The symbol of each Struct, Class, Interface, and Enum, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_types;
+    /// Each Enum's values' Enum, by their names' files and places.
+    std::map<std::pair<std::uint32_t, std::uint32_t>, type_id_t> m_enum_values;
 };
 
 } // namespace fb::lsp

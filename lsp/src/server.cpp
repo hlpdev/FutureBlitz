@@ -17,10 +17,12 @@
 #include <filesystem>
 #include <format>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -67,6 +69,24 @@ void unit_modules(const unit_t& unit, const std::string& prefix, std::set<std::s
     }
 }
 
+/// Whether a file is FutureBlitz code: a .fb file, in any letter case.
+bool is_fb_file(const std::filesystem::path& path) {
+    std::string extension = to_utf8(path.extension());
+    std::ranges::transform(extension, extension.begin(), [](const char c) {
+        return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    });
+    return extension == ".fb";
+}
+
+/// `object`'s field `key` when it's an object, or else an empty object.
+json_t object_at(const json_t& object, const char* key) {
+    if (object.is_object() && object.contains(key) && object[key].is_object()) {
+        return object[key];
+    }
+
+    return json_t::object();
+}
+
 /// `text` with one of didChange's contentChanges made.
 void apply_change(std::string& text, const json_t& change, const positions_t& positions) {
     const std::string replacement = change.at("text").get<std::string>();
@@ -75,10 +95,12 @@ void apply_change(std::string& text, const json_t& change, const positions_t& po
         return;
     }
 
+    // A source file drops a UTF-8 BOM, so its offsets start after one.
     const source_file_t file(file_id_t{}, "", text);
+    const std::uint32_t bom = text.starts_with("\xEF\xBB\xBF") ? 3 : 0;
     const std::uint32_t begin = positions.offset(file, change["range"].at("start"));
     const std::uint32_t end = std::max(begin, positions.offset(file, change["range"].at("end")));
-    text.replace(begin, end - begin, replacement);
+    text.replace(bom + begin, end - begin, replacement);
 }
 
 } // namespace
@@ -155,6 +177,11 @@ void server_t::handle(const json_t& message) {
     const json_t& id = message["id"];
     if (!m_initialized && method != "initialize") {
         fail(id, error_code_t::SERVER_NOT_INITIALIZED, "the server isn't initialized yet");
+        return;
+    }
+
+    if (m_initialized && method == "initialize") {
+        fail(id, error_code_t::INVALID_REQUEST, "the server is initialized already");
         return;
     }
 
@@ -298,9 +325,11 @@ void server_t::notified(const std::string& method, const json_t& params) {
     }
 
     if (method == "textDocument/didOpen") {
+        // Only FutureBlitz code is checked as it's typed; a project.toml, say, is read from disk.
         const json_t& document = params.at("textDocument");
-        if (const std::optional<std::filesystem::path> path =
-                path_of(document.at("uri").get<std::string>())) {
+        const std::optional<std::filesystem::path> path =
+            path_of(document.at("uri").get<std::string>());
+        if (path && is_fb_file(*path)) {
             m_workspace->open(*path, document.value("version", std::int64_t{ 0 }),
                               document.at("text").get<std::string>());
         }
@@ -350,51 +379,62 @@ void server_t::notified(const std::string& method, const json_t& params) {
     }
 
     if (method == "workspace/didChangeWorkspaceFolders") {
-        std::vector<std::filesystem::path> added;
-        for (const json_t& folder : params.at("event").value("added", json_t::array())) {
-            if (std::optional<std::filesystem::path> path =
-                    path_of(folder.at("uri").get<std::string>())) {
-                added.push_back(std::move(*path));
+        const auto folders = [&](const char* which) {
+            std::vector<std::filesystem::path> found;
+            for (const json_t& folder : params.at("event").value(which, json_t::array())) {
+                if (std::optional<std::filesystem::path> path =
+                        path_of(folder.at("uri").get<std::string>())) {
+                    found.push_back(std::move(*path));
+                }
             }
-        }
 
-        m_workspace->add_folders(added);
+            return found;
+        };
+        m_workspace->remove_folders(folders("removed"));
+        m_workspace->add_folders(folders("added"));
     }
 }
 
 json_t server_t::initialize(const json_t& params) {
-    m_initialized = true;
-    const json_t capabilities = params.value("capabilities", json_t::object());
+    const json_t capabilities = object_at(params, "capabilities");
     // UTF-8 is what the compiler counts in, so it's the cheapest when the client can.
     const json_t encodings =
-        capabilities.value("general", json_t::object()).value("positionEncodings", json_t::array());
+        object_at(capabilities, "general").value("positionEncodings", json_t());
     std::string encoding = "utf-16";
-    if (std::ranges::contains(encodings, json_t("utf-8"))) {
+    const bool utf8 = encodings.is_array() && std::ranges::contains(encodings, json_t("utf-8"));
+    if (utf8) {
         encoding = "utf-8";
-        m_positions.unit = column_unit_t::UTF8;
     }
 
-    m_watches = capabilities.value("workspace", json_t::object())
-                    .value("didChangeWatchedFiles", json_t::object())
-                    .value("dynamicRegistration", false);
-    const json_t options = params.value("initializationOptions", json_t::object());
-    m_format_on_save = options.is_object() && options.value("formatOnSave", false);
+    const json_t watching =
+        object_at(object_at(capabilities, "workspace"), "didChangeWatchedFiles");
+    const bool watches = watching.value("dynamicRegistration", false);
+    const bool format_on_save =
+        object_at(params, "initializationOptions").value("formatOnSave", false);
 
     // The folders, or the one the client opened before it had several.
+    std::vector<std::filesystem::path> folders;
     if (params.contains("workspaceFolders") && params["workspaceFolders"].is_array()) {
         for (const json_t& folder : params["workspaceFolders"]) {
             if (std::optional<std::filesystem::path> path =
                     path_of(folder.at("uri").get<std::string>())) {
-                m_folders.push_back(std::move(*path));
+                folders.push_back(std::move(*path));
             }
         }
     } else if (params.contains("rootUri") && params["rootUri"].is_string()) {
         if (std::optional<std::filesystem::path> path =
                 path_of(params["rootUri"].get<std::string>())) {
-            m_folders.push_back(std::move(*path));
+            folders.push_back(std::move(*path));
         }
     }
 
+    // It's initialized once its params are read without a mistake, and before any document is
+    // open, so the threads that publish read the positions' unit only after it's set.
+    m_positions.unit = utf8 ? column_unit_t::UTF8 : column_unit_t::UTF16;
+    m_watches = watches;
+    m_format_on_save = format_on_save;
+    m_folders = std::move(folders);
+    m_initialized = true;
     return {
         {
             "capabilities",
@@ -468,33 +508,48 @@ json_t server_t::definition(const json_t& params) {
                            m_positions);
 }
 
-json_t server_t::references(const json_t& params, const bool declaration, const bool renaming) {
+std::optional<server_t::target_t> server_t::target(const json_t& params) {
     const std::optional<std::filesystem::path> path = document_path(params);
     const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
     if (!checked) {
-        return nullptr;
+        return std::nullopt;
     }
 
     const query_t query(*checked->compilation, checked->file);
     const std::optional<named_t> named =
         query.name_at(m_positions.offset(query.source(), params.at("position")));
     if (!named) {
-        return json_t::array();
+        return std::nullopt;
     }
 
     // The checks of the file it's declared in and every file that imports it, or for a builtin,
     // this one's.
     std::vector<std::shared_ptr<const compilation_t>> compilations{ checked->compilation };
-    if (const std::optional<std::filesystem::path> declared = query.declared_in(named->symbol)) {
+    const std::optional<std::filesystem::path> declared = query.declared_in(named->symbol);
+    if (declared) {
         compilations = m_workspace->with_dependents(*declared);
     }
 
-    // A rename changes only the files that are the workspace's to change.
-    const auto kept = [this, renaming](const std::filesystem::path& file) {
-        return renaming ? editable(file)
-                        : m_workspace->owns(file) || m_workspace->document(file).has_value();
+    return target_t{
+        .checked = *checked,
+        .named = *named,
+        .key = query.key(named->symbol),
+        .declared = declared,
+        .compilations = std::move(compilations),
     };
-    return lsp::references(compilations, query.key(named->symbol), declaration, kept, m_positions);
+}
+
+json_t server_t::references(const json_t& params, const bool declaration) {
+    const std::optional<target_t> found = target(params);
+    if (!found) {
+        return json_t::array();
+    }
+
+    const auto kept = [this](const std::filesystem::path& file) {
+        return m_workspace->owns(file) || m_workspace->document(file).has_value();
+    };
+    return lsp::references(found->compilations, std::span(&found->key, 1), declaration, kept,
+                           m_positions);
 }
 
 bool server_t::editable(const std::filesystem::path& file) const {
@@ -504,30 +559,36 @@ bool server_t::editable(const std::filesystem::path& file) const {
            (m_workspace->document(file).has_value() && !file_key(file).starts_with(standard));
 }
 
+std::optional<std::string> server_t::unrenamable(const target_t& found) const {
+    const query_t query(*found.checked.compilation, found.checked.file);
+    const symbol_t& symbol = query.analysis().symbol(found.named.symbol);
+    if (symbol.kind == symbol_kind_t::MODULE) {
+        return "a module's name, or an Import's As name, isn't renamed here; change its Import";
+    }
+
+    // A New is always named New.
+    if (symbol.kind == symbol_kind_t::CONSTRUCTOR ||
+        query.source().slice(found.named.span) == "New") {
+        return "a New is always called New";
+    }
+
+    if (!found.declared || !editable(*found.declared)) {
+        return "only a name the workspace declares can be renamed";
+    }
+
+    return std::nullopt;
+}
+
 json_t server_t::prepare_rename(const json_t& params) {
-    const std::optional<std::filesystem::path> path = document_path(params);
-    const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
-    if (!checked) {
+    const std::optional<target_t> found = target(params);
+    if (!found || unrenamable(*found)) {
         return nullptr;
     }
 
-    const query_t query(*checked->compilation, checked->file);
-    const std::optional<named_t> named =
-        query.name_at(m_positions.offset(query.source(), params.at("position")));
-    if (!named) {
-        return nullptr;
-    }
-
-    // Only what the workspace declares, in its own files, can be renamed.
-    const std::optional<std::filesystem::path> declared = query.declared_in(named->symbol);
-    const symbol_kind_t kind = query.analysis().symbol(named->symbol).kind;
-    if (!declared || !editable(*declared) || kind == symbol_kind_t::MODULE) {
-        return nullptr;
-    }
-
+    const source_file_t& file = found->checked.compilation->sources.get(found->checked.file);
     return {
-        { "range", m_positions.range(query.source(), named->span) },
-        { "placeholder", std::string(query.source().slice(named->span)) },
+        { "range", m_positions.range(file, found->named.span) },
+        { "placeholder", std::string(file.slice(found->named.span)) },
     };
 }
 
@@ -535,16 +596,61 @@ json_t server_t::rename(const json_t& params) {
     const std::string name = params.at("newName").get<std::string>();
     if (!is_identifier(name)) {
         throw std::invalid_argument(
-            std::format("'{}' isn't a name: a name is letters, digits, and '_', and isn't a "
+            std::format("'{}' isn't a name: a name is ASCII letters, digits, and '_', and isn't a "
                         "keyword",
                         name));
     }
 
-    if (prepare_rename(params).is_null()) {
-        throw std::runtime_error("only a name the workspace declares can be renamed");
+    std::optional<target_t> found = target(params);
+    if (!found) {
+        throw std::runtime_error("there's no name here to rename");
     }
 
-    return rename_edit(references(params, true, true), name);
+    if (const std::optional<std::string> why = unrenamable(*found)) {
+        throw std::runtime_error(*why);
+    }
+
+    // What overrides it or implements it changes with it, from the checks of each of their
+    // files and what imports those, until there are no more.
+    std::vector<std::shared_ptr<const compilation_t>>& compilations = found->compilations;
+    std::set<std::string> checked_files;
+    if (found->declared) {
+        checked_files.insert(file_key(*found->declared));
+    }
+
+    rename_set_t set = rename_set(compilations, found->key);
+    for (bool more = true; more;) {
+        more = false;
+        for (const std::filesystem::path& file : set.files) {
+            if (checked_files.insert(file_key(file)).second) {
+                std::ranges::move(m_workspace->with_dependents(file),
+                                  std::back_inserter(compilations));
+                more = true;
+            }
+        }
+
+        if (more) {
+            set = rename_set(compilations, found->key);
+        }
+    }
+
+    for (const symbol_key_t& key : set.keys) {
+        if (!key.file.empty() && !editable(path_from_utf8(key.file))) {
+            throw std::runtime_error(
+                std::format("'{}' is tied to a declaration in {}, which a rename can't change",
+                            key.name, key.file));
+        }
+    }
+
+    if (const std::optional<std::string> conflict = rename_conflict(compilations, set.keys, name)) {
+        throw std::runtime_error(*conflict);
+    }
+
+    return rename_edit(lsp::references(
+                           compilations, set.keys, true,
+                           [this](const std::filesystem::path& file) { return editable(file); },
+                           m_positions),
+                       name);
 }
 
 json_t server_t::completion(const json_t& params) {

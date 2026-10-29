@@ -232,6 +232,42 @@ void workspace_t::add_folders(const std::vector<std::filesystem::path>& folders)
     m_work.notify_all();
 }
 
+void workspace_t::remove_folders(const std::vector<std::filesystem::path>& folders) {
+    const std::scoped_lock lock(m_mutex);
+    for (const std::filesystem::path& folder : folders) {
+        std::error_code error;
+        const std::string key = file_key(
+            std::filesystem::weakly_canonical(std::filesystem::absolute(folder, error), error));
+        std::erase_if(m_folders,
+                      [&](const std::filesystem::path& each) { return file_key(each) == key; });
+    }
+
+    // The units that aren't the workspace's now aren't checked whole, and what's published for
+    // their files goes, but for the open documents'.
+    for (std::size_t i = 0; i < m_units.size(); ++i) {
+        if (!owns(m_units[i].root)) {
+            std::erase(m_loads, i);
+            forget(m_units[i]);
+        }
+    }
+}
+
+void workspace_t::forget(const unit_t& unit) {
+    if (std::ranges::any_of(unit.keys,
+                            [this](const std::string& key) { return m_documents.contains(key); })) {
+        return;
+    }
+
+    for (const std::string& key : unit.keys) {
+        const auto published = m_published.find(key);
+        const auto path = m_paths.find(key);
+        if (published != m_published.end() && path != m_paths.end()) {
+            published->second = ++m_generation;
+            m_publish({ .path = path->second });
+        }
+    }
+}
+
 void workspace_t::open(const std::filesystem::path& path, const std::int64_t version,
                        std::string text) {
     {
@@ -288,6 +324,9 @@ void workspace_t::close(const std::filesystem::path& path) {
         } else {
             m_published[key] = m_generation;
             m_publish({ .path = path });
+            // Nor do its unit's other files, once none of them is open.
+            std::erase(m_loads, unit_index(path));
+            forget(m_units[unit_index(path)]);
         }
     }
 
@@ -307,18 +346,7 @@ void workspace_t::changed_on_disk(const std::vector<std::filesystem::path>& path
             std::error_code error;
             const bool exists = std::filesystem::is_regular_file(path, error);
             if (path.filename() == "project.toml") {
-                // The package's files and project.toml are read again, and it's checked whole.
-                const std::string root = file_key(path.parent_path());
-                for (std::size_t i = 0; i < m_units.size(); ++i) {
-                    if (m_units[i].kind == unit_t::kind_t::PACKAGE &&
-                        file_key(m_units[i].root) == root) {
-                        m_units[i] = make_unit(unit_t::kind_t::PACKAGE, m_units[i].root);
-                        if (!std::ranges::contains(m_loads, i)) {
-                            m_loads.push_back(i);
-                        }
-                    }
-                }
-
+                changed_manifest(path, exists);
                 continue;
             }
 
@@ -350,6 +378,41 @@ void workspace_t::changed_on_disk(const std::vector<std::filesystem::path>& path
     }
 
     m_work.notify_all();
+}
+
+void workspace_t::changed_manifest(const std::filesystem::path& path, const bool exists) {
+    // Every file under its folder is in the unit worked out again, which may be a new package,
+    // or none, once a project.toml is made or deleted.
+    const std::string root = file_key(path.parent_path());
+    std::erase_if(m_unit_of, [&](const auto& entry) { return inside(entry.first, root); });
+    for (std::size_t i = 0; i < m_units.size(); ++i) {
+        unit_t& unit = m_units[i];
+        if (unit.kind == unit_t::kind_t::PACKAGE && file_key(unit.root) == root) {
+            unit = exists ? make_unit(unit_t::kind_t::PACKAGE, unit.root)
+                          : unit_t{ .kind = unit_t::kind_t::PACKAGE, .root = unit.root };
+            std::erase(m_loads, i);
+        } else if (unit.kind == unit_t::kind_t::LOOSE && inside(file_key(unit.root), root)) {
+            unit.files.clear();
+            unit.keys.clear();
+        }
+    }
+
+    if (exists) {
+        const std::size_t unit = unit_index(path);
+        if (owns(path) || std::ranges::any_of(m_units[unit].keys, [this](const std::string& key) {
+                return m_documents.contains(key);
+            })) {
+            m_loads.push_back(unit);
+        }
+    }
+
+    // The documents in it are checked again, in their units now.
+    for (const auto& [key, document] : m_documents) {
+        if (inside(key, root)) {
+            m_latest.erase(key);
+            m_edited[key] = steady_t::now();
+        }
+    }
 }
 
 std::optional<std::pair<std::string, std::int64_t>>
@@ -601,6 +664,19 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
             const std::string key = file_key(path);
             files.emplace(key, module.file);
             m_paths.try_emplace(key, path);
+            // Not over a newer check's, nor from a document's text before its edit.
+            const auto document = m_documents.find(key);
+            const auto read = versions.find(key);
+            const bool current =
+                document == m_documents.end()
+                    ? read == versions.end()
+                    : read != versions.end() && read->second == document->second.version;
+            std::uint64_t& recorded = m_import_generations[key];
+            if (!current || recorded > generation) {
+                continue;
+            }
+
+            recorded = generation;
             std::set<std::string>& imports = m_imports[key];
             imports.clear();
             for (const module_import_t& imported : module.imports) {

@@ -9,6 +9,8 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -31,12 +33,36 @@ namespace fb::lsp {
 [[nodiscard]] json_t definition(const query_t& query, std::uint32_t offset,
                                 const positions_t& positions);
 
-/// Where each of `compilations` names the symbol `key`, its declaration with them when
+/// Where each of `compilations` names the symbols `keys`, their declarations with them when
 /// `declaration`, each once, as LSP Locations, in the files `keep` says to.
 [[nodiscard]] json_t references(std::span<const std::shared_ptr<const compilation_t>> compilations,
-                                const symbol_key_t& key, bool declaration,
+                                std::span<const symbol_key_t> keys, bool declaration,
                                 const std::function<bool(const std::filesystem::path&)>& keep,
                                 const positions_t& positions);
+
+/// What a rename of `key` changes with it, found in `compilations`: the Methods and Properties
+/// that override it or that it overrides, and those that implement the Interface member it is or
+/// implements, each way, with `key` itself, and the files they're declared in, which other
+/// compilations may have more of.
+struct rename_set_t {
+    std::vector<symbol_key_t> keys;
+    std::set<std::filesystem::path> files;
+};
+
+[[nodiscard]] rename_set_t
+rename_set(std::span<const std::shared_ptr<const compilation_t>> compilations,
+           const symbol_key_t& key);
+
+/// Why renaming `keys` to `name` would make code mean something else, or not check: another
+/// declaration of `name` where they're declared, a member of `name` in their type, or a name
+/// `name` that code where they're used sees. nullopt when nothing would.
+[[nodiscard]] std::optional<std::string>
+rename_conflict(std::span<const std::shared_ptr<const compilation_t>> compilations,
+                std::span<const symbol_key_t> keys, const std::string& name);
+
+/// The names code at `offset` sees: its variables, its file's and Imports' declarations, the
+/// builtins, and the built-in types.
+[[nodiscard]] std::set<std::string> visible_names(const query_t& query, std::uint32_t offset);
 
 /// textDocument/rename's WorkspaceEdit: each of `references`, LSP Locations, becomes `name`.
 [[nodiscard]] json_t rename_edit(const json_t& references, const std::string& name);

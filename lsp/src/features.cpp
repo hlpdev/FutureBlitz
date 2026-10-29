@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <functional>
 #include <map>
 #include <memory>
@@ -264,6 +265,136 @@ std::optional<json_t> location_of(const compilation_t& compilation, const span_t
     };
 }
 
+/// A SignatureInformation for a function: its declaration, with where each parameter is in it,
+/// in the client's units, and its docs.
+json_t signature_information(const query_t& query, const symbol_id_t function,
+                             const positions_t& positions) {
+    const std::string label = query.signature(function);
+    json_t parameters = json_t::array();
+    std::size_t from = label.find('(') + 1;
+    for (const symbol_id_t parameter : query.analysis().symbol(function).parameters) {
+        const std::string_view name = query.analysis().symbol(parameter).name;
+        const std::size_t begin = label.find(name, from);
+        if (begin == std::string::npos) {
+            break;
+        }
+
+        std::size_t end = label.find_first_of(",)", begin);
+        end = end == std::string::npos ? label.size() : end;
+        const std::uint32_t first = positions.length(std::string_view(label).substr(0, begin));
+        const std::uint32_t last =
+            first + positions.length(std::string_view(label).substr(begin, end - begin));
+        parameters.push_back({ { "label", { first, last } } });
+        from = end;
+    }
+
+    json_t signature{ { "label", label }, { "parameters", std::move(parameters) } };
+    if (const std::string docs = query.docs(function); !docs.empty()) {
+        signature["documentation"] = { { "kind", "markdown" }, { "value", docs } };
+    }
+
+    return signature;
+}
+
+/// What a call can be calling, which is typed while its arguments are: the function it resolved
+/// to, and the others its callee's name has there, a Function's overloads, the Methods of the
+/// name its object has, or a type's News.
+std::vector<symbol_id_t> overloads(const query_t& query, const call_expr_t& call,
+                                   const std::optional<symbol_id_t> resolved) {
+    const analysis_t& analysis = query.analysis();
+    const ast_t& ast = query.ast();
+    const auto callable = [&](const symbol_id_t id) {
+        const symbol_kind_t kind = analysis.symbol(id).kind;
+        return kind == symbol_kind_t::FUNCTION || kind == symbol_kind_t::BUILTIN_FUNCTION ||
+               kind == symbol_kind_t::METHOD || kind == symbol_kind_t::CONSTRUCTOR;
+    };
+    std::vector<symbol_id_t> found;
+    if (resolved && callable(*resolved)) {
+        found.push_back(*resolved);
+    }
+
+    const auto add = [&](const symbol_id_t id) {
+        if (!std::ranges::contains(found, id)) {
+            found.push_back(id);
+        }
+    };
+    const auto news = [&](const symbol_id_t type) {
+        for (const symbol_id_t member : analysis.symbol(type).members) {
+            if (analysis.symbol(member).kind == symbol_kind_t::CONSTRUCTOR) {
+                add(member);
+            }
+        }
+    };
+
+    // The files whose top-level names the call sees: its own, and its Imports'.
+    std::set<file_id_t> files{ query.file() };
+    if (const std::optional<module_id_t> module = query.module()) {
+        for (const module_import_t& imported : ast.modules().get(*module).imports) {
+            for (const module_id_t each : imported.modules) {
+                files.insert(ast.modules().get(each).file);
+            }
+        }
+    }
+
+    // The types whose Methods an object of `type` has: it, its generic one, and its bases.
+    const auto owners = [&](type_id_t type) {
+        std::set<type_id_t> out;
+        while (type != type_id_t::INVALID && std::to_underlying(type) < analysis.types.size() &&
+               out.insert(type).second) {
+            const type_t& entry = analysis.types.get(type);
+            if (entry.kind == type_kind_t::NULLABLE) {
+                type = entry.inner;
+                continue;
+            }
+
+            if (entry.generic != type_id_t::INVALID) {
+                out.insert(entry.generic);
+            }
+
+            type = entry.base;
+        }
+
+        return out;
+    };
+
+    std::string_view name;
+    std::optional<std::set<type_id_t>> object;
+    if (const auto* named = std::get_if<name_expr_t>(&ast.get(call.callee).node)) {
+        name = named->name;
+    } else if (const auto* member = std::get_if<member_expr_t>(&ast.get(call.callee).node)) {
+        name = member->member.text;
+        object = owners(analysis.expr(member->object).type);
+    }
+
+    if (resolved && analysis.symbol(*resolved).kind == symbol_kind_t::TYPE) {
+        news(*resolved);
+        return found;
+    }
+
+    for (std::size_t i = 0; i < analysis.symbols.size() && !name.empty(); ++i) {
+        const auto id = static_cast<symbol_id_t>(i);
+        const symbol_t& symbol = analysis.symbols[i];
+        if (symbol.name != name) {
+            continue;
+        }
+
+        if (object) {
+            if (symbol.kind == symbol_kind_t::METHOD && object->contains(symbol.owner)) {
+                add(id);
+            }
+        } else if (symbol.kind == symbol_kind_t::BUILTIN_FUNCTION ||
+                   (symbol.kind == symbol_kind_t::FUNCTION && symbol.owner == type_id_t::INVALID &&
+                    files.contains(symbol.span.file))) {
+            add(id);
+        } else if (symbol.kind == symbol_kind_t::TYPE && files.contains(symbol.span.file)) {
+            news(id);
+        }
+    }
+
+    std::erase_if(found, [&](const symbol_id_t id) { return !callable(id); });
+    return found;
+}
+
 /// Markdown's code block of FutureBlitz code.
 std::string code_block(const std::string& code) {
     return "```fb\n" + code + "\n```";
@@ -382,7 +513,16 @@ json_t definition(const query_t& query, const std::uint32_t offset, const positi
         return nullptr;
     }
 
+    // A module's qualifier, or an Import's As name, is its module's file.
     const symbol_t& symbol = query.analysis().symbol(named->symbol);
+    if (symbol.kind == symbol_kind_t::MODULE && !symbol.modules.empty()) {
+        const file_id_t file = query.ast().modules().get(symbol.modules.front()).file;
+        if (std::optional<json_t> location =
+                location_of(query.compilation(), { .file = file }, positions)) {
+            return *location;
+        }
+    }
+
     if (symbol.span.empty()) {
         return nullptr;
     }
@@ -391,14 +531,19 @@ json_t definition(const query_t& query, const std::uint32_t offset, const positi
 }
 
 json_t references(const std::span<const std::shared_ptr<const compilation_t>> compilations,
-                  const symbol_key_t& key, const bool declaration,
+                  const std::span<const symbol_key_t> keys, const bool declaration,
                   const std::function<bool(const std::filesystem::path&)>& keep,
                   const positions_t& positions) {
     json_t out = json_t::array();
     std::set<std::pair<std::string, std::uint32_t>> seen;
     for (const std::shared_ptr<const compilation_t>& compilation : compilations) {
         const query_t query(*compilation, compilation->file);
-        const std::vector<symbol_id_t> symbols = query.symbols_of(key);
+        std::set<symbol_id_t> symbols;
+        for (const symbol_key_t& key : keys) {
+            const std::vector<symbol_id_t> found = query.symbols_of(key);
+            symbols.insert(found.begin(), found.end());
+        }
+
         if (symbols.empty()) {
             continue;
         }
@@ -429,10 +574,10 @@ json_t references(const std::span<const std::shared_ptr<const compilation_t>> co
         }
 
         for (const symbol_use_t& use : compilation->analysis.uses) {
-            if (std::ranges::contains(symbols, use.symbol) ||
+            if (symbols.contains(use.symbol) ||
                 compilation->analysis.symbol(use.symbol).kind == symbol_kind_t::CONSTRUCTOR) {
                 const std::optional<named_t> named = query.name_of(use);
-                if (named && std::ranges::contains(symbols, named->symbol)) {
+                if (named && symbols.contains(named->symbol)) {
                     add(named->span);
                 }
             }
@@ -440,6 +585,161 @@ json_t references(const std::span<const std::shared_ptr<const compilation_t>> co
     }
 
     return out;
+}
+
+rename_set_t rename_set(const std::span<const std::shared_ptr<const compilation_t>> compilations,
+                        const symbol_key_t& key) {
+    rename_set_t out{ .keys = { key } };
+    for (const std::shared_ptr<const compilation_t>& compilation : compilations) {
+        const query_t query(*compilation, compilation->file);
+        const analysis_t& analysis = compilation->analysis;
+        // Each member and those it's tied to: what it overrides, an Interface's default it has,
+        // and for each implementation of an Interface, its member and the one implementing it.
+        std::map<symbol_id_t, std::vector<symbol_id_t>> ties;
+        const auto tie = [&](const symbol_id_t a, const symbol_id_t b) {
+            ties[a].push_back(b);
+            ties[b].push_back(a);
+        };
+        for (std::size_t i = 0; i < analysis.symbols.size(); ++i) {
+            const symbol_t& symbol = analysis.symbols[i];
+            if (symbol.overrides) {
+                tie(static_cast<symbol_id_t>(i), *symbol.overrides);
+            }
+
+            if (symbol.default_method) {
+                tie(static_cast<symbol_id_t>(i), *symbol.default_method);
+            }
+        }
+
+        for (const conformance_t& conformance : analysis.conformances) {
+            const std::optional<symbol_id_t> interface = query.type_symbol(conformance.interface);
+            if (!interface) {
+                continue;
+            }
+
+            const std::vector<symbol_id_t>& members = analysis.symbol(*interface).members;
+            for (std::size_t i = 0; i < members.size() && i < conformance.members.size(); ++i) {
+                tie(members[i], conformance.members[i]);
+            }
+        }
+
+        std::vector<symbol_id_t> work = query.symbols_of(key);
+        std::set<symbol_id_t> found(work.begin(), work.end());
+        while (!work.empty()) {
+            const symbol_id_t at = work.back();
+            work.pop_back();
+            for (const symbol_id_t next : ties[at]) {
+                if (found.insert(next).second) {
+                    work.push_back(next);
+                }
+            }
+        }
+
+        for (const symbol_id_t id : found) {
+            const symbol_key_t each = query.key(id);
+            if (!std::ranges::contains(out.keys, each) && !each.file.empty()) {
+                out.keys.push_back(each);
+                if (std::optional<std::filesystem::path> path = query.declared_in(id)) {
+                    out.files.insert(std::move(*path));
+                }
+            }
+        }
+    }
+
+    return out;
+}
+
+std::optional<std::string>
+rename_conflict(const std::span<const std::shared_ptr<const compilation_t>> compilations,
+                const std::span<const symbol_key_t> keys, const std::string& name) {
+    for (const std::shared_ptr<const compilation_t>& compilation : compilations) {
+        const analysis_t& analysis = compilation->analysis;
+        const query_t query(*compilation, compilation->file);
+        std::set<symbol_id_t> symbols;
+        for (const symbol_key_t& key : keys) {
+            const std::vector<symbol_id_t> found = query.symbols_of(key);
+            symbols.insert(found.begin(), found.end());
+        }
+
+        // Where it's said: another declaration's place, as "shapes.fb:3".
+        const auto place = [&](const span_t span) {
+            const source_file_t& file = compilation->sources.get(span.file);
+            return std::format("{}:{}", file.path(),
+                               file.location_of(span.begin, column_unit_t::UTF8).line + 1);
+        };
+        for (const symbol_id_t id : symbols) {
+            const symbol_t& symbol = analysis.symbol(id);
+            // A member's name is its type's, the Classes' it extends too.
+            if (symbol.owner != type_id_t::INVALID) {
+                std::set<type_id_t> owners;
+                type_id_t type = symbol.owner;
+                while (type != type_id_t::INVALID && owners.insert(type).second) {
+                    type = analysis.types.get(type).base;
+                }
+
+                for (const symbol_t& other : analysis.symbols) {
+                    if (other.name == name && owners.contains(other.owner) && !other.span.empty()) {
+                        return std::format("{} already has a member named '{}', at {}",
+                                           query.type_name(symbol.owner), name, place(other.span));
+                    }
+                }
+
+                continue;
+            }
+
+            // A variable's name is taken by another in its function, or its file's top-level code,
+            // declared before it or after.
+            const auto variable = [](const symbol_kind_t kind) {
+                return kind == symbol_kind_t::LOCAL || kind == symbol_kind_t::CONSTANT ||
+                       kind == symbol_kind_t::PARAMETER || kind == symbol_kind_t::LOOP_VARIABLE;
+            };
+            if (variable(symbol.kind) && !symbol.span.empty()) {
+                span_t scope{ .file = symbol.span.file, .begin = 0, .end = UINT32_MAX };
+                for (std::size_t i = 0; i < compilation->ast.stmt_count(); ++i) {
+                    const stmt_t& statement = compilation->ast.get(static_cast<stmt_id_t>(i));
+                    if (std::holds_alternative<function_stmt_t>(statement.node) &&
+                        statement.span.file == symbol.span.file &&
+                        statement.span.begin <= symbol.span.begin &&
+                        symbol.span.end <= statement.span.end &&
+                        statement.span.length() < scope.length()) {
+                        scope = statement.span;
+                    }
+                }
+
+                for (const symbol_t& other : analysis.symbols) {
+                    if (other.name == name && variable(other.kind) &&
+                        other.span.file == scope.file && scope.begin <= other.span.begin &&
+                        other.span.end <= scope.end) {
+                        return std::format("'{}' is declared already where '{}' is, at {}", name,
+                                           symbol.name, place(other.span));
+                    }
+                }
+            }
+
+            // Anything else is a name that code sees where it's declared and used.
+            std::vector<span_t> places{ symbol.span };
+            for (const symbol_use_t& use : analysis.uses) {
+                if (const std::optional<named_t> named = query.name_of(use);
+                    named && named->symbol == id) {
+                    places.push_back(named->span);
+                }
+            }
+
+            for (const span_t span : places) {
+                if (span.empty()) {
+                    continue;
+                }
+
+                const query_t there(*compilation, span.file);
+                if (visible_names(there, span.begin).contains(name)) {
+                    return std::format("'{}' is a name already where '{}' is, at {}", name,
+                                       symbol.name, place(span));
+                }
+            }
+        }
+    }
+
+    return std::nullopt;
 }
 
 json_t rename_edit(const json_t& references, const std::string& name) {
@@ -461,9 +761,10 @@ bool is_identifier(const std::string& name) {
         return false;
     }
 
+    // ASCII letters, digits, and '_', as docs/spec/01-lexical.md has them.
     return std::ranges::all_of(name, [](const char c) {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-               c == '_' || static_cast<unsigned char>(c) >= 0x80;
+               c == '_';
     });
 }
 
@@ -515,94 +816,73 @@ json_t signature_help(const query_t& query, const std::uint32_t offset,
 
     const auto& call = std::get<call_expr_t>(ast.get(*best).node);
     const analysis_t& analysis = query.analysis();
-    std::optional<symbol_id_t> function = analysis.expr(*best).symbol;
-    if (!function) {
-        function = analysis.expr(call.callee).symbol;
+    std::optional<symbol_id_t> resolved = analysis.expr(*best).symbol;
+    if (!resolved) {
+        resolved = analysis.expr(call.callee).symbol;
     }
 
-    // A type's name calls its New.
-    if (function && analysis.symbol(*function).kind == symbol_kind_t::TYPE) {
-        const std::vector<symbol_id_t>& members = analysis.symbol(*function).members;
-        const auto constructor = std::ranges::find_if(members, [&](const symbol_id_t member) {
-            return analysis.symbol(member).kind == symbol_kind_t::CONSTRUCTOR;
-        });
-        function = constructor != members.end() ? std::optional(*constructor) : std::nullopt;
-    }
-
-    if (!function) {
-        return nullptr;
-    }
-
-    const symbol_t& symbol = analysis.symbol(*function);
-    if (symbol.kind != symbol_kind_t::FUNCTION && symbol.kind != symbol_kind_t::METHOD &&
-        symbol.kind != symbol_kind_t::BUILTIN_FUNCTION &&
-        symbol.kind != symbol_kind_t::CONSTRUCTOR) {
-        return nullptr;
-    }
-
-    // Which argument `offset` is in: the commas before it, outside brackets.
+    // Which argument `offset` is in: the commas before it, outside brackets, as the lexer finds
+    // them, so a string's or a character's aren't counted.
     const std::uint32_t open = ast.get(call.callee).span.end;
     std::uint32_t active = 0;
     int depth = 0;
-    const std::string_view text = source.text();
-    for (std::uint32_t at = open + 1; at < offset && at < text.size(); ++at) {
-        const char c = text[at];
-        if (c == '(' || c == '[' || c == '{') {
-            ++depth;
-        } else if (c == ')' || c == ']' || c == '}') {
-            --depth;
-        } else if (c == ',' && depth == 0) {
-            ++active;
-        } else if (c == '"') {
-            // A string's commas are its own.
-            ++at;
-            while (at < offset && at < text.size() && text[at] != '"') {
-                ++at;
-            }
+    diagnostic_bag_t ignored;
+    const std::vector<std::string_view> defined = defined_symbols(build_mode_t::DEBUG);
+    for (const token_t& token : lex(source, ignored, defined)) {
+        if (token.span.begin <= open || token.span.begin >= offset) {
+            continue;
         }
-    }
 
-    // The label, with where each parameter is in it, in the client's units.
-    std::string label = query.signature(*function);
-    const std::size_t parenthesis = label.find('(');
-    json_t parameters = json_t::array();
-    std::size_t from = parenthesis + 1;
-    for (const symbol_id_t parameter : symbol.parameters) {
-        const std::string_view name = analysis.symbol(parameter).name;
-        const std::size_t begin = label.find(name, from);
-        if (begin == std::string::npos) {
+        switch (token.kind) {
+        case token_kind_t::LEFT_PAREN:
+        case token_kind_t::LEFT_BRACKET:
+        case token_kind_t::LEFT_BRACE:
+            ++depth;
+            break;
+        case token_kind_t::RIGHT_PAREN:
+        case token_kind_t::RIGHT_BRACKET:
+        case token_kind_t::RIGHT_BRACE:
+            --depth;
+            break;
+        case token_kind_t::COMMA:
+            active += depth == 0 ? 1 : 0;
+            break;
+        default:
             break;
         }
+    }
 
-        std::size_t end = label.find_first_of(",)", begin);
-        end = end == std::string::npos ? label.size() : end;
-        const std::uint32_t first = positions.length(std::string_view(label).substr(0, begin));
-        parameters.push_back({
-            {
-                "label",
-                {
-                    first,
-                    first + positions.length(std::string_view(label).substr(begin, end - begin)),
-                },
-            },
+    const std::vector<symbol_id_t> candidates = overloads(query, call, resolved);
+    if (candidates.empty()) {
+        return nullptr;
+    }
+
+    // The one the call resolved to, or else the first that takes as many arguments as it has.
+    std::size_t chosen = 0;
+    if (const auto at = std::ranges::find(candidates, resolved.value_or(symbol_id_t{}));
+        resolved && at != candidates.end()) {
+        chosen = static_cast<std::size_t>(at - candidates.begin());
+    } else {
+        const auto fits = std::ranges::find_if(candidates, [&](const symbol_id_t id) {
+            const std::vector<symbol_id_t>& parameters = analysis.symbol(id).parameters;
+            return active < parameters.size() ||
+                   (!parameters.empty() && analysis.symbol(parameters.back()).variadic);
         });
-        from = end;
+        chosen = fits != candidates.end() ? static_cast<std::size_t>(fits - candidates.begin()) : 0;
     }
 
-    json_t signature{ { "label", label }, { "parameters", std::move(parameters) } };
-    if (const std::string docs = query.docs(*function); !docs.empty()) {
-        signature["documentation"] = { { "kind", "markdown" }, { "value", docs } };
+    json_t signatures = json_t::array();
+    for (const symbol_id_t function : candidates) {
+        signatures.push_back(signature_information(query, function, positions));
     }
 
+    const std::size_t count = analysis.symbol(candidates[chosen]).parameters.size();
     return {
-        { "signatures", json_t::array({ std::move(signature) }) },
-        { "activeSignature", 0 },
+        { "signatures", std::move(signatures) },
+        { "activeSignature", chosen },
         {
             "activeParameter",
-            symbol.parameters.empty()
-                ? 0
-                : std::min<std::uint32_t>(active,
-                                          static_cast<std::uint32_t>(symbol.parameters.size() - 1)),
+            count == 0 ? 0 : std::min<std::uint32_t>(active, static_cast<std::uint32_t>(count - 1)),
         },
     };
 }

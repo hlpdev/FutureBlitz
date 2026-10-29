@@ -1,10 +1,12 @@
 #pragma once
 
 #include "fb/lsp/protocol.hpp"
+#include "fb/lsp/query.hpp"
 #include "fb/lsp/workspace.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
@@ -74,8 +76,21 @@ private:
     json_t initialize(const json_t& params);
     json_t hover(const json_t& params);
     json_t definition(const json_t& params);
-    /// For a rename, `renaming`, only in the files it can change.
-    json_t references(const json_t& params, bool declaration, bool renaming = false);
+    /// What a request about a name is about: the check of its file, the name, its symbol's key,
+    /// where it's declared, and the checks that have its every use.
+    struct target_t {
+        checked_t checked;
+        named_t named;
+        symbol_key_t key;
+        std::optional<std::filesystem::path> declared;
+        std::vector<std::shared_ptr<const compilation_t>> compilations;
+    };
+
+    /// The name at a request's position, or nullopt when there's none.
+    std::optional<target_t> target(const json_t& params);
+    /// Why a name can't be renamed, or nullopt when it can.
+    [[nodiscard]] std::optional<std::string> unrenamable(const target_t& found) const;
+    json_t references(const json_t& params, bool declaration);
     /// Whether a rename can change a file: one of the workspace's, or an open document outside
     /// it, but for std's, unless std is the workspace's.
     [[nodiscard]] bool editable(const std::filesystem::path& file) const;

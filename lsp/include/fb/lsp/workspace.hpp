@@ -105,6 +105,8 @@ public:
 
     /// The client's folders: each package in them, and std when it's among them.
     void add_folders(const std::vector<std::filesystem::path>& folders);
+    /// Folders the client closed, whose files aren't the workspace's any more.
+    void remove_folders(const std::vector<std::filesystem::path>& folders);
 
     void open(const std::filesystem::path& path, std::int64_t version, std::string text);
     void change(const std::filesystem::path& path, std::int64_t version, std::string text);
@@ -185,8 +187,10 @@ private:
     /// another main file, whose top-level code it left out, and files changed on disk.
     std::vector<std::filesystem::path> m_alone;
     std::map<std::string, latest_t> m_latest;
-    /// What each file imports, by key, from the latest check that had it.
+    /// What each file imports, by key, from the latest check that had it, and that check's
+    /// generation.
     std::map<std::string, std::set<std::string>> m_imports;
+    std::map<std::string, std::uint64_t> m_import_generations;
     /// Each file's paths by key, as the checks have found them.
     std::map<std::string, std::filesystem::path> m_paths;
     /// The unit each file is in, by key, once unit_index() has found it.
@@ -218,6 +222,10 @@ private:
     /// Jobs that check `keys`, one for each unit they're in.
     std::vector<job_t> jobs_for(const std::set<std::string>& keys);
     void edited(const std::string& key);
+    /// A project.toml at `path` that's been changed, made, or deleted, as `exists` says.
+    void changed_manifest(const std::filesystem::path& path, bool exists);
+    /// Takes back what's published for a unit's files, when none of them is open.
+    void forget(const unit_t& unit);
 };
 
 /// Whether a file's top-level statements include code, besides declarations, which only a main

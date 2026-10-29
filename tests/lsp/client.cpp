@@ -3,6 +3,7 @@
 #include "fb/driver.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/server.hpp"
+#include "fb/source.hpp"
 #include "fb/utf8.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -143,6 +144,26 @@ void client_t::change(const std::string& uri, const std::string_view text) {
            {
                { "textDocument", { { "uri", uri }, { "version", version } } },
                { "contentChanges", json_t::array({ { { "text", text } } }) },
+           });
+}
+
+void client_t::edit(const std::string& uri, const json_t& changes, const column_unit_t unit) {
+    // A BOM is the text's, which a source file leaves out of its offsets.
+    std::string& text = m_texts.at(uri);
+    const positions_t positions{ .unit = unit };
+    for (const json_t& change : changes) {
+        const std::size_t bom = text.starts_with("\xEF\xBB\xBF") ? 3 : 0;
+        const source_file_t file(file_id_t{}, "", text);
+        const std::uint32_t begin = positions.offset(file, change["range"]["start"]);
+        const std::uint32_t end = positions.offset(file, change["range"]["end"]);
+        text.replace(bom + begin, end - begin, change["text"].get<std::string>());
+    }
+
+    const std::int64_t version = ++m_versions[uri];
+    notify("textDocument/didChange",
+           {
+               { "textDocument", { { "uri", uri }, { "version", version } } },
+               { "contentChanges", changes },
            });
 }
 

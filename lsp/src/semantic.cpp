@@ -156,8 +156,19 @@ json_t semantic_tokens(const query_t& query, const positions_t& positions) {
             break;
         }
 
+        // A built-in type's name, like Int, which no symbol has.
+        std::uint32_t modifiers = 0;
+        if (token.kind == token_kind_t::IDENTIFIER && builtin_type(text)) {
+            type = token_type_t::TYPE;
+            modifiers = static_cast<std::uint32_t>(modifier_t::DEFAULT_LIBRARY);
+        }
+
         if (type && !token.span.empty()) {
-            tokens[token.span.begin] = { .end = token.span.end, .type = *type };
+            tokens[token.span.begin] = {
+                .end = token.span.end,
+                .type = *type,
+                .modifiers = modifiers,
+            };
         }
     }
 
