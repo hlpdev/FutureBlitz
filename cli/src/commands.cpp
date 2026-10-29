@@ -13,14 +13,20 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <expected>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iterator>
+#include <map>
+#include <numeric>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -35,6 +41,9 @@ namespace {
 
 /// What a program exits with when it panics. The runtime's fb_panic uses the same code.
 constexpr int panic_exit_code = 101;
+
+/// What `fb test` exits with when a test failed.
+constexpr int tests_failed_exit_code = 1;
 
 /// The most diagnostics a command shows; the count of the rest follows them.
 constexpr std::size_t shown_diagnostics = 100;
@@ -105,6 +114,8 @@ std::string_view summary(const command_t command) {
         return "Compile a program into an executable";
     case command_t::RUN:
         return "Compile a program and run it";
+    case command_t::TEST:
+        return "Compile a package's tests and run them";
     case command_t::BINDGEN:
         return "Turn a C header into a FutureBlitz module, with fb-bindgen";
     default:
@@ -171,8 +182,8 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
 
     if (!command) {
         out += std::format("\n{}\n", heading("Commands:"));
-        for (const command_t each :
-             { command_t::CHECK, command_t::BUILD, command_t::RUN, command_t::BINDGEN }) {
+        for (const command_t each : { command_t::CHECK, command_t::BUILD, command_t::RUN,
+                                      command_t::TEST, command_t::BINDGEN }) {
             out += entry(command_name(each), summary(each));
         }
 
@@ -186,7 +197,12 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
     }
 
     out += entry("    --release", "Optimize, and let integer overflow wrap instead of panicking");
-    out += entry("    --show <stages>", "Print stages: tokens, ast, types, mir, llvm, or all");
+    if (command == command_t::TEST) {
+        out += entry("    --filter <name>", "Run only the tests whose names have <name> in them");
+    } else {
+        out += entry("    --show <stages>", "Print stages: tokens, ast, types, mir, llvm, or all");
+    }
+
     out += entry("    --color <when>", "Color the output: auto, always, or never");
     out += entry("-h, --help", "Show this help");
     if (!command) {
@@ -413,6 +429,20 @@ int build_library_files(const console_t& console, const options_t& options,
     return 0;
 }
 
+/// "exited with code 3", for a program that didn't exit with 0. A program that crashes on Windows
+/// gives an NTSTATUS, like 0xC0000409, which shows in hex.
+std::string exited_with(const int code) {
+    if (code == panic_exit_code) {
+        return std::format("exited with code {}, which a panic gives", panic_exit_code);
+    }
+
+    if (code < 0) {
+        return std::format("exited with code 0x{:08X}", static_cast<std::uint32_t>(code));
+    }
+
+    return std::format("exited with code {}", code);
+}
+
 /// `fb run`: builds the program in a temporary folder, runs it in this terminal, and deletes the
 /// folder. Returns the program's exit code, or 1 when it can't be built or started.
 int run(const console_t& console, const options_t& options, const compilation_t& compilation,
@@ -447,18 +477,56 @@ int run(const console_t& console, const options_t& options, const compilation_t&
         return compile_errors_exit_code;
     }
 
-    // A program that crashes on Windows gives an NTSTATUS, like 0xC0000409, which shows in hex.
-    if (*exit_code == panic_exit_code) {
-        console.error(
-            std::format("{} exited with code {}, which a panic gives", name, panic_exit_code));
-    } else if (*exit_code < 0) {
-        console.error(std::format("{} exited with code 0x{:08X}", name,
-                                  static_cast<std::uint32_t>(*exit_code)));
-    } else if (*exit_code != 0) {
-        console.error(std::format("{} exited with code {}", name, *exit_code));
+    if (*exit_code != 0) {
+        console.error(std::format("{} {}", name, exited_with(*exit_code)));
     }
 
     return *exit_code;
+}
+
+/// The .fb file or package folder a command was given, or without either, the package the current
+/// folder is in, as cargo finds one. Nullopt, after saying so, when there's none.
+std::optional<std::filesystem::path> input_of(const console_t& console, const options_t& options) {
+    if (!options.input.empty()) {
+        return options.input;
+    }
+
+    std::error_code error;
+    std::optional<std::filesystem::path> found = find_package(std::filesystem::current_path(error));
+    if (!found) {
+        console.error("there's no project.toml in this folder or above it; give a package's "
+                      "folder, or a .fb file");
+    }
+
+    return found;
+}
+
+/// How messages name what's compiled: a package as cargo names a crate, "game v0.1.0
+/// (C:/games/game)", and else the file.
+std::string shown_name(const compilation_t& compilation, const std::filesystem::path& input) {
+    const std::optional<package_info_t>& package = compilation.package;
+    return package
+               ? std::format("{} v{} ({})", package->name, package->version, to_utf8(package->root))
+               : to_utf8(input);
+}
+
+/// Prints a compilation's diagnostics, and gives how many are errors. A file with thousands of
+/// errors, like one that isn't source code, shows the first ones.
+std::size_t report_diagnostics(const console_t& console, const compilation_t& compilation) {
+    const std::span<const diagnostic_t> diagnostics = compilation.diagnostics.diagnostics();
+    for (const diagnostic_t& diagnostic : diagnostics | std::views::take(shown_diagnostics)) {
+        console_t::print_error(
+            render_pretty(diagnostic, compilation.sources, { .color = console.err().color }));
+    }
+
+    if (const std::size_t rest =
+            diagnostics.size() - std::min(diagnostics.size(), shown_diagnostics);
+        rest > 0) {
+        console.note(rest == 1 ? std::string("1 more diagnostic isn't shown")
+                               : std::format("{} more diagnostics aren't shown", rest));
+    }
+
+    return compilation.diagnostics.error_count();
 }
 
 /// check, build, and run all compile and lower the program, printing the views asked for. Then
@@ -468,33 +536,21 @@ int compile_command(const options_t& options) {
     const console_t console(options.color);
     const bool checking = options.command == command_t::CHECK;
 
-    // This only fails when the file can't be read, or a folder isn't a package's, which counts as
-    // bad usage. Without either, it's the package the current folder is in, as cargo finds one.
-    std::filesystem::path input = options.input;
-    if (input.empty()) {
-        std::error_code error;
-        const std::optional<std::filesystem::path> found =
-            find_package(std::filesystem::current_path(error));
-        if (!found) {
-            console.error("there's no project.toml in this folder or above it; give a package's "
-                          "folder, or a .fb file");
-            return usage_exit_code;
-        }
-
-        input = *found;
+    const std::optional<std::filesystem::path> input = input_of(console, options);
+    if (!input) {
+        return usage_exit_code;
     }
 
-    const std::expected<compilation_t, std::string> compiled = compile_file(input, options.mode);
+    // This only fails when the file can't be read, or a folder isn't a package's, which counts as
+    // bad usage.
+    const std::expected<compilation_t, std::string> compiled = compile_file(*input, options.mode);
     if (!compiled) {
         console.error(compiled.error());
         return usage_exit_code;
     }
 
-    // A package is named as cargo names a crate: "game v0.1.0 (C:/games/game)".
     const std::optional<package_info_t>& package = compiled->package;
-    const std::string name = package ? std::format("{} v{} ({})", package->name, package->version,
-                                                   to_utf8(package->root))
-                                     : to_utf8(input);
+    const std::string name = shown_name(*compiled, *input);
     console.status(checking ? "Checking" : "Compiling", name);
     if (package && package->library && options.command == command_t::RUN) {
         console.error(std::format("{} is a library, with no main file to {}", package->name,
@@ -530,21 +586,7 @@ int compile_command(const options_t& options) {
                    dump_types(compilation.ast, compilation.analysis, style, library));
     }
 
-    // A file with thousands of errors, like one that isn't source code, shows the first ones.
-    const std::span<const diagnostic_t> diagnostics = compilation.diagnostics.diagnostics();
-    for (const diagnostic_t& diagnostic : diagnostics | std::views::take(shown_diagnostics)) {
-        console_t::print_error(
-            render_pretty(diagnostic, compilation.sources, { .color = console.err().color }));
-    }
-
-    if (const std::size_t rest =
-            diagnostics.size() - std::min(diagnostics.size(), shown_diagnostics);
-        rest > 0) {
-        console.note(rest == 1 ? std::string("1 more diagnostic isn't shown")
-                               : std::format("{} more diagnostics aren't shown", rest));
-    }
-
-    if (const std::size_t errors = compilation.diagnostics.error_count(); errors > 0) {
+    if (const std::size_t errors = report_diagnostics(console, compilation); errors > 0) {
         console.error(checking ? std::format("{} has {}", name, count(errors, "error"))
                                : std::format("couldn't build {} because of {}", name,
                                              count(errors, "error")));
@@ -617,6 +659,315 @@ int compile_command(const options_t& options) {
     }
 }
 
+/// One record of the report a test executable writes, as the runtime's runner does: its kind,
+/// like "start", "fail", or "end", the test's index, if it's about one, and its text.
+struct report_record_t {
+    std::string kind;
+    std::optional<std::size_t> test;
+    std::string text;
+};
+
+/// A report's records: each is "<kind> <index> <length>" on a line, -1 for no test, then that
+/// many bytes of text, and a line break. One the executable didn't finish writing is left out.
+std::vector<report_record_t> read_report(const std::filesystem::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    const std::string text{ std::istreambuf_iterator<char>(file),
+                            std::istreambuf_iterator<char>() };
+    std::vector<report_record_t> records;
+    std::size_t at = 0;
+    while (at < text.size()) {
+        const std::size_t end = text.find('\n', at);
+        if (end == std::string::npos) {
+            break;
+        }
+
+        const std::string_view line = std::string_view(text).substr(at, end - at);
+        const std::size_t first = line.find(' ');
+        const std::size_t second = line.rfind(' ');
+        long long index = 0;
+        std::size_t length = 0;
+        if (first == std::string_view::npos || second == first ||
+            std::from_chars(line.data() + first + 1, line.data() + second, index).ec !=
+                std::errc() ||
+            std::from_chars(line.data() + second + 1, line.data() + line.size(), length).ec !=
+                std::errc() ||
+            end + 1 + length >= text.size()) {
+            break;
+        }
+
+        records.push_back({
+            .kind = std::string(line.substr(0, first)),
+            .test = index < 0 ? std::nullopt : std::optional(static_cast<std::size_t>(index)),
+            .text = text.substr(end + 1, length),
+        });
+        at = end + length + 2;
+    }
+
+    return records;
+}
+
+/// What one test did, once it's done.
+struct test_result_t {
+    bool done = false;
+    bool failed = false;
+    bool skipped = false;
+    std::string reason;
+    /// Its failures, a panic's, and its leaks, in order.
+    std::vector<std::string> messages;
+};
+
+/// Sets an environment variable of fb's, which the programs it runs get.
+void set_environment(const char* name, const std::filesystem::path& value) {
+#ifdef _WIN32
+    const std::wstring wide(name, name + std::strlen(name));
+    _wputenv_s(wide.c_str(), value.c_str());
+#else
+    setenv(name, value.c_str(), 1);
+#endif
+}
+
+/// "test game.shapes.Area ... ok" for each of `ended`, by their indexes.
+void print_results(const console_t& console, const std::vector<test_case_t>& tests,
+                   const std::vector<test_result_t>& results,
+                   const std::vector<std::size_t>& ended) {
+    const style_t& style = console.out();
+    for (const std::size_t index : ended) {
+        const test_result_t& result = results[index];
+        std::string shown = style.paint("ok", tone_t::SUCCESS);
+        if (result.failed) {
+            shown = style.paint("FAILED", tone_t::ERROR);
+        } else if (result.skipped) {
+            shown = style.paint("skipped", tone_t::NOTE) +
+                    (result.reason.empty() ? "" : std::format(": {}", result.reason));
+        }
+
+        console_t::print(std::format("test {} ... {}\n", tests[index].name, shown));
+    }
+}
+
+/// Runs a test executable, built for `mode`, until each of `tests`, by their indexes, is done,
+/// printing each one's result once a run of it ends. A test that panics ends the run, and fails;
+/// the next run has the rest. When a run ends with more than one test going and none to blame,
+/// the next runs them one at a time, on the main thread, so the next one that ends a run is the
+/// one.
+void run_tests(const console_t& console, const std::filesystem::path& program,
+               const build_mode_t mode, const std::vector<test_case_t>& tests,
+               std::vector<test_result_t>& results) {
+    const std::filesystem::path folder = program.parent_path();
+    const std::filesystem::path plan = folder / "plan.txt";
+    const std::filesystem::path report = folder / "report.txt";
+    set_environment("FB_TEST_PLAN", plan);
+    set_environment("FB_TEST_REPORT", report);
+    std::vector<std::size_t> remaining(tests.size());
+    // NOLINTNEXTLINE(modernize-use-ranges): Apple's libc++ has no std::ranges::iota.
+    std::iota(remaining.begin(), remaining.end(), std::size_t{ 0 });
+    bool serial = false;
+    while (!remaining.empty()) {
+        std::string planned = serial ? "serial\n" : "parallel\n";
+        for (const std::size_t index : remaining) {
+            planned += std::format("{}\n", index);
+        }
+
+        std::ofstream(plan, std::ios::binary) << planned;
+        std::error_code ignored;
+        std::filesystem::remove(report, ignored);
+        const std::expected<int, std::string> ran = run_attached(program, {});
+        if (!ran) {
+            console.error(ran.error());
+            for (const std::size_t index : remaining) {
+                results[index] = { .done = true, .failed = true, .messages = { ran.error() } };
+            }
+
+            return;
+        }
+
+        // What each test of this run did: a run that ends early keeps only what its finished
+        // tests did, and the one that panicked, since the rest run again.
+        std::map<std::size_t, test_result_t> found;
+        std::vector<std::size_t> started;
+        std::optional<std::size_t> panicked;
+        std::string panic;
+        bool finished = false;
+        for (const report_record_t& record : read_report(report)) {
+            if (record.kind == "done") {
+                finished = true;
+                continue;
+            }
+
+            if (record.kind == "panic" && !record.test) {
+                panic = record.text;
+                continue;
+            }
+
+            if (!record.test || *record.test >= tests.size()) {
+                continue;
+            }
+
+            test_result_t& result = found[*record.test];
+            if (record.kind == "start") {
+                started.push_back(*record.test);
+            } else if (record.kind == "end") {
+                result.done = true;
+            } else if (record.kind == "skip") {
+                result.skipped = true;
+                result.reason = record.text;
+            } else if (record.kind == "fail" || record.kind == "leak" || record.kind == "panic") {
+                result.failed = true;
+                result.messages.push_back(record.text);
+                if (record.kind == "panic") {
+                    result.done = true;
+                    panicked = record.test;
+                }
+            }
+        }
+
+        std::vector<std::size_t> going;
+        std::ranges::copy_if(started, std::back_inserter(going),
+                             [&](const std::size_t index) { return !found[index].done; });
+        // A run that ends with one test going ended in it, as a crash or an Exit can.
+        if (!finished && !panicked && going.size() == 1) {
+            test_result_t& result = found[going.front()];
+            result.done = true;
+            result.failed = true;
+            result.messages.push_back(
+                panic.empty()
+                    ? std::format("the tests' program {}, in this test", exited_with(*ran))
+                    : panic);
+            panicked = going.front();
+        }
+
+        // A run that ends early never checks its tests' leaks, which a debug build reports once the
+        // Globals are let go of, so the tests that finished in it run again, but for the one to
+        // blame. When there's none, and no test was going, the run ended outside them, and what
+        // finished is kept, so the next run gets further.
+        const bool keeps =
+            finished || mode == build_mode_t::RELEASE || (!panicked && going.empty());
+        std::vector<std::size_t> next;
+        std::vector<std::size_t> ended;
+        for (const std::size_t index : remaining) {
+            if (const auto result = found.find(index);
+                result != found.end() && result->second.done && (keeps || index == panicked)) {
+                results[index] = std::move(result->second);
+                ended.push_back(index);
+            } else {
+                next.push_back(index);
+            }
+        }
+
+        print_results(console, tests, results, ended);
+        // A run that ends before any test does can't be helped by another.
+        if (!finished && ended.empty() && going.empty()) {
+            const std::string why =
+                panic.empty() ? std::format("the tests' program {} first", exited_with(*ran))
+                              : std::format("the tests' program panicked first: {}", panic);
+            for (const std::size_t index : next) {
+                results[index] = { .done = true, .failed = true, .messages = { why } };
+            }
+
+            print_results(console, tests, results, next);
+            return;
+        }
+
+        serial = serial || (!finished && !panicked && going.size() > 1);
+        remaining = std::move(next);
+    }
+}
+
+/// `fb test`: builds the package's tests, those `--filter` names, into a test executable in a
+/// temporary folder, runs them, and says how each did, then how they all did, and deletes the
+/// folder. Returns 0 when none of them failed.
+int test_command(const options_t& options) {
+    const auto start = std::chrono::steady_clock::now();
+    const console_t console(options.color);
+    const std::optional<std::filesystem::path> input = input_of(console, options);
+    if (!input) {
+        return usage_exit_code;
+    }
+
+    const std::expected<compilation_t, std::string> compiled = compile_tests(*input, options.mode);
+    if (!compiled) {
+        console.error(compiled.error());
+        return usage_exit_code;
+    }
+
+    const compilation_t& compilation = *compiled;
+    const std::string name = shown_name(compilation, *input);
+    console.status("Compiling", name);
+    if (const std::size_t errors = report_diagnostics(console, compilation); errors > 0) {
+        console.error(
+            std::format("couldn't build {}'s tests because of {}", name, count(errors, "error")));
+        return compile_errors_exit_code;
+    }
+
+    const std::vector<test_case_t> found = package_tests(compilation);
+    std::vector<test_case_t> tests;
+    std::ranges::copy_if(found, std::back_inserter(tests), [&](const test_case_t& test) {
+        return !options.filter || test.name.contains(*options.filter);
+    });
+    const mir_module_t module = lower_tests(compilation.ast, compilation.analysis, tests);
+    if (const std::optional<mir_error_t>& error = module.error) {
+        const diagnostic_t diagnostic{ .message = error->message, .span = error->span };
+        console_t::print_error(
+            render_pretty(diagnostic, compilation.sources, { .color = console.err().color }));
+        console.error(std::format("couldn't build {}'s tests because of 1 error", name));
+        return compile_errors_exit_code;
+    }
+
+    // A folder of its own, so the executable is named after the package's tests.
+    std::filesystem::path stem =
+        compilation.package ? path_from_utf8(compilation.package->name) : input->stem();
+    stem += "-tests";
+    const std::filesystem::path folder = temporary_path(stem, "");
+    std::filesystem::path program = folder / stem;
+    program += executable_extension;
+    program_build_t report;
+    if (const std::expected<void, std::string> built =
+            build_program(module, compilation, program, options.mode, &report);
+        !built) {
+        remove_temporary(folder);
+        report_build_error(console, compilation, name, built.error());
+        return compile_errors_exit_code;
+    }
+
+    report_built(console, options, compilation, report, start);
+    console.status("Running", count(tests.size(), "test"));
+    const auto running = std::chrono::steady_clock::now();
+    std::vector<test_result_t> results(tests.size());
+    run_tests(console, program, options.mode, tests, results);
+    remove_temporary(folder);
+
+    // Then each failure, with what it said, and how they all did.
+    std::size_t passed = 0;
+    std::size_t failed = 0;
+    std::size_t skipped = 0;
+    std::string failures;
+    for (std::size_t i = 0; i < tests.size(); ++i) {
+        const test_result_t& result = results[i];
+        if (result.failed) {
+            ++failed;
+            failures += std::format("\n---- {} ----\n", tests[i].name);
+            for (const std::string& message : result.messages) {
+                failures += message + "\n";
+            }
+        } else if (result.skipped) {
+            ++skipped;
+        } else {
+            ++passed;
+        }
+    }
+
+    const style_t& style = console.out();
+    if (failed > 0) {
+        console_t::print(std::format("\nfailures:\n{}", failures));
+    }
+
+    console_t::print(std::format(
+        "\ntest result: {}. {} passed; {} failed; {} skipped; {} filtered out; finished in {}\n",
+        failed > 0 ? style.paint("FAILED", tone_t::ERROR) : style.paint("ok", tone_t::SUCCESS),
+        passed, failed, skipped, found.size() - tests.size(), seconds_since(running)));
+    return failed > 0 ? tests_failed_exit_code : 0;
+}
+
 /// Runs fb-bindgen, next to fb, with what `fb bindgen` was given, and gives its exit code.
 int bindgen_command(const options_t& options) {
     const console_t console(options.color);
@@ -656,6 +1007,8 @@ int run_command(const options_t& options) {
     case command_t::BUILD:
     case command_t::RUN:
         return compile_command(options);
+    case command_t::TEST:
+        return test_command(options);
     case command_t::BINDGEN:
         return bindgen_command(options);
     }

@@ -23,8 +23,8 @@ constexpr std::array<std::string_view, 5> stage_names = { "tokens", "ast", "type
 /// One of the commands that take a file, by name. Anything else starting with '-' is reported as
 /// an unknown option.
 std::expected<command_t, std::string> find_command(const std::string_view name) {
-    for (const command_t command :
-         { command_t::CHECK, command_t::BUILD, command_t::RUN, command_t::BINDGEN }) {
+    for (const command_t command : { command_t::CHECK, command_t::BUILD, command_t::RUN,
+                                     command_t::TEST, command_t::BINDGEN }) {
         if (command_name(command) == name) {
             return command;
         }
@@ -97,6 +97,8 @@ std::string_view command_name(const command_t command) {
         return "build";
     case command_t::RUN:
         return "run";
+    case command_t::TEST:
+        return "test";
     case command_t::BINDGEN:
         return "bindgen";
     }
@@ -270,8 +272,20 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
                 options.color = color;
             });
         } else if (name == "--show") {
+            if (options.command == command_t::TEST) {
+                return std::unexpected("'--show' only works with 'fb check', 'fb build', and "
+                                       "'fb run'");
+            }
+
             parsed = value().and_then(
                 [&](const std::string_view list) { return add_stages(list, options.show); });
+        } else if (name == "--filter") {
+            if (options.command != command_t::TEST) {
+                return std::unexpected("'--filter' only works with 'fb test'");
+            }
+
+            parsed = value().transform(
+                [&](const std::string_view text) { options.filter = std::string(text); });
         } else if (argument.starts_with('-')) {
             return std::unexpected(std::format("unknown option '{}'", argument));
         } else if (!options.input.empty()) {

@@ -1,0 +1,9 @@
+# A library with tests, which fb test runs: @Test Functions in its files, which see their files'
+# Private names, and in its tests/ folder, which use it from outside, as a package that depends
+# on it would, with physics, which it depends on. fb check and fb build leave them out.
+[project]
+name = "tested"
+version = "0.1.0"
+
+[dependencies]
+physics = { path = "../physics" }

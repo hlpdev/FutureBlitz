@@ -21,6 +21,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <tuple>
 #include <utility>
@@ -1669,6 +1670,147 @@ TEST_CASE("fb runs and builds a package from its folder", "[cli]") {
 
     // A folder that isn't a package's is bad usage.
     check_usage_error({ "check", fb::to_utf8(packages) }, "there's no project.toml in '");
+}
+
+TEST_CASE("fb test runs a package's tests, filters them, and reports each", "[cli]") {
+    // A copy, so its tests' program isn't built into the source tree.
+    const std::filesystem::path packages = std::filesystem::path(FB_TEST_OUTPUT) / "tested";
+    std::filesystem::remove_all(packages);
+    std::filesystem::create_directories(packages);
+    for (const std::string_view name : { "tested", "physics" }) {
+        std::filesystem::copy(std::filesystem::path(FB_TEST_PACKAGES) / name, packages / name,
+                              std::filesystem::copy_options::recursive);
+    }
+
+    const std::string tested = fb::to_utf8(packages / "tested");
+    const fb::process_result_t ran = fb_run({ "test", tested, "--color", "never" });
+    INFO(ran.output);
+    CHECK(ran.exit_code == 1);
+    CHECK(ran.output.contains("   Compiling tested v0.1.0 ("));
+    CHECK(ran.output.contains("     Running 11 tests\n"));
+    // Each one's result, in the order its run ends: a test that ends its program ends a run.
+    for (const std::string_view line : {
+             "test tested.counting.Counts ... ok\n",
+             "test tested.counting.UsesAGlobal ... ok\n",
+             "test tested.counting.Breaks ... FAILED\n",
+             "test tested.counting.Parses ... ok\n",
+             "test tested.counting.LetsAnErrorOut ... FAILED\n",
+             "test tested.counting.Skipped ... skipped: there's nothing to count\n",
+             "test tested.trouble.Panics ... FAILED\n",
+             "test tested.trouble.Asserts ... FAILED\n",
+             "test tested.trouble.Exits ... FAILED\n",
+             "test tested.trouble.Leaks ... FAILED\n",
+             "test tested.tests.outside.CountsFromOutside ... ok\n",
+         }) {
+        CHECK(ran.output.contains(line));
+    }
+
+    // Then what each failure said, in the tests' order, and how they all did.
+    // Places show a file by its path from the current folder, with '/'s, as messages do.
+    const auto shown = [&](const std::string_view file) {
+        std::error_code ignored;
+        const std::filesystem::path path =
+            std::filesystem::weakly_canonical(packages / "tested" / file, ignored);
+        const std::filesystem::path relative =
+            path.lexically_relative(std::filesystem::current_path(ignored));
+        std::string text =
+            fb::to_utf8(relative.empty() || *relative.begin() == ".." ? path : relative);
+        std::ranges::replace(text, '\\', '/');
+        return text;
+    };
+    const std::string counting = shown("counting.fb");
+    const std::string trouble = shown("trouble.fb");
+    CHECK(ran.output.contains(std::format(
+        "\nfailures:\n"
+        "\n---- tested.counting.Breaks ----\n"
+        "expect failed: counter.count + 1 == 3 at {0}:49:5\n"
+        "  left: 1\n"
+        "  right: 3\n"
+        "expect failed: Twice(2) > 5 at {0}:50:5\n"
+        "  left: 4\n"
+        "  right: 5\n"
+        "  two twice\n"
+        "failed: on purpose at {0}:51:5\n"
+        "expect failed: counter.Parse(\"2\") didn't throw at {0}:52:12\n"
+        "expect failed: counter.Parse(\"two\") didn't throw OtherError at {0}:53:12, but it "
+        "threw CountError: 'two' isn't a count at {0}:21:32\n"
+        "\n---- tested.counting.LetsAnErrorOut ----\n"
+        "threw CountError: 'none' isn't a count at {0}:21:32\n"
+        "\n---- tested.trouble.Panics ----\n"
+        "panic: index 5 is out of range for 2 elements at {1}:14:11\n"
+        "\n---- tested.trouble.Asserts ----\n"
+        "panic: arithmetic broke at {1}:19:5\n"
+        "\n---- tested.trouble.Exits ----\n"
+        "the tests' program exited with code 3, in this test\n"
+        "\n---- tested.trouble.Leaks ----\n"
+        "leak: 1 Node object was never released\n"
+        "\ntest result: FAILED. 4 passed; 6 failed; 1 skipped; 0 filtered out; finished in ",
+        counting, trouble)));
+
+    // A filter runs the tests whose names have it in them, and those that pass pass.
+    const fb::process_result_t filtered =
+        fb_run({ "test", tested, "--filter", "Count", "--color", "never" });
+    INFO(filtered.output);
+    CHECK(filtered.exit_code == 0);
+    CHECK(filtered.output.contains("     Running 2 tests\n"
+                                   "test tested.counting.Counts ... ok\n"
+                                   "test tested.tests.outside.CountsFromOutside ... ok\n"
+                                   "\ntest result: ok. 2 passed; 0 failed; 0 skipped; 9 filtered "
+                                   "out; finished in "));
+
+    // Its program and report are in a temporary folder, whose path can be beyond the ANSI code
+    // page, as a user's name can.
+    const std::filesystem::path temporary =
+        packages / fb::path_from_utf8("t\xC3\xABmp \xE6\x97\xA5");
+    std::filesystem::create_directories(temporary);
+#ifdef _WIN32
+    const std::wstring before = _wgetenv(L"TMP") != nullptr ? _wgetenv(L"TMP") : L"";
+    _wputenv_s(L"TMP", temporary.c_str());
+#else
+    const char* const outer = std::getenv("TMPDIR");
+    const std::string before = outer != nullptr ? outer : "";
+    setenv("TMPDIR", temporary.c_str(), 1);
+#endif
+    const fb::process_result_t unusual =
+        fb_run({ "test", tested, "--filter", "counting.Counts", "--color", "never" });
+#ifdef _WIN32
+    _wputenv_s(L"TMP", before.c_str());
+#else
+    if (outer != nullptr) {
+        setenv("TMPDIR", before.c_str(), 1);
+    } else {
+        unsetenv("TMPDIR");
+    }
+#endif
+    INFO(unusual.output);
+    CHECK(unusual.exit_code == 0);
+    CHECK(unusual.output.contains("test tested.counting.Counts ... ok\n"));
+
+    // A release build has no leak report, so a leak doesn't fail a test there.
+    const fb::process_result_t released =
+        fb_run({ "test", tested, "--filter", "trouble.Leaks", "--release", "--color", "never" });
+    INFO(released.output);
+    CHECK(released.exit_code == 0);
+    CHECK(released.output.contains("test tested.trouble.Leaks ... ok\n"));
+
+    // Errors stop it before it runs anything.
+    std::ofstream(packages / "tested" / "broken.fb", std::ios::binary)
+        << "Import std.test\n@Test Function Broken(n: Int)\nEnd Function\n";
+    const fb::process_result_t broken = fb_run({ "test", tested, "--color", "never" });
+    CHECK(broken.exit_code == 1);
+    CHECK(broken.output.contains("a @Test Function takes nothing"));
+    CHECK(broken.output.contains("error: couldn't build tested v0.1.0 ("));
+    CHECK_FALSE(broken.output.contains("Running"));
+
+    check_usage_error({ "build", tested, "--filter", "x" }, "'--filter' only works with 'fb test'");
+    check_usage_error({ "test", tested, "--show", "mir" },
+                      "'--show' only works with 'fb check', 'fb build', and 'fb run'");
+    CHECK(
+        fb_run({}).output.contains("test                 Compile a package's tests and run them"));
+    const std::string help = fb_run({ "test", "--help" }).output;
+    CHECK(help.contains("Usage: fb test"));
+    CHECK(help.contains("--filter <name>"));
+    CHECK_FALSE(help.contains("--show"));
 }
 
 TEST_CASE("fb runs a package that links a C library", "[cli]") {

@@ -1,0 +1,74 @@
+// A counter, and its tests: some pass, one fails five ways and goes on after each, one is
+// skipped, one lets an error out, and one uses a Global, so it runs on the main thread.
+Import std.core
+Import std.test
+
+Public Class CountError Extends Error
+End Class
+
+Public Class OtherError Extends Error
+End Class
+
+Public Class Counter
+    Public Field count: Int
+
+    Public Method Add()
+        count += 1
+    End Method
+
+    Public Method Parse(text: String): Int Throws Error
+        Local parsed = Int.Parse(text)
+        If parsed == Null Then Throw CountError("'{text}' isn't a count")
+        Return parsed
+    End Method
+End Class
+
+// Only this file's code, its tests too, can call it.
+Function Twice(n: Int): Int => n * 2
+
+Global made = 0
+
+@Test
+Function Counts()
+    Local counter = Counter()
+    counter.Add()
+    counter.Add()
+    Expect(counter.count == 2)
+    Expect(Twice(counter.count) == 4, "Twice is Private, and its file's tests see it")
+End Function
+
+@Test
+Function UsesAGlobal()
+    made += 1
+    Expect(made == 1)
+End Function
+
+@Test
+Function Breaks()
+    Local counter = Counter()
+    Expect(counter.count + 1 == 3)
+    Expect(Twice(2) > 5, "two twice")
+    Fail("on purpose")
+    Expect(ExpectThrows(counter.Parse("2")) == Null)
+    Expect(ExpectThrows<OtherError>(counter.Parse("two")) == Null)
+    Expect("count" == "count")
+End Function
+
+@Test
+Function Parses()
+    Local counter = Counter()
+    Local error = ExpectThrows<CountError>(counter.Parse("many"))
+    Expect(error?.Message == "'many' isn't a count")
+    Expect(ExpectThrows(counter.Parse("few")) Is CountError)
+End Function
+
+@Test
+Function LetsAnErrorOut() Throws Error
+    Local counter = Counter()
+    Try counter.Parse("none")
+End Function
+
+@Test
+Function Skipped()
+    Skip("there's nothing to count")
+End Function

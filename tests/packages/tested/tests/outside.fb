@@ -1,0 +1,12 @@
+// Tests that use the package as another package would: its Public names, and what it depends on.
+Import std.core
+Import std.test
+Import tested.counting
+Import physics.vector
+Import "./helpers"
+
+@Test
+Function CountsFromOutside()
+    Expect(Counted(3) == 3)
+    Expect(Vec(1.0, 2.0).y == 2.0)
+End Function

@@ -1,0 +1,11 @@
+// What the tests in this folder share, which they import by its path.
+Import tested.counting
+
+Public Function Counted(times: Int): Int
+    Local counter = Counter()
+    For i In 1 To times
+        counter.Add()
+    End For
+
+    Return counter.count
+End Function

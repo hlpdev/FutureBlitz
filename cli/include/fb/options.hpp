@@ -20,6 +20,8 @@ enum class command_t : std::uint8_t {
     CHECK,
     BUILD,
     RUN,
+    /// Builds a package's tests and runs them.
+    TEST,
     /// Runs fb-bindgen, which sits next to fb.
     BINDGEN,
 };
@@ -58,6 +60,9 @@ struct options_t {
     std::vector<std::string> passed;
     /// What `fb run` passes to the program: what follows "--".
     std::vector<std::string> program_arguments;
+    /// From `--filter`, which only `fb test` takes: what the names of the tests it runs have in
+    /// them. Nullopt runs them all.
+    std::optional<std::string> filter;
 };
 
 /// The command's name, like "build".
