@@ -13,7 +13,8 @@ The console Functions, `Print` and the rest, are std.core's, in std/core/print.f
 runtime's `fb_write` and its I/O thread's `fb_io_` functions through `Extern "runtime"`, which
 only std/ can use. Panic, Assert, DebugAssert, Unreachable, Todo,
 RefEquals, the timing Functions, and the concurrency types stay built in, since the compiler
-checks and lowers them itself.
+checks and lowers them itself, and so do std.test's Expect, ExpectThrows, Fail, and Skip, which
+only a file that imports std.test has.
 
 ## As modules
 
@@ -156,6 +157,7 @@ So far, std/ holds:
 | std/compress/vfs.fb | `ZipSource`, a zip as std.io's `VfsSource`, and Vfs's `MountZip` |
 | std/compress/seven_zip.fb | `SevenZip` and `SevenZipReader`, over liblzma through `fb_xz_7z_` |
 | std/debug/debugger.fb | `Breakpoint` and `IsDebuggerAttached`, through the runtime's `fb_debug_` functions |
+| std/test.fb | std.test, whose `Expect`, `ExpectThrows`, `Fail`, and `Skip` are the compiler's, over the runtime's `fb_test_` functions, which fb test's runner is |
 | std/net/address.fb | `IpFamily`, `IpAddress`, and `SocketAddress` |
 | std/net/url.fb | `Url` and `QueryParams`, as the WHATWG URL Standard has them |
 | std/net/dns.fb | `Dns`, over libuv's getaddrinfo through the runtime's `fb_io_` functions |
@@ -1992,6 +1994,28 @@ Built in step 23, but for `V7`. `Import std.uuid` brings in std/uuid/.
   does. Panics and uncaught errors print stack traces, which every build has (M8 step 3, spec
   09's Stack traces).
 
+#### std.test
+
+Built in M8's step 7, with `fb test` (see [tooling.md](tooling.md#testing-step-7)), as spec 09's
+[Tests](spec/09-errors.md#tests) has it. `Import std.test` brings in std/test.fb, which has no
+code of its own: its names are built in, since the compiler writes down what each one checks and
+where, and the runtime's runner, in its `fb_test_` functions, runs the tests and reports to fb.
+
+- `Expect(condition)` and `Expect(condition, message)`: when the condition is False, the test
+  fails, and goes on. The failure says "expect failed: " and the condition as it's written, and
+  where; for a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), each side's debug form, which is
+  worked out once, before they're compared; then the message, which is only made then.
+- `ExpectThrows(x)` and `ExpectThrows<E>(x)`: x, any expression, whose errors it catches, as
+  Try? does, so nothing in it needs Try. It gives the error, as an `Error?`, or an `E?`, an
+  error's Class; when x throws nothing, or an error that isn't an E, the test fails, saying so,
+  and it gives Null. An x that can't throw, or can't throw an E, is an error.
+- `Fail()` and `Fail(message)`: the test fails, and goes on.
+- `Skip()` and `Skip(reason)`: the test is skipped, unless it failed already, and ends there, as
+  a Return would, so it's only in a @Test Function's own code.
+- On a thread that runs no test, as in a program fb builds, or in work a test starts on another
+  thread, a failure of Expect, ExpectThrows, or Fail panics with what it would report, and so
+  does a Skip.
+
 #### std.ffi (after M5's reorganization)
 
 Built in step 12, as spec 12 has it.
@@ -2016,7 +2040,6 @@ Built in step 12, as spec 12 has it.
 - Platform-only modules (no std.os.windows or std.os.posix), `Fork`, the registry, a shell
   command, and signals only one OS has.
 - Thread, Task, Channel, Mutex, Atomic, Parallel For, Scheduler, and Async stay built in.
-- `std.test` comes with the tooling milestone's `fb test`.
 - Navigation meshes, game AI (behavior trees, steering), and procedural generation wait for the
   engine phase, where levels and entities are.
 - Server databases (Postgres, MySQL), SMTP, Brotli, Bzip2, CBOR, EXR, and an HTML parser are

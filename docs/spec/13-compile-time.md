@@ -73,6 +73,7 @@ Local table: Int[Fib(10)]          // usable in types
 @CLayout Struct JPH_Vec3 ...
 @MainThread Function RenderWorld()
 @PanicsAtCaller Method Pop(): T
+@Test Function ParsesALevel()
 ```
 
 | Attribute | Effect |
@@ -84,6 +85,7 @@ Local table: Int[Fib(10)]          // usable in types
 | `@CLayout` | C-compatible struct layout |
 | `@MainThread` | callable only from the main thread |
 | `@PanicsAtCaller` | its panics report where it's called |
+| `@Test` | a test, which `fb test` runs, and builds leave out |
 
 - An attribute goes before a declaration, on its line or alone on the line above.
 - `@Inline` goes on a Function, Method, Operator, or Property with a body. Every call to it is
@@ -98,6 +100,8 @@ Local table: Int[Fib(10)]          // usable in types
   report where it's called (see [09-errors.md](09-errors.md#panics)), not Destroy or an Extern
   Function, and of an Interface's members only a Final, generic, or conditional default, which
   a call runs directly.
+- `@Test` goes before a top-level Function that takes nothing and gives nothing back, though it
+  can throw, which `fb test` runs (see [09-errors.md](09-errors.md#tests)).
 - `@CLayout` lays a Struct out as C does (see [12-ffi.md](12-ffi.md)). `@Serialize` isn't
   needed: Load and Save (below) convert every Struct and Class, so it's an error that says so.
 

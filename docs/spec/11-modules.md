@@ -160,9 +160,11 @@ physics = { path = "../physics" }
   above builds in that package, as its main file. A package's build writes
   `<folder>/build/<name>`, named after the package, or after another main file it was given, with
   the platform's extension, unless `-o` says where. `fb check` on a library checks each of its
-  `.fb` files as a module of its own, but not those in its build/ folder, in hidden folders, or
-  in folders with a project.toml of their own; it has nothing to run, and `fb build` writes its
-  interface file and binary (see [Prebuilt libraries](#prebuilt-libraries)).
+  `.fb` files as a module of its own, but not those in its build/ folder, its tests/ folder, in
+  hidden folders, or in folders with a project.toml of their own; it has nothing to run, and
+  `fb build` writes its interface file and binary (see [Prebuilt libraries](#prebuilt-libraries)).
+  `fb test` builds a package's tests, from each of its `.fb` files and its tests/ folder's, and
+  runs them (see [09](09-errors.md#tests)).
 - `[native]` names the package's C libraries, each by the name `Lib` gives it (see
   [12](12-ffi.md)): `joltc = "libs/joltc"`, or `joltc = { static = "libs/joltc" }`, is a static
   archive from the package's folder: the file itself, or without its `lib` prefix and its
