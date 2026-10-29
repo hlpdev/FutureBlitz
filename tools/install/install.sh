@@ -24,7 +24,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
     --version)
         [ $# -ge 2 ] || fail "--version needs a version, like 0.1.0"
-        version="${2#v}"
+        version="$2"
         shift 2
         ;;
     --archive)
@@ -48,6 +48,8 @@ while [ $# -gt 0 ]; do
         ;;
     esac
 done
+# v0.1.0 is the tag of 0.1.0, from --version or FUTUREBLITZ_VERSION.
+version="${version#v}"
 
 # The release for this machine, like linux-x64.
 case "$(uname -s)" in
@@ -98,9 +100,15 @@ fi
 [ -f "$archive" ] || fail "there's no archive $archive"
 mkdir -p "$work/unpacked"
 tar -xzf "$archive" -C "$work/unpacked" || fail "couldn't unpack $archive"
-# The archive holds one folder, futureblitz-<version>-<target>.
+# The archive holds one folder, futureblitz-<version>-<target>, which has to be this machine's,
+# and its fb has to run here, before anything there is replaced.
 release="$(find "$work/unpacked" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 [ -n "$release" ] && [ -x "$release/bin/fb" ] || fail "$archive isn't a FutureBlitz release"
+case "$(basename "$release")" in
+futureblitz-*-"$target") ;;
+*) fail "$archive is a release for another machine, not $target: $(basename "$release")" ;;
+esac
+installed="$("$release/bin/fb" --version 2>/dev/null)" || fail "$archive's fb doesn't run here"
 
 # The release's folders replace those there, and anything else in the folder stays.
 mkdir -p "$root"
@@ -109,35 +117,44 @@ for folder in "$release"/*; do
     mv "$folder" "$root/"
 done
 
-installed="$("$root/bin/fb" --version)" || fail "the installed fb doesn't run: $root/bin/fb"
-
-# bin/ on PATH, in the startup file of the user's shell, once.
+# bin/ on PATH, in the startup files of the user's shell, once each.
 line="export PATH=\"$root/bin:\$PATH\""
-case "${SHELL:-}" in
-*/zsh) profiles="$HOME/.zshrc" ;;
-*/bash)
-    # A terminal's bash on macOS is a login shell; on Linux it reads .bashrc, and a login
-    # shell, as over SSH, .profile.
-    if [ "$os" = macos ]; then
-        profiles="$HOME/.bash_profile"
-    else
-        profiles="$HOME/.profile $HOME/.bashrc"
+added_to() {
+    if ! grep -qsF "$root/bin" "$1"; then
+        mkdir -p "$(dirname "$1")"
+        printf '\n# FutureBlitz\n%s\n' "$line" >>"$1"
+        echo "Added $root/bin to PATH in $1"
     fi
-    ;;
-*/fish)
-    profiles="$HOME/.config/fish/config.fish"
-    line="fish_add_path \"$root/bin\""
-    ;;
-*) profiles="$HOME/.profile" ;;
-esac
-[ "$modify_path" = 1 ] || profiles=""
-for profile in $profiles; do
-    if ! grep -qsF "$root/bin" "$profile"; then
-        mkdir -p "$(dirname "$profile")"
-        printf '\n# FutureBlitz\n%s\n' "$line" >>"$profile"
-        echo "Added $root/bin to PATH in $profile"
-    fi
-done
+}
+
+if [ "$modify_path" = 1 ]; then
+    case "${SHELL:-}" in
+    */zsh) added_to "$HOME/.zshrc" ;;
+    */bash)
+        if [ "$os" = macos ]; then
+            # A terminal's bash on macOS is a login shell, which reads the first of these there
+            # is, so a new .bash_profile would hide a .profile.
+            profile="$HOME/.bash_profile"
+            for file in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+                if [ -f "$file" ]; then
+                    profile="$file"
+                    break
+                fi
+            done
+            added_to "$profile"
+        else
+            # On Linux a terminal's bash reads .bashrc, and a login shell, as over SSH, .profile.
+            added_to "$HOME/.profile"
+            added_to "$HOME/.bashrc"
+        fi
+        ;;
+    */fish)
+        line="fish_add_path \"$root/bin\""
+        added_to "$HOME/.config/fish/config.fish"
+        ;;
+    *) added_to "$HOME/.profile" ;;
+    esac
+fi
 
 echo "Installed $installed in $root"
 if [ "$os" = macos ] && ! xcrun --sdk macosx --show-sdk-path >/dev/null 2>&1; then
@@ -145,5 +162,11 @@ if [ "$os" = macos ] && ! xcrun --sdk macosx --show-sdk-path >/dev/null 2>&1; th
 fi
 case ":$PATH:" in
 *":$root/bin:"*) ;;
-*) echo "Open a new terminal to use fb, or run: $line" ;;
+*)
+    if [ "$modify_path" = 1 ]; then
+        echo "Open a new terminal to use fb, or run: $line"
+    else
+        echo "Add $root/bin to PATH to use fb: $line"
+    fi
+    ;;
 esac

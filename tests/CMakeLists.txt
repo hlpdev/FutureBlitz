@@ -126,6 +126,31 @@ add_test(NAME "a release installs, and builds and runs fb new's package with not
 set_tests_properties("a release installs, and builds and runs fb new's package with nothing on PATH"
   PROPERTIES TIMEOUT 1200)
 
+add_test(NAME "fb --version's commit is the source's own checkout's, or unknown"
+  COMMAND ${CMAKE_COMMAND} -DFB_SOURCE=${PROJECT_SOURCE_DIR}
+          -DFB_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/commit
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/install/commit_test.cmake)
+
+# install.sh and install.ps1, on fake releases: a home folder with spaces, macOS' bash and its
+# .profile, an archive for another machine or one whose fb doesn't run, which leave the install
+# that's there, and what the scripts leave in a PowerShell session.
+find_program(FB_TEST_SH sh HINTS "$ENV{ProgramFiles}/Git/bin" "$ENV{ProgramFiles}/Git/usr/bin")
+if(FB_TEST_SH)
+  add_test(NAME "install.sh installs, updates, and refuses what can't run, leaving what's there"
+    COMMAND ${FB_TEST_SH} ${CMAKE_CURRENT_SOURCE_DIR}/install/install_sh_test.sh
+            ${PROJECT_SOURCE_DIR}/tools/install/install.sh ${CMAKE_CURRENT_BINARY_DIR}/install_sh)
+endif()
+if(WIN32)
+  find_program(FB_TEST_POWERSHELL NAMES pwsh powershell)
+  if(FB_TEST_POWERSHELL)
+    add_test(NAME "install.ps1 installs, updates, and refuses what can't run, leaving what's there"
+      COMMAND ${FB_TEST_POWERSHELL} -NoProfile -ExecutionPolicy Bypass -File
+              ${CMAKE_CURRENT_SOURCE_DIR}/install/install_ps1_test.ps1
+              ${PROJECT_SOURCE_DIR}/tools/install/install.ps1 ${CMAKE_CURRENT_BINARY_DIR}/install_ps1
+              $<TARGET_FILE:fb_cli>)
+  endif()
+endif()
+
 # fb-bindgen's tests, where it's built: each header becomes the module it should, which
 # compiles.
 if(TARGET fb_bindgen)
