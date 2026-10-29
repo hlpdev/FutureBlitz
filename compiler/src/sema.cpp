@@ -22592,9 +22592,16 @@ private:
         }
 
         if (function.name == "Skip") {
+            const auto sealed =
+                std::ranges::find(m_handlers, handler_kind_t::SEALED, &handler_t::kind);
             if (!m_function || !symbol(*m_function).modifiers.is_test || !m_lambdas.empty()) {
                 error(span_of(node.callee),
                       "Skip ends the test, so it's only in a @Test Function's own code");
+            } else if (sealed != m_handlers.end()) {
+                error(span_of(node.callee),
+                      "{} can't Skip, since it can't end the test, as it "
+                      "can't Return",
+                      sealed->what);
             }
 
             return;

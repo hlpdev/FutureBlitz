@@ -6768,6 +6768,20 @@ TEST_CASE("Skip ends its test, so it's only in a @Test Function's own code", "[s
                     "        Skip()\n"
                     "    End Function\n"
                     "End Function") == errors_t{ only, only, only });
+    // Nor in what can't Return.
+    CHECK(errors_of("Import std.test\n"
+                    "@Test Function T()\n"
+                    "    Defer Skip()\n"
+                    "    Try\n"
+                    "        Skip(\"in a Try\")\n"
+                    "    Finally\n"
+                    "        Skip()\n"
+                    "    End Try\n"
+                    "End Function") ==
+          errors_t{
+              "Skip: a Defer can't Skip, since it can't end the test, as it can't Return",
+              "Skip: a Finally can't Skip, since it can't end the test, as it can't Return",
+          });
     // Code after it doesn't run, as after a Return, so what it reads needn't be assigned.
     CHECK(errors_of("Import std.test\n"
                     "Class Box\nEnd Class\n"
