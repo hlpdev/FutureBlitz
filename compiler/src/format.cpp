@@ -928,8 +928,11 @@ private:
     void place(const item_t& item, const std::uint32_t start, const std::uint32_t column,
                const std::uint32_t indent, std::uint32_t& line_depth, const bool first_token) {
         segment_t& segment = m_state.segments.back();
-        if (!segment.started && line_depth == 0 && !item.comment) {
-            if (segment.expression_next || (first_token && !segment.expression)) {
+        // Outside the statement's brackets, on any of its lines, as a Throws after a
+        // declaration's parameters is.
+        if (m_state.brackets.size() == segment.base && !item.comment) {
+            if (segment.expression_next ||
+                (!segment.started && first_token && !segment.expression)) {
                 segment.expression = start;
                 segment.expression_next = false;
             }
@@ -975,11 +978,10 @@ private:
             m_state.brackets.back().hanging = true;
         }
 
+        // An expression that would start after the line's last token starts on the next.
         segment_t& segment = m_state.segments.back();
-        if (!segment.started) {
-            segment.started = true;
-            segment.expression_next = false;
-        }
+        segment.started = true;
+        segment.expression_next = false;
     }
 
     /// Lays out one line of code as one line or more. With `fit`, a line too wide breaks where
@@ -995,6 +997,12 @@ private:
         std::uint32_t line_depth = 0;
         const std::size_t first_token =
             static_cast<std::size_t>(&unit.first_token() - items.data());
+        // How wide what follows each item is, to the end of the line.
+        std::vector<std::uint32_t> after(items.size() + 1, 0);
+        for (std::size_t k = items.size(); k-- > 1;) {
+            after[k - 1] = after[k] + width_of(items[k].text) + (info[k].space ? 1 : 0);
+        }
+
         std::size_t i = 0;
         while (i < items.size()) {
             std::string text(indent, ' ');
@@ -1023,7 +1031,6 @@ private:
                     m_state.segments.back() = best.segment;
                     i = best.item + 1;
                     end_line(items[best.item]);
-                    line_depth = 0; // the expression is found on the first line, if at all
                     broke = true;
                     break;
                 }
@@ -1040,10 +1047,19 @@ private:
 
                 place(item, start, column, indent, line_depth, i == first_token);
                 if (fit && info[i].breakable) {
+                    // After '=' or "=>", when the rest fits on the next line, comes before an
+                    // opening bracket.
+                    const std::uint32_t rest =
+                        after[i] - (i + 1 < items.size() && info[i + 1].space ? 1 : 0);
+                    const bool whole =
+                        info[i].tier == 2 && info[i].depth == 0 &&
+                        m_state.segments.back().indent + indent_width + rest <= m_width;
                     candidates.push_back({
                         .item = i,
                         .length = text.size(),
-                        .tier = info[i].tier,
+                        .tier = info[i].tier == 0 ? 0U
+                                : whole           ? 1U
+                                                  : info[i].tier + 1,
                         .depth = info[i].depth,
                         .rank = info[i].rank,
                         .brackets = m_state.brackets,

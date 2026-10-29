@@ -235,6 +235,11 @@ TEST_CASE("formatting lines a statement that goes on after an operator up with i
     CHECK(formatted("Function F(): Int =>\n1\n") == "Function F(): Int =>\n    1\n");
     CHECK(formatted("Class C Implements A,\nB\nEnd Class\n") ==
           "Class C Implements A,\n                   B\nEnd Class\n");
+    // A Throws on a later line of the statement leads its own expression.
+    CHECK(formatted("Function F(a: Int,\nb: Int): Int Throws AError,\nBError\n    Return 1\nEnd "
+                    "Function\n") ==
+          "Function F(a: Int,\n           b: Int): Int Throws AError,\n"
+          "                               BError\n    Return 1\nEnd Function\n");
 }
 
 TEST_CASE("formatting puts what's inside a bracket that ends its line a step deeper", "[format]") {
@@ -261,6 +266,9 @@ TEST_CASE("formatting breaks a line that's too wide after a comma or an operator
     // A first element too wide for the rest of the line goes on the next, a step deeper.
     CHECK(formatted("x = Something(aaaaaaaaaa)\n", 20) == "x = Something(\n    aaaaaaaaaa)\n");
     CHECK(formatted("Local x = aaaaaaaaaaaaaaaa\n", 20) == "Local x =\n    aaaaaaaaaaaaaaaa\n");
+    // After '=' or "=>" comes before an opening bracket when the rest fits on the next line.
+    CHECK(formatted("Local value = Something.Long(argumentsss)\n", 40) ==
+          "Local value =\n    Something.Long(argumentsss)\n");
 }
 
 TEST_CASE("formatting breaks a ternary in brackets before its ':'", "[format]") {
