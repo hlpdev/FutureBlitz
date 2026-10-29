@@ -1,0 +1,59 @@
+# A throwaway check of M8's platform code on Linux and macOS, on its branch only: the tests that
+# fb's own lld (step 1), debug info and traces (step 3), and fb test (step 7) reach.
+name: M8 check
+
+on:
+  push:
+    branches: [m8-check]
+
+jobs:
+  check:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-24.04
+          - name: macOS
+            os: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++-14
+          wget -q https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 22
+          sudo apt-get install -y llvm-22-dev libclang-22-dev lld-22 lldb-22 libpolly-22-dev
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
+          echo "FB_CONFIGURE=-DLLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm" >> "$GITHUB_ENV"
+
+      - name: Install the toolchain (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja llvm@22 lld@22 || brew install ninja llvm lld
+          prefix="$(brew --prefix llvm@22 2>/dev/null || brew --prefix llvm)"
+          echo "FB_CONFIGURE=-DLLVM_DIR=$prefix/lib/cmake/llvm" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug $FB_CONFIGURE
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Tests the changes reach
+        run: >
+          ctest --test-dir build -j 4 --output-on-failure -R
+          "lld|toolchain|system library|beside|dynamic librar|\[native\]|stand-in engine|bundled C librar|notices|marker|trace|debugger|lldb|dSYM|fb test|packages build|M7's program|prebuilt|programs print what they should [01]/32|temporary folder's name|thrown error keeps"
+
+      - name: The trace programs, in debug and release
+        run: >
+          python3 tools/verify.py --build build --no-build --no-tests --no-format --no-tidy
+          --program panic_trace_calls --program release_panic_trace_inlined
+          --program uncaught_trace_thrown
