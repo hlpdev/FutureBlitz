@@ -5,6 +5,27 @@ them while each was built. Newest first.
 
 ## M8, tooling
 
+Step 4, the LSP (2026-10-29, 672b4377): fb-lsp, an executable beside fb that an editor talks to in
+JSON-RPC over stdin and stdout, read and written with nlohmann/json 3.12.0, in UTF-16 or UTF-8
+positions: diagnostics as you type, hover with a declaration's signature, constraints included, and
+the comments above it, or an expression's type, go to definition, find references, rename of a
+symbol's whole family of overrides and implementations in the workspace's files, refused for a name
+that's taken or seen there, completion of members after a '.', Super's included, names in scope,
+types and type parameters where a type goes, modules after Import and From, and keywords, document
+and workspace symbols, signature help over every overload, semantic tokens, code actions for
+diagnostic_t::fixes, and formatting through format_source with the package's width; on a front end
+that re-checks only what an edit touches: the driver's check_files() checks some files of a package
+(with its tests/ folder), of std, or a loose file, with what they import and the open documents'
+unsaved texts (source_reader_t, compilation_t::on_disk), each workspace package is checked whole
+once in the background for every file's diagnostics and the import graph, an edit checks its file
+after 150 ms and then, in the background, the files that import it, and checks share what std's
+unloaded modules declare (std_names_cache_t). Sema records each use of a symbol (analysis_t::uses):
+assignments' targets, Enum values, the types after Extends and Extend and before a Static member,
+Aliases, module qualifiers, named arguments, and a From line's names, which a test of every kind of
+use checks; and works out what's before the '.' of "x." being typed, which the parser keeps as a
+member with an empty name. tests/lsp drives the server through its messages in process and fb-lsp
+over pipes. Its review's 35 fixes are in docs/review/m8-step4.md.
+
 Step 5, the VS Code extension (2026-10-29, 6267d7dc): editors/vscode/, in TypeScript with a pinned
 package-lock.json. The TextMate grammar, syntaxes/futureblitz.tmLanguage.json
 (`source.futureblitz`), is the one M9's Shiki will load: keywords in their case only, the contextual
