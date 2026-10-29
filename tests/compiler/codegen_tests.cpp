@@ -12,6 +12,7 @@
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -202,12 +203,15 @@ TEST_CASE("each target's object files have the stack trace table's markers", "[c
     const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
     const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "trace_objects";
     std::filesystem::create_directories(folder);
-    for (const auto& [triple, section] : std::initializer_list<std::pair<std::string, std::string>>{
-             { "x86_64-unknown-linux-gnu", "fb_trace" },
-             { "aarch64-unknown-linux-gnu", "fb_trace" },
-             { "arm64-apple-macosx13.0.0", "__fb_trace" },
-             { "x86_64-apple-macosx13.0.0", "__fb_trace" },
-             { "x86_64-w64-windows-gnu", ".fbtrace$m" },
+    // The table is added as the binary loads, by a function in the section the C runtime runs:
+    // on ELF .init_array, as lld keeps a .ctors apart, and nothing runs it.
+    for (const auto& [triple, section, runs] :
+         std::initializer_list<std::tuple<std::string, std::string, std::string>>{
+             { "x86_64-unknown-linux-gnu", "fb_trace", ".init_array" },
+             { "aarch64-unknown-linux-gnu", "fb_trace", ".init_array" },
+             { "arm64-apple-macosx13.0.0", "__fb_trace", "__mod_init_func" },
+             { "x86_64-apple-macosx13.0.0", "__fb_trace", "__mod_init_func" },
+             { "x86_64-w64-windows-gnu", ".fbtrace$m", ".ctors" },
          }) {
         for (const fb::build_mode_t mode : { fb::build_mode_t::DEBUG, fb::build_mode_t::RELEASE }) {
             INFO(triple);
@@ -221,6 +225,10 @@ TEST_CASE("each target's object files have the stack trace table's markers", "[c
             const std::string bytes{ std::istreambuf_iterator<char>(file),
                                      std::istreambuf_iterator<char>() };
             CHECK(bytes.contains(section));
+            CHECK(bytes.contains(runs));
+            if (runs == ".init_array") {
+                CHECK_FALSE(bytes.contains(".ctors"));
+            }
         }
     }
 }

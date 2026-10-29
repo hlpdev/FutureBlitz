@@ -248,6 +248,53 @@ std::array<LLVMValueRef, 2> bounds(LLVMModuleRef module, const format_t format) 
     return found;
 }
 
+/// On ELF, puts each function llvm.global_ctors runs as the binary loads in .init_array, which
+/// the C runtime runs. LLVM's C API makes a target that writes them in .ctors, which lld keeps
+/// as a section of its own, and nothing runs.
+void use_init_array(LLVMModuleRef module) {
+    LLVMValueRef ctors = LLVMGetNamedGlobal(module, "llvm.global_ctors");
+    if (ctors == nullptr) {
+        return;
+    }
+
+    LLVMContextRef context = LLVMGetModuleContext(module);
+    LLVMTypeRef pointer = LLVMPointerTypeInContext(context, 0);
+    std::vector<LLVMValueRef> kept;
+    LLVMValueRef list = LLVMGetInitializer(ctors);
+    for (int i = 0; list != nullptr && i < LLVMGetNumOperands(list); ++i) {
+        LLVMValueRef entry = LLVMGetOperand(list, static_cast<unsigned>(i));
+        const auto priority =
+            static_cast<unsigned>(LLVMConstIntGetZExtValue(LLVMGetOperand(entry, 0)));
+        // A priority's section, as LLVM names it, which the linker sorts.
+        const std::string section =
+            priority == 65535 ? ".init_array" : std::format(".init_array.{:05}", priority);
+        LLVMValueRef run = LLVMAddGlobal(module, pointer, "fb.(runs at load)");
+        LLVMSetInitializer(run, LLVMGetOperand(entry, 1));
+        LLVMSetLinkage(run, LLVMPrivateLinkage);
+        LLVMSetSection(run, section.c_str());
+        LLVMSetAlignment(run, 8);
+        kept.push_back(run);
+    }
+
+    LLVMDeleteGlobal(ctors);
+    // Kept, though nothing refers to them.
+    LLVMValueRef used = LLVMGetNamedGlobal(module, "llvm.compiler.used");
+    if (used != nullptr) {
+        LLVMValueRef existing = LLVMGetInitializer(used);
+        for (int i = 0; existing != nullptr && i < LLVMGetNumOperands(existing); ++i) {
+            kept.push_back(LLVMGetOperand(existing, static_cast<unsigned>(i)));
+        }
+
+        LLVMDeleteGlobal(used);
+    }
+
+    LLVMValueRef all = LLVMConstArray2(pointer, kept.data(), kept.size());
+    used = LLVMAddGlobal(module, LLVMTypeOf(all), "llvm.compiler.used");
+    LLVMSetInitializer(used, all);
+    LLVMSetLinkage(used, LLVMAppendingLinkage);
+    LLVMSetSection(used, "llvm.metadata");
+}
+
 /// The table's type: its markers' start and end, its frames, and their names.
 LLVMTypeRef table_type(LLVMContextRef context) {
     LLVMTypeRef pointer = LLVMPointerTypeInContext(context, 0);
@@ -410,6 +457,9 @@ void fill_trace_table(LLVMModuleRef module, const std::string_view triple) {
     LLVMSetInitializer(table, LLVMConstStructInContext(context, fields.data(),
                                                        static_cast<unsigned>(fields.size()), 0));
     LLVMSetGlobalConstant(table, 1);
+    if (format == format_t::ELF) {
+        use_init_array(module);
+    }
 }
 
 } // namespace fb
