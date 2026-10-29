@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace fb::lsp {
 namespace {
@@ -67,7 +68,7 @@ std::optional<std::string> read_message(std::istream& in) {
 
             std::string body(*length, '\0');
             in.read(body.data(), static_cast<std::streamsize>(*length));
-            if (static_cast<std::size_t>(in.gcount()) != *length) {
+            if (std::cmp_not_equal(in.gcount(), *length)) {
                 return std::nullopt;
             }
 
@@ -131,7 +132,7 @@ std::optional<std::filesystem::path> path_of(const std::string_view uri) {
             const std::optional<int> high = hex_value(rest[i + 1]);
             const std::optional<int> low = hex_value(rest[i + 2]);
             if (high && low) {
-                text += static_cast<char>((*high << 4) | *low);
+                text += static_cast<char>((*high * 16) + *low);
                 i += 2;
                 continue;
             }

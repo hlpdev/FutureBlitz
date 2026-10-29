@@ -10,7 +10,6 @@
 
 using fb::lsp::json_t;
 using fb::lsp::test::client_t;
-using fb::lsp::test::folder_t;
 
 TEST_CASE("the server says what it can do and shuts down", "[lsp]") {
     std::optional<int> code;

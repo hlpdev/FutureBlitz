@@ -83,22 +83,22 @@ std::optional<named_t> query_t::name_of(const symbol_use_t& use) const {
         return std::nullopt;
     }
 
+    // The name, or one after a qualifier or an object, "game.score", or one with type arguments
+    // after it, "Box<Int>".
     std::size_t at = 0;
-    if (text == name) {
-        at = 0;
-    } else if (text.ends_with(name) && !is_name_char(text[text.size() - name.size() - 1])) {
-        at = text.size() - name.size();
-    } else if (text.starts_with(name) && !is_name_char(text[name.size()])) {
-        at = 0;
-    } else {
-        return std::nullopt;
+    if (text != name) {
+        if (text.ends_with(name) && !is_name_char(text[text.size() - name.size() - 1])) {
+            at = text.size() - name.size();
+        } else if (!text.starts_with(name) || is_name_char(text[name.size()])) {
+            return std::nullopt;
+        }
     }
 
     const auto begin = static_cast<std::uint32_t>(use.span.begin + at);
     return named_t{
         .span = { .file = use.span.file,
                   .begin = begin,
-                  .end = begin + static_cast<std::uint32_t>(name.size()) },
+                  .end = begin + static_cast<std::uint32_t>(name.size()), },
         .symbol = id,
     };
 }

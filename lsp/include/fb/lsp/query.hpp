@@ -73,7 +73,7 @@ public:
     /// The name at `offset`, or just before it, as at the end of a word.
     [[nodiscard]] std::optional<named_t> name_at(std::uint32_t offset) const;
 
-    [[nodiscard]] symbol_key_t key(symbol_id_t symbol) const;
+    [[nodiscard]] symbol_key_t key(symbol_id_t id) const;
 
     /// The symbols here that `key` names: its own, and its generic copies'.
     [[nodiscard]] std::vector<symbol_id_t> symbols_of(const symbol_key_t& key) const;
@@ -83,13 +83,13 @@ public:
     [[nodiscard]] std::optional<named_t> name_of(const symbol_use_t& use) const;
 
     /// A symbol's declaration as code shows it, like "Function Area(p: Point): Int32".
-    [[nodiscard]] std::string signature(symbol_id_t symbol) const;
+    [[nodiscard]] std::string signature(symbol_id_t id) const;
 
     /// The documentation on a symbol's declaration.
-    [[nodiscard]] std::string docs(symbol_id_t symbol) const;
+    [[nodiscard]] std::string docs(symbol_id_t id) const;
 
     /// Where a symbol is declared on disk. nullopt for a builtin, or one in no file of its own.
-    [[nodiscard]] std::optional<std::filesystem::path> declared_in(symbol_id_t symbol) const;
+    [[nodiscard]] std::optional<std::filesystem::path> declared_in(symbol_id_t id) const;
 
     /// The innermost expression in this file that `offset` is in or at the end of.
     [[nodiscard]] std::optional<expr_id_t> expr_at(std::uint32_t offset) const;

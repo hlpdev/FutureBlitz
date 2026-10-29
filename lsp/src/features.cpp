@@ -234,8 +234,10 @@ void collect_symbols(const std::vector<outline_t>& symbols, const std::string& c
             json_t information{
                 { "name", symbol.name },
                 { "kind", static_cast<int>(symbol.kind) },
-                { "location",
-                  { { "uri", uri }, { "range", positions.range(file, symbol.selection) } } },
+                {
+                    "location",
+                    { { "uri", uri }, { "range", positions.range(file, symbol.selection) } },
+                },
             };
             if (!container.empty()) {
                 information["containerName"] = container;
@@ -299,8 +301,10 @@ json_t diagnostic_json(const compilation_t& compilation, const diagnostic_t& dia
     }
 
     json_t out{
-        { "range",
-          positions.range(compilation.sources.get(diagnostic.span.file), diagnostic.span) },
+        {
+            "range",
+            positions.range(compilation.sources.get(diagnostic.span.file), diagnostic.span),
+        },
         { "severity", severity },
         { "source", "fb" },
         { "message", message },
@@ -342,8 +346,10 @@ json_t hover(const query_t& query, const std::uint32_t offset, const positions_t
         const expr_info_t& info = query.analysis().expr(*expr);
         if (info.type != type_id_t::INVALID && info.type != type_id_t::NONE) {
             return {
-                { "contents",
-                  { { "kind", "markdown" }, { "value", code_block(query.type_name(info.type)) } } },
+                {
+                    "contents",
+                    { { "kind", "markdown" }, { "value", code_block(query.type_name(info.type)) } },
+                },
                 { "range", positions.range(query.source(), query.ast().get(*expr).span) },
             };
         }
@@ -571,9 +577,15 @@ json_t signature_help(const query_t& query, const std::uint32_t offset,
         std::size_t end = label.find_first_of(",)", begin);
         end = end == std::string::npos ? label.size() : end;
         const std::uint32_t first = positions.length(std::string_view(label).substr(0, begin));
-        parameters.push_back({ { "label",
-                                 { first, first + positions.length(std::string_view(label).substr(
-                                                      begin, end - begin)) } } });
+        parameters.push_back({
+            {
+                "label",
+                {
+                    first,
+                    first + positions.length(std::string_view(label).substr(begin, end - begin)),
+                },
+            },
+        });
         from = end;
     }
 
@@ -585,11 +597,13 @@ json_t signature_help(const query_t& query, const std::uint32_t offset,
     return {
         { "signatures", json_t::array({ std::move(signature) }) },
         { "activeSignature", 0 },
-        { "activeParameter",
-          symbol.parameters.empty()
-              ? 0
-              : std::min<std::uint32_t>(active,
-                                        static_cast<std::uint32_t>(symbol.parameters.size() - 1)) },
+        {
+            "activeParameter",
+            symbol.parameters.empty()
+                ? 0
+                : std::min<std::uint32_t>(active,
+                                          static_cast<std::uint32_t>(symbol.parameters.size() - 1)),
+        },
     };
 }
 
@@ -629,8 +643,10 @@ json_t code_actions(const query_t& query, const span_t range, const positions_t&
         out.push_back({
             { "title", "Fix: " + diagnostic.message },
             { "kind", "quickfix" },
-            { "diagnostics",
-              json_t::array({ diagnostic_json(compilation, diagnostic, positions) }) },
+            {
+                "diagnostics",
+                json_t::array({ diagnostic_json(compilation, diagnostic, positions) }),
+            },
             { "isPreferred", true },
             { "edit", { { "changes", std::move(changes) } } },
         });
@@ -647,9 +663,11 @@ json_t formatting(const source_file_t& file, const std::uint32_t width,
         return json_t::array();
     }
 
-    const span_t whole{ .file = file.id(),
-                        .begin = 0,
-                        .end = static_cast<std::uint32_t>(file.text().size()) };
+    const span_t whole{
+        .file = file.id(),
+        .begin = 0,
+        .end = static_cast<std::uint32_t>(file.text().size()),
+    };
     return json_t::array(
         { { { "range", positions.range(file, whole) }, { "newText", *formatted } } });
 }

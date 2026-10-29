@@ -138,10 +138,15 @@ void server_t::handle(const json_t& message) {
         message["method"].is_string() ? message["method"].get<std::string>() : std::string();
     const json_t params = message.value("params", json_t::object());
     if (!message.contains("id")) {
+        // A notification has no answer to say what's wrong with it, so the client's log does.
         try {
             notified(method, params);
-        } catch (const std::exception&) {
-            // A notification has no answer to say what's wrong with it.
+        } catch (const std::exception& error) {
+            send({
+                { "jsonrpc", "2.0" },
+                { "method", "window/logMessage" },
+                { "params", { { "type", 1 }, { "message", method + ": " + error.what() } } },
+            });
         }
 
         return;
@@ -259,16 +264,32 @@ void server_t::notified(const std::string& method, const json_t& params) {
                 { "jsonrpc", "2.0" },
                 { "id", std::format("fb-{}", m_next_request++) },
                 { "method", "client/registerCapability" },
-                { "params",
-                  { { "registrations",
-                      json_t::array({ {
-                          { "id", "fb-files" },
-                          { "method", "workspace/didChangeWatchedFiles" },
-                          { "registerOptions",
-                            { { "watchers",
-                                json_t::array({ { { "globPattern", "**/*.fb" } },
-                                                { { "globPattern", "**/project.toml" } } }) } } },
-                      } }) } } },
+                {
+                    "params",
+                    {
+                        {
+                            "registrations",
+                            json_t::array({
+                                {
+                                    { "id", "fb-files" },
+                                    { "method", "workspace/didChangeWatchedFiles" },
+                                    {
+                                        "registerOptions",
+                                        {
+                                            {
+                                                "watchers",
+                                                json_t::array({
+                                                    { { "globPattern", "**/*.fb" } },
+                                                    { { "globPattern", "**/project.toml" } },
+                                                }),
+                                            },
+                                        },
+                                    },
+                                },
+                            }),
+                        },
+                    },
+                },
             });
         }
 
@@ -375,34 +396,51 @@ json_t server_t::initialize(const json_t& params) {
     }
 
     return {
-        { "capabilities",
-          {
-              { "positionEncoding", encoding },
-              { "textDocumentSync",
+        {
+            "capabilities",
+            {
+                { "positionEncoding", encoding },
                 {
-                    { "openClose", true },
-                    { "change", 2 },
-                    { "willSaveWaitUntil", m_format_on_save },
-                    { "save", { { "includeText", false } } },
-                } },
-              { "hoverProvider", true },
-              { "definitionProvider", true },
-              { "referencesProvider", true },
-              { "renameProvider", { { "prepareProvider", true } } },
-              { "completionProvider", { { "triggerCharacters", json_t::array({ "." }) } } },
-              { "signatureHelpProvider", { { "triggerCharacters", json_t::array({ "(", "," }) } } },
-              { "documentSymbolProvider", true },
-              { "workspaceSymbolProvider", true },
-              { "semanticTokensProvider",
-                { { "legend", semantic_tokens_legend() }, { "full", true } } },
-              { "codeActionProvider", { { "codeActionKinds", json_t::array({ "quickfix" }) } } },
-              { "documentFormattingProvider", true },
-              { "workspace",
-                { { "workspaceFolders",
-                    { { "supported", true }, { "changeNotifications", true } } } } },
-          } },
-        { "serverInfo",
-          { { "name", "fb-lsp" }, { "version", std::string(build_config::version) } } },
+                    "textDocumentSync",
+                    {
+                        { "openClose", true },
+                        { "change", 2 },
+                        { "willSaveWaitUntil", m_format_on_save },
+                        { "save", { { "includeText", false } } },
+                    },
+                },
+                { "hoverProvider", true },
+                { "definitionProvider", true },
+                { "referencesProvider", true },
+                { "renameProvider", { { "prepareProvider", true } } },
+                { "completionProvider", { { "triggerCharacters", json_t::array({ "." }) } } },
+                {
+                    "signatureHelpProvider",
+                    { { "triggerCharacters", json_t::array({ "(", "," }) } },
+                },
+                { "documentSymbolProvider", true },
+                { "workspaceSymbolProvider", true },
+                {
+                    "semanticTokensProvider",
+                    { { "legend", semantic_tokens_legend() }, { "full", true } },
+                },
+                { "codeActionProvider", { { "codeActionKinds", json_t::array({ "quickfix" }) } } },
+                { "documentFormattingProvider", true },
+                {
+                    "workspace",
+                    {
+                        {
+                            "workspaceFolders",
+                            { { "supported", true }, { "changeNotifications", true } },
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "serverInfo",
+            { { "name", "fb-lsp" }, { "version", std::string(build_config::version) } },
+        },
     };
 }
 
@@ -430,7 +468,7 @@ json_t server_t::definition(const json_t& params) {
                            m_positions);
 }
 
-json_t server_t::references(const json_t& params, const bool declaration) {
+json_t server_t::references(const json_t& params, const bool declaration, const bool renaming) {
     const std::optional<std::filesystem::path> path = document_path(params);
     const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
     if (!checked) {
@@ -451,12 +489,19 @@ json_t server_t::references(const json_t& params, const bool declaration) {
         compilations = m_workspace->with_dependents(*declared);
     }
 
-    return lsp::references(
-        compilations, query.key(named->symbol), declaration,
-        [this](const std::filesystem::path& file) {
-            return m_workspace->owns(file) || m_workspace->document(file).has_value();
-        },
-        m_positions);
+    // A rename changes only the files that are the workspace's to change.
+    const auto kept = [this, renaming](const std::filesystem::path& file) {
+        return renaming ? editable(file)
+                        : m_workspace->owns(file) || m_workspace->document(file).has_value();
+    };
+    return lsp::references(compilations, query.key(named->symbol), declaration, kept, m_positions);
+}
+
+bool server_t::editable(const std::filesystem::path& file) const {
+    // std is the workspace's own only when it's in one of its folders.
+    const std::string standard = file_key(path_from_utf8(build_config::std_directory)) + "/";
+    return m_workspace->owns(file) ||
+           (m_workspace->document(file).has_value() && !file_key(file).starts_with(standard));
 }
 
 json_t server_t::prepare_rename(const json_t& params) {
@@ -476,7 +521,7 @@ json_t server_t::prepare_rename(const json_t& params) {
     // Only what the workspace declares, in its own files, can be renamed.
     const std::optional<std::filesystem::path> declared = query.declared_in(named->symbol);
     const symbol_kind_t kind = query.analysis().symbol(named->symbol).kind;
-    if (!declared || !m_workspace->owns(*declared) || kind == symbol_kind_t::MODULE) {
+    if (!declared || !editable(*declared) || kind == symbol_kind_t::MODULE) {
         return nullptr;
     }
 
@@ -499,13 +544,16 @@ json_t server_t::rename(const json_t& params) {
         throw std::runtime_error("only a name the workspace declares can be renamed");
     }
 
-    json_t found = references(params, true);
-    return rename_edit(found, name);
+    return rename_edit(references(params, true, true), name);
 }
 
 json_t server_t::completion(const json_t& params) {
     const std::optional<std::filesystem::path> path = document_path(params);
-    const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
+    if (!path) {
+        return nullptr;
+    }
+
+    const std::optional<checked_t> checked = m_workspace->checked(*path);
     if (!checked) {
         return nullptr;
     }
@@ -529,7 +577,11 @@ json_t server_t::signature_help(const json_t& params) {
 
 json_t server_t::document_symbols(const json_t& params) {
     const std::optional<std::filesystem::path> path = document_path(params);
-    const std::optional<std::string> text = path ? m_workspace->text(*path) : std::nullopt;
+    if (!path) {
+        return nullptr;
+    }
+
+    const std::optional<std::string> text = m_workspace->text(*path);
     if (!text) {
         return nullptr;
     }
@@ -603,7 +655,11 @@ json_t server_t::code_actions(const json_t& params) {
 
 json_t server_t::formatting(const json_t& params) {
     const std::optional<std::filesystem::path> path = document_path(params);
-    const std::optional<std::string> text = path ? m_workspace->text(*path) : std::nullopt;
+    if (!path) {
+        return nullptr;
+    }
+
+    const std::optional<std::string> text = m_workspace->text(*path);
     if (!text) {
         return nullptr;
     }
@@ -635,7 +691,7 @@ std::vector<std::string> server_t::import_names(const std::filesystem::path& pat
 
     for (const module_t& module : compilation.ast.modules().modules()) {
         if (!module.name.empty() && !module.path.starts_with("std/") &&
-            module.name.find('(') == std::string::npos) {
+            !module.name.contains('(')) {
             names.insert(module.name);
         }
     }

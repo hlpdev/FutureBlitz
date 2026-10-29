@@ -9,6 +9,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -75,16 +76,16 @@ public:
 
     void notify(const std::string& method, json_t params);
 
-    void open(const std::string& uri, const std::string& text);
+    void open(const std::string& uri, std::string_view text);
     /// Replaces the document's whole text.
-    void change(const std::string& uri, const std::string& text);
+    void change(const std::string& uri, std::string_view text);
     void close(const std::string& uri);
 
     /// Waits until the server's checks are done.
     void settle();
 
-    /// The diagnostics published last for a file, nullopt when none were.
-    [[nodiscard]] std::optional<json_t> diagnostics(const std::string& uri) const;
+    /// The diagnostics published last for a file, which some must have been.
+    [[nodiscard]] json_t diagnostics(const std::string& uri) const;
 
     /// How many times diagnostics were published for a file.
     [[nodiscard]] std::size_t publications(const std::string& uri) const;

@@ -1773,9 +1773,12 @@ private:
 
             if (m_files.cache != nullptr) {
                 const std::scoped_lock lock(m_files.cache->mutex);
-                m_files.cache->files.insert_or_assign(
-                    path, std_names_cache_t::file_t{
-                              .text = kept, .mode = m_mode, .names = std::move(names) });
+                std_names_cache_t::file_t found{
+                    .text = kept,
+                    .mode = m_mode,
+                    .names = std::move(names),
+                };
+                m_files.cache->files.insert_or_assign(path, std::move(found));
             }
         }
     }

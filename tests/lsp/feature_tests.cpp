@@ -1,13 +1,18 @@
 #include "client.hpp"
+#include "fb/build_config.hpp"
 #include "fb/format.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/source.hpp"
+#include "fb/utf8.hpp"
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -19,19 +24,19 @@ using fb::lsp::test::place_t;
 
 namespace {
 
-const std::string manifest = R"([project]
+constexpr std::string_view manifest = R"([project]
 name = "geo"
 version = "0.1.0"
 )";
 
-const std::string main_text = R"(Import std.core
+constexpr std::string_view main_text = R"(Import std.core
 Import "./shapes"
 
 Local p = Point(3, 4)
 Print("{Length(p)}")
 )";
 
-const std::string shapes_text = R"(Import std.core
+constexpr std::string_view shapes_text = R"(Import std.core
 
 // A point on the grid.
 Public Struct Point
@@ -55,7 +60,7 @@ Public Function Scale(p: Point, by: Int): Point
 End Function
 )";
 
-const std::string report_text = R"(Import std.core
+constexpr std::string_view report_text = R"(Import std.core
 Import "./shapes"
 
 Public Function Report(p: Point): String
@@ -66,10 +71,10 @@ End Function
 /// The geo package: a main file, and two modules, one of which imports the other.
 std::vector<std::pair<std::string, std::string>> geo() {
     return {
-        { "project.toml", manifest },
-        { "main.fb", main_text },
-        { "shapes.fb", shapes_text },
-        { "report.fb", report_text },
+        { "project.toml", std::string(manifest) },
+        { "main.fb", std::string(main_text) },
+        { "shapes.fb", std::string(shapes_text) },
+        { "report.fb", std::string(report_text) },
     };
 }
 
@@ -112,35 +117,31 @@ TEST_CASE("diagnostics come as a file is typed, broken, and fixed", "[lsp]") {
     client_t client({});
     client.open(uri, "Import std.core\nLocal n: Int = \"text\"\nPrint(n)\n");
     client.settle();
-    std::optional<json_t> diagnostics = client.diagnostics(uri);
-    REQUIRE(diagnostics);
-    REQUIRE(diagnostics->size() == 1);
-    CHECK((*diagnostics)[0]["severity"] == 1);
-    CHECK((*diagnostics)[0]["source"] == "fb");
-    CHECK((*diagnostics)[0]["range"]["start"]["line"] == 1);
+    json_t diagnostics = client.diagnostics(uri);
+    REQUIRE(diagnostics.size() == 1);
+    CHECK(diagnostics[0]["severity"] == 1);
+    CHECK(diagnostics[0]["source"] == "fb");
+    CHECK(diagnostics[0]["range"]["start"]["line"] == 1);
 
     client.change(uri, "Import std.core\nLocal n: Int = 5\nPrint(n)\n");
     client.settle();
     diagnostics = client.diagnostics(uri);
-    REQUIRE(diagnostics);
-    CHECK(diagnostics->empty());
+    CHECK(diagnostics.empty());
 
     // A line that doesn't parse, as one does while it's typed.
     client.change(uri, "Import std.core\nLocal n: Int = 5)\nPrint(n)\n");
     client.settle();
     diagnostics = client.diagnostics(uri);
-    REQUIRE(diagnostics);
-    INFO(diagnostics->dump());
-    REQUIRE(messages(*diagnostics).size() == 1);
-    CHECK(messages(*diagnostics).front().starts_with("expected"));
-    CHECK((*diagnostics)[0]["range"]["start"] == client_t::position(1, 16));
+    INFO(diagnostics.dump());
+    REQUIRE(messages(diagnostics).size() == 1);
+    CHECK(messages(diagnostics).front().starts_with("expected"));
+    CHECK(diagnostics[0]["range"]["start"] == client_t::position(1, 16));
 
     // Its diagnostics go when a file outside the workspace closes.
     client.close(uri);
     client.settle();
     diagnostics = client.diagnostics(uri);
-    REQUIRE(diagnostics);
-    CHECK(diagnostics->empty());
+    CHECK(diagnostics.empty());
 }
 
 TEST_CASE("hover shows a name's declaration and its docs, and an expression's type", "[lsp]") {
@@ -155,28 +156,24 @@ TEST_CASE("hover shows a name's declaration and its docs, and an expression's ty
     REQUIRE(length.is_object());
     CHECK(length["contents"]["kind"] == "markdown");
     const std::string text = length["contents"]["value"].get<std::string>();
-    CHECK(text.find("Function Length(p: Point): Int32") != std::string::npos);
-    CHECK(text.find("How long `p` is, squared.") != std::string::npos);
+    CHECK(text.contains("Function Length(p: Point): Int32"));
+    CHECK(text.contains("How long `p` is, squared."));
     CHECK(length["range"]["start"] == client_t::position(4, 8));
 
     const json_t point = client.request("textDocument/hover", client.at(main, "Point"));
-    CHECK(point["contents"]["value"].get<std::string>().find("Struct Point") != std::string::npos);
-    CHECK(point["contents"]["value"].get<std::string>().find("A point on the grid.") !=
-          std::string::npos);
+    CHECK(point["contents"]["value"].get<std::string>().contains("Struct Point"));
+    CHECK(point["contents"]["value"].get<std::string>().contains("A point on the grid."));
 
     const json_t total = client.request("textDocument/hover", client.at(shapes, "total", 2));
-    CHECK(total["contents"]["value"].get<std::string>().find("Local total: Int32") !=
-          std::string::npos);
+    CHECK(total["contents"]["value"].get<std::string>().contains("Local total: Int32"));
 
     const json_t method = client.request("textDocument/hover", client.at(shapes, "Squared()\n", 1));
-    CHECK(method["contents"]["value"].get<std::string>().find("Method Point.Squared(): Int32") !=
-          std::string::npos);
-    CHECK(method["contents"]["value"].get<std::string>().find("Its length, squared.") !=
-          std::string::npos);
+    CHECK(method["contents"]["value"].get<std::string>().contains("Method Point.Squared(): Int32"));
+    CHECK(method["contents"]["value"].get<std::string>().contains("Its length, squared."));
 
     // An expression with no name, as a literal, shows its type.
     const json_t literal = client.request("textDocument/hover", client.at(main, "3, 4"));
-    CHECK(literal["contents"]["value"].get<std::string>().find("Int32") != std::string::npos);
+    CHECK(literal["contents"]["value"].get<std::string>().contains("Int32"));
 
     // Nothing, between lines.
     CHECK(client.request("textDocument/hover", client.at(main, "\n\nLocal", 1)).is_null());
@@ -207,7 +204,7 @@ TEST_CASE("go to definition finds declarations in other modules, and Imports' fi
     // std's own declarations are in std's files.
     const json_t print = client.request("textDocument/definition", client.at(main, "Print"));
     REQUIRE(print.is_object());
-    CHECK(print["uri"].get<std::string>().find("std/core") != std::string::npos);
+    CHECK(print["uri"].get<std::string>().contains("std/core"));
 }
 
 TEST_CASE("find references finds a name's uses in each module that imports it", "[lsp]") {
@@ -271,6 +268,52 @@ TEST_CASE("rename changes a name everywhere the workspace uses it", "[lsp]") {
     CHECK(client.request("textDocument/prepareRename", client.at(main, "Print")).is_null());
 }
 
+TEST_CASE("rename changes the names a From line brings in", "[lsp]") {
+    const folder_t folder({
+        { "project.toml", std::string(manifest) },
+        { "lib.fb", "Public Function Area(): Int => 1\n" },
+        { "user.fb", "From \"./lib\" Import Area\nPublic Function Twice(): Int => Area() * 2\n" },
+    });
+    client_t client({ .folders = { folder.root() } });
+    const std::string user = folder.uri("user.fb");
+    client.open(user, "From \"./lib\" Import Area\nPublic Function Twice(): Int => Area() * 2\n");
+    client.settle();
+
+    json_t params = client.at(user, "Area()");
+    params["newName"] = "Size";
+    const json_t changes = client.request("textDocument/rename", params)["changes"];
+    REQUIRE(changes.contains(user));
+    CHECK(changes[user].size() == 2);
+    CHECK(changes[folder.uri("lib.fb")].size() == 1);
+}
+
+TEST_CASE("rename changes an open file outside the workspace, but not std's", "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("alone.fb");
+    const std::string text = "Import std.core\nLocal count = 1\nPrint(count + 1)\n";
+    client_t client({});
+    client.open(uri, text);
+
+    json_t params = client.at(uri, "count + 1");
+    params["newName"] = "total";
+    const json_t edit = client.request("textDocument/rename", params);
+    REQUIRE(edit["changes"].contains(uri));
+    CHECK(edit["changes"][uri].size() == 2);
+
+    // std's files are std's, even open.
+    const std::filesystem::path print =
+        fb::path_from_utf8(fb::build_config::std_directory) / "core" / "print.fb";
+    std::ifstream const in(print, std::ios::binary);
+    std::ostringstream read;
+    read << in.rdbuf();
+    const std::string print_uri = fb::lsp::uri_of(print);
+    client.open(print_uri, read.str());
+    CHECK(client.request("textDocument/prepareRename", client.at(uri, "Print")).is_null());
+    params = client.at(uri, "Print");
+    params["newName"] = "Show";
+    CHECK(client.send("textDocument/rename", params)["error"]["code"] == -32803);
+}
+
 TEST_CASE("completion gives members, names in scope, modules, and keywords", "[lsp]") {
     const folder_t folder(geo());
     client_t client({ .folders = { folder.root() }, .load_folders = false });
@@ -278,7 +321,7 @@ TEST_CASE("completion gives members, names in scope, modules, and keywords", "[l
     client.open(shapes, shapes_text);
 
     // After a '.', with the rest of the line not typed yet.
-    std::string typing = shapes_text;
+    std::string typing(shapes_text);
     typing.replace(typing.find("p.Squared()"), 11, "p.");
     client.change(shapes, typing);
     const std::set<std::string> members =
@@ -314,7 +357,7 @@ TEST_CASE("completion gives members, names in scope, modules, and keywords", "[l
     CHECK(own.contains("Squared"));
 
     // An Import's modules.
-    std::string importing = "Import std.co\n" + shapes_text;
+    std::string importing = "Import std.co\n" + std::string(shapes_text);
     client.change(shapes, importing);
     const json_t modules =
         client.request("textDocument/completion", client.at(shapes, "std.co", 6));
@@ -323,7 +366,7 @@ TEST_CASE("completion gives members, names in scope, modules, and keywords", "[l
     CHECK(!labels(modules).contains("If"));
 
     // A module's names, after its qualifier.
-    importing = "Import std.collections\n" + shapes_text;
+    importing = "Import std.collections\n" + std::string(shapes_text);
     importing.replace(importing.find("Local total = p.Squared()"), 25,
                       "Local total = p.Squared()\n    collections.");
     client.change(shapes, importing);
@@ -335,7 +378,7 @@ TEST_CASE("signature help shows the parameters of the call being typed", "[lsp]"
     const folder_t folder(geo());
     client_t client({ .folders = { folder.root() }, .load_folders = false });
     const std::string report = folder.uri("report.fb");
-    std::string typing = report_text;
+    std::string typing(report_text);
     typing.replace(typing.find("    Return"), 0, "    Local q = Scale(p, \n");
     client.open(report, typing);
 
@@ -406,9 +449,12 @@ TEST_CASE("semantic tokens say what each name is", "[lsp]") {
         line += delta;
         column = delta == 0 ? column + data[i + 1].get<std::uint32_t>()
                             : data[i + 1].get<std::uint32_t>();
-        tokens.push_back(
-            { line, column, data[i + 2].get<std::uint32_t>(),
-              legend["tokenTypes"][data[i + 3].get<std::size_t>()].get<std::string>() });
+        tokens.push_back({
+            .line = line,
+            .column = column,
+            .length = data[i + 2].get<std::uint32_t>(),
+            .type = legend["tokenTypes"][data[i + 3].get<std::size_t>()].get<std::string>(),
+        });
     }
 
     const auto type_at = [&](const std::uint32_t at_line, const std::uint32_t at_column) {
@@ -445,16 +491,15 @@ TEST_CASE("code actions make the fix-its fb has", "[lsp]") {
     client_t client({});
     client.open(uri, text);
     client.settle();
-    const std::optional<json_t> diagnostics = client.diagnostics(uri);
-    REQUIRE(diagnostics);
-    REQUIRE(diagnostics->size() == 1);
-    CHECK((*diagnostics)[0]["severity"] == 2);
+    const json_t diagnostics = client.diagnostics(uri);
+    REQUIRE(diagnostics.size() == 1);
+    CHECK(diagnostics[0]["severity"] == 2);
 
     const json_t actions = client.request("textDocument/codeAction",
                                           {
                                               { "textDocument", { { "uri", uri } } },
-                                              { "range", (*diagnostics)[0]["range"] },
-                                              { "context", { { "diagnostics", *diagnostics } } },
+                                              { "range", diagnostics[0]["range"] },
+                                              { "context", { { "diagnostics", diagnostics } } },
                                           });
     REQUIRE(actions.size() == 1);
     CHECK(actions[0]["kind"] == "quickfix");
@@ -462,7 +507,7 @@ TEST_CASE("code actions make the fix-its fb has", "[lsp]") {
     REQUIRE(edits.size() == 2);
     CHECK(edits[0]["newText"] == ": Comparable");
     CHECK(edits[0]["range"]["start"] == client_t::position(1, 18));
-    CHECK(edits[1]["newText"] == "");
+    CHECK(edits[1]["newText"].get<std::string>().empty());
 
     // None where no diagnostic has a fix.
     CHECK(client
@@ -476,17 +521,22 @@ TEST_CASE("code actions make the fix-its fb has", "[lsp]") {
 }
 
 TEST_CASE("formatting gives the document in fb's style, and on save when asked", "[lsp]") {
-    const folder_t folder({ { "project.toml", manifest + "\n[format]\nwidth = 40\n" } });
+    const folder_t folder(
+        { { "project.toml", std::string(manifest) + "\n[format]\nwidth = 40\n" } });
     const std::string uri = folder.uri("main.fb");
     const std::string text = "Import std.core\nLocal   a=1+2\nPrint(  a )\n";
-    client_t client({ .folders = { folder.root() },
-                      .load_folders = false,
-                      .initialization_options = { { "formatOnSave", true } } });
+    client_t client({
+        .folders = { folder.root() },
+        .load_folders = false,
+        .initialization_options = { { "formatOnSave", true } },
+    });
     CHECK(client.initialized()["capabilities"]["textDocumentSync"]["willSaveWaitUntil"] == true);
     client.open(uri, text);
 
-    const json_t params{ { "textDocument", { { "uri", uri } } },
-                         { "options", { { "tabSize", 4 }, { "insertSpaces", true } } } };
+    const json_t params{
+        { "textDocument", { { "uri", uri } } },
+        { "options", { { "tabSize", 4 }, { "insertSpaces", true } } },
+    };
     const json_t edits = client.request("textDocument/formatting", params);
     REQUIRE(edits.size() == 1);
     CHECK(edits[0]["newText"] == "Import std.core\nLocal a = 1 + 2\nPrint(a)\n");
@@ -505,7 +555,8 @@ TEST_CASE("formatting gives the document in fb's style, and on save when asked",
     const json_t broken = client.request("textDocument/formatting", params);
     REQUIRE(broken.size() == 1);
     const fb::source_file_t file(fb::file_id_t{}, "main.fb", longer);
-    CHECK(broken[0]["newText"] == *fb::format_source(file, 40));
+    CHECK(broken[0]["newText"] == fb::format_source(file, 40).value_or(""));
+    CHECK(broken[0]["newText"] != longer);
 
     // Formatted already, or a file that doesn't parse: nothing to change.
     client.change(uri, "Import std.core\nLocal a = 1\n");

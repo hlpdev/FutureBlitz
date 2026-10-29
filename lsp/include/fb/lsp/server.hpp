@@ -74,7 +74,11 @@ private:
     json_t initialize(const json_t& params);
     json_t hover(const json_t& params);
     json_t definition(const json_t& params);
-    json_t references(const json_t& params, bool declaration);
+    /// For a rename, `renaming`, only in the files it can change.
+    json_t references(const json_t& params, bool declaration, bool renaming = false);
+    /// Whether a rename can change a file: one of the workspace's, or an open document outside
+    /// it, but for std's, unless std is the workspace's.
+    [[nodiscard]] bool editable(const std::filesystem::path& file) const;
     json_t prepare_rename(const json_t& params);
     json_t rename(const json_t& params);
     json_t completion(const json_t& params);

@@ -204,7 +204,9 @@ void workspace_t::add_folders(const std::vector<std::filesystem::path>& folders)
                  entry.increment(error)) {
                 std::error_code ignored;
                 const std::string name = to_utf8(entry->path().filename());
-                if (is_link(*entry) || (entry->is_directory(ignored) && name.starts_with('.'))) {
+                // Hidden folders, and an editor extension's packages, have no packages of fb's.
+                if (is_link(*entry) || (entry->is_directory(ignored) &&
+                                        (name.starts_with('.') || name == "node_modules"))) {
                     entry.disable_recursion_pending();
                 } else if (entry->is_directory(ignored) &&
                            std::filesystem::is_regular_file(entry->path() / "project.toml",
@@ -580,6 +582,11 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         .modules = compilation ? compilation->ast.modules().size() : 0,
         .took = took,
     });
+    // A long session's, kept to the latest.
+    constexpr std::size_t kept = 10'000;
+    if (m_history.size() > kept) {
+        m_history.erase(m_history.begin());
+    }
 
     // The modules it had, by key, and what each imports.
     std::map<std::string, file_id_t> files;

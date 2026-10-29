@@ -13,11 +13,22 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 #include <vector>
 
 namespace fb::lsp::test {
+namespace {
+
+/// Whether two file URIs name one file.
+bool same_file(const std::string& first, const std::string& second) {
+    const std::optional<std::filesystem::path> a = path_of(first);
+    const std::optional<std::filesystem::path> b = path_of(second);
+    return a && b && file_key(*a) == file_key(*b);
+}
+
+} // namespace
 
 folder_t::folder_t(const std::vector<std::pair<std::string, std::string>>& files)
     : m_root(std::filesystem::weakly_canonical(temporary_path("lsp", ""))) {
@@ -54,7 +65,7 @@ client_t::client_t(options_t options)
           },
           { .workspace = { .delay = options.delay,
                            .dependents_delay = options.delay,
-                           .load_folders = options.load_folders } }) {
+                           .load_folders = options.load_folders, }, }) {
     json_t folders = json_t::array();
     for (const std::filesystem::path& folder : options.folders) {
         folders.push_back({ { "uri", uri_of(folder) }, { "name", to_utf8(folder.filename()) } });
@@ -75,7 +86,8 @@ client_t::client_t(options_t options)
     notify("initialized", json_t::object());
 }
 
-client_t::~client_t() {
+// A test fails when what its client says as it goes fails.
+client_t::~client_t() { // NOLINT(bugprone-exception-escape)
     // What a client says as it goes.
     static_cast<void>(send("shutdown", nullptr));
     notify("exit", nullptr);
@@ -83,10 +95,12 @@ client_t::~client_t() {
 
 json_t client_t::send(const std::string& method, json_t params) {
     const std::int64_t id = m_next_id++;
-    m_server.handle({ { "jsonrpc", "2.0" },
-                      { "id", id },
-                      { "method", method },
-                      { "params", std::move(params) } });
+    m_server.handle({
+        { "jsonrpc", "2.0" },
+        { "id", id },
+        { "method", method },
+        { "params", std::move(params) },
+    });
     const std::scoped_lock lock(m_mutex);
     for (const json_t& message : m_received) {
         if (message.contains("id") && message["id"] == id && !message.contains("method")) {
@@ -110,22 +124,26 @@ void client_t::notify(const std::string& method, json_t params) {
         { { "jsonrpc", "2.0" }, { "method", method }, { "params", std::move(params) } });
 }
 
-void client_t::open(const std::string& uri, const std::string& text) {
+void client_t::open(const std::string& uri, const std::string_view text) {
     m_texts[uri] = text;
     m_versions[uri] = 1;
-    notify("textDocument/didOpen", { { "textDocument",
-                                       { { "uri", uri },
-                                         { "languageId", "futureblitz" },
-                                         { "version", 1 },
-                                         { "text", text } } } });
+    const json_t document{
+        { "uri", uri },
+        { "languageId", "futureblitz" },
+        { "version", 1 },
+        { "text", text },
+    };
+    notify("textDocument/didOpen", { { "textDocument", document } });
 }
 
-void client_t::change(const std::string& uri, const std::string& text) {
+void client_t::change(const std::string& uri, const std::string_view text) {
     m_texts[uri] = text;
     const std::int64_t version = ++m_versions[uri];
     notify("textDocument/didChange",
-           { { "textDocument", { { "uri", uri }, { "version", version } } },
-             { "contentChanges", json_t::array({ { { "text", text } } }) } });
+           {
+               { "textDocument", { { "uri", uri }, { "version", version } } },
+               { "contentChanges", json_t::array({ { { "text", text } } }) },
+           });
 }
 
 void client_t::close(const std::string& uri) {
@@ -137,17 +155,18 @@ void client_t::settle() {
     m_server.workspace().settle();
 }
 
-std::optional<json_t> client_t::diagnostics(const std::string& uri) const {
+json_t client_t::diagnostics(const std::string& uri) const {
     const std::scoped_lock lock(m_mutex);
-    std::optional<json_t> last;
+    json_t last;
     for (const json_t& message : m_received) {
         if (message.value("method", "") == "textDocument/publishDiagnostics" &&
-            file_key(*path_of(message["params"]["uri"].get<std::string>())) ==
-                file_key(*path_of(uri))) {
+            same_file(message["params"]["uri"].get<std::string>(), uri)) {
             last = message["params"]["diagnostics"];
         }
     }
 
+    INFO("diagnostics for " << uri);
+    REQUIRE(last.is_array());
     return last;
 }
 
@@ -156,8 +175,7 @@ std::size_t client_t::publications(const std::string& uri) const {
     std::size_t count = 0;
     for (const json_t& message : m_received) {
         if (message.value("method", "") == "textDocument/publishDiagnostics" &&
-            file_key(*path_of(message["params"]["uri"].get<std::string>())) ==
-                file_key(*path_of(uri))) {
+            same_file(message["params"]["uri"].get<std::string>(), uri)) {
             ++count;
         }
     }
@@ -204,7 +222,8 @@ json_t client_t::at(const std::string& uri, const std::string& text,
 
 place_t place_of(const json_t& location) {
     return {
-        .uri = uri_of(*path_of(location["uri"].get<std::string>())),
+        .uri =
+            uri_of(path_of(location["uri"].get<std::string>()).value_or(std::filesystem::path())),
         .line = location["range"]["start"]["line"].get<std::uint32_t>(),
         .character = location["range"]["start"]["character"].get<std::uint32_t>(),
     };

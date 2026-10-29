@@ -175,19 +175,22 @@ public:
                 continue;
             }
 
+            // A module's qualifier, a type's name, or a value.
             const expr_info_t& object = m_analysis.expr(member->object);
-            if (object.symbol && m_analysis.symbol(*object.symbol).kind == symbol_kind_t::MODULE) {
-                for (const module_id_t module : m_analysis.symbol(*object.symbol).modules) {
+            const auto* name = std::get_if<name_expr_t>(&m_ast.get(member->object).node);
+            const symbol_t* named = object.symbol ? &m_analysis.symbol(*object.symbol) : nullptr;
+            const std::optional<type_id_t> builtin =
+                name != nullptr && named == nullptr ? builtin_type(name->name) : std::nullopt;
+            if (named != nullptr && named->kind == symbol_kind_t::MODULE) {
+                for (const module_id_t module : named->modules) {
                     add_module_names(module, {});
                 }
-            } else if (object.symbol &&
-                       (m_analysis.symbol(*object.symbol).kind == symbol_kind_t::TYPE ||
-                        m_analysis.symbol(*object.symbol).kind == symbol_kind_t::ALIAS) &&
-                       std::holds_alternative<name_expr_t>(m_ast.get(member->object).node)) {
-                add_statics(m_analysis.symbol(*object.symbol).type);
-            } else if (const auto* name = std::get_if<name_expr_t>(&m_ast.get(member->object).node);
-                       name != nullptr && !object.symbol && builtin_type(name->name)) {
-                add_statics(*builtin_type(name->name));
+            } else if (named != nullptr && name != nullptr &&
+                       (named->kind == symbol_kind_t::TYPE ||
+                        named->kind == symbol_kind_t::ALIAS)) {
+                add_statics(named->type);
+            } else if (builtin) {
+                add_statics(*builtin);
             } else {
                 add_instance_members(object.type);
             }
@@ -509,6 +512,7 @@ private:
                           { variables });
                 } else if constexpr (std::is_same_v<node_t, if_stmt_t>) {
                     std::vector<std::pair<const block_t*, std::uint32_t>> blocks;
+                    blocks.reserve(node.branches.size() + 1);
                     for (const if_branch_t& branch : node.branches) {
                         blocks.emplace_back(&branch.body, m_ast.get(branch.condition).span.end);
                     }
@@ -523,25 +527,27 @@ private:
                     chain(std::move(blocks), {});
                 } else if constexpr (std::is_same_v<node_t, while_stmt_t> ||
                                      std::is_same_v<node_t, loop_stmt_t> ||
-                                     std::is_same_v<node_t, unsafe_stmt_t>) {
-                    chain({ { &node.body, statement.span.begin } }, {});
-                } else if constexpr (std::is_same_v<node_t, repeat_stmt_t>) {
-                    chain({ { &node.body, statement.span.begin } }, {});
-                } else if constexpr (std::is_same_v<node_t, lock_stmt_t>) {
-                    chain({ { &node.body, statement.span.begin } }, { loop_variables() });
-                } else if constexpr (std::is_same_v<node_t, for_stmt_t> ||
+                                     std::is_same_v<node_t, unsafe_stmt_t> ||
+                                     std::is_same_v<node_t, repeat_stmt_t> ||
+                                     std::is_same_v<node_t, lock_stmt_t> ||
+                                     std::is_same_v<node_t, for_stmt_t> ||
                                      std::is_same_v<node_t, for_in_stmt_t> ||
                                      std::is_same_v<node_t, for_member_stmt_t>) {
+                    // A loop's variables, and a Lock's, which the others have none of.
                     chain({ { &node.body, statement.span.begin } }, { loop_variables() });
                 } else if constexpr (std::is_same_v<node_t, select_stmt_t>) {
                     std::vector<std::pair<const block_t*, std::uint32_t>> blocks;
                     std::vector<std::vector<symbol_id_t>> variables;
                     std::size_t match = 0;
                     for (const case_t& each : node.cases) {
-                        const std::uint32_t at =
-                            each.values.empty()
-                                ? (each.match ? each.match->name.span.end : statement.span.begin)
-                                : m_ast.get(each.values.back().value).span.end;
+                        // A Case's code starts after its values, or its match's name.
+                        std::uint32_t at = statement.span.begin;
+                        if (!each.values.empty()) {
+                            at = m_ast.get(each.values.back().value).span.end;
+                        } else if (each.match) {
+                            at = each.match->name.span.end;
+                        }
+
                         blocks.emplace_back(&each.body, at);
                         if (each.match && match < info.matches.size()) {
                             variables.push_back({ info.matches[match++] });
@@ -697,7 +703,7 @@ json_t completion(const query_t& query, const std::uint32_t offset,
     }
 
     // "x." and "x?.".
-    if (word > 0 && text[word - 1] == '.' && !(word > 1 && text[word - 2] == '.')) {
+    if (word > 0 && text[word - 1] == '.' && (word <= 1 || text[word - 2] != '.')) {
         const bool safe = word > 1 && text[word - 2] == '?';
         return completer.members(word - (safe ? 2 : 1));
     }

@@ -29,8 +29,9 @@ struct checked_t {
 };
 
 /// What one compilation covers: a package, with its tests/ folder, the standard library, or a
-/// .fb file outside a package, with what it imports.
-struct unit_t {
+/// .fb file outside a package, with what it imports. Making its set can allocate, which
+/// clang-tidy reports as an exception escaping.
+struct unit_t { // NOLINT(bugprone-exception-escape)
     enum class kind_t : std::uint8_t {
         PACKAGE,
         STANDARD,
