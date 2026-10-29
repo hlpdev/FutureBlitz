@@ -1,0 +1,5 @@
+played 2
+panic: -2 steps at arena/arena.fb:33:27
+    at arena.arena.Arena.RunFor (arena/arena.fb:33)
+    at Play (panic_trace_beside/main.fb:8)
+    at top-level code (panic_trace_beside/main.fb:14)

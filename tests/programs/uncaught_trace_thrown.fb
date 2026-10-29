@@ -1,0 +1,37 @@
+// An uncaught error's stack trace is where it was first thrown, though a Catch threw it again
+// further out, and errors thrown and caught on the way keep no trace.
+
+Import std.core
+Import std.text
+
+Class Level
+    Field Name: String
+
+    Method Load(path: String) Throws IOError
+        If path.EndsWith(".bad") Then Throw IOError(IOErrorKind.INVALID_DATA, "{path} isn't a level", path)
+        Name = path
+    End Method
+End Class
+
+Function Open(path: String): Level Throws IOError
+    Local level = Level()
+    Try level.Load(path)
+    Return level
+End Function
+
+Function OpenAll(paths: String[]): Level[] Throws IOError
+    Local levels: Level[] = []
+    For path In paths
+        Try
+            levels.Add(Open(path))
+        Catch e As IOError
+            Print("skipped: {e.Message}")
+            If path.StartsWith("must") Then Throw e
+        End Try
+    End For
+
+    Return levels
+End Function
+
+Local opened = Try OpenAll(["one.lvl", "two.bad", "must.bad"])
+Print("opened {opened.Count}")

@@ -1,6 +1,7 @@
 """tools/verify.py's own tests: a run past its limit is killed with what it started, --quick
-checks the programs a change is of, a release_ one in release mode, and the programs ctest test's
-shards each have a time limit. ctest runs them, with FB_TEST_BUILD the build folder.
+checks the programs a change is of, a release_ one in release mode, a panic's stack trace is
+compared only where the program's name says, and the programs ctest test's shards each have a
+time limit. ctest runs them, with FB_TEST_BUILD the build folder.
 
     python -m unittest verify_tests
 """
@@ -116,6 +117,19 @@ class quick_tests_t(unittest.TestCase):
         verify.only = {"release_wrap", "plain"}
         verify.check_debug(built)  # type: ignore[arg-type]
         self.assertEqual(sorted(built.builds), [("plain", False), ("release_wrap", True)])
+
+
+class trace_tests_t(unittest.TestCase):
+    def test_a_panics_trace_is_left_out_but_where_the_name_keeps_it(self) -> None:
+        printed = (b"    at the start\n\x1b[?25hpanic: boom at a.fb:2:1\n    at F (a.fb:2)\n"
+                   b"    at top-level code (a.fb:5)\n")
+        self.assertEqual(verify.without_trace(printed),
+                         b"    at the start\n\x1b[?25hpanic: boom at a.fb:2:1\n")
+        uncaught = b"uncaught Error: x at a.fb:1:1\n"
+        self.assertEqual(verify.without_trace(uncaught + b"    at G (a.fb:1)\n"), uncaught)
+        self.assertTrue(verify.keeps_trace("release_panic_trace_inlined"))
+        self.assertTrue(verify.keeps_trace("uncaught_trace_thrown"))
+        self.assertFalse(verify.keeps_trace("panic_overflow"))
 
 
 class shard_tests_t(unittest.TestCase):

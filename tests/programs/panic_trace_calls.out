@@ -1,0 +1,7 @@
+running
+panic: index 5 is out of range for 3 elements at panic_trace_calls.fb:12:17
+    at Counter.Take (panic_trace_calls.fb:12)
+    at Function at panic_trace_calls.fb:22:20 (panic_trace_calls.fb:22)
+    at Apply<Counter> (panic_trace_calls.fb:17)
+    at Run (panic_trace_calls.fb:22)
+    at top-level code (panic_trace_calls.fb:25)

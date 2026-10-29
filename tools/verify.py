@@ -116,6 +116,29 @@ def executable(path: Path) -> Path:
     return path.with_suffix(".exe") if os.name == "nt" else path
 
 
+def keeps_trace(name: str) -> bool:
+    """Whether a program's .out has its stack trace, as the program tests read its name: one
+    whose ending, after release_ and panic_ or uncaught_, starts with "trace"."""
+    for prefix in ("release_", "panic_", "uncaught_"):
+        name = name.removeprefix(prefix)
+    return name.startswith("trace")
+
+
+def without_trace(output: bytes) -> bytes:
+    """What a program printed without the stack trace after its panic or uncaught error, the
+    lines that start "    at ", as the program tests compare it: the line can start with what
+    the program printed without a line break."""
+    kept = []
+    reported = False
+    for line in output.splitlines(keepends=True):
+        if b"panic: " in line or b"uncaught " in line:
+            reported = True
+        elif reported and line.startswith(b"    at "):
+            continue
+        kept.append(line)
+    return b"".join(kept)
+
+
 def expected_code(name: str) -> int:
     """What a program's name says it exits with, as the program tests read it."""
     ending = name.removeprefix("release_")
@@ -185,7 +208,8 @@ class programs_t:
             problems.append(f"{name} ({label}) was still running after {RUN_LIMIT} seconds, "
                             f"having printed:\n{printed}")
             return False
-        if output == (PROGRAMS / f"{name}.out").read_bytes() and code == expected_code(name):
+        compared = output if keeps_trace(name) else without_trace(output)
+        if compared == (PROGRAMS / f"{name}.out").read_bytes() and code == expected_code(name):
             return True
         problems.append(f"{name} ({label}) printed:\n{printed}"
                         f"(exit code {code}, expected {expected_code(name)})")

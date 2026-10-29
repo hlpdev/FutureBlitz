@@ -1,0 +1,25 @@
+// panic_trace_calls's program in a release build, which inlines Apply and Run into the top-level
+// code: its stack trace still names each call, from the table of each call's place and the
+// calls it's inlined into, and a call in a tail position keeps its caller's frame.
+
+Import std.core
+
+Class Counter
+    Field Count: Int32
+
+    Method Take(amount: Int32)
+        Local items = [1, 2, 3]
+        Count = items[Count + amount]
+    End Method
+End Class
+
+Function Apply<T>(value: T, action: Func(T))
+    action(value)
+End Function
+
+Function Run(counter: Counter)
+    Print("running")
+    Apply(counter, Function(c: Counter) => c.Take(5))
+End Function
+
+Run(Counter())

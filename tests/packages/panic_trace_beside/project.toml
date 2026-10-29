@@ -1,0 +1,7 @@
+# A panic in arena's code, prebuilt and beside the executable, whose stack trace names it.
+[project]
+name = "panic_trace_beside"
+version = "0.1.0"
+
+[dependencies]
+arena = { path = "../arena-prebuilt", link = "beside" }

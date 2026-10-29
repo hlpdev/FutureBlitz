@@ -1,0 +1,14 @@
+// A panic in a library beside the executable: its stack trace names the library's code, from the
+// table in the library's own file, and the program's code around it, from the executable's.
+
+Import std.core
+Import arena
+
+Function Play(field: Arena, steps: Int)
+    field.RunFor(0.5, steps)
+    Print("played {steps}")
+End Function
+
+Local field = Arena("field")
+Play(field, 2)
+Play(field, -2)

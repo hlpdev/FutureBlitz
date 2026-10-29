@@ -45,7 +45,9 @@
 // starting with "panic_" must exit with a panic (code 101), one starting with "uncaught_" must
 // let an error out of its top-level code (code 1), and one starting with "release_" is built in
 // release mode. One starting with "http_", after any "release_", runs under tests/native's HTTP
-// test server, whose URLs and test CA are the first lines of its input.
+// test server, whose URLs and test CA are the first lines of its input. A panic's or uncaught
+// error's stack trace is left out of what's compared, but where the rest of the name, after
+// those, starts with "trace", as "panic_trace_calls" does.
 
 namespace {
 
@@ -74,6 +76,43 @@ std::string from_folder(std::string output, const std::filesystem::path& folder)
     }
 
     return output;
+}
+
+/// `output` without the stack trace after its panic or uncaught error, the lines that start
+/// "    at ", which only the programs whose ending names "trace" keep, as "panic_trace_calls"
+/// does: the others' traces would change with every line std gains. A panic's or error's line
+/// can start with what the program wrote without a line break, as a terminal's escapes.
+std::string without_trace(const std::string& output) {
+    std::string kept;
+    bool reported = false;
+    for (std::size_t at = 0; at < output.size();) {
+        const std::size_t end = output.find('\n', at);
+        const std::size_t next = end == std::string::npos ? output.size() : end + 1;
+        const std::string_view line = std::string_view(output).substr(at, next - at);
+        if (line.contains("panic: ") || line.contains("uncaught ")) {
+            reported = true;
+        } else if (reported && line.starts_with("    at ")) {
+            at = next;
+            continue;
+        }
+
+        kept += line;
+        at = next;
+    }
+
+    return kept;
+}
+
+/// Whether a program's or package's name keeps its trace: one whose ending, after "release_"
+/// and "panic_" or "uncaught_", starts with "trace".
+bool keeps_trace(std::string_view name) {
+    for (const std::string_view prefix : { "release_", "panic_", "uncaught_" }) {
+        if (name.starts_with(prefix)) {
+            name.remove_prefix(prefix.size());
+        }
+    }
+
+    return name.starts_with("trace");
 }
 
 /// The standard library, and the files in the folder named like the program, by their paths
@@ -335,7 +374,8 @@ TEST_CASE("programs print what they should", "[programs][.]") {
 
             std::filesystem::path expected = source;
             expected.replace_extension(".out");
-            CHECK(result->output == read_file(expected));
+            CHECK((keeps_trace(name) ? result->output : without_trace(result->output)) ==
+                  read_file(expected));
             const std::string_view ending =
                 std::string_view(name).substr(release ? release_prefix.size() : 0);
             int code = 0;
@@ -384,7 +424,9 @@ TEST_CASE("packages build and print what they should", "[programs]") {
                     .and_then([&] { return fb::run_process(program, {}); });
             INFO((result ? result->output : result.error()));
             REQUIRE(result);
-            CHECK(from_folder(result->output, packages) == read_file(packages / (name + ".out")));
+            const std::string output = from_folder(result->output, packages);
+            CHECK((keeps_trace(name) ? output : without_trace(output)) ==
+                  read_file(packages / (name + ".out")));
             CHECK(result->exit_code == (name.starts_with("panic_") ? 101 : 0));
         }
     }
@@ -411,7 +453,9 @@ TEST_CASE("a panic in a library file says where in it", "[programs]") {
             return fb::run_process(program, {});
         });
     REQUIRE(result);
-    CHECK(result->output == "panic: -2 isn't positive at lib/check.fb:2:5\n");
+    CHECK(result->output == "panic: -2 isn't positive at lib/check.fb:2:5\n"
+                            "    at lib.check.Check (lib/check.fb:2)\n"
+                            "    at top-level code (main.fb:3)\n");
     CHECK(result->exit_code == 101);
 }
 
@@ -539,7 +583,9 @@ TEST_CASE("a type panic tells two modules' types of one name apart", "[programs]
         run_with_library("module_cat", imports + "Local c = AsCat(BCat())", library);
     INFO((cat ? cat->output : cat.error()));
     REQUIRE(cat);
-    CHECK(cat->output == "panic: expected lib.a.Cat, found lib.b.Cat at lib/a.fb:7:42\n");
+    CHECK(cat->output == "panic: expected lib.a.Cat, found lib.b.Cat at lib/a.fb:7:42\n"
+                         "    at lib.a.AsCat (lib/a.fb:7)\n"
+                         "    at top-level code (main.fb:3)\n");
     CHECK(cat->exit_code == 101);
 
     // An Interface and a Class whose names are the same.
@@ -547,7 +593,9 @@ TEST_CASE("a type panic tells two modules' types of one name apart", "[programs]
         run_with_library("module_pet", imports + "Local p = AsPet(BPet())", library);
     INFO((pet ? pet->output : pet.error()));
     REQUIRE(pet);
-    CHECK(pet->output == "panic: expected lib.a.Pet, found lib.b.Pet at lib/a.fb:8:42\n");
+    CHECK(pet->output == "panic: expected lib.a.Pet, found lib.b.Pet at lib/a.fb:8:42\n"
+                         "    at lib.a.AsPet (lib/a.fb:8)\n"
+                         "    at top-level code (main.fb:3)\n");
     CHECK(pet->exit_code == 101);
 
     // Names that differ stay as they are.
@@ -555,7 +603,9 @@ TEST_CASE("a type panic tells two modules' types of one name apart", "[programs]
         run_with_library("module_other", imports + "Local c = AsCat(BPet())", library);
     INFO((other ? other->output : other.error()));
     REQUIRE(other);
-    CHECK(other->output == "panic: expected Cat, found Pet at lib/a.fb:7:42\n");
+    CHECK(other->output == "panic: expected Cat, found Pet at lib/a.fb:7:42\n"
+                           "    at lib.a.AsCat (lib/a.fb:7)\n"
+                           "    at top-level code (main.fb:3)\n");
     CHECK(other->exit_code == 101);
 }
 
@@ -586,7 +636,8 @@ TEST_CASE("panics and leak reports tell a generic Class from another of its name
         "generic_panic", own + "Local h = MakeBox(Null)\nLocal b = h As Box", library);
     INFO((panic ? panic->output : panic.error()));
     REQUIRE(panic);
-    CHECK(panic->output == "panic: expected main.Box, found lib.a.Box<Int32> at main.fb:6:11\n");
+    CHECK(panic->output == "panic: expected main.Box, found lib.a.Box<Int32> at main.fb:6:11\n"
+                           "    at top-level code (main.fb:6)\n");
     CHECK(panic->exit_code == 101);
 
     const std::expected<fb::process_result_t, std::string> leak = run_with_library(

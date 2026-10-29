@@ -28,6 +28,12 @@ Public Class Arena
         End For
     End Method
 
+    // Run, for a count of steps that can't be below 0.
+    Public Method RunFor(seconds: Float32, steps: Int)
+        If steps < 0 Then Panic("{steps} steps")
+        Run(seconds, steps)
+    End Method
+
     Public Method Place(body: Int32): String
         Try
             Return "{world.Position(body)}"

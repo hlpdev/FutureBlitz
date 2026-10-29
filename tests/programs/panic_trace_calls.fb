@@ -1,0 +1,25 @@
+// A panic's stack trace names each call it's in, innermost first, by its function, file, and
+// line: a Method, a function value's code, a generic Function's instance, a Function, and the
+// top-level code.
+
+Import std.core
+
+Class Counter
+    Field Count: Int32
+
+    Method Take(amount: Int32)
+        Local items = [1, 2, 3]
+        Count = items[Count + amount]
+    End Method
+End Class
+
+Function Apply<T>(value: T, action: Func(T))
+    action(value)
+End Function
+
+Function Run(counter: Counter)
+    Print("running")
+    Apply(counter, Function(c: Counter) => c.Take(5))
+End Function
+
+Run(Counter())
