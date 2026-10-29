@@ -183,7 +183,7 @@ Skeptic: scratchpad/review-m8s5/refute-client/emoji.fb has `Local s = "😀😀"
 
 Fix: A problem matcher can't convert units. One option is for fb to print UTF-16 columns when asked: an option or environment variable the extension's tasks set, which the LSP will need anyway. The other is to document the limitation. Add a non-BMP case to the extension tests.
 
-Status: open: needs fb to print UTF-16 columns when a task asks (an option or environment variable in the cli, which this lane can't change); a problem matcher can't convert them. tooling.md says so; the language server's diagnostics are in UTF-16
+Status: fixed: FB_COLUMNS=utf-16 makes fb count its diagnostics' columns in UTF-16 code units (render_options_t's columns, which cli/src/terminal.cpp's diagnostic_columns reads), code points without it, and the extension's tasks set it; tested by a render test, a cli test of an error after two U+1F600s in both units, the problem-matcher test over fb build's output in both, and an extension test whose problem is at y's column. A running program's places, which the compiler writes in code points, are as they were, which tooling.md says
 
 ## client-5 (low): A server that never answers initialize leaves the client 'starting' forever, with no message
 

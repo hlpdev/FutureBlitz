@@ -154,10 +154,10 @@ README says how to build, test, and install it.
   `path:line:col: error[code]: message` and warnings, `$fb-note` for its notes, and `$fb-runtime`
   for what a program or its tests print with a place: `panic: ... at path:line:col`, `uncaught
   Type[: message] at`, `expect failed: ... at`, `failed[: message] at` (Fail), and `threw
-  Type[: message] at`. fb counts columns in code points and VS Code in UTF-16 units, so a task's
-  problem after a character outside the BMP on its line is a column left per such character,
-  until fb can print UTF-16 columns; the server's diagnostics are right. Without fb, a task says
-  why. FutureBlitz: Run, Debug, and Run Tests do the open file's package, or the file.
+  Type[: message] at`. fb's diagnostics count columns in code points, and with `FB_COLUMNS=utf-16`
+  in UTF-16 code units, as VS Code does, which the tasks set; a running program's places, which
+  the compiler writes in, still count code points, so one after a character outside the BMP on
+  its line is a column left per such character. Without fb, a task says why. FutureBlitz: Run, Debug, and Run Tests do the open file's package, or the file.
 - **Debugging**: a `futureblitz` launch configuration, with `program` (a .fb file or a package's
   folder), `args`, `cwd`, `env`, `release`, `stopOnEntry`, `terminal`, and CodeLLDB's own commands
   and settings, builds the program in debug with `fb build -o` where fb puts it anyway (a

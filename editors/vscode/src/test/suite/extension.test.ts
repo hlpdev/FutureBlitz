@@ -274,6 +274,20 @@ suite("tasks", () => {
             }
         });
 
+        // fb counts code points unless the task asks for UTF-16 code units, which VS Code counts.
+        test("a problem after a character outside the BMP is at its own column", async () => {
+            const emoji = file("files", "emoji.fb");
+            const task = api.tasks.make({ type: "futureblitz", command: "build", target: "emoji.fb" }, folder("files"));
+            assert.equal(await runTask(task), 1);
+            const [diagnostic] = await waitFor(
+                "the build's error",
+                () => vscode.languages.getDiagnostics(emoji).length > 0 && vscode.languages.getDiagnostics(emoji),
+            );
+            const document = await vscode.workspace.openTextDocument(emoji);
+            assert.equal(diagnostic.range.start.line, 2);
+            assert.equal(diagnostic.range.start.character, document.lineAt(2).text.indexOf("y"));
+        });
+
         test("the open file's task builds the open file", async () => {
             await open(file("files", "hello.fb"));
             const tasks = await vscode.tasks.fetchTasks({ type: "futureblitz" });

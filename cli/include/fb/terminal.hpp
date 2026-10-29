@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fb/options.hpp"
+#include "fb/source.hpp"
 
 #include <cstdint>
 #include <string>
@@ -26,5 +27,9 @@ void prepare_terminal();
 
 /// Whether to color what goes to `stream`. AUTO means color in a terminal, unless NO_COLOR is set.
 [[nodiscard]] bool use_color(color_t choice, stream_t stream);
+
+/// What diagnostics' columns count: UTF-16 code units when FB_COLUMNS is "utf-16", as an editor's
+/// task asks for, else code points.
+[[nodiscard]] column_unit_t diagnostic_columns();
 
 } // namespace fb

@@ -190,4 +190,10 @@ bool use_color(const color_t choice, const stream_t stream) {
     return is_terminal(stream);
 }
 
+column_unit_t diagnostic_columns() {
+    const char* columns = std::getenv("FB_COLUMNS");
+    return columns != nullptr && std::string_view(columns) == "utf-16" ? column_unit_t::UTF16
+                                                                       : column_unit_t::CODEPOINT;
+}
+
 } // namespace fb

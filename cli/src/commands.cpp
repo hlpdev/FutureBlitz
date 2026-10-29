@@ -67,6 +67,11 @@ public:
         return m_err;
     }
 
+    /// How diagnostics go to stderr: in its colors, with FB_COLUMNS's columns.
+    [[nodiscard]] render_options_t diagnostics() const {
+        return { .color = m_err.color, .columns = m_columns };
+    }
+
     static void print(const std::string_view text) {
         std::fwrite(text.data(), 1, text.size(), stdout);
     }
@@ -95,6 +100,7 @@ public:
 private:
     style_t m_out;
     style_t m_err;
+    column_unit_t m_columns = diagnostic_columns();
 };
 
 /// "1 error" or "3 errors".
@@ -311,7 +317,7 @@ void report_build_error(const console_t& console, const compilation_t& compilati
     const link_errors_t found = link_errors(compilation, failure);
     for (const diagnostic_t& diagnostic : found.errors) {
         console_t::print_error(
-            render_pretty(diagnostic, compilation.sources, { .color = console.err().color }));
+            render_pretty(diagnostic, compilation.sources, console.diagnostics()));
     }
 
     if (!found.complete) {
@@ -411,7 +417,7 @@ int build_library_files(const console_t& console, const options_t& options,
         fb::build_library(compilation, options.mode, diagnostics);
     for (const diagnostic_t& diagnostic : diagnostics.diagnostics()) {
         console_t::print_error(
-            render_pretty(diagnostic, compilation.sources, { .color = console.err().color }));
+            render_pretty(diagnostic, compilation.sources, console.diagnostics()));
     }
 
     if (!built && built.error().empty()) {
@@ -539,7 +545,7 @@ std::size_t report_diagnostics(const console_t& console, const compilation_t& co
     const std::span<const diagnostic_t> diagnostics = compilation.diagnostics.diagnostics();
     for (const diagnostic_t& diagnostic : diagnostics | std::views::take(shown_diagnostics)) {
         console_t::print_error(
-            render_pretty(diagnostic, compilation.sources, { .color = console.err().color }));
+            render_pretty(diagnostic, compilation.sources, console.diagnostics()));
     }
 
     if (const std::size_t rest =
@@ -622,8 +628,8 @@ int compile_command(const options_t& options) {
         diagnostic_bag_t kept;
         if (!write_interface(compilation, options.mode, kept, "")) {
             for (const diagnostic_t& diagnostic : kept.diagnostics()) {
-                console_t::print_error(render_pretty(diagnostic, compilation.sources,
-                                                     { .color = console.err().color }));
+                console_t::print_error(
+                    render_pretty(diagnostic, compilation.sources, console.diagnostics()));
             }
 
             console.error(std::format("{} has {}", name, count(kept.error_count(), "error")));
@@ -636,7 +642,7 @@ int compile_command(const options_t& options) {
     if (const std::optional<mir_error_t>& error = module.error) {
         const diagnostic_t diagnostic{ .message = error->message, .span = error->span };
         console_t::print_error(
-            render_pretty(diagnostic, compilation.sources, { .color = console.err().color }));
+            render_pretty(diagnostic, compilation.sources, console.diagnostics()));
         console.error(checking ? std::format("{} has 1 error", name)
                                : std::format("couldn't build {} because of 1 error", name));
         return compile_errors_exit_code;
@@ -979,7 +985,7 @@ int test_command(const options_t& options) {
     if (const std::optional<mir_error_t>& error = module.error) {
         const diagnostic_t diagnostic{ .message = error->message, .span = error->span };
         console_t::print_error(
-            render_pretty(diagnostic, compilation.sources, { .color = console.err().color }));
+            render_pretty(diagnostic, compilation.sources, console.diagnostics()));
         console.error(std::format("couldn't build {}'s tests because of 1 error", name));
         return compile_errors_exit_code;
     }

@@ -40,14 +40,14 @@ tone_t severity_tone(const severity_t severity) {
     std::unreachable();
 }
 
-/// "path:line:col: severity[code]: message", 1-based, with the column counted in code points.
-/// The path and the message can hold source text, so their control characters are escaped, as a
+/// "path:line:col: severity[code]: message", 1-based, with the column counted in `columns`. The
+/// path and the message can hold source text, so their control characters are escaped, as a
 /// snippet's are.
 std::string header(const source_manager_t& sources, const span_t span, const severity_t severity,
                    const std::string_view code, const std::string_view message,
-                   const style_t& style) {
+                   const style_t& style, const column_unit_t columns = column_unit_t::CODEPOINT) {
     const source_file_t& file = sources.get(span.file);
-    const location_t location = file.location_of(span.begin, column_unit_t::CODEPOINT);
+    const location_t location = file.location_of(span.begin, columns);
 
     std::string kind(severity_name(severity));
     if (!code.empty()) {
@@ -208,11 +208,12 @@ std::string render_pretty(const diagnostic_t& diagnostic, const source_manager_t
     const style_t style{ .color = options.color };
 
     std::string out = header(sources, diagnostic.span, diagnostic.severity, diagnostic.code,
-                             diagnostic.message, style);
+                             diagnostic.message, style, options.columns);
     out += snippet(sources, diagnostic.span, '^', severity_tone(diagnostic.severity), width, style);
 
     for (const label_t& label : diagnostic.labels) {
-        out += header(sources, label.span, severity_t::NOTE, "", label.message, style);
+        out += header(sources, label.span, severity_t::NOTE, "", label.message, style,
+                      options.columns);
         out += snippet(sources, label.span, '-', tone_t::GUTTER, width, style);
     }
 

@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
-import { FbCommand, TaskDefinition, missingFbMessage, taskArguments, taskLabel } from "./fb";
+import { COLUMNS, FbCommand, TaskDefinition, missingFbMessage, taskArguments, taskLabel } from "./fb";
 import { Found } from "./paths";
 
 export const TASK_TYPE = "futureblitz";
@@ -80,6 +80,8 @@ export class FbTaskProvider implements vscode.TaskProvider {
                 ? missingFb(missingFbMessage(fb.missingSetting))
                 : new vscode.ProcessExecution(fb.path, taskArguments(definition), {
                       cwd: folder?.uri.fsPath ?? targetFolder(definition.target),
+                      // VS Code's columns are UTF-16 code units, which fb counts in when asked.
+                      env: { [COLUMNS.name]: COLUMNS.value },
                   });
         const task = new vscode.Task(definition, scope, name, "fb", execution, PROBLEM_MATCHERS);
         if (definition.command === "build" || definition.command === "check") {

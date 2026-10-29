@@ -8,6 +8,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, test } from "node:test";
 
+import { COLUMNS } from "../../fb";
 import { EXTENSION, scratch, testFb } from "./repo";
 
 interface Pattern {
@@ -229,6 +230,29 @@ describe("problem matchers", () => {
                 ["bad.fb", 3, 7, "error"],
             ],
         );
+    });
+
+    // VS Code's columns are UTF-16 code units, which the tasks ask fb for: after two U+1F600s, y is
+    // at code point 18 but unit 20.
+    test("fb build's columns in UTF-16 units, as the tasks ask", { skip }, () => {
+        const folder = scratch("columns");
+        fs.writeFileSync(path.join(folder, "emoji.fb"), 'Import std.core\nLocal s = "\u{1F600}\u{1F600}" + y\n');
+        const build = (env: NodeJS.ProcessEnv): Problem[] =>
+            problems(
+                (({ stdout, stderr }) => stdout + stderr)(
+                    spawnSync(fb as string, ["build", "--color", "never", "emoji.fb"], {
+                        cwd: folder,
+                        encoding: "utf8",
+                        env,
+                    }),
+                ),
+            );
+        const points = build({ ...process.env, [COLUMNS.name]: undefined });
+        const units = build({ ...process.env, [COLUMNS.name]: COLUMNS.value });
+        fs.rmSync(folder, { recursive: true, force: true });
+        assert.deepEqual(points.map((p) => [p.line, p.column]), [[2, 18]]);
+        assert.deepEqual(units.map((p) => [p.line, p.column]), [[2, 20]]);
+        assert.equal("Local s = \"\u{1F600}\u{1F600}\" + y".indexOf("y") + 1, units[0].column);
     });
 
     test("fb run's panic", { skip }, () => {

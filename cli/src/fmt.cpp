@@ -225,7 +225,8 @@ private:
     void report(const std::vector<diagnostic_t>& diagnostics,
                 const source_manager_t& sources) const {
         for (const diagnostic_t& diagnostic : diagnostics) {
-            write(stderr, render_pretty(diagnostic, sources, { .color = m_err.color }));
+            write(stderr, render_pretty(diagnostic, sources,
+                                        { .color = m_err.color, .columns = diagnostic_columns() }));
         }
     }
 

@@ -3,6 +3,10 @@
 
 import * as path from "node:path";
 
+// What asks fb (cli/src/terminal.cpp's diagnostic_columns) for its diagnostics' columns in UTF-16
+// code units, as VS Code counts them, not code points.
+export const COLUMNS = { name: "FB_COLUMNS", value: "utf-16" };
+
 export type FbCommand = "build" | "run" | "test" | "fmt" | "check";
 
 // A futureblitz task's definition, as tasks.json and package.json's taskDefinitions have it.

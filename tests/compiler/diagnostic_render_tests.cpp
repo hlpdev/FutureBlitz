@@ -175,6 +175,20 @@ TEST_CASE("markers line up under wide characters and combining marks", "[render]
                                                   "1 | x = \"日本\" y\n" +
                                                       marker_row(4, "^^^^^^"));
 
+    // Asked for UTF-16 columns, a character outside the BMP counts two, and the markers don't
+    // move.
+    const fixture_t astral("x = \"\xF0\x9F\x98\x80\" y\n");
+    const diagnostic_t after_astral{ .message = "unknown 'y'", .span = astral.span(11, 12) };
+    CHECK(render_pretty(after_astral, astral.sources) == "main.fb:1:9: error: unknown 'y'\n"
+                                                         "  |\n"
+                                                         "1 | x = \"\xF0\x9F\x98\x80\" y\n" +
+                                                             marker_row(9, "^"));
+    CHECK(render_pretty(after_astral, astral.sources, { .columns = fb::column_unit_t::UTF16 }) ==
+          "main.fb:1:10: error: unknown 'y'\n"
+          "  |\n"
+          "1 | x = \"\xF0\x9F\x98\x80\" y\n" +
+              marker_row(9, "^"));
+
     // An e with a combining acute accent takes one column.
     const fixture_t combining("e\xCC\x81 + z\n");
     const diagnostic_t after_mark{ .message = "unknown 'z'", .span = combining.span(6, 7) };

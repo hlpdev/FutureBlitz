@@ -10,6 +10,9 @@ namespace fb {
 
 struct render_options_t {
     bool color = false;
+    /// What a header's column counts: code points, or UTF-16 code units for an editor that
+    /// counts in them, as fb's FB_COLUMNS=utf-16 asks.
+    column_unit_t columns = column_unit_t::CODEPOINT;
 };
 
 /// One line, "path:line:col: error[code]: message", without color. Lines and columns start at

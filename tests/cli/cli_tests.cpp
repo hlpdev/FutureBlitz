@@ -467,6 +467,31 @@ TEST_CASE("fb check reports errors with exit code 1", "[cli]") {
     CHECK(bad.output.contains("bad.fb has 1 error\n"));
 }
 
+TEST_CASE("FB_COLUMNS=utf-16 counts diagnostics' columns in UTF-16 code units", "[cli]") {
+    // Two U+1F600s before the error take a code point each, and two UTF-16 units each.
+    const std::filesystem::path source =
+        write_source("columns.fb", "Local s = \"\xF0\x9F\x98\x80\xF0\x9F\x98\x80\" + y\n");
+    const fb::process_result_t points = fb_run({ "check", fb::to_utf8(source) });
+    INFO(points.output);
+    CHECK(points.output.contains("columns.fb:1:18: error: 'y' isn't declared\n"));
+
+#ifdef _WIN32
+    _putenv_s("FB_COLUMNS", "utf-16");
+#else
+    setenv("FB_COLUMNS", "utf-16", 1);
+#endif
+    const fb::process_result_t units = fb_run({ "check", fb::to_utf8(source) });
+#ifdef _WIN32
+    _putenv_s("FB_COLUMNS", "");
+#else
+    unsetenv("FB_COLUMNS");
+#endif
+    INFO(units.output);
+    CHECK(units.output.contains("columns.fb:1:20: error: 'y' isn't declared\n"));
+    // The snippet's markers still go under the span by the columns the terminal shows.
+    CHECK(units.output.contains("1 | Local s = \"\xF0\x9F\x98\x80\xF0\x9F\x98\x80\" + y\n"));
+}
+
 TEST_CASE("fb build writes an executable that runs", "[cli]") {
     std::filesystem::path executable = std::filesystem::path(FB_TEST_OUTPUT) / "built" / "hello";
     executable += fb::executable_extension;
