@@ -253,7 +253,7 @@ Planned 2026-10-29, with the design in [tooling.md](tooling.md).
 | 2 | Releases: fb for each target from CI, archives and install scripts, `fb --version`, and `fb new` | a fresh machine installs fb and builds `fb new`'s package |
 | 3 | Debug info and stack traces: DWARF and CodeView through LLVM | a debugger steps through a program and shows its Locals, and a panic prints its stack (done 2026-10-29, 297a90f2, on Windows; Linux and macOS by their tests) |
 | 4 | The LSP: diagnostics, hover, definitions, references, completion, symbols, rename, signature help, semantic tokens, and fix-its, re-checking only what an edit touches | each works in a large package as you type |
-| 5 | The VS Code extension: the grammar, the LSP client, tasks, and debugging | daily editing, running, and debugging work in VS Code |
+| 5 | The VS Code extension: the grammar, the LSP client, tasks, and debugging | daily editing, running, and debugging work in VS Code (done 2026-10-29, 6267d7dc; its LSP features come with step 4, and publishing with the user's accounts) |
 | 6 | The formatter: `fb fmt`, `--check`, and formatting on save | std and tests/programs format to themselves (done 2026-10-29, c7a74326; formatting on save comes with the LSP, step 4) |
 | 7 | Testing: std.test, `fb test`, and doc tests | a package's tests run, filter, and report (done 2026-10-29, e111738b, on Windows; Linux and macOS by their tests; doc tests come with step 8's `///` comments) |
 | 8 | `///` doc comments and `fb doc`'s JSON | std's API comes out whole, for M9's reference |

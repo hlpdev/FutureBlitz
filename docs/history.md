@@ -5,6 +5,38 @@ them while each was built. Newest first.
 
 ## M8, tooling
 
+Step 5, the VS Code extension (2026-10-29, 6267d7dc): editors/vscode/, in TypeScript with a pinned
+package-lock.json. The TextMate grammar, syntaxes/futureblitz.tmLanguage.json
+(`source.futureblitz`), is the one M9's Shiki will load: keywords in their case only, the contextual
+ones where they're keywords, attributes, strings with escapes, interpolation, and format specs, raw
+and triple-quoted strings, Chars, numbers, nested and `///` comments with their Markdown, #If lines,
+declarations' names, parameters, and types, type arguments, calls, members, constants, and
+operators, a single-line string and its interpolation ending with their line. The language
+configuration toggles comments, closes brackets and quotes, carries `///` on, folds by indentation
+and #If, and indents the blocks. vscode-languageclient starts fb-lsp, from futureblitz.lspPath,
+beside fb, a build folder's lsp/, or PATH; missing or failing, it says so once and the rest works
+without it, and saving formats once, through the editor's format on save. Tasks run fb build, run,
+test, fmt, and check on the folder's package or the open file, with problem matchers for fb's
+diagnostics, notes, panics, uncaught errors, and failed Expects; they set `FB_COLUMNS=utf-16`, which
+makes fb count its diagnostics' columns in UTF-16 code units, as editors do. A `futureblitz` launch
+builds in debug as a task and hands CodeLLDB, an extension dependency on every OS, an lldb
+configuration that loads lldb/futureblitz.py, the one beside fb or the extension's copy; F5 with no
+launch.json debugs the open file's package. Snippets for the blocks, and `npm run package` makes the
+.vsix; publishing waits for the accounts. `npm test` runs the grammar's assertion files and
+snapshots, a sweep of every .fb in the repo, every keyword in token_kinds.def, the indentation rules
+over std, each snippet through `fb fmt`, and the problem matchers over fb's output, then the
+extension in VS Code through @vscode/test-electron, with stand-ins for CodeLLDB and the server, and
+against fb-lsp itself. Its review's 23 fixes (docs/review/m8-step5.md): the grammar's type arguments
+end with their line and hold no `&&`, a parameter list's brackets balance, Set is an accessor only
+in a Property, Step a keyword only after a bound, Attribute declarations, any type after a lambda's
+`:` and an Operator's type parameters, and a colon the ternary's only after its `?`; the indentation
+rules don't read Then or => in strings and comments, and a number is one word; starts that overlap
+leave one server, and one that doesn't answer fails after 20 seconds; $fb-runtime takes an uncaught
+error with no message, Fail, and thrown errors; a bad futureblitz.path is named; the Operator
+snippet compiles; debugging takes the program's own folder, works with none open, builds a package's
+file into its build/, refuses a library, and takes CodeLLDB's settings; the README's link; and
+diagnostics' columns in UTF-16.
+
 Step 3's Linux and macOS fixes (2026-10-29, db810ec8), found by the user's Mac and narrow CI runs:
 on ELF the trace table is added from .init_array, since lld doesn't run the .ctors that LLVM's C
 API's target machine writes, so Linux printed no trace at all; the runtime's parts have unwind
