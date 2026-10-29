@@ -103,6 +103,19 @@ fb_set_warnings(fb_cli_tests)
 fb_copy_llvm(fb_cli_tests)
 catch_discover_tests(fb_cli_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})
 
+# The language server's tests, which drive it through its JSON-RPC messages, in process, and
+# fb-lsp's, over its stdin and stdout.
+file(GLOB_RECURSE FB_LSP_TEST_SOURCES CONFIGURE_DEPENDS lsp/*.cpp)
+add_executable(fb_lsp_tests ${FB_LSP_TEST_SOURCES})
+target_link_libraries(fb_lsp_tests PRIVATE fb_lsp_server Catch2::Catch2WithMain)
+target_compile_definitions(fb_lsp_tests PRIVATE FB_LSP="$<TARGET_FILE:fb_lsp>"
+  FB_TEST_PACKAGES="${CMAKE_CURRENT_SOURCE_DIR}/packages")
+add_dependencies(fb_lsp_tests fb_lsp)
+fb_set_warnings(fb_lsp_tests)
+fb_set_stack(fb_lsp_tests)
+fb_copy_llvm(fb_lsp_tests)
+catch_discover_tests(fb_lsp_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})
+
 # fb-bindgen's tests, where it's built: each header becomes the module it should, which
 # compiles.
 if(TARGET fb_bindgen)
