@@ -261,8 +261,11 @@ void finish_arguments(const output_kind_t kind, std::vector<std::string>& argume
     arguments.insert(arguments.end(), { "-lc++", "-lSystem", piece("libclang_rt.osx.a") });
 #else
     (void)kind;
+    // glibc 2.28, which the release links against, has dlopen in libdl and shm_open in librt,
+    // which newer ones have in libc; a program needs them only where it calls them.
     arguments.insert(arguments.end(), { "-Bstatic", "-lstdc++", "-Bdynamic", "-lm", "-lgcc",
-                                        "-lgcc_eh", "-lpthread", "-lc", "-lgcc", "-lgcc_eh" });
+                                        "-lgcc_eh", "--as-needed", "-ldl", "-lrt", "--no-as-needed",
+                                        "-lpthread", "-lc", "-lgcc", "-lgcc_eh" });
     arguments.push_back(piece("crtendS.o"));
     arguments.push_back(piece("crtn.o"));
 #endif

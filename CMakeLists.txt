@@ -18,6 +18,13 @@ if(MSVC)
   add_compile_options(/utf-8)
 endif()
 
+# Programs are position-independent executables, which link the runtime and std's bundled
+# libraries, so those are too, where the compiler doesn't make them so by default, as
+# AlmaLinux's doesn't.
+if(NOT WIN32)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 # The Windows C runtime's headers call getenv and friends unsafe.
 if(WIN32)
   add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
