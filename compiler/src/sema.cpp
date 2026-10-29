@@ -24994,9 +24994,10 @@ private:
                 continue;
             }
 
+            const name_t named = *argument.name;
             for (const symbol_id_t parameter : symbol(function).parameters) {
-                if (symbol(parameter).name == argument.name->text) {
-                    note_written(argument.name->span, parameter);
+                if (symbol(parameter).name == named.text) {
+                    note_written(named.span, parameter);
                 }
             }
         }
@@ -25283,8 +25284,9 @@ private:
 
         // "Super.": the Class that Self's extends.
         if (std::holds_alternative<super_expr_t>(m_ast.get(node.object).node)) {
-            if (m_function && symbol(*m_function).owner != type_id_t::INVALID) {
-                const type_id_t base = m_analysis.types.get(symbol(*m_function).owner).base;
+            const std::optional<symbol_id_t> function = m_function;
+            if (function && symbol(*function).owner != type_id_t::INVALID) {
+                const type_id_t base = m_analysis.types.get(symbol(*function).owner).base;
                 info(node.object).type = base;
                 info(node.object).converted = base;
             }

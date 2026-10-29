@@ -43,8 +43,9 @@ namespace fb::lsp {
 /// What a rename of `key` changes with it, found in `compilations`: the Methods and Properties
 /// that override it or that it overrides, and those that implement the Interface member it is or
 /// implements, each way, with `key` itself, and the files they're declared in, which other
-/// compilations may have more of.
-struct rename_set_t {
+/// compilations may have more of. Making its set can allocate, which clang-tidy reports as an
+/// exception escaping.
+struct rename_set_t { // NOLINT(bugprone-exception-escape)
     std::vector<symbol_key_t> keys;
     std::set<std::filesystem::path> files;
 };
