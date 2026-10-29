@@ -210,8 +210,10 @@ std::array<LLVMValueRef, 2> bounds(LLVMModuleRef module, const format_t format) 
         std::array<LLVMValueRef, 2> made{};
         constexpr std::array<const char*, 2> sections{ ".fbtrace$a", ".fbtrace$z" };
         for (std::size_t i = 0; i < made.size(); ++i) {
-            std::array<LLVMValueRef, 2> entry{ LLVMConstInt(i32, 0, 0),
-                                               LLVMConstInt(i32, no_frame, 0) };
+            std::array<LLVMValueRef, 2> entry{
+                LLVMConstInt(i32, 0, 0),
+                LLVMConstInt(i32, no_frame, 0),
+            };
             LLVMValueRef value = LLVMConstArray2(i32, entry.data(), entry.size());
             made[i] = LLVMAddGlobal(module, LLVMTypeOf(value),
                                     i == 0 ? "fb.(trace start)" : "fb.(trace end)");
@@ -232,8 +234,10 @@ std::array<LLVMValueRef, 2> bounds(LLVMModuleRef module, const format_t format) 
     const std::array<std::string, 2> names =
         format == format_t::ELF
             ? std::array<std::string, 2>{ "__start_fb_trace", "__stop_fb_trace" }
-            : std::array<std::string, 2>{ "\x01section$start$__TEXT$__fb_trace",
-                                          "\x01section$end$__TEXT$__fb_trace" };
+            : std::array<std::string, 2>{
+                  "\x01section$start$__TEXT$__fb_trace",
+                  "\x01section$end$__TEXT$__fb_trace",
+              };
     std::array<LLVMValueRef, 2> found{};
     for (std::size_t i = 0; i < found.size(); ++i) {
         found[i] = LLVMAddGlobal(module, LLVMInt8TypeInContext(context), names[i].c_str());

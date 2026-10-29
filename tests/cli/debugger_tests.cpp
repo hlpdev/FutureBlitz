@@ -11,7 +11,6 @@
 #include <format>
 #include <fstream>
 #include <ios>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -62,15 +61,11 @@ Print("{name} {nothing ?? ""} {count ?? 0} {missing ?? 0} {items.Count} {ages.Co
 Print("{shape.Name} {point.Y} {color}")
 )";
 
-/// Runs lldb with `arguments`, giving what it printed, or nullopt when it can't run its Python.
-std::optional<std::string> run_lldb(const std::vector<std::string>& arguments) {
+/// Runs lldb with `arguments`, giving what it printed, or nothing when it can't start.
+std::string run_lldb(const std::vector<std::string>& arguments) {
     const std::expected<fb::process_result_t, std::string> ran =
         fb::run_process(FB_TEST_LLDB, arguments);
-    if (!ran) {
-        return std::nullopt;
-    }
-
-    return ran->output;
+    return ran ? ran->output : std::string();
 }
 #endif
 
@@ -80,8 +75,7 @@ TEST_CASE("lldb shows a debug build's Locals as FutureBlitz values", "[cli][debu
 #ifndef FB_TEST_LLDB
     SKIP("there's no lldb here");
 #else
-    const std::optional<std::string> probe = run_lldb({ "--batch", "-o", "script print(6 * 7)" });
-    if (!probe || !probe->contains("42")) {
+    if (!run_lldb({ "--batch", "-o", "script print(6 * 7)" }).contains("42")) {
         SKIP("lldb here can't run its Python");
     }
 
@@ -91,8 +85,12 @@ TEST_CASE("lldb shows a debug build's Locals as FutureBlitz values", "[cli][debu
     std::ofstream(main, std::ios::binary) << source;
     std::filesystem::path executable = folder / "main";
     executable += fb::executable_extension;
-    const std::array build{ std::string("build"), fb::to_utf8(main), std::string("-o"),
-                            fb::to_utf8(executable) };
+    const std::array build{
+        std::string("build"),
+        fb::to_utf8(main),
+        std::string("-o"),
+        fb::to_utf8(executable),
+    };
     const std::expected<fb::process_result_t, std::string> built = fb::run_process(FB_CLI, build);
     REQUIRE(built);
     INFO(built->output);
@@ -106,21 +104,20 @@ TEST_CASE("lldb shows a debug build's Locals as FutureBlitz values", "[cli][debu
         << std::format("breakpoint set --file main.fb --line {}\n", lines - 1) << "run\n"
         << "frame variable\n"
         << "kill\n";
-    const std::optional<std::string> shown =
+    const std::string shown =
         run_lldb({ "--batch", "-s", fb::to_utf8(commands), fb::to_utf8(executable) });
-    REQUIRE(shown);
-    INFO(*shown);
-    CHECK(shown->contains(R"(name = "Orc \"big\"")"));
-    CHECK(shown->contains("nothing = Null"));
-    CHECK(shown->contains("count = 4"));
-    CHECK(shown->contains("missing = Null"));
-    CHECK(shown->contains("items = [1, 2, 3]"));
-    CHECK(shown->contains(R"(ages = {"ann": 31})"));
+    INFO(shown);
+    CHECK(shown.contains(R"(name = "Orc \"big\"")"));
+    CHECK(shown.contains("nothing = Null"));
+    CHECK(shown.contains("count = 4"));
+    CHECK(shown.contains("missing = Null"));
+    CHECK(shown.contains("items = [1, 2, 3]"));
+    CHECK(shown.contains(R"(ages = {"ann": 31})"));
     // The Shape is a Circle, whose Fields it shows.
-    CHECK(shown->contains("shape = Circle"));
-    CHECK(shown->contains(R"(Name = "wheel")"));
-    CHECK(shown->contains("Radius = 2.5"));
-    CHECK(shown->contains("Y = 7"));
-    CHECK(shown->contains("color = GREEN"));
+    CHECK(shown.contains("shape = Circle"));
+    CHECK(shown.contains(R"(Name = "wheel")"));
+    CHECK(shown.contains("Radius = 2.5"));
+    CHECK(shown.contains("Y = 7"));
+    CHECK(shown.contains("color = GREEN"));
 #endif
 }

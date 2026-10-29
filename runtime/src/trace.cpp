@@ -67,7 +67,7 @@ std::size_t& marked_tables() {
 }
 
 void mark_tables() {
-    std::vector<const fb_trace_t*>& added = tables();
+    const std::vector<const fb_trace_t*>& added = tables();
     if (marked_tables() == added.size()) {
         return;
     }

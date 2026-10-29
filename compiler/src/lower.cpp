@@ -3010,8 +3010,9 @@ private:
     /// Ends the current block. Does nothing when there's none, as right after a Return.
     void terminate(terminator_t terminator) {
         if (m_block) {
-            block_at(*m_block).terminator = std::move(terminator);
-            block_at(*m_block).terminator_span = m_span;
+            basic_block_t& block = block_at(*m_block);
+            block.terminator = std::move(terminator);
+            block.terminator_span = m_span;
             m_block.reset();
         }
     }

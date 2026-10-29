@@ -2653,7 +2653,7 @@ private:
             return;
         }
 
-        debug_unit_t& owner = unit(place->file);
+        const debug_unit_t& owner = unit(place->file);
         const location_t start = start_of(*place);
         // Without a linkage name, which debuggers would show instead.
         const std::string name = debug_name(function_index);
@@ -2888,9 +2888,11 @@ private:
                                                        static_cast<unsigned>(header.size()), 0);
             return debug_struct(type, name, text, true, [this] {
                 return std::vector<debug_member_t>{
-                    { .name = "header.counts",
-                      .type = debug_type(type_id_t::INT64),
-                      .artificial = true },
+                    {
+                        .name = "header.counts",
+                        .type = debug_type(type_id_t::INT64),
+                        .artificial = true,
+                    },
                     { .name = "Length", .type = debug_type(type_id_t::INT64) },
                 };
             });
@@ -2959,6 +2961,7 @@ private:
             });
         case type_kind_t::FIXED_ARRAY: {
             std::vector<LLVMMetadataRef> ranges;
+            ranges.reserve(info.sizes.size());
             for (const std::uint32_t size : info.sizes) {
                 ranges.push_back(LLVMDIBuilderGetOrCreateSubrange(type_maker(), 0, size));
             }
@@ -2971,6 +2974,7 @@ private:
         case type_kind_t::ENUM: {
             const bool is_unsigned = !is_signed(inner_of(type));
             std::vector<LLVMMetadataRef> members;
+            members.reserve(info.values.size());
             for (const enum_value_t& value : info.values) {
                 members.push_back(LLVMDIBuilderCreateEnumerator(
                     type_maker(), value.name.data(), value.name.size(),
@@ -3035,7 +3039,7 @@ private:
     /// can be inlined. Code generated while another function's place was current gets line 0
     /// too. Then the debug info is finished.
     void finish_debug_info() {
-        debug_unit_t& main = unit(m_main_file);
+        const debug_unit_t& main = unit(m_main_file);
         for (LLVMValueRef function = LLVMGetFirstFunction(m_module.get()); function != nullptr;
              function = LLVMGetNextFunction(function)) {
             if (LLVMIsDeclaration(function) != 0) {
