@@ -14,6 +14,9 @@
 
 #include <expected>
 #include <filesystem>
+#include <functional>
+#include <map>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -87,10 +90,18 @@ struct compilation_t { // NOLINT(bugprone-exception-escape)
     /// name them: on disk, where they are. Each build reads them again, as it does `sources`,
     /// and a tool that rebuilds when the program's files change watches them too.
     std::vector<std::string> embedded;
+    /// Where each of `sources`' files is on disk, by its file_id_t, for a tool that names them
+    /// by their paths there, as the LSP does. Empty for one that isn't a file of its own there:
+    /// compile()'s, in memory, a prebuilt library's modules, in its interface file, and a
+    /// library's empty main file.
+    std::vector<std::filesystem::path> on_disk;
 
     [[nodiscard]] const source_file_t& source() const {
         return sources.get(file);
     }
+
+    /// Where `id`'s file is on disk, or an empty path, as `on_disk` has it.
+    [[nodiscard]] std::filesystem::path disk_path(file_id_t id) const;
 };
 
 /// A file a program can import besides its main file, by its path in the program: one of the
@@ -175,6 +186,50 @@ compile_file(const std::filesystem::path& path, build_mode_t mode = build_mode_t
 /// as compile_file() does.
 [[nodiscard]] std::expected<compilation_t, std::string>
 compile_tests(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG);
+
+/// What the front end reads in place of a file on disk, as an editor's text that isn't saved:
+/// the text of the file at a path, as the driver joins its folder and its path in the program,
+/// or nullopt to read the disk.
+using source_reader_t =
+    std::function<std::optional<std::string>(const std::filesystem::path& file)>;
+
+/// What checks can share, so one doesn't redo another's work: the names the standard library's
+/// modules declare Public, which a check that doesn't load a module gives in an error that a
+/// name isn't declared, by each file's path in the program, with the text and the build mode
+/// they're from. One check's driver parses every std file it doesn't load for them, which takes
+/// longer than checking a module. Threads can share it.
+struct std_names_cache_t {
+    struct file_t {
+        std::string text;
+        build_mode_t mode = build_mode_t::DEBUG;
+        std::vector<std_name_t> names;
+    };
+
+    std::mutex mutex;
+    std::map<std::string, file_t, std::less<>> files;
+};
+
+/// What check_files() checks.
+struct check_request_t {
+    /// .fb files on disk: of one package, its tests/ folder's among them, or of the standard
+    /// library. A file outside a package is checked on its own, as compile_file() checks it, and
+    /// the rest are left out.
+    std::vector<std::filesystem::path> files;
+    /// One of a package's `files`, whose top-level code is checked, as the main file's. Without
+    /// it, the others' top-level code is left out, as fb test's build leaves out another main
+    /// file's.
+    std::optional<std::filesystem::path> main;
+    /// The texts of files that aren't saved.
+    source_reader_t read;
+    build_mode_t mode = build_mode_t::DEBUG;
+    /// What the checks share, if they do.
+    std_names_cache_t* cache = nullptr;
+};
+
+/// For the LSP, which checks only the files an edit touches: `request`'s files, each a module of
+/// its own, as fb test's build has a package's, and what they import, but no other file of their
+/// package. Fails as compile_file() does.
+[[nodiscard]] std::expected<compilation_t, std::string> check_files(const check_request_t& request);
 
 /// The tests fb test runs from a compilation: the @Test Functions of its main file's package and
 /// that package's tests/ folder, in source order, each named by its module, like

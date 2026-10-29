@@ -3172,7 +3172,14 @@ private:
 
         if (!at(token_kind_t::IDENTIFIER) && !at(token_kind_t::KW_NEW)) {
             report_expected(describe(token_kind_t::IDENTIFIER));
-            return add_expr(span_from(begin_of(object)), error_expr_t{});
+            // An empty name, as "x." has while it's typed, keeps what's before the '.', which
+            // analysis works out for tools to complete the name.
+            return add_expr(span_from(begin_of(object)),
+                            member_expr_t{
+                                .object = object,
+                                .member = { .text = {}, .span = point(peek().span.begin) },
+                                .null_safe = null_safe,
+                            });
         }
 
         const name_t member = take_name();

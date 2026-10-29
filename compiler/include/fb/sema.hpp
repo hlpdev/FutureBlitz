@@ -433,6 +433,15 @@ struct expectation_t {
     std::string text;
 };
 
+/// Where the code uses a symbol, which tools find definitions and references with: a name, a
+/// member after its '.', a type, or a call, as the code is checked.
+struct symbol_use_t {
+    /// What names it: the name, a qualified name's or a member's whole expression, or for an
+    /// operator that calls an Operator, its expression.
+    span_t span;
+    symbol_id_t symbol{};
+};
+
 /// Everything analysis found out about a file, for lowering and tools. `exprs` and `stmts` have
 /// one entry per AST node, indexed by its id; nodes in code with errors may keep the defaults.
 /// Making its deque can allocate, which clang-tidy reports as an exception escaping.
@@ -506,6 +515,9 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     /// Box<Int32>'s: its Methods, Operators, and Properties, and the defaults of the Interfaces
     /// they list. The generic type's own members have what Extends of all its instances add.
     std::unordered_map<type_id_t, std::vector<symbol_id_t>> instance_members;
+    /// Each use of a symbol, in the order the code is checked. Code checked more than once, as
+    /// in a For Field loop's copies, has its uses here each time.
+    std::vector<symbol_use_t> uses;
 
     [[nodiscard]] const symbol_t& symbol(const symbol_id_t id) const {
         return symbols[std::to_underlying(id)];

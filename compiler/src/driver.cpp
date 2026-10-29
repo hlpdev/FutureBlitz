@@ -119,7 +119,44 @@ struct file_set_t {
     /// For fb test's build, whose main package's other files with top-level code are other main
     /// files, whose code it leaves out.
     bool testing = false;
+    /// On disk, the texts of files that aren't saved, for the LSP.
+    source_reader_t read;
+    /// The std names that checks share, for the LSP.
+    std_names_cache_t* cache = nullptr;
 };
+
+/// Notes that `id`'s file is at `path` on disk.
+void note_disk_path(compilation_t& compilation, const file_id_t id, std::filesystem::path path) {
+    const auto index = static_cast<std::size_t>(std::to_underlying(id));
+    if (compilation.on_disk.size() <= index) {
+        compilation.on_disk.resize(index + 1);
+    }
+
+    compilation.on_disk[index] = std::move(path);
+}
+
+/// A file's text on disk, or `read`'s in place of it, when it has one. nullopt when it can't be
+/// read.
+std::optional<std::string> read_disk(const std::filesystem::path& where,
+                                     const source_reader_t& read) {
+    if (read) {
+        if (std::optional<std::string> text = read(where)) {
+            return text;
+        }
+    }
+
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(where, error)) {
+        return std::nullopt;
+    }
+
+    std::ifstream file(where, std::ios::binary);
+    if (!file) {
+        return std::nullopt;
+    }
+
+    return std::string{ std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
+}
 
 /// The package whose files `path`, a path in the program, is in, or whose folder it names: its
 /// first part is the package's name. Null for std's, and without a project.toml.
@@ -256,18 +293,7 @@ std::optional<std::string> read_file(const file_set_t& files, const std::string_
         return module != nullptr ? std::optional(module->text) : std::nullopt;
     }
 
-    const std::filesystem::path where = disk_path(files, path);
-    std::error_code error;
-    if (!std::filesystem::is_regular_file(where, error)) {
-        return std::nullopt;
-    }
-
-    std::ifstream file(where, std::ios::binary);
-    if (!file) {
-        return std::nullopt;
-    }
-
-    return std::string{ std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
+    return read_disk(disk_path(files, path), files.read);
 }
 
 /// The paths of the .fb files in a folder, without its subfolders', sorted. Empty when there's
@@ -374,7 +400,8 @@ struct loaded_t {
 class loader_t {
 public:
     loader_t(compilation_t& compilation, file_set_t files, const build_mode_t mode)
-        : m_compilation(compilation), m_files(std::move(files)), m_defined(defined_symbols(mode)) {
+        : m_compilation(compilation), m_files(std::move(files)), m_mode(mode),
+          m_defined(defined_symbols(mode)) {
         for (std::size_t i = 0; i < m_files.packages.size(); ++i) {
             m_folders.push_back(
                 i == 0 ? "the package's folder"
@@ -731,6 +758,7 @@ private:
 
     compilation_t& m_compilation;
     file_set_t m_files;
+    build_mode_t m_mode;
     std::vector<std::string_view> m_defined;
     std::vector<loaded_t> m_loaded;
     /// Each loaded file, by key_of() its path.
@@ -898,6 +926,12 @@ private:
 
         const file_id_t file =
             m_compilation.sources.add(shown_path(m_files, path), std::move(*text));
+        if (m_files.root && prebuilt_package(m_files, path) == nullptr) {
+            std::error_code ignored;
+            note_disk_path(m_compilation, file,
+                           std::filesystem::absolute(disk_path(m_files, path), ignored));
+        }
+
         const std::size_t index = m_loaded.size();
         m_loaded.push_back({ .path = path, .file = file, .imported_at = imported_at });
         m_keys.emplace(key_of(path), index);
@@ -1708,15 +1742,40 @@ private:
                 continue;
             }
 
+            // What another check found in the same text.
+            if (m_files.cache != nullptr) {
+                const std::scoped_lock lock(m_files.cache->mutex);
+                const auto known = m_files.cache->files.find(path);
+                if (known != m_files.cache->files.end() && known->second.text == *text &&
+                    known->second.mode == m_mode) {
+                    for (const std_name_t& name : known->second.names) {
+                        m_compilation.ast.modules().add_std_name(name);
+                    }
+
+                    continue;
+                }
+            }
+
+            const std::string kept = m_files.cache != nullptr ? *text : std::string();
+            std::vector<std_name_t> names;
             source_manager_t sources;
             diagnostic_bag_t ignored;
             const source_file_t& file = sources.get(sources.add(path, std::move(*text)));
             const ast_t ast = fb::parse(file, lex(file, ignored, m_defined), ignored);
             const std::string module = std_import_name(path);
             for (const stmt_id_t id : ast.items()) {
-                for (const std_name_t& name : declared_names(ast, id, module)) {
-                    m_compilation.ast.modules().add_std_name(name);
-                }
+                std::ranges::move(declared_names(ast, id, module), std::back_inserter(names));
+            }
+
+            for (const std_name_t& name : names) {
+                m_compilation.ast.modules().add_std_name(name);
+            }
+
+            if (m_files.cache != nullptr) {
+                const std::scoped_lock lock(m_files.cache->mutex);
+                m_files.cache->files.insert_or_assign(
+                    path, std_names_cache_t::file_t{
+                              .text = kept, .mode = m_mode, .names = std::move(names) });
             }
         }
     }
@@ -1935,6 +1994,7 @@ private:
             m_main_file = *file;
         }
 
+        note_disk_path(m_compilation, *file, manifest_path);
         std::optional<manifest_t> manifest =
             read_manifest(m_compilation.sources.get(*file), m_compilation.diagnostics);
         if (!manifest) {
@@ -2589,14 +2649,32 @@ std::optional<package_t> tests_package(const package_t& own) {
     return tests;
 }
 
+/// Adds a program's main file, at `path` on disk, to the compilation, with `read`'s text in place
+/// of the disk's when it has one. Fails when it can't be read.
+std::expected<file_id_t, std::string> load_main(compilation_t& compilation,
+                                                const std::filesystem::path& path,
+                                                const source_reader_t& read) {
+    std::optional<std::string> text = read ? read(path) : std::nullopt;
+    const std::expected<file_id_t, std::string> file =
+        text ? compilation.sources.add(to_utf8(shown_disk_path(path)), std::move(*text))
+             : compilation.sources.load(shown_disk_path(path));
+    if (file) {
+        std::error_code error;
+        note_disk_path(compilation, *file, std::filesystem::absolute(path, error));
+    }
+
+    return file;
+}
+
 /// A package's program: its main file, given or its project.toml's, or for a library, its
 /// files, each a module of its own, so it's checked. For fb test, when `testing`, each of its
 /// files is a module, the main file too, and so is each file of its tests/ folder, in a package
-/// of its own.
+/// of its own. For check_files(), `request` names the files that are modules, and `testing` is
+/// set.
 std::expected<compilation_t, std::string>
 compile_package(const std::filesystem::path& folder,
                 const std::optional<std::filesystem::path>& main, const build_mode_t mode,
-                const bool testing = false) {
+                const bool testing = false, const check_request_t* request = nullptr) {
     compilation_t compilation;
     package_loader_t reader(compilation, mode, main.has_value());
     std::optional<std::vector<package_t>> packages = reader.run(folder);
@@ -2668,15 +2746,37 @@ compile_package(const std::filesystem::path& folder,
     // fb test's build has each of the package's files, and its tests/ folder's, in a package of
     // its own.
     std::vector<std::string> extra;
+    // The package's own folders: its own, and its tests/ folder's.
+    std::vector<const package_t*> folders{ &packages->front() };
     if (testing) {
-        extra = library_files(own);
+        extra = request != nullptr ? std::vector<std::string>{} : library_files(own);
         if (std::optional<package_t> tests = tests_package(own)) {
-            std::ranges::copy(library_files(*tests), std::back_inserter(extra));
+            if (request == nullptr) {
+                std::ranges::copy(library_files(*tests), std::back_inserter(extra));
+            }
+
             packages->push_back(std::move(*tests));
+            folders = { &packages->front(), &packages->back() };
         }
     }
 
-    if (!main && (manifest.type == package_type_t::LIBRARY || own.main.empty())) {
+    // check_files()'s, by their paths in the program, the tests/ folder's first, as it's inside
+    // the package's.
+    if (request != nullptr) {
+        for (const std::filesystem::path& file : request->files) {
+            const std::filesystem::path real = std::filesystem::weakly_canonical(file, error);
+            for (const package_t* package : folders | std::views::reverse) {
+                if (is_under(real, package->root)) {
+                    extra.push_back(package->prefix + program_path(package->root, real));
+                    break;
+                }
+            }
+        }
+    }
+
+    const source_reader_t read = request != nullptr ? request->read : source_reader_t{};
+    if (!main &&
+        (request != nullptr || manifest.type == package_type_t::LIBRARY || own.main.empty())) {
         // Without a main file, it's a library, whose files are each checked. The main file is
         // empty, and named unlike any of them.
         compilation.package->library = true;
@@ -2685,8 +2785,10 @@ compile_package(const std::filesystem::path& folder,
             extra = library_files(own);
         }
 
-        for (const library_file_t& module : own.modules) {
-            extra.push_back(module.path);
+        if (request == nullptr) {
+            for (const library_file_t& module : own.modules) {
+                extra.push_back(module.path);
+            }
         }
 
         std::string name = "(library).fb";
@@ -2704,14 +2806,15 @@ compile_package(const std::filesystem::path& folder,
                           .packages = std::move(*packages),
                           .extra = std::move(extra),
                           .testing = testing,
+                          .read = read,
+                          .cache = request != nullptr ? request->cache : nullptr,
                       },
                       path, mode);
         record_builds(compilation, others);
         return compilation;
     }
 
-    const std::expected<file_id_t, std::string> file =
-        compilation.sources.load(shown_disk_path(main_path));
+    const std::expected<file_id_t, std::string> file = load_main(compilation, main_path, read);
     if (!file) {
         return std::unexpected(file.error());
     }
@@ -2726,6 +2829,8 @@ compile_package(const std::filesystem::path& folder,
                       .packages = std::move(*packages),
                       .extra = std::move(extra),
                       .testing = testing,
+                      .read = read,
+                      .cache = request != nullptr ? request->cache : nullptr,
                   },
                   path, mode);
     record_builds(compilation, others);
@@ -2895,7 +3000,77 @@ std::optional<std::string> unreadable_std() {
     return std::nullopt;
 }
 
+/// A .fb file outside a package, with the files it imports from its folder, and `read`'s texts
+/// in place of theirs on disk, with the std names `cache` has.
+std::expected<compilation_t, std::string> compile_loose(const std::filesystem::path& path,
+                                                        const build_mode_t mode,
+                                                        const source_reader_t& read,
+                                                        std_names_cache_t* cache = nullptr) {
+    compilation_t compilation;
+    const std::expected<file_id_t, std::string> file = load_main(compilation, path, read);
+    if (!file) {
+        return std::unexpected(file.error());
+    }
+
+    compilation.file = *file;
+    const std::filesystem::path folder = path.has_parent_path() ? path.parent_path() : ".";
+    run_front_end(compilation, { .root = folder, .read = read, .cache = cache },
+                  to_utf8(path.filename()), mode);
+    return compilation;
+}
+
 } // namespace
+
+std::filesystem::path compilation_t::disk_path(const file_id_t id) const {
+    const auto index = static_cast<std::size_t>(std::to_underlying(id));
+    return index < on_disk.size() ? on_disk[index] : std::filesystem::path();
+}
+
+std::expected<compilation_t, std::string> check_files(const check_request_t& request) {
+    if (const std::optional<std::string> unreadable = unreadable_std()) {
+        return std::unexpected(*unreadable);
+    }
+
+    if (request.files.empty()) {
+        return std::unexpected(std::string("there are no files to check"));
+    }
+
+    std::error_code error;
+    const std::filesystem::path first =
+        std::filesystem::weakly_canonical(request.files.front(), error);
+    const std::optional<std::filesystem::path> standard =
+        real_path(path_from_utf8(build_config::std_directory));
+    const std::optional<std::filesystem::path> real = real_path(first);
+    if (standard && real && is_under(*real, *standard)) {
+        // The standard library's files, with an empty main file beside them, which no file of
+        // std is named like.
+        compilation_t compilation;
+        compilation.file = compilation.sources.add("(std).fb", std::string());
+        std::vector<std::string> extra;
+        for (const std::filesystem::path& file : request.files) {
+            if (const std::optional<std::filesystem::path> at = real_path(file);
+                at && is_under(*at, *standard)) {
+                extra.push_back("std/" + program_path(*standard, *at));
+            }
+        }
+
+        run_front_end(compilation,
+                      {
+                          .root = *standard,
+                          .extra = std::move(extra),
+                          .read = request.read,
+                          .cache = request.cache,
+                      },
+                      "(std).fb", request.mode);
+        return compilation;
+    }
+
+    if (const std::optional<std::filesystem::path> root = find_package(first.parent_path())) {
+        return compile_package(*root, request.main, request.mode, true, &request);
+    }
+
+    return compile_loose(first, request.mode, request.read, request.cache);
+}
 
 std::expected<compilation_t, std::string> compile_file(const std::filesystem::path& path,
                                                        const build_mode_t mode) {
@@ -2930,16 +3105,7 @@ std::expected<compilation_t, std::string> compile_file(const std::filesystem::pa
         }
     }
 
-    compilation_t compilation;
-    const std::expected<file_id_t, std::string> file = compilation.sources.load(path);
-    if (!file) {
-        return std::unexpected(file.error());
-    }
-
-    compilation.file = *file;
-    const std::filesystem::path folder = path.has_parent_path() ? path.parent_path() : ".";
-    run_front_end(compilation, { .root = folder }, to_utf8(path.filename()), mode);
-    return compilation;
+    return compile_loose(path, mode, {});
 }
 
 std::expected<compilation_t, std::string> compile_tests(const std::filesystem::path& path,

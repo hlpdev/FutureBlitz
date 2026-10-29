@@ -3780,3 +3780,137 @@ TEST_CASE("a package's kind doesn't hang on its main file's letter case", "[driv
     CHECK(library->package.value_or(fb::package_info_t{}).library);
     packages.remove();
 }
+
+namespace {
+
+/// The paths of a compilation's modules in the program, but the standard library's.
+std::vector<std::string> own_modules(const fb::compilation_t& compilation) {
+    std::vector<std::string> paths;
+    for (const fb::module_t& module : compilation.ast.modules().modules()) {
+        if (!module.path.starts_with("std/")) {
+            paths.push_back(module.path);
+        }
+    }
+
+    std::ranges::sort(paths);
+    return paths;
+}
+
+} // namespace
+
+TEST_CASE("check_files checks only the files it's given, and what they import", "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n");
+    packages.write("app/main.fb", "Import std.core\nImport \"./b\"\nPrint(B())\n");
+    packages.write("app/a.fb", "Import std.core\nPublic Function A(): Int => 1\n");
+    packages.write("app/b.fb",
+                   "Import std.core\nImport \"./a\"\nPublic Function B(): Int => A()\n");
+    packages.write("app/c.fb", "Import std.core\nPublic Function C(): Int => \"c\"\n");
+    packages.write("app/tool.fb", "Import std.core\nLocal n: Int = \"tool\"\nPrint(n)\n");
+    packages.write("app/tests/t.fb", "Import app.a\nFunction T(): Int => A()\n");
+
+    // b and a, which it imports, but not c, nor the main file, with an empty one of their own.
+    std::expected<fb::compilation_t, std::string> checked =
+        fb::check_files({ .files = { packages / "app/b.fb" } });
+    REQUIRE(checked);
+    CHECK(own_modules(*checked) ==
+          std::vector<std::string>{ "app/(library).fb", "app/a.fb", "app/b.fb" });
+    CHECK(packages.messages(*checked).empty());
+
+    // Where each file is, on disk.
+    for (const fb::module_t& module : checked->ast.modules().modules()) {
+        const std::filesystem::path path = checked->disk_path(module.file);
+        if (module.path == "app/b.fb") {
+            CHECK(std::filesystem::equivalent(path, packages / "app/b.fb"));
+        } else if (module.path.starts_with("std/")) {
+            CHECK(std::filesystem::exists(path));
+        } else if (module.path == "app/(library).fb") {
+            CHECK(path.empty());
+        }
+    }
+
+    // A text read in place of the disk's, as an editor's that isn't saved.
+    checked = fb::check_files({
+        .files = { packages / "app/b.fb" },
+        .read = [&](const std::filesystem::path& file) -> std::optional<std::string> {
+            std::error_code ignored;
+            if (std::filesystem::equivalent(file, packages / "app/a.fb", ignored)) {
+                return "Import std.core\nPublic Function A(): String => \"a\"\n";
+            }
+
+            return std::nullopt;
+        },
+    });
+    REQUIRE(checked);
+    const std::vector<std::string> wrong = packages.messages(*checked);
+    REQUIRE(wrong.size() == 1);
+    CHECK(wrong.front().starts_with("app/b.fb: A()"));
+
+    // A main file's top-level code is checked when it's the one given as the main file, and left
+    // out when it isn't.
+    checked = fb::check_files({ .files = { packages / "app/tool.fb" } });
+    REQUIRE(checked);
+    CHECK(packages.messages(*checked).empty());
+    checked = fb::check_files(
+        { .files = { packages / "app/tool.fb" }, .main = packages / "app/tool.fb" });
+    REQUIRE(checked);
+    CHECK(packages.messages(*checked).size() == 1);
+    checked = fb::check_files(
+        { .files = { packages / "app/main.fb" }, .main = packages / "app/main.fb" });
+    REQUIRE(checked);
+    CHECK(own_modules(*checked) ==
+          std::vector<std::string>{ "app/a.fb", "app/b.fb", "app/main.fb" });
+    CHECK(packages.messages(*checked).empty());
+
+    // The tests/ folder's files are a package of their own.
+    checked = fb::check_files({ .files = { packages / "app/tests/t.fb", packages / "app/c.fb" } });
+    REQUIRE(checked);
+    CHECK(own_modules(*checked) ==
+          std::vector<std::string>{ "app.tests/t.fb", "app/(library).fb", "app/a.fb", "app/c.fb" });
+    REQUIRE(packages.messages(*checked).size() == 1);
+    CHECK(packages.messages(*checked).front().starts_with("app/c.fb: "));
+    packages.remove();
+}
+
+TEST_CASE("check_files checks the standard library's files, and a file outside a package",
+          "[driver]") {
+    const std::filesystem::path fuzzy =
+        fb::path_from_utf8(fb::build_config::std_directory) / "text" / "fuzzy.fb";
+    std::expected<fb::compilation_t, std::string> checked = fb::check_files({ .files = { fuzzy } });
+    REQUIRE(checked);
+    CHECK(errors_of(*checked).empty());
+    std::vector<std::string> paths;
+    for (const fb::module_t& module : checked->ast.modules().modules()) {
+        paths.push_back(module.path);
+    }
+
+    CHECK(std::ranges::contains(paths, "std/text/fuzzy.fb"));
+    CHECK(!std::ranges::contains(paths, "std/net/http/server.fb"));
+
+    const packages_t packages;
+    packages.write("loose/x.fb", "Import std.core\nImport \"./y\"\nPrint(Y())\n");
+    packages.write("loose/y.fb", "Public Function Y(): Int => 1\n");
+    checked = fb::check_files({ .files = { packages / "loose/x.fb" } });
+    REQUIRE(checked);
+    CHECK(packages.messages(*checked).empty());
+    CHECK(std::filesystem::equivalent(checked->disk_path(checked->file), packages / "loose/x.fb"));
+
+    // What std's modules declare, which says where a name that isn't imported is, is the same
+    // from the cache that checks share.
+    packages.write("loose/x.fb", "Import std.core\nLocal s = Stack<Int>()\n");
+    fb::std_names_cache_t cache;
+    std::vector<std::vector<std::string>> each;
+    for (fb::std_names_cache_t* shared :
+         { static_cast<fb::std_names_cache_t*>(nullptr), &cache, &cache }) {
+        checked = fb::check_files({ .files = { packages / "loose/x.fb" }, .cache = shared });
+        REQUIRE(checked);
+        each.push_back(packages.messages(*checked));
+    }
+
+    REQUIRE(each[0].size() == 1);
+    CHECK(each[0].front().contains("std.collections"));
+    CHECK(each[1] == each[0]);
+    CHECK(each[2] == each[0]);
+    CHECK(cache.files.size() > 100);
+    packages.remove();
+}

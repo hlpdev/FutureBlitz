@@ -16231,3 +16231,70 @@ TEST_CASE("overloads that differ in count give an untyped lambda and a literal o
     CHECK(probe(std::format("{}Local n = All<Int, Oops>([a, b])", all)) == "Int8");
     CHECK(probe(std::format("{}Local n = All([a, b])", all)) == "Int8");
 }
+
+TEST_CASE("a member being typed, without its name, works out what's before its '.'", "[sema]") {
+    // Only the parser's error, for each: no other says the expression does nothing, or that
+    // there's no such member.
+    const std::string_view program = "Import std.core\n"
+                                     "Import std.collections\n"
+                                     "Struct Point\n    Field X: Int\nEnd Struct\n"
+                                     "Function F(p: Point): Int\n"
+                                     "    p.\n"
+                                     "    collections.\n"
+                                     "    Point.\n"
+                                     "    Return p.\n"
+                                     "End Function\n";
+    const std::string missing = "\n: expected identifier, found newline";
+    CHECK(errors_of(program) == errors_t{ missing, missing, missing, missing });
+
+    // What a tool completes the name from: the value's type, or the module's or type's symbol.
+    const fb::compilation_t compilation = fb::compile("test.fb", std::string(program));
+    std::vector<std::string> objects;
+    for (std::size_t i = 0; i < compilation.ast.expr_count(); ++i) {
+        const auto* member = std::get_if<fb::member_expr_t>(
+            &compilation.ast.get(static_cast<fb::expr_id_t>(i)).node);
+        if (member == nullptr || !member->member.text.empty() ||
+            compilation.ast.get(member->object).span.file != compilation.file) {
+            continue;
+        }
+
+        const fb::expr_info_t& info = compilation.analysis.expr(member->object);
+        objects.push_back(
+            info.symbol
+                ? std::format("{} {}", compilation.analysis.symbol(*info.symbol).name,
+                              static_cast<int>(compilation.analysis.symbol(*info.symbol).kind))
+                : std::string());
+        objects.back() += std::format(" {}", compilation.analysis.types.name(info.type));
+    }
+
+    const auto kind = [](const fb::symbol_kind_t symbol) { return static_cast<int>(symbol); };
+    CHECK(objects == std::vector<std::string>{
+                         std::format("p {} Point", kind(fb::symbol_kind_t::PARAMETER)),
+                         std::format("collections {} <invalid>", kind(fb::symbol_kind_t::MODULE)),
+                         std::format("Point {} <invalid>", kind(fb::symbol_kind_t::TYPE)),
+                         std::format("p {} Point", kind(fb::symbol_kind_t::PARAMETER)),
+                     });
+}
+
+TEST_CASE("analysis keeps where each symbol is used", "[sema]") {
+    const fb::compilation_t compilation =
+        fb::compile("test.fb", "Import std.core\n"
+                               "Struct Point\n    Field X: Int\nEnd Struct\n"
+                               "Function Twice(p: Point): Int => p.X * 2\n"
+                               "Local q: Point = Point(1)\n"
+                               "Print(Twice(q))\n");
+    std::vector<std::string> uses;
+    const fb::source_file_t& file = compilation.source();
+    for (const fb::symbol_use_t& use : compilation.analysis.uses) {
+        if (use.span.file == compilation.file) {
+            uses.push_back(std::format("{} {}", file.slice(use.span),
+                                       compilation.analysis.symbol(use.symbol).name));
+        }
+    }
+
+    std::ranges::sort(uses);
+    const auto [first, last] = std::ranges::unique(uses);
+    uses.erase(first, last);
+    CHECK(uses == std::vector<std::string>{ "Point New", "Point Point", "Print Print",
+                                            "Twice Twice", "X X", "p p", "q q" });
+}

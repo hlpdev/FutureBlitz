@@ -11756,6 +11756,7 @@ private:
     /// and a warning at a use of something @Deprecated, or of a New of a @Deprecated type. Its own
     /// code, and its type's, can use it.
     void note_use(const symbol_id_t id, const span_t span) {
+        m_analysis.uses.push_back({ .span = span, .symbol = id });
         note_thread_use(id, span);
         const symbol_t* used = &symbol(id);
         // Builds leave tests out, so no other code can use one.
@@ -15182,6 +15183,12 @@ private:
     /// condition is True.
     void check_stmt(stmt_id_t /*id*/, span_t /*span*/, const expression_stmt_t& node) {
         check_any(node.expression, type_id_t::NONE);
+        // "x." without its member's name is an error the parser reported.
+        if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.expression).node);
+            member != nullptr && member->member.text.empty()) {
+            return;
+        }
+
         if (only_gives_value(node.expression)) {
             error(span_of(node.expression), "expression has no effect");
             return;
@@ -25171,7 +25178,41 @@ private:
     /// A field after a '.', or after a '?.', which gives Null when the object is Null. Methods
     /// can only be called. "Self.x" only uses one field, so a New can use it before the others
     /// are assigned.
+    /// "x." without its member's name, as it is while it's typed, which the parser reported:
+    /// what's before the '.' is worked out for tools that complete the name, without another
+    /// error. A module's qualifier or a type's name gets its symbol, and a value its type.
+    void check_unnamed_member(const member_expr_t& node) {
+        if (const std::optional<symbol_id_t> module = qualifier_named(node.object)) {
+            info(node.object).symbol = module;
+            return;
+        }
+
+        if (const std::optional<written_name_t> name = written_name(node.object)) {
+            if (builtin_type(name->name)) {
+                return;
+            }
+
+            if (!name->symbols.empty() &&
+                (symbol(name->symbols.front()).kind == symbol_kind_t::TYPE ||
+                 symbol(name->symbols.front()).kind == symbol_kind_t::ALIAS)) {
+                info(node.object).symbol = name->symbols.front();
+                return;
+            }
+        }
+
+        if (parameter_named(node.object)) {
+            return;
+        }
+
+        check(node.object, type_id_t::NONE);
+    }
+
     type_id_t check_expr(const expr_id_t id, const member_expr_t& node, const type_id_t hint) {
+        if (node.member.text.empty()) {
+            check_unnamed_member(node);
+            return type_id_t::INVALID;
+        }
+
         if (const std::optional<qualified_t> qualified = qualified_name(id)) {
             return check_qualified(id, *qualified, hint);
         }
