@@ -6,6 +6,8 @@
 #   curl -fsSL https://github.com/hlpdev/FutureBlitz/releases/latest/download/install.sh | sh
 #   sh install.sh --version 0.1.0
 #   sh install.sh --archive futureblitz-0.1.0-linux-x64.tar.gz
+#
+# --no-modify-path leaves the shell's startup files as they are.
 set -eu
 
 repository="hlpdev/FutureBlitz"
@@ -114,10 +116,12 @@ line="export PATH=\"$root/bin:\$PATH\""
 case "${SHELL:-}" in
 */zsh) profiles="$HOME/.zshrc" ;;
 */bash)
+    # A terminal's bash on macOS is a login shell; on Linux it reads .bashrc, and a login
+    # shell, as over SSH, .profile.
     if [ "$os" = macos ]; then
         profiles="$HOME/.bash_profile"
     else
-        profiles="$HOME/.bashrc"
+        profiles="$HOME/.profile $HOME/.bashrc"
     fi
     ;;
 */fish)
