@@ -1981,9 +1981,19 @@ private:
                 check_constraint_forms(member, inside);
             }
         } else if (const auto* extension = std::get_if<extend_stmt_t>(&statement.node)) {
-            // The names in "Extend Box<T>" are its type parameters, and a type's name or two.
-            const std::vector<std::string_view> inside =
-                words_of(text(m_ast.get(extension->type).span));
+            // The type parameters "Extend Box<T>" and "Extend T[]" name: the names in its type
+            // but for its own, before a '<', and the types', as Int's in "Extend Int".
+            const span_t span = m_ast.get(extension->type).span;
+            const std::string_view written = text(span);
+            const std::size_t open = written.find('<');
+            std::vector<std::string_view> inside;
+            for (const std::string_view word :
+                 words_of(open == std::string_view::npos ? written : written.substr(open))) {
+                if (!builtin_type(word) && !names_type({ .text = word, .span = span })) {
+                    inside.push_back(word);
+                }
+            }
+
             for (const stmt_id_t member : extension->members) {
                 check_constraint_forms(member, inside);
             }
@@ -2071,15 +2081,19 @@ private:
             const span_t last = m_ast.get(constraint.interfaces.back()).span;
             return span_t{ .file = file.id(), .begin = first.begin, .end = last.end };
         };
-        // Whether a constraint's Interface takes a type parameter as a type argument.
+        // Whether a constraint's Interface takes another type parameter as a type argument, as
+        // S: Iterator<T> does, but T: Ordered<T> doesn't.
         const auto relates = [&](const constraint_t& constraint) {
             return std::ranges::any_of(
                 words_of(text(written(constraint))), [&](const std::string_view word) {
-                    return std::ranges::contains(outer, word) ||
-                           std::ranges::any_of(
-                               names, [&](const name_t& name) { return name.text == word; });
+                    return word != constraint.parameter.text &&
+                           (std::ranges::contains(outer, word) ||
+                            std::ranges::any_of(
+                                names, [&](const name_t& name) { return name.text == word; }));
                 });
         };
+        // The file's line break, which the lines a fix adds end with.
+        const std::string_view eol = source.find("\r\n") != std::string_view::npos ? "\r\n" : "\n";
 
         if (constrained.size() == 1 && interfaces == 1 && !relates(*own.front())) {
             const constraint_t& constraint = *own.front();
@@ -2090,12 +2104,27 @@ private:
             const name_t& name = *std::ranges::find_if(
                 names, [&](const name_t& each) { return each.text == constraint.parameter.text; });
             const std::string_view interface = text(written(constraint));
+            // The Where line goes, but for a comment after it, which stays on a line of its own.
+            span_t where = line_of(constraint.parameter.span.begin);
+            const std::string_view rest =
+                source.substr(written(constraint).end, where.end - written(constraint).end);
+            if (rest.find_first_not_of(" \t\r\n") != std::string_view::npos) {
+                const std::string_view line = source.substr(where.begin, where.length());
+                where = {
+                    .file = file.id(),
+                    .begin =
+                        where.begin + static_cast<std::uint32_t>(line.find_first_not_of(" \t")),
+                    .end = written(constraint).end +
+                           static_cast<std::uint32_t>(rest.find_first_not_of(" \t")),
+                };
+            }
+
             warning(constraint.parameter.span,
                     "a declaration's one constraint goes inline, as <{}: {}>, not on a Where line",
                     name.text, interface)
                 .with_fix({ .file = file.id(), .begin = name.span.end, .end = name.span.end },
                           std::format(": {}", interface))
-                .with_fix(line_of(constraint.parameter.span.begin), "");
+                .with_fix(where, "");
             return;
         }
 
@@ -2113,13 +2142,22 @@ private:
         const std::string indent(line.substr(0, line.find_first_not_of(" \t")));
         std::string lines;
         for (const constraint_t* constraint : inline_ones) {
-            lines += std::format("{}    Where {}: {}\n", indent, constraint->parameter.text,
-                                 text(written(*constraint)));
+            lines += std::format("{}    Where {}: {}{}", indent, constraint->parameter.text,
+                                 text(written(*constraint)), eol);
         }
 
-        diagnostic_t& reported =
-            warning(inline_ones.front()->parameter.span,
-                    "a declaration with more than one constraint has each on a Where line");
+        // What makes them Where lines: a relation, more than one type parameter's, or more than
+        // one on one.
+        std::string_view message =
+            "a type parameter with more than one constraint has them on a Where line";
+        if (std::ranges::any_of(own, [&](const constraint_t* each) { return relates(*each); })) {
+            message = "a constraint that relates a type parameter to another goes on a Where line";
+        } else if (constrained.size() > 1) {
+            message = "a declaration with constraints on more than one type parameter has each on "
+                      "a Where line";
+        }
+
+        diagnostic_t& reported = warning(inline_ones.front()->parameter.span, "{}", message);
         for (const constraint_t* constraint : inline_ones) {
             reported.with_fix(
                 {

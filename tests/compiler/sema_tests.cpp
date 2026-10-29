@@ -5036,13 +5036,30 @@ TEST_CASE("one constraint goes inline, and more on Where lines, or sema warns wi
               .second == "Class Box<K: Hashable, V>\n    Field Keys: K[] = []\nEnd Class");
     CHECK(fixed("Class C\n    Method F<A: Equatable, B: Equatable>(a: A, b: B): Bool\n        "
                 "Return a == a && b == b\n    End Method\nEnd Class") ==
-          std::pair(std::vector<std::string>{ "a declaration with more than one constraint has "
-                                              "each on a Where line" },
+          std::pair(std::vector<std::string>{ "a declaration with constraints on more than one "
+                                              "type parameter has each on a Where line" },
                     std::string("Class C\n    Method F<A, B>(a: A, b: B): Bool\n        Where A: "
                                 "Equatable\n        Where B: Equatable\n        Return a == a && "
                                 "b == b\n    End Method\nEnd Class")));
-    CHECK(fixed("Function F<T: Equatable & Printable>(x: T)\n    Print(x)\nEnd Function").second ==
-          "Function F<T>(x: T)\n    Where T: Equatable & Printable\n    Print(x)\nEnd Function");
+    CHECK(fixed("Function F<T: Equatable & Printable>(x: T)\n    Print(x)\nEnd Function") ==
+          std::pair(std::vector<std::string>{ "a type parameter with more than one constraint has "
+                                              "them on a Where line" },
+                    std::string("Function F<T>(x: T)\n    Where T: Equatable & Printable\n    "
+                                "Print(x)\nEnd Function")));
+    // The message says why: here, a relation.
+    CHECK(fixed("Interface Source<T>\nEnd Interface\nFunction Collect<S: Source<E>, E>(items: S): "
+                "Int\n    Return 1\nEnd Function")
+              .first == std::vector<std::string>{ "a constraint that relates a type parameter to "
+                                                  "another goes on a Where line" });
+    // A file's \r\n line breaks end the lines a fix adds, and a comment after a Where line stays.
+    CHECK(fixed("Function F<A: Equatable, B: Equatable>(a: A, b: B)\r\n    Print(1)\r\nEnd "
+                "Function\r\n")
+              .second == "Function F<A, B>(a: A, b: B)\r\n    Where A: Equatable\r\n    Where B: "
+                         "Equatable\r\n    Print(1)\r\nEnd Function\r\n");
+    CHECK(fixed("Function F<T>(x: T)\n    Where T: Equatable // needs ==\n    Print(1)\nEnd "
+                "Function")
+              .second ==
+          "Function F<T: Equatable>(x: T)\n    // needs ==\n    Print(1)\nEnd Function");
 
     // Each form where it belongs, and Where lines inline can't take the place of.
     for (const std::string_view program : {
@@ -5057,6 +5074,14 @@ TEST_CASE("one constraint goes inline, and more on Where lines, or sema warns wi
              "Function",
              "Class Box<T>\nEnd Class\nExtend Box<T> Implements Printable\n    Where T: Printable\n"
              "    Method ToString(): String => \"box\"\nEnd Extend",
+             // A constraint on a type parameter of itself, or of a type that isn't one, relates
+             // none to another.
+             "Interface Ordered<T>\nEnd Interface\nFunction Least<T: Ordered<T>>(a: T): T\n    "
+             "Return a\nEnd Function",
+             "Interface Source<T>\nEnd Interface\nExtend String\n    Method JoinAll<S: "
+             "Source<String>>(items: S): String\n        Return Self\n    End Method\nEnd Extend",
+             "Interface Ordered<T>\nEnd Interface\nExtend Int\n    Method Pick<S: Ordered<Int>>(s: "
+             "S): Int\n        Return Self\n    End Method\nEnd Extend",
          }) {
         INFO(program);
         CHECK(errors_of(std::string(import) + std::string(program)).empty());
