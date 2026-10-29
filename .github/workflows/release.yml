@@ -183,6 +183,14 @@ jobs:
           cmake --install build --prefix "stage/$RELEASE"
           ls -la "stage/$RELEASE/bin"
 
+      # A staged install, under DESTDIR, as a package manager makes, is the same release.
+      - name: Install under DESTDIR
+        if: runner.os != 'Windows'
+        run: |
+          DESTDIR="$PWD/destdir" cmake --install build --prefix /futureblitz > /dev/null
+          diff <(ls "stage/$RELEASE/bin") <(ls destdir/futureblitz/bin)
+          destdir/futureblitz/bin/fb --version
+
       - name: Archive (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -252,10 +260,20 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # The user's PATH has an entry by a variable, which stays one, as Windows' own do.
+          $key = Get-Item -LiteralPath 'HKCU:\Environment'
+          $raw = $key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+          Set-ItemProperty -LiteralPath 'HKCU:\Environment' -Name Path -Type ExpandString `
+            -Value "$raw;%USERPROFILE%\fb-test-entry"
           # Only Windows' own folders on PATH, so nothing else is found.
           $env:Path = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
           $archive = (Get-ChildItem dist\*.zip).FullName
           & .\tools\install\install.ps1 -Archive $archive
+          $key = Get-Item -LiteralPath 'HKCU:\Environment'
+          $raw = $key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+          if (-not $raw.Contains('%USERPROFILE%\fb-test-entry') -or $key.GetValueKind('Path') -ne 'ExpandString') {
+            throw "install.ps1 left the user's PATH as $($key.GetValueKind('Path')) $raw"
+          }
           if (-not (Get-Command fb -ErrorAction SilentlyContinue)) { throw "fb isn't on PATH" }
           $user = [Environment]::GetEnvironmentVariable('Path', 'User')
           if (-not $user.Contains("$env:USERPROFILE\.futureblitz\bin")) { throw "the user's PATH is $user" }
@@ -277,8 +295,9 @@ jobs:
           # As though install.ps1 hadn't run.
           $bin = "$env:USERPROFILE\.futureblitz\bin"
           Remove-Item -Recurse -Force "$env:USERPROFILE\.futureblitz"
-          $user = ([Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ -and $_ -ne $bin }) -join ';'
-          [Environment]::SetEnvironmentVariable('Path', $user, 'User')
+          $raw = (Get-Item -LiteralPath 'HKCU:\Environment').GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+          $user = ($raw -split ';' | Where-Object { $_ -and $_ -ne $bin }) -join ';'
+          Set-ItemProperty -LiteralPath 'HKCU:\Environment' -Name Path -Type ExpandString -Value $user
           $msi = (Get-ChildItem dist\*.msi).FullName
           $log = "$env:RUNNER_TEMP\msi.log"
           Start-Process msiexec.exe -Wait -ArgumentList '/i', "`"$msi`"", '/qn', '/l*v', "`"$log`""
@@ -299,11 +318,22 @@ jobs:
           $user = [Environment]::GetEnvironmentVariable('Path', 'User')
           if ($user -and $user.Contains($bin)) { throw "the MSI left $bin on the user's PATH" }
 
+      # macOS: a home of its own, with no startup files, as a new user's.
+      - name: A fresh home (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p "$RUNNER_TEMP/home"
+          echo "HOME=$RUNNER_TEMP/home" >> "$GITHUB_ENV"
+
       - name: Install with install.sh, and run fb new's package
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -eux
+          # macOS: only the system's folders on PATH, so nothing else is found.
+          if [ "$RUNNER_OS" = macOS ]; then
+            export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+          fi
           # A fresh machine: no C++ compiler, or linker, but fb's own.
           if [ "$RUNNER_OS" = Linux ] && { command -v cc || command -v c++ || command -v ld; }; then
             echo "::error::The container has a C++ compiler or a linker"
