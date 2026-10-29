@@ -186,7 +186,9 @@ End Function
   writes any other Import at its top, as a file does; its declarations, like a Struct that
   implements an Interface, go outside its test, and its other code is the test's body. Its
   failures, panics, and stack traces show its lines in the doc comment. `fb test std` runs the
-  standard library's examples.
+  standard library's examples. For a `.fb` file outside a package, `fb test` runs that file's
+  examples, each a module beside it that imports it by its path, as `Import "./game"`, so it
+  sees the file's Public and Package declarations, as the program's other files do.
 - The `.fb` files of a package's tests/ folder are a package of their own, `<name>.tests`, which
   depends on the package and on what it depends on, so their tests use it from outside, through
   its Public names, as another package would; they import each other by their paths. A package

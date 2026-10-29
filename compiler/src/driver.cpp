@@ -2736,13 +2736,24 @@ enum class purpose_t : std::uint8_t {
     CHECK,
 };
 
+/// How an example Imports the module it's an example of.
+enum class examples_of_t : std::uint8_t {
+    /// A package's, by its dotted name.
+    PACKAGE,
+    /// std's, by its folder's name, as "std.collections".
+    STANDARD,
+    /// A program's main file without a project.toml, by its path, as "./game": the examples go
+    /// beside it.
+    PROGRAM,
+};
+
 /// For fb test: the examples of the doc comments in `paths`, files of `files`, each a module of
 /// its own at a path that starts with `prefix`, which the front end loads from memory. Its lines
 /// show where they are in their file, a copy of which goes in the compilation's sources for
-/// messages to show. `standard` files are std's, which an Import names by their folders.
+/// messages to show.
 void add_examples(compilation_t& compilation, file_set_t& files,
                   const std::vector<std::string>& paths, const std::string& prefix,
-                  const build_mode_t mode, const bool standard) {
+                  const build_mode_t mode, const examples_of_t of) {
     const std::vector<std::string_view> defined = defined_symbols(mode);
     for (const std::string& path : paths) {
         std::optional<std::string> text = read_file(files, path);
@@ -2760,8 +2771,14 @@ void add_examples(compilation_t& compilation, file_set_t& files,
 
         const ast_t ast = parse(file, tokens, ignored, docs);
         const std::string module = module_name(path);
-        std::vector<example_module_t> examples =
-            example_modules(ast, file, module, standard ? std_import_name(path) : module);
+        std::string imported = module;
+        if (of == examples_of_t::STANDARD) {
+            imported = std_import_name(path);
+        } else if (of == examples_of_t::PROGRAM) {
+            imported = std::format("\"./{}\"", path.substr(0, path.size() - 3));
+        }
+
+        std::vector<example_module_t> examples = example_modules(ast, file, module, imported);
         if (examples.empty()) {
             continue;
         }
@@ -2886,7 +2903,8 @@ compile_package(const std::filesystem::path& folder,
 
         if (purpose == purpose_t::TEST) {
             file_set_t files{ .root = own.root, .packages = *packages };
-            add_examples(compilation, files, documented, own.name + ".doctests/", mode, false);
+            add_examples(compilation, files, documented, own.name + ".doctests/", mode,
+                         examples_of_t::PACKAGE);
             std::ranges::copy(files.extra, std::back_inserter(extra));
             generated = std::move(files.generated);
             package_t examples{
@@ -3275,9 +3293,30 @@ std::expected<compilation_t, std::string> compile_tests(const std::filesystem::p
                                                    : std::filesystem::current_path(error));
     }
 
-    // A file outside a package is tested with the files it imports, as it's built.
-    return root ? compile_package(*root, std::nullopt, mode, purpose_t::TEST)
-                : compile_file(path, mode);
+    if (root) {
+        return compile_package(*root, std::nullopt, mode, purpose_t::TEST);
+    }
+
+    if (!std::filesystem::is_regular_file(path, error) ||
+        folded(to_utf8(path.extension())) != ".fb") {
+        return compile_file(path, mode);
+    }
+
+    // A file outside a package is tested with the files it imports, as it's built, and its
+    // examples, each a module beside it, which imports it by its path.
+    compilation_t compilation;
+    const std::expected<file_id_t, std::string> file = compilation.sources.load(path);
+    if (!file) {
+        return std::unexpected(file.error());
+    }
+
+    compilation.file = *file;
+    const std::filesystem::path folder = path.has_parent_path() ? path.parent_path() : ".";
+    const std::string name = to_utf8(path.filename());
+    file_set_t files{ .root = folder, .testing = true };
+    add_examples(compilation, files, { name }, "(doc tests) ", mode, examples_of_t::PROGRAM);
+    run_front_end(compilation, std::move(files), name, mode);
+    return compilation;
 }
 
 namespace {
@@ -3304,7 +3343,8 @@ std::expected<compilation_t, std::string> compile_standard_tests(const build_mod
     compilation_t compilation;
     std::error_code error;
     file_set_t files{ .root = std::filesystem::current_path(error) };
-    add_examples(compilation, files, std_files(files), "(doc tests)/", mode, true);
+    add_examples(compilation, files, std_files(files), "(doc tests)/", mode,
+                 examples_of_t::STANDARD);
     return compile_standard(std::move(compilation), std::move(files), mode);
 }
 

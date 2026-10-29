@@ -2279,6 +2279,30 @@ TEST_CASE("fb test runs a package's examples, each a test named after its declar
         std::format("{}:25:12: error: '==' can't combine Float32 and String\n", shapes)));
     CHECK(broken.output.contains("25 | /// Expect(circle.Radius == \"2\")\n"));
     CHECK_FALSE(broken.output.contains("Running"));
+
+    // A file outside a package runs its examples too, which import it by its path, and leaves its
+    // top-level code out.
+    const std::filesystem::path lone =
+        write_source("examples/twice.fb", "Import std.core\n"
+                                          "\n"
+                                          "/// Twice `n`.\n"
+                                          "///\n"
+                                          "/// # Examples\n"
+                                          "///\n"
+                                          "/// ```\n"
+                                          "/// Expect(Twice(2) == 4)\n"
+                                          "/// Expect(Twice(3) == 5)\n"
+                                          "/// ```\n"
+                                          "Public Function Twice(n: Int): Int => n * 2\n"
+                                          "\n"
+                                          "Print(\"top-level code\")\n");
+    const fb::process_result_t alone = fb_run({ "test", fb::to_utf8(lone), "--color", "never" });
+    INFO(alone.output);
+    CHECK(alone.exit_code == 1);
+    CHECK(alone.output.contains("     Running 1 test\ntest twice.Twice (example) ... FAILED\n"));
+    CHECK(alone.output.contains(
+        std::format("expect failed: Twice(3) == 5 at {}:9:5\n", shown_file(lone))));
+    CHECK_FALSE(alone.output.contains("top-level code"));
 }
 
 TEST_CASE("fb doc writes a package's public API as JSON, and warns about its doc comments",
