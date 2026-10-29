@@ -313,6 +313,11 @@ jobs:
           fi
           export SHELL=/bin/bash
           sh tools/install/install.sh --archive "$(ls "$PWD"/dist/*.tar.gz)"
+          # What every machine has stays out of bin/: glibc, its loader, and GCC's runtime.
+          if ls ~/.futureblitz/bin | grep -E '^(ld-|libc\.|libm\.|libstdc\+\+|libgcc_s)'; then
+            echo "::error::The release's bin/ has the system's libraries"
+            exit 1
+          fi
           # A new login shell has fb on PATH, from the shell's startup file.
           bash -lc 'command -v fb && fb --version'
           cd "$RUNNER_TEMP"

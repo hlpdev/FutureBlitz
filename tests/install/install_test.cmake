@@ -16,6 +16,16 @@ if(NOT folders STREQUAL "bin;lib;lldb;notices;std" OR NOT libraries MATCHES "^[a
   message(FATAL_ERROR "The release has ${folders}, and in lib/, ${libraries}")
 endif()
 
+# What every machine has stays out of bin/: the C runtime, its loader, and the system's own.
+file(GLOB system RELATIVE "${FB_OUTPUT}/futureblitz/bin" "${FB_OUTPUT}/futureblitz/bin/ld-*"
+  "${FB_OUTPUT}/futureblitz/bin/libc.*" "${FB_OUTPUT}/futureblitz/bin/libm.*"
+  "${FB_OUTPUT}/futureblitz/bin/libstdc++*" "${FB_OUTPUT}/futureblitz/bin/libgcc_s*"
+  "${FB_OUTPUT}/futureblitz/bin/libSystem*" "${FB_OUTPUT}/futureblitz/bin/libc++*"
+  "${FB_OUTPUT}/futureblitz/bin/kernel32.dll" "${FB_OUTPUT}/futureblitz/bin/ucrtbase.dll")
+if(system)
+  message(FATAL_ERROR "The release's bin/ has the system's ${system}")
+endif()
+
 set(fb "${FB_OUTPUT}/futureblitz/bin/fb${FB_EXECUTABLE_SUFFIX}")
 set(ENV{PATH} "${FB_OUTPUT}/empty")
 

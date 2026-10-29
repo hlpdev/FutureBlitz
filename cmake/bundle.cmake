@@ -27,8 +27,8 @@ if(APPLE)
   set(fb_system_names "^$")
   set(fb_system_paths "^/usr/lib/" "^/System/Library/")
 else()
-  set(fb_system_names
-    "^(ld-linux|linux-vdso|libc|libm|libdl|libpthread|librt|libutil|libresolv|libgcc_s|libstdc\\+\\+|libz|libzstd|liblzma|libtinfo)\\.so")
+  set(fb_system_names "^ld-linux" "^linux-vdso"
+    "^(libc|libm|libdl|libpthread|librt|libutil|libresolv|libgcc_s|libstdc\\+\\+|libz|libzstd|liblzma|libtinfo)\\.so")
   set(fb_system_paths "^$")
 endif()
 
