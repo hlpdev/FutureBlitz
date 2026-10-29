@@ -8,7 +8,6 @@
 #include <cstdio>
 #include <format>
 #include <string>
-#include <string_view>
 
 // The runtime's stack walks for traces: one walk, up to a limit it says it passed, what a thrown
 // error keeps of it, and a table's markers, which name the frames.
@@ -23,7 +22,8 @@ constexpr std::array<fb_trace_frame_t, 1> marked_frames{
         { .name = 0, .file = 7, .line = 12, .parent = 0xFFFFFFFF },
     },
 };
-constexpr std::string_view marked_names{ "Marked\0marked.fb", 17 };
+/// The names, each ending in a NUL.
+constexpr std::array<char, 17> marked_names{ "Marked\0marked.fb" };
 const fb_trace_t marked_table{
     .begin = marker.data(),
     .end = marker.data() + marker.size(),
