@@ -5,6 +5,24 @@ them while each was built. Newest first.
 
 ## M8, tooling
 
+Step 1, the self-contained toolchain (2026-10-29, e50d0fe6): fb links with its own lld, run directly
+as `lld -flavor gnu` or `-flavor darwin` through a response file, quoted as Windows' command lines
+are on Windows and as a POSIX shell's elsewhere, with each target's startup files and libraries from
+its toolchain, and no C++ driver: MinGW-w64's crt2.o, crtbegin.o, and the rest, libstdc++, libgcc,
+UCRT's and the system's import libraries on Windows; glibc's and GCC's startup files, glibc's
+libraries, their linker scripts written again to name their files beside them, and libstdc++ and
+libgcc static on Linux; and on macOS the SDK, from `xcrun`, which fb says how to install when it's
+missing, with libSystem, libc++, and the compiler's builtins. fb/toolchain.hpp's toolchain() finds
+lld, lib/<target>/, notices/, and std/ beside fb in a release, or in the build folder, where
+cmake/toolchain.cmake copies the C runtime's pieces from the C++ compiler that builds the runtime
+and the build copies the runtime's archives and std's bundled libraries, so the tests link as a
+release does; build_config names them by their files. Windows' code page workarounds are gone, as
+lld reads its arguments as UTF-8. On Linux a package's system library is found by its development
+link or else by the file the system loads, like libGL.so.1. A Windows debug build writes a PDB
+beside each binary, and std's files' debug info points at the toolchain's std. A program builds and
+runs with no C++ compiler on PATH, on Windows, Linux (the whole of ctest), and macOS (its tests, on
+the user's Mac and in CI). Building the Linux release against glibc 2.28 is step 2's.
+
 Step 6, the formatter (2026-10-29, c7a74326): `fb fmt [files and folders]`, which formats .fb files
 in place, a folder's, or the current package's, but for hidden folders and a package's build/, with
 `--check` listing those it would change, and project.toml's `[format] width` (40 to 1000, 100
