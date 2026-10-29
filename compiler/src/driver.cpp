@@ -2720,10 +2720,12 @@ compile_package(const std::filesystem::path& folder,
     const std::string path = own.prefix + program_path(own.root, main_path);
     std::erase(extra, path);
     run_front_end(compilation,
-                  { .root = root,
-                    .packages = std::move(*packages),
-                    .extra = std::move(extra),
-                    .testing = testing },
+                  {
+                      .root = root,
+                      .packages = std::move(*packages),
+                      .extra = std::move(extra),
+                      .testing = testing,
+                  },
                   path, mode);
     record_builds(compilation, others);
     return compilation;

@@ -1759,9 +1759,14 @@ TEST_CASE("fb test runs a package's tests, filters them, and reports each", "[cl
                                    "out; finished in "));
 
     // A file in the package tests the package.
-    const fb::process_result_t file =
-        fb_run({ "test", fb::to_utf8(packages / "tested" / "counting.fb"), "--filter",
-                 "counting.Counts", "--color", "never" });
+    const fb::process_result_t file = fb_run({
+        "test",
+        fb::to_utf8(packages / "tested" / "counting.fb"),
+        "--filter",
+        "counting.Counts",
+        "--color",
+        "never",
+    });
     INFO(file.output);
     CHECK(file.exit_code == 0);
     CHECK(file.output.contains("test tested.counting.Counts ... ok\n"));
@@ -1959,7 +1964,7 @@ TEST_CASE("fb test gives a test the work it starts, and fails a run that fails o
             ++quick;
         }
 
-        CHECK(quick == (release ? 1 : 2));
+        CHECK(quick == (release ? 1U : 2U));
         CHECK(ran.output.contains("test twice.Quick ... ok\n"));
         CHECK(ran.output.contains("test twice.PanicsLater ... FAILED\n"));
     }

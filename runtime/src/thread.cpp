@@ -935,11 +935,13 @@ void help(void* context) {
 extern "C" {
 
 fb_job_t* fb_job_start(const fb_work_t work, void* context) {
-    auto* job = new fb_job_t{ .work = work,
-                              .context = context,
-                              .owners = 2,
-                              .done = false,
-                              .object_owner = fb::runtime::object_owner() };
+    auto* job = new fb_job_t{
+        .work = work,
+        .context = context,
+        .owners = 2,
+        .done = false,
+        .object_owner = fb::runtime::object_owner(),
+    };
     pool().submit(job);
     return job;
 }
@@ -1197,11 +1199,13 @@ void fb_channel_free(const fb_channel_t* channel) {
 }
 
 fb_job_t* fb_job_start_thread(const fb_work_t work, void* context) {
-    auto* job = new fb_job_t{ .work = work,
-                              .context = context,
-                              .owners = 2,
-                              .done = false,
-                              .object_owner = fb::runtime::object_owner() };
+    auto* job = new fb_job_t{
+        .work = work,
+        .context = context,
+        .owners = 2,
+        .done = false,
+        .object_owner = fb::runtime::object_owner(),
+    };
     pool().start_thread(job);
     return job;
 }
