@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fb {
@@ -45,8 +46,14 @@ struct exports_t {
     std::filesystem::path import_library;
 };
 
+/// How lld finds the system library `name` on Linux, in `folders`: by -l where one has its
+/// development link or archive, or else by the file the system loads it by, like libGL.so.1,
+/// which needs no development package.
+[[nodiscard]] std::string system_library_argument(std::string_view name,
+                                                  std::span<const std::filesystem::path> folders);
+
 /// Links object files, the native libraries, the runtime library, and the bundled ones into an
-/// executable at `written`, using lld through the C++ compiler that built the runtime, which
+/// executable at `written`, with fb's own lld and the C runtime's pieces in its toolchain, which
 /// finds the dynamic ones beside it. With `exports`, it's one that libraries beside it take
 /// what they use from. Fails when the linker can't run or reports errors.
 [[nodiscard]] std::expected<void, std::string>

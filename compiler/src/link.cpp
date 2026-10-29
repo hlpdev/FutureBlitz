@@ -2,15 +2,17 @@
 
 #include "fb/build_config.hpp"
 #include "fb/process.hpp"
+#include "fb/toolchain.hpp"
 #include "fb/utf8.hpp"
 
 #include <algorithm>
 #include <array>
-#include <cstddef>
-#include <cstdlib>
+#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <optional>
 #include <random>
 #include <span>
@@ -20,112 +22,24 @@
 #include <utility>
 #include <vector>
 
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#endif
-
 namespace fb {
 namespace {
 
+/// What a link writes.
+enum class output_kind_t : std::uint8_t {
+    EXECUTABLE,
+    LIBRARY,
+};
+
 #ifdef _WIN32
-// Only Windows' C++ driver reads paths in a code page that isn't UTF-8.
 [[nodiscard]] bool is_ascii(const std::string_view text) {
     return std::ranges::all_of(text,
                                [](const char c) { return static_cast<unsigned char>(c) < 0x80; });
 }
 #endif
 
-/// Where the C++ driver can make temporary files. It reads TMP and TEMP in the ANSI code page,
-/// so on Windows, where a user's name can put the temporary folder outside it, that's the
-/// folder by its short name, or else, when it isn't ASCII either, a folder of ProgramData's or
-/// the system's that is.
-std::filesystem::path linker_temporary_folder() {
-    std::error_code ignored;
-    std::filesystem::path folder = std::filesystem::temp_directory_path(ignored);
-#ifdef _WIN32
-    if (is_ascii(to_utf8(folder))) {
-        return folder;
-    }
-
-    const std::wstring wide = folder.wstring();
-    if (const DWORD size = GetShortPathNameW(wide.c_str(), nullptr, 0); size != 0) {
-        std::wstring shorter(size, L'\0');
-        shorter.resize(GetShortPathNameW(wide.c_str(), shorter.data(), size));
-        if (!shorter.empty() && is_ascii(to_utf8(std::filesystem::path(shorter)))) {
-            return shorter;
-        }
-    }
-
-    for (const wchar_t* const variable : { L"ProgramData", L"SystemRoot" }) {
-        const wchar_t* const value = _wgetenv(variable);
-        if (value == nullptr || !is_ascii(to_utf8(std::filesystem::path(value)))) {
-            continue;
-        }
-
-        const std::filesystem::path candidate =
-            std::filesystem::path(value) / (std::wstring(variable) == L"SystemRoot"
-                                                ? std::filesystem::path("Temp")
-                                                : std::filesystem::path("FutureBlitz") / "tmp");
-        std::filesystem::create_directories(candidate, ignored);
-        if (std::filesystem::is_directory(candidate, ignored)) {
-            return candidate;
-        }
-    }
-#endif
-    return folder;
-}
-
-#ifdef _WIN32
-/// Sets TMP and TEMP for the processes this one starts, while it lives, then puts them back.
-class temporary_environment_t {
-public:
-    explicit temporary_environment_t(const std::filesystem::path& folder) {
-        for (std::size_t i = 0; i < m_names.size(); ++i) {
-            if (const DWORD size = GetEnvironmentVariableW(m_names[i], nullptr, 0); size != 0) {
-                std::wstring value(size, L'\0');
-                value.resize(GetEnvironmentVariableW(m_names[i], value.data(), size));
-                m_old[i] = std::move(value);
-            }
-
-            SetEnvironmentVariableW(m_names[i], folder.wstring().c_str());
-        }
-    }
-
-    temporary_environment_t(const temporary_environment_t&) = delete;
-    temporary_environment_t& operator=(const temporary_environment_t&) = delete;
-    temporary_environment_t(temporary_environment_t&&) = delete;
-    temporary_environment_t& operator=(temporary_environment_t&&) = delete;
-
-    ~temporary_environment_t() {
-        for (std::size_t i = 0; i < m_names.size(); ++i) {
-            const std::optional<std::wstring>& old = m_old[i];
-            SetEnvironmentVariableW(m_names[i], old.has_value() ? old->c_str() : nullptr);
-        }
-    }
-
-private:
-    std::array<const wchar_t*, 2> m_names{ L"TMP", L"TEMP" };
-    std::array<std::optional<std::wstring>, 2> m_old;
-};
-#endif
-
-/// The linker's output, without the C++ driver's last line, which only says the linker failed,
-/// and the blank lines after it.
+/// The linker's output, without the blank lines after it.
 std::string linker_output(std::string output) {
-    for (const std::string_view noise :
-         { "collect2.exe: error: ld returned", "collect2: error: ld returned" }) {
-        if (const std::size_t at = output.find(noise); at != std::string::npos) {
-            const std::size_t line_end = output.find('\n', at);
-            output.erase(at, line_end == std::string::npos ? std::string::npos : line_end - at + 1);
-        }
-    }
-
     while (!output.empty() &&
            (output.back() == '\n' || output.back() == '\r' || output.back() == ' ')) {
         output.pop_back();
@@ -134,8 +48,7 @@ std::string linker_output(std::string output) {
     return output;
 }
 
-/// A folder in the temporary folder the C++ driver can use for one link's files, removed when
-/// it goes.
+/// A folder in the temporary folder for one link's files, removed when it goes.
 class link_folder_t {
 public:
     link_folder_t() = default;
@@ -154,20 +67,13 @@ public:
         }
     }
 
-    /// A new file's path in the folder, with `extension`, which the folder makes first.
-    [[nodiscard]] std::filesystem::path file(const std::filesystem::path& extension) {
-        std::filesystem::path name = std::format("{}", m_files++);
-        name += extension;
-        return path() / name;
-    }
-
     /// The folder, made the first time it's asked for.
     [[nodiscard]] const std::filesystem::path& path() {
         std::error_code ignored;
         if (m_path.empty()) {
             std::random_device random;
-            m_path =
-                linker_temporary_folder() / "futureblitz" / std::format("link-{:08x}", random());
+            m_path = std::filesystem::temp_directory_path(ignored) / "futureblitz" /
+                     std::format("link-{:08x}", random());
             std::filesystem::create_directories(m_path, ignored);
         }
 
@@ -176,98 +82,214 @@ public:
 
 private:
     std::filesystem::path m_path;
-    unsigned m_files = 0;
 };
 
-/// A path as the linker can read it. The C++ driver reads its arguments in the ANSI code page,
-/// which can't spell every name, so on Windows a file whose path isn't ASCII goes by its short
-/// name, or else as a copy in an ASCII folder.
-std::string linker_path(const std::filesystem::path& path, link_folder_t& folder) {
-    std::string text = to_utf8(path);
+/// `argument` in a response file, quoted as lld reads it: on Windows as a command line's words
+/// are, where a backslash escapes only a quote or the backslashes before one, and elsewhere as a
+/// POSIX shell's are.
+std::string response_word(const std::string_view argument) {
+    std::string text = "\"";
 #ifdef _WIN32
-    if (is_ascii(text)) {
-        return text;
-    }
+    std::size_t backslashes = 0;
+    for (const char c : argument) {
+        if (c == '\\') {
+            ++backslashes;
+        } else {
+            if (c == '"') {
+                text.append(backslashes + 1, '\\');
+            }
 
-    const std::wstring wide = path.wstring();
-    if (const DWORD size = GetShortPathNameW(wide.c_str(), nullptr, 0); size != 0) {
-        std::wstring shorter(size, L'\0');
-        shorter.resize(GetShortPathNameW(wide.c_str(), shorter.data(), size));
-        if (std::string short_text = to_utf8(std::filesystem::path(shorter));
-            !shorter.empty() && is_ascii(short_text)) {
-            return short_text;
+            backslashes = 0;
         }
+
+        text += c;
     }
 
-    const std::filesystem::path copy = folder.file(path.extension());
-    std::error_code ignored;
-    if (std::filesystem::copy_file(path, copy, ignored)) {
-        return to_utf8(copy);
-    }
+    text.append(backslashes, '\\');
 #else
-    (void)folder;
+    for (const char c : argument) {
+        if (c == '"' || c == '\\') {
+            text += '\\';
+        }
+
+        text += c;
+    }
 #endif
+    text += '"';
     return text;
 }
 
-/// Moves the linked executable from where the linker wrote it to `output`.
-std::expected<void, std::string> move_output(const std::filesystem::path& linked,
-                                             const std::filesystem::path& output) {
-    std::error_code error;
-    std::filesystem::rename(linked, output, error);
-    if (!error) {
-        return {};
-    }
-
-    // Another disk's folder takes a copy.
-    std::filesystem::copy_file(linked, output, std::filesystem::copy_options::overwrite_existing,
-                               error);
-    if (error) {
-        return std::unexpected(
-            std::format("cannot write '{}': {}", to_utf8(output), error.message()));
-    }
-
-    return {};
+/// A file of the toolchain's target folder, as the linker takes it.
+std::string piece(const std::string_view name) {
+    return to_utf8(toolchain().libraries / path_from_utf8(name));
 }
 
-/// Runs the linker with `arguments`, then the output and the options every link has, into
-/// `output`: through the link's folder when the linker can't read its path.
-std::expected<void, std::string> run_linker(std::vector<std::string> arguments,
-                                            const std::filesystem::path& output,
-                                            link_folder_t& folder) {
-    // It keeps its name there, which an executable's import library records.
-    std::optional<std::filesystem::path> linked;
-#ifdef _WIN32
-    if (!is_ascii(to_utf8(output))) {
-        linked = is_ascii(to_utf8(output.filename())) ? folder.path() / output.filename()
-                                                      : folder.file(output.extension());
-    }
+#ifdef __APPLE__
+/// The macOS SDK's folder and version, from Apple's Command Line Tools, which a program links
+/// against; they can't be shipped with fb.
+struct apple_sdk_t {
+    std::string path;
+    std::string version;
+};
+
+std::expected<apple_sdk_t, std::string> apple_sdk() {
+    static const std::expected<apple_sdk_t, std::string> found =
+        []() -> std::expected<apple_sdk_t, std::string> {
+        const auto ask = [](const std::string& option) -> std::optional<std::string> {
+            const std::vector<std::string> arguments{ "--sdk", "macosx", option };
+            const std::expected<process_result_t, std::string> result =
+                run_process("/usr/bin/xcrun", arguments);
+            if (!result || result->exit_code != 0) {
+                return std::nullopt;
+            }
+
+            return linker_output(result->output);
+        };
+        std::optional<std::string> path = ask("--show-sdk-path");
+        std::optional<std::string> version = ask("--show-sdk-version");
+        if (!path || !version || path->empty() || version->empty()) {
+            return std::unexpected(
+                "linking needs the macOS SDK from Apple's Command Line Tools, which aren't "
+                "installed; install them with `xcode-select --install`");
+        }
+
+        return apple_sdk_t{ .path = std::move(*path), .version = std::move(*version) };
+    }();
+    return found;
+}
 #endif
-    arguments.emplace_back("-o");
-    arguments.push_back(to_utf8(linked.value_or(output)));
-    arguments.emplace_back("-fuse-ld=lld");
-    arguments.push_back(std::format("-B{}/", build_config::lld_directory));
-    arguments.emplace_back("-Wl,--error-limit=0");
-    // Per-platform options from compiler/CMakeLists.txt, like static linking on MinGW.
-    for (const std::string_view option : build_config::link_options) {
-        arguments.emplace_back(option);
+
+/// What lld takes before the objects: what it writes and for which target, and the C runtime's
+/// startup files.
+std::expected<std::vector<std::string>, std::string> start_arguments(const output_kind_t kind) {
+    const bool library = kind == output_kind_t::LIBRARY;
+    std::vector<std::string> arguments;
+#ifdef _WIN32
+    // MinGW-w64's, with everything static.
+    arguments = { "-m", "i386pep", "-Bstatic" };
+    if (library) {
+        arguments.insert(arguments.end(), { "--shared", "-e", "DllMainCRTStartup",
+                                            "--enable-auto-image-base" });
     }
 
-#ifdef _WIN32
-    const temporary_environment_t environment(folder.path());
+    arguments.push_back(piece(library ? "dllcrt2.o" : "crt2.o"));
+    arguments.push_back(piece("crtbegin.o"));
+#elifdef __APPLE__
+    const std::expected<apple_sdk_t, std::string> sdk = apple_sdk();
+    if (!sdk) {
+        return std::unexpected(sdk.error());
+    }
+
+#ifdef __aarch64__
+    arguments = { "-arch", "arm64" };
+#else
+    arguments = { "-arch", "x86_64" };
 #endif
+    arguments.insert(arguments.end(),
+                     { "-platform_version", "macos", std::string(build_config::macos_minimum),
+                       sdk->version, "-syslibroot", sdk->path, "-dead_strip" });
+    if (library) {
+        // What it takes from the executable is found as it loads.
+        arguments.insert(arguments.end(), { "-dylib", "-undefined", "dynamic_lookup" });
+    }
+#else
+#ifdef __aarch64__
+    arguments = { "-m", "aarch64linux" };
+    const std::string_view loader = "/lib/ld-linux-aarch64.so.1";
+#else
+    arguments = { "-m", "elf_x86_64" };
+    const std::string_view loader = "/lib64/ld-linux-x86-64.so.2";
+#endif
+    arguments.insert(arguments.end(),
+                     { "--build-id", "--eh-frame-hdr", "--hash-style=gnu", "--as-needed" });
+    if (library) {
+        arguments.insert(arguments.end(), { "-shared", "-z", "relro" });
+    } else {
+        arguments.insert(arguments.end(), { "-dynamic-linker", std::string(loader), "-pie", "-z",
+                                            "now", "-z", "relro" });
+        arguments.push_back(piece("Scrt1.o"));
+    }
+
+    arguments.push_back(piece("crti.o"));
+    arguments.push_back(piece("crtbeginS.o"));
+#endif
+    arguments.push_back("-L" + to_utf8(toolchain().libraries));
+    arguments.emplace_back("--error-limit=0");
+    return arguments;
+}
+
+/// What lld takes after everything else: the C and C++ runtimes' libraries, the C++ runtime
+/// static, and the C runtime's last files.
+void finish_arguments(const output_kind_t kind, std::vector<std::string>& arguments) {
+#ifdef _WIN32
+    // As GCC links them, with UCRT, the current C runtime, which MinGW's static winpthread
+    // needs.
+    for (const std::string_view library :
+         { "stdc++", "mingw32", "gcc", "gcc_eh", "mingwex", "ucrt", "kernel32", "pthread",
+           "advapi32", "shell32", "user32", "kernel32", "mingw32", "gcc", "gcc_eh", "mingwex",
+           "ucrt", "kernel32" }) {
+        arguments.push_back(std::format("-l{}", library));
+    }
+
+    if (kind == output_kind_t::EXECUTABLE) {
+        arguments.push_back(piece("default-manifest.o"));
+    }
+
+    arguments.push_back(piece("crtend.o"));
+#elifdef __APPLE__
+    (void)kind;
+    arguments.insert(arguments.end(), { "-lc++", "-lSystem", piece("libclang_rt.osx.a") });
+#else
+    (void)kind;
+    arguments.insert(arguments.end(), { "-Bstatic", "-lstdc++", "-Bdynamic", "-lm", "-lgcc",
+                                        "-lgcc_eh", "-lpthread", "-lc", "-lgcc", "-lgcc_eh" });
+    arguments.push_back(piece("crtendS.o"));
+    arguments.push_back(piece("crtn.o"));
+#endif
+}
+
+/// Runs lld with `arguments`, through a response file in the link's folder, writing `output`.
+std::expected<void, std::string> run_linker(const output_kind_t kind,
+                                            std::vector<std::string> arguments,
+                                            const std::filesystem::path& output,
+                                            link_folder_t& folder) {
+    std::expected<std::vector<std::string>, std::string> all = start_arguments(kind);
+    if (!all) {
+        return std::unexpected(all.error());
+    }
+
+    std::ranges::move(arguments, std::back_inserter(*all));
+    finish_arguments(kind, *all);
+    all->emplace_back("-o");
+    all->push_back(to_utf8(output));
+
+    const std::filesystem::path response = folder.path() / "arguments.rsp";
+    {
+        std::ofstream file(response, std::ios::binary);
+        for (const std::string& argument : *all) {
+            file << response_word(argument) << '\n';
+        }
+
+        if (!file) {
+            return std::unexpected(
+                std::format("cannot write the linker's arguments to '{}'", to_utf8(response)));
+        }
+    }
+
+#ifdef __APPLE__
+    std::vector<std::string> command{ "-flavor", "darwin" };
+#else
+    std::vector<std::string> command{ "-flavor", "gnu" };
+#endif
+    command.push_back("@" + to_utf8(response));
     const std::expected<process_result_t, std::string> result =
-        run_process(build_config::linker_driver, arguments);
+        run_process(toolchain().linker, command);
     if (!result) {
         return std::unexpected(result.error());
     }
 
     if (result->exit_code != 0) {
         return std::unexpected(std::format("linking failed:\n{}", linker_output(result->output)));
-    }
-
-    if (linked) {
-        return move_output(*linked, output);
     }
 
     return {};
@@ -277,75 +299,131 @@ std::expected<void, std::string> run_linker(std::vector<std::string> arguments,
 void link_dynamic(const native_libraries_t& natives, link_folder_t& folder,
                   std::vector<std::string>& arguments) {
 #if defined(_WIN32) || defined(__APPLE__)
+    (void)folder;
     for (const dynamic_native_t& library : natives.dynamic) {
-        arguments.push_back(linker_path(library.linked, folder));
+        arguments.push_back(to_utf8(library.linked));
     }
 #else
     // A shared object without a SONAME is recorded by the name the linker found it by, so each
     // goes by its name beside the executable, from a folder of the link's own. Each is recorded
     // even when only another uses it, since $ORIGIN, a DT_RUNPATH, finds only the executable's
-    // own, and a linker that drops those it doesn't call, as Ubuntu's does, would leave it out.
+    // own, and --as-needed would leave out those it doesn't call.
     if (!natives.dynamic.empty()) {
         const std::filesystem::path found = folder.path() / "dynamic";
         std::error_code ignored;
         std::filesystem::create_directories(found, ignored);
         arguments.push_back("-L" + to_utf8(found));
-        arguments.emplace_back("-Wl,--push-state,--no-as-needed");
+        arguments.insert(arguments.end(), { "--push-state", "--no-as-needed" });
         for (const dynamic_native_t& library : natives.dynamic) {
             std::filesystem::create_symlink(library.linked, found / path_from_utf8(library.beside),
                                             ignored);
             arguments.push_back("-l:" + library.beside);
         }
 
-        arguments.emplace_back("-Wl,--pop-state");
+        arguments.emplace_back("--pop-state");
     }
 #endif
 }
 
+#if !defined(_WIN32) && !defined(__APPLE__)
+/// The folders a Linux system keeps its libraries in, after the toolchain's own.
+constexpr auto system_folders = std::to_array<std::string_view>({
+#ifdef __aarch64__
+    "/usr/local/lib", "/usr/lib/aarch64-linux-gnu", "/lib/aarch64-linux-gnu",
+#else
+    "/usr/local/lib", "/usr/lib/x86_64-linux-gnu", "/lib/x86_64-linux-gnu",
+#endif
+    "/usr/lib64", "/lib64", "/usr/lib", "/lib",
+});
+
+#endif
+
 /// The arguments that link system libraries by their names, a framework of macOS's, like
 /// "Security.framework", too.
 void link_system(const native_libraries_t& natives, std::vector<std::string>& arguments) {
+#if !defined(_WIN32) && !defined(__APPLE__)
+    for (const std::string_view folder : system_folders) {
+        arguments.push_back(std::format("-L{}", folder));
+    }
+#endif
     for (const std::string& library : natives.system) {
         if (const std::string_view name = library; name.ends_with(".framework")) {
             arguments.emplace_back("-framework");
             arguments.emplace_back(
                 name.substr(0, name.size() - std::string_view(".framework").size()));
         } else {
+#if !defined(_WIN32) && !defined(__APPLE__)
+            std::vector<std::filesystem::path> folders{ toolchain().libraries };
+            folders.insert(folders.end(), system_folders.begin(), system_folders.end());
+            arguments.push_back(system_library_argument(library, folders));
+#else
             arguments.push_back(std::format("-l{}", library));
+#endif
         }
     }
 }
 
 /// The option by which the OS finds a library's dynamic natives beside it, where it has any.
 /// Windows looks there anyway.
-std::optional<std::string> find_beside(const native_libraries_t& natives) {
+void find_beside(const native_libraries_t& natives, std::vector<std::string>& arguments) {
 #ifdef _WIN32
     (void)natives;
-    return std::nullopt;
+    (void)arguments;
 #else
     if (natives.dynamic.empty()) {
-        return std::nullopt;
+        return;
     }
 
 #ifdef __APPLE__
-    return "-Wl,-rpath,@loader_path";
+    arguments.insert(arguments.end(), { "-rpath", "@loader_path" });
 #else
-    return "-Wl,-rpath,$ORIGIN";
+    arguments.insert(arguments.end(), { "-rpath", "$ORIGIN" });
 #endif
 #endif
 }
 
 } // namespace
 
-/// The C++ driver that built the runtime knows where the C and C++ runtime libraries are; -B
-/// points it at lld. The archives go after the objects, which use them, and the system libraries
-/// after the runtime, which they could be used by too. lld reports every error, not its first 20.
+std::string system_library_argument(const std::string_view name,
+                                    const std::span<const std::filesystem::path> folders) {
+    std::error_code ignored;
+    for (const std::filesystem::path& folder : folders) {
+        if (std::filesystem::exists(folder / std::format("lib{}.so", name), ignored) ||
+            std::filesystem::exists(folder / std::format("lib{}.a", name), ignored)) {
+            return std::format("-l{}", name);
+        }
+    }
+
+    // The first folder's with one, its shortest name, which is the one the system loads it by,
+    // like libGL.so.1 and not libGL.so.1.7.0, and of those its newest.
+    const std::string prefix = std::format("lib{}.so.", name);
+    for (const std::filesystem::path& folder : folders) {
+        std::optional<std::string> best;
+        for (const std::filesystem::directory_entry& entry :
+             std::filesystem::directory_iterator(folder, ignored)) {
+            const std::string file = to_utf8(entry.path().filename());
+            if (!entry.is_directory(ignored) && file.starts_with(prefix) &&
+                (!best || file.size() < best->size() ||
+                 (file.size() == best->size() && file > *best))) {
+                best = file;
+            }
+        }
+
+        if (best) {
+            return "-l:" + *best;
+        }
+    }
+
+    return std::format("-l{}", name);
+}
+
+/// The archives go after the objects, which use them, and the system libraries after the
+/// runtime, which they could be used by too. lld reports every error, not its first 20.
 std::expected<void, std::string> link_program(const std::span<const std::filesystem::path> objects,
                                               const native_libraries_t& natives,
                                               const std::filesystem::path& written,
                                               const exports_t* exports) {
-    // On Windows, the C++ driver adds .exe to a name without an extension, so the path the
-    // executable is moved to has it too.
+    // On Windows an executable's name ends in .exe.
     std::filesystem::path output = written;
 #ifdef _WIN32
     if (output.extension().empty()) {
@@ -356,30 +434,26 @@ std::expected<void, std::string> link_program(const std::span<const std::filesys
     link_folder_t folder;
     std::vector<std::string> arguments;
     for (const std::filesystem::path& object : objects) {
-        arguments.push_back(linker_path(object, folder));
+        arguments.push_back(to_utf8(object));
     }
 
     for (const std::filesystem::path& archive : natives.archives) {
-        arguments.push_back(linker_path(archive, folder));
+        arguments.push_back(to_utf8(archive));
     }
 
     link_dynamic(natives, folder, arguments);
-    arguments.push_back(linker_path(path_from_utf8(build_config::runtime_library), folder));
+    arguments.push_back(piece(build_config::runtime_library));
     for (const std::filesystem::path& archive : natives.bundled) {
-        arguments.push_back(linker_path(archive, folder));
+        arguments.push_back(to_utf8(archive));
     }
 
     link_system(natives, arguments);
-    if (std::optional<std::string> found = find_beside(natives)) {
-        arguments.push_back(std::move(*found));
-    }
+    find_beside(natives, arguments);
     // The libraries beside it take what they use from its own symbols, the runtime functions
     // they call among them, which it links for them.
-    // On Windows they name it in their imports by its file's name, which has to be ASCII, and
-    // its import library is written in the link's folder, whose path the linker can read.
-    std::optional<std::filesystem::path> import_library;
     if (exports != nullptr) {
 #ifdef _WIN32
+        // On Windows they name it in their imports by its file's name.
         if (!is_ascii(to_utf8(output.filename()))) {
             return std::unexpected(std::format(
                 "the executable's name, {}, has to be ASCII, since the libraries beside it "
@@ -387,18 +461,15 @@ std::expected<void, std::string> link_program(const std::span<const std::filesys
                 to_utf8(output.filename())));
         }
 
-        import_library = folder.file(".a");
-        arguments.emplace_back("-Wl,--export-all-symbols");
-        arguments.push_back("-Wl,--out-implib," + to_utf8(*import_library));
+        arguments.emplace_back("--export-all-symbols");
+        arguments.push_back("--out-implib=" + to_utf8(exports->import_library));
 #elifdef __APPLE__
-        arguments.emplace_back("-Wl,-export_dynamic");
+        arguments.emplace_back("-export_dynamic");
 #else
-        arguments.emplace_back("-rdynamic");
+        arguments.emplace_back("--export-dynamic");
 #endif
         for (const std::string& symbol : exports->symbols) {
-            arguments.emplace_back("-Xlinker");
             arguments.emplace_back("-u");
-            arguments.emplace_back("-Xlinker");
 #ifdef __APPLE__
             arguments.push_back("_" + symbol);
 #else
@@ -407,12 +478,7 @@ std::expected<void, std::string> link_program(const std::span<const std::filesys
         }
     }
 
-    if (std::expected<void, std::string> linked = run_linker(std::move(arguments), output, folder);
-        !linked || !import_library) {
-        return linked;
-    }
-
-    return move_output(*import_library, exports->import_library);
+    return run_linker(output_kind_t::EXECUTABLE, std::move(arguments), output, folder);
 }
 
 std::expected<void, std::string>
@@ -421,53 +487,34 @@ link_beside(const std::span<const std::filesystem::path> objects, const native_l
             const std::filesystem::path& written, const std::filesystem::path& import_library) {
     link_folder_t folder;
     std::vector<std::string> arguments;
-#ifdef __APPLE__
-    // What it takes from the executable is found as it loads.
-    arguments.emplace_back("-dynamiclib");
-    arguments.emplace_back("-Wl,-undefined,dynamic_lookup");
-#else
-    arguments.emplace_back("-shared");
-#endif
 #ifdef _WIN32
     // It exports its own code: a name with ", " in it can't go as an /export directive.
-    const std::filesystem::path written_library = folder.file(".a");
-    arguments.emplace_back("-Wl,--export-all-symbols");
-    arguments.push_back("-Wl,--out-implib," + to_utf8(written_library));
+    arguments.emplace_back("--export-all-symbols");
+    arguments.push_back("--out-implib=" + to_utf8(import_library));
 #elifndef __APPLE__
     // Its calls of its own code stay its own.
-    arguments.emplace_back("-Wl,-Bsymbolic");
+    arguments.emplace_back("-Bsymbolic");
 #endif
     for (const std::filesystem::path& object : objects) {
-        arguments.push_back(linker_path(object, folder));
+        arguments.push_back(to_utf8(object));
     }
 
     for (const std::filesystem::path& archive : natives.archives) {
-        arguments.push_back(linker_path(archive, folder));
+        arguments.push_back(to_utf8(archive));
     }
 
     link_dynamic(natives, folder, arguments);
 #ifdef _WIN32
     for (const std::filesystem::path& library : import_libraries) {
-        arguments.push_back(linker_path(library, folder));
+        arguments.push_back(to_utf8(library));
     }
 #else
     (void)import_libraries;
     (void)import_library;
 #endif
     link_system(natives, arguments);
-    if (std::optional<std::string> found = find_beside(natives)) {
-        arguments.push_back(std::move(*found));
-    }
-#ifdef _WIN32
-    if (std::expected<void, std::string> linked = run_linker(std::move(arguments), written, folder);
-        !linked) {
-        return linked;
-    }
-
-    return move_output(written_library, import_library);
-#else
-    return run_linker(std::move(arguments), written, folder);
-#endif
+    find_beside(natives, arguments);
+    return run_linker(output_kind_t::LIBRARY, std::move(arguments), written, folder);
 }
 
 } // namespace fb

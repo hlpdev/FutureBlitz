@@ -43,13 +43,20 @@ other people can install and use every day in an editor. Step 0 settled what was
   fb runs lld itself (ld.lld, its MinGW driver, and ld64.lld), as one binary beside fb.
 - A release's folder: `bin/` (fb, fb-bindgen, lld, and on Windows LLVM-C.dll and libclang.dll),
   `lib/<target>/` (the runtime's archives, std's bundled libraries, and the C runtime's pieces),
-  and `std/`. fb finds them from its own path, and a build folder from CMake's, as today.
+  `notices/`, and `std/`. fb takes them from beside itself when its bin/ has lld and the folder
+  above lib/<target>/ and std/, and else from its build folder, where CMake lays lib/<target>/
+  out the same way, copying the C runtime's pieces from the C++ compiler that builds the
+  runtime (fb/toolchain.hpp).
+- lld's arguments go in a response file, so a link of many objects fits Windows' command line.
 - Windows: the pieces of the MinGW-w64 toolchain fb is built with that a program links: crt2.o,
   crtbegin.o and crtend.o, libmingw32, libmingwex, UCRT's and the system's import libraries,
   libgcc, libgcc_eh, libstdc++, and libwinpthread, all static, as today.
 - Linux: glibc 2.28's startup files (crt1.o, crti.o, crtn.o), its libraries' stubs and
   libc_nonshared.a, and GCC's crtbegin and crtend, libgcc, libgcc_eh, and libstdc++. The runtime
-  and std's bundled libraries are built against glibc 2.28 too, so they ask for no newer symbol.
+  and std's bundled libraries are built against glibc 2.28 too, so they ask for no newer symbol:
+  the Linux release is built on glibc 2.28 (step 2), and a build folder has its own system's.
+  A package's system libraries are found by their development links, like libGL.so, or else by
+  the files the system loads, like libGL.so.1, so they need no -dev packages.
 - macOS: Apple's Command Line Tools for the SDK (libSystem and libc++, which are the OS's own),
   which can't be redistributed; `fb` finds it with `xcrun` and says how to install it when it's
   missing.

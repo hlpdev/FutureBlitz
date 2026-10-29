@@ -694,7 +694,9 @@ TEST_CASE("a bundled C library's notices have the texts of every license it name
         const auto library = std::ranges::find(fb::build_config::bundled_libraries, name,
                                                &fb::build_config::bundled_library_t::name);
         REQUIRE(library != fb::build_config::bundled_libraries.end());
-        std::ifstream file(fb::path_from_utf8(library->notice), std::ios::binary);
+        std::ifstream file(fb::path_from_utf8(fb::build_config::notice_directory) /
+                               fb::path_from_utf8(library->notice),
+                           std::ios::binary);
         REQUIRE(file);
         // CMake writes it with the OS's line breaks.
         std::string text(std::istreambuf_iterator<char>(file), {});
@@ -759,7 +761,9 @@ TEST_CASE("std.compress's formats link the C libraries they're over, with their 
         for (const fb::build_config::bundled_library_t& library :
              fb::build_config::bundled_libraries) {
             if (library.name == name) {
-                std::ifstream file(fb::path_from_utf8(library.notice), std::ios::binary);
+                std::ifstream file(fb::path_from_utf8(fb::build_config::notice_directory) /
+                                       fb::path_from_utf8(library.notice),
+                                   std::ios::binary);
                 return std::string{ std::istreambuf_iterator<char>(file), {} };
             }
         }
@@ -824,7 +828,9 @@ TEST_CASE("std.image's formats link the C libraries they're over, with their not
         for (const fb::build_config::bundled_library_t& library :
              fb::build_config::bundled_libraries) {
             if (library.name == name) {
-                std::ifstream file(fb::path_from_utf8(library.notice), std::ios::binary);
+                std::ifstream file(fb::path_from_utf8(fb::build_config::notice_directory) /
+                                       fb::path_from_utf8(library.notice),
+                                   std::ios::binary);
                 return std::string{ std::istreambuf_iterator<char>(file), {} };
             }
         }

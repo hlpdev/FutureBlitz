@@ -4,7 +4,6 @@
 
 | Question | Notes / recommendation |
 |---|---|
-| **Self-contained toolchain** | M1 links through the C++ compiler that built the runtime. Shipping FutureBlitz to people without one needs bundled C runtime libraries (a sysroot) per platform. Scheduled: M8 steps 0 and 1 ([tooling.md](tooling.md)) |
 | **Engine API details** | Direction locked (modern objects); module-by-module design deferred to Phase 2 |
 | **Asset system details** | Direction locked in [assets.md](assets.md); details in the engine phase |
 | **Running ordinary functions at compile time** | `Const Function`s already do, on M3 step 10's MIR interpreter. Proposed: also run other functions when the compiler can prove they're pure (no I/O, globals, or allocation); what's left is that proof |

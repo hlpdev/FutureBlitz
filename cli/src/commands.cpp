@@ -11,6 +11,7 @@
 #include "fb/process.hpp"
 #include "fb/style.hpp"
 #include "fb/terminal.hpp"
+#include "fb/toolchain.hpp"
 #include "fb/utf8.hpp"
 
 #include <algorithm>
@@ -251,7 +252,7 @@ void report_built(const console_t& console, const options_t& options,
         console.status("Bundled",
                        std::format("{} {}, under {}; ship its notices with the program: {}",
                                    library->name, library->version, library->license,
-                                   library->notice));
+                                   to_utf8(toolchain().notices / path_from_utf8(library->notice))));
     }
 
     for (const std::string& file : built.beside) {

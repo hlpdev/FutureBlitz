@@ -4,7 +4,7 @@
 # headers, so the headers are downloaded from the matching release tag. Linux and macOS: the
 # system's LLVM package (apt's llvm-dev, Homebrew's llvm).
 #
-# FB_LLD_DIRECTORY is where ld.lld lives; programs are linked with it.
+# FB_LLD_DIRECTORY is where lld lives; programs are linked with it.
 
 set(FB_LLVM_VERSION 22.1.8)
 
@@ -111,7 +111,7 @@ else()
     target_link_libraries(fb_llvm INTERFACE ${fb_llvm_libraries})
   endif()
 
-  find_program(FB_LLD ld.lld HINTS "${LLVM_TOOLS_BINARY_DIR}" REQUIRED)
+  find_program(FB_LLD lld HINTS "${LLVM_TOOLS_BINARY_DIR}" REQUIRED)
   cmake_path(GET FB_LLD PARENT_PATH FB_LLD_DIRECTORY)
 endif()
 

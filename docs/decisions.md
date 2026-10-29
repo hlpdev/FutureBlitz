@@ -1004,6 +1004,9 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | Decision | Why |
 |---|---|
 | fb runs its own bundled lld directly, with each target's startup files and libraries, and no C++ driver (the user, 2026-10-29, M8 step 0) | building needs no C++ compiler, and lld reads its arguments as UTF-8, so Windows' code page workarounds go |
+| The toolchain folder is a release's layout in the build folder too: lib/<target>/ has the runtime's archives, std's bundled libraries, and the C runtime's pieces, which CMake copies from the C++ compiler that builds the runtime; fb takes a release's beside it when its bin/ has lld and the folder above lib/<target>/ and std/ (M8 step 1) | one way to link, so what the tests check is what a release does |
+| lld's arguments go in a response file, quoted as Windows' command lines are on Windows, where MinGW's driver has no --rsp-quoting, and as a POSIX shell's elsewhere (M8 step 1) | a link of many objects outgrows Windows' 32,767-character command line |
+| On Linux a system library is found by its development link, libGL.so, or else by the file the system loads, libGL.so.1, in the toolchain's folder and then the system's (M8 step 1) | a package's system libraries link on a machine without their -dev packages |
 | Linux programs link against glibc 2.28's stubs, which fb ships, with the runtime and std's libraries built against them; libstdc++ and libgcc stay static (the user, 2026-10-29) | no libc6-dev needed, and programs run on any distribution since about 2018 |
 | Releases go to GitHub Releases as archives with install.sh and install.ps1, and as an MSI and a .pkg; self-update waits for M10's dl.futureblitz.dev (the user, 2026-10-29) | one place to download before the site exists, and installers for people who expect them |
 | Releases are unsigned for now (the user, 2026-10-29) | the install scripts' downloads aren't stopped by Gatekeeper or SmartScreen, and signing needs paid accounts |
@@ -1059,7 +1062,7 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | C++23, CMake, FetchContent, LLVM + lld | |
 | LLVM through its **C API**, linked dynamically (`LLVM-C.dll`, `libLLVM`) | stable ABI; works with the MinGW toolchain and the official Windows installer |
 | A small **MIR** between the AST and LLVM IR, from M1 | strings already need scope-based releases; lowering is testable without LLVM |
-| M1 links through the C++ compiler that built the runtime, with `lld`, statically | it finds the C runtime; a self-contained toolchain comes later |
+| M1 links through the C++ compiler that built the runtime, with `lld`, statically; since M8 step 1, fb runs lld itself (Tooling, above) | it finds the C runtime; a self-contained toolchain comes later |
 | End-to-end tests are `.fb` programs with their expected output | checks the whole pipeline, including the runtime |
 | The CLI is `fb`: `fb build`, `fb run`, and `fb check` in M1 | short to type, like `go` and `zig` |
 | `--show tokens,ast,types,mir,llvm` prints any stage | one flag on every command; see what the compiler did without a debugger |
@@ -1067,10 +1070,10 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | Color with `--color auto\|always\|never`; `auto` follows the terminal and `NO_COLOR` | readable output that still pipes cleanly |
 | Exit codes: 0 success, 1 compile errors, 2 bad usage; `fb run` passes the program's code through | scripts and CI can tell what went wrong |
 | `fb run x.fb -- a b` passes what follows `--` to the program; `fb --color never check` takes --color before the command too, `fb --help check` is check's help, and an argument a command doesn't take is bad usage (M5) | the forms people type from other tools work, and nothing typed is ignored without a word |
-| `-o` takes a file's name: not empty, not a folder, and not one of the program's own files; on Windows a name without an extension gets .exe, as the C++ driver gives it (M5) | a typo can't overwrite the source, and the file written is the one named |
+| `-o` takes a file's name: not empty, not a folder, and not one of the program's own files; on Windows a name without an extension gets .exe (M5) | a typo can't overwrite the source, and the file written is the one named |
 | A command shows the first 100 diagnostics, then how many more there are; a snippet underlines by the columns a terminal shows (wide characters two, combining marks none), escapes control characters and shows bytes that aren't UTF-8 as U+FFFD, and shows a line wider than 120 columns as the part around its span, with "..." (M5) | a file that isn't source code can't print a gigabyte, the markers stay under what they mark, and a comment can't send the terminal escape codes |
 | Messages name std's files by their module paths, like std/collections/map.fb, wherever fb is installed, and the program's files by where they are on disk, from the current folder when they're under it (M5) | std's paths read the same on every machine and match its module names; the program's own can be opened from the terminal |
-| On Windows, the C++ driver that links reads its arguments, TMP, and TEMP in the ANSI code page, so a path outside it goes by its short name, or the link's files go in an ASCII folder (ProgramData's or the system's Temp), which TMP and TEMP name while it links (M5) | a user whose name the code page can't spell can still build |
+| On Windows, the C++ driver that linked read its arguments, TMP, and TEMP in the ANSI code page, so a path outside it went by its short name, or the link's files went in an ASCII folder (M5); since M8 step 1 lld reads them as UTF-8, and those workarounds are gone | a user whose name the code page can't spell can still build |
 | One driver runs the pipeline for the CLI, the tests, and later the LSP | the stages are wired together in one place |
 | Monorepo; target names = project names (`compiler`, `runtime`, `cli`, `lsp`) | |
 | Own LSP and eventually own IDE | |

@@ -19,6 +19,7 @@
 #include <ios>
 #include <iterator>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -57,6 +58,57 @@ fb::process_result_t fb_run(const std::vector<std::string>& arguments) {
         fb::run_process(FB_CLI, arguments);
     REQUIRE(result);
     return *result;
+}
+
+/// Sets an environment variable for the processes a test starts, while it lives, then puts it
+/// back.
+class environment_variable_t {
+public:
+    environment_variable_t(const std::string_view name, const std::string_view value)
+        : m_name(name) {
+#ifdef _WIN32
+        const std::wstring wide = fb::path_from_utf8(name).wstring();
+        if (const wchar_t* const old = _wgetenv(wide.c_str())) {
+            m_old = fb::to_utf8(std::filesystem::path(old));
+        }
+
+        _wputenv_s(wide.c_str(), fb::path_from_utf8(value).wstring().c_str());
+#else
+        if (const char* const old = std::getenv(m_name.c_str())) {
+            m_old = old;
+        }
+
+        setenv(m_name.c_str(), std::string(value).c_str(), 1);
+#endif
+    }
+
+    environment_variable_t(const environment_variable_t&) = delete;
+    environment_variable_t& operator=(const environment_variable_t&) = delete;
+    environment_variable_t(environment_variable_t&&) = delete;
+    environment_variable_t& operator=(environment_variable_t&&) = delete;
+
+    ~environment_variable_t() {
+#ifdef _WIN32
+        _wputenv_s(fb::path_from_utf8(m_name).wstring().c_str(),
+                   fb::path_from_utf8(m_old.value_or("")).wstring().c_str());
+#else
+        if (m_old) {
+            setenv(m_name.c_str(), m_old->c_str(), 1);
+        } else {
+            unsetenv(m_name.c_str());
+        }
+#endif
+    }
+
+private:
+    std::string m_name;
+    std::optional<std::string> m_old;
+};
+
+/// The file of a bundled library's notices, in the build folder.
+std::filesystem::path notice_file(const fb::build_config::bundled_library_t& library) {
+    return fb::path_from_utf8(fb::build_config::notice_directory) /
+           fb::path_from_utf8(library.notice);
 }
 
 /// tests/programs/<name>
@@ -458,12 +510,13 @@ TEST_CASE("fb build names each bundled C library a program links, with its notic
     INFO(reads.output);
     REQUIRE(reads.exit_code == 0);
     const fb::build_config::bundled_library_t& libuv = fb::build_config::bundled_libraries[0];
+    const std::filesystem::path notice = notice_file(libuv);
     CHECK(reads.output.contains(std::format("     Bundled libuv {}, under the MIT, BSD-2-Clause, "
                                             "and ISC licenses; ship its notices with the "
                                             "program: {}\n",
-                                            libuv.version, libuv.notice)));
+                                            libuv.version, fb::to_utf8(notice))));
     // Its notices are libuv's own, and those of the code it has from others.
-    std::ifstream file(fb::path_from_utf8(libuv.notice), std::ios::binary);
+    std::ifstream file(notice, std::ios::binary);
     const std::string notices{ std::istreambuf_iterator<char>(file), {} };
     CHECK(notices.contains("libuv project contributors"));
     CHECK(notices.contains("Joyent, Inc."));
@@ -487,8 +540,8 @@ TEST_CASE("fb build names each bundled C library a program links, with its notic
     CHECK(stored.output.contains(std::format("     Bundled SQLite {}, under a public-domain "
                                              "dedication; ship its notices with the program: "
                                              "{}\n",
-                                             sqlite->version, sqlite->notice)));
-    std::ifstream dedication(fb::path_from_utf8(sqlite->notice), std::ios::binary);
+                                             sqlite->version, fb::to_utf8(notice_file(*sqlite)))));
+    std::ifstream dedication(notice_file(*sqlite), std::ios::binary);
     const std::string blessing{ std::istreambuf_iterator<char>(dedication), {} };
     CHECK(blessing.contains("The author disclaims copyright to this source code."));
     CHECK(blessing.contains("May you share freely, never taking more than you give."));
@@ -529,8 +582,8 @@ TEST_CASE("std.text links utf8proc only where a program needs Unicode's data", "
     CHECK(linked.output.contains(std::format("     Bundled utf8proc {}, under the MIT license and "
                                              "the Unicode license; ship its notices with the "
                                              "program: {}\n",
-                                             utf8proc->version, utf8proc->notice)));
-    std::ifstream file(fb::path_from_utf8(utf8proc->notice), std::ios::binary);
+                                             utf8proc->version, fb::to_utf8(notice_file(*utf8proc)))));
+    std::ifstream file(notice_file(*utf8proc), std::ios::binary);
     const std::string notices{ std::istreambuf_iterator<char>(file), {} };
     CHECK(notices.contains("Steven G. Johnson"));
     CHECK(notices.contains("Unicode data license"));
@@ -2393,9 +2446,40 @@ TEST_CASE("fb build's -o names a new file, not a folder or the program's own", "
     CHECK(std::filesystem::exists(written));
 }
 
+TEST_CASE("fb links with its own lld, with no C++ compiler on PATH", "[cli]") {
+    // PATH is an empty folder's, so the linker and the C runtime's pieces come from fb's
+    // toolchain. The program uses libuv, and its system libraries, through std.io.
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "no_tools";
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder / "empty");
+    const std::filesystem::path text = folder / "linked.txt";
+    const std::filesystem::path source = write_source(
+        "no_tools/files.fb", std::format("Import std.core\nImport std.io\n"
+                                         "Try File.WriteText(Path(\"{0}\"), \"linked\")\n"
+                                         "Print(Try File.ReadText(Path(\"{0}\")))\n",
+                                         fb::to_utf8(std::filesystem::path(text.generic_string()))));
+    // Outside Windows, whose names can't have them, the linker's arguments keep a quote and a
+    // backslash.
+#ifdef _WIN32
+    std::filesystem::path executable = folder / "out folder" / "files";
+#else
+    std::filesystem::path executable = folder / "out \"quoted\" back\\slash" / "files";
+#endif
+    std::filesystem::create_directories(executable.parent_path());
+    const environment_variable_t path("PATH", fb::to_utf8(folder / "empty"));
+    const fb::process_result_t built =
+        fb_run({ "build", fb::to_utf8(source), "-o", fb::to_utf8(executable) });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+    executable += fb::executable_extension;
+    const std::vector<std::string> none;
+    CHECK(fb::run_process(executable, none).value_or(fb::process_result_t{}).output == "linked\n");
+}
+
 TEST_CASE("fb builds where the temporary folder's name isn't in the ANSI code page", "[cli]") {
 #ifdef _WIN32
-    // The C++ driver that links reads TMP and TEMP in the ANSI code page, which has no snowman.
+    // Linking writes its files in the temporary folder, whose name here has a snowman, which the
+    // ANSI code page doesn't.
     const std::filesystem::path temporary =
         std::filesystem::path(FB_TEST_OUTPUT) / fb::path_from_utf8("tmp \xE2\x98\x83 x");
     std::filesystem::create_directories(temporary);

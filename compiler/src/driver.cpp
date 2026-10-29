@@ -11,6 +11,7 @@
 #include "fb/parser.hpp"
 #include "fb/process.hpp"
 #include "fb/proto.hpp"
+#include "fb/toolchain.hpp"
 #include "fb/types.hpp"
 #include "fb/utf8.hpp"
 
@@ -107,7 +108,7 @@ struct file_set_t {
     std::vector<library_file_t> files;
     /// On disk, for compile_file(): the folder the program's own paths start from without a
     /// project.toml, or the main package's. The standard library's files are in
-    /// build_config::std_directory.
+    /// toolchain().std.
     std::optional<std::filesystem::path> root;
     /// On disk, when a project.toml makes the program a package: the packages, the main one
     /// first.
@@ -148,7 +149,7 @@ const library_file_t* prebuilt_module(const package_t& package, const std::strin
 /// Where a file or folder of the program is on disk.
 std::filesystem::path disk_path(const file_set_t& files, const std::string_view path) {
     if (path.starts_with("std/")) {
-        return path_from_utf8(build_config::std_directory) / path_from_utf8(path.substr(4));
+        return toolchain().std / path_from_utf8(path.substr(4));
     }
 
     if (const package_t* package = package_named(files, path)) {
@@ -324,7 +325,7 @@ std::vector<std::string> std_files(const file_set_t& files) {
         return found;
     }
 
-    const std::filesystem::path folder = path_from_utf8(build_config::std_directory);
+    const std::filesystem::path& folder = toolchain().std;
     std::error_code error;
     for (auto entry = std::filesystem::recursive_directory_iterator(folder, error);
          !error && entry != std::filesystem::recursive_directory_iterator();
@@ -2885,7 +2886,7 @@ namespace {
 /// std.collections.map of, or nullopt when it can.
 std::optional<std::string> unreadable_std() {
     std::error_code error;
-    const std::filesystem::path std_folder = path_from_utf8(build_config::std_directory);
+    const std::filesystem::path& std_folder = toolchain().std;
     if (!std::filesystem::is_regular_file(std_folder / "core" / "error.fb", error) ||
         !std::filesystem::is_regular_file(std_folder / "collections" / "map.fb", error)) {
         return std::format("cannot read the standard library in '{}'", to_utf8(std_folder));
@@ -3013,7 +3014,7 @@ std::optional<std::filesystem::path> find_package(const std::filesystem::path& f
 }
 
 std::expected<std::vector<library_file_t>, std::string> standard_library() {
-    const std::filesystem::path folder(build_config::std_directory);
+    const std::filesystem::path& folder = toolchain().std;
     std::vector<std::filesystem::path> paths;
     std::error_code error;
     for (auto entry = std::filesystem::recursive_directory_iterator(folder, error);
@@ -3499,11 +3500,12 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
         bundled_libraries(module, all);
     for (const build_config::bundled_library_t* library : bundled) {
         if (!library->runtime.empty()) {
-            natives.bundled.push_back(path_from_utf8(library->runtime));
+            natives.bundled.push_back(toolchain().libraries / path_from_utf8(library->runtime));
         }
 
         for (const auto part : std::views::split(library->archives, ';')) {
-            natives.bundled.push_back(path_from_utf8(std::string_view(part.begin(), part.end())));
+            natives.bundled.push_back(toolchain().libraries /
+                                      path_from_utf8(std::string_view(part.begin(), part.end())));
         }
 
         for (const auto part : std::views::split(library->system, ' ')) {
