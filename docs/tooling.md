@@ -99,15 +99,57 @@ other people can install and use every day in an editor. Step 0 settled what was
 
 ## The formatter (step 6)
 
-- `fb fmt` formats files in place, `--check` reports without changing them, and the LSP formats
-  on save. One style, with no options but the line width, `[format] width` in project.toml.
-- The style std is written in: 4 spaces, a width of 100, a space around binary operators and
-  after commas and colons, spaces inside braced lists `{ a, b }` and none inside parentheses or
-  brackets, at most one blank line in a row and none at a block's start or end. A long line
-  breaks after a comma or before an operator, continuing 4 spaces deeper; a list that doesn't fit
-  goes one item per line.
-- Comments stay where they are, and the formatter changes no code's meaning, which its tests
-  check by parsing before and after.
+- `fb fmt [files and folders]` formats .fb files in place, a folder's and its folders' but for
+  hidden ones and a package's build/, or the current package's without any; `--check` lists the
+  files it would change and exits with 1. The LSP formats on save through the compiler's
+  `format_source` (compiler/include/fb/format.hpp). One style, with no options but the line
+  width, `[format] width` in project.toml, 100 without it.
+- The formatter changes only the space between tokens and where long lines break, so the code
+  means what it did: `format_source` parses the result and compares its tokens and tree with the
+  original's, and leaves a file it would change otherwise as it is. A file that doesn't parse is
+  left as it is, with its errors reported. Formatting is idempotent.
+
+The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces:
+
+- **Indentation**: 4 spaces a block. A Select's Cases are a block, with their bodies a block
+  deeper; so are a Property's Get and Set, an Enum's members, and an Extern block's Functions.
+  A declaration's Where lines are a step deeper than it. Else, ElseIf, Case, Catch, Finally,
+  Until, and End lines go back to their block's level, and `End Function)` after a lambda's block
+  goes back to the statement the lambda is in.
+- **Spaces**: one around binary operators, `=`, `=>`, and a ternary's `?` and `:`, and after a
+  comma and any other `:`; none inside parentheses, brackets, or a map's braces, `{"a": 1}`, or
+  before a call's or an index's bracket. None after a prefix `-`, `!`, or `~`, or around `.`,
+  `?.`, and `..`, or between a name and its type arguments, `Map<K, V>()`. A nullable's `?`, and
+  As? and Try?, touch what's before them. An Operator's name touches its parameters,
+  `Operator []=(`. Inside a string, nothing changes; an interpolation's code is spaced as code,
+  and a map's brace next to an interpolation's keeps a space, as `{ {1: 2}.Count}`.
+- **Blank lines**: at most one in a row, none at the start of the file or of a block or before a
+  block's end, and the file ends with one line break, `\r\n` when its first line ends so.
+- **Comments** stay where they are. One on its own line gets the indentation of the line after
+  it, or a block's when it's written inside the block before its end; one after code is one
+  space after it. Their text is kept, but for spaces at their end.
+- **Lines that go on**: a statement goes on to another line only after a comma, an operator,
+  `=`, `=>`, or an opening bracket, and inside brackets also before a ternary's `:`. Inside
+  brackets, the line lines up one past the innermost open bracket, its items packed; a `:` that
+  starts it lines up with its ternary's `?`. Outside brackets, it lines up with the start of the
+  statement's expression: after `=` or `=>`, or after Return, If, ElseIf, While, Until, Throw,
+  Case, Select, Lock, Implements, Throws, or In, or with the statement's start. A bracket that
+  ends its line has what's inside it 4 spaces deeper than that line, 8 for a declaration's
+  parameters, so they stand apart from its body, and a closing bracket that starts a line goes at
+  the indentation of the line it opened on.
+- **Long lines**: the author's line breaks inside a statement stay; lines are never joined. A
+  line wider than the width breaks where it may, at the best place on it: a comma or a ternary's
+  `:` before an operator, the loosest operator first, at the outermost bracket level, the latest
+  there; after an opening bracket only when nothing else fits, and after `=` or `=>` last. An
+  operator inside a ternary's level doesn't break it, and a single-line If breaks only at a comma
+  in its statement's brackets. A statement that can't fit at any break, as with a long string, is
+  left as written, with only its spacing and indentation fixed.
+- **#If** lines, from an outermost #If to its #End If, are left as written, so the formatting is
+  the same whatever's defined.
+- **Constraints**: one constraint, on one of a declaration's own type parameters, goes inline,
+  `<T: Hashable>`; more, a `&`, or one that relates two type parameters, `S: Iterator<T>`, go on
+  Where lines. The formatter doesn't move them, as that changes the tree: sema warns about the
+  other form, with a fix-it the LSP offers as a code action.
 
 ## Testing (step 7)
 
