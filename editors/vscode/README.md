@@ -84,7 +84,9 @@ npm run test:unit        # the grammar, language configuration, snippets, and he
 npm run test:extension   # the extension in VS Code, through @vscode/test-electron
 ```
 
-- `FUTUREBLITZ_FB=<path to fb>` runs the tests that build programs; without it they're skipped.
+- `FUTUREBLITZ_FB=<path to fb>` runs the tests that build programs, and
+  `FUTUREBLITZ_LSP=<path to fb-lsp>` those of the real server's diagnostics and formatting;
+  without them they're skipped.
 - The extension tests download VS Code, the oldest version package.json takes, into
   .vscode-test/; `FB_VSCODE_VERSION=stable` picks another, and `FB_VSCODE_EXECUTABLE` runs an
   installed one. They run twice, on a workspace of three folders and then with no folder open. A

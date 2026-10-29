@@ -184,7 +184,8 @@ README says how to build, test, and install it.
   the extension tests in VS Code through @vscode/test-electron, with a stand-in for CodeLLDB that
   records each launch and a stand-in server, on a workspace of three folders and then with no
   folder open: tasks, problems, format on save once, missing, failing, crashing, hung, and
-  overlapping servers, and debug launches. `FUTUREBLITZ_FB` names fb for the tests that build.
+  overlapping servers, and debug launches. `FUTUREBLITZ_FB` names fb for the tests that build,
+  and `FUTUREBLITZ_LSP` fb-lsp for those of its diagnostics and formatting on save.
 - `npm run package` makes futureblitz.vsix with @vscode/vsce; publishing waits for the accounts.
 
 ## The formatter (step 6)

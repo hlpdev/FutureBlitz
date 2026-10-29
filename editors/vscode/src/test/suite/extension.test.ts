@@ -173,6 +173,43 @@ suite("the language server", () => {
     });
 });
 
+// fb's own server, from FUTUREBLITZ_LSP; skipped without it.
+suite("fb-lsp", function () {
+    const server = process.env.FUTUREBLITZ_LSP ?? "";
+
+    suiteSetup(function () {
+        if (server === "") {
+            this.skip();
+        }
+    });
+
+    teardown(async () => {
+        await api.server.stop();
+    });
+
+    test("starts, and says what's wrong as a file opens", async () => {
+        await api.server.start({ command: server, args: [] });
+        assert.equal(api.server.state, "running");
+        const undeclared = file("files", "undeclared.fb");
+        await open(undeclared);
+        const [diagnostic] = await waitFor(
+            "the server's diagnostic",
+            () => vscode.languages.getDiagnostics(undeclared).length > 0 && vscode.languages.getDiagnostics(undeclared),
+        );
+        assert.equal(diagnostic.range.start.line, 2);
+        assert.equal(diagnostic.range.start.character, 6);
+        assert.match(diagnostic.message, /'y' isn't declared/);
+    });
+
+    test("formats on save, once", async () => {
+        await api.server.start({ command: server, args: [] });
+        const editor = await open(file("files", "spacing.fb"));
+        await editor.edit((edit) => edit.insert(new vscode.Position(4, 0), "\n"));
+        await editor.document.save();
+        assert.equal(editor.document.getText().replaceAll("\r\n", "\n"), 'Import std.core\n\nLocal x = 1\nPrint("{x}")\n');
+    });
+});
+
 suite("tasks", () => {
     test("a package's commands, and the open file's", async () => {
         const tasks = await vscode.tasks.fetchTasks({ type: "futureblitz" });

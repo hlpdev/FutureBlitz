@@ -1,0 +1,4 @@
+Import std.core
+
+Local x =  1
+Print("{x}")

@@ -3,7 +3,8 @@
 // test/fixtures/workspace, then the lone suite, with no folder open, on a copy of
 // test/fixtures/lone.
 //
-// FUTUREBLITZ_FB names the fb the tests that build run with; without it they're skipped.
+// FUTUREBLITZ_FB names the fb the tests that build run with, and FUTUREBLITZ_LSP the fb-lsp the
+// tests of the real server do; without them they're skipped.
 // FB_VSCODE_VERSION picks VS Code's version, the oldest package.json takes by default, and
 // FB_VSCODE_EXECUTABLE runs a VS Code that's installed instead.
 
@@ -49,6 +50,7 @@ async function main(): Promise<void> {
                     FB_TEST_NODE: process.execPath,
                     FB_TEST_FAKE_LSP: path.join(fixtures, "fake-lsp.js"),
                     FUTUREBLITZ_FB: process.env.FUTUREBLITZ_FB ?? "",
+                    FUTUREBLITZ_LSP: process.env.FUTUREBLITZ_LSP ?? "",
                 },
             });
         }
