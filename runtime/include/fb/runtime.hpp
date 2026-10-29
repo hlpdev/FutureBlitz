@@ -810,6 +810,24 @@ std::int32_t fb_io_net_address(void* handle, std::int32_t remote, fb_array_t* ou
 /// past them, as net.cpp's meaning_t and socket.fb's TIMED_OUT have it.
 std::int32_t fb_io_net_error_kind(std::int32_t code);
 
+/// fb test's runner, which a test executable's main calls, and std.test's built-ins. fb_test_add
+/// adds a test, by its name, with the function that runs it, which reports what it throws, on the
+/// main thread when `main_thread`, as one that uses a Global must. fb_test_run runs them: the ones
+/// FB_TEST_PLAN's file lists, on the pool but for the main thread's, writing what each does to
+/// FB_TEST_REPORT's file for fb test, or without one, all of them, printing what they did.
+void fb_test_add(const fb_string_t* name, void (*run)(), bool main_thread);
+void fb_test_run();
+/// The test the calling thread runs failed, as `message` says, and goes on: a failed Expect, or
+/// Fail. On a thread that runs no test, it panics with the message.
+void fb_test_failed(const fb_string_t* message);
+/// The test the calling thread runs is skipped, for `reason`. Elsewhere it panics.
+void fb_test_skipped(const fb_string_t* reason);
+/// The test the calling thread runs let `error` out, an object of a Class that extends Error, so
+/// it failed. Elsewhere it panics.
+void fb_test_threw(const fb_object_t* error);
+/// ExpectThrows failed, as `message` says, since what it ran threw `error`, of another Class.
+void fb_test_threw_other(const fb_string_t* message, const fb_object_t* error);
+
 /// Prints "panic: <message> at <file>:<line>:<column>" to stderr and exits with code 101.
 /// Compiled code calls it when a run-time check fails. `location` can be null, which leaves out
 /// the " at ..." part. On any thread, it ends the whole program, at once: a second thread that

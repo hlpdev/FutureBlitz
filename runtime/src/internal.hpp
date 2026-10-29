@@ -88,6 +88,28 @@ void before_report(void (*leave)());
 /// Runs what before_report() was given, if anything.
 void run_before_report();
 
+/// Has `watch` run on the thread that panics, after the panic's message shows and before the
+/// program ends, with the message and where it is, which can be null, as fb test's runner notes
+/// which test panicked. At most one.
+void at_panic(void (*watch)(std::string_view message, const fb_location_t* location));
+
+/// The calling thread's objects belong to `owner` from now on, or to no one for 0, while debug
+/// builds keep track of every object, so a leak can say which test made it.
+void set_object_owner(std::int64_t owner);
+
+/// An object that's left, and the owner the thread that made it had.
+struct owned_object_t {
+    std::int64_t owner;
+    const fb_class_t* type;
+};
+
+/// The objects left that have owners, in the order they were made.
+[[nodiscard]] std::vector<owned_object_t> owned_objects();
+
+/// Has `check` run in fb_finish, once the program's code is done, its Globals are let go of, and
+/// what at_finish() was given has run, just before the leak report. At most one.
+void at_leak_check(void (*check)());
+
 /// How a message that names `type` among `others` shows it: by its name, or by its full name
 /// when it's alike one of the others, as sema decides alike types.
 [[nodiscard]] const char* shown_class_name(const fb_class_t* type,

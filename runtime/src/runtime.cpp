@@ -245,6 +245,12 @@ bool fb::runtime::stderr_colors() {
 
 namespace {
 
+/// What at_panic() was given.
+std::atomic<void (*)(std::string_view, const fb_location_t*)>& panic_watcher() {
+    static std::atomic<void (*)(std::string_view, const fb_location_t*)> instance = nullptr;
+    return instance;
+}
+
 /// Ends the program with "panic: <message> at <file>:<line>:<column>" on stderr, the message
 /// whole, NULs too, then its stack trace.
 [[noreturn]] void panic_with(const std::string_view message, const fb_location_t* location) {
@@ -263,6 +269,10 @@ namespace {
 
     std::fputc('\n', stderr);
     fb::runtime::write_trace(fb::runtime::capture_stack(), stderr);
+    if (const auto watch = panic_watcher().load(std::memory_order_acquire); watch != nullptr) {
+        watch(message, location);
+    }
+
     end_program(panic_exit_code);
 }
 
@@ -374,6 +384,10 @@ std::atomic<void (*)()>& leaver() {
 
 void before_report(void (*leave)()) {
     leaver().store(leave, std::memory_order_release);
+}
+
+void at_panic(void (*watch)(std::string_view message, const fb_location_t* location)) {
+    panic_watcher().store(watch, std::memory_order_release);
 }
 
 void run_before_report() {

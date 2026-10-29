@@ -31,10 +31,21 @@ struct registry_t {
     std::mutex mutex;
     std::uint64_t made = 0;
     std::unordered_map<const fb_object_t*, std::uint64_t> objects;
+    /// The owners of the objects made on a thread that had one, as a test's thread does.
+    std::unordered_map<const fb_object_t*, std::int64_t> owners;
 };
 
 registry_t& registry() {
     static registry_t instance;
+    return instance;
+}
+
+/// What set_object_owner() gave the calling thread.
+thread_local std::int64_t t_owner = 0;
+
+/// What at_leak_check() was given.
+std::atomic<void (*)()>& leak_checker() {
+    static std::atomic<void (*)()> instance = nullptr;
     return instance;
 }
 
@@ -43,6 +54,9 @@ void remember(const fb_object_t* object) {
     if (known.tracking) {
         const std::scoped_lock lock(known.mutex);
         known.objects.emplace(object, known.made++);
+        if (t_owner != 0) {
+            known.owners.emplace(object, t_owner);
+        }
     }
 }
 
@@ -51,6 +65,7 @@ void forget(const fb_object_t* object) {
     if (known.tracking) {
         const std::scoped_lock lock(known.mutex);
         known.objects.erase(object);
+        known.owners.erase(object);
     }
 }
 
@@ -522,6 +537,33 @@ const char* fb::runtime::shown_class_name(const fb_class_t* type,
     return shown_name(type, others);
 }
 
+void fb::runtime::set_object_owner(const std::int64_t owner) {
+    t_owner = owner;
+}
+
+std::vector<fb::runtime::owned_object_t> fb::runtime::owned_objects() {
+    registry_t& known = registry();
+    const std::scoped_lock lock(known.mutex);
+    std::vector<std::pair<std::uint64_t, owned_object_t>> found;
+    for (const auto& [object, owner] : known.owners) {
+        found.emplace_back(known.objects.at(object),
+                           owned_object_t{ .owner = owner, .type = object->type });
+    }
+
+    std::ranges::sort(found, {}, &std::pair<std::uint64_t, owned_object_t>::first);
+    std::vector<owned_object_t> objects;
+    objects.reserve(found.size());
+    for (const auto& [order, object] : found) {
+        objects.push_back(object);
+    }
+
+    return objects;
+}
+
+void fb::runtime::at_leak_check(void (*check)()) {
+    leak_checker().store(check, std::memory_order_release);
+}
+
 extern "C" {
 
 void fb_track_objects() {
@@ -535,6 +577,10 @@ void fb_finish(fb_class_t* const* classes, const std::int64_t count) {
     fb_thread_locals_release();
     // The I/O thread stops first, letting go of the Tasks it has that nothing waits for.
     fb::runtime::run_finish();
+    if (void (*const check)() = leak_checker().load(std::memory_order_acquire); check != nullptr) {
+        check();
+    }
+
     // Whatever the program printed shows up before the report.
     std::fflush(stdout);
     const std::int64_t strings = fb_string_live_count();
