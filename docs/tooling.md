@@ -125,10 +125,18 @@ How it's built (2026-10-29):
   one's diagnostics.
 - **Requests** answer from the check of the document's current text, which they wait for, kept
   for each open document; references and renames check the file that declares the name with every
-  file that imports it. Sema records each use of a symbol (`analysis_t::uses`), which hover,
-  definitions, references, renames, and semantic tokens look names up in; and a member being
-  typed, "x.", is a member with an empty name, whose object sema works out without another error,
-  which completion takes the members from. Document and workspace symbols parse the file alone.
+  file that imports it. Sema records each use of a symbol (`analysis_t::uses`, symbol_use_t lists
+  the kinds), which hover, definitions, references, renames, and semantic tokens look names up in,
+  and a test checks a program with each kind of use; and a member being typed, "x.", is a member
+  with an empty name, whose object sema works out quietly, which completion takes the members
+  from. Document and workspace symbols parse the file alone.
+- **Renames** change a Method or Property with the ones that override it or that it overrides,
+  and with the Interface members it implements and their other implementations, from the checks
+  of each of their files and what imports them. A rename is refused when another declaration of
+  the new name is where the old one is declared (a variable's function, or a member's type), when
+  code where the name is used sees the new name already, for a New, a module's qualifier, an
+  Import's As name, and a declaration outside the workspace, and for a name that isn't ASCII
+  letters, digits, and '_'.
 - **Shared work.** A check's driver parses each std file it doesn't load, for the error that says
   which module declares a name, which took most of a check's time; the checks share what it finds
   (`std_names_cache_t`), by each file's text.
