@@ -15,10 +15,14 @@ Extern "runtime"
     Function fb_text_byte(text: String, at: Int64): UInt8
 End Extern
 
-/// What a run of a diff is: the same in both texts, deleted from the first, or inserted for the
-/// second.
+/// What a run of a diff is.
 Public Enum DiffKind
-    SAME, DELETED, INSERTED
+    /// The same in both texts.
+    SAME
+    /// Deleted from the first.
+    DELETED
+    /// Inserted for the second.
+    INSERTED
 End Enum
 
 /// A run of a diff: what kind it is, and its text, whole lines for Diff.Lines.
@@ -48,8 +52,8 @@ End Struct
 
 /// Diffing's operations.
 Public Class Diff
-    /// The runs of lines that are the same in a and `b`, deleted from a, and inserted for `b`, in
-    /// order, as few lines as can be deleted and inserted. Where lines are replaced, the deleted
+    /// The runs of lines that are the same in `a` and `b`, deleted from `a`, and inserted for `b`,
+    /// in order, as few lines as can be deleted and inserted. Where lines are replaced, the deleted
     /// ones come before the inserted ones.
     Public Static Method Lines(a: String, b: String): DiffRun[]
         Local from = LinesOf(a)
@@ -57,7 +61,8 @@ Public Class Diff
         Return Runs(Script(from, to), from, to)
     End Method
 
-    /// The runs of characters that are the same in a and `b`, deleted from a, and inserted for `b`.
+    /// The runs of characters that are the same in `a` and `b`, deleted from `a`, and inserted for
+    /// `b`.
     Public Static Method Chars(a: String, b: String): DiffRun[]
         Local from: String[] = []
         For c In a.Chars
@@ -72,7 +77,7 @@ Public Class Diff
         Return Runs(Script(from, to), from, to)
     End Method
 
-    /// The unified diff of a and `b`, as diff -u and git diff write it, with `context` lines of
+    /// The unified diff of `a` and `b`, as diff -u and git diff write it, with `context` lines of
     /// each change's around it, and `fromName` and `toName` in its first two lines. "" when they're
     /// the same. Panics when `context` is negative.
     @PanicsAtCaller

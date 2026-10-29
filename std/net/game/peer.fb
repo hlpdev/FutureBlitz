@@ -14,9 +14,16 @@ Import std.net.game.channel
 Import std.net.game.packet
 Import std.net.game.settings
 
-/// Where a connection is: asking for it, open, sending what's left before it ends, or ended.
+/// Where a connection is.
 Public Enum PeerState
-    CONNECTING, CONNECTED, DISCONNECTING, DISCONNECTED
+    /// Asking for it.
+    CONNECTING
+    /// Open.
+    CONNECTED
+    /// Sending what's left before it ends.
+    DISCONNECTING
+    /// Ended.
+    DISCONNECTED
 End Enum
 
 /// How many of the packets it sent a peer remembers, to take their acks.

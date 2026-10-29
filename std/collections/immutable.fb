@@ -46,6 +46,7 @@ Public Struct ImmutableArray<T: Sendable> Implements Iterable<T>, Defaultable, S
         Get => Root?.Size ?? 0
     End Property
 
+    /// The value at `index`, which panics outside it.
     @PanicsAtCaller
     Operator [](index: Int): T
         Check(index, Count)

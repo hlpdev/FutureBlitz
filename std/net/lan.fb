@@ -116,7 +116,7 @@ Public Class LanAnnouncer
     /// Starts offering the service `name` of `type`, which is "_" and up to 15 lowercase letters,
     /// digits, and '-', then "._udp" or "._tcp", at `port` of this machine, with `text` as its keys
     /// and values, each pair 255 bytes at most and 8192 in all, each key once whatever its letters'
-    /// case. A type, `name`, or `text` that isn't one panics. It answers at mDNS's `port`, 5353, or
+    /// case. A type, `name`, or `text` that isn't one panics. It answers at mDNS's port, 5353, or
     /// at `discoveryPort`, which Find has to be given too. What it sends through an interface gives
     /// that interface's address alone, as RFC 6762 has it.
     @PanicsAtCaller

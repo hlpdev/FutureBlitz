@@ -36,12 +36,12 @@ Public Struct Range<T: Numeric> Implements Iterator<T>, Iterable<T>
     Public Method Iterate(): Range<T> => Self
 End Struct
 
-// Whether the two give the same values: every range that gives none does, whatever it gave
-// before, and the step counts only where there's a value after Current. Every integer type is
-// Equatable, so every range a program makes has it.
+// Every integer type is Equatable, so every range a program makes has ==.
 Extend Range<T>
     Where T: Equatable
 
+    /// Whether `a` and `b` give the same values: every range that gives none does, whatever it gave
+    /// before, and the step counts only where there's a value after Current.
     Operator ==(a: Range<T>, b: Range<T>): Bool
         If !a.More || !b.More Then Return a.More == b.More
         Return a.Current == b.Current && a.Left == b.Left && (a.Left == 0 || a.Step == b.Step)

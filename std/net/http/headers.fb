@@ -22,7 +22,7 @@ Public Class Headers Implements Iterable<(String, String)>, Cloneable, Printable
         Get => Names.Count
     End Property
 
-    /// Adds a value for `name`, after any it has. Panics when `name` isn't a header's `name`, a
+    /// Adds a value for `name`, after any it has. Panics when `name` isn't a header's name, a
     /// token of letters, digits, and !#$%&'*+-.^_`|~, or `value` has a control character other than
     /// a tab, as a line break would make it another header.
     @PanicsAtCaller

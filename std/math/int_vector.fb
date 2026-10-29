@@ -43,15 +43,19 @@ Public Struct Vec2i Implements Numeric, Hashable, Printable, Defaultable
     @PanicsAtCaller
     Operator /(a: Vec2i, b: Vec2i): Vec2i => Vec2i(a.x / b.x, a.y / b.y)
 
+    /// `a` times `scale`.
     @PanicsAtCaller
     Operator *(a: Vec2i, scale: Int): Vec2i => Vec2i(a.x * scale, a.y * scale)
 
+    /// `scale` times `a`.
     @PanicsAtCaller
     Operator *(scale: Int, a: Vec2i): Vec2i => Vec2i(scale * a.x, scale * a.y)
 
+    /// `a` divided by `scale`.
     @PanicsAtCaller
     Operator /(a: Vec2i, scale: Int): Vec2i => Vec2i(a.x / scale, a.y / scale)
 
+    /// `a` negated.
     @PanicsAtCaller
     Operator -(a: Vec2i): Vec2i => Vec2i(-a.x, -a.y)
 End Struct
@@ -95,15 +99,19 @@ Public Struct Vec3i Implements Numeric, Hashable, Printable, Defaultable
     @PanicsAtCaller
     Operator /(a: Vec3i, b: Vec3i): Vec3i => Vec3i(a.x / b.x, a.y / b.y, a.z / b.z)
 
+    /// `a` times `scale`.
     @PanicsAtCaller
     Operator *(a: Vec3i, scale: Int): Vec3i => Vec3i(a.x * scale, a.y * scale, a.z * scale)
 
+    /// `scale` times `a`.
     @PanicsAtCaller
     Operator *(scale: Int, a: Vec3i): Vec3i => Vec3i(scale * a.x, scale * a.y, scale * a.z)
 
+    /// `a` divided by `scale`.
     @PanicsAtCaller
     Operator /(a: Vec3i, scale: Int): Vec3i => Vec3i(a.x / scale, a.y / scale, a.z / scale)
 
+    /// `a` negated.
     @PanicsAtCaller
     Operator -(a: Vec3i): Vec3i => Vec3i(-a.x, -a.y, -a.z)
 End Struct
@@ -124,21 +132,21 @@ Public Function LengthSquared(v: Vec2i): Int => Dot(v, v)
 @PanicsAtCaller
 Public Function LengthSquared(v: Vec3i): Int => Dot(v, v)
 
-/// How many steps along the axes go from a to `b`: the taxicab distance.
+/// How many steps along the axes go from `a` to `b`: the taxicab distance.
 @PanicsAtCaller
 Public Function ManhattanDistance(a: Vec2i, b: Vec2i): Int => Abs(b.x - a.x) + Abs(b.y - a.y)
 
-/// How many steps along the axes go from a to `b`: the taxicab distance.
+/// How many steps along the axes go from `a` to `b`: the taxicab distance.
 @PanicsAtCaller
 Public Function ManhattanDistance(a: Vec3i, b: Vec3i): Int
     Return Abs(b.x - a.x) + Abs(b.y - a.y) + Abs(b.z - a.z)
 End Function
 
-/// How many steps go from a to `b` where a diagonal is one step too: the chessboard distance.
+/// How many steps go from `a` to `b` where a diagonal is one step too: the chessboard distance.
 @PanicsAtCaller
 Public Function ChebyshevDistance(a: Vec2i, b: Vec2i): Int => Max(Abs(b.x - a.x), Abs(b.y - a.y))
 
-/// How many steps go from a to `b` where a diagonal is one step too: the chessboard distance.
+/// How many steps go from `a` to `b` where a diagonal is one step too: the chessboard distance.
 @PanicsAtCaller
 Public Function ChebyshevDistance(a: Vec3i, b: Vec3i): Int
     Return Max(Max(Abs(b.x - a.x), Abs(b.y - a.y)), Abs(b.z - a.z))

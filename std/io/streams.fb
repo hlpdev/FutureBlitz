@@ -10,10 +10,13 @@ Extern "runtime"
     Function fb_string_from_bytes(text: Ptr<UInt8>, length: Int64): String
 End Extern
 
-/// Where Seek counts from: a stream's start, where it is, or its end.
+/// Where Seek counts from.
 Public Enum SeekOrigin
+    /// A stream's start.
     START
+    /// Where it is.
     CURRENT
+    /// Its end.
     END
 End Enum
 

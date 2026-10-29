@@ -103,7 +103,7 @@ Public Class ProtoWriter
         Bytes.Add(rest As UInt8)
     End Method
 
-    /// An int32 as protobuf writes one: a negative one as its 64-bit `value`, in 10 bytes.
+    /// An int32 as protobuf writes one: a negative `value` as an Int64's 64 bits, in 10 bytes.
     Public Method WriteInt32(value: Int32)
         WriteVarint((value As Int64) As UInt64)
     End Method
@@ -755,6 +755,7 @@ Public Class ProtoBox<T>
         Value = value
     End New
 
+    /// Whether `a` and `b` hold equal messages.
     Operator ==(a: ProtoBox<T>, b: ProtoBox<T>): Bool
         Where T: Equatable
         Return a.Value == b.Value

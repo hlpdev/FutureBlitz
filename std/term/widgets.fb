@@ -21,13 +21,28 @@ End Extern
 
 /// Where text goes in a width wider than it.
 Public Enum Alignment
-    LEFT, CENTER, RIGHT
+    /// At the left, the space after it.
+    LEFT
+    /// In the middle, an odd space after it.
+    CENTER
+    /// At the right, the space before it.
+    RIGHT
 End Enum
 
-/// The lines a Table, a Box, or a Canvas's box is drawn with: NONE, ASCII's - | +, SINGLE ─ │ ┌,
-/// ROUNDED's corners ╭, DOUBLE ═ ║ ╔, and HEAVY ━ ┃ ┏.
+/// The lines a Table, a Box, or a Canvas's box is drawn with.
 Public Enum BorderStyle
-    NONE, ASCII, SINGLE, ROUNDED, DOUBLE, HEAVY
+    /// None.
+    NONE
+    /// ASCII's - | +.
+    ASCII
+    /// Single lines, ─ │ ┌.
+    SINGLE
+    /// Single lines with rounded corners, ╭.
+    ROUNDED
+    /// Double lines, ═ ║ ╔.
+    DOUBLE
+    /// Heavy lines, ━ ┃ ┏.
+    HEAVY
 End Enum
 
 /// What a BorderStyle draws with: its lines, its corners, and where lines meet.
@@ -392,11 +407,21 @@ Public Class Box
     End Method
 End Class
 
-/// What a ProgressBar shows after its bar: the PERCENT done, the COUNT done of the total, the time
-/// ELAPSED, the ETA, an estimate of the time left, and the RATE, how many a second.
+/// What a ProgressBar shows after its bar.
 @Flags
 Public Enum ProgressParts
-    NONE = 0, PERCENT, COUNT, ELAPSED, ETA, RATE
+    /// Nothing.
+    NONE = 0
+    /// The percent done.
+    PERCENT
+    /// The count done, of the total.
+    COUNT
+    /// The time elapsed.
+    ELAPSED
+    /// An estimate of the time left.
+    ETA
+    /// The rate, how many a second.
+    RATE
 End Enum
 
 /// A bar of how much of a Total is done, on a line of its own, with a Label before it and its

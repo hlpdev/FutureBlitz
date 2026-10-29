@@ -14,21 +14,78 @@ End Extern
 
 /// A character's general category, in Unicode's order, as Category gives it.
 Public Enum UnicodeCategory
-    UNASSIGNED,
-    UPPERCASE_LETTER, LOWERCASE_LETTER, TITLECASE_LETTER, MODIFIER_LETTER, OTHER_LETTER,
-    NONSPACING_MARK, SPACING_MARK, ENCLOSING_MARK,
-    DECIMAL_NUMBER, LETTER_NUMBER, OTHER_NUMBER,
-    CONNECTOR_PUNCTUATION, DASH_PUNCTUATION, OPEN_PUNCTUATION, CLOSE_PUNCTUATION,
-    INITIAL_PUNCTUATION, FINAL_PUNCTUATION, OTHER_PUNCTUATION,
-    MATH_SYMBOL, CURRENCY_SYMBOL, MODIFIER_SYMBOL, OTHER_SYMBOL,
-    SPACE_SEPARATOR, LINE_SEPARATOR, PARAGRAPH_SEPARATOR,
-    CONTROL, FORMAT, SURROGATE, PRIVATE_USE
+    /// Cn, a code point with no character.
+    UNASSIGNED
+    /// Lu, an uppercase letter.
+    UPPERCASE_LETTER
+    /// Ll, a lowercase letter.
+    LOWERCASE_LETTER
+    /// Lt, a digraph whose first part is uppercase.
+    TITLECASE_LETTER
+    /// Lm, a modifier letter.
+    MODIFIER_LETTER
+    /// Lo, another letter, like an ideograph.
+    OTHER_LETTER
+    /// Mn, a mark that takes no space.
+    NONSPACING_MARK
+    /// Mc, a mark that takes space.
+    SPACING_MARK
+    /// Me, a mark that encloses its base character.
+    ENCLOSING_MARK
+    /// Nd, a decimal digit.
+    DECIMAL_NUMBER
+    /// Nl, a number of letters, like a Roman numeral.
+    LETTER_NUMBER
+    /// No, another number, like a fraction or a superscript.
+    OTHER_NUMBER
+    /// Pc, a connector, like '_'.
+    CONNECTOR_PUNCTUATION
+    /// Pd, a dash or a hyphen.
+    DASH_PUNCTUATION
+    /// Ps, an opening bracket.
+    OPEN_PUNCTUATION
+    /// Pe, a closing bracket.
+    CLOSE_PUNCTUATION
+    /// Pi, an opening quotation mark.
+    INITIAL_PUNCTUATION
+    /// Pf, a closing quotation mark.
+    FINAL_PUNCTUATION
+    /// Po, other punctuation.
+    OTHER_PUNCTUATION
+    /// Sm, a math symbol.
+    MATH_SYMBOL
+    /// Sc, a currency symbol.
+    CURRENCY_SYMBOL
+    /// Sk, a modifier symbol, like an accent on its own.
+    MODIFIER_SYMBOL
+    /// So, another symbol.
+    OTHER_SYMBOL
+    /// Zs, a space.
+    SPACE_SEPARATOR
+    /// Zl, U+2028, the line separator.
+    LINE_SEPARATOR
+    /// Zp, U+2029, the paragraph separator.
+    PARAGRAPH_SEPARATOR
+    /// Cc, a control character.
+    CONTROL
+    /// Cf, a format character, like a zero-width joiner.
+    FORMAT
+    /// Cs, a UTF-16 surrogate.
+    SURROGATE
+    /// Co, a private use character.
+    PRIVATE_USE
 End Enum
 
-/// The ways Normalize can write the same text: composed (NFC) or decomposed (NFD), and with
-/// compatibility characters, like "ﬁ" or "²", as their plain ones (NFKC and NFKD).
+/// The ways Normalize can write the same text.
 Public Enum NormalForm
-    NFC, NFD, NFKC, NFKD
+    /// Composed.
+    NFC
+    /// Decomposed.
+    NFD
+    /// Composed, with compatibility characters, like "ﬁ" or "²", as their plain ones.
+    NFKC
+    /// Decomposed, with compatibility characters, like "ﬁ" or "²", as their plain ones.
+    NFKD
 End Enum
 
 /// `c`'s general category: a letter of some case, a mark, a number, punctuation, a symbol, a
@@ -37,7 +94,7 @@ Public Function Category(c: Char): UnicodeCategory
     Return fb_unicode_category(c As UInt32) As UnicodeCategory
 End Function
 
-/// `text` in the normal `form` `form`, so `text` that looks the same is the same: "é" as one
+/// `text` in the normal form `form`, so `text` that looks the same is the same: "é" as one
 /// character in NFC, and as "e" and its accent in NFD. Panics past the most a String holds.
 @PanicsAtCaller
 Public Function Normalize(text: String, form: NormalForm = NormalForm.NFC): String
@@ -46,7 +103,7 @@ Public Function Normalize(text: String, form: NormalForm = NormalForm.NFC): Stri
     Return normal
 End Function
 
-/// Whether `text` is in the normal `form` `form` already. One past the most a String holds isn't.
+/// Whether `text` is in the normal form `form` already. One past the most a String holds isn't.
 Public Function IsNormalized(text: String, form: NormalForm = NormalForm.NFC): Bool
     Return fb_unicode_normalize(text, form As Int32) == text
 End Function

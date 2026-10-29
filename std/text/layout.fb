@@ -209,8 +209,8 @@ Function Pieces(word: String, room: Int): String[]
     Return pieces
 End Function
 
-/// How many single-character edits, inserting, deleting, or changing a character, turn a into `b`,
-/// counting characters, code points.
+/// How many single-character edits, inserting, deleting, or changing a character, turn `a` into
+/// `b`, counting characters, code points.
 Public Function Levenshtein(a: String, b: String): Int
     Local from = a.Chars
     Local to = b.Chars

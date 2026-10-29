@@ -146,7 +146,7 @@ Public Class StringBuilder Implements Printable, Writer
         Settle()
     End Method
 
-    /// Makes room for `bytes` `bytes` of text in all, so adding up to that many needs no more
+    /// Makes room for `bytes` bytes of text in all, so adding up to that many needs no more
     /// memory. A negative count panics.
     @PanicsAtCaller
     Public Method Reserve(bytes: Int)

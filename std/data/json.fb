@@ -28,12 +28,32 @@ End Extern
 /// How deep a JsonReader reads arrays and objects nested in each other unless it's told.
 Const DEPTH = 1000
 
-/// What a JsonReader read: a document's END, after its value; the start or end of an object or an
-/// array; a KEY of an object's; or a value: a STRING, an INT that fits an Int64, a UINT that's
-/// past an Int64's largest but fits a UInt64, a DOUBLE for any other number, a BOOL, or NULL.
+/// What a JsonReader read.
 Public Enum JsonToken
-    END, BEGIN_OBJECT, END_OBJECT, BEGIN_ARRAY, END_ARRAY, KEY
-    STRING, INT, UINT, DOUBLE, BOOL, NULL
+    /// The document's end, after its value.
+    END
+    /// An object's start.
+    BEGIN_OBJECT
+    /// An object's end.
+    END_OBJECT
+    /// An array's start.
+    BEGIN_ARRAY
+    /// An array's end.
+    END_ARRAY
+    /// A key of an object's.
+    KEY
+    /// A string.
+    STRING
+    /// A number that's an integer an Int64 holds.
+    INT
+    /// An integer past an Int64's largest that a UInt64 holds.
+    UINT
+    /// Any other number.
+    DOUBLE
+    /// true or false.
+    BOOL
+    /// null.
+    NULL
 End Enum
 
 /// Reads a JSON document's tokens, one each time Next is called, from text or from UTF-8 bytes,

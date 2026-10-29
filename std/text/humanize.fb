@@ -33,7 +33,7 @@ Public Class Humanize
 
     /// How long ago a time `seconds` from now was, when `seconds` is negative, "3 minutes ago", or
     /// how soon it will be, "in 3 minutes", rounded to the unit people would say: "just now" under
-    /// 45 `seconds` either way, then a minute, minutes, an hour, hours, a day, days, a month,
+    /// 45 seconds either way, then a minute, minutes, an hour, hours, a day, days, a month,
     /// months, a year, and years.
     Public Static Method Relative(seconds: Int64): String
         // The size without the sign, which the most negative Int64 has no room for.

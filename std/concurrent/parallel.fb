@@ -71,7 +71,7 @@ Public Function ParallelSort<T>(items: T[])
 End Function
 
 /// Sorts the `items` in place, those `before` goes with first, keeping in their order the ones it
-/// puts neither `before` the other, as Sort(`before`) does.
+/// puts neither before the other, as Sort(`before`) does.
 Public Function ParallelSort<T: Sendable>(items: T[], before: Sendable Func(T, T): Bool)
     If items.Count < SORT_ALONE
         items.Sort(before)

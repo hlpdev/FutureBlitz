@@ -33,7 +33,7 @@ Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defa
         Add(value, 1)
     End Method
 
-    /// Counts the `value` `times` more `times`. A negative `times` panics, and so does a count past
+    /// Counts the `value` `times` more times. A negative `times` panics, and so does a count past
     /// what an Int holds, which only Total can be.
     @PanicsAtCaller
     Public Method Add(value: T, times: Int)

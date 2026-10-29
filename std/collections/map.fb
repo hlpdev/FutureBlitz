@@ -236,7 +236,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
         Return copy
     End Method
 
-    /// A new Map of the entries that `keep` says to `keep`.
+    /// A new Map of the entries that `keep` says to keep.
     @PanicsAtCaller
     Public Method Filter(keep: Func(K, V): Bool): Map<K, V>
         Local kept = Map<K, V>()

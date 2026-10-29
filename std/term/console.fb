@@ -18,10 +18,14 @@ Package Extern "runtime"
     Function fb_term_set_screen(enter: String, leave: String, stream: Int32)
 End Extern
 
-/// The console's streams: what the program reads, stdin, and writes, stdout, and its errors,
-/// stderr.
+/// The console's streams.
 Public Enum StandardStream
-    INPUT, OUTPUT, ERROR
+    /// What the program reads, stdin.
+    INPUT
+    /// What it writes, stdout.
+    OUTPUT
+    /// Its errors, stderr.
+    ERROR
 End Enum
 
 /// Whether `stream` is a terminal, which someone types at or reads, rather than a pipe or a file.

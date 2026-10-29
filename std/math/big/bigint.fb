@@ -172,35 +172,51 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     Public Method Hash(): UInt64 => fb_bigint_hash(State)
 
     Operator ==(a: BigInt, b: BigInt): Bool => fb_bigint_compare(a.State, b.State) == 0
+    /// Whether `a` and `b` are equal.
     Operator ==(a: BigInt, b: Int64): Bool => a == BigInt(b)
+    /// Whether `a` and `b` are equal.
     Operator ==(a: Int64, b: BigInt): Bool => BigInt(a) == b
     Operator <(a: BigInt, b: BigInt): Bool => fb_bigint_compare(a.State, b.State) < 0
+    /// Whether `a` comes before `b`.
     Operator <(a: BigInt, b: Int64): Bool => a < BigInt(b)
+    /// Whether `a` comes before `b`.
     Operator <(a: Int64, b: BigInt): Bool => BigInt(a) < b
+    /// Whether `a` comes after `b`.
     Operator >(a: BigInt, b: Int64): Bool => a > BigInt(b)
+    /// Whether `a` comes after `b`.
     Operator >(a: Int64, b: BigInt): Bool => BigInt(a) > b
+    /// Whether `a` comes before `b` or is equal to it.
     Operator <=(a: BigInt, b: Int64): Bool => a <= BigInt(b)
+    /// Whether `a` comes before `b` or is equal to it.
     Operator <=(a: Int64, b: BigInt): Bool => BigInt(a) <= b
+    /// Whether `a` comes after `b` or is equal to it.
     Operator >=(a: BigInt, b: Int64): Bool => a >= BigInt(b)
+    /// Whether `a` comes after `b` or is equal to it.
     Operator >=(a: Int64, b: BigInt): Bool => BigInt(a) >= b
 
-    /// Sums, differences, and products, which panic past the most bits a BigInt holds.
+    /// `a` plus `b`, which panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator +(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_add(a.State, b.State))
+    /// `a` plus `b`, which panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator +(a: BigInt, b: Int64): BigInt => a + BigInt(b)
+    /// `a` plus `b`, which panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator +(a: Int64, b: BigInt): BigInt => BigInt(a) + b
     @PanicsAtCaller
     Operator -(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_subtract(a.State, b.State))
+    /// `a` minus `b`, which panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator -(a: BigInt, b: Int64): BigInt => a - BigInt(b)
+    /// `a` minus `b`, which panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator -(a: Int64, b: BigInt): BigInt => BigInt(a) - b
     @PanicsAtCaller
     Operator *(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_multiply(a.State, b.State))
+    /// `a` times `b`, which panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator *(a: BigInt, b: Int64): BigInt => a * BigInt(b)
+    /// `a` times `b`, which panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator *(a: Int64, b: BigInt): BigInt => BigInt(a) * b
 
@@ -210,19 +226,24 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         Return BigInt(fb_bigint_divide(a.State, b.State))
     End Operator
 
+    /// `a` divided by `b`, rounded toward 0. A `b` of 0 panics.
     @PanicsAtCaller
     Operator /(a: BigInt, b: Int64): BigInt => a / BigInt(b)
+    /// `a` divided by `b`, rounded toward 0. A `b` of 0 panics.
     @PanicsAtCaller
     Operator /(a: Int64, b: BigInt): BigInt => BigInt(a) / b
 
+    /// What's left of `a` divided by `b`, with `a`'s sign, as an Int's % is. A `b` of 0 panics.
     @PanicsAtCaller
     Operator %(a: BigInt, b: BigInt): BigInt
         If b.Sign == 0 Then Panic("division by zero")
         Return BigInt(fb_bigint_remainder(a.State, b.State))
     End Operator
 
+    /// What's left of `a` divided by `b`, with `a`'s sign, as an Int's % is. A `b` of 0 panics.
     @PanicsAtCaller
     Operator %(a: BigInt, b: Int64): BigInt => a % BigInt(b)
+    /// What's left of `a` divided by `b`, with `a`'s sign, as an Int's % is. A `b` of 0 panics.
     @PanicsAtCaller
     Operator %(a: Int64, b: BigInt): BigInt => BigInt(a) % b
 
@@ -236,24 +257,43 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         Return BigInt(state)
     End Operator
 
-    /// Two's complement's &, |, and ^, which can take a negative number's magnitude a bit past
-    /// either's, so they panic past the most bits a BigInt holds too.
+    /// The bits that `a` and `b` both have, in two's complement, which can take a negative
+    /// number's magnitude a bit past either's, so it panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator &(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_and(a.State, b.State))
+    /// The bits that `a` and `b` both have, in two's complement, which can take a negative number's
+    /// magnitude a bit past either's, so it panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator &(a: BigInt, b: Int64): BigInt => a & BigInt(b)
+    /// The bits that `a` and `b` both have, in two's complement, which can take a negative number's
+    /// magnitude a bit past either's, so it panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator &(a: Int64, b: BigInt): BigInt => BigInt(a) & b
+    /// The bits that `a` or `b` has, in two's complement, which can take a negative number's
+    /// magnitude a bit past either's, so it panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator |(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_or(a.State, b.State))
+    /// The bits that `a` or `b` has, in two's complement, which can take a negative number's
+    /// magnitude a bit past either's, so it panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator |(a: BigInt, b: Int64): BigInt => a | BigInt(b)
+    /// The bits that `a` or `b` has, in two's complement, which can take a negative number's
+    /// magnitude a bit past either's, so it panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator |(a: Int64, b: BigInt): BigInt => BigInt(a) | b
+    /// The bits that one of `a` and `b` has, but not both, in two's complement, which can take a
+    /// negative number's magnitude a bit past either's, so it panics past the most bits a BigInt
+    /// holds.
     @PanicsAtCaller
     Operator ^(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_xor(a.State, b.State))
+    /// The bits that one of `a` and `b` has, but not both, in two's complement, which can take a
+    /// negative number's magnitude a bit past either's, so it panics past the most bits a BigInt
+    /// holds.
     @PanicsAtCaller
     Operator ^(a: BigInt, b: Int64): BigInt => a ^ BigInt(b)
+    /// The bits that one of `a` and `b` has, but not both, in two's complement, which can take a
+    /// negative number's magnitude a bit past either's, so it panics past the most bits a BigInt
+    /// holds.
     @PanicsAtCaller
     Operator ^(a: Int64, b: BigInt): BigInt => BigInt(a) ^ b
 
@@ -268,13 +308,17 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         Return BigInt(state)
     End Operator
 
+    /// `a` over 2 to the power `b`, rounded down, as an Int's >> is. A negative `b` panics.
     @PanicsAtCaller
     Operator >>(a: BigInt, b: Int64): BigInt
         If b < 0 Then Panic("the shift amount must be 0 or more")
         Return BigInt(fb_bigint_shift_right(a.State, b))
     End Operator
 
+    /// `a` negated.
     Operator -(a: BigInt): BigInt => BigInt(fb_bigint_negate(a.State))
+    /// `a` with each of its bits flipped, in two's complement, which is -`a` - 1 and panics past
+    /// the most bits a BigInt holds.
     @PanicsAtCaller
     Operator ~(a: BigInt): BigInt => Made(fb_bigint_not(a.State))
 

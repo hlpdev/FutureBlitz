@@ -172,19 +172,29 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
         Return a.Numerator == b.Numerator && a.Denominator == b.Denominator
     End Operator
 
+    /// Whether `a` and `b` are equal.
     Operator ==(a: Rational, b: Int64): Bool => a.Denominator == 1 && a.Numerator == b
+    /// Whether `a` and `b` are equal.
     Operator ==(a: Int64, b: Rational): Bool => b == a
     Operator <(a: Rational, b: Rational): Bool
         Return a.Numerator * b.Denominator < b.Numerator * a.Denominator
     End Operator
 
+    /// Whether `a` comes before `b`.
     Operator <(a: Rational, b: Int64): Bool => a < Rational(b)
+    /// Whether `a` comes before `b`.
     Operator <(a: Int64, b: Rational): Bool => Rational(a) < b
+    /// Whether `a` comes after `b`.
     Operator >(a: Rational, b: Int64): Bool => a > Rational(b)
+    /// Whether `a` comes after `b`.
     Operator >(a: Int64, b: Rational): Bool => Rational(a) > b
+    /// Whether `a` comes before `b` or is equal to it.
     Operator <=(a: Rational, b: Int64): Bool => a <= Rational(b)
+    /// Whether `a` comes before `b` or is equal to it.
     Operator <=(a: Int64, b: Rational): Bool => Rational(a) <= b
+    /// Whether `a` comes after `b` or is equal to it.
     Operator >=(a: Rational, b: Int64): Bool => a >= Rational(b)
+    /// Whether `a` comes after `b` or is equal to it.
     Operator >=(a: Int64, b: Rational): Bool => Rational(a) >= b
 
     Operator +(a: Rational, b: Rational): Rational
@@ -192,20 +202,26 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
                         a.Denominator * b.Denominator)
     End Operator
 
+    /// `a` plus `b`.
     Operator +(a: Rational, b: Int64): Rational => a + Rational(b)
+    /// `a` plus `b`.
     Operator +(a: Int64, b: Rational): Rational => Rational(a) + b
     Operator -(a: Rational, b: Rational): Rational
         Return Rational(a.Numerator * b.Denominator - b.Numerator * a.Denominator,
                         a.Denominator * b.Denominator)
     End Operator
 
+    /// `a` minus `b`.
     Operator -(a: Rational, b: Int64): Rational => a - Rational(b)
+    /// `a` minus `b`.
     Operator -(a: Int64, b: Rational): Rational => Rational(a) - b
     Operator *(a: Rational, b: Rational): Rational
         Return Rational(a.Numerator * b.Numerator, a.Denominator * b.Denominator)
     End Operator
 
+    /// `a` times `b`.
     Operator *(a: Rational, b: Int64): Rational => a * Rational(b)
+    /// `a` times `b`.
     Operator *(a: Int64, b: Rational): Rational => Rational(a) * b
 
     @PanicsAtCaller
@@ -214,8 +230,10 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
         Return Rational(a.Numerator * b.Denominator, a.Denominator * b.Numerator)
     End Operator
 
+    /// `a` divided by `b`.
     @PanicsAtCaller
     Operator /(a: Rational, b: Int64): Rational => a / Rational(b)
+    /// `a` divided by `b`.
     @PanicsAtCaller
     Operator /(a: Int64, b: Rational): Rational => Rational(a) / b
 
@@ -230,6 +248,7 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
         Return Rational(a.Denominator ** count * a.Denominator, a.Numerator ** count * a.Numerator)
     End Operator
 
+    /// `a` negated.
     Operator -(a: Rational): Rational => Rational(-a.Numerator, a.Denominator)
 End Class
 

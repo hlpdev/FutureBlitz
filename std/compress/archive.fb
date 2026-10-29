@@ -5,10 +5,14 @@
 Import std.core
 Import std.time.timestamp
 
-/// What an entry is: a file, a folder, or a link, whose Target is where it points, as a symbolic
-/// link or a tar's hard link does.
+/// What an entry is.
 Public Enum ArchiveEntryKind
-    FILE, FOLDER, LINK
+    /// A file, whose bytes the entry holds.
+    FILE
+    /// A folder.
+    FOLDER
+    /// A link, whose Target is where it points, as a symbolic link or a tar's hard link does.
+    LINK
 End Enum
 
 /// One of an archive's entries: its Name, its path in the archive, with '/' between folders and

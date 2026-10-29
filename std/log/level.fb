@@ -9,9 +9,20 @@ Extern "runtime"
     Function fb_string_from_array(bytes: UInt8[]): String
 End Extern
 
-/// How much a line matters, the least first. A filter at OFF writes nothing.
+/// How much a line matters, the least first.
 Public Enum LogLevel
-    TRACE, DEBUG, INFO, WARN, ERROR, OFF
+    /// Each step, for following what a program does.
+    TRACE
+    /// What helps find a bug.
+    DEBUG
+    /// What a program did, as it goes.
+    INFO
+    /// Something that may be wrong.
+    WARN
+    /// Something that went wrong.
+    ERROR
+    /// For a filter: nothing is written.
+    OFF
 End Enum
 
 /// The level a name says, in any letter case: "trace", "debug", "info", "warn" or "warning",
@@ -89,7 +100,7 @@ Public Struct LogFilter Implements Printable
         Get => Base
     End Property
 
-    /// The least level written for `module`: its own, or the nearest `module`'s it's in, or the
+    /// The least level written for `module`: its own, or the nearest module's it's in, or the
     /// base.
     Public Method LevelOf(module: String): LogLevel
         Local name = module

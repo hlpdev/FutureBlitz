@@ -10,7 +10,10 @@ End Extern
 
 /// Which version of IP an address is.
 Public Enum IpFamily
-    V4, V6
+    /// IPv4, with 4-byte addresses.
+    V4
+    /// IPv6, with 16-byte addresses.
+    V6
 End Enum
 
 /// An IPv4 or IPv6 address. Addresses compare by family, IPv4 first, then as their bytes do.
@@ -34,14 +37,14 @@ Public Struct IpAddress Implements Hashable, Comparable, Printable
                          (c As UInt64) << 8 | (d As UInt64))
     End Method
 
-    /// The IPv6 address of eight 16-bit groups, a:`b`:`c`:`d`:`e`:`f`:`g`:`h`.
+    /// The IPv6 address of eight 16-bit groups, `a`:`b`:`c`:`d`:`e`:`f`:`g`:`h`.
     Public Static Method V6(a: UInt16, b: UInt16, c: UInt16, d: UInt16, e: UInt16, f: UInt16,
                             g: UInt16, h: UInt16): IpAddress
         Return IpAddress(IpFamily.V6, Joined(a, b, c, d), Joined(e, f, g, h))
     End Method
 
-    /// The address of 4 `bytes`, IPv4, or 16, IPv6, in the order Bytes gives them. Panics for
-    /// another count.
+    /// The address of `bytes`, 4 for IPv4, or 16 for IPv6, in the order Bytes gives them. Panics
+    /// for another count.
     @PanicsAtCaller
     Public Static Method FromBytes(bytes: UInt8[]): IpAddress
         If bytes.Count != 4 && bytes.Count != 16

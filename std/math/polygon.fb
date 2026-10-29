@@ -852,7 +852,7 @@ Function Link(edges: Edge[]): Vec2[][]
     Return rings
 End Function
 
-/// The region filled by either a or `b`, or both. A corner that isn't finite panics.
+/// The region filled by either `a` or `b`, or both. A corner that isn't finite panics.
 @PanicsAtCaller
 Public Function Union(a: Vec2[][], b: Vec2[][]): Vec2[][]
     CheckFinite(a)
@@ -860,7 +860,7 @@ Public Function Union(a: Vec2[][], b: Vec2[][]): Vec2[][]
     Return Boundary([PointsOf(a), PointsOf(b)], Function(w: Int[]) => w[0] != 0 || w[1] != 0)
 End Function
 
-/// The region filled by both a and `b`. A corner that isn't finite panics.
+/// The region filled by both `a` and `b`. A corner that isn't finite panics.
 @PanicsAtCaller
 Public Function Intersection(a: Vec2[][], b: Vec2[][]): Vec2[][]
     CheckFinite(a)
@@ -868,7 +868,7 @@ Public Function Intersection(a: Vec2[][], b: Vec2[][]): Vec2[][]
     Return Boundary([PointsOf(a), PointsOf(b)], Function(w: Int[]) => w[0] != 0 && w[1] != 0)
 End Function
 
-/// The region filled by a but not by `b`. A corner that isn't finite panics.
+/// The region filled by `a` but not by `b`. A corner that isn't finite panics.
 @PanicsAtCaller
 Public Function Difference(a: Vec2[][], b: Vec2[][]): Vec2[][]
     CheckFinite(a)

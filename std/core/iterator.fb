@@ -19,7 +19,7 @@ Public Interface Iterator<T>
     /// What `change` gives for each value.
     Final Method Map<U>(change: Func(T): U): Iterator<U> => Mapped<Self, T, U>(Self, change)
 
-    /// The values `keep` says to `keep`.
+    /// The values `keep` says to keep.
     Final Method Filter(keep: Func(T): Bool): Iterator<T> => Filtered<Self, T>(Self, keep)
 
     /// The first `count` values, or all of them when there are fewer.
@@ -36,10 +36,10 @@ Public Interface Iterator<T>
         Return Skipped<Self, T>(Self, count)
     End Method
 
-    /// The values before the first that `keep` says not to `keep`.
+    /// The values before the first that `keep` says not to keep.
     Final Method TakeWhile(keep: Func(T): Bool): Iterator<T> => TakenWhile<Self, T>(Self, keep)
 
-    /// The values from the first that `skip` says not to `skip`.
+    /// The values from the first that `skip` says not to skip.
     Final Method SkipWhile(skip: Func(T): Bool): Iterator<T> => SkippedWhile<Self, T>(Self, skip)
 
     /// Each value with how many came before it.

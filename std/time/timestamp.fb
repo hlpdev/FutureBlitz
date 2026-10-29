@@ -123,17 +123,18 @@ Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
     /// Its date and time in UTC.
     Public Method ToUtc(): LocalDateTime => LocalAt(Self, 0)
 
-    /// That much later, or earlier. One past the years a Timestamp holds panics.
+    /// `b` after `a`. One past the years a Timestamp holds panics.
     @PanicsAtCaller
     Operator +(a: Timestamp, b: Duration): Timestamp => a.Plus(b.Nanoseconds)
 
+    /// `b` before `a`. One past the years a Timestamp holds panics.
     @PanicsAtCaller
     Operator -(a: Timestamp, b: Duration): Timestamp
         If b.Nanoseconds == -9223372036854775807 - 1 Then Return a.Plus(9223372036854775807).Plus(1)
         Return a.Plus(-b.Nanoseconds)
     End Operator
 
-    /// How long it is from b to a, below 0 when a is earlier, which panics past the longest
+    /// How long it is from `b` to `a`, below 0 when `a` is earlier, which panics past the longest
     /// Duration, about 292 years.
     @PanicsAtCaller
     Operator -(a: Timestamp, b: Timestamp): Duration

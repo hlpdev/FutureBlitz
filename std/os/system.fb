@@ -14,12 +14,20 @@ End Extern
 
 /// The OSes a program is built for.
 Public Enum Platform
-    WINDOWS, LINUX, MACOS
+    /// Windows.
+    WINDOWS
+    /// Linux.
+    LINUX
+    /// macOS.
+    MACOS
 End Enum
 
 /// The processors a program is built for, each 64-bit.
 Public Enum Arch
-    X64, ARM64
+    /// x86-64.
+    X64
+    /// AArch64.
+    ARM64
 End Enum
 
 /// System's Static Properties.

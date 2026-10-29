@@ -160,7 +160,7 @@ Public Class Canvas Implements Printable
         End For
     End Method
 
-    /// Makes each of `area`'s cells `look` as `look` says, keeping their text, as a selection does.
+    /// Makes each of `area`'s cells look as `look` says, keeping their text, as a selection does.
     Public Method SetLook(area: Region, look: Style)
         Local shown = area.Intersect(Self.Area)
         For row = shown.Row Until shown.Bottom

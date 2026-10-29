@@ -4,10 +4,20 @@ Import std.core
 Import std.time.duration
 Import std.net.game.channel
 
-/// Why a connection ended: this side ended it, the other did, nothing came for the host's Timeout,
-/// or the other host refused it, as full or with settings that don't match this one's.
+/// Why a connection ended.
 Public Enum DisconnectReason
-    NONE, LOCAL, REMOTE, TIMEOUT, FULL, MISMATCH
+    /// It hasn't: an event other than a disconnect's.
+    NONE
+    /// This side ended it.
+    LOCAL
+    /// The other side ended it.
+    REMOTE
+    /// Nothing came for the host's Timeout.
+    TIMEOUT
+    /// The other host refused it, as full.
+    FULL
+    /// The other host refused it, with settings that don't match this one's.
+    MISMATCH
 End Enum
 
 /// What a GameHost does: its channels' kinds, which both sides of a connection must have alike,

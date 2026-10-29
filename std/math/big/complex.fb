@@ -185,7 +185,9 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
     End Method
 
     Operator ==(a: Complex, b: Complex): Bool => a.Real == b.Real && a.Imaginary == b.Imaginary
+    /// Whether `a` and `b` are equal.
     Operator ==(a: Complex, b: Double): Bool => a.Real == b && a.Imaginary == 0.0
+    /// Whether `a` and `b` are equal.
     Operator ==(a: Double, b: Complex): Bool => b == a
 
     Public Method Hash(): UInt64 => HashCombine(Real.Hash(), Imaginary.Hash())
@@ -194,13 +196,17 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
         Return Complex(a.Real + b.Real, a.Imaginary + b.Imaginary)
     End Operator
 
+    /// `a` plus `b`.
     Operator +(a: Complex, b: Double): Complex => Complex(a.Real + b, a.Imaginary)
+    /// `a` plus `b`.
     Operator +(a: Double, b: Complex): Complex => Complex(a + b.Real, b.Imaginary)
     Operator -(a: Complex, b: Complex): Complex
         Return Complex(a.Real - b.Real, a.Imaginary - b.Imaginary)
     End Operator
 
+    /// `a` minus `b`.
     Operator -(a: Complex, b: Double): Complex => Complex(a.Real - b, a.Imaginary)
+    /// `a` minus `b`.
     Operator -(a: Double, b: Complex): Complex => Complex(a - b.Real, -b.Imaginary)
 
     Operator *(a: Complex, b: Complex): Complex
@@ -208,10 +214,13 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
                        a.Real * b.Imaginary + a.Imaginary * b.Real)
     End Operator
 
+    /// `a` times `b`.
     Operator *(a: Complex, b: Double): Complex => Complex(a.Real * b, a.Imaginary * b)
+    /// `a` times `b`.
     Operator *(a: Double, b: Complex): Complex => Complex(a * b.Real, a * b.Imaginary)
 
-    /// Smith's division, which scales by the larger part of b, so no product overflows on the way.
+    /// Smith's division, which scales by the larger part of `b`, so no product overflows on the
+    /// way.
     Operator /(a: Complex, b: Complex): Complex
         If fabs(b.Real) >= fabs(b.Imaginary)
             If b.Real == 0.0 Then Return Complex(NotANumber(), NotANumber())
@@ -230,7 +239,9 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
         Return Complex(NotANumber(), NotANumber())
     End Operator
 
+    /// `a` divided by `b`.
     Operator /(a: Complex, b: Double): Complex => a / Complex(b, 0)
+    /// `a` divided by `b`.
     Operator /(a: Double, b: Complex): Complex => Complex(a, 0) / b
 
     /// To a whole power, by squaring, which can be below 0.
@@ -247,6 +258,7 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
         Return b >= 0 ? result : Complex.One() / result
     End Operator
 
+    /// `a` negated.
     Operator -(a: Complex): Complex => Complex(-a.Real, -a.Imaginary)
 End Struct
 

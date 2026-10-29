@@ -39,9 +39,13 @@ Public Struct Vec2 Implements Numeric, Hashable, Printable, Defaultable
     Operator -(a: Vec2, b: Vec2): Vec2 => Vec2(a.x - b.x, a.y - b.y)
     Operator *(a: Vec2, b: Vec2): Vec2 => Vec2(a.x * b.x, a.y * b.y)
     Operator /(a: Vec2, b: Vec2): Vec2 => Vec2(a.x / b.x, a.y / b.y)
+    /// `a` times `scale`.
     Operator *(a: Vec2, scale: Float): Vec2 => Vec2(a.x * scale, a.y * scale)
+    /// `scale` times `a`.
     Operator *(scale: Float, a: Vec2): Vec2 => Vec2(scale * a.x, scale * a.y)
+    /// `a` divided by `scale`.
     Operator /(a: Vec2, scale: Float): Vec2 => Vec2(a.x / scale, a.y / scale)
+    /// `a` negated.
     Operator -(a: Vec2): Vec2 => Vec2(-a.x, -a.y)
 End Struct
 
@@ -112,9 +116,13 @@ Public Struct Vec3 Implements Numeric, Hashable, Printable, Defaultable
     Operator -(a: Vec3, b: Vec3): Vec3 => Vec3(a.x - b.x, a.y - b.y, a.z - b.z)
     Operator *(a: Vec3, b: Vec3): Vec3 => Vec3(a.x * b.x, a.y * b.y, a.z * b.z)
     Operator /(a: Vec3, b: Vec3): Vec3 => Vec3(a.x / b.x, a.y / b.y, a.z / b.z)
+    /// `a` times `scale`.
     Operator *(a: Vec3, scale: Float): Vec3 => Vec3(a.x * scale, a.y * scale, a.z * scale)
+    /// `scale` times `a`.
     Operator *(scale: Float, a: Vec3): Vec3 => Vec3(scale * a.x, scale * a.y, scale * a.z)
+    /// `a` divided by `scale`.
     Operator /(a: Vec3, scale: Float): Vec3 => Vec3(a.x / scale, a.y / scale, a.z / scale)
+    /// `a` negated.
     Operator -(a: Vec3): Vec3 => Vec3(-a.x, -a.y, -a.z)
 End Struct
 
@@ -160,18 +168,22 @@ Public Struct Vec4 Implements Numeric, Hashable, Printable, Defaultable
     Operator *(a: Vec4, b: Vec4): Vec4 => Vec4(a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w)
     Operator /(a: Vec4, b: Vec4): Vec4 => Vec4(a.x / b.x, a.y / b.y, a.z / b.z, a.w / b.w)
 
+    /// `a` times `scale`.
     Operator *(a: Vec4, scale: Float): Vec4
         Return Vec4(a.x * scale, a.y * scale, a.z * scale, a.w * scale)
     End Operator
 
+    /// `scale` times `a`.
     Operator *(scale: Float, a: Vec4): Vec4
         Return Vec4(scale * a.x, scale * a.y, scale * a.z, scale * a.w)
     End Operator
 
+    /// `a` divided by `scale`.
     Operator /(a: Vec4, scale: Float): Vec4
         Return Vec4(a.x / scale, a.y / scale, a.z / scale, a.w / scale)
     End Operator
 
+    /// `a` negated.
     Operator -(a: Vec4): Vec4 => Vec4(-a.x, -a.y, -a.z, -a.w)
 End Struct
 
@@ -250,13 +262,16 @@ Public Function Normalize(v: Vec4): Vec4
                 (v.w / length) As Float)
 End Function
 
-/// The point `t` of the way from a to `b`: a at 0, and `b` itself at 1, though `b` - a rounds.
+/// The point `t` of the way from `a` to `b`: `a` at 0, and `b` itself at 1, though `b` - `a`
+/// rounds.
 Public Function Lerp(a: Vec2, b: Vec2, t: Float): Vec2 => t == 1 ? b : a + (b - a) * t
 
-/// The point `t` of the way from a to `b`: a at 0, and `b` itself at 1, though `b` - a rounds.
+/// The point `t` of the way from `a` to `b`: `a` at 0, and `b` itself at 1, though `b` - `a`
+/// rounds.
 Public Function Lerp(a: Vec3, b: Vec3, t: Float): Vec3 => t == 1 ? b : a + (b - a) * t
 
-/// The point `t` of the way from a to `b`: a at 0, and `b` itself at 1, though `b` - a rounds.
+/// The point `t` of the way from `a` to `b`: `a` at 0, and `b` itself at 1, though `b` - `a`
+/// rounds.
 Public Function Lerp(a: Vec4, b: Vec4, t: Float): Vec4 => t == 1 ? b : a + (b - a) * t
 
 /// The smaller of each component.
@@ -303,7 +318,7 @@ Public Function Clamp(v: Vec4, low: Vec4, high: Vec4): Vec4
                 Clamp(v.w, low.w, high.w))
 End Function
 
-/// Each component's Abs, Floor, Ceil, or Round.
+/// Each component of `v` without its sign.
 Public Function Abs(v: Vec2): Vec2 => Vec2(Abs(v.x), Abs(v.y))
 /// Each component of `v` without its sign.
 Public Function Abs(v: Vec3): Vec3 => Vec3(Abs(v.x), Abs(v.y), Abs(v.z))

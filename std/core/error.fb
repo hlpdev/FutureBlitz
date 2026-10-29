@@ -35,10 +35,16 @@ Public Class Error
     End New
 End Class
 
-/// What kind of ArgumentError: a required argument that's missing, one that isn't known, or one
-/// whose value doesn't fit.
+/// What kind of ArgumentError it is.
 Public Enum ArgumentErrorKind
-    MISSING, UNKNOWN, INVALID, OTHER
+    /// A required argument that's missing.
+    MISSING
+    /// An argument that isn't known.
+    UNKNOWN
+    /// An argument whose value doesn't fit.
+    INVALID
+    /// Something else.
+    OTHER
 End Enum
 
 /// A program's arguments, or another function's, that it can't take. Name is the argument's,
@@ -58,14 +64,34 @@ Public Class ArgumentError Extends Error
     End New
 End Class
 
-/// What kind of IOError: a file or folder that isn't there, or that the program may not use, one
-/// that's there already, a stream that ended too soon, bytes that aren't the format or are
-/// broken, a call the OS interrupted, a file where a folder should be or a folder where a file
-/// should be, a folder with something in it, a file that's in use or locked, a disk that's full, a
-/// path no file can have, like one with a NUL in it or one that's too long, or something else.
+/// What kind of IOError it is.
 Public Enum IOErrorKind
-    NOT_FOUND, PERMISSION_DENIED, ALREADY_EXISTS, UNEXPECTED_END, INVALID_DATA, INTERRUPTED,
-    NOT_A_DIRECTORY, IS_A_DIRECTORY, NOT_EMPTY, BUSY, NO_SPACE, INVALID_PATH, OTHER
+    /// A file or folder that isn't there.
+    NOT_FOUND
+    /// A file or folder that the program may not use.
+    PERMISSION_DENIED
+    /// A file or folder that's there already.
+    ALREADY_EXISTS
+    /// A stream that ended too soon.
+    UNEXPECTED_END
+    /// Bytes that aren't the format, or are broken.
+    INVALID_DATA
+    /// A call the OS interrupted.
+    INTERRUPTED
+    /// A file where a folder should be.
+    NOT_A_DIRECTORY
+    /// A folder where a file should be.
+    IS_A_DIRECTORY
+    /// A folder with something in it.
+    NOT_EMPTY
+    /// A file that's in use, or locked.
+    BUSY
+    /// A disk that's full.
+    NO_SPACE
+    /// A path no file can have, like one with a NUL in it, or one that's too long.
+    INVALID_PATH
+    /// Something else.
+    OTHER
 End Enum
 
 /// Reading or writing a file, a stream, or the console failed. Path is the file's, when there is
@@ -84,11 +110,20 @@ Public Class IOError Extends Error
     End New
 End Class
 
-/// What kind of ParseError: text that isn't the format, text that ends too soon, a value of
-/// another type than the one asked for, a number too big for its type, or a value that `Load<T>`
-/// needs for a Field and doesn't have.
+/// What kind of ParseError it is.
 Public Enum ParseErrorKind
-    SYNTAX, UNEXPECTED_END, WRONG_TYPE, OUT_OF_RANGE, MISSING, OTHER
+    /// Text that isn't the format.
+    SYNTAX
+    /// Text that ends too soon.
+    UNEXPECTED_END
+    /// A value of another type than the one asked for.
+    WRONG_TYPE
+    /// A number too big for its type.
+    OUT_OF_RANGE
+    /// A value that `Load<T>` needs for a Field and doesn't have.
+    MISSING
+    /// Something else.
+    OTHER
 End Enum
 
 /// Text that doesn't read as its format, at Line and Column, from 1, or 0 when it isn't known, or
@@ -140,10 +175,16 @@ Public Class ParseError Extends Error
     End Method
 End Class
 
-/// What kind of FormatError: a template that isn't one, one that names a value it isn't given,
-/// or a value its spec doesn't fit.
+/// What kind of FormatError it is.
 Public Enum FormatErrorKind
-    BAD_TEMPLATE, MISSING_VALUE, BAD_VALUE, OTHER
+    /// A template that isn't one.
+    BAD_TEMPLATE
+    /// A template that names a value it isn't given.
+    MISSING_VALUE
+    /// A value its spec doesn't fit.
+    BAD_VALUE
+    /// Something else.
+    OTHER
 End Enum
 
 /// A template that Format can't fill.
@@ -166,11 +207,24 @@ End Class
 Public Class CancelledError Extends Error
 End Class
 
-/// What kind of NetError: a connection the other side refused or reset, a network or host that
-/// can't be reached or found, one that's closed, TLS that failed, or an HTTP response whose status
-/// isn't success.
+/// What kind of NetError it is.
 Public Enum NetErrorKind
-    REFUSED, RESET, UNREACHABLE, HOST_NOT_FOUND, CLOSED, TLS, HTTP_STATUS, OTHER
+    /// A connection the other side refused.
+    REFUSED
+    /// A connection the other side reset.
+    RESET
+    /// A network or host that can't be reached.
+    UNREACHABLE
+    /// A host name that can't be found.
+    HOST_NOT_FOUND
+    /// A connection that's closed.
+    CLOSED
+    /// TLS that failed.
+    TLS
+    /// An HTTP response whose status isn't success.
+    HTTP_STATUS
+    /// Something else.
+    OTHER
 End Enum
 
 /// Talking over a network failed. Address is the other side's, when there is one.
@@ -189,10 +243,18 @@ Public Class NetError Extends Error
     End New
 End Class
 
-/// What kind of DatabaseError: a constraint a change breaks, a database that another connection
-/// holds, a query that isn't one, or a file that isn't a database.
+/// What kind of DatabaseError it is.
 Public Enum DatabaseErrorKind
-    CONSTRAINT, BUSY, QUERY, CORRUPT, OTHER
+    /// A constraint a change breaks.
+    CONSTRAINT
+    /// A database that another connection holds.
+    BUSY
+    /// A query that isn't one.
+    QUERY
+    /// A file that isn't a database.
+    CORRUPT
+    /// Something else.
+    OTHER
 End Enum
 
 /// A database couldn't do what it was asked.

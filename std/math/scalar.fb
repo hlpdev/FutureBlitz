@@ -7,7 +7,7 @@ Import std.core
 Import std.math.constants
 Import std.math.numbers
 
-/// The `value` without its sign: 0 for -0, and NaN for NaN. An integer's lowest `value`, which has
+/// The `value` without its sign: 0 for -0, and NaN for NaN. An integer's lowest value, which has
 /// none in its type, overflows.
 @PanicsAtCaller
 Public Function Abs<T>(value: T): T
@@ -43,7 +43,7 @@ Public Function Fract<T>(value: T): T
     Return value - T.Floor(value)
 End Function
 
-/// a - a / b * b, without overflowing where b is -1. A b of 0 panics.
+/// `a` - `a` / `b` * `b`, without overflowing where `b` is -1. A `b` of 0 panics.
 @PanicsAtCaller
 Function IntegerRem<T>(a: T, b: T): T
     Where T: Integer & Numeric & Comparable
@@ -51,8 +51,8 @@ Function IntegerRem<T>(a: T, b: T): T
     Return a - a / b * b
 End Function
 
-/// The remainder of a divided by `b` with the sign of `b`, as dividing and rounding down leaves it:
-/// Mod(-1, 3) is 2, and Mod(1, -3) is -2. A b of 0 panics.
+/// The remainder of `a` divided by `b` with the sign of `b`, as dividing and rounding down leaves
+/// it: Mod(-1, 3) is 2, and Mod(1, -3) is -2. A `b` of 0 panics.
 @PanicsAtCaller
 Public Function Mod<T>(a: T, b: T): T
     Where T: Integer & Numeric & Comparable
@@ -60,9 +60,9 @@ Public Function Mod<T>(a: T, b: T): T
     Return rest != T.Zero() && (rest < T.Zero()) != (b < T.Zero()) ? rest + b : rest
 End Function
 
-/// The remainder of a divided by `b` with the sign of `b`, as dividing and rounding down leaves it:
-/// Mod(-1.5, 4.0) is 2.5, and a 0 has `b`'s sign. A b of 0 gives NaN. A remainder too small beside
-/// `b` for their sum to be below it gives 0, which is as near, a whole `b` away.
+/// The remainder of `a` divided by `b` with the sign of `b`, as dividing and rounding down leaves
+/// it: Mod(-1.5, 4.0) is 2.5, and a 0 has `b`'s sign. A `b` of 0 gives NaN. A remainder too small
+/// beside `b` for their sum to be below it gives 0, which is as near, a whole `b` away.
 Public Function Mod<T>(a: T, b: T): T
     Where T: FloatingPoint & Numeric & Comparable
     Local rest = T.Rem(a, b)
@@ -72,16 +72,16 @@ Public Function Mod<T>(a: T, b: T): T
     Return sum == b ? T.CopySign(T.Zero(), b) : sum
 End Function
 
-/// The remainder of a divided by `b` with the sign of a, as % gives it: Rem(-1, 3) is -1. A b of 0
-/// panics.
+/// The remainder of `a` divided by `b` with the sign of `a`, as % gives it: Rem(-1, 3) is -1. A `b`
+/// of 0 panics.
 @PanicsAtCaller
 Public Function Rem<T>(a: T, b: T): T
     Where T: Integer & Numeric & Comparable
     Return IntegerRem(a, b)
 End Function
 
-/// The remainder of a divided by `b` with the sign of a, exactly, as C's fmod gives it: Rem(-1.5,
-/// 4.0) is -1.5. A b of 0 gives NaN.
+/// The remainder of `a` divided by `b` with the sign of `a`, exactly, as C's fmod gives it:
+/// Rem(-1.5, 4.0) is -1.5. A `b` of 0 gives NaN.
 Public Function Rem<T: FloatingPoint>(a: T, b: T): T => T.Rem(a, b)
 
 /// The greatest common divisor of the two, which isn't negative: Gcd(12, -18) is 6, and Gcd(0, 0)
@@ -133,15 +133,15 @@ Public Function IntSqrt<T>(value: T): T
     Return T.FromLowBits(root)
 End Function
 
-/// The value `t` of the way from a to `b`: a at 0, `b` itself at 1, though `b` - a rounds, and past
-/// them outside 0 to 1.
+/// The value `t` of the way from `a` to `b`: `a` at 0, `b` itself at 1, though `b` - `a` rounds,
+/// and past them outside 0 to 1.
 Public Function Lerp<T>(a: T, b: T, t: T): T
     Where T: FloatingPoint & Numeric & Comparable
     Return t == T.One() ? b : a + (b - a) * t
 End Function
 
-/// How far of the way from a to `b` the `value` is, as Lerp's t: 0 at a, 1 at `b`. With a equal to
-/// `b`, it's 0.
+/// How far of the way from `a` to `b` the `value` is, as Lerp's t: 0 at `a`, 1 at `b`. With `a`
+/// equal to `b`, it's 0.
 Public Function InverseLerp<T>(a: T, b: T, value: T): T
     Where T: FloatingPoint & Numeric & Comparable
     If a == b Then Return T.Zero()
@@ -239,14 +239,14 @@ Public Function MoveTowards<T>(current: T, target: T, maxDelta: T): T
     Return current + Sign(target - current) * maxDelta
 End Function
 
-/// Whether a and `b` are no further apart than `tolerance`.
+/// Whether `a` and `b` are no further apart than `tolerance`.
 Public Function IsClose<T>(a: T, b: T, tolerance: T): Bool
     Where T: FloatingPoint & Numeric & Comparable
     Return Abs(a - b) <= tolerance
 End Function
 
-/// Whether a and `b` are equal but for rounding: no further apart than 0.00001 of the larger one's
-/// size, or of 1 near 0. An infinity is close only to itself, and NaN to nothing.
+/// Whether `a` and `b` are equal but for rounding: no further apart than 0.00001 of the larger
+/// one's size, or of 1 near 0. An infinity is close only to itself, and NaN to nothing.
 Public Function IsClose<T>(a: T, b: T): Bool
     Where T: FloatingPoint & Numeric & Comparable
     If a == b Then Return True
@@ -338,7 +338,7 @@ Public Function CopySign<T: FloatingPoint>(magnitude: T, sign: T): T
     Return T.CopySign(magnitude, sign)
 End Function
 
-/// a * `b` + `c`, rounded once, at the end.
+/// `a` * `b` + `c`, rounded once, at the end.
 Public Function Fma<T: FloatingPoint>(a: T, b: T, c: T): T => T.Fma(a, b, c)
 
 /// The angle of so many `degrees`, in radians, the unit of every angle in std.math: Deg(90) is

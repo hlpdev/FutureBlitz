@@ -49,18 +49,23 @@ Const ATOMIC: Int32 = 2
 Const ARRAY_MOST: Int64 = 2147483647
 Const ALL: Int64 = 9223372036854775807
 
-/// What's at a path: a file, a folder, a link, or something else, like a device or a pipe.
+/// What's at a path.
 Public Enum FileKind
+    /// A file.
     FILE
+    /// A folder.
     DIRECTORY
+    /// A link.
     LINK
+    /// Something else, like a device or a pipe.
     OTHER
 End Enum
 
-/// What ends each line a file's lines are written with: "\n", as on every OS unless asked, or
-/// "\r\n", as some Windows programs want.
+/// What ends each line a file's lines are written with.
 Public Enum LineEnding
+    /// "\n", as on every OS unless asked.
     LF
+    /// "\r\n", as some Windows programs want.
     CRLF
 End Enum
 
@@ -105,7 +110,7 @@ Public Class File
     New()
     End New
 
-    /// The file's bytes. One that holds more than `most` bytes, which an array's `most` is the
+    /// The file's bytes. One that holds more than `most` bytes, which an array's most is the
     /// default for, throws an IOError of OTHER, found before reading them where the OS knows a
     /// file's size, and so does one that memory can't hold. Panics for a most below 0 or above an
     /// array's, 2^31 - 1.

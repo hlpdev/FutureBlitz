@@ -29,18 +29,29 @@ End Extern
 /// try after an empty match.
 Const NOT_EMPTY_HERE: Int32 = 1
 
-/// How a Regex reads its pattern: IGNORE_CASE matches letters in either case, MULTILINE makes ^
-/// and $ match at each line's start and end too, DOT_ALL lets . match a line break, and EXTENDED
-/// skips the pattern's whitespace, and its comments from # to the line's end.
+/// How a Regex reads its pattern.
 @Flags
 Public Enum RegexFlags
-    NONE = 0, IGNORE_CASE, MULTILINE, DOT_ALL, EXTENDED
+    /// As it's written.
+    NONE = 0
+    /// Letters match in either case.
+    IGNORE_CASE
+    /// ^ and $ match at each line's start and end too.
+    MULTILINE
+    /// . matches a line break.
+    DOT_ALL
+    /// The pattern's whitespace is skipped, and its comments from # to the line's end.
+    EXTENDED
 End Enum
 
-/// What kind of RegexError: a pattern that isn't valid, or a match that went past its Regex's
-/// MatchLimit or MemoryLimit.
+/// What kind of RegexError it is.
 Public Enum RegexErrorKind
-    PATTERN, MATCH_LIMIT, MEMORY_LIMIT
+    /// A pattern that isn't valid.
+    PATTERN
+    /// A match that went past its Regex's MatchLimit.
+    MATCH_LIMIT
+    /// A match that went past its Regex's MemoryLimit.
+    MEMORY_LIMIT
 End Enum
 
 /// A pattern that isn't valid, at the byte Offset of the pattern, or a match that went past a

@@ -37,7 +37,7 @@ Public Class MappedFile
     /// it's made.
     ReadOnly Field Native: Ptr<Void>
 
-    /// Maps the file, which has to be there, read-only, or `writable` when `writable` is True.
+    /// Maps the file, which has to be there, read-only, or writable when `writable` is True.
     Public New(path: Path, writable: Bool = False) Throws IOError
         Path = path
         IsWritable = writable

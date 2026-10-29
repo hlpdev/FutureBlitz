@@ -14,17 +14,28 @@ Extern "runtime"
     Function fb_text_byte(text: String, at: Int64): UInt8
 End Extern
 
-/// How many colors a terminal shows: NONE, as a pipe or a file, or a terminal where NO_COLOR is
-/// set, which gets no styles at all; BASIC, the 16 basic ones; INDEXED, 256; and TRUE_COLOR,
-/// 24-bit color.
+/// How many colors a terminal shows.
 Public Enum ColorLevel
-    NONE, BASIC, INDEXED, TRUE_COLOR
+    /// None, as a pipe or a file, or a terminal where NO_COLOR is set, which gets no styles at all.
+    NONE
+    /// The 16 basic ones.
+    BASIC
+    /// 256.
+    INDEXED
+    /// 24-bit color.
+    TRUE_COLOR
 End Enum
 
-/// What a TermColor is: the terminal's own NORMAL color, one of the 16 BASIC ones, one of 256
-/// INDEXED ones, or RGB.
+/// What a TermColor is.
 Public Enum ColorKind
-    NORMAL, BASIC, INDEXED, RGB
+    /// The terminal's own color.
+    NORMAL
+    /// One of the 16 basic ones.
+    BASIC
+    /// One of 256 indexed ones.
+    INDEXED
+    /// Red, green, and blue, 24-bit.
+    RGB
 End Enum
 
 /// A color for text, or for what's behind it: the terminal's NORMAL one, its zero; one of the 16
@@ -250,11 +261,27 @@ Public Struct TermColor Implements Hashable, Printable
     End Method
 End Struct
 
-/// How text looks, beside its colors: BOLD, DIM, ITALIC, UNDERLINE, BLINK, REVERSE (the colors
-/// swapped), HIDDEN, and STRIKETHROUGH, in any mix. Not every terminal shows every one.
+/// How text looks, beside its colors, in any mix. Not every terminal shows every one.
 @Flags
 Public Enum TextAttributes
-    NONE = 0, BOLD, DIM, ITALIC, UNDERLINE, BLINK, REVERSE, HIDDEN, STRIKETHROUGH
+    /// None.
+    NONE = 0
+    /// Bold.
+    BOLD
+    /// Dim.
+    DIM
+    /// Italic.
+    ITALIC
+    /// Underlined.
+    UNDERLINE
+    /// Blinking.
+    BLINK
+    /// The colors swapped.
+    REVERSE
+    /// Hidden.
+    HIDDEN
+    /// Struck through.
+    STRIKETHROUGH
 End Enum
 
 /// How text looks: its Foreground color, the Background color behind it, and its Attributes. Its

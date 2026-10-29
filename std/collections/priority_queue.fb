@@ -24,7 +24,7 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
         Unplaced = Function(value: T) => value != value
     End New
 
-    /// A new, empty PriorityQueue that gives first the value `before` says comes `before` the
+    /// A new, empty PriorityQueue that gives first the value `before` says comes before the
     /// others.
     Public New(before: Func(T, T): Bool)
         Before = before

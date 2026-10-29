@@ -16,7 +16,10 @@ End Extern
 
 /// Whose rules a Path reads its text by.
 Public Enum PathStyle
+    /// Linux's and macOS's: `/` between names.
     POSIX
+    /// Windows's: `\` or `/` between names, and a drive, like `C:`, or a share, like
+    /// `//server/share`, before them.
     WINDOWS
 End Enum
 
@@ -143,7 +146,7 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Return dot < 0 ? "" : TextOfBytes(bytes[dot..bytes.Count])
     End Method
 
-    /// The path with its file name's `extension` `extension`, which a dot is put before when it
+    /// The path with its file name's extension `extension`, which a dot is put before when it
     /// has none, or without one when it's "": "save.bak" for "save.dat" and ".bak". The name is
     /// FileName's, so "a/b/." and "a/b/" give "a/b.bak", without what follows the name. Panics
     /// when the path has no file name to give one, as a root or ".." doesn't, or for an extension

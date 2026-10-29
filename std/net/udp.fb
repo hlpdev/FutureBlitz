@@ -77,7 +77,7 @@ Public Class UdpSocket
         Get => Closed
     End Property
 
-    /// Sends `bytes` to `target` as one datagram, of up to 65507 `bytes`, or what the OS sends at
+    /// Sends `bytes` to `target` as one datagram, of up to 65507 bytes, or what the OS sends at
     /// once, as macOS's 9216 unless it's told otherwise, returning once the OS has it, which
     /// doesn't say it arrived. A broadcast address needs SetBroadcast(True) first.
     Public Method Send(bytes: UInt8[], target: SocketAddress) Throws NetError

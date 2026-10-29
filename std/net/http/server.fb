@@ -580,7 +580,7 @@ Public Class HttpServer Extends HttpRouter
         Tls = tls
     End Method
 
-    /// Listens for HTTPS at `https` with a certificate for `names`, DNS `names`, which `acme` gets
+    /// Listens for HTTPS at `https` with a certificate for `names`, DNS names, which `acme` gets
     /// from its CA, or which `folder` keeps from a run before, while it's valid for those `names`.
     /// On `http`, where the CA checks HTTP-01's challenges, a server of its own answers them, and
     /// redirects every other request to HTTPS, with a 308, once HTTPS listens, and until then

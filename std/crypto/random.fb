@@ -44,6 +44,6 @@ Public Struct SecureRandom
     End Method
 End Struct
 
-/// Whether a and `b` have the same bytes, in a time that depends only on their counts, not on where
-/// they first differ, so comparing a secret, like a MAC, tells nothing about it.
+/// Whether `a` and `b` have the same bytes, in a time that depends only on their counts, not on
+/// where they first differ, so comparing a secret, like a MAC, tells nothing about it.
 Public Function ConstantTimeEquals(a: UInt8[], b: UInt8[]): Bool => fb_crypto_equal(a, b) != 0

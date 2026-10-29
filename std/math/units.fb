@@ -39,34 +39,41 @@ Public Struct Quantity<Const L: Int, Const M: Int, Const T: Int> Implements Comp
         Return "{Value} {above == "" ? "1" : above}/{below}"
     End Method
 
+    /// `a` plus `b`.
     Operator +(a: Quantity<L, M, T>, b: Quantity<L, M, T>): Quantity<L, M, T>
         Return Quantity<L, M, T>(a.Value + b.Value)
     End Operator
 
+    /// `a` minus `b`.
     Operator -(a: Quantity<L, M, T>, b: Quantity<L, M, T>): Quantity<L, M, T>
         Return Quantity<L, M, T>(a.Value - b.Value)
     End Operator
 
+    /// `a` negated.
     Operator -(a: Quantity<L, M, T>): Quantity<L, M, T> => Quantity<L, M, T>(-a.Value)
 
+    /// `a` times `scale`.
     Operator *(a: Quantity<L, M, T>, scale: Double): Quantity<L, M, T>
         Return Quantity<L, M, T>(a.Value * scale)
     End Operator
 
+    /// `scale` times `a`.
     Operator *(scale: Double, a: Quantity<L, M, T>): Quantity<L, M, T>
         Return Quantity<L, M, T>(scale * a.Value)
     End Operator
 
+    /// `a` divided by `scale`.
     Operator /(a: Quantity<L, M, T>, scale: Double): Quantity<L, M, T>
         Return Quantity<L, M, T>(a.Value / scale)
     End Operator
 
-    /// A product's exponents are the sum of its operands', and a quotient's their difference.
+    /// `a` times `b`, whose exponents are the sum of `a`'s and `b`'s.
     Operator *<Const L2: Int, Const M2: Int, Const T2: Int>(
             a: Quantity<L, M, T>, b: Quantity<L2, M2, T2>): Quantity<L + L2, M + M2, T + T2>
         Return Quantity<L + L2, M + M2, T + T2>(a.Value * b.Value)
     End Operator
 
+    /// `a` divided by `b`, whose exponents are the difference of `a`'s and `b`'s.
     Operator /<Const L2: Int, Const M2: Int, Const T2: Int>(
             a: Quantity<L, M, T>, b: Quantity<L2, M2, T2>): Quantity<L - L2, M - M2, T - T2>
         Return Quantity<L - L2, M - M2, T - T2>(a.Value / b.Value)

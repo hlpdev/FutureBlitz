@@ -8,26 +8,26 @@ Import std.collections
 Import std.math.scalar
 Import std.math.vector
 
-/// The point `t` of the way along the quadratic Bezier from a to `c`, pulled toward `b`.
+/// The point `t` of the way along the quadratic Bezier from `a` to `c`, pulled toward `b`.
 Public Function QuadraticBezier(a: Vec2, b: Vec2, c: Vec2, t: Float): Vec2
     Local rest = 1 - t
     Return a * (rest * rest) + b * (2 * rest * t) + c * (t * t)
 End Function
 
-/// The point `t` of the way along the quadratic Bezier from a to `c`, pulled toward `b`.
+/// The point `t` of the way along the quadratic Bezier from `a` to `c`, pulled toward `b`.
 Public Function QuadraticBezier(a: Vec3, b: Vec3, c: Vec3, t: Float): Vec3
     Local rest = 1 - t
     Return a * (rest * rest) + b * (2 * rest * t) + c * (t * t)
 End Function
 
-/// The point `t` of the way along the cubic Bezier from a to `d`, pulled toward `b`, then `c`.
+/// The point `t` of the way along the cubic Bezier from `a` to `d`, pulled toward `b`, then `c`.
 Public Function CubicBezier(a: Vec2, b: Vec2, c: Vec2, d: Vec2, t: Float): Vec2
     Local rest = 1 - t
     Return a * (rest * rest * rest) + b * (3 * rest * rest * t) + c * (3 * rest * t * t) +
            d * (t * t * t)
 End Function
 
-/// The point `t` of the way along the cubic Bezier from a to `d`, pulled toward `b`, then `c`.
+/// The point `t` of the way along the cubic Bezier from `a` to `d`, pulled toward `b`, then `c`.
 Public Function CubicBezier(a: Vec3, b: Vec3, c: Vec3, d: Vec3, t: Float): Vec3
     Local rest = 1 - t
     Return a * (rest * rest * rest) + b * (3 * rest * rest * t) + c * (3 * rest * t * t) +
@@ -54,19 +54,21 @@ Public Function Hermite(start: Vec3, startTangent: Vec3, end: Vec3, endTangent: 
            end * (3 * squared - 2 * cubed) + endTangent * (cubed - squared)
 End Function
 
-/// The point `t` of the way from `b` to `c` on the uniform Catmull-Rom spline through a, `b`, `c`,
-/// and `d`: a Hermite curve whose tangents at `b` and `c` point from the points on either side.
+/// The point `t` of the way from `b` to `c` on the uniform Catmull-Rom spline through `a`, `b`,
+/// `c`, and `d`: a Hermite curve whose tangents at `b` and `c` point from the points on either
+/// side.
 Public Function CatmullRom(a: Vec2, b: Vec2, c: Vec2, d: Vec2, t: Float): Vec2
     Return Hermite(b, (c - a) * 0.5, c, (d - b) * 0.5, t)
 End Function
 
-/// The point `t` of the way from `b` to `c` on the uniform Catmull-Rom spline through a, `b`, `c`,
-/// and `d`: a Hermite curve whose tangents at `b` and `c` point from the points on either side.
+/// The point `t` of the way from `b` to `c` on the uniform Catmull-Rom spline through `a`, `b`,
+/// `c`, and `d`: a Hermite curve whose tangents at `b` and `c` point from the points on either
+/// side.
 Public Function CatmullRom(a: Vec3, b: Vec3, c: Vec3, d: Vec3, t: Float): Vec3
     Return Hermite(b, (c - a) * 0.5, c, (d - b) * 0.5, t)
 End Function
 
-/// The point `t` of the way along the segment of the uniform cubic B-spline that a, `b`, `c`, and
+/// The point `t` of the way along the segment of the uniform cubic B-spline that `a`, `b`, `c`, and
 /// `d` shape, which passes near `b` and `c` rather than through them, and joins the next segment
 /// smoothly.
 Public Function BSpline(a: Vec2, b: Vec2, c: Vec2, d: Vec2, t: Float): Vec2
@@ -77,7 +79,7 @@ Public Function BSpline(a: Vec2, b: Vec2, c: Vec2, d: Vec2, t: Float): Vec2
             c * (-3 * cubed + 3 * squared + 3 * t + 1) + d * cubed) / 6
 End Function
 
-/// The point `t` of the way along the segment of the uniform cubic B-spline that a, `b`, `c`, and
+/// The point `t` of the way along the segment of the uniform cubic B-spline that `a`, `b`, `c`, and
 /// `d` shape, which passes near `b` and `c` rather than through them, and joins the next segment
 /// smoothly.
 Public Function BSpline(a: Vec3, b: Vec3, c: Vec3, d: Vec3, t: Float): Vec3

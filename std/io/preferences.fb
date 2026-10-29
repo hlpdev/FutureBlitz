@@ -47,8 +47,8 @@ Public Class Preferences
         Values = Try Loaded(Location)
     End New
 
-    /// The preferences of `app` kept in `folder` in place of the OS's `folder`, as tests keep
-    /// theirs in a temporary `folder`.
+    /// The preferences of `app` kept in `folder` in place of the OS's folder, as tests keep
+    /// theirs in a temporary folder.
     @PanicsAtCaller
     Public New(app: String, folder: Path) Throws IOError
         CheckApp(app)

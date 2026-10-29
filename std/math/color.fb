@@ -237,7 +237,7 @@ Public Struct Color Implements Hashable, Printable
         Return Color(ToLinear(red), ToLinear(green), ToLinear(blue), a)
     End Method
 
-    /// The color of an OKLab `lightness` and a and `b`, its green to red and blue to yellow, as
+    /// The color of an OKLab `lightness` and `a` and `b`, its green to red and blue to yellow, as
     /// Björn Ottosson defined it: a space where equal steps look equal, for blending and ramps.
     Public Static Method OkLab(lightness: Float, a: Float, b: Float, alpha: Float = 1): Color
         Local light: Double = lightness
@@ -302,21 +302,25 @@ Public Struct Color Implements Hashable, Printable
 
     Public Method ToString(): String => "({r}, {g}, {b}, {a})"
 
+    /// `c` plus `d`.
     Operator +(c: Color, d: Color): Color => Color(c.r + d.r, c.g + d.g, c.b + d.b, c.a + d.a)
+    /// `c` minus `d`.
     Operator -(c: Color, d: Color): Color => Color(c.r - d.r, c.g - d.g, c.b - d.b, c.a - d.a)
     /// Each channel times the other's, as light through a filter.
     Operator *(c: Color, d: Color): Color => Color(c.r * d.r, c.g * d.g, c.b * d.b, c.a * d.a)
 
+    /// `c` times `scale`.
     Operator *(c: Color, scale: Float): Color
         Return Color(c.r * scale, c.g * scale, c.b * scale, c.a * scale)
     End Operator
 
+    /// `scale` times `c`.
     Operator *(scale: Float, c: Color): Color
         Return Color(scale * c.r, scale * c.g, scale * c.b, scale * c.a)
     End Operator
 End Struct
 
-/// The color `t` of the way from a to `b`, each channel in linear light, alpha too.
+/// The color `t` of the way from `a` to `b`, each channel in linear light, alpha too.
 Public Function Lerp(a: Color, b: Color, t: Float): Color
     Return Color(Lerp(a.r, b.r, t), Lerp(a.g, b.g, t), Lerp(a.b, b.b, t), Lerp(a.a, b.a, t))
 End Function

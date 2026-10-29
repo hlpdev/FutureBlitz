@@ -159,7 +159,7 @@ Public Struct Quat Implements Equatable, Printable
 
     Public Method ToString(): String => "({x}, {y}, {z}, {w})"
 
-    /// The rotation by b, then by a.
+    /// The rotation by `b`, then by `a`.
     Operator *(a: Quat, b: Quat): Quat
         Return Quat(a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
                     a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
@@ -195,15 +195,15 @@ End Function
 /// The opposite rotation, which undoes it: for a unit quaternion, as a rotation is, its conjugate.
 Public Function Inverse(q: Quat): Quat => Quat(-q.x, -q.y, -q.z, q.w)
 
-/// The rotation `t` of the way from a to `b`, the short way around, as a straight line between them
-/// scaled to length 1: quicker than Slerp, and nearly as smooth for angles that aren'`t` large.
+/// The rotation `t` of the way from `a` to `b`, the short way around, as a straight line between
+/// them scaled to length 1: quicker than Slerp, and nearly as smooth for angles that aren't large.
 Public Function Lerp(a: Quat, b: Quat, t: Float): Quat
     Local sign: Float = Dot(a, b) >= 0 ? 1 : -1
     Return Normalize(Quat(a.x + (b.x * sign - a.x) * t, a.y + (b.y * sign - a.y) * t,
                           a.z + (b.z * sign - a.z) * t, a.w + (b.w * sign - a.w) * t))
 End Function
 
-/// The rotation `t` of the way from a to `b`, the short way around, at an even speed.
+/// The rotation `t` of the way from `a` to `b`, the short way around, at an even speed.
 Public Function Slerp(a: Quat, b: Quat, t: Float): Quat
     Local cosine = Dot(a, b)
     Local end = b
@@ -221,7 +221,7 @@ Public Function Slerp(a: Quat, b: Quat, t: Float): Quat
                 a.z * scaleA + end.z * scaleB, a.w * scaleA + end.w * scaleB)
 End Function
 
-/// The angle in radians, from 0 to Pi, of the rotation from a to `b`, from its half angle's sine
+/// The angle in radians, from 0 to Pi, of the rotation from `a` to `b`, from its half angle's sine
 /// and cosine, which keep small angles exact.
 Public Function Angle(a: Quat, b: Quat): Float
     Local between = Inverse(a) * b

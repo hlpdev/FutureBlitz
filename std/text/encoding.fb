@@ -18,7 +18,22 @@ End Extern
 
 /// The encodings Encode and Decode take, beside UTF-8.
 Public Enum TextEncoding
-    UTF8, UTF16_LE, UTF16_BE, UTF32_LE, UTF32_BE, ASCII, LATIN1, WINDOWS_1252
+    /// UTF-8.
+    UTF8
+    /// UTF-16, its lowest byte first.
+    UTF16_LE
+    /// UTF-16, its highest byte first.
+    UTF16_BE
+    /// UTF-32, its lowest byte first.
+    UTF32_LE
+    /// UTF-32, its highest byte first.
+    UTF32_BE
+    /// ASCII, 7 bits.
+    ASCII
+    /// ISO 8859-1, Latin-1.
+    LATIN1
+    /// Windows's code page 1252.
+    WINDOWS_1252
 End Enum
 
 /// What Windows-1252 has at byte, from 0x80 to 0x9F, where Latin-1 has control characters, as
@@ -343,7 +358,7 @@ Public Struct Percent
         Return fb_text_from_utf8(text, 0, text.Count) ?? ""
     End Method
 
-    /// The `text` percent-encoded `text` stands for, or Null when a "%" isn't followed by two hex
+    /// The text percent-encoded `text` stands for, or Null when a "%" isn't followed by two hex
     /// digits, or the bytes aren't UTF-8.
     Public Static Method Decode(text: String): String?
         Local bytes = DecodeBytes(text)
@@ -457,7 +472,7 @@ Public Function Escape(text: String): String
     Return result.ToString()
 End Function
 
-/// The `text` that escaped `text` stands for, as Escape writes it: "\n", "\t", "\r", "\0", "\\",
+/// The text that escaped `text` stands for, as Escape writes it: "\n", "\t", "\r", "\0", "\\",
 /// "\"", and "\'", "\x" and two hex digits from 00 to 7F, and "\u{...}" with a Unicode scalar
 /// value's hex digits; or Null for another backslash, or one at the end.
 Public Function Unescape(text: String): String?

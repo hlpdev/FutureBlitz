@@ -37,12 +37,16 @@ Public Struct Instant Implements Comparable, Hashable, Printable, Defaultable
         Get => Now() - Self
     End Property
 
-    /// That much later or earlier, and how long it is from b to a. Past what an Int64 of
-    /// nanoseconds holds, about 292 years, they overflow as an Int64 does.
+    /// `b` after `a`. Past what an Int64 of nanoseconds holds, about 292 years, it overflows as
+    /// an Int64 does.
     @PanicsAtCaller
     Operator +(a: Instant, b: Duration): Instant => Instant(a.Count + b.Nanoseconds)
+    /// `b` before `a`. Past what an Int64 of nanoseconds holds, about 292 years, it overflows as an
+    /// Int64 does.
     @PanicsAtCaller
     Operator -(a: Instant, b: Duration): Instant => Instant(a.Count - b.Nanoseconds)
+    /// How long it is from `b` to `a`. Past what an Int64 of nanoseconds holds, about 292 years, it
+    /// overflows as an Int64 does.
     @PanicsAtCaller
     Operator -(a: Instant, b: Instant): Duration => Duration.FromNanoseconds(a.Count - b.Count)
     Operator <(a: Instant, b: Instant): Bool => a.Count < b.Count

@@ -23,7 +23,14 @@ End Extern
 
 /// What a Key is for, which says what its Bytes are.
 Public Enum KeyKind
-    ECDSA_P256, RSA, X25519, ED25519
+    /// An ECDSA P-256 key, for signing: a private key's 32 bytes, or a public key's 65.
+    ECDSA_P256
+    /// An RSA key, for verifying signatures: its PKCS #1 DER.
+    RSA
+    /// An X25519 key, for key agreement: its 32 bytes.
+    X25519
+    /// An Ed25519 key, for signing: its 32 bytes.
+    ED25519
 End Enum
 
 /// A private or public key, as its kind's Methods take it: an ECDSA P-256 private key's 32 bytes

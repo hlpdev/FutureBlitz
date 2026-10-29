@@ -378,8 +378,9 @@ Public Class FakeTerminal Extends Terminal
     Field Flushed: Int
     Field Leaving: String
 
-    /// A terminal of `columns` and `rows` that shows `colors`' `colors`, and is `interactive`, as a
-    /// terminal is, or not, as a pipe or a file is, for both what's written and keys.
+    /// A terminal of `columns` and `rows` that shows the colors `colors` says, and is
+    /// `interactive`, as a terminal is, or not, as a pipe or a file is, for both what's written and
+    /// keys.
     Public New(columns: Int = 80, rows: Int = 24, colors: ColorLevel = ColorLevel.TRUE_COLOR,
                interactive: Bool = True)
         Shown = StringBuilder()

@@ -85,7 +85,14 @@ End Struct
 
 /// How a Constraint sizes its part.
 Public Enum ConstraintKind
-    FIXED, PERCENT, MIN, FILL
+    /// A number of cells.
+    FIXED
+    /// A percent of the cells there are.
+    PERCENT
+    /// At least a number of cells, and a share of what's left like a Fill of 1.
+    MIN
+    /// A share of what's left by its weight, beside the other Fills'.
+    FILL
 End Enum
 
 /// How big one part of a split is: a Fixed number of cells, a Percent of the cells there are, at

@@ -59,7 +59,20 @@ Const FILE_FAILED = 13
 
 /// The methods a request can have.
 Public Enum HttpMethod
-    GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS
+    /// GET, which asks for what's at the URL.
+    GET
+    /// HEAD, which asks for a GET's headers alone.
+    HEAD
+    /// POST, which sends what the URL handles.
+    POST
+    /// PUT, which puts what it sends at the URL.
+    PUT
+    /// PATCH, which changes part of what's at the URL.
+    PATCH
+    /// DELETE, which removes what's at the URL.
+    DELETE
+    /// OPTIONS, which asks what the URL allows.
+    OPTIONS
 End Enum
 
 /// What a request sends: its bytes, and what they are, as its Content-Type header says unless the
@@ -79,14 +92,14 @@ Public Struct Body
         ContentType = contentType
     End New
 
-    /// `text`'s UTF-8, as plain `text` unless `contentType` says another kind.
+    /// `text`'s UTF-8, as plain text unless `contentType` says another kind.
     @PanicsAtCaller
     Public Static Method Text(text: String,
                               contentType: String = "text/plain; charset=utf-8"): Body
         Return Body(text.Bytes, contentType)
     End Method
 
-    /// JSON's text, as application/`json`.
+    /// JSON's text, as application/json.
     Public Static Method Json(json: String): Body => Body(json.Bytes, "application/json")
 
     /// A form's `fields`, in their order, as application/x-www-form-urlencoded: each name and value

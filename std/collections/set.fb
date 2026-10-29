@@ -133,7 +133,7 @@ Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Ha
         Return copy
     End Method
 
-    /// A new Set of the values that `keep` says to `keep`.
+    /// A new Set of the values that `keep` says to keep.
     @PanicsAtCaller
     Public Method Filter(keep: Func(T): Bool): Set<T>
         Local kept = Set<T>()

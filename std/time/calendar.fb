@@ -13,7 +13,20 @@ Import std.time.zone
 
 /// A day of the week, as ISO 8601 numbers them, from Monday's 1 to Sunday's 7.
 Public Enum Weekday
-    MONDAY = 1, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY
+    /// Monday, 1.
+    MONDAY = 1
+    /// Tuesday, 2.
+    TUESDAY
+    /// Wednesday, 3.
+    WEDNESDAY
+    /// Thursday, 4.
+    THURSDAY
+    /// Friday, 5.
+    FRIDAY
+    /// Saturday, 6.
+    SATURDAY
+    /// Sunday, 7.
+    SUNDAY
 End Enum
 
 /// A day, from the year -2147483648 to 2147483647, the years an Int holds.
@@ -317,19 +330,19 @@ Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
         Get => Nanoseconds
     End Property
 
-    /// It on the clock that much later, or earlier, around midnight as a clock goes: 23:00 plus
-    /// 2 hours is 01:00.
+    /// `a` on the clock `b` later, around midnight as a clock goes: 23:00 plus 2 hours is 01:00.
     Operator +(a: TimeOfDay, b: Duration): TimeOfDay
         Local day: Int64 = 86400000000000
         Return TimeOfDay(FloorModulo(a.Nanoseconds + b.Nanoseconds % day, day))
     End Operator
 
+    /// `a` on the clock `b` earlier, around midnight as a clock goes: 01:00 minus 2 hours is 23:00.
     Operator -(a: TimeOfDay, b: Duration): TimeOfDay
         Local day: Int64 = 86400000000000
         Return TimeOfDay(FloorModulo(a.Nanoseconds - b.Nanoseconds % day, day))
     End Operator
 
-    /// How long it is from b to a on the same day, below 0 when a is earlier.
+    /// How long it is from `b` to `a` on the same day, below 0 when `a` is earlier.
     Operator -(a: TimeOfDay, b: TimeOfDay): Duration
         Return Duration.FromNanoseconds(a.Nanoseconds - b.Nanoseconds)
     End Operator
@@ -466,8 +479,7 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
         Get => Day.DayOfYear
     End Property
 
-    /// The same time that many days, months, or years later, or earlier, as Date's AddDays,
-    /// AddMonths, and AddYears go.
+    /// The same time `count` days later, or earlier, as Date's AddDays goes.
     @PanicsAtCaller
     Public Method AddDays(count: Int64): LocalDateTime
         Return LocalDateTime(Day.AddDays(count), Clock)
@@ -496,19 +508,19 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
         Return ZonedDateTime(Self, zone, disambiguation)
     End Method
 
-    /// That much later, or earlier, on a clock that's never turned: 23:00 plus 2 hours is 01:00
-    /// the next day.
+    /// `b` after `a`, on a clock that's never turned: 23:00 plus 2 hours is 01:00 the next day.
     @PanicsAtCaller
     Operator +(a: LocalDateTime, b: Duration): LocalDateTime => a.Plus(b.Nanoseconds)
 
+    /// `b` before `a`, on a clock that's never turned: 01:00 minus 2 hours is 23:00 the day before.
     @PanicsAtCaller
     Operator -(a: LocalDateTime, b: Duration): LocalDateTime
         If b.Nanoseconds == -9223372036854775807 - 1 Then Return a.Plus(9223372036854775807).Plus(1)
         Return a.Plus(-b.Nanoseconds)
     End Operator
 
-    /// How long it is from b to a, on a clock that's never turned, which panics past the longest
-    /// Duration.
+    /// How long it is from `b` to `a`, on a clock that's never turned, which panics past the
+    /// longest Duration.
     @PanicsAtCaller
     Operator -(a: LocalDateTime, b: LocalDateTime): Duration
         Return Between(a.Day.Days - b.Day.Days, a.Clock.Nanoseconds - b.Clock.Nanoseconds)

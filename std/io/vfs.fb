@@ -334,7 +334,7 @@ Public Class Vfs
 
     /// What's in the folder at `path`, and in the folders in it, whose path from it matches
     /// `pattern`, as Dir.Glob's patterns match, with '/' or '\' between its names on every OS, as
-    /// between a Vfs `path`'s. It throws as Entries does.
+    /// between a Vfs path's. It throws as Entries does.
     Public Method Glob(path: Path, pattern: String): DirEntry[] Throws IOError
         Local names = PatternNames(pattern, True)
         If names.Count == 0 Then Return []

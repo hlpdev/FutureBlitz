@@ -26,10 +26,14 @@ Const CLOSE = 8
 Const PING = 9
 Const PONG = 10
 
-/// What a WebSocket is at: OPEN, CLOSING once it's sent its Close and waits for the other side's,
-/// and CLOSED once the Close has gone both ways, or the connection ended.
+/// What a WebSocket is at.
 Public Enum WebSocketState
-    OPEN, CLOSING, CLOSED
+    /// Open.
+    OPEN
+    /// Closing, once it's sent its Close and waits for the other side's.
+    CLOSING
+    /// Closed, once the Close has gone both ways, or the connection ended.
+    CLOSED
 End Enum
 
 /// A WebSocket's message: text, which is UTF-8, or bytes.

@@ -72,14 +72,19 @@ Public Struct Mat3 Implements Equatable, Printable
         Return z[row]
     End Operator
 
-    /// The transform by b, then by a.
+    /// The transform by `b`, then by `a`.
     Operator *(a: Mat3, b: Mat3): Mat3 => Mat3(a * b.x, a * b.y, a * b.z)
     /// The vector transformed.
     Operator *(m: Mat3, v: Vec3): Vec3 => m.x * v.x + m.y * v.y + m.z * v.z
+    /// `m` times `scale`.
     Operator *(m: Mat3, scale: Float): Mat3 => Mat3(m.x * scale, m.y * scale, m.z * scale)
+    /// `scale` times `m`.
     Operator *(scale: Float, m: Mat3): Mat3 => Mat3(scale * m.x, scale * m.y, scale * m.z)
+    /// `m` divided by `scale`.
     Operator /(m: Mat3, scale: Float): Mat3 => Mat3(m.x / scale, m.y / scale, m.z / scale)
+    /// `a` plus `b`.
     Operator +(a: Mat3, b: Mat3): Mat3 => Mat3(a.x + b.x, a.y + b.y, a.z + b.z)
+    /// `a` minus `b`.
     Operator -(a: Mat3, b: Mat3): Mat3 => Mat3(a.x - b.x, a.y - b.y, a.z - b.z)
 End Struct
 
@@ -238,24 +243,29 @@ Public Struct Mat4 Implements Equatable, Printable
         Return w[row]
     End Operator
 
-    /// The transform by b, then by a.
+    /// The transform by `b`, then by `a`.
     Operator *(a: Mat4, b: Mat4): Mat4 => Mat4(a * b.x, a * b.y, a * b.z, a * b.w)
     /// The vector transformed.
     Operator *(m: Mat4, v: Vec4): Vec4 => m.x * v.x + m.y * v.y + m.z * v.z + m.w * v.w
 
+    /// `m` times `scale`.
     Operator *(m: Mat4, scale: Float): Mat4
         Return Mat4(m.x * scale, m.y * scale, m.z * scale, m.w * scale)
     End Operator
 
+    /// `scale` times `m`.
     Operator *(scale: Float, m: Mat4): Mat4
         Return Mat4(scale * m.x, scale * m.y, scale * m.z, scale * m.w)
     End Operator
 
+    /// `m` divided by `scale`.
     Operator /(m: Mat4, scale: Float): Mat4
         Return Mat4(m.x / scale, m.y / scale, m.z / scale, m.w / scale)
     End Operator
 
+    /// `a` plus `b`.
     Operator +(a: Mat4, b: Mat4): Mat4 => Mat4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w)
+    /// `a` minus `b`.
     Operator -(a: Mat4, b: Mat4): Mat4 => Mat4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w)
 End Struct
 

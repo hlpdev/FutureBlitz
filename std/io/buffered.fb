@@ -7,8 +7,8 @@ Import std.collections.array
 Import std.ffi
 Import std.io.streams
 
-/// Reads another Reader `size` bytes at a time, and gives them as they're asked for, a byte or a
-/// line at a time too.
+/// Reads another Reader a buffer's bytes at a time, and gives them as they're asked for, a byte or
+/// a line at a time too.
 Public Class BufferedReader Implements Reader
     Field Inner: Reader
     Field Held: Buffer<UInt8>
@@ -130,7 +130,7 @@ Public Class BufferedReader Implements Reader
     End Method
 End Class
 
-/// Writes another Writer `size` bytes at a time: what's written waits in a buffer until a write
+/// Writes another Writer a buffer's bytes at a time: what's written waits in a buffer until a write
 /// doesn't fit what's left of it, or Flush sends it on. What's still waiting when it goes is
 /// written then, without the errors that Flush would give.
 Public Class BufferedWriter Implements Writer

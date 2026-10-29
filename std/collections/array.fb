@@ -37,7 +37,7 @@ Extend T[]
         MergeSort(from, Self, 0, Count, before)
     End Method
 
-    /// Each element that `keep` says to `keep`, in a new array.
+    /// Each element that `keep` says to keep, in a new array.
     Public Method Filter(keep: Func(T): Bool): T[]
         Local kept: T[] = []
         For element In Self

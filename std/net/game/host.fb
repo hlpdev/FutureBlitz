@@ -38,7 +38,12 @@ End Function
 
 /// What a GameEvent says happened.
 Public Enum GameEventKind
-    CONNECT, RECEIVE, DISCONNECT
+    /// A peer connected.
+    CONNECT
+    /// A peer's message came.
+    RECEIVE
+    /// A peer disconnected, for its Reason.
+    DISCONNECT
 End Enum
 
 /// Something that happened at a GameHost's Update: a peer connected, a message came from one on a

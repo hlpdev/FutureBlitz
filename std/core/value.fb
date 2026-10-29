@@ -18,10 +18,26 @@ Extern "runtime"
     Function fb_value_path(path: String, keys: String[], indices: Int64[]): Int32
 End Extern
 
-/// What a Value holds. An integer is an INT, an Int64, but for one past an Int64's largest, which
-/// is a UINT, a UInt64.
+/// What a Value holds.
 Public Enum ValueKind
-    NULL, BOOL, INT, UINT, DOUBLE, STRING, BYTES, ARRAY, OBJECT
+    /// Nothing: a null.
+    NULL
+    /// A Bool.
+    BOOL
+    /// An integer, as an Int64.
+    INT
+    /// An integer past an Int64's largest, as a UInt64.
+    UINT
+    /// A Double.
+    DOUBLE
+    /// A String.
+    STRING
+    /// Bytes, as a UInt8[].
+    BYTES
+    /// An Array of Values.
+    ARRAY
+    /// An Object, of keys and their Values.
+    OBJECT
 End Enum
 
 /// A value of JSON, MessagePack, TOML, and the other formats, which Load reads types from and Save
@@ -124,7 +140,7 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Entries = entries.Clone()
     End New
 
-    /// An empty Array or Object, to add to.
+    /// A new, empty Array, to add to.
     Public Static Method Array(): Value
         Local made = Value()
         made.Shape = ValueKind.ARRAY
@@ -248,12 +264,13 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return Shape == ValueKind.OBJECT && entries != Null && entries.Contains(key)
     End Method
 
-    /// An Object's Value for the key, or an Array's at the index, or Null where it has none.
+    /// An Object's Value for the `key`, or Null where it has none.
     Operator [](key: String): Value?
         Local entries = Entries
         Return Shape == ValueKind.OBJECT && entries != Null ? entries.Get(key) : Null
     End Operator
 
+    /// An Array's Value at the `index`, or Null where it has none.
     Operator [](index: Int): Value?
         Local elements = Elements
         If Shape != ValueKind.ARRAY || elements == Null Then Return Null
@@ -286,9 +303,8 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         Return at
     End Method
 
-    /// Gives an Object's key a Value, adding the key when it isn't there, or replaces an Array's
-    /// element. Panics on another kind, at an index past the Array's, or for a value that is
-    /// this one or holds it.
+    /// Gives an Object's `key` the `value`, adding the key when it isn't there. Panics on another
+    /// kind, or for a `value` that is this one or holds it.
     @PanicsAtCaller
     Operator []=(key: String, value: Value)
         Local entries = ObjectEntries("a Value's [key] =")
@@ -296,6 +312,8 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         entries[key] = value
     End Operator
 
+    /// Replaces an Array's element at the `index` with `value`. Panics on another kind, at an index
+    /// past the Array's, or for a `value` that is this one or holds it.
     @PanicsAtCaller
     Operator []=(index: Int, value: Value)
         Local elements = ArrayElements("a Value's [index] =")

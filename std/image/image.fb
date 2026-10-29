@@ -14,14 +14,37 @@ Import std.image.codec
 
 /// The formats std.image reads, which Image.FormatOf tells apart.
 Public Enum ImageFormat
-    PNG, JPEG, BMP, TGA, GIF, HDR, QOI, WEBP
+    /// PNG.
+    PNG
+    /// JPEG.
+    JPEG
+    /// Windows's BMP.
+    BMP
+    /// Truevision's TGA.
+    TGA
+    /// GIF, its first frame.
+    GIF
+    /// Radiance's HDR.
+    HDR
+    /// QOI, the Quite OK Image format.
+    QOI
+    /// WebP.
+    WEBP
 End Enum
 
-/// How Resize gives a pixel the colors of those under it: the nearest one's, or a weighted sum by
-/// a box, a triangle, Keys's cubic, or Lanczos's 3 lobes, the filter widened as the image shrinks,
-/// as Pillow resamples. LANCZOS is the sharpest, and BOX the average of what shrinks into a pixel.
+/// How Resize gives a pixel the colors of those under it, as Pillow resamples, the filter widened
+/// as the image shrinks.
 Public Enum ResizeFilter
-    NEAREST, BOX, BILINEAR, BICUBIC, LANCZOS
+    /// The nearest one's.
+    NEAREST
+    /// A box's weighted sum, the average of what shrinks into a pixel.
+    BOX
+    /// A triangle's weighted sum.
+    BILINEAR
+    /// Keys's cubic's weighted sum.
+    BICUBIC
+    /// Lanczos's 3 lobes' weighted sum, the sharpest.
+    LANCZOS
 End Enum
 
 /// A picture's pixels, in rows from the top, each RGBA, 8 bits a channel, its alpha straight.

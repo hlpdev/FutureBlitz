@@ -47,7 +47,16 @@ End Struct
 
 /// How a ZipWriter compresses an entry.
 Public Enum ZipMethod
-    STORE, DEFLATE, LZMA, XZ, ZSTD
+    /// Stored as it is, not compressed.
+    STORE
+    /// Deflate, which every zip reader reads.
+    DEFLATE
+    /// LZMA.
+    LZMA
+    /// XZ.
+    XZ
+    /// Zstandard.
+    ZSTD
 End Enum
 
 /// A new zip, an entry at a time: Add puts in a file, AddFolder a folder, and Finish gives the zip

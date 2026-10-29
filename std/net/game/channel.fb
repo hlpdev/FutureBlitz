@@ -11,7 +11,12 @@ Import std.net.game.packet
 
 /// What a channel promises of its messages.
 Public Enum ChannelKind: UInt8
-    RELIABLE_ORDERED, RELIABLE_UNORDERED, UNRELIABLE
+    /// Each arrives, in the order it was sent.
+    RELIABLE_ORDERED
+    /// Each arrives, in any order.
+    RELIABLE_UNORDERED
+    /// Each arrives or doesn't, in any order.
+    UNRELIABLE
 End Enum
 
 /// How far a reliable channel's newest message in flight can be ahead of its oldest one not yet

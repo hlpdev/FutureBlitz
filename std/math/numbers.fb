@@ -82,7 +82,7 @@ Public Interface Integer Extends Bounded
     Static Method BitWidth(): Int
     /// The `value`'s bits, BitWidth of them, in a UInt64's low bits, the rest 0.
     Static Method LowBits(value: Self): UInt64
-    /// The value whose bits are the UInt64's low BitWidth `bits`.
+    /// The value whose bits are the low BitWidth of `bits`.
     Static Method FromLowBits(bits: UInt64): Self
 End Interface
 
@@ -127,7 +127,7 @@ Public Interface FloatingPoint Extends Bounded
     Static Method Acos(value: Self): Self
     /// The angle, in radians, whose tangent is `value`.
     Static Method Atan(value: Self): Self
-    /// The angle, in radians, of the point (`x`, `y`) from the positive `x` axis, from -pi to pi.
+    /// The angle, in radians, of the point (`x`, `y`) from the positive x axis, from -pi to pi.
     Static Method Atan2(y: Self, x: Self): Self
     /// The hyperbolic sine of `value`.
     Static Method Sinh(value: Self): Self
@@ -143,7 +143,7 @@ Public Interface FloatingPoint Extends Bounded
     Static Method Atanh(value: Self): Self
     /// What's left of `a` divided by `b`, with `a`'s sign, as C's fmod gives it.
     Static Method Rem(a: Self, b: Self): Self
-    /// `magnitude`'s size with `sign`'s `sign`.
+    /// `magnitude`'s size with `sign`'s sign.
     Static Method CopySign(magnitude: Self, sign: Self): Self
     /// `a` times `b`, plus `c`, rounded once.
     Static Method Fma(a: Self, b: Self, c: Self): Self

@@ -7,10 +7,11 @@ Import std.ffi
 Import std.math
 Import std.io.streams
 
-/// The order of a number's bytes: its lowest first, as x86-64's and AArch64's memory has them, or
-/// its highest first, as network protocols do.
+/// The order of a number's bytes.
 Public Enum ByteOrder
+    /// Its lowest byte first, as x86-64's and AArch64's memory has them.
     LITTLE
+    /// Its highest byte first, as network protocols do.
     BIG
 End Enum
 

@@ -16,10 +16,14 @@ Extern "runtime"
     Function fb_os_process_arguments(into: String[])
 End Extern
 
-/// Where a child's stream goes: to this program's own, through a pipe that this program writes
-/// or reads, or nowhere, so its stdin has nothing, and what it writes is dropped.
+/// Where a child's stream goes.
 Public Enum Stdio
-    INHERIT, PIPED, NONE
+    /// To this program's own.
+    INHERIT
+    /// Through a pipe that this program writes or reads.
+    PIPED
+    /// Nowhere, so its stdin has nothing, and what it writes is dropped.
+    NONE
 End Enum
 
 /// What a child wrote to its stdout and stderr, and how it ended.

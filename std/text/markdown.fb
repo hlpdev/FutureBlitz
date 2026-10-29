@@ -28,7 +28,9 @@ Public Enum MarkdownExtensions
     /// out, and those it lacks are empty. A '|' in a code span doesn't split cells, and a "\|"
     /// in a cell is a '|', a code span's too.
     Tables
+    /// A list item that starts with `[ ]`, `[x]`, or `[X]` is a task, not done or done.
     TaskLists
+    /// Text between ~ or ~~ is struck through.
     Strikethrough
     /// A link from an http://, https://, or ftp:// URL, a www. address, or an e-mail address, with
     /// a space, a line's start, or an opening bracket before it, and a space, a line's end, a
@@ -43,39 +45,69 @@ End Enum
 
 /// What a node of a document is: a block, a span inside one, or text.
 Public Enum MarkdownKind
+    /// The whole document.
     Document
+    /// A block quote.
     Quote
+    /// A bullet list.
     BulletList
+    /// A numbered list.
     OrderedList
+    /// A list's item.
     ListItem
+    /// A thematic break, a line across.
     ThematicBreak
+    /// A heading.
     Heading
+    /// A block of code.
     CodeBlock
+    /// A block of HTML.
     HtmlBlock
+    /// A paragraph.
     Paragraph
+    /// A table.
     Table
+    /// A table's head.
     TableHead
+    /// A table's body.
     TableBody
+    /// A table's row.
     TableRow
+    /// A cell of a table's head.
     TableHeaderCell
+    /// A cell of a table's body.
     TableCell
+    /// Emphasized text.
     Emphasis
+    /// Strongly emphasized text.
     Strong
+    /// A link.
     Link
+    /// An image.
     Image
+    /// A code span.
     Code
+    /// Struck-through text.
     Strikethrough
+    /// Text.
     Text
+    /// A line break that a renderer can make a space.
     SoftBreak
+    /// A line break that stays.
     HardBreak
+    /// HTML in a block's text.
     Html
 End Enum
 
 /// How a table's column lines up its cells: as HTML does unless it says.
 Public Enum MarkdownAlignment
+    /// As HTML does.
     None
+    /// To the left.
     Left
+    /// In the middle.
     Center
+    /// To the right.
     Right
 End Enum
 

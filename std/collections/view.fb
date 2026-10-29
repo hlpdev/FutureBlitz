@@ -133,6 +133,7 @@ Public Class ReadOnlyArray<T> Implements Iterable<T>
         Get => Items.Count
     End Property
 
+    /// The value at `index`, which panics outside it.
     @PanicsAtCaller
     Operator [](index: Int): T => Items[index]
 

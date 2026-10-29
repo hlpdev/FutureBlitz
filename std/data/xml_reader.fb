@@ -13,7 +13,18 @@ Import std.data.text
 
 /// What an XmlEvent is.
 Public Enum XmlEventKind
-    START, END, TEXT, CDATA, COMMENT, INSTRUCTION
+    /// An element's start tag.
+    START
+    /// An element's end tag, which an empty element has right after its START too.
+    END
+    /// Text.
+    TEXT
+    /// A CDATA section's text.
+    CDATA
+    /// A comment.
+    COMMENT
+    /// A processing instruction.
+    INSTRUCTION
 End Enum
 
 /// One part of a document, from an XmlReader.

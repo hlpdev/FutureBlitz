@@ -48,7 +48,16 @@ Const TAKES_PARAMETERS = -3
 
 /// SQLite's types of values: which one a Row's column holds.
 Public Enum ColumnType
-    INTEGER, REAL, TEXT, BLOB, NULL
+    /// An integer, as an Int64.
+    INTEGER
+    /// A floating-point number, as a Double.
+    REAL
+    /// Text, as a String.
+    TEXT
+    /// Bytes, as a UInt8[].
+    BLOB
+    /// No value.
+    NULL
 End Enum
 
 /// What a statement's parameter takes: an integer, a Bool as 1 or 0, a Float32 or Float64 as a

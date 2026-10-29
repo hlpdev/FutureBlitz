@@ -362,6 +362,7 @@ Public Struct Fixed32 Implements Numeric, Comparable, Hashable, Bounded, Printab
     @PanicsAtCaller
     Operator -(a: Fixed32, b: Fixed32): Fixed32 => Fixed32(a.Bits - b.Bits)
 
+    /// `a` negated.
     @PanicsAtCaller
     Operator -(a: Fixed32): Fixed32 => Fixed32(-a.Bits)
 
@@ -372,9 +373,11 @@ Public Struct Fixed32 Implements Numeric, Comparable, Hashable, Bounded, Printab
         Return Narrowed(((a.Bits As Int64) * b.Bits + 32768) >> 16, "*")
     End Operator
 
+    /// `a` times `b`.
     @PanicsAtCaller
     Operator *(a: Fixed32, b: Int): Fixed32 => Narrowed((a.Bits As Int64) * b, "*")
 
+    /// `a` times `b`.
     @PanicsAtCaller
     Operator *(a: Int, b: Fixed32): Fixed32 => Narrowed((b.Bits As Int64) * a, "*")
 
@@ -383,6 +386,7 @@ Public Struct Fixed32 Implements Numeric, Comparable, Hashable, Bounded, Printab
         Return Narrowed(Quotient((a.Bits As Int64) << 16, b.Bits), "/")
     End Operator
 
+    /// `a` divided by `b`.
     @PanicsAtCaller
     Operator /(a: Fixed32, b: Int): Fixed32 => Narrowed(Quotient(a.Bits, b), "/")
 End Struct
@@ -493,6 +497,7 @@ Public Struct Fixed64 Implements Numeric, Comparable, Hashable, Bounded, Printab
     @PanicsAtCaller
     Operator -(a: Fixed64, b: Fixed64): Fixed64 => Fixed64(a.Bits - b.Bits)
 
+    /// `a` negated.
     @PanicsAtCaller
     Operator -(a: Fixed64): Fixed64 => Fixed64(-a.Bits)
 
@@ -503,15 +508,18 @@ Public Struct Fixed64 Implements Numeric, Comparable, Hashable, Bounded, Printab
         Return Narrowed64(ShiftRounded(MultiplySigned(a.Bits, b.Bits), 32), "*")
     End Operator
 
+    /// `a` times `b`.
     @PanicsAtCaller
     Operator *(a: Fixed64, b: Int64): Fixed64 => Narrowed64(MultiplySigned(a.Bits, b), "*")
 
+    /// `a` times `b`.
     @PanicsAtCaller
     Operator *(a: Int64, b: Fixed64): Fixed64 => Narrowed64(MultiplySigned(b.Bits, a), "*")
 
     @PanicsAtCaller
     Operator /(a: Fixed64, b: Fixed64): Fixed64 => Divided(a.Bits, b.Bits)
 
+    /// `a` divided by `b`.
     @PanicsAtCaller
     Operator /(a: Fixed64, b: Int64): Fixed64 => Fixed64(Quotient(a.Bits, b))
 End Struct

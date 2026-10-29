@@ -31,17 +31,25 @@ Package Extern "runtime"
                                 antialias: Int32)
 End Extern
 
-/// How a stroke's open ends end: where the line does, BUTT; in a half circle, ROUND; or half the
-/// line's width past it, SQUARE.
+/// How a stroke's open ends end.
 Public Enum LineCap
-    BUTT, ROUND, SQUARE
+    /// Where the line does.
+    BUTT
+    /// In a half circle.
+    ROUND
+    /// Half the line's width past where the line does.
+    SQUARE
 End Enum
 
-/// How a stroke's corners are filled on their outside: to where its sides' edges meet, MITER,
-/// unless that's more than MiterLimit times the width from the inside corner, when it's a bevel;
-/// in the circle of the line's width, ROUND; or cut straight across, BEVEL.
+/// How a stroke's corners are filled on their outside.
 Public Enum LineJoin
-    MITER, ROUND, BEVEL
+    /// To where its sides' edges meet, unless that's more than MiterLimit times the width from the
+    /// inside corner, when it's a bevel.
+    MITER
+    /// In the circle of the line's width.
+    ROUND
+    /// Cut straight across.
+    BEVEL
 End Enum
 
 /// What draws on an Image: lines, shapes, paths, images, and text, filled or stroked, in a color or
@@ -133,7 +141,7 @@ Public Class Canvas
         Stroke([CornersOf(rect)], True, color)
     End Method
 
-    /// Strokes the line from a to `b`. Panics when either isn't finite.
+    /// Strokes the line from `a` to `b`. Panics when either isn't finite.
     @PanicsAtCaller
     Public Method StrokeLine(a: Vec2, b: Vec2, color: Color32)
         Stroke([[a, b]], False, color)

@@ -39,7 +39,7 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
         Get => Count
     End Property
 
-    /// It in a unit, with a fraction for what's left: 90 seconds' TotalMinutes is 1.5.
+    /// It in microseconds, with a fraction for what's left: 1500 nanoseconds is 1.5.
     Public Property TotalMicroseconds: Double
         Get => (Count As Double) / 1.0e3
     End Property
@@ -224,67 +224,104 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
 
     Operator <(a: Duration, b: Duration): Bool => a.Count < b.Count
 
-    /// Sums and differences, which panic past the longest Durations, as an Int64's overflow does.
+    /// `a` plus `b`, which panics past the longest Durations, as an Int64's overflow does.
     @PanicsAtCaller
     Operator +(a: Duration, b: Duration): Duration => Duration(a.Count + b.Count)
+    /// `a` minus `b`, which panics past the longest Durations, as an Int64's overflow does.
     @PanicsAtCaller
     Operator -(a: Duration, b: Duration): Duration => Duration(a.Count - b.Count)
+    /// `a` negated, which panics past the longest Durations, as an Int64's overflow does.
     @PanicsAtCaller
     Operator -(a: Duration): Duration => Duration(-a.Count)
 
-    /// Scaled by a whole number of any type an Int64 holds, exactly, or by a Double, to the
-    /// nearest nanosecond, ties to even. One longer than a Duration holds panics, as an Int64's
-    /// overflow does, and so does a Double that isn't a number.
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: Duration, b: Int8): Duration => Duration(a.Count * (b As Int64))
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: Duration, b: Int16): Duration => Duration(a.Count * (b As Int64))
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: Duration, b: Int32): Duration => Duration(a.Count * b)
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: Duration, b: Int64): Duration => Duration(a.Count * b)
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: Duration, b: UInt8): Duration => Duration(a.Count * (b As Int64))
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: Duration, b: UInt16): Duration => Duration(a.Count * (b As Int64))
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: Duration, b: UInt32): Duration => Duration(a.Count * (b As Int64))
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: Int8, b: Duration): Duration => Duration((a As Int64) * b.Count)
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: Int16, b: Duration): Duration => Duration((a As Int64) * b.Count)
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: Int32, b: Duration): Duration => Duration(a * b.Count)
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: Int64, b: Duration): Duration => Duration(a * b.Count)
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: UInt8, b: Duration): Duration => Duration((a As Int64) * b.Count)
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: UInt16, b: Duration): Duration => Duration((a As Int64) * b.Count)
+    /// `a` times `b`, exactly. One longer than a Duration holds panics, as an Int64's overflow
+    /// does.
     @PanicsAtCaller
     Operator *(a: UInt32, b: Duration): Duration => Duration((a As Int64) * b.Count)
+    /// `a` times `b`, to the nearest nanosecond, ties to even. One longer than a Duration holds
+    /// panics, and so does a `b` that isn't a number.
     @PanicsAtCaller
     Operator *(a: Duration, b: Double): Duration => Scaled(a, b)
+    /// `a` times `b`, to the nearest nanosecond, ties to even. One longer than a Duration holds
+    /// panics, and so does an `a` that isn't a number.
     @PanicsAtCaller
     Operator *(a: Double, b: Duration): Duration => Scaled(b, a)
 
-    /// Divided by a whole number, rounded toward 0, or by a Double, to the nearest nanosecond,
-    /// ties to even; or by another Duration, as how many of it fit, with a fraction. Dividing by
-    /// 0 panics, as an Int's / does, and so does dividing by a Double that isn't a number.
+    /// `a` divided by `b`, rounded toward 0. Dividing by 0 panics, as an Int's / does.
     @PanicsAtCaller
     Operator /(a: Duration, b: Int8): Duration => Duration(a.Count / (b As Int64))
+    /// `a` divided by `b`, rounded toward 0. Dividing by 0 panics, as an Int's / does.
     @PanicsAtCaller
     Operator /(a: Duration, b: Int16): Duration => Duration(a.Count / (b As Int64))
+    /// `a` divided by `b`, rounded toward 0. Dividing by 0 panics, as an Int's / does.
     @PanicsAtCaller
     Operator /(a: Duration, b: Int32): Duration => Duration(a.Count / b)
+    /// `a` divided by `b`, rounded toward 0. Dividing by 0 panics, as an Int's / does.
     @PanicsAtCaller
     Operator /(a: Duration, b: Int64): Duration => Duration(a.Count / b)
+    /// `a` divided by `b`, rounded toward 0. Dividing by 0 panics, as an Int's / does.
     @PanicsAtCaller
     Operator /(a: Duration, b: UInt8): Duration => Duration(a.Count / (b As Int64))
+    /// `a` divided by `b`, rounded toward 0. Dividing by 0 panics, as an Int's / does.
     @PanicsAtCaller
     Operator /(a: Duration, b: UInt16): Duration => Duration(a.Count / (b As Int64))
+    /// `a` divided by `b`, rounded toward 0. Dividing by 0 panics, as an Int's / does.
     @PanicsAtCaller
     Operator /(a: Duration, b: UInt32): Duration => Duration(a.Count / (b As Int64))
+    /// `a` divided by `b`, to the nearest nanosecond, ties to even. Dividing by 0 panics, and so
+    /// does a `b` that isn't a number.
     @PanicsAtCaller
     Operator /(a: Duration, b: Double): Duration
         If b == 0.0 Then Panic("division by zero")
@@ -304,13 +341,15 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
         Return Nearest(whole, fraction, "{a} / {b}")
     End Operator
 
+    /// How many of `b` fit in `a`, with a fraction. Dividing by a `b` of 0 panics.
     @PanicsAtCaller
     Operator /(a: Duration, b: Duration): Double
         If b.Count == 0 Then Panic("division by zero")
         Return (a.Count As Double) / (b.Count As Double)
     End Operator
 
-    /// What's left of a over b, with a's sign, as an Int's % has, which panics for a b of 0.
+    /// What's left of `a` over `b`, with `a`'s sign, as an Int's % has, which panics for a
+    /// `b` of 0.
     @PanicsAtCaller
     Operator %(a: Duration, b: Duration): Duration => Duration(a.Count % b.Count)
 End Struct
