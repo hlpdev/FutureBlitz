@@ -2518,13 +2518,58 @@ TEST_CASE("fb fmt leaves a file that doesn't parse, with its errors", "[cli]") {
     CHECK(read_file(broken) == "Print( 1\n");
 }
 
+TEST_CASE("fb fmt takes a .fb file's extension in any letter case", "[cli]") {
+    const std::filesystem::path loud = write_source("FMT_LOUD.FB", "Print( 2 )\n");
+    const fb::process_result_t formatted = fb_run({ "fmt", fb::to_utf8(loud) });
+    INFO(formatted.output);
+    CHECK(formatted.exit_code == 0);
+    CHECK(read_file(loud) == "Print(2)\n");
+}
+
+TEST_CASE("fb fmt formats a file it's given twice, by two paths, once", "[cli]") {
+    const std::filesystem::path root = std::filesystem::path(FB_TEST_OUTPUT) / "fmt_twice";
+    std::filesystem::remove_all(root);
+    write_source("fmt_twice/src/main.fb", "Print( 1 )\n");
+    const fb::process_result_t checked = fb_run(
+        { "fmt", "--check", fb::to_utf8(root), fb::to_utf8(root / "." / "src" / "main.fb") });
+    INFO(checked.output);
+    CHECK(checked.exit_code == 1);
+    CHECK(checked.output.contains("1 file isn't formatted"));
+    std::size_t listed = 0;
+    for (std::size_t at = checked.output.find("main.fb"); at != std::string::npos;
+         at = checked.output.find("main.fb", at + 1)) {
+        ++listed;
+    }
+
+    CHECK(listed == 1);
+}
+
+TEST_CASE("fb fmt shows project.toml's warnings, as a misspelled width", "[cli]") {
+    const std::filesystem::path root = std::filesystem::path(FB_TEST_OUTPUT) / "fmt_typo";
+    std::filesystem::remove_all(root);
+    write_source("fmt_typo/project.toml",
+                 "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n[format]\nwidht = 40\n");
+    write_source("fmt_typo/main.fb", "Print(1)\n");
+    write_source("fmt_typo/other.fb", "Print(2)\n");
+    const fb::process_result_t checked = fb_run({ "fmt", "--check", fb::to_utf8(root) });
+    INFO(checked.output);
+    CHECK(checked.exit_code == 0);
+    // Once for the package, not for each file.
+    const std::size_t first = checked.output.find("warning: [format] doesn't use 'widht'");
+    CHECK(first != std::string::npos);
+    CHECK(checked.output.find("warning: [format] doesn't use 'widht'", first + 1) ==
+          std::string::npos);
+}
+
 TEST_CASE("fb fmt's usage mistakes", "[cli]") {
     check_usage_error({ "fmt", fb::to_utf8(std::filesystem::path(FB_TEST_OUTPUT) / "nowhere") },
                       "there's no file or folder");
     check_usage_error({ "fmt", fb::to_utf8(write_source("fmt_text.txt", "text")) },
                       "fmt_text.txt isn't a .fb file");
     check_usage_error({ "fmt", "--release" },
-                      "'--release' doesn't work with 'fb fmt', which takes --check");
+                      "'--release' doesn't work with 'fb fmt', whose options are --check and "
+                      "--color");
+    check_usage_error({ "fmt", "--check=yes" }, "'--check' takes no value");
     check_usage_error({ "build", "--check" }, "'--check' only works with 'fb fmt'");
 
     const fb::process_result_t help = fb_run({ "help", "fmt" });

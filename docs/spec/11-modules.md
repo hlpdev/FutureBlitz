@@ -139,6 +139,9 @@ physics = { path = "../physics" }
   errors at their lines. A version string for a dependency, like `physics = "1.2"`, waits for the
   package manager. A project.toml that can't be read stops the command, as a `.fb` file that
   can't be read does.
+- `[format]` has `width`, the line width `fb fmt` formats the package's code to: a whole number
+  of columns from 40 to 1000, 100 without it (see [tooling.md](../tooling.md#the-formatter-step-6)).
+  A width outside that range is an error.
 - A dependency's own project.toml names it as `[dependencies]` does, and so do the packages it
   depends on, each read once, by whatever path reaches its folder, however many packages depend
   on it. Two packages of one name, and packages that depend on each other in a cycle, are

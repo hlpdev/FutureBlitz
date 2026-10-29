@@ -266,10 +266,13 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
             continue;
         }
 
+        if (options.command == command_t::FMT && name == "--check") {
+            return std::unexpected("'--check' takes no value");
+        }
+
         if (options.command == command_t::FMT && name != "--color") {
-            return std::unexpected(std::format("'{}' doesn't work with 'fb fmt', which takes "
-                                               "--check",
-                                               name));
+            return std::unexpected(std::format(
+                "'{}' doesn't work with 'fb fmt', whose options are --check and --color", name));
         }
 
         if (argument == "--check") {

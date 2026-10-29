@@ -85,11 +85,21 @@ public:
             }
         }
 
+        // Each file once, however it was reached, as "src/main.fb" and "./src/main.fb" are, by
+        // the spelling it was first found by.
         std::ranges::sort(found);
-        const auto repeats = std::ranges::unique(found);
-        found.erase(repeats.begin(), repeats.end());
+        std::vector<std::filesystem::path> seen;
         for (const std::filesystem::path& path : found) {
-            format_file(path);
+            std::error_code error;
+            std::filesystem::path key = std::filesystem::weakly_canonical(path, error);
+            if (error) {
+                key = std::filesystem::absolute(path, error).lexically_normal();
+            }
+
+            if (!std::ranges::contains(seen, key)) {
+                seen.push_back(std::move(key));
+                format_file(path);
+            }
         }
 
         if (m_failed > 0) {
@@ -128,7 +138,12 @@ private:
     bool collect(const std::filesystem::path& path, std::vector<std::filesystem::path>& found) {
         std::error_code error;
         if (std::filesystem::is_regular_file(path, error)) {
-            if (path.extension() != ".fb") {
+            // Its extension in any letter case, as the other commands take it.
+            std::string extension = to_utf8(path.extension());
+            std::ranges::transform(extension, extension.begin(), [](const char c) {
+                return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+            });
+            if (extension != ".fb") {
                 this->error(std::format("{} isn't a .fb file", to_utf8(path)));
                 return false;
             }
@@ -195,10 +210,11 @@ private:
             diagnostic_bag_t diagnostics;
             const std::optional<manifest_t> manifest =
                 read_manifest(sources.get(*loaded), diagnostics);
+            // Its warnings too, once for the package, as a key it doesn't use may be a misspelled
+            // width.
+            report(diagnostics.diagnostics(), sources);
             if (manifest) {
                 width = manifest->format_width.value_or(default_format_width);
-            } else {
-                report(diagnostics.diagnostics(), sources);
             }
         }
 
