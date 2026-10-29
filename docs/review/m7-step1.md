@@ -128,7 +128,7 @@ check_embeds() reports every Embed inside a kept Field's text, and every Field o
 
 Fix: For a Class's Fields, keep the default out of the Embed check, or don't write it, since programs never compile it. Keep the check for code a program actually compiles. Add a test.
 
-Status: fixed: a Class's Field defaults are its New's, in the binary, written as "= ...", so an Embed in one is the library's own
+Status: fixed: a Class's Field defaults are its New's, in the binary, written as "= ...", so an Embed in one is the library's own; revised in step 2, where a Field's default is written as its value, and an EmbedText one as its text (decisions.md)
 
 ## loader-3 (low): A prebuilt package without a .fbi for this build's mode or target silently becomes an empty source library, with misleading messages
 

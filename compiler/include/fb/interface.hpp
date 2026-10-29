@@ -20,15 +20,27 @@ namespace fb {
 /// Writes the interface file of the library that `compilation` checked without errors (spec 11):
 /// FutureBlitz source for `mode` and this target, with every #If resolved, holding every Public
 /// declaration, with the bodies of generic, @Inline, and Const code, the Private and Package
-/// declarations that code reaches, and every Field of the types it shows. A declaration whose
-/// code stays in the library's binary is its first line and "=> ...", or for a Global or Static
-/// Field, "= ...". nullopt after an error in `diagnostics`, at what can't go in one, like an
-/// Embed in code it keeps.
-/// Its ABI hash covers `code`, the library's binary's.
+/// declarations that code reaches, every member of the types it shows, Private ones as their
+/// first lines, and every Extend, after a line for each package it's built with. A declaration
+/// whose code stays in the library's binary is its first line and "=> ...", or for a Global or
+/// Static Field, "= ...". nullopt after an error in `diagnostics`, at what can't go in one, like
+/// an Embed in code it keeps. Its ABI hash covers `code`, the library's binary's.
 [[nodiscard]] std::optional<std::string> write_interface(const compilation_t& compilation,
                                                          build_mode_t mode,
                                                          diagnostic_bag_t& diagnostics,
                                                          std::string_view code = {});
+
+/// The ABI hash of a library's build for `mode` and this target and fb: of `body`, its interface
+/// file's text after its first line, and `code`, its binary's.
+[[nodiscard]] std::string abi_hash(std::string_view body, std::string_view code, build_mode_t mode);
+
+/// The build of a package compiled from source: "source:" and a hash of its files' paths and
+/// texts.
+[[nodiscard]] std::string source_build(std::vector<library_file_t> files);
+
+/// The builds an interface file says its library was built with, from its "// uses <name>
+/// <version> <build>" lines. nullopt when it isn't an interface file.
+[[nodiscard]] std::optional<std::vector<package_build_t>> interface_uses(std::string_view text);
 
 /// A .fblib's bytes: "// fblib <name> <version> <hash>", "// bundled <names>", and the code.
 [[nodiscard]] std::string write_binary(const library_binary_t& binary);

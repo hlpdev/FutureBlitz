@@ -15,6 +15,7 @@
 #include <iterator>
 #include <map>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <span>
 #include <string>
@@ -33,6 +34,7 @@ constexpr std::string_view header_start = "// fbi ";
 constexpr std::string_view binary_start = "// fblib ";
 constexpr std::string_view bundled_start = "// bundled";
 constexpr std::string_view module_start = "// module ";
+constexpr std::string_view uses_start = "// uses ";
 
 /// One of the library's modules as the interface file writes it: its file's tokens, lexed for
 /// the build's mode, and the hidden Imports its printed types need, by module. Making its map
@@ -200,6 +202,23 @@ public:
             if (m_analysis.exprs[i].embeds) {
                 m_embeds.push_back(static_cast<expr_id_t>(i));
             }
+
+            // A name that analysis resolved refers to its symbol, at the name's place.
+            const expr_t& expr = m_ast.get(static_cast<expr_id_t>(i));
+            if (const std::optional<symbol_id_t> symbol = m_analysis.exprs[i].symbol) {
+                if (std::holds_alternative<name_expr_t>(expr.node)) {
+                    m_referred.emplace(place_of(expr.span), *symbol);
+                } else if (const auto* member = std::get_if<member_expr_t>(&expr.node)) {
+                    m_referred.emplace(place_of(member->member.span), *symbol);
+                }
+            }
+        }
+
+        // Where each symbol is declared, its name isn't a use of another.
+        for (const symbol_t& symbol : m_analysis.symbols) {
+            if (!symbol.name.empty() && symbol.span.end > symbol.span.begin) {
+                m_declared.insert(place_of(symbol.span));
+            }
         }
     }
 
@@ -241,13 +260,26 @@ private:
     std::vector<candidate_t> m_candidates;
     /// Each statement's candidate.
     std::map<stmt_id_t, std::size_t> m_by_statement;
-    /// The names the included declarations' kept text uses.
+    /// The names the included declarations' kept text uses that analysis didn't resolve, like a
+    /// type's in a header, which reach any declaration of that name.
     std::set<std::string_view, std::less<>> m_names;
+    /// What the kept text's resolved names refer to: their declarations, and each module's
+    /// names, which reach a Function's overloads too.
+    std::set<stmt_id_t> m_reached;
+    std::set<std::pair<std::size_t, std::string_view>> m_reached_names;
+    /// The symbol each resolved name refers to, and where each symbol's name is declared, by
+    /// file and offset.
+    std::map<std::pair<file_id_t, std::uint32_t>, symbol_id_t> m_referred;
+    std::set<std::pair<file_id_t, std::uint32_t>> m_declared;
     /// The Embeds, EmbedTexts, and EmbedFolders of the program.
     std::vector<expr_id_t> m_embeds;
     /// The Global or Field whose type is being written.
     name_t m_typed;
     bool m_failed = false;
+
+    [[nodiscard]] static std::pair<file_id_t, std::uint32_t> place_of(const span_t span) {
+        return { span.file, span.begin };
+    }
 
     [[nodiscard]] std::optional<std::size_t> module_index(const file_id_t file) const {
         for (std::size_t i = 0; i < m_modules.size(); ++i) {
@@ -429,8 +461,11 @@ private:
             return false;
         }
 
-        return candidate.shown || candidate.always ||
-               (!candidate.name.empty() && m_names.contains(candidate.name));
+        return candidate.shown || candidate.always || m_reached.contains(candidate.id) ||
+               (!candidate.name.empty() &&
+                (m_names.contains(candidate.name) ||
+                 (!candidate.owner &&
+                  m_reached_names.contains({ candidate.module, candidate.name }))));
     }
 
     void include(const std::size_t index) {
@@ -532,7 +567,17 @@ private:
         const module_text_t& module = m_modules[m_candidates[index].module];
         for (const auto& [begin, end] : kept_ranges(index)) {
             for (const token_t& token : tokens_in(module, begin, end)) {
-                if (token.kind == token_kind_t::IDENTIFIER) {
+                if (token.kind != token_kind_t::IDENTIFIER) {
+                    continue;
+                }
+
+                // A name analysis resolved reaches what it refers to; a declaration's own, a
+                // member's, a parameter's, or a Local's, reaches nothing; and the rest, by
+                // spelling, anything of that name.
+                const auto place = std::pair(module.module->file, token.span.begin);
+                if (const auto found = m_referred.find(place); found != m_referred.end()) {
+                    reach(found->second, module.file->slice(token.span));
+                } else if (!m_declared.contains(place)) {
                     m_names.insert(module.file->slice(token.span));
                 }
             }
@@ -545,6 +590,26 @@ private:
         if (variable != nullptr && !variable->type && symbol &&
             (variable->kind == variable_kind_t::GLOBAL || variable->modifiers.is_static)) {
             note_type_names(m_analysis.symbol(*symbol).type);
+        }
+    }
+
+    /// Reaches a symbol's declaration, and the other declarations of its name in its module. A
+    /// member reaches its type too, and what has no declaration of its own, like a Struct's
+    /// constructor, reaches by the name it's `spelled`.
+    void reach(const symbol_id_t id, const std::string_view spelled) {
+        const symbol_t& symbol = m_analysis.symbol(id);
+        note_type_names(symbol.owner);
+        if (!symbol.declaration) {
+            m_names.insert(spelled);
+            return;
+        }
+
+        if (const auto found = m_by_statement.find(*symbol.declaration);
+            found != m_by_statement.end()) {
+            m_reached.insert(*symbol.declaration);
+            if (!m_candidates[found->second].owner) {
+                m_reached_names.emplace(m_candidates[found->second].module, symbol.name);
+            }
         }
     }
 
@@ -890,12 +955,14 @@ private:
                 word = "Callback";
             }
 
+            // A result that ends in a Task with a Throws is in parentheses, or the Throws would be
+            // the Func's.
             const std::string throws =
                 type.throws.empty() ? std::string() : " Throws " + list(type.throws);
             return type.inner == type_id_t::NONE
                        ? std::format("{}({}){}", word, list(type.parameters), throws)
                        : std::format("{}({}): {}{}", word, list(type.parameters),
-                                     type_text(module, type.inner), throws);
+                                     listed(module, type.inner), throws);
         }
         default:
             return type.name;
@@ -1011,9 +1078,18 @@ std::vector<std::string_view> lines_of(const std::string_view text) {
     return lines;
 }
 
-/// The ABI hash of an interface file's text after its first line, for the build that writes it.
-/// The ABI hash of a library's build: its interface file's text after its first line, and its
-/// binary's code.
+/// A digest's hex digits.
+std::string hex_of(const std::array<std::uint8_t, 16>& digest) {
+    std::string hex;
+    for (const std::uint8_t byte : digest) {
+        hex += std::format("{:02x}", byte);
+    }
+
+    return hex;
+}
+
+} // namespace
+
 std::string abi_hash(const std::string_view body, const std::string_view code,
                      const build_mode_t mode) {
     blake3_hasher hasher;
@@ -1027,15 +1103,24 @@ std::string abi_hash(const std::string_view body, const std::string_view code,
     blake3_hasher_update(&hasher, code.data(), code.size());
     std::array<std::uint8_t, 16> digest{};
     blake3_hasher_finalize(&hasher, digest.data(), digest.size());
-    std::string hex;
-    for (const std::uint8_t byte : digest) {
-        hex += std::format("{:02x}", byte);
-    }
-
-    return hex;
+    return hex_of(digest);
 }
 
-} // namespace
+std::string source_build(std::vector<library_file_t> files) {
+    std::ranges::sort(files, {}, &library_file_t::path);
+    blake3_hasher hasher;
+    blake3_hasher_init(&hasher);
+    for (const library_file_t& file : files) {
+        const std::string sizes = std::format("{} {}\n", file.path.size(), file.text.size());
+        blake3_hasher_update(&hasher, sizes.data(), sizes.size());
+        blake3_hasher_update(&hasher, file.path.data(), file.path.size());
+        blake3_hasher_update(&hasher, file.text.data(), file.text.size());
+    }
+
+    std::array<std::uint8_t, 16> digest{};
+    blake3_hasher_finalize(&hasher, digest.data(), digest.size());
+    return "source:" + hex_of(digest);
+}
 
 std::string_view build_target() {
 #ifdef _WIN32
@@ -1063,13 +1148,25 @@ std::optional<std::string> write_interface(const compilation_t& compilation,
     }
 
     const package_info_t& package = *compilation.package;
-    const std::optional<std::string> body = writer_t(compilation, package, mode, diagnostics).run();
-    if (!body) {
+    const std::optional<std::string> modules =
+        writer_t(compilation, package, mode, diagnostics).run();
+    if (!modules) {
         return std::nullopt;
     }
 
+    // The builds it's built with, which a program that links it has to have, are its ABI's too.
+    std::vector<package_build_t> builds = compilation.builds;
+    std::ranges::sort(builds, {}, &package_build_t::name);
+    std::string body;
+    for (const package_build_t& build : builds) {
+        if (build.name != package.name) {
+            body += std::format("{}{} {} {}\n", uses_start, build.name, build.version, build.build);
+        }
+    }
+
+    body += *modules;
     return std::format("{}{} {} {}\n{}", header_start, package.name, package.version,
-                       abi_hash(*body, code, mode), *body);
+                       abi_hash(body, code, mode), body);
 }
 
 std::string write_binary(const library_binary_t& binary) {
@@ -1139,11 +1236,38 @@ std::optional<interface_header_t> read_interface_header(const std::string_view t
     };
 }
 
+std::optional<std::vector<package_build_t>> interface_uses(const std::string_view text) {
+    const std::vector<std::string_view> lines = lines_of(text);
+    std::vector<package_build_t> builds;
+    for (std::size_t at = 1; at < lines.size() && lines[at].starts_with(uses_start); ++at) {
+        std::vector<std::string_view> words;
+        for (const auto word : std::views::split(lines[at].substr(uses_start.size()), ' ')) {
+            words.emplace_back(word.begin(), word.end());
+        }
+
+        if (words.size() != 3) {
+            return std::nullopt;
+        }
+
+        builds.push_back({
+            .name = std::string(words[0]),
+            .version = std::string(words[1]),
+            .build = std::string(words[2]),
+        });
+    }
+
+    return builds;
+}
+
 std::optional<std::vector<library_file_t>> interface_modules(const std::string_view text) {
     const std::vector<std::string_view> lines = lines_of(text);
     std::vector<library_file_t> modules;
-    // The first line names the build.
+    // The first line names the build, and the next the builds it's built with.
     std::size_t at = 1;
+    while (at < lines.size() && lines[at].starts_with(uses_start)) {
+        ++at;
+    }
+
     while (at < lines.size()) {
         const std::string_view line = lines[at];
         const std::size_t space = line.rfind(' ');

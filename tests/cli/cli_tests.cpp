@@ -3061,6 +3061,32 @@ TEST_CASE("fb names what keeps a library beside the executable from building or 
     CHECK(first.output == "two 2\n");
 #endif
 
+    // A file of another build that takes what this executable doesn't have still says it's that
+    // build, though it can't be bound.
+    write("swap/project.toml", "[project]\nname = \"swap\"\nversion = \"0.1.0\"\n\n" + uses_lib);
+    write("swap/main.fb", "Import std.core\nImport lib\nPrint(\"{F(1)}\")\n");
+    REQUIRE(fb_run({ "build", fb::to_utf8(folder / "swap") }).exit_code == 0);
+    write("newer/project.toml",
+          "[project]\nname = \"lib\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("newer/lib.fb", "Import std.text\n"
+                          "Public Function F(n: Int): Int => n + 1\n"
+                          "Public Function G(s: String): String => s.ToUpper()\n");
+    write("swapped/project.toml",
+          "[project]\nname = \"swap\"\nversion = \"0.1.0\"\n\n"
+          "[dependencies]\nlib = { path = \"../newer\", link = \"beside\" }\n");
+    write("swapped/main.fb", "Import std.core\nImport lib\nPrint(\"{F(1)} {G(\"a\")}\")\n");
+    REQUIRE(fb_run({ "build", fb::to_utf8(folder / "swapped") }).exit_code == 0);
+    std::filesystem::copy_file(folder / "swapped/build" / library_file("lib"),
+                               folder / "swap/build" / library_file("lib"),
+                               std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::path swap = folder / "swap/build/swap";
+    swap += fb::executable_extension;
+    const fb::process_result_t swapped =
+        fb::run_process(swap, none).value_or(fb::process_result_t{ .exit_code = -1 });
+    INFO(swapped.output);
+    CHECK(swapped.exit_code == 1);
+    CHECK(swapped.output.contains(std::format("{} is the build lib 0.1.0 ", library_file("lib"))));
+
     // A library beside it that the program doesn't use is loaded and checked all the same.
     write("unused/project.toml",
           "[project]\nname = \"unused\"\nversion = \"0.1.0\"\n\n" + uses_lib);
@@ -3123,8 +3149,8 @@ TEST_CASE("M7's program embeds one prebuilt library and has another beside it, o
     const std::filesystem::path native =
         packages / "engine/native" / fb::path_from_utf8(fb::build_target());
     std::filesystem::create_directories(native);
-    for (const std::filesystem::path file :
-         { std::filesystem::path(FB_TEST_ENGINE), std::filesystem::path(FB_TEST_ENGINE_LINKED) }) {
+    const std::array<std::filesystem::path, 2> files{ FB_TEST_ENGINE, FB_TEST_ENGINE_LINKED };
+    for (const std::filesystem::path& file : files) {
         std::filesystem::copy_file(file, native / file.filename(),
                                    std::filesystem::copy_options::skip_existing);
     }
@@ -3155,4 +3181,133 @@ TEST_CASE("M7's program embeds one prebuilt library and has another beside it, o
     const std::string expected{ std::istreambuf_iterator<char>(file),
                                 std::istreambuf_iterator<char>() };
     CHECK(ran->output == expected);
+}
+
+TEST_CASE("a prebuilt library is the build it says, built with the program's builds", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "prebuilt_builds";
+    std::filesystem::remove_all(folder);
+    const folder_writer_t write{ folder };
+    write("base/project.toml",
+          "[project]\nname = \"base\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("base/base.fb", "Public Class A\n    Public Field n: Int = 1\nEnd Class\n");
+    write("mid/project.toml",
+          "[project]\nname = \"mid\"\nversion = \"0.1.0\"\ntype = \"library\"\n\n"
+          "[dependencies]\nbase = { path = \"../base-prebuilt\" }\n");
+    write("mid/mid.fb", "Import base\n"
+                        "Public Class B Extends A\n"
+                        "    Public Method Who(): String => \"B{n}\"\n"
+                        "End Class\n"
+                        "Public Function MakeB(): B => B()\n");
+    write("app/main.fb", "Import std.core\nImport mid\nPrint(MakeB().Who())\n");
+    prebuild(folder, "base");
+    prebuild(folder, "mid");
+    std::ifstream fbi(folder / "mid-prebuilt/lib" / fb::path_from_utf8(fb::build_target()) /
+                          "debug/mid.fbi",
+                      std::ios::binary);
+    std::string line;
+    std::getline(fbi, line);
+    std::getline(fbi, line);
+    CHECK(line.starts_with("// uses base 0.1.0 "));
+
+    // A dependency built again, and the library not, is an error naming both of its builds, as
+    // is a dependency from source that's changed, embedded or beside.
+    for (const std::string_view link : { "embed", "beside" }) {
+        write("app/project.toml",
+              std::format("[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\n"
+                          "base = {{ path = \"../base-prebuilt\" }}\n"
+                          "mid = {{ path = \"../mid-prebuilt\", link = \"{}\" }}\n",
+                          link));
+        write("base/base.fb", "Public Class A\n    Public Field n: Int = 1\nEnd Class\n");
+        prebuild(folder, "base");
+        const fb::process_result_t same = fb_run({ "run", fb::to_utf8(folder / "app") });
+        INFO(same.output);
+        CHECK(same.output.contains("B1\n"));
+
+        write("base/base.fb", "Public Class A\n"
+                              "    Public Field label: String = \"L\"\n"
+                              "    Public Field n: Int = 1\n"
+                              "End Class\n");
+        prebuild(folder, "base");
+        const fb::process_result_t stale = fb_run({ "run", fb::to_utf8(folder / "app") });
+        INFO(stale.output);
+        CHECK(stale.exit_code == 1);
+        CHECK(stale.output.contains("error: mid v0.1.0 was built with base v0.1.0 ("));
+        CHECK(stale.output.contains("), but the program has base v0.1.0 ("));
+        CHECK(stale.output.contains("); build mid again with it"));
+    }
+
+    // A debug build in the release folder, or an interface file that was changed, isn't the
+    // build its first line names.
+    const std::filesystem::path lib =
+        folder / "base-prebuilt/lib" / fb::path_from_utf8(fb::build_target());
+    std::filesystem::create_directories(lib / "release");
+    for (const std::string_view file : { "base.fbi", "base.fblib" }) {
+        std::filesystem::copy_file(lib / "debug" / file, lib / "release" / file,
+                                   std::filesystem::copy_options::overwrite_existing);
+    }
+
+    write("user/project.toml", "[project]\nname = \"user\"\nversion = \"0.1.0\"\n\n"
+                               "[dependencies]\nbase = { path = \"../base-prebuilt\" }\n");
+    write("user/main.fb", "Import std.core\nImport base\nPrint(\"{A().n}\")\n");
+    const fb::process_result_t moded = fb_run({ "run", fb::to_utf8(folder / "user"), "--release" });
+    INFO(moded.output);
+    CHECK(moded.exit_code == 1);
+    CHECK(moded.output.contains("isn't the build its first line names, base v0.1.0 ("));
+    CHECK(moded.output.contains("in release: it's another fb's, target's, or mode's build, or its "
+                                "files were changed; build base again"));
+    {
+        std::ifstream in(lib / "debug/base.fbi", std::ios::binary);
+        std::string text{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+        text.replace(text.find("Public Field n: Int = 1"), 23, "Public Field n: Int = 2");
+        std::ofstream(lib / "debug/base.fbi", std::ios::binary) << text;
+    }
+
+    const fb::process_result_t edited = fb_run({ "run", fb::to_utf8(folder / "user") });
+    INFO(edited.output);
+    CHECK(edited.exit_code == 1);
+    CHECK(edited.output.contains("isn't the build its first line names"));
+
+    // A library's binary that's the build it says but isn't bitcode is an error naming it,
+    // embedded or beside.
+    const std::string body = "// module fake/fake.fb 1\nPublic Function F(): Int => ...\n";
+    const std::string hash = fb::abi_hash(body, "not bitcode", fb::build_mode_t::DEBUG);
+    write("fake/project.toml",
+          "[project]\nname = \"fake\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    const std::string debug = std::format("fake/lib/{}/debug/", fb::build_target());
+    write(debug + "fake.fbi", std::format("// fbi fake 0.1.0 {}\n{}", hash, body));
+    write(debug + "fake.fblib",
+          std::format("// fblib fake 0.1.0 {}\n// bundled\nnot bitcode", hash));
+    write("faked/main.fb", "Import std.core\nImport fake\nPrint(\"{F()}\")\n");
+    for (const std::string_view link : { "embed", "beside" }) {
+        write("faked/project.toml",
+              std::format("[project]\nname = \"faked\"\nversion = \"0.1.0\"\n\n[dependencies]\n"
+                          "fake = {{ path = \"../fake\", link = \"{}\" }}\n",
+                          link));
+        const fb::process_result_t bad = fb_run({ "build", fb::to_utf8(folder / "faked") });
+        INFO(link << ' ' << bad.output);
+        CHECK(bad.exit_code == 1);
+        CHECK(bad.output.contains("fake.fblib's code isn't LLVM bitcode that this fb reads"));
+    }
+
+    // A library prebuilt with a dependency's source records its files, which a program with
+    // changed ones doesn't have.
+    write("src/project.toml",
+          "[project]\nname = \"src\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("src/src.fb", "Public Struct P\n    Public Field x: Int\nEnd Struct\n");
+    write("top/project.toml",
+          "[project]\nname = \"top\"\nversion = \"0.1.0\"\ntype = \"library\"\n\n"
+          "[dependencies]\nsrc = { path = \"../src\" }\n");
+    write("top/top.fb", "Import src\nPublic Function Make(): P => P(3)\n");
+    prebuild(folder, "top");
+    write("over/project.toml",
+          "[project]\nname = \"over\"\nversion = \"0.1.0\"\n\n[dependencies]\n"
+          "src = { path = \"../src\" }\ntop = { path = \"../top-prebuilt\" }\n");
+    write("over/main.fb", "Import std.core\nImport top\nPrint(\"{Make().x}\")\n");
+    CHECK(fb_run({ "run", fb::to_utf8(folder / "over") }).output.contains("3\n"));
+    write("src/src.fb",
+          "Public Struct P\n    Public Field y: Int\n    Public Field x: Int\nEnd Struct\n");
+    const fb::process_result_t changed = fb_run({ "run", fb::to_utf8(folder / "over") });
+    INFO(changed.output);
+    CHECK(changed.exit_code == 1);
+    CHECK(changed.output.contains("error: top v0.1.0 was built with src v0.1.0 (source:"));
 }

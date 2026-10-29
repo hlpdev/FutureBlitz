@@ -79,6 +79,9 @@ struct compilation_t { // NOLINT(bugprone-exception-escape)
     std::vector<std::filesystem::path> interfaces;
     /// The libraries beside its executable, in the order its project.toml names them.
     std::vector<beside_library_t> beside;
+    /// The builds of its packages, but its own, by name, which a library it builds records and a
+    /// prebuilt one it uses has to have been built with.
+    std::vector<package_build_t> builds;
     /// The files Embed, EmbedText, and EmbedFolder put in the program, each once, as messages
     /// name them: on disk, where they are. Each build reads them again, as it does `sources`,
     /// and a tool that rebuilds when the program's files change watches them too.

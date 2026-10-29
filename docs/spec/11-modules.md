@@ -161,7 +161,8 @@ physics = { path = "../physics" }
   `<folder>/build/<name>`, named after the package, or after another main file it was given, with
   the platform's extension, unless `-o` says where. `fb check` on a library checks each of its
   `.fb` files as a module of its own, but not those in its build/ folder, in hidden folders, or
-  in folders with a project.toml of their own; it has nothing to build or run.
+  in folders with a project.toml of their own; it has nothing to run, and `fb build` writes its
+  interface file and binary (see [Prebuilt libraries](#prebuilt-libraries)).
 - `[native]` names the package's C libraries, each by the name `Lib` gives it (see
   [12](12-ffi.md)): `joltc = "libs/joltc"`, or `joltc = { static = "libs/joltc" }`, is a static
   archive from the package's folder: the file itself, or without its `lib` prefix and its
@@ -271,6 +272,11 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
   and the mode. A program is built against one exact build of each library, and linking or
   loading another is an error that names both builds' names, versions, and hashes. Between
   versions a library's layouts and Method tables can change freely.
+- After it, a line `// uses <name> <version> <build>` names each package the library was built
+  with: a prebuilt one's hash, or `source:` and a hash of a source one's files. A program that
+  has another build of one stops with an error naming the library and both builds, and a
+  prebuilt library whose files aren't the build their first line names, for this fb, the target,
+  and the mode, is an error too.
 - A debug and a release build of a library differ, as their checks and panics do, so a prebuilt
   package has both, and a build links the one of its own mode.
 

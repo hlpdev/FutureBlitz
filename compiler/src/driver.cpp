@@ -2419,6 +2419,38 @@ void finish(const std::vector<package_t>& packages, const std::size_t index,
     finished.push_back(index);
 }
 
+/// The build a compilation has of each of `packages`: a prebuilt one's, from its interface
+/// file's first line, or for one compiled from source, its files'.
+void record_builds(compilation_t& compilation, const std::vector<package_t>& packages) {
+    for (const package_t& package : packages) {
+        std::string build;
+        if (!package.interface.empty()) {
+            std::ifstream in(package.interface, std::ios::binary);
+            std::string line;
+            std::getline(in, line);
+            build = read_interface_header(line).value_or(interface_header_t{}).hash;
+        } else {
+            std::vector<library_file_t> files;
+            for (const module_t& module : compilation.ast.modules().modules()) {
+                if (module.path.starts_with(package.prefix)) {
+                    files.push_back({
+                        .path = module.path,
+                        .text = std::string(compilation.sources.get(module.file).text()),
+                    });
+                }
+            }
+
+            build = source_build(std::move(files));
+        }
+
+        compilation.builds.push_back({
+            .name = package.name,
+            .version = package.version,
+            .build = std::move(build),
+        });
+    }
+}
+
 /// The native libraries of a program's packages, as link_program() takes them: each package's
 /// archives before those of the packages it depends on, the main package's first and then its
 /// dependencies' in its project.toml's order where nothing else decides, and each system
@@ -2507,6 +2539,7 @@ compile_package(const std::filesystem::path& folder,
     const package_t& own = packages->front();
     const manifest_t& manifest = reader.main();
     compilation.natives = natives_of(*packages, compilation.system_spans);
+    const std::vector<package_t> others(std::next(packages->begin()), packages->end());
     for (const package_t& package : *packages) {
         if (!package.beside && !package.interface.empty()) {
             compilation.interfaces.push_back(package.interface);
@@ -2573,6 +2606,7 @@ compile_package(const std::filesystem::path& folder,
         run_front_end(compilation,
                       { .root = root, .packages = std::move(*packages), .extra = std::move(extra) },
                       path, mode);
+        record_builds(compilation, others);
         return compilation;
     }
 
@@ -2586,6 +2620,7 @@ compile_package(const std::filesystem::path& folder,
     const std::filesystem::path root = own.root;
     const std::string path = own.prefix + program_path(own.root, main_path);
     run_front_end(compilation, { .root = root, .packages = std::move(*packages) }, path, mode);
+    record_builds(compilation, others);
     return compilation;
 }
 
@@ -2928,9 +2963,11 @@ std::expected<void, std::string> copy_beside(const std::vector<dynamic_native_t>
 namespace {
 
 /// A prebuilt library's binary, the .fblib beside its interface file, which has to be the same
-/// build.
+/// build, this fb's for this target and the mode of its folder, built with `builds`, the
+/// program's builds of the packages it was built with.
 std::expected<library_binary_t, std::string>
-read_prebuilt_binary(const std::filesystem::path& interface) {
+read_prebuilt_binary(const std::filesystem::path& interface,
+                     const std::vector<package_build_t>& builds) {
     std::filesystem::path path = interface;
     path.replace_extension(".fblib");
     const auto read = [](const std::filesystem::path& file) {
@@ -2964,6 +3001,38 @@ read_prebuilt_binary(const std::filesystem::path& interface) {
             "built against one build of a library",
             shown, built.name, built.version, built.hash, to_utf8(shown_disk_path(interface)),
             header->name, header->version, header->hash));
+    }
+
+    // Its hash is of its build's mode, target, and fb, its interface file, and its code.
+    const std::string shown_interface = to_utf8(shown_disk_path(interface));
+    const build_mode_t mode = interface.parent_path().filename() == "release"
+                                  ? build_mode_t::RELEASE
+                                  : build_mode_t::DEBUG;
+    std::string body(text->substr(std::min(text->find('\n'), text->size() - 1) + 1));
+    std::erase(body, '\r');
+    if (abi_hash(body, binary->code, mode) != header->hash) {
+        return std::unexpected(std::format(
+            "{} isn't the build its first line names, {} v{} ({}), of this fb, {}, for {} in {}: "
+            "it's another fb's, target's, or mode's build, or its files were changed; build {} "
+            "again",
+            shown_interface, header->name, header->version, header->hash, build_config::version,
+            build_target(), mode_folder(mode), header->name));
+    }
+
+    // And it's built with the builds of its packages that the program has.
+    const std::vector<package_build_t> uses =
+        interface_uses(*text).value_or(std::vector<package_build_t>{});
+    for (const package_build_t& used : uses) {
+        const auto found = std::ranges::find(builds, used.name, &package_build_t::name);
+        if (found != builds.end() &&
+            (found->version != used.version || found->build != used.build)) {
+            const auto named = [](const package_build_t& build) {
+                return std::format("{} v{} ({})", build.name, build.version, build.build);
+            };
+            return std::unexpected(std::format(
+                "{} v{} was built with {}, but the program has {}; build {} again with it",
+                header->name, header->version, named(used), named(*found), header->name));
+        }
     }
 
     return std::move(*binary);
@@ -3065,7 +3134,8 @@ std::expected<std::vector<library_binary_t>, std::string>
 prebuilt_binaries(const compilation_t& compilation) {
     std::vector<library_binary_t> binaries;
     for (const std::filesystem::path& interface : compilation.interfaces) {
-        std::expected<library_binary_t, std::string> binary = read_prebuilt_binary(interface);
+        std::expected<library_binary_t, std::string> binary =
+            read_prebuilt_binary(interface, compilation.builds);
         if (!binary) {
             return std::unexpected(binary.error());
         }
@@ -3078,11 +3148,13 @@ prebuilt_binaries(const compilation_t& compilation) {
 
 namespace {
 
-/// The binary of a library beside the executable: its prebuilt one, or a build of its source.
-std::expected<library_binary_t, std::string> beside_binary(const beside_library_t& library,
-                                                           const build_mode_t mode) {
+/// The binary of a library beside the executable: its prebuilt one, built with `builds`, the
+/// program's, or a build of its source.
+std::expected<library_binary_t, std::string>
+beside_binary(const beside_library_t& library, const build_mode_t mode,
+              const std::vector<package_build_t>& builds) {
     if (!library.interface.empty()) {
-        return read_prebuilt_binary(library.interface);
+        return read_prebuilt_binary(library.interface, builds);
     }
 
     const std::expected<compilation_t, std::string> compiled =
@@ -3150,7 +3222,8 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
     // And a library beside it is a file of its own.
     std::vector<library_binary_t> beside;
     for (const beside_library_t& library : compilation.beside) {
-        std::expected<library_binary_t, std::string> binary = beside_binary(library, mode);
+        std::expected<library_binary_t, std::string> binary =
+            beside_binary(library, mode, compilation.builds);
         if (!binary) {
             return std::unexpected(binary.error());
         }
@@ -3263,6 +3336,11 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
             .file = beside_file(compilation.beside[i].name),
             .build = std::format("{} {} {}", header.name, header.version, header.hash),
             .code = beside[i].code,
+            .source =
+                compilation.beside[i].interface.empty()
+                    ? std::format("the library {}", compilation.beside[i].name)
+                    : to_utf8(shown_disk_path(std::filesystem::path(compilation.beside[i].interface)
+                                                  .replace_extension(".fblib"))),
         });
         if (std::expected<void, std::string> read = read_beside_names(options.beside.back());
             !read) {

@@ -199,7 +199,9 @@ std::expected<std::string, library_problem_t> mach_o_name(const std::string_view
         return std::unexpected(library_problem_t::NOT_A_LIBRARY);
     }
 
-    if (number_at(image, 4, 4) != cpu) {
+    // A thin arm64e image is another CPU's too, as its slice of a universal file is.
+    if (number_at(image, 4, 4) != cpu ||
+        (cpu == arm64 && (number_at(image, 8, 4).value_or(0) & subtype_bits) == arm64e)) {
         return std::unexpected(library_problem_t::OTHER_TARGET);
     }
 

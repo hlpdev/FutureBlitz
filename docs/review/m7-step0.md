@@ -32,7 +32,7 @@ Spec 11 says 'A beside library's own dependencies are embedded in it, unless the
 
 Fix: Settle the rule: a package that more than one binary reaches goes in the executable (exported to the beside libraries), or the build stops with an error naming the package and asking the program to list it beside. Say a beside library's dependency that the executable already has comes from the executable, and say the same for a plugin's interface package (spec 12).
 
-Status: fixed: a package two binaries use has to be beside, or the build stops naming it and its users (the user's call)
+Status: fixed, and replaced in step 3, where a beside library's own dependencies and static natives are in the executable: a package two binaries use has to be beside, or the build stops naming it and its users (the user's call)
 
 ## spec11-5 (medium): The spec doesn't say where std's own compiled code and Globals live when there are beside libraries
 
@@ -112,7 +112,7 @@ After adding `dynamic`, spec 11 still says 'A program links every [native] libra
 
 Fix: Reword line 175 to 'every static [native] library', add dynamic paths to the `\` rule, list the import library names searched (for example native/<target>/engine.lib, libengine.dll.a, libengine.a), and say a beside library's natives link into its own file.
 
-Status: fixed: the static-linking and path bullets name static and dynamic libraries, the import library names are listed, and a beside library's natives are its own
+Status: fixed: the static-linking and path bullets name static and dynamic libraries, the import library names are listed, and a beside library's natives are its own (replaced in step 3: a beside library's static natives are in the executable, which it takes them from)
 
 ## spec11-13 (low): 'Embeds every package, is one executable' is false when an embedded package brings a dynamic native library
 

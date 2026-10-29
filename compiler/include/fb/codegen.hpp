@@ -30,6 +30,8 @@ struct beside_binary_t {
     std::string file;
     std::string build;
     std::string code;
+    /// Where its code is from, which an error names: its .fblib's path, or its package's name.
+    std::string source;
     /// Its own functions and Globals, which its file has and exports, as read_beside_names()
     /// reads them.
     std::vector<std::string> functions;

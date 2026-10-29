@@ -81,6 +81,9 @@ TEST_CASE("a dylib's name is its install name, in a universal file its CPU's",
     CHECK(fb::dynamic_library_name(
               universal({ { .cpu = mach_o_arm64, .image = signed_arm, .subtype = arm64e } }),
               "macos-arm64") == name_t(other_cpu));
+    std::string thin_signed = signed_arm;
+    put(thin_signed, 8, arm64e, 4);
+    CHECK(fb::dynamic_library_name(thin_signed, "macos-arm64") == name_t(other_cpu));
 
     // A 32-bit one, and one in the other byte order, are another target's.
     for (const std::uint32_t magic : { 0xFEEDFACEU, 0xCEFAEDFEU, 0xCFFAEDFEU }) {

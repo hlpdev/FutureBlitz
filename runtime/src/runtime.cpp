@@ -594,6 +594,7 @@ void fb_load_beside(const char* executable, const char* file, const char* build,
         return reinterpret_cast<void*>(GetProcAddress(library, name));
     };
     const std::string shown = narrow(path);
+    const std::string reason;
 #else
     std::string own;
 #ifdef __APPLE__
@@ -614,13 +615,24 @@ void fb_load_beside(const char* executable, const char* file, const char* build,
 #endif
     (void)executable;
     const std::string shown = own.substr(0, own.find_last_of('/') + 1) + file;
-    // A library beside it that another uses is loaded first, and gives that one its code.
+    // A library beside it that another uses is loaded first, and gives that one its code. One
+    // that can't be bound may be another build, which its record says, and says why.
     void* library = dlopen(shown.c_str(), RTLD_NOW | RTLD_GLOBAL);
+    const bool loaded = library != nullptr;
+    std::string reason;
+    if (!loaded) {
+        if (const char* error = dlerror()) {
+            reason = std::format(" ({})", error);
+        }
+
+        library = dlopen(shown.c_str(), RTLD_LAZY | RTLD_LOCAL);
+    }
+
     const auto find = [&](const char* name) { return dlsym(library, name); };
 #endif
     if (library == nullptr) {
-        stop(std::format("{} isn't there, or can't be loaded; the program needs it beside it",
-                         shown));
+        stop(std::format("{} isn't there, or can't be loaded; the program needs it beside it{}",
+                         shown, reason));
     }
 
     // It has to be the build the program was built against, by its package's name, and on
@@ -645,12 +657,12 @@ void fb_load_beside(const char* executable, const char* file, const char* build,
                          "again",
                          shown, other, executable, executable));
     }
+#endif
 
     if (!loaded) {
-        stop(std::format("{} isn't there, or can't be loaded; the program needs it beside it",
-                         shown));
+        stop(std::format("{} isn't there, or can't be loaded; the program needs it beside it{}",
+                         shown, reason));
     }
-#endif
 
     for (std::int64_t i = 0; i < count; ++i) {
         slots[i] = find(names[i]);

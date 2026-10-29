@@ -225,7 +225,7 @@ except where it's about those.
 
 **Not in M6:** `std.test` comes with M8's `fb test`. Stack traces for panics wait for debug info
 (open question). An HTTP/2 server, QUIC and HTTP/3, FTP, and SMTP stay out until something
-needs them. Loading a library at run time comes in M7.
+needs them. Loading a library at run time comes later (Deferred work).
 A `Locale` for formatting comes later, and only ever explicit. Platform-only APIs stay out of
 std. Navigation meshes, game AI, and procedural generation wait for the engine phase. CI on
 Linux and macOS can't be checked from this machine, so steps there are checked by CI alone.
@@ -240,8 +240,8 @@ embeds every package without dynamic natives, stays one executable.
 | Step | What | Done when |
 |---|---|---|
 | 0 | The spec and docs: spec 11's project types, `link`, beside and prebuilt libraries, dynamic natives, and package archives | the spec says what M7 builds |
-| 1 | `type` in project.toml; the interface file: fb writes a library's .fbi, and the loader reads it in place of source | a package checks against a library's .fbi as it does against its source |
-| 2 | Prebuilt libraries embedded: the .fblib (its build, bundled libraries, and LLVM bitcode, beside the .fbi), generic instances in the caller, and the ABI hash | an FB program embeds a prebuilt FB library's Classes, generics, and errors; a mismatched build is an error naming both |
+| 1 | `type` in project.toml; the interface file: fb writes a library's .fbi, and the loader reads it in place of source | a package checks against a library's .fbi as it does against its source (done 2026-10-28, e37b4e84) |
+| 2 | Prebuilt libraries embedded: the .fblib (its build, bundled libraries, and LLVM bitcode, beside the .fbi), generic instances in the caller, and the ABI hash | an FB program embeds a prebuilt FB library's Classes, generics, and errors; a mismatched build is an error naming both (done 2026-10-28, 34c9228a) |
 | 3 | Libraries beside the executable: `link = "beside"`, its .dll, .so, or .dylib with FB's metadata, the executable's runtime and exports, loading and checking at start-up | an FB program and a beside library share objects, Tasks, and `Is` checks, with one runtime and no leaks; a missing or mismatched file stops it with an error naming the file (done 2026-10-28, 7dadf64f, on Windows, Linux, and macOS) |
 | 4 | Across the edge: one type per instance in every binary, Globals' accessors, extending a library's Class | a Class extends a beside library's Class, and a generic instance made on both sides is one type (done 2026-10-28, 03202ac0) |
 | 5 | `[native]` dynamic libraries and `{target}` paths; native DLLs copied beside the executable, rpaths | a program calls a C DLL from its package's native/<target>/ and runs from its build folder (done 2026-10-28, 537d4680) |

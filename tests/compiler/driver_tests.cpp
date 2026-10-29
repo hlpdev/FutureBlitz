@@ -3072,6 +3072,54 @@ TEST_CASE("a library's interface file holds what programs compile against", "[dr
     packages.remove();
 }
 
+TEST_CASE("an interface file keeps what its kept code refers to, written as it parses",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("reach/project.toml",
+                   "[project]\nname = \"reach\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    // A Private generic and @Inline Function that share their names with a Public type's
+    // members, which nothing kept calls, stay closed.
+    packages.write("reach/reach.fb", "Import std.core\n"
+                                     "Public Class Asset\n"
+                                     "    Public Field Key: Int = 1\n"
+                                     "    Public Method Text(): String => \"asset\"\n"
+                                     "End Class\n"
+                                     "Function Text<T: Printable>(x: T): String => \"secret {x}\"\n"
+                                     "@Inline Function Key(): Int => 1234 * 5678\n"
+                                     "Public Function Show(): String => Text(Key())\n"
+                                     "Public Class E1 Extends Error\n"
+                                     "    Public New()\n"
+                                     "        Super.New(\"e1\")\n"
+                                     "    End New\n"
+                                     "End Class\n"
+                                     "Function Work(n: Int): Int Throws E1\n"
+                                     "    If n < 0 Then Throw E1()\n"
+                                     "    Return n\n"
+                                     "End Function\n"
+                                     "Async Function Later(): Int Throws E1 => Try Work(1)\n"
+                                     "Public Global MakeTask = Function() => Later()\n");
+    const std::expected<fb::compilation_t, std::string> reach =
+        fb::compile_file(packages / "reach");
+    REQUIRE(reach);
+    CHECK(packages.messages(*reach).empty());
+    fb::diagnostic_bag_t diagnostics;
+    const std::string text =
+        fb::write_interface(*reach, fb::build_mode_t::DEBUG, diagnostics).value_or("");
+    REQUIRE_FALSE(text.empty());
+    CHECK_FALSE(text.contains("secret"));
+    CHECK_FALSE(text.contains("1234"));
+    // A Func's result that's a Task with a Throws is in parentheses, as the source writes it.
+    CHECK(text.contains("Public Global MakeTask: Func(): (Task<Int32> Throws E1) = ...\n"));
+    packages.write("prebuilt/project.toml",
+                   "[project]\nname = \"reach\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    packages.write(std::format("prebuilt/lib/{}/debug/reach.fbi", fb::build_target()), text);
+    const std::expected<fb::compilation_t, std::string> checked =
+        fb::compile_file(packages / "prebuilt");
+    REQUIRE(checked);
+    CHECK(packages.messages(*checked).empty());
+    packages.remove();
+}
+
 TEST_CASE("an interface file keeps each kind of declaration as programs need it", "[driver]") {
     const packages_t packages;
     packages.write("kinds/project.toml", "[project]\nname = \"kinds\"\nversion = \"1.2.3\"\n");

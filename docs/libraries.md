@@ -16,9 +16,10 @@ them is designed here and in [website.md](website.md), and built in M8 and M9.
    author doesn't choose; the program that uses it does.
 3. **The OS's own dynamic libraries.** A library beside the executable is `<name>.dll` on
    Windows, `lib<name>.so` on Linux, and `lib<name>.dylib` on macOS, with the OS's own names and
-   extensions, built only for FutureBlitz hosts, with a metadata section (its interface's hash,
-   its version, target, and mode). The OS loads it, so debuggers, profilers, and crash dumps work
-   on it as on any library.
+   extensions, built only for FutureBlitz hosts, with its build recorded as an exported
+   `fb.(build).<name>`: its name, version, and ABI hash, which covers its target and mode, and on
+   Windows the executable it was built for. The OS loads it, so debuggers, profilers, and crash
+   dumps work on it as on any library.
 4. **One runtime, the executable's.** The executable always has the runtime built in, as now, and
    every library beside it uses the executable's: one heap, one set of refcounts, one scheduler,
    one registry of types. A library carries no runtime of its own.
@@ -101,7 +102,11 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
   the library.
 - Debug and release builds of a library differ (panics, checks), so a binary package ships both,
   and fb links the one that matches the build.
-- The ABI hash covers the interface file, the compiler's version, the target, and the mode.
+- The ABI hash covers the interface file, the library's compiled code, the compiler's version,
+  the target, and the mode, and a program checks it as it reads a prebuilt library. The interface
+  file records the build of each package the library was built with, a prebuilt one's hash or a
+  hash of a source one's files, and a program that has another build of one is an error naming
+  both.
 
 ## Natives in packages
 

@@ -75,6 +75,35 @@ std::string take_message(char* message) {
     return text;
 }
 
+/// Keeps an error LLVM reports in the std::string `context` points at, rather than letting it end
+/// the compiler.
+void keep_error(LLVMDiagnosticInfoRef info, void* context) {
+    if (LLVMGetDiagInfoSeverity(info) == LLVMDSError) {
+        *static_cast<std::string*>(context) = take_message(LLVMGetDiagInfoDescription(info));
+    }
+}
+
+/// A library beside the executable's code, parsed into `context`, or why it isn't bitcode that
+/// this fb reads, naming where it's from.
+std::expected<LLVMModuleRef, std::string> parse_beside(LLVMContextRef context,
+                                                       const beside_binary_t& binary) {
+    std::string reported;
+    LLVMContextSetDiagnosticHandler(context, keep_error, &reported);
+    LLVMMemoryBufferRef buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
+        binary.code.data(), binary.code.size(), binary.file.c_str());
+    LLVMModuleRef parsed = nullptr;
+    const bool failed = LLVMParseBitcodeInContext2(context, buffer, &parsed) != 0;
+    LLVMDisposeMemoryBuffer(buffer);
+    LLVMContextSetDiagnosticHandler(context, nullptr, nullptr);
+    if (failed) {
+        return std::unexpected(std::format("{}'s code isn't LLVM bitcode that this fb reads{}",
+                                           binary.source,
+                                           reported.empty() ? std::string() : ": " + reported));
+    }
+
+    return parsed;
+}
+
 /// The canonical form of a triple: GCC's "x86_64-w64-mingw32" is "x86_64-w64-windows-gnu".
 std::string normalize(const std::string& triple) {
     return take_message(LLVMNormalizeTargetTriple(triple.c_str()));
@@ -778,7 +807,7 @@ private:
         LLVMDisposeMemoryBuffer(buffer);
         if (failed) {
             return std::unexpected(std::format("{}'s code isn't LLVM bitcode that this fb reads{}",
-                                               beside.file,
+                                               beside.source,
                                                reported.empty() ? std::string() : ": " + reported));
         }
 
@@ -4650,18 +4679,13 @@ std::expected<std::string, std::string> emit_ir(const mir_module_t& module,
 
 std::expected<void, std::string> read_beside_names(beside_binary_t& binary) {
     const std::unique_ptr<LLVMOpaqueContext, context_deleter_t> context(LLVMContextCreate());
-    LLVMMemoryBufferRef buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
-        binary.code.data(), binary.code.size(), binary.file.c_str());
-    LLVMModuleRef parsed = nullptr;
-    const bool failed = LLVMParseBitcodeInContext2(context.get(), buffer, &parsed) != 0;
-    LLVMDisposeMemoryBuffer(buffer);
-    if (failed) {
-        return std::unexpected(
-            std::format("{}'s code isn't LLVM bitcode that this fb reads", binary.file));
+    const std::expected<LLVMModuleRef, std::string> parsed = parse_beside(context.get(), binary);
+    if (!parsed) {
+        return std::unexpected(parsed.error());
     }
 
     // What its build exports is its own.
-    const std::unique_ptr<LLVMOpaqueModule, module_deleter_t> module(parsed);
+    const std::unique_ptr<LLVMOpaqueModule, module_deleter_t> module(*parsed);
     for (LLVMValueRef function = LLVMGetFirstFunction(module.get()); function != nullptr;
          function = LLVMGetNextFunction(function)) {
         if (LLVMIsDeclaration(function) == 0 && LLVMGetLinkage(function) == LLVMExternalLinkage) {
@@ -4683,17 +4707,12 @@ std::expected<std::vector<std::string>, std::string>
 emit_beside_object(const beside_binary_t& binary, const codegen_options_t& options,
                    const std::filesystem::path& path) {
     const std::unique_ptr<LLVMOpaqueContext, context_deleter_t> context(LLVMContextCreate());
-    LLVMMemoryBufferRef buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
-        binary.code.data(), binary.code.size(), binary.file.c_str());
-    LLVMModuleRef parsed = nullptr;
-    const bool failed = LLVMParseBitcodeInContext2(context.get(), buffer, &parsed) != 0;
-    LLVMDisposeMemoryBuffer(buffer);
-    if (failed) {
-        return std::unexpected(
-            std::format("{}'s code isn't LLVM bitcode that this fb reads", binary.file));
+    const std::expected<LLVMModuleRef, std::string> parsed = parse_beside(context.get(), binary);
+    if (!parsed) {
+        return std::unexpected(parsed.error());
     }
 
-    const std::unique_ptr<LLVMOpaqueModule, module_deleter_t> module(parsed);
+    const std::unique_ptr<LLVMOpaqueModule, module_deleter_t> module(*parsed);
     const std::string triple =
         normalize(options.target_triple.empty() ? std::string(build_config::target_triple)
                                                 : options.target_triple);
