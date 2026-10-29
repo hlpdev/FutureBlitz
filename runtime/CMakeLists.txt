@@ -164,7 +164,9 @@ set(FB_RUNTIME_ARCHIVES fb_runtime fb_runtime_io uv_a fb_runtime_crypto tfpsacry
     fb_runtime_webp webp sharpyuv fb_runtime_svg nanosvg fb_runtime_http libcurl_static mbedtls
     mbedx509 fb_runtime_tls PARENT_SCOPE)
 
-# Nothing in the runtime throws: exceptions can't cross into compiled programs.
+# Nothing in the runtime throws: exceptions can't cross into compiled programs. It has unwind
+# tables all the same, which a trace's stack walk steps through, from the runtime's code that
+# takes it out to the program's; Apple's clang leaves them out on arm64 without exceptions.
 foreach(part fb_runtime fb_runtime_io fb_runtime_crypto fb_runtime_xxhash fb_runtime_blake3
              fb_runtime_argon2 fb_runtime_bcrypt fb_runtime_ed25519 fb_runtime_db
              fb_runtime_bigint fb_runtime_decimal fb_runtime_tz fb_runtime_zlib fb_runtime_zstd
@@ -174,6 +176,6 @@ foreach(part fb_runtime fb_runtime_io fb_runtime_crypto fb_runtime_xxhash fb_run
   if(MSVC)
     target_compile_options(${part} PRIVATE /EHs-c-)
   else()
-    target_compile_options(${part} PRIVATE -fno-exceptions)
+    target_compile_options(${part} PRIVATE -fno-exceptions -funwind-tables)
   endif()
 endforeach()

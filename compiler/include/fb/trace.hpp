@@ -13,7 +13,8 @@ namespace fb {
 void add_trace_table(LLVMModuleRef module);
 
 /// Has every function `module` defines keep its frame, which a trace names: unwind tables for any
-/// of its code, and no tail call, which would take its caller out, as Go makes none. It's before
+/// of its code, no tail call, which would take its caller out, as Go makes none, and on Apple's
+/// targets the frame pointer their ABI has a function that calls keep. It's before
 /// optimizing, whose tail-call elimination reads it too, and again before fill_trace_table() for
 /// what optimizing made.
 void keep_frames(LLVMModuleRef module);

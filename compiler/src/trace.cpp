@@ -314,6 +314,15 @@ void keep_frames(LLVMModuleRef module) {
     LLVMAttributeRef stays = LLVMCreateStringAttribute(
         context, no_tail_calls.data(), static_cast<unsigned>(no_tail_calls.size()), yes.data(),
         static_cast<unsigned>(yes.size()));
+    // Apple's ABI has every function that calls keep a frame record that x29, or rbp, points
+    // at, as clang's do, which its tools walk the stack by.
+    constexpr std::string_view frame_pointer = "frame-pointer";
+    constexpr std::string_view non_leaf = "non-leaf";
+    LLVMAttributeRef framed = LLVMCreateStringAttribute(
+        context, frame_pointer.data(), static_cast<unsigned>(frame_pointer.size()), non_leaf.data(),
+        static_cast<unsigned>(non_leaf.size()));
+    const char* triple = LLVMGetTarget(module);
+    const bool apple = triple != nullptr && std::string_view(triple).contains("apple");
     const auto at_function = static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex);
     for (LLVMValueRef function = LLVMGetFirstFunction(module); function != nullptr;
          function = LLVMGetNextFunction(function)) {
@@ -322,6 +331,9 @@ void keep_frames(LLVMModuleRef module) {
         }
 
         LLVMAddAttributeAtIndex(function, at_function, unwinds);
+        if (apple) {
+            LLVMAddAttributeAtIndex(function, at_function, framed);
+        }
         if (!has_must_tail_call(function)) {
             LLVMAddAttributeAtIndex(function, at_function, stays);
         }

@@ -120,6 +120,25 @@ TEST_CASE("release builds turn a Vec4's and a Mat4's Operators into SIMD instruc
     }
 }
 
+TEST_CASE("on Apple's targets a function keeps a frame pointer, as their ABI has", "[codegen]") {
+    const std::string_view program = "Import std.core\n"
+                                     "Function Twice(n: Int): Int => n * 2\n"
+                                     "Print(\"{Twice(2)}\")\n";
+    for (const fb::build_mode_t mode : { fb::build_mode_t::DEBUG, fb::build_mode_t::RELEASE }) {
+        for (const auto& [triple, framed] : std::initializer_list<std::pair<std::string, bool>>{
+                 { "arm64-apple-macosx13.0.0", true },
+                 { "x86_64-apple-macosx13.0.0", true },
+                 { "aarch64-unknown-linux-gnu", false },
+                 { "x86_64-w64-windows-gnu", false },
+             }) {
+            INFO(triple);
+            const std::string ir = ir_of(program, mode, triple);
+            REQUIRE_FALSE(ir.empty());
+            CHECK(ir.contains("\"frame-pointer\"=\"non-leaf\"") == framed);
+        }
+    }
+}
+
 TEST_CASE("debug builds describe functions, lines, variables, and types, and release builds lines",
           "[codegen]") {
     const std::string_view program =
