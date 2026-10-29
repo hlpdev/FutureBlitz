@@ -32,7 +32,7 @@ if(WIN32)
   set(fb_llvm_include "${CMAKE_BINARY_DIR}/_deps/llvm-c-${FB_LLVM_VERSION}/include")
   set(fb_llvm_headers
     Analysis Core DataTypes Deprecated Error ErrorHandling ExternC Target TargetMachine Types
-    Visibility Transforms/PassBuilder BitReader BitWriter Linker)
+    Visibility Transforms/PassBuilder BitReader BitWriter Linker DebugInfo)
   set(fb_llvm_hashes
     b822af9c7ceb7efc92fa5a467e526c18e7a3fce427ec190d1eae906f85a22b50
     1dc17fcb91c751ee2fc2211d0b53add643ab7e840707401127afe4a35a7572b2
@@ -48,7 +48,8 @@ if(WIN32)
     42bc1d65b43ce602866a7b6b5445cd19c31bf5be9e48d8828987277280de8d91
     fefdeb693257ed85e1971048f6526ee30c934e9a92c8b4db87b644499de195dc
     d51d5b87e3bb5e95d4f399f7c3cc6077e3fe7b88e7e8ab1cc36ea104d5fc494a
-    671876029cb735fc9dca8eaa325c1f548844291acc11bfa8a9af522df018a24e)
+    671876029cb735fc9dca8eaa325c1f548844291acc11bfa8a9af522df018a24e
+    27f662ca1d6d297175023b84eaf1680f58efb66cb9f42b96a17c5edf65f0055d)
   set(fb_llvm_url
     "https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-${FB_LLVM_VERSION}/llvm/include")
   foreach(header hash IN ZIP_LISTS fb_llvm_headers fb_llvm_hashes)
@@ -87,7 +88,9 @@ if(WIN32)
   file(WRITE "${fb_llvm_config}/Targets.def" "LLVM_TARGET(X86)\nLLVM_TARGET(AArch64)\n")
   file(WRITE "${fb_llvm_config}/AsmPrinters.def"
     "LLVM_ASM_PRINTER(X86)\nLLVM_ASM_PRINTER(AArch64)\n")
-  file(WRITE "${fb_llvm_config}/AsmParsers.def" "LLVM_ASM_PARSER(${fb_llvm_native})\n")
+  # Inline assembly, which stack traces' markers are, needs each target's parser.
+  file(WRITE "${fb_llvm_config}/AsmParsers.def"
+    "LLVM_ASM_PARSER(X86)\nLLVM_ASM_PARSER(AArch64)\n")
   file(WRITE "${fb_llvm_config}/Disassemblers.def" "LLVM_DISASSEMBLER(${fb_llvm_native})\n")
 
   add_library(fb_llvm SHARED IMPORTED GLOBAL)

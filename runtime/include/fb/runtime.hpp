@@ -823,12 +823,41 @@ std::int32_t fb_io_net_error_kind(std::int32_t code);
 [[noreturn]] void fb_exit(std::int32_t code);
 /// The OS's number for the program's process.
 std::int64_t fb_process_id();
-/// Sets a thrown error's Place to `location`, unless an earlier Throw set it. `error` is an
-/// object of a Class that extends Error, whose first fields are fb_error_fields_t's.
+/// Sets a thrown error's Place to `location`, and keeps the stack it's thrown from for its
+/// trace, unless an earlier Throw set it. `error` is an object of a Class that extends Error,
+/// whose first fields are fb_error_fields_t's.
 void fb_error_thrown(fb_object_t* error, const fb_location_t* location);
+/// An error is going: what fb_error_thrown() kept for it goes too. Its Class's release calls it.
+void fb_error_released(const fb_object_t* error);
 /// Prints "uncaught <Class>: <Message> at <file>:<line>:<column>" to stderr, at the error's
 /// Place, or else at `location`, where top-level code let it out, which can be null, then a
-/// "caused by" line like it for each Cause, and exits with code 1. `error` is an object of a
-/// Class that extends Error.
+/// "caused by" line like it for each Cause, and the stack trace of where it was thrown, and
+/// exits with code 1. `error` is an object of a Class that extends Error.
 [[noreturn]] void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location);
+
+/// One place in a stack trace: a function's name and file, offsets into its table's names, the
+/// line of a call in it, from 1, or 0 where it has none, and the index of the frame of the call
+/// it's inlined into, or 0xFFFFFFFF.
+struct fb_trace_frame_t {
+    std::uint32_t name;
+    std::uint32_t file;
+    std::uint32_t line;
+    std::uint32_t parent;
+};
+
+/// A binary's stack trace table (compiler/include/fb/trace.hpp): the markers before its calls,
+/// pairs of Int32s from `begin` to `end`, the first where the marked code is from the pair, and
+/// the second its call's frame, or -1 for one with no place; the frames; and their names, each
+/// ending in a NUL.
+struct fb_trace_t {
+    const std::int32_t* begin;
+    const std::int32_t* end;
+    const fb_trace_frame_t* frames;
+    const char* names;
+};
+
+/// Adds a binary's table, which it does as it loads, the executable's before main, and a library
+/// beside it's as the executable loads it. Any number of threads can call it, before fb_start()
+/// too.
+void fb_trace_add(const fb_trace_t* table);
 }

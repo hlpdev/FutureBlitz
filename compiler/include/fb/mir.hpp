@@ -35,6 +35,8 @@ struct local_t {
     std::string_view name;
     /// A ByRef parameter. It stands for the caller's variable, so assigning it changes theirs.
     bool by_ref = false;
+    /// Where it's declared, for debug info, or nullopt for one the compiler makes.
+    std::optional<span_t> span;
 };
 
 /// How a function or Global is linked when a prebuilt library's binary and the program that uses it
@@ -526,6 +528,12 @@ using terminator_t = std::variant<goto_t, branch_t, return_t, panic_t, unreachab
 struct basic_block_t {
     std::vector<statement_t> statements;
     terminator_t terminator = unreachable_t{};
+    /// Where each statement's code is, as `statements` has them: the innermost expression or
+    /// statement it was lowered from, or nullopt for code the compiler makes, which debug info
+    /// gives the line before it. A block made by hand can leave it short.
+    std::vector<std::optional<span_t>> spans;
+    /// Where the terminator's code is, the same way.
+    std::optional<span_t> terminator_span;
 };
 
 /// An Extern Function, which C code or the runtime defines: its symbol, and how it's called.

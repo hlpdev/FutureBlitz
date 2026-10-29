@@ -2,6 +2,7 @@
 
 #include "fb/build_config.hpp"
 #include "fb/c_abi.hpp"
+#include "fb/trace.hpp"
 
 #include <algorithm>
 #include <array>
@@ -16,6 +17,7 @@
 #include <llvm-c/BitReader.h>
 #include <llvm-c/BitWriter.h>
 #include <llvm-c/Core.h>
+#include <llvm-c/DebugInfo.h>
 #include <llvm-c/Linker.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
@@ -59,6 +61,12 @@ struct module_deleter_t {
 struct builder_deleter_t {
     void operator()(LLVMBuilderRef builder) const {
         LLVMDisposeBuilder(builder);
+    }
+};
+
+struct debug_builder_deleter_t {
+    void operator()(LLVMDIBuilderRef builder) const {
+        LLVMDisposeDIBuilder(builder);
     }
 };
 
@@ -139,10 +147,12 @@ void initialize_targets() {
         LLVMInitializeX86Target();
         LLVMInitializeX86TargetMC();
         LLVMInitializeX86AsmPrinter();
+        LLVMInitializeX86AsmParser();
         LLVMInitializeAArch64TargetInfo();
         LLVMInitializeAArch64Target();
         LLVMInitializeAArch64TargetMC();
         LLVMInitializeAArch64AsmPrinter();
+        LLVMInitializeAArch64AsmParser();
     });
 }
 
@@ -354,9 +364,9 @@ public:
           m_triple(normalize(options.target_triple.empty()
                                  ? std::string(build_config::target_triple)
                                  : options.target_triple)),
-          m_integers(c_integers_of(m_triple)), m_context(LLVMContextCreate()),
-          m_module(
-              LLVMModuleCreateWithNameInContext(path_of(options, main).c_str(), m_context.get())),
+          m_integers(c_integers_of(m_triple)), m_main_file(main.id()),
+          m_context(LLVMContextCreate()), m_module(LLVMModuleCreateWithNameInContext(
+                                              path_of(options, main).c_str(), m_context.get())),
           m_builder(LLVMCreateBuilderInContext(m_context.get())) {}
 
     /// Builds the module, verifies it, and optimizes it in release builds.
@@ -374,6 +384,7 @@ public:
         }
 
         declare_types();
+        begin_debug_info();
         declare_runtime();
         declare_globals();
         declare_functions();
@@ -405,10 +416,13 @@ public:
             return std::unexpected(m_unsupported);
         }
 
+        finish_debug_info();
         // A library's binary is linked, then optimized, with each program that uses it.
         if (m_mir.library) {
             return verify();
         }
+
+        add_trace_table(m_module.get());
 
         if (std::expected<void, std::string> linked = link_libraries(); !linked) {
             return linked;
@@ -433,8 +447,9 @@ public:
         return bytes;
     }
 
-    [[nodiscard]] std::expected<void, std::string>
-    write_object(const std::filesystem::path& path) const {
+    /// Writes the object file, with the trace table filled in for the code it has.
+    [[nodiscard]] std::expected<void, std::string> write_object(const std::filesystem::path& path) {
+        fill_trace_table(m_module.get(), m_triple);
         std::string name = path.string();
         char* error = nullptr;
         if (LLVMTargetMachineEmitToFile(m_machine.get(), m_module.get(), name.data(),
@@ -456,6 +471,8 @@ private:
     std::string m_triple;
     /// What C's integers are on it, which CLong, CULong, and CWChar are.
     c_integers_t m_integers;
+    /// The file the module is named after, whose compile unit has what no file of its own has.
+    file_id_t m_main_file;
     /// Why the module can't be made for its target, found while making it.
     std::string m_unsupported;
     /// The C ABI of each Extern Function that takes or gives a Struct by value, by its index.
@@ -528,6 +545,7 @@ private:
     function_ref_t m_panic_string;
     function_ref_t m_error_uncaught;
     function_ref_t m_error_thrown;
+    function_ref_t m_error_released;
     function_ref_t m_object_new;
     function_ref_t m_object_retain;
     function_ref_t m_object_release;
@@ -1368,6 +1386,7 @@ private:
         m_panic_string = declare("fb_panic_string", m_void, { m_ptr, m_ptr });
         m_error_uncaught = declare("fb_error_uncaught", m_void, { m_ptr, m_ptr });
         m_error_thrown = declare("fb_error_thrown", m_void, { m_ptr, m_ptr });
+        m_error_released = declare("fb_error_released", m_void, { m_ptr });
         m_object_new = declare("fb_object_new", m_ptr, { m_ptr });
         m_object_retain = declare("fb_object_retain", m_void, { m_ptr });
         m_object_release = declare("fb_object_release", m_void, { m_ptr });
@@ -2451,6 +2470,621 @@ private:
         return global;
     }
 
+    // Debug info
+
+    /// A source file's compile unit, with the builder that makes what's in it.
+    struct debug_unit_t {
+        std::unique_ptr<LLVMOpaqueDIBuilder, debug_builder_deleter_t> builder;
+        LLVMMetadataRef unit = nullptr;
+        LLVMMetadataRef file = nullptr;
+    };
+
+    /// The compile unit of each file a function is in, made when the first one is.
+    std::map<file_id_t, debug_unit_t> m_units;
+    /// Each file's debug info, by the file.
+    std::unordered_map<file_id_t, LLVMMetadataRef> m_debug_files;
+    /// Each type's debug info, made the first time a variable needs it: a String's, a Class's,
+    /// and a T[]'s are its name for a pointer to its object.
+    std::unordered_map<type_id_t, LLVMMetadataRef> m_debug_types;
+    /// The subprogram each scope that code is in is in: a subprogram's own, and that of each
+    /// scope for a file other than its own.
+    std::unordered_map<LLVMMetadataRef, LLVMMetadataRef> m_scope_subprograms;
+    /// The function being generated's subprogram and file, null for code that has no place,
+    /// and its scope for each other file its code comes from.
+    LLVMMetadataRef m_subprogram = nullptr;
+    file_id_t m_subprogram_file{};
+    std::unordered_map<file_id_t, LLVMMetadataRef> m_file_scopes;
+    /// Where the code being generated is, which code that has no place of its own keeps.
+    LLVMMetadataRef m_line = nullptr;
+    /// An object's header, as an Interface's value points at one, made when it's first needed.
+    LLVMMetadataRef m_object_debug_type = nullptr;
+    // DWARF's numbers for what the C API takes as numbers.
+    static constexpr unsigned dwarf_structure = 0x13;
+    static constexpr std::uint64_t dwarf_deref = 0x06;
+    static constexpr unsigned dwarf_boolean = 0x02;
+    static constexpr unsigned dwarf_float = 0x04;
+    static constexpr unsigned dwarf_signed = 0x05;
+    static constexpr unsigned dwarf_signed_char = 0x06;
+    static constexpr unsigned dwarf_unsigned = 0x08;
+    static constexpr unsigned dwarf_utf = 0x10;
+
+    /// A debug build has full debug info: lines, variables, and their types. A release build has
+    /// the lines, which stack traces read.
+    [[nodiscard]] bool full_debug_info() const {
+        return m_options.mode == build_mode_t::DEBUG;
+    }
+
+    /// DWARF everywhere, and CodeView too on Windows, which lld writes as a PDB.
+    void begin_debug_info() {
+        const auto flag = [this](const std::string_view name, const unsigned value) {
+            LLVMAddModuleFlag(m_module.get(), LLVMModuleFlagBehaviorWarning, name.data(),
+                              name.size(), LLVMValueAsMetadata(LLVMConstInt(m_i32, value, 0)));
+        };
+        flag("Debug Info Version", LLVMDebugMetadataVersion());
+        flag("Dwarf Version", 4);
+        if (m_triple.contains("windows")) {
+            flag("CodeView", 1);
+        }
+
+        (void)unit(m_main_file);
+    }
+
+    /// The folder a file's path is from, which a debugger finds it by: std's own folder's for
+    /// std's files, and the folder fb ran in for the others. An absolute path needs none.
+    [[nodiscard]] std::string folder_of(const std::string& path) const {
+        if (path.starts_with("std/")) {
+            return std::filesystem::path(std::string(build_config::std_directory))
+                .parent_path()
+                .generic_string();
+        }
+
+        return m_options.folder;
+    }
+
+    LLVMMetadataRef debug_file(const file_id_t id) {
+        if (const auto found = m_debug_files.find(id); found != m_debug_files.end()) {
+            return found->second;
+        }
+
+        const std::string path = path_of(m_options, m_sources.get(id));
+        const std::string folder = folder_of(path);
+        LLVMMetadataRef file = LLVMDIBuilderCreateFile(unit(m_main_file).builder.get(), path.data(),
+                                                       path.size(), folder.data(), folder.size());
+        m_debug_files.emplace(id, file);
+        return file;
+    }
+
+    debug_unit_t& unit(const file_id_t id) {
+        auto [at, added] = m_units.try_emplace(id);
+        debug_unit_t& made = at->second;
+        if (!added) {
+            return made;
+        }
+
+        made.builder.reset(LLVMCreateDIBuilder(m_module.get()));
+        const std::string path = path_of(m_options, m_sources.get(id));
+        const std::string folder = folder_of(path);
+        made.file = LLVMDIBuilderCreateFile(made.builder.get(), path.data(), path.size(),
+                                            folder.data(), folder.size());
+        m_debug_files.emplace(id, made.file);
+        constexpr std::string_view producer = "FutureBlitz";
+        made.unit = LLVMDIBuilderCreateCompileUnit(
+            made.builder.get(), LLVMDWARFSourceLanguageC, made.file, producer.data(),
+            producer.size(), checked() ? 0 : 1, "", 0, 0, "", 0,
+            full_debug_info() ? LLVMDWARFEmissionFull : LLVMDWARFEmissionLineTablesOnly, 0, 0, 0,
+            "", 0, "", 0);
+        return made;
+    }
+
+    /// The line and column where a span starts, from 1.
+    [[nodiscard]] location_t start_of(const span_t span) const {
+        const location_t at =
+            m_sources.get(span.file).location_of(span.begin, column_unit_t::CODEPOINT);
+        return { .line = at.line + 1, .column = at.column + 1 };
+    }
+
+    /// Where a function is: its name where it's declared, or for code the compiler makes, its
+    /// first statement's place. nullopt for code with no place at all.
+    [[nodiscard]] static std::optional<span_t> place_of(const mir_function_t& function) {
+        if (!function.span.empty()) {
+            return function.span;
+        }
+
+        for (const basic_block_t& block : function.blocks) {
+            for (const std::optional<span_t>& span : block.spans) {
+                if (span) {
+                    return span;
+                }
+            }
+
+            if (block.terminator_span) {
+                return block.terminator_span;
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    /// A function's name as a debugger and a stack trace show it: its MIR name without its
+    /// parameters' types or the number that tells it from another of its name, and for a
+    /// module's top-level code, "top-level code".
+    [[nodiscard]] std::string debug_name(const std::size_t function_index) const {
+        if (function_index == index(m_mir.entry)) {
+            return "top-level code";
+        }
+
+        std::string_view name = m_mir.functions[function_index].name;
+        if (const std::size_t number = name.rfind('#');
+            number != std::string_view::npos &&
+            name.find_first_of(") ", number) == std::string_view::npos) {
+            name = name.substr(0, number);
+        }
+
+        if (name.ends_with(".(init)")) {
+            return "top-level code";
+        }
+
+        // The parameters' types are in the parentheses at the end, which can hold some of their
+        // own, as a Func type's do.
+        if (name.ends_with(')')) {
+            int depth = 0;
+            for (std::size_t i = name.size(); i-- > 0;) {
+                if (name[i] == ')') {
+                    ++depth;
+                } else if (name[i] == '(' && --depth == 0) {
+                    name = name.substr(0, i);
+                    break;
+                }
+            }
+        }
+
+        return std::string(name);
+    }
+
+    /// Starts a MIR function's debug info: its subprogram, in its file's unit, and its first
+    /// line. A function with no place has none here, and finish_debug_info() gives it one.
+    void begin_subprogram(const std::size_t function_index) {
+        m_file_scopes.clear();
+        m_subprogram = nullptr;
+        m_line = nullptr;
+        const std::optional<span_t> place = place_of(m_mir.functions[function_index]);
+        if (!place) {
+            LLVMSetCurrentDebugLocation2(builder(), nullptr);
+            return;
+        }
+
+        debug_unit_t& owner = unit(place->file);
+        const location_t start = start_of(*place);
+        // Without a linkage name, which debuggers would show instead.
+        const std::string name = debug_name(function_index);
+        LLVMMetadataRef type = LLVMDIBuilderCreateSubroutineType(owner.builder.get(), owner.file,
+                                                                 nullptr, 0, LLVMDIFlagZero);
+        const LLVMLinkage linked = LLVMGetLinkage(m_llvm_function);
+        const bool local = linked == LLVMInternalLinkage || linked == LLVMPrivateLinkage;
+        m_subprogram =
+            LLVMDIBuilderCreateFunction(owner.builder.get(), owner.file, name.data(), name.size(),
+                                        "", 0, owner.file, start.line, type, local ? 1 : 0, 1,
+                                        start.line, LLVMDIFlagPrototyped, checked() ? 0 : 1);
+        LLVMSetSubprogram(m_llvm_function, m_subprogram);
+        m_scope_subprograms.emplace(m_subprogram, m_subprogram);
+        m_subprogram_file = place->file;
+        m_line = LLVMDIBuilderCreateDebugLocation(context(), start.line, start.column, m_subprogram,
+                                                  nullptr);
+        // What the entry block does first, like storing the parameters, has no line, so a
+        // debugger stops after it at the first line.
+        LLVMSetCurrentDebugLocation2(builder(), nullptr);
+    }
+
+    void end_subprogram() {
+        m_subprogram = nullptr;
+        m_line = nullptr;
+        LLVMSetCurrentDebugLocation2(builder(), nullptr);
+    }
+
+    /// The scope of the function being generated's code that comes from `file`: its own, or one
+    /// for that file inside it, as a default argument's code from another file is.
+    LLVMMetadataRef scope_for(const file_id_t file) {
+        if (file == m_subprogram_file) {
+            return m_subprogram;
+        }
+
+        if (const auto found = m_file_scopes.find(file); found != m_file_scopes.end()) {
+            return found->second;
+        }
+
+        LLVMMetadataRef scope = LLVMDIBuilderCreateLexicalBlockFile(
+            unit(m_subprogram_file).builder.get(), m_subprogram, debug_file(file), 0);
+        m_file_scopes.emplace(file, scope);
+        m_scope_subprograms.emplace(scope, m_subprogram);
+        return scope;
+    }
+
+    /// The code generated next is at `span`, or where the code before it is when it has none.
+    void locate(const std::optional<span_t> span) {
+        if (m_subprogram == nullptr) {
+            return;
+        }
+
+        if (span) {
+            const location_t start = start_of(*span);
+            m_line = LLVMDIBuilderCreateDebugLocation(context(), start.line, start.column,
+                                                      scope_for(span->file), nullptr);
+        }
+
+        LLVMSetCurrentDebugLocation2(builder(), m_line);
+    }
+
+    /// In a debug build, the debug info of the function being generated's parameters and named
+    /// Locals, each where its slot is. A ByRef parameter's slot is where the caller's variable
+    /// is, which a slot of its own holds, since the parameter's register doesn't last.
+    void declare_variables() {
+        if (!full_debug_info() || m_subprogram == nullptr) {
+            return;
+        }
+
+        LLVMDIBuilderRef maker = unit(m_subprogram_file).builder.get();
+        LLVMMetadataRef file = debug_file(m_subprogram_file);
+        const unsigned first = LLVMDILocationGetLine(m_line);
+        std::array<std::uint64_t, 1> deref{ dwarf_deref };
+        for (std::size_t i = 0; i < m_function->locals.size(); ++i) {
+            const local_t& local = m_function->locals[i];
+            if (local.name.empty()) {
+                continue;
+            }
+
+            const unsigned line = local.span ? start_of(*local.span).line : first;
+            LLVMMetadataRef type = debug_type(local.type);
+            LLVMMetadataRef variable =
+                i < m_function->parameter_count
+                    ? LLVMDIBuilderCreateParameterVariable(
+                          maker, m_subprogram, local.name.data(), local.name.size(),
+                          static_cast<unsigned>(i + 1), file, line, type, 1, LLVMDIFlagZero)
+                    : LLVMDIBuilderCreateAutoVariable(maker, m_subprogram, local.name.data(),
+                                                      local.name.size(), file, line, type, 1,
+                                                      LLVMDIFlagZero, 0);
+            LLVMValueRef storage = m_slots[i];
+            LLVMMetadataRef expression = LLVMDIBuilderCreateExpression(maker, nullptr, 0);
+            if (local.by_ref) {
+                storage = LLVMBuildAlloca(builder(), m_ptr, "");
+                LLVMBuildStore(builder(), m_slots[i], storage);
+                expression = LLVMDIBuilderCreateExpression(maker, deref.data(), deref.size());
+            }
+
+            LLVMMetadataRef at =
+                LLVMDIBuilderCreateDebugLocation(context(), line, 0, m_subprogram, nullptr);
+            LLVMDIBuilderInsertDeclareRecordAtEnd(maker, storage, variable, expression, at,
+                                                  m_entry);
+        }
+    }
+
+    [[nodiscard]] std::uint64_t size_in_bits(LLVMTypeRef type) const {
+        return LLVMABISizeOfType(LLVMGetModuleDataLayout(m_module.get()), type) * 8;
+    }
+
+    [[nodiscard]] std::uint32_t align_in_bits(LLVMTypeRef type) const {
+        return LLVMABIAlignmentOfType(LLVMGetModuleDataLayout(m_module.get()), type) * 8;
+    }
+
+    /// The builder types are made with, the main file's unit's.
+    LLVMDIBuilderRef type_maker() {
+        return unit(m_main_file).builder.get();
+    }
+
+    LLVMMetadataRef basic_type(const std::string_view name, const std::uint64_t bits,
+                               const unsigned encoding) {
+        return LLVMDIBuilderCreateBasicType(type_maker(), name.data(), name.size(), bits, encoding,
+                                            LLVMDIFlagZero);
+    }
+
+    LLVMMetadataRef named(LLVMMetadataRef type, const std::string_view name) {
+        return LLVMDIBuilderCreateTypedef(type_maker(), type, name.data(), name.size(),
+                                          debug_file(m_main_file), 0, nullptr, 0);
+    }
+
+    /// A pointer to `type`, or to nothing that's known for null.
+    LLVMMetadataRef pointer_to(LLVMMetadataRef type) {
+        return LLVMDIBuilderCreatePointerType(type_maker(), type, 64, 0, 0, nullptr, 0);
+    }
+
+    /// A member of a struct's debug info, at its element's place in the struct's layout.
+    struct debug_member_t {
+        std::string name;
+        LLVMMetadataRef type = nullptr;
+        bool artificial = false;
+    };
+
+    /// The debug info of `type`, a struct laid out as `layout`, whose members `members` makes.
+    /// They can come back to it, through a pointer, so it's a temporary node until they're made,
+    /// which stands for it meanwhile: for a reference, under its name for a pointer to it.
+    LLVMMetadataRef debug_struct(const type_id_t type, const std::string& name, LLVMTypeRef layout,
+                                 const bool reference,
+                                 const std::function<std::vector<debug_member_t>()>& members) {
+        LLVMMetadataRef file = debug_file(m_main_file);
+        const std::uint64_t size = size_in_bits(layout);
+        const std::uint32_t align = align_in_bits(layout);
+        const std::string struct_name = reference ? "fb." + name : name;
+        LLVMMetadataRef temporary = LLVMDIBuilderCreateReplaceableCompositeType(
+            type_maker(), dwarf_structure, struct_name.data(), struct_name.size(), nullptr, file, 0,
+            0, size, align, LLVMDIFlagZero, "", 0);
+        LLVMMetadataRef holder = reference ? named(pointer_to(temporary), name) : temporary;
+        m_debug_types[type] = holder;
+        LLVMTargetDataRef data = LLVMGetModuleDataLayout(m_module.get());
+        std::vector<LLVMMetadataRef> made;
+        const std::vector<debug_member_t> list = members();
+        for (std::size_t i = 0; i < list.size(); ++i) {
+            LLVMTypeRef element = LLVMStructGetTypeAtIndex(layout, static_cast<unsigned>(i));
+            made.push_back(LLVMDIBuilderCreateMemberType(
+                type_maker(), temporary, list[i].name.data(), list[i].name.size(), file, 0,
+                size_in_bits(element), align_in_bits(element),
+                LLVMOffsetOfElement(data, layout, static_cast<unsigned>(i)) * 8,
+                list[i].artificial ? LLVMDIFlagArtificial : LLVMDIFlagZero, list[i].type));
+        }
+
+        LLVMMetadataRef real = LLVMDIBuilderCreateStructType(
+            type_maker(), nullptr, struct_name.data(), struct_name.size(), file, 0, size, align,
+            LLVMDIFlagZero, nullptr, made.data(), static_cast<unsigned>(made.size()), 0, nullptr,
+            "", 0);
+        LLVMMetadataReplaceAllUsesWith(temporary, real);
+        if (!reference) {
+            m_debug_types[type] = real;
+        }
+
+        return m_debug_types[type];
+    }
+
+    /// An object's header, which the debugger's script leaves out: its counts and its Class.
+    std::vector<debug_member_t> header_members() {
+        return {
+            { .name = "header.counts", .type = debug_type(type_id_t::INT64), .artificial = true },
+            { .name = "header.class", .type = pointer_to(nullptr), .artificial = true },
+        };
+    }
+
+    /// A type's debug info, as tools/lldb/futureblitz.py shows it: a number, Bool, or Char as
+    /// itself, a Struct, tuple, or value T? as its fields, an Enum as its members, and a String,
+    /// Class, or T[] as its name for a pointer to its object, whose header comes first. A String?
+    /// or Class? is its name for the String's or Class's.
+    LLVMMetadataRef debug_type(const type_id_t type) {
+        if (const auto found = m_debug_types.find(type); found != m_debug_types.end()) {
+            return found->second;
+        }
+
+        const std::string name(m_mir.types->name(type));
+        LLVMMetadataRef made = nullptr;
+        switch (type) {
+        case type_id_t::BOOL:
+            made = basic_type(name, 8, dwarf_boolean);
+            break;
+        case type_id_t::INT8:
+        case type_id_t::INT16:
+        case type_id_t::INT32:
+        case type_id_t::INT64:
+            made = basic_type(name, bit_width(type), dwarf_signed);
+            break;
+        case type_id_t::UINT8:
+        case type_id_t::UINT16:
+        case type_id_t::UINT32:
+        case type_id_t::UINT64:
+            made = basic_type(name, bit_width(type), dwarf_unsigned);
+            break;
+        case type_id_t::CLONG:
+        case type_id_t::CULONG:
+        case type_id_t::CWCHAR:
+            made = named(debug_type(on_target(type, m_integers)), name);
+            break;
+        case type_id_t::CHAR:
+            made = basic_type(name, 32, dwarf_utf);
+            break;
+        case type_id_t::FLOAT32:
+            made = basic_type(name, 32, dwarf_float);
+            break;
+        case type_id_t::FLOAT64:
+            made = basic_type(name, 64, dwarf_float);
+            break;
+        case type_id_t::STRING: {
+            // Its header, its count of owners, then its length in bytes, which its bytes follow.
+            std::array header{ m_i64, m_i64 };
+            LLVMTypeRef text = LLVMStructTypeInContext(context(), header.data(),
+                                                       static_cast<unsigned>(header.size()), 0);
+            return debug_struct(type, name, text, true, [this] {
+                return std::vector<debug_member_t>{
+                    { .name = "header.counts",
+                      .type = debug_type(type_id_t::INT64),
+                      .artificial = true },
+                    { .name = "Length", .type = debug_type(type_id_t::INT64) },
+                };
+            });
+        }
+        case type_id_t::CSTRING:
+            made = named(pointer_to(basic_type("char", 8, dwarf_signed_char)), name);
+            break;
+        default:
+            break;
+        }
+
+        if (made != nullptr) {
+            m_debug_types.emplace(type, made);
+            return made;
+        }
+
+        return debug_type_of_kind(type, name);
+    }
+
+    /// The debug info of a type that isn't built in.
+    LLVMMetadataRef debug_type_of_kind(const type_id_t type, const std::string& name) {
+        const type_t& info = m_mir.types->get(type);
+        LLVMTypeRef layout = llvm_type(type);
+        LLVMMetadataRef made = nullptr;
+        switch (info.kind) {
+        case type_kind_t::STRUCT:
+        case type_kind_t::TUPLE:
+        case type_kind_t::MUTEX:
+            return debug_struct(type, name, layout, false, [this, type] {
+                std::vector<debug_member_t> members;
+                for (const field_t& field : m_mir.types->get(type).fields) {
+                    members.push_back({ .name = field.name, .type = debug_type(field.type) });
+                }
+
+                return members;
+            });
+        case type_kind_t::CLASS:
+            return debug_struct(type, name, object_type(type), true, [this, type] {
+                std::vector<debug_member_t> members = header_members();
+                for (const field_t& field : m_mir.types->get(type).fields) {
+                    members.push_back({ .name = field.name, .type = debug_type(field.type) });
+                }
+
+                return members;
+            });
+        case type_kind_t::ARRAY:
+            return debug_struct(type, name, m_array_type, true, [this, type] {
+                std::vector<debug_member_t> members = header_members();
+                members.push_back({ .name = "Count", .type = debug_type(type_id_t::INT64) });
+                members.push_back({ .name = "Capacity", .type = debug_type(type_id_t::INT64) });
+                members.push_back(
+                    { .name = "Items", .type = pointer_to(debug_type(inner_of(type))) });
+                return members;
+            });
+        case type_kind_t::NULLABLE:
+            if (is_nullable_reference(type)) {
+                made = named(debug_type(inner_of(type)), name);
+                break;
+            }
+
+            return debug_struct(type, name, layout, false, [this, type] {
+                return std::vector<debug_member_t>{
+                    { .name = "HasValue", .type = debug_type(type_id_t::BOOL) },
+                    { .name = "Value", .type = debug_type(inner_of(type)) },
+                };
+            });
+        case type_kind_t::FIXED_ARRAY: {
+            std::vector<LLVMMetadataRef> ranges;
+            for (const std::uint32_t size : info.sizes) {
+                ranges.push_back(LLVMDIBuilderGetOrCreateSubrange(type_maker(), 0, size));
+            }
+
+            made = LLVMDIBuilderCreateArrayType(
+                type_maker(), size_in_bits(layout), align_in_bits(layout),
+                debug_type(inner_of(type)), ranges.data(), static_cast<unsigned>(ranges.size()));
+            break;
+        }
+        case type_kind_t::ENUM: {
+            const bool is_unsigned = !is_signed(inner_of(type));
+            std::vector<LLVMMetadataRef> members;
+            for (const enum_value_t& value : info.values) {
+                members.push_back(LLVMDIBuilderCreateEnumerator(
+                    type_maker(), value.name.data(), value.name.size(),
+                    static_cast<std::int64_t>(value.bits), is_unsigned ? 1 : 0));
+            }
+
+            made = LLVMDIBuilderCreateEnumerationType(
+                type_maker(), nullptr, name.data(), name.size(), debug_file(m_main_file), 0,
+                size_in_bits(layout), align_in_bits(layout), members.data(),
+                static_cast<unsigned>(members.size()), debug_type(inner_of(type)));
+            break;
+        }
+        case type_kind_t::WEAK:
+        case type_kind_t::ATOMIC:
+            made = named(debug_type(inner_of(type)), name);
+            break;
+        case type_kind_t::INTERFACE:
+            // A pointer to an object of a Class that implements it, which the script finds by
+            // its header.
+            made = named(pointer_to(object_header_type()), name);
+            break;
+        default:
+            made = LLVMGetTypeKind(layout) == LLVMPointerTypeKind
+                       ? named(pointer_to(nullptr), name)
+                       : LLVMDIBuilderCreateUnspecifiedType(type_maker(), name.data(), name.size());
+            break;
+        }
+
+        m_debug_types.emplace(type, made);
+        return made;
+    }
+
+    /// An object whose Class isn't known, as an Interface's value refers to: its header.
+    LLVMMetadataRef object_header_type() {
+        if (m_object_debug_type == nullptr) {
+            const std::vector<debug_member_t> members = header_members();
+            LLVMMetadataRef file = debug_file(m_main_file);
+            LLVMTargetDataRef data = LLVMGetModuleDataLayout(m_module.get());
+            std::vector<LLVMMetadataRef> made;
+            for (std::size_t i = 0; i < members.size(); ++i) {
+                LLVMTypeRef element =
+                    LLVMStructGetTypeAtIndex(m_object_header, static_cast<unsigned>(i));
+                made.push_back(LLVMDIBuilderCreateMemberType(
+                    type_maker(), nullptr, members[i].name.data(), members[i].name.size(), file, 0,
+                    size_in_bits(element), align_in_bits(element),
+                    LLVMOffsetOfElement(data, m_object_header, static_cast<unsigned>(i)) * 8,
+                    LLVMDIFlagArtificial, members[i].type));
+            }
+
+            constexpr std::string_view name = "fb.Object";
+            m_object_debug_type = LLVMDIBuilderCreateStructType(
+                type_maker(), nullptr, name.data(), name.size(), file, 0,
+                size_in_bits(m_object_header), align_in_bits(m_object_header), LLVMDIFlagZero,
+                nullptr, made.data(), static_cast<unsigned>(made.size()), 0, nullptr, "", 0);
+        }
+
+        return m_object_debug_type;
+    }
+
+    /// Gives every function the module defines a subprogram, one of line 0 for code with no
+    /// place, and each call in it a place, line 0 for one with none, as LLVM needs where a call
+    /// can be inlined. Code generated while another function's place was current gets line 0
+    /// too. Then the debug info is finished.
+    void finish_debug_info() {
+        debug_unit_t& main = unit(m_main_file);
+        for (LLVMValueRef function = LLVMGetFirstFunction(m_module.get()); function != nullptr;
+             function = LLVMGetNextFunction(function)) {
+            if (LLVMIsDeclaration(function) != 0) {
+                continue;
+            }
+
+            LLVMMetadataRef subprogram = LLVMGetSubprogram(function);
+            if (subprogram == nullptr) {
+                std::size_t length = 0;
+                const char* name = LLVMGetValueName2(function, &length);
+                LLVMMetadataRef type = LLVMDIBuilderCreateSubroutineType(
+                    main.builder.get(), main.file, nullptr, 0, LLVMDIFlagZero);
+                subprogram = LLVMDIBuilderCreateFunction(
+                    main.builder.get(), main.file, name, length, name, length, main.file, 0, type,
+                    1, 1, 0, LLVMDIFlagArtificial, checked() ? 0 : 1);
+                LLVMSetSubprogram(function, subprogram);
+            }
+
+            LLVMMetadataRef nowhere = nullptr;
+            for (LLVMBasicBlockRef block = LLVMGetFirstBasicBlock(function); block != nullptr;
+                 block = LLVMGetNextBasicBlock(block)) {
+                for (LLVMValueRef instruction = LLVMGetFirstInstruction(block);
+                     instruction != nullptr; instruction = LLVMGetNextInstruction(instruction)) {
+                    LLVMMetadataRef at = LLVMInstructionGetDebugLoc(instruction);
+                    const bool misplaced =
+                        at != nullptr
+                            ? m_scope_subprograms[LLVMDILocationGetScope(at)] != subprogram
+                            : LLVMIsACallInst(instruction) != nullptr;
+                    if (!misplaced) {
+                        continue;
+                    }
+
+                    if (nowhere == nullptr) {
+                        nowhere =
+                            LLVMDIBuilderCreateDebugLocation(context(), 0, 0, subprogram, nullptr);
+                    }
+
+                    LLVMInstructionSetDebugLoc(instruction, nowhere);
+                }
+            }
+        }
+
+        for (auto& [file, made] : m_units) {
+            LLVMDIBuilderFinalize(made.builder.get());
+        }
+
+        LLVMSetCurrentDebugLocation2(builder(), nullptr);
+    }
+
     // Functions
 
     /// Fills in the body of a declared function.
@@ -2484,6 +3118,8 @@ private:
             m_slots.push_back(slot);
         }
 
+        begin_subprogram(function_index);
+        declare_variables();
         if (m_function->is_async) {
             begin_coroutine();
         }
@@ -2502,16 +3138,20 @@ private:
         for (std::size_t i = 0; i < m_function->blocks.size(); ++i) {
             LLVMPositionBuilderAtEnd(builder(), m_blocks[i]);
             const basic_block_t& block = m_function->blocks[i];
-            for (const statement_t& statement : block.statements) {
-                std::visit([this](const auto& node) { this->generate(node); }, statement);
+            for (std::size_t j = 0; j < block.statements.size(); ++j) {
+                locate(j < block.spans.size() ? block.spans[j] : std::nullopt);
+                std::visit([this](const auto& node) { this->generate(node); }, block.statements[j]);
             }
 
+            locate(block.terminator_span);
             std::visit([this](const auto& node) { this->generate(node); }, block.terminator);
         }
 
         // The entry block gets its jump last, since join adds allocas to it along the way.
         LLVMPositionBuilderAtEnd(builder(), m_entry);
+        LLVMSetCurrentDebugLocation2(builder(), nullptr);
         LLVMBuildBr(builder(), m_blocks[0]);
+        end_subprogram();
     }
 
     /// A Class's functions for the runtime. Its destroy, when an object's last owner lets go,
@@ -2550,9 +3190,12 @@ private:
             }
         }
 
-        // A Task's or Thread's job is the runtime's.
+        // A Task's or Thread's job is the runtime's, and so is the trace of where an error was
+        // thrown.
         if (is_task(info.type)) {
             call(m_task_release, { LLVMGetParam(release, 0) });
+        } else if (is_error(info.type)) {
+            call(m_error_released, { LLVMGetParam(release, 0) });
         }
 
         LLVMBuildRetVoid(builder());
@@ -2569,6 +3212,16 @@ private:
         }
 
         LLVMBuildRetVoid(builder());
+    }
+
+    /// Whether a Class is std.core's Error or extends it.
+    [[nodiscard]] bool is_error(const type_id_t type) const {
+        type_id_t root = type;
+        while (m_mir.types->get(root).base != type_id_t::INVALID) {
+            root = m_mir.types->get(root).base;
+        }
+
+        return m_mir.types->qualified_name(root) == "std.core.error.Error";
     }
 
     /// A Class's field as leak reports name it: its name, and the Class it's declared in when a
@@ -4827,6 +5480,7 @@ emit_beside_object(const beside_binary_t& binary, const codegen_options_t& optio
     }
 
     LLVMDisposeBuilder(builder);
+    add_trace_table(module.get());
 
     // What it takes from the executable: on Windows each through its import library's entry.
     std::vector<std::string> imports;
@@ -4864,6 +5518,7 @@ emit_beside_object(const beside_binary_t& binary, const codegen_options_t& optio
         return std::unexpected(optimized.error());
     }
 
+    fill_trace_table(module.get(), triple);
     std::string name = path.string();
     if (LLVMTargetMachineEmitToFile(machine.get(), module.get(), name.data(), LLVMObjectFile,
                                     &error) != 0) {

@@ -50,6 +50,9 @@ struct codegen_options_t {
     /// The paths panics name files by, in place of their sources' own: a library's build names
     /// its modules by their paths in the program, so its binary is the same wherever it's built.
     std::map<file_id_t, std::string> paths;
+    /// The folder the paths of the program's files are from, the one fb runs in, which debug
+    /// info gives a debugger to find them by.
+    std::string folder;
     /// The libraries beside the executable, and the executable's file's name, which on Windows
     /// they take what they use from it by.
     std::vector<beside_binary_t> beside;

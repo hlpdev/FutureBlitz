@@ -2634,7 +2634,8 @@ private:
     local_id_t add_local(const type_id_t type, const std::string_view name = {},
                          const bool by_ref = false) {
         const auto id = static_cast<local_id_t>(current().locals.size());
-        current().locals.push_back({ .type = type, .name = name, .by_ref = by_ref });
+        current().locals.push_back(
+            { .type = type, .name = name, .by_ref = by_ref, .span = m_span });
         return id;
     }
 
@@ -3001,13 +3002,16 @@ private:
     }
 
     void add_statement(statement_t statement) {
-        block_at(here()).statements.push_back(std::move(statement));
+        basic_block_t& block = block_at(here());
+        block.statements.push_back(std::move(statement));
+        block.spans.push_back(m_span);
     }
 
     /// Ends the current block. Does nothing when there's none, as right after a Return.
     void terminate(terminator_t terminator) {
         if (m_block) {
             block_at(*m_block).terminator = std::move(terminator);
+            block_at(*m_block).terminator_span = m_span;
             m_block.reset();
         }
     }

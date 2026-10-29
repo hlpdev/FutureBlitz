@@ -34,6 +34,7 @@
 #include <random>
 #include <ranges>
 #include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -3206,6 +3207,29 @@ beside_binary(const beside_library_t& library, const build_mode_t mode,
     return std::move(*binary);
 }
 
+/// On macOS, a debug build's executable and the libraries beside it each get a .dSYM beside
+/// them with their debug info, which a debugger finds them by, as dsymutil makes it from the
+/// object files, which the build removes. Elsewhere the debug info is in the binaries.
+std::expected<void, std::string>
+write_debug_symbols(std::span<const std::filesystem::path> binaries) {
+    if (!build_config::target_triple.contains("apple")) {
+        return {};
+    }
+
+    for (const std::filesystem::path& binary : binaries) {
+        const std::array arguments{ std::string("dsymutil"), to_utf8(binary) };
+        const std::expected<process_result_t, std::string> made =
+            run_process("/usr/bin/xcrun", arguments);
+        if (!made || made->exit_code != 0) {
+            return std::unexpected(std::format("couldn't write {}'s debug info with dsymutil: {}",
+                                               to_utf8(binary.filename()),
+                                               made ? made->output : made.error()));
+        }
+    }
+
+    return {};
+}
+
 } // namespace
 
 std::expected<void, std::string> build_program(const mir_module_t& module,
@@ -3319,7 +3343,12 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
     const std::filesystem::path folder = temporary_path(output.stem(), "");
     std::filesystem::create_directories(folder, ignored);
     const std::filesystem::path object = folder / "program.o";
-    codegen_options_t options{ .mode = mode, .executable = to_utf8(executable) };
+    std::error_code no_folder;
+    codegen_options_t options{
+        .mode = mode,
+        .folder = to_utf8(std::filesystem::current_path(no_folder)),
+        .executable = to_utf8(executable),
+    };
     for (std::size_t i = 0; i < binaries->size(); ++i) {
         std::filesystem::path path = compilation.interfaces[i];
         path.replace_extension(".fblib");
@@ -3410,6 +3439,15 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
                 }
 
                 return {};
+            })
+            .and_then([&] {
+                std::vector<std::filesystem::path> binaries{ output };
+                for (const beside_binary_t& library : options.beside) {
+                    binaries.push_back(output.parent_path() / path_from_utf8(library.file));
+                }
+
+                return mode == build_mode_t::DEBUG ? write_debug_symbols(binaries)
+                                                   : std::expected<void, std::string>();
             })
             .and_then([&] { return copy_beside(natives.dynamic, output); });
     remove_temporary(folder);

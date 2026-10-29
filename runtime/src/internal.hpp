@@ -127,4 +127,25 @@ struct decoded_t {
 /// lines are colored.
 [[nodiscard]] bool stderr_colors();
 
+/// A frame of a thread's stack, as the platform's unwinder finds it: where its code is, a return
+/// address but for the first, and where its function starts.
+struct stack_frame_t {
+    std::uintptr_t address;
+    std::uintptr_t start;
+};
+
+/// The calling thread's stack, from the caller of capture_stack() outward, up to a limit.
+[[nodiscard]] std::vector<stack_frame_t> capture_stack();
+
+/// Writes the stack trace of `frames`, a line for each place of the program's code in it, which
+/// the binaries' trace tables name, "    at <function> (<file>:<line>)", innermost first, with
+/// the calls it's inlined into after it. Frames of other code, like the runtime's, are left out.
+void write_trace(std::span<const stack_frame_t> frames, std::FILE* stream);
+
+/// Keeps the calling thread's stack as a thrown error's trace, until fb_error_released().
+void keep_error_trace(const fb_object_t* error);
+
+/// The stack that keep_error_trace() kept for an error, or none.
+[[nodiscard]] std::vector<stack_frame_t> error_trace(const fb_object_t* error);
+
 } // namespace fb::runtime

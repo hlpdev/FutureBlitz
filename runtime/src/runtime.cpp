@@ -246,7 +246,7 @@ bool fb::runtime::stderr_colors() {
 namespace {
 
 /// Ends the program with "panic: <message> at <file>:<line>:<column>" on stderr, the message
-/// whole, NULs too.
+/// whole, NULs too, then its stack trace.
 [[noreturn]] void panic_with(const std::string_view message, const fb_location_t* location) {
     // The lock is never let go: the program ends with it held.
     ending().lock();
@@ -262,6 +262,7 @@ namespace {
     }
 
     std::fputc('\n', stderr);
+    fb::runtime::write_trace(fb::runtime::capture_stack(), stderr);
     end_program(panic_exit_code);
 }
 
@@ -793,6 +794,7 @@ void fb_error_thrown(fb_object_t* error, const fb_location_t* location) {
     fields.file = fb_string_from_cstring(location->file);
     fields.line = static_cast<std::int32_t>(location->line);
     fields.column = static_cast<std::int32_t>(location->column);
+    fb::runtime::keep_error_trace(error);
 }
 
 void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location) {
@@ -838,6 +840,8 @@ void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location) 
         std::fputs("caused by more errors, which aren't shown\n", stderr);
     }
 
+    // Where it was thrown.
+    fb::runtime::write_trace(fb::runtime::error_trace(error), stderr);
     end_program(error_exit_code);
 }
 
