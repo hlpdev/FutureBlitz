@@ -656,29 +656,31 @@ private:
             return std::nullopt;
         }
 
-        const location_t at = m_file.location_of(begin, column_unit_t::UTF8);
-        if (m_file.line_text(at.line).substr(0, at.column).find_first_not_of(" \t") !=
+        // The file's own line, not its origin's, as a doc test's module has one.
+        const std::uint32_t line = m_file.line_of(begin);
+        const std::uint32_t start = m_file.offset_of({ .line = line }, column_unit_t::UTF8);
+        if (m_file.text().substr(start, begin - start).find_first_not_of(" \t") !=
             std::string_view::npos) {
             return std::nullopt;
         }
 
         // Only whole lines between the token before and the declaration: what's in a string or
         // a block comment that ends on one isn't a doc comment.
-        std::uint32_t first = at.line;
+        std::uint32_t first = line;
         while (first > 0 && m_file.offset_of({ .line = first - 1 }, column_unit_t::UTF8) >= after &&
                doc_line(first - 1, "///")) {
             --first;
         }
 
-        if (first == at.line) {
+        if (first == line) {
             return std::nullopt;
         }
 
-        return doc_of(first, at.line - 1, "///");
+        return doc_of(first, line - 1, "///");
     }
 
-    /// The file's "//!" lines before its first token, which follow each other: its module's doc
-    /// comment. nullopt when it has none.
+    /// The file's "//!" lines before its first token: its module's doc comment, each run of them
+    /// a paragraph of it. nullopt when it has none.
     [[nodiscard]] std::optional<doc_comment_t> module_doc() const {
         if (m_docs.empty()) {
             return std::nullopt;
@@ -693,6 +695,7 @@ private:
                            m_file.line_text(line).size() <=
                        end;
         };
+        std::optional<doc_comment_t> doc;
         for (std::uint32_t line = 0; before(line); ++line) {
             if (!doc_line(line, "//!")) {
                 continue;
@@ -703,10 +706,21 @@ private:
                 ++through;
             }
 
-            return doc_of(line, through, "//!");
+            doc_comment_t run = doc_of(line, through, "//!");
+            if (!doc) {
+                doc = std::move(run);
+            } else {
+                // A blank line between the runs, which is where the next one starts.
+                doc->text += "\n\n" + run.text;
+                const span_t at = run.lines.front();
+                doc->lines.push_back({ .file = at.file, .begin = at.begin, .end = at.begin });
+                std::ranges::move(run.lines, std::back_inserter(doc->lines));
+            }
+
+            line = through;
         }
 
-        return std::nullopt;
+        return doc;
     }
 
     // Statements
@@ -717,10 +731,17 @@ private:
     stmt_id_t parse_statement() {
         const std::uint32_t begin = peek().span.begin;
         const std::uint32_t after = m_previous_end;
+        // Only the top level's declarations and the members of types, Extends, and Extern blocks
+        // have docs, not what a Function's or another block's code declares.
+        const bool documented = m_blocks.empty() || m_blocks.back() == token_kind_t::KW_STRUCT ||
+                                m_blocks.back() == token_kind_t::KW_CLASS ||
+                                m_blocks.back() == token_kind_t::KW_INTERFACE ||
+                                m_blocks.back() == token_kind_t::KW_EXTEND ||
+                                m_blocks.back() == token_kind_t::KW_EXTERN;
         const stmt_id_t id = parse_undocumented();
         const stmt_node_t& node = m_ast.get(id).node;
         const auto* variable = std::get_if<variable_stmt_t>(&node);
-        if (variable != nullptr && variable->kind == variable_kind_t::LOCAL) {
+        if (!documented || (variable != nullptr && variable->kind == variable_kind_t::LOCAL)) {
             return id;
         }
 
@@ -977,6 +998,10 @@ private:
                 }
 
                 skip_continuation_newlines();
+                // A member after a comma that ends its line starts a line, with its own doc.
+                if (m_tokens[m_pos - 1].kind == token_kind_t::NEWLINE) {
+                    doc = doc_before(peek().span.begin, m_tokens[m_pos - 1].span.end);
+                }
             }
 
             if (m_pos == line) {

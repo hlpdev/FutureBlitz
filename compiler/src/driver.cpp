@@ -2747,6 +2747,23 @@ enum class examples_of_t : std::uint8_t {
     PROGRAM,
 };
 
+/// Whether a module's name is one an Import takes: names between its dots.
+bool importable_name(const std::string_view name) {
+    for (const auto part : std::views::split(name, '.')) {
+        const std::string_view each(part.begin(), part.end());
+        const auto letter = [](const char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+        };
+        if (each.empty() || !letter(each.front()) || keyword_kind(each) ||
+            !std::ranges::all_of(
+                each, [&](const char c) { return letter(c) || (c >= '0' && c <= '9'); })) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 /// For fb test: the examples of the doc comments in `paths`, files of `files`, each a module of
 /// its own at a path that starts with `prefix`, which the front end loads from memory. Its lines
 /// show where they are in their file, a copy of which goes in the compilation's sources for
@@ -2785,7 +2802,18 @@ void add_examples(compilation_t& compilation, file_set_t& files,
 
         const std::string shown = shown_path(files, path);
         const file_id_t origin = compilation.sources.add(shown, std::move(*text));
+        // An example Imports its module by its name, which has to be one an Import takes.
+        const bool importable = of == examples_of_t::PROGRAM || importable_name(module);
         for (example_module_t& example : examples) {
+            if (!importable) {
+                compilation.diagnostics.error(
+                    { .file = origin, .begin = example.fence.begin, .end = example.fence.end },
+                    "fb test can't run this example: it imports its file's module, {}, which "
+                    "isn't a name an Import takes, as a file's name with a '-' in it isn't",
+                    module);
+                continue;
+            }
+
             const std::string generated =
                 std::format("{}{}.fb", prefix, compilation.doc_tests.size() + 1);
             compilation.doc_tests.push_back({ .path = generated, .name = std::move(example.name) });
@@ -2794,7 +2822,11 @@ void add_examples(compilation_t& compilation, file_set_t& files,
                 .path = generated,
                 .text = std::move(example.text),
                 .shown = shown,
-                .origin = { .file = origin, .lines = std::move(example.lines) },
+                .origin = {
+                    .file = origin,
+                    .lines = std::move(example.lines),
+                    .made = std::move(example.added),
+                },
             });
         }
     }
@@ -3355,6 +3387,14 @@ std::expected<compilation_t, std::string> compile_docs(const std::filesystem::pa
     }
 
     std::error_code error;
+    // What isn't there can't be read, as fb build says.
+    if (!std::filesystem::exists(path, error)) {
+        std::error_code missing;
+        static_cast<void>(std::filesystem::file_size(path, missing));
+        return std::unexpected(
+            std::format("cannot read '{}': {}", to_utf8(path), missing.message()));
+    }
+
     std::optional<std::filesystem::path> root;
     if (std::filesystem::is_directory(path, error)) {
         if (!std::filesystem::is_regular_file(path / "project.toml", error)) {

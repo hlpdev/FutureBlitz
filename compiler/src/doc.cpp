@@ -141,44 +141,99 @@ struct fence_t {
     return target;
 }
 
-/// How many backticks open a code span after a run of `run` of them, when `open` did before, or
-/// 0 for none: a run opens one, and closes one it's as long as.
-[[nodiscard]] std::size_t ticks_after(const std::size_t open, const std::size_t run) {
-    if (open == 0) {
-        return run;
-    }
+/// Where a text's code spans start and end: a run of backticks opens one when a run of as many
+/// closes it later, and is the backticks themselves when none does, as CommonMark has it.
+[[nodiscard]] std::vector<std::pair<std::size_t, std::size_t>>
+code_spans(const std::string_view text) {
+    std::vector<std::pair<std::size_t, std::size_t>> spans;
+    const auto run_at = [&](const std::size_t at) {
+        return std::min(text.find_first_not_of('`', at), text.size()) - at;
+    };
+    for (std::size_t i = 0; i < text.size();) {
+        if (text[i] == '\\') {
+            i += 2;
+            continue;
+        }
 
-    return open == run ? 0 : open;
-}
+        if (text[i] != '`') {
+            ++i;
+            continue;
+        }
 
-/// A paragraph's first sentence: up to a '.', '!', or '?' outside code that a space follows, or
-/// that ends it.
-[[nodiscard]] std::string first_sentence(const std::string_view paragraph) {
-    std::size_t ticks = 0;
-    for (std::size_t i = 0; i < paragraph.size();) {
-        const char c = paragraph[i];
-        if (c == '`') {
-            const std::size_t run =
-                std::min(paragraph.find_first_not_of('`', i), paragraph.size()) - i;
-            ticks = ticks_after(ticks, run);
+        const std::size_t run = run_at(i);
+        std::size_t close = std::string_view::npos;
+        for (std::size_t j = i + run; j < text.size();) {
+            if (text[j] != '`') {
+                ++j;
+                continue;
+            }
+
+            const std::size_t length = run_at(j);
+            if (length == run) {
+                close = j;
+                break;
+            }
+
+            j += length;
+        }
+
+        if (close == std::string_view::npos) {
             i += run;
             continue;
         }
 
+        spans.emplace_back(i, close + run);
+        i = close + run;
+    }
+
+    return spans;
+}
+
+/// The code span `at` is in, among `spans`, or nullptr.
+[[nodiscard]] const std::pair<std::size_t, std::size_t>*
+code_span_at(const std::vector<std::pair<std::size_t, std::size_t>>& spans, const std::size_t at) {
+    for (const auto& span : spans) {
+        if (at >= span.first && at < span.second) {
+            return &span;
+        }
+    }
+
+    return nullptr;
+}
+
+/// A paragraph's first sentence, its lines joined by spaces: up to a '.', '!', or '?' outside code
+/// that a space or a line break follows, or that ends it.
+[[nodiscard]] std::string first_sentence(const std::string_view paragraph) {
+    const std::vector<std::pair<std::size_t, std::size_t>> spans = code_spans(paragraph);
+    std::size_t end = paragraph.size();
+    for (std::size_t i = 0; i < paragraph.size();) {
+        if (const auto* span = code_span_at(spans, i)) {
+            i = span->second;
+            continue;
+        }
+
+        const char c = paragraph[i];
         if (c == '\\') {
             i += 2;
             continue;
         }
 
-        if (ticks == 0 && (c == '.' || c == '!' || c == '?') &&
-            (i + 1 == paragraph.size() || paragraph[i + 1] == ' ')) {
-            return std::string(paragraph.substr(0, i + 1));
+        if ((c == '.' || c == '!' || c == '?') &&
+            (i + 1 == paragraph.size() || paragraph[i + 1] == ' ' || paragraph[i + 1] == '\n')) {
+            end = i + 1;
+            break;
         }
 
         ++i;
     }
 
-    return std::string(paragraph);
+    std::string sentence;
+    for (const auto part : std::views::split(paragraph.substr(0, end), '\n')) {
+        const std::string_view line = trim(std::string_view(part.begin(), part.end()));
+        sentence += std::string(sentence.empty() ? "" : " ") + std::string(line);
+    }
+
+    return sentence;
 }
 
 /// Reads a doc comment line by line, as its Markdown goes.
@@ -198,13 +253,13 @@ public:
         }
 
         // A code block that's still open at the end runs to it.
+        end_paragraph();
         finish_example();
         std::erase_if(m_doc.sections, [](doc_section_t& section) {
             section.markdown = std::string(trim_lines(section.markdown));
             return section.heading.empty() && section.markdown.empty();
         });
         m_doc.markdown = std::string(trim_lines(m_doc.markdown));
-        m_doc.summary = first_sentence(m_paragraph);
         return std::move(m_doc);
     }
 
@@ -214,12 +269,11 @@ private:
     /// The code block that's open, and whether it's an example.
     std::optional<fence_t> m_fence;
     std::optional<doc_example_t> m_example;
-    /// The first paragraph, its lines joined by spaces, and whether it's still going, or done.
-    std::string m_paragraph;
-    bool m_in_paragraph = false;
+    /// The lines of the paragraph that's open, and where each is.
+    std::vector<std::pair<std::string_view, span_t>> m_paragraph;
+    /// Whether the summary is found: in the first paragraph, or nowhere when something else
+    /// comes first.
     bool m_summarized = false;
-    /// How many backticks open the code span a line ended inside, or 0.
-    std::size_t m_ticks = 0;
 
     /// Without the blank lines at its start and its end.
     [[nodiscard]] static std::string_view trim_lines(std::string_view text) {
@@ -254,12 +308,24 @@ private:
         }
     }
 
-    /// The first paragraph ends at a blank line, a heading, or a code block, and the summary is
-    /// in it, or nowhere when something else comes first.
+    /// Ends the paragraph that's open: its links, and the summary when it's the first thing.
     void end_paragraph() {
-        m_in_paragraph = false;
-        m_summarized = true;
-        m_ticks = 0;
+        if (m_paragraph.empty()) {
+            return;
+        }
+
+        std::string text;
+        for (const auto& [line, span] : m_paragraph) {
+            text += std::string(text.empty() ? "" : "\n") + std::string(line);
+        }
+
+        find_links(text, m_paragraph);
+        if (!m_summarized) {
+            m_doc.summary = first_sentence(text);
+            m_summarized = true;
+        }
+
+        m_paragraph.clear();
     }
 
     void finish_example() {
@@ -282,6 +348,7 @@ private:
 
         if (const std::optional<fence_t> fence = fence_of(line)) {
             end_paragraph();
+            m_summarized = true;
             m_fence = fence;
             const bool fb =
                 fence->info.empty() || fence->info == "fb" || fence->info == "fb no_run";
@@ -299,31 +366,22 @@ private:
 
         if (const std::optional<std::string_view> heading = heading_of(line)) {
             end_paragraph();
+            m_summarized = true;
+            // A heading's links are links too.
+            const std::vector<std::pair<std::string_view, span_t>> alone{ { line, span } };
+            find_links(line, alone);
             show(line, false);
             m_doc.sections.push_back({ .heading = std::string(*heading) });
             return;
         }
 
         if (blank(line)) {
-            if (m_in_paragraph) {
-                end_paragraph();
-            }
-
-            m_ticks = 0;
+            end_paragraph();
             show(line);
             return;
         }
 
-        if (!m_summarized) {
-            m_in_paragraph = true;
-            m_summarized = true;
-        }
-
-        if (m_in_paragraph) {
-            m_paragraph += std::string(m_paragraph.empty() ? "" : " ") + std::string(trim(line));
-        }
-
-        find_links(line, span);
+        m_paragraph.emplace_back(line, span);
         show(line);
     }
 
@@ -371,52 +429,59 @@ private:
         }
     }
 
-    /// The "[Name]" links in a line of text, outside code spans, which can go on from the line
-    /// before, and but for Markdown's own links, "[text](url)" and "[text][label]".
-    void find_links(const std::string_view line, const span_t span) {
-        for (std::size_t i = 0; i < line.size();) {
-            const char c = line[i];
-            if (c == '\\') {
-                i += 2;
-                continue;
-            }
-
-            if (c == '`') {
-                const std::size_t run = std::min(line.find_first_not_of('`', i), line.size()) - i;
-                m_ticks = ticks_after(m_ticks, run);
-                i += run;
-                continue;
-            }
-
-            // A '[' right after a name or a bracket indexes, as "a[i]" does, and "![" is an image.
-            const bool opens = c == '[' && m_ticks == 0 &&
-                               (i == 0 || (!name_character(line[i - 1]) && line[i - 1] != ']' &&
-                                           line[i - 1] != ')' && line[i - 1] != '!'));
-            const std::size_t close = opens ? line.find(']', i + 1) : std::string_view::npos;
-            if (close == std::string_view::npos) {
-                ++i;
-                continue;
-            }
-
-            // "[label]: url" at the start of a line defines a link.
-            const char after = close + 1 < line.size() ? line[close + 1] : '\0';
-            const bool definition =
-                after == ':' && line.substr(0, i).find_first_not_of(' ') == std::string_view::npos;
-            if (after != '(' && after != '[' && !definition) {
-                if (std::optional<std::string> target =
-                        link_target(line.substr(i + 1, close - i - 1))) {
-                    m_doc.links.push_back({
-                        .target = std::move(*target),
-                        .span = {
-                            .file = span.file,
-                            .begin = span.begin + static_cast<std::uint32_t>(i),
-                            .end = span.begin + static_cast<std::uint32_t>(close + 1),
-                        },
-                    });
+    /// The "[Name]" links in `text`, the lines of a paragraph joined by line breaks, each on one
+    /// of its `lines`, outside code spans, but for Markdown's own links, "[text](url)" and
+    /// "[text][label]".
+    void find_links(const std::string_view text,
+                    const std::vector<std::pair<std::string_view, span_t>>& lines) {
+        const std::vector<std::pair<std::size_t, std::size_t>> spans = code_spans(text);
+        std::size_t offset = 0;
+        for (const auto& [line, span] : lines) {
+            for (std::size_t i = 0; i < line.size();) {
+                if (const auto* code = code_span_at(spans, offset + i)) {
+                    i = code->second - offset;
+                    continue;
                 }
+
+                const char c = line[i];
+                if (c == '\\') {
+                    i += 2;
+                    continue;
+                }
+
+                // A '[' right after a name or a bracket indexes, as "a[i]" does, and "![" is an
+                // image.
+                const bool opens =
+                    c == '[' && (i == 0 || (!name_character(line[i - 1]) && line[i - 1] != ']' &&
+                                            line[i - 1] != ')' && line[i - 1] != '!'));
+                const std::size_t close = opens ? line.find(']', i + 1) : std::string_view::npos;
+                if (close == std::string_view::npos) {
+                    ++i;
+                    continue;
+                }
+
+                // "[label]: url" at the start of a line defines a link.
+                const char after = close + 1 < line.size() ? line[close + 1] : '\0';
+                const bool definition = after == ':' && line.substr(0, i).find_first_not_of(' ') ==
+                                                            std::string_view::npos;
+                if (after != '(' && after != '[' && !definition) {
+                    if (std::optional<std::string> target =
+                            link_target(line.substr(i + 1, close - i - 1))) {
+                        m_doc.links.push_back({
+                            .target = std::move(*target),
+                            .span = {
+                                .file = span.file,
+                                .begin = span.begin + static_cast<std::uint32_t>(i),
+                                .end = span.begin + static_cast<std::uint32_t>(close + 1),
+                            },
+                        });
+                    }
+                }
+
+                i = close + 1;
             }
 
-            i = close + 1;
+            offset += line.size() + 1;
         }
     }
 };
@@ -456,7 +521,11 @@ enum class part_t : std::uint8_t {
     }
 
     if (const auto* variable = std::get_if<variable_stmt_t>(&node)) {
-        return variable->kind == variable_kind_t::GLOBAL ? part_t::DECLARATION : part_t::CODE;
+        // A Const goes outside the test too, so the example's own Functions see it.
+        return variable->kind == variable_kind_t::GLOBAL ||
+                       variable->kind == variable_kind_t::CONSTANT
+                   ? part_t::DECLARATION
+                   : part_t::CODE;
     }
 
     const bool declares =
@@ -517,23 +586,26 @@ public:
 
         add_part(part_t::IMPORT, parts);
         add_part(part_t::DECLARATION, parts);
-        // A test that only compiles has its code in a Function that nothing calls.
+        // A test that only compiles has its code in a Function that nothing calls. It can throw,
+        // as a test can, so the example can call what throws with Try. Their names are ones an
+        // example's own declarations are unlikely to take.
         if (m_example.kind == example_kind_t::RUN) {
-            add("@Test Function Example()", m_fence);
+            add("@Test Function DocTest__Example() Throws Error", m_fence);
         } else {
-            add("Function Example()", m_fence);
+            add("Function DocTest__Example() Throws Error", m_fence);
         }
 
         add_part(part_t::CODE, parts);
         add("End Function", m_fence);
         if (m_example.kind == example_kind_t::NO_RUN) {
-            add("@Test Function Compiles()", m_fence);
+            add("@Test Function DocTest__Compiles()", m_fence);
             add("End Function", m_fence);
         }
 
         // The end of the file, after the last line break, has a line of its own.
-        m_module.lines.push_back(m_fence);
+        add_origin(m_fence, true);
         m_module.name = std::move(name);
+        m_module.fence = m_example.fence;
         return std::move(m_module);
     }
 
@@ -543,20 +615,46 @@ private:
     location_t m_fence;
     example_module_t m_module;
 
+    void add_origin(const location_t origin, const bool added) {
+        m_module.lines.push_back(origin);
+        m_module.added.push_back(added);
+    }
+
+    /// A line fb adds, which shows as the fence's.
     void add(const std::string_view text, const location_t origin) {
         m_module.text += std::string(text) + "\n";
-        m_module.lines.push_back(origin);
+        add_origin(origin, true);
     }
 
     void add_part(const part_t part, const std::vector<part_t>& parts) {
         for (std::size_t i = 0; i < parts.size(); ++i) {
             if (parts[i] == part) {
                 const example_line_t& line = m_example.lines[i];
-                add(line.text, m_file.location_of(line.span.begin, column_unit_t::UTF8));
+                m_module.text += line.text + "\n";
+                add_origin(m_file.location_of(line.span.begin, column_unit_t::UTF8), false);
             }
         }
     }
 };
+
+/// An Extend's type as written without type arguments, the name its members' paths have: "Stack",
+/// "String", "T[]" for every array, or "UInt8[]" for one kind. `file` is the Extend's.
+std::string extend_name(const ast_t& ast, const extend_stmt_t& extension,
+                        const source_file_t& file) {
+    const type_expr_t& type = ast.get(extension.type);
+    if (const auto* named = std::get_if<named_type_t>(&type.node)) {
+        return std::string(named->name);
+    }
+
+    std::string written;
+    for (const char c : file.slice(type.span)) {
+        if (c != ' ' && c != '\t') {
+            written += c;
+        }
+    }
+
+    return written;
+}
 
 /// A declaration with a doc comment, and its path in its module, like "Stack.Push".
 struct documented_t {
@@ -565,7 +663,7 @@ struct documented_t {
 };
 
 /// The doc comments of a file's declarations and their members, in source order.
-std::vector<documented_t> documented(const ast_t& ast) {
+std::vector<documented_t> documented(const ast_t& ast, const source_file_t& file) {
     std::vector<documented_t> found;
     const auto note = [&](const std::string& path, const doc_comment_t* doc) {
         if (doc != nullptr) {
@@ -598,8 +696,7 @@ std::vector<documented_t> documented(const ast_t& ast) {
                      ast.doc(member.name.span));
             }
         } else if (const auto* extension = std::get_if<extend_stmt_t>(&node)) {
-            const auto* named = std::get_if<named_type_t>(&ast.get(extension->type).node);
-            const std::string_view extended = named != nullptr ? named->name : "T[]";
+            const std::string extended = extend_name(ast, *extension, file);
             for (const stmt_id_t member : extension->members) {
                 note(std::format("{}.{}", extended, member_name(ast.get(member).node)),
                      ast.doc(member));
@@ -624,14 +721,24 @@ std::vector<example_module_t> example_modules(const ast_t& ast, const source_fil
         imports.push_back(import);
     }
 
+    // The module's own examples first, then its declarations', numbered by path, so overloads'
+    // examples go on from one another's.
+    std::vector<documented_t> docs;
+    if (const doc_comment_t* own = ast.module_doc(file.id())) {
+        docs.push_back({ .doc = own });
+    }
+
+    std::ranges::move(documented(ast, file), std::back_inserter(docs));
+    std::map<std::string, std::size_t> counts;
     std::vector<example_module_t> modules;
-    for (const auto& [path, comment] : documented(ast)) {
+    for (const auto& [path, comment] : docs) {
         const doc_t doc = read_doc(*comment);
-        for (std::size_t i = 0; i < doc.examples.size(); ++i) {
-            std::string name = std::format("{}.{} (example{})", module, path,
-                                           i == 0 ? std::string() : std::format(" {}", i + 1));
-            modules.push_back(
-                example_builder_t(file, doc.examples[i]).run(std::move(name), imports));
+        for (const doc_example_t& example : doc.examples) {
+            const std::size_t number = ++counts[path];
+            std::string name =
+                std::format("{}{}{} (example{})", module, path.empty() ? "" : ".", path,
+                            number == 1 ? std::string() : std::format(" {}", number));
+            modules.push_back(example_builder_t(file, example).run(std::move(name), imports));
         }
     }
 
@@ -664,7 +771,8 @@ struct found_t {
 /// Each declaration of a program, by name, with its path, for fb doc's items and links.
 class api_index_t {
 public:
-    explicit api_index_t(const compilation_t& compilation) : m_ast(compilation.ast) {
+    explicit api_index_t(const compilation_t& compilation)
+        : m_compilation(compilation), m_ast(compilation.ast) {
         const module_table_t& modules = m_ast.modules();
         m_items.resize(modules.size());
         for (const stmt_id_t id : m_ast.items()) {
@@ -700,40 +808,46 @@ public:
         return found != m_scopes.end() ? std::optional(found->second) : std::nullopt;
     }
 
-    /// An Extend's type as written without its type arguments: "Stack", "String", or "T[]".
-    [[nodiscard]] std::string extended_name(const extend_stmt_t& extension) const {
-        const type_expr_node_t& type = m_ast.get(extension.type).node;
-        if (const auto* named = std::get_if<named_type_t>(&type)) {
-            return std::string(named->name);
-        }
-
-        return "T[]";
+    /// An Extend's type as written without its type arguments: "Stack", "String", "T[]", or
+    /// "UInt8[]".
+    [[nodiscard]] std::string extended_name(const stmt_id_t id) const {
+        const stmt_t& stmt = m_ast.get(id);
+        return extend_name(m_ast, std::get<extend_stmt_t>(stmt.node),
+                           m_compilation.sources.get(stmt.span.file));
     }
 
-    /// The declaration or built-in an Extend extends, as its module finds it.
+    /// The declaration or built-in an Extend extends, as its module finds it: for an array, every
+    /// T[] when its element is the Extend's own type parameter, and else the array of what its
+    /// element names.
     [[nodiscard]] std::optional<found_t> extended(const stmt_id_t id) const {
         const auto& extension = std::get<extend_stmt_t>(m_ast.get(id).node);
-        const auto* named = std::get_if<named_type_t>(&m_ast.get(extension.type).node);
-        if (named == nullptr) {
-            return found_t{ .path = "T[]", .builtin = true };
-        }
-
         const std::optional<scope_t> where = scope(id);
         if (!where) {
             return std::nullopt;
         }
 
-        std::optional<found_t> found;
-        if (named->qualifier) {
-            found = in_scope(named->qualifier->text, { .module = where->module });
-            if (found) {
-                found = member(*found, named->name, where->module);
+        const type_expr_node_t& type = m_ast.get(extension.type).node;
+        if (const auto* array = std::get_if<array_type_t>(&type)) {
+            const std::string written = extended_name(id);
+            const auto* element = std::get_if<named_type_t>(&m_ast.get(array->element).node);
+            if (element == nullptr || builtin_type(element->name)) {
+                return found_t{ .path = written, .builtin = true };
             }
-        } else {
-            found = in_scope(named->name, { .module = where->module });
+
+            const std::optional<found_t> named = named_type(*element, { .module = where->module });
+            if (!named || !named->declaration) {
+                return found_t{ .path = "T[]", .builtin = true };
+            }
+
+            return found_t{ .path = named->path + "[]" };
         }
 
-        return found;
+        const auto* named = std::get_if<named_type_t>(&type);
+        if (named == nullptr) {
+            return std::nullopt;
+        }
+
+        return named_type(*named, { .module = where->module });
     }
 
     /// What a link names, as code in `scope` finds it.
@@ -764,13 +878,60 @@ public:
         }
 
         for (std::size_t i = next; found && i < parts.size(); ++i) {
-            found = member(*found, parts[i], scope.module);
+            found = member(*found, parts[i], scope);
         }
 
         return found;
     }
 
+    /// The visibility a member of the type, Extend, or Enum `owner` has: an Interface's, an
+    /// Operator's, and an Enum member's are their type's, and an Override that says none has what
+    /// it overrides'.
+    [[nodiscard]] visibility_t member_visibility(const stmt_id_t member,
+                                                 const stmt_id_t owner) const {
+        const stmt_node_t& node = m_ast.get(owner).node;
+        const modifiers_t* own = modifiers_of(node);
+        // An Extend has no visibility: what it adds is seen where it is.
+        const visibility_t type = own != nullptr ? own->visibility : visibility_t::PUBLIC;
+        const auto* declared = std::get_if<type_stmt_t>(&node);
+        const stmt_node_t& written = m_ast.get(member).node;
+        const auto* function = std::get_if<function_stmt_t>(&written);
+        if ((declared != nullptr && declared->is_interface) ||
+            (function != nullptr && function->kind == function_kind_t::OPERATOR)) {
+            return type;
+        }
+
+        const modifiers_t* modifiers = modifiers_of(written);
+        if (modifiers == nullptr) {
+            return type;
+        }
+
+        if (modifiers->visibility_span || !modifiers->is_override) {
+            return modifiers->visibility;
+        }
+
+        // What it overrides', through the Overrides that say none.
+        const analysis_t& analysis = m_compilation.analysis;
+        std::optional<symbol_id_t> symbol = analysis.stmt(member).symbol;
+        for (std::uint32_t depth = 0; symbol && depth < 32; ++depth) {
+            const std::optional<symbol_id_t> overridden = analysis.symbol(*symbol).overrides;
+            if (!overridden) {
+                break;
+            }
+
+            const symbol_t& each = analysis.symbol(*overridden);
+            if (each.modifiers.visibility_span || !each.modifiers.is_override) {
+                return each.modifiers.visibility;
+            }
+
+            symbol = overridden;
+        }
+
+        return modifiers->visibility;
+    }
+
 private:
+    const compilation_t& m_compilation;
     const ast_t& m_ast;
     std::vector<std::vector<stmt_id_t>> m_items;
     /// Each module's top-level declarations by name, Extern blocks' Functions among them.
@@ -816,8 +977,10 @@ private:
             } else if (const auto* extension = std::get_if<extend_stmt_t>(&node)) {
                 // An Extend's members are its type's, in its module; it's Extend and its type, as
                 // no declaration can be named Extend.
-                const std::string path = std::format("{}.{}", name, extended_name(*extension));
-                index_declaration(id, std::format("{}.Extend.{}", name, extended_name(*extension)),
+                const std::string extended = extend_name(
+                    m_ast, *extension, m_compilation.sources.get(m_ast.get(id).span.file));
+                const std::string path = std::format("{}.{}", name, extended);
+                index_declaration(id, std::format("{}.Extend.{}", name, extended),
                                   { .module = module, .extension = id });
                 for (const stmt_id_t member : extension->members) {
                     index_declaration(
@@ -869,20 +1032,64 @@ private:
             node);
     }
 
-    /// Whether code in `from` sees a top-level declaration of `module`.
-    [[nodiscard]] bool visible(const stmt_id_t id, const module_id_t module,
-                               const module_id_t from) const {
-        if (module == from) {
+    /// Whether what has `visibility`, declared in `module`, code in `from` sees: its own module's
+    /// code always, a Package one in its package, and a Public one everywhere.
+    [[nodiscard]] bool seen(const visibility_t visibility, const module_id_t module,
+                            const module_id_t from) const {
+        if (module == from || visibility == visibility_t::PUBLIC) {
             return true;
         }
 
-        const modifiers_t* modifiers = modifiers_of(m_ast.get(id).node);
-        const visibility_t visibility =
-            modifiers != nullptr ? modifiers->visibility : visibility_t::PRIVATE;
         const module_table_t& table = m_ast.modules();
-        return visibility == visibility_t::PUBLIC ||
-               (visibility == visibility_t::PACKAGE &&
-                table.get(module).package == table.get(from).package);
+        return visibility == visibility_t::PACKAGE &&
+               table.get(module).package == table.get(from).package;
+    }
+
+    /// Whether code in `from` sees a top-level declaration of `module`.
+    [[nodiscard]] bool visible(const stmt_id_t id, const module_id_t module,
+                               const module_id_t from) const {
+        const modifiers_t* modifiers = modifiers_of(m_ast.get(id).node);
+        return seen(modifiers != nullptr ? modifiers->visibility : visibility_t::PRIVATE, module,
+                    from);
+    }
+
+    /// Whether the Class `derived` extends the Class `base`, or is it.
+    [[nodiscard]] bool extends(const stmt_id_t derived, const stmt_id_t base) const {
+        std::optional<stmt_id_t> at = derived;
+        for (std::uint32_t depth = 0; at && depth < 32; ++depth) {
+            if (*at == base) {
+                return true;
+            }
+
+            const auto* type = std::get_if<type_stmt_t>(&m_ast.get(*at).node);
+            const std::optional<scope_t> where = scope(*at);
+            if (type == nullptr || !type->base || !where) {
+                return false;
+            }
+
+            named_type_t written{ .name = type->base->text, .qualifier = type->base_qualifier };
+            const std::optional<found_t> next = named_type(written, { .module = where->module });
+            at = next ? next->declaration : std::nullopt;
+        }
+
+        return false;
+    }
+
+    /// Whether code in `from` sees the member `member` of `owner`, as its visibility says, and a
+    /// Protected one from the Classes extending its Class.
+    [[nodiscard]] bool member_seen(const stmt_id_t member, const stmt_id_t owner,
+                                   const scope_t& from) const {
+        const std::optional<scope_t> where = scope(member);
+        if (!where) {
+            return true;
+        }
+
+        const visibility_t visibility = member_visibility(member, owner);
+        if (visibility == visibility_t::PROTECTED) {
+            return where->module == from.module || (from.type && extends(*from.type, owner));
+        }
+
+        return seen(visibility, where->module, from.module);
     }
 
     /// A declaration named `name` among `modules`' top-level ones that code in `from` sees.
@@ -910,24 +1117,45 @@ private:
         return { .path = path(id), .declaration = id };
     }
 
+    /// A type as written, with its qualifier or without, as code in `scope` finds it.
+    [[nodiscard]] std::optional<found_t> named_type(const named_type_t& written,
+                                                    const scope_t& scope) const {
+        if (!written.qualifier) {
+            return in_scope(written.name, scope);
+        }
+
+        const std::optional<found_t> qualifier = in_scope(written.qualifier->text, scope);
+        return qualifier ? member(*qualifier, written.name, scope) : std::nullopt;
+    }
+
+    /// The path an Import's modules have: the one module's name, or what it names, as a
+    /// folder's modules have it.
+    [[nodiscard]] std::string imported_path(const module_import_t& imported,
+                                            const import_stmt_t& node) const {
+        if (imported.modules.size() == 1) {
+            return m_ast.modules().get(imported.modules.front()).name;
+        }
+
+        return node.target;
+    }
+
     /// A name as code in `scope` finds it: its type's members, its module's declarations, those
     /// of the modules it imports, and the built-ins.
     [[nodiscard]] std::optional<found_t> in_scope(const std::string_view name,
                                                   const scope_t& scope) const {
         if (scope.type) {
-            if (std::optional<found_t> found =
-                    member(declaration(*scope.type), name, scope.module)) {
+            if (std::optional<found_t> found = member(declaration(*scope.type), name, scope)) {
                 return found;
             }
         }
 
         if (scope.extension) {
-            if (std::optional<found_t> found = own_member(*scope.extension, name)) {
+            if (std::optional<found_t> found = own_member(*scope.extension, name, scope)) {
                 return found;
             }
 
             if (const std::optional<found_t> type = extended(*scope.extension)) {
-                if (std::optional<found_t> found = member(*type, name, scope.module)) {
+                if (std::optional<found_t> found = member(*type, name, scope)) {
                     return found;
                 }
             }
@@ -942,7 +1170,8 @@ private:
             const auto& node = std::get<import_stmt_t>(m_ast.get(imported.statement).node);
             if (node.alias) {
                 if (node.alias->text == name) {
-                    return found_t{ .path = std::string(name), .modules = imported.modules };
+                    return found_t{ .path = imported_path(imported, node),
+                                    .modules = imported.modules };
                 }
 
                 continue;
@@ -959,7 +1188,8 @@ private:
             }
 
             if (node.last.text == name) {
-                return found_t{ .path = node.target, .modules = imported.modules };
+                return found_t{ .path = imported_path(imported, node),
+                                .modules = imported.modules };
             }
 
             if (std::optional<found_t> found = in_modules(imported.modules, name, module)) {
@@ -974,9 +1204,9 @@ private:
         return std::nullopt;
     }
 
-    /// A member that a type or Extend declares itself, or an Enum's.
-    [[nodiscard]] std::optional<found_t> own_member(const stmt_id_t id,
-                                                    const std::string_view name) const {
+    /// A member that a type or Extend declares itself, or an Enum's, that code in `from` sees.
+    [[nodiscard]] std::optional<found_t> own_member(const stmt_id_t id, const std::string_view name,
+                                                    const scope_t& from) const {
         const stmt_node_t& node = m_ast.get(id).node;
         const block_t* members = nullptr;
         if (const auto* type = std::get_if<type_stmt_t>(&node)) {
@@ -999,8 +1229,7 @@ private:
 
         for (const stmt_id_t member : *members) {
             const std::optional<name_t> declared = declared_name(m_ast.get(member).node);
-            const bool new_named = name == "New" && declared && declared->text == "New";
-            if ((declared && declared->text == name) || new_named) {
+            if (declared && declared->text == name && member_seen(member, id, from)) {
                 return declaration(member);
             }
         }
@@ -1012,10 +1241,10 @@ private:
     /// declaration, or a type's own member, one an Extend that `from` sees adds, or one it has
     /// from the Class it extends or the Interfaces it implements.
     [[nodiscard]] std::optional<found_t> member(const found_t& found, const std::string_view name,
-                                                const module_id_t from,
+                                                const scope_t& from,
                                                 const std::uint32_t depth = 0) const {
         if (!found.modules.empty()) {
-            return in_modules(found.modules, name, from);
+            return in_modules(found.modules, name, from.module);
         }
 
         if (depth > 32) {
@@ -1023,7 +1252,7 @@ private:
         }
 
         if (found.declaration) {
-            if (std::optional<found_t> own = own_member(*found.declaration, name)) {
+            if (std::optional<found_t> own = own_member(*found.declaration, name, from)) {
                 return own;
             }
         }
@@ -1043,23 +1272,18 @@ private:
             return std::nullopt;
         }
 
-        // What it inherits, each found where it's declared.
+        // What it inherits, each found where it's declared, with its qualifier.
+        const scope_t there{ .module = where->module };
         std::vector<std::optional<found_t>> bases;
         if (type->base) {
-            std::optional<found_t> base =
-                type->base_qualifier
-                    ? in_scope(type->base_qualifier->text, { .module = where->module })
-                    : in_scope(type->base->text, { .module = where->module });
-            if (base && type->base_qualifier) {
-                base = member(*base, type->base->text, where->module, depth + 1);
-            }
-
-            bases.push_back(std::move(base));
+            const named_type_t written{ .name = type->base->text,
+                                        .qualifier = type->base_qualifier };
+            bases.push_back(named_type(written, there));
         }
 
         for (const type_expr_id_t interface : type->interfaces) {
             if (const auto* named = std::get_if<named_type_t>(&m_ast.get(interface).node)) {
-                bases.push_back(in_scope(named->name, { .module = where->module }));
+                bases.push_back(named_type(*named, there));
             }
         }
 
@@ -1076,15 +1300,14 @@ private:
 
     /// A member an Extend of what `found` is adds, among the modules `from` sees: its own, and
     /// those it imports.
-    [[nodiscard]] std::optional<found_t> extension_member(const found_t& found,
-                                                          const std::string_view name,
-                                                          const module_id_t from) const {
-        std::vector<module_id_t> seen{ from };
-        for (const module_import_t& imported : m_ast.modules().get(from).imports) {
-            std::ranges::copy(imported.modules, std::back_inserter(seen));
+    [[nodiscard]] std::optional<found_t>
+    extension_member(const found_t& found, const std::string_view name, const scope_t& from) const {
+        std::vector<module_id_t> modules{ from.module };
+        for (const module_import_t& imported : m_ast.modules().get(from.module).imports) {
+            std::ranges::copy(imported.modules, std::back_inserter(modules));
         }
 
-        for (const module_id_t module : seen) {
+        for (const module_id_t module : modules) {
             for (const stmt_id_t id : items(module)) {
                 if (!std::holds_alternative<extend_stmt_t>(m_ast.get(id).node)) {
                     continue;
@@ -1096,7 +1319,7 @@ private:
                     (found.builtin ? type->builtin && type->path == found.path
                                    : type->declaration && type->declaration == found.declaration);
                 if (same) {
-                    if (std::optional<found_t> added = own_member(id, name)) {
+                    if (std::optional<found_t> added = own_member(id, name, from)) {
                         return added;
                     }
                 }
@@ -1269,6 +1492,8 @@ private:
         }
 
         const doc_comment_t* module_doc = m_ast.module_doc(file);
+        // The line of the last comment warned about, so the lines of one comment warn once.
+        std::optional<std::uint32_t> warned;
         for (const span_t comment : comments) {
             const std::uint32_t line = source.location_of(comment.begin, column_unit_t::UTF8).line;
             const bool on_module =
@@ -1280,10 +1505,32 @@ private:
                 continue;
             }
 
-            if (source.slice(comment).starts_with("//!")) {
+            const bool going_on = warned && *warned + 1 == line;
+            warned = line;
+            if (going_on) {
+                continue;
+            }
+
+            const bool module = source.slice(comment).starts_with("//!");
+            if (module) {
                 m_diagnostics.warning(comment,
                                       "a //! comment documents its module, so it goes at "
                                       "the top of its file, before its first line of code");
+                continue;
+            }
+
+            // What the comment is before, past its other lines.
+            std::uint32_t next = line + 1;
+            while (next < source.line_count() && trim(source.line_text(next)).starts_with("///")) {
+                ++next;
+            }
+
+            const std::string_view after =
+                next < source.line_count() ? trim(source.line_text(next)) : std::string_view();
+            if (after.starts_with("Extend ") || after.starts_with("Extern")) {
+                m_diagnostics.warning(comment,
+                                      "this doc comment documents nothing: an Extend or Extern "
+                                      "block has no doc of its own, but its members do");
             } else {
                 m_diagnostics.warning(comment,
                                       "this doc comment documents nothing: a /// comment goes on "
@@ -1292,11 +1539,67 @@ private:
         }
     }
 
+    /// The type parameters that code in `declaration` sees: its own, its type's, and those its
+    /// Extend's type names, which a link to isn't one.
+    [[nodiscard]] std::set<std::string_view>
+    type_parameters(const std::optional<stmt_id_t> declaration) const {
+        std::set<std::string_view> names;
+        if (!declaration) {
+            return names;
+        }
+
+        const auto add = [&](const stmt_id_t id) {
+            const stmt_node_t& node = m_ast.get(id).node;
+            if (const auto* function = std::get_if<function_stmt_t>(&node)) {
+                for (const name_t& name : function->type_parameters) {
+                    names.insert(name.text);
+                }
+            } else if (const auto* type = std::get_if<type_stmt_t>(&node)) {
+                for (const name_t& name : type->type_parameters) {
+                    names.insert(name.text);
+                }
+            } else if (const auto* extension = std::get_if<extend_stmt_t>(&node)) {
+                const type_expr_node_t& written = m_ast.get(extension->type).node;
+                if (const auto* named = std::get_if<named_type_t>(&written)) {
+                    for (const type_expr_id_t argument : named->arguments) {
+                        if (const auto* each =
+                                std::get_if<named_type_t>(&m_ast.get(argument).node)) {
+                            names.insert(each->name);
+                        }
+                    }
+                } else if (const auto* array = std::get_if<array_type_t>(&written)) {
+                    if (const auto* each =
+                            std::get_if<named_type_t>(&m_ast.get(array->element).node)) {
+                        names.insert(each->name);
+                    }
+                }
+            }
+        };
+        add(*declaration);
+        if (const std::optional<scope_t> scope = m_index.scope(*declaration)) {
+            if (scope->type && *scope->type != *declaration) {
+                add(*scope->type);
+            }
+
+            if (scope->extension) {
+                add(*scope->extension);
+            }
+        }
+
+        return names;
+    }
+
     /// What each of a doc's links names, as code in `scope` finds it, with a warning for each
-    /// that names nothing when `warn`.
-    std::vector<doc_target_t> links_of(const doc_t& doc, const scope_t& scope, const bool warn) {
+    /// that names nothing when `warn`. A type parameter of `declaration`'s, like [T], isn't a link.
+    std::vector<doc_target_t> links_of(const doc_t& doc, const scope_t& scope, const bool warn,
+                                       const std::optional<stmt_id_t> declaration = std::nullopt) {
+        const std::set<std::string_view> parameters = type_parameters(declaration);
         std::vector<doc_target_t> targets;
         for (const doc_link_t& link : doc.links) {
+            if (parameters.contains(link.target)) {
+                continue;
+            }
+
             const std::optional<found_t> found = m_index.resolve(link.target, scope);
             if (!found && warn) {
                 m_diagnostics.warning(link.span, "'{}' names nothing that code here sees",
@@ -1479,7 +1782,7 @@ private:
         const std::optional<scope_t> scope = m_index.scope(id);
         if (const doc_comment_t* comment = m_ast.doc(name)) {
             item.doc = read_doc(*comment);
-            item.links = links_of(*item.doc, scope.value_or(scope_t{}), true);
+            item.links = links_of(*item.doc, scope.value_or(scope_t{}), true, id);
             return;
         }
 
@@ -1509,28 +1812,26 @@ private:
             item.doc = read_doc(*comment);
             item.doc_from = m_index.path(*next.declaration);
             if (const std::optional<scope_t> from = m_index.scope(*next.declaration)) {
-                item.links = links_of(*item.doc, *from, false);
+                item.links = links_of(*item.doc, *from, false, *next.declaration);
             }
 
             return;
         }
     }
 
-    /// Whether a type's member is in fb doc's items: what code outside its package sees of it.
-    [[nodiscard]] static bool shown(const stmt_node_t& member, const type_stmt_t& type) {
-        if (type.is_interface) {
-            return true;
-        }
-
-        const modifiers_t* modifiers = modifiers_of(member);
-        const visibility_t visibility =
-            modifiers != nullptr ? modifiers->visibility : visibility_t::PRIVATE;
+    /// Whether a member of `owner` is in fb doc's items: what code outside its package sees of it,
+    /// a Class's Protected members among it.
+    [[nodiscard]] bool shown(const stmt_id_t member, const stmt_id_t owner) const {
+        const visibility_t visibility = m_index.member_visibility(member, owner);
+        const auto* type = std::get_if<type_stmt_t>(&m_ast.get(owner).node);
         return visibility == visibility_t::PUBLIC ||
-               (type.is_class && visibility == visibility_t::PROTECTED);
+               (type != nullptr && type->is_class && visibility == visibility_t::PROTECTED);
     }
 
+    /// A declaration's item, or with an `owner`, its type's or Extend's member's.
     void add_item(std::vector<doc_item_t>& items, const stmt_id_t id, const visibility_t parent,
-                  const bool member = false) {
+                  const std::optional<stmt_id_t> owner = std::nullopt) {
+        const bool member = owner.has_value();
         const stmt_node_t& node = m_ast.get(id).node;
         const std::optional<name_t> name = declared_name(node);
         const modifiers_t* modifiers = modifiers_of(node);
@@ -1538,15 +1839,16 @@ private:
             return;
         }
 
-        if (!member && modifiers->visibility != visibility_t::PUBLIC) {
+        if (!owner && modifiers->visibility != visibility_t::PUBLIC) {
             return;
         }
 
         // A member is its type's, unless it's Protected.
         visibility_t visibility = visibility_t::PUBLIC;
-        if (member) {
-            visibility =
-                modifiers->visibility == visibility_t::PROTECTED ? visibility_t::PROTECTED : parent;
+        if (owner) {
+            visibility = m_index.member_visibility(id, *owner) == visibility_t::PROTECTED
+                             ? visibility_t::PROTECTED
+                             : parent;
         }
 
         doc_item_t item{
@@ -1562,8 +1864,8 @@ private:
         if (const auto* type = std::get_if<type_stmt_t>(&node);
             type != nullptr && !type->is_attribute) {
             for (const stmt_id_t each : type->members) {
-                if (shown(m_ast.get(each).node, *type)) {
-                    add_item(item.members, each, item.visibility, true);
+                if (shown(each, id)) {
+                    add_item(item.members, each, item.visibility, id);
                 }
             }
         } else if (const auto* declared = std::get_if<enum_stmt_t>(&node)) {
@@ -1611,16 +1913,16 @@ private:
 
         doc_item_t item{
             .kind = "extend",
-            .name = m_index.extended_name(extension),
+            .name = m_index.extended_name(id),
             .path = m_index.path(id),
             .extends = type->path,
         };
         const auto [begin, end] = extent(id);
         describe(item, m_ast.get(id).span, begin, end);
+        // Its Public members, and its Operators, which are seen where it is.
         for (const stmt_id_t member : extension.members) {
-            const modifiers_t* modifiers = modifiers_of(m_ast.get(member).node);
-            if (modifiers != nullptr && modifiers->visibility == visibility_t::PUBLIC) {
-                add_item(item.members, member, visibility_t::PUBLIC, true);
+            if (shown(member, id)) {
+                add_item(item.members, member, visibility_t::PUBLIC, id);
             }
         }
 

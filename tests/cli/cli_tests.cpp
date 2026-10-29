@@ -2401,6 +2401,20 @@ TEST_CASE("fb doc writes a package's public API as JSON, and warns about its doc
     CHECK(folder.exit_code == 2);
     CHECK(folder.output.contains("there's no project.toml in"));
 
+    // A path that isn't there can't be read, and with none, outside a package, fb doc says what
+    // it takes.
+    const std::string nope = fb::to_utf8(lone.parent_path() / "nope.fb");
+    const fb::process_result_t missing = fb_run({ "doc", nope, "--color", "never" });
+    CHECK(missing.exit_code == 2);
+    CHECK(missing.output.contains(std::format("error: cannot read '{}': ", nope)));
+    const std::filesystem::path before = std::filesystem::current_path();
+    std::filesystem::current_path(lone.parent_path());
+    const fb::process_result_t none = fb_run({ "doc", "--color", "never" });
+    std::filesystem::current_path(before);
+    CHECK(none.exit_code == 2);
+    CHECK(none.output.contains("there's no project.toml in this folder or above it; give a "
+                               "package's folder, one of its .fb files, or std"));
+
     // A package with errors isn't documented.
     std::ofstream(documented / "broken.fb", std::ios::binary)
         << "Public Function F(): Int\nEnd Function\n";

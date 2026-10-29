@@ -10,6 +10,8 @@
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <ios>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -364,7 +366,7 @@ End Struct
                              "Struct Held\n"
                              "    Field X: Int\n"
                              "End Struct\n"
-                             "@Test Function Example()\n"
+                             "@Test Function DocTest__Example() Throws Error\n"
                              "\n"
                              "Expect(Box().Holds(Held(1)))\n"
                              "End Function\n");
@@ -382,11 +384,15 @@ End Struct
     CHECK(modules[1].text == "Import std.test\n"
                              "Import game.box\n"
                              "Import std.core\n"
-                             "Function Example()\n"
+                             "Function DocTest__Example() Throws Error\n"
                              "Print(\"hi\")\n"
                              "End Function\n"
-                             "@Test Function Compiles()\n"
+                             "@Test Function DocTest__Compiles()\n"
                              "End Function\n");
+    // What fb adds shows at the fence, whatever its column; the example's own lines move on.
+    CHECK(modules[1].added ==
+          std::vector<bool>{ true, true, false, true, false, true, true, true, true });
+    CHECK(modules[1].fence.begin < modules[1].fence.end);
 }
 
 namespace {
@@ -569,7 +575,7 @@ namespace {
 
 /// The paths fb doc should give std's users' declarations in a file: its Public ones, their
 /// members that code outside std sees, and what its Extends add, found without fb doc.
-void public_paths(const fb::ast_t& ast, const std::string& module,
+void public_paths(const fb::ast_t& ast, const fb::source_file_t& file, const std::string& module,
                   std::vector<std::string>& paths) {
     const auto visibility = [](const fb::stmt_node_t& node) {
         return std::visit(
@@ -589,6 +595,14 @@ void public_paths(const fb::ast_t& ast, const std::string& module,
                    ? "Operator" + name
                    : name;
     };
+    // An Operator has its type's visibility, and an Override that says none what it overrides',
+    // which in std is always seen.
+    const auto typed = [](const fb::stmt_node_t& node) {
+        const auto* function = std::get_if<fb::function_stmt_t>(&node);
+        return function != nullptr &&
+               (function->kind == fb::function_kind_t::OPERATOR ||
+                (function->modifiers.is_override && !function->modifiers.visibility_span));
+    };
 
     for (const fb::stmt_id_t id : ast.items()) {
         const fb::stmt_node_t& node = ast.get(id).node;
@@ -604,10 +618,18 @@ void public_paths(const fb::ast_t& ast, const std::string& module,
         }
 
         if (const auto* extension = std::get_if<fb::extend_stmt_t>(&node)) {
-            const auto* named = std::get_if<fb::named_type_t>(&ast.get(extension->type).node);
-            const std::string type = named != nullptr ? std::string(named->name) : "T[]";
+            const fb::type_expr_t& extended = ast.get(extension->type);
+            const auto* named = std::get_if<fb::named_type_t>(&extended.node);
+            std::string type = named != nullptr ? std::string(named->name) : "";
+            if (named == nullptr) {
+                for (const char c : file.slice(extended.span)) {
+                    type += c == ' ' ? std::string() : std::string(1, c);
+                }
+            }
+
             for (const fb::stmt_id_t member : extension->members) {
-                if (visibility(ast.get(member).node) == fb::visibility_t::PUBLIC) {
+                if (visibility(ast.get(member).node) == fb::visibility_t::PUBLIC ||
+                    typed(ast.get(member).node)) {
                     paths.push_back(
                         std::format("{}.{}.{}", module, type, member_name(ast.get(member).node)));
                 }
@@ -623,6 +645,12 @@ void public_paths(const fb::ast_t& ast, const std::string& module,
 
         const std::string path = std::format("{}.{}", module, name->text);
         paths.push_back(path);
+        if (const auto* declared = std::get_if<fb::enum_stmt_t>(&node)) {
+            for (const fb::enum_member_t& member : declared->members) {
+                paths.push_back(std::format("{}.{}", path, member.name.text));
+            }
+        }
+
         const auto* type = std::get_if<fb::type_stmt_t>(&node);
         if (type == nullptr || type->is_attribute) {
             continue;
@@ -631,7 +659,8 @@ void public_paths(const fb::ast_t& ast, const std::string& module,
         for (const fb::stmt_id_t member : type->members) {
             const fb::visibility_t seen = visibility(ast.get(member).node);
             if (type->is_interface || seen == fb::visibility_t::PUBLIC ||
-                (type->is_class && seen == fb::visibility_t::PROTECTED)) {
+                (type->is_class && seen == fb::visibility_t::PROTECTED) ||
+                typed(ast.get(member).node)) {
                 paths.push_back(std::format("{}.{}", path, member_name(ast.get(member).node)));
             }
         }
@@ -643,7 +672,8 @@ void summaries(const std::vector<fb::doc_item_t>& items, std::vector<std::string
                std::vector<std::string>& all) {
     for (const fb::doc_item_t& item : items) {
         all.push_back(item.path);
-        const bool needs = item.kind != "extend" && item.kind != "enum member";
+        // An Extend has no doc of its own; its members, and every other item, have theirs.
+        const bool needs = item.kind != "extend";
         if (needs && (!item.doc || item.doc->summary.empty())) {
             missing.push_back(item.path);
         }
@@ -703,7 +733,7 @@ TEST_CASE("fb doc std has every Public declaration of std's, each with a summary
 
         const parsed_t parsed(file.text, file.path, defined);
         std::vector<std::string> paths;
-        public_paths(parsed.ast, fb::module_name(file.path), paths);
+        public_paths(parsed.ast, parsed.file, fb::module_name(file.path), paths);
         for (const std::string& path : paths) {
             if (!std::ranges::binary_search(all, path)) {
                 absent.push_back(path);
@@ -719,6 +749,332 @@ TEST_CASE("fb doc std has every Public declaration of std's, each with a summary
     CHECK(all.size() > 3000);
 }
 
+namespace {
+
+/// Writes a package's files into the test output folder, after removing what was there.
+std::filesystem::path write_package(const std::string_view name,
+                                    const std::vector<std::pair<std::string, std::string>>& files) {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "doc" / name;
+    std::filesystem::remove_all(folder);
+    for (const auto& [path, text] : files) {
+        const std::filesystem::path file = folder / path;
+        std::filesystem::create_directories(file.parent_path());
+        std::ofstream(file, std::ios::binary) << text;
+    }
+
+    return folder;
+}
+
+/// A compilation's diagnostics, as "<line>: <message>".
+std::vector<std::string> lines_of(const fb::compilation_t& compilation,
+                                  const fb::diagnostic_bag_t& diagnostics) {
+    std::vector<std::string> found;
+    for (const fb::diagnostic_t& diagnostic : diagnostics.diagnostics()) {
+        const fb::source_file_t& file = compilation.sources.get(diagnostic.span.file);
+        found.push_back(std::format(
+            "{}: {}", file.location_of(diagnostic.span.begin, fb::column_unit_t::UTF8).line + 1,
+            diagnostic.message));
+    }
+
+    return found;
+}
+
+constexpr std::string_view reviewed_shapes = R"(//! One.
+
+//! Two.
+//!
+//! # Examples
+//!
+//! ```
+//! Function Example(): Int => 2
+//!
+//! Expect(Twice(Example()) == 4)
+//! ```
+
+Import std.core
+Import reviewed.other As things
+
+/// A vector, as [things] has none, and [things.Animal.secret] names nothing.
+Public Struct V
+    /// Its x.
+    Public Field X: Int
+
+    /// Adds two.
+    Operator +(a: V, b: V): V => V(a.X + b.X)
+End Struct
+
+/// A dog.
+Public Class Dog Extends things.Animal
+    Override Method Speak(): String => "woof"
+End Class
+
+/// Polite, as [Polite.Greet] says.
+Public Struct Polite Implements things.Greeter
+End Struct
+
+/// Holds [T].
+Public Class Box<T>
+End Class
+
+/// Colors.
+Public Enum Color
+    /// Red.
+    Red,
+    /// Green.
+    Green
+End Enum
+
+/// An Extend has no doc of its own.
+Extend UInt8[]
+    /// How many.
+    Public Method Size(): Int => Count
+End Extend
+
+/// Its body's.
+Public Function Body(): Int
+    /// A Const in a Function's code.
+    Const K = 2
+    Return K
+End Function
+
+/// On nothing,
+/// in two lines.
+
+/// Twice an Int.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Twice(1) == 2)
+/// ```
+Public Function Twice(n: Int): Int => n * 2
+
+/// Twice a Float.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Twice(1.5) == 3.0)
+/// ```
+Public Function Twice(n: Float): Float => n * 2
+
+/// `text`'s number.
+///
+/// # Examples
+///
+/// ```
+/// Const Size = 3
+/// /// A doc in an example, on a line the example's module doesn't have.
+/// Function Doubled(): Int => Size * 2
+///
+/// Local number = Try Parsed("12")
+/// Expect(number == 12 && Doubled() == 6)
+/// ```
+Public Function Parsed(text: String): Int Throws ArgumentError
+    Local value = Int.Parse(text)
+    If value == Null Then Throw ArgumentError(ArgumentErrorKind.INVALID, "not a number")
+    Return value
+End Function
+)";
+
+constexpr std::string_view reviewed_other = R"(//! Other things.
+
+Import std.core
+
+/// What greets.
+Public Interface Greeter
+    /// Greets.
+    Method Greet(): String => "hi"
+End Interface
+
+/// An animal.
+Public Class Animal
+    /// Its name.
+    Public Field Name: String
+    Static Field secret: Int
+
+    /// Speaks.
+    Public Method Speak(): String => "..."
+End Class
+)";
+
+} // namespace
+
+TEST_CASE("fb doc has Operators and Overrides, finds links as code would, and warns once",
+          "[doc]") {
+    const std::filesystem::path folder = write_package(
+        "reviewed",
+        {
+            { "project.toml",
+              "[project]\nname = \"reviewed\"\nversion = \"1.0.0\"\ntype = \"library\"\n" },
+            { "shapes.fb", std::string(reviewed_shapes) },
+            { "other.fb", std::string(reviewed_other) },
+        });
+    const std::expected<fb::compilation_t, std::string> compiled = fb::compile_docs(folder);
+    REQUIRE(compiled);
+    REQUIRE_FALSE(compiled->diagnostics.has_errors());
+    fb::diagnostic_bag_t warnings;
+    const fb::doc_package_t package =
+        fb::document(*compiled, false, fb::build_mode_t::DEBUG, warnings);
+    // A private member of another file's names nothing, an Extend's comment says why it's on
+    // nothing, a Function's code has no docs, and a comment on nothing warns once.
+    CHECK(lines_of(*compiled, warnings) ==
+          std::vector<std::string>{
+              "16: 'things.Animal.secret' names nothing that code here sees",
+              "46: this doc comment documents nothing: an Extend or Extern block has no doc of its "
+              "own, but its members do",
+              "54: this doc comment documents nothing: a /// comment goes on the lines right "
+              "before a declaration",
+              "59: this doc comment documents nothing: a /// comment goes on the lines right "
+              "before a declaration",
+          });
+    const auto module =
+        std::ranges::find(package.modules, "reviewed.shapes", &fb::doc_module_t::name);
+    REQUIRE(module != package.modules.end());
+    // The //! runs are one doc, whose example runs.
+    const fb::doc_t doc = module->doc.value_or(fb::doc_t{});
+    CHECK(doc.summary == "One.");
+    CHECK(doc.markdown.starts_with("One.\n\nTwo.\n"));
+    REQUIRE(doc.examples.size() == 1);
+
+    const std::string prefix = "reviewed.shapes.";
+    const fb::doc_item_t* plus = item_at(module->items, prefix + "V.Operator+");
+    REQUIRE(plus);
+    CHECK(plus->kind == "operator");
+    CHECK(plus->doc.value_or(fb::doc_t{}).summary == "Adds two.");
+    const fb::doc_item_t* speak = item_at(module->items, prefix + "Dog.Speak");
+    REQUIRE(speak);
+    CHECK(speak->visibility == fb::visibility_t::PUBLIC);
+    CHECK(speak->doc_from == "reviewed.other.Animal.Speak");
+    CHECK(item_at(module->items, prefix + "Color.Green")->doc.value_or(fb::doc_t{}).summary ==
+          "Green.");
+
+    // An alias's path is its module's, a qualified Interface's members are found, and a type
+    // parameter isn't a link.
+    const fb::doc_item_t* vector = item_at(module->items, prefix + "V");
+    REQUIRE(vector);
+    REQUIRE(vector->links.size() == 2);
+    CHECK(vector->links[0].path == "reviewed.other");
+    CHECK(vector->links[1].path.empty());
+    const fb::doc_item_t* polite = item_at(module->items, prefix + "Polite");
+    REQUIRE(polite);
+    REQUIRE(polite->links.size() == 1);
+    CHECK(polite->links[0].path == "reviewed.other.Greeter.Greet");
+    CHECK(item_at(module->items, prefix + "Box")->links.empty());
+
+    // An Extend of one array type is that type's, not every T[]'s.
+    const fb::doc_item_t* bytes = item_at(module->items, prefix + "Extend.UInt8[]");
+    REQUIRE(bytes);
+    CHECK(bytes->name == "UInt8[]");
+    CHECK(bytes->extends == "UInt8[]");
+    CHECK(paths_of(bytes->members) == std::vector<std::string>{ prefix + "UInt8[].Size" });
+}
+
+TEST_CASE("fb test runs a module's examples, ones that throw and declare, and overloads' apart",
+          "[doc]") {
+    const std::filesystem::path folder = write_package(
+        "reviewed_tests",
+        {
+            { "project.toml",
+              "[project]\nname = \"reviewed\"\nversion = \"1.0.0\"\ntype = \"library\"\n" },
+            { "shapes.fb", std::string(reviewed_shapes) },
+            { "other.fb", std::string(reviewed_other) },
+        });
+    const std::expected<fb::compilation_t, std::string> compiled = fb::compile_tests(folder);
+    REQUIRE(compiled);
+    for (const fb::diagnostic_t& diagnostic : compiled->diagnostics.diagnostics()) {
+        UNSCOPED_INFO(diagnostic.message);
+    }
+
+    // An example can Try what throws, a Const and a doc comment in it are its, and it can
+    // declare a Function named as fb's test once was.
+    REQUIRE_FALSE(compiled->diagnostics.has_errors());
+    std::vector<std::string> names;
+    for (const fb::test_case_t& test : fb::package_tests(*compiled)) {
+        names.push_back(test.name);
+    }
+
+    CHECK(names == std::vector<std::string>{
+                       "reviewed.shapes (example)",
+                       "reviewed.shapes.Twice (example)",
+                       "reviewed.shapes.Twice (example 2)",
+                       "reviewed.shapes.Parsed (example)",
+                   });
+
+    // A file whose module no Import can name can't have its examples run, which says why.
+    const std::filesystem::path unnamed = write_package(
+        "unnamed",
+        {
+            { "project.toml",
+              "[project]\nname = \"unnamed\"\nversion = \"1.0.0\"\ntype = \"library\"\n" },
+            { "my-lib.fb", "/// One.\n///\n/// # Examples\n///\n/// ```\n/// "
+                           "Expect(One() == 1)\n/// ```\nPublic Function One(): Int => "
+                           "1\n" },
+        });
+    const std::expected<fb::compilation_t, std::string> stopped = fb::compile_tests(unnamed);
+    REQUIRE(stopped);
+    CHECK(lines_of(*stopped, stopped->diagnostics) ==
+          std::vector<std::string>{
+              "5: fb test can't run this example: it imports its file's module, unnamed.my-lib, "
+              "which isn't a name an Import takes, as a file's name with a '-' in it isn't",
+          });
+}
+
+TEST_CASE("a heading's links are links, and a backtick that nothing closes is a backtick",
+          "[doc]") {
+    const fb::doc_t heading = read("# See [Stack]\n\nText.");
+    CHECK(link_targets(heading) == std::vector<std::string>{ "Stack" });
+    // As CommonMark has it, a run of backticks opens code only when a run as long closes it.
+    const fb::doc_t open = read("Use ` and see [Stack] here. Next.");
+    CHECK(open.summary == "Use ` and see [Stack] here.");
+    CHECK(link_targets(open) == std::vector<std::string>{ "Stack" });
+    const fb::doc_t closed = read("Use ``a ` [Code]`` and [Stack]. Next.");
+    CHECK(closed.summary == "Use ``a ` [Code]`` and [Stack].");
+    CHECK(link_targets(closed) == std::vector<std::string>{ "Stack" });
+    // A code span across lines still hides what's in it.
+    CHECK(link_targets(read("A `span\n[Hidden]` and [Shown].")) ==
+          std::vector<std::string>{ "Shown" });
+}
+
+TEST_CASE("an Enum member after a comma, the //! runs, and a Function's code take docs as the "
+          "spec says",
+          "[doc]") {
+    const parsed_t parsed(R"(//! One.
+
+//! Two,
+//! three.
+// An ordinary comment.
+//! Four.
+
+Import std.core
+
+Public Enum Color
+    /// Red.
+    Red,
+    /// Green.
+    Green,
+    Blue = 3,
+    /// Large.
+    Large
+End Enum
+
+Public Function F(): Int
+    /// A Const in a Function's code.
+    Const K = 2
+    Return K
+End Function
+)");
+    const fb::doc_comment_t* module = parsed.ast.module_doc(parsed.file.id());
+    REQUIRE(module != nullptr);
+    CHECK(module->text == "One.\n\nTwo,\nthree.\n\nFour.");
+    REQUIRE(module->lines.size() == 6);
+    CHECK(parsed.file.slice(module->lines[2]) == "Two,");
+    CHECK(parsed.doc("Green", "    Green") == "Green.");
+    CHECK(parsed.doc("Blue") == std::nullopt);
+    CHECK(parsed.doc("Large", "    Large") == "Large.");
+    CHECK(parsed.doc("K", "Const K") == std::nullopt);
+}
+
 TEST_CASE("a file made from another's lines shows them where they come from", "[doc]") {
     fb::source_manager_t sources;
     const fb::file_id_t original = sources.add("box.fb", "    /// Expect(Box().Holds(1))\n");
@@ -730,10 +1086,16 @@ TEST_CASE("a file made from another's lines shows them where they come from", "[
                                    { .line = 0, .column = 8 },
                                    { .line = 0, .column = 4 },
                                    { .line = 0, .column = 4 }, },
+                        .made = { true, false, true, true },
                     });
     const fb::source_file_t& file = sources.get(made);
     CHECK(file.location_of(38, fb::column_unit_t::CODEPOINT) ==
           fb::location_t{ .line = 0, .column = 21 });
+    // A line made for the file is all at its place, which a column past its text can't leave.
+    CHECK(file.location_of(15, fb::column_unit_t::CODEPOINT) ==
+          fb::location_t{ .line = 0, .column = 4 });
+    // Its own line, which a doc comment there is looked for on, whatever its origin.
+    CHECK(file.line_of(38) == 1);
     const fb::span_t shown = sources.shown({ .file = made, .begin = 38, .end = 43 });
     CHECK(shown.file == original);
     CHECK(sources.get(original).slice(shown) == "Holds");

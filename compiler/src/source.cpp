@@ -108,10 +108,17 @@ location_t source_file_t::location_of(const std::uint32_t offset, const column_u
 
     if (m_origin && line < m_origin->lines.size()) {
         const location_t from = m_origin->lines[line];
-        return { .line = from.line, .column = from.column + column };
+        const bool made = line < m_origin->made.size() && m_origin->made[line];
+        return { .line = from.line, .column = made ? from.column : from.column + column };
     }
 
     return { .line = line, .column = column };
+}
+
+std::uint32_t source_file_t::line_of(const std::uint32_t offset) const {
+    assert(offset <= m_text.size());
+    const auto next = std::ranges::upper_bound(m_line_starts, offset);
+    return static_cast<std::uint32_t>(next - m_line_starts.begin() - 1);
 }
 
 std::uint32_t source_file_t::offset_of(const location_t location, const column_unit_t unit) const {

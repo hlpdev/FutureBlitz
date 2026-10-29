@@ -48,8 +48,8 @@ struct doc_example_t {
 /// A "[Name]" link in a doc comment: what it names, which fb doc finds as code where the comment
 /// is would, its declaration's members first.
 struct doc_link_t {
-    /// What it names, as written between its brackets, without backticks or a "()" after it, like
-    /// "Stack.Push".
+    /// What it names, as written between its brackets, without backticks, a "()" after it, or
+    /// type arguments, like "Stack.Push" for "[`Stack<T>.Push()`]".
     std::string target;
     /// Where it is in the file, brackets and all.
     span_t span;
@@ -171,6 +171,10 @@ struct example_module_t {
     std::string text;
     /// For each of its lines, where its first column is in the file.
     std::vector<location_t> lines;
+    /// For each of its lines, whether fb added it, so all of it shows as at its fence.
+    std::vector<bool> added;
+    /// Its opening fence, in the file.
+    span_t fence;
 };
 
 /// The examples of the declarations of a file, the module `module`, which `ast` has parsed with

@@ -558,7 +558,10 @@ std::optional<std::filesystem::path> input_of(const console_t& console, const op
 
     std::error_code error;
     std::optional<std::filesystem::path> found = find_package(std::filesystem::current_path(error));
-    if (!found) {
+    if (!found && options.command == command_t::DOC) {
+        console.error("there's no project.toml in this folder or above it; give a package's "
+                      "folder, one of its .fb files, or std");
+    } else if (!found) {
         console.error("there's no project.toml in this folder or above it; give a package's "
                       "folder, or a .fb file");
     }

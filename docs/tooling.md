@@ -454,10 +454,18 @@ for the ones marked as only sometimes there:
     Class's Public members and a Class's Protected ones, an Interface's all, and an Enum's.
 - A doc: `summary`, its first sentence, empty when it starts with a heading or code; `markdown`,
   its text without its examples' hidden lines; `sections`, each `heading` (empty for what comes
-  before the first) and its `markdown`; `links`, each `[Name]` in it, its `text` as written
-  without backticks or a `()`, and the `path` it names, or a built-in's name with `builtin`
-  true, or an empty path for one that names nothing; and `examples`, each one's `code` as shown,
-  the `line` of its opening fence, and whether it `runs` or only compiles.
+  before the first) and its `markdown`; `links`, each `[Name]` in it, a heading's too, but for a
+  type parameter's, like `[T]`, its `text` as written without backticks, a `()`, or type
+  arguments, as `[Map<K, V>.Get]` is `Map.Get`, and the `path` it names, or a built-in's name
+  with `builtin` true, or an empty path for one that names nothing; and `examples`, each one's
+  `code` as shown, the `line` of its opening fence, and whether it `runs` or only compiles. A
+  module's doc's examples run as a declaration's do, named after the module.
+- Members are what code outside the package sees: an Operator has its type's visibility, and
+  an Override that says none has what it overrides'. A link names what code where it is sees:
+  another file's Private member, or another package's Package one, names nothing.
+- An Extend of one array type, like `Extend UInt8[]`, is named for it, `UInt8[]`, and an
+  Extend of every array, `T[]`. Two Extends of one type in a module share their path, as
+  overloads do.
 
 ## Not in M8
 

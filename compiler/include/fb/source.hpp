@@ -72,6 +72,9 @@ struct location_t {
 struct line_origin_t {
     file_id_t file{};
     std::vector<location_t> lines;
+    /// For each line, whether it was made for the file, and has no text of the origin's, so every
+    /// column of it shows as its line's place there.
+    std::vector<bool> made;
 };
 
 /// One source file's path and text, with where each line starts. A UTF-8 BOM is dropped, and
@@ -111,6 +114,9 @@ public:
     /// gives the end of the file, and a column past the end of its line gives the end of that
     /// line.
     [[nodiscard]] std::uint32_t offset_of(location_t location, column_unit_t unit) const;
+
+    /// The 0-based line `offset` is on in the file itself, whatever its origin.
+    [[nodiscard]] std::uint32_t line_of(std::uint32_t offset) const;
 
     /// Where its lines come from, for a file made from another's.
     [[nodiscard]] const std::optional<line_origin_t>& origin() const {

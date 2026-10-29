@@ -73,9 +73,10 @@ Public Function TotalArea(shapes: Shape[]): Float
   Struct, Class, Interface, Attribute, Enum, Global, Const, or Alias has one, and so do the
   members of a Struct, Class, Interface, or Extend, the Functions of an Extern block, and an
   Enum's members, each on the line before the line it starts. `////` is an ordinary comment, and a
-  `///` comment that's on no declaration, or after code on its line, documents nothing.
+  `///` comment that's on no declaration, after code on its line, or on what a Function's code
+  declares, like a Const in its body, documents nothing.
 - The `//!` lines at the top of a file, before its first line of code, are its module's doc
-  comment.
+  comment, a blank line or another comment between two runs of them a paragraph break.
 - A doc comment's text is Markdown, without each line's `///` or `//!` and the spaces that all
   its lines with text start with, written Rust's way. Its first sentence is its summary, which
   lists show: up to the first `.`, `!`, or `?` outside code that a space follows or that ends its
