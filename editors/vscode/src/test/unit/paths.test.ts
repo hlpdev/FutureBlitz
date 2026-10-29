@@ -37,16 +37,16 @@ describe("expandPath", () => {
 });
 
 describe("findOnPath", () => {
-    test("Windows tries PATHEXT's extensions in each folder, whatever Path's case", () => {
+    test("Windows tries PATHEXT's .com and .exe in each folder, whatever Path's case", () => {
         const found = findOnPath("fb", windows(["C:\\fb\\bin\\fb.exe"]));
         assert.equal(found.path, "C:\\fb\\bin\\fb.exe");
-        assert.deepEqual(found.tried, [
-            "C:\\tools\\fb.com",
-            "C:\\tools\\fb.exe",
-            "C:\\tools\\fb.bat",
-            "C:\\fb\\bin\\fb.com",
-            "C:\\fb\\bin\\fb.exe",
-        ]);
+        assert.deepEqual(found.tried, ["C:\\tools\\fb.com", "C:\\tools\\fb.exe", "C:\\fb\\bin\\fb.com", "C:\\fb\\bin\\fb.exe"]);
+    });
+
+    // A .bat or .cmd shim needs a shell, which neither the client nor a task's process has.
+    test("not a shim that needs a shell", () => {
+        const found = findOnPath("fb", windows(["C:\\tools\\fb.bat", "C:\\fb\\bin\\fb.exe"]));
+        assert.equal(found.path, "C:\\fb\\bin\\fb.exe");
     });
 
     test("a quoted folder on Windows' Path", () => {

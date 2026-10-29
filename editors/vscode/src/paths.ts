@@ -70,7 +70,8 @@ export function expandPath(
     return pathModule(environment.platform).normalize(expanded);
 }
 
-// The first `name` on PATH, trying each of PATHEXT's extensions on Windows.
+// The first `name` on PATH, trying PATHEXT's extensions on Windows that start without a shell,
+// .exe and .com: a .cmd or .bat shim can't be spawned as the language server or a task's process.
 export function findOnPath(name: string, environment: Environment): Found {
     const paths = pathModule(environment.platform);
     const separator = environment.platform === "win32" ? ";" : ":";
@@ -79,10 +80,10 @@ export function findOnPath(name: string, environment: Environment): Found {
     const folders = (environment.env[key] ?? "").split(separator).filter((f) => f !== "");
     const extensions =
         environment.platform === "win32"
-            ? (environment.env.PATHEXT ?? ".EXE;.CMD;.BAT")
+            ? (environment.env.PATHEXT ?? ".COM;.EXE")
                   .split(";")
-                  .filter((e) => e !== "")
                   .map((e) => e.toLowerCase())
+                  .filter((e) => e === ".exe" || e === ".com")
             : [""];
 
     const tried: string[] = [];

@@ -130,6 +130,11 @@ Const Function Fact(n: Int): Int
 //    ^^^^^^^^ storage.type.function.futureblitz
 //             ^^^^ entity.name.function.futureblitz
 End Function
+Function Save(path: String) Throws IOError, FormatError
+//                          ^^^^^^ storage.modifier.futureblitz
+//                                 ^^^^^^^ meta.throws.futureblitz entity.name.type.futureblitz
+//                                          ^^^^^^^^^^^ entity.name.type.futureblitz
+End Function
 ThreadLocal Global rng: Random? = Null
 // <----------- storage.modifier.futureblitz
 //          ^^^^^^ storage.type.variable.futureblitz

@@ -493,6 +493,21 @@
           "include": "#return-type"
         },
         {
+          "name": "meta.throws.futureblitz",
+          "begin": "\\b(Throws)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.modifier.futureblitz"
+            }
+          },
+          "end": "(?==>|\\bWhere\\b|//|/\\*|$)",
+          "patterns": [
+            {
+              "include": "#type"
+            }
+          ]
+        },
+        {
           "include": "#where"
         },
         {
