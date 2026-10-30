@@ -50,6 +50,30 @@ tokens, and is made owner-only from the start (commands-7, -8); fb yank and owne
 (commands-9); fb publish --offline needs --dry-run (commands-11); search on disk takes any word
 in any case (commands-12); and `apt`, `rpm`, and `releases` are reserved as workers/api has them.
 
+M9's and M10's milestone reviews, fb's share (2026-10-30, 18 findings and two of the site's).
+Search on disk needs every word, as the API's does (m10-journey-1). fb owner lists without a token,
+with the pending invites (m10-edges-5), says "Invited", "Added", or "Removed" and the rest
+(m10-edges-11, m10-journey-11), and a token without a scope says how to get one with it
+(m10-edges-6). Every command says a folder without config.json is no registry, and suggests
+https:// for a host's name (m10-edges-7). fb login --token asks GET /me before it keeps a token,
+and both logins say the account (m10-edges-9, m10-journey-3). The no-fit error lists the newest
+five by version, and says a yanked fit or an fb range only when one ruled a version out
+(m10-edges-10, m10-journey-10); fb add says "Added" once it's locked (m10-journey-10). Sizes are
+the registry's decimal units, Uploading's too (m10-edges-12). A download fb can't write names the
+file, and MAX_PATH, not the network (m10-journey-6). fb help add's --registry is a name, and
+publish's --offline is with --dry-run (m10-journey-2, -12). registry-api.md has the targets of
+GET /packages/<name>, and no `fb whoami` (m10-journey-14); spec 11's fb range is ">=1.2" and links
+the package manager's docs (m9-site-16); spec 12 says a Buffer's slice, unlike an array's, is a
+view (m9-site-6). install.sh and install.ps1 check the release's SHA256SUMS, find the latest by
+releases/latest/download/ with no API call, and install.sh runs from main on its last line
+(m9-ops-5, -6). A tag's release fails without the signing secrets, and release-setup.md has a
+launch checklist with tools/release/launch_check.py (m9-ops-7). With futureblitz-web's API fixes:
+registry-api.md is its copy, with fb's changes; trusted publishing refuses a package its token
+isn't for, as a new one, before uploading (m10-journey-9); a 429 or 503 `unavailable` is asked
+again after Retry-After, and the sign-in's polls wait on a 503 as on a 429; a target's download
+says its target (m10-journey-16). Spec 12 is "C Interop", spec 10's loops are a UI toolkit's, a
+terminal UI's, or a package's own, and Humanize's examples are files and people.
+
 ## M8, tooling
 
 The engine ruling (2026-10-30): the engine is packages on top of FutureBlitz, so nothing in the
