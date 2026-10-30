@@ -248,8 +248,9 @@ Class TriePath<V>
     End New
 End Class
 
-/// The keys in order: the node it's at, or Null at the end, with the next of its children to go
-/// into, or -1 before its own key, and the nodes on the way down to it.
+// The node it's at, or Null at the end, with the next of its children to go into, or -1 before
+// its own key, and the nodes on the way down to it.
+/// The entries of a Trie, in the order of their keys' bytes, which a For loop goes over.
 Public Struct TrieIterator<V> Implements Iterator<(String, V)>
     Field Owner: Trie<V>
     Field Node: TrieNode<V>?

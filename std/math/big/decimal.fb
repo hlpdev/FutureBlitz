@@ -186,7 +186,7 @@ Public Class Decimal Implements Comparable, Hashable, Printable, Numeric
     @PanicsAtCaller
     Public Method Exp(): Decimal => Made(fb_decimal_exp(State))
 
-    /// Its natural logarithm, and its logarithm in base 10. One that isn't above 0 panics.
+    /// Its natural logarithm. Panics unless it's above 0.
     @PanicsAtCaller
     Public Method Ln(): Decimal
         If Sign <= 0 Then Panic("Ln takes a Decimal above 0, not {Self}")

@@ -214,7 +214,8 @@ Package Function HasRoom(front: Int, back: Int): Bool => back < 2147483647 - fro
 /// an Int holds.
 Package Function HalfUp(count: Int): Int => count - count / 2
 
-/// Front's values backwards from FrontLeft, then Back's from BackAt on.
+// Front's values backwards from FrontLeft, then Back's from BackAt on.
+/// The values of a Deque, from the first to the last, which a For loop goes over.
 Public Struct DequeIterator<T> Implements Iterator<T>
     Field Owner: Deque<T>
     Field FrontLeft: Int

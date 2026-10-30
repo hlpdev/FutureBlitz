@@ -185,8 +185,7 @@ Public Class FixedStep
         Last = Null
     End New
 
-    /// How long a step is, to the nearest nanosecond, and in seconds, for an update that takes
-    /// them.
+    /// How long a step is, to the nearest nanosecond.
     Public Property Step: Duration
         Get => Duration.FromNanoseconds((PerStep + Scale / 2) / Scale)
     End Property
@@ -277,7 +276,8 @@ Public Class RateLimiter
     /// Takes a token, now or at the Instant, when there is one, and gives whether it did.
     Public Method TryTake(): Bool => TryTake(Instant.Now())
 
-    /// A bucket that won't be full for longer than an Instant counts is full at the last one.
+    /// Takes a token at `now` when there is one, and gives whether it did. A bucket that won't be
+    /// full for longer than an Instant counts is full at the last one.
     Public Method TryTake(now: Instant): Bool
         If !Remaining(now).IsZero Then Return False
         Local full = Full

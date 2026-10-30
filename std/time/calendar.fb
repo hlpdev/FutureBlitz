@@ -197,8 +197,8 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
     /// How many days it is to the `other` date, below 0 when it's earlier.
     Public Method DaysUntil(other: Date): Int64 => other.Days - Days
 
-    /// The first and last days of its week, from Monday to Sunday, of its month, and of its year.
-    /// The first Date's week starts before it, and the last's ends after it, so theirs panic.
+    /// The first day of its week, a Monday. The first Date's week starts before it, so its
+    /// StartOfWeek panics, as the last Date's EndOfWeek does.
     @PanicsAtCaller
     Public Method StartOfWeek(): Date => FromDays(Days - FloorModulo(Days + 3, 7))
     /// The last day of its week, a Sunday.

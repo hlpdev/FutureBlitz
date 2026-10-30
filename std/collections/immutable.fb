@@ -253,7 +253,8 @@ Class ArrayPath<T: Sendable>
     End New
 End Class
 
-/// An ImmutableArray's values in order: the nodes on the way down to the next one.
+// The nodes on the way down to the next value.
+/// The values of an ImmutableArray, in order, which a For loop goes over.
 Public Struct ImmutableArrayIterator<T: Sendable> Implements Iterator<T>
     Field Path: ArrayPath<T>?
 
@@ -293,7 +294,7 @@ Extend ImmutableArray<T> Implements Equatable
 End Extend
 
 // Equal ImmutableArrays have equal hashes, so one can be a Map's key.
-/// Hashes a ImmutableArray, where its values can be hashed, so it can be a Map's key or a Set's
+/// Hashes an ImmutableArray, where its values can be hashed, so it can be a Map's key or a Set's
 /// value.
 Extend ImmutableArray<T> Implements Hashable
     Where T: Hashable
@@ -309,7 +310,7 @@ Extend ImmutableArray<T> Implements Hashable
 End Extend
 
 // "[1, 2, 3]", in order, when the values can be shown.
-/// Shows a ImmutableArray in a string, as its ToString writes it.
+/// Shows an ImmutableArray in a string, as its ToString writes it.
 Extend ImmutableArray<T> Implements Printable
     Where T: Printable
 
@@ -652,7 +653,8 @@ Class HashPath<K, V>
     End New
 End Class
 
-/// An ImmutableMap's entries: the nodes on the way down to the next one, and the entry it's at.
+// The nodes on the way down to the next one, and the entry it's at.
+/// The entries of an ImmutableMap, in its order, which a For loop goes over.
 Public Struct ImmutableMapIterator<K, V> Implements Iterator<(K, V)>
     Where K: Hashable
     Where K: Sendable
@@ -703,7 +705,7 @@ Extend ImmutableMap<K, V> Implements Equatable
 End Extend
 
 // Equal ImmutableMaps have equal hashes, whatever order their entries go in.
-/// Hashes a ImmutableMap, where its keys and values can be hashed, so it can be a Map's key or a
+/// Hashes an ImmutableMap, where its keys and values can be hashed, so it can be a Map's key or a
 /// Set's value.
 Extend ImmutableMap<K, V> Implements Hashable
     Where V: Hashable
@@ -719,7 +721,7 @@ Extend ImmutableMap<K, V> Implements Hashable
 End Extend
 
 // "{a: 1, b: 2}", when the keys and values can be shown.
-/// Shows a ImmutableMap in a string, as its ToString writes it.
+/// Shows an ImmutableMap in a string, as its ToString writes it.
 Extend ImmutableMap<K, V> Implements Printable
     Where K: Printable
     Where V: Printable
@@ -829,7 +831,7 @@ Public Struct ImmutableSetIterator<T> Implements Iterator<T>
 End Struct
 
 // "{1, 2, 3}", when the values can be shown.
-/// Shows a ImmutableSet in a string, as its ToString writes it.
+/// Shows an ImmutableSet in a string, as its ToString writes it.
 Extend ImmutableSet<T> Implements Printable
     Where T: Printable
 

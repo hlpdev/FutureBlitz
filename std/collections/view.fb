@@ -243,7 +243,7 @@ Public Class ReadOnlySet<T: Hashable> Implements Iterable<T>
 End Class
 
 // "[1, 2, 3]", as an array of the view's elements would show them.
-/// Shows a ArrayView in a string, as its ToString writes it.
+/// Shows an ArrayView in a string, as its ToString writes it.
 Extend ArrayView<T> Implements Printable
     Where T: Printable
 

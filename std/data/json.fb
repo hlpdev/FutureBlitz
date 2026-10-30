@@ -132,7 +132,7 @@ Public Class JsonReader
         Get => fb_json_depth(State) As Int
     End Property
 
-    /// The line and column, each from 1, the column in code points, where the token starts.
+    /// The line, from 1, where the token starts.
     Public Property Line: Int
         Get => fb_json_line(State) As Int
     End Property
@@ -178,7 +178,7 @@ Public Class JsonReader
         Return fb_json_double(State)
     End Method
 
-    /// A BOOL's. Panics for another token.
+    /// A BOOL token's value. Panics for another token.
     @PanicsAtCaller
     Public Method GetBool(): Bool
         Expect(Current == JsonToken.BOOL, "GetBool", "a BOOL")

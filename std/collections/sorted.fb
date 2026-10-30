@@ -468,8 +468,9 @@ Class SortedPath<K, V>
     End New
 End Class
 
-/// The entries in order: the node the next one is in, or Null at the end, where it's at among the
-/// node's keys, and the nodes on the way down to it.
+// The node the next one is in, or Null at the end, where it's at among the node's keys, and the
+// nodes on the way down to it.
+/// The entries of a SortedMap, in key order, which a For loop goes over.
 Public Struct SortedMapIterator<K: Comparable, V> Implements Iterator<(K, V)>
     Field Owner: SortedMap<K, V>
     Field Node: SortedNode<K, V>?

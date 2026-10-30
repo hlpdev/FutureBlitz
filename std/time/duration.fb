@@ -40,7 +40,7 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
     /// No time at all, 0s.
     Public Static Method DefaultValue(): Duration => Duration(0)
 
-    /// The longest Durations, about 292 years either way.
+    /// The longest Duration, about 292 years ahead.
     Public Static Method MaxValue(): Duration => Duration(9223372036854775807)
     /// The shortest Duration, about 292 years back.
     Public Static Method MinValue(): Duration => Duration(-9223372036854775807 - 1)

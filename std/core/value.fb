@@ -30,7 +30,7 @@ Public Enum ValueKind
     INT
     /// An integer past an Int64's largest, as a UInt64.
     UINT
-    /// A Double.
+    /// A floating-point number, as a Double.
     DOUBLE
     /// A String.
     STRING
@@ -124,7 +124,7 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         End If
     End New
 
-    /// A Double. A Float converts to one, and a decimal literal is read as one.
+    /// A Double's Value. A Float converts to one, and a decimal literal is read as one.
     Public New(value: Double)
         Shape = ValueKind.DOUBLE
         Real = value

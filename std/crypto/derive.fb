@@ -74,14 +74,16 @@ Public Struct Hkdf
     New()
     End New
 
-    /// By SHA-256. Panics unless `length` is from 0 to 8160, 255 hashes.
+    /// `length` bytes of key from `material`, `salt`, and `info`, by HMAC-SHA256. Panics unless
+    /// `length` is from 0 to 8160, 255 hashes.
     @PanicsAtCaller
     Public Static Method Sha256(material: UInt8[], salt: UInt8[], info: UInt8[],
                                 length: Int): UInt8[]
         Return HkdfOf(SHA256, 32, material, salt, info, length)
     End Method
 
-    /// By SHA-512. Panics unless `length` is from 0 to 16320, 255 hashes.
+    /// `length` bytes of key from `material`, `salt`, and `info`, by HMAC-SHA512. Panics unless
+    /// `length` is from 0 to 16320, 255 hashes.
     @PanicsAtCaller
     Public Static Method Sha512(material: UInt8[], salt: UInt8[], info: UInt8[],
                                 length: Int): UInt8[]
@@ -121,7 +123,7 @@ Public Struct Pbkdf2
         Return Pbkdf2Of(SHA1, password, salt, iterations, length)
     End Method
 
-    /// By SHA-256.
+    /// A key from `password` and `salt`, in `iterations` rounds of HMAC-SHA256.
     @PanicsAtCaller
     Public Static Method Sha256(password: String, salt: UInt8[], iterations: Int,
                                 length: Int): UInt8[]
@@ -135,7 +137,7 @@ Public Struct Pbkdf2
         Return Pbkdf2Of(SHA256, password, salt, iterations, length)
     End Method
 
-    /// By SHA-512.
+    /// A key from `password` and `salt`, in `iterations` rounds of HMAC-SHA512.
     @PanicsAtCaller
     Public Static Method Sha512(password: String, salt: UInt8[], iterations: Int,
                                 length: Int): UInt8[]

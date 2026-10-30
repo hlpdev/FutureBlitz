@@ -107,8 +107,8 @@ Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
         Get => Seconds
     End Property
 
-    /// Its milliseconds and nanoseconds since 1970-01-01T00:00:00Z, rounded down. Those past what
-    /// an Int64 holds, from before 1677 or after 2262 for nanoseconds, panic.
+    /// Its milliseconds since 1970-01-01T00:00:00Z, rounded down. Panics when they're past what
+    /// an Int64 holds.
     @PanicsAtCaller
     Public Property UnixMilliseconds: Int64
         Get
@@ -118,7 +118,8 @@ Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
         End Get
     End Property
 
-    /// Its nanoseconds since 1970-01-01T00:00:00Z. Panics when they're past what an Int64 holds.
+    /// Its nanoseconds since 1970-01-01T00:00:00Z. Panics when they're past what an Int64 holds,
+    /// as they are before 1677 or after 2262.
     @PanicsAtCaller
     Public Property UnixNanoseconds: Int64
         Get

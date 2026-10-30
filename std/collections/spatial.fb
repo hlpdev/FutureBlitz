@@ -288,8 +288,10 @@ Public Class SpatialHash<T> Implements Iterable<T>, Cloneable
     End Method
 End Class
 
-/// The values of a SpatialHash, a QuadTree, or an Octree, from a copy made when the loop began,
-/// with what the collection has changed by, which a change that panics is the only one to reach.
+// A copy of the values made when the loop began, with what the collection has changed by, which a
+// change that panics is the only one to reach.
+/// The values of a SpatialHash, a QuadTree, or an Octree, as they were when the loop began, which a
+/// For loop goes over.
 Public Struct SpatialIterator<T> Implements Iterator<T>
     Field Values: T[]
     Field Index: Int

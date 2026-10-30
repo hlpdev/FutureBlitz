@@ -294,7 +294,8 @@ Package Function CheckMapRoom(count: Int)
     If count == MOST_ENTRIES Then Panic("a ConcurrentMap holds no more entries than an Int counts")
 End Function
 
-/// The entries of a ConcurrentMap as they were when the loop began, which a For loop goes over.
+/// The entries of a ConcurrentMap, each part as it was when the loop came to it, which a For
+/// loop goes over.
 Public Struct ConcurrentMapIterator<K, V> Implements Iterator<(K, V)>
     Where K: Hashable & Sendable
     Where V: Sendable

@@ -28,9 +28,9 @@ Public Attribute Option(Help: String = "", Short: String = "", Long: String = ""
 /// A Bool Field that "--name" or "-s" sets, or an integer one that counts how many times it's
 /// given, as -vvv is 3.
 Public Attribute Flag(Help: String = "", Short: String = "", Long: String = "")
-/// A Field, a T? of a Struct or Class, that its command fills from the rest of the command line, as
-/// "git commit -m x" fills a Commit's. Its command is its name in kebab case unless Name says
-/// otherwise. One of them, or none, is given; the others stay Null.
+/// A Field of a nullable Struct or Class type that its command fills from the rest of the command
+/// line, as "git commit -m x" fills a Commit's. Its command is its name in kebab case unless Name
+/// says otherwise. One of them, or none, is given; the others stay Null.
 Public Attribute Subcommand(Help: String = "", Name: String = "")
 
 /// What an ArgsParser reads each argument as.

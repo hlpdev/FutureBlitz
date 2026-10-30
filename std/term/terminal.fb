@@ -492,8 +492,9 @@ Public Class FakeTerminal Extends Terminal
         Flushed += 1
     End Method
 
-    /// Gives what was fed next in `into`, and how many bytes, or -1 at the end of what was fed,
-    /// waiting through a Pause first, or giving 0 when `timeout` ends before it.
+    /// Gives what was fed next in `into`, and how many bytes; -1 at the end of what was fed; -2
+    /// for a Resize, once its size has changed; or after waiting through a Pause, 0 when
+    /// `timeout` ends before it.
     Override Method ReadInput(into: UInt8[], timeout: Int64): Int64
         If Fed.Count == 0 Then Return -1
         Local next = Fed[0]

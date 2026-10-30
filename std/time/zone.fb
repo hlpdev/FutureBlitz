@@ -1,9 +1,9 @@
 //! Time zones, and times in them: the IANA database's, fixed offsets, and the OS's.
 //!
 //! TimeZone, a zone's rules for its clocks: one of the IANA tz database's, which the runtime
-//! embeds, like "Europe/Paris", with every offset and daylight saving change it has had and has
-//! have; a fixed offset from UTC; or the OS's own. ZonedDateTime is a moment where a zone is, its
-//! Timestamp and the date and time the zone's clocks show then.
+//! embeds, like "Europe/Paris", with every offset and daylight saving change in it, past and
+//! scheduled; a fixed offset from UTC; or the OS's own. ZonedDateTime is a moment where a zone is,
+//! its Timestamp and the date and time the zone's clocks show then.
 //!
 //! Adding a Duration to a ZonedDateTime is exact, so an hour after 01:30 on the night the clocks
 //! go back is the second 01:30; adding days, months, or years goes by the calendar, to the same
@@ -274,7 +274,7 @@ Public Struct ZonedDateTime Implements Comparable, Hashable, Printable, Defaulta
         Get => Place
     End Property
 
-    /// The zone's offset from UTC then, and the abbreviation its clocks go by.
+    /// The zone's offset from UTC then, the time its clocks are ahead of UTC's.
     Public Property Offset: Duration
         Get => OffsetOf(Shift)
     End Property

@@ -160,8 +160,8 @@ Public Shared Class WaitGroup
         Handle = fb_wait_group_new()
     End New
 
-    /// Adds `count` to the `count`, which can be negative, and wakes the threads waiting once it's
-    /// 0. Panics when it would take the `count` below 0, or past what an Int holds.
+    /// Adds `count`, which can be negative, to the work it counts, and wakes the threads waiting
+    /// once that's 0. Panics when it would take that below 0, or past what an Int holds.
     @PanicsAtCaller
     Public Method Add(count: Int = 1)
         Local result = fb_wait_group_add(Handle, count)
