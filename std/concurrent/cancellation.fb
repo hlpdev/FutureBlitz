@@ -1,3 +1,5 @@
+//! A flag that stops blocking calls and work under way, on any thread.
+//!
 //! Cancellation: a flag that code sets to stop work under way, on any thread. The blocking calls
 //! that take one give up once it's set, before or while they wait, and throw a CancelledError: a
 //! Semaphore's Acquire, a WaitGroup's Wait, Sleep, and a Channel's Receive and Send. Work that
@@ -21,6 +23,16 @@ End Extern
 /// A flag that, once Cancel sets it, stops the work it's given to. It's a Shared Class, so a Const
 /// or a parameter shares one with the work that Spawn and Thread.Start run, and any thread can
 /// cancel it. Once it's set, it stays set.
+///
+/// # Examples
+///
+/// ```
+/// Local cancel = Cancellation()
+/// Expect(!cancel.IsCancelled)
+/// cancel.Cancel()
+/// Expect(cancel.IsCancelled)
+/// Expect(ExpectThrows<CancelledError>(cancel.Check()) != Null)
+/// ```
 Public Shared Class Cancellation
     /// The runtime's flag, which wakes the waits that take it, and the signal that finishes its
     /// Tasks.
@@ -68,6 +80,16 @@ End Class
 
 /// Sleeps for `time` unless the cancellation is cancelled first, or is already, which throws a
 /// CancelledError. A time of 0 or less doesn't sleep.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local cancel = Cancellation()
+/// cancel.Cancel()
+/// // A cancelled Cancellation stops the Sleep before it starts.
+/// Expect(ExpectThrows<CancelledError>(Sleep(10.Seconds, cancel)) != Null)
+/// ```
 Public Function Sleep(time: Duration, cancel: Cancellation) Throws CancelledError
     If fb_cancel_wait(cancel.Flag, time.Nanoseconds) != 0
         Throw CancelledError("the sleep was cancelled")

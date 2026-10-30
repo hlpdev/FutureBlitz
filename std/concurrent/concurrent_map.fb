@@ -1,3 +1,5 @@
+//! A hash map that any number of threads read and change at once.
+//!
 //! `ConcurrentMap<K, V>`: a hash map that any number of threads change and read at once. Its
 //! entries are in 16 parts, by the top bits of their keys' hashes once they're mixed, each part an
 //! ImmutableMap behind a Mutex of its own, so threads that change different parts don't wait for
@@ -36,6 +38,17 @@ End Class
 
 /// A Map that threads share, which each Get, Set, and Remove changes or reads whole, in parts, so
 /// threads that use different keys don't wait for each other.
+///
+/// # Examples
+///
+/// ```
+/// Const counts = ConcurrentMap<String, Int>()
+/// Parallel For i = 0 Until 100
+///     counts.AddOrUpdate(i % 2 == 0 ? "even" : "odd", 1, Function(n: Int) => n + 1)
+/// End For
+///
+/// Expect(counts.Get("even") == 50 && counts.Get("odd") == 50)
+/// ```
 Public Shared Class ConcurrentMap<K, V> Implements Iterable<(K, V)>, Defaultable
     Where K: Hashable & Sendable
     Where V: Sendable
@@ -295,6 +308,8 @@ Public Struct ConcurrentMapIterator<K, V> Implements Iterator<(K, V)>
         Owner = owner
     End New
 
+    /// The next key and its value, as its part was when the loop came to it, or Null after the
+    /// last.
     Public ByRef Method Next(): (K, V)?
         Loop
             Local entries = Entries

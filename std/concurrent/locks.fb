@@ -1,3 +1,5 @@
+//! Semaphores, barriers, wait groups, Once, and read-write locks, for any thread.
+//!
 //! The locks any thread can use at once, over the runtime's: a Semaphore of permits, a Barrier
 //! that threads meet at, a WaitGroup that waits for work under way, a Once that runs its work one
 //! time, and an `RwLock<T>`, whose value many threads read at once, or one writes alone. Each is a
@@ -43,6 +45,16 @@ End Extern
 
 /// Permits that threads take and give back: Acquire takes one, waiting while there's none, and
 /// Release gives them back, so no more threads than there are permits go on at once.
+///
+/// # Examples
+///
+/// ```
+/// Const permits = Semaphore(2)
+/// Expect(permits.TryAcquire() && permits.TryAcquire())
+/// Expect(!permits.TryAcquire())
+/// permits.Release()
+/// Expect(permits.Available == 1)
+/// ```
 Public Shared Class Semaphore
     ReadOnly Field Handle: UInt64
 
@@ -120,6 +132,26 @@ End Class
 
 /// A count of the work under way, which Wait waits to see at 0: Add counts work before it starts,
 /// and Done says that some is done.
+///
+/// # Examples
+///
+/// ```
+/// Global finished = Atomic<Int>(0)
+/// Const work = WaitGroup()
+///
+/// Function Step()
+///     finished.Add(1)
+///     work.Done()
+/// End Function
+///
+/// work.Add(3)
+/// For i = 1 To 3
+///     Spawn(Step)
+/// End For
+///
+/// work.Wait()
+/// Expect(finished.Load() == 3)
+/// ```
 Public Shared Class WaitGroup
     ReadOnly Field Handle: UInt64
 
@@ -172,6 +204,23 @@ End Class
 
 /// Work that runs one time: the first Do runs it, and every other, at once or later, on any
 /// thread, returns once it has run.
+///
+/// # Examples
+///
+/// ```
+/// Global runs = Atomic<Int>(0)
+/// Const setup = Once()
+///
+/// Function CountRun()
+///     runs.Add(1)
+/// End Function
+///
+/// Parallel For i = 0 Until 8
+///     setup.Do(CountRun)
+/// End For
+///
+/// Expect(runs.Load() == 1 && setup.IsDone)
+/// ```
 Public Shared Class Once
     ReadOnly Field Handle: UInt64
 
@@ -208,6 +257,15 @@ End Class
 /// Read gives what its Function makes of the value, and a Write gives the value what its
 /// Function makes of it, which no Read sees half done. A writer that waits goes before the
 /// readers that come after it, so it isn't kept waiting forever.
+///
+/// # Examples
+///
+/// ```
+/// Const total = RwLock<Int>(0)
+/// total.Write(Function(n: Int) => n + 5)
+/// Expect(total.Read(Function(n: Int) => n * 2) == 10)
+/// Expect(total.Value == 5)
+/// ```
 Public Shared Class RwLock<T: Sendable>
     ReadOnly Field Handle: UInt64
     /// The value, which a Read or Write copies out while it holds the lock, and a Write puts back.

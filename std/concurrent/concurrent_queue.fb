@@ -1,3 +1,5 @@
+//! A first-in, first-out queue for any number of threads at once.
+//!
 //! `ConcurrentQueue<T>`: first in, first out, for any number of threads at once, with no limit but
 //! memory and what an Int counts. The values are in a Channel, which is a ring, behind a Mutex,
 //! and a Channel twice the size takes its place once it's full, so Enqueue never waits for room,
@@ -21,6 +23,23 @@ Struct QueueValues<T: Sendable>
 End Struct
 
 /// A first in, first out queue that threads share, which any of them adds to and takes from.
+///
+/// # Examples
+///
+/// ```
+/// Const queue = ConcurrentQueue<Int>()
+/// Parallel For i = 1 To 10
+///     queue.Enqueue(i)
+/// End For
+///
+/// Expect(queue.Count == 10)
+/// Local sum = 0
+/// For value In queue.ToArray()
+///     sum += value
+/// End For
+///
+/// Expect(sum == 55)
+/// ```
 Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
     Field Values: Mutex<QueueValues<T>>
     Field Size: Atomic<Int>

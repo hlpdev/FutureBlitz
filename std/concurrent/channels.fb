@@ -1,3 +1,5 @@
+//! Waiting on several Channels at once, and Channel waits that a Cancellation stops.
+//!
 //! A Channel's waits that a Cancellation stops, and Selector, which waits on several Channels at
 //! once, and a timeout. Each looks with TryReceive or TrySend and, finding nothing, waits for the
 //! job pool's generation to change, which every Channel's change, every job's end, and every
@@ -19,6 +21,18 @@ Const FOREVER: Int64 = 9223372036854775807
 /// Receives `channel`'s oldest value, waiting while it has none, unless the cancellation is
 /// cancelled first, or is already, which throws a CancelledError and takes none. Null once the
 /// Channel is closed and empty, as its Receive gives.
+///
+/// # Examples
+///
+/// ```
+/// Const channel = Channel<Int>(1)
+/// Local cancel = Cancellation()
+/// channel.Send(7)
+/// Local value = Try Receive(channel, cancel)
+/// Expect(value == 7)
+/// cancel.Cancel()
+/// Expect(ExpectThrows<CancelledError>(Receive(channel, cancel)) != Null)
+/// ```
 Public Function Receive<T: Sendable>(channel: Channel<T>,
                                      cancel: Cancellation): T? Throws CancelledError
     Loop
@@ -55,6 +69,25 @@ End Function
 /// once its time passes with none. It's a builder: Selector().On(orders, Take).On(quit,
 /// Stop).Timeout(1.Seconds, Idle).Wait(). What it waits for blocks its thread, as a Channel's
 /// Receive does.
+///
+/// # Examples
+///
+/// ```
+/// Const words = Channel<String>(4)
+/// Const numbers = Channel<Int>(4)
+/// words.Send("hello")
+/// Local seen: String[] = []
+/// Local onWord = Function(word: String)
+///     seen.Add(word)
+/// End Function
+/// Local onNumber = Function(number: Int)
+///     seen.Add("{number}")
+/// End Function
+///
+/// Local selector = Selector().On(words, onWord).On(numbers, onNumber)
+/// Expect(selector.Wait())
+/// Expect(seen == ["hello"])
+/// ```
 Public Class Selector
     Field Cases: SelectorCase[] = []
     Field Limited: Bool

@@ -1,3 +1,5 @@
+//! A value made once, the first time any thread asks for it.
+//!
 //! `Lazy<T>`: a value made the first time a thread asks for it, by the Sendable Func it was given,
 //! once however many threads ask at once: the others wait while it's made, and each gets the same
 //! value. It's a Shared Class, so a Const or a parameter shares one with the work that Spawn and
@@ -10,6 +12,15 @@ Extern "runtime"
 End Extern
 
 /// A value made the first time a thread asks for it, once however many threads ask at once.
+///
+/// # Examples
+///
+/// ```
+/// Const settings = Lazy<String>(Function() => "loaded")
+/// Expect(!settings.IsMade)
+/// Expect(settings.Value == "loaded")
+/// Expect(settings.IsMade)
+/// ```
 Public Shared Class Lazy<T: Sendable>
     ReadOnly Field Maker: Sendable Func(): T
     /// The value, once it's made, behind the lock its maker runs in.

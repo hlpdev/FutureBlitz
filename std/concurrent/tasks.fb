@@ -1,3 +1,5 @@
+//! Combining Tasks, and finishing a Task by hand.
+//!
 //! Tasks made of other Tasks, and a Task finished by hand: WhenAll waits for each of its tasks,
 //! WhenAny for the first, and a TaskSource's Task is done once a thread has given it its result,
 //! and a ThrowingTaskSource's once the main thread has given it its result or its error. They give
