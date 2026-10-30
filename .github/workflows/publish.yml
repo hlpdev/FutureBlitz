@@ -198,6 +198,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y createrepo-c rpm
           aws --version
+          # Each file goes up whole, in one PUT (R2's limit is about 5 GB): the AWS CLI's uploads
+          # in parts, past 8 MB, fail on R2 now and then with InvalidPart.
+          aws configure set default.s3.multipart_threshold 4GB
 
       - name: The release's packages, and those R2 has
         run: |
