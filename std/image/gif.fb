@@ -1,3 +1,5 @@
+//! Reading and writing GIF images and animations.
+//!
 //! GIF, read and written by the runtime itself: Gif.Decode reads a GIF's first frame, and
 //! DecodeAnimation every frame, each as it's shown once the frames before it are, drawn as
 //! browsers draw them, on a canvas that starts transparent. Encode and EncodeAnimation make each
@@ -11,6 +13,16 @@ Import std.image.codec
 Import std.image.image
 
 /// What reads and writes GIF images and animations, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local image = Image(4, 4)
+/// image.Fill(Color32.Lime)
+/// Local back = Try Gif.Decode(Gif.Encode(image))
+/// Expect(back.Width == 4 && back[3, 3] == Color32.Lime)
+/// ```
 Public Struct Gif
     /// Gif isn't made: it's only its Static Methods.
     New()

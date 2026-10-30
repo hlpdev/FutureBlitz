@@ -1,3 +1,5 @@
+//! BMP, TGA, and QOI images.
+//!
 //! The formats of plain bitmaps: BMP and TGA, as stb_image reads and stb_image_write writes them,
 //! and QOI, the Quite OK Image format, which the runtime reads and writes itself. Each one keeps
 //! every pixel as it is, alpha too.
@@ -7,6 +9,16 @@ Import std.image.codec
 Import std.image.image
 
 /// What reads and writes BMP images, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local image = Image(2, 2)
+/// image.Fill(Color32.Blue)
+/// Local back = Try Bmp.Decode(Bmp.Encode(image))
+/// Expect(back[0, 0] == Color32.Blue)
+/// ```
 Public Struct Bmp
     /// Bmp isn't made: it's only its Static Methods.
     New()
@@ -63,6 +75,17 @@ Public Struct Tga
 End Struct
 
 /// What reads and writes QOI images, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local image = Image(3, 2)
+/// image[1, 1] = Color32.Red
+/// Local qoi = Qoi.Encode(image)
+/// Local back = Try Qoi.Decode(qoi)
+/// Expect(back.Width == 3 && back[1, 1] == Color32.Red)
+/// ```
 Public Struct Qoi
     /// Qoi isn't made: it's only its Static Methods.
     New()

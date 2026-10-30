@@ -1,3 +1,5 @@
+//! What std.image's formats share: limits, decoded images, and errors.
+//!
 //! What std.image's formats share: the most pixels an Image holds, which a Decode's limit is
 //! unless it's given a smaller one, the images the runtime's decoders give, the IOErrors their
 //! results mean, and the checks of what the encoders take.

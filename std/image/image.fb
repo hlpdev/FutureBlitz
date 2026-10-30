@@ -1,3 +1,5 @@
+//! Image, a picture's RGBA pixels in memory, and what changes them.
+//!
 //! Image: a picture's pixels, in rows from the top, each RGBA, 8 bits a channel, its alpha
 //! straight, in a `Buffer<UInt8>`, which C code can read and write through its Pointer, and which
 //! the formats' Decodes give and their Encodes take. Image.Decode reads any format std.image
@@ -48,6 +50,19 @@ Public Enum ResizeFilter
 End Enum
 
 /// A picture's pixels, in rows from the top, each RGBA, 8 bits a channel, its alpha straight.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local image = Image(4, 3)
+/// image.Fill(Color32.White)
+/// image[0, 0] = Color32.Red
+/// Expect(image.Width == 4 && image.Height == 3)
+/// Expect(image.Pixels.Count == 4 * 3 * 4)
+/// image.RotateClockwise()
+/// Expect(image.Width == 3 && image[2, 0] == Color32.Red)
+/// ```
 Public Class Image
     /// Its pixels' bytes, 4 for each, red, green, blue, and alpha.
     Field Memory: Buffer<UInt8>
@@ -150,6 +165,16 @@ Public Class Image
     /// UNEXPECTED_END when they end too soon, and OTHER when they're an HDR image, which
     /// Hdr.Decode reads, or use what isn't supported, or the image has more pixels than `limit`.
     /// Panics when the `limit` is negative.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Import std.math
+    /// Local png = Png.Encode(Image(8, 8))
+    /// Expect(Image.FormatOf(png) == ImageFormat.PNG)
+    /// Local image = Try Image.Decode(png)
+    /// Expect(image.Width == 8)
+    /// ```
     @PanicsAtCaller
     Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError
         CheckLimit(limit)
@@ -199,6 +224,14 @@ Public Class Image
     /// Makes it `width` by `height` pixels, each one the colors under it by the `filter`, weighted
     /// by their alpha, so a transparent pixel's color counts for nothing. Panics when the size is
     /// one New panics for, or the image has no pixels and the new size does.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local image = Image(100, 50)
+    /// image.Resize(10, 5)
+    /// Expect(image.Width == 10 && image.Height == 5)
+    /// ```
     @PanicsAtCaller
     Public Method Resize(width: Int, height: Int, filter: ResizeFilter = ResizeFilter.LANCZOS)
         CheckSize(width, height)

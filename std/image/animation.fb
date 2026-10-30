@@ -1,3 +1,5 @@
+//! Animations: frames of Images, each shown for a time.
+//!
 //! Animation: frames of one size, each an Image shown for its delay, played a number of times or
 //! forever, which Gif's and Png's DecodeAnimation give and their EncodeAnimation take.
 
@@ -15,13 +17,28 @@ Public Struct Frame
 End Struct
 
 /// Frames of one size, each an Image shown for its delay, played a number of times or forever.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local blink = Animation(2, 2)
+/// Local on = Image(2, 2)
+/// on.Fill(Color32.White)
+/// blink.Add(on, 500)
+/// blink.Add(Image(2, 2), 500)
+/// Expect(blink.Count == 2 && blink.Plays == 0)
+/// Local gif = Gif.EncodeAnimation(blink)
+/// Local back = Try Gif.DecodeAnimation(gif)
+/// Expect(back.Count == 2 && back[0].Delay == 500)
+/// ```
 Public Class Animation
     Field Columns: Int
     Field Rows: Int
     Field Times: Int
     Field List: Frame[]
 
-    /// An animation of frames of `width` by `height` pixels, with none yet, played `plays` times,
+    /// An animation of frames of `width` by `height` pixels, with no frames, played `plays` times,
     /// or forever for 0. Panics when the size is one an Image can't be, or `plays` is negative.
     @PanicsAtCaller
     Public New(width: Int, height: Int, plays: Int = 0)

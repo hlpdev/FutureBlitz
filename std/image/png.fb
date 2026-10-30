@@ -1,3 +1,5 @@
+//! Reading and writing PNG images and APNG animations.
+//!
 //! PNG, and APNG, its animation: Png.Decode reads any PNG, of every color type and bit depth,
 //! interlaced or not, as stb_image reads them, and Encode writes one, 8 bits a channel, RGB when
 //! every pixel is opaque and RGBA when one isn't, deflated by zlib-ng at a level. DecodeAnimation
@@ -9,6 +11,18 @@ Import std.image.codec
 Import std.image.image
 
 /// What reads and writes PNG images and animations, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local image = Image(2, 2)
+/// image[0, 1] = Color32.Hex("#336699")
+/// Local png = Png.Encode(image, 9)
+/// Local back = Try Png.Decode(png)
+/// Expect(back[0, 1] == Color32.Hex("#336699"))
+/// Expect(back[1, 1] == Color32.Transparent)
+/// ```
 Public Struct Png
     /// Png isn't made: it's only its Static Methods.
     New()

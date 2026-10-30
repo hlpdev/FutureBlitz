@@ -1,3 +1,5 @@
+//! Reading and writing WebP images.
+//!
 //! WebP, over libwebp: WebP.Decode reads a still WebP, lossy or lossless, with or without alpha,
 //! and Encode writes a lossy one at a quality, and EncodeLossless a lossless one at an effort,
 //! which keeps every pixel as it is, the colors of transparent ones too. An animated WebP isn't
@@ -8,6 +10,18 @@ Import std.image.codec
 Import std.image.image
 
 /// What reads and writes WebP images, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local image = Image(8, 8)
+/// image.Fill(Color32.Orange)
+/// Local lossless = Try WebP.Decode(WebP.EncodeLossless(image))
+/// Expect(lossless[4, 4] == Color32.Orange)
+/// Local lossy = Try WebP.Decode(WebP.Encode(image, 90))
+/// Expect(lossy.Width == 8)
+/// ```
 Public Struct WebP
     /// WebP isn't made: it's only its Static Methods.
     New()

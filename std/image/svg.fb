@@ -1,3 +1,5 @@
+//! Reading SVG images and drawing them into Images.
+//!
 //! SVG, over nanosvg: Svg.Parse reads an SVG's shapes, paths, strokes, fills, and gradients into an
 //! Svg, whose Width and Height are its size in pixels at 96 dots an inch, and Rasterize draws it
 //! into an Image, its edges antialiased. nanosvg leaves out SVG's text, images, filters, masks,
@@ -9,6 +11,20 @@ Import std.image.codec
 Import std.image.image
 
 /// An SVG's shapes, which Rasterize draws into an Image.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local svg = Try Svg.Parse(r"""
+///     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="10">
+///       <rect width="20" height="10" fill="#ff0000"/>
+///     </svg>
+///     """)
+/// Expect(svg.Width == 20.0 && svg.Height == 10.0)
+/// Local image = svg.Rasterize(2)
+/// Expect(image.Width == 40 && image[20, 10] == Color32.Red)
+/// ```
 Public Class Svg
     Field State: Ptr<Void>
 

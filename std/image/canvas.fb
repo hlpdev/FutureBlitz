@@ -1,9 +1,11 @@
-//! Canvas: drawing on an Image, through the runtime's fb_image_ functions. A pixel is the square
-//! from its (x, y) to (x + 1, y + 1), so the line along y = 5.5 from x = 0 covers row 5's pixels
-//! to their middles both ways. Each Fill fills a region by the nonzero rule, FillText a font's
-//! glyphs, and each Stroke what its line covers, LineWidth wide, with its Join at each corner and
-//! its Cap at each end, all drawn over the image by their color's alpha: by the exact part of
-//! each pixel the region covers, antialiased, or wholly where it holds the pixel's center.
+//! Drawing lines, shapes, paths, images, and text on an Image.
+//!
+//! A pixel is the square from its (x, y) to (x + 1, y + 1), so the line along y = 5.5 from x = 0
+//! covers row 5's pixels to their middles both ways. Each Fill fills a region by the nonzero rule,
+//! FillText a font's glyphs, and each Stroke what its line covers, LineWidth wide, with its Join at
+//! each corner and its Cap at each end, all drawn over the image by their color's alpha: by the
+//! exact part of each pixel the region covers, antialiased, or wholly where it holds the pixel's
+//! center.
 
 Import std.core
 Import std.math.color
@@ -54,6 +56,21 @@ End Enum
 
 /// What draws on an Image: lines, shapes, paths, images, and text, filled or stroked, in a color or
 /// a gradient.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local image = Image(100, 100)
+/// Local canvas = Canvas(image)
+/// canvas.FillRect(Rect(0, 0, 100, 100), Color32.White)
+/// canvas.FillCircle(Vec2(50, 50), 20, Color32.Red)
+/// canvas.LineWidth = 4
+/// canvas.StrokeLine(Vec2(0, 90), Vec2(100, 90), Color32.Black)
+/// Expect(image[50, 50] == Color32.Red)
+/// Expect(image[5, 5] == Color32.White)
+/// Expect(image[50, 90] == Color32.Black)
+/// ```
 Public Class Canvas
     Field Target: Image
     Field Smooth: Bool

@@ -1,3 +1,5 @@
+//! Reading and writing JPEG images.
+//!
 //! JPEG: Jpeg.Decode reads baseline and progressive JPEGs, gray, YCbCr, and CMYK, as stb_image
 //! reads them, and Encode writes a baseline one at a quality, as stb_image_write does, without the
 //! image's alpha, which JPEG doesn't have.
@@ -7,6 +9,17 @@ Import std.image.codec
 Import std.image.image
 
 /// What reads and writes JPEG images, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local image = Image(16, 16)
+/// image.Fill(Color32.Gray)
+/// Local jpeg = Jpeg.Encode(image, 80)
+/// Local back = Try Jpeg.Decode(jpeg)
+/// Expect(back.Width == 16 && back[8, 8].a == 255)
+/// ```
 Public Struct Jpeg
     /// Jpeg isn't made: it's only its Static Methods.
     New()

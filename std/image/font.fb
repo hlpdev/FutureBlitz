@@ -1,3 +1,5 @@
+//! TrueType and OpenType fonts, read safely from bytes or a file.
+//!
 //! Font: a TrueType or OpenType font, read by the runtime itself, which checks each offset in it
 //! before it follows it, so a broken font or one made to mislead is an IOError, or draws boxes,
 //! but never reads past its bytes: its glyphs' outlines, TrueType's, simple and composite, or
@@ -24,6 +26,18 @@ Package Extern "runtime"
 End Extern
 
 /// A TrueType or OpenType font, whose glyphs a Canvas draws text with.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.io
+/// # Import std.math
+/// Local font = Try Font.Load(Path("fonts/Inter.ttf"))
+/// Local image = Image(400, 60)
+/// Local canvas = Canvas(image)
+/// canvas.FillText("Hello", font, 32, Vec2(10, 40), Color32.White)
+/// Print("{font.Width("Hello", 32)} pixels wide")
+/// ```
 Public Class Font
     Package Field State: Ptr<Void>
 

@@ -1,3 +1,5 @@
+//! High dynamic range images, and Radiance's HDR files.
+//!
 //! HDR: an HdrImage's pixels are light, linear, each RGBA as Floats, past 1 where they're brighter
 //! than white, in a `Buffer<Float32>`, which Hdr reads from Radiance's RGBE files, as stb_image
 //! reads them, and writes to them, run-length encoded, as stb_image_write does. RGBE has no alpha:
@@ -11,6 +13,19 @@ Import std.image.image
 
 /// A picture's pixels as light, linear, each RGBA as Floats, past 1 where they're brighter than
 /// white.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local sky = HdrImage(2, 1)
+/// sky[0, 0] = Color(4, 4, 4, 1)
+/// Expect(sky[0, 0].r == 4.0)
+/// // Brighter than white is white in 8 bits.
+/// Expect(sky.ToImage()[0, 0] == Color32.White)
+/// Local back = Try Hdr.Decode(Hdr.Encode(sky))
+/// Expect(back[0, 0].r == 4.0)
+/// ```
 Public Class HdrImage
     /// Its pixels' Floats, 4 for each, red, green, blue, and alpha.
     Field Memory: Buffer<Float32>
