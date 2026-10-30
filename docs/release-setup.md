@@ -5,12 +5,13 @@ for the Linux repositories, the Homebrew tap, Azure's code signing, the winget f
 Marketplace and Open VSX, and the R2 bucket. docs/tooling.md's Releases says what each is for;
 release.yml makes the release, and publish.yml sends a published one on.
 
-Every secret and variable goes in hlpdev/FutureBlitz, set with `gh` from a checkout (or in
-Settings > Secrets and variables > Actions). A secret is read from stdin, so it never lands in the
-shell's history:
+Every secret and variable goes in hlpdev/FutureBlitz, set with `gh` (or in Settings > Secrets and
+variables > Actions). A secret comes from a file, a pipe, or gh's own prompt, which doesn't show
+what's pasted, and never from the command line, so it never lands in the shell's history or the
+terminal; the commands below keep to that:
 
 ```sh
-gh secret set NAME -R hlpdev/FutureBlitz < file        # or type it, then Ctrl+D
+gh secret set NAME -R hlpdev/FutureBlitz < file        # or with no file: gh asks for it
 gh variable set NAME -R hlpdev/FutureBlitz --body value
 ```
 
@@ -43,24 +44,27 @@ lacks.
 One RSA 4096 key that only signs, with no passphrase, as GitHub's secrets keep it: nfpm signs the
 .rpms with it, and repo.py the apt repository's Release and the dnf repository's repomd.xml. It
 doesn't expire, so the sources people add keep working; its revocation certificate is how it's
-retired. In Git Bash on Windows, or any shell with gpg:
+retired. In Git Bash on Windows, or any shell with gpg, in a throwaway folder that only you can
+read, so the secret key is never in a checkout:
 
 ```sh
+umask 077
 export GNUPGHOME="$(mktemp -d)"
+cd "$GNUPGHOME"
 gpg --batch --passphrase '' --quick-gen-key "FutureBlitz packages" rsa4096 sign never
 fpr="$(gpg --list-keys --with-colons | awk -F: '/^fpr:/ { print $10; exit }')"
 echo "$fpr"
 gpg --armor --export-secret-keys "$fpr" > futureblitz-signing.asc
 gpg --armor --export "$fpr" > futureblitz-public.asc
-cp "$GNUPGHOME/openpgp-revocs.d/$fpr.rev" futureblitz-revoke.rev
+cp "openpgp-revocs.d/$fpr.rev" futureblitz-revoke.rev
 gh secret set REPO_SIGNING_KEY -R hlpdev/FutureBlitz < futureblitz-signing.asc
 ```
 
 Keep futureblitz-signing.asc and futureblitz-revoke.rev somewhere safe and offline, like a
-password manager, then delete them here with the throwaway home: `rm -rf "$GNUPGHOME"
-futureblitz-signing.asc futureblitz-revoke.rev`. futureblitz-public.asc is public; the
-repositories serve it as futureblitz.asc (and futureblitz.gpg, binary), and the fingerprint can
-go on the site's install page.
+password manager, and futureblitz-public.asc wherever you like, then delete the folder with
+everything in it: `cd ~ && gpgconf --kill all && rm -rf "$GNUPGHOME"`. futureblitz-public.asc is
+public; the repositories serve it as futureblitz.asc (and futureblitz.gpg, binary), and the
+fingerprint can go on the site's install page.
 
 ## The Homebrew tap
 
@@ -91,16 +95,19 @@ Artifact Signing was called Trusted Signing; the portal and the role may show ei
    and wait for it to be approved (a few days at most). The publisher name it validates is what
    Windows shows.
 3. **Certificate profiles** > Create > Public Trust, with that identity. Its name is the profile.
-4. An app for GitHub to sign as, with `az` (`az login` first):
+4. An app for GitHub to sign as, with `az` (`az login` first), whose IDs and secret go straight
+   into the repo's secrets, so the secret is never shown (`tr` drops the line break `-o tsv`
+   ends with):
 
    ```sh
    app="$(az ad app create --display-name futureblitz-signing --query appId -o tsv)"
-   az ad sp create --id "$app"
-   az ad app credential reset --id "$app" --display-name github --years 2 \
-     --query "{tenant: tenant, client: appId, secret: password}"
+   az ad sp create --id "$app" > /dev/null
+   az account show --query tenantId -o tsv | tr -d '\r\n' | gh secret set AZURE_TENANT_ID -R hlpdev/FutureBlitz
+   printf %s "$app" | gh secret set AZURE_CLIENT_ID -R hlpdev/FutureBlitz
+   az ad app credential reset --id "$app" --display-name github --years 2 --query password -o tsv \
+     | tr -d '\r\n' | gh secret set AZURE_CLIENT_SECRET -R hlpdev/FutureBlitz
    ```
 
-   It prints the tenant, the client, and the secret; the secret isn't shown again.
 5. Let it sign with the profile:
 
    ```sh
@@ -110,19 +117,16 @@ Artifact Signing was called Trusted Signing; the portal and the role may show ei
    ```
 
    (`Trusted Signing Certificate Profile Signer` where the old name's still used.)
-6. Set them:
+6. The account's names, which aren't secret:
 
    ```sh
-   gh secret set AZURE_TENANT_ID -R hlpdev/FutureBlitz
-   gh secret set AZURE_CLIENT_ID -R hlpdev/FutureBlitz
-   gh secret set AZURE_CLIENT_SECRET -R hlpdev/FutureBlitz
    gh variable set AZURE_SIGNING_ENDPOINT -R hlpdev/FutureBlitz --body https://eus.codesigning.azure.net/
    gh variable set AZURE_SIGNING_ACCOUNT -R hlpdev/FutureBlitz --body <account>
    gh variable set AZURE_SIGNING_PROFILE -R hlpdev/FutureBlitz --body <profile>
    ```
 
-The client secret expires (2 years above); a new one is `az ad app credential reset` again and
-`gh secret set AZURE_CLIENT_SECRET`.
+The client secret expires (2 years above); a new one is the `az ad app credential reset` line
+again, with `app` set to the app's ID.
 
 ## The winget fork
 
@@ -152,21 +156,26 @@ publisher and Open VSX's namespace have to be that.
    Microsoft account, Create publisher, with the ID `futureblitz` and the name FutureBlitz.
 2. A token for it, from Azure DevOps: at https://dev.azure.com (make an organization if there's
    none), User settings > Personal access tokens > New Token, with Organization "All accessible
-   organizations", and Scopes > Custom defined > Marketplace > Manage. Check it, then set it:
+   organizations", and Scopes > Custom defined > Marketplace > Manage. Paste it at `read`'s
+   prompt, which doesn't show it; vsce checks it, and it goes into the secret:
 
    ```sh
    cd editors/vscode && npm ci
-   VSCE_PAT=<token> npx vsce verify-pat futureblitz
-   gh secret set VSCE_PAT -R hlpdev/FutureBlitz
+   read -rsp "Marketplace token: " VSCE_PAT && echo
+   export VSCE_PAT
+   npx vsce verify-pat futureblitz && printf %s "$VSCE_PAT" | gh secret set VSCE_PAT -R hlpdev/FutureBlitz
+   unset VSCE_PAT
    ```
 
 3. **Open VSX**: at https://open-vsx.org, log in with GitHub, link an Eclipse account in your
    profile, and sign the Publisher Agreement there. Then Settings > Access Tokens > Generate New
-   Token, and make the namespace with it:
+   Token, paste it at the prompt, and make the namespace with it (ovsx reads OVSX_PAT):
 
    ```sh
-   npx --yes ovsx@1.3.0 create-namespace futureblitz -p <token>
-   gh secret set OVSX_PAT -R hlpdev/FutureBlitz
+   read -rsp "Open VSX token: " OVSX_PAT && echo
+   export OVSX_PAT
+   npx --yes ovsx@1.3.0 create-namespace futureblitz && printf %s "$OVSX_PAT" | gh secret set OVSX_PAT -R hlpdev/FutureBlitz
+   unset OVSX_PAT
    ```
 
    An issue at https://github.com/EclipseFdn/open-vsx.org asking to verify the namespace's owner
@@ -194,8 +203,8 @@ gh secret set R2_SECRET_ACCESS_KEY -R hlpdev/FutureBlitz
 gh variable set R2_BUCKET -R hlpdev/FutureBlitz --body futureblitz-dl
 ```
 
-The site serves install.ps1 as https://futureblitz.dev/install.ps1 (M9), with `Content-Type:
-text/plain; charset=utf-8`.
+The site serves the install scripts as https://futureblitz.dev/install.sh and /install.ps1 (M9),
+from tools/install/, with `Content-Type: text/plain; charset=utf-8`.
 
 ## A release, then
 

@@ -3,9 +3,11 @@
 # $FUTUREBLITZ_HOME, and puts its bin/ on PATH in the shell's startup file. Running it again
 # updates it.
 #
-#   curl -fsSL https://github.com/hlpdev/FutureBlitz/releases/latest/download/install.sh | sh
-#   sh install.sh --version 0.1.0
-#   sh install.sh --archive futureblitz-0.1.0-linux-x64.tar.gz
+#   curl -fsSL https://futureblitz.dev/install.sh | sh
+#   curl -fsSL https://futureblitz.dev/install.sh | sh -s -- --version 1.0.0
+#   sh install.sh --archive futureblitz-1.0.0-linux-x64.tar.gz
+#
+# Each release has it too: https://github.com/hlpdev/FutureBlitz/releases/latest/download/install.sh
 #
 # --no-modify-path leaves the shell's startup files as they are.
 set -eu

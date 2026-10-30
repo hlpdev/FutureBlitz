@@ -2,40 +2,63 @@
 
 ## Installing
 
-Releases are on [GitHub Releases](https://github.com/hlpdev/FutureBlitz/releases), for Windows
-(x64), Linux (x64 and arm64; Ubuntu 22.04 or newer, and the programs fb builds run on glibc 2.28,
-as RHEL 8 and Ubuntu 20.04 have), and macOS 15 or newer (arm64 and x64). They're unsigned for
-now, so a browser warns about the archives and installers it downloads; the install scripts
-don't.
+FutureBlitz is a compiled, general-purpose language with BASIC's readability and native speed.
+Each release is on [GitHub Releases](https://github.com/hlpdev/FutureBlitz/releases), for Windows
+10 or newer (x64, which arm64 Windows runs too), Linux (x64 and arm64, with glibc 2.35, as Ubuntu
+22.04, Debian 12, and Fedora 36 have; the programs fb builds run on glibc 2.28, as RHEL 8 and
+Ubuntu 20.04 have), and macOS 15 or newer (arm64 and x64). On Windows, fb's programs, the MSI, and
+setup.exe are signed. macOS's aren't, so a browser warns about an archive or a .pkg it downloads;
+the install script and Homebrew don't.
 
-The install scripts install a published release, and there's none yet: the first one is coming.
-Until it's out, build FutureBlitz from source, as [Building from source](#building-from-source)
-says.
+Each way below installs a published release; before the first one, build FutureBlitz from source,
+as [Building from source](#building-from-source) says.
 
-On Linux and macOS:
+On Linux and macOS, the install script puts FutureBlitz in ~/.futureblitz and its bin on PATH:
 
 ```sh
-curl -fsSL https://github.com/hlpdev/FutureBlitz/releases/latest/download/install.sh | sh
+curl -fsSL https://futureblitz.dev/install.sh | sh
 ```
 
-On Windows, in PowerShell:
+On Windows, in PowerShell, it puts it in %USERPROFILE%\.futureblitz:
 
 ```powershell
-irm https://github.com/hlpdev/FutureBlitz/releases/latest/download/install.ps1 | iex
+irm https://futureblitz.dev/install.ps1 | iex
 ```
 
-Each puts FutureBlitz in ~/.futureblitz (%USERPROFILE%\.futureblitz) and its bin on PATH, and
-updates it when it's run again; `sh -s -- --version 0.1.0` (or `$env:FUTUREBLITZ_VERSION`)
-installs a given release. A
-release's MSI does the same on Windows, and its .pkg installs it in /usr/local/futureblitz on
-macOS. Building a program needs nothing else, but on macOS Apple's Command Line Tools
-(`xcode-select --install`).
+Run again, either updates it; `sh -s -- --version 1.0.0` (or `$env:FUTUREBLITZ_VERSION`) installs a
+given release. Or with a package manager:
+
+| | |
+|---|---|
+| winget | `winget install FutureBlitz.FutureBlitz` |
+| Homebrew (macOS and Linux) | `brew install hlpdev/tap/futureblitz` |
+| apt (Ubuntu and Debian) | below |
+| dnf (Fedora) | below |
+
+```sh
+# apt
+curl -fsSL https://dl.futureblitz.dev/apt/futureblitz.gpg | sudo tee /usr/share/keyrings/futureblitz.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/futureblitz.gpg] https://dl.futureblitz.dev/apt stable main" | sudo tee /etc/apt/sources.list.d/futureblitz.list
+sudo apt update && sudo apt install futureblitz
+
+# dnf
+sudo curl -fsSL -o /etc/yum.repos.d/futureblitz.repo https://dl.futureblitz.dev/rpm/futureblitz.repo
+sudo dnf install futureblitz
+```
+
+A release's installers do it too: on Windows the MSI or setup.exe, for your user, in
+%USERPROFILE%\.futureblitz; on macOS the .pkg, in /usr/local/futureblitz; and on Linux the .deb
+or .rpm, in /usr/lib/futureblitz, with fb in /usr/bin. Building a program needs nothing else,
+but on macOS Apple's Command Line Tools (`xcode-select --install`).
 
 ```sh
 fb new hello
 cd hello
 fb run
 ```
+
+The VS Code extension, FutureBlitz, is on the Visual Studio Marketplace and Open VSX:
+`code --install-extension futureblitz.futureblitz`.
 
 ## Building from source
 

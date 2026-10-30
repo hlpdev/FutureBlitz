@@ -80,8 +80,13 @@ other people can install and use every day in an editor. Step 0 settled what was
   (`fb --version`, and fb-lsp's initialize), the MSI and setup.exe, the .pkg, the .deb and
   .rpm, the .vsix, and every file's name. A tag is v and three numbers; one that isn't
   CMakeLists.txt's version only warns, as builds from that commit say CMakeLists.txt's. Without
-  `FB_VERSION`, and in a dispatch, it's CMakeLists.txt's. Each test checks `fb --version` says
-  it.
+  `FB_VERSION`, and in a dispatch on a branch, it's CMakeLists.txt's; a dispatch on a
+  v<version> tag is that tag's, and drafts its release too. Each install's test, by script,
+  MSI, setup.exe, .pkg, Homebrew, .deb, and .rpm, checks `fb --version` says it.
+- **One sentence** describes FutureBlitz in every package manager, the .deb and .rpm's summary,
+  winget's, Homebrew's, and the .vsix's: "A compiled, general-purpose language with BASIC's
+  readability and native speed." (tools/release/packages.py's `SUMMARY`, which a test keeps
+  the same everywhere).
 - **What a release has**: for each target its archive; on Windows the MSI and
   `futureblitz-<version>-windows-x64-setup.exe`; on macOS the .pkg; on Linux
   `futureblitz_<version>-1_<amd64|arm64>.deb` and `futureblitz-<version>-1.<x86_64|aarch64>.rpm`;
@@ -107,9 +112,11 @@ other people can install and use every day in an editor. Step 0 settled what was
   `--no-modify-path` (`-NoModifyPath`) leaves it, and says what to add. Running one again
   updates. install.ps1 runs an archive's fb only when the file is a program, since Windows
   shows a window that waits to be closed for one that isn't.
-- install.ps1 is served as https://futureblitz.dev/install.ps1 too (M9), for
-  `irm https://futureblitz.dev/install.ps1 | iex`, and `iex "& { $(irm ...) } -Version 1.0.0"`
-  with arguments. iex runs it in the caller's session, so all of it is a script block, `& {
+- The site serves both (M9), which is how they're run: `curl -fsSL
+  https://futureblitz.dev/install.sh | sh` (`sh -s -- --version 1.0.0` with arguments), and
+  `irm https://futureblitz.dev/install.ps1 | iex` (`iex "& { $(irm ...) } -Version 1.0.0"` with
+  arguments); each release's copies stay a fallback. iex runs install.ps1 in the caller's
+  session, so all of it is a script block, `& {
   param(...) ... } @args`, whose parameters, preferences, TLS, and function are its own: a
   script's own param() would set the session's $Version, $Archive, and $NoModifyPath. It's
   ASCII, as Windows PowerShell's irm reads a script with no charset as Latin-1, so the site
@@ -208,12 +215,22 @@ made once.
   those already in R2 and this release's, signed with REPO_SIGNING_KEY's key (RSA 4096, no
   passphrase, which only signs), and the job uploads them to the R2 bucket R2_BUCKET that
   dl.futureblitz.dev serves, packages first and indexes last, so no index names a package that
-  isn't there yet; packages and repodata's checksum-named files are cached for a year,
-  immutable, and the indexes for five minutes.
+  isn't there yet. What never changes, as its name is its version or its hash, is cached for a
+  year, immutable: the packages, apt's indexes by-hash, and createrepo_c's checksum-named
+  files; nothing is deleted, so an older InRelease or repomd.xml finds what it names. What
+  changes isn't cached (`no-cache`), and goes up last, each signature right after what it
+  signs: apt's plain indexes, Release, Release.gpg, and InRelease, then repomd.xml and its
+  .asc. apt reads InRelease, signature and all, and with `Acquire-By-Hash: yes` fetches each
+  index by its hash, so the InRelease a client has, old or new, matches the indexes it gets;
+  dnf has no such thing, and between repomd.xml's upload and its .asc's, a client can get one
+  without the other.
   - `dl.futureblitz.dev/apt`: `stable main`, for amd64 and arm64, a pool in
     `pool/main/f/futureblitz/`, `dists/stable/main/binary-<arch>/Packages` and `Packages.gz`,
-    and `dists/stable/Release`, `Release.gpg`, and `InRelease`, which repo.py writes itself, so
-    it needs only gpg; and the key as futureblitz.gpg, for signed-by, and futureblitz.asc.
+    each in that folder's `by-hash/SHA256/` by its hash too, and `dists/stable/Release`,
+    `Release.gpg`, and `InRelease`, which repo.py writes itself, so it needs only gpg; and the
+    key as futureblitz.gpg, for signed-by, and futureblitz.asc. The packages' Maintainer is
+    `FutureBlitz <noreply@futureblitz.dev>`, as Debian's has to be an address, which takes no
+    mail.
 
     ```sh
     curl -fsSL https://dl.futureblitz.dev/apt/futureblitz.gpg | sudo tee /usr/share/keyrings/futureblitz.gpg > /dev/null
@@ -230,14 +247,17 @@ made once.
     sudo dnf install futureblitz
     ```
 
-  - dl.futureblitz.dev's packages are `/<name>/<version>/` (registry-api.md), so `apt` and
-    `rpm` have to be reserved names, as `fb` is, before M10 takes names.
+  - dl.futureblitz.dev's packages are `/<name>/<version>/` (registry-api.md), and `apt` and
+    `rpm` are reserved names, with `fb`, `futureblitz`, and `releases`, so no package's is
+    either.
 - **The VS Code extension**: the job publishes the release's .vsix to the Marketplace with vsce
   (editors/vscode's own, pinned) and VSCE_PAT, and to Open VSX with ovsx and OVSX_PAT.
 - **Tests**: tests/tools/release_tests.py (in ctest) checks the manifests, the formula, and the
-  ProductCode, and builds the apt repository from fake .debs with a key made for the test,
-  which gpgv checks as apt does, and that a changed Release fails; with nfpm on PATH, it makes
-  nfpm.yaml's .deb, and checks its links and that the repository takes it.
+  ProductCode, the one sentence and the Maintainer, and builds the apt repository from fake
+  .debs with a key made for the test, which gpgv checks as apt does, that a changed Release
+  fails, that each index's by-hash copy is there, and that a .deb cut off anywhere, or whose
+  control.tar is broken, is refused; with nfpm on PATH, it makes nfpm.yaml's .deb, and checks
+  its links and that the repository takes it.
 - `fb --version` prints the version, the commit, from git when CMake configured the build, of the
   checkout whose top folder the source is, else "unknown", and the target:
   `fb 0.1.0 (abc1234, windows-x64)`.

@@ -2,10 +2,10 @@
 # $env:FUTUREBLITZ_HOME, and puts its bin on the user's PATH. Running it again updates it.
 #
 #   irm https://futureblitz.dev/install.ps1 | iex
-#   irm https://github.com/hlpdev/FutureBlitz/releases/latest/download/install.ps1 | iex
 #   iex "& { $(irm https://futureblitz.dev/install.ps1) } -Version 1.0.0"
-#   .\install.ps1 -Version 1.0.0
 #   .\install.ps1 -Archive futureblitz-1.0.0-windows-x64.zip
+#
+# Each release has it too: https://github.com/hlpdev/FutureBlitz/releases/latest/download/install.ps1
 #
 # -NoModifyPath leaves PATH as it is. `irm | iex` runs this in the caller's session, so all of it
 # is in a script block, whose parameters, variables, preferences, and function are its own, and
