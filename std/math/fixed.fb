@@ -480,7 +480,7 @@ Public Struct Fixed64 Implements Numeric, Comparable, Hashable, Bounded, Printab
     Public Static Method MinValue(): Fixed64 => Fixed64(-9223372036854775808)
     /// The highest Fixed64, about 2147483647.9999999998.
     Public Static Method MaxValue(): Fixed64 => Fixed64(9223372036854775807)
-    /// The `value` as a Double, which holds every one exactly.
+    /// The `value` as the nearest Double, which holds its 53 most significant bits.
     Public Static Method DoubleValue(value: Fixed64): Double => value.ToDouble()
 
     /// Pi, and a turn, 2 Pi, rounded to a Fixed64's steps.
