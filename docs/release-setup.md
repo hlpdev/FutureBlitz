@@ -225,7 +225,9 @@ dl.futureblitz.dev. Each is true once its part above is done:
 ## A release, then
 
 1. Set CMakeLists.txt's version to the release's, push the tag (`git tag v1.0.0 && git push
-   origin v1.0.0`), and wait for release.yml's draft.
+   origin v1.0.0`), and wait for release.yml's draft. A tag on a commit whose message has
+   `[skip ci]` starts nothing, as GitHub skips its push; then start it on the tag, which does
+   the same: `gh workflow run release.yml --ref v1.0.0`.
 2. Check the draft, then publish it.
 3. `gh workflow run publish.yml -f version=1.0.0 -f winget=true -f homebrew=true -f linux=true -f
    vscode=true`, or only some of them.
