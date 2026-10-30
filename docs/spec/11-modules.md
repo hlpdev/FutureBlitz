@@ -11,9 +11,9 @@ Replaces Blitz's `Include` (textual paste) and `.decls` files.
 - There is **no textual include**.
 - Circular imports between modules are allowed; the compiler resolves them.
 - A module is named by its path from its root, without `.fb` and with dots for folders:
-  std/collections/map.fb is `std.collections.map`. A package's start with its name, so the game
-  package's ui/hud.fb is `game.ui.hud` (see [Packages](#packages)), and its main file is named
-  that way too, as `game.main`. Without a project.toml, a program's main file is named by its
+  std/collections/map.fb is `std.collections.map`. A package's start with its name, so the app
+  package's ui/hud.fb is `app.ui.hud` (see [Packages](#packages)), and its main file is named
+  that way too, as `app.main`. Without a project.toml, a program's main file is named by its
   stem.
 - A name is found in the code's own scopes, then among its module's top-level declarations, then
   in the modules it imports, then among the built-ins. A module's own types and variables hide
@@ -37,9 +37,9 @@ Replaces Blitz's `Include` (textual paste) and `.decls` files.
 
 ```vb
 Import std.math                     // standard library module
-Import physics                      // package from the manifest
+Import geometry                     // package from the manifest
 Import "./ui/hud"                   // local file, relative path
-Import "proto/game.proto"           // a Protocol Buffers file's types
+Import "proto/orders.proto"         // a Protocol Buffers file's types
 Import std.collections As C         // alias
 From std.math Import Vec3, Lerp     // selected names
 ```
@@ -48,13 +48,13 @@ From std.math Import Vec3, Lerp     // selected names
   subfolders') are each a module, imported together: `Import std.collections` brings in Map,
   Set, Stack, and the rest.
 - A quoted path is a file from the importing file's folder, with `.fb` added:
-  `Import "./ui/hud"` in game.fb is ui/hud.fb beside it, the module `ui.hud`. It names a file, so
+  `Import "./ui/hud"` in app.fb is ui/hud.fb beside it, the module `ui.hud`. It names a file, so
   one that ends in a folder, like `".."` or `"./"`, is an error. A path can't leave
   the folder its module names start from: its package's, the main file's for a program without
   a project.toml, or std/ for std's own files.
 - A quoted path that ends in `.proto` names a Protocol Buffers file, proto2 or proto3, which fb
   reads as it builds the program into a module of its types, named by the path as a `.fb`
-  file's is, `proto.game.proto`, under its file's stem, `game`: a Struct for each message,
+  file's is, `proto.orders.proto`, under its file's stem, `orders`: a Struct for each message,
   which std.data's Protocol Buffers encoding reads and writes, an Enum for each enum, and an
   Interface for each service. Its package doesn't name the module, since one package often spans
   several files.
@@ -106,10 +106,10 @@ name = "editor"
 version = "0.1.0"
 
 [dependencies]
-physics = "1.2"
+geometry = "1.2"
 
 [native]
-joltc = { static = "libs/joltc" }
+zstd = { static = "libs/zstd" }
 ```
 
 - Dependencies are versioned, and resolved to one version of each, which fb.lock pins.
@@ -121,12 +121,12 @@ A dependency can also be a local package, by its folder from the project.toml's:
 
 ```toml
 [project]
-name = "game"
+name = "app"
 version = "0.1.0"
 main = "main.fb"                    # the default
 
 [dependencies]
-physics = { path = "../physics" }
+geometry = { path = "../geometry" }
 ```
 
 - `[project]` needs `name`, an identifier other than `std`, and `version`, three numbers like
@@ -146,8 +146,8 @@ physics = { path = "../physics" }
   README.md (README or README.txt); `repository`, `homepage`, and `documentation`, `https://`
   URLs; `keywords`, at most five, each lowercase letters, digits, and `-`, not starting with `-`,
   at most 32 long; and `fb`, the range of fb's versions the package builds with, like `">=0.2"`.
-- A dependency is a package from a registry, by a range of its versions, `physics = "1.2"` or
-  `physics = { version = "1.2" }`, or a local one by its folder, `{ path = "../physics" }`, but
+- A dependency is a package from a registry, by a range of its versions, `geometry = "1.2"` or
+  `geometry = { version = "1.2" }`, or a local one by its folder, `{ path = "../geometry" }`, but
   not both; `registry = "company"` takes it from a registry `[registries]` names rather than
   futureblitz.dev. `[registries]` names each by its index, `company = { index =
   "https://packages.example.com/index/" }`, or a folder, a registry on disk; its names are
@@ -162,11 +162,12 @@ physics = { path = "../physics" }
   on it. Two packages of one name, and packages that depend on each other in a cycle, are
   errors.
 - A package's files are modules named by their paths from its folder, starting with its name: the
-  game package's ui/hud.fb is `game.ui.hud`, and physics' shapes/circle.fb is
-  `physics.shapes.circle`. `Import physics` brings in the modules in the physics package's folder,
+  app package's ui/hud.fb is `app.ui.hud`, and geometry's shapes/circle.fb is
+  `geometry.shapes.circle`. `Import geometry` brings in the modules in the geometry package's
+  folder,
   but not its main file, however project.toml spells it, or the program's own main module, and
-  `Import physics.shapes` its shapes.fb or the modules in its shapes/ folder. Only a package that
-  depends on physics, or physics itself, can import it by name; a package's own files are imported
+  `Import geometry.shapes` its shapes.fb or the modules in its shapes/ folder. Only a package that
+  depends on geometry, or geometry itself, can import it by name; a package's own files are imported
   by its name or by quoted paths. Its folders can have any names, like std or a dependency's.
 - An Import stays in its package's files: it can't leave the package's folder, or go into a
   folder in it that has a project.toml of its own, which is another package's, whose modules
@@ -185,9 +186,9 @@ physics = { path = "../physics" }
   doc comments' examples, and runs them (see [09](09-errors.md#tests)). `fb doc` writes a
   package's public API as JSON, to `<folder>/build/<name>.json` unless `-o` says where.
 - `[native]` names the package's C libraries, each by the name `Lib` gives it (see
-  [12](12-ffi.md)): `joltc = "libs/joltc"`, or `joltc = { static = "libs/joltc" }`, is a static
+  [12](12-ffi.md)): `zstd = "libs/zstd"`, or `zstd = { static = "libs/zstd" }`, is a static
   archive from the package's folder: the file itself, or without its `lib` prefix and its
-  extension, libs/libjoltc.a, libs/joltc.a, or libs/joltc.lib, which has to be there and be an
+  extension, libs/libzstd.a, libs/zstd.a, or libs/zstd.lib, which has to be there and be an
   archive; `m = { system = "m" }` is one the system's linker finds by its name, as `-lm`; and
   `sqlite3 = { dynamic = "native/{target}/sqlite3" }` is a dynamic library (see
   [Native libraries](#native-libraries)). A name is letters, digits, and `_`, `-`, `.`, or `+`,
@@ -201,7 +202,7 @@ physics = { path = "../physics" }
   link the UCRT C runtime, so an archive is built for it too, as with gcc's `-mcrtdll=ucrt`.
   A system library the linker can't find is an error at its project.toml line.
 - An Import that names a file or folder in other letter cases than the disk has, like
-  `"./UI/Hud"` for ui/hud.fb or `physics.Shapes` for shapes/, gets a warning, since only a disk
+  `"./UI/Hud"` for ui/hud.fb or `geometry.Shapes` for shapes/, gets a warning, since only a disk
   that ignores letter case finds it.
 
 ## Libraries
@@ -211,7 +212,7 @@ own, as the program's project.toml says; the library's author doesn't choose.
 
 ```toml
 [dependencies]
-physics = { path = "../physics" }                     # built into the executable
+geometry = { path = "../geometry" }                   # built into the executable
 audio = { path = "../audio", link = "beside" }        # audio.dll beside the executable
 ```
 

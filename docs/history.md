@@ -54,17 +54,23 @@ in any case (commands-12); and `apt`, `rpm`, and `releases` are reserved as work
 
 The engine ruling (2026-10-30): the engine is packages on top of FutureBlitz, so nothing in the
 language names it. `Flip` left sema's names that later milestones declare. The main scheduler runs
-at an Await, Wait(), and the end of top-level code, and `Scheduler.Main`, which sema checks as
-main-thread code (`check_main_scheduler()`) and lowering gets from `fb_scheduler_main`, an object
+at a top-level Await, Wait(), and the end of top-level code, and `Scheduler.Main`, which sema checks
+as main-thread code (`check_main_scheduler()`) and lowering gets from `fb_scheduler_main`, an object
 the runtime keeps outside the leak report, gives a loop of a program's own `Step()`
 (`fb_scheduler_step`, a Scheduler's Tick of no time); `Scheduler.Main.Tick(seconds)` is a compile
 error, and `fb_scheduler_tick` panics at its call for the main scheduler. `NextFrame()` became
 `NextTick()`, WAIT_FRAME WAIT_TICK, and `fb_wait_frame` `fb_wait_tick`. tests/programs'
-scheduler_main, scheduler_no_step, and panic_scheduler_main_tick show it. std.term's
-`Screen.Run` steps it after each event, and while a coroutine waits polls for keys 10 ms at most,
-which a Terminal's Package `IsAtEnd` tells from the input's end (term_screen_coroutines).
-docs/spec was rewritten as a reference at 1.0, with no dates, provenance, or engine examples: spec
-10's examples are a UI's and a server's, and spec 08's engine resources are native resources.
+scheduler_main, scheduler_no_step, and panic_scheduler_main_tick show it. std.term's `Screen.Run`
+steps it after each event, and while a coroutine waits polls for keys 10 ms at most, which a
+Terminal's Package `IsAtEnd` tells from the input's end (term_screen_coroutines). docs/spec was
+rewritten as a reference at 1.0, with no dates, provenance, or game or engine examples: its
+examples are accounts, files, orders, shapes, a UI, and a server, and spec 08's engine resources
+are native resources. Its review's fixes: only a top-level Await, Wait(), and Step run the main
+scheduler, and a wait for a Task that's done doesn't (scheduler_done_wait); once the program's code
+has ended, a tick of the main scheduler destroys its coroutines rather than resuming them, and a
+Wait for a destroyed coroutine's Task panics (scheduler_end, panic_scheduler_end_wait); overloads
+that fit but for their ByRef pick the one that isn't generic, for the ByRef hint; Scheduler?.Main
+and Scheduler.Main<Int> say what's wrong; and a versioned dependency's error names no milestone.
 
 The installers, after the milestone (2026-10-30): a release is versioned from its tag
 (`-DFB_VERSION`, refused unless three numbers) and has, beside each target's archive, setup.exe (a

@@ -81,8 +81,8 @@ Unsafe
     Local buf: Ptr<UInt8> = Mem.Alloc(1024)
     Defer Mem.Free(buf)
     buf[0] = 255
-    Local p = AddressOf(particle)      // Ptr<Particle>
-    p.Value.life = 1.0
+    Local p = AddressOf(sample)        // Ptr<Sample>
+    p.Value.weight = 1.0
 End Unsafe
 
 Unsafe Function Blit(dst: Ptr<UInt8>, src: Ptr<UInt8>, n: Int)

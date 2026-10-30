@@ -3,16 +3,16 @@
 ## Struct (value type)
 
 Copied on assignment, stored inline (stack or inside its container). Use for small data:
-vectors, particles, records.
+vectors, samples, records.
 
 ```vb
-Struct Particle
-    Field pos: Vec3
-    Field vel: Vec3
-    Field life: Float
+Struct Sample
+    Field time: Double
+    Field value: Float
+    Field weight: Float
 End Struct
 
-Local p = Particle(pos: Vec3(0, 0, 0), vel: Vec3(0, 1, 0), life: 1.0)
+Local s = Sample(time: 0.5, value: 1.5, weight: 1.0)
 ```
 
 - Every struct gets a constructor whose parameters are its fields, in declaration order, with
@@ -42,20 +42,20 @@ c.Bump()
 Heap-allocated, refcounted, shared by reference.
 
 ```vb
-Class Enemy Implements Damageable
-    Public Field name: String
-    Field hp: Int = 100
+Class Account Implements Chargeable
+    Public Field owner: String
+    Field balance: Int = 100
 
-    New(name: String)               // constructor
-        Self.name = name
+    New(owner: String)              // constructor
+        Self.owner = owner
     End New
 
-    Method Hurt(amount: Int)
-        hp -= amount
+    Method Charge(amount: Int)
+        balance -= amount
     End Method
 
     Method Destroy()                // runs the moment the refcount hits 0
-        Print("{name} freed")
+        Print("{owner} freed")
     End Method
 End Class
 ```
@@ -81,16 +81,16 @@ End Class
 Single inheritance plus any number of interfaces.
 
 ```vb
-Class Boss Extends Enemy
-    Field guard: Enemy
+Class Joint Extends Account
+    Field partner: Account
 
-    New(name: String)
-        guard = Enemy("{name}'s guard")     // before Enemy's New, which may call Hurt
-        Super.New(name)
+    New(owner: String)
+        partner = Account("{owner}'s partner")  // before Account's New, which may call Charge
+        Super.New(owner)
     End New
 
-    Override Method Hurt(amount: Int)
-        Super.Hurt(amount / 2)
+    Override Method Charge(amount: Int)
+        Super.Charge(amount / 2)
     End Method
 End Class
 ```
@@ -104,7 +104,7 @@ End Class
   overridden, and a `Final` Class can't be extended.
 - An `Abstract` Method is only its first line, in an `Abstract` Class, which can't be made. A
   Class that isn't Abstract overrides every Abstract Method it inherits.
-- `Super.Hurt(5)` calls the Method of the Class extended, on `Self`. An Abstract one can't be
+- `Super.Charge(5)` calls the Method of the Class extended, on `Self`. An Abstract one can't be
   called that way.
 - A Class's `New` calls `Super.New(...)` once, as a statement of its own outside any block, or
   else the `New` of the Class it extends that takes no arguments runs first. Until `Super.New`
@@ -121,23 +121,23 @@ End Class
   instance's type arguments in it, and its overrides take those types.
 - Every Class's `Destroy` runs, the most derived first, so `Destroy` is never `Override`.
 - An object converts to any Class its Class extends. `x Is T` tests its Class at run time,
-  `x As T` panics when it isn't a `T` ("expected Boss, found Grunt"), and `x As? T` gives `Null`
+  `x As T` panics when it isn't a `T` ("expected Admin, found Guest"), and `x As? T` gives `Null`
   instead. Classes that aren't related are an error with each.
 - A Struct can't extend anything, but it can implement Interfaces.
 
 ## Interfaces
 
 ```vb
-Interface Damageable Extends Shown
-    Method Hurt(amount: Int)
-    ReadOnly Property Health: Int
+Interface Chargeable Extends Shown
+    Method Charge(amount: Int)
+    ReadOnly Property Balance: Int
 
-    Method Kill()                   // default implementation
-        Hurt(Health)
+    Method Empty()                  // default implementation
+        Charge(Balance)
     End Method
 End Interface
 
-Class Enemy Implements Damageable
+Class Account Implements Chargeable
     ...
 End Class
 ```
@@ -152,7 +152,7 @@ End Class
   them. A member of A with the name, kind, and types of one of B's, A's Self for B's,
   redeclares it: the two are one member, and A's default, if it has one, is what a type gets
   for both, like a `>` that an Interface extending Comparable gives in Comparable's place.
-- `Class Boss Extends Enemy Implements Damageable, Shown`, or `Struct Money Implements Numeric`.
+- `Class Joint Extends Account Implements Chargeable, Shown`, or `Struct Money Implements Numeric`.
   Each of an Interface's members is implemented by one of the type's, its own or one it
   inherits, with the same name, kind, parameter types (ByRef included), and result, with the
   type for Self. A required `ByRef Method` is implemented by a Struct's ByRef Method or a Class's
@@ -227,17 +227,17 @@ End Class
 ## Properties
 
 ```vb
-Class Enemy
-    Field hp: Int
+Class Account
+    Field balance: Int
 
-    Property Alive: Bool
-        Get => hp > 0
+    Property InCredit: Bool
+        Get => balance > 0
     End Property
 
-    Property Health: Int
-        Get => hp
+    Property Balance: Int
+        Get => balance
         Set(value)
-            hp = Clamp(value, 0, maxHp)
+            balance = Clamp(value, 0, limit)
         End Set
     End Property
 End Class
@@ -245,16 +245,16 @@ End Class
 
 - A Property has a Get, `Get => value` or a block ending in `End Get`, and maybe a Set, whose
   parameter takes the value. Each is a Method, and its name is the Property's.
-- Reading `e.Health` calls the Get. `e.Health = 5`, `e.Health += 5`, and `e.Health++` call the
+- Reading `a.Balance` calls the Get. `a.Balance = 5`, `a.Balance += 5`, and `a.Balance++` call the
   Set, after the Get for the last two. One without a Set can't be assigned.
 - In a Struct, the Get can't change Self and the Set can, like a ByRef Method. A Property of a
-  Struct type gives a copy, so changing part of it, as in `e.Pos.x = 1`, is an error.
+  Struct type gives a copy, so changing part of it, as in `a.Opened.Year = 1`, is an error.
 - A Property can't be passed `ByRef`, since it has no variable.
 - A Class's Properties are virtual, like its Methods: `Override Property` replaces the Get, and
   the Set if it has one.
 - An `Abstract Property` is only its first line, in an Abstract Class. A Class extending it
   overrides its Get, and its Set unless it's `Abstract ReadOnly Property`.
-- A `Static Property` belongs to its type, like a Static Field: `Enemy.Count`. Its Get and Set
+- A `Static Property` belongs to its type, like a Static Field: `Account.Count`. Its Get and Set
   have no Self.
 
 ### ReadOnly fields
@@ -266,20 +266,20 @@ can't be passed `ByRef` outside that `New`. A Global that never changes is a `Co
 ## Statics
 
 ```vb
-Class Enemy
+Class Account
     Static Field count: Int = 0
-    Static Method Spawn(name: String): Enemy
+    Static Method Open(owner: String): Account
         count++
-        Return Enemy(name)
+        Return Account(owner)
     End Method
 End Class
 
-Enemy.Spawn("grunt")
+Account.Open("ada")
 ```
 
 - A Static Field is one variable for the type, which starts with its value when the program
   does, in source order with the Globals. A Static Method has no Self.
-- Both are used through the type, like `Enemy.count`, or by name in the type's own Methods. A
+- Both are used through the type, like `Account.count`, or by name in the type's own Methods. A
   Static Method can't use the other members by name, since it has no object.
 - Struct and Class both have them. They aren't virtual, so they can't be Abstract, Final, or
   Override. A `Static ReadOnly Field` keeps the value it starts with.
@@ -409,26 +409,26 @@ Conditional extensions use `Where` (see [07-generics.md](07-generics.md)).
 
 ```vb
 Enum State: UInt8
-    Idle, Walk, Attack = 10, Dead   // integers auto-increment (Dead = 11)
+    Idle, Connecting, Open = 10, Closed  // integers auto-increment (Closed = 11)
 End Enum
 
-@Flags Enum Layer                   // values 1, 2, 4, 8...
-    World, Player, Trigger
+@Flags Enum Access                  // values 1, 2, 4, 8...
+    Read, Write, Execute
 End Enum
 
 @Open Enum Kind: Int32              // and any other Int32
     Unknown = 0, Circle = 1
 End Enum
 
-Local mask = Layer.World | Layer.Player
+Local mask = Access.Read | Access.Write
 ```
 
 - Optional underlying type after `:` (default `Int`), which must be an integer.
 - Members are separated by commas or lines. A member without a value takes the next integer
   after the one above, starting at 0. In a `@Flags` Enum, it takes the next bit after every
   value so far, starting at 1. A value is known at compile time and can use the members above
-  it by name, as integers: `Solid = World | Player`. Names and values don't repeat.
-- `State.Walk` is a member. Values compare with `==` and `!=`; a `@Flags` Enum's also combine
+  it by name, as integers: `ReadWrite = Read | Write`. Names and values don't repeat.
+- `State.Connecting` is a member. Values compare with `==` and `!=`; a `@Flags` Enum's also combine
   with `|`, `&`, `^`, and `~`, and `mask.Has(flags)` tells whether all of `flags` are set.
 - `As` turns an Enum into any integer type, and an integer into an Enum. For an Enum without
   `@Flags` or `@Open`, the integer must be one of its values: known ones are checked at compile
@@ -439,7 +439,7 @@ Local mask = Layer.World | Layer.Player
   of its flags already, so it isn't `@Open` too.
 - An Enum's zero is its first member, or no flags for a `@Flags` Enum.
 - A string shows a member's name. A `@Flags` value that isn't a member shows its flags,
-  like `World | Player`, and another value that isn't one, like an `@Open` Enum's, its integer.
+  like `Read | Write`, and another value that isn't one, like an `@Open` Enum's, its integer.
 
 ## Visibility
 
@@ -451,15 +451,15 @@ Local mask = Layer.World | Layer.Player
 | `Public` | everyone |
 
 ```vb
-Public Class Enemy
-    Protected Field hp: Int = 100       // Enemy's file, and the Classes extending Enemy
+Public Class Account
+    Protected Field balance: Int = 100  // Account's file, and the Classes extending Account
     Field cache: Int                    // Private: this file only
 
     Public New()
     End New
 
-    Public Method Hurt(amount: Int)
-        hp -= amount
+    Public Method Charge(amount: Int)
+        balance -= amount
     End Method
 End Class
 ```
@@ -472,7 +472,7 @@ End Class
   body or another block, is only its own code's, so it takes none.
 - `Protected` only goes on a Class's members. The code of a Class extending it, in any file, uses
   one through `Self`, `Super`, or an object of its own Class or one extending it, not through an
-  `Enemy` that may be another Class's, and a Protected Static member through any. A Protected
+  `Account` that may be another Class's, and a Protected Static member through any. A Protected
   `New` only runs in its News, through `Super.New`, or is one a Class without a New takes, which
   is Protected too. An Extend's code isn't the Class's own.
 - The standard library is one package. A program without a `project.toml` is another: its main

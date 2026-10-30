@@ -67,13 +67,13 @@ Local table: Int[Fib(10)]          // usable in types
 
 ```vb
 @Inline Function Lerp(a: Float, b: Float, t: Float): Float
-@Deprecated("use Spawn2") Function Spawn(...)
-@Flags Enum Layer ...
+@Deprecated("use OpenAll") Function Open(...)
+@Flags Enum Access ...
 @Open Enum Kind ...
-@CLayout Struct JPH_Vec3 ...
+@CLayout Struct Point3 ...
 @MainThread Function ShowWindow()
 @PanicsAtCaller Method Pop(): T
-@Test Function ParsesALevel()
+@Test Function ParsesAConfig()
 ```
 
 | Attribute | Effect |
@@ -92,8 +92,8 @@ Local table: Int[Fib(10)]          // usable in types
   inlined, in debug builds too.
 - `@Deprecated` and `@Deprecated("message")` go on anything declared outside a body: a
   Function, Method, Property, Struct, Class, Interface, Enum, Field, Global, or Const. Each use
-  outside it, and outside its type's own code, gets a warning: "'Spawn' is deprecated: use
-  Spawn2".
+  outside it, and outside its type's own code, gets a warning: "'Open' is deprecated: use
+  OpenAll".
 - `@MainThread` goes before a Function or Method, which work on another thread can't call (see
   [10-concurrency.md](10-concurrency.md#main-thread-rules)).
 - `@PanicsAtCaller` goes before a Function, Method, Operator, New, or Property, whose panics then
@@ -112,9 +112,9 @@ Attribute Skip
 Attribute Rename(Name: String)
 Attribute Range(Low: Int = 0, High: Int = 100)
 
-Struct Player
-    @Rename("hp") @Range(High: 200)
-    Field Health: Int
+Struct User
+    @Rename("age") @Range(High: 150)
+    Field Age: Int
     @Skip
     Field Cache: Int
 End Struct
@@ -130,7 +130,7 @@ End Struct
   Interface, Enum, Field, Global, or Const. A declaration has each attribute at most once.
   `Attribute` is only a keyword before a name.
 - An attribute from a module imported with As goes after its qualifier, as other names do:
-  `@C.Rename("hp")`, and `f.Has(C.Rename)` in reflection. A qualified one is never
+  `@C.Rename("age")`, and `f.Has(C.Rename)` in reflection. A qualified one is never
   a built-in, so `@C.Inline` is C's own: an Attribute can take a built-in's name, which code
   reaches only through a qualifier, since `@Inline` alone is always the built-in.
 
@@ -251,7 +251,7 @@ End Function
 
 ```vb
 Class Settings
-    @Rename("player_name") Field Name: String
+    @Rename("user_name") Field Name: String
     Field Volume: Double = 0.8
     @Skip Field Cache: Int[] = []
     Field Keys: Map<String, Key>
@@ -275,7 +275,7 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   checked, by the same rules, where Load<T> or Save is called. A module's own Load or Save, or an
   imported one, takes the name's place.
 - The numbers are integers and Doubles, a Bool a BOOL, a String a STRING, and an Enum its member's
-  name, as its text has it, "WORLD | PLAYER" for a @Flags Enum's flags, or an integer for a
+  name, as its text has it, "READ | WRITE" for a @Flags Enum's flags, or an integer for a
   @Flags value with bits no member has. Load also takes a name in another case, or an integer,
   which for an Enum without @Flags is a member's. A `T?` is Null or a T, a `T[]` an Array, which
   Load also takes as one Value alone, as XML and a command line give one item, a `UInt8[]` bytes,
@@ -340,15 +340,15 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
 ```vb
 Const Help = EmbedText("help.txt")      // a String known at compile time
 Local logo = Embed("art/logo.png")      // a new UInt8[] of the file's bytes
-Local levels = EmbedFolder("levels")    // a new Map<String, UInt8[]>
-Local first = levels["one.txt"]
+Local pages = EmbedFolder("pages")      // a new Map<String, UInt8[]>
+Local home = pages["home.html"]
 ```
 
 - `Embed(path)`, `EmbedText(path)`, and `EmbedFolder(path)` are built-ins that read files when
   the program is built, and put them in it. Embed gives a file's bytes, as they are, in a new
   `UInt8[]` each time. EmbedText gives its text as a String known at compile time, which a
   Const can hold. EmbedFolder gives a new `Map<String, UInt8[]>` of a folder's files, each in a
-  new `UInt8[]`, by its path in the folder, like `"maps/one.txt"`, in path order, without hidden
+  new `UInt8[]`, by its path in the folder, like `"docs/one.html"`, in path order, without hidden
   files and folders, whose names start with `.`. A program's own Embed takes its place.
 - The path is a String known at compile time, from the folder of the file the call is in, with
   `/` (or `\`) between folders. It stays in that file's package's folder, as an Import's path
@@ -399,7 +399,7 @@ Local first = levels["one.txt"]
 ## Assertions
 
 ```vb
-Assert(hp >= 0, "negative hp")    // panics on failure, in debug and release builds alike
+Assert(count >= 0, "negative count")  // panics on failure, in debug and release builds alike
 ```
 
 An Assert is checked in every build, since the code after it counts on its condition: after

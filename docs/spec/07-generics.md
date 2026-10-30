@@ -69,7 +69,7 @@ too, as `Box(21)` does:
 4. from the type expected: `Local s: Stack<Int> = Stack()`.
 
 A call can also write a generic Function's or Method's first type arguments and leave the rest
-to inference, as a `_` for each of them does in Rust: `db.Query<Player>(sql, id)` gives
+to inference, as a `_` for each of them does in Rust: `db.Query<User>(sql, id)` gives
 `Query<T, A>` its `T`, and its `A` comes from `id`. What's written is taken as given, so an
 argument that doesn't fit it is an error, not inferred instead: `Two<Int>("s", 2)` wants an Int.
 A Method that an Extend of `T[]` adds counts only its own type parameters, since the array gives
@@ -80,7 +80,7 @@ writes all of its type's type arguments or none: `Box<Int>()` for a `Box<A, B>` 
 The arguments of a generic type's Method come from the object it's called on. When something
 can't be told, the call is an error that names what it can't, and asks for the type arguments,
 with what it wrote and what it told: "can't tell what A is in this call; write the type
-arguments, like db.Query<Player, Int>(...)". A Function used as a value takes its type arguments
+arguments, like db.Query<User, Int>(...)". A Function used as a value takes its type arguments
 from the Func expected, or from what's written, all of them or the first ones: `Local f:
 Func(Int[]): Int = First`, or `Local g: Func(Int, String): Int = Two<Int>`.
 
@@ -115,7 +115,7 @@ Both forms exist, but each signature has one correct way to be written. The comp
 ```vb
 Class List<T>
     Method Sum(): T
-        Where T: Numeric           // ints.Sum() works; enemies.Sum() is a compile error
+        Where T: Numeric           // ints.Sum() works; names.Sum() is a compile error
         ...
     End Method
 End Class
@@ -259,12 +259,10 @@ End Interface
 ```
 
 - The built-in types implement the ones that fit them. Numbers implement all but `Cloneable`;
-  Strings all but `Numeric` and `Cloneable`; and Bools and Enums `Equatable`, `Hashable`,
-  `Printable`, and `Defaultable`. A `T?`, tuple, or
-  array implements what its elements do, except that a `T?` is only `Equatable` and `Hashable`,
-  and neither tuples nor arrays are `Comparable` or `Numeric`. std.math's vectors are
-  `Numeric`, `Hashable`, `Printable`, and `Defaultable`, and its matrices and `Quat` `Equatable`
-  and `Printable`.
+  Strings and Chars all but `Numeric` and `Cloneable`; and Bools and Enums `Equatable`,
+  `Hashable`, `Printable`, and `Defaultable`. A `T?`, tuple, or array implements what its
+  elements do, except that a `T?` is only `Equatable` and `Hashable`, and neither tuples nor
+  arrays are `Comparable` or `Numeric`.
 - `Cloneable` (`Method Clone(): Self`) is what makes a copy of itself, which arrays are with
   their own `Clone`, and `Defaultable` (`Static Method DefaultValue(): Self`) what has a value to
   start from, which the numbers, Bools, Strings, Chars, and Enums are with their zero:
@@ -272,7 +270,7 @@ End Interface
   a @Flags Enum. std's collection Classes are both.
 - A built-in type has the Methods of the ones it implements: `5.ToString()`, `name.Hash()`.
 - A Struct or Class implements one by listing it, and every Class is `Equatable` and `Hashable`
-  without listing them, so `enemies.Remove(e)` and `Set<Enemy>` work on any Class. One that
+  without listing them, so `users.Remove(u)` and `Set<User>` work on any Class. One that
   lists `Equatable` without an Operator `==` of its own gets the built-in one, which compares a
   Struct's fields or a Class's objects themselves, and one that lists `Hashable` without a
   `Hash` gets the built-in one, which combines a Struct's fields' hashes or comes from a Class's
@@ -287,7 +285,7 @@ End Interface
   own or an Extend's, implements them as it lists them, as a Struct does.
 - Values that are equal have equal hashes. A `T?` that holds a value hashes like it, and Null's
   hash is 0.
-- What implements `Printable` goes in a string through its `ToString`: `"{enemy}"`. An
+- What implements `Printable` goes in a string through its `ToString`: `"{user}"`. An
   Interface's object does too, when the Interface extends `Printable`, and so does a `T` whose
   constraints say it's `Printable`.
 
@@ -367,7 +365,7 @@ Sum(row)                           // N from row's Int[8]
 
 - **Monomorphized** (like C++ templates): every instantiation compiles to specialized
   native code. Tradeoff: binary size and compile time.
-- **Invariant**: `List<Boss>` is not a `List<Enemy>`. No variance annotations.
+- **Invariant**: `List<Admin>` is not a `List<User>`. No variance annotations.
 - A generic body is checked once, with its type parameters as types of their own, so errors
   point at the generic code rather than at each use. What a `T` can do is what its constraints
   say: without any, it's stored, passed, returned, and put in `T?`, `T[]`, tuples, and Funcs,

@@ -219,4 +219,4 @@ Ordinary identifiers everywhere except in one position, where they act as keywor
 | `Sendable` | directly before `Func` (`Sendable Func(A): R`); elsewhere it names the Interface |
 | `Has`, `Or` | in a For Method loop's Where line on its own variable (`Where m Has Get Or Post`) |
 
-So `Set<Int>()` and `particles[i].Step(dt)` are valid.
+So `Set<Int>()` and `timers[i].Step(dt)` are valid.

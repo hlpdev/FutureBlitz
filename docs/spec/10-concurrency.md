@@ -90,9 +90,9 @@ Async Functions are stackless coroutines, which the main thread's scheduler runs
 
 ```vb
 Async Function ReadReport(path: String): Report Throws IOError
-    Const bytes = Try Await File.ReadBytesAsync(path)      // the program keeps running
-    Local stats = Await Spawn(Function() => Summarize(bytes)) // heavy part on a worker
-    Return Report(path, stats)                             // back on the main thread
+    Const text = Try Await File.ReadTextAsync(path)       // the program keeps running
+    Local stats = Await Spawn(Function() => Summarize(text)) // heavy part on a worker
+    Return Report(path, stats)                            // back on the main thread
 End Function
 ```
 
@@ -103,13 +103,13 @@ End Function
   gives its result. Meanwhile the main thread goes on; the Function's Locals and parameters wait
   with it.
 - The main thread runs the waiting Async Functions when the main scheduler runs (see
-  [Scheduling](#scheduling)): once top-level code ends, until none is left; whenever it waits
-  for a Task with `Wait()`, or with an Await in top-level code, which waits as `Wait()` does;
-  and at each `Scheduler.Main.Step()`. A wait, and the result it gives, are the Task's that the
-  expression gave when the wait began, even if what runs meanwhile changes the variable it came
-  from. Their code only ever goes on on the main thread: the runtime panics where it would go
-  on anywhere else. Their code never runs on another thread, so work on another thread can't
-  call one, and an Async lambda isn't work for `Spawn` or `Thread.Start`.
+  [Scheduling](#scheduling)): once top-level code ends, until none is left; whenever it waits for a
+  Task that isn't done, with `Wait()`, or with an Await in top-level code, which waits as `Wait()`
+  does; and at each `Scheduler.Main.Step()`. A wait, and the result it gives, are the Task's that
+  the expression gave when the wait began, even if what runs meanwhile changes the variable it came
+  from. Their code only ever goes on on the main thread: the runtime panics where it would go on
+  anywhere else. Their code never runs on another thread, so work on another thread can't call one,
+  and an Async lambda isn't work for `Spawn` or `Thread.Start`.
 - Await goes only in the code of an Async Function, Method, or lambda, or in top-level code,
   not in a lambda inside one, and not in a Lock block, which would hold its Mutex while
   it waits.
@@ -164,14 +164,17 @@ ShowToast(toast, "Saved")    // calling without Await starts it on the main sche
 A coroutine waits on a scheduler, which resumes it once what it waits for is done. The main
 thread's scheduler, the main scheduler, runs by itself, so a program never has to tick it:
 
-- at an `Await`, in an Async Function or in top-level code;
-- at a Task's `Wait()` on the main thread;
+- at an `Await` in top-level code, while the Task it waits for isn't done;
+- at a Task's `Wait()` on the main thread, while the Task isn't done;
 - once top-level code ends: the runtime then runs it until no coroutine waits on it, as Node
   does.
 
-Nothing else runs it. A blocking call, like reading a file, doesn't, so no other code runs in
-the middle of one. Main-thread code stays single-threaded across an Await, as in C#'s UI apps
-and JavaScript; CPU-heavy work goes to Spawn and Parallel For, on every core.
+Nothing else runs it. An Await in an Async Function doesn't: the coroutine stops there, and the code
+that called it, or the scheduler that resumed it, goes on. A `Wait()` or a top-level Await of a Task
+that's done gives its result at once, without running the scheduler. A blocking call, like reading a
+file, doesn't run it either, so no other code runs in the middle of one. Main-thread code stays
+single-threaded across an Await, as in C#'s UI apps and JavaScript; CPU-heavy work goes to Spawn and
+Parallel For, on every core.
 
 **A loop of the program's own steps the main scheduler.** Top-level code that runs a loop, like
 a UI's event loop, a terminal UI's redraws, or a server's poll, resumes the coroutines between
@@ -205,8 +208,8 @@ End While
 Rules:
 
 - The main scheduler runs once top-level code ends, until no coroutine waits on it, whenever
-  the main thread waits for a Task with `Wait()` or an Await, and at each
-  `Scheduler.Main.Step()`. Its time is the real clock's.
+  the main thread waits for a Task that isn't done with `Wait()` or a top-level Await, and at
+  each `Scheduler.Main.Step()`. Its time is the real clock's.
 - `Scheduler.Main` is the main scheduler, as a `Scheduler`. The runtime keeps it for the whole
   program, so it's never destroyed, and it can't be assigned. Its coroutines run on the main
   thread, so only the main thread uses it: work on another thread that uses it is a compile
@@ -218,11 +221,12 @@ Rules:
   `Scheduler.Main.Tick(seconds)` is a compile error, and a Tick of the main scheduler through a
   variable or parameter panics.
 - Once top-level code ends, a coroutine that can never go on, since it waits for a Task on a
-  Scheduler that nothing ticks any more, or for one that waits for such a Task, is destroyed
-  before the Globals are released, as when its Scheduler goes. So is one that a Destroy starts
-  while the Globals are released, at its first Await, since the program has ended. A Task from
-  NextTick, Wait, or RealWait that nothing awaits then doesn't keep the program going, and is
-  never done.
+  Scheduler that nothing ticks any more, or for one that waits for such a Task, is destroyed before
+  the Globals are released, as when its Scheduler goes. So is one that a Destroy starts while the
+  Globals are released, at its first Await, since the program has ended, even when that Destroy
+  steps the main scheduler or waits, and a Wait there for the Task of a coroutine destroyed that way
+  panics, since it's never done. A Task from NextTick, Wait, or RealWait that nothing awaits then
+  doesn't keep the program going, and is never done.
 - `Scheduler()` makes one, only on the main thread, since its coroutines run there, and it isn't
   Sendable. `s.Tick(seconds)` moves its time on by that much and resumes what can go on, `s.Step()`
   is a Tick of no time, and `s.IsIdle()` says whether no coroutine waits on it.
@@ -230,10 +234,10 @@ Rules:
   while it's ticked or stepped. `s.Run(task)` moves its coroutine to `s`, from the scheduler
   running the code, with the coroutines and timers it waits for. A Task that's done, or a
   Spawn's, has nothing to move.
-- `Await NextTick()` resumes at the next tick of the scheduler running the coroutine: for the
-  main scheduler, its next Step, or the next Await or `Wait()` of the main thread; for a
-  Scheduler, its next Tick or Step. In top-level code it waits as `Wait()` does, so it runs the
-  main scheduler once.
+- `Await NextTick()` resumes at the next tick of the scheduler running the coroutine: for the main
+  scheduler, its next Step, or the main thread's next `Wait()` or top-level Await that has to wait;
+  for a Scheduler, its next Tick or Step. In top-level code it waits as `Wait()` does, so it runs
+  the main scheduler once.
 - `Await Wait(time)` uses the scheduler's time (respects pause and time scale), and
   `Await RealWait(time)` the real clock's, ignoring both. A time is std.time's `Duration`, like
   `2.Seconds` or `500.Milliseconds`, so either one needs `Import std.time`. NextTick, Wait, and
@@ -262,8 +266,8 @@ While ch.TryReceive(ByRef pkt)
     Handle(pkt)
 End While
 
-Global score = Mutex<Int>(0)
-Lock score As s                 // guard released at End Lock
+Global total = Mutex<Int>(0)
+Lock total As s                 // guard released at End Lock
     s += 10
 End Lock
 
@@ -407,7 +411,7 @@ Spawn(Function() => SetTitle("done"))   // ✗ compile error: @MainThread
   top-level Const that's Sendable is fine, and so is all of it in top-level code, which runs on
   the main thread.
 - The error says how the work gets there: "this work runs on another thread, but it calls
-  'Bump', which uses the Global 'score', which only the main thread can, unless it's an Atomic or
+  'Bump', which uses the Global 'total', which only the main thread can, unless it's an Atomic or
   a Mutex".
 
 ## Beyond the language

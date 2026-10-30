@@ -53,12 +53,12 @@ When the two operands have different numeric types, see
 ## Examples
 
 ```vb
-If hp <= 0 && !godMode Then Die()
-Local flags = Layer.World | Layer.Player
+If retries <= 0 && !force Then Abort()
+Local flags = Access.Read | Access.Write
 Local dmg = crit ? base * 2 : base
 Local name = target?.name ?? "nobody"
-If e Is Boss Then (e As Boss).Enrage()
-Local b = e As? Boss               // Boss? (Null if e isn't a Boss)
+If u Is Admin Then (u As Admin).Grant()
+Local a = u As? Admin              // Admin? (Null if u isn't an Admin)
 i++
 ```
 

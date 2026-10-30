@@ -32,7 +32,7 @@ A program declares aliases of its own the same way, each another name for a type
 
 ```vb
 Public Alias MetersPerSecond = Quantity<1, 0, -1>
-Alias Scores = Int[]
+Alias Prices = Int[]
 ```
 
 - An alias is the type it names, everywhere: a value of one is a value of the other, and
@@ -81,11 +81,11 @@ Composite and special types:
 | `Field` | member of a struct or class |
 
 ```vb
-Const MAX_HP = 100
-Const GRAVITY: Float = -9.81
-Global score: Int = 0
-Local name = "grunt"          // inferred String
-Local hp: Int                 // typed, assigned later
+Const MAX_RETRIES = 5
+Const RATE: Float = 0.25
+Global requests: Int = 0
+Local name = "ada"            // inferred String
+Local count: Int              // typed, assigned later
 ```
 
 ### Annotation rules
@@ -165,9 +165,9 @@ Reading a `Local` before it has been assigned on every path is a compile error. 
 always have a value; see above.)
 
 ```vb
-Local hp: Int          // ✓ type given, assigned later
-Local hp               // ✗ error: needs a type or a value
-Print(hp)              // ✗ error: hp read before assignment
+Local count: Int       // ✓ type given, assigned later
+Local count            // ✗ error: needs a type or a value
+Print(count)           // ✗ error: count read before assignment
 ```
 
 ### Field defaults
@@ -195,13 +195,13 @@ Print(hp)              // ✗ error: hp read before assignment
   missing key and whose `Int?` is a key's value, `Null` or not, and they can be written too.
 
 ```vb
-Local target: Enemy? = Null
-Local hp = target?.hp ?? 0
-If target != Null Then target.Hurt(5)   // target is Enemy here
+Local owner: User? = Null
+Local name = owner?.name ?? "nobody"
+If owner != Null Then owner.Notify("hi")   // owner is User here
 ```
 
-- `Null` takes its type from where it's used: `Local e: Enemy? = Null` works, and
-  `Local e = Null` doesn't. A `T` converts to a `T?` without `As`. A `T?` converts to a `T??`
+- `Null` takes its type from where it's used: `Local u: User? = Null` works, and
+  `Local u = Null` doesn't. A `T` converts to a `T?` without `As`. A `T?` converts to a `T??`
   as a value, so its `Null` is held, not the `T??`'s own, and a `T??` needs a check to be a
   `T?`.
 - `If`, `ElseIf`, `While`, `? :`, `&&`, `||`, `!`, an early `Return`, and assigning a value that

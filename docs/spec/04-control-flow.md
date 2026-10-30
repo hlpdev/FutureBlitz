@@ -3,14 +3,14 @@
 ## If
 
 ```vb
-If hp <= 0 Then Die()          // single-line form: the only form that uses Then
+If balance <= 0 Then Close()   // single-line form: the only form that uses Then
 
-If hp <= 0
-    Die()
-ElseIf hp < 20
-    Flash()
+If balance <= 0
+    Close()
+ElseIf balance < 20
+    Warn()
 Else
-    Regen()
+    Thank()
 End If
 ```
 
@@ -21,7 +21,7 @@ line. It has no `ElseIf`, and its statements can't be block statements (`If`, lo
 `Select`):
 
 ```vb
-If hp <= 0 Then Die() Else Regen()
+If balance <= 0 Then Close() Else Thank()
 ```
 
 ## For
@@ -32,9 +32,9 @@ For i = 0 Until 10 ... End For             // exclusive
 For i = 0 Until 10 Step 2 ... End For
 For i = 10 To 0 Step -1 ... End For
 
-For e In enemies ... End For               // values
-For i, e In enemies ... End For            // index + value
-For key, val In scores ... End For         // map entries
+For u In users ... End For                 // values
+For i, u In users ... End For              // index + value
+For key, val In prices ... End For         // map entries
 ```
 
 - `For` declares its variables; they exist only inside the loop. A counting loop's variable
@@ -77,7 +77,7 @@ For n In Countdown(3) ... End For          // 3, 2, 1
   arguments. One that throws needs the loop in a Try block, or written `For x In Try items`,
   which lets its errors go on like Try on a call.
 - Over an Iterator, two names take each element apart, so the elements must be pairs: `For key,
-  val In scores`. Only arrays give an index.
+  val In prices`. Only arrays give an index.
 - Over values that can be Null, like an `Iterator<String?>`'s, Next gives a `String??`: its
   Null ends the loop, and a Null value is one of the values, which the loop goes over. What
   gives one of them, like First, Last, Find, and Reduce, gives a `String??` too.
@@ -160,12 +160,12 @@ A label (`Outer:`) must come right before a loop.
 
 ```vb
 Select state
-    Case State.Idle, State.Walk
-        Animate()
+    Case State.Idle, State.Connecting
+        Reconnect()
     Case 1 To 5                    // inclusive range
         ...
-    Case e As Boss                 // type match + bind
-        e.Enrage()
+    Case u As Admin                // type match + bind
+        u.Grant()
     Default
         ...
 End Select
@@ -176,7 +176,7 @@ End Select
   path past it, so a function can return from every Case. A `@Flags` Enum's values combine, and
   an `@Open` Enum holds others, so a `Select` on one always needs a `Default`.
 - The subject is an integer, `Bool`, `String`, `Char`, or enum value, unless every `Case` is a
-  type match like `Case e As Boss`.
+  type match like `Case u As Admin`.
 - A type match runs for an object of that Class, or of one extending it, with `e` naming it as
   one. A `Case` after one for a Class it extends never matches, so it's an error. `Null` goes to
   `Default`. `Case x As T` always matches a Class; a value cast in a `Case` needs parentheses.

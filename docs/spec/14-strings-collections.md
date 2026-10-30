@@ -12,7 +12,7 @@
   code points and what people see as one character.
 
 ```vb
-Print("HP: {hp}/{MAX_HP}")              // interpolation; {{ for a literal brace
+Print("Retries: {retries}/{MAX_RETRIES}") // interpolation; {{ for a literal brace
 Print("a\tb\nc \\ \" \0 \x41 \u{1F600}") // escapes (see 01-lexical)
 Local path = r"C:\raw\no\escapes"       // raw string
 Local text = """
@@ -43,7 +43,7 @@ single-line string, an interpolation must end on the same line.
 
 ```vb
 Print("{price:.2}")                       // 3.14
-Print("{name:<10}|{hp:>5}|{title:*^9}")   // Ann       |   42|**King***
+Print("{name:<10}|{age:>5}|{title:*^9}")  // Ann       |   42|**Chair**
 Print("{n:+,} {mask:#010b} {color:06X}")  // +1,234 0b00001010 00FF80
 Print("{ratio:.1%} {big:e} {tiny:.3e}")   // 45.0% 6.02e23 1.500e-7
 ```
@@ -123,7 +123,7 @@ Local line = Try Format(r"{} scored {1:>6.1} ({0})", name, score)
 ### Parsing
 
 ```vb
-Local hp = Int.Parse("42") ?? 0
+Local port = Int.Parse("8080") ?? 0
 Local mask = UInt8.Parse("0xff", 16)
 Local speed = Float.Parse("1.5e-7")
 Local on = Bool.Parse("True")
@@ -140,8 +140,8 @@ Local on = Bool.Parse("True")
 ### The debug form
 
 ```vb
-Print("{save:?}")   // Save { Name: "Ann", Scores: [10, 20], Best: 99, Rival: Null }
-Print(Dump(save))   // the same, with each part on a line of its own
+Print("{order:?}")   // Order { Id: "A7", Items: [10, 20], Total: 99, Coupon: Null }
+Print(Dump(order))   // the same, with each part on a line of its own
 ```
 
 - `"{x:?}"` shows any value as code would write it, from reflection, the same on every
@@ -229,7 +229,7 @@ Out-of-bounds access panics.
   ready when declared.
 - A `T[]` has no zero. A `Global` of one needs a value, and a field needs a default or a `New`
   that assigns it. `[]` is a default anywhere: each use gets a new empty array.
-- A `T[]` only holds `T`: a `Boss[]` isn't an `Enemy[]`, since adding an `Enemy` to it would
+- A `T[]` only holds `T`: an `Admin[]` isn't a `User[]`, since adding a `User` to it would
   break it.
 - `==` compares two arrays' elements, when they can be compared; `RefEquals` tells whether two
   `T[]`s are the same array.
@@ -259,8 +259,8 @@ All collections are reference types and share a common method vocabulary: `Add`,
 means the same thing wherever a collection has it.
 
 ```vb
-Local hp: Map<String, Int> = {"grunt": 50, "boss": 500}
-For name, value In hp ... End For
+Local stock: Map<String, Int> = {"apples": 50, "pears": 500}
+For name, value In stock ... End For
 Local seen = Set<Int>()
 ```
 
@@ -287,7 +287,7 @@ collection.
   `LastIndexOf`, and the collections' `Contains(value)`, needs the values to be `Equatable`,
   as `==` in any generic code does (07-generics.md). A Struct is when it lists `Equatable`, and
   every Class is, comparing its objects themselves without an `==` of its own, so
-  `enemies.Remove(e)` needs nothing more, but for one whose `==` has a Where line, as a Map's, a
+  `users.Remove(u)` needs nothing more, but for one whose `==` has a Where line, as a Map's, a
   Grid's, and a LinkedList's do, which is Equatable only where the line holds. Only a `T[]`'s
   built-in `Contains` takes any element that has `==`.
 - What gives a `T?` for "none", like `Get`, `Find`, and an Iterator's `Next`, gives a `T??` for
@@ -406,9 +406,9 @@ a Double, a String, bytes, an Array of Values, or an Object of Values by key.
 
 ```vb
 Local config = Value.Object()
-config["name"] = Value("game")
+config["name"] = Value("shop")
 config["ports"] = Value([Value(80), Value(443)])
-Print(config, config.Path("ports[1]")?.AsInt() ?? 0)   // {"name": "game", "ports": [80, 443]} 443
+Print(config, config.Path("ports[1]")?.AsInt() ?? 0)   // {"name": "shop", "ports": [80, 443]} 443
 ```
 
 - An integer is an Int64, or a UInt64 past an Int64's largest, so none loses a digit. A New takes

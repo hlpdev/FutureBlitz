@@ -10,7 +10,7 @@ uses what any library can, Extern blocks over its C API, `@MainThread`, and the 
 
 ## Its parts, in the order planned so far
 
-1. Bootstrap: window, input, the frame loop, and the main scheduler.
+1. Bootstrap: window, input, and the frame loop, whose `Flip()` calls `Scheduler.Main.Step()`.
 2. 2D: images, drawing, and fonts, on std.image's.
 3. The 3D scene: entities, cameras, lights, and the hierarchy.
 4. The Vulkan renderer and materials.

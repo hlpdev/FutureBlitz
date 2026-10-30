@@ -11,7 +11,7 @@ Two tiers:
 Class FileError Extends Error
 End Class
 
-Function ReadLevel(path: String): Level Throws FileError
+Function ReadConfig(path: String): Config Throws FileError
     If !File.Exists(path) Then Throw FileError("missing: {path}")
     ...
 End Function
@@ -49,7 +49,7 @@ End Function
 
 ```vb
 Try
-    Local lvl = ReadLevel("lvl1.dat")
+    Local config = ReadConfig("app.conf")
 Catch e As FileError
     Log(e.Message)
 Catch e As Error
@@ -72,8 +72,8 @@ End Try
 ## Propagation and conversion
 
 ```vb
-Local lvl = Try ReadLevel(p)      // propagate: enclosing function must be Throws
-Local lvl = Try? ReadLevel(p)     // convert: Level?, error discarded
+Local config = Try ReadConfig(p)    // propagate: enclosing function must be Throws
+Local config = Try? ReadConfig(p)   // convert: Config?, error discarded
 ```
 
 A call to a throwing function must be inside a `Try` block or prefixed with `Try`/`Try?`.
@@ -127,19 +127,19 @@ A call to a throwing function must be inside a `Try` block or prefixed with `Try
 ## Stack traces
 
 ```text
-panic: index 5 is out of range for 3 elements at game.fb:12:17
-    at Counter.Take (game.fb:12)
-    at Function at game.fb:22:20 (game.fb:22)
-    at Apply<Counter> (game.fb:17)
-    at Run (game.fb:22)
-    at top-level code (game.fb:25)
+panic: index 5 is out of range for 3 elements at app.fb:12:17
+    at Counter.Take (app.fb:12)
+    at Function at app.fb:22:20 (app.fb:22)
+    at Apply<Counter> (app.fb:17)
+    at Run (app.fb:22)
+    at top-level code (app.fb:25)
 ```
 
 - A panic's trace, and an uncaught error's, has a line for each call of the program's code that
   it's in, the innermost first: `    at <function> (<file>:<line>)`, with the file named as the
   panic names it. A Method or Property is `Class.Method`, a generic Function's instance names its
   type arguments, a function value's code and a Parallel For's body are named by where they're
-  written, as `Parallel For at game.fb:9:5`, a function of another module than the program's
+  written, as `Parallel For at app.fb:9:5`, a function of another module than the program's
   main one has its module first, and a module's top-level code is `top-level code`. A call whose
   line a release build loses, as when it merges calls on several lines into one, is
   `    at <function> (<file>)`. The runtime's frames, the C code's, and those of the code the
@@ -165,10 +165,10 @@ panic: index 5 is out of range for 3 elements at game.fb:12:17
 Import std.test
 
 @Test
-Function ParsesALevel() Throws IOError, ParseError
-    Local level = Try ReadLevel("one.dat")
-    Expect(level.Rooms.Count == 12)
-    Expect(ExpectThrows<ParseError>(ReadLevel("broken.dat")) != Null)
+Function ParsesAConfig() Throws IOError, ParseError
+    Local config = Try ReadConfig("one.conf")
+    Expect(config.Servers.Count == 2)
+    Expect(ExpectThrows<ParseError>(ReadConfig("broken.conf")) != Null)
 End Function
 ```
 
@@ -180,7 +180,7 @@ End Function
   out.
 - Each example in the doc comments of a package's `.fb` files, a code block under `# Examples`
   (see [01](01-lexical.md#doc-comments)), is a test of its own, named after its declaration, as
-  `game.shapes.Circle.Grow (example)`, and its second `(example 2)`. It's a module of a package
+  `geometry.shapes.Circle.Grow (example)`, and its second `(example 2)`. It's a module of a package
   of its own, `<name>.doctests`, which depends on the package and what it depends on, so it uses
   the package through its Public names, as a reader's code would. It has `Import std.core`,
   `Import std.test`, and an Import of its declaration's module, unless it writes them itself, and
@@ -188,7 +188,7 @@ End Function
   implements an Interface, go outside its test, and its other code is the test's body. Its
   failures, panics, and stack traces show its lines in the doc comment. `fb test std` runs the
   standard library's examples. For a `.fb` file outside a package, `fb test` runs that file's
-  examples, each a module beside it that imports it by its path, as `Import "./game"`, so it
+  examples, each a module beside it that imports it by its path, as `Import "./geometry"`, so it
   sees the file's Public and Package declarations, as the program's other files do.
 - The `.fb` files of a package's tests/ folder are a package of their own, `<name>.tests`, which
   depends on the package and on what it depends on, so their tests use it from outside, through
@@ -233,7 +233,7 @@ End Function
 
 `Task.Wait()` and `Await` **re-throw** the task's error (like C#). Waiting on a task that
 came from a `Throws` function therefore counts as a throwing call. The call of an Async Function
-doesn't throw: its errors go in its Task, whose type lists them, like `Task<Level> Throws
+doesn't throw: its errors go in its Task, whose type lists them, like `Task<Config> Throws
 FileError` (see [10](10-concurrency.md#async--await)).
 
 ## Implementation

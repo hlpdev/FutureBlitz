@@ -44,7 +44,7 @@ End Extern
 ## C-layout structs
 
 ```vb
-@CLayout Struct JPH_Vec3          // memory layout guaranteed to match C
+@CLayout Struct Point3            // memory layout guaranteed to match C
     Field x: Float
     Field y: Float
     Field z: Float
@@ -56,7 +56,8 @@ End Struct
   `Ptr`, other `@CLayout` Structs, and fixed arrays of these. Its Fields are where C puts them:
   each at its own alignment after the last, and its size a multiple of its largest alignment,
   which `SizeOf` gives: a number's alignment is its size, a fixed array's its element's, and a
-  Struct's its largest Field's, so a `UInt8[6]` and a `UInt8` take 7 bytes. It keeps a Struct's constructor, zero, `==`, and Methods.
+  Struct's its largest Field's, so a `UInt8[6]` and a `UInt8` take 7 bytes. It keeps a Struct's
+  constructor, zero, `==`, and Methods.
 - A Struct that C code sees is `@CLayout`: one an Extern Function takes or gives by value, takes
   `ByRef`, or reaches through a `Ptr` or a fixed array.
 - By value, a Struct goes as the target's C ABI passes it, as clang does. On Windows, one of 1,
@@ -238,7 +239,7 @@ End Unsafe
 
 ## Bindgen
 
-`fb bindgen joltc.h` reads a C header (via libclang) and generates an `Extern` module
+`fb bindgen sqlite3.h` reads a C header (via libclang) and generates an `Extern` module
 automatically. This is the main way C libraries get used.
 
 ```

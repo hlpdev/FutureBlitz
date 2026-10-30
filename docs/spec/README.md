@@ -1,8 +1,9 @@
 # The FutureBlitz Language Reference
 
 This reference describes the FutureBlitz language: its syntax, its types, and the rules the
-compiler checks. The standard library, std, has its own documentation; this reference names a
-std type only where the language itself relies on it.
+compiler checks. The standard library, std, has its own documentation. This reference's rules
+name a std type where the language itself relies on one, like Print, Error, or Iterator, and its
+examples use std's types where they make an example shorter.
 
 Code examples use ```` ```vb ```` fences for syntax highlighting.
 
@@ -28,23 +29,23 @@ Code examples use ```` ```vb ```` fences for syntax highlighting.
 ```vb
 Import std.core
 
-Class Enemy
-    Public Field name: String
-    Field hp: Int = 100
+Class Account
+    Public Field owner: String
+    Field balance: Int = 100
 
-    New(name: String)
-        Self.name = name
+    New(owner: String)
+        Self.owner = owner
     End New
 
-    Method Hurt(amount: Int)
-        hp -= amount
-        If hp <= 0 Then Print("{name} died")
+    Method Withdraw(amount: Int)
+        balance -= amount
+        If balance < 0 Then Print("{owner} is overdrawn")
     End Method
 End Class
 
-Local enemies: Enemy[] = [Enemy("grunt"), Enemy("boss")]
+Local accounts: Account[] = [Account("ada"), Account("grace")]
 
-For e In enemies
-    e.Hurt(150)
+For a In accounts
+    a.Withdraw(150)
 End For
 ```

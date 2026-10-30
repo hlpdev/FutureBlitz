@@ -20,8 +20,8 @@ Named functions are declared at the top level of a file, not inside other blocks
 ## Parameters
 
 ```vb
-Function Spawn(pos: Vec3, hp: Int = 100, name: String = "grunt"): Enemy  // defaults
-Spawn(Vec3(0, 1, 0), name: "boss")                                       // named args
+Function Connect(host: String, port: Int = 80, name: String = "client"): Connection  // defaults
+Connect("example.com", name: "probe")                                            // named args
 
 Function Swap(ByRef a: Int, ByRef b: Int)       // pass by reference
 Function Sum(nums: Int...): Int                 // variadic; nums is Int[]
@@ -41,7 +41,7 @@ Function Sum(nums: Int...): Int                 // variadic; nums is Int[]
   T...` gives `Float`.
 - `values: Printable...`, with std.core's Printable, takes values of any types a string can
   show, mixed, and each becomes its text at the call, as `"{x}"` makes it, so `values` is a
-  `String[]`: that's how `Print(score, name)` takes them. An array argument is a
+  `String[]`: that's how `Print(count, name)` takes them. An array argument is a
   value like any other, so it's shown; named, `values:` takes a `String[]` of texts. A value a
   string can't show, like a T?, is an error that names the function: "String? can't be shown by
   'Print', since it may be Null; give a value for Null with '??'".
@@ -61,7 +61,7 @@ variable. The call says `ByRef` too, so it's visible that the call can change it
 
 ```vb
 Swap(ByRef x, ByRef y)
-Swap(x, y)                 // ✗ error: Swap takes a ByRef; write ByRef x
+Swap(x, y)                 // ✗ error: parameter 'a' is ByRef; write 'ByRef x'
 ```
 
 - Only something assignable can be passed `ByRef`: a `Local`, a `Global`, a `ByRef` parameter,
@@ -230,7 +230,7 @@ Under refcounting, a closure stored in an object that captures that object creat
 cycle that is never freed. Capture lists (C++-style) control how values are captured:
 
 ```vb
-OnOpen = Function[Weak Self]() => Self?.PlaySound()   // Self may be gone, hence ?.
+OnOpen = Function[Weak Self]() => Self?.Refresh()   // Self may be gone, hence ?.
 ```
 
 - `[Weak x]` captures `x` as a weak reference (its type becomes `x?` inside the closure).
