@@ -217,7 +217,8 @@ std::string pax_of(const std::vector<std::pair<std::string, std::string>>& recor
 
 /// The two empty blocks that end a tar.
 std::string end_of_tar() {
-    return std::string(1024, '\0');
+    std::string zeros(1024, '\0');
+    return zeros;
 }
 
 /// A tar of one entry, as entry_of() makes it.
@@ -273,14 +274,7 @@ TEST_CASE("an archive's paths are ones every disk can hold, inside its folder", 
     // archive-9: every name Windows keeps for a device, and C1's controls, as the registry
     // refuses them.
     const std::vector<std::string_view> devices{
-        "CONIN$",
-        "conout$.txt",
-        "a/COM0",
-        "lpt0.fb",
-        "COM\xc2\xb9",
-        "lpt\xc2\xb3.x",
-        "a\xc2\x85"
-        "b",
+        "CONIN$", "conout$.txt", "a/COM0", "lpt0.fb", "COM\xc2\xb9", "lpt\xc2\xb3.x", "a\u0085b",
     };
     for (const std::string_view wrong : devices) {
         INFO(wrong);

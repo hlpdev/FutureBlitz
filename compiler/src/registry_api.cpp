@@ -12,7 +12,6 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
-#include <array>
 #include <charconv>
 #include <cstdint>
 #include <cstdlib>
@@ -432,9 +431,16 @@ std::string text_field(const json_t& object, const std::string_view key) {
 
 } // namespace
 
-/// The names the registry keeps, as docs/registry-api.md has them, without their '_'s.
-constexpr std::array<std::string_view, 6> reserved_names{ "std", "fb",  "futureblitz",
-                                                          "apt", "rpm", "releases" };
+namespace {
+
+/// Whether `bare`, a name without its '_'s, is one the registry keeps, as docs/registry-api.md
+/// has them.
+constexpr bool is_reserved(const std::string_view bare) {
+    return bare == "std" || bare == "fb" || bare == "futureblitz" || bare == "apt" ||
+           bare == "rpm" || bare == "releases";
+}
+
+} // namespace
 
 std::optional<std::string> registry_name_error(const std::string_view name) {
     const bool shaped = !name.empty() && name.size() <= longest_name && name.front() >= 'a' &&
@@ -451,7 +457,7 @@ std::optional<std::string> registry_name_error(const std::string_view name) {
     std::erase(bare, '_');
     // FutureBlitz's own folders on the registry's downloads are kept too: apt's and dnf's
     // repositories, and fb's releases.
-    if (std::ranges::contains(reserved_names, bare)) {
+    if (is_reserved(bare)) {
         return std::format("{} is a name the registry keeps for FutureBlitz itself", name);
     }
 
