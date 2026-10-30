@@ -256,7 +256,7 @@ Planned 2026-10-29, with the design in [tooling.md](tooling.md).
 | 5 | The VS Code extension: the grammar, the LSP client, tasks, and debugging | daily editing, running, and debugging work in VS Code (done 2026-10-29, 6267d7dc; its LSP features come with step 4, and publishing with the user's accounts) |
 | 6 | The formatter: `fb fmt`, `--check`, and formatting on save | std and tests/programs format to themselves (done 2026-10-29, c7a74326; formatting on save comes with the LSP, step 4) |
 | 7 | Testing: std.test, `fb test`, and doc tests | a package's tests run, filter, and report (done 2026-10-29, e111738b, on Windows; Linux and macOS by their tests; doc tests come with step 8's `///` comments) |
-| 8 | `///` doc comments and `fb doc`'s JSON | std's API comes out whole, for M9's reference |
+| 8 | `///` doc comments and `fb doc`'s JSON | std's API comes out whole, for M9's reference (done 2026-10-29, 05ddb713, with step 7's doc tests) |
 | 9 | Loose ends, and the milestone's review | M8's "done when" |
 
 ## M9 build order

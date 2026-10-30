@@ -5,6 +5,28 @@ them while each was built. Newest first.
 
 ## M8, tooling
 
+Step 8, `///` doc comments and `fb doc` (2026-10-29, 05ddb713): the lexer records the doc comments
+outside the branches an #If leaves out, and the parser attaches the `///` lines right before a
+declaration and its attributes to it in the AST, by its name's span, as `ast_t::doc()` gives them to
+the LSP's hover: members of Structs, Classes, Interfaces, Extends, and Extern blocks, and Enum
+members too, and a file's top `//!` lines to its module. `read_doc()` reads their Markdown Rust's
+way: the first sentence is the summary, headings start sections, `[Name]`, `[Type.Member]`, and
+module-qualified links name declarations, found as code where the doc is finds names, and the fences
+under `# Examples` are examples, `fb no_run` ones only compiled, with `# ` lines hidden. `fb doc
+[package | std]` writes the package's public API as JSON, format 1 in tooling.md: modules, Public
+declarations, Operators and Overrides among them, a Class's Protected members, Extends of what users
+see, signatures as written, attributes, source files and lines, docs, and each link's target, a
+member without a doc taking the one it implements or overrides; it warns about a link that names
+nothing and a doc comment on nothing. `fb test` runs a package's examples, a lone file's, and std's
+(`fb test std`), each a module of `<name>.doctests` that uses the package from outside, with
+std.core, std.test, and its declaration's module imported, named after its declaration, whose lines
+a file's line origin maps back to the doc comment, so its errors, failures, panics, and traces show
+the comment's lines. A prebuilt library's interface file keeps its docs, which its ABI hash leaves
+out. std's comments on its declarations became `///` ones and its files' first comments `//!` ones;
+every Public declaration, Enum member, and Operator has a summary, a test checks they're all in `fb
+doc std`'s JSON, and std's docs warn about nothing. The LSP's hover shows a declaration's `///` doc.
+Its review's 26 fixes are in docs/review/m8-step8.md.
+
 Step 2, releases (2026-10-29, 19d46557): `fb --version` prints the version, the commit, from git
 when CMake configured the build, only for fb's own checkout, or "unknown", and the target, `fb 0.1.0
 (abc1234, windows-x64)`; `fb new <folder>` makes a package there, named by the folder's own name,
