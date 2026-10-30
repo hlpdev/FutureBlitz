@@ -12,7 +12,9 @@
 #
 # Windows: fb's executables, the MSI, and setup.exe are signed with Azure Artifact Signing when
 # the AZURE_* secrets and variables are set (docs/release-setup.md), and left unsigned, with a
-# warning, when none are. Linux: the .rpms are signed with REPO_SIGNING_KEY when it's set.
+# warning, when none are. Linux: the .rpms are signed with REPO_SIGNING_KEY when it's set. A
+# pushed v<version> tag, whose draft the download page describes, needs both: without them it
+# fails before anything's drafted.
 name: Release
 
 on:
@@ -239,6 +241,9 @@ jobs:
           done
           if [ "$set" = 6 ]; then
             echo "SIGN=true" >> "$GITHUB_ENV"
+          elif [ "$set" = 0 ] && [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
+            echo "::error::A release's Windows files are signed, and the Azure signing secrets aren't set (docs/release-setup.md)"
+            exit 1
           elif [ "$set" = 0 ]; then
             echo "::warning::The Azure signing secrets aren't set, so fb's executables, the MSI, and setup.exe are unsigned"
           else
@@ -417,6 +422,9 @@ jobs:
           if [ -n "$REPO_SIGNING_KEY" ]; then
             key="$RUNNER_TEMP/signing.asc"
             (umask 077 && printf '%s\n' "$REPO_SIGNING_KEY" > "$key")
+          elif [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
+            echo "::error::A release's .rpm is signed, and REPO_SIGNING_KEY isn't set (docs/release-setup.md)"
+            exit 1
           else
             echo "::warning::REPO_SIGNING_KEY isn't set, so the .rpm is unsigned, and the dnf repository will refuse it"
           fi

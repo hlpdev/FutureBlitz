@@ -1,7 +1,8 @@
 """tools/release's tests: winget's manifests and Homebrew's formula from a release's SHA256SUMS,
 the MSI's ProductCode, and the apt repository repo.py makes from fake .debs, signed with a key
-made for the test, which gpgv checks as apt does; with nfpm, the .deb nfpm.yaml makes. ctest runs
-them; gpg comes from PATH, or Git's on Windows, and the tests that sign skip without it.
+made for the test, which gpgv checks as apt does; with nfpm, the .deb nfpm.yaml makes; and
+launch_check.py on a fake published release. ctest runs them; gpg comes from PATH, or Git's on
+Windows, and the tests that sign skip without it.
 
     python -m unittest release_tests
 """
@@ -24,6 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 RELEASE = ROOT / "tools" / "release"
 sys.path.insert(0, str(RELEASE))
+import launch_check  # noqa: E402
 import packages  # noqa: E402
 import repo  # noqa: E402
 
@@ -218,6 +220,115 @@ class PackagesTests(unittest.TestCase):
         refused = self.run_script("homebrew", "1.0", sums, str(self.folder / "f.rb"))
         self.assertEqual(refused.returncode, 1)
         self.assertIn("three numbers", refused.stderr)
+
+
+class FakeSource(launch_check.Source):
+    """A published release on no network: its assets, and the files GitHub would serve."""
+
+    def __init__(self, release: dict | None, files: dict[str, bytes]) -> None:
+        super().__init__()
+        self.found = release
+        self.files = files
+
+    def fetch(self, url: str) -> bytes | None:
+        return self.files.get(url)
+
+    def release(self, repository: str, version: str) -> dict | None:
+        return self.found
+
+
+class LaunchCheckTests(unittest.TestCase):
+    """m9-ops-7: a release has what the download page promises, or the launch check says what
+    it hasn't."""
+
+    version = "1.2.3"
+
+    def setUp(self) -> None:
+        names = launch_check.expected_files(self.version)
+        self.assets = {name: f"https://github.test/v{self.version}/{name}" for name in names}
+        self.files = {url: name.encode() for name, url in self.assets.items()}
+        sums = {name: hashlib.sha256(name.encode()).hexdigest()
+                for name in names if name != "SHA256SUMS"}
+        self.files[self.assets["SHA256SUMS"]] = "".join(
+            f"{sha}  {name}\n" for name, sha in sums.items()).encode()
+        base = packages.url_base(self.version, None)
+        installer = packages.winget(self.version, sums, base)[
+            f"{packages.WINGET_ID}.installer.yaml"]
+        self.winget = (f"https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests/"
+                       f"f/FutureBlitz/FutureBlitz/{self.version}/{packages.WINGET_ID}"
+                       ".installer.yaml")
+        self.formula = ("https://raw.githubusercontent.com/hlpdev/homebrew-tap/HEAD/Formula/"
+                        "futureblitz.rb")
+        self.files[self.winget] = installer.encode()
+        self.files[self.formula] = packages.homebrew(self.version, sums, base).encode()
+        self.signed: dict[str, bool] = {}
+
+    def signature(self, path: Path) -> tuple[bool, str]:
+        valid = self.signed.get(path.name, True)
+        return valid, "Valid CN=FutureBlitz" if valid else "NotSigned"
+
+    def problems(self, draft: bool = False) -> dict[str, str]:
+        release = {"draft": draft, "assets": self.assets}
+        results = launch_check.check(self.version, FakeSource(release, self.files), self.signature)
+        return {name: problem for name, problem in results if problem is not None}
+
+    def test_a_release_with_everything_passes(self) -> None:
+        self.assertEqual(self.problems(), {})
+        names = launch_check.expected_files(self.version)
+        for name in ("futureblitz-1.2.3-windows-x64-setup.exe", "futureblitz-1.2.3-macos-x64.pkg",
+                     "futureblitz_1.2.3-1_arm64.deb", "futureblitz-1.2.3-1.aarch64.rpm",
+                     "futureblitz-1.2.3.vsix", "install.ps1"):
+            self.assertIn(name, names)
+
+    def test_a_draft_or_no_release_fails(self) -> None:
+        self.assertEqual(self.problems(draft=True), {
+            "the release v1.2.3": "hlpdev/FutureBlitz has no published release v1.2.3",
+        })
+        results = launch_check.check(self.version, FakeSource(None, {}), self.signature)
+        self.assertEqual(len(results), 1)
+
+    def test_a_missing_file_is_named(self) -> None:
+        del self.assets["futureblitz_1.2.3-1_amd64.deb"]
+        self.assets["extra.txt"] = "https://github.test/extra.txt"
+        self.assertEqual(self.problems(), {
+            "every file the download page promises": "it has no futureblitz_1.2.3-1_amd64.deb",
+            "SHA256SUMS has every file": "it has no extra.txt",
+        })
+
+    def test_an_unsigned_installer_fails(self) -> None:
+        self.signed["futureblitz-1.2.3-windows-x64.msi"] = False
+        self.assertEqual(self.problems(), {
+            "futureblitz-1.2.3-windows-x64.msi's signature": "it isn't validly signed: NotSigned",
+        })
+        # A file that isn't the one SHA256SUMS names is never taken as signed.
+        self.files[self.assets["futureblitz-1.2.3-windows-x64-setup.exe"]] = b"another"
+        self.assertEqual(self.problems()["futureblitz-1.2.3-windows-x64-setup.exe's signature"],
+                         "it isn't the file SHA256SUMS names")
+
+    def test_winget_and_the_tap_have_to_be_at_the_version(self) -> None:
+        del self.files[self.winget]
+        self.files[self.formula] = self.files[self.formula].replace(b'version "1.2.3"',
+                                                                    b'version "1.2.2"')
+        self.assertEqual(self.problems(), {
+            "winget's manifest": "microsoft/winget-pkgs has no 1.2.3",
+            "the Homebrew formula": "hlpdev/homebrew-tap's formula isn't at 1.2.3",
+        })
+        self.files[self.winget] = b"InstallerSha256: 00\n"
+        del self.files[self.formula]
+        self.assertEqual(self.problems(), {
+            "winget's manifest": "its InstallerSha256 isn't futureblitz-1.2.3-windows-x64.msi's",
+            "the Homebrew formula": "hlpdev/homebrew-tap has no Formula/futureblitz.rb",
+        })
+
+    @unittest.skipUnless(sys.platform == "win32", "Get-AuthenticodeSignature is Windows'")
+    def test_an_unsigned_file_isnt_valid_to_windows(self) -> None:
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        unsigned = folder / "unsigned.msi"
+        unsigned.write_bytes(b"not signed by anyone")
+        valid, said = launch_check.authenticode(unsigned)
+        self.assertFalse(valid)
+        self.assertNotIn("Valid ", said)
 
 
 @unittest.skipUnless(find_gpg(), "gpg isn't here")

@@ -35,9 +35,10 @@ gh variable set NAME -R hlpdev/FutureBlitz --body value
 | `R2_SECRET_ACCESS_KEY` | secret | publish.yml | R2 |
 | `R2_BUCKET` | variable | publish.yml | the bucket dl.futureblitz.dev serves |
 
-Without the Azure ones, Windows' files are unsigned, with a warning; without REPO_SIGNING_KEY,
-the .rpms are, and publish.yml's linux job refuses them. Each publish.yml job says which secret it
-lacks.
+Without the Azure ones, a dispatch's Windows files are unsigned, with a warning; without
+REPO_SIGNING_KEY, its .rpms are, and publish.yml's linux job refuses them. A pushed tag's release
+needs both, as the download page says its files are signed, and release.yml fails before it
+drafts anything without them. Each publish.yml job says which secret it lacks.
 
 ## The repositories' signing key
 
@@ -206,6 +207,21 @@ gh variable set R2_BUCKET -R hlpdev/FutureBlitz --body futureblitz-dl
 The site serves the install scripts as https://futureblitz.dev/install.sh and /install.ps1 (M9),
 from tools/install/, with `Content-Type: text/plain; charset=utf-8`.
 
+## Before the first release
+
+The download page says, as of the first release, that the Windows installers are signed, that
+winget and Homebrew are the recommended ways to install, and that apt and dnf install from
+dl.futureblitz.dev. Each is true once its part above is done:
+
+- [ ] `gh secret list -R hlpdev/FutureBlitz` shows REPO_SIGNING_KEY, HOMEBREW_TAP_TOKEN,
+  AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, WINGET_TOKEN, VSCE_PAT, OVSX_PAT,
+  R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY.
+- [ ] `gh variable list -R hlpdev/FutureBlitz` shows AZURE_SIGNING_ENDPOINT,
+  AZURE_SIGNING_ACCOUNT, AZURE_SIGNING_PROFILE, and R2_BUCKET.
+- [ ] `gh repo view hlpdev/homebrew-tap` and `gh repo view hlpdev/winget-pkgs` find each.
+- [ ] Azure's identity validation is approved, and the certificate profile made with it.
+- [ ] `curl -fsSI https://dl.futureblitz.dev/` answers, from the R2 bucket's domain.
+
 ## A release, then
 
 1. Set CMakeLists.txt's version to the release's, push the tag (`git tag v1.0.0 && git push
@@ -213,3 +229,10 @@ from tools/install/, with `Content-Type: text/plain; charset=utf-8`.
 2. Check the draft, then publish it.
 3. `gh workflow run publish.yml -f version=1.0.0 -f winget=true -f homebrew=true -f linux=true -f
    vscode=true`, or only some of them.
+4. Once winget-pkgs has merged the pull request (a new package waits for its moderators), the
+   launch check: `python tools/release/launch_check.py 1.0.0`. It checks the published release
+   has every file docs/tooling.md's Releases lists, each in its SHA256SUMS, that setup.exe and
+   the MSI have valid Authenticode signatures (with PowerShell on Windows, or osslsigncode
+   elsewhere), that microsoft/winget-pkgs has the version's manifest with the MSI's hash, and
+   that the tap's formula is at the version, with each archive's hash. It prints each check and
+   exits 1 if one fails; the release isn't announced until they all pass.

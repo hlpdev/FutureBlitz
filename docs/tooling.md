@@ -112,6 +112,12 @@ other people can install and use every day in an editor. Step 0 settled what was
   `--no-modify-path` (`-NoModifyPath`) leaves it, and says what to add. Running one again
   updates. install.ps1 runs an archive's fb only when the file is a program, since Windows
   shows a window that waits to be closed for one that isn't.
+- A release they download is checked against its SHA256SUMS before it's unpacked, and one that
+  doesn't match isn't installed. The latest is found by that file too, from GitHub's
+  `releases/latest/download/SHA256SUMS` redirect, which needs no API, so the API's 60 requests
+  an hour for an address without a token, as CI runners share, never stops an install. An
+  `--archive` is installed as it is. install.sh's body is a function its last line calls, so a
+  download cut short runs none of it.
 - The site serves both (M9), which is how they're run: `curl -fsSL
   https://futureblitz.dev/install.sh | sh` (`sh -s -- --version 1.0.0` with arguments), and
   `irm https://futureblitz.dev/install.ps1 | iex` (`iex "& { $(irm ...) } -Version 1.0.0"` with
@@ -195,7 +201,9 @@ other people can install and use every day in an editor. Step 0 settled what was
 its dispatch, never on its own: `gh workflow run publish.yml -f version=1.0.0 -f winget=true -f
 homebrew=true -f linux=true -f vscode=true`. Each job takes the release's files from its GitHub
 Release, checked against SHA256SUMS. docs/release-setup.md has the accounts, keys, and secrets,
-made once.
+made once, and its launch checklist, whose tools/release/launch_check.py checks a published
+release has every file, signed installers, winget's manifest, and the tap's formula at its
+version.
 
 - **winget**: tools/release/packages.py makes FutureBlitz.FutureBlitz's manifests (schema
   1.10.0: the version's, the installer's, and en-US's) from SHA256SUMS: the MSI, `wix`, for the
