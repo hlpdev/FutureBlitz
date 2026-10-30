@@ -219,7 +219,7 @@ TEST_CASE("a conflict says which ranges conflict, and who asks for each", "[reso
           picks_t{ "there's no package nope in https://index.example.com/, which game asks for" });
     CHECK(picked(packages, { wants("shapes", "2") }) ==
           picks_t{ "no version of shapes fits 2, which game asks for; its newest are 0.4.0, "
-                   "0.3.0, and this fb is 0.1.0" });
+                   "0.3.0" });
 
     fb::requirement_t elsewhere = wants("shapes", "0.3");
     elsewhere.source = "https://other.example.com/";
@@ -299,6 +299,52 @@ TEST_CASE("versions whose fb range this fb isn't in are skipped", "[resolver]") 
     CHECK(picked(packages, { wants("physics", "1") }) == picks_t{ "physics 1.0.0" });
     CHECK(picked(packages, { wants("physics", "1") }, fb::preferences_t(), "0.6.0") ==
           picks_t{ "physics 1.1.0" });
+}
+
+TEST_CASE("no version fitting says the newest by version, and what ruled out those that fit",
+          "[resolver]") {
+    // m10-edges-10: a backport published after a major comes after it, by its version, and only
+    // the newest five are said.
+    packages_t packages;
+    packages.add("mathx", "1.0.0")
+        .add("mathx", "1.1.0")
+        .add("mathx", "1.2.0")
+        .add("mathx", "1.3.0", {}, true)
+        .add("mathx", "2.0.0")
+        .add("mathx", "1.4.0", {}, true);
+    CHECK(picked(packages, { wants("mathx", "3", "app") }) ==
+          picks_t{ "no version of mathx fits 3, which app asks for; its newest are 2.0.0, 1.4.0 "
+                   "(yanked), 1.3.0 (yanked), 1.2.0, 1.1.0" });
+    // m10-journey-10: a range that only yanked versions fit says so, and names no fb.
+    CHECK(picked(packages, { wants("mathx", "=1.4.0", "app") }) ==
+          picks_t{ "no version of mathx fits =1.4.0, which app asks for; 1.4.0 is yanked; its "
+                   "newest are 2.0.0, 1.4.0 (yanked), 1.3.0 (yanked), 1.2.0, 1.1.0" });
+    CHECK(picked(packages, { wants("mathx", ">=1.3.0, <2", "app") }) ==
+          picks_t{ "no version of mathx fits >=1.3.0, <2, which app asks for; 1.4.0 and 1.3.0 "
+                   "are yanked; its newest are 2.0.0, 1.4.0 (yanked), 1.3.0 (yanked), 1.2.0, "
+                   "1.1.0" });
+
+    // This fb is named only when a version that fits needs another.
+    packages_t newer;
+    newer.add("physics", "1.0.0", {}, true).add("physics", "1.1.0", {}, false, ">=0.5");
+    CHECK(picked(newer, { wants("physics", "1") }) ==
+          picks_t{ "no version of physics fits 1, which game asks for; 1.1.0 needs fb >=0.5, and "
+                   "this fb is 0.1.0; its newest are 1.1.0, 1.0.0 (yanked)" });
+    // Of many yanked, the newest five are named.
+    packages_t many;
+    for (int minor = 0; minor < 7; ++minor) {
+        many.add("noisy", std::format("1.{}.0", minor), {}, true);
+    }
+
+    CHECK(picked(many, { wants("noisy", "1") }) ==
+          picks_t{ "no version of noisy fits 1, which game asks for; 1.6.0, 1.5.0, 1.4.0, 1.3.0, "
+                   "1.2.0 and older ones are yanked; its newest are 1.6.0 (yanked), 1.5.0 "
+                   "(yanked), 1.4.0 (yanked), 1.3.0 (yanked), 1.2.0 (yanked)" });
+    packages_t one;
+    one.add("oldie", "1.0.0", {}, true);
+    CHECK(picked(one, { wants("oldie", "1") }) ==
+          picks_t{ "no version of oldie fits 1, which game asks for; 1.0.0 is yanked; its only "
+                   "version is 1.0.0 (yanked)" });
 }
 
 TEST_CASE("pre-releases are picked only when a range names one", "[resolver]") {

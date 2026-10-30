@@ -168,7 +168,8 @@ private:
         return out;
     }
 
-    /// Why no version of a package fits a requirement by itself.
+    /// Why no version of a package fits a requirement by itself: the versions that fit its range
+    /// but are yanked, or that need another fb, and the package's newest versions.
     [[nodiscard]] std::string none_fits(const requirement_t& requirement,
                                         const std::vector<index_entry_t>& all) const {
         if (all.empty()) {
@@ -176,16 +177,72 @@ private:
                                requirement.source, requirement.who);
         }
 
-        std::string listed;
-        for (const index_entry_t& entry : all | std::views::reverse | std::views::take(5)) {
-            listed += std::format("{}{}{}", listed.empty() ? "" : ", ", entry.version,
-                                  entry.yanked ? " (yanked)" : "");
+        // By version, newest first, as a backport is published after a later major.
+        std::vector<candidate_t> sorted;
+        for (const index_entry_t& entry : all) {
+            if (const std::expected<version_t, std::string> version =
+                    parse_version(entry.version)) {
+                sorted.push_back({ .version = *version, .entry = &entry });
+            }
         }
 
-        return std::format("no version of {} fits {}, which {} asks for; its newest are {}, and "
-                           "this fb is {}",
-                           requirement.name, requirement.range.text, requirement.who, listed,
-                           m_fb_version.text());
+        std::ranges::sort(sorted, [](const candidate_t& left, const candidate_t& right) {
+            return left.version > right.version;
+        });
+
+        std::vector<std::string> yanked;
+        // The newest version that fits but needs another fb, and the fb it needs.
+        std::string needs_fb;
+        std::string needed;
+        for (const candidate_t& each : sorted) {
+            if (!requirement.range.matches(each.version)) {
+                continue;
+            }
+
+            if (each.entry->yanked) {
+                yanked.push_back(each.entry->version);
+            } else if (const std::optional<std::string>& wanted = each.entry->fb;
+                       wanted && needs_fb.empty()) {
+                const std::expected<version_range_t, std::string> fb = parse_range(*wanted);
+                if (!fb || !fb->matches(m_fb_version)) {
+                    needs_fb = each.entry->version;
+                    needed = *wanted;
+                }
+            }
+        }
+
+        std::string why;
+        if (!needs_fb.empty()) {
+            why = std::format("{} needs fb {}, and this fb is {}; ", needs_fb, needed,
+                              m_fb_version.text());
+        } else if (!yanked.empty()) {
+            // The newest five, as the list of the newest says.
+            if (yanked.size() > 5) {
+                yanked.resize(5);
+                yanked.emplace_back("older ones");
+            }
+
+            std::string named;
+            for (std::size_t i = 0; i < yanked.size(); ++i) {
+                if (i > 0) {
+                    named += i + 1 == yanked.size() ? " and " : ", ";
+                }
+
+                named += yanked[i];
+            }
+
+            why = std::format("{} {} yanked; ", named, yanked.size() == 1 ? "is" : "are");
+        }
+
+        std::string listed;
+        for (const candidate_t& each : sorted | std::views::take(5)) {
+            listed += std::format("{}{}{}", listed.empty() ? "" : ", ", each.entry->version,
+                                  each.entry->yanked ? " (yanked)" : "");
+        }
+
+        return std::format("no version of {} fits {}, which {} asks for; {}{} {}", requirement.name,
+                           requirement.range.text, requirement.who, why,
+                           sorted.size() == 1 ? "its only version is" : "its newest are", listed);
     }
 
     /// The choices a failure came from: the depths of the picks whose versions, or whose
