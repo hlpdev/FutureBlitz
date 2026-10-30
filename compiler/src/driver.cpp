@@ -3265,8 +3265,7 @@ std::expected<compilation_t, std::string> check_files(const check_request_t& req
     }
 
     if (const std::optional<std::filesystem::path> root = find_package(first.parent_path())) {
-        return compile_package(*root, request.main, request.mode, purpose_t::CHECK,
-                               &request);
+        return compile_package(*root, request.main, request.mode, purpose_t::CHECK, &request);
     }
 
     return compile_loose(first, request.mode, request.read, request.cache);
