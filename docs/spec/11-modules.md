@@ -54,9 +54,10 @@ From std.math Import Vec3, Lerp     // selected names
   a project.toml, or std/ for std's own files.
 - A quoted path that ends in `.proto` names a Protocol Buffers file, proto2 or proto3, which fb
   reads as it builds the program into a module of its types, named by the path as a `.fb`
-  file's is, `proto.game.proto`, under its file's stem, `game`: a Struct for each message, an
-  Enum for each enum, and an Interface for each service (see [stdlib.md](../stdlib.md)'s
-  std.data). Its package doesn't name the module, since one package often spans several files.
+  file's is, `proto.game.proto`, under its file's stem, `game`: a Struct for each message,
+  which std.data's Protocol Buffers encoding reads and writes, an Enum for each enum, and an
+  Interface for each service. Its package doesn't name the module, since one package often spans
+  several files.
   A `.proto`'s own imports are found from its folder, then from each folder above it up to the
   one its package's paths start from, the nearest first, as protoc finds them in its `-I`
   folders, and a `google/protobuf/` path none of them has is one of protobuf's well-known types,
@@ -101,7 +102,7 @@ A package is a directory with a `project.toml` manifest.
 
 ```toml
 [project]
-name = "scpcb"
+name = "editor"
 version = "0.1.0"
 
 [dependencies]
@@ -113,9 +114,8 @@ joltc = { static = "libs/joltc" }
 
 - Dependencies are versioned, and resolved to one version of each, which fb.lock pins.
 - `[native]` declares C libraries for FFI and how to link them. Static linking is the
-  default so games ship as a single binary; a package can bring dynamic ones too (see
+  default, so a program ships as a single binary; a package can bring dynamic ones too (see
   [Native libraries](#native-libraries)).
-- The package manager is part of the `cli` tool (Milestone M10).
 
 A dependency can also be a local package, by its folder from the project.toml's:
 
@@ -152,13 +152,11 @@ physics = { path = "../physics" }
   futureblitz.dev. `[registries]` names each by its index, `company = { index =
   "https://packages.example.com/index/" }`, or a folder, a registry on disk; its names are
   identifiers, and `futureblitz` is futureblitz.dev's, which it can name again for a mirror. A
-  range's forms, the resolver, fb.lock, and the cache folder are in
-  [libraries.md](../libraries.md#the-clients-design-m10-step-0-settled-2026-10-29). A program's
-  registry dependencies, and theirs, each have one version, which fb.lock beside its project.toml
-  pins, and which builds from the cache.
+  range's forms, the resolver, fb.lock, and the cache folder are the package manager's, which its
+  own documentation describes. A program's registry dependencies, and theirs, each have one
+  version, which fb.lock beside its project.toml pins, and which builds from the cache.
 - `[format]` has `width`, the line width `fb fmt` formats the package's code to: a whole number
-  of columns from 40 to 1000, 100 without it (see [tooling.md](../tooling.md#the-formatter-step-6)).
-  A width outside that range is an error.
+  of columns from 40 to 1000, 100 without it. A width outside that range is an error.
 - A dependency's own project.toml names it as `[dependencies]` does, and so do the packages it
   depends on, each read once, by whatever path reaches its folder, however many packages depend
   on it. Two packages of one name, and packages that depend on each other in a cycle, are
@@ -185,14 +183,13 @@ physics = { path = "../physics" }
   `fb build` writes its interface file and binary (see [Prebuilt libraries](#prebuilt-libraries)).
   `fb test` builds a package's tests, from each of its `.fb` files, its tests/ folder's, and its
   doc comments' examples, and runs them (see [09](09-errors.md#tests)). `fb doc` writes a
-  package's public API as JSON, to `<folder>/build/<name>.json` unless `-o` says where (see
-  [tooling.md](../tooling.md#docs-from-the-code-step-8)).
+  package's public API as JSON, to `<folder>/build/<name>.json` unless `-o` says where.
 - `[native]` names the package's C libraries, each by the name `Lib` gives it (see
   [12](12-ffi.md)): `joltc = "libs/joltc"`, or `joltc = { static = "libs/joltc" }`, is a static
   archive from the package's folder: the file itself, or without its `lib` prefix and its
   extension, libs/libjoltc.a, libs/joltc.a, or libs/joltc.lib, which has to be there and be an
   archive; `m = { system = "m" }` is one the system's linker finds by its name, as `-lm`; and
-  `engine = { dynamic = "native/{target}/engine" }` is a dynamic library (see
+  `sqlite3 = { dynamic = "native/{target}/sqlite3" }` is a dynamic library (see
   [Native libraries](#native-libraries)). A name is letters, digits, and `_`, `-`, `.`, or `+`,
   not starting with `-`.
 - A path in project.toml, `main`, a dependency's `path`, or a static or dynamic library's, takes
@@ -215,7 +212,7 @@ own, as the program's project.toml says; the library's author doesn't choose.
 ```toml
 [dependencies]
 physics = { path = "../physics" }                     # built into the executable
-engine = { path = "../engine", link = "beside" }     # engine.dll beside the executable
+audio = { path = "../audio", link = "beside" }        # audio.dll beside the executable
 ```
 
 - `link` is `"embed"`, the default, or `"beside"`. An embedded library's code is linked into the
@@ -298,9 +295,10 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
   the rest of the interface file but for its doc comments' lines and its modules' line counts,
   the library's compiled code, the compiler's version, the target, and the mode. A change to a
   doc's words alone is the same build; one that adds or takes out lines moves the code after it,
-  whose lines the binary's stack traces and debug info name, so that's another. A program is built against one exact build of each library, and linking or
-  loading another is an error that names both builds' names, versions, and hashes. Between
-  versions a library's layouts and Method tables can change freely.
+  whose lines the binary's stack traces and debug info name, so that's another. A program is
+  built against one exact build of each library, and linking or loading another is an error that
+  names both builds' names, versions, and hashes. Between versions a library's layouts and
+  Method tables can change freely.
 - After it, a line `// uses <name> <version> <build>` names each package the library was built
   with: a prebuilt one's hash, or `source:` and a hash of a source one's files. A program that
   has another build of one stops with an error naming the library and both builds, and a
@@ -311,11 +309,11 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
 
 ### Native libraries
 
-- `[native]`'s `dynamic` names a C library the program loads as it starts: `engine = { dynamic =
-  "native/{target}/engine" }` finds engine.dll and its import library (engine.lib,
-  libengine.dll.a, or libengine.a beside it) on Windows, libengine.so on Linux, and
-  libengine.dylib on macOS, which have to be there. `Lib "engine"` names it as it names a static
-  one (see [12](12-ffi.md)).
+- `[native]`'s `dynamic` names a C library the program loads as it starts: `sqlite3 = { dynamic
+  = "native/{target}/sqlite3" }` finds sqlite3.dll and its import library (sqlite3.lib,
+  libsqlite3.dll.a, or libsqlite3.a beside it) on Windows, libsqlite3.so on Linux, and
+  libsqlite3.dylib on macOS, which have to be there. `Lib "sqlite3"` names it as it names a
+  static one (see [12](12-ffi.md)).
 - `{target}` in any of `[native]`'s paths is the target the program is built for:
   `windows-x64`, `linux-x64`, `linux-arm64`, `macos-arm64`, or `macos-x64`, so a package ships a
   binary of its natives per target, `native/<target>/`. A target a package has no binary for is an
@@ -334,6 +332,5 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
 
 - A package is shipped as an archive: its project.toml, a license, a readme, and either its `.fb`
   source, or its prebuilt `lib/<target>/<mode>/`, each `.fblib` with its `.fbi`, and its natives
-  per target. The registry and the commands that fetch and publish archives come with the package
-  manager (M10), whose archives, `.fbpkg`, are in
-  [libraries.md](../libraries.md#the-clients-design-m10-step-0-settled-2026-10-29).
+  per target. The package manager fetches these archives, `.fbpkg` files, from the registry, and
+  `fb publish` sends a package's archive to it.

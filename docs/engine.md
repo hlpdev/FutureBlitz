@@ -3,6 +3,11 @@
 The engine is a development phase of its own, after phase 1 (M0 to M10), which the milestones
 don't number. This doc records the direction; detailed API design comes later.
 
+The engine is packages built on top of FutureBlitz, never part of the language (the user,
+2026-10-30). The language, compiler, runtime, std, and spec depend on none of its features: it
+uses what any library can, Extern blocks over its C API, `@MainThread`, and the main scheduler's
+`Scheduler.Main.Step()`, and a program uses it by importing its packages.
+
 ## Its parts, in the order planned so far
 
 1. Bootstrap: window, input, the frame loop, and the main scheduler.
@@ -50,18 +55,22 @@ While !KeyHit(KEY_ESCAPE)
 End While
 ```
 
-`Flip()` is the frame boundary. It also ticks the main coroutine scheduler
-(see [spec/10-concurrency.md](spec/10-concurrency.md#scheduling)).
+`Flip()` is the frame boundary, and the engine package's: it presents the frame, then calls
+`Scheduler.Main.Step()`, so the game's coroutines resume at the start of the next frame, before
+its update code, and a game never steps the scheduler itself. The language knows nothing of
+frames; a coroutine's `Await NextTick()` waits for the next Step, which in a game is the next
+frame (see [spec/10-concurrency.md](spec/10-concurrency.md#scheduling)).
 
 ## Threading
 
-Engine APIs are `@MainThread`. Calling them from a worker is a compile error.
+Engine APIs are `@MainThread`, as any library's main-thread APIs are. Calling them from a
+worker is a compile error.
 
 ## Resource lifetime
 
 Engine resources (entities, textures, meshes) have an explicit `Free()` because the scene
-owns them. Handles are generational: using a freed resource raises a clear error, not a
-crash.
+owns them, as native resources do (spec 08). Handles are generational: using a freed resource
+raises a clear error, not a crash.
 
 ## Renderer
 

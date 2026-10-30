@@ -9,13 +9,14 @@
 
 ## Automatic reference counting
 
-- Class instances are **refcounted**. Cleanup is deterministic: no GC pauses mid-frame.
+- Class instances are **refcounted**. Cleanup is deterministic, with no garbage collector to
+  pause the program.
 - There is no `Delete`. An object is freed when its last strong reference goes away.
 - `Destroy()` (if defined) runs at that moment. See [06](06-user-types.md#class-reference-type).
 - An object whose last reference was one of another object's fields goes once that object's
   fields are all released, then what it held goes, and so on, one object at a time, so letting
-  go of a chain of any length never runs out of stack. The `Destroy()`s run in the same order
-  as ever: an object's, then its first field's object's and what that held, then its second's.
+  go of a chain of any length never runs out of stack. The `Destroy()`s run in a fixed order:
+  an object's, then its first field's object's and what that held, then its second's.
   What a `Destroy()` itself lets go of goes at once.
 - Normal objects use **non-atomic** refcounts (fast). Only `Shared Class` instances use
   atomic refcounts (see [10-concurrency.md](10-concurrency.md)).
@@ -60,11 +61,16 @@ leak: a cycle of 3 objects: Tree.children -> Tree[] element -> Tree.parent -> th
 
 Objects that only a cycle keeps alive are in the counts, not the cycles.
 
-## Engine resources
+## Native resources
 
-Entities, textures, and other engine-owned resources keep an explicit `Free()`, because the
-scene owns them. Handles are **generational**, so using a freed resource raises a clear
-error instead of crashing.
+What a C library makes, like a database connection, a window, or a compressor's state, is
+memory the library owns, which reference counting doesn't see: FutureBlitz code holds a handle
+to it, a `Ptr` (see [12](12-ffi.md)). A binding to such a library gives each handle an explicit
+`Free()`, or `Close()`, since only the library knows what letting go of one involves, and code
+calls it when it's done. A binding panics with a clear message where code uses a handle it has
+freed, instead of passing C memory it gave back, as std.ffi's `CString.Free()` does for a
+CString given back already. A Class that holds a handle can also free it in its `Destroy()`,
+so it goes when the last reference does.
 
 ## Pointers and unsafe code
 
@@ -111,16 +117,16 @@ End Function
 - A debug build panics where a Null Ptr's Value is used or it's indexed, "the Ptr is Null", and
   where a Null Callback is called, "the Callback is Null".
   `ToString()` on a Null CString panics in every build.
-- `AddressOf(x)` takes a Local, ByRef parameter, Global, field, element of a `T[]` or fixed
-  array, or a Struct's Self, and gives a `Ptr<T>` that's good while what it points at is there: until the
-  Local's block ends, the object goes, or the `T[]` changes size. It can change what it points
-  at, so it takes only what code could change there: not a loop variable, a ReadOnly Field or
-  Static Field, or a part of a value the statement makes, like `Make().x`; not Self in a lambda
-  or a `Parallel For`, which has a copy of its own; and in a `Parallel For`, nothing from outside
-  but an outside array's element at the pass's own index. A place through a Ptr, like `p.Value`
-  or `p[i]`, is reached before what comes after it is evaluated, as one in a `T[]` is (see
-  [03](03-operators.md)), and it can go ByRef, since what a Ptr points at doesn't move, two of
-  them in one call too, since C's memory can be shared.
+- `AddressOf(x)` takes a Local, ByRef parameter, Global, field, element of a `T[]` or fixed array,
+  or a Struct's Self, and gives a `Ptr<T>` that's good while what it points at is there: until the
+  Local's block ends, the object goes, or the `T[]` changes size. It can change what it points at,
+  so it takes only what code could change there: not a loop variable, a ReadOnly Field or Static
+  Field, or a part of a value the statement makes, like `Make().x`; not Self in a lambda or a
+  `Parallel For`, which has a copy of its own; and in a `Parallel For`, nothing from outside but an
+  outside array's element at the pass's own index. A place through a Ptr, like `p.Value` or `p[i]`,
+  is reached before what comes after it is evaluated, as one in a `T[]` is (see
+  [03](03-operators.md)), and it can go ByRef, since what a Ptr points at doesn't move, two of them
+  in one call too, since C's memory can be shared.
 - `SizeOf<T>()` is how many bytes a T takes in memory, as C lays it out, an `Int64` known at
   compile time, for the same types a Ptr points at, whichever comes first in the code: a Struct
   or Enum declared after it is measured whole. A T of more bytes than an Int64 counts, or whose

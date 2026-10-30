@@ -35,8 +35,11 @@ the VS Code extension, the formatter, `fb test`, and `///` docs with `fb doc`. M
 site and docs, and M10 packages online, the package manager and the registry, both in
 docs/website.md, built in the private repo hlpdev/futureblitz-web and planned page by page in its
 docs/site-plan.md. The engine is packages built on FutureBlitz, never part of the language,
-compiler, runtime, or std (the user, 2026-10-30); phase 1 ends with M10 and a stable 1.0.
-docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
+compiler, runtime, or std (the user, 2026-10-30); phase 1 ends with M10 and a stable 1.0. So
+`Flip()` is no scheduling point: the main scheduler runs at a top-level Await, Wait(), and the end
+of top-level code, a loop of a program's own or a library's calls `Scheduler.Main.Step()`, and
+`NextFrame()` is `NextTick()` (docs/decisions.md). docs/milestones.md's Deferred work lists
+everything left for later, and where it's planned.
 
 ## History
 Each milestone's steps, in detail (what each added, by name, and each review's fixes), are in

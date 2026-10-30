@@ -2,13 +2,13 @@
 
 ## The model
 
-Games need concurrency for three different jobs. Each gets its own tool:
+Programs need concurrency for three different jobs. Each gets its own tool:
 
 | Job | Example | Tool | Runs on |
 |---|---|---|---|
-| Do heavy work faster | pathfinding, particles, mesh building | `Spawn`, `Parallel For` | worker threads, in parallel |
-| Wait without freezing | loading a file, network request | `Async` / `Await` | main thread; waiting costs nothing |
-| Do things over time | door opens, waits 2s, closes; cutscenes | `Async` coroutines | main thread, resumed each frame |
+| Do heavy work faster | resizing images, parsing, compressing | `Spawn`, `Parallel For` | worker threads, in parallel |
+| Wait without freezing | reading a file, a network request | `Async` / `Await` | main thread; waiting costs nothing |
+| Do things over time | show a message for 2s, then hide it; retry after a delay | `Async` coroutines | main thread, resumed by the main scheduler |
 
 Jobs 2 and 3 are the same mechanism: a coroutine is an `Async` function that awaits time
 instead of I/O.
@@ -16,17 +16,17 @@ instead of I/O.
 ## Thread layout
 
 ```
-MAIN THREAD     user's loop: input → update → UpdateWorld → RenderWorld → Flip → resume coroutines
-                (owns the engine: entities, rendering, audio)
+MAIN THREAD     top-level code, and the loop it runs, if any: a UI's event loop, a terminal
+                UI's, a server's; Async code and coroutines run here
 
 WORKER POOL     [task][task][parallel-for chunk][task]...      one thread per core, minus 1
-                (pure computation, no engine calls)
+                (pure computation, no main-thread APIs)
 
 DEDICATED       Thread.Start(...) for long-running blocking loops (e.g. a network listener)
 THREADS         so they don't tie up a pool worker
 ```
 
-Most game code never leaves the main thread.
+Most code never leaves the main thread.
 
 - The pool starts its workers the first time it's used, so a program that never uses it has
   only the main thread. It has one per core but one, and at least one.
@@ -43,21 +43,21 @@ Most game code never leaves the main thread.
 ## Tasks and parallel loops
 
 ```vb
-Local t: Task<Mesh> = Spawn(Function() => BuildNavMesh(level))
+Local t: Task<Index> = Spawn(Function() => BuildIndex(files))
 ...
-Local nav = t.Wait()                 // blocks; re-throws the task's error
+Local index = t.Wait()               // blocks; re-throws the task's error
 
-Parallel For i = 0 Until particles.Count
-    particles[i].Step(dt)            // iterations must be independent
+Parallel For i = 0 Until items.Count
+    scores[i] = Score(items[i])      // iterations must be independent
 End For
 ```
 
-- Work-stealing thread pool in the runtime.
-- `Thread.Start(fn)` for long-lived blocking work.
+- The runtime has a work-stealing thread pool.
 - `Spawn(work)` runs the work on the pool and gives its `Task<T>`, where T is what the work
   gives; work that gives nothing gives a `Task`. `t.Wait()` returns once it's done, with its
-  result, and `t.IsDone()` says whether it is. `Thread.Start(work)` gives a `Thread`, with
-  `Join()` and `IsDone()`, and runs the work on a thread of its own.
+  result, and `t.IsDone()` says whether it is.
+- `Thread.Start(work)`, for long-lived blocking work, runs the work on a thread of its own and
+  gives a `Thread`, with `Join()` and `IsDone()`.
 - The work is a lambda or a Function's name, which takes no arguments, or a Sendable Func (see
   [05](05-functions.md#sendable-func)), since no other function value can go to the other
   thread. A `Task<T>` expected says what the lambda gives, as in `Local t: Task<Int64> =
@@ -69,7 +69,7 @@ End For
 - The program waits for every Task and Thread when its top-level code ends. A panic in one ends
   the whole program.
 - The work's lambda can't throw, like any function value's. A Task whose Wait throws comes from
-  an Async Function with a Throws, in M4 step 9.
+  an Async Function with a Throws (see [Async / Await](#async--await)).
 - `Parallel For i = a Until b`, or `To b`, runs its passes on the pool at once, in chunks, with
   the calling thread taking some, and the next statement waits for them all. It counts integers
   up by 1, with no Step, through its type's last value too, as `For` does. The calling thread
@@ -86,13 +86,13 @@ End For
 
 ## Async / Await
 
-Stackless coroutines on the same scheduler.
+Async Functions are stackless coroutines, which the main thread's scheduler runs.
 
 ```vb
-Async Function LoadLevel(path: String): Level Throws FileError
-    Const bytes = Await File.ReadAsync(path)                   // game keeps running
-    Local nav = Await Spawn(Function() => BuildNavMesh(bytes)) // heavy part on a worker
-    Return Level(bytes, nav)                           // back on the main thread
+Async Function LoadReport(path: String): Report Throws IOError
+    Const bytes = Try Await File.ReadBytesAsync(path)      // the program keeps running
+    Local stats = Await Spawn(Function() => Summarize(bytes)) // heavy part on a worker
+    Return Report(path, stats)                             // back on the main thread
 End Function
 ```
 
@@ -102,34 +102,34 @@ End Function
 - `Await t` in an Async Function waits for a Task, a Spawn's or another Async Function's, and
   gives its result. Meanwhile the main thread goes on; the Function's Locals and parameters wait
   with it.
-- The main thread runs the waiting Async Functions once top-level code ends, until none is left,
-  and whenever it waits for a Task with `Wait()`, or with an Await in top-level code, which
-  waits as `Wait()` does. A wait, and the result it gives, are the Task's that the expression gave
-  when the wait began, even if what runs meanwhile changes the variable it came from. Their code
-  only ever goes on on the main thread: the runtime panics where it would go on anywhere else.
-  Their code never runs on another thread, so work on another thread can't call one, and an
-  Async lambda isn't work for `Spawn` or `Thread.Start`.
+- The main thread runs the waiting Async Functions when the main scheduler runs (see
+  [Scheduling](#scheduling)): once top-level code ends, until none is left; whenever it waits
+  for a Task with `Wait()`, or with an Await in top-level code, which waits as `Wait()` does;
+  and at each `Scheduler.Main.Step()`. A wait, and the result it gives, are the Task's that the
+  expression gave when the wait began, even if what runs meanwhile changes the variable it came
+  from. Their code only ever goes on on the main thread: the runtime panics where it would go
+  on anywhere else. Their code never runs on another thread, so work on another thread can't
+  call one, and an Async lambda isn't work for `Spawn` or `Thread.Start`.
 - Await goes only in the code of an Async Function, Method, or lambda, or in top-level code,
   not in a lambda inside one, and not in a Lock block, which would hold its Mutex while
   it waits.
 - An Async Function's errors go in its Task, so its call doesn't throw, but `Await t` and
   `t.Wait()` re-throw them, each time, and need Try, Try?, or a Try block, as a call that throws
-  does. The Task's type says so: `Task<Level> Throws FileError`, which can be written as a type.
+  does. The Task's type says so: `Task<Report> Throws IOError`, which can be written as a type.
   After a function's result, Throws is the function's, so a Task's type there goes in
-  parentheses, `Function Start(): (Task<Level> Throws FileError)`, and so it does at the end of
-  a Func that's the result: `Function Make(): Func(): Task<Int> Throws FileError` can throw
+  parentheses, `Function Start(): (Task<Report> Throws IOError)`, and so it does at the end of
+  a Func that's the result: `Function Make(): Func(): Task<Int> Throws IOError` can throw
   itself. A Func type's result is the same, so a Func value that gives a throwing Task is
-  `Func(): (Task<Int> Throws FileError)`. Its Throws lists Classes as a function's does, so it
-  goes in parentheses before a `?`
-  or `[]` too, and where a `,` goes on to anything but a parameter, like a tuple's next element
-  or the next type argument; in a Func type's or a lambda's parameters, a `,` always goes on to
-  the next parameter.
+  `Func(): (Task<Int> Throws IOError)`. Its Throws lists Classes as a function's does, so it
+  goes in parentheses before a `?` or `[]` too, and where a `,` goes on to anything but a
+  parameter, like a tuple's next element or the next type argument; in a Func type's or a
+  lambda's parameters, a `,` always goes on to the next parameter.
 - Its error type can be a type parameter that a constraint says is an error, `E: Error` (see
   [07](07-generics.md#class-and-error)), which each call or instance has its own of: `Async
   Function WhenAll<T, E: Error>(tasks: (Task<T> Throws E)[]): T[] Throws E` passes the Tasks'
   errors on, and a generic Class's Async Method can throw its own E.
 - A Task that throws converts to one of the same result that throws what covers its errors, as
-  an Override's Throws is covered by its Method's: a `Task<Int> Throws FileError` is a
+  an Override's Throws is covered by its Method's: a `Task<Int> Throws IOError` is a
   `Task<Int> Throws Error`. A Task that throws and one that doesn't don't convert, either way,
   since only one of them keeps an error.
 - A Method can be Async, but not a ByRef Method or Destroy. An Override of an Async Method is
@@ -150,76 +150,93 @@ End Function
 ## Coroutines
 
 ```vb
-Async Function DoorSequence(door: Door)
-    door.Open()
+Async Function ShowToast(toast: Toast, text: String)
+    toast.Show(text)
     Await Wait(2.Seconds)
-    door.Close()
+    toast.Hide()
 End Function
 
-DoorSequence(door)    // calling without Await starts it on the main scheduler
+ShowToast(toast, "Saved")    // calling without Await starts it on the main scheduler
 ```
 
 ### Scheduling
 
-Confirmed 2026-10-21, one rule for every program, game or not: a coroutine resumes on the
-thread it started on whenever that thread hands control to the runtime, which does the
-resuming; nothing is ticked by hand. The main thread hands it over at an `Await` (in an Async
-Function, or in top-level code), at `Wait()`, once top-level code ends (the runtime
-then runs until nothing waits, as Node does), and at `Flip()`, which a game's frame loop calls
-anyway to show the frame. A blocking call, like reading a file, doesn't, so no other code runs
-in the middle of one. Main-thread code stays single-threaded across an Await, as in C#'s UI
-apps, Unity, and JavaScript; CPU-heavy work goes to Spawn and Parallel For, on every core.
+A coroutine waits on a scheduler, which resumes it once what it waits for is done. The main
+thread's scheduler, the main scheduler, runs by itself, so a program never has to tick it:
 
-**Main scheduler, ticked by `Flip()`.** After presenting, `Flip()` resumes ready
-coroutines, so they run at the start of the next frame before update code. Nothing extra
-goes in the loop:
+- at an `Await`, in an Async Function or in top-level code;
+- at a Task's `Wait()` on the main thread;
+- once top-level code ends: the runtime then runs it until no coroutine waits on it, as Node
+  does.
+
+Nothing else runs it. A blocking call, like reading a file, doesn't, so no other code runs in
+the middle of one. Main-thread code stays single-threaded across an Await, as in C#'s UI apps
+and JavaScript; CPU-heavy work goes to Spawn and Parallel For, on every core.
+
+**A loop of the program's own steps the main scheduler.** Top-level code that runs a loop, like
+a UI's event loop, a terminal UI's redraws, or a server's poll, resumes the coroutines between
+its passes with `Scheduler.Main.Step()`, or with `Await NextTick()`. A library that owns such a
+loop, like a GUI toolkit's event loop or a game engine's frame function, calls Step for its
+users, so a program built on one never does:
 
 ```vb
-Graphics3D(1280, 720)
-DoorSequence(door)
+ShowToast(toast, "Saved")
 
-While !KeyHit(KEY_ESCAPE)
-    UpdateGame()
-    UpdateWorld()
-    RenderWorld()
-    Flip()                      // coroutines resume here
+While window.IsOpen()
+    window.HandleEvents()
+    window.Draw()
+    Scheduler.Main.Step()          // coroutines resume here
 End While
 ```
 
-**Custom schedulers, ticked manually**, for pausing and time scaling:
+**Schedulers of a program's own, ticked by hand**, for pausing and scaling time:
 
 ```vb
-Global gameplay = Scheduler()
-gameplay.Run(DoorSequence(door))
+Global playback = Scheduler()
+playback.Run(Animate(chart))
 
-While running
-    If !paused Then gameplay.Tick(dt * timeScale)
-    UpdateWorld()
-    RenderWorld()
-    Flip()                      // main scheduler (UI coroutines) still runs
+While window.IsOpen()
+    If !paused Then playback.Tick(dt * speed)
+    window.Draw()
+    Scheduler.Main.Step()          // the main scheduler still runs the rest
 End While
 ```
 
 Rules:
 
-- Until the engine's `Flip()`, the main scheduler ticks once top-level code ends, until no
-  coroutine waits on it, and whenever the main thread waits for a Task with `Wait()`. Its time is
-  the real clock's.
+- The main scheduler runs once top-level code ends, until no coroutine waits on it, whenever
+  the main thread waits for a Task with `Wait()` or an Await, and at each
+  `Scheduler.Main.Step()`. Its time is the real clock's.
+- `Scheduler.Main` is the main scheduler, as a `Scheduler`. The runtime keeps it for the whole
+  program, so it's never destroyed, and it can't be assigned. Its coroutines run on the main
+  thread, so only the main thread uses it: work on another thread that uses it is a compile
+  error.
+- `s.Step()` resumes the coroutines that can go on, without moving the Scheduler's time, and
+  returns at once when none can; it never waits. On `Scheduler.Main` it finishes the timers that
+  the real clock has reached first.
+- The main scheduler's time is the real clock's, which a Tick can't move, so
+  `Scheduler.Main.Tick(seconds)` is a compile error, and a Tick of the main scheduler through a
+  variable or parameter panics.
 - Once top-level code ends, a coroutine that can never go on, since it waits for a Task on a
   Scheduler that nothing ticks any more, or for one that waits for such a Task, is destroyed
   before the Globals are released, as when its Scheduler goes. So is one that a Destroy starts
   while the Globals are released, at its first Await, since the program has ended. A Task from
-  NextFrame, Wait, or RealWait that nothing awaits is never done.
+  NextTick, Wait, or RealWait that nothing awaits then doesn't keep the program going, and is
+  never done.
 - `Scheduler()` makes one, only on the main thread, since its coroutines run there, and it isn't
-  Sendable. `s.Tick(seconds)` moves its time on by that much and resumes what can go on, and
-  `s.IsIdle()` says whether no coroutine waits on it.
-- An Async call starts on the scheduler running the code. `s.Run(task)` moves its coroutine to
-  `s`, with the coroutines and timers it waits for. A Task that's done, or a Spawn's, has nothing
-  to move.
-- `Await NextFrame()` resumes at the next tick of the owning scheduler.
+  Sendable. `s.Tick(seconds)` moves its time on by that much and resumes what can go on, `s.Step()`
+  is a Tick of no time, and `s.IsIdle()` says whether no coroutine waits on it.
+- An Async call starts on the scheduler running the code: the main scheduler, or a Scheduler
+  while it's ticked or stepped. `s.Run(task)` moves its coroutine to `s`, from the scheduler
+  running the code, with the coroutines and timers it waits for. A Task that's done, or a
+  Spawn's, has nothing to move.
+- `Await NextTick()` resumes at the next tick of the scheduler running the coroutine: for the
+  main scheduler, its next Step, or the next Await or `Wait()` of the main thread; for a
+  Scheduler, its next Tick or Step. In top-level code it waits as `Wait()` does, so it runs the
+  main scheduler once.
 - `Await Wait(time)` uses the scheduler's time (respects pause and time scale), and
   `Await RealWait(time)` the real clock's, ignoring both. A time is std.time's `Duration`, like
-  `2.Seconds` or `500.Milliseconds`, so either one needs `Import std.time`. NextFrame, Wait, and
+  `2.Seconds` or `500.Milliseconds`, so either one needs `Import std.time`. NextTick, Wait, and
   RealWait give a Task that the scheduler running the code finishes, so only the main thread
   calls them.
 - An I/O await resumes on the scheduler that started it, at its next tick. Coroutine code
@@ -250,8 +267,8 @@ Lock score As s                 // guard released at End Lock
     s += 10
 End Lock
 
-Global frames = Atomic<Int>(0)
-frames.Add(1)
+Global requests = Atomic<Int>(0)
+requests.Add(1)
 ```
 
 ### Channel
@@ -340,7 +357,7 @@ The compiler checks every `Spawn` capture, `Parallel For` body, and channel send
 - It's only a constraint, so it isn't a type of its own. An Interface that extends it can be
   one.
 - An error says which part isn't: "Holder isn't Sendable, which 'Send' needs for T: its field
-  'Target' is Enemy?, and a Class's objects stay on the thread that made them".
+  'Target' is Session?, and a Class's objects stay on the thread that made them".
 
 **Captures across threads.** Closures capture by reference ([05](05-functions.md#closures)), so
 sharing a mutable `Local` with another thread would be a data race. A closure passed to `Spawn`
@@ -349,28 +366,31 @@ capture what can't change, holding a `Sendable` value: a `Const`, a parameter, a
 or a Self that's Sendable.
 
 ```vb
-Const enemy = Enemy("grunt")
-Spawn(Function() => enemy.Think())
-// ✗ compile error: Enemy is not Sendable
+Const session = Session("ada")
+Spawn(Function() => session.Refresh())
+// ✗ compile error: Session is not Sendable
 
-Const pos = enemy.pos                   // a read-only Vec3
-Spawn(Function() => ComputePath(pos))   // ✓
+Const id = session.id                   // a String
+Spawn(Function() => FetchProfile(id))   // ✓
 
-Local target = enemy.pos
-Spawn(Function() => ComputePath(target))
+Local user = session.id
+Spawn(Function() => FetchProfile(user))
 // ✗ compile error: a Local can't be captured by another thread; make it a Const
 ```
 
-
 ### Main-thread rules
 
-- Engine APIs (rendering, audio, entities) are marked `@MainThread`. Calling them from a
-  worker is a compile error.
+- APIs bound to the main thread, like a UI toolkit's windows and widgets, are marked
+  `@MainThread`. Calling one from work on another thread is a compile error.
 - Mutable `Global`s are main-thread-only unless they are `Atomic`, `Mutex`, or `ThreadLocal`, each
   thread's own (see [02](02-types.md#threadlocal-globals)).
 
 ```vb
-Spawn(Function() => PositionEntity(cam, 0, 0, 0))   // ✗ compile error: @MainThread
+@MainThread Function SetTitle(text: String)
+    ...
+End Function
+
+Spawn(Function() => SetTitle("done"))   // ✗ compile error: @MainThread
 ```
 
 - Work on another thread is a Spawn's or Thread.Start's, a Sendable Func's, or a Callback's
@@ -383,15 +403,14 @@ Spawn(Function() => PositionEntity(cam, 0, 0, 0))   // ✗ compile error: @MainT
 - That code can't use a Global or Static Field unless it's an Atomic, a Mutex, a ThreadLocal
   Global, or a Static ReadOnly Field of a Sendable type, which keeps the value it starts with, or
   a top-level Const that isn't Sendable, or call a `@MainThread` Function or Method.
-  Async code, the timers, and Schedulers are the main thread's too. A top-level Const that's
-  Sendable is fine, and so is all of it in top-level code, which runs on the main thread.
+  Async code, the timers, Schedulers, and `Scheduler.Main` are the main thread's too. A
+  top-level Const that's Sendable is fine, and so is all of it in top-level code, which runs on
+  the main thread.
 - The error says how the work gets there: "this work runs on another thread, but it calls
   'Bump', which uses the Global 'score', which only the main thread can, unless it's an Atomic or
   a Mutex".
 
-## Scope for v1
+## Beyond the language
 
-- **Ship:** `Spawn`, `Task`, `Parallel For`, `Async`/`Await` + coroutines, `Scheduler`,
-  `Channel`, `Mutex`, `Atomic`, `Thread.Start`, Sendable checking.
-- **Defer:** lock-free collections, actors, GPU compute from the language. These can be
-  added as libraries later without language changes.
+Lock-free collections, actors, and GPU compute aren't part of the language: libraries can
+provide them with what this chapter describes.

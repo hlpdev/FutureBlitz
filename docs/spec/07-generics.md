@@ -19,7 +19,10 @@ Max(1, 2)              // T inferred
 Max<Float>(1, 2.5)     // explicit
 ```
 
-- A generic Struct or Class is always written with its type arguments: `Box<Int>`, not `Box`.
+- A generic Struct or Class written as a type always has its type arguments: `Local b:
+  Box<Int>`, not `Local b: Box`. A call of its New can leave them out, and they're inferred as a
+  generic Function's are (see [Inference](#inference)): `Box(21)` is a `Box<Int>`, from New's
+  argument, and `Local s: Stack<Int> = Stack()` takes them from the type expected.
 - A generic Method has type parameters of its own, after its type's: `Method Map<U>(f: Func(T):
   U): Stack<U>`. It has a copy for each set of type arguments, so it isn't in the Method table:
   it can't be `Abstract` or `Override`, and a call never goes through an override.
@@ -52,7 +55,8 @@ Max<Float>(1, 2.5)     // explicit
 
 ## Inference
 
-A call can leave out its type arguments when the compiler can tell them:
+A call can leave out its type arguments when the compiler can tell them, a generic type's New
+too, as `Box(21)` does:
 
 1. from the types of the arguments: `First(names)` with `names: String[]` gives `T = String`,
    and an argument whose Class, Struct, or array implements an instance of a generic Interface,
@@ -70,8 +74,8 @@ to inference, as a `_` for each of them does in Rust: `db.Query<Player>(sql, id)
 argument that doesn't fit it is an error, not inferred instead: `Two<Int>("s", 2)` wants an Int.
 A Method that an Extend of `T[]` adds counts only its own type parameters, since the array gives
 T. An overload with fewer type parameters of its own than a call writes doesn't fit it, and a
-Function or Method that isn't generic takes none: `Plain<Int>(1)` is an error. A type's New still
-writes all of a type's: `Box<Int>()` for a `Box<A, B>` is an error.
+Function or Method that isn't generic takes none: `Plain<Int>(1)` is an error. A type's New
+writes all of its type's type arguments or none: `Box<Int>()` for a `Box<A, B>` is an error.
 
 The arguments of a generic type's Method come from the object it's called on. When something
 can't be told, the call is an error that names what it can't, and asks for the type arguments,
@@ -93,8 +97,8 @@ beside it, not its Override or its replacement, since a generic Method is in no 
 
 ## Constraints: inline and `Where`
 
-Both forms exist, and there is still only one correct way to write any signature. The
-compiler **warns** about the other, with a fix-it that an editor offers:
+Both forms exist, but each signature has one correct way to be written. The compiler
+**warns** about the other, with a fix-it that an editor offers:
 
 - **Inline** `<T: X>` for a single, simple constraint.
 - **`Where`** for multiple constraints, multiple constrained parameters, a constraint that
@@ -260,7 +264,7 @@ End Interface
   array implements what its elements do, except that a `T?` is only `Equatable` and `Hashable`,
   and neither tuples nor arrays are `Comparable` or `Numeric`. std.math's vectors are
   `Numeric`, `Hashable`, `Printable`, and `Defaultable`, and its matrices and `Quat` `Equatable`
-  and `Printable` (see [stdlib.md](../stdlib.md#stdmath)).
+  and `Printable`.
 - `Cloneable` (`Method Clone(): Self`) is what makes a copy of itself, which arrays are with
   their own `Clone`, and `Defaultable` (`Static Method DefaultValue(): Self`) what has a value to
   start from, which the numbers, Bools, Strings, Chars, and Enums are with their zero:

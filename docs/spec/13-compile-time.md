@@ -6,9 +6,9 @@ Whatever can be computed at compile time is computed at compile time.
 
 - An expression made only of literals, `Const`s, operators, and casts is evaluated by the
   compiler, never at run time.
-- `Const` declares a read-only value. If its initializer can be computed at compile time, it
-  is; otherwise it's computed once at run time (top-level `Const`s together with the
-  `Global`s).
+- `Const` declares a read-only value, computed at compile time when it can be, and otherwise
+  at run time: a top-level `Const` once, in source order with the `Global`s, and one in a block
+  each time its line runs, as a Local is made.
 - Places that need a value at compile time (array sizes, const generic arguments, `Case`
   values) need a `Const` whose value is known at compile time. A Const type argument computed
   from Const type parameters, like `N - 1`, is worked out in each instance, where dividing by 0
@@ -71,7 +71,7 @@ Local table: Int[Fib(10)]          // usable in types
 @Flags Enum Layer ...
 @Open Enum Kind ...
 @CLayout Struct JPH_Vec3 ...
-@MainThread Function RenderWorld()
+@MainThread Function ShowWindow()
 @PanicsAtCaller Method Pop(): T
 @Test Function ParsesALevel()
 ```
@@ -374,7 +374,7 @@ Local first = levels["one.txt"]
 
 ```vb
 #If DEBUG
-    DrawDebugOverlay()
+    LogTimings()
 #ElseIf PLATFORM_WINDOWS
     ...
 #Else

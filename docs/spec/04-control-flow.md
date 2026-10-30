@@ -114,8 +114,8 @@ Print(evens.Sum(), (1 To 5).Product())
 - `To` and `Until` bind looser than every binary operator but `? :`, so each end is a whole
   expression: `0 Until n - 1`, `1 To count ?? 0`, and the Step takes a whole expression, `? :`
   too, as a For loop's does. A Method of the range needs parentheses: `(1 To 5).Sum()`. In a For
-  loop's bounds and a Case's values, To and Until are their own, as they always were. A slice is
-  still `a[from..to]`.
+  loop's bounds and a Case's values, To and Until belong to the loop or the Case. A slice is
+  `a[from..to]`.
 - Ranges are `==` when they give the same values, so every range that gives none is `==` to
   every other, one that Next has gone to the end of too, and an empty range is a Range's zero.
   That `==` is an Operator, which a Const Function doesn't run. A range is a value, copied like
@@ -203,6 +203,6 @@ Defer f.Close()
   the rest of the block changes the variable, and what it assigns isn't assigned after it.
 - A panic ends the program without running Defers.
 
-## Removed
+## Jumps
 
-- No `Goto`, no `Gosub`, no line labels other than loop labels.
+There is no `Goto` or `Gosub`, and no line labels other than loop labels.

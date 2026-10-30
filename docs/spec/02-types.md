@@ -15,8 +15,8 @@
 | `Void` | "no value"; only a Ptr's type, `Ptr<Void>`, which points at anything |
 
 The math value types, `Vec2` to `Vec4`, `Vec2i`, `Vec3i`, `Quat`, `Mat3`, `Mat4`, `Color`, and
-`Color32`, aren't built in: they're std.math's Structs, which a program imports (see
-[stdlib.md](../stdlib.md)).
+`Color32`, aren't built in: they're std.math's Structs, which a program imports with
+`Import std.math`.
 
 Aliases:
 
@@ -76,7 +76,7 @@ Composite and special types:
 |---|---|
 | `Local` | mutable local variable |
 | `Global` | module-level variable |
-| `Const` | read-only value, computed at compile time whenever possible ([13](13-compile-time.md#compile-time-evaluation)) |
+| `Const` | read-only value, computed at compile time when it can be, and otherwise at run time ([13](13-compile-time.md#compile-time-evaluation)) |
 | `ReadOnly` | field that only its Class's `New` can change; a global that never changes is a `Const` |
 | `Field` | member of a struct or class |
 
@@ -177,8 +177,13 @@ Print(hp)              // ✗ error: hp read before assignment
 - A field with no zero, a non-nullable Class or a Struct holding one, must be assigned by every
   constructor (compile-checked): a Struct's generated constructor requires it, and a Class with
   one needs a `New`, which assigns it on every path before reading it or using `Self`.
-- A field's default must be known at compile time, like a parameter's, or be `[]`, which gives
-  each one a new empty array.
+- A field's default is a value known at compile time, like a parameter's: a number, Bool,
+  String, Char, or Enum member, or `Null` for a `T?`, made of literals, Consts known at compile
+  time, operators, casts, and Const Function calls (see
+  [13](13-compile-time.md#compile-time-evaluation)). The one other default is `[]`, which gives
+  each object or value a new empty array. Anything else, like `{}`, `[3, 0, 5]`, or a Struct's
+  constructor, is an error, "a field's default must be known at compile time": a Class's `New`
+  assigns such a value instead.
 
 ## Nullability
 

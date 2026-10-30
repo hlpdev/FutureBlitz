@@ -86,7 +86,7 @@ Public Function TotalArea(shapes: Shape[]): Float
   code where the comment is would: the members of its type, then its module's declarations, those
   of the modules it imports, and the built-ins, or by a module's whole name; backticks and a `()`
   can go inside, as in ``[`Grow()`]``. `fb doc` warns about one that names nothing, and about a
-  doc comment that documents nothing (see [tooling.md](../tooling.md#docs-from-the-code-step-8)).
+  doc comment that documents nothing.
 - The code blocks under `# Examples`, in a fence with no language, or `fb`, are tests that
   `fb test` compiles and runs, and with `fb no_run`, only compiles (see
   [09](09-errors.md#tests)). A line of one that starts with `# `, or is `#` alone, is compiled but
@@ -112,8 +112,7 @@ Functions. An #If's condition nests up to 1000 deep too.
 
 ## Identifiers
 
-- ASCII letters, digits, and `_`; cannot start with a digit. Unicode identifiers may be
-  allowed in a later version.
+- ASCII letters, digits, and `_`; cannot start with a digit.
 - **No type suffixes** (`%`, `#`, `$` do not exist).
 
 ## Literals
@@ -191,7 +190,7 @@ Strings are always valid UTF-8. Raw bytes belong in `UInt8[]`, not `String`.
 - `@Name` or `@Name(args)` is an attribute. Attribute names are ordinary identifiers, not
   keywords. See [13-compile-time.md](13-compile-time.md#attributes).
 
-## Keywords (v0)
+## Keywords
 
 ### Reserved
 

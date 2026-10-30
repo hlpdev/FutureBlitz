@@ -25,7 +25,9 @@ Timeline: honors project begins **fall 2027**, so there is plenty of runway.
 ## The engine
 
 The engine is a development phase of its own, after phase 1, which these milestones don't
-number; it's planned on its own ([engine.md](engine.md)).
+number; it's planned on its own ([engine.md](engine.md)). It's packages built on top of
+FutureBlitz, never part of the language: the language, compiler, runtime, std, and spec depend on
+none of its features (the user, 2026-10-30).
 
 ## M1 build order
 
@@ -108,11 +110,13 @@ time, in debug and release builds.
 | 7 | `Parallel For i = a Until b` (and `To`): chunks on the pool, all done before the next statement; the body follows step 5's and step 6's rules, and can change an outside array's element at the loop variable; no Break, Return, or error leaves it | the second way to do heavy work, on top of the pool and the rules |
 | 8 | `Channel<T>(capacity)` of a Sendable T: `Send` waits while it's full and `Receive` while it's empty, `TrySend`, `TryReceive`, and `Close`, and `For x In ch` until it's closed and empty | threads that talk, which needs Sendable and the pool |
 | 9 | `Async` Functions and `Await`: stackless coroutines; an Async call without Await starts it and gives its Task; Await on a Task, a Spawn, or another Async call, in Async code; Throws on Async Functions, re-thrown through Await and Wait | spec 10's second job, waiting without freezing |
-| 10 | Coroutines and schedulers: the main scheduler, `Scheduler()` with `Run` and `Tick(dt)`, `NextFrame()`, `Seconds(n)` on the scheduler's time (paused and scaled with it), `RealSeconds(n)`, and `MainThread()` | spec 10's third job, doing things over time, on top of Async |
+| 10 | Coroutines and schedulers: the main scheduler, `Scheduler()` with `Run` and `Tick(dt)`, `NextFrame()` (`NextTick()` since 2026-10-30), `Seconds(n)` on the scheduler's time (paused and scaled with it), `RealSeconds(n)`, and `MainThread()` | spec 10's third job, doing things over time, on top of Async |
 | 11 | Loose ends: the rows of the Deferred work below planned for it, and programs that run a parallel job and an async chain together, many times over, with no leaks | M4's "done when" |
 
 **Not in M4:** lock-free collections, actors, and GPU compute stay out of v1 (spec 10). I/O awaits,
-like `File.ReadAsync`, come with `std.io` in M6, and `Flip()` with the engine.
+like `File.ReadAsync`, come with `std.io` in M6. `Flip()` was to be a scheduling point once the
+engine came; since 2026-10-30 nothing is, and a loop of a program's own, or a library's, calls
+`Scheduler.Main.Step()` (spec 10).
 
 ## M5 build order
 

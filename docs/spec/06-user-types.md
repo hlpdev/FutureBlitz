@@ -399,8 +399,8 @@ End Extend
   extends. A built-in type's, Enum's, or array's can't share a name with the members it has
   already, like `ToString` or an array's `Add`.
 - `Extend T Implements I` makes the type implement `I`, with members its Extends or its own
-  declaration give. A built-in type, Enum, or array comes with the built-in Interfaces that fit
-  it, so an Extend gives it others.
+  declaration give. A built-in type, Enum, or array implements the built-in Interfaces that fit
+  it already, so an Extend gives it others.
 - An Extend only goes at the top level of a file.
 
 Conditional extensions use `Where` (see [07-generics.md](07-generics.md)).

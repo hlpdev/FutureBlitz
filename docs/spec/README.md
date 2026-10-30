@@ -1,8 +1,10 @@
-# FutureBlitz Language Specification (v0)
+# The FutureBlitz Language Reference
 
-Status: **Locked** unless a section says otherwise.
+This reference describes the FutureBlitz language: its syntax, its types, and the rules the
+compiler checks. The standard library, std, has its own documentation; this reference names a
+std type only where the language itself relies on it.
 
-Code examples use ```` ```vb ```` fences for approximate syntax highlighting.
+Code examples use ```` ```vb ```` fences for syntax highlighting.
 
 | # | Chapter |
 |---|---|
@@ -24,7 +26,7 @@ Code examples use ```` ```vb ```` fences for approximate syntax highlighting.
 ## A taste
 
 ```vb
-Import std.math
+Import std.core
 
 Class Enemy
     Public Field name: String

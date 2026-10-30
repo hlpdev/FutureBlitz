@@ -65,9 +65,8 @@ End Struct
   the registers that are left don't take it. On AArch64 (Linux, Windows, and macOS), one of one
   to four `Float`s, or one to four `Double`s, and nothing else goes in that many floating-point
   registers; any other of 16 bytes or less goes in one or two integer registers; and a bigger one
-  goes as a pointer to a copy the caller makes, or for a result, memory the caller passes. Other
-  targets don't take Structs by value yet, and neither does any target take one of 4 GiB or more;
-  a `Ptr` to one works everywhere.
+  goes as a pointer to a copy the caller makes, or for a result, memory the caller passes. No
+  target takes one of 4 GiB or more by value; a `Ptr` to one works everywhere.
 
 ## CData
 
@@ -145,12 +144,12 @@ Print("{values[0]} {values.Slice(1, 3).ToArray()}")
 
 - An Enum goes as its integer type, and one C gives back, as a result or through ByRef, or in a
   Struct it gives or sets ByRef, in its Fields or their fixed arrays, has to be one of its
-  values, unless it's `@Flags` or `@Open`, or the program panics at the call, as `As` does, saying where in the Struct it is. One
-  that C writes through a Ptr later isn't checked; Unsafe code reads what C put there. Values
-  go as the target's C ABI passes them, as clang does: a Bool as a byte that's 0 or 1, and on
-  x86-64 outside Windows and on Apple's targets, an integer narrower than 32 bits extended to 32
-  bits. A Bool that C gives is its `bool`, 0 or 1: a byte of another value is undefined, as it
-  is in C, so what reads it can see either.
+  values, unless it's `@Flags` or `@Open`, or the program panics at the call, as `As` does,
+  saying where in the Struct it is. One that C writes through a Ptr later isn't checked; Unsafe
+  code reads what C put there. Values go as the target's C ABI passes them, as clang does: a Bool
+  as a byte that's 0 or 1, and on x86-64 outside Windows and on Apple's targets, an integer
+  narrower than 32 bits extended to 32 bits. A Bool that C gives is its `bool`, 0 or 1: a byte of
+  another value is undefined, as it is in C, so what reads it can see either.
 - A `Char` isn't C's: C's `char32_t` is a `UInt32`, which `As Char` checks on the way in, since C
   can hold any number there.
 - A `ByRef` parameter of one of these passes the variable's address, so an out-parameter like
@@ -277,10 +276,10 @@ fb bindgen vecmath.h [-o vecmath.fb] [--lib vecmath] [--target <triple>] [--std 
 - Integers map by their size and sign, but for what's written as `long`, `unsigned long`, or
   `wchar_t`, which are `CLong`, `CULong`, and `CWChar` on every target, through a typedef too,
   though not one whose name says its size, like `int64_t`, `size_t`, or `intptr_t`, which are a
-  `long` on some targets; a number macro of one of these, a wide character like `L'/'` too, is
-  one where every target's holds its value, as `1L` is, and is of its size where it isn't, as
-  Linux's `~0UL` is. A header's own `wchar_t` of another size or sign than the target's is of
-  its size. An Enum keeps its integer type's size. `float` and `double` map to `Float32` and `Float64`, and
+  `long` on some targets; a number macro of one of these, a wide character like `L'/'` too, is one
+  where every target's holds its value, as `1L` is, and is of its size where it isn't, as Linux's
+  `~0UL` is. A header's own `wchar_t` of another size or sign than the target's is of its size. An
+  Enum keeps its integer type's size. `float` and `double` map to `Float32` and `Float64`, and
   `bool` to `Bool`. `const char*` is a `CString`, a function pointer a Callback, `void*` and a
   pointer to a struct that isn't one of the header's Structs, like an opaque handle, `Ptr<Void>`,
   and any other pointer a `Ptr<T>`, or a `Ptr<Void>` when `T` doesn't map; an array field

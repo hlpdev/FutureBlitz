@@ -6,7 +6,7 @@
   bytes, as many as an `Int` counts; one past that panics, at the `+`, interpolated string, or
   std call that would make it: "a String holds at most 2147483647 bytes".
 - `+` only joins `String` to `String`. Everything else uses interpolation.
-- A String's Methods are std.text's (see [stdlib.md](../stdlib.md)), by byte position: its
+- A String's Methods are std.text's, by byte position: its
   `Length` is its UTF-8's bytes, and a position is a byte offset, which `Find` gives and
   `Slice` takes. A position inside a character panics. `CharCount` and `GraphemeCount` count
   code points and what people see as one character.
@@ -208,7 +208,8 @@ Out-of-bounds access panics.
 - An array literal takes the type it's used as, like `Local a: Long[] = [1, 2]`, or else its
   elements' common type, with literals taking it: `[1, 2.5]` is a `Float[]`. Where an
   `Iterable<T>` of a known T is expected, it's a `T[]`, so `[1, 2]` and `[]` go to a
-  `Set<Long>`'s AddAll. `[]` needs a type from where it's used. A `T[N]` can come from a literal of N elements; a `T[W, H]` can't.
+  `Set<Long>`'s AddAll. `[]` needs a type from where it's used. A `T[N]` can come from a literal
+  of N elements; a `T[W, H]` can't.
 - A `T[]` has `Count` (an `Int`) and the Methods `Add(value)`, `Insert(index, value)`,
   `RemoveAt(index)`, `Clear()`, `Contains(value)`, and `Clone()`. `Clone` copies the elements,
   not what they refer to. `Contains` compares with `==`. A fixed array has `Count` only.
@@ -251,7 +252,7 @@ Out-of-bounds access panics.
 | `Set<T>` | hash set |
 | `Queue<T>`, `Stack<T>`, `Deque<T>` | |
 | `PriorityQueue<T>` | |
-| `Pool<T>` | game-oriented object pool with stable handles; replaces what Blitz `Type` lists were used for |
+| `Pool<T>` | object pool with stable handles, for what Blitz's `Type` lists were used for |
 
 All collections are reference types and share a common method vocabulary: `Add`,
 `Remove`, `Contains`, `Count`, `Clear`, `Sort`, `Filter`, `Map`, `Find`, `Clone`. Each name
@@ -292,14 +293,15 @@ collection.
 - What gives a `T?` for "none", like `Get`, `Find`, and an Iterator's `Next`, gives a `T??` for
   a collection of a `T?`, so a stored `Null` isn't "none": a For ... In over a `Stack<Int?>` goes
   over its Nulls, and `Get` of a `Map<String, Int?>` tells a missing key from a `Null` value.
-- A Map or Set needs its keys to be `Hashable`, as every Class is unless it has an `==` of its
-  own without a `Hash`, or one with a Where line, which holds it only where the line holds. Its entries are in the order they were added, and removing one leaves
-  the rest in order. A Map or Set whose keys and values are `Printable` is too: `{a: 1, b: 2}`,
-  `{1, 2}`.
+- A Map or Set needs its keys to be `Hashable`, as every Class is unless it has an `==` of its own
+  without a `Hash`, or one with a Where line, which holds it only where the line holds. Its entries
+  are in the order they were added, and removing one leaves the rest in order. A Map or Set whose
+  keys and values are `Printable` is too: `{a: 1, b: 2}`, `{1, 2}`.
 - Two Maps are `==` when they have the same keys, each with an equal value, in any order, and two
   Sets when they have the same values; a Map of values that aren't Equatable compares as the
-  same object with `==`, but isn't Equatable or Hashable, so it isn't a key or found by value. A Map whose values are `Hashable` is too, and so is a Set, with
-  hashes that their order doesn't change, so either can be a key.
+  same object with `==`, but isn't Equatable or Hashable, so it isn't a key or found by value.
+  A Map whose values are `Hashable` is too, and so is a Set, with hashes that their order doesn't
+  change, so either can be a key.
 - `{key: value, ...}` is a new `Map<K, V>`. K and V are the expected Map type's, or else the
   keys' and the values' common types, as in an array literal. `{}` needs a type from where it's
   used, like `Local m: Map<String, Int> = {}`. Each entry goes to the Map's `Add`, in order, so
@@ -322,7 +324,7 @@ collection.
   reads and sets them in the array, which it keeps alive, so it sees the array's changes, and an
   element the array no longer has panics, naming the view's index. Its `Count` is the view's
   own, which stays as the array changes. It has `view[i]`, `View`, `ToArray()`, and goes in a
-  `For ... In`. A slice is still a copy.
+  `For ... In`. A slice, by contrast, is a copy.
 - `AsReadOnly()` gives an array, Map, or Set to read but not change, a `ReadOnlyArray<T>`,
   `ReadOnlyMap<K, V>`, or `ReadOnlySet<T>`, which sees the changes of what it shows and keeps it
   alive: `Count`, `[]`, `Contains`, `Get`, `Keys`, `Values`, `For ... In`, and a copy through

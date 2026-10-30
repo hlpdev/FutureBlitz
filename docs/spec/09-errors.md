@@ -23,7 +23,7 @@ End Function
   Class that extends it without a `New` of its own takes the same ones (see
   [06](06-user-types.md#inheritance)).
 - `Place` is a Struct of the `File`, `Line`, and `Column` (from 1) that a panic shows, and shows
-  as `file:line:column`. A Place whose Line is 0 is nowhere yet.
+  as `file:line:column`. A Place whose Line is 0 is no place: the error hasn't been thrown.
 - Each area of std has one Error, whose `Kind` Enum says what went wrong, with its details:
   `IOError` (`IOErrorKind`: `NOT_FOUND`, `PERMISSION_DENIED`, `ALREADY_EXISTS`,
   `UNEXPECTED_END`, `INVALID_DATA`, `INTERRUPTED`, `OTHER`, and `Path`), `ArgumentError` (`Name`),
@@ -105,8 +105,9 @@ A call to a throwing function must be inside a `Try` block or prefixed with `Try
   when the two aren't equal, saying what each is, where AssertEqual is called. They're
   Equatable and Printable.
 - Also triggered by: out-of-bounds indexing, failed `Assert`, integer overflow in debug
-  builds, integer division by zero, use of a freed engine resource (see
-  [02](02-types.md#integer-overflow) for the full list of arithmetic checks).
+  builds, and integer division by zero (see [02](02-types.md#integer-overflow) for the full list
+  of arithmetic checks). Libraries panic on misuse too, as a binding does where code uses a
+  native resource it has freed (see [08](08-memory.md#native-resources)).
 - Panics are not catchable, and don't run Defers or Finallys.
 - A panic on any thread ends the whole program. When two threads panic at once, only the first
   one's message shows.
@@ -156,7 +157,7 @@ panic: index 5 is out of range for 3 elements at game.fb:12:17
   lines and shows the Locals, each in the block it's declared in; release builds have the line
   tables. On macOS a build's debug info is in the .dSYM beside it. tools/lldb/futureblitz.py,
   which VS Code's debugger loads, shows a String, an array, a Map, a `T?`, and an object as its
-  value (see [tooling.md](../tooling.md)).
+  value.
 
 ## Tests
 
@@ -172,11 +173,11 @@ End Function
 ```
 
 - `@Test` goes before a top-level Function that takes nothing and gives nothing back, though it
-  can throw, anywhere in a package: a test, which `fb test` runs (see
-  [tooling.md](../tooling.md#testing-step-7)). It isn't generic, Async, Const, Unsafe, or Extern,
-  it takes no visibility, and no code calls it, or uses it as a value. It sees its file's Private
-  names, as the file's other code does. `fb build` and `fb run` leave tests out, and the code only
-  they reach; a library's binary and interface file leave the tests out.
+  can throw, anywhere in a package: a test, which `fb test` runs. It isn't generic, Async,
+  Const, Unsafe, or Extern, it takes no visibility, and no code calls it, or uses it as a value.
+  It sees its file's Private names, as the file's other code does. `fb build` and `fb run` leave
+  tests out, and the code only they reach; a library's binary and interface file leave the tests
+  out.
 - Each example in the doc comments of a package's `.fb` files, a code block under `# Examples`
   (see [01](01-lexical.md#doc-comments)), is a test of its own, named after its declaration, as
   `game.shapes.Circle.Grow (example)`, and its second `(example 2)`. It's a module of a package
