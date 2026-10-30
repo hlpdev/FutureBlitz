@@ -531,6 +531,8 @@ jobs:
           Start-Process msiexec.exe -Wait -ArgumentList '/i', "`"$msi`"", '/qn', '/l*v', "`"$log`""
           $fb = "$env:USERPROFILE\.futureblitz\bin\fb.exe"
           if (-not (Test-Path $fb)) { Get-Content $log -Tail 50; throw "the MSI didn't install fb" }
+          $said = & $fb --version
+          if (-not $said.StartsWith("fb $env:VERSION (")) { throw "the MSI's fb --version said '$said'" }
           $user = [Environment]::GetEnvironmentVariable('Path', 'User')
           if (-not $user.Contains("$env:USERPROFILE\.futureblitz\bin")) { throw "the user's PATH is $user" }
           $env:Path = "$env:SystemRoot\System32;$env:SystemRoot"
@@ -558,6 +560,8 @@ jobs:
             Get-Content $log -Tail 50
             throw "setup.exe exited with $($run.ExitCode), and didn't install fb"
           }
+          $said = & $fb --version
+          if (-not $said.StartsWith("fb $env:VERSION (")) { throw "setup.exe's fb --version said '$said'" }
           $user = [Environment]::GetEnvironmentVariable('Path', 'User')
           if (-not $user.Contains("$env:USERPROFILE\.futureblitz\bin")) { throw "the user's PATH is $user" }
           $env:Path = "$env:SystemRoot\System32;$env:SystemRoot"
@@ -683,6 +687,7 @@ jobs:
           test "$(cat /etc/paths.d/futureblitz)" = /usr/local/futureblitz/bin
           # path_helper, in a login shell, puts it on PATH.
           test "$(env -i HOME="$HOME" PATH=/usr/bin:/bin /bin/bash -lc 'command -v fb')" = /usr/local/futureblitz/bin/fb
+          env -i HOME="$HOME" PATH=/usr/bin:/bin /bin/bash -lc 'fb --version' | grep "^fb $VERSION ("
           test "$(cd "$RUNNER_TEMP/hello" && env -i HOME="$HOME" PATH=/usr/bin:/bin /bin/bash -lc 'fb run')" = "Hello, world!"
 
       # A program fb builds runs on glibc 2.28: one that uses the runtime's I/O thread, files,
@@ -736,8 +741,8 @@ jobs:
 
   glibc:
     name: glibc 2.28 ${{ matrix.target }}
-    needs: test
-    if: ${{ !cancelled() }}
+    needs: [version, test]
+    if: ${{ !cancelled() && needs.version.result == 'success' }}
     runs-on: ${{ matrix.os }}
     container: almalinux:8
     timeout-minutes: 10
