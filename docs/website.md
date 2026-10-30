@@ -238,12 +238,12 @@ own, which futureblitz-web keeps and this repo mirrors.
 
 | Step | What | Done when |
 |---|---|---|
-| 0 | The design system: palette, type, the logo, the CRT hero, and components, in the one dark theme | a page of every component passes WCAG AA |
-| 1 | The site's skeleton: Astro, the FutureBlitz grammar in Shiki, deploys to staging | futureblitz.dev's staging serves the landing page and a docs page |
-| 2 | The landing page, with its hero, samples, and recorded outputs, and the download page over M8's releases | it meets its budget on a mid phone |
-| 3 | The docs: Learn, guides, the spec, std's reference from `fb doc`, versions, search | every page renders, and every example compiles and runs in CI |
-| 4 | Operations: production, monitoring, the status page, and the policies | alerts fire on errors |
-| 5 | Loose ends, and the milestone's review | M9's "done when": the site and its docs are live |
+| 0 | The design system: palette, type, the logo, the CRT hero, and components, in the one dark theme | a page of every component passes WCAG AA (2026-10-30) |
+| 1 | The site's skeleton: Astro, the FutureBlitz grammar in Shiki, deploys to staging | futureblitz.dev's staging serves the landing page and a docs page (2026-10-30) |
+| 2 | The landing page, with its hero, samples, and recorded outputs, and the download page over M8's releases | it meets its budget on a mid phone (2026-10-30, on staging) |
+| 3 | The docs: Learn, guides, the spec, std's reference from `fb doc`, versions, search | every page renders, and every example compiles and runs in CI (2026-10-30, per futureblitz-web's docs/site-plan.md) |
+| 4 | Operations: production, monitoring, the status page, and the policies | alerts fire on errors (2026-10-30: the policies, /status, /health, and logs; production and the alert rules are the user's steps for v1.0.0) |
+| 5 | Loose ends, and the milestone's review | M9's "done when": the site and its docs are live (2026-10-30, on staging, with M10's review) |
 
 M10's build order, the registry, accounts, the package site, and the package manager, is in
 [milestones.md](milestones.md).

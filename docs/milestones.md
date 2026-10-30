@@ -278,13 +278,13 @@ sections and [libraries.md](libraries.md)'s package manager.
 | 0 | The design: versions and ranges, the resolver, `fb.lock`, archives, the index, and the API | website.md and libraries.md settle each (fb's side 2026-10-29, in libraries.md; the wire format in registry-api.md) |
 | 1 | Versions: semver ranges in project.toml, the resolver, `fb.lock`, the cache folder, and a local registry for tests | a package with versioned dependencies resolves, locks, and builds from the local registry (2026-10-30, on Windows; Linux and macOS by their tests) |
 | 2 | Archives: a package's `.fbpkg`, its source or .fbi, and one per target for prebuilt builds and natives | an archive unpacks into a package that builds, checked by its hashes (2026-10-30, with step 1) |
-| 3 | Accounts: GitHub sign-in, email with passkeys, sessions, and recovery | a person signs up each way and signs in again |
-| 4 | The registry: the sparse index, archives on R2, and the publish API | a package the API takes is in the index and downloads |
+| 3 | Accounts: GitHub sign-in, email with passkeys, sessions, and recovery | a person signs up each way and signs in again (2026-10-30, in futureblitz-web's tests; staging's GitHub sign-in live) |
+| 4 | The registry: the sparse index, archives on R2, and the publish API | a package the API takes is in the index and downloads (2026-10-30, on staging) |
 | 5 | Publishing: `fb login`, `fb publish`, tokens, trusted publishing, yanking, and owners | a computer and a GitHub workflow each publish a package (fb's side 2026-10-30, against a test registry over HTTP; the real registry's comes with step 4) |
 | 6 | Using packages: `fb add`, `fb update`, `fb search`, the offline cache, and other registries | another computer adds and builds a published package (fb's side 2026-10-30, as step 5's) |
-| 7 | The package site: search, package pages, generated docs, and the dashboard | a published package's page shows its readme, versions, and docs |
-| 8 | Operations: production, backups, monitoring, and the policies | a restore from backup works, and alerts fire on errors |
-| 9 | Loose ends, and the milestone's review | M10's "done when" |
+| 7 | The package site: search, package pages, generated docs, and the dashboard | a published package's page shows its readme, versions, and docs (2026-10-30, on staging) |
+| 8 | Operations: production, backups, monitoring, and the policies | a restore from backup works, and alerts fire on errors (2026-10-30: backups, restore, /health, /status, and logs; production and the alert rules are the user's steps for v1.0.0) |
+| 9 | Loose ends, and the milestone's review | M10's "done when" (2026-10-30, on staging, with M9's review: 62 fixed) |
 
 ## Deferred work
 

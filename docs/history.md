@@ -74,6 +74,47 @@ again after Retry-After, and the sign-in's polls wait on a 503 as on a 429; a ta
 says its target (m10-journey-16). Spec 12 is "C Interop", spec 10's loops are a UI toolkit's, a
 terminal UI's, or a package's own, and Humanize's examples are files and people.
 
+The registry's side, in futureblitz-web (2026-10-30, private): workers/api, one Worker in TypeScript
+(Hono, Drizzle over D1, R2, Queues, a Durable Object per package), serving registry-api.md's wire
+format: accounts by GitHub or by email with passkeys, sessions, recovery codes, scoped tokens,
+trusted publishing from GitHub Actions' OIDC (private repositories kept by name until their first
+token), teams and invites, publishing in parts within the strict tar subset, the sparse index and
+downloads, search, yanks, the audit log, and the daily cron; its review's 50 fixes (the tar
+reader refusing what other extractors read differently, scoped tokens kept out of teams, invites
+revocable) and two more rounds'. apps/pkg, the package site (Astro on Workers, the API behind a
+service binding): search, package pages with the readme, docs from `fb doc`'s JSON, versions, and
+dependents, people and teams, the dashboard (tokens, owners, trusted publishers, teams, the audit
+log, passkeys), fb login's page, the policies, /status, and a strict CSP; its review's 49 fixes.
+Step 8: Workers Logs, GET /health and /status, plain HTTP redirected, a nightly D1 export to R2
+from one snapshot kept 35 days, scripts/restore.mjs, an admin's rebuild of the index from D1
+after a restore (lost names reserved, a lost version's number never published again), a
+read-only mode, and the restore runbook; its review's 21 fixes, and a race's 500 made a 409.
+staging-pkg.futureblitz.dev serves it all. The milestone's review, with M9's, found 62 across fb,
+the API, and the sites, all fixed with tests: search ANDs its words everywhere, the install
+scripts check SHA256SUMS and don't ask GitHub's API, `fb login --token` asks GET /me first,
+tools/release/launch_check.py checks a release has every promised install method, and a version
+whose dependencies don't exist, or with no description, is refused. M10 is done on staging;
+production goes up with v1.0.0, after docs/release-setup.md's steps.
+
+## M9, futureblitz.dev
+
+futureblitz.dev, in futureblitz-web (2026-10-29 to 30): the design (terminal noir with a Blitz
+nod, the bolt-stem logo, dark only, no playground) and docs/site-plan.md, the user's plan of every
+page; apps/site in Astro with the FutureBlitz grammar in Shiki and Pagefind, its first build
+replaced after the user's review by the planned one: the landing page and /download (the OS
+detected, every install method), Learn's 13 areas of tutorials and three projects (every example
+run, shown with its real output, and fb fmt-clean), Docs (the language reference from docs/spec,
+each fb command, project.toml, the guides, packages, the changelog), std's reference with a page
+per item from `fb doc`, the policies, and packages/ui's facts.js as the one place for every fact;
+a copy check that fails a page with a date, a milestone, provenance, an unfinished word, an
+engine name, an undocumented std item, or a fact stated outside facts.js; a strict CSP and HSTS;
+Lighthouse's budget on every page (JavaScript, LCP under 1.5 s, CLS under 0.1); and axe on every
+page at phone and desktop widths. Each lane was reviewed (Learn's 55 and 40, Docs' 37), and the
+milestone's review, with M10's, fixed staging's indexing, the analytics beacon under the CSP,
+LCP, 301s for moved pages, a sitemap, tables at phone width, the side nav's layout shift, and
+pages that disagreed with fb or each other. staging.futureblitz.dev serves it; production goes up
+with v1.0.0.
+
 ## M8, tooling
 
 The engine ruling (2026-10-30): the engine is packages on top of FutureBlitz, so nothing in the
