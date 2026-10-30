@@ -824,8 +824,9 @@ std::int32_t fb_io_net_error_kind(std::int32_t code);
 /// fb test's runner, which a test executable's main calls, and std.test's built-ins. fb_test_add
 /// adds a test, by its name, with the function that runs it, which reports what it throws, on the
 /// main thread when `main_thread`, as one that uses a Global must. fb_test_run runs them: the ones
-/// FB_TEST_PLAN's file lists, on the pool but for the main thread's, writing what each does to
-/// FB_TEST_REPORT's file for fb test, or without one, all of them, printing what they did.
+/// FB_TEST_PLAN's file lists, on threads of their own, as many as the pool has workers, but for the
+/// main thread's, writing what each does to FB_TEST_REPORT's file for fb test, or without one, all
+/// of them, printing what they did.
 void fb_test_add(const fb_string_t* name, void (*run)(), bool main_thread);
 void fb_test_run();
 /// The first thing a test executable's main does, before the Globals are set: opens the report,
