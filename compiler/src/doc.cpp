@@ -1645,6 +1645,7 @@ private:
         doc_module_t documented{
             .name = module.name,
             .file = package_path(module),
+            .span = { .file = module.file },
             .prebuilt = module.prebuilt,
         };
         if (const doc_comment_t* comment = m_ast.module_doc(module.file)) {
@@ -1887,6 +1888,7 @@ private:
         };
         const auto [begin, end] = extent(id);
         describe(item, m_ast.get(id).span, begin, end);
+        item.span = name->span;
         add_doc(item, id, name->span);
         // An Attribute's Fields are its parameters, which its signature shows.
         if (const auto* type = std::get_if<type_stmt_t>(&node);
@@ -1915,6 +1917,7 @@ private:
         const std::uint32_t end =
             member.value ? m_ast.get(*member.value).span.end : member.name.span.end;
         describe(item, member.name.span, member.name.span.begin, end);
+        item.span = member.name.span;
         if (const doc_comment_t* comment = m_ast.doc(member.name.span)) {
             item.doc = read_doc(*comment);
             item.links = links_of(*item.doc, m_index.scope(id).value_or(scope_t{}), true);
@@ -1947,6 +1950,7 @@ private:
         };
         const auto [begin, end] = extent(id);
         describe(item, m_ast.get(id).span, begin, end);
+        item.span = m_ast.get(id).span;
         // Its Public members, and its Operators, which are seen where it is.
         for (const stmt_id_t member : extension.members) {
             if (shown(member, id)) {
@@ -2198,6 +2202,52 @@ doc_package_t document(const compilation_t& compilation, const bool standard,
     }
 
     return package;
+}
+
+namespace {
+
+/// fb doc --check's error for each of `items`, and their members, without a doc of its own.
+void check_items(const std::vector<doc_item_t>& items, diagnostic_bag_t& diagnostics) {
+    for (const doc_item_t& item : items) {
+        // An Extend has no doc of its own; its members, and every other item, have theirs.
+        if (item.kind == "extend") {
+            check_items(item.members, diagnostics);
+            continue;
+        }
+
+        if (!item.doc) {
+            diagnostics.error(item.span,
+                              "{} has no doc comment: a /// comment on the lines right before it "
+                              "says what it does",
+                              item.path);
+        } else if (!item.doc_from.empty()) {
+            diagnostics.error(item.span,
+                              "{} has no doc comment of its own, only {}'s, which doesn't say "
+                              "what it does here",
+                              item.path, item.doc_from);
+        } else if (item.doc->summary.empty()) {
+            diagnostics.error(item.span,
+                              "{}'s doc comment has no summary: it starts with a heading or code, "
+                              "where a sentence that says what it does goes",
+                              item.path);
+        }
+
+        check_items(item.members, diagnostics);
+    }
+}
+
+} // namespace
+
+void check_docs(const doc_package_t& package, diagnostic_bag_t& diagnostics) {
+    for (const doc_module_t& module : package.modules) {
+        if (!module.doc || module.doc->summary.empty()) {
+            diagnostics.error(module.span,
+                              "{} has no //! doc comment with a summary at the top of its file",
+                              module.name);
+        }
+
+        check_items(module.items, diagnostics);
+    }
 }
 
 std::string doc_json(const doc_package_t& package, const source_manager_t& sources) {

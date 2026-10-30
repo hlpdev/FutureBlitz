@@ -534,13 +534,15 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
   moves the code's lines, which the binary's stack traces and debug info name, and so is another
   (spec 11).
 - std's comments on its declarations became `///` ones, and its files' first comments `//!`
-  ones. Every Public declaration of std's, and every member its users see, has a summary, of its
-  own or from the Interface member it implements or the Class member it overrides; a test checks
-  each is in `fb doc std`'s JSON with one.
+  ones. Every module of std's has a `//!` summary, one plain sentence, and every Public
+  declaration, and every member its users see, a `///` doc of its own, even one that implements
+  an Interface's member or overrides a Class's; `fb doc std --check` checks it, in a test.
 - `fb doc [package | std]` writes a package's public API as JSON, to `build/<name>.json` in its
   folder, or for std, std.json in the current one, unless `-o` names a file, or `-` for stdout,
   after a warning for each link that names nothing and each doc comment on nothing. `--release`
-  documents a release build's `#If` branches.
+  documents a release build's `#If` branches. `--check` writes nothing, and fails on each of those
+  warnings, each module without a `//!` doc, and each item but an Extend without a `///` doc of its
+  own, one that only has what it implements' or overrides', or one whose doc has no summary.
 - An example has `Import std.core`, `Import std.test`, and its declaration's module without
   writing them, and writes any other Import at its top, as a file does; a line that starts with
   `# ` is compiled but not shown, as Rust's are, for setup the reader doesn't need. Its

@@ -667,24 +667,17 @@ void public_paths(const fb::ast_t& ast, const fb::source_file_t& file, const std
     }
 }
 
-/// Each item that needs a summary but hasn't one, by its path, and every item's path.
-void summaries(const std::vector<fb::doc_item_t>& items, std::vector<std::string>& missing,
-               std::vector<std::string>& all) {
+/// Every item's path, its members' too.
+void paths_in(const std::vector<fb::doc_item_t>& items, std::vector<std::string>& all) {
     for (const fb::doc_item_t& item : items) {
         all.push_back(item.path);
-        // An Extend has no doc of its own; its members, and every other item, have theirs.
-        const bool needs = item.kind != "extend";
-        if (needs && (!item.doc || item.doc->summary.empty())) {
-            missing.push_back(item.path);
-        }
-
-        summaries(item.members, missing, all);
+        paths_in(item.members, all);
     }
 }
 
 } // namespace
 
-TEST_CASE("fb doc std has every Public declaration of std's, each with a summary", "[doc]") {
+TEST_CASE("fb doc std has every Public declaration of std's, each with a doc of its own", "[doc]") {
     const std::expected<fb::compilation_t, std::string> compiled = fb::compile_standard_docs();
     REQUIRE(compiled);
     REQUIRE_FALSE(compiled->diagnostics.has_errors());
@@ -703,21 +696,22 @@ TEST_CASE("fb doc std has every Public declaration of std's, each with a summary
 
     CHECK(warnings.diagnostics().empty());
 
-    std::vector<std::string> missing;
+    // Each module has a //! summary, and each item but an Extend a /// one of its own, as fb doc
+    // --check checks.
+    fb::diagnostic_bag_t missing;
+    fb::check_docs(package, missing);
+    for (const fb::diagnostic_t& error : missing.diagnostics()) {
+        const fb::source_file_t& file = compiled->sources.get(error.span.file);
+        UNSCOPED_INFO(std::format(
+            "{}:{}: {}", file.path(),
+            file.location_of(error.span.begin, fb::column_unit_t::UTF8).line + 1, error.message));
+    }
+
+    CHECK(missing.diagnostics().empty());
     std::vector<std::string> all;
     for (const fb::doc_module_t& module : package.modules) {
-        if (!module.doc || module.doc->summary.empty()) {
-            missing.push_back(module.name);
-        }
-
-        summaries(module.items, missing, all);
+        paths_in(module.items, all);
     }
-
-    for (const std::string& path : missing) {
-        UNSCOPED_INFO(path);
-    }
-
-    CHECK(missing.empty());
 
     // Each file's Public declarations, as its own parse finds them, are in it.
     const std::expected<std::vector<fb::library_file_t>, std::string> library =

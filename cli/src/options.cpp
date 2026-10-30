@@ -478,8 +478,16 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
                 "'{}' doesn't work with 'fb fmt', whose options are --check and --color", name));
         }
 
-        if (argument == "--check") {
-            return std::unexpected("'--check' only works with 'fb fmt'");
+        // fb doc --check checks the docs, and writes nothing.
+        if (options.command == command_t::DOC && argument == "--check") {
+            options.check = true;
+            continue;
+        }
+
+        if (name == "--check") {
+            return std::unexpected(options.command == command_t::DOC
+                                       ? "'--check' takes no value"
+                                       : "'--check' only works with 'fb fmt' and 'fb doc'");
         }
 
         // fb new takes the folder it makes, and --color.
@@ -553,6 +561,10 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
         if (!parsed) {
             return std::unexpected(parsed.error());
         }
+    }
+
+    if (options.check && options.output) {
+        return std::unexpected("'fb doc --check' writes no JSON, so it takes no '-o'");
     }
 
     if (options.command == command_t::NEW && options.input.empty()) {

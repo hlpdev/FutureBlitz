@@ -116,6 +116,8 @@ struct doc_item_t {
     /// number, from 1.
     std::string file;
     std::uint32_t line = 0;
+    /// Where its name is, which fb doc --check points to, or an Extend's whole block.
+    span_t span;
     std::optional<doc_t> doc;
     /// For a member without a doc comment of its own that implements an Interface's member or
     /// overrides a base Class's: the path of the one whose doc it has.
@@ -136,6 +138,8 @@ struct doc_module_t {
     std::string name;
     /// By its path from its package's folder.
     std::string file;
+    /// Its file's start, which fb doc --check points to.
+    span_t span;
     std::optional<doc_t> doc;
     std::vector<doc_target_t> links;
     /// Its Public declarations, and its Extends of what its users see, in source order.
@@ -164,6 +168,12 @@ struct doc_package_t {
 /// fb doc's JSON of a package's API, in the format docs/tooling.md describes. `sources` has the
 /// files its docs are in.
 [[nodiscard]] std::string doc_json(const doc_package_t& package, const source_manager_t& sources);
+
+/// What fb doc --check finds in `package`, as errors in `diagnostics`, in its order: a module
+/// without a //! doc comment, and an item but an Extend without a /// doc comment of its own,
+/// even one that has the doc of the Interface member it implements or the Class member it
+/// overrides, or one whose doc has no summary.
+void check_docs(const doc_package_t& package, diagnostic_bag_t& diagnostics);
 
 /// One of a file's examples, as a module that fb test compiles and runs: its text, and where
 /// each of its lines is in the file, which its messages and stack traces show.

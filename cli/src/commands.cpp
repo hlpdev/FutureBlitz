@@ -318,6 +318,8 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
     }
 
     if (command == command_t::DOC) {
+        out += entry("    --check",
+                     "Check that each module and declaration has a doc, writing no JSON");
         out += entry("    --release", "Document a release build's #If branches");
     } else {
         out +=
@@ -1171,6 +1173,43 @@ int test_command(const options_t& options) {
     return ok ? 0 : tests_failed_exit_code;
 }
 
+/// `fb doc --check`: an error for each module and declaration of `package` without a doc comment
+/// of its own, after the `warnings` about its doc comments, which fail it too. Returns 0 when there
+/// are none of either.
+int check_docs_command(const console_t& console, const compilation_t& compilation,
+                       const doc_package_t& package, const std::size_t warnings,
+                       const std::chrono::steady_clock::time_point start) {
+    diagnostic_bag_t missing;
+    check_docs(package, missing);
+    for (const diagnostic_t& error : missing.diagnostics()) {
+        console_t::print_error(
+            render_pretty(error, compilation.sources, { .color = console.err().color }));
+    }
+
+    const std::size_t errors = missing.diagnostics().size();
+    if (errors > 0 || warnings > 0) {
+        std::string problems =
+            errors > 0 ? std::format("{} without a doc comment of its own", count(errors, "item"))
+                       : "";
+        if (warnings > 0) {
+            problems += std::format("{}{}", errors > 0 ? ", and " : "", count(warnings, "warning"));
+        }
+
+        console.error(std::format("the docs aren't done: {}", problems));
+        return compile_errors_exit_code;
+    }
+
+    std::size_t items = 0;
+    for (const doc_module_t& module : package.modules) {
+        items += module.items.size();
+    }
+
+    console.status("Finished",
+                   std::format("checking {} and {} in {}", count(package.modules.size(), "module"),
+                               count(items, "declaration"), seconds_since(start)));
+    return 0;
+}
+
 /// `fb doc`: writes the package's public API as JSON, to the `-o` path, or to its build/ folder,
 /// named after it, or for std, to std.json in the current folder, after the warnings about its
 /// doc comments. Returns 0 when it compiles.
@@ -1207,6 +1246,11 @@ int doc_command(const options_t& options) {
     const doc_package_t package = document(compilation, standard, options.mode, warnings);
     for (const diagnostic_t& warning : warnings.diagnostics()) {
         console_t::print_error(render_pretty(warning, compilation.sources, console.diagnostics()));
+    }
+
+    if (options.check) {
+        return check_docs_command(console, compilation, package, warnings.diagnostics().size(),
+                                  start);
     }
 
     const std::string json = doc_json(package, compilation.sources);

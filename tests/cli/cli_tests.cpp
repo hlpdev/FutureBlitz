@@ -2498,6 +2498,113 @@ TEST_CASE("fb doc writes a package's public API as JSON, and warns about its doc
     CHECK_FALSE(help.contains("--show"));
 }
 
+TEST_CASE("fb doc --check finds what has no doc of its own, and writes nothing", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "doc" / "checked";
+    std::filesystem::remove_all(folder);
+    write_source("doc/checked/project.toml",
+                 "[project]\nname = \"checked\"\nversion = \"1.0.0\"\ntype = \"library\"\n");
+    const std::filesystem::path shapes = write_source("doc/checked/shapes.fb", R"(//! Shapes.
+
+Import std.core
+
+/// What covers the plane.
+Public Interface Shape
+    /// How much of it.
+    Method Area(): Float
+End Interface
+
+/// A square.
+Public Struct Square Implements Shape
+    /// Its side.
+    Public Field Side: Float
+
+    Public Method Area(): Float => Side * Side
+End Struct
+
+Public Function Bare()
+End Function
+
+/// # Examples
+///
+/// ```
+/// Headed()
+/// ```
+Public Function Headed()
+End Function
+
+/// Colors.
+Public Enum Color
+    RED
+End Enum
+
+Extend Square
+    /// Twice its side.
+    Public Method Twice(): Float => Side * 2
+End Extend
+)");
+    write_source("doc/checked/bare.fb", "Import std.core\n\n/// One.\nPublic Const ONE = 1\n");
+    const fb::process_result_t checked =
+        fb_run({ "doc", fb::to_utf8(folder), "--check", "--color", "never" });
+    INFO(checked.output);
+    CHECK(checked.exit_code == 1);
+    const std::string shown = shown_file(shapes);
+    CHECK(checked.output.contains(std::format(
+        "{}:16:19: error: checked.shapes.Square.Area has no doc comment of its own, only "
+        "checked.shapes.Shape.Area's, which doesn't say what it does here\n",
+        shown)));
+    CHECK(checked.output.contains(
+        std::format("{}:19:17: error: checked.shapes.Bare has no doc comment: a /// comment on "
+                    "the lines right before it says what it does\n",
+                    shown)));
+    CHECK(checked.output.contains(
+        std::format("{}:27:17: error: checked.shapes.Headed's doc comment has no summary: it "
+                    "starts with a heading or code, where a sentence that says what it does goes\n",
+                    shown)));
+    CHECK(checked.output.contains(std::format(
+        "{}:32:5: error: checked.shapes.Color.RED has no doc comment: a /// comment on the lines "
+        "right before it says what it does\n",
+        shown)));
+    CHECK(checked.output.contains(
+        std::format("{}:1:1: error: checked.bare has no //! doc comment with a summary at the "
+                    "top of its file\n",
+                    shown_file(folder / "bare.fb"))));
+    // The Extend has no doc of its own, and the documented items need nothing.
+    CHECK_FALSE(checked.output.contains("Extend.Square has"));
+    CHECK_FALSE(checked.output.contains("Square.Twice has"));
+    CHECK_FALSE(checked.output.contains("Shape.Area has"));
+    CHECK(checked.output.contains(
+        "error: the docs aren't done: 5 items without a doc comment of its own\n"));
+    CHECK_FALSE(std::filesystem::exists(folder / "build" / "checked.json"));
+
+    // A link that names nothing fails it too.
+    std::ofstream(folder / "bare.fb", std::ios::binary)
+        << "//! One, as [Nothing] says.\n\nImport std.core\n\n/// One.\nPublic Const ONE = 1\n";
+    std::ofstream(shapes, std::ios::binary) << "//! Shapes.\n";
+    const fb::process_result_t linked =
+        fb_run({ "doc", fb::to_utf8(folder), "--check", "--color", "never" });
+    INFO(linked.output);
+    CHECK(linked.exit_code == 1);
+    CHECK(linked.output.contains("warning: 'Nothing' names nothing that code here sees\n"));
+    CHECK(linked.output.contains("error: the docs aren't done: 1 warning\n"));
+
+    // With every doc there, it passes.
+    std::ofstream(folder / "bare.fb", std::ios::binary)
+        << "//! One.\n\nImport std.core\n\n/// One.\nPublic Const ONE = 1\n";
+    const fb::process_result_t done =
+        fb_run({ "doc", fb::to_utf8(folder), "--check", "--color", "never" });
+    INFO(done.output);
+    CHECK(done.exit_code == 0);
+    CHECK(done.output.contains("    Finished checking 2 modules and 1 declaration in "));
+    CHECK_FALSE(std::filesystem::exists(folder / "build" / "checked.json"));
+
+    check_usage_error({ "doc", "--check=yes" }, "'--check' takes no value");
+    check_usage_error({ "doc", "--check", "-o", "api.json" },
+                      "'fb doc --check' writes no JSON, so it takes no '-o'");
+    CHECK(
+        fb_run({ "doc", "--help" })
+            .output.contains("Check that each module and declaration has a doc, writing no JSON"));
+}
+
 TEST_CASE("fb doc std writes the standard library's API, and fb test std runs its examples",
           "[cli]") {
     const std::filesystem::path written =
@@ -2513,6 +2620,11 @@ TEST_CASE("fb doc std writes the standard library's API, and fb test std runs it
     const std::string json = read_file(written);
     CHECK(json.contains("\"package\": \"std\",\n"));
     CHECK(json.contains("\"path\": \"std.collections.stack.Stack.Push\",\n"));
+    // Every module and declaration std's users see has a doc comment of its own.
+    const fb::process_result_t checked = fb_run({ "doc", "std", "--check", "--color", "never" });
+    INFO(checked.output);
+    CHECK(checked.exit_code == 0);
+    CHECK_FALSE(checked.output.contains("error"));
 
     const fb::process_result_t tested = fb_run({ "test", "std", "--color", "never" });
     INFO(tested.output);
@@ -3175,7 +3287,7 @@ TEST_CASE("fb fmt's usage mistakes", "[cli]") {
                       "'--release' doesn't work with 'fb fmt', whose options are --check and "
                       "--color");
     check_usage_error({ "fmt", "--check=yes" }, "'--check' takes no value");
-    check_usage_error({ "build", "--check" }, "'--check' only works with 'fb fmt'");
+    check_usage_error({ "build", "--check" }, "'--check' only works with 'fb fmt' and 'fb doc'");
 
     const fb::process_result_t help = fb_run({ "help", "fmt" });
     CHECK(help.exit_code == 0);

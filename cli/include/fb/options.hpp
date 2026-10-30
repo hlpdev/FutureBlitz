@@ -89,7 +89,9 @@ struct options_t {
     std::optional<std::string> filter;
     /// What `fb fmt` formats: .fb files and folders. Empty for the current package.
     std::vector<std::filesystem::path> paths;
-    /// `fb fmt --check`: lists the files it would change, without changing them.
+    /// `fb fmt --check`: lists the files it would change, without changing them. `fb doc
+    /// --check`: checks that every module and every declaration its users see has a doc comment
+    /// of its own, and that every link names something, without writing the JSON.
     bool check = false;
     /// `--offline`: registry packages come only from the cache.
     bool offline = false;
