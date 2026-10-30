@@ -533,7 +533,7 @@ file or URL in the default app.
   between them, or lines without an ASCII letter or digit, are one, and its markers end in
   "\r\n" where the texts' lines do.
 - Fuzzy matching (scores and matched positions, like fzf), and `Humanize`: plurals ("3
-  enemies"), relative time ("3 minutes ago"), ordinals, number words, and case styles
+  files"), relative time ("3 minutes ago"), ordinals, number words, and case styles
   (snake_case, camelCase, PascalCase, kebab-case).
   - std.text.fuzzy's `Fuzzy.Match` gives a `FuzzyMatch?` with fzf's own score and the byte
     positions; `Score` and `Rank` too. A pattern without capitals ignores case.

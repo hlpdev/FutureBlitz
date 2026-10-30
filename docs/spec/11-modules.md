@@ -145,16 +145,17 @@ geometry = { path = "../geometry" }
   package's folder, when they aren't LICENSE (LICENSE.md, LICENSE.txt, or COPYING) and
   README.md (README or README.txt); `repository`, `homepage`, and `documentation`, `https://`
   URLs; `keywords`, at most five, each lowercase letters, digits, and `-`, not starting with `-`,
-  at most 32 long; and `fb`, the range of fb's versions the package builds with, like `">=0.2"`.
+  at most 32 long; and `fb`, the range of fb's versions the package builds with, like `">=1.2"`.
 - A dependency is a package from a registry, by a range of its versions, `geometry = "1.2"` or
   `geometry = { version = "1.2" }`, or a local one by its folder, `{ path = "../geometry" }`, but
   not both; `registry = "company"` takes it from a registry `[registries]` names rather than
   futureblitz.dev. `[registries]` names each by its index, `company = { index =
   "https://packages.example.com/index/" }`, or a folder, a registry on disk; its names are
   identifiers, and `futureblitz` is futureblitz.dev's, which it can name again for a mirror. A
-  range's forms, the resolver, fb.lock, and the cache folder are the package manager's, which its
-  own documentation describes. A program's registry dependencies, and theirs, each have one
-  version, which fb.lock beside its project.toml pins, and which builds from the cache.
+  range's forms, the resolver, fb.lock, and the cache folder are the package manager's, which
+  [its own documentation](../libraries.md) describes. A program's registry dependencies, and
+  theirs, each have one version, which fb.lock beside its project.toml pins, and which builds
+  from the cache.
 - `[format]` has `width`, the line width `fb fmt` formats the package's code to: a whole number
   of columns from 40 to 1000, 100 without it. A width outside that range is an error.
 - A dependency's own project.toml names it as `[dependencies]` does, and so do the packages it

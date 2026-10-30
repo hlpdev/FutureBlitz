@@ -23,7 +23,7 @@ End Extern
 /// buffer[1] = 7
 /// Expect(buffer.Count == 4)
 /// Expect(buffer.ToArray() == [0, 7, 0, 0] As Int32[])
-/// // A slice is a view of the same memory.
+/// // Unlike an array's slice, which is a copy, a Buffer's is a view of the same memory.
 /// Local tail = buffer.Slice(1, 4)
 /// tail[2] = 9
 /// Expect(buffer[3] == 9)
@@ -129,7 +129,8 @@ Public Class Buffer<T: CData> Implements Iterable<T>
     Public Unsafe Method Pointer(): Ptr<T> => First
 
     /// The T's from `start` up to `finish`, without the one at `finish`, as a view of its memory,
-    /// which keeps this Buffer alive and sees what changes in it.
+    /// which keeps this Buffer alive and sees what changes in it: unlike an array's slice, it's no
+    /// copy.
     @PanicsAtCaller
     Public Method Slice(start: Int64, finish: Int64): Buffer<T>
         If start < 0 || finish < start || finish > Length

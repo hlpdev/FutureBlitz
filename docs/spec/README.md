@@ -20,7 +20,7 @@ Code examples use ```` ```vb ```` fences for syntax highlighting.
 | 09 | [Error handling](09-errors.md) |
 | 10 | [Concurrency](10-concurrency.md) |
 | 11 | [Modules and packages](11-modules.md) |
-| 12 | [FFI](12-ffi.md) |
+| 12 | [C interop](12-ffi.md) |
 | 13 | [Compile-time features](13-compile-time.md) |
 | 14 | [Strings and collections](14-strings-collections.md) |
 

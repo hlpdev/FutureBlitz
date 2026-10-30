@@ -1,4 +1,4 @@
-# 12 · FFI (Foreign Function Interface)
+# 12 · C Interop
 
 FFI declarations live **in source**, in `Extern` blocks. No separate `.decls` files.
 
@@ -121,9 +121,10 @@ Print("{values[0]} {values.Slice(1, 3).ToArray()}")
   back once nothing has it. Its `[]` and `[]=` check each index, an Int64, against its `Count`,
   in every build, and `For ... In` goes over its T's. It isn't Sendable, as a Ptr isn't.
 - `Slice(start, finish)` is a view of its T's from start up to finish, without the one at finish:
-  a Buffer of the same memory, which sees and makes changes in it, and keeps the Buffer it's part
-  of alive, so the memory stays after that Buffer's last variable goes, until its last view goes
-  too. A view of a view is part of the first Buffer.
+  unlike an array's slice, which is a copy, it's a Buffer of the same memory, which sees and makes
+  changes in it, and keeps the Buffer it's part of alive, so the memory stays after that Buffer's
+  last variable goes, until its last view goes too. A view of a view is part of the first
+  Buffer.
 - `CopyTo(destination)` copies its T's to the start of another Buffer, which can share memory
   with it, `ToArray()` gives them in a new array, and `Buffer<T>.From(items)` makes a new one of
   an array's. std.io's streams read into Buffers and write from them.

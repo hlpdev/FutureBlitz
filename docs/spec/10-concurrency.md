@@ -179,8 +179,8 @@ Parallel For, on every core.
 **A loop of the program's own steps the main scheduler.** Top-level code that runs a loop, like
 a UI's event loop, a terminal UI's redraws, or a server's poll, resumes the coroutines between
 its passes with `Scheduler.Main.Step()`, or with `Await NextTick()`. A library that owns such a
-loop, like a GUI toolkit's event loop or a game engine's frame function, calls Step for its
-users, so a program built on one never does:
+loop, like a UI toolkit's event loop, a terminal UI's loop, or a package's own loop, calls Step
+for its users, so a program built on one never does:
 
 ```vb
 ShowToast(toast, "Saved")
