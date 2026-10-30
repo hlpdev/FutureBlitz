@@ -1,7 +1,7 @@
 //! Iterators, and the Iterable Interface, which For loops go over besides arrays.
 //!
-//! Each Next gives the next element, or Null when there
-//! are no more. The loop goes over a copy of a Struct, since its Next changes it.
+//! Each Next gives the next element, or Null when there are no more. The loop goes over a copy of a
+//! Struct, since its Next changes it.
 //!
 //! Its adapters are lazy: each gives an Iterator of its own, which asks the one before it for a
 //! value only when it's asked for one. Its consumers go over the values once. They're all Final,
