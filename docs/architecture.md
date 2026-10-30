@@ -13,7 +13,7 @@
 | Physics | Jolt |
 | Assets | fastgltf, stb_image, KTX |
 | Target platforms | Windows, Linux, macOS first; mobile and consoles later |
-| License | MIT |
+| License | Apache-2.0 |
 
 ## Repo layout
 

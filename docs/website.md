@@ -59,7 +59,7 @@ retro touches.
 - **Nav:** Learn, Docs, Std, Packages, and Discord, with the amber Install button at the right.
 - **Code is the star:** FutureBlitz highlighting from the one TextMate grammar shared with the VS
   Code extension (M8), in a theme of the palette: keywords blue, strings and numbers amber,
-  functions pale blue, comments muted.
+  functions pale blue, comments `#7C8399` (lighter than muted text, so they meet AA).
 
 ## The landing page
 
@@ -120,7 +120,9 @@ project's milestones are GitHub's business, not the page's.
   column; a version picker beside the wordmark and search on ⌘K; a std page gives a type's
   module, its summary, an example, and each member's signature and doc.
 - **Versioned:** `/docs/latest/` and `/docs/<version>/` for each release; search with Pagefind,
-  static and on the client, over the version being read; "Edit this page" links to GitHub.
+  static and on the client, over the version being read; no "Edit this page" (the docs live in the
+  private web repo), but a "Report an issue" link to FutureBlitz's issues. The policies' contact is
+  the issues and the Discord, with no email address.
 
 ## The site's build
 

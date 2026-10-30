@@ -13,7 +13,7 @@ FutureBlitz is a from-scratch **sibling** of Blitz3D:
 It keeps the spirit of Blitz3D (approachable syntax, script-style programs, a simple
 entity-based 3D API, a user-owned main loop) without inheriting its baggage.
 
-License: **MIT**. Planned as Hunter's honors project (starting fall 2027).
+License: **Apache-2.0**. Planned as Hunter's honors project (starting fall 2027).
 
 ## Goals
 

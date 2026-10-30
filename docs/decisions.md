@@ -11,7 +11,7 @@ section.
 | **No Blitz3D source compatibility** | frees the design; old code is translated by migrator + AI instead |
 | A **sibling language**, not a dialect; nothing ugly inherited from Blitz | approachable BASIC feel without the baggage |
 | **No "modern vs classic" split** anywhere | it's a new language and engine; every feature is first-class |
-| MIT license | broad adoption |
+| Apache-2.0 license, as LICENSE says (the user, 2026-10-30) | broad adoption, with a patent grant |
 | Language, compiler, tooling first; engine after | the engine is built on a finished language |
 
 ## Lexical and syntax
