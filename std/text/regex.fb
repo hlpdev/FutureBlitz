@@ -1,10 +1,11 @@
-//! std.text.regex: patterns over PCRE2, through the runtime's fb_regex_ functions. A pattern is
-//! Perl's syntax as PCRE2 has it, over UTF-8: \w, \d, \s, and \b take Unicode's letters, digits,
-//! and spaces, and positions are byte offsets, as a String's are. Each search for a match has
-//! limits, its Regex's MatchLimit and MemoryLimit, past which it throws a RegexError instead of
-//! running on, as a pattern that backtracks without end would. A pattern that isn't valid panics
-//! where its Regex is made, and the compiler reports a literal one at it; Regex.Parse throws
-//! instead, for a pattern from elsewhere, like a program's user.
+//! Regular expressions, by PCRE2.
+//!
+//! A pattern is Perl's syntax as PCRE2 has it, over UTF-8: \w, \d, \s, and \b take Unicode's
+//! letters, digits, and spaces, and positions are byte offsets, as a String's are. Each search for
+//! a match has limits, its Regex's MatchLimit and MemoryLimit, past which it throws a RegexError
+//! instead of running on, as a pattern that backtracks without end would. A pattern that isn't
+//! valid panics where its Regex is made, and the compiler reports a literal one at it; Regex.Parse
+//! throws instead, for a pattern from elsewhere, like a program's user.
 
 Import std.core
 Import std.collections.map
@@ -56,6 +57,16 @@ End Enum
 
 /// A pattern that isn't valid, at the byte Offset of the pattern, or a match that went past a
 /// limit, where Offset is where in the text it started looking.
+///
+/// # Examples
+///
+/// ```
+/// Local date = Regex(r"(\d{4})-(\d{2})-(\d{2})")
+/// Local found = Try date.Find("landed 1969-07-20, at night")
+/// Expect(found?.Value == "1969-07-20" && found?.Start == 7)
+/// Expect((Try date.Replace("1969-07-20", "$3/$2/$1")) == "20/07/1969")
+/// Expect((Try date.FindAll("1969-07-20 and 1972-12-14")).Count == 2)
+/// ```
 Public Class RegexError Extends Error
     /// What kind of RegexError it is.
     Public ReadOnly Field Kind: RegexErrorKind
@@ -160,6 +171,7 @@ Public Class Match Implements Printable
         Return Positions[number * 2 + 1]
     End Method
 
+    /// The text it matched, as Value gives it.
     Public Method ToString(): String => Value
 
     /// Panics unless the pattern has group number.
@@ -524,6 +536,13 @@ Extend String
     End Method
 
     /// The parts between each match of `pattern`, as Regex(`pattern`).Split gives them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect((Try "a1b22c".SplitBy(r"\d+")) == ["a", "b", "c"])
+    /// Expect(Try "hello".Matches(r"^h.*o$"))
+    /// ```
     @PanicsAtCaller
     Public Method SplitBy(pattern: String): String[] Throws RegexError
         Return Try Regex(pattern).Split(Self)

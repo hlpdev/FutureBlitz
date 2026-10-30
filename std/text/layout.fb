@@ -1,6 +1,8 @@
-//! std.text.layout: a String's lines laid out again. WordWrap fills lines up to a width in a
-//! terminal's columns, Dedent takes away the indentation every line has, and Indent puts a prefix
-//! before each line. A line ends at "\n", "\r\n", or "\r", and each keeps its line break.
+//! Wrapping, dedenting, and indenting a String's lines, and the edit distance between two.
+//!
+//! WordWrap fills lines up to a width in a terminal's columns, Dedent takes away the indentation
+//! every line has, and Indent puts a prefix before each line. A line ends at "\n", "\r\n", or "\r",
+//! and each keeps its line break.
 
 Import std.core
 Import std.text.char
@@ -19,6 +21,13 @@ Extend String
     /// A no-break space, U+00A0, U+2007, or U+202F, is part of its word, not a place to break. A
     /// line's leading whitespace starts each line it becomes, and a word wider than the rest of
     /// the `width` is broken between its grapheme clusters. Panics when `width` is below 1.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect("the quick brown fox".WordWrap(10) == "the quick\nbrown fox")
+    /// Expect("a\nb".Indent("> ") == "> a\n> b")
+    /// ```
     @PanicsAtCaller
     Public Method WordWrap(width: Int): String
         If width < 1 Then Panic("WordWrap takes a width of at least 1, not {width}")
@@ -211,6 +220,13 @@ End Function
 
 /// How many single-character edits, inserting, deleting, or changing a character, turn `a` into
 /// `b`, counting characters, code points.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Levenshtein("kitten", "sitting") == 3)
+/// Expect(Levenshtein("same", "same") == 0)
+/// ```
 Public Function Levenshtein(a: String, b: String): Int
     Local from = a.Chars
     Local to = b.Chars

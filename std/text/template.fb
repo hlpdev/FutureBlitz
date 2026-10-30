@@ -1,10 +1,12 @@
-//! std.text.template: Mustache-style templates, which a Value fills, or a Struct, a Class, or a
-//! Map, through the Value that Save makes of it. A template is text with tags in "{{ }}", each
-//! filled in when it's rendered: {{name}} gives a value, the blocks {{#each name}}, {{#if name}},
-//! and {{#unless name}} go over or test one, with an {{else}} for when there's nothing,
-//! {{> name}} renders another template there, and {{! }} is a comment. A value can take a format
-//! spec, as {{price:.2}} does, as interpolation's "{price:.2}" would. A block's tag alone on its
-//! line takes the line with it. A template for HTML escapes its values.
+//! Mustache-style templates, filled from Values and other types.
+//!
+//! A Value fills one, or a Struct, a Class, or a Map, through the Value that Save makes of it. A
+//! template is text with tags in "{{ }}", each filled in when it's rendered: {{name}} gives a
+//! value, the blocks {{#each name}}, {{#if name}}, and {{#unless name}} go over or test one, with
+//! an {{else}} for when there's nothing, {{> name}} renders another template there, and {{! }} is a
+//! comment. A value can take a format spec, as {{price:.2}} does, as interpolation's "{price:.2}"
+//! would. A block's tag alone on its line takes the line with it. A template for HTML escapes its
+//! values.
 
 Import std.core
 Import std.collections
@@ -15,6 +17,16 @@ Extern "runtime"
 End Extern
 
 /// A template, read once, which Render fills from what it's given each time.
+///
+/// # Examples
+///
+/// ```
+/// Local greeting = Try Template(r"Hello, {{name}}! {{#each items}}[{{this}}]{{/each}}")
+/// Local data = Value.Object()
+/// data["name"] = Value("Ada")
+/// data["items"] = Value([Value("a"), Value("b")])
+/// Expect((Try greeting.Render(data)) == "Hello, Ada! [a][b]")
+/// ```
 Public Class Template
     Field Parts: Part[] = []
     Field Html: Bool
@@ -35,6 +47,17 @@ Public Class Template
     /// The template, filled from the Value that Save makes of `data`: a Struct's or Class's Fields
     /// by name, a Map's keys, and the rest as Save has them. Panics, as Save does, for `data` that
     /// nests more than 256 levels deep.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Struct Page
+    ///     Field Title: String
+    /// End Struct
+    ///
+    /// Local page = Try Template(r"<h1>{{Title}}</h1>", True)
+    /// Expect((Try page.Render(Page("Fish & chips"))) == "<h1>Fish &amp; chips</h1>")
+    /// ```
     @PanicsAtCaller
     Public Method Render<T>(data: T): String Throws FormatError => Try Render(Save(data))
 End Class

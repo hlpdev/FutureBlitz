@@ -1,8 +1,10 @@
-//! std.text.encoding: text to and from bytes in encodings other than a String's own UTF-8 (UTF-16
-//! and UTF-32, little- and big-endian, ASCII, Latin-1, and Windows-1252), with the byte order mark
-//! (BOM) that starts some files found or written; bytes as text and back (Base64, Hex, and Base32);
-//! and text escaped for a URL, for HTML, or as a FutureBlitz string literal writes it. What decodes
-//! gives Null for input it can't decode.
+//! Text encodings, Base64, hex, and Base32, and escaping text for URLs, HTML, and string literals.
+//!
+//! Text to and from bytes in encodings other than a String's own UTF-8 (UTF-16 and UTF-32, little-
+//! and big-endian, ASCII, Latin-1, and Windows-1252), with the byte order mark (BOM) that starts
+//! some files found or written; bytes as text and back (Base64, Hex, and Base32); and text escaped
+//! for a URL, for HTML, or as a FutureBlitz string literal writes it. What decodes gives Null for
+//! input it can't decode.
 
 Import std.core
 Import std.collections
@@ -104,6 +106,14 @@ End Function
 /// `text` in `encoding`, after the `encoding`'s BOM when `bom` says and it has one, or Null when a
 /// character of the `text` isn't in the `encoding`: ASCII has U+0000 to U+007F, Latin-1 U+0000 to
 /// U+00FF, and Windows-1252 Latin-1's but U+0080 to U+009F, where it has others, like "€".
+///
+/// # Examples
+///
+/// ```
+/// Expect(Encode("hé", TextEncoding.UTF16_LE) == [0x68, 0x00, 0xE9, 0x00] As UInt8[])
+/// Expect(Encode("hé", TextEncoding.ASCII) == Null)
+/// Expect(Decode([0xE9] As UInt8[], TextEncoding.LATIN1) == "é")
+/// ```
 Public Function Encode(text: String, encoding: TextEncoding, bom: Bool = False): UInt8[]?
     Local bytes: UInt8[] = bom ? BomOf(encoding) : []
     If encoding == TextEncoding.UTF8
@@ -213,6 +223,14 @@ End Function
 /// Base64, which writes bytes as text of 64 characters and back: each 3 bytes as 4 characters of
 /// "A" to "Z", "a" to "z", "0" to "9", "+", and "/", or "-" and "_" for those two in its URL-safe
 /// form, which URLs and file names can hold, and "=" filling out the last 4.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Base64.Encode("hi!".Bytes) == "aGkh")
+/// Expect(Base64.Decode("aGkh") == "hi!".Bytes)
+/// Expect(Base64.Decode("not base64!") == Null)
+/// ```
 Public Struct Base64
     /// Base64 isn't made: it's only its Static Methods.
     New()
@@ -252,6 +270,13 @@ Public Struct Base64
 End Struct
 
 /// Hex, which writes each byte as two of the digits "0" to "9" and "a" to "f".
+///
+/// # Examples
+///
+/// ```
+/// Expect(Hex.Encode([0xCA, 0xFE] As UInt8[]) == "cafe")
+/// Expect(Hex.Decode("CAFE") == [0xCA, 0xFE] As UInt8[])
+/// ```
 Public Struct Hex
     /// Hex isn't made: it's only its Static Methods.
     New()
@@ -327,6 +352,13 @@ End Struct
 
 /// Percent-encoding, which a URL's parts are in: each byte of text's UTF-8, but for the letters,
 /// digits, "-", ".", "_", and "~", as "%" and two hex digits.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Percent.Encode("a b&c") == "a%20b%26c")
+/// Expect(Percent.Decode("a%20b%26c") == "a b&c")
+/// ```
 Public Struct Percent
     /// Percent isn't made: it's only its Static Methods.
     New()
@@ -391,6 +423,13 @@ Public Struct Percent
 End Struct
 
 /// HTML's escaping, for text put in a page or an attribute's value.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Html.Escape("<b>\"Fish\" & chips") == "&lt;b&gt;&quot;Fish&quot; &amp; chips")
+/// Expect(Html.Unescape("&lt;3 &amp; &#x263A;") == "<3 & ☺")
+/// ```
 Public Struct Html
     /// Html isn't made: it's only its Static Methods.
     New()

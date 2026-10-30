@@ -1,5 +1,7 @@
-//! std.text.markdown: CommonMark, with tables, task lists, strikethrough, and autolinks as asked,
-//! over md4c: Markdown as HTML, and as a tree of its blocks, spans, and text to walk.
+//! CommonMark Markdown, as HTML or as a tree.
+//!
+//! CommonMark, with tables, task lists, strikethrough, and autolinks as asked, over md4c: Markdown
+//! as HTML, and as a tree of its blocks, spans, and text to walk.
 
 Import std.core
 Import std.collections
@@ -228,12 +230,27 @@ Const Usual = MarkdownExtensions.Tables | MarkdownExtensions.TaskLists
 
 /// The Markdown as HTML: CommonMark, and the `extensions`, tables and task lists unless they say
 /// others; with None, it's CommonMark alone.
+///
+/// # Examples
+///
+/// ```
+/// Expect(MarkdownToHtml("# Hi\n\n*there*") == "<h1>Hi</h1>\n<p><em>there</em></p>\n")
+/// ```
 Public Function MarkdownToHtml(text: String, extensions: MarkdownExtensions = Usual): String
     Return fb_markdown_html(text, extensions As Int32)
 End Function
 
 /// The Markdown as a tree, from its Document down, with the `extensions`, tables and task lists
 /// unless they say others.
+///
+/// # Examples
+///
+/// ```
+/// Local document = ParseMarkdown("# Title\n\nSome *text*.")
+/// Expect(document.Kind == MarkdownKind.Document)
+/// Expect(document.Children[0].Kind == MarkdownKind.Heading && document.Children[0].Level == 1)
+/// Expect(document.Children[1].PlainText() == "Some text.")
+/// ```
 Public Function ParseMarkdown(text: String, extensions: MarkdownExtensions = Usual): MarkdownNode
     Local events = fb_markdown_parse(text, extensions As Int32)
     Defer fb_markdown_free(events)

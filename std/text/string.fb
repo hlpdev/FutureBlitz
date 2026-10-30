@@ -1,3 +1,5 @@
+//! Searching, slicing, splitting, and changing Strings.
+//!
 //! A String's Methods, by byte position. A String is UTF-8: its Length is its bytes, and a position
 //! is a byte offset, which Find gives and Slice takes, so neither counts characters. A position
 //! outside the String, or inside one of its characters, panics. CharCount and GraphemeCount count
@@ -28,6 +30,14 @@ End Extern
 
 Extend String
     /// How many bytes its UTF-8 has, which is also the position just past its end.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Import std.text
+    /// Local text = "héllo"
+    /// Expect(text.Length == 6 && text.CharCount == 5)
+    /// ```
     Public Property Length: Int
         Get => fb_text_length(Self) As Int
     End Property
@@ -71,6 +81,15 @@ Extend String
 
     /// Where `part` first starts, at from or after, or Null when it isn't there. Panics when from
     /// isn't a position in the String.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect("hello".Find("l") == 2)
+    /// Expect("hello".FindLast("l") == 3)
+    /// Expect("hello".Find("z") == Null)
+    /// Expect("hello".Slice(1, 4) == "ell")
+    /// ```
     @PanicsAtCaller
     Public Method Find(part: String, from: Int = 0): Int?
         CheckPosition(from, "Find")
@@ -152,6 +171,14 @@ Extend String
 
     /// The parts between each separator: "a,,b" split by "," is "a", "", and "b". An empty
     /// `separator` panics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect("a,b,,c".Split(",") == ["a", "b", "", "c"])
+    /// Expect("  two  words ".SplitWhitespace() == ["two", "words"])
+    /// Expect("key=value=more".SplitOnce("=") == ("key", "value=more"))
+    /// ```
     @PanicsAtCaller
     Public Method Split(separator: String): String[]
         CheckPart(separator, "Split")
@@ -205,6 +232,13 @@ Extend String
 
     /// A copy with each old, from the start, replaced by `replacement`. An empty `old` panics, and
     /// so does a copy past the most a String holds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect("a-b-c".Replace("-", "+") == "a+b+c")
+    /// Expect("a-b-c".ReplaceFirst("-", "+") == "a+b-c")
+    /// ```
     @PanicsAtCaller
     Public Method Replace(old: String, replacement: String): String
         CheckPart(old, "Replace")
@@ -223,6 +257,13 @@ Extend String
     End Method
 
     /// A copy without the whitespace at its start and end.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect("  hi  ".Trim() == "hi")
+    /// Expect("v1.2".TrimPrefix("v") == "1.2")
+    /// ```
     Public Method Trim(): String
         Local start = Skipped(0)
         Return fb_text_slice(Self, start, SkippedBack(Length, start))
@@ -278,6 +319,13 @@ Extend String
 
     /// A copy with `fill` before it, as many as it takes to make `width` characters, or the String
     /// itself when it has as many already. Panics past the most a String holds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect("7".PadLeft(3, '0') == "007")
+    /// Expect("hi".Center(6) == "  hi  ")
+    /// ```
     @PanicsAtCaller
     Public Method PadLeft(width: Int, fill: Char = ' '): String
         Local count = CharCount
@@ -327,6 +375,13 @@ Extend String
     /// -1, 0, or 1, as Compare gives, but with each run of the digits 0 to 9 compared as a number,
     /// so "file9" comes before "file10". Runs equal as numbers, like "07" and "7", go by their
     /// length after that, the shorter first.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect("file2".NaturalCompare("file10") < 0)
+    /// Expect("file2".Compare("file10") > 0)
+    /// ```
     Public Method NaturalCompare(other: String): Int
         Local a = 0
         Local b = 0

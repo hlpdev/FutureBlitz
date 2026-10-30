@@ -1,6 +1,7 @@
-//! std.text.glob: a shell's wildcards, matched against all of a String, a character at a time. * is
-//! any run of characters but /, and ** any run at all, so "src/**/*.fb" reaches into folders, and
-//! "**/", as a whole folder, can be no folder, as in bash's globstar; ? is one character but /;
+//! Matching text against a shell's wildcard patterns.
+//!
+//! * is any run of characters but /, and ** any run at all, so "src/**/*.fb" reaches into folders,
+//! and "**/", as a whole folder, can be no folder, as in bash's globstar; ? is one character but /;
 //! `[abc]` and `[a-z]` are one of a set, and `[!abc]` or `[^abc]` one that isn't, never /; {a,b} is
 //! either; and \ makes the character after it itself. A [ or { without its end is itself.
 
@@ -25,6 +26,16 @@ Struct Piece
 End Struct
 
 /// A pattern, read once, which Matches tells text against.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Glob.Match("*.txt", "notes.txt"))
+/// Expect(!Glob.Match("*.txt", "notes.md"))
+/// Local images = Glob("img?.[pj]ng")
+/// Expect(images.Matches("img1.png") && images.Matches("img2.jng") && !images.Matches("img10.png"))
+/// Expect(Glob.Match("READ*", "readme", True))
+/// ```
 Public Class Glob
     /// Each of the pattern's alternatives, its braces taken apart, as its pieces.
     ReadOnly Field Alternatives: Piece[][]

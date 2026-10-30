@@ -1,8 +1,9 @@
-//! std.text.humanize: values as people say them, in English. Plurals ("3 enemies"), how long ago
-//! or from now a time is ("3 minutes ago"), ordinals ("22nd"), numbers in words ("forty-two"),
-//! and a name in each case style a program uses: snake_case, camelCase, PascalCase, and
-//! kebab-case. FormatBytes and FormatDuration say a size ("1.2 MB") and a Duration ("1 hour and 30
-//! minutes").
+//! Numbers, sizes, times, and names written as people say them, in English.
+//!
+//! Plurals ("3 enemies"), how long ago or from now a time is ("3 minutes ago"), ordinals ("22nd"),
+//! numbers in words ("forty-two"), and a name in each case style a program uses: snake_case,
+//! camelCase, PascalCase, and kebab-case. FormatBytes and FormatDuration say a size ("1.2 MB") and
+//! a Duration ("1 hour and 30 minutes").
 
 Import std.core
 Import std.text.char
@@ -14,6 +15,16 @@ Extern "runtime"
 End Extern
 
 /// Humanize's operations.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Humanize.Plural(3, "box") == "3 boxes")
+/// Expect(Humanize.Ordinal(22) == "22nd")
+/// Expect(Humanize.Words(42) == "forty-two")
+/// Expect(Humanize.SnakeCase("HttpServerName") == "http_server_name")
+/// Expect(Humanize.Relative(-180) == "3 minutes ago")
+/// ```
 Public Class Humanize
     /// `word`'s plural: "enemy" is "enemies", "box" "boxes", "leaf" "leaves", "child" "children",
     /// and "sheep" "sheep". Of several words, the last one's. A word keeps its capitals, as
@@ -254,6 +265,14 @@ End Function
 /// `count` bytes as people say them, in the largest unit they make at least 1 of, to a tenth,
 /// rounded half up: "1.2 MB", "999 B", and "-3.4 GB". The units are 1000 apart, or with `binary`,
 /// 1024: "1.2 MiB".
+///
+/// # Examples
+///
+/// ```
+/// Expect(FormatBytes(999) == "999 B")
+/// Expect(FormatBytes(1_234_567) == "1.2 MB")
+/// Expect(FormatBytes(1536, True) == "1.5 KiB")
+/// ```
 Public Function FormatBytes(count: Int64, binary: Bool = False): String
     Local size = Magnitude(count)
     Local sign = count < 0 ? "-" : ""

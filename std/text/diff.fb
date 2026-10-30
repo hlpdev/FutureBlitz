@@ -1,3 +1,5 @@
+//! The differences between two texts, by lines or characters, and three-way merges.
+//!
 //! std.text.diff: what changed between two texts, by Myers' algorithm, which finds the fewest
 //! lines, or characters, to delete and insert. Diff.Lines and Diff.Chars give the runs of what's
 //! the same, deleted, and inserted; Diff.Unified the text that diff -u and git diff show; and
@@ -51,6 +53,17 @@ Struct Change
 End Struct
 
 /// Diffing's operations.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.collections
+/// Local runs = Diff.Lines("a\nb\nc\n", "a\nc\nd\n")
+/// Expect(runs.Map(Function(run: DiffRun) => run.Kind) ==
+///        [DiffKind.SAME, DiffKind.DELETED, DiffKind.SAME, DiffKind.INSERTED])
+/// Local patch = Diff.Unified("a\nb\n", "a\nc\n")
+/// Expect(patch.Contains("-b\n") && patch.Contains("+c\n"))
+/// ```
 Public Class Diff
     /// The runs of lines that are the same in `a` and `b`, deleted from `a`, and inserted for `b`,
     /// in order, as few lines as can be deleted and inserted. Where lines are replaced, the deleted
@@ -141,6 +154,13 @@ Public Class Diff
     /// "\r\n" where the texts' lines do. A conflict holds only the lines that differ between the
     /// two, and two conflicts with at most 3 lines between them, or lines without an ASCII letter
     /// or digit, are one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local merged = Diff.Merge("a\nb\nc\n", "A\nb\nc\n", "a\nb\nC\n")
+    /// Expect(merged.Conflicts == 0 && merged.Text == "A\nb\nC\n")
+    /// ```
     Public Static Method Merge(base: String, ours: String, theirs: String,
                                oursName: String = "ours", theirsName: String = "theirs"): Merged
         Local lines = LinesOf(base)

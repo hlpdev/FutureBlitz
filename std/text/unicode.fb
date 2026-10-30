@@ -1,6 +1,8 @@
-//! std.text.unicode: what Unicode's data says about characters and text, through the runtime's
-//! fb_unicode_ functions over utf8proc: each character's general category, normal forms, case
-//! folding, and the columns text takes in a terminal.
+//! What Unicode says of characters: categories, normal forms, case folding, and widths.
+//!
+//! What Unicode's data says about characters and text, through the runtime's fb_unicode_ functions
+//! over utf8proc: each character's general category, normal forms, case folding, and the columns
+//! text takes in a terminal.
 
 Import std.core
 
@@ -96,6 +98,16 @@ End Function
 
 /// `text` in the normal form `form`, so `text` that looks the same is the same: "é" as one
 /// character in NFC, and as "e" and its accent in NFD. Panics past the most a String holds.
+///
+/// # Examples
+///
+/// ```
+/// Local composed = "\u{E9}"
+/// Local decomposed = "e\u{301}"
+/// Expect(composed != decomposed)
+/// Expect(Normalize(decomposed) == composed)
+/// Expect(Normalize(composed, NormalForm.NFD) == decomposed)
+/// ```
 @PanicsAtCaller
 Public Function Normalize(text: String, form: NormalForm = NormalForm.NFC): String
     Local normal = fb_unicode_normalize(text, form As Int32)
@@ -110,6 +122,13 @@ End Function
 
 /// `text` case-folded, as Unicode has it, so two texts that differ only by case fold to the same:
 /// "Straße" and "STRASSE" both to "strasse". Panics past the most a String holds.
+///
+/// # Examples
+///
+/// ```
+/// Expect(CaseFold("Straße") == CaseFold("STRASSE"))
+/// Expect(Category('A') == UnicodeCategory.UPPERCASE_LETTER)
+/// ```
 @PanicsAtCaller
 Public Function CaseFold(text: String): String
     Local folded = fb_unicode_case_fold(text)

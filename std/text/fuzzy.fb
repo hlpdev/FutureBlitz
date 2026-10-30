@@ -1,8 +1,9 @@
-//! std.text.fuzzy: fuzzy matching, as fzf does it. A pattern matches text that has its characters
-//! in order, with anything between them, and the best way to place them scores most: characters
-//! that follow each other, and ones at the start of a word, after a space, a /, or a _, or a
-//! capital in camelCase, score more, and gaps between them less. A pattern without capitals
-//! ignores case. Positions are byte positions, as a String's are.
+//! Fuzzy matching of text, as fzf does it.
+//!
+//! A pattern matches text that has its characters in order, with anything between them, and the
+//! best way to place them scores most: characters that follow each other, and ones at the start of
+//! a word, after a space, a /, or a _, or a capital in camelCase, score more, and gaps between them
+//! less. A pattern without capitals ignores case. Positions are byte positions, as a String's are.
 
 Import std.core
 Import std.collections.array
@@ -37,6 +38,14 @@ Public Struct FuzzyMatch
 End Struct
 
 /// Fuzzy matching's operations.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Fuzzy.Match("fb", "foobar")?.Positions == [0, 3])
+/// Expect(Fuzzy.Match("fb", "xyz") == Null)
+/// Expect(Fuzzy.Rank("fb", ["xyz", "foobar"]) == ["foobar"])
+/// ```
 Public Class Fuzzy
     /// The best match of `pattern` in `text`, or Null when `text` doesn't have `pattern`'s
     /// characters in order. An empty `pattern` matches anything, scoring 0.

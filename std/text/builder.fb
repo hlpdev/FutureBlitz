@@ -1,3 +1,5 @@
+//! StringBuilder, which builds text a piece at a time.
+//!
 //! StringBuilder: text built up a piece at a time, in a buffer of its UTF-8 bytes that grows as
 //! pieces come, so building a String of many pieces takes time in proportion to its length, where
 //! joining them one by one would copy it each time. Positions are byte offsets, as a String's are,

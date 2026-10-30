@@ -1,3 +1,5 @@
+//! A Char's code, kind, and case.
+//!
 //! A Char's Methods: its code, what kind of character it is, as Unicode's general categories say,
 //! and its own uppercase and lowercase, through the runtime's fb_unicode_ functions over utf8proc.
 //! Whitespace and ASCII need no Unicode data.
@@ -29,12 +31,28 @@ Extend Char
 
     /// The Char of a code point, or Null for one that isn't a Unicode scalar value: below 0, past
     /// 0x10FFFF, or a surrogate, 0xD800 to 0xDFFF.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect('A'.Code == 65)
+    /// Expect(Char.From(0x1F600)?.Utf8Length == 4)
+    /// Expect(Char.From(0xD800) == Null)
+    /// ```
     Public Static Method From(code: Int): Char?
         If code < 0 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF) Then Return Null
         Return code As Char
     End Method
 
     /// Whether it's a letter, of any case or none, as in "é", "ж", or "中".
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect('a'.IsLetter() && !'7'.IsLetter())
+    /// Expect('7'.IsDigit() && ' '.IsWhitespace())
+    /// Expect('é'.ToUpper() == 'É')
+    /// ```
     Public Method IsLetter(): Bool
         Local category = fb_unicode_category(Self As UInt32)
         Return category >= 1 && category <= 5

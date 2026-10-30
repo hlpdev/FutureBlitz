@@ -1,3 +1,5 @@
+//! Scanner, which reads text a piece at a time, for a parser.
+//!
 //! Scanner: reads text from its start, a character, a word, a line, or a number at a time, for a
 //! parser, and keeps the Line and Column of what it reads next, where an error can point. A line
 //! ends at "\n", and a column counts characters, code points, from 1.
@@ -14,6 +16,19 @@ End Extern
 
 /// Reads text from its start, a character, a word, a line, or a number at a time, keeping the Line
 /// and Column of what it reads next.
+///
+/// # Examples
+///
+/// ```
+/// Local scanner = Scanner("width = 800\nheight = 600")
+/// Expect(scanner.TakeWord() == "width")
+/// scanner.SkipWhitespace()
+/// Expect(scanner.Take("="))
+/// scanner.SkipWhitespace()
+/// Expect(scanner.TakeInt() == 800)
+/// scanner.SkipWhitespace()
+/// Expect(scanner.Line == 2 && scanner.TakeWord() == "height")
+/// ```
 Public Class Scanner
     /// The text it reads.
     Public ReadOnly Field Text: String
