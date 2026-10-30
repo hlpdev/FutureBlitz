@@ -1,3 +1,5 @@
+//! HTTP header fields, whose names match in any letter case.
+//!
 //! Headers, an HTTP request's or response's header fields: names, which ASCII's letter cases don't
 //! change, as "Content-Type" and "content-type" are one, each with its values, in the order they
 //! were added.
@@ -13,6 +15,18 @@ End Extern
 
 /// A request's or a response's header fields, as names and values. A name keeps the letter cases
 /// it was given, and finds every value of it in any.
+///
+/// # Examples
+///
+/// ```
+/// Local headers = Headers()
+/// headers.Add("Set-Cookie", "a=1")
+/// headers.Add("set-cookie", "b=2")
+/// headers.Set("Content-Type", "text/html")
+/// Expect(headers.Get("content-type") == "text/html")
+/// Expect(headers.GetAll("SET-COOKIE") == ["a=1", "b=2"])
+/// Expect(headers.Count == 3)
+/// ```
 Public Class Headers Implements Iterable<(String, String)>, Cloneable, Printable
     Field Names: String[] = []
     Field Values: String[] = []
@@ -140,6 +154,7 @@ Public Struct HeadersIterator Implements Iterator<(String, String)>
     Field Fields: Headers
     Field Index: Int
 
+    /// The next field's name and value, in order, or Null after the last.
     Public ByRef Method Next(): (String, String)?
         If Index >= Fields.Count Then Return Null
         Index += 1

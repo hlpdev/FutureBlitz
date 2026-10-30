@@ -1,7 +1,8 @@
-//! std.net.acme: what automatic HTTPS needs of ACME (RFC 8555), as Let's Encrypt speaks it. Acme's
-//! CertificateRequest makes the certificate signing request an order is finalized with, as DER,
-//! for a P-256 key and the DNS names it's for; its Jwk and Thumbprint give an account key's JWK
-//! (RFC 7517) and its thumbprint (RFC 7638), and KeyAuthorization what an HTTP-01 challenge's
+//! What automatic HTTPS needs of ACME, as Let's Encrypt speaks it.
+//!
+//! Acme's CertificateRequest makes the certificate signing request an order is finalized with, as
+//! DER, for a P-256 key and the DNS names it's for; its Jwk and Thumbprint give an account key's
+//! JWK (RFC 7517) and its thumbprint (RFC 7638), and KeyAuthorization what an HTTP-01 challenge's
 //! response is. AcmeClient, in acme_client.fb, goes through an order with a CA.
 
 Import std.core
@@ -28,6 +29,16 @@ Const DER_ATTRIBUTES: UInt8 = 0xA0
 Const DER_DNS_NAME: UInt8 = 0x82
 
 /// What ACME needs that isn't a request to a CA. Acme isn't made: it's only its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.crypto
+/// Local key = Key(KeyKind.ECDSA_P256, True, EcdsaP256.NewPrivateKey())
+/// Local answer = Acme.KeyAuthorization("a-token", key)
+/// Expect(answer == "a-token." + Acme.Thumbprint(key))
+/// Expect(Acme.Jwk(key).Path("kty")?.AsString() == "EC")
+/// ```
 Public Struct Acme
     New()
     End New

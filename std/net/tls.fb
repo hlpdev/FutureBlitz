@@ -1,11 +1,12 @@
-//! std.net.tls: TLS 1.2 and 1.3 over any stream that's a Reader and a Writer, as a TcpStream is,
-//! through mbedTLS. TlsClient connects as a client, checking that the server's certificate is
-//! for the host it connects to and that a root it trusts signed it: the OS's, or roots of its
-//! own. TlsServer accepts as a server, with its certificate chain and key, and can ask each client
-//! for a certificate too. Either gives a TlsStream, a Reader and a Writer of what goes through
-//! TLS, with Async twins, which says the version of TLS, the application protocol ALPN agreed on,
-//! and the other side's certificate: `client.Connect(Try TcpStream.Connect(host, 443), host)`.
-//! TlsListener takes TCP connections and accepts each as a TlsServer.
+//! TLS 1.2 and 1.3 over any stream.
+//!
+//! TlsClient connects as a client, checking that the server's certificate is for the host it
+//! connects to and that a root it trusts signed it: the OS's, or roots of its own. TlsServer
+//! accepts as a server, with its certificate chain and key, and can ask each client for a
+//! certificate too. Either gives a TlsStream, a Reader and a Writer of what goes through TLS, with
+//! Async twins, which says the version of TLS, the application protocol ALPN agreed on, and the
+//! other side's certificate: `client.Connect(Try TcpStream.Connect(host, 443), host)`. TlsListener
+//! takes TCP connections and accepts each as a TlsServer.
 //!
 //! A handshake that fails throws a NetError: of TLS, which says why, like "the server's
 //! certificate has expired", or of CLOSED when the stream ends first. One the stream under it
@@ -205,6 +206,19 @@ End Function
 /// A client of TLS, which connects over a stream to a server whose certificate is for the host
 /// it connects to, which a root it trusts signed: the OS's, as it starts, or its own. It can
 /// offer application protocols, and give a certificate of its own to a server that asks for one.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.io
+/// Local tls = TlsClient()
+/// tls.Offer(["http/1.1"])
+/// Local tcp = Try TcpStream.Connect("example.com", 443)
+/// Local secure = Try tls.Connect(tcp, "example.com")
+/// Print(secure.Version, secure.PeerCertificate?.Subject ?? "no certificate")
+/// Try secure.WriteText("GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
+/// Print(Try ReadAllText(secure))
+/// ```
 Public Class TlsClient
     ReadOnly Field Setup: TlsSetup
 
@@ -521,6 +535,8 @@ Public Class TlsStream<S> Implements Reader, Writer
         End Loop
     End Method
 
+    /// Read's Async twin: the next bytes TLS's records hold, which waits on the stream's ReadAsync
+    /// while the main thread goes on.
     Public Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
         If into.Count == 0 Then Return 0
         Loop
@@ -541,6 +557,8 @@ Public Class TlsStream<S> Implements Reader, Writer
         End For
     End Method
 
+    /// Write's Async twin: the bytes, sealed in TLS's records, written by the stream's WriteAsync
+    /// while the main thread goes on.
     Public Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
         Try CheckOpen()
         For start = 0 Until from.Count Step RECORD_SIZE
@@ -571,6 +589,7 @@ Public Class TlsStream<S> Implements Reader, Writer
         Try Inner.Flush()
     End Method
 
+    /// Flush's Async twin: flushes the stream, by its FlushAsync.
     Public Async Method FlushAsync() Throws IOError
         Try Await Inner.FlushAsync()
     End Method

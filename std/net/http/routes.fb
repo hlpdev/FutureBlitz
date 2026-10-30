@@ -1,3 +1,5 @@
+//! Routes made from a Class's Methods, by attributes like `@Get`.
+//!
 //! Routes from a Class's Methods: each Async Method with an attribute of its method and path, like
 //! `@Get("/users/:id")`, becomes a route, whose one argument, a Struct of what the request gives,
 //! is made from the route's path parameters, the query, and a JSON body, by `Load<T>`, as the
@@ -30,6 +32,8 @@ Public Attribute JsonBody
 // of its own, for which Load isn't called; this is so that Routes' loop over Methods of one
 // argument, which Load makes, and which a Method of the request is among, compiles for it.
 Extend HttpRequest Implements Loadable
+    /// Throws a ParseError of WRONG_TYPE: an HttpRequest comes from a server, so a route's Struct
+    /// gets its request as it is, not from the Value Load reads.
     Public Static Method FromValue(value: Value): HttpRequest Throws ParseError
         Throw ParseError(ParseErrorKind.WRONG_TYPE, "an HttpRequest is a server's, which Load " +
                          "doesn't make")
@@ -52,6 +56,25 @@ Extend HttpRouter
     /// with its paths already, and for a Method of up to four arguments with one that isn't a
     /// route's shape: one that isn't Async, throws, gives something else, takes the request
     /// first, or takes what Load doesn't make from an Object, like a number or an HttpRequest?.
+    ///
+    /// # Examples
+    ///
+    /// ```fb no_run
+    /// Struct ShowUser
+    ///     Field id: Int
+    /// End Struct
+    ///
+    /// Class Users
+    ///     @Get("/users/:id")
+    ///     Public Async Method Show(request: ShowUser): HttpResponse
+    ///         Return HttpResponse.Of(Body.Text("user {request.id}"))
+    ///     End Method
+    /// End Class
+    ///
+    /// Local server = HttpServer()
+    /// server.Routes(Users())
+    /// Try server.Listen("127.0.0.1", 8080)
+    /// ```
     @PanicsAtCaller
     Public Method Routes<T>(instance: T)
         Register(Self, instance)

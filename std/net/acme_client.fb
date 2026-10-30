@@ -1,3 +1,5 @@
+//! An ACME client, which gets certificates from a CA like Let's Encrypt.
+//!
 //! An ACME client (RFC 8555), as Let's Encrypt's are: AcmeClient makes an account with a CA, from
 //! its directory's URL, and orders a certificate for names it proves it holds by HTTP-01,
 //! publishing each challenge's key authorization through AcmeTokens, which a server answers on port
@@ -29,6 +31,16 @@ Const ERROR_PREFIX = "urn:ietf:params:acme:error:"
 
 /// The key authorizations of an ACME client's HTTP-01 challenges, by token, which a server gives
 /// for /.well-known/acme-challenge/<token>, through Answer, from any thread.
+///
+/// # Examples
+///
+/// ```
+/// Const tokens = AcmeTokens()
+/// tokens.Publish("abc", "abc.thumbprint")
+/// Expect(tokens.Answer("/.well-known/acme-challenge/abc") == "abc.thumbprint")
+/// tokens.Withdraw("abc")
+/// Expect(tokens.Answer("/.well-known/acme-challenge/abc") == Null)
+/// ```
 Public Shared Class AcmeTokens
     ReadOnly Field Published: ConcurrentMap<String, String>
 

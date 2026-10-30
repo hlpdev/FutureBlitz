@@ -1,3 +1,5 @@
+//! Offering and finding services on the LAN, over mDNS and DNS-SD.
+//!
 //! std.net's LAN discovery: LanAnnouncer, which offers a service to the LAN, and Lan.Find, which
 //! finds those of a type there, over mDNS and DNS-SD (RFCs 6762 and 6763), as Bonjour and Avahi
 //! have them, so the dns-sd and avahi-browse tools find what a program offers, and it finds what
@@ -59,6 +61,17 @@ Function Group(): IpAddress => IpAddress.V4(224, 0, 0, 251)
 /// A service on the LAN, as DNS-SD has one: its type, like "_mygame._udp", its name, which none
 /// of its type shares, the host it's on and that host's addresses, its port, and its text, a map
 /// of keys to values, each key once whatever its letters' case, as the first of them is written.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.time
+/// Local announcer = Try LanAnnouncer.Start("_example._udp", "Lobby", 7777)
+/// For service In Try Lan.Find("_example._udp", 2.Seconds)
+///     Print(service)
+/// End For
+/// announcer.Stop()
+/// ```
 Public Struct LanService Implements Printable
     /// Its type, like "_mygame._udp".
     Public ReadOnly Field Type: String
@@ -89,6 +102,7 @@ Public Struct LanService Implements Printable
         Get => Addresses.Count == 0 ? Null : SocketAddress(Addresses[0], Port)
     End Property
 
+    /// Its name, type, host, and port, as "Lobby (_example._udp) at host.local:7777".
     Public Method ToString(): String => "{Name} ({Type}) at {Host}:{Port}"
 End Struct
 

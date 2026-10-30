@@ -1,3 +1,5 @@
+//! An HTTP and HTTPS server, whose handlers run on the main thread.
+//!
 //! HttpServer: HTTP/1.1 over TCP, or HTTPS, over TLS, whose handlers are Async code on the main
 //! thread, so they share its Globals without data races. A request goes through the server's
 //! middleware, in the order Use gave it, to the handler of the route that fits its method and path
@@ -132,6 +134,14 @@ Extend HttpResponse
     /// A response of `status`, with `body`'s bytes and its Content-Type, or an empty one. The
     /// `status` is a final response's, from 200 to 599, or it panics: a 1xx's response comes before
     /// the one that answers, and a WebSocket's 101 comes from its AcceptAsync.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local missing = HttpResponse.Of(StatusCode.NOT_FOUND, Body.Text("no such page"))
+    /// Expect(missing.Status == 404 && missing.Text == "no such page")
+    /// Expect(HttpResponse.Redirect("/login").Headers.Get("Location") == "/login")
+    /// ```
     @PanicsAtCaller
     Public Static Method Of(status: Int, body: Body? = Null): HttpResponse
         If status < 200 || status > 599
@@ -461,6 +471,19 @@ End Class
 /// connection closed; an HTTP/1.1 one without a Host, or any with two, is a 400; an Expect other
 /// than 100-continue is a 417. A response has its Content-Length and Date set, and a Connection:
 /// close when its connection closes after it.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// Async Function Hello(request: HttpRequest): HttpResponse
+///     Local name = request.Param("name") ?? "you"
+///     Return HttpResponse.Of(Body.Text("Hello, {name}!"))
+/// End Function
+///
+/// Local server = HttpServer()
+/// server.Get("/hello/:name", Function(request: HttpRequest) => Hello(request))
+/// Try server.Listen("127.0.0.1", 8080)
+/// ```
 Public Class HttpServer Extends HttpRouter
     /// Its routes, which its groups hold weakly.
     ReadOnly Field Own: RouteTable

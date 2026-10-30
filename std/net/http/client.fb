@@ -1,3 +1,5 @@
+//! An HTTP and HTTPS client.
+//!
 //! HttpClient, which sends HTTP and HTTPS requests and gives their responses, over libcurl, whose
 //! TLS is mbedTLS's: it follows redirects, decompresses what comes compressed, keeps cookies, and
 //! trusts the OS's roots unless it's given its own. A download goes to memory, or atomically to a
@@ -78,6 +80,16 @@ End Enum
 /// What a request sends: its bytes, and what they are, as its Content-Type header says unless the
 /// request's headers say it themselves. Panics for a contentType a header's value can't be, as
 /// Headers.Add does.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Local form = Body.Form({"name": "Ada Lovelace", "age": "36"})
+/// Expect(form.ContentType == "application/x-www-form-urlencoded")
+/// Expect(String.FromUtf8(form.Bytes) == "name=Ada%20Lovelace&age=36")
+/// Expect(Body.Text("hi").ContentType == "text/plain; charset=utf-8")
+/// ```
 Public Struct Body
     /// Its bytes.
     Public ReadOnly Field Bytes: UInt8[]
@@ -169,6 +181,19 @@ End Class
 /// http_proxy, https_proxy, and no_proxy do. A failure throws: a NetError for the network's or the
 /// server's, or for a URL that isn't HTTP's or HTTPS's, and a TimeoutError for a request that took
 /// longer than its Timeout, or connecting that took longer than its ConnectTimeout.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.time
+/// Local client = HttpClient()
+/// client.Timeout = 10.Seconds
+/// client.DefaultHeaders.Set("Accept", "application/json")
+/// Local score = Body.Json("{{\"score\": 42}}")
+/// Local response = Try client.Post("https://example.com/api/scores", score)
+/// Try response.EnsureSuccess()
+/// Print(response.Status, response.Text)
+/// ```
 Public Class HttpClient
     Field State: Ptr<Void>
     /// The headers each request sends, before its own.
@@ -555,6 +580,13 @@ Class Transfer
 End Class
 
 /// One request each, through a client of its own, with HttpClient's settings as they start.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// Local page = Try Http.GetText("https://example.com/")
+/// Print(page)
+/// ```
 Public Struct Http
     /// Http isn't made: it's only its Static Methods.
     New()

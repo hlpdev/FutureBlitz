@@ -1,3 +1,5 @@
+//! WebSocket clients and servers.
+//!
 //! std.net.ws's WebSocket, per RFC 6455: messages of text or bytes both ways over one connection,
 //! a client's from Connect, at a ws:// URL, or a wss:// one over TLS, or a server's from Accept,
 //! which answers the client's handshake.
@@ -73,6 +75,16 @@ End Class
 /// error is a NetError: of CLOSED for a connection that ended without a Close frame, RESET for
 /// one the other side ended badly, and OTHER for a frame that breaks RFC 6455, which closes it
 /// with the code the RFC gives. The connection closes when the WebSocket goes, or at Abort.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// Local socket = Try WebSocket.Connect("wss://echo.example.com/")
+/// Try socket.Send("hello")
+/// Local reply = Try socket.Receive()
+/// Print(reply?.Text ?? "closed")
+/// socket.Close()
+/// ```
 Public Class WebSocket
     ReadOnly Field Stream: Duplex
     ReadOnly Field Input: Wire

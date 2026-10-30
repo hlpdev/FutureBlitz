@@ -1,3 +1,5 @@
+//! What std.net's sockets share.
+//!
 //! What std.net's sockets share: the runtime's functions, which work over libuv's handles on the
 //! I/O thread, an address as they pass it, a timeout as they take it, what their codes mean, and
 //! StreamSocket, which TcpStream and IpcStream read and write through.

@@ -1,3 +1,5 @@
+//! Serving a folder's files over HTTP.
+//!
 //! Static files: a folder's files as a router's routes, for GET and HEAD, with their Content-Type,
 //! ETag, and Last-Modified, a 304 Not Modified for a request whose copy is current, and a 206
 //! Partial Content for a request for one range of a file's bytes.
@@ -33,6 +35,16 @@ Extend HttpRouter
     /// would; so a request never reaches outside the `folder`, nor a name it refuses. A file of
     /// more than 2 GiB, which it reads whole, is a 500. Panics when `prefix` isn't a path, or a
     /// route has its paths already.
+    ///
+    /// # Examples
+    ///
+    /// ```fb no_run
+    /// # Import std.io
+    /// Local server = HttpServer()
+    /// // GET /static/app.css answers with public/app.css.
+    /// server.Files("/static", Path("public"))
+    /// Try server.Listen("127.0.0.1", 8080)
+    /// ```
     @PanicsAtCaller
     Public Method Files(prefix: String, folder: Path)
         If !prefix.StartsWith("/")

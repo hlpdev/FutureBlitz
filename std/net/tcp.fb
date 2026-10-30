@@ -1,3 +1,5 @@
+//! TCP connections and listeners.
+//!
 //! std.net's TCP: TcpListener, which takes connections at an address, and TcpStream, a
 //! connection's bytes both ways, a Reader and a Writer as std.io's streams are, each blocking or
 //! Async.
@@ -19,6 +21,16 @@ Const BACKLOG = 511
 /// Nagle's algorithm is off, so a small write goes at once, as a game's messages need. A Read or
 /// Write that fails throws an IOError whose Cause is a NetError, of RESET for a connection the
 /// other side ended badly, or a TimeoutError. It closes when it goes, or at Close.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.io
+/// Local stream = Try TcpStream.Connect("example.com", 80)
+/// Try stream.WriteText("HEAD / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
+/// Print(Try ReadAllText(stream))
+/// stream.Close()
+/// ```
 Public Class TcpStream Implements Reader, Writer
     ReadOnly Field Socket: StreamSocket
 
@@ -114,6 +126,8 @@ Public Class TcpStream Implements Reader, Writer
     /// it writes.
     Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError => Try Socket.Read(into)
 
+    /// Read's Async twin, which waits on the I/O thread for the connection's bytes while the main
+    /// thread goes on.
     Public Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
         Return Try Await Socket.ReadAsync(into)
     End Method
@@ -123,6 +137,8 @@ Public Class TcpStream Implements Reader, Writer
         Try Socket.Write(from)
     End Method
 
+    /// Write's Async twin, which waits on the I/O thread while the connection's bytes go, while the
+    /// main thread goes on.
     Public Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
         Try Await Socket.WriteAsync(from)
     End Method
@@ -147,6 +163,17 @@ End Class
 
 /// Takes TCP connections at an address, which Accept gives as TcpStreams. It closes when it
 /// goes, or at Close, with the connections it has that nothing accepted.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// Local listener = Try TcpListener.Listen("127.0.0.1", 9000)
+/// Loop
+///     Local client = Try listener.Accept()
+///     Try client.WriteText("hello\n")
+///     client.Close()
+/// End Loop
+/// ```
 Public Class TcpListener
     ReadOnly Field Socket: ListenerSocket
 

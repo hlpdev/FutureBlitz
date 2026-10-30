@@ -1,6 +1,7 @@
-//! std.net.game's links: what a GameHost sends its packets over and takes them from. A UdpSocket
-//! is one, through GameHost.Bind, and so is any Class that implements GameLink, as a test's link
-//! that loses packets on purpose does.
+//! What a GameHost sends its packets over, and receives them from.
+//!
+//! A UdpSocket is one, through GameHost.Bind, and so is any Class that implements GameLink, as a
+//! test's link that loses packets on purpose does.
 
 Import std.core
 Import std.time.duration

@@ -1,3 +1,5 @@
+//! HTTP status codes and their reasons.
+//!
 //! StatusCode, the HTTP statuses a response can have, by their names in RFC 9110 and the RFCs it
 //! builds on, as `response.Status == StatusCode.NOT_FOUND` reads, with each one's reason.
 
@@ -5,6 +7,14 @@ Import std.core
 
 /// The statuses with names, and what each one is. A response's Status is an Int, since a server
 /// can send one that has no name.
+///
+/// # Examples
+///
+/// ```
+/// Expect(StatusCode.NOT_FOUND == 404)
+/// Expect(StatusCode.Reason(StatusCode.NOT_FOUND) == "Not Found")
+/// Expect(StatusCode.IsSuccess(204) && StatusCode.IsRedirect(301))
+/// ```
 Public Struct StatusCode
     /// 100 Continue.
     Public Static ReadOnly Field CONTINUE: Int = 100

@@ -1,3 +1,5 @@
+//! URLs and query strings, as the WHATWG URL Standard has them.
+//!
 //! std.net's Url and QueryParams, as the WHATWG URL Standard has them: a URL read from its text,
 //! against a base or not, its parts and its origin, and the text it writes back, with what isn't
 //! in a part's set of code points percent-encoded; and a query's name and value pairs, as an HTML
@@ -19,6 +21,20 @@ End Extern
 Const EOF = -1
 
 /// A URL. Parse reads one, and ToString gives its text, which reads back as the same URL.
+///
+/// # Examples
+///
+/// ```
+/// Local url = Url.Parse("https://ada@example.com:8443/docs/../guide?lang=en#intro")
+/// Expect(url != Null)
+/// If url == Null Then Return
+/// Expect(url.Host == "example.com" && url.Port == 8443)
+/// Expect(url.Path == "/guide" && url.Fragment == "intro")
+/// Expect(url.Params.Get("lang") == "en")
+/// Expect(url.Origin == "https://example.com:8443")
+/// Local logo = url.Resolve("/images/logo.png")
+/// Expect(logo?.ToString() == "https://ada@example.com:8443/images/logo.png")
+/// ```
 Public Struct Url Implements Hashable, Printable
     /// Its scheme, in lowercase, like "https".
     Public ReadOnly Field Scheme: String
@@ -178,6 +194,16 @@ End Struct
 
 /// A query's names and values, in order, as an HTML form sends them: "a=1&b=two%20words", where
 /// a + is a space. One name can have many values.
+///
+/// # Examples
+///
+/// ```
+/// Local query = QueryParams("q=two%20words&page=2")
+/// Expect(query.Get("q") == "two words")
+/// query.Set("page", "3")
+/// query.Add("tag", "a&b")
+/// Expect("{query}" == "q=two+words&page=3&tag=a%26b")
+/// ```
 Public Class QueryParams Implements Printable, Iterable<(String, String)>
     Field Pairs: (String, String)[] = []
 

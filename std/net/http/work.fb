@@ -1,3 +1,5 @@
+//! Blocking route handlers, run on a server's worker threads.
+//!
 //! Work routes' threads: a blocking handler, which computes or waits, runs on one of a server's
 //! Workers threads, given a Sendable copy of its request, while the main thread goes on answering
 //! the others; what it gives goes back to the main thread as a Sendable copy too, which the
@@ -22,6 +24,21 @@ Public Alias WorkHandler = Sendable Func(WorkRequest): HttpResponse
 
 /// A copy of a request that a work route's handler gets on another thread: what HttpRequest has
 /// but the connection, as Sendable values.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// Function Report(request: WorkRequest): HttpResponse
+///     // Blocking work, on a Workers thread, while the main thread answers other requests.
+///     Local size = request.Param("size") ?? "small"
+///     Return HttpResponse.Of(Body.Text("a {size} report"))
+/// End Function
+///
+/// Local server = HttpServer()
+/// server.Workers = 4
+/// server.Work("/reports/:size", Report)
+/// Try server.Listen("127.0.0.1", 8080)
+/// ```
 Public Struct WorkRequest
     /// Its method, as the client wrote it, like "GET".
     Public ReadOnly Field Verb: String

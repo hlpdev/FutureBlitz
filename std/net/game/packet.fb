@@ -1,12 +1,13 @@
-//! std.net.game's packets as they go over the wire. Each starts with the protocol's mark, "FG",
-//! its version, and the packet's kind. A CONNECT asks for a connection, with the asker's salt, its
-//! first sequence, its largest message, and its channels' kinds, which an ACCEPT answers with both
-//! salts and the accepter's first sequence, or a REFUSE with why. DATA is the connection's, salts
-//! XORed, then whether it acks and asks to be acked, its sequence, the latest the other side's
-//! it got, and a bit for each of the 32 before, then messages: a channel, flags, an id, a
-//! length, a fragment's index and count when it's one, and the bytes. DISCONNECT ends the
-//! connection. Numbers are big-endian, and sequences and ids are 16 bits, which go round, so
-//! "after" is RFC 1982's.
+//! The packets a GameHost sends, as they go over the wire.
+//!
+//! Each starts with the protocol's mark, "FG", its version, and the packet's kind. A CONNECT asks
+//! for a connection, with the asker's salt, its first sequence, its largest message, and its
+//! channels' kinds, which an ACCEPT answers with both salts and the accepter's first sequence, or a
+//! REFUSE with why. DATA is the connection's, salts XORed, then whether it acks and asks to be
+//! acked, its sequence, the latest the other side's it got, and a bit for each of the 32 before,
+//! then messages: a channel, flags, an id, a length, a fragment's index and count when it's one,
+//! and the bytes. DISCONNECT ends the connection. Numbers are big-endian, and sequences and ids are
+//! 16 bits, which go round, so "after" is RFC 1982's.
 
 Import std.core
 

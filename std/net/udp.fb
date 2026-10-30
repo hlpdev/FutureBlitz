@@ -1,3 +1,5 @@
+//! UDP sockets, with broadcast and multicast.
+//!
 //! std.net's UDP: UdpSocket, which sends and receives datagrams, each whole or not at all, in no
 //! promised order, blocking or Async, with broadcast and multicast for what's on the LAN.
 
@@ -32,6 +34,16 @@ End Struct
 /// A UDP socket, bound to an address, which sends datagrams to any address and receives them from
 /// any: each arrives whole or not at all, maybe more than once, in no promised order. It closes
 /// when it goes, or at Close.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.time
+/// Local socket = Try UdpSocket.Bind("0.0.0.0", 9999)
+/// Local reply = Try socket.Receive(5.Seconds)
+/// Try socket.Send(reply.Bytes, reply.From)
+/// socket.Close()
+/// ```
 Public Class UdpSocket
     ReadOnly Field Handle: Ptr<Void>
     /// Where it's bound, which its errors name.

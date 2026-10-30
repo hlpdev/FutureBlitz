@@ -1,10 +1,11 @@
-//! std.net.game's peers: the other side of a connection, as a GameHost has it. A peer sends its
-//! messages on its channels, which go at the host's next Update, and keeps what the connection
-//! knows: its state, the round-trip time it measures from acks, and the packets it's sent,
-//! received, and lost. Every packet acks the 33 latest of the other side's it received, and a
-//! reliable part not acked once its round-trip time and a margin have passed goes again, each
-//! time waiting twice as long, up to 8 times. A Flush sends 16 packets at most, and a peer that
-//! takes 16 acks them at once, so the acks of a packet lost cover what was before it.
+//! The other side of a connection, as a GameHost has it.
+//!
+//! A peer sends its messages on its channels, which go at the host's next Update, and keeps what
+//! the connection knows: its state, the round-trip time it measures from acks, and the packets it's
+//! sent, received, and lost. Every packet acks the 33 latest of the other side's it received, and a
+//! reliable part not acked once its round-trip time and a margin have passed goes again, each time
+//! waiting twice as long, up to 8 times. A Flush sends 16 packets at most, and a peer that takes 16
+//! acks them at once, so the acks of a packet lost cover what was before it.
 
 Import std.core
 Import std.collections

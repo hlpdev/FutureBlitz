@@ -1,3 +1,5 @@
+//! Looking up the addresses a host's name has.
+//!
 //! std.net's Dns: the addresses a host's name has, as the OS's resolver finds them, through
 //! libuv's getaddrinfo on the runtime's I/O thread, blocking or Async.
 
@@ -15,6 +17,14 @@ Const NO_DATA = -3007
 Const NO_NAME = -3008
 
 /// Dns's Static Methods.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// For address In Try Dns.Resolve("example.com")
+///     Print(address)
+/// End For
+/// ```
 Public Struct Dns
     /// Dns isn't made: it's only its Static Methods.
     New()

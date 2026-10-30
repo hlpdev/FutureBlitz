@@ -1,3 +1,5 @@
+//! IP addresses, and socket addresses with ports.
+//!
 //! std.net's addresses: IpAddress, an IPv4 or IPv6 address, read from and written as its text,
 //! with what kind of address it is, and SocketAddress, one with a port, which sockets connect to
 //! and listen on.
@@ -17,6 +19,16 @@ Public Enum IpFamily
 End Enum
 
 /// An IPv4 or IPv6 address. Addresses compare by family, IPv4 first, then as their bytes do.
+///
+/// # Examples
+///
+/// ```
+/// Local home = IpAddress.Parse("192.168.1.20")
+/// Expect(home == IpAddress.V4(192, 168, 1, 20))
+/// Expect(home?.IsPrivate == True && home?.IsV4 == True)
+/// Expect(IpAddress.Parse("::1") == IpAddress.LoopbackV6)
+/// Expect(IpAddress.Parse("300.1.1.1") == Null)
+/// ```
 Public Struct IpAddress Implements Hashable, Comparable, Printable
     /// Whether it's an IPv4 address or an IPv6 one.
     Public ReadOnly Field Family: IpFamily
@@ -240,6 +252,8 @@ Public Struct IpAddress Implements Hashable, Comparable, Printable
         Return fb_string_from_array(text)
     End Method
 
+    /// Whether `a` comes before `b`: an IPv4 address before an IPv6 one, and otherwise by their
+    /// bytes.
     Operator <(a: IpAddress, b: IpAddress): Bool
         If a.Family != b.Family Then Return a.IsV4
         Return a.High < b.High || a.High == b.High && a.Low < b.Low
@@ -248,6 +262,14 @@ End Struct
 
 /// An IpAddress with a port: where a socket connects to or listens on. An IPv6 one can have a
 /// scope, its zone's index, for a link-local address, as in [fe80::1%3]:80.
+///
+/// # Examples
+///
+/// ```
+/// Local server = SocketAddress.Parse("[::1]:8080")
+/// Expect(server?.Port == 8080 && server?.Family == IpFamily.V6)
+/// Expect("{SocketAddress(IpAddress.Loopback, 80)}" == "127.0.0.1:80")
+/// ```
 Public Struct SocketAddress Implements Hashable, Comparable, Printable
     /// Its address.
     Public ReadOnly Field Address: IpAddress
@@ -313,12 +335,15 @@ Public Struct SocketAddress Implements Hashable, Comparable, Printable
         Get => Address.Family
     End Property
 
+    /// The address and its port, as "127.0.0.1:8080" for IPv4, or "[::1]:8080" for IPv6, with "%"
+    /// and its scope ID inside the brackets when it has one.
     Public Method ToString(): String
         If Address.IsV4 Then Return "{Address}:{Port}"
         If ScopeId != 0 Then Return "[{Address}%{ScopeId}]:{Port}"
         Return "[{Address}]:{Port}"
     End Method
 
+    /// Whether `a` comes before `b`: by their addresses, then their ports, then their scope IDs.
     Operator <(a: SocketAddress, b: SocketAddress): Bool
         If a.Address != b.Address Then Return a.Address < b.Address
         If a.Port != b.Port Then Return a.Port < b.Port

@@ -1,5 +1,6 @@
-//! std.net.game's channels: what each of a connection's channels does with its messages. A
-//! RELIABLE_ORDERED channel's messages each arrive once, in the order they were sent; a
+//! What each channel of a connection does with its messages.
+//!
+//! A RELIABLE_ORDERED channel's messages each arrive once, in the order they were sent; a
 //! RELIABLE_UNORDERED channel's each arrive once, as soon as they can; and an UNRELIABLE one's
 //! arrive or don't, and never after a newer one, so what comes is the freshest. A message too big
 //! for a packet goes in fragments, which are put back together where it arrives, and a reliable

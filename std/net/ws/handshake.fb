@@ -1,3 +1,5 @@
+//! A WebSocket's opening handshake, over HTTP/1.1.
+//!
 //! A WebSocket's opening handshake, per RFC 6455's section 4: the client's GET with Upgrade, and
 //! the server's 101 with the key's answer, over HTTP/1.1's wire.
 

@@ -1,4 +1,4 @@
-//! std.net.game's settings, which a GameHost and its peers share, and why a connection ends.
+//! The settings a GameHost and its peers share, and why a connection ends.
 
 Import std.core
 Import std.time.duration
@@ -25,6 +25,14 @@ End Enum
 /// which both sides must have alike too, the most bytes a connection holds of messages waiting
 /// for one before them and of fragments, how long it waits to hear from a peer, how often it sends
 /// when it has nothing to, and how often it asks again for a connection.
+///
+/// # Examples
+///
+/// ```
+/// Local settings = GameSettings([ChannelKind.RELIABLE_ORDERED, ChannelKind.UNRELIABLE])
+/// settings.MaxPeers = 8
+/// Expect(settings.Channels.Count == 2)
+/// ```
 Public Struct GameSettings
     /// Its channels' kinds, which both sides of a connection must have alike.
     Public Field Channels: ChannelKind[]
