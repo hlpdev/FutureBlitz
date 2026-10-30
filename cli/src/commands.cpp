@@ -1209,10 +1209,10 @@ int check_docs_command(const console_t& console, const compilation_t& compilatio
 
     if (!parts.empty()) {
         std::string problems = parts.front();
+        // "a and b", or "a, b, and c".
+        const std::string_view last = parts.size() == 2 ? " and " : ", and ";
         for (std::size_t i = 1; i < parts.size(); ++i) {
-            problems += std::format(
-                "{}{}", i + 1 == parts.size() ? (parts.size() == 2 ? " and " : ", and ") : ", ",
-                parts[i]);
+            problems += std::format("{}{}", i + 1 == parts.size() ? last : ", ", parts[i]);
         }
 
         console.error(std::format("the docs aren't done: {}", problems));
