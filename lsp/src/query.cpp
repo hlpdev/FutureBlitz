@@ -2,7 +2,7 @@
 
 #include "fb/ast.hpp"
 #include "fb/const_value.hpp"
-#include "fb/lsp/docs.hpp"
+#include "fb/doc.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/sema.hpp"
 #include "fb/types.hpp"
@@ -400,17 +400,8 @@ std::string query_t::docs(const symbol_id_t id) const {
         return {};
     }
 
-    std::uint32_t begin = symbol.span.begin;
-    file_id_t file = symbol.span.file;
-    if (symbol.declaration) {
-        const stmt_t& statement = ast().get(*symbol.declaration);
-        file = statement.span.file;
-        begin = declaration_begin(statement);
-    } else if (symbol.kind != symbol_kind_t::FIELD && symbol.kind != symbol_kind_t::TYPE) {
-        return {};
-    }
-
-    return doc_comment(m_compilation.sources.get(file), begin);
+    const doc_comment_t* comment = ast().doc(symbol.span);
+    return comment != nullptr ? read_doc(*comment).markdown : std::string();
 }
 
 std::optional<std::filesystem::path> query_t::declared_in(const symbol_id_t id) const {

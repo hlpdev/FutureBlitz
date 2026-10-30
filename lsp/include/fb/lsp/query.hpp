@@ -87,7 +87,8 @@ public:
     /// A symbol's declaration as code shows it, like "Function Area(p: Point): Int32".
     [[nodiscard]] std::string signature(symbol_id_t id) const;
 
-    /// The documentation on a symbol's declaration.
+    /// The `///` doc comment on a symbol's declaration, as Markdown without its examples' hidden
+    /// lines, or empty for none.
     [[nodiscard]] std::string docs(symbol_id_t id) const;
 
     /// Where a symbol is declared on disk. nullopt for a builtin, or one in no file of its own.

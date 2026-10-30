@@ -38,18 +38,18 @@ Print("{Length(p)}")
 
 constexpr std::string_view shapes_text = R"(Import std.core
 
-// A point on the grid.
+/// A point on the grid.
 Public Struct Point
     Public Field X: Int
     Public Field Y: Int
 
-    // Its length, squared.
+    /// Its length, squared.
     Public Method Squared(): Int
         Return X * X + Y * Y
     End Method
 End Struct
 
-// How long `p` is, squared.
+/// How long `p` is, squared.
 Public Function Length(p: Point): Int
     Local total = p.Squared()
     Return total
@@ -177,6 +177,62 @@ TEST_CASE("hover shows a name's declaration and its docs, and an expression's ty
 
     // Nothing, between lines.
     CHECK(client.request("textDocument/hover", client.at(main, "\n\nLocal", 1)).is_null());
+}
+
+TEST_CASE("hover shows a /// doc comment, an Enum member's too, and no plain comment", "[lsp]") {
+    constexpr std::string_view text = R"(Import std.core
+
+/// What a light shows.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.core
+/// Expect(Next(Light.RED) == Light.GREEN)
+/// ```
+Public Enum Light
+    /// Stop.
+    RED,
+    /// Go.
+    GREEN
+End Enum
+
+// Not a doc comment.
+Public Function Next(light: Light): Light
+    Return light == Light.RED ? Light.GREEN : Light.RED
+End Function
+
+Local shown = Next(Light.GREEN)
+)";
+    const folder_t folder({ { "lights.fb", std::string(text) } });
+    client_t client({ .folders = { folder.root() } });
+    const std::string uri = folder.uri("lights.fb");
+    client.open(uri, text);
+
+    // A type's doc, its example without the line it hides.
+    const json_t light =
+        client.request("textDocument/hover", client.at(uri, "Next(Light.GREEN)", 5));
+    REQUIRE(light.is_object());
+    const std::string shown = light["contents"]["value"].get<std::string>();
+    CHECK(shown.contains("Enum Light"));
+    CHECK(shown.contains("What a light shows.\n\n# Examples"));
+    CHECK(shown.contains("Expect(Next(Light.RED) == Light.GREEN)"));
+    CHECK_FALSE(shown.contains("# Import"));
+
+    // An Enum member's, on a line after a comma.
+    const json_t green =
+        client.request("textDocument/hover", client.at(uri, "Next(Light.GREEN)", 11));
+    REQUIRE(green.is_object());
+    CHECK(green["contents"]["value"].get<std::string>().contains("Go."));
+    const json_t red = client.request("textDocument/hover", client.at(uri, "RED ?"));
+    REQUIRE(red.is_object());
+    CHECK(red["contents"]["value"].get<std::string>().contains("Stop."));
+
+    // A // comment isn't a doc.
+    const json_t next = client.request("textDocument/hover", client.at(uri, "Next(Light.GREEN)"));
+    REQUIRE(next.is_object());
+    CHECK(next["contents"]["value"].get<std::string>().contains("Function Next(light: Light)"));
+    CHECK_FALSE(next["contents"]["value"].get<std::string>().contains("Not a doc comment"));
 }
 
 TEST_CASE("go to definition finds declarations in other modules, and Imports' files", "[lsp]") {

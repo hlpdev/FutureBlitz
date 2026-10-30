@@ -203,8 +203,8 @@ How it's built (2026-10-29):
 - **Shared work.** A check's driver parses each std file it doesn't load, for the error that says
   which module declares a name, which took most of a check's time; the checks share what it finds
   (`std_names_cache_t`), by each file's text.
-- **Docs on hover** come from the comments right above a declaration, through `doc_comment()` in
-  lsp/include/fb/lsp/docs.hpp, which step 8's `///` comments on the AST take the place of.
+- **Docs on hover** are a declaration's `///` doc comment, the AST's (step 8), as Markdown without
+  its examples' hidden lines: a Function's, a type's, a member's, and an Enum member's.
 - **Files changed outside the editor**, as by a git checkout, come in workspace/didChangeWatchedFiles,
   which the server asks the client for when it can: each is checked again with what imports it,
   and a changed project.toml's package whole.
