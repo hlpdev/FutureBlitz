@@ -818,7 +818,7 @@ Public Enum Color
     Green
 End Enum
 
-/// An Extend has no doc of its own.
+/// What bytes have, as [Size] says.
 Extend UInt8[]
     /// How many.
     Public Method Size(): Int => Count
@@ -869,6 +869,12 @@ Public Function Parsed(text: String): Int Throws ArgumentError
     If value == Null Then Throw ArgumentError(ArgumentErrorKind.INVALID, "not a number")
     Return value
 End Function
+
+/// An Extern block has no doc of its own.
+Extern "C"
+    /// Nothing.
+    Function nothing()
+End Extern
 )";
 
 constexpr std::string_view reviewed_other = R"(//! Other things.
@@ -912,17 +918,17 @@ TEST_CASE("fb doc has Operators and Overrides, finds links as code would, and wa
     fb::diagnostic_bag_t warnings;
     const fb::doc_package_t package =
         fb::document(*compiled, false, fb::build_mode_t::DEBUG, warnings);
-    // A private member of another file's names nothing, an Extend's comment says why it's on
-    // nothing, a Function's code has no docs, and a comment on nothing warns once.
+    // A private member of another file's names nothing, a Function's code has no docs, a comment
+    // on nothing warns once, and an Extern block's comment says why it's on nothing.
     CHECK(lines_of(*compiled, warnings) ==
           std::vector<std::string>{
               "16: 'things.Animal.secret' names nothing that code here sees",
-              "46: this doc comment documents nothing: an Extend or Extern block has no doc of its "
-              "own, but its members do",
               "54: this doc comment documents nothing: a /// comment goes on the lines right "
               "before a declaration",
               "59: this doc comment documents nothing: a /// comment goes on the lines right "
               "before a declaration",
+              "98: this doc comment documents nothing: an Extern block has no doc of its own, but "
+              "its Functions do",
           });
     const auto module =
         std::ranges::find(package.modules, "reviewed.shapes", &fb::doc_module_t::name);
@@ -963,6 +969,10 @@ TEST_CASE("fb doc has Operators and Overrides, finds links as code would, and wa
     REQUIRE(bytes);
     CHECK(bytes->name == "UInt8[]");
     CHECK(bytes->extends == "UInt8[]");
+    // An Extend's doc says what it adds, and its links are found from inside it.
+    CHECK(bytes->doc.value_or(fb::doc_t{}).summary == "What bytes have, as [Size] says.");
+    REQUIRE(bytes->links.size() == 1);
+    CHECK(bytes->links[0].path == prefix + "UInt8[].Size");
     CHECK(paths_of(bytes->members) == std::vector<std::string>{ prefix + "UInt8[].Size" });
 }
 

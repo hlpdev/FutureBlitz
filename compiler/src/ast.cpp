@@ -160,6 +160,10 @@ const doc_comment_t* ast_t::doc(const span_t name) const {
 }
 
 const doc_comment_t* ast_t::doc(const stmt_id_t id) const {
+    if (const auto* extension = std::get_if<extend_stmt_t>(&get(id).node)) {
+        return doc(get(extension->type).span);
+    }
+
     const std::optional<name_t> name = declared_name(get(id).node);
     return name ? doc(name->span) : nullptr;
 }

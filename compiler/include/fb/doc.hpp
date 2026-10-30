@@ -116,7 +116,7 @@ struct doc_item_t {
     /// number, from 1.
     std::string file;
     std::uint32_t line = 0;
-    /// Where its name is, which fb doc --check points to, or an Extend's whole block.
+    /// Where its name is, which fb doc --check points to, or an Extend's type.
     span_t span;
     std::optional<doc_t> doc;
     /// For a member without a doc comment of its own that implements an Interface's member or
@@ -170,9 +170,9 @@ struct doc_package_t {
 [[nodiscard]] std::string doc_json(const doc_package_t& package, const source_manager_t& sources);
 
 /// What fb doc --check finds in `package`, as errors in `diagnostics`, in its order: a module
-/// without a //! doc comment, and an item but an Extend without a /// doc comment of its own,
-/// even one that has the doc of the Interface member it implements or the Class member it
-/// overrides, or one whose doc has no summary.
+/// without a //! doc comment, and an item without a /// doc comment of its own, an Extend's
+/// among them, even one that has the doc of the Interface member it implements or the Class
+/// member it overrides, or one whose doc has no summary.
 void check_docs(const doc_package_t& package, diagnostic_bag_t& diagnostics);
 
 /// One of a file's examples, as a module that fb test compiles and runs: its text, and where

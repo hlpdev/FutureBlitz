@@ -838,6 +838,11 @@ private:
             if (std::optional<doc_comment_t> doc = doc_before(begin, after)) {
                 m_ast.set_doc(name->span, std::move(*doc));
             }
+        } else if (const auto* extension = std::get_if<extend_stmt_t>(&node)) {
+            // An Extend's doc is at its type, where a declaration's is at its name.
+            if (std::optional<doc_comment_t> doc = doc_before(begin, after)) {
+                m_ast.set_doc(m_ast.get(extension->type).span, std::move(*doc));
+            }
         }
 
         return id;

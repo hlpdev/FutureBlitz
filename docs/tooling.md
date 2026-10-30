@@ -535,14 +535,16 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
   (spec 11).
 - std's comments on its declarations became `///` ones, and its files' first comments `//!`
   ones. Every module of std's has a `//!` summary, one plain sentence, and every Public
-  declaration, and every member its users see, a `///` doc of its own, even one that implements
-  an Interface's member or overrides a Class's; `fb doc std --check` checks it, in a test.
+  declaration, every Extend of what its users see, and every member they see, a `///` doc of its
+  own, even one that implements an Interface's member or overrides a Class's; `fb doc std --check`
+  checks it, in a test.
 - `fb doc [package | std]` writes a package's public API as JSON, to `build/<name>.json` in its
   folder, or for std, std.json in the current one, unless `-o` names a file, or `-` for stdout,
   after a warning for each link that names nothing and each doc comment on nothing. `--release`
   documents a release build's `#If` branches. `--check` writes nothing, and fails on each of those
-  warnings, each module without a `//!` doc, and each item but an Extend without a `///` doc of its
-  own, one that only has what it implements' or overrides', or one whose doc has no summary.
+  warnings, each module without a `//!` doc, and each item without a `///` doc of its own, an
+  Extend's too, one that only has what it implements' or overrides', or one whose doc has no
+  summary.
 - An example has `Import std.core`, `Import std.test`, and its declaration's module without
   writing them, and writes any other Import at its top, as a file does; a line that starts with
   `# ` is compiled but not shown, as Rust's are, for setup the reader doesn't need. Its
@@ -590,7 +592,7 @@ for the ones marked as only sometimes there:
   - `visibility`: Public, or Protected for a Class's member that only the Classes extending it
     see.
   - `file` and `line`: where it starts, at its first attribute, its line from 1.
-  - `doc`: its doc comment, or null; a member without one that implements an Interface's member
+  - `doc`: its doc comment, or null; an Extend's says what it adds; a member without one that implements an Interface's member
     or overrides a base Class's has that one's, and `doc_from`, only then, is its path.
   - `extends`, only on an Extend: the path of the type it extends, or a built-in's name.
   - `members`, on a type, an Enum, and an Extend: their items, in source order, a Struct's and a

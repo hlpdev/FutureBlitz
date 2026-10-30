@@ -2243,10 +2243,12 @@ TEST_CASE("fb test gives a test the work it starts, and fails a run that fails o
 
 namespace {
 
-/// A copy of tests/packages/<name> in the test output folder, so what fb writes into a package's
-/// build/ folder isn't in the source tree.
-std::filesystem::path copied_package(const std::string_view name) {
-    const std::filesystem::path copy = std::filesystem::path(FB_TEST_OUTPUT) / "copied" / name;
+/// A copy of tests/packages/<name> in the test output folder's `into`, so what fb writes into a
+/// package's build/ folder isn't in the source tree, and tests that ctest runs at once each have
+/// their own.
+std::filesystem::path copied_package(const std::string_view name,
+                                     const std::string_view into = "copied") {
+    const std::filesystem::path copy = std::filesystem::path(FB_TEST_OUTPUT) / into / name;
     std::filesystem::remove_all(copy);
     std::filesystem::create_directories(copy.parent_path());
     std::filesystem::copy(std::filesystem::path(FB_TEST_PACKAGES) / name, copy,
@@ -2268,7 +2270,7 @@ std::string shown_file(const std::filesystem::path& file) {
 } // namespace
 
 TEST_CASE("fb test runs a package's examples, each a test named after its declaration", "[cli]") {
-    const std::filesystem::path documented = copied_package("documented");
+    const std::filesystem::path documented = copied_package("documented", "copied_tests");
     const fb::process_result_t ran =
         fb_run({ "test", fb::to_utf8(documented), "--color", "never" });
     INFO(ran.output);
@@ -2537,9 +2539,15 @@ Public Enum Color
     RED
 End Enum
 
+/// What a square's side makes.
 Extend Square
     /// Twice its side.
     Public Method Twice(): Float => Side * 2
+End Extend
+
+Extend String
+    /// It, shouted.
+    Public Method Shout(): String => Self + "!"
 End Extend
 )");
     write_source("doc/checked/bare.fb", "Import std.core\n\n/// One.\nPublic Const ONE = 1\n");
@@ -2568,12 +2576,16 @@ End Extend
         std::format("{}:1:1: error: checked.bare has no //! doc comment with a summary at the "
                     "top of its file\n",
                     shown_file(folder / "bare.fb"))));
-    // The Extend has no doc of its own, and the documented items need nothing.
+    // An Extend needs a doc that says what it adds, as every item does.
+    CHECK(checked.output.contains(
+        std::format("{}:41:8: error: checked.shapes.Extend.String has no doc comment: a /// "
+                    "comment on the lines right before it says what it does\n",
+                    shown)));
     CHECK_FALSE(checked.output.contains("Extend.Square has"));
     CHECK_FALSE(checked.output.contains("Square.Twice has"));
     CHECK_FALSE(checked.output.contains("Shape.Area has"));
     CHECK(checked.output.contains(
-        "error: the docs aren't done: 5 items without a doc comment of its own\n"));
+        "error: the docs aren't done: 6 items without a doc comment of its own\n"));
     CHECK_FALSE(std::filesystem::exists(folder / "build" / "checked.json"));
 
     // A link that names nothing fails it too.

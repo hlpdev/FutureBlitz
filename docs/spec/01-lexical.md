@@ -70,7 +70,7 @@ Public Function TotalArea(shapes: Shape[]): Float
 
 - The `///` lines right before a declaration, each on a line of its own, are its doc comment:
   before its attributes, with no blank line or other comment between. A top-level Function,
-  Struct, Class, Interface, Attribute, Enum, Global, Const, or Alias has one, and so do the
+  Struct, Class, Interface, Attribute, Enum, Global, Const, Alias, or Extend has one, and so do the
   members of a Struct, Class, Interface, or Extend, the Functions of an Extern block, and an
   Enum's members, each on the line before the line it starts. `////` is an ordinary comment, and a
   `///` comment that's on no declaration, after code on its line, or on what a Function's code

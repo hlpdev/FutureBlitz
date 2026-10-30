@@ -1551,10 +1551,10 @@ private:
 
             const std::string_view after =
                 next < source.line_count() ? trim(source.line_text(next)) : std::string_view();
-            if (after.starts_with("Extend ") || after.starts_with("Extern")) {
+            if (after.starts_with("Extern")) {
                 m_diagnostics.warning(comment,
-                                      "this doc comment documents nothing: an Extend or Extern "
-                                      "block has no doc of its own, but its members do");
+                                      "this doc comment documents nothing: an Extern block has no "
+                                      "doc of its own, but its Functions do");
             } else {
                 m_diagnostics.warning(comment,
                                       "this doc comment documents nothing: a /// comment goes on "
@@ -1950,7 +1950,12 @@ private:
         };
         const auto [begin, end] = extent(id);
         describe(item, m_ast.get(id).span, begin, end);
-        item.span = m_ast.get(id).span;
+        item.span = m_ast.get(extension.type).span;
+        if (const doc_comment_t* comment = m_ast.doc(id)) {
+            item.doc = read_doc(*comment);
+            item.links = links_of(*item.doc, m_index.scope(id).value_or(scope_t{}), true, id);
+        }
+
         // Its Public members, and its Operators, which are seen where it is.
         for (const stmt_id_t member : extension.members) {
             if (shown(member, id)) {
@@ -2209,12 +2214,6 @@ namespace {
 /// fb doc --check's error for each of `items`, and their members, without a doc of its own.
 void check_items(const std::vector<doc_item_t>& items, diagnostic_bag_t& diagnostics) {
     for (const doc_item_t& item : items) {
-        // An Extend has no doc of its own; its members, and every other item, have theirs.
-        if (item.kind == "extend") {
-            check_items(item.members, diagnostics);
-            continue;
-        }
-
         if (!item.doc) {
             diagnostics.error(item.span,
                               "{} has no doc comment: a /// comment on the lines right before it "
