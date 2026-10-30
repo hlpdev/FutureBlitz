@@ -1,0 +1,10 @@
+wait 5
+await 5
+await done 1
+work 1 awaits
+after work 1
+tick 1
+work 1 goes on
+waited
+top-level code is done
+tick 2

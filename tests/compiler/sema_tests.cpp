@@ -926,6 +926,11 @@ TEST_CASE("ByRef arguments", "[sema]") {
           errors_t{ "x: parameter 'a' is ByRef; write 'ByRef x'" });
     CHECK(call("Function Twice(a: Int)\nEnd Function\nFunction Twice(a: String)\nEnd Function\n"
                "Twice(ByRef x)") == errors_t{ "x: parameter 'a' isn't ByRef; remove 'ByRef'" });
+    // Of several that fit but for their ByRef, a generic one among them, the one that isn't
+    // generic is meant, as when they fit.
+    CHECK(call("Function Swap<T>(ByRef a: T, ByRef b: T)\nEnd Function\nSwap(x, y)") ==
+          errors_t{ "x: parameter 'a' is ByRef; write 'ByRef x'",
+                    "y: parameter 'b' is ByRef; write 'ByRef y'" });
     CHECK(call("Swap(ByRef x, ByRef x)") == errors_t{ "x: 'x' is passed ByRef twice in one call" });
     CHECK(call("Swap(ByRef 1, ByRef y)") ==
           errors_t{ "1: only a variable or one of its fields can be passed ByRef" });
@@ -11539,6 +11544,12 @@ TEST_CASE("Scheduler.Main is the main thread's scheduler, which a program's own 
                     "scheduler, like Scheduler.Main.Step()" });
     CHECK(errors_of("Local x = Scheduler<Int>.Main") ==
           errors_t{ "Scheduler<Int>: 'Scheduler' isn't generic" });
+    CHECK(errors_of("Local x = Scheduler.Main<Int>") ==
+          errors_t{ "Scheduler.Main<Int>: Scheduler.Main isn't generic, so it takes no type "
+                    "arguments" });
+    CHECK(errors_of("Scheduler?.Main.Step()") ==
+          errors_t{ "Scheduler?.Main: Scheduler is a type, not a value that can be Null, so it "
+                    "takes '.', not '?.': Scheduler.Main" });
     CHECK(errors_of("Scheduler.Main = Scheduler()") ==
           errors_t{ "Scheduler.Main: Scheduler.Main can't be assigned; it's always the main "
                     "thread's scheduler" });

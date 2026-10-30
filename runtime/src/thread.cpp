@@ -693,6 +693,23 @@ public:
         return !m_waiting.empty() || !m_timers.empty();
     }
 
+    /// Whether `task` is a timer's here, which a tick finishes.
+    [[nodiscard]] bool times(const fb_task_t* task) const {
+        return std::ranges::any_of(m_timers,
+                                   [task](const timer_t& timer) { return timer.task == task; });
+    }
+
+    /// The program's code has ended: from now on a tick finishes timers, but destroys the
+    /// coroutines waiting here, as their first Await does, instead of resuming them.
+    void close() {
+        m_closed = true;
+    }
+
+    /// Whether the program's code has ended, as close() says.
+    [[nodiscard]] bool closed() const {
+        return m_closed;
+    }
+
     /// Whether a coroutine's Task is done, so a tick would resume it.
     [[nodiscard]] bool ready() const {
         return std::ranges::any_of(
@@ -700,8 +717,9 @@ public:
     }
 
     /// Moves time on by `seconds`, unless it's the real clock's, finishes the timers that are
-    /// due, and resumes each coroutine whose Task is done, oldest first. One that starts waiting
-    /// during the tick waits for the next. Gives whether anything went on.
+    /// due, and resumes each coroutine whose Task is done, oldest first, or once it's closed,
+    /// destroys them all. One that starts waiting during the tick waits for the next. Gives
+    /// whether anything went on.
     bool tick(double seconds);
 
     /// Ticks until `done` gives true, sleeping while nothing can go on.
@@ -741,6 +759,7 @@ private:
     };
 
     bool m_main;
+    bool m_closed = false;
     double m_time = 0.0;
     std::uint64_t m_ticks = 0;
     std::vector<waiting_t> m_waiting;
@@ -848,6 +867,12 @@ bool scheduler_t::tick(const double seconds) {
         return true;
     });
 
+    if (m_closed) {
+        ran = ran || !m_waiting.empty();
+        cancel();
+        return ran;
+    }
+
     scheduler_t* const outer = std::exchange(current_scheduler(), this);
     std::size_t i = 0;
     while (i < m_waiting.size()) {
@@ -873,6 +898,33 @@ bool scheduler_t::tick(const double seconds) {
 
     current_scheduler() = outer;
     return ran;
+}
+
+/// A Wait on the main thread once the program's code has ended, as in a Global's Destroy: the
+/// main scheduler still finishes its timers, and the pool and the I/O thread their Tasks, but a
+/// coroutine is destroyed at its first Await, so an Async Function's Task that nothing else
+/// finishes is never done, and waiting for it panics rather than waiting forever.
+void wait_after_code(const fb_task_t* task) {
+    scheduler_t& main = main_scheduler();
+    const auto never = [&] {
+        if (task->job->work != nullptr) {
+            return false;
+        }
+
+        // What finishes it is looked at before whether it's done, so one finished meanwhile is
+        // done by then.
+        const bool coming = main.times(task) ||
+                            std::ranges::contains(fb::runtime::requested_tasks(), task) ||
+                            std::ranges::contains(fb::runtime::source_tasks(), task);
+        return !coming && fb_job_done(task->job) == 0;
+    };
+
+    main.run_until([&] { return fb_job_done(task->job) != 0 || never(); });
+    if (fb_job_done(task->job) == 0) {
+        fb_panic("this waits for an Async Function's Task once the program's code has ended, when "
+                 "its coroutine is destroyed at its first Await, so it's never done",
+                 nullptr);
+    }
 }
 
 scheduler_t& state_of(const fb_scheduler_t* scheduler) {
@@ -1219,6 +1271,11 @@ void fb_task_start_thread(fb_task_t* task) {
 }
 
 void fb_task_wait(const fb_task_t* task) {
+    if (std::this_thread::get_id() == main_thread && main_scheduler().closed()) {
+        wait_after_code(task);
+        return;
+    }
+
     // The main thread ticks its scheduler meanwhile, which may finish what it waits for.
     if (std::this_thread::get_id() == main_thread && main_scheduler().busy()) {
         main_scheduler().run_until([&] { return fb_job_done(task->job) != 0; });
@@ -1316,6 +1373,7 @@ void fb_scheduler_finish() {
     scheduler_t& main = main_scheduler();
     main.run_until([&main] { return main.empty() || main.stuck(); });
     main.end();
+    main.close();
     // The program's code is done: what runs only meanwhile, like the signals' handlers, stops.
     fb::runtime::run_code_end();
 }

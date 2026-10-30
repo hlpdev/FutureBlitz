@@ -21479,9 +21479,20 @@ private:
             return type_id_t::INVALID;
         }
 
-        if (node.member.text != "Main" || !node.type_arguments.empty() || node.null_safe) {
+        if (node.member.text != "Main") {
             error(span_of(id), "Scheduler's one Static member is Main, the main thread's "
                                "scheduler, like Scheduler.Main.Step()");
+            return type_id_t::INVALID;
+        }
+
+        if (node.null_safe) {
+            error(span_of(id), "Scheduler is a type, not a value that can be Null, so it takes "
+                               "'.', not '?.': Scheduler.Main");
+            return type_id_t::INVALID;
+        }
+
+        if (!node.type_arguments.empty()) {
+            error(span_of(id), "Scheduler.Main isn't generic, so it takes no type arguments");
             return type_id_t::INVALID;
         }
 
@@ -24642,6 +24653,12 @@ private:
 
             if (by_ref.size() == 1) {
                 return by_ref.front();
+            }
+
+            // Of several, the one that isn't generic is meant, as when they fit, and otherwise any
+            // of them, whose call says the same.
+            if (!by_ref.empty()) {
+                return plain(by_ref).value_or(by_ref.front());
             }
 
             // A literal with no type of its own that no parameter gave one, like (nope, 1),

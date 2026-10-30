@@ -616,7 +616,9 @@ void fb_task_start(fb_task_t* task);
 /// Starts a Thread's work on a thread of its own.
 void fb_task_start_thread(fb_task_t* task);
 /// Returns once the task's work is done, for Wait and Join. Meanwhile a worker runs the jobs it
-/// started itself, as fb_job_wait does, and the main thread ticks the main scheduler.
+/// started itself, as fb_job_wait does, and the main thread ticks the main scheduler. Once the
+/// program's code has ended, that tick destroys the coroutines, and a wait for an Async
+/// Function's Task that nothing else finishes panics.
 void fb_task_wait(const fb_task_t* task);
 /// 1 once the task's work is done, and 0 before, for IsDone.
 std::int32_t fb_task_done(const fb_task_t* task);
@@ -626,7 +628,8 @@ void fb_task_begin(fb_task_t* task);
 void fb_task_finish(const fb_task_t* task);
 /// The scheduler running the code resumes `coroutine`, which is `own`'s Async Function's, once
 /// `task` is done. Coroutines run on the main thread, which runs the main scheduler once
-/// top-level code ends, and whenever it waits for a Task; a Scheduler's run when it's ticked.
+/// top-level code ends, whenever it waits for a Task that isn't done, and at each Step; a
+/// Scheduler's run when it's ticked or stepped.
 void fb_await(void* coroutine, fb_task_t* own, fb_task_t* task);
 /// For NextTick: the scheduler running the code finishes `task`, which fb_task_begin set up, at
 /// its next tick.

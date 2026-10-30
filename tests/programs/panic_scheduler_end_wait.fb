@@ -1,0 +1,19 @@
+// Once the program's code has ended, a coroutine that a Destroy starts is destroyed at its first
+// Await, so its Task is never done, and a Wait for it panics rather than waiting forever.
+Import std.core
+
+Async Function Late(): Int
+    Await NextTick()
+    Print("never: Late went on after the program ended")
+    Return 1
+End Function
+
+Class Holder
+    Method Destroy()
+        Print("waiting for Late")
+        Print(Late().Wait())
+    End Method
+End Class
+
+Global holder = Holder()
+Print("top-level code is done")

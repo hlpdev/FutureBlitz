@@ -1,0 +1,35 @@
+// A Wait() or a top-level Await of a Task that's done already gives its result at once, without
+// running the main scheduler, and an Await in an Async Function only stops it there, so a
+// coroutine waiting on a tick goes on at a wait that has to wait, or once top-level code ends.
+Import std.core
+
+Async Function Ticker()
+    For i = 1 To 2
+        Await NextTick()
+        Print("tick {i}")
+    End For
+End Function
+
+Async Function Done(): Int
+    Return 1
+End Function
+
+Async Function Work(n: Int)
+    Print("work {n} awaits")
+    Await NextTick()
+    Print("work {n} goes on")
+End Function
+
+Local t = Spawn(Function() => 5)
+t.Wait()
+Ticker()
+Print("wait {t.Wait()}")
+Print("await {Await t}")
+Print("await done {Await Done()}")
+Work(1)
+Print("after work 1")
+
+// One that has to wait runs the scheduler once.
+Await NextTick()
+Print("waited")
+Print("top-level code is done")

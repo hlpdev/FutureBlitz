@@ -1,6 +1,7 @@
 // The program ends when its coroutines can't go on: one waiting for a cutscene on a Scheduler
 // that nothing ticks any more, timers nothing awaits, and one that a Destroy starts while the
-// Globals are released. Each is destroyed, letting go of what it holds, and nothing leaks.
+// Globals are released, even when that Destroy steps the main scheduler or waits. Each is
+// destroyed, letting go of what it holds, and nothing leaks.
 Import std.core
 Import std.time
 
@@ -42,6 +43,38 @@ End Class
 
 Global door = Door()
 door.name = "the gate"
+
+Async Function Late(name: String)
+    Print("{name} starts")
+    Await NextTick()
+    Print("never: {name} went on after the program ended")
+End Function
+
+// A Step or a Wait in a Destroy finishes timers, but destroys the coroutines.
+Class Stepper
+    Field name: String
+
+    Method Destroy()
+        Late(name)
+        Scheduler.Main.Step()
+        Print("{name} stepped")
+    End Method
+End Class
+
+Class Waiter
+    Field name: String
+
+    Method Destroy()
+        Late(name)
+        Wait(1.Milliseconds).Wait()
+        Print("{name} waited")
+    End Method
+End Class
+
+Global stepper = Stepper()
+stepper.name = "the stepper"
+Global waiter = Waiter()
+waiter.name = "the waiter"
 
 Local scene = Cutscene()
 gameplay.Run(scene)
