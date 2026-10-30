@@ -180,7 +180,7 @@ Public Class Buffer<T: CData> Implements Iterable<T>
     End Method
 End Class
 
-/// The values of a Buffer, in order, which For ... In goes over.
+/// The values of a Buffer, in order, which a For loop goes over.
 Public Struct BufferIterator<T: CData> Implements Iterator<T>
     Field Values: Buffer<T>
     Field Index: Int64

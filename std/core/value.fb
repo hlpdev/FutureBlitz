@@ -1,3 +1,5 @@
+//! Value, data of any shape, as the data formats read and write it.
+//!
 //! Value: data of any shape, as the data formats have it: Null, a Bool, an integer, a Double, a
 //! String, bytes, an Array of Values, or an Object of Values by their keys, in the order they were
 //! added. Each format reads its text into one and writes one out. A Value is an object, so a
@@ -43,6 +45,18 @@ End Enum
 /// A value of JSON, MessagePack, TOML, and the other formats, which Load reads types from and Save
 /// writes them to: Null, a Bool, an integer, a Double, a String, bytes, an Array, or an Object of
 /// keys.
+///
+/// # Examples
+///
+/// ```
+/// Local player = Value.Object()
+/// player["name"] = Value("Ada")
+/// player["scores"] = Value([Value(3), Value(5)])
+/// Expect(player.Keys() == ["name", "scores"])
+/// Expect(player["name"]?.AsString() == "Ada")
+/// Expect(player.Path("scores[1]")?.AsInt() == 5)
+/// Expect(player.Path("scores[2]") == Null)
+/// ```
 Public Class Value Implements Equatable, Hashable, Printable, Cloneable
     Field Shape: ValueKind
     /// A Bool's or integer's bits, and a Double.

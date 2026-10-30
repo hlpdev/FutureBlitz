@@ -1,3 +1,5 @@
+//! The attributes and Interfaces that change how Load and Save convert a type.
+//!
 //! What `Load<T>`(value) and Save(x) read: the attributes on a Struct's or Class's Fields that
 //! change how they're loaded and saved, and the Interfaces of a type that converts itself. The
 //! compiler builds each type's Load and Save, Field by Field, over the Package Functions below.
@@ -17,6 +19,21 @@ Extern "runtime"
 End Extern
 
 /// The key a Field has in a Value's Object, in place of its name.
+///
+/// # Examples
+///
+/// ```
+/// Struct Player
+///     @Rename("player_name")
+///     Field Name: String
+///     Field Level: Int
+/// End Struct
+///
+/// Local saved = Save(Player("Ada", 3))
+/// Expect(saved.Keys() == ["player_name", "Level"])
+/// Local loaded = Try Load<Player>(saved)
+/// Expect(loaded.Name == "Ada" && loaded.Level == 3)
+/// ```
 Public Attribute Rename(Name: String)
 /// A Field that Load leaves at its default, and Save leaves out.
 Public Attribute Skip
@@ -28,6 +45,30 @@ Public Attribute Flatten
 Public Attribute Renamed(From: String)
 
 /// A type that makes itself from a Value, which `Load<T>` calls in place of filling its Fields.
+///
+/// # Examples
+///
+/// ```
+/// // A temperature that loads from a number, and saves as one, rather than as an Object.
+/// Struct Celsius Implements Loadable, Saveable
+///     Field Degrees: Double
+///
+///     Public Static Method FromValue(value: Value): Celsius Throws ParseError
+///         Local degrees = value.AsDouble()
+///         If degrees == Null
+///             Throw ParseError(ParseErrorKind.WRONG_TYPE, "a temperature is a number")
+///         End If
+///
+///         Return Celsius(degrees)
+///     End Method
+///
+///     Public Method ToValue(): Value => Value(Degrees)
+/// End Struct
+///
+/// Expect(Save(Celsius(21.5)) == Value(21.5))
+/// Local loaded = Try Load<Celsius>(Value(30))
+/// Expect(loaded.Degrees == 30.0)
+/// ```
 Public Interface Loadable
     /// Makes one from a Value, as Load does.
     Static Method FromValue(value: Value): Self Throws ParseError

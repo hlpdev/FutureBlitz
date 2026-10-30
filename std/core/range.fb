@@ -1,3 +1,5 @@
+//! Ranges of integers, as For loops count them.
+//!
 //! `Range<T>`: the integers a range gives, like 0 Until 10, 1 To 10, or 10 To 0 Step -2, which are
 //! the values a For loop with those bounds counts. The compiler makes each one from what's written,
 //! so a Range holds only the value it gives next, its step, and how many steps come after that
@@ -7,6 +9,18 @@ Import std.core.interfaces
 Import std.core.iterator
 
 /// The integers from a start to an end, by a step, as a range like 0 Until 10 gives them.
+///
+/// # Examples
+///
+/// ```
+/// Local evens: Int[] = []
+/// For i In 0 Until 10 Step 2
+///     evens.Add(i)
+/// End For
+///
+/// Expect(evens == [0, 2, 4, 6, 8])
+/// Expect((10 To 0 Step -5).ToArray() == [10, 5, 0])
+/// ```
 Public Struct Range<T: Numeric> Implements Iterator<T>, Iterable<T>
     /// The value Next gives next. The compiler makes these Fields, in this order.
     Field Current: T

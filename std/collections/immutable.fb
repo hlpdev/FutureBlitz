@@ -805,7 +805,7 @@ Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Has
     Public Method Iterate(): ImmutableSetIterator<T> => ImmutableSetIterator<T>(Items.Iterate())
 End Struct
 
-/// The values of an ImmutableSet, which For ... In goes over.
+/// The values of an ImmutableSet, which a For loop goes over.
 Public Struct ImmutableSetIterator<T> Implements Iterator<T>
     Where T: Hashable
     Where T: Sendable

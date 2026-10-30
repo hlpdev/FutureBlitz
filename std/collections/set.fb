@@ -194,7 +194,7 @@ Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Ha
     End Method
 End Class
 
-/// The values of a Set, in order, which For ... In goes over.
+/// The values of a Set, in order, which a For loop goes over.
 Public Struct SetIterator<T: Hashable> Implements Iterator<T>
     Field Entries: MapIterator<T, Bool>
 

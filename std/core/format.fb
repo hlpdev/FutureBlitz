@@ -1,3 +1,5 @@
+//! Formatting by a template the program has only when it runs, and the debug form.
+//!
 //! Formatting by a template that the program has only when it runs: Format, whose fields take
 //! interpolation's specs, which the runtime splits; and the debug form, "{x:?}", which the compiler
 //! makes for every type, and Dump.
@@ -31,6 +33,17 @@ End Class
 /// does; "{{" and "}}" are braces. In source, a template is a raw string, r"{} of {}", whose
 /// braces aren't interpolations. Throws a FormatError for a template that isn't one, a field
 /// whose value isn't given, or a spec that its value doesn't take.
+///
+/// # Examples
+///
+/// ```
+/// Local line = Try Format(r"{} has {} points", "Ada", 36)
+/// Expect(line == "Ada has 36 points")
+/// Local swapped = Try Format(r"{1}, {0}", "a", "b")
+/// Expect(swapped == "b, a")
+/// Local padded = Try Format(r"[{0:>5}]", 42)
+/// Expect(padded == "[   42]")
+/// ```
 Public Function Format(template: String, values: Formattable...): String Throws FormatError
     Local texts: String[] = []
     Local indexes: Int32[] = []

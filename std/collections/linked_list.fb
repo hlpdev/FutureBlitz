@@ -348,7 +348,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
     End Method
 End Class
 
-/// The values of a LinkedList, first to last, which For ... In goes over.
+/// The values of a LinkedList, first to last, which a For loop goes over.
 Public Struct LinkedListIterator<T> Implements Iterator<T>
     Field Owner: LinkedList<T>
     Field Node: LinkedListNode<T>?

@@ -1,10 +1,12 @@
+//! Error, the Class every error extends, and each area's own Error.
+//!
 //! Error, the Class every error extends, and each area's own: one Error per area, whose Kind says
 //! what went wrong, so a Throws list stays short and a Catch can still tell kinds apart.
 
 Import std.core.interfaces
 
 /// Where in a program's source something is: its file, as the build names it, and its line and
-/// column, from 1. A Place whose Line is 0 is nowhere yet.
+/// column, from 1. A Place whose Line is 0 is nowhere.
 Public Struct Place Implements Printable
     /// Its file, as the build names it, or "" when it's nowhere.
     Public ReadOnly Field File: String
@@ -20,6 +22,28 @@ End Struct
 /// The Class every error extends. Its first fields are Message, Cause, and Place, in that order,
 /// which the runtime reads and writes: Throw sets Place, unless the error has one from an earlier
 /// Throw, and top-level code that lets an error out shows all three, and its Cause's.
+///
+/// # Examples
+///
+/// ```
+/// Function Age(text: String): Int Throws ArgumentError
+///     Local age = Int.Parse(text)
+///     If age == Null
+///         Throw ArgumentError(ArgumentErrorKind.INVALID, "'{text}' isn't an age", "age")
+///     End If
+///
+///     Return age
+/// End Function
+///
+/// Local error = ExpectThrows<ArgumentError>(Age("old"))
+/// Expect(error?.Kind == ArgumentErrorKind.INVALID)
+/// Expect(error?.Message == "'old' isn't an age")
+/// Expect(error?.Name == "age")
+///
+/// // An error can say what it comes from.
+/// Local wrapped = Error("couldn't load the level", IOError(IOErrorKind.NOT_FOUND, "no such file"))
+/// Expect(wrapped.Cause?.Message == "no such file")
+/// ```
 Public Class Error
     /// What went wrong, for people to read.
     Public Field Message: String

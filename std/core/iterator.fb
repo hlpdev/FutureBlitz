@@ -1,4 +1,6 @@
-//! What 'For ... In' goes over besides arrays. Each Next gives the next element, or Null when there
+//! Iterators, and the Iterable Interface, which For loops go over besides arrays.
+//!
+//! Each Next gives the next element, or Null when there
 //! are no more. The loop goes over a copy of a Struct, since its Next changes it.
 //!
 //! Its adapters are lazy: each gives an Iterator of its own, which asks the one before it for a
@@ -10,8 +12,31 @@
 
 Import std.core.interfaces
 
-/// What 'For ... In' goes over: each Next gives the next value, and its adapters and consumers work
+/// What a For loop goes over: each Next gives the next value, and its adapters and consumers work
 /// on the values that are left.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.collections
+/// Struct Countdown Implements Iterator<Int>
+///     Field At: Int
+///
+///     Public ByRef Method Next(): Int?
+///         If At == 0 Then Return Null
+///         At -= 1
+///         Return At + 1
+///     End Method
+/// End Struct
+///
+/// Local seen: Int[] = []
+/// For n In Countdown(3)
+///     seen.Add(n)
+/// End For
+///
+/// Expect(seen == [3, 2, 1])
+/// Expect(Countdown(5).Filter(Function(n: Int) => n % 2 == 1).ToArray() == [5, 3, 1])
+/// ```
 Public Interface Iterator<T>
     /// The next value, or Null when there are no more.
     ByRef Method Next(): T?
@@ -23,6 +48,13 @@ Public Interface Iterator<T>
     Final Method Filter(keep: Func(T): Bool): Iterator<T> => Filtered<Self, T>(Self, keep)
 
     /// The first `count` values, or all of them when there are fewer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Import std.collections
+    /// Expect([1, 2, 3, 4].Iterate().Skip(1).Take(2).ToArray() == [2, 3])
+    /// ```
     @PanicsAtCaller
     Final Method Take(count: Int): Iterator<T>
         If count < 0 Then Panic("Take takes a count that isn't negative, not {count}")
@@ -43,9 +75,23 @@ Public Interface Iterator<T>
     Final Method SkipWhile(skip: Func(T): Bool): Iterator<T> => SkippedWhile<Self, T>(Self, skip)
 
     /// Each value with how many came before it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Import std.collections
+    /// Expect(["a", "b"].Iterate().Enumerate().ToArray() == [(0, "a"), (1, "b")])
+    /// ```
     Final Method Enumerate(): Iterator<(Int, T)> => Enumerated<Self, T>(Self)
 
     /// Each value with `other`'s at the same place, as far as the shorter goes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Import std.collections
+    /// Expect([1, 2, 3].Iterate().Zip(["a", "b"].Iterate()).ToArray() == [(1, "a"), (2, "b")])
+    /// ```
     Final Method Zip<O, U>(other: O): Iterator<(T, U)>
         Where O: Iterator<U>
         Return Zipped<Self, O, T, U>(Self, other)
@@ -71,6 +117,13 @@ Public Interface Iterator<T>
     End Method
 
     /// The values in arrays of `size`, the last one shorter when they don't divide evenly.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Import std.collections
+    /// Expect([1, 2, 3, 4, 5].Iterate().Chunks(2).ToArray() == [[1, 2], [3, 4], [5]])
+    /// ```
     @PanicsAtCaller
     Final Method Chunks(size: Int): Iterator<T[]>
         If size < 1 Then Panic("Chunks takes a size of at least 1, not {size}")
@@ -78,6 +131,13 @@ Public Interface Iterator<T>
     End Method
 
     /// Each run of `size` values in a row, in an array of its own: none when there are fewer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Import std.collections
+    /// Expect([1, 2, 3, 4].Iterate().Windows(3).ToArray() == [[1, 2, 3], [2, 3, 4]])
+    /// ```
     @PanicsAtCaller
     Final Method Windows(size: Int): Iterator<T[]>
         If size < 1 Then Panic("Windows takes a size of at least 1, not {size}")
@@ -86,6 +146,16 @@ Public Interface Iterator<T>
 
     /// The values, smallest `key` first, where equal keys keep their order. It goes over them all
     /// when it's first asked for one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Import std.collections
+    /// # Import std.text
+    /// Local words = ["pear", "fig", "apple"].Iterate()
+    /// Local shortest = words.OrderBy(Function(word: String) => word.Length)
+    /// Expect(shortest.ToArray() == ["fig", "pear", "apple"])
+    /// ```
     Final Method OrderBy<K: Comparable>(key: Func(T): K): Iterator<T>
         Return Ordered<Self, T, K>(Self, key, False)
     End Method
@@ -204,6 +274,14 @@ Public Interface Iterator<T>
     End Method
 
     /// The values added up, or zero when there are none.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Import std.collections
+    /// Expect([1, 2, 3].Iterate().Sum() == 6)
+    /// Expect([2, 3, 4].Iterate().Product() == 24)
+    /// ```
     @PanicsAtCaller
     Final Method Sum(): T
         Where T: Numeric
@@ -279,6 +357,15 @@ Public Interface Iterator<T>
     End Method
 
     /// The value whose key is largest, the first of equal ones, or Null when there's none.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Import std.collections
+    /// # Import std.text
+    /// Local words = ["pear", "fig", "apple"].Iterate()
+    /// Expect(words.MaxBy(Function(word: String) => word.Length) == "apple")
+    /// ```
     @PanicsAtCaller
     Final Method MaxBy<K: Comparable>(key: Func(T): K): T?
         Local most: T? = Null
@@ -298,7 +385,7 @@ Public Interface Iterator<T>
     End Method
 End Interface
 
-/// What 'For ... In' goes over through its Iterate(), for code that takes any collection. A
+/// What a For loop goes over through its Iterate(), for code that takes any collection. A
 /// collection's Iterate() gives a Struct of its own, which an `Iterable<T>`'s value or generic code
 /// gets in a box, an `Iterator<T>` object.
 Public Interface Iterable<T>
@@ -307,6 +394,12 @@ Public Interface Iterable<T>
 End Interface
 
 /// `value`, `count` times.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Repeated("ab", 3).ToArray() == ["ab", "ab", "ab"])
+/// ```
 @PanicsAtCaller
 Public Function Repeated<T>(value: T, count: Int): Iterator<T>
     If count < 0 Then Panic("Repeated takes a count that isn't negative, not {count}")

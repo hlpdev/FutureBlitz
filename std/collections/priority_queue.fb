@@ -190,7 +190,7 @@ Extend PriorityQueue<T> Implements Defaultable
     Public Static Method DefaultValue(): PriorityQueue<T> => PriorityQueue<T>()
 End Extend
 
-/// The values of a PriorityQueue, in no order to count on, which For ... In goes over.
+/// The values of a PriorityQueue, in no order to count on, which a For loop goes over.
 Public Struct PriorityQueueIterator<T> Implements Iterator<T>
     Field Owner: PriorityQueue<T>
     Field Index: Int

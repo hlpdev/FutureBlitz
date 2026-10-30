@@ -127,7 +127,7 @@ Public Class ArrayView<T> Implements Iterable<T>
     End Method
 End Class
 
-/// The elements of an ArrayView, in order, which For ... In goes over.
+/// The elements of an ArrayView, in order, which a For loop goes over.
 Public Struct ArrayViewIterator<T> Implements Iterator<T>
     Field View: ArrayView<T>
     Field Index: Int

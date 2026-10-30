@@ -642,7 +642,7 @@ Public Class SortedSet<T: Comparable> Implements Iterable<T>, Cloneable, Default
     End Method
 End Class
 
-/// The values of a SortedSet, smallest first, which For ... In goes over.
+/// The values of a SortedSet, smallest first, which a For loop goes over.
 Public Struct SortedSetIterator<T: Comparable> Implements Iterator<T>
     Field Entries: SortedMapIterator<T, Bool>
 

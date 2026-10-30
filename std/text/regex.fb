@@ -38,7 +38,7 @@ Public Enum RegexFlags
     IGNORE_CASE
     /// ^ and $ match at each line's start and end too.
     MULTILINE
-    /// . matches a line break.
+    /// The `.` matches a line break too.
     DOT_ALL
     /// The pattern's whitespace is skipped, and its comments from # to the line's end.
     EXTENDED

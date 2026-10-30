@@ -108,7 +108,7 @@ Public Class Stack<T> Implements Iterable<T>, Cloneable, Defaultable
     Public Method Iterate(): StackIterator<T> => StackIterator<T>(Self, Items.Count, Changes)
 End Class
 
-/// The values of a Stack, from the top down, which For ... In goes over.
+/// The values of a Stack, from the top down, which a For loop goes over.
 Public Struct StackIterator<T> Implements Iterator<T>
     Field Owner: Stack<T>
     Field Index: Int

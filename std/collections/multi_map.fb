@@ -126,7 +126,7 @@ Public Class MultiMap<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, De
     End Method
 End Class
 
-/// The entries of a MultiMap, as (key, value), a key's values in order, which For ... In goes over.
+/// The entries of a MultiMap, as (key, value), a key's values in order, which a For loop goes over.
 Public Struct MultiMapIterator<K: Hashable, V> Implements Iterator<(K, V)>
     Field Owner: MultiMap<K, V>
     /// The keys when the loop began, which no change but one that panics reaches.

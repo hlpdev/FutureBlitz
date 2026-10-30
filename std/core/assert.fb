@@ -1,11 +1,19 @@
-//! AssertEqual: an Assert that says what it compared. Assert, DebugAssert, Unreachable, Todo,
-//! and Panic are built in, since the compiler leaves a DebugAssert out of release builds, and
-//! knows the others end the code there.
+//! AssertEqual, an Assert that says what it compared.
+//!
+//! Assert, DebugAssert, Unreachable, Todo, and Panic are built in, since the compiler leaves a
+//! DebugAssert out of release builds, and knows the others end the code there.
 
 Import std.core.interfaces
 
 /// Panics when `actual` isn't `expected`, saying what each is, after the `message` when there's
 /// one.
+///
+/// # Examples
+///
+/// ```
+/// AssertEqual([1, 2, 3].Count, 3)
+/// AssertEqual("a" + "b", "ab", "joined text")
+/// ```
 @PanicsAtCaller
 Public Function AssertEqual<T>(actual: T, expected: T, message: String = "")
     Where T: Equatable & Printable

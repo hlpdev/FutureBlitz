@@ -220,7 +220,7 @@ Public Shared Class ConcurrentMap<K, V> Implements Iterable<(K, V)>, Defaultable
         End For
     End Method
 
-    /// The keys, in the order a For ... In gives them.
+    /// The keys, in the order a For loop gives them.
     Public Method Keys(): K[]
         Local keys: K[] = []
         For key, value In Self
@@ -238,7 +238,7 @@ Public Shared Class ConcurrentMap<K, V> Implements Iterable<(K, V)>, Defaultable
         Return values
     End Method
 
-    /// A new Map with the entries, in the order a For ... In gives them.
+    /// A new Map with the entries, in the order a For loop gives them.
     Public Method ToMap(): Map<K, V>
         Local map = Map<K, V>()
         For key, value In Self
@@ -294,7 +294,7 @@ Package Function CheckMapRoom(count: Int)
     If count == MOST_ENTRIES Then Panic("a ConcurrentMap holds no more entries than an Int counts")
 End Function
 
-/// The entries of a ConcurrentMap as they were when the loop began, which For ... In goes over.
+/// The entries of a ConcurrentMap as they were when the loop began, which a For loop goes over.
 Public Struct ConcurrentMapIterator<K, V> Implements Iterator<(K, V)>
     Where K: Hashable & Sendable
     Where V: Sendable

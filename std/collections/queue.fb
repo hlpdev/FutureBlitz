@@ -126,7 +126,7 @@ End Class
 /// half or more, worked out so it never overflows, as emptied * 2 would.
 Package Function HalfEmptied(emptied: Int, count: Int): Bool => emptied >= count - emptied
 
-/// The values of a Queue, front first, which For ... In goes over.
+/// The values of a Queue, front first, which a For loop goes over.
 Public Struct QueueIterator<T> Implements Iterator<T>
     Field Owner: Queue<T>
     Field Index: Int

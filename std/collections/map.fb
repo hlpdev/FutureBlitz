@@ -420,7 +420,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
     End Method
 End Class
 
-/// The entries of a Map, as (key, value), in order, which For ... In goes over.
+/// The entries of a Map, as (key, value), in order, which a For loop goes over.
 Public Struct MapIterator<K: Hashable, V> Implements Iterator<(K, V)>
     Field Owner: Map<K, V>
     /// The next entry, or -1.

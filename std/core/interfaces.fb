@@ -1,5 +1,7 @@
-//! The Interfaces that the language's operators and strings work through. The built-in types
-//! implement the ones that fit them, and a Struct or Class implements one by listing it.
+//! The Interfaces that operators and string conversion work through.
+//!
+//! The built-in types implement the ones that fit them, and a Struct or Class implements one by
+//! listing it.
 
 /// What == says, and != is always its opposite. A Struct that lists Equatable without an
 /// Operator == of its own compares its fields, and a Class compares whether two are the same
@@ -10,6 +12,23 @@ Public Interface Equatable
 End Interface
 
 /// An order: what < says, which the other comparisons follow unless a type gives its own.
+///
+/// # Examples
+///
+/// ```
+/// Struct Version Implements Comparable
+///     Field Major: Int
+///     Field Minor: Int
+///
+///     Operator <(a: Version, b: Version): Bool
+///         Return a.Major < b.Major || a.Major == b.Major && a.Minor < b.Minor
+///     End Operator
+/// End Struct
+///
+/// Expect(Version(1, 2) < Version(1, 10))
+/// Expect(Version(2, 0) >= Version(1, 9))
+/// Expect(Max(Version(2, 0), Version(1, 9)).Major == 2)
+/// ```
 Public Interface Comparable Extends Equatable
     /// Whether `a` comes before `b`.
     Operator <(a: Self, b: Self): Bool
@@ -31,6 +50,19 @@ Public Interface Hashable Extends Equatable
 End Interface
 
 /// What a value shows in a string, like "{point}".
+///
+/// # Examples
+///
+/// ```
+/// Struct Point Implements Printable
+///     Field X: Int
+///     Field Y: Int
+///
+///     Public Method ToString(): String => "({X}, {Y})"
+/// End Struct
+///
+/// Expect("{Point(1, 2)}" == "(1, 2)")
+/// ```
 Public Interface Printable
     /// Its text, as a string interpolation like "{value}" shows it.
     Method ToString(): String

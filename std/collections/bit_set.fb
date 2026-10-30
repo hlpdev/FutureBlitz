@@ -262,7 +262,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
     End Method
 End Class
 
-/// The values of a BitSet, smallest first, which For ... In goes over.
+/// The values of a BitSet, smallest first, which a For loop goes over.
 Public Struct BitSetIterator Implements Iterator<Int>
     Field Owner: BitSet
     /// The next value to look at, which can be past the largest Int.

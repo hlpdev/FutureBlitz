@@ -201,7 +201,7 @@ Package Function SlotFrom(head: Int, index: Int, capacity: Int): Int
     Return index - (capacity - head)
 End Function
 
-/// The values of a RingBuffer, oldest first, which For ... In goes over.
+/// The values of a RingBuffer, oldest first, which a For loop goes over.
 Public Struct RingBufferIterator<T> Implements Iterator<T>
     Field Owner: RingBuffer<T>
     Field Index: Int

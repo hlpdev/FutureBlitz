@@ -1,3 +1,5 @@
+//! Writing to stdout and stderr, and reading lines from stdin.
+//!
 //! The program's console: what it writes to stdout and stderr, which show what it wrote in its
 //! order, and the lines it reads from stdin. std reaches the runtime through Extern "runtime".
 
@@ -18,6 +20,13 @@ End Extern
 
 /// Prints the `values`, as "{x}" shows each, with a space between each two, and a line break. A
 /// String holding a NUL prints whole.
+///
+/// # Examples
+///
+/// ```
+/// Print("Hello,", "world")    // Hello, world
+/// Print("{1 + 1} apples")     // 2 apples
+/// ```
 Public Function Print(values: Printable...)
     fb_write(values, 0, 1)
 End Function
@@ -44,6 +53,13 @@ End Function
 
 /// Writes the `prompt`, then reads a line, without its line break, "\r\n" too. Null at the end of
 /// the input. Nothing else runs meanwhile.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// Local name = Input("What's your name? ")
+/// If name != Null Then Print("Hello, {name}!")
+/// ```
 Public Function Input(prompt: String = ""): String?
     Return fb_io_input(prompt)
 End Function

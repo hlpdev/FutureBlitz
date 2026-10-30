@@ -138,7 +138,7 @@ Public Class Pool<T> Implements Iterable<T>, Cloneable, Defaultable
     End Method
 End Class
 
-/// The values of a Pool, in slot order, which For ... In goes over.
+/// The values of a Pool, in slot order, which a For loop goes over.
 Public Struct PoolIterator<T> Implements Iterator<T>
     Field Owner: Pool<T>
     Field Index: Int

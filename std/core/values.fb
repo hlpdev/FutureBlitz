@@ -1,5 +1,4 @@
-//! Small things for any values: the smaller and larger of two, a value kept between two others,
-//! swapping two variables, and a hash of two hashes.
+//! Min, Max, Clamp, Swap, and HashCombine, for any values.
 
 Import std.core.interfaces
 
@@ -9,6 +8,13 @@ Extern "runtime"
 End Extern
 
 /// The smaller of the two, or the first when neither is.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Min(3, 7) == 3)
+/// Expect(Min("b", "a") == "a")
+/// ```
 Public Function Min<T: Comparable>(a: T, b: T): T => b < a ? b : a
 
 /// The larger of the two, or the first when neither is.
@@ -33,6 +39,15 @@ Public Function Clamp<T: Comparable>(value: T, low: T, high: T): T
 End Function
 
 /// Gives each of the two variables the other's value.
+///
+/// # Examples
+///
+/// ```
+/// Local a = 1
+/// Local b = 2
+/// Swap(ByRef a, ByRef b)
+/// Expect(a == 2 && b == 1)
+/// ```
 Public Function Swap<T>(ByRef a: T, ByRef b: T)
     Local held = a
     a = b
