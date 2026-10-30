@@ -21,6 +21,8 @@ Every JSON key is snake_case. Every time is an RFC 3339 string in UTC, like
 Staging is `staging-index.futureblitz.dev`, `staging-dl.futureblitz.dev`, and
 `staging-pkg.futureblitz.dev`. Locally (`wrangler dev`) it's `index.localhost:8787`,
 `dl.localhost:8787`, and `pkg.localhost:8787`, over http: one Worker answers all three by host.
+On staging and production, a request over plain http is a `308` to the same address over https,
+which keeps its method and body; nothing is answered over http.
 
 dl.futureblitz.dev's `/apt/` and `/rpm/` are FutureBlitz's apt and dnf repositories, and fb's own
 releases are there too, under `/fb/`, `/futureblitz/`, or `/releases/`. None of those is ever a
@@ -155,9 +157,11 @@ The API refuses an archive, with an error naming the file and why, when:
 - **project.toml:** it isn't at the root, is over 1 MB, or doesn't parse as TOML; `[project] name` or `version`
   isn't the upload's; `type` is `"executable"` (or it has `main` or a root `main.fb` and no
   `type`; `type = "library"` with a `main.fb` is a library), since only libraries are dependencies; `license` isn't a valid SPDX expression of
-  known licenses (`LicenseRef-...` is allowed); `fb` isn't a valid range; a dependency's name
-  isn't a valid package name, it is the package itself, its range isn't valid, or it has `path`,
-  `git`, or `registry`.
+  known licenses (`LicenseRef-...` is allowed); there's no `description`, or it's empty; `fb`
+  isn't a valid range; a dependency's name isn't a valid package name, it is the package itself,
+  its range isn't valid, or it has `path`, `git`, or `registry`.
+- **Dependencies:** a dependency isn't a package on the registry (by its exact name), or no version
+  of it that's published and not yanked meets its range, so the version could never be added.
 - **The license and readme:** there is no license file at the root (`LICENSE`, `LICENSE.md`,
   `LICENSE.txt`, `COPYING`, or what `[project] license_file` names) or no readme (`README.md`,
   `README`, `README.txt`, or what `[project] readme` names); the readme is over 1 MB, isn't
@@ -172,10 +176,10 @@ The API refuses an archive, with an error naming the file and why, when:
   (`format`, `package`, `version`, and `modules`).
 
 project.toml's `[project]` keys the registry reads: `name`, `version`, `type`, `license`,
-`license_file`, `readme`, `description` (at most 300 characters), `keywords` (at most 5, each up
-to 32 lowercase letters, digits, and `-`), `repository`, `homepage`, `documentation` (https
-URLs), and `fb`; and `[dependencies]`, each a range or `{ version = "…" }`, whose `link` the
-registry ignores (the program decides it).
+`license_file`, `readme`, `description` (needed, at most 300 characters), `keywords` (at most 5,
+each up to 32 lowercase letters, digits, and `-`), `repository`, `homepage`, `documentation`
+(https URLs), and `fb`; and `[dependencies]`, each a range or `{ version = "…" }`, whose `link`
+the registry ignores (the program decides it).
 
 ## The API
 
@@ -206,7 +210,8 @@ Any `4xx` or `5xx` has
 `reauth_required`, `scope`, `not_found`, `version_exists`, `name_taken`, `name_reserved`,
 `too_large`, `checksum`, `archive`, `manifest`, `license`, `readme`, `prebuilt`, `docs`,
 `email_unverified`, `rate_limited` (with `Retry-After`), `has_dependents`, `too_late`,
-`last_owner`, `conflict`, `expired`, and `internal`.
+`last_owner`, `conflict`, `expired`, `unavailable` (a `503`, with `Retry-After`, when a service the
+registry asks, such as GitHub, couldn't be), and `internal`.
 
 ### Tokens and scopes
 
@@ -230,13 +235,16 @@ token expires (90 days by default, at most 365); it's shown once, and stored as 
    `201 { "id", "secret", "code": "WDJB-MJHT", "url": "https://pkg.futureblitz.dev/cli-login/<id>", "expires_at", "interval": 3 }`.
    fb opens `url` and prints `code`.
 2. The package site's page shows the code and, with a session, `GET /cli-logins/<id>` →
-   `{ "id", "name", "code", "created_at", "expires_at", "status" }`; the person approves with
+   `{ "id", "name", "code", "created_at", "expires_at", "status" }`, where `status` is
+   `pending`, `approved`, `denied`, or `taken` (fb has its token), or a `404` once it has expired
+   or if it never was; the person approves with
    `POST /cli-logins/<id>/approve` `{ "scopes", "packages", "expires_in_days" }` (re-auth), or
    denies with `POST /cli-logins/<id>/deny`.
 3. fb polls `POST /cli-logins/<id>/poll` `{ "secret" }` every `interval` seconds:
    `202 { "status": "pending" }`; then once `200 { "status": "approved", "token", "expires_at", "username" }`;
    or `410` `expired` when denied, expired (10 minutes), already taken, or its account was
-   deleted. Approving or denying one already answered is a `409` `conflict`.
+   deleted. Approving or denying one already answered, before or after fb polls, is a `409`
+   `conflict`, until it expires.
 
 In CI, fb reads `FB_REGISTRY_TOKEN` instead.
 
@@ -285,11 +293,16 @@ an owner's rights; 30 publish attempts an hour per account. On success,
 `201 { "name", "version", "warnings": [] }`: the version is in the index at once (the edge
 elsewhere within seconds, by the purge), and its readme, docs, and search follow within a minute;
 the other owners get a mail. Two publishes of one package are serialized; of
-one version, the second is a `409` `version_exists`.
+one version, the second is a `409` `version_exists`, and so is a deleted version's number, whose
+`detail` says it was deleted.
+
+A trusted publishing token publishes only new versions of packages that trust its workflow; a
+package not on the registry yet is a `403` `scope` saying its first version comes from
+`fb login` or `FB_REGISTRY_TOKEN`.
 
 ### Packages and versions
 
-- `GET /packages/<name>` → `{ "name", "description", "keywords", "repository", "homepage", "documentation", "license", "max_version", "downloads", "created_at", "updated_at", "owners": [<owner>], "versions": [<version>] }`, versions newest first.
+- `GET /packages/<name>` → `{ "name", "description", "keywords", "repository", "homepage", "documentation", "license", "max_version", "targets", "downloads", "created_at", "updated_at", "owners": [<owner>], "versions": [<version>] }`, versions newest first.
 - `GET /packages/<name>/versions/<version>` → `<version>`:
   `{ "version", "yanked", "license", "fb", "deps", "targets", "archives", "published_at", "published_by": "<username> or null", "trusted_publisher": "<owner/repo> or null", "downloads", "readme": bool, "docs": bool }`.
 - `GET /packages/<name>/versions/<version>/readme` → the rendered readme, `text/html`; raw HTML in
@@ -312,7 +325,7 @@ one version, the second is a `409` `version_exists`.
 An owner is `{ "kind": "user", "name": "alice" }` or `{ "kind": "team", "name": "acme" }`.
 
 - `GET /packages/<name>/owners` → `{ "owners": [<owner>], "invites": [<invite>] }`, the pending
-  invites to own it.
+  invites to own it; anyone can ask, without a token, as `fb owner <name>` does.
 - `POST /packages/<name>/owners` `{ "user": "alice" }` → `202 <invite>`, mailed to alice, who
   accepts it; or
   `{ "team": "acme" }` → `201 <owner>`, added at once if the caller is one of acme's owners.
@@ -320,15 +333,16 @@ An owner is `{ "kind": "user", "name": "alice" }` or `{ "kind": "team", "name": 
   owner is a `409` `last_owner`, even when two removals race. A removed user's invites for the
   package go with them: those they sent, and those sent to them.
 - `DELETE /packages/<name>/owners/invites/<id>` → `204` revokes a pending invite.
-- They need the `owners` scope, or a session with re-auth, and an owner's rights: a user owner,
-  or an owner of an owning team. A team's publishers can publish and yank its packages, but not
-  change their owners.
+- The changes need the `owners` scope, or a session with re-auth, and an owner's rights: a user
+  owner, or an owner of an owning team. A team's publishers can publish and yank its packages, but
+  not change their owners.
 
 An invite is `{ "id", "kind": "owner" | "team", "package" or "team", "role", "from", "invitee", "created_at", "expires_at" }`;
 invites expire after 14 days. One person has one pending invite to a package or a team at a
 time (another is a `409` `conflict`), and an account sends at most 20 invites an hour (`429`).
 
-- `GET /me/invites` → `{ "invites": [<invite>] }`, the newest 100.
+- `GET /me/invites` → `{ "invites": [<invite>] }`, the newest 100; with any token but a trusted
+  publishing token.
 - `POST /me/invites/<id>/accept` and `/decline` → `204`. Accepting checks that the inviter can
   still give it (a `410` `expired` if not), and a team's invite to someone already in it is a
   `409` `conflict`: only the team's owners change a member's role.
@@ -353,10 +367,15 @@ Changing a team needs a session with re-auth, or a token with `owners` and no `p
 
 A package's owner names a GitHub repository and workflow:
 
-- `GET /packages/<name>/trusted-publishers` (signed in) → `{ "trusted_publishers": [{ "id", "repository": "owner/repo", "workflow": "release.yml", "environment": "release" or null, "created_at" }] }`.
-- `POST /packages/<name>/trusted-publishers` `{ "repository", "workflow", "environment" }` → `201`;
-  the registry looks the repository up and keeps its and its owner's GitHub ids, so a repository
-  deleted and made again by someone else doesn't match.
+- `GET /packages/<name>/trusted-publishers` (signed in) → `{ "trusted_publishers": [{ "id", "repository": "owner/repo", "workflow": "release.yml", "environment": "release" or null, "pending": bool, "created_at" }] }`.
+- `POST /packages/<name>/trusted-publishers` `{ "repository", "workflow", "environment" }` →
+  `201` that trusted publisher. The registry looks the repository up on GitHub and keeps its and
+  its owner's GitHub ids, so a repository deleted and made again by someone else doesn't match.
+  A repository GitHub doesn't show the registry, as a private one, is kept by its name, with
+  `"pending": true`, and the first OIDC token from that repository's workflow (in its
+  environment, if one is named) gives it the ids, which every later token has to match. If GitHub
+  can't be asked (it refuses, limits, or fails), it's a `503` `unavailable`. The same repository
+  (letter case aside), workflow, and environment twice is a `409` `conflict`.
 - `DELETE /packages/<name>/trusted-publishers/<id>` → `204`.
 
 In the workflow (`permissions: id-token: write`), fb asks GitHub for an OIDC token with
@@ -370,18 +389,24 @@ In the workflow (`permissions: id-token: write`), fb asks GitHub for an OIDC tok
   from `https://token.actions.githubusercontent.com`, for `oidc_audience`, unexpired, and used
   once. Each publish with it acts with its package's rights: the trusted publisher's maker's
   while they can publish the package, else its longest-standing user owner's. Deleting any of
-  the token's trusted publishers revokes it.
+  the token's trusted publishers revokes it. A JWT no package trusts is a `403` `forbidden`
+  whose `detail` names the repository and workflow, or, when packages trust the workflow only in
+  another environment, those packages and environments and the one the job ran in (or none).
 - fb then publishes with it as with any token, and `DELETE /tokens/current` revokes it at the end.
+  It can't read the account it acts for: `GET /me`, `/me/teams`, and `/me/invites` are a `403`
+  `forbidden` to it.
 
 ### The account
 
-- `GET /me` → `{ "username", "email", "email_verified", "github_login", "passkeys", "has_recovery_codes", "created_at" }`; with a token too, for `fb whoami`.
+- `GET /me` → `{ "username", "email", "email_verified", "github_login", "passkeys", "has_recovery_codes", "created_at" }`; with any token but a trusted publishing token,
+  which `fb login --token` asks before it keeps one, to refuse a token the registry doesn't take
+  and to say whose it is.
 - `DELETE /me` (re-auth) → `204`: sessions, tokens, passkeys, `fb login`s, invites, and its
   email and GitHub login and id go, and its packages stay, owned by their other owners or by no one. The only owner of a team is
   refused, a `409` `last_owner` naming the teams, until they name another owner or delete it.
 - `GET /me/teams` → `{ "teams": [{ "name", "role", "members", "packages": ["…"] }] }`: the teams
   the account is in, by name, with its role in each, how many members each has, and the packages
-  each owns; with a token too.
+  each owns; with any token but a trusted publishing token.
 - `GET /me/tokens` → `{ "tokens": [{ "id", "name", "prefix": "fbr_ab12", "scopes", "packages", "created_at", "expires_at", "last_used_at" }] }`.
 - `POST /me/tokens` `{ "name", "scopes", "packages", "expires_in_days" }` (re-auth) → `201` that and `"token"`, shown once.
 - `DELETE /me/tokens/<id>` → `204`; `DELETE /tokens/current` revokes the token sending it.
@@ -440,12 +465,22 @@ claimed it.
 
 `GET /search?q=physics&keyword=&target=&user=&team=&sort=relevance|downloads|recent&page=1&per_page=20` →
 `{ "packages": [{ "name", "max_version", "description", "keywords", "targets", "downloads", "updated_at" }], "total" }`.
-`q` searches names, descriptions, and keywords, by their words in any script, accents aside; a
-`q` with no letters or digits finds nothing. An empty `keyword`, `target`, or `sort` is none, as
+`q` searches names, descriptions, and keywords, by their words in any script, accents aside. A
+package is found only if it matches every word of `q` (up to its first 10), each as the start of
+one of its words, so `color palette` finds a package with both and not one with only one; a `q`
+with no letters or digits finds nothing. fb's search of a registry on disk, which has only names,
+needs every word in a name. An empty `keyword`, `target`, or `sort` is none, as
 a form sends it. `user` and `team` keep the packages that person or team owns, as their pages
 list them (a name that isn't a username or a team's is a `400`). `page` is from 1 to 1000 and `per_page` from 1 to 100 (20 by default, and a
 larger or smaller one is taken as the nearest); a page or per_page that isn't a whole number, or
 a page out of range, is a `400`.
+
+### Health
+
+`GET /health` → `200 { "status": "ok", "checks": { "d1": "ok", "r2": "ok", "queue": "ok" } }`, or
+a `503` with `"status": "down"` and each check that didn't answer in 5 seconds `"down"`: D1, both
+R2 buckets, and the queue, which takes a message the jobs drop. It needs no sign-in, isn't cached,
+and is what the package site's status page and the health checks read.
 
 ### Rate limits
 
