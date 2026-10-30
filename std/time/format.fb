@@ -1,3 +1,5 @@
+//! Formatting and parsing dates and times: ISO 8601, RFC 2822, and patterns.
+//!
 //! std.time's formats: ISO 8601, as each type's ToString and Parse write and read it; RFC 2822,
 //! as email has it, like "Fri, 23 Oct 2026 14:30:00 +0200"; and patterns, for Format and the
 //! Parse that takes one, whose letters stand for the parts of a date, time, or zone:
@@ -20,6 +22,16 @@
 //! one letter reads as many digits as it can have, and of two or more, that many, but DD reads two
 //! or three, as Format writes the days of the year past 99. Names are English and read in any
 //! letter case.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.time
+//! Local day = Date(2024, 3, 9)
+//! Expect(day.Format("dd MMM yyyy") == "09 Mar 2024")
+//! Expect(Date.Parse("09/03/2024", "dd/MM/yyyy") == day)
+//! Expect(Timestamp.UnixEpoch().ToRfc2822() == "Thu, 1 Jan 1970 00:00:00 +0000")
+//! ```
 
 Import std.core
 Import std.time.calendar

@@ -1,3 +1,5 @@
+//! Dates, times of day, and the two together, without a time zone.
+//!
 //! The calendar's types, in the proleptic Gregorian calendar and without a zone: Date, a day;
 //! TimeOfDay, a time on a day's clock, to the nanosecond; and LocalDateTime, the two together.
 //! Their zeros are 1970-01-01, midnight, and the two of those. Adding months or years clamps the
@@ -30,6 +32,18 @@ Public Enum Weekday
 End Enum
 
 /// A day, from the year -2147483648 to 2147483647, the years an Int holds.
+///
+/// # Examples
+///
+/// ```
+/// Local day = Date(2024, 2, 28)
+/// Expect(day.AddDays(1) == Date(2024, 2, 29))
+/// Expect(day.IsLeapYear && day.DaysInMonth == 29)
+/// Expect(day.DayOfWeek == Weekday.WEDNESDAY)
+/// Expect(Date(2024, 1, 31).AddMonths(1) == Date(2024, 2, 29))
+/// Expect("{day}" == "2024-02-28")
+/// Expect(Date.Parse("2024-02-30") == Null)
+/// ```
 Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
     /// Its days since 1970-01-01, before it when below 0.
     Field Days: Int64
@@ -55,6 +69,7 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         Return Date(days)
     End Method
 
+    /// 1970-01-01, the Unix epoch's day.
     Public Static Method DefaultValue(): Date => Date(0)
     /// The earliest Date there is.
     Public Static Method MinValue(): Date => Date(-784353015833)
@@ -228,6 +243,7 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
     @PanicsAtCaller
     Public Method Format(pattern: String): String => FormatPattern(pattern, PartsOf(Self))
 
+    /// Whether `a` is before `b`.
     Operator <(a: Date, b: Date): Bool => a.Days < b.Days
 
     /// The date of days already checked.
@@ -237,6 +253,16 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
 End Struct
 
 /// A time on a day's clock, from midnight to a nanosecond before the next.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local late = TimeOfDay(23, 30)
+/// Expect("{late}" == "23:30:00")
+/// Expect(late + 2.Hours == TimeOfDay(1, 30))
+/// Expect(late.Format("h:mm a") == "11:30 PM")
+/// ```
 Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
     /// Its nanoseconds since midnight.
     Field Nanoseconds: Int64
@@ -267,6 +293,7 @@ Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
     Public Static Method Midnight(): TimeOfDay => TimeOfDay(0)
     /// The time in the middle of a day: 12:00.
     Public Static Method Noon(): TimeOfDay => TimeOfDay(43200000000000)
+    /// Midnight, 00:00:00.
     Public Static Method DefaultValue(): TimeOfDay => TimeOfDay(0)
     /// The earliest time of day: 00:00.
     Public Static Method MinValue(): TimeOfDay => TimeOfDay(0)
@@ -347,6 +374,7 @@ Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
         Return Duration.FromNanoseconds(a.Nanoseconds - b.Nanoseconds)
     End Operator
 
+    /// Whether `a` is earlier on the clock than `b`.
     Operator <(a: TimeOfDay, b: TimeOfDay): Bool => a.Nanoseconds < b.Nanoseconds
 
     /// As ISO 8601 writes it, with seconds, and a fraction only when there is one, like
@@ -367,6 +395,15 @@ Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
 End Struct
 
 /// A date and a time of day, without a zone, as a wall calendar and clock show them.
+///
+/// # Examples
+///
+/// ```
+/// Local meeting = LocalDateTime(2024, 3, 9, 14, 30)
+/// Expect("{meeting}" == "2024-03-09T14:30:00")
+/// Expect(meeting.AddDays(1).Date == Date(2024, 3, 10))
+/// Expect(LocalDateTime.Parse("2024-03-09T14:30:00") == meeting)
+/// ```
 Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaultable
     Field Day: Date
     Field Clock: TimeOfDay
@@ -385,6 +422,7 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
         Clock = TimeFrom(hour, minute, second, nanosecond)
     End New
 
+    /// Midnight on 1970-01-01.
     Public Static Method DefaultValue(): LocalDateTime => LocalDateTime(DayOf(0), ClockOf(0))
 
     /// The earliest LocalDateTime there is.
@@ -526,6 +564,7 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
         Return Between(a.Day.Days - b.Day.Days, a.Clock.Nanoseconds - b.Clock.Nanoseconds)
     End Operator
 
+    /// Whether `a` is before `b`.
     Operator <(a: LocalDateTime, b: LocalDateTime): Bool
         Return a.Day < b.Day || (a.Day == b.Day && a.Clock < b.Clock)
     End Operator

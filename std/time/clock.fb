@@ -1,3 +1,5 @@
+//! The monotonic clock, for measuring how long things take, and Sleep.
+//!
 //! The monotonic clock, which never goes back or jumps as the OS's clock can, for how long things
 //! take: Instant, a reading of it; Stopwatch and Measure over it; and Sleep. The real clock's
 //! time is Timestamp's (in timestamp.fb). What reads the clock here, and in timers.fb, also
@@ -25,6 +27,7 @@ Public Struct Instant Implements Comparable, Hashable, Printable, Defaultable
 
     /// The Instant that many nanoseconds after the clock's start, for code that gives the time.
     Public Static Method FromNanoseconds(count: Int64): Instant => Instant(count)
+    /// The clock's reading of 0 nanoseconds.
     Public Static Method DefaultValue(): Instant => Instant(0)
 
     /// How many nanoseconds after the clock's start it is.
@@ -49,6 +52,7 @@ Public Struct Instant Implements Comparable, Hashable, Printable, Defaultable
     /// overflows as an Int64 does.
     @PanicsAtCaller
     Operator -(a: Instant, b: Instant): Duration => Duration.FromNanoseconds(a.Count - b.Count)
+    /// Whether `a` is before `b`.
     Operator <(a: Instant, b: Instant): Bool => a.Count < b.Count
 
     /// How long after the clock's start it is, like "1h2m3.5s".
@@ -56,6 +60,17 @@ Public Struct Instant Implements Comparable, Hashable, Printable, Defaultable
 End Struct
 
 /// Measures how long goes by while it runs, over as many starts and stops as it has.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local start = Instant.FromNanoseconds(0)
+/// Local watch = Stopwatch.StartNew(start)
+/// Expect(watch.ElapsedAt(Instant.FromNanoseconds(1_500_000)) == 1500.Microseconds)
+/// watch.Stop(Instant.FromNanoseconds(2_000_000))
+/// Expect(watch.Elapsed == 2.Milliseconds && !watch.IsRunning)
+/// ```
 Public Class Stopwatch
     /// What it measured up to its latest stop, and when it started, while it runs.
     Field Total: Duration
@@ -133,6 +148,16 @@ Public Class Stopwatch
 End Class
 
 /// How long the `work` takes, on the monotonic clock.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local nap = Function()
+///     Sleep(2.Milliseconds)
+/// End Function
+/// Expect(Measure(nap) >= 2.Milliseconds)
+/// ```
 Public Function Measure(work: Func()): Duration
     Local start = fb_time_monotonic()
     work()

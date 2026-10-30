@@ -1,8 +1,10 @@
+//! Timers, deadlines, fixed steps, rate limits, and debouncing.
+//!
 //! Waiting and pacing: Timer, on the I/O thread's loop, for Tasks that are done after a while,
 //! which any thread can wait for; Deadline, a time to give up at, as blocking calls take one;
-//! FixedStep, for a game loop's updates at a fixed rate; RateLimiter, which lets so many things
-//! happen in so long; and Debounce, for acting once a burst of events has stopped. What reads the
-//! monotonic clock also takes an Instant, so code, and its tests, can give the time as a value.
+//! FixedStep, for updates at a fixed rate; RateLimiter, which lets so many things happen in so
+//! long; and Debounce, for acting once a burst of events has stopped. What reads the monotonic
+//! clock also takes an Instant, so code, and its tests, can give the time as a value.
 
 Import std.core
 Import std.time.clock
@@ -105,6 +107,7 @@ Public Struct Deadline Implements Comparable, Hashable, Defaultable
 
     /// None: it never passes.
     Public Static Method Never(): Deadline => Deadline(False, Instant.FromNanoseconds(0))
+    /// None, which never passes, as Never gives.
     Public Static Method DefaultValue(): Deadline => Never()
 
     /// Whether it's none, which never passes.
@@ -142,6 +145,7 @@ Public Struct Deadline Implements Comparable, Hashable, Defaultable
         Return a.Limited == b.Limited && (!a.Limited || a.When == b.When)
     End Operator
 
+    /// A hash of its time, or 0 for none, which Deadlines that are equal share.
     Public Method Hash(): UInt64 => Limited ? When.Hash() : 0
 End Struct
 

@@ -1,3 +1,5 @@
+//! Durations, spans of time to the nanosecond.
+//!
 //! Duration: a span of time to the nanosecond, as an Int64 of them, from about 292 years before
 //! to 292 years after. An Int64's or a Double's Nanoseconds, Microseconds, Milliseconds, Seconds,
 //! Minutes, Hours, and Days make one, as 2.Seconds, 1.5.Minutes, and 500.Milliseconds do, a
@@ -18,12 +20,24 @@ Extern "C"
 End Extern
 
 /// A length of time, in nanoseconds, below 0 for one that goes back.
+///
+/// # Examples
+///
+/// ```
+/// Local trip = 90.Minutes
+/// Expect(trip.TotalHours == 1.5)
+/// Expect("{trip}" == "1h30m0s")
+/// Expect(Duration.Parse("1h30m") == trip)
+/// Expect(2.5.Seconds == 2500.Milliseconds)
+/// Expect((trip - 2.Hours).IsNegative)
+/// ```
 Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
     /// Its nanoseconds. Wait and RealWait read it, so it's the only Field.
     Field Count: Int64
 
     /// No time at all.
     Public Static Method Zero(): Duration => Duration(0)
+    /// No time at all, 0s.
     Public Static Method DefaultValue(): Duration => Duration(0)
 
     /// The longest Durations, about 292 years either way.
@@ -222,6 +236,7 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
         Return Duration(total As Int64)
     End Method
 
+    /// Whether `a` is shorter than `b`.
     Operator <(a: Duration, b: Duration): Bool => a.Count < b.Count
 
     /// `a` plus `b`, which panics past the longest Durations, as an Int64's overflow does.

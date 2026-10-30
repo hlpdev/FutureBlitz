@@ -1,3 +1,5 @@
+//! Timestamps, points in time in UTC, to the nanosecond.
+//!
 //! Timestamp: a point in time, in UTC, to the nanosecond, from the year -999999999 to 999999999,
 //! as the real clock and Unix times give one. Its zero is 1970-01-01T00:00:00Z. A zone's clocks
 //! show it as a ZonedDateTime (in zone.fb). ToString and Parse write and read RFC 3339, ISO
@@ -15,6 +17,19 @@ End Extern
 
 /// A moment in time, as UTC counts it: its seconds since 1970-01-01T00:00:00Z, and the nanoseconds
 /// after them.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local epoch = Timestamp.FromUnixSeconds(0)
+/// Expect(epoch == Timestamp.UnixEpoch())
+/// Expect("{epoch}" == "1970-01-01T00:00:00Z")
+/// Local day = epoch + 1.Days
+/// Expect(day.UnixSeconds == 86400)
+/// Expect(Timestamp.Parse("1970-01-02T00:00:00Z") == day)
+/// Expect(Timestamp.Parse("1970-01-02T02:00:00+02:00") == day)
+/// ```
 Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
     /// Its seconds since 1970-01-01T00:00:00Z, below 0 before it, and the nanoseconds after
     /// those, from 0 to 999999999.
@@ -34,6 +49,7 @@ Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
                          FloorModulo(nanoseconds, 1000000000) As Int)
     End Method
 
+    /// The Unix epoch, 1970-01-01T00:00:00Z.
     Public Static Method DefaultValue(): Timestamp => Timestamp(0, 0)
     /// 1970-01-01T00:00:00Z, where Unix time starts.
     Public Static Method UnixEpoch(): Timestamp => Timestamp(0, 0)
@@ -143,6 +159,7 @@ Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
         Return Duration.FromNanoseconds(total)
     End Operator
 
+    /// Whether `a` is before `b`.
     Operator <(a: Timestamp, b: Timestamp): Bool
         Return a.Seconds < b.Seconds || (a.Seconds == b.Seconds && a.Nanos < b.Nanos)
     End Operator

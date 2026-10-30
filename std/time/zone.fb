@@ -1,3 +1,5 @@
+//! Time zones, and times in them: the IANA database's, fixed offsets, and the OS's.
+//!
 //! TimeZone, a zone's rules for its clocks: one of the IANA tz database's, which the runtime
 //! embeds, like "Europe/Paris", with every offset and daylight saving change it has had and will
 //! have; a fixed offset from UTC; or the OS's own. ZonedDateTime is a moment where a zone is, its
@@ -58,6 +60,7 @@ Public Struct TimeZone Implements Hashable, Printable, Defaultable
 
     /// UTC, which is also every TimeZone's zero.
     Public Static Method Utc(): TimeZone => TimeZone(0, 0)
+    /// UTC.
     Public Static Method DefaultValue(): TimeZone => TimeZone(0, 0)
 
     /// The zone of that `offset` from UTC, always, which panics when it isn't whole seconds under a
@@ -150,6 +153,7 @@ Public Struct TimeZone Implements Hashable, Printable, Defaultable
         Return offsets
     End Method
 
+    /// Its Name, like "Europe/Paris" or "UTC".
     Public Method ToString(): String => Name
 
     /// Its offset's seconds at that moment.
@@ -177,6 +181,20 @@ End Struct
 
 /// A moment where a zone is: its Timestamp, and the date and time the zone's clocks show then,
 /// from the year -999999999 to 999999999. Its zero is 1970-01-01T00:00:00Z in UTC.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local paris = TimeZone.Find("Europe/Paris")
+/// Expect(paris != Null)
+/// If paris == Null Then Return
+/// Local summer = ZonedDateTime(LocalDateTime(2024, 7, 1, 12, 0), paris)
+/// Expect(summer.Offset == 2.Hours && summer.Abbreviation == "CEST")
+/// Expect(summer.Timestamp.ToUtc().Hour == 10)
+/// Expect(summer.AddMonths(6).Offset == 1.Hours)
+/// Expect("{summer}" == "2024-07-01T12:00:00+02:00[Europe/Paris]")
+/// ```
 Public Struct ZonedDateTime Implements Comparable, Hashable, Printable, Defaultable
     Field Moment: Timestamp
     Field Place: TimeZone
@@ -209,6 +227,7 @@ Public Struct ZonedDateTime Implements Comparable, Hashable, Printable, Defaulta
         Shift = shift
     End New
 
+    /// The Unix epoch, in UTC.
     Public Static Method DefaultValue(): ZonedDateTime
         Return ZonedDateTime(MomentOfSeconds(0), TimeZone.Utc(), 0)
     End Method
