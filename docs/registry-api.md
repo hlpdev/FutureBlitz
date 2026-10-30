@@ -211,7 +211,8 @@ Any `4xx` or `5xx` has
 `too_large`, `checksum`, `archive`, `manifest`, `license`, `readme`, `prebuilt`, `docs`,
 `email_unverified`, `rate_limited` (with `Retry-After`), `has_dependents`, `too_late`,
 `last_owner`, `conflict`, `expired`, `unavailable` (a `503`, with `Retry-After`, when a service the
-registry asks, such as GitHub, couldn't be), and `internal`.
+registry asks, such as GitHub, couldn't be, or while the registry is restored, when it takes no
+change but signing in and an admin's), and `internal`.
 
 ### Tokens and scopes
 
@@ -477,10 +478,38 @@ a page out of range, is a `400`.
 
 ### Health
 
-`GET /health` → `200 { "status": "ok", "checks": { "d1": "ok", "r2": "ok", "queue": "ok" } }`, or
-a `503` with `"status": "down"` and each check that didn't answer in 5 seconds `"down"`: D1, both
-R2 buckets, and the queue, which takes a message the jobs drop. It needs no sign-in, isn't cached,
-and is what the package site's status page and the health checks read.
+`GET /health` → `200 { "status": "ok", "checks": { "d1": "ok", "r2": "ok", "queue": "ok" }, "backup": { "last", "fresh" } }`,
+or a `503` with `"status": "down"` and each check that didn't answer in 5 seconds `"down"`: D1,
+both R2 buckets, and the queue, which takes a message the jobs drop. `backup` is when the last
+nightly backup of D1 was made (RFC 3339, or `null`), and whether that was in the last 26 hours;
+it doesn't make the registry down. It needs no sign-in, isn't cached, and is what the package
+site's status page and the health checks read.
+
+### Admin
+
+The registry's admins' own endpoints, from an admin's session, never a token: with no sign-in
+they're a `401` `unauthorized`, and from a token or anyone else's session a `403` `forbidden`.
+The `POST`s need re-auth, or they're a `403` `reauth_required`.
+
+- `POST /admin/reindex` → `202 { "run", "report": "/api/v1/admin/reindex/<run>" }`: rebuilds the
+  index from D1, after a restore, which the audit log keeps as `registry.reindexed`. It goes on
+  in the background: the name of a package D1 hasn't whose archives are on dl is reserved, each
+  package's index file is made what D1 says, an index file of a package D1 hasn't is emptied, and
+  archives are compared with versions', none deleted. Running it again changes nothing. A first
+  publish of a name whose folder on dl has archives, from a package D1 lost, is a `403`
+  `name_reserved`, and reserves the name; a version whose archive is on dl though D1 has no row
+  of it can't be published again, a `409` `version_exists`.
+- `GET /admin/reindex/<run>` → `{ "run", "started", "started_by", "finished", "phase", "steps", "packages", "rewritten", "unknown_archives", "missing_archives", "reserved", "undone_yanks", "next", "sent" }`:
+  the rebuild's report so far; `finished` is `null` until it's done. `rewritten` is the packages
+  whose index files changed, `unknown_archives` the archives' paths no version names,
+  `missing_archives` those a listed version names that aren't there, `reserved` the names
+  reserved, and `undone_yanks` the yanks and unyanks the index files had and D1 hasn't, as
+  `"<name> <version> was yanked"`; `next` and `sent` are its next step's. A run there isn't is a
+  `404`.
+- `POST /admin/reserved/<name>/owner` `{ "user": "<username>" }` → `204`: gives a name the
+  rebuild reserved back to the account that owned its package, which is made, owned by them, as
+  the reservation is dropped. A name not reserved for a lost package, or an account there isn't,
+  is a `404`; a package of that name already, a `409` `name_taken`.
 
 ### Rate limits
 
