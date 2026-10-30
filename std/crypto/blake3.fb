@@ -1,3 +1,5 @@
+//! The BLAKE3 hash, also keyed, as a MAC, and as a key derivation function.
+//!
 //! Blake3, over BLAKE3's C code: a fast cryptographic hash of any length, 32 bytes unless asked
 //! for more or fewer, which can be keyed, as a MAC, or derive a key for a context, as a KDF.
 
@@ -14,6 +16,18 @@ End Extern
 
 /// BLAKE3's hash of what's added in turn, of any length, for checksums, keys, and anything else a
 /// fast cryptographic hash fits.
+///
+/// # Examples
+///
+/// ```
+/// Local hash = Blake3.Hash("abc")
+/// Expect(hash.Count == 32)
+/// Local hasher = Blake3()
+/// hasher.Add("a")
+/// hasher.Add("bc")
+/// Expect(hasher.Finish() == hash)
+/// Expect(Blake3.Hash("abc", 64).Count == 64)
+/// ```
 Public Class Blake3 Implements Hasher
     Field State: Ptr<Void>
 
@@ -35,8 +49,8 @@ Public Class Blake3 Implements Hasher
     End Method
 
     /// A hasher whose hash is a key for `context`, from the material added: `context`, fixed in the
-    /// program, says what the key is for, like "game 2026-10-23 save file encryption", so keys
-    /// for different uses differ.
+    /// program, says what the key is for, like "example.com save files, version 1", so keys for
+    /// different uses differ.
     Public Static Method DerivingKey(context: String): Blake3
         Local noKey: UInt8[] = []
         Return Blake3(2, noKey, context)
@@ -68,6 +82,15 @@ Public Class Blake3 Implements Hasher
     End Method
 
     /// A key for `context` from `material`. Panics when `length` is negative.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local material = SecureRandom.Bytes(32)
+    /// Local saves = Blake3.DeriveKey("example.com save files, version 1", material)
+    /// Local tokens = Blake3.DeriveKey("example.com session tokens, version 1", material)
+    /// Expect(saves.Count == 32 && saves != tokens)
+    /// ```
     @PanicsAtCaller
     Public Static Method DeriveKey(context: String, material: UInt8[], length: Int = 32): UInt8[]
         Local hasher = DerivingKey(context)

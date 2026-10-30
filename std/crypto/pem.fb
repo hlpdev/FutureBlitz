@@ -1,3 +1,5 @@
+//! Reading keys and X.509 certificates from PEM, and writing keys to it.
+//!
 //! Key and Certificate, which read keys and X.509 certificates from PEM, the text between
 //! "-----BEGIN ...-----" and "-----END ...-----" lines that keys and certificates are kept in,
 //! over mbedTLS. A Key's Bytes are what its kind's Methods take, so a key read from PEM signs,
@@ -36,6 +38,17 @@ End Enum
 /// A private or public key, as its kind's Methods take it: an ECDSA P-256 private key's 32 bytes
 /// or public key's 65; an RSA key's PKCS #1 DER, whose public one Rsa verifies with; and an X25519
 /// or Ed25519 key's 32 bytes.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Local key = Key(KeyKind.ED25519, True, Ed25519.NewPrivateKey())
+/// Local pem = key.ToPem()
+/// Expect(pem.StartsWith("-----BEGIN PRIVATE KEY-----"))
+/// Local read = Try Key.FromPem(pem)
+/// Expect(read.Kind == KeyKind.ED25519 && read.IsPrivate && read.Bytes == key.Bytes)
+/// ```
 Public Struct Key
     /// What kind of key it is.
     Public ReadOnly Field Kind: KeyKind
@@ -85,6 +98,16 @@ End Struct
 /// 4514's escapes; its serial number as hex bytes with colons between them; the UTC times it's
 /// valid from and to, as "2026-10-23T12:00:00Z"; its public key; and its DER. Checking that one
 /// certificate signed another, or that one is trusted, is TLS's.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.io
+/// Local chain = Try Certificate.AllFromPem(Try File.ReadText(Path("fullchain.pem")))
+/// For certificate In chain
+///     Print("{certificate.Subject}, until {certificate.NotAfter}")
+/// End For
+/// ```
 Public Struct Certificate
     /// Who it's for, like "C=NL, O=Example, CN=example.com".
     Public ReadOnly Field Subject: String

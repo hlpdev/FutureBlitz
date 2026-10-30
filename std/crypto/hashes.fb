@@ -1,3 +1,5 @@
+//! The MD5, SHA-1, SHA-256, and SHA-512 hashes.
+//!
 //! Md5, Sha1, Sha256, and Sha512, over mbedTLS: each one's Hash gives the hash of bytes, or of a
 //! String's bytes, at once, and an object of it adds them in turn. MD5 and SHA-1 are broken, since
 //! two inputs with one hash can be made, so they're only for checksums and the formats that ask for
@@ -23,6 +25,19 @@ Const SHA512 = 4
 
 /// What hashes bytes added to it in turn. Finish gives the hash of what was added, and starts
 /// again, empty.
+///
+/// # Examples
+///
+/// ```
+/// Function HashOf(hasher: Hasher, parts: String[]): UInt8[]
+///     For part In parts
+///         hasher.Add(part)
+///     End For
+///     Return hasher.Finish()
+/// End Function
+///
+/// Expect(HashOf(Sha256(), ["a", "b", "c"]) == Sha256.Hash("abc"))
+/// ```
 Public Interface Hasher
     /// Adds `data` to what it hashes.
     Method Add(data: UInt8[])
@@ -33,6 +48,13 @@ Public Interface Hasher
 End Interface
 
 /// MD5's 16 bytes, only for checksums.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Expect(Hex.Encode(Md5.Hash("")) == "d41d8cd98f00b204e9800998ecf8427e")
+/// ```
 Public Class Md5 Implements Hasher
     Field State: Ptr<Void>
 
@@ -46,14 +68,17 @@ Public Class Md5 Implements Hasher
     /// The MD5 of `text`'s UTF-8 bytes.
     Public Static Method Hash(text: String): UInt8[] => TextHashOf(MD5, text)
 
+    /// Adds `data` to what it hashes.
     Public Method Add(data: UInt8[])
         fb_crypto_hasher_add(State, data)
     End Method
 
+    /// Adds `text`'s UTF-8 bytes to what it hashes.
     Public Method Add(text: String)
         fb_crypto_hasher_add_text(State, text)
     End Method
 
+    /// The 16-byte MD5 of what was added, after which it starts again, empty.
     Public Method Finish(): UInt8[] => Finished(State)
 
     Method Destroy()
@@ -62,6 +87,13 @@ Public Class Md5 Implements Hasher
 End Class
 
 /// SHA-1's 20 bytes, only for checksums and the formats that ask for it, like Git's.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Expect(Hex.Encode(Sha1.Hash("abc")) == "a9993e364706816aba3e25717850c26c9cd0d89d")
+/// ```
 Public Class Sha1 Implements Hasher
     Field State: Ptr<Void>
 
@@ -75,14 +107,17 @@ Public Class Sha1 Implements Hasher
     /// The SHA-1 of `text`'s UTF-8 bytes.
     Public Static Method Hash(text: String): UInt8[] => TextHashOf(SHA1, text)
 
+    /// Adds `data` to what it hashes.
     Public Method Add(data: UInt8[])
         fb_crypto_hasher_add(State, data)
     End Method
 
+    /// Adds `text`'s UTF-8 bytes to what it hashes.
     Public Method Add(text: String)
         fb_crypto_hasher_add_text(State, text)
     End Method
 
+    /// The 20-byte SHA-1 of what was added, after which it starts again, empty.
     Public Method Finish(): UInt8[] => Finished(State)
 
     Method Destroy()
@@ -91,6 +126,18 @@ Public Class Sha1 Implements Hasher
 End Class
 
 /// SHA-256's 32 bytes.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Expect(Hex.Encode(Sha256.Hash("abc")) ==
+///        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+/// Local hasher = Sha256()
+/// hasher.Add("ab")
+/// hasher.Add("c".Bytes)
+/// Expect(hasher.Finish() == Sha256.Hash("abc"))
+/// ```
 Public Class Sha256 Implements Hasher
     Field State: Ptr<Void>
 
@@ -104,14 +151,17 @@ Public Class Sha256 Implements Hasher
     /// The SHA-256 of `text`'s UTF-8 bytes.
     Public Static Method Hash(text: String): UInt8[] => TextHashOf(SHA256, text)
 
+    /// Adds `data` to what it hashes.
     Public Method Add(data: UInt8[])
         fb_crypto_hasher_add(State, data)
     End Method
 
+    /// Adds `text`'s UTF-8 bytes to what it hashes.
     Public Method Add(text: String)
         fb_crypto_hasher_add_text(State, text)
     End Method
 
+    /// The 32-byte SHA-256 of what was added, after which it starts again, empty.
     Public Method Finish(): UInt8[] => Finished(State)
 
     Method Destroy()
@@ -120,6 +170,12 @@ Public Class Sha256 Implements Hasher
 End Class
 
 /// SHA-512's 64 bytes.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Sha512.Hash("abc").Count == 64)
+/// ```
 Public Class Sha512 Implements Hasher
     Field State: Ptr<Void>
 
@@ -133,14 +189,17 @@ Public Class Sha512 Implements Hasher
     /// The SHA-512 of `text`'s UTF-8 bytes.
     Public Static Method Hash(text: String): UInt8[] => TextHashOf(SHA512, text)
 
+    /// Adds `data` to what it hashes.
     Public Method Add(data: UInt8[])
         fb_crypto_hasher_add(State, data)
     End Method
 
+    /// Adds `text`'s UTF-8 bytes to what it hashes.
     Public Method Add(text: String)
         fb_crypto_hasher_add_text(State, text)
     End Method
 
+    /// The 64-byte SHA-512 of what was added, after which it starts again, empty.
     Public Method Finish(): UInt8[] => Finished(State)
 
     Method Destroy()

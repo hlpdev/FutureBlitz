@@ -1,3 +1,5 @@
+//! HMAC, HKDF, and PBKDF2: message authentication and key derivation.
+//!
 //! Hmac, Hkdf, and Pbkdf2, over mbedTLS: a MAC, which a key makes and checks, a key from other key
 //! material, and a key from a password: HMAC and PBKDF2 by SHA-1, SHA-256, or SHA-512, and HKDF by
 //! SHA-256 or SHA-512.
@@ -19,6 +21,17 @@ Const SHA512 = 4
 
 /// HMAC (RFC 2104) of data with key, of any length: a MAC as long as its hash, which only who has
 /// the key can make. Check one with ConstantTimeEquals.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Local message = "The quick brown fox jumps over the lazy dog"
+/// Local mac = Hmac.Sha256("key".Bytes, message)
+/// Expect(Hex.Encode(mac) == "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8")
+/// // A MAC that came with a message is checked without telling where they differ.
+/// Expect(ConstantTimeEquals(mac, Hmac.Sha256("key".Bytes, message)))
+/// ```
 Public Struct Hmac
     /// Hmac isn't made: it's only its Static Methods.
     New()
@@ -47,6 +60,15 @@ End Struct
 /// HKDF (RFC 5869): length bytes of new key from material, a secret like a shared one from X25519,
 /// with salt, which can be empty, and info, which says what the key is for, so keys for different
 /// uses differ.
+///
+/// # Examples
+///
+/// ```
+/// Local shared = SecureRandom.Bytes(32)
+/// Local key = Hkdf.Sha256(shared, [], "session keys".Bytes, 32)
+/// Expect(key.Count == 32)
+/// Expect(key == Hkdf.Sha256(shared, [], "session keys".Bytes, 32))
+/// ```
 Public Struct Hkdf
     /// Hkdf isn't made: it's only its Static Methods.
     New()
@@ -71,6 +93,15 @@ End Struct
 /// rounds, which make a guess at the password cost that many. For keeping passwords, Argon2id is
 /// stronger, since it needs memory too. Each panics unless iterations is 1 or more and length isn't
 /// negative.
+///
+/// # Examples
+///
+/// ```
+/// Local salt = SecureRandom.Bytes(16)
+/// Local key = Pbkdf2.Sha256("correct horse", salt, 1000, 32)
+/// Expect(key.Count == 32)
+/// Expect(key == Pbkdf2.Sha256("correct horse", salt, 1000, 32))
+/// ```
 Public Struct Pbkdf2
     /// Pbkdf2 isn't made: it's only its Static Methods.
     New()

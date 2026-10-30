@@ -1,3 +1,5 @@
+//! Random bytes and numbers from the OS, for secrets, and comparing secrets in constant time.
+//!
 //! SecureRandom, bytes and numbers from the OS's randomness, through mbedTLS's generator, for keys,
 //! salts, nonces, and tokens; and ConstantTimeEquals, which compares secrets without telling where
 //! they differ.
@@ -10,6 +12,15 @@ Extern "runtime"
 End Extern
 
 /// SecureRandom's Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// Local token = SecureRandom.Bytes(16)
+/// Expect(token.Count == 16)
+/// Local roll = SecureRandom.Below(6)
+/// Expect(roll >= 0 && roll < 6)
+/// ```
 Public Struct SecureRandom
     /// SecureRandom isn't made: it's only its Static Methods.
     New()
@@ -46,4 +57,12 @@ End Struct
 
 /// Whether `a` and `b` have the same bytes, in a time that depends only on their counts, not on
 /// where they first differ, so comparing a secret, like a MAC, tells nothing about it.
+///
+/// # Examples
+///
+/// ```
+/// Local secret = SecureRandom.Bytes(32)
+/// Expect(ConstantTimeEquals(secret, secret.Clone()))
+/// Expect(!ConstantTimeEquals(secret, SecureRandom.Bytes(32)))
+/// ```
 Public Function ConstantTimeEquals(a: UInt8[], b: UInt8[]): Bool => fb_crypto_equal(a, b) != 0

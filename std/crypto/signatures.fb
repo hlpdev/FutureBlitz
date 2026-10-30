@@ -1,3 +1,5 @@
+//! Signatures and key exchange: Ed25519, ECDSA P-256, RSA, and X25519.
+//!
 //! Ed25519, over Monocypher, and EcdsaP256, Rsa, and X25519, over mbedTLS: signatures, which a
 //! private key makes and its public key checks, and key exchange, which gives two sides one secret
 //! from their own private keys and each other's public ones. Keys are bytes, as each one's Methods
@@ -29,6 +31,16 @@ Const RSA_PSS_SHA256 = 3
 
 /// Ed25519 (RFC 8032), EdDSA on Curve25519 with SHA-512: a private key is a 32-byte seed, a public
 /// key 32 bytes, and a signature 64 bytes, deterministic, so signing needs no random number.
+///
+/// # Examples
+///
+/// ```
+/// Local privateKey = Ed25519.NewPrivateKey()
+/// Local publicKey = Ed25519.PublicKeyOf(privateKey)
+/// Local signature = Ed25519.Sign(privateKey, "release 1.0")
+/// Expect(Ed25519.Verify(publicKey, "release 1.0", signature))
+/// Expect(!Ed25519.Verify(publicKey, "release 1.1", signature))
+/// ```
 Public Struct Ed25519
     /// Ed25519 isn't made: it's only its Static Methods.
     New()
@@ -75,6 +87,16 @@ End Struct
 
 /// ECDSA on NIST's P-256 with SHA-256 (ES256): a private key is 32 bytes, a public key its point,
 /// uncompressed, 65 bytes, and a signature r then s, 64 bytes.
+///
+/// # Examples
+///
+/// ```
+/// Local privateKey = EcdsaP256.NewPrivateKey()
+/// Local publicKey = EcdsaP256.PublicKeyOf(privateKey)
+/// Expect(publicKey.Count == 65)
+/// Local signature = EcdsaP256.Sign(privateKey, "a message")
+/// Expect(EcdsaP256.Verify(publicKey, "a message", signature))
+/// ```
 Public Struct EcdsaP256
     /// EcdsaP256 isn't made: it's only its Static Methods.
     New()
@@ -167,6 +189,16 @@ End Struct
 
 /// X25519 key exchange (RFC 7748): private and public keys are 32 bytes each, and so is the secret
 /// two sides share, which a KDF, like Hkdf, makes keys from.
+///
+/// # Examples
+///
+/// ```
+/// Local alice = X25519.NewPrivateKey()
+/// Local bob = X25519.NewPrivateKey()
+/// Local aliceSecret = X25519.SharedSecret(alice, X25519.PublicKeyOf(bob))
+/// Local bobSecret = X25519.SharedSecret(bob, X25519.PublicKeyOf(alice))
+/// Expect(aliceSecret != Null && aliceSecret == bobSecret)
+/// ```
 Public Struct X25519
     /// X25519 isn't made: it's only its Static Methods.
     New()

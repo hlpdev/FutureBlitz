@@ -1,3 +1,5 @@
+//! Authenticated encryption, by AES-256-GCM and ChaCha20-Poly1305.
+//!
 //! Aes256Gcm and ChaCha20Poly1305, over mbedTLS: authenticated encryption, which keeps a message
 //! secret and tells whether it was changed. Seal takes a new random nonce for each message and puts
 //! it first in what it gives, so a nonce is never given, and never reused but by a chance of about
@@ -19,6 +21,18 @@ Const AES_256_GCM = 1
 Const CHACHA20_POLY1305 = 2
 
 /// AES-256 in GCM (NIST SP 800-38D), fast where the CPU has AES instructions.
+///
+/// # Examples
+///
+/// ```
+/// Local key = Aes256Gcm.NewKey()
+/// Local sealed = Aes256Gcm.Seal(key, "meet at noon")
+/// Expect(Aes256Gcm.Open(key, sealed) == "meet at noon".Bytes)
+/// // A changed byte, or another key, opens nothing.
+/// sealed[20] = sealed[20] ^ 1
+/// Expect(Aes256Gcm.Open(key, sealed) == Null)
+/// Expect(Aes256Gcm.Open(Aes256Gcm.NewKey(), Aes256Gcm.Seal(key, "hi")) == Null)
+/// ```
 Public Struct Aes256Gcm
     /// Aes256Gcm isn't made: it's only its Static Methods.
     New()
@@ -51,6 +65,16 @@ Public Struct Aes256Gcm
 End Struct
 
 /// ChaCha20 and Poly1305 (RFC 8439), fast on any CPU, with or without AES instructions.
+///
+/// # Examples
+///
+/// ```
+/// Local key = ChaCha20Poly1305.NewKey()
+/// Local header = "message 1".Bytes
+/// Local sealed = ChaCha20Poly1305.Seal(key, "secret", header)
+/// Expect(ChaCha20Poly1305.Open(key, sealed, header) == "secret".Bytes)
+/// Expect(ChaCha20Poly1305.Open(key, sealed, "message 2".Bytes) == Null)
+/// ```
 Public Struct ChaCha20Poly1305
     /// ChaCha20Poly1305 isn't made: it's only its Static Methods.
     New()
