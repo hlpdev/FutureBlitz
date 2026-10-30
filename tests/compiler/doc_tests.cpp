@@ -751,15 +751,15 @@ bool exemplified(const fb::doc_item_t& item) {
            std::ranges::any_of(item.members, exemplified);
 }
 
-/// Each summary of `items`, and their members', with its item's path.
-void summaries_of(const std::vector<fb::doc_item_t>& items,
-                  std::vector<std::pair<std::string, std::string>>& found) {
+/// Each doc of `items`, and their members', of their own, with its item's path.
+void docs_of(const std::vector<fb::doc_item_t>& items,
+             std::vector<std::pair<std::string, const fb::doc_t*>>& found) {
     for (const fb::doc_item_t& item : items) {
         if (item.doc && item.doc_from.empty()) {
-            found.emplace_back(item.path, item.doc->summary);
+            found.emplace_back(item.path, &*item.doc);
         }
 
-        summaries_of(item.members, found);
+        docs_of(item.members, found);
     }
 }
 
@@ -805,19 +805,21 @@ TEST_CASE("each of std's types and functions has an example and summaries read w
 
     CHECK(missing.empty());
 
-    // A summary is a sentence: it isn't cut off by a "...", or by a '?' that ends no question,
-    // as a T? does, and "an" goes before a type whose name starts with a vowel's sound.
-    std::vector<std::pair<std::string, std::string>> summaries;
+    // A summary is a sentence that says what its item is or does: it isn't cut off by a "...", or
+    // by a '?' that ends no question, as a T? does; "an" goes before a type whose name starts with
+    // a vowel's sound; and it's more than a word for what its item's type is, or a heading.
+    std::vector<std::pair<std::string, const fb::doc_t*>> docs;
     for (const fb::doc_module_t& module : package.modules) {
         if (module.doc) {
-            summaries.emplace_back(module.name, module.doc->summary);
+            docs.emplace_back(module.name, &*module.doc);
         }
 
-        summaries_of(module.items, summaries);
+        docs_of(module.items, docs);
     }
 
     std::vector<std::string> wrong;
-    for (const auto& [path, summary] : summaries) {
+    for (const auto& [path, doc] : docs) {
+        const std::string& summary = doc->summary;
         const bool question = summary.starts_with("Is ") || summary.starts_with("Does ") ||
                               summary.starts_with("Can ") || summary.starts_with("What ");
         const bool cut = summary.ends_with("...") || (summary.ends_with('?') && !question);
@@ -827,7 +829,13 @@ TEST_CASE("each of std's types and functions has an example and summaries read w
             article = article || summary.contains(type);
         }
 
-        if (cut || article) {
+        // "Args' Static Methods." names a heading, where "What reads INI files, in its Static
+        // Methods." says what they do.
+        const bool heading =
+            summary.ends_with("Static Methods.") && std::ranges::count(summary, ' ') <= 2;
+        const bool vague = heading || summary == "By SHA-256." || summary == "By SHA-512." ||
+                           summary == "A Double." || summary == "A BOOL's.";
+        if (cut || article || vague) {
             wrong.push_back(std::format("{}: {}", path, summary));
         }
     }
@@ -837,6 +845,68 @@ TEST_CASE("each of std's types and functions has an example and summaries read w
     }
 
     CHECK(wrong.empty());
+
+    // What a review found wrong in these docs stays fixed: each says what its own item does, not
+    // its neighbor's or its group's, and an iterator's says what the loop gives, not its fields.
+    const auto text = [&](std::string_view path) {
+        std::string all;
+        for (const auto& [each, doc] : docs) {
+            if (each == path) {
+                all += doc->summary + "\n" + doc->markdown + "\n";
+            }
+        }
+
+        // A doc that moved away would pass what's below without this.
+        INFO(path);
+        CHECK_FALSE(all.empty());
+        return all;
+    };
+    CHECK_FALSE(text("std.time.zone").contains("has had and has have"));
+    CHECK_FALSE(text("std.time.timers.FixedStep.Step").contains("in seconds"));
+    CHECK(text("std.time.timers.RateLimiter.TryTake").contains("Takes a token"));
+    CHECK_FALSE(text("std.time.zone.ZonedDateTime.Offset").contains("abbreviation"));
+    CHECK_FALSE(text("std.time.calendar.Date.StartOfWeek").contains("its month"));
+    CHECK_FALSE(text("std.time.timestamp.Timestamp.UnixMilliseconds").contains("2262"));
+    CHECK_FALSE(text("std.math.big.decimal.Decimal.Ln").contains("base 10"));
+    CHECK_FALSE(text("std.time.duration.Duration.MaxValue").contains("either way"));
+    CHECK(text("std.term.terminal.FakeTerminal.ReadInput").contains("-2"));
+    CHECK_FALSE(text("std.concurrent.concurrent_map.ConcurrentMapIterator").contains("began"));
+    CHECK_FALSE(text("std.concurrent.locks.WaitGroup.Add").contains("to the `count`"));
+    std::vector<std::string> internals;
+    for (const auto& [path, doc] : docs) {
+        if (!path.ends_with("Iterator")) {
+            continue;
+        }
+
+        for (const std::string_view internal :
+             { "FrontLeft", "BackAt", "on the way down", "-1 before" }) {
+            if ((doc->summary + doc->markdown).contains(internal)) {
+                internals.push_back(std::format("{}: {}", path, internal));
+            }
+        }
+    }
+
+    for (const std::string& each : internals) {
+        UNSCOPED_INFO(each);
+    }
+
+    CHECK(internals.empty());
+
+    // An example that needs no network, server, process, or person runs.
+    for (const std::string_view path :
+         { "std.log.files.RotatingFileSink", "std.crypto.pem.Certificate" }) {
+        INFO(path);
+        bool runs = false;
+        for (const auto& [each, doc] : docs) {
+            runs =
+                runs || (each == path &&
+                         std::ranges::any_of(doc->examples, [](const fb::doc_example_t& example) {
+                             return example.kind == fb::example_kind_t::RUN;
+                         }));
+        }
+
+        CHECK(runs);
+    }
 }
 
 namespace {
