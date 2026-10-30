@@ -7,10 +7,15 @@
 #
 # Each release has it too: https://github.com/hlpdev/FutureBlitz/releases/latest/download/install.ps1
 #
-# -NoModifyPath leaves PATH as it is. `irm | iex` runs this in the caller's session, so all of it
-# is in a script block, whose parameters, variables, preferences, and function are its own, and
-# the session's own variables of those names stay as they were. It's ASCII, as Windows
-# PowerShell's irm reads a script served with no charset as Latin-1.
+# -NoModifyPath leaves PATH as it is. A release it downloads is checked against that release's
+# SHA256SUMS before it's unpacked, and the latest is the one GitHub's releases/latest/download/
+# redirects to, which needs no API, so no API's rate limit stops it. An -Archive is installed as
+# it is.
+#
+# `irm | iex` runs this in the caller's session, so all of it is in a script block, whose
+# parameters, variables, preferences, and function are its own, and the session's own variables
+# of those names stay as they were. It's ASCII, as Windows PowerShell's irm reads a script served
+# with no charset as Latin-1.
 & {
     param(
         [string]$Version = $env:FUTUREBLITZ_VERSION,
@@ -39,25 +44,54 @@
             [Net.ServicePointManager]::SecurityProtocol =
                 $protocols -bor [Net.SecurityProtocolType]::Tls12
             if (-not $Archive) {
-                if (-not $Version) {
-                    try {
-                        $api = "https://api.github.com/repos/$repository/releases/latest"
-                        $latest = Invoke-RestMethod $api
-                    } catch {
-                        throw "couldn't find FutureBlitz's latest release: $_"
-                    }
-                    $Version = $latest.tag_name
+                # The release's SHA256SUMS names its archive for this machine, and so the latest
+                # release's version.
+                $releases = "https://github.com/$repository/releases"
+                $Version = $Version.TrimStart('v')
+                $sumsUrl = if ($Version) {
+                    "$releases/download/v$Version/SHA256SUMS"
+                } else {
+                    "$releases/latest/download/SHA256SUMS"
+                }
+                $sums = Join-Path $work 'SHA256SUMS'
+                try {
+                    Invoke-WebRequest $sumsUrl -OutFile $sums -UseBasicParsing
+                } catch {
+                    $which = if ($Version) { $Version } else { 'the latest' }
+                    throw "couldn't download ${sumsUrl}; is $which a release? $_"
                 }
 
-                $Version = $Version.TrimStart('v')
-                $name = "futureblitz-$Version-$target.zip"
+                # Each line is a hash, a space, and a name, after a '*' for a binary file; a
+                # version is letters, digits, '.', '+', and '-', so the name is a file's in the
+                # folder it goes in.
+                $pattern = '^([0-9a-fA-F]{64}) [ *](futureblitz-([0-9A-Za-z.+-]+)-' +
+                    [regex]::Escape($target) + '\.zip)$'
+                $line = Get-Content -LiteralPath $sums | ForEach-Object { $_.TrimEnd("`r") } |
+                    Where-Object { $_ -match $pattern } | Select-Object -First 1
+                if (-not $line) {
+                    throw "the release's SHA256SUMS has no archive for $target"
+                }
+                $null = $line -match $pattern
+                $expected = $Matches[1].ToLowerInvariant()
+                $name = $Matches[2]
+                if ($Version -and $Matches[3] -ne $Version) {
+                    throw "the SHA256SUMS of $Version is for $($Matches[3])'s archive"
+                }
+                $Version = $Matches[3]
+
                 Write-Host "Downloading FutureBlitz $Version for $target"
                 $Archive = Join-Path $work $name
                 try {
-                    $url = "https://github.com/$repository/releases/download/v$Version/$name"
+                    $url = "$releases/download/v$Version/$name"
                     Invoke-WebRequest $url -OutFile $Archive -UseBasicParsing
                 } catch {
                     throw "couldn't download $name; is $Version a release? $_"
+                }
+                $actual = (Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash
+                $actual = $actual.ToLowerInvariant()
+                if ($actual -ne $expected) {
+                    throw ("$name's SHA-256 is $actual, not the $expected its release's " +
+                        "SHA256SUMS has, so it wasn't installed")
                 }
             }
 

@@ -1,5 +1,6 @@
 # install.ps1 on releases made of this build's fb, into a FUTUREBLITZ_HOME with a space, leaving
-# PATH alone: install_ps1_test.ps1 <install.ps1> <output folder> <fb.exe>.
+# PATH alone, and downloads from a folder of fake GitHub Releases, which a function in place of
+# Invoke-WebRequest serves: install_ps1_test.ps1 <install.ps1> <output folder> <fb.exe>.
 param([string]$Script, [string]$Out, [string]$Fb)
 
 $ErrorActionPreference = 'Stop'
@@ -94,5 +95,89 @@ Set-Content -LiteralPath "$Out\probe.ps1" -Value $probe
 $session = & $shell -NoProfile -ExecutionPolicy Bypass -File "$Out\probe.ps1" | Select-Object -Last 1
 if ($session -ne 'Continue Continue True 0 mine kept too good newer') {
     Fail "the session was left with: $session"
+}
+
+# m9-ops-6: the latest release is the one releases/latest/download/'s SHA256SUMS is of, with no
+# call to GitHub's API, and m9-ops-5: its archive is installed once it's that file's hash. The
+# script runs from one whose Invoke-WebRequest, a function, comes before the cmdlet, and gives
+# FAKE_RELEASES' file for a URL, as GitHub would, or fails as a 404 does.
+$releases = "$Out\releases"
+function New-Download([string]$version, [string]$archive, [string]$hashOf, [switch]$NoArchive) {
+    $folder = "$releases\v$version"
+    New-Item -ItemType Directory -Force -Path $folder | Out-Null
+    $name = "futureblitz-$version-windows-x64.zip"
+    $lines = @()
+    if (-not $NoArchive) {
+        Copy-Item -LiteralPath "$Out\archives\$archive.zip" -Destination "$folder\$name"
+        $hash = (Get-FileHash -LiteralPath "$Out\archives\$hashOf.zip" -Algorithm SHA256).Hash
+        $lines += "$($hash.ToLowerInvariant())  $name"
+    }
+    $other = (Get-FileHash -LiteralPath $Script -Algorithm SHA256).Hash.ToLowerInvariant()
+    $lines += "$other  install.ps1"
+    Set-Content -LiteralPath "$folder\SHA256SUMS" -Value $lines -Encoding ascii
+}
+New-Download 0.1.0 good good
+New-Item -ItemType Directory -Path "$releases\latest" | Out-Null
+Copy-Item -LiteralPath "$releases\v0.1.0\SHA256SUMS" -Destination "$releases\latest"
+# 0.1.1's archive isn't the one its SHA256SUMS names, and 0.1.2 has none for windows-x64.
+New-Download 0.1.1 newer good
+New-Download 0.1.2 -NoArchive
+
+$downloads = "$Out\downloads.log"
+$wrapper = @"
+function Invoke-WebRequest {
+    param([Parameter(Position = 0)][string]`$Uri, [string]`$OutFile, [switch]`$UseBasicParsing)
+    Add-Content -LiteralPath '$downloads' -Value `$Uri
+    `$base = 'https://github.com/hlpdev/FutureBlitz/releases/'
+    `$file = `$null
+    if (`$Uri.StartsWith(`$base + 'latest/download/')) {
+        `$file = 'latest\' + `$Uri.Split('/')[-1]
+    } elseif (`$Uri.StartsWith(`$base + 'download/')) {
+        `$file = `$Uri.Substring((`$base + 'download/').Length).Replace('/', '\')
+    }
+    if (-not `$file -or -not (Test-Path -LiteralPath "$releases\`$file")) {
+        throw "The remote server returned an error: (404) Not Found."
+    }
+    Copy-Item -LiteralPath "$releases\`$file" -Destination `$OutFile
+}
+& '$Script' @args
+# A script that exits ends only itself, so its code is the wrapper's too.
+exit `$LASTEXITCODE
+"@
+Set-Content -LiteralPath "$Out\download.ps1" -Value $wrapper
+$env:FUTUREBLITZ_HOME = "$Out\home dl\fb"
+$which = "$env:FUTUREBLITZ_HOME\std\which.txt"
+function Invoke-Download([string[]]$arguments) {
+    $output = & $shell -NoProfile -ExecutionPolicy Bypass -File "$Out\download.ps1" @arguments `
+        -NoModifyPath 2>&1 | Out-String
+    return @{ Output = $output; Code = $LASTEXITCODE }
+}
+
+$latest = Invoke-Download @()
+if ($latest.Code -ne 0 -or (Get-Content -LiteralPath $which) -ne 'good' -or
+    -not $latest.Output.Contains('Downloading FutureBlitz 0.1.0 for windows-x64')) {
+    Fail "the latest release wasn't installed: $($latest.Output)"
+}
+$asked = Get-Content -LiteralPath $downloads
+if (@($asked | Where-Object { $_.Contains('api.github.com') }).Count -ne 0 -or
+    $asked[0] -ne 'https://github.com/hlpdev/FutureBlitz/releases/latest/download/SHA256SUMS' -or
+    $asked[1] -ne ('https://github.com/hlpdev/FutureBlitz/releases/download/v0.1.0/' +
+        'futureblitz-0.1.0-windows-x64.zip')) {
+    Fail "the downloads were: $($asked -join ', ')"
+}
+
+# An archive whose hash isn't its SHA256SUMS', or a release without one for this machine, isn't
+# installed, and leaves the one that's there.
+$newer = (Get-FileHash -LiteralPath "$Out\archives\newer.zip" -Algorithm SHA256).Hash
+$good = (Get-FileHash -LiteralPath "$Out\archives\good.zip" -Algorithm SHA256).Hash
+foreach ($bad in @(
+        @{ Version = 'v0.1.1'; Says = ("futureblitz-0.1.1-windows-x64.zip's SHA-256 is " +
+                "$($newer.ToLowerInvariant()), not the $($good.ToLowerInvariant())") },
+        @{ Version = '0.1.2'; Says = "the release's SHA256SUMS has no archive for windows-x64" })) {
+    $refused = Invoke-Download @('-Version', $bad.Version)
+    if ($refused.Code -eq 0 -or -not $refused.Output.Contains($bad.Says)) {
+        Fail "$($bad.Version) gave: $($refused.Output)"
+    }
+    if ((Get-Content -LiteralPath $which) -ne 'good') { Fail "$($bad.Version) replaced it" }
 }
 Write-Host 'install.ps1 passed'
