@@ -5,6 +5,7 @@ import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { State } from "vscode-languageclient/node";
 
 import type { Api } from "../../extension";
 import { runTask } from "../../tasks";
@@ -170,6 +171,35 @@ suite("the language server", () => {
         const formatted = editor.document.getText().split(/\r?\n/).filter((line) => line === "// formatted");
         assert.equal(formatted.length, 1);
         assert.ok(!editor.document.isDirty);
+    });
+
+    // vscode-languageclient says a client is running before it sets up its features: a stop right
+    // then has to wait for them, or they stay, stopped, and fail the next server's format on save.
+    test("a stop as a server comes up leaves none of its features", async () => {
+        let stopping: Promise<void> | undefined;
+        const made = api.server.onDidMakeClient((client) => {
+            made.dispose();
+            const states = client.onDidChangeState((change) => {
+                if (change.newState === State.Running) {
+                    states.dispose();
+                    stopping = api.server.stop();
+                }
+            });
+        });
+        await api.server.start({ command: node, args: [fakeServer] });
+        assert.ok(stopping !== undefined);
+        await stopping;
+
+        const uri = file("files", "stopped.fb");
+        fs.writeFileSync(uri.fsPath, 'Import std.core\n\nPrint("format me")\n');
+        await api.server.start({ command: node, args: [fakeServer] });
+        assert.equal(api.server.state, "running");
+        const editor = await open(uri);
+        await editor.edit((edit) => edit.insert(new vscode.Position(3, 0), "\n"));
+        await editor.document.save();
+        const lines = editor.document.getText().split(/\r?\n/);
+        assert.equal(lines.filter((line) => line === "// formatted").length, 1);
+        assert.equal(lines[0], "// formatted");
     });
 });
 

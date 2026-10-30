@@ -347,3 +347,27 @@ Expected: The build's error is on broken.fb's line 3 in Problems.
 Actual: It timed out waiting for the build's error.
 
 Status: fixed: the matchers' owner is `futureblitz-tasks`, and a task with no folder open sets `FB_PATHS=absolute`, which has fb name files by their whole paths (shown_disk_path), and uses `$fb-whole`, `$fb-note-whole`, and `$fb-runtime-whole`, the same matchers with absolute paths; unit tests check the owners, the whole-path matchers, and fb's whole paths with no folder, a cli test checks FB_PATHS, and the lone suite passes
+
+## ci-3 (medium): A server stopped just as it comes up keeps its features, which fail the next one's format on save
+
+editors/vscode/src/client.ts. vscode-languageclient sets a client's state to running before it sends `initialized` and sets up its features, its document listeners and formatting provider among them. ServerClient's stop or restart disposed the client at once, so one stopped in that gap was shut down with nothing to clean up, then set up its features anyway, on a stopped client. They stayed: each edit sent it a didChange that failed ("Client is not running"), and a format on save could ask its formatting provider, which failed, so the next server's formatting wasn't applied. In the extension tests, the "missing" test's settings changes start fb-lsp and stop it moments later, which sometimes lands in the gap: "the language server / format on save goes through it, once" and "fb-lsp / formats on save, once" then failed, about 2 runs in 5.
+
+Shown by: the workspace suite in a loop, with the clients' states and disposals logged: the failing runs are the ones where the "missing" test's second client was disposed right as it reported running, and only they have the "Client is not running" rejections.
+
+Expected: A stopped client leaves nothing registered, and the next server formats on save.
+
+Actual: The later format-on-save tests failed in 2 of 6 runs.
+
+Status: fixed: ServerClient keeps each client's start, and a stop or restart lets a client that's still starting finish, for up to 2 seconds, before stopping it, and stops one that finishes later than that once it does; onDidMakeClient lets a test watch a client's states from the first. A new extension test stops a server as it reports running, then checks that the next server formats on save once; it fails without the fix (2 runs of 2, taking the fb-lsp format test with it), and with it the workspace suite passed 8 runs of 8, and the lone suite in the 6 of them that ran it
+
+## ci-4 (medium): fb_compiler_tests overflows the stack on macOS in the parser's 50000-deep chains
+
+cmake/stack.cmake. fb_set_stack gave MinGW and MSVC builds a 64 MiB main thread stack but left macOS at its 8 MiB. tests/compiler/parser_tests.cpp:1611's chains, `repeated("a: ", 50000) + "F()"` and the others, recurse until the parser cuts them at depth 1000, and Apple clang's unoptimized frames take more than 8 MiB for that, so fb_compiler_tests crashed with SIGSEGV on macos-15 in Debug.
+
+Shown by: CI on macOS (Apple clang, Debug).
+
+Expected: The chains are cut at depth 1000 and report one error, as on Linux and Windows.
+
+Actual: SIGSEGV.
+
+Status: fixed: fb_set_stack gives macOS executables 64 MiB too (`LINKER:-stack_size,0x4000000`), and its comment says why. The fix-it didn't make the recursive frames bigger: with -fstack-usage on GCC's Debug build, parse_primary (1616 bytes), parse_unary (400), parse_statement (288), parse_expression (96), and parse_postfix (64) have the same frames at step 8 and now, since nothing is inlined at -O0, and suggest_keyword_case's 656 bytes are its own frame, entered once per error. It's `[[gnu::noinline]]` now, so an optimized build can't fold its locals into the recursive functions that report errors either. To be checked in CI on macOS

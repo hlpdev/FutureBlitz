@@ -257,7 +257,9 @@ README says how to build, test, and install it.
   item says so too; one that fails to start, doesn't answer initialize in 20 seconds, or stops 4
   times in 3 minutes, is said, with Restart and Show Output, and it's started again after fewer
   stops. A start or stop that comes while another is under way supersedes it, so only one server
-  runs. The grammar, tasks, and debugging work without it. `[futureblitz]`'s defaults format on
+  runs; a client that's still starting gets up to 2 seconds to finish before it's stopped, and is
+  stopped once it does, as vscode-languageclient sets up a client's features after it says it's
+  running, and one stopped in between would keep them. The grammar, tasks, and debugging work without it. `[futureblitz]`'s defaults format on
   save, with 4 spaces, through the editor's format on save and the server's
   `textDocument/formatting`; the client passes `formatOnSave: false` in its initializationOptions,
   so the server's own `willSaveWaitUntil` doesn't format the save a second time.

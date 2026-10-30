@@ -24,14 +24,23 @@ const RESTART_WINDOW = 3 * 60 * 1000;
 
 const MISSING_HIDDEN = "futureblitz.missingServerHidden";
 
+// How long a client that's still starting gets to finish before it's stopped anyway.
+const START_SETTLE = 2000;
+
 export class ServerClient implements vscode.Disposable {
     private m_client: LanguageClient | undefined;
+    // The client's start, which settles when it's running with its features or has failed.
+    private m_started: Promise<void> | undefined;
     private m_state: ServerState = "disabled";
     private m_detail = "";
     private m_restarts: number[] = [];
     // Each start and stop takes the next one, so one that's superseded can tell.
     private m_generation = 0;
     private readonly m_status: vscode.LanguageStatusItem;
+    private readonly m_made = new vscode.EventEmitter<LanguageClient>();
+
+    // Each client as it's made, before it starts, for the tests to watch its states from the first.
+    readonly onDidMakeClient = this.m_made.event;
 
     // How long a server has to answer initialize before it's taken to have failed; the tests
     // shorten it.
@@ -118,6 +127,7 @@ export class ServerClient implements vscode.Disposable {
 
         const client = new LanguageClient("futureblitz", "FutureBlitz", serverOptions, clientOptions);
         this.m_client = client;
+        this.m_made.fire(client);
         this.setState("starting", command);
         // vscode-languageclient waits for initialize's answer for as long as it takes.
         let timer: NodeJS.Timeout | undefined;
@@ -126,7 +136,12 @@ export class ServerClient implements vscode.Disposable {
             timer = setTimeout(() => reject(new Error(`it didn't answer in ${seconds} seconds`)), this.startTimeout);
         });
         try {
-            await Promise.race([client.start(), timeout]);
+            const started = client.start();
+            this.m_started = started.then(
+                () => undefined,
+                () => undefined,
+            );
+            await Promise.race([started, timeout]);
             if (generation === this.m_generation && client.state === State.Running) {
                 this.setState("running", command);
             }
@@ -145,21 +160,52 @@ export class ServerClient implements vscode.Disposable {
         await this.disposeClient();
     }
 
+    // Stops the client. vscode-languageclient says a client is running before it sets up its
+    // features, its document listeners and formatting among them, after one more message; one
+    // stopped in between sets them up anyway, stopped, so it fails the edits and saves it gets.
+    // So a client that's still starting gets to finish first, for a while, and one that finishes
+    // later than that, a slow server's, is stopped then, as it would otherwise stay.
     private async disposeClient(): Promise<void> {
         const client = this.m_client;
+        const started = this.m_started;
         this.m_client = undefined;
-        if (client !== undefined) {
-            try {
-                await client.dispose(2000);
-            } catch (error) {
-                this.m_output.appendLine(`Stopping the language server: ${String(error)}`);
-            }
+        this.m_started = undefined;
+        if (client === undefined) {
+            return;
+        }
+
+        let settled = started === undefined;
+        if (started !== undefined) {
+            let timer: NodeJS.Timeout | undefined;
+            const waited = new Promise<void>((resolve) => {
+                timer = setTimeout(resolve, START_SETTLE);
+            });
+            settled = await Promise.race([started.then(() => true), waited.then(() => false)]);
+            clearTimeout(timer);
+        }
+
+        await this.stopClient(client);
+        if (!settled && started !== undefined) {
+            void started.then(async () => {
+                if (client.state === State.Running) {
+                    await this.stopClient(client);
+                }
+            });
+        }
+    }
+
+    private async stopClient(client: LanguageClient): Promise<void> {
+        try {
+            await client.dispose(2000);
+        } catch (error) {
+            this.m_output.appendLine(`Stopping the language server: ${String(error)}`);
         }
     }
 
     dispose(): void {
         void this.stop();
         this.m_status.dispose();
+        this.m_made.dispose();
     }
 
     // The connection closed: start it again, unless it stopped too often or never started.
