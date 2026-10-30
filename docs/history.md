@@ -69,8 +69,8 @@ are native resources. Its review's fixes: only a top-level Await, Wait(), and St
 scheduler, and a wait for a Task that's done doesn't (scheduler_done_wait); once the program's code
 has ended, a tick of the main scheduler destroys its coroutines rather than resuming them, and a
 Wait for a destroyed coroutine's Task panics (scheduler_end, panic_scheduler_end_wait); overloads
-that fit but for their ByRef pick the one that isn't generic, for the ByRef hint; Scheduler?.Main
-and Scheduler.Main<Int> say what's wrong; and a versioned dependency's error names no milestone.
+that fit but for their ByRef pick the one that isn't generic, for the ByRef hint; and
+Scheduler?.Main and Scheduler.Main<Int> say what's wrong.
 
 The installers, after the milestone (2026-10-30): a release is versioned from its tag
 (`-DFB_VERSION`, refused unless three numbers) and has, beside each target's archive, setup.exe (a
