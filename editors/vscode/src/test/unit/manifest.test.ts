@@ -1,11 +1,11 @@
-// package.json's launch schema and the README that goes in the .vsix.
+// package.json's launch schema and Marketplace fields, and the README that goes in the .vsix.
 
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
 
-import { EXTENSION } from "./repo";
+import { EXTENSION, REPO } from "./repo";
 
 const manifest = JSON.parse(fs.readFileSync(path.join(EXTENSION, "package.json"), "utf8"));
 const readme = fs.readFileSync(path.join(EXTENSION, "README.md"), "utf8");
@@ -22,6 +22,19 @@ test("the launch schema has CodeLLDB's properties the README names", () => {
     for (const [, name] of debugging.matchAll(/`([a-z][A-Za-z]+)`/g)) {
         assert.ok(attributes.includes(name), name);
     }
+});
+
+// The Marketplace and Open VSX list it by these, and vsce refuses a package without a license or a
+// repository; the icon is the logo's tile, which the build copies in.
+test("the Marketplace's fields are FutureBlitz's", () => {
+    assert.equal(manifest.publisher, "futureblitz");
+    assert.equal(manifest.name, "futureblitz");
+    assert.equal(manifest.license, "Apache-2.0");
+    assert.equal(manifest.repository.url, "https://github.com/hlpdev/FutureBlitz.git");
+    assert.equal(manifest.icon, "images/icon.png");
+    assert.deepEqual(fs.readFileSync(path.join(EXTENSION, manifest.icon)),
+        fs.readFileSync(path.join(REPO, "assets", "brand", "mark-tile-128.png")));
+    assert.ok(fs.existsSync(path.join(EXTENSION, "LICENSE")));
 });
 
 // vsce makes a relative link absolute against the repository's root, not the extension's folder,

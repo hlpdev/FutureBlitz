@@ -5,3 +5,4 @@ out/
 # Copied from the repo by scripts/copy-assets.mjs.
 lldb/
 LICENSE
+images/
