@@ -6,6 +6,22 @@
 //! 1 is LZ4's fast mode, 2 its middle one, 3 to 9 its high-compression mode, and 10 to 12 that
 //! mode's optimal parser. Each frame has its content's checksum, and a Compress's says its size. A
 //! Decompress reads frames one after another.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.text
+//! # Import std.collections
+//! // Each format's Compressor and Decompressor take bytes in turn.
+//! Local compressor = Lz4Compressor(1)
+//! Local packed = compressor.Add("a part, and ".Bytes)
+//! packed.AddAll(compressor.Add("the rest".Bytes))
+//! packed.AddAll(compressor.Finish())
+//! Local decompressor = Lz4Decompressor()
+//! Local text = Try decompressor.Add(packed)
+//! text.AddAll(Try decompressor.Finish())
+//! Expect(String.FromUtf8(text) == "a part, and the rest")
+//! ```
 
 Import std.core
 Import std.compress.codec

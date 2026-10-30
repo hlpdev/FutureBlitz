@@ -18,6 +18,17 @@ End Extern
 /// and comes as close after its time as the OS's timer lets it: within a couple of milliseconds on
 /// Linux and macOS, and within about 16 on Windows, whose timer ticks every 15.6 or so by
 /// default.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local ticks = Timer.Every(10.Milliseconds, Instant.FromNanoseconds(0))
+/// Expect(ticks.UntilNext(Instant.FromNanoseconds(4_000_000)) == 6.Milliseconds)
+/// ticks.Stop()
+/// Expect(ticks.IsStopped)
+/// Timer.After(1.Milliseconds).Wait()
+/// ```
 Public Class Timer
     Field Interval: Duration
     Field Start: Instant
@@ -78,6 +89,17 @@ End Class
 
 /// A time to give up at, on the monotonic clock, as blocking calls take one; or none, which is
 /// every Deadline's zero.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local start = Instant.FromNanoseconds(0)
+/// Local deadline = Deadline.After(2.Seconds, start)
+/// Expect(deadline.RemainingAt(start + 500.Milliseconds) == 1500.Milliseconds)
+/// Expect(deadline.HasPassedAt(start + 2.Seconds) && !deadline.HasPassedAt(start))
+/// Expect(deadline < Deadline.Never() && Deadline.Never().IsNever)
+/// ```
 Public Struct Deadline Implements Comparable, Hashable, Defaultable
     /// Whether it has a time, and the time.
     Field Limited: Bool
@@ -153,6 +175,16 @@ End Struct
 /// takes the time since the last call and gives how many steps to run, keeping what's left for the
 /// next, and Alpha says how far into the next step that is, for showing what's between two steps'
 /// states.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local physics = FixedStep(10)
+/// Expect(physics.Advance(250.Milliseconds) == 2)
+/// Expect(physics.Alpha == 0.5)
+/// Expect(physics.Step == 100.Milliseconds)
+/// ```
 Public Class FixedStep
     /// Time counts in parts: a nanosecond is Scale of them, and a step PerStep, so a rate's steps
     /// add up to its second exactly, as 60 a second's do though none is a whole nanosecond.
@@ -252,6 +284,17 @@ End Class
 
 /// Lets so many things happen in so long, as a bucket of that many tokens that refills one at a
 /// time, evenly, so a burst can take the bucket at once and then they go at the rate.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local start = Instant.FromNanoseconds(0)
+/// Local limiter = RateLimiter(2, 1.Seconds)
+/// Expect(limiter.TryTake(start) && limiter.TryTake(start))
+/// Expect(!limiter.TryTake(start))
+/// Expect(limiter.TryTake(start + 500.Milliseconds))
+/// ```
 Public Class RateLimiter
     /// How long a token takes to come back, how long a full bucket's worth of them takes, and
     /// when the bucket is full again, before which it isn't.
@@ -326,6 +369,18 @@ End Class
 
 /// Acts once a burst of events has stopped: each Signal starts the delay again, and Ready says
 /// True once the delay has gone by since the latest, and then not again until another Signal.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local start = Instant.FromNanoseconds(0)
+/// Local save = Debounce(300.Milliseconds)
+/// save.Signal(start)
+/// save.Signal(start + 100.Milliseconds)
+/// Expect(!save.Ready(start + 300.Milliseconds))
+/// Expect(save.Ready(start + 400.Milliseconds) && !save.IsPending)
+/// ```
 Public Class Debounce
     Field Delay: Duration
     Field Latest: Instant?

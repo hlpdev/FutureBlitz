@@ -4,6 +4,19 @@
 //! sources at points in one tree of its own, and reads them through the same calls as files. Its
 //! paths are its own, with '/' between names, on every OS; a newer mount over the same place comes
 //! first, so a folder on the disk can stand in for some of an app's embedded files.
+//!
+//! # Examples
+//!
+//! ```
+//! Local folder = Try TempDir()
+//! Try File.WriteText(folder.Path / "a.txt", "on disk")
+//! Local files = Vfs()
+//! files.MountFolder(Path("data"), folder.Path)
+//! files.Mount(Path("data"), EmbeddedSource({"b.txt": "embedded".Bytes}))
+//! Expect((Try files.ReadText(Path("data/a.txt"))) == "on disk")
+//! Expect((Try files.ReadText(Path("data/b.txt"))) == "embedded")
+//! Try folder.Close()
+//! ```
 
 Import std.collections.array
 Import std.collections.map

@@ -128,6 +128,14 @@ End Struct
 
 /// What a server answered: its status, its headers, its body's bytes, the URL it came from,
 /// after the redirects followed, and the HTTP it came over, "HTTP/1.1" or "HTTP/2".
+///
+/// # Examples
+///
+/// ```
+/// Local response = HttpResponse(404, Headers(), "gone".Bytes, "https://example.com/old")
+/// Expect(!response.IsSuccess && response.Text == "gone")
+/// Expect(ExpectThrows<NetError>(response.EnsureSuccess())?.Kind == NetErrorKind.HTTP_STATUS)
+/// ```
 Public Class HttpResponse
     /// Its status, like 200 or 404.
     Public ReadOnly Field Status: Int

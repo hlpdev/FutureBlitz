@@ -4,6 +4,17 @@
 //! last of a Mat4 is where it takes the origin. m * v transforms v, and a * b transforms by b, then
 //! by a. The projections are right-handed, looking down -Z, with depth from 0 at near to 1 at far,
 //! as Vulkan's.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.math
+//!
+//! Local stretch = Mat3.Scale(Vec3(2, 4, 8))
+//! Expect(Determinant(stretch) == 64.0 && Transpose(stretch) == stretch)
+//! Expect(TryInverse(Mat3.Scale(Vec3(0, 1, 1))) == Null)
+//! Expect(IsClose(Inverse(stretch) * stretch, Mat3.Identity))
+//! ```
 
 Import std.core
 Import std.math.constants

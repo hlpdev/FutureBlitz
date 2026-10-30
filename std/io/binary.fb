@@ -125,6 +125,16 @@ Public Class BinaryReader
 End Class
 
 /// Writes numbers, Bools, bytes, and text to another Writer.
+///
+/// # Examples
+///
+/// ```
+/// Local memory = MemoryStream()
+/// Local writer = BinaryWriter(memory)
+/// Try writer.WriteInt32(-2)
+/// Try writer.WriteBool(True)
+/// Expect(memory.ToArray() == [0xFE, 0xFF, 0xFF, 0xFF, 0x01] As UInt8[])
+/// ```
 Public Class BinaryWriter
     Field Inner: Writer
     Field Order: ByteOrder

@@ -16,6 +16,17 @@ Extern "runtime"
 End Extern
 
 /// A new, empty folder of the program's own, which Close removes with everything in it.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Local folder = Try TempDir("example-")
+/// Try File.WriteText(folder.Path / "a.txt", "a")
+/// Expect(folder.Path.FileName().StartsWith("example-"))
+/// Try folder.Close()
+/// Expect(!Dir.Exists(folder.Path))
+/// ```
 Public Class TempDir
     /// Where the folder is.
     Public ReadOnly Field Path: Path

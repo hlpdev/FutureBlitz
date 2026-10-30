@@ -12,6 +12,17 @@ Import std.collections.array
 
 /// One value of a LinkedList, with the ones before and after it, which inserting and removing next
 /// to it go through.
+///
+/// # Examples
+///
+/// ```
+/// Local list = LinkedList<Int>()
+/// Local first = list.Add(1)
+/// list.Add(2)
+/// Expect(first.Next?.Value == 2 && first.Previous == Null)
+/// first.Value = 10
+/// Expect(list.ToArray() == [10, 2])
+/// ```
 Public Class LinkedListNode<T>
     /// Its value.
     Public Field Value: T

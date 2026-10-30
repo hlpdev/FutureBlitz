@@ -6,6 +6,22 @@
 //! those past 19 take much more memory. Each frame has its content's checksum, and a Compress's
 //! says its size. A Decompress reads frames one after another, as zstd does, skipping skippable
 //! ones.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.text
+//! # Import std.collections
+//! // Each format's Compressor and Decompressor take bytes in turn.
+//! Local compressor = ZstdCompressor(3)
+//! Local packed = compressor.Add("a part, and ".Bytes)
+//! packed.AddAll(compressor.Add("the rest".Bytes))
+//! packed.AddAll(compressor.Finish())
+//! Local decompressor = ZstdDecompressor()
+//! Local text = Try decompressor.Add(packed)
+//! text.AddAll(Try decompressor.Finish())
+//! Expect(String.FromUtf8(text) == "a part, and the rest")
+//! ```
 
 Import std.core
 Import std.compress.codec

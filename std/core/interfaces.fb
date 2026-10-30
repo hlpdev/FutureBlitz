@@ -2,6 +2,24 @@
 //!
 //! The built-in types implement the ones that fit them, and a Struct or Class implements one by
 //! listing it.
+//!
+//! # Examples
+//!
+//! ```
+//! // A Struct is Hashable, Equatable, and Formattable through its own Methods.
+//! Struct Money Implements Hashable, Formattable
+//!     Field Cents: Int
+//!
+//!     Public Method Hash(): UInt64 => Cents.Hash()
+//!     Operator ==(a: Money, b: Money): Bool => a.Cents == b.Cents
+//!     Public Method ToString(): String => "{Cents} cents"
+//!     Public Method Format(spec: String): String? => spec == "c" ? "{Cents}c" : Null
+//! End Struct
+//!
+//! Local prices = {Money(150): "tea"}
+//! Expect(prices.Contains(Money(150)))
+//! Expect("{Money(150)}" == "150 cents" && "{Money(150):c}" == "150c")
+//! ```
 
 /// What == says, and != is always its opposite. A Struct that lists Equatable without an
 /// Operator == of its own compares its fields, and a Class compares whether two are the same

@@ -8,6 +8,15 @@ Import std.core
 
 /// Where a value is in its Pool, which only the Pool makes. Two are equal when they're the same
 /// value's, so a Handle can be a Map's key or a Set's value.
+///
+/// # Examples
+///
+/// ```
+/// Local pool = Pool<String>()
+/// Local a = pool.Add("a")
+/// Local names = {a: "first"}
+/// Expect(names.Contains(a) && pool.Get(a) == "a")
+/// ```
 Public Struct Handle<T> Implements Hashable
     /// Its slot in the Pool.
     Public ReadOnly Field Index: Int

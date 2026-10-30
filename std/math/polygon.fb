@@ -6,6 +6,21 @@
 //! point-in-polygon, the convex hull, triangulation with holes, and union, intersection,
 //! difference, and offsetting, whose regions come out as counterclockwise outer rings and
 //! clockwise holes. The math is in Doubles.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.math
+//!
+//! Local square = [Vec2(0, 0), Vec2(4, 0), Vec2(4, 4), Vec2(0, 4)]
+//! Local hole = [Vec2(1, 1), Vec2(1, 3), Vec2(3, 3), Vec2(3, 1)]
+//! Expect(Triangulate(square, [hole]).Count == 8)
+//! Expect(!PointInPolygon(Vec2(2, 2), [square, hole]))
+//! Expect(PolygonArea(Offset([square], 1, False)) == 36.0)
+//! Local right = [[Vec2(2, 0), Vec2(6, 0), Vec2(6, 4), Vec2(2, 4)]]
+//! Expect(PolygonArea(Intersection([square], right)) == 8.0)
+//! Expect(PolygonArea(Difference([square], right)) == 8.0)
+//! ```
 
 Import std.core
 Import std.collections

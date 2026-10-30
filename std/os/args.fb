@@ -4,6 +4,20 @@
 //! T itself, into an ArgsParser, which reads the arguments into a Value that `Load<T>` makes the T
 //! from, with the help and errors they make. An ArgsParser can be built at run time too, for
 //! options a program only knows then.
+//!
+//! # Examples
+//!
+//! ```
+//! Struct Options
+//!     @Option(Help: "How many", Required: True)
+//!     Field Count: Int
+//! End Struct
+//!
+//! // --help is an ArgsHelp, which Parse<T>() prints, and a mistake an ArgsError, with the usage.
+//! Expect(ExpectThrows<ArgsHelp>(Args.Parse<Options>(["--help"])) != Null)
+//! Local mistake = ExpectThrows<ArgsError>(Args.Parse<Options>([]))
+//! Expect(mistake?.Usage != "")
+//! ```
 
 Import std.core
 Import std.collections

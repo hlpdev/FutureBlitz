@@ -16,6 +16,19 @@ Import std.log.sinks
 /// write, which no other line's comes into, from this program's threads or, on every OS, another
 /// program's adding to the file too. A line that can't be written is gone, and the first of those
 /// since one was written says so on stderr.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.io
+/// # Import std.text
+/// Local folder = Try TempDir()
+/// Local output = LogOutput(LogFilter.At(LogLevel.INFO))
+/// output.Add(FileSink(folder.Path / "app.log"))
+/// Logger("app", output).Warn("low on disk")
+/// Expect((Try File.ReadText(folder.Path / "app.log")).Contains("app: low on disk"))
+/// Try folder.Close()
+/// ```
 Public Function FileSink(path: Path): Sendable Func(LogRecord)
     Const file = LogFile(path, 0, 0)
     Return Function(record: LogRecord) => file.Add(LogLine(record, True, False) + "\n")
@@ -30,12 +43,16 @@ End Function
 ///
 /// # Examples
 ///
-/// ```fb no_run
+/// ```
 /// # Import std.io
+/// # Import std.text
+/// Local folder = Try TempDir()
 /// Local output = LogOutput(LogFilter.At(LogLevel.INFO))
 /// // Up to 1 MB in app.log, then app.log.1, app.log.2, and app.log.3 for the older lines.
-/// output.Add(RotatingFileSink(Path("logs/app.log"), 1_000_000, 3))
+/// output.Add(RotatingFileSink(folder.Path / "app.log", 1_000_000, 3))
 /// Logger("app", output).Info("started")
+/// Expect((Try File.ReadText(folder.Path / "app.log")).Contains("app: started"))
+/// Try folder.Close()
 /// ```
 @PanicsAtCaller
 Public Function RotatingFileSink(path: Path, maxBytes: Int64,

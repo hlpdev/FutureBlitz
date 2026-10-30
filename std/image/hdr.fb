@@ -183,6 +183,17 @@ Function CheckHdrSize(width: Int, height: Int)
 End Function
 
 /// What reads and writes Radiance's RGBE files, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Local light = HdrImage(1, 1)
+/// light[0, 0] = Color(2, 1, 0.5, 1)
+/// Local back = Try Hdr.Decode(Hdr.Encode(light))
+/// Expect(back[0, 0].r == 2.0 && back[0, 0].g == 1.0)
+/// ```
 Public Struct Hdr
     /// Hdr isn't made: it's only its Static Methods.
     New()

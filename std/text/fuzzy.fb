@@ -30,6 +30,15 @@ End Enum
 
 /// What a fuzzy match found: its Score, higher for a better match, and the byte Positions of the
 /// text's characters that the pattern's matched, in order.
+///
+/// # Examples
+///
+/// ```
+/// Local found = Fuzzy.Match("fb", "foobar")
+/// Expect(found != Null)
+/// If found == Null Then Return
+/// Expect(found.Score > 0 && found.Positions == [0, 3])
+/// ```
 Public Struct FuzzyMatch
     /// How well the pattern matched: higher for a better match.
     Public ReadOnly Field Score: Int

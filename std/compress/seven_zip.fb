@@ -5,6 +5,24 @@
 //! IA-64, ARM, ARM Thumb, ARM64, SPARC, and RISC-V, in a chain, as 7-Zip writes them by default.
 //! Others, like BCJ2, PPMd, BZip2, and AES's encryption, read as an IOError. A solid folder is
 //! decoded whole, once for the files read from it in turn. Writing 7z isn't std's.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.text
+//! // A 7z of a folder, partial, and its one.txt, as 7-Zip writes it.
+//! Local bytesHex = "377abcaf271c0004fa9fa01c0b0000000000000064000000000000002b62ef43"
+//! bytesHex += "66697273742066696c650a0104060001090b00070b01000101000c0b0a01df30"
+//! bytesHex += "dbf400080d0109000005020e01400f0180113100700061007200740069006100"
+//! bytesHex += "6c002f006f006e0065002e007400780074000000700061007200740069006100"
+//! bytesHex += "6c0000001507004000100000000000"
+//! Local bytes = Hex.Decode(bytesHex) ?? []
+//! Local archive = Try SevenZip.Read(bytes)
+//! Expect(archive.Count == 2 && archive.Contains("partial/one.txt"))
+//! Expect(archive.Find("partial")?.Kind == ArchiveEntryKind.FOLDER)
+//! Local text = Try archive.Read("partial/one.txt")
+//! Expect(text == "first file\n".Bytes)
+//! ```
 
 Import std.core
 Import std.collections.view
@@ -25,16 +43,6 @@ Extern "runtime"
 End Extern
 
 /// What reads 7z archives, in its Static Methods.
-///
-/// # Examples
-///
-/// ```fb no_run
-/// # Import std.io
-/// Local archive = Try SevenZip.Read(Try File.ReadBytes(Path("backup.7z")))
-/// For entry In archive.Entries
-///     Print("{entry.Name}: {entry.Size} bytes")
-/// End For
-/// ```
 Public Struct SevenZip
     /// SevenZip isn't made: it's only its Static Methods.
     New()

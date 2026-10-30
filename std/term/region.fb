@@ -110,6 +110,14 @@ End Enum
 /// How big one part of a split is: a Fixed number of cells, a Percent of the cells there are, at
 /// least a Min of them and a share of what's left like a Fill of 1, or a Fill, a share of what's
 /// left by its weight beside the other Fills'.
+///
+/// # Examples
+///
+/// ```
+/// Expect("{Constraint.Fixed(3)}" == "Fixed(3)")
+/// Local parts = Region(0, 0, 10, 1).SplitColumns(Constraint.Min(2), Constraint.Fill(3))
+/// Expect(parts[0].Width + parts[1].Width == 10)
+/// ```
 Public Struct Constraint Implements Hashable, Printable
     /// What kind of constraint it is.
     Public ReadOnly Field Kind: ConstraintKind

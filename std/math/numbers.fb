@@ -6,6 +6,19 @@
 //! its type from its arguments, so Lerp(0, 10, t) works in t's type, and its literals follow. Their
 //! Static Methods are for generic code, through a type parameter, as in T.MinValue(); for the types
 //! themselves, std.math's Functions are the way, as `MinValue<Int>()` and Floor(x).
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.math
+//!
+//! Function Ones<T: Integer>(value: T): Int => PopCount(value)
+//! Function Whole<T: FloatingPoint>(value: T): T => Floor(value)
+//!
+//! Expect(Ones(0b111 As UInt8) == 3)
+//! Expect(Whole(2.5) == 2.0)
+//! Expect(MinValue<Int8>() == -128 && MaxValue<Int8>() == 127)
+//! ```
 
 Import std.core
 

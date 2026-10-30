@@ -47,6 +47,18 @@ Const MAX_OFFSET = 86399
 
 /// A time zone: one of the time zone database's, by its name, like "Europe/Paris", or a fixed
 /// offset from UTC.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local paris = TimeZone.Find("Europe/Paris")
+/// Expect(paris?.Name == "Europe/Paris")
+/// Expect(TimeZone.Utc().OffsetAt(Timestamp.UnixEpoch()) == Duration.Zero())
+/// Local india = TimeZone.Fixed(5.Hours + 30.Minutes)
+/// Expect(india.IsFixed && india.OffsetAt(Timestamp.Now()) == 330.Minutes)
+/// Expect(TimeZone.Find("Mars/Olympus") == Null)
+/// ```
 Public Struct TimeZone Implements Hashable, Printable, Defaultable
     /// The database's zone, from 1, or 0 for a fixed offset, and that offset's seconds east of
     /// UTC.

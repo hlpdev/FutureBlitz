@@ -6,6 +6,18 @@
 //! Quantity: Meters is `Quantity<1, 0, 0>`, and MetersPerSecond `Quantity<1, 0, -1>`. + and - take
 //! quantities of the same units, * and / any two, adding or taking away their exponents, and a
 //! Double scales one.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.math
+//!
+//! Expect(Kilometers(1).Value == 1000.0 && IsClose(Centimeters(250).Value, 2.5))
+//! Expect(IsClose(Millimeters(5).Value, 0.005) && IsClose(Grams(1500).Value, 1.5))
+//! Expect(Tonnes(2).Value == 2000.0 && IsClose(Milliseconds(500).Value, 0.5))
+//! Expect(Minutes(2).Value == 120.0 && Hours(1).Value == 3600.0)
+//! Expect(IsClose(KilometersPerHour(36).Value, 10.0) && Abs(Meters(-3)).Value == 3.0)
+//! ```
 
 Import std.core
 

@@ -4,6 +4,18 @@
 //! a password read from it, over the runtime's fb_term_ functions, which put the console back as
 //! the program ends, however it ends. Reading keys goes through Terminal.Console(), whose state is
 //! the main thread's.
+//!
+//! # Examples
+//!
+//! ```fb no_run
+//! # Import std.time
+//! If IsTerminal()
+//!     Local size = TerminalSize()
+//!     If size != Null Then Print(size.0, "columns by", size.1, "rows")
+//!     Local key = ReadKey(1.Seconds)
+//!     If key != Null Then Print("pressed {key}")
+//! End If
+//! ```
 
 Import std.core
 Import std.time.duration

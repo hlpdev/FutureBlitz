@@ -4,6 +4,15 @@
 //! terminal that shows colors, and JSON lines, one object a line, to what the program gives. A
 //! sink is a Sendable Func(LogRecord), so a program's own is a lambda. Files and rotating files
 //! wait for std.io's.
+//!
+//! # Examples
+//!
+//! ```
+//! Local output = LogOutput(LogFilter.At(LogLevel.WARN))
+//! // Lines on stderr without colors or times, as for a test's log.
+//! output.Add(ConsoleSink(False, False))
+//! Logger("app", output).Warn("disk almost full")
+//! ```
 
 Import std.core
 Import std.time.timestamp

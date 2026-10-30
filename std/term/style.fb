@@ -5,6 +5,18 @@
 //! shows, the nearest of them where it shows fewer. Paint styles text for the console, which gets
 //! the text alone where it isn't a terminal or NO_COLOR is set. StripStyles and VisibleWidth read
 //! text that has codes in it.
+//!
+//! # Examples
+//!
+//! ```
+//! Local orange = TermColor.Hex("#ff8800")
+//! Expect(orange.ToRgb() == (255, 136, 0))
+//! Expect(orange.Nearest(ColorLevel.BASIC).Kind == ColorKind.BASIC)
+//! Expect(StripStyles(Style(TermColor.Red).Apply("x", ColorLevel.BASIC)) == "x")
+//! Expect(VisibleWidth("日本") == 4)
+//! // Paint goes by ConsoleColors, so a pipe gets the text alone.
+//! Print(Paint("done", Style(TermColor.Green)), ConsoleColors())
+//! ```
 
 Import std.core
 Import std.text.string

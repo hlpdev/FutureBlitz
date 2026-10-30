@@ -3,6 +3,16 @@
 //! What Zip's, Tar's, and SevenZip's readers share: an ArchiveEntry for each of an archive's
 //! entries, in the order the archive has them, and how a name and a mode are checked before
 //! they're written.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.compress
+//! Local writer = TarWriter()
+//! writer.Add("notes.txt", "hi".Bytes)
+//! Local entry = (Try Tar.Read(writer.Finish())).Entries[0]
+//! Expect(entry.Name == "notes.txt" && entry.Kind == ArchiveEntryKind.FILE && entry.Size == 2)
+//! ```
 
 Import std.core
 Import std.time.timestamp

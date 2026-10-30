@@ -47,6 +47,17 @@ Public Struct Bmp
 End Struct
 
 /// What reads and writes TGA images, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Local image = Image(2, 2)
+/// image.Fill(Color32.Yellow)
+/// Local back = Try Tga.Decode(Tga.Encode(image))
+/// Expect(back[1, 1] == Color32.Yellow)
+/// ```
 Public Struct Tga
     /// Tga isn't made: it's only its Static Methods.
     New()

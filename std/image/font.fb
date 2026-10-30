@@ -38,6 +38,12 @@ End Extern
 /// canvas.FillText("Hello", font, 32, Vec2(10, 40), Color32.White)
 /// Print("{font.Width("Hello", 32)} pixels wide")
 /// ```
+///
+/// ```
+/// // Bytes that aren't a font are an IOError, never a read past them.
+/// Local error = ExpectThrows<IOError>(Font.Parse([1, 2, 3, 4] As UInt8[]))
+/// Expect(error?.Kind == IOErrorKind.INVALID_DATA)
+/// ```
 Public Class Font
     Package Field State: Ptr<Void>
 

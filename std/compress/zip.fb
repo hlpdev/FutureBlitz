@@ -7,6 +7,18 @@
 //! encryption isn't supported. An entry's time is its extra fields', which say it in UTC, or else
 //! its DOS date's, read as UTC, as nothing says its zone; what a ZipWriter makes was last changed
 //! on 1980-01-01 unless it's told otherwise, so every program and OS makes the same bytes.
+//!
+//! # Examples
+//!
+//! ```
+//! Local writer = ZipWriter()
+//! writer.Add("small.txt", "x".Bytes, ZipMethod.STORE)
+//! writer.AddFolder("empty")
+//! Local reader = Try Zip.Read(writer.Finish())
+//! Expect(reader.Count == 2 && reader.Entries[0].Size == 1)
+//! Local small = Try reader.ReadAt(0)
+//! Expect(small == "x".Bytes)
+//! ```
 
 Import std.core
 Import std.collections.view

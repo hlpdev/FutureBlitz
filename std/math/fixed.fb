@@ -7,6 +7,18 @@
 //! Pi / 2 to 94 bits and sum their series in 62, then round, and where that lands too near halfway
 //! to tell which way, work it out again in 124 bits, from Pi / 2 to 160. Overflow traps in debug
 //! builds and wraps in release, as an Int's does, and dividing by 0 panics.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.math
+//!
+//! Local half = Fixed64.FromDouble(0.5)
+//! Expect(half + half == Fixed64.FromInt(1))
+//! Expect(Sqrt(Fixed64.FromInt(9)) == Fixed64.FromInt(3))
+//! Expect(Sin(Fixed32.FromInt(0)) == Fixed32.FromInt(0))
+//! Expect(IsClose(Cos(Fixed64.Pi).ToDouble(), -1.0, 0.0001))
+//! ```
 
 Import std.core
 Import std.math.bits

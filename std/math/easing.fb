@@ -4,6 +4,15 @@
 //! end, for each of the usual curves, as easings.net draws them. In starts slow and ends fast, Out
 //! starts fast and ends slow, and InOut does both, each half a curve's In and Out. Back overshoots
 //! below 0 or past 1, Elastic springs past them, and Bounce bounces.
+//!
+//! # Examples
+//!
+//! ```
+//! // Each goes from 0 at 0 to 1 at 1.
+//! Expect(EaseInSine(0) == 0.0 && EaseOutSine(1) == 1.0 && EaseInOutSine(0.5) == 0.5)
+//! Expect(EaseInCubic(0.5) == 0.125 && EaseOutCubic(0.5) == 0.875)
+//! Expect(EaseOutBounce(1) == 1.0 && EaseInElastic(0) == 0.0 && EaseInBack(0.5) < 0)
+//! ```
 
 Import std.core
 Import std.math.constants

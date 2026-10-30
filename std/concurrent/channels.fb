@@ -49,6 +49,15 @@ End Function
 /// Sends `value` on `channel`, waiting while it's full, unless the cancellation is cancelled first,
 /// or is already, which throws a CancelledError and sends nothing. Panics once the Channel is
 /// closed, as its Send does.
+///
+/// # Examples
+///
+/// ```
+/// Const channel = Channel<String>(1)
+/// Local cancel = Cancellation()
+/// Try Send(channel, "one", cancel)
+/// Expect(channel.Receive() == "one")
+/// ```
 @PanicsAtCaller
 Public Function Send<T: Sendable>(channel: Channel<T>, value: T,
                                   cancel: Cancellation) Throws CancelledError

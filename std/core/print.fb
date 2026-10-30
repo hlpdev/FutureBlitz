@@ -2,6 +2,16 @@
 //!
 //! The program's console: what it writes to stdout and stderr, which show what it wrote in its
 //! order, and the lines it reads from stdin. std reaches the runtime through Extern "runtime".
+//!
+//! # Examples
+//!
+//! ```
+//! Write("no line break, ")
+//! Print("then one")
+//! PrintError("to stderr")
+//! WriteError("also to stderr\n")
+//! Flush()
+//! ```
 
 Import std.core.interfaces
 

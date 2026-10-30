@@ -39,6 +39,13 @@ Public Enum WebSocketState
 End Enum
 
 /// A WebSocket's message: text, which is UTF-8, or bytes.
+///
+/// # Examples
+///
+/// ```
+/// Local message = WebSocketMessage(True, "hi".Bytes)
+/// Expect(message.IsText && message.Text == "hi")
+/// ```
 Public Struct WebSocketMessage Implements Printable
     /// Whether it's text, or bytes.
     Public ReadOnly Field IsText: Bool

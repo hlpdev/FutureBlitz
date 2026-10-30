@@ -30,6 +30,17 @@ Public Enum XmlEventKind
 End Enum
 
 /// One part of a document, from an XmlReader.
+///
+/// # Examples
+///
+/// ```
+/// Local reader = XmlReader("<a x=\"1\"/>")
+/// Local start = Try reader.Next()
+/// Expect(start != Null)
+/// If start == Null Then Return
+/// Expect(start.Kind == XmlEventKind.START && start.Name == "a")
+/// Expect(start.Attributes.Get("x") == "1")
+/// ```
 Public Class XmlEvent
     /// Which part of the document it is.
     Public ReadOnly Field Kind: XmlEventKind

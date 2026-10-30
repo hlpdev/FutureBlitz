@@ -29,6 +29,16 @@ End Extern
 
 /// Something in a folder: where it is, where it is from the folder that was listed, which for
 /// Entries is its name, and what it is.
+///
+/// # Examples
+///
+/// ```
+/// Local folder = Try TempDir()
+/// Try File.WriteText(folder.Path / "a.txt", "")
+/// Local entry = (Try Dir.Entries(folder.Path))[0]
+/// Expect(entry.Name() == "a.txt" && entry.IsFile() && !entry.IsDirectory())
+/// Try folder.Close()
+/// ```
 Public Struct DirEntry
     /// Where it is.
     Public ReadOnly Field Path: Path

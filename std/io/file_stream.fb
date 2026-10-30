@@ -35,6 +35,21 @@ End Extern
 /// How File.Open opens a file: to read, to write, or both, and, for one it writes, whether each
 /// write goes at its end, whether it's made when it isn't there, or only then, and whether what it
 /// held is gone first.
+///
+/// # Examples
+///
+/// ```
+/// Local file = Try TempFile()
+/// Try File.WriteText(file.Path, "start")
+/// Local options = OpenOptions()
+/// options.Write = True
+/// options.Append = True
+/// Local stream = Try File.Open(file.Path, options)
+/// Try stream.WriteText(", then more")
+/// stream.Close()
+/// Expect((Try File.ReadText(file.Path)) == "start, then more")
+/// Try file.Close()
+/// ```
 Public Struct OpenOptions
     /// Whether it reads the file.
     Public Field Read: Bool = False

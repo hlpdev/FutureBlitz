@@ -9,6 +9,25 @@
 //! copy of it, and a Class's object is used up, as a For loop over it is. A @PanicsAtCaller Next
 //! panics where a consumer is called, and through an adapter or a box, where its panic is, as
 //! through any `Iterator<T>` value.
+//!
+//! # Examples
+//!
+//! ```
+//! // Anything with an Iterate() is Iterable, which a For loop goes over.
+//! Struct Countdown Implements Iterable<Int>
+//!     Field From: Int
+//!
+//!     Public Method Iterate(): Range<Int> => From To 1 Step -1
+//! End Struct
+//!
+//! Local seen: Int[] = []
+//! For n In Countdown(3)
+//!     seen.Add(n)
+//! End For
+//!
+//! Expect(seen == [3, 2, 1])
+//! Expect(Empty<Int>().Count() == 0)
+//! ```
 
 Import std.core.interfaces
 

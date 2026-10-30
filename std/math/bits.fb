@@ -3,6 +3,15 @@
 //! std.math.bits: an integer's bits, counted, rotated, swapped, and aligned, for any integer type,
 //! and saturating arithmetic beside the Checked and Wrapping Methods the integers have. A signed
 //! integer's bits are its two's complement: PopCount of an Int8 -1 is 8.
+//!
+//! # Examples
+//!
+//! ```
+//! Expect(LeadingZeros(1 As UInt32) == 31 && TrailingZeros(8) == 3)
+//! Expect(RotateRight(1 As UInt8, 1) == 0x80)
+//! Expect(ByteSwap(0x1234 As UInt16) == 0x3412)
+//! Expect(IsPowerOfTwo(64) && AlignUp(13, 8) == 16 && AlignDown(13, 8) == 8)
+//! ```
 
 Import std.core
 Import std.math.numbers

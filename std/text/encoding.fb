@@ -5,6 +5,17 @@
 //! some files found or written; bytes as text and back (Base64, Hex, and Base32); and text escaped
 //! for a URL, for HTML, or as a FutureBlitz string literal writes it. What decodes gives Null for
 //! input it can't decode.
+//!
+//! # Examples
+//!
+//! ```
+//! Expect(Base32.Encode("hi".Bytes) == "NBUQ====")
+//! Expect(Base32.Decode("NBUQ====") == "hi".Bytes)
+//! Local utf16 = [0xFF, 0xFE, 0x68, 0x00] As UInt8[]
+//! Expect(DetectBom(utf16) == TextEncoding.UTF16_LE && DecodeAny(utf16) == "h")
+//! Expect(Decode([0x68, 0x00] As UInt8[], TextEncoding.UTF16_LE) == "h")
+//! Expect(Escape("tab\there") == "tab\\there" && Unescape("tab\\there") == "tab\there")
+//! ```
 
 Import std.core
 Import std.collections

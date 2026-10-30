@@ -3,6 +3,20 @@
 //! Views that don't copy what they show: part of an array, which reads and sets it in place, and
 //! an array, Map, or Set to read but not change, to hand out. Each keeps what it shows alive and
 //! sees its changes. A slice, items[a..b], is still a copy.
+//!
+//! # Examples
+//!
+//! ```
+//! Local numbers = [1, 2, 3, 4]
+//! Expect(numbers.View(1, 3).ToArray() == [2, 3])
+//! Local ages = {"Ada": 36}
+//! Local shown = ages.AsReadOnly()
+//! ages["Alan"] = 41
+//! Expect(shown.Count == 2 && shown.Get("Alan") == 41)
+//! Local seen = Set<Int>()
+//! seen.Add(1)
+//! Expect(seen.AsReadOnly().Contains(1))
+//! ```
 
 Import std.core
 Import std.collections.array

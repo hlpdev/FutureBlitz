@@ -15,6 +15,20 @@
 //! throws an IOError, whose Cause is a NetError of TLS, or an IOError of UNEXPECTED_END for a
 //! stream that ends without the close_notify a TLS connection ends with, since what came may be
 //! cut short; the stream's own failure is thrown as that stream threw it.
+//!
+//! # Examples
+//!
+//! ```fb no_run
+//! # Import std.crypto
+//! # Import std.io
+//! Local chain = Try Certificate.AllFromPem(Try File.ReadText(Path("fullchain.pem")))
+//! Local key = Try Key.FromPem(Try File.ReadText(Path("privkey.pem")))
+//! Local listener = Try TlsListener.Listen("0.0.0.0", 8443, TlsServer(chain, key))
+//! Local client = Try listener.Accept()
+//! Print(client.Version)
+//! Try client.WriteText("hello over TLS\n")
+//! Try client.Close()
+//! ```
 
 Import std.core
 Import std.crypto.pem

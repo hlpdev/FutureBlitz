@@ -101,12 +101,27 @@ End Struct
 ///
 /// # Examples
 ///
-/// ```fb no_run
-/// # Import std.io
-/// Local chain = Try Certificate.AllFromPem(Try File.ReadText(Path("fullchain.pem")))
-/// For certificate In chain
-///     Print("{certificate.Subject}, until {certificate.NotAfter}")
-/// End For
+/// ```
+/// Local pem = r"""
+///     -----BEGIN CERTIFICATE-----
+///     MIIBkjCCATigAwIBAgIBBzAKBggqhkjOPQQDAjAoMRAwDgYDVQQKDAdFeGFtcGxl
+///     MRQwEgYDVQQDDAtleGFtcGxlLmNvbTAeFw0yNjEwMzAwODA2MzBaFw0zNjEwMjcw
+///     ODA2MzBaMCgxEDAOBgNVBAoMB0V4YW1wbGUxFDASBgNVBAMMC2V4YW1wbGUuY29t
+///     MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEuoR7/qV4GrMf2sAuOMkR+/vx2oqp
+///     cyMbBNqdVgnmnhcTFpPNCpRilQhfBbAgQxACoj9Sd4UjZvjxqK/JqHJxJKNTMFEw
+///     HQYDVR0OBBYEFLEj6Qfik6Vrt/6Kc7QYyvyxtxPiMB8GA1UdIwQYMBaAFLEj6Qfi
+///     k6Vrt/6Kc7QYyvyxtxPiMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAw
+///     RQIhANoLqQc7YxRjHvgUjU72HUW3ucpLRmi2LK/tUwiOss1hAiB0VCMesezWW8W0
+///     gPTHZ/E8f7x3Heu+SKfp/SO5Igym9w==
+///     -----END CERTIFICATE-----
+///     """
+/// Local certificate = Try Certificate.FromPem(pem)
+/// Expect(certificate.Subject == "O=Example, CN=example.com")
+/// Expect(certificate.Issuer == certificate.Subject)
+/// Expect(certificate.SerialNumber == "07")
+/// Expect(certificate.NotAfter == "2036-10-27T08:06:30Z")
+/// Expect(certificate.PublicKey?.Kind == KeyKind.ECDSA_P256)
+/// Expect((Try Certificate.AllFromPem(pem)).Count == 1)
 /// ```
 Public Struct Certificate
     /// Who it's for, like "C=NL, O=Example, CN=example.com".

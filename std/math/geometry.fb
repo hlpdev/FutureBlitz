@@ -252,6 +252,16 @@ Public Struct AABB Implements Equatable, Printable
 End Struct
 
 /// A ball: the points no further from its Center than its Radius.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Local ball = Sphere(Vec3(0, 0, 0), 1)
+/// Expect(ball.Contains(Vec3(0.5, 0, 0)))
+/// Expect(ball.Raycast(Ray(Vec3(0, 0, 5), Vec3(0, 0, -1))) == 4.0)
+/// ```
 Public Struct Sphere Implements Equatable, Printable
     /// The point in its middle.
     Public Field Center: Vec3
@@ -315,6 +325,14 @@ Struct Vec3d
 End Struct
 
 /// A half-line, from its Origin along its Direction.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Expect(Ray(Vec3(0, 0, 0), Vec3(1, 0, 0)).At(3) == Vec3(3, 0, 0))
+/// ```
 Public Struct Ray Implements Equatable, Printable
     /// Where it starts.
     Public Field Origin: Vec3

@@ -4,6 +4,20 @@
 //! that wait on the main thread instead of blocking it, as a file or a socket does; Seeker, what
 //! moves around in them, which only blocks; and Copy, ReadAll, and ReadExact over them. Bytes go
 //! through Buffers, whose memory C code reads and fills too.
+//!
+//! # Examples
+//!
+//! ```
+//! Local memory = MemoryStream("abcdef".Bytes)
+//! Expect((Try ReadAllText(memory)) == "abcdef")
+//! Try memory.Seek(-2, SeekOrigin.END)
+//! Expect((Try memory.Position()) == 4)
+//! Local rest = Try ReadAll(memory)
+//! Expect(rest == "ef".Bytes)
+//! // Code that writes takes any Writer.
+//! Local writer: Writer = StringWriter()
+//! Try writer.WriteText("to any Writer")
+//! ```
 
 Import std.core
 Import std.ffi

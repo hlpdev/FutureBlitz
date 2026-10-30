@@ -3,6 +3,19 @@
 //! Quat: a rotation, as a unit quaternion of Floats, x, y, z, and w. Angles are radians, and the
 //! rotations turn counterclockwise about an axis that points at the viewer, by the right-hand rule.
 //! Euler angles go in Y, X, Z order, as a camera's yaw, pitch, and roll: Z first, then X, then Y.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.math
+//!
+//! Local turn = Quat.FromAxisAngle(Vec3(0, 0, 1), Deg(90))
+//! Expect(IsClose(Length(turn), 1.0) && IsClose(Dot(turn, turn), 1.0))
+//! Expect(IsClose(Normalize(Quat(0, 0, 0, 2)), Quat.Identity))
+//! Expect(IsClose(Lerp(Quat.Identity, Quat.Identity, 0.3), Quat.Identity))
+//! Expect(IsClose(Angle(turn, Inverse(turn)), Deg(180)))
+//! Expect(IsClose(Slerp(Quat.Identity, turn, 1), turn))
+//! ```
 
 Import std.core
 Import std.math.constants

@@ -23,6 +23,16 @@ Const LONGEST = 64
 /// streams do. A Read or Write that fails throws an IOError whose Cause is a NetError or a
 /// TimeoutError. It closes when it goes, or at Close, which the other side reads as its end. A
 /// named pipe can't end one way only, so it has no ShutdownWrite, as a TcpStream has.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.io
+/// Local stream = Try IpcStream.Connect("example-app")
+/// Try stream.WriteText("hello")
+/// Print(Try ReadAllText(stream))
+/// stream.Close()
+/// ```
 Public Class IpcStream Implements Reader, Writer
     ReadOnly Field Socket: StreamSocket
 

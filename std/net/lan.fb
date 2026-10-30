@@ -6,6 +6,17 @@
 //! they offer. It goes over IPv4, through each of the machine's interfaces but loopback's, or
 //! through loopback's when nothing reaches the LAN, so programs on the machine still find each
 //! other.
+//!
+//! # Examples
+//!
+//! ```fb no_run
+//! # Import std.time
+//! Local announcer = Try LanAnnouncer.Start("_example._udp", "Lobby", 7777)
+//! For service In Try Lan.Find("_example._udp", 2.Seconds)
+//!     Print(service)
+//! End For
+//! announcer.Stop()
+//! ```
 
 Import std.core
 Import std.collections.array
@@ -161,17 +172,6 @@ Public Class LanAnnouncer
 End Class
 
 /// Finds the services on the LAN.
-///
-/// # Examples
-///
-/// ```fb no_run
-/// # Import std.time
-/// Local announcer = Try LanAnnouncer.Start("_example._udp", "Lobby", 7777)
-/// For service In Try Lan.Find("_example._udp", 2.Seconds)
-///     Print(service)
-/// End For
-/// announcer.Stop()
-/// ```
 Public Struct Lan
     /// Lan isn't made: it's only its Static Methods.
     New()

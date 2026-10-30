@@ -297,6 +297,13 @@ End Function
 /// fraction, as "1 hour, 2 minutes, and 3.5 seconds" and "2 days and 1 minute". Under a second,
 /// it's in its largest unit: "250 milliseconds", "1.5 microseconds", and "80 nanoseconds". It's
 /// "0 seconds", and one before 0 is "minus" one after.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Expect(FormatDuration(90.Seconds) == "1 minute and 30 seconds")
+/// ```
 Public Function FormatDuration(d: Duration): String
     Local size = Magnitude(d.Nanoseconds)
     Local sign = d.Nanoseconds < 0 ? "minus " : ""

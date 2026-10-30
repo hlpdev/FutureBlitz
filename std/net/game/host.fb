@@ -3,6 +3,23 @@
 //! std.net.game's hosts: GameHost, one end of any number of connections over a GameLink, a
 //! UdpSocket's or a test's, which it services at each Update, giving what happened as GameEvents:
 //! a peer that connected, a message that came, and a peer that disconnected.
+//!
+//! # Examples
+//!
+//! ```fb no_run
+//! # Import std.net
+//! # Import std.time
+//! // A server on port 7777, with a reliable channel, 0, and an unreliable one, 1.
+//! Local settings = GameSettings([ChannelKind.RELIABLE_ORDERED, ChannelKind.UNRELIABLE])
+//! Local host = Try GameHost.Bind(SocketAddress(IpAddress.Any, 7777), settings)
+//! While !host.IsClosed
+//!     Local events = Try host.Service(16.Milliseconds)
+//!     For event In events
+//!         If event.Kind == GameEventKind.CONNECT Then event.Peer.Send(0, "welcome")
+//!         If event.Kind == GameEventKind.RECEIVE Then host.Broadcast(1, event.Bytes)
+//!     End For
+//! End While
+//! ```
 
 Import std.core
 Import std.collections
@@ -94,23 +111,6 @@ End Struct
 /// those others ask for, up to its MaxPeers; each is a GamePeer, whose Send queues messages. Update
 /// takes what's come, sends what's due, and gives the events since the last; Service waits for
 /// some. A host whose link is its own, from Bind, closes it at Close.
-///
-/// # Examples
-///
-/// ```fb no_run
-/// # Import std.net
-/// # Import std.time
-/// // A server on port 7777, with a reliable channel, 0, and an unreliable one, 1.
-/// Local settings = GameSettings([ChannelKind.RELIABLE_ORDERED, ChannelKind.UNRELIABLE])
-/// Local host = Try GameHost.Bind(SocketAddress(IpAddress.Any, 7777), settings)
-/// While !host.IsClosed
-///     Local events = Try host.Service(16.Milliseconds)
-///     For event In events
-///         If event.Kind == GameEventKind.CONNECT Then event.Peer.Send(0, "welcome")
-///         If event.Kind == GameEventKind.RECEIVE Then host.Broadcast(1, event.Bytes)
-///     End For
-/// End While
-/// ```
 Public Class GameHost
     Field Link: GameLink
     Field Settings: GameSettings

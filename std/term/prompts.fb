@@ -98,6 +98,19 @@ End Function
 /// Asks `question` on the console, and gives what's typed, or `default` for nothing, once
 /// `validate` gives Null for it; while it doesn't, what it gives says what's wrong, and the
 /// `question` goes on.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Local terminal = FakeTerminal(interactive: False)
+/// terminal.Feed("\n42\n")
+/// // What validate gives says what's wrong with an answer, or Null for one that's right.
+/// Local number = Function(text: String): String? => Int.Parse(text) == Null ? "a number" : Null
+/// Local age = Ask(terminal, "Age?", number)
+/// Expect(age == "42")
+/// Expect(terminal.Output.Contains("a number"))
+/// ```
 Public Function Ask(question: String, validate: Func(String): String?,
                     default: String = ""): String?
     Return AskWith(Terminal.Console(), question, default, validate)
@@ -118,6 +131,14 @@ End Function
 
 /// Asks `question` on the console, and gives one of `options`, by its index, from `default`'s at
 /// first, or Null for Escape. Panics without an option.
+///
+/// # Examples
+///
+/// ```
+/// Local terminal = FakeTerminal(interactive: False)
+/// terminal.Feed("2\n")
+/// Expect(Choose(terminal, "Size?", ["small", "medium", "large"]) == 1)
+/// ```
 @PanicsAtCaller
 Public Function Choose(question: String, options: String[], default: Int = 0): Int?
     If options.Count == 0 Then Panic("Choose needs an option to choose")

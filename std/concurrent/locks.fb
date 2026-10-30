@@ -104,6 +104,23 @@ End Class
 
 /// Where a number of threads meet, round after round: each one's Wait returns once they've all
 /// come, which starts the next round.
+///
+/// # Examples
+///
+/// ```
+/// Global lasts = Atomic<Int>(0)
+/// Const meet = Barrier(2)
+///
+/// Function Arrive()
+///     If meet.Wait() Then lasts.Add(1)
+/// End Function
+///
+/// Local other = Spawn(Arrive)
+/// Arrive()
+/// other.Wait()
+/// // One of the two is the round's last.
+/// Expect(lasts.Load() == 1)
+/// ```
 Public Shared Class Barrier
     ReadOnly Field Handle: UInt64
     ReadOnly Field Size: Int

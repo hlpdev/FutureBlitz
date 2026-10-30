@@ -6,6 +6,22 @@
 //! reliable part not acked once its round-trip time and a margin have passed goes again, each time
 //! waiting twice as long, up to 8 times. A Flush sends 16 packets at most, and a peer that takes 16
 //! acks them at once, so the acks of a packet lost cover what was before it.
+//!
+//! # Examples
+//!
+//! ```fb no_run
+//! # Import std.net
+//! # Import std.time
+//! Local host = Try GameHost.Bind(SocketAddress(IpAddress.Any, 0))
+//! Local server = host.Connect(SocketAddress(IpAddress.V4(192, 0, 2, 1), 7777))
+//! server.Send(0, "hello")
+//! While server.State == PeerState.CONNECTING
+//!     Try host.Service(100.Milliseconds)
+//! End While
+//!
+//! Print("{server.State}, {server.RoundTripTime} round trip, {server.PacketLoss} lost")
+//! server.Disconnect()
+//! ```
 
 Import std.core
 Import std.collections

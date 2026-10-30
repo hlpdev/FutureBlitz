@@ -74,6 +74,16 @@ End Enum
 /// What's at a path, as File.Metadata found it: when it was last changed and read, and when it was
 /// made, which is Null where the OS or the disk doesn't say. IsReadOnly is whether its owner may
 /// not write it.
+///
+/// # Examples
+///
+/// ```
+/// Local file = Try TempFile()
+/// Try File.WriteText(file.Path, "four")
+/// Local info = Try File.Metadata(file.Path)
+/// Expect(info.IsFile() && info.Size == 4 && !info.IsReadOnly)
+/// Try file.Close()
+/// ```
 Public Struct Metadata
     /// Whether it's a file, a folder, or a link.
     Public ReadOnly Field Kind: FileKind

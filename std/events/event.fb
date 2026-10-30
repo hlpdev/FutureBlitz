@@ -219,6 +219,24 @@ End Class
 
 /// A handler's place on an Event, which Cancel takes it off. It holds neither the Event nor the
 /// handler, so keeping one keeps neither.
+///
+/// # Examples
+///
+/// ```
+/// Local ticked = Event<Int>()
+/// Local total = 0
+/// Local onTick = Function(n: Int)
+///     total += n
+/// End Function
+///
+/// Local subscription = ticked.Subscribe(onTick)
+/// Expect(subscription.IsActive)
+/// ticked.Emit(2)
+/// subscription.Cancel()
+/// subscription.Cancel()
+/// ticked.Emit(3)
+/// Expect(total == 2 && !subscription.IsActive)
+/// ```
 Public Class Subscription
     Field Entry: Weak<Subscribed>
 

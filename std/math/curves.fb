@@ -4,6 +4,22 @@
 //! Hermite curve, a Catmull-Rom segment, or a uniform cubic B-spline segment; and Curve2 and
 //! Curve3, which join a run of points into one curve, through them or near them, and go along it by
 //! its length, as a path's followers and its evenly spaced fence posts need.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.text
+//! # Import std.math
+//!
+//! Local a = Vec2(0, 0)
+//! Local c = Vec2(2, 0)
+//! Expect(QuadraticBezier(a, Vec2(1, 1), c, 0.5) == Vec2(1, 0.5))
+//! Expect(CatmullRom(Vec2(-1, 0), a, c, Vec2(3, 0), 0) == a)
+//! Expect(Hermite(a, Vec2(1, 0), c, Vec2(1, 0), 1) == c)
+//! Expect(IsClose(BSpline(a, a, a, a, 0.5), a))
+//! Local up = Curve3.CatmullRom([Vec3(0, 0, 0), Vec3(0, 10, 0)])
+//! Expect(IsClose(up.Length, 10, 0.01))
+//! ```
 
 Import std.core
 Import std.collections

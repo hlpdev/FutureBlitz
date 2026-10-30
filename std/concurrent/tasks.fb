@@ -18,6 +18,16 @@ End Extern
 /// A Task finished by hand: Finish, on any thread, gives its Task the result, which a Wait or an
 /// Await on the Task then gives. A TaskSource no thread finishes leaves its Task never done, like a
 /// Task that waits for a Scheduler that nothing ticks.
+///
+/// # Examples
+///
+/// ```
+/// Local source = TaskSource<Int>()
+/// Local task = source.Task
+/// Expect(!source.IsDone)
+/// source.Finish(42)
+/// Expect(task.Wait() == 42 && source.IsDone)
+/// ```
 Public Shared Class TaskSource<T: Sendable>
     ReadOnly Field Signal: UInt64
     /// The result, once there is one.
@@ -85,6 +95,15 @@ End Function
 /// which a Wait or an Await on the Task then gives or throws. An error isn't Sendable, so it's a
 /// Class, which stays on the main thread, as its Tasks do; work on other threads finishes a
 /// TaskSource instead. One that's never finished leaves its Task never done.
+///
+/// # Examples
+///
+/// ```
+/// Local source = ThrowingTaskSource<Int, ParseError>()
+/// Local task = source.Task
+/// source.Fail(ParseError(ParseErrorKind.SYNTAX, "not a number"))
+/// Expect(ExpectThrows<ParseError>(task.Wait()) != Null)
+/// ```
 Public Class ThrowingTaskSource<T, E: Error>
     Field Settled: TaskSource<Bool>
     Field Result: T?
@@ -155,6 +174,13 @@ Async Function Settles<T, E: Error>(source: ThrowingTaskSource<T, E>,
 End Function
 
 /// A Task of each task's result, in their order, done once they all are.
+///
+/// # Examples
+///
+/// ```
+/// Local tasks = [Spawn(Function() => 1 + 1), Spawn(Function() => 2 + 2)]
+/// Expect(WhenAll(tasks).Wait() == [2, 4])
+/// ```
 Public Function WhenAll<T>(tasks: Task<T>[]): Task<T[]> => AllOf(tasks.Clone())
 
 /// A Task that's done once each of the `tasks` is.
@@ -220,6 +246,16 @@ End Function
 /// gives at once. At a tick of the scheduler it looks at them in their order, so of `tasks` done
 /// before it looks, it's the first in the array, and one done later in the tick doesn't count.
 /// Panics when there are none, since none would be done.
+///
+/// # Examples
+///
+/// ```
+/// Local slow = TaskSource<Int>()
+/// Local fast = TaskSource<Int>()
+/// fast.Finish(7)
+/// Expect(WhenAny([slow.Task, fast.Task]).Wait() == 1)
+/// slow.Finish(0)
+/// ```
 @PanicsAtCaller
 Public Function WhenAny<T>(tasks: Task<T>[]): Task<Int>
     If tasks.Count == 0 Then Panic("WhenAny waits for the first of its tasks, so it needs one")

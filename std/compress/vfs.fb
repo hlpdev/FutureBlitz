@@ -2,6 +2,18 @@
 //!
 //! std.compress's zips in std.io's virtual file system: a ZipSource reads a zip's files as a
 //! VfsSource, and a Vfs's MountZip mounts one, as an app mounts its packed data.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.io
+//! Local zip = ZipWriter()
+//! zip.Add("docs/a.txt", "a".Bytes)
+//! Local source = Try ZipSource(Try Zip.Read(zip.Finish()))
+//! Local a = Try source.Read("docs/a.txt")
+//! Expect(a == "a".Bytes)
+//! Expect((Try source.KindAt("docs")) == FileKind.DIRECTORY)
+//! ```
 
 Import std.collections.map
 Import std.compress.archive

@@ -153,6 +153,26 @@ End Struct
 /// RSA signatures, to verify, with SHA-256: a public key is PKCS #1's DER of its modulus and
 /// exponent, which PublicKey makes from them, or Key reads from PEM. A modulus has up to 8192
 /// bits, of any number, and a key with a larger one verifies nothing.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// // A 1024-bit key's modulus and exponent, and its RS256 signature of "signed release".
+/// Local modulusHex = "9a4752fa07058397f9ad11f9a4d4ae25a8146aace46bd040681181ad619103fe"
+/// modulusHex += "918c7526d3d0652a2f7abb250588f35d2f313452c4135bef28552bac39abdb16"
+/// modulusHex += "464e9e9a5613d1b37d0fd9e5adf868fccda18601fb80ca9c9e2445ebe3ed8807"
+/// modulusHex += "7b6a22b881bb6842f29562b56641bf442f3406facd9790e5879e95dfae9748b7"
+/// Local modulus = Hex.Decode(modulusHex) ?? []
+/// Local signatureHex = "0d9cb9f7c5d8190bb7df2ce7ced25a9d28db9743f7a756bdcf1fe58be6fba342"
+/// signatureHex += "c2542c7d0548cd63354cd87d2496da872d3ea02dcd7b570fd914f73d1a1d5ea6"
+/// signatureHex += "ee642906aa2b13d31038329f6a4eca7332339d63f5f232b08f515921bb28629c"
+/// signatureHex += "fc5b8e0ccca2d0780d728f9251f18108ff71fcf055f426cd8eab6dcfff2b57cb"
+/// Local signature = Hex.Decode(signatureHex) ?? []
+/// Local key = Rsa.PublicKey(modulus, [0x01, 0x00, 0x01] As UInt8[])
+/// Expect(Rsa.Verify(key, "signed release", signature))
+/// Expect(!Rsa.Verify(key, "another release", signature))
+/// ```
 Public Struct Rsa
     /// Rsa isn't made: it's only its Static Methods.
     New()

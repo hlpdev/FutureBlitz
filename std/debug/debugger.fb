@@ -3,6 +3,14 @@
 //! Breakpoint and IsDebuggerAttached, for a program's own debugging: a breakpoint written in its
 //! code, which stops in the debugger that's attached, and asking whether one is. Each asks the OS
 //! through the runtime.
+//!
+//! # Examples
+//!
+//! ```
+//! If IsDebuggerAttached() Then Print("a debugger is attached")
+//! // Stops in a debugger, and does nothing without one.
+//! Breakpoint()
+//! ```
 
 Extern "runtime"
     Function fb_debug_attached(): Int32

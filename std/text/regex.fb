@@ -57,6 +57,15 @@ End Enum
 
 /// A pattern that isn't valid, at the byte Offset of the pattern, or a match that went past a
 /// limit, where Offset is where in the text it started looking.
+///
+/// # Examples
+///
+/// ```
+/// // A pattern known only as the program runs, like one a user types, is checked then.
+/// Local typed = "(" + "unclosed"
+/// Local error = ExpectThrows<RegexError>(Regex.Parse(typed))
+/// Expect(error?.Kind == RegexErrorKind.PATTERN && error?.Offset == 9)
+/// ```
 Public Class RegexError Extends Error
     /// What kind of RegexError it is.
     Public ReadOnly Field Kind: RegexErrorKind
@@ -74,6 +83,16 @@ End Class
 
 /// One match of a Regex in Text: where it starts and finishes, and its groups' text, group 0
 /// being the whole match.
+///
+/// # Examples
+///
+/// ```
+/// Local found = Try Regex(r"(?<user>\w+)@(\w+)\.com").Find("mail ada@example.com today")
+/// Expect(found != Null)
+/// If found == Null Then Return
+/// Expect(found.Value == "ada@example.com" && found.GroupCount == 2)
+/// Expect(found["user"] == "ada" && found[2] == "example" && found.StartOf(2) == 9)
+/// ```
 Public Class Match Implements Printable
     /// The text the match is in.
     Public ReadOnly Field Text: String

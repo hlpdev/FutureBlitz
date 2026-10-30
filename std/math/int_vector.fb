@@ -4,6 +4,17 @@
 //! keys. Their Operators work component by component, and an Int scales; dividing rounds toward 0,
 //! as Ints do, and dividing by 0, or overflow in debug builds, panics where it's called, as it does
 //! for an Int.
+//!
+//! # Examples
+//!
+//! ```
+//! Local a = Vec3i(1, 2, 3)
+//! Expect(Dot(a, Vec3i(1, 1, 1)) == 6 && LengthSquared(a) == 14)
+//! Expect(ManhattanDistance(a, Vec3i(0, 0, 0)) == 6 && ChebyshevDistance(a, Vec3i(0, 0, 0)) == 3)
+//! Expect(Min(a, Vec3i(2, 0, 4)) == Vec3i(1, 0, 3) && Max(a, Vec3i(2, 0, 4)) == Vec3i(2, 2, 4))
+//! Expect(Clamp(Vec3i(-5, 5, 9), Vec3i(0, 0, 0), Vec3i(3, 3, 3)) == Vec3i(0, 3, 3))
+//! Expect(Abs(Vec3i(-1, 2, -3)) == Vec3i(1, 2, 3))
+//! ```
 
 Import std.core
 Import std.math.scalar

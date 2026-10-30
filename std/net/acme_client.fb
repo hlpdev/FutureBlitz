@@ -70,6 +70,20 @@ End Class
 
 /// A client of one ACME CA, with an account key, an ECDSA P-256 private key, which signs each
 /// request, and Http, which it sends them with, which can trust a test CA's roots.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.crypto
+/// # Import std.io
+/// Local tokens = AcmeTokens()
+/// // A server answers /.well-known/acme-challenge/<token> on port 80 with tokens.Answer(path).
+/// Local directory = "https://acme-v02.api.letsencrypt.org/directory"
+/// Local client = Try AcmeClient.InFolder(directory, Path("acme"))
+/// Local key = Key(KeyKind.ECDSA_P256, True, EcdsaP256.NewPrivateKey())
+/// Local chain = Try client.ObtainAsync(["example.com"], key, tokens).Wait()
+/// Try File.WriteText(Path("fullchain.pem"), chain)
+/// ```
 Public Class AcmeClient
     ReadOnly Field DirectoryUrl: String
     ReadOnly Field AccountKey: Key

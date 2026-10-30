@@ -6,6 +6,22 @@
 //! the smallest, and are 6 by default, as xz's; the higher ones take much more memory, up to 674
 //! MiB to compress at 9, and 65 MiB to decompress. A Decompress reads streams one after another,
 //! and the padding between them, as xz does.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.text
+//! # Import std.collections
+//! // Each format's Compressor and Decompressor take bytes in turn.
+//! Local compressor = XZCompressor(6)
+//! Local packed = compressor.Add("a part, and ".Bytes)
+//! packed.AddAll(compressor.Add("the rest".Bytes))
+//! packed.AddAll(compressor.Finish())
+//! Local decompressor = XZDecompressor()
+//! Local text = Try decompressor.Add(packed)
+//! text.AddAll(Try decompressor.Finish())
+//! Expect(String.FromUtf8(text) == "a part, and the rest")
+//! ```
 
 Import std.core
 Import std.compress.codec

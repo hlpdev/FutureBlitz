@@ -81,6 +81,14 @@ Public Class MemoryStream Implements Reader, Writer, Seeker
 End Class
 
 /// Reads a String's UTF-8 bytes, and moves around in them.
+///
+/// # Examples
+///
+/// ```
+/// Local reader = StringReader("héllo")
+/// Expect(reader.Count == 6)
+/// Expect((Try ReadAllText(reader)) == "héllo")
+/// ```
 Public Class StringReader Implements Reader, Seeker
     Field Bytes: UInt8[]
     Field At: Int64

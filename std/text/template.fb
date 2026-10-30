@@ -65,6 +65,18 @@ End Class
 /// Templates by name, which render each other as partials: {{> header}} is the template named
 /// "header". One whose name ends with ".html" or ".htm" escapes its values for HTML, as a partial
 /// too, and so do the partials it renders, whatever their names.
+///
+/// # Examples
+///
+/// ```
+/// Local site = Templates()
+/// Try site.Add("header", r"<h1>{{title}}</h1>")
+/// Try site.Add("page", r"{{> header}}<p>{{body}}</p>")
+/// Local data = Value.Object()
+/// data["title"] = Value("Hi")
+/// data["body"] = Value("there")
+/// Expect((Try site.Render("page", data)) == "<h1>Hi</h1><p>there</p>")
+/// ```
 Public Class Templates
     Field Sources: Map<String, String>
     /// Each template read, by its name, then by the indentation it's read with, which is "" but for

@@ -100,6 +100,19 @@ Public Function Format(template: String, values: Formattable...): String Throws 
 End Function
 
 /// The debug form of `value`, with each part on a line of its own, as "{value:#?}" gives it.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Struct Point
+///     Field X: Int
+///     Field Y: Int
+/// End Struct
+///
+/// Local shown = Dump(Point(1, 2))
+/// Expect(shown.Contains("X") && shown.Contains("1") && shown.Contains("\n"))
+/// ```
 Public Function Dump<T>(value: T): String => "{value:#?}"
 
 /// On an Iterable type, makes its debug form show its elements in place of its Fields, as

@@ -6,6 +6,30 @@
 //! by component, and a Float scales: v * 2, 2 * v, and v / 2. The math on them is Functions, as on
 //! Floats: Dot, Cross, Length, Normalize, Lerp, and the rest, beside the scalar ones of their
 //! names. Lengths and distances are worked out in Doubles, so no Float overflows on the way.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.math
+//!
+//! Local a = Vec2(3, 4)
+//! Expect(Length(a) == 5.0 && LengthSquared(a) == 25.0 && DistanceSquared(a, Vec2(0, 0)) == 25.0)
+//! Expect(IsClose(Normalize(a), Vec2(0.6, 0.8)) && Cross(Vec2(1, 0), Vec2(0, 1)) == 1.0)
+//! Expect(Reflect(Vec2(1, -1), Vec2(0, 1)) == Vec2(1, 1))
+//! Expect(Project(Vec2(2, 3), Vec2(1, 0)) == Vec2(2, 0))
+//! Expect(IsClose(Angle(Vec2(1, 0), Vec2(0, 1)), Deg(90)))
+//! Expect(MoveTowards(Vec2(0, 0), Vec2(10, 0), 3) == Vec2(3, 0))
+//! Expect(Floor(Vec2(1.5, -1.5)) == Vec2(1, -2) && Ceil(Vec2(1.5, -1.5)) == Vec2(2, -1))
+//! Expect(Round(Vec2(1.4, 1.6)) == Vec2(1, 2) && Abs(Vec2(-1, 2)) == Vec2(1, 2))
+//! Expect(Min(a, Vec2(4, 3)) == Vec2(3, 3) && Max(a, Vec2(4, 3)) == Vec2(4, 4))
+//! Expect(Clamp(Vec2(-1, 9), Vec2(0, 0), Vec2(5, 5)) == Vec2(0, 5))
+//! Expect(Perpendicular(Vec2(1, 0)) == Vec2(0, 1))
+//! Expect(IsClose(Rotate(Vec2(1, 0), Deg(90)), Vec2(0, 1)))
+//! Local v = Vec4(1, 2, 3, 4)
+//! Expect(Dot(v, Vec4(1, 1, 1, 1)) == 10.0 && v.xy == Vec2(1, 2))
+//! Expect(Lerp(Vec4(0, 0, 0, 0), v, 0.5) == Vec4(0.5, 1, 1.5, 2))
+//! Expect(Distance(Vec3(0, 0, 0), Vec3(0, 3, 4)) == 5.0)
+//! ```
 
 Import std.core
 Import std.math.numbers

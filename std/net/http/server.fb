@@ -7,6 +7,30 @@
 //! connection kept open for the next request, unless the request or the response says to close
 //! it. Automatic HTTPS gets the server's certificate from an ACME CA, as Let's Encrypt is, and
 //! renews it while the server runs.
+//!
+//! # Examples
+//!
+//! ```fb no_run
+//! Async Function Hello(request: HttpRequest): HttpResponse
+//!     Local name = request.Param("name") ?? "you"
+//!     Local polite = request.Query.Get("polite") == "yes"
+//!     Return HttpResponse.Of(Body.Text(polite ? "Good day, {name}." : "Hi, {name}!"))
+//! End Function
+//!
+//! Async Function Timed(request: HttpRequest, next: HttpHandler): HttpResponse
+//!     Local response = Await next(request)
+//!     response.Headers.Set("Server-Timing", "app")
+//!     Return response
+//! End Function
+//!
+//! Local server = HttpServer()
+//! Local api = server.Group("/api")
+//! api.Use(Function(request: HttpRequest, next: HttpHandler) => Timed(request, next))
+//! api.Get("/hello/:name", Function(request: HttpRequest) => Hello(request))
+//! Try server.Listen("127.0.0.1", 8080)
+//! // Serve answers requests, GET /api/hello/Ada?polite=yes with "Good day, Ada.", until Stop.
+//! server.Serve()
+//! ```
 
 Import std.core
 Import std.collections

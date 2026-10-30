@@ -5,6 +5,13 @@
 //! with sRGB's gamma both ways, so a Color32 made a Color and back is the bytes it was. Hex, HSV,
 //! and HSL colors are sRGB's, as CSS's are, with a hue from 0 to 1 around, and OKLab's are from
 //! linear RGB. Alpha is linear in both, and 1 or 255 unless it's given.
+//!
+//! # Examples
+//!
+//! ```
+//! Local mid = Lerp(Color.Red, Color.Blue, 0.5)
+//! Expect(IsClose(mid, Color(0.5, 0, 0.5, 1)))
+//! ```
 
 Import std.core
 Import std.math.scalar

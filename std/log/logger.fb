@@ -20,6 +20,14 @@ End Extern
 /// The default output, made the first time a Logger uses it: the console's sink, at the levels
 /// FB_LOG sets, or at INFO when it isn't set. An FB_LOG that isn't a filter is said once on stderr,
 /// and left out.
+///
+/// # Examples
+///
+/// ```
+/// Local output = DefaultLogOutput()
+/// // FB_LOG sets its levels, INFO without it, and an ERROR is written but where it's off.
+/// Expect(output == DefaultLogOutput())
+/// ```
 Public Function DefaultLogOutput(): LogOutput => made.Value
 
 Const made = Lazy<LogOutput>(MadeDefault)

@@ -6,6 +6,15 @@
 //! Diff.Merge a three-way merge, as git merge-file makes it, with conflict markers where both
 //! sides changed the same lines differently. A line keeps its line break, "\n", "\r\n", or "\r",
 //! and a text's last line can have none.
+//!
+//! # Examples
+//!
+//! ```
+//! Local runs = Diff.Chars("cat", "cut")
+//! Expect(runs[0].Kind == DiffKind.SAME && runs[0].Text == "c")
+//! Local merged = Diff.Merge("a\n", "b\n", "c\n")
+//! Expect(merged.Conflicts == 1)
+//! ```
 
 Import std.core
 Import std.collections.array

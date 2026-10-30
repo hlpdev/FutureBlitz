@@ -1,4 +1,16 @@
 //! Min, Max, Clamp, Swap, and HashCombine, for any values.
+//!
+//! # Examples
+//!
+//! ```
+//! Expect(Max(3, 7) == 7 && Min(3, 7) == 3)
+//! Local a = 1
+//! Local b = 2
+//! Swap(ByRef a, ByRef b)
+//! Expect(a == 2 && b == 1)
+//! // Its order counts, as a Hash of several values needs.
+//! Expect(HashCombine(1, 2) != HashCombine(2, 1))
+//! ```
 
 Import std.core.interfaces
 

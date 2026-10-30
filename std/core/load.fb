@@ -75,6 +75,18 @@ Public Interface Loadable
 End Interface
 
 /// A type that gives its own Value, which Save calls in place of writing its Fields.
+///
+/// # Examples
+///
+/// ```
+/// Struct Celsius Implements Saveable
+///     Field Degrees: Double
+///
+///     Public Method ToValue(): Value => Value(Degrees)
+/// End Struct
+///
+/// Expect(Save(Celsius(21.5)) == Value(21.5))
+/// ```
 Public Interface Saveable
     /// Its Value, as Save writes it.
     Method ToValue(): Value

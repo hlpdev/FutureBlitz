@@ -10,6 +10,32 @@ Import std.net.udp
 
 /// What a GameHost's datagrams go over, as UDP's do: each one whole or not at all, maybe more than
 /// once, in no promised order.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.net
+/// # Import std.time
+/// // A link that loses every packet, as a test of what a host does then can have.
+/// Class Nowhere Implements GameLink
+///     Public Property LocalAddress: SocketAddress
+///         Get => SocketAddress(IpAddress.Loopback, 9)
+///     End Property
+///
+///     Public Method Send(bytes: UInt8[], to: SocketAddress) Throws NetError
+///     End Method
+///
+///     Public Method Receive(timeout: Duration): (UInt8[], SocketAddress)? Throws NetError => Null
+///
+///     Public Method Close()
+///     End Method
+/// End Class
+///
+/// Local host = GameHost(Nowhere(), GameSettings())
+/// Local peer = host.Connect(SocketAddress(IpAddress.Loopback, 7777))
+/// Expect(peer.State == PeerState.CONNECTING)
+/// host.Close()
+/// ```
 Public Interface GameLink
     /// Where it receives, as the other side sends to it.
     ReadOnly Property LocalAddress: SocketAddress

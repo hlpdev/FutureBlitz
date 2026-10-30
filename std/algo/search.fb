@@ -6,6 +6,18 @@
 //! goes over a node's successors in the order successors gives them, so a run finds what the last
 //! did. A weighted step's cost is of any Numeric and Comparable type, Ints for exact sums, and
 //! isn't negative or NaN.
+//!
+//! # Examples
+//!
+//! ```
+//! // A path's nodes and cost, and every node's cheapest path from the start.
+//! Local roads = {"a": [("b", 1), ("c", 4)], "b": [("c", 2)], "c": []}
+//! Local next = Function(town: String) => roads[town]
+//! Local path = Dijkstra("a", next, Function(town: String) => town == "c")
+//! Expect(path?.Nodes == ["a", "b", "c"] && path?.Cost == 3)
+//! Local all = DijkstraAll("a", next)
+//! Expect(all.Parent("c") == "b" && all.Contains("b") && all.CostTo("c") == 3)
+//! ```
 
 Import std.core
 Import std.collections

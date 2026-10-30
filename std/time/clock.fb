@@ -15,6 +15,16 @@ End Extern
 
 /// A reading of the monotonic clock: nanoseconds since a moment of its own, which only means
 /// something beside the program's other Instants.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local start = Instant.FromNanoseconds(1_000)
+/// Local later = start + 2.Seconds
+/// Expect(later - start == 2.Seconds && start < later)
+/// Expect(Instant.Now().Elapsed >= Duration.Zero())
+/// ```
 Public Struct Instant Implements Comparable, Hashable, Printable, Defaultable
     Field Count: Int64
 
@@ -166,6 +176,15 @@ End Function
 
 /// Blocks the thread for that long, and returns at once for a Duration that isn't above 0. In
 /// Async code, Await Wait or Timer.After waits without blocking.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local before = Instant.Now()
+/// Sleep(1.Milliseconds)
+/// Expect(before.Elapsed >= 1.Milliseconds)
+/// ```
 Public Function Sleep(time: Duration)
     fb_time_sleep(time.Nanoseconds)
 End Function

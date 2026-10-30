@@ -5,6 +5,22 @@
 //! run many times, Begin a Transaction, which keeps all of what it does or none of it, and Migrate
 //! brings a database up to date, a numbered migration at a time. What SQLite can't do throws a
 //! DatabaseError of its kind, with SQLite's message.
+//!
+//! # Examples
+//!
+//! ```
+//! Local db = Try Database.Open(":memory:")
+//! Try db.Execute("CREATE TABLE notes (id INTEGER, text TEXT)")
+//! Local insert = Try db.Prepare("INSERT INTO notes VALUES (?, ?)")
+//! Local none: String? = Null
+//! Try insert.Execute(1, Nullable(none))
+//! Local transaction = Try db.Begin()
+//! Try insert.Execute(2, "kept")
+//! Try transaction.Commit()
+//! Local rows = Try db.Rows("SELECT id, text FROM notes ORDER BY id")
+//! Expect(rows[0].IsNull("text") && rows[1].Text("text") == "kept")
+//! Expect(rows[1].Integer(0) == 2 && rows[1].Type("text") == ColumnType.TEXT)
+//! ```
 
 Import std.core
 Import std.collections
@@ -176,8 +192,8 @@ Extend UInt8[] Implements SqlValue
     End Method
 End Extend
 
-/// A value that may be Null, for a parameter that's NULL when it is: Nullable(name) for a String?
-/// name.
+/// A value that may be Null, for a parameter that's NULL when it is, as `Nullable(name)` is for a
+/// name that's a `String?`.
 Public Struct Nullable<T: SqlValue> Implements SqlValue
     /// The value, or Null for SQL's NULL.
     Public ReadOnly Field Value: T?

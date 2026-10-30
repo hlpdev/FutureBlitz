@@ -3,6 +3,20 @@
 //! Child, a program that a Command started, which runs beside this one: its Id, its piped streams,
 //! a Writer to its stdin and Readers of its stdout and stderr, and Wait, TryWait, and Kill, with
 //! the ExitStatus that says how it ended.
+//!
+//! # Examples
+//!
+//! ```fb no_run
+//! # Import std.io
+//! Local child = Try Command("sort").Stdin(Stdio.PIPED).Stdout(Stdio.PIPED).Spawn()
+//! Local input = child.Stdin
+//! Local output = child.Stdout
+//! If input == Null || output == Null Then Return
+//! Try input.WriteText("pear\napple\n")
+//! input.Close()
+//! Print(Try ReadAllText(output))
+//! Print(child.Wait())
+//! ```
 
 Import std.core
 Import std.ffi
@@ -60,20 +74,6 @@ End Struct
 /// A program that a Command started, which runs beside this one until it ends, whether or not
 /// this program waits for it. Letting go of it, and of its streams, closes its pipes, but doesn't
 /// end it.
-///
-/// # Examples
-///
-/// ```fb no_run
-/// # Import std.io
-/// Local child = Try Command("sort").Stdin(Stdio.PIPED).Stdout(Stdio.PIPED).Spawn()
-/// Local input = child.Stdin
-/// Local output = child.Stdout
-/// If input == Null || output == Null Then Return
-/// Try input.WriteText("pear\napple\n")
-/// input.Close()
-/// Print(Try ReadAllText(output))
-/// Print(child.Wait())
-/// ```
 Public Class Child
     ReadOnly Field Handle: UInt64
 

@@ -115,6 +115,15 @@ End Enum
 
 /// A node of a document: a block, like a paragraph or a list, with the blocks, spans, and text in
 /// it; a span, like a link, with what's in it; or text.
+///
+/// # Examples
+///
+/// ```
+/// Local document = ParseMarkdown("[home](https://futureblitz.dev)")
+/// Local link = document.Children[0].Children[0]
+/// Expect(link.Kind == MarkdownKind.Link && link.Url == "https://futureblitz.dev")
+/// Expect(link.PlainText() == "home")
+/// ```
 Public Class MarkdownNode
     /// What kind of node it is.
     Public Field Kind: MarkdownKind

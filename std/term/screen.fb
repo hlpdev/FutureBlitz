@@ -19,6 +19,14 @@ Import std.term.widgets
 
 /// One of a canvas's cells: the grapheme cluster that shows there, a space where it's blank, and
 /// how it looks. The right half of a wide one, which the cell before it shows, holds "".
+///
+/// # Examples
+///
+/// ```
+/// Local canvas = Canvas(2, 1)
+/// canvas.Print(0, 0, "a", Style(TermColor.Red))
+/// Expect(canvas[0, 0].Text == "a" && canvas[0, 0].Look.Foreground == TermColor.Red)
+/// ```
 Public Struct Cell Implements Hashable, Printable
     /// The grapheme cluster that shows there, a space where it's blank, or "" for a wide one's
     /// right half.

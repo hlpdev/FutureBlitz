@@ -9,6 +9,18 @@
 //! or else its header's. A TarWriter writes ustar, with a pax header for a name ustar can't hold
 //! or that isn't ASCII, or a time it can't, owned by root: unless it's told otherwise, a file's
 //! mode is 644 and a folder's 755, at 1970's start, so every program and OS makes the same bytes.
+//!
+//! # Examples
+//!
+//! ```
+//! Local writer = TarWriter()
+//! writer.Add("a.txt", "a".Bytes)
+//! writer.AddFolder("b")
+//! Local reader = Try Tar.Read(writer.Finish())
+//! Expect(reader.Count == 2 && reader.Entries[1].Name == "b")
+//! Local a = Try reader.ReadAt(0)
+//! Expect(a == "a".Bytes)
+//! ```
 
 Import std.core
 Import std.collections.view

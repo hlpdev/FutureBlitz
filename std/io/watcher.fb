@@ -3,6 +3,27 @@
 //! std.io's file watcher: what happens to a file, or to what's in a folder, as the OS tells libuv,
 //! which a FileWatcher queues for the program to take in turn, waiting for it, awaiting it, or
 //! not.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.time
+//! Local folder = Try TempDir()
+//! Local watcher = Try FileWatcher(folder.Path)
+//! Try File.WriteText(folder.Path / "a.txt", "new")
+//! // The OS tells of a change soon after it; TryNext doesn't wait for it, as Next would.
+//! Local event = watcher.TryNext()
+//! Local tries = 0
+//! While event == Null && tries < 500
+//!     Sleep(10.Milliseconds)
+//!     event = watcher.TryNext()
+//!     tries += 1
+//! End While
+//!
+//! Expect(event != Null)
+//! watcher.Close()
+//! Try folder.Close()
+//! ```
 
 Import std.core
 Import std.io.path

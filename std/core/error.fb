@@ -2,6 +2,25 @@
 //!
 //! Error, the Class every error extends, and each area's own: one Error per area, whose Kind says
 //! what went wrong, so a Throws list stays short and a Catch can still tell kinds apart.
+//!
+//! # Examples
+//!
+//! ```
+//! Function Read(text: String): Int Throws ParseError
+//!     Local value = Int.Parse(text)
+//!     If value == Null Then Throw ParseError(ParseErrorKind.SYNTAX, "not a number", 1, 1)
+//!     Return value
+//! End Function
+//!
+//! // Each area's Error has a Kind, which a Catch tells apart.
+//! Try
+//!     Read("x")
+//!     Fail("it threw")
+//! Catch e As ParseError
+//!     Expect(e.Kind == ParseErrorKind.SYNTAX && e.Line == 1)
+//!     Expect(e.Place.Line > 0)
+//! End Try
+//! ```
 
 Import std.core.interfaces
 

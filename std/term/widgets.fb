@@ -5,6 +5,18 @@
 //! and once they're done where it isn't, as for a pipe or a file. Each draws to the console, the
 //! bars to stderr, or to a Terminal given, and goes by the colors it shows. Widths are in a
 //! terminal's columns, as VisibleWidth counts them.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.text
+//! Local terminal = FakeTerminal(interactive: False)
+//! Local spinner = Spinner("Working", terminal)
+//! spinner.Succeed("Done")
+//! Expect(spinner.IsFinished && terminal.Output.Contains("Done"))
+//! Expect(Box("hi", "Note").Render().Contains("Note"))
+//! Expect(Truncated("abcdef", 4) == "abc…")
+//! ```
 
 Import std.core
 Import std.collections.map

@@ -502,6 +502,15 @@ End Struct
 
 /// An array SortBy or SortByDescending sorted, whose ThenBy and ThenByDescending sort it again
 /// where the keys so far tie, in place.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Local words = ["bb", "a", "ccc", "dd"]
+/// words.SortBy(Function(w: String) => w.Length).ThenByDescending(Function(w: String) => w)
+/// Expect(words == ["a", "dd", "bb", "ccc"])
+/// ```
 Public Struct Sorting<T>
     Field Items: T[]
     Field Before: Func(T, T): Bool

@@ -9,6 +9,13 @@ Import std.image.codec
 Import std.image.image
 
 /// One of an Animation's frames: its image, and how long it's shown, in milliseconds.
+///
+/// # Examples
+///
+/// ```
+/// Local frame = Frame(Image(1, 1), 100)
+/// Expect(frame.Delay == 100 && frame.Image.Width == 1)
+/// ```
 Public Struct Frame
     /// What the frame shows.
     Public Field Image: Image

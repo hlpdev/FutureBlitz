@@ -5,6 +5,17 @@
 //! tests, and level seeds need. Its floats come from its integers, and Normal's logarithm is its
 //! own; of C's libm, only Normal, UnitVector3, and Normalize use sqrt, which IEEE 754 has every OS
 //! round correctly. It isn't for secrets; std.crypto's SecureRandom is.
+//!
+//! # Examples
+//!
+//! ```
+//! // The thread's default generator, which a seed sets going.
+//! SeedRandom(1)
+//! Local x = Rand()
+//! Expect(x >= 0 && x < 1)
+//! Local y = RandFloat(5, 10)
+//! Expect(y >= 5 && y <= 10)
+//! ```
 
 Import std.core
 Import std.math.bits

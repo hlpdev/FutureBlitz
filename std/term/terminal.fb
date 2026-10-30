@@ -51,6 +51,18 @@ End Class
 /// Where text goes, as it is, escape codes and all, and where keys come from. What's written is
 /// sent on at a Flush. Reading keys is in raw mode, where they come as they're typed, without
 /// showing them; StartRawMode keeps it on for a while, as a full-screen app does.
+///
+/// # Examples
+///
+/// ```
+/// Function Greet(terminal: Terminal)
+///     terminal.WriteLine("hello, {terminal.Columns} columns")
+/// End Function
+///
+/// Local fake = FakeTerminal(40, 10)
+/// Greet(fake)
+/// Expect(fake.Output == "hello, 40 columns\n")
+/// ```
 Public Abstract Class Terminal
     Field Input: TerminalInput
 

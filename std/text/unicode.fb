@@ -3,6 +3,14 @@
 //! What Unicode's data says about characters and text, through the runtime's fb_unicode_ functions
 //! over utf8proc: each character's general category, normal forms, case folding, and the columns
 //! text takes in a terminal.
+//!
+//! # Examples
+//!
+//! ```
+//! Expect(Category('a') == UnicodeCategory.LOWERCASE_LETTER)
+//! Expect(IsNormalized("\u{E9}") && !IsNormalized("e\u{301}"))
+//! Expect(DisplayWidth("日本") == 4 && DisplayWidth('a') == 1)
+//! ```
 
 Import std.core
 

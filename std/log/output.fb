@@ -2,6 +2,20 @@
 //!
 //! What a Logger writes, and where: a LogRecord, with its LogFields, for each line, given to each
 //! sink of a LogOutput whose filter writes it.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.collections
+//! # Import std.log
+//! # Import std.time
+//! # Import std.text
+//! Local port = LogField("port", "443", False)
+//! Local fields = ImmutableArray<LogField>().Add(port)
+//! Local record = LogRecord(Timestamp.UnixEpoch(), LogLevel.INFO, "net", "up", fields)
+//! Expect(record.Fields.Count == 1 && !record.Fields.ToArray()[0].IsText)
+//! Expect(JsonLine(record).Contains("\"port\":443"))
+//! ```
 
 Import std.core
 Import std.collections

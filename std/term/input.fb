@@ -4,6 +4,15 @@
 //! they come, which an InputParser turns into InputEvents: keys, with xterm's sequences for the
 //! keys that type no character, and the modifiers held with them; the mouse's reports, in SGR's
 //! form or the older X10 one; and what's pasted between bracketed paste's marks.
+//!
+//! # Examples
+//!
+//! ```
+//! Local key = KeyEvent('c', KeyModifiers.CONTROL)
+//! Expect(key.IsControl('c') && !key.IsText)
+//! Local click = InputEvent(MouseEvent(MouseAction.PRESS, MouseButton.LEFT, 3, 4))
+//! Expect(click.Kind == InputKind.MOUSE && click.Mouse.Column == 3)
+//! ```
 
 Import std.core
 Import std.collections.array

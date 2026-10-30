@@ -3,6 +3,17 @@
 //! Statistics of numbers of any type, worked out in Doubles: the mean, the median, the variance and
 //! standard deviation of a sample and of a whole population, percentiles, and histograms. Too few
 //! values for what's asked panics, as Python's statistics raises.
+//!
+//! # Examples
+//!
+//! ```
+//! # Import std.math
+//!
+//! Local scores = [2, 4, 4, 4, 5, 5, 7, 9]
+//! Expect(Median(scores) == 4.5 && Percentile(scores, 50) == 4.5)
+//! Expect(PopulationVariance(scores) == 4.0 && PopulationStdDev(scores) == 2.0)
+//! Expect(IsClose(Variance(scores), 32.0 / 7) && IsClose(StdDev(scores), Sqrt(32.0 / 7)))
+//! ```
 
 Import std.core
 Import std.collections

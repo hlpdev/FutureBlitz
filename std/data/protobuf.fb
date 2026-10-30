@@ -10,6 +10,15 @@
 //! what an array holds, 2147483647 bytes. What doesn't read is a ParseError at its byte: of
 //! UNEXPECTED_END when the bytes stop inside a field, SYNTAX when they aren't the wire format, and
 //! OUT_OF_RANGE past a limit.
+//!
+//! # Examples
+//!
+//! ```
+//! Expect(ProtoTag(1, WIRE_VARINT) == 8 && ProtoTag(2, WIRE_LENGTH) == 18)
+//! Expect(ProtoIsZero(0.0 As Float64) && !ProtoIsZero(-0.0 As Float64))
+//! Local box = ProtoBox<Int>(7)
+//! Expect(box.Value == 7 && box == ProtoBox<Int>(7))
+//! ```
 
 Import std.core
 Import std.collections
