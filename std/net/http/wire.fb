@@ -1,4 +1,4 @@
-//! HTTP/1.1 messages as their bytes go over the wire.
+//! HTTP/1.1 messages as their bytes go over the wire, per RFC 9112.
 //!
 //! The server reads requests and writes responses in it, and a WebSocket's handshake is a request
 //! and a response in it too. A connection is a Duplex, so a TLS stream can be one as a TcpStream

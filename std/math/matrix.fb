@@ -1,4 +1,4 @@
-//! 3x3 and 4x4 matrices of Floats.
+//! 3x3 and 4x4 matrices of Floats, column-major, as the GPU takes them.
 //!
 //! Each column is a Field, x, y, z, and w, a vector of where the matrix takes that axis, and the
 //! last of a Mat4 is where it takes the origin. m * v transforms v, and a * b transforms by b, then
