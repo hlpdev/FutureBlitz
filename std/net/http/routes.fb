@@ -77,6 +77,8 @@ Extend HttpRouter
     /// Local server = HttpServer()
     /// server.Routes(Users())
     /// Try server.Listen("127.0.0.1", 8080)
+    /// // Serve answers requests, GET /users/7 with "user 7", until Stop.
+    /// server.Serve()
     /// ```
     @PanicsAtCaller
     Public Method Routes<T>(instance: T)

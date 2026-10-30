@@ -45,6 +45,8 @@ Extend HttpRouter
     /// // GET /static/app.css answers with public/app.css.
     /// server.Files("/static", Path("public"))
     /// Try server.Listen("127.0.0.1", 8080)
+    /// // Serve answers requests until Stop.
+    /// server.Serve()
     /// ```
     @PanicsAtCaller
     Public Method Files(prefix: String, folder: Path)

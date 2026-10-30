@@ -57,16 +57,6 @@ End Enum
 
 /// A pattern that isn't valid, at the byte Offset of the pattern, or a match that went past a
 /// limit, where Offset is where in the text it started looking.
-///
-/// # Examples
-///
-/// ```
-/// Local date = Regex(r"(\d{4})-(\d{2})-(\d{2})")
-/// Local found = Try date.Find("landed 1969-07-20, at night")
-/// Expect(found?.Value == "1969-07-20" && found?.Start == 7)
-/// Expect((Try date.Replace("1969-07-20", "$3/$2/$1")) == "20/07/1969")
-/// Expect((Try date.FindAll("1969-07-20 and 1972-12-14")).Count == 2)
-/// ```
 Public Class RegexError Extends Error
     /// What kind of RegexError it is.
     Public ReadOnly Field Kind: RegexErrorKind
@@ -200,6 +190,16 @@ End Class
 
 /// A compiled pattern, which finds its matches in text. Regex("[0-9]+") is one, and the compiler
 /// checks a literal pattern there.
+///
+/// # Examples
+///
+/// ```
+/// Local date = Regex(r"(\d{4})-(\d{2})-(\d{2})")
+/// Local found = Try date.Find("landed 1969-07-20, at night")
+/// Expect(found?.Value == "1969-07-20" && found?.Start == 7)
+/// Expect((Try date.Replace("1969-07-20", "$3/$2/$1")) == "20/07/1969")
+/// Expect((Try date.FindAll("1969-07-20 and 1972-12-14")).Count == 2)
+/// ```
 Public Class Regex
     Field Code: Ptr<Void>
     Field Names: Map<String, Int[]>

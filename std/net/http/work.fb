@@ -38,6 +38,8 @@ Public Alias WorkHandler = Sendable Func(WorkRequest): HttpResponse
 /// server.Workers = 4
 /// server.Work("/reports/:size", Report)
 /// Try server.Listen("127.0.0.1", 8080)
+/// // Serve answers requests, GET /reports/big with "a big report", until Stop.
+/// server.Serve()
 /// ```
 Public Struct WorkRequest
     /// Its method, as the client wrote it, like "GET".

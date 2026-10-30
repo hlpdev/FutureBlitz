@@ -468,7 +468,7 @@ End Class
 
 /// A server: routes and middleware, as HttpRouter has them, answering the requests that come to
 /// where Listen has it listen, or ListenTls over TLS, as Serve runs. A request that breaks
-/// HTTP/1.1's rules is answered as wire.fb has it (400, 413, 414, 431, 501, or 505) and its
+/// HTTP/1.1's rules is answered as RFC 9112 has it (400, 413, 414, 431, 501, or 505) and its
 /// connection closed; an HTTP/1.1 one without a Host, or any with two, is a 400; an Expect other
 /// than 100-continue is a 417. A response has its Content-Length and Date set, and a Connection:
 /// close when its connection closes after it.
@@ -484,6 +484,8 @@ End Class
 /// Local server = HttpServer()
 /// server.Get("/hello/:name", Function(request: HttpRequest) => Hello(request))
 /// Try server.Listen("127.0.0.1", 8080)
+/// // Serve answers requests, GET /hello/Ada with "Hello, Ada!", until Stop.
+/// server.Serve()
 /// ```
 Public Class HttpServer Extends HttpRouter
     /// Its routes, which its groups hold weakly.

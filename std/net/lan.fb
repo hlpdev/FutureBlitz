@@ -61,17 +61,6 @@ Function Group(): IpAddress => IpAddress.V4(224, 0, 0, 251)
 /// A service on the LAN, as DNS-SD has one: its type, like "_mygame._udp", its name, which none
 /// of its type shares, the host it's on and that host's addresses, its port, and its text, a map
 /// of keys to values, each key once whatever its letters' case, as the first of them is written.
-///
-/// # Examples
-///
-/// ```fb no_run
-/// # Import std.time
-/// Local announcer = Try LanAnnouncer.Start("_example._udp", "Lobby", 7777)
-/// For service In Try Lan.Find("_example._udp", 2.Seconds)
-///     Print(service)
-/// End For
-/// announcer.Stop()
-/// ```
 Public Struct LanService Implements Printable
     /// Its type, like "_mygame._udp".
     Public ReadOnly Field Type: String
@@ -172,6 +161,17 @@ Public Class LanAnnouncer
 End Class
 
 /// Finds the services on the LAN.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.time
+/// Local announcer = Try LanAnnouncer.Start("_example._udp", "Lobby", 7777)
+/// For service In Try Lan.Find("_example._udp", 2.Seconds)
+///     Print(service)
+/// End For
+/// announcer.Stop()
+/// ```
 Public Struct Lan
     /// Lan isn't made: it's only its Static Methods.
     New()
