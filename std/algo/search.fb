@@ -1,6 +1,7 @@
-//! std.algo's searches of graphs: breadth-first and depth-first search, Dijkstra, and A*. A graph
-//! is any values a successors Function steps between, so a grid's cells, a level's rooms, and a
-//! game's states are graphs alike, and a node is Hashable, so a search knows where it's been. A
+//! Breadth-first search, depth-first search, Dijkstra, and A* over any graph.
+//!
+//! A graph is any values a successors Function steps between, so a grid's cells, a map's rooms, and
+//! a puzzle's states are graphs alike, and a node is Hashable, so a search knows where it's been. A
 //! search takes its start, its successors, and a Function that says which nodes are the goal, and
 //! goes over a node's successors in the order successors gives them, so a run finds what the last
 //! did. A weighted step's cost is of any Numeric and Comparable type, Ints for exact sums, and
@@ -85,6 +86,14 @@ End Function
 
 /// The path with the fewest steps from `start` to the first node that `goal` says is one, by
 /// breadth-first search, or Null when none it reaches is.
+///
+/// # Examples
+///
+/// ```
+/// // The numbers, each leading to its double and to one more than it.
+/// Local next = Function(n: Int): Int[] => [n * 2, n + 1]
+/// Expect(Bfs(1, next, Function(n: Int) => n == 10) == [1, 2, 4, 5, 10])
+/// ```
 Public Function Bfs<N: Hashable>(start: N, successors: Func(N): N[], goal: Func(N): Bool): N[]?
     Local nodes = [start]
     Local parents = [-1]
@@ -107,6 +116,13 @@ End Function
 
 /// The nodes `start` reaches, itself first, in the order breadth-first search meets them: those
 /// fewer steps away first.
+///
+/// # Examples
+///
+/// ```
+/// Local next = Function(n: Int): Int[] => n < 4 ? [n * 2, n * 2 + 1] : []
+/// Expect(BfsOrder(1, next) == [1, 2, 3, 4, 5, 6, 7])
+/// ```
 Public Function BfsOrder<N: Hashable>(start: N, successors: Func(N): N[]): N[]
     Local nodes = [start]
     Local seen = Set<N>()
@@ -131,6 +147,13 @@ End Struct
 /// A path from `start` to the first node that `goal` says is one, by depth-first search, which
 /// follows each successor as far as it goes before the next: not the shortest path, but found with
 /// only the path in hand. Null when none it reaches is the `goal`.
+///
+/// # Examples
+///
+/// ```
+/// Local next = Function(n: Int): Int[] => n < 4 ? [n * 2, n * 2 + 1] : []
+/// Expect(Dfs(1, next, Function(n: Int) => n == 5) == [1, 2, 5])
+/// ```
 Public Function Dfs<N: Hashable>(start: N, successors: Func(N): N[], goal: Func(N): Bool): N[]?
     Local nodes = [start]
     Local parents = [-1]
@@ -160,6 +183,13 @@ End Function
 
 /// The nodes `start` reaches, itself first, in the order depth-first search meets them: a
 /// successor, and all it reaches, before the next successor.
+///
+/// # Examples
+///
+/// ```
+/// Local next = Function(n: Int): Int[] => n < 4 ? [n * 2, n * 2 + 1] : []
+/// Expect(DfsOrder(1, next) == [1, 2, 4, 5, 3, 6, 7])
+/// ```
 Public Function DfsOrder<N: Hashable>(start: N, successors: Func(N): N[]): N[]
     Local nodes = [start]
     Local seen = Set<N>()
@@ -292,6 +322,18 @@ End Class
 /// The cheapest path from `start` to the first node that `goal` says is one, by Dijkstra's
 /// algorithm, with each step's weight from `successors`, or Null when none it reaches is. A
 /// negative or NaN weight panics.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.collections
+/// // Roads between towns, each with how long it is.
+/// Local roads = {"a": [("b", 7), ("c", 2)], "b": [("d", 1)], "c": [("b", 3), ("d", 8)], "d": []}
+/// Local next = Function(town: String) => roads[town]
+/// Local path = Dijkstra("a", next, Function(town: String) => town == "d")
+/// Expect(path?.Nodes == ["a", "c", "b", "d"])
+/// Expect(path?.Cost == 6)
+/// ```
 @PanicsAtCaller
 Public Function Dijkstra<N, C>(start: N, successors: Func(N): (N, C)[],
                                goal: Func(N): Bool): Path<N, C>?
@@ -302,6 +344,17 @@ End Function
 
 /// The cheapest paths from `start` to every node it reaches, by Dijkstra's algorithm, with each
 /// step's weight from `successors`. A negative or NaN weight panics.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.collections
+/// Local roads = {"a": [("b", 7), ("c", 2)], "b": [("d", 1)], "c": [("b", 3), ("d", 8)], "d": []}
+/// Local paths = DijkstraAll("a", Function(town: String) => roads[town])
+/// Expect(paths.CostTo("b") == 5)
+/// Expect(paths.PathTo("d") == ["a", "c", "b", "d"])
+/// Expect(paths.Nodes == ["a", "c", "b", "d"])
+/// ```
 @PanicsAtCaller
 Public Function DijkstraAll<N, C>(start: N, successors: Func(N): (N, C)[]): ShortestPaths<N, C>
     Where N: Hashable
@@ -330,6 +383,20 @@ End Function
 /// least. For the path to be the cheapest, the guess can't be more than what's left, as a straight
 /// line's length isn't. Null when no node it reaches is the `goal`. A negative or NaN weight, or a
 /// NaN guess, panics.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// // Steps right and down on an open plane, guessed by the Manhattan distance to the goal.
+/// Local goal = Vec2i(3, 2)
+/// Local steps = Function(at: Vec2i): (Vec2i, Int)[]
+///     Return [(at + Vec2i(1, 0), 1), (at + Vec2i(0, 1), 1)]
+/// End Function
+/// Local guess = Function(at: Vec2i): Int => Abs(goal.x - at.x) + Abs(goal.y - at.y)
+/// Local path = AStar(Vec2i(0, 0), steps, guess, Function(at: Vec2i) => at == goal)
+/// Expect(path?.Cost == 5)
+/// ```
 @PanicsAtCaller
 Public Function AStar<N, C>(start: N, successors: Func(N): (N, C)[], heuristic: Func(N): C,
                             goal: Func(N): Bool): Path<N, C>?

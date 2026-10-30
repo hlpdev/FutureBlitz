@@ -1,3 +1,5 @@
+//! Delaunay triangulation, Voronoi diagrams, and Lloyd relaxation of points in 2D.
+//!
 //! Delaunay triangulation and Voronoi diagrams of points in 2D, and Lloyd relaxation, which moves
 //! points apart until they're evenly spread, for maps, meshes, and placing things. The Delaunay
 //! triangles are those whose circumcircles hold none of the points, which keeps them as near
@@ -436,6 +438,20 @@ End Function
 /// `points`, each as the indices of its corners in `points`, counterclockwise. Fewer than three
 /// `points`, or `points` all on a line, have none, and of `points` that are equal, only the first
 /// is a corner. A coordinate that's infinite or NaN panics.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// // A square's corners make two triangles.
+/// Local square = [Vec2(0, 0), Vec2(1, 0), Vec2(1, 1), Vec2(0, 1)]
+/// Local triangles = Delaunay(square)
+/// Expect(triangles.Count == 2)
+/// For triangle In triangles
+///     Local a, b, c = triangle
+///     Expect(a != b && b != c && a != c)
+/// End For
+/// ```
 @PanicsAtCaller
 Public Function Delaunay(points: Vec2[]): (Int, Int, Int)[]
     Local order, _ = Ordered(points)
@@ -480,6 +496,18 @@ End Function
 /// outside `bounds` or only touches them, at a corner or along an edge. Points that are equal share
 /// a cell, and fewer than two `points` have `bounds`' whole rectangle for theirs. A coordinate
 /// that's infinite or NaN, or `bounds` that aren't finite or have a negative size, panic.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// // Two points split the square between them, down the middle.
+/// Local cells = Voronoi([Vec2(25, 50), Vec2(75, 50)], Rect(0, 0, 100, 100))
+/// Expect(cells.Count == 2)
+/// For corner In cells[0]
+///     Expect(corner.x <= 50)
+/// End For
+/// ```
 @PanicsAtCaller
 Public Function Voronoi(points: Vec2[], bounds: Rect): Vec2[][]
     CheckBounds(bounds)
@@ -555,6 +583,18 @@ End Function
 /// which spreads them evenly: Lloyd's relaxation. A point whose cell is empty stays. A negative
 /// number of `iterations`, a coordinate that's infinite or NaN, or `bounds` that aren't finite or
 /// have a negative size, panics.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local bounds = Rect(0, 0, 100, 100)
+/// Local points = LloydRelax([Vec2(10, 10), Vec2(11, 10), Vec2(10, 11)], bounds, 20)
+/// Expect(points.Count == 3)
+/// For point In points
+///     Expect(bounds.Contains(point))
+/// End For
+/// ```
 @PanicsAtCaller
 Public Function LloydRelax(points: Vec2[], bounds: Rect, iterations: Int = 1): Vec2[]
     If iterations < 0

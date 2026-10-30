@@ -1,3 +1,5 @@
+//! Every order and every choice of an array's elements, and how many of each there are.
+//!
 //! Permutations and Combinations: every order, or every choice, of an array's elements, made one
 //! at a time as a For ... In or an adapter asks, each a new array, in the order of the elements'
 //! positions, as Python's itertools gives them; and Factorial and Binomial, which count them. The
@@ -32,6 +34,7 @@ Public Class PermutationIterator<T> Implements Iterator<T[]>
         End For
     End New
 
+    /// The next order, a new array, or Null once it has given every one.
     Public Method Next(): T[]?
         If Done Then Return Null
         If !Started
@@ -98,6 +101,7 @@ Public Class CombinationIterator<T> Implements Iterator<T[]>
         End For
     End New
 
+    /// The next choice, a new array, or Null once it has given every one.
     Public Method Next(): T[]?
         If Done Then Return Null
         If !Started
@@ -136,12 +140,35 @@ End Class
 
 /// Every order of the array's elements: n! of them, from the array's own order. The array is
 /// copied, so changing it doesn't change them.
+///
+/// # Examples
+///
+/// ```
+/// Local orders: Int[][] = []
+/// For order In Permutations([1, 2, 3])
+///     orders.Add(order)
+/// End For
+///
+/// Expect(orders.Count == 6)
+/// Expect(orders[0] == [1, 2, 3] && orders[5] == [3, 2, 1])
+/// ```
 Public Function Permutations<T>(items: T[]): PermutationIterator<T>
     Return PermutationIterator<T>(items.Clone(), items.Count)
 End Function
 
 /// Every order of `count` of the array's elements: n! / (n - `count`)! of them, none when `count`
 /// is more than n, and one empty one for 0. The array is copied. A negative `count` panics.
+///
+/// # Examples
+///
+/// ```
+/// Local pairs: String[][] = []
+/// For pair In Permutations(["a", "b", "c"], 2)
+///     pairs.Add(pair)
+/// End For
+///
+/// Expect(pairs == [["a", "b"], ["a", "c"], ["b", "a"], ["b", "c"], ["c", "a"], ["c", "b"]])
+/// ```
 @PanicsAtCaller
 Public Function Permutations<T>(items: T[], count: Int): PermutationIterator<T>
     If count < 0 Then Panic("Permutations takes a count that isn't negative, not {count}")
@@ -151,6 +178,17 @@ End Function
 /// Every choice of `count` of the array's elements, each in the array's order: Binomial(n, `count`)
 /// of them, none when `count` is more than n, and one empty one for 0. The array is copied. A
 /// negative `count` panics.
+///
+/// # Examples
+///
+/// ```
+/// Local pairs: String[][] = []
+/// For pair In Combinations(["a", "b", "c"], 2)
+///     pairs.Add(pair)
+/// End For
+///
+/// Expect(pairs == [["a", "b"], ["a", "c"], ["b", "c"]])
+/// ```
 @PanicsAtCaller
 Public Function Combinations<T>(items: T[], count: Int): CombinationIterator<T>
     If count < 0 Then Panic("Combinations takes a count that isn't negative, not {count}")
@@ -159,6 +197,13 @@ End Function
 
 /// `n`!, the number of orders of `n` things, from 0! = 1 to 20!, the most a Long holds. Any other n
 /// panics.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Factorial(0) == 1)
+/// Expect(Factorial(5) == 120)
+/// ```
 @PanicsAtCaller
 Public Function Factorial(n: Int): Long
     If n < 0 || n > 20 Then Panic("Factorial takes an n from 0 to 20, not {n}")
@@ -171,6 +216,13 @@ End Function
 
 /// The number of ways to choose `k` of `n` things, "n choose k": 0 for a k below 0 or above `n`. A
 /// negative `n` panics, and so does a count too large for a Long.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Binomial(5, 2) == 10)
+/// Expect(Binomial(5, 6) == 0)
+/// ```
 @PanicsAtCaller
 Public Function Binomial(n: Int, k: Int): Long
     If n < 0 Then Panic("Binomial takes an n that isn't negative, not {n}")

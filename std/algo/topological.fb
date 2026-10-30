@@ -1,3 +1,5 @@
+//! Topological sorting of a graph's nodes, and finding the cycle that keeps one from being.
+//!
 //! TopologicalSort and FindCycle: an order of nodes where each comes before the nodes it leads to,
 //! as build steps, dependencies, and a tech tree need, and the cycle that keeps there from being
 //! one. The graph is the nodes given and every node their successors reach.
@@ -38,6 +40,24 @@ End Function
 /// come next, the earliest goes first, by where it is in the `nodes` given, or past them, in the
 /// order the rest were reached, which gives the least such order by those places; `nodes` that
 /// nothing leads to keep the order they were given in.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.collections
+/// // What each build step needs done before it.
+/// Local needs = {"app": ["lib", "assets"], "lib": ["headers"], "assets": [], "headers": []}
+/// Local before = Function(step: String): String[]
+///     Local after: String[] = []
+///     For entry In needs
+///         Local name, needed = entry
+///         If needed.Contains(step) Then after.Add(name)
+///     End For
+///     Return after
+/// End Function
+///
+/// Expect(TopologicalSort(["headers", "assets"], before) == ["headers", "assets", "lib", "app"])
+/// ```
 Public Function TopologicalSort<N: Hashable>(nodes: N[], successors: Func(N): N[]): N[]?
     Local all, edges = Gather(nodes, successors)
     Local waiting: Int[] = []
@@ -70,6 +90,15 @@ End Function
 /// A cycle among the `nodes` and what their successors reach, its nodes in the order they lead to
 /// each other, each once, or Null when there's none. It's the first that depth-first search meets,
 /// going from the `nodes` given in their order: a node that's its own successor is a cycle of one.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.collections
+/// Local leads = {"a": ["b"], "b": ["c"], "c": ["a"]}
+/// Expect(FindCycle(["a"], Function(node: String) => leads[node]) == ["a", "b", "c"])
+/// Expect(TopologicalSort(["a"], Function(node: String) => leads[node]) == Null)
+/// ```
 Public Function FindCycle<N: Hashable>(nodes: N[], successors: Func(N): N[]): N[]?
     Local all, edges = Gather(nodes, successors)
     // 0 for a node not met yet, 1 for one on the path now, 2 for one whose successors are done.

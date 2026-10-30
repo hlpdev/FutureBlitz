@@ -1,3 +1,5 @@
+//! Neighbors, A* paths, and flow fields on grids of cells.
+//!
 //! Searches on grids of cells, each a Vec2i from (0, 0) to (width - 1, height - 1): the cells next
 //! to one, the path between two by A*, and flow fields, which give every cell its way to the
 //! nearest goal at once, for many agents going to the same places. A step goes along an axis, or
@@ -42,6 +44,14 @@ End Function
 /// The cells next to `cell` on a grid of `width` by `height`, those on it only: the four along the
 /// axes, right, down, left, and up, then, when `diagonal`, the four corners. A negative size, or a
 /// cell off the grid, panics.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Expect(GridNeighbors(3, 3, Vec2i(0, 0)) == [Vec2i(1, 0), Vec2i(0, 1)])
+/// Expect(GridNeighbors(3, 3, Vec2i(1, 1), True).Count == 8)
+/// ```
 @PanicsAtCaller
 Public Function GridNeighbors(width: Int, height: Int, cell: Vec2i, diagonal: Bool = False): Vec2i[]
     CheckSize(width, height)
@@ -76,6 +86,18 @@ End Function
 /// and its cost: a step along an axis is 1, and a diagonal one the square root of 2. The `start`
 /// needn't be a cell `passable` says can be walked; Null when the `goal` can't be reached. A
 /// `start` or `goal` off the grid panics.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// // A wall down the middle column, but for its bottom cell, which the path goes around by.
+/// Local open = Function(cell: Vec2i): Bool => cell.x != 1 || cell.y == 2
+/// Local path = GridPath(3, 3, Vec2i(0, 0), Vec2i(2, 0), open)
+/// Expect(path?.Cost == 6.0)
+/// Expect(path?.Nodes == [Vec2i(0, 0), Vec2i(0, 1), Vec2i(0, 2), Vec2i(1, 2), Vec2i(2, 2),
+///                        Vec2i(2, 1), Vec2i(2, 0)])
+/// ```
 @PanicsAtCaller
 Public Function GridPath(width: Int, height: Int, start: Vec2i, goal: Vec2i,
                          passable: Func(Vec2i): Bool, diagonal: Bool = False): Path<Vec2i, Double>?
@@ -103,6 +125,17 @@ End Function
 /// from the goals outward, so any number of agents follow it with no search of their own. Entering
 /// a cell costs what cost gives for it, and a cell it gives Null for is a wall that no path goes
 /// through; a step along an axis costs that, and a diagonal one the square root of 2 times it.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// // Every cell costs 1 to enter, and the goal is the top left corner.
+/// Local field = FlowField(4, 4, [Vec2i(0, 0)], Function(cell: Vec2i): Double? => 1.0)
+/// Expect(field.Distance(Vec2i(3, 0)) == 3.0)
+/// Expect(field.Next(Vec2i(3, 0)) == Vec2i(2, 0))
+/// Expect(field.Next(Vec2i(0, 0)) == Null)
+/// ```
 Public Class FlowField
     Field Columns: Int
     Field Rows: Int

@@ -1,3 +1,5 @@
+//! Disjoint sets of Ints that only ever join, for what's connected to what.
+//!
 //! UnionFind: the Ints from 0 to Count - 1 in sets that start one to each and only ever join, for
 //! what's connected to what, as Kruskal's spanning tree and a map's regions ask. Each set has a
 //! root that Find gives, and a Find halves its path to the root as it goes, while Union hangs the
@@ -7,6 +9,18 @@ Import std.core
 Import std.collections
 
 /// The Ints from 0 to Count - 1 in sets that only ever join, for what's connected to what.
+///
+/// # Examples
+///
+/// ```
+/// Local sets = UnionFind(5)
+/// Expect(sets.Union(0, 1))
+/// Expect(sets.Union(1, 2))
+/// Expect(!sets.Union(0, 2))
+/// Expect(sets.Connected(0, 2) && !sets.Connected(0, 3))
+/// Expect(sets.SetCount == 3)
+/// Expect(sets.Groups() == [[0, 1, 2], [3], [4]])
+/// ```
 Public Class UnionFind
     /// Each value's parent, itself for a root.
     Field Parents: Int[] = []
