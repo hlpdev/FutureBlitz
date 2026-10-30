@@ -25,13 +25,12 @@ inline constexpr std::array<std::string_view, 5> package_targets = {
 inline constexpr std::size_t most_archive_files = 20'000;
 inline constexpr std::size_t longest_archive_path = 255;
 
-/// The most a package's own archive, and a target's, can be, as the registry takes them, and the
-/// most each can unpack to: the registry's 8 times its limit for a package's own, and for a
-/// target's, whose limit the registry raises for a package that asks, 4 GB.
+/// The most a package's own archive, and a target's, can be, and the most each can unpack to, 8
+/// times that, as docs/registry-api.md's limits are.
 inline constexpr std::uint64_t most_source_archive = std::uint64_t{ 10 } << 20U;
 inline constexpr std::uint64_t most_target_archive = std::uint64_t{ 200 } << 20U;
 inline constexpr std::uint64_t most_source_unpacked = most_source_archive * 8;
-inline constexpr std::uint64_t most_target_unpacked = std::uint64_t{ 4 } << 30U;
+inline constexpr std::uint64_t most_target_unpacked = most_target_archive * 8;
 
 /// A file in an archive: its path in the package, with '/'s, and its bytes.
 struct archive_file_t {
@@ -41,6 +40,9 @@ struct archive_file_t {
 
 /// The SHA-256 of `bytes`, as 64 lowercase hex digits.
 [[nodiscard]] std::string sha256_hex(std::string_view bytes);
+
+/// The SHA-256 of a file's bytes, read a piece at a time, or empty when it can't be read.
+[[nodiscard]] std::string sha256_file(const std::filesystem::path& path);
 
 /// Why a path can't be in an archive, or nullopt when it can, as docs/registry-api.md's checks
 /// say: it's relative, UTF-8, at most longest_archive_path bytes, with no empty, ".", or ".."
@@ -62,14 +64,16 @@ write_archive(std::vector<archive_file_t> files);
 [[nodiscard]] std::expected<std::vector<archive_file_t>, std::string>
 read_archive(std::string_view bytes, std::uint64_t most);
 
-/// Unpacks `bytes`, a .fbpkg, into `folder`, which it makes, checked as read_archive() checks it:
-/// into a folder beside it first, renamed once it's whole, so a folder that's there is whole.
-/// Then it writes `marker` in it, a file `.fbpkg-<marker>` holding `checksum`. A folder that's
-/// there already is left as it is, and has another marker added, which is how a target's archive
-/// joins the package's own.
+/// Unpacks `archive`, a .fbpkg file, into `folder`, checked as read_archive() checks it, and
+/// that its paths are its kind's, `marker`'s: "source" for a package's own, which has none of a
+/// target's `lib/<target>/` or `native/<target>/`, or a target's, which has only those. It reads
+/// a piece at a time, so the archive and its files are never all in memory, into a folder beside
+/// `folder`, then renamed, so a folder that's there is whole, with a file `.fbpkg-<marker>`
+/// holding `checksum`. A folder that's there already gets the files, and then that marker, which
+/// is how a target's archive joins the package's own.
 [[nodiscard]] std::expected<void, std::string>
-unpack_archive(std::string_view bytes, const std::filesystem::path& folder, std::string_view marker,
-               std::string_view checksum, std::uint64_t most);
+unpack_archive(const std::filesystem::path& archive, const std::filesystem::path& folder,
+               std::string_view marker, std::string_view checksum, std::uint64_t most);
 
 /// What goes in a package's archives, by their paths in it: `source` for
 /// `<name>-<version>.fbpkg`, and for each target that has files, `targets[target]` for

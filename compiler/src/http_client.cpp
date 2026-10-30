@@ -11,7 +11,9 @@
 #include <cstdint>
 #include <curl/curl.h>
 #include <expected>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <limits>
 #include <mbedtls/ssl.h>
 #include <memory>
@@ -28,15 +30,30 @@ constexpr long connect_seconds = 30;
 constexpr long stalled_seconds = 60;
 constexpr long most_redirects = 10;
 
-/// A response as libcurl gives it, piece by piece.
+/// The most of a body that isn't a 200's fb keeps, from a file it was saved to: an error's words.
+constexpr std::size_t most_error_body = std::size_t{ 1 } << 20U;
+
+/// A response as libcurl gives it, piece by piece, and the file its body goes to, if it does,
+/// which each response of a redirect's starts again.
 struct received_t {
     http_response_t response;
+    std::filesystem::path path;
+    std::ofstream file;
 };
 
 // libcurl's callbacks take char*, though they only read it.
 // NOLINTNEXTLINE(misc-const-correctness)
 std::size_t on_body(char* data, const std::size_t size, const std::size_t count, void* given) {
     auto& received = *static_cast<received_t*>(given);
+    if (!received.path.empty()) {
+        if (!received.file.is_open()) {
+            received.file.open(received.path, std::ios::binary);
+        }
+
+        received.file.write(data, static_cast<std::streamsize>(size * count));
+        return received.file ? size * count : 0;
+    }
+
     received.response.body.append(data, size * count);
     return size * count;
 }
@@ -49,6 +66,16 @@ std::size_t on_header(char* data, const std::size_t size, const std::size_t coun
     const std::string_view line(data, size * count);
     if (line.starts_with("HTTP/")) {
         received.response.headers.clear();
+        received.response.body.clear();
+        if (received.file.is_open()) {
+            received.file.close();
+        }
+
+        if (!received.path.empty()) {
+            std::error_code ignored;
+            std::filesystem::remove(received.path, ignored);
+        }
+
         return size * count;
     }
 
@@ -185,12 +212,34 @@ std::expected<http_response_t, std::string> send_http(const http_request_t& requ
 
     const std::unique_ptr<curl_slist, list_deleter_t> owned(fields);
     curl_easy_setopt(handle, CURLOPT_HTTPHEADER, fields);
-    if (const CURLcode result = curl_easy_perform(handle); result != CURLE_OK) {
+    received.path = request.save_to;
+    const CURLcode result = curl_easy_perform(handle);
+    curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &received.response.status);
+    if (!received.path.empty()) {
+        received.file.close();
+        std::error_code ignored;
+        if (result == CURLE_OK && received.response.status == 200) {
+            // An empty body is an empty file.
+            if (!std::filesystem::exists(received.path, ignored)) {
+                std::ofstream(received.path, std::ios::binary).close();
+            }
+        } else {
+            // Another answer's body is its words, which go in the response.
+            std::ifstream saved(received.path, std::ios::binary);
+            received.response.body.resize(most_error_body);
+            saved.read(received.response.body.data(),
+                       static_cast<std::streamsize>(most_error_body));
+            received.response.body.resize(static_cast<std::size_t>(saved.gcount()));
+            saved.close();
+            std::filesystem::remove(received.path, ignored);
+        }
+    }
+
+    if (result != CURLE_OK) {
         const std::string_view why = error[0] != '\0' ? error.data() : curl_easy_strerror(result);
         return std::unexpected(std::format("{} couldn't be reached: {}", request.url, why));
     }
 
-    curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &received.response.status);
     return std::move(received.response);
 }
 

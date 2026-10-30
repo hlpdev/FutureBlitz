@@ -234,9 +234,11 @@ entry. `fb publish` refuses a project.toml over 1 MB, as the registry does.
 - fb unpacks only regular files and folders, refusing what the registry refuses at publish
   (docs/registry-api.md): an absolute path, an empty, `.`, or `..` part, a control character or
   one of `\ : < > " | ? *`, a part Windows can't name, a path over 255 bytes or not UTF-8, a link,
-  two paths that are one ignoring letter case, more than 20,000 files, and a package's own archive
-  that unpacks to more than 80 MB, or a target's to more than 4 GB. A package's own archive with a
-  target's files in it, or a target's with anything else, is refused too.
+  two paths that are one ignoring letter case, more than 20,000 files, and an archive that unpacks
+  to more than 8 times the registry's limit for its kind: 80 MB a package's own, and 1.6 GB a
+  target's. A package's own archive with a target's files in it, or a target's with anything else,
+  is refused too. Downloads go to a file as they come, and unpacking reads it a piece at a time,
+  so no archive is ever all in memory.
 
 **Registries.** The default is futureblitz.dev, named `futureblitz`. project.toml's
 `[registries]` names others, and can name `futureblitz` again to use a mirror:

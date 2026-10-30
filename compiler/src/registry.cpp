@@ -40,13 +40,19 @@ std::optional<std::string> read_bytes(const std::filesystem::path& path) {
     return std::move(bytes).str();
 }
 
+/// A name for a file beside `path`, which no other process picks.
+std::filesystem::path partial_beside(const std::filesystem::path& path) {
+    std::random_device random;
+    std::filesystem::path partial = path;
+    partial += std::format(".partial-{:08x}{:08x}", random(), random());
+    return partial;
+}
+
 /// Writes `bytes` to `path` whole or not at all: to a file beside it, then renamed.
 bool write_whole(const std::filesystem::path& path, const std::string_view bytes) {
     std::error_code error;
     std::filesystem::create_directories(path.parent_path(), error);
-    std::random_device random;
-    std::filesystem::path partial = path;
-    partial += std::format(".partial-{:08x}{:08x}", random(), random());
+    const std::filesystem::path partial = partial_beside(path);
     {
         std::ofstream out(partial, std::ios::binary);
         out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -574,16 +580,15 @@ std::expected<registry_config_t, std::string> registry_t::config() {
     return *config;
 }
 
-std::expected<std::string, std::string> registry_t::archive(const std::string_view name,
-                                                            const std::string_view version,
-                                                            const std::string_view file,
-                                                            const std::string_view checksum) {
-    const std::filesystem::path cached = cache_folder() / "archives" /
+std::expected<std::filesystem::path, std::string>
+registry_t::archive(const std::string_view name, const std::string_view version,
+                    const std::string_view file, const std::string_view checksum) {
+    std::filesystem::path cached = cache_folder() / "archives" /
                                          path_from_utf8(registry_folder(m_index)) /
                                          path_from_utf8(file);
-    if (const std::optional<std::string> kept = read_bytes(cached);
-        kept && sha256_hex(*kept) == checksum) {
-        return *kept;
+    std::error_code error;
+    if (std::filesystem::is_regular_file(cached, error) && sha256_file(cached) == checksum) {
+        return cached;
     }
 
     const std::expected<registry_config_t, std::string> config = this->config();
@@ -591,17 +596,14 @@ std::expected<std::string, std::string> registry_t::archive(const std::string_vi
         return std::unexpected(config.error());
     }
 
-    std::string bytes;
     const std::string url = download_url(config->dl, name, version, file);
+    std::filesystem::path path;
     if (local()) {
-        const std::filesystem::path path =
-            url.starts_with("file://") ? local_index_folder(url) : path_from_utf8(url);
-        std::optional<std::string> read = read_bytes(path);
-        if (!read) {
+        // A registry on disk's archive is used where it is.
+        path = url.starts_with("file://") ? local_index_folder(url) : path_from_utf8(url);
+        if (!std::filesystem::is_regular_file(path, error)) {
             return std::unexpected(std::format("couldn't read {}", to_utf8(path)));
         }
-
-        bytes = std::move(*read);
     } else {
         if (m_offline) {
             return std::unexpected(std::format(
@@ -613,31 +615,49 @@ std::expected<std::string, std::string> registry_t::archive(const std::string_vi
             m_status("Downloading", std::format("{} v{}", name, version));
         }
 
-        const std::expected<http_response_t, std::string> response = m_http({ .url = url });
+        // Into a file beside its place, as it comes, then renamed once it's checked.
+        std::filesystem::create_directories(cached.parent_path(), error);
+        path = partial_beside(cached);
+        const std::expected<http_response_t, std::string> response =
+            m_http({ .url = url, .save_to = path });
         if (!response) {
+            std::filesystem::remove(path, error);
             return std::unexpected(response.error());
         }
 
         if (response->status != 200) {
+            std::filesystem::remove(path, error);
             return std::unexpected(
                 std::format("{} couldn't be downloaded: {}", url, api_error(*response)));
         }
 
-        bytes = response->body;
+        // A client that kept the body itself, as a test's may, has it written here.
+        if (!std::filesystem::exists(path, error) && !write_whole(path, response->body)) {
+            return std::unexpected(std::format("couldn't write {}", to_utf8(path)));
+        }
     }
 
-    if (const std::string hash = sha256_hex(bytes); hash != checksum) {
+    if (const std::string hash = sha256_file(path); hash != checksum) {
+        if (!local()) {
+            std::filesystem::remove(path, error);
+        }
+
         return std::unexpected(
             std::format("{} isn't what fb.lock says it is: its SHA-256 is {}, and fb.lock's is {}",
                         file, hash, checksum));
     }
 
-    if (!local()) {
-        // An archive that couldn't be kept is downloaded again next time.
-        (void)write_whole(cached, bytes);
+    if (local()) {
+        return path;
     }
 
-    return bytes;
+    std::filesystem::rename(path, cached, error);
+    if (error) {
+        std::filesystem::remove(path, error);
+        return std::unexpected(std::format("couldn't write {}", to_utf8(cached)));
+    }
+
+    return cached;
 }
 
 } // namespace fb

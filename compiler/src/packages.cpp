@@ -212,15 +212,15 @@ std::expected<void, std::string> fetch(const locked_package_t& locked,
             std::filesystem::remove_all(folder, error);
         }
 
-        const std::expected<std::string, std::string> bytes =
+        const std::expected<std::filesystem::path, std::string> archive =
             registry.archive(locked.name, locked.version, archive_name(locked.name, locked.version),
                              locked.checksum);
-        if (!bytes) {
-            return std::unexpected(bytes.error());
+        if (!archive) {
+            return std::unexpected(archive.error());
         }
 
         if (const std::expected<void, std::string> unpacked =
-                unpack_archive(*bytes, folder, "source", locked.checksum, most_source_unpacked);
+                unpack_archive(*archive, folder, "source", locked.checksum, most_source_unpacked);
             !unpacked) {
             return std::unexpected(std::format("{} v{} couldn't be unpacked: {}", locked.name,
                                                locked.version, unpacked.error()));
@@ -232,15 +232,15 @@ std::expected<void, std::string> fetch(const locked_package_t& locked,
         return {};
     }
 
-    const std::expected<std::string, std::string> bytes =
+    const std::expected<std::filesystem::path, std::string> archive =
         registry.archive(locked.name, locked.version,
                          archive_name(locked.name, locked.version, target), own->second);
-    if (!bytes) {
-        return std::unexpected(bytes.error());
+    if (!archive) {
+        return std::unexpected(archive.error());
     }
 
     if (const std::expected<void, std::string> unpacked =
-            unpack_archive(*bytes, folder, target, own->second, most_target_unpacked);
+            unpack_archive(*archive, folder, target, own->second, most_target_unpacked);
         !unpacked) {
         return std::unexpected(std::format("{} v{}'s {} archive couldn't be unpacked: {}",
                                            locked.name, locked.version, target, unpacked.error()));

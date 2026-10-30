@@ -1,6 +1,7 @@
 #pragma once
 
 #include <expected>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <string>
@@ -16,6 +17,9 @@ struct http_request_t {
     /// Its header fields, like { "Authorization", "Bearer ..." }.
     std::vector<std::pair<std::string, std::string>> headers;
     std::string body;
+    /// Where a 200's body goes, as it comes, for an archive too large to hold, in place of the
+    /// response's body. Empty for the response's body.
+    std::filesystem::path save_to;
 };
 
 /// What a server answered. Moving it can allocate, as its map's comparator is moved, which

@@ -264,6 +264,21 @@ TEST_CASE("an archive that isn't one fb takes is refused, saying why", "[archive
     CHECK(limited.error().contains("unpacks to more than"));
 }
 
+namespace {
+
+/// Unpacks `bytes`, written to a file in the sandbox's downloads/ first, as an archive fb
+/// downloaded would be.
+std::expected<void, std::string> unpack(const fb::testing::sandbox_t& sandbox,
+                                        const std::string_view bytes,
+                                        const std::filesystem::path& folder,
+                                        const std::string_view marker,
+                                        const std::string_view checksum, const std::uint64_t most) {
+    sandbox.write("downloads/archive.fbpkg", bytes);
+    return fb::unpack_archive(sandbox / "downloads/archive.fbpkg", folder, marker, checksum, most);
+}
+
+} // namespace
+
 TEST_CASE("an archive unpacks whole into its folder, and a target's joins it", "[archive]") {
     const fb::testing::sandbox_t sandbox;
     const std::filesystem::path folder = sandbox / "cache/physics-1.0.0";
@@ -271,13 +286,13 @@ TEST_CASE("an archive unpacks whole into its folder, and a target's joins it", "
         { .path = "project.toml", .bytes = "[project]\n" },
         { .path = "shapes/circle.fb", .bytes = "' circle\n" },
     });
-    REQUIRE(fb::unpack_archive(source, folder, "source", "abc", fb::most_source_unpacked));
+    REQUIRE(unpack(sandbox, source, folder, "source", "abc", fb::most_source_unpacked));
     CHECK(sandbox.read("cache/physics-1.0.0/shapes/circle.fb") == "' circle\n");
     CHECK(sandbox.read("cache/physics-1.0.0/.fbpkg-source") == "abc");
 
     const std::string target =
         archive({ { .path = "lib/linux-x64/debug/physics.fbi", .bytes = "fbi" } });
-    REQUIRE(fb::unpack_archive(target, folder, "linux-x64", "def", fb::most_target_unpacked));
+    REQUIRE(unpack(sandbox, target, folder, "linux-x64", "def", fb::most_target_unpacked));
     CHECK(sandbox.read("cache/physics-1.0.0/lib/linux-x64/debug/physics.fbi") == "fbi");
     CHECK(sandbox.read("cache/physics-1.0.0/.fbpkg-linux-x64") == "def");
 
@@ -292,8 +307,8 @@ TEST_CASE("an archive unpacks whole into its folder, and a target's joins it", "
 
     // A package's own archive has no target's files or markers, and a target's only its own.
     const auto refused = [&](const std::string& bytes, const std::string_view marker) {
-        const std::expected<void, std::string> unpacked = fb::unpack_archive(
-            bytes, sandbox / "cache/other", marker, "x", fb::most_target_unpacked);
+        const std::expected<void, std::string> unpacked =
+            unpack(sandbox, bytes, sandbox / "cache/other", marker, "x", fb::most_target_unpacked);
         return unpacked ? std::string() : unpacked.error();
     };
     CHECK(refused(target, "source").contains("lib/linux-x64/debug/physics.fbi"));
@@ -385,4 +400,47 @@ TEST_CASE("a project.toml over 1 MB isn't published", "[archive]") {
         fb::prepare_package(sandbox / "shapes", index, false);
     REQUIRE_FALSE(prepared);
     CHECK(prepared.error() == "project.toml is more than the registry's 1 MB");
+}
+
+TEST_CASE("an archive unpacks to at most 8 times the registry's limit for its kind", "[archive]") {
+    // docs/registry-api.md's limits: 10 MB a package's own, 200 MB a target's.
+    STATIC_CHECK(fb::most_source_archive == std::uint64_t{ 10 } << 20U);
+    STATIC_CHECK(fb::most_target_archive == std::uint64_t{ 200 } << 20U);
+    STATIC_CHECK(fb::most_source_unpacked == std::uint64_t{ 80 } << 20U);
+    STATIC_CHECK(fb::most_target_unpacked == std::uint64_t{ 1600 } << 20U);
+
+    // A file a little past a package's own limit, which a target's takes, read a piece at a
+    // time from the archive's file.
+    const fb::testing::sandbox_t sandbox;
+    const std::size_t past = (std::size_t{ 80 } << 20U) + 1;
+    const std::string zeros =
+        archive({ { .path = "native/linux-x64/big.bin", .bytes = std::string(past, '\0') } });
+    const std::string source = archive({ { .path = "big.bin", .bytes = std::string(past, '\0') } });
+    const std::expected<void, std::string> refused =
+        unpack(sandbox, source, sandbox / "cache/own", "source", "x", fb::most_source_unpacked);
+    REQUIRE_FALSE(refused);
+    CHECK(refused.error().contains("unpacks to more than 80 MB"));
+    // Its header's size says so before anything's written.
+    CHECK_FALSE(std::filesystem::exists(sandbox / "cache"));
+    REQUIRE(unpack(sandbox, zeros, sandbox / "cache/target", "linux-x64", "y",
+                   fb::most_target_unpacked));
+    CHECK(std::filesystem::file_size(sandbox / "cache/target/native/linux-x64/big.bin") == past);
+
+    // A file's hash, read a piece at a time, is its bytes'.
+    CHECK(fb::sha256_file(sandbox / "downloads/archive.fbpkg") == fb::sha256_hex(zeros));
+    CHECK(fb::sha256_file(sandbox / "nothing.fbpkg").empty());
+
+    // An archive cut short, or with more after its gzip, unpacks to nothing.
+    const std::string small = archive({ { .path = "a.fb", .bytes = "// a\n" } });
+    const std::expected<void, std::string> cut =
+        unpack(sandbox, small.substr(0, small.size() / 2), sandbox / "cache/cut", "source", "z",
+               fb::most_source_unpacked);
+    REQUIRE_FALSE(cut);
+    CHECK(cut.error().contains("cut short"));
+    const std::expected<void, std::string> more = unpack(
+        sandbox, small + "more", sandbox / "cache/more", "source", "z", fb::most_source_unpacked);
+    REQUIRE_FALSE(more);
+    CHECK(more.error().contains("after its gzip stream"));
+    CHECK_FALSE(std::filesystem::exists(sandbox / "cache/cut"));
+    CHECK_FALSE(std::filesystem::exists(sandbox / "cache/more"));
 }

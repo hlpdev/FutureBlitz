@@ -230,45 +230,139 @@ std::expected<std::string, std::string> gzip(const std::string_view bytes) {
     return out;
 }
 
-/// What gzip's `bytes` hold, up to `most` bytes.
-std::expected<std::string, std::string> gunzip(const std::string_view bytes,
-                                               const std::uint64_t most) {
-    z_stream stream{};
-    constexpr int gzip_window = 15 + 16;
-    if (inflateInit2(&stream, gzip_window) != Z_OK) {
-        return std::unexpected("zlib couldn't start decompressing");
-    }
+/// Gives an archive's gzip'd bytes, a piece at a time: into `buffer`, at most `size` of them,
+/// giving how many, 0 at their end.
+using source_t = std::function<std::size_t(char* buffer, std::size_t size)>;
 
-    std::string out;
-    std::array<unsigned char, 65536> chunk{};
-    stream.next_in =
-        const_cast<unsigned char*>(reinterpret_cast<const unsigned char*>(bytes.data()));
-    stream.avail_in = static_cast<unsigned>(bytes.size());
-    int result = Z_OK;
-    while (result != Z_STREAM_END) {
-        stream.next_out = chunk.data();
-        stream.avail_out = static_cast<unsigned>(chunk.size());
-        result = inflate(&stream, Z_NO_FLUSH);
-        if (result != Z_OK && result != Z_STREAM_END) {
-            inflateEnd(&stream);
-            return std::unexpected("it isn't gzip, or it's cut short");
-        }
-
-        out.append(reinterpret_cast<const char*>(chunk.data()), chunk.size() - stream.avail_out);
-        if (out.size() > most) {
-            inflateEnd(&stream);
-            return std::unexpected(std::format("it unpacks to more than {} MB", most >> 20U));
+/// What gzip's bytes from a source hold, read as they're needed, so an archive is never all in
+/// memory, up to `most` bytes. Reading past its end, or bytes that aren't gzip, is an error, which
+/// stays.
+class gunzip_t {
+public:
+    gunzip_t(source_t source, const std::uint64_t most)
+        : m_source(std::move(source)), m_most(most) {
+        constexpr int gzip_window = 15 + 16;
+        if (inflateInit2(&m_stream, gzip_window) != Z_OK) {
+            m_error = "zlib couldn't start decompressing";
         }
     }
 
-    const bool rest = stream.avail_in > 0;
-    inflateEnd(&stream);
-    if (rest) {
-        return std::unexpected("it has bytes after its gzip stream");
+    gunzip_t(const gunzip_t&) = delete;
+    gunzip_t& operator=(const gunzip_t&) = delete;
+    gunzip_t(gunzip_t&&) = delete;
+    gunzip_t& operator=(gunzip_t&&) = delete;
+
+    ~gunzip_t() {
+        inflateEnd(&m_stream);
     }
 
-    return out;
-}
+    /// Reads exactly `size` bytes into `out`; false at an error or the stream's end before them.
+    bool read(char* out, std::size_t size) {
+        while (size > 0) {
+            if (m_at == m_out.size() && !fill()) {
+                return false;
+            }
+
+            const std::size_t taken = std::min(size, m_out.size() - m_at);
+            std::copy_n(m_out.data() + m_at, taken, out);
+            m_at += taken;
+            out += taken;
+            size -= taken;
+        }
+
+        return true;
+    }
+
+    /// Whether what's left is only zeros, and then the stream's end, with no bytes after it.
+    bool rest_is_zeros() {
+        while (true) {
+            if (!std::all_of(m_out.begin() + static_cast<std::ptrdiff_t>(m_at), m_out.end(),
+                             [](const char c) { return c == '\0'; })) {
+                return false;
+            }
+
+            m_at = m_out.size();
+            if (!fill()) {
+                return m_error.empty() && m_ended;
+            }
+        }
+    }
+
+    [[nodiscard]] const std::string& error() const {
+        return m_error;
+    }
+
+private:
+    source_t m_source;
+    std::uint64_t m_most = 0;
+    std::uint64_t m_total = 0;
+    z_stream m_stream{};
+    std::array<char, 65536> m_in{};
+    std::string m_out;
+    std::size_t m_at = 0;
+    bool m_ended = false;
+    std::string m_error;
+
+    /// Inflates more, into m_out; false at the stream's end or an error.
+    bool fill() {
+        m_out.clear();
+        m_at = 0;
+        std::array<unsigned char, 65536> chunk{};
+        while (m_out.empty() && m_error.empty() && !m_ended) {
+            if (m_stream.avail_in == 0) {
+                const std::size_t got = m_source(m_in.data(), m_in.size());
+                if (got == 0) {
+                    m_error = "it isn't gzip, or it's cut short";
+                    return false;
+                }
+
+                // zlib takes its input as unsigned and not const; it doesn't change it.
+                m_stream.next_in = reinterpret_cast<unsigned char*>(m_in.data());
+                m_stream.avail_in = static_cast<unsigned>(got);
+            }
+
+            m_stream.next_out = chunk.data();
+            m_stream.avail_out = static_cast<unsigned>(chunk.size());
+            const int result = inflate(&m_stream, Z_NO_FLUSH);
+            if (result != Z_OK && result != Z_STREAM_END && result != Z_BUF_ERROR) {
+                m_error = "it isn't gzip, or it's cut short";
+                return false;
+            }
+
+            const std::size_t made = chunk.size() - m_stream.avail_out;
+            m_out.append(reinterpret_cast<const char*>(chunk.data()), made);
+            m_total += made;
+            if (m_total > m_most) {
+                m_error = std::format("it unpacks to more than {} MB", m_most >> 20U);
+                return false;
+            }
+
+            if (result == Z_STREAM_END) {
+                m_ended = true;
+                // Nothing but the stream: no bytes after it, here or still to read.
+                if (m_stream.avail_in > 0 || m_source(m_in.data(), m_in.size()) > 0) {
+                    m_error = "it has bytes after its gzip stream";
+                    return false;
+                }
+            }
+        }
+
+        return !m_out.empty();
+    }
+};
+
+/// What an archive's walk does with each file: `begin` with its path and size, then `data`
+/// with its bytes, piece by piece. Either fails, saying why, to stop the walk.
+struct entries_t {
+    std::function<std::expected<void, std::string>(const std::string& path, std::uint64_t size)>
+        begin;
+    std::function<std::expected<void, std::string>(std::string_view bytes)> data;
+};
+
+/// Walks a .fbpkg's entries from `source`, checking them as read_archive() says, up to `most`
+/// bytes of files.
+std::expected<void, std::string> walk_archive(source_t source, std::uint64_t most,
+                                              const entries_t& entries);
 
 /// The letter case of ASCII folded, for comparing paths as a disk that ignores it does.
 std::string folded(const std::string_view path) {
@@ -441,27 +535,30 @@ std::expected<std::string, std::string> write_archive(std::vector<archive_file_t
     return gzip(tar);
 }
 
-std::expected<std::vector<archive_file_t>, std::string> read_archive(const std::string_view bytes,
-                                                                     const std::uint64_t most) {
-    // Its files' bytes, each with its headers and padding, and the two blocks at the end.
-    const std::uint64_t most_tar = most + (most_archive_files * 4 * block) + (2 * block);
-    const std::expected<std::string, std::string> tar = gunzip(bytes, most_tar);
-    if (!tar) {
-        return std::unexpected(std::format("it isn't a .fbpkg: {}", tar.error()));
-    }
+namespace {
 
-    std::vector<archive_file_t> files;
+std::expected<void, std::string> walk_archive(source_t source, const std::uint64_t most,
+                                              const entries_t& entries) {
+    // Its files' bytes, each with its headers and padding, and the two blocks at the end.
+    gunzip_t tar(std::move(source), most + (most_archive_files * 4 * block) + (2 * block));
+    const auto broken = [&](const std::string_view why) {
+        return std::unexpected(std::format("it isn't a .fbpkg: {}",
+                                           tar.error().empty() ? std::string(why) : tar.error()));
+    };
+    // Each path, folded, to find one two entries share, and one that's both a file and a
+    // folder's start.
     std::set<std::string, std::less<>> seen;
     std::uint64_t total = 0;
-    std::size_t at = 0;
+    std::size_t files = 0;
     // A pax header's path, for the entry after it.
     std::optional<std::string> long_path;
+    std::string header(block, '\0');
+    std::string piece(65536, '\0');
     while (true) {
-        if (at + block > tar->size()) {
-            return std::unexpected("it isn't a .fbpkg: its tar ends without its two empty blocks");
+        if (!tar.read(header.data(), block)) {
+            return broken("its tar ends without its two empty blocks");
         }
 
-        const std::string_view header = std::string_view(*tar).substr(at, block);
         if (std::ranges::all_of(header, [](const char c) { return c == '\0'; })) {
             break;
         }
@@ -470,26 +567,31 @@ std::expected<std::vector<archive_file_t>, std::string> read_archive(const std::
         const std::optional<std::uint64_t> size = octal_of(header, size_field);
         if (!sum || *sum != checksum_of(header) || !size ||
             text_of(header, magic_field) != "ustar") {
-            return std::unexpected("it isn't a .fbpkg: a header of its tar isn't ustar's");
+            return broken("a header of its tar isn't ustar's");
         }
 
         const std::string_view prefix = text_of(header, prefix_field);
         const std::string_view name = text_of(header, name_field);
         std::string path = prefix.empty() ? std::string(name) : std::format("{}/{}", prefix, name);
         const char type = header[type_at];
-        at += block;
-        if (at + *size > tar->size()) {
-            return std::unexpected(std::format("it ends in the middle of '{}'", path));
-        }
-
-        const std::size_t next = at + *size + ((block - (*size % block)) % block);
+        const std::uint64_t padding = (block - (*size % block)) % block;
         if (type == 'x') {
-            long_path = pax_path(std::string_view(*tar).substr(at, *size));
-            if (!long_path) {
-                return std::unexpected("it isn't a .fbpkg: a pax header of its tar has no path");
+            // A pax header's records are small; a large one isn't fb's.
+            if (*size > piece.size()) {
+                return broken("a pax header of its tar is too large");
             }
 
-            at = next;
+            std::string records(*size + padding, '\0');
+            if (!tar.read(records.data(), records.size())) {
+                return broken(std::format("it ends in the middle of '{}'", path));
+            }
+
+            records.resize(*size);
+            long_path = pax_path(records);
+            if (!long_path) {
+                return broken("a pax header of its tar has no path");
+            }
+
             continue;
         }
 
@@ -498,113 +600,261 @@ std::expected<std::vector<archive_file_t>, std::string> read_archive(const std::
             long_path.reset();
         }
 
-        if (type == '5') {
-            at = next;
-            continue;
-        }
-
-        if (type != '0' && type != '\0') {
+        if (type != '0' && type != '\0' && type != '5') {
             return std::unexpected(std::format(
                 "it has '{}', which isn't a file or a folder, like a link, which fb doesn't unpack",
                 escape_controls(path)));
+        }
+
+        if (type == '5') {
+            // A folder has no bytes; its files make it.
+            std::uint64_t skipped = *size + padding;
+            while (skipped > 0) {
+                const std::size_t taken = std::min<std::uint64_t>(skipped, piece.size());
+                if (!tar.read(piece.data(), taken)) {
+                    return broken(std::format("it ends in the middle of '{}'", path));
+                }
+
+                skipped -= taken;
+            }
+
+            continue;
         }
 
         if (const std::optional<std::string> wrong = archive_path_error(path)) {
             return std::unexpected(*wrong);
         }
 
-        if (!seen.insert(folded(path)).second) {
+        // Neither twice, nor a file where another's folder is, ignoring letter case.
+        const std::string key = folded(path);
+        const auto after = seen.lower_bound(key + "/");
+        bool parent_is_file = false;
+        for (std::size_t slash = key.find('/'); slash != std::string::npos;
+             slash = key.find('/', slash + 1)) {
+            parent_is_file = parent_is_file || seen.contains(key.substr(0, slash));
+        }
+
+        if (seen.contains(key)) {
             return std::unexpected(std::format(
                 "it has '{}' twice, or two paths that differ only in letter case", path));
         }
 
+        if (parent_is_file || (after != seen.end() && after->starts_with(key + "/"))) {
+            return std::unexpected(std::format("it has '{}' as both a file and a folder", path));
+        }
+
+        seen.insert(key);
         total += *size;
-        if (files.size() >= most_archive_files || total > most) {
+        if (++files > most_archive_files || total > most) {
             return std::unexpected(
                 std::format("it has more than {} files, or unpacks to more than {} MB",
                             most_archive_files, most >> 20U));
         }
 
-        files.push_back({ .path = std::move(path), .bytes = tar->substr(at, *size) });
-        at = next;
+        if (const std::expected<void, std::string> begun = entries.begin(path, *size); !begun) {
+            return begun;
+        }
+
+        for (std::uint64_t left = *size; left > 0;) {
+            const std::size_t taken = std::min<std::uint64_t>(left, piece.size());
+            if (!tar.read(piece.data(), taken)) {
+                return broken(std::format("it ends in the middle of '{}'", path));
+            }
+
+            if (const std::expected<void, std::string> written =
+                    entries.data(std::string_view(piece).substr(0, taken));
+                !written) {
+                return written;
+            }
+
+            left -= taken;
+        }
+
+        if (padding > 0 && !tar.read(piece.data(), padding)) {
+            return broken(std::format("it ends in the middle of '{}'", path));
+        }
     }
 
-    // A file and a folder of one name can't both be on a disk.
-    for (const archive_file_t& file : files) {
-        const std::string inside = folded(file.path) + "/";
-        const auto after = seen.lower_bound(inside);
-        if (after != seen.end() && after->starts_with(inside)) {
-            return std::unexpected(
-                std::format("it has '{}' as both a file and a folder", file.path));
+    // After the end, only zeros, and no bytes after the gzip stream.
+    if (!tar.rest_is_zeros()) {
+        return broken("it has bytes after its tar's end");
+    }
+
+    return {};
+}
+
+/// A source of `bytes`, in memory.
+source_t source_of(const std::string_view bytes) {
+    return [bytes, at = std::size_t{ 0 }](char* buffer, const std::size_t size) mutable {
+        const std::size_t taken = std::min(size, bytes.size() - at);
+        std::copy_n(bytes.data() + at, taken, buffer);
+        at += taken;
+        return taken;
+    };
+}
+
+/// Whether a path in an archive is one its kind has: a package's own has none of a target's
+/// files, and a target's only its own; neither has a marker, which only fb writes.
+bool is_of_kind(const std::string_view path, const std::string_view marker) {
+    const bool targets = std::ranges::any_of(package_targets, [&](const std::string_view each) {
+        return path.starts_with(std::format("lib/{}/", each)) ||
+               path.starts_with(std::format("native/{}/", each));
+    });
+    const bool own = path.starts_with(std::format("lib/{}/", marker)) ||
+                     path.starts_with(std::format("native/{}/", marker));
+    return !path.starts_with(".fbpkg-") && (marker == "source" ? !targets : own);
+}
+
+} // namespace
+
+std::string sha256_file(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return {};
+    }
+
+    static const psa_status_t started = psa_crypto_init();
+    psa_hash_operation_t operation = PSA_HASH_OPERATION_INIT;
+    if (started != PSA_SUCCESS || psa_hash_setup(&operation, PSA_ALG_SHA_256) != PSA_SUCCESS) {
+        return {};
+    }
+
+    std::array<char, 65536> chunk{};
+    while (in) {
+        in.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        const auto got = static_cast<std::size_t>(in.gcount());
+        if (got > 0 &&
+            psa_hash_update(&operation, reinterpret_cast<const std::uint8_t*>(chunk.data()), got) !=
+                PSA_SUCCESS) {
+            psa_hash_abort(&operation);
+            return {};
         }
+    }
+
+    std::array<std::uint8_t, 32> hash{};
+    std::size_t length = 0;
+    if (in.bad() || psa_hash_finish(&operation, hash.data(), hash.size(), &length) != PSA_SUCCESS) {
+        psa_hash_abort(&operation);
+        return {};
+    }
+
+    std::string out;
+    for (const std::uint8_t byte : hash) {
+        out += std::format("{:02x}", byte);
+    }
+
+    return out;
+}
+
+std::expected<std::vector<archive_file_t>, std::string> read_archive(const std::string_view bytes,
+                                                                     const std::uint64_t most) {
+    std::vector<archive_file_t> files;
+    const entries_t entries{
+        .begin = [&](const std::string& path,
+                     const std::uint64_t size) -> std::expected<void, std::string> {
+            files.push_back({ .path = path });
+            files.back().bytes.reserve(size);
+            return {};
+        },
+        .data = [&](const std::string_view piece) -> std::expected<void, std::string> {
+            files.back().bytes += piece;
+            return {};
+        },
+    };
+    if (const std::expected<void, std::string> walked =
+            walk_archive(source_of(bytes), most, entries);
+        !walked) {
+        return std::unexpected(walked.error());
     }
 
     return files;
 }
 
-std::expected<void, std::string> unpack_archive(const std::string_view bytes,
+std::expected<void, std::string> unpack_archive(const std::filesystem::path& archive,
                                                 const std::filesystem::path& folder,
                                                 const std::string_view marker,
                                                 const std::string_view checksum,
                                                 const std::uint64_t most) {
-    const std::expected<std::vector<archive_file_t>, std::string> files = read_archive(bytes, most);
-    if (!files) {
-        return std::unexpected(files.error());
+    std::ifstream in(archive, std::ios::binary);
+    if (!in) {
+        return std::unexpected(std::format("couldn't read {}", to_utf8(archive)));
     }
 
-    // A package's own archive has none of a target's files, nor a marker, which only fb writes,
-    // and a target's has only its own.
-    for (const archive_file_t& file : *files) {
-        const bool targets = std::ranges::any_of(package_targets, [&](const std::string_view each) {
-            return file.path.starts_with(std::format("lib/{}/", each)) ||
-                   file.path.starts_with(std::format("native/{}/", each));
-        });
-        const bool own = file.path.starts_with(std::format("lib/{}/", marker)) ||
-                         file.path.starts_with(std::format("native/{}/", marker));
-        if (file.path.starts_with(".fbpkg-") || (marker == "source" && targets) ||
-            (marker != "source" && !own)) {
-            return std::unexpected(
-                std::format("it has '{}', which an archive of its kind can't", file.path));
-        }
+    // Each file goes into a folder beside the package's, which is renamed, or whose files are,
+    // once they're all there.
+    const std::filesystem::path partial = partial_of(folder);
+    std::vector<std::string> paths;
+    std::ofstream out;
+    const entries_t entries{
+        .begin = [&](const std::string& path, std::uint64_t) -> std::expected<void, std::string> {
+            if (!is_of_kind(path, marker)) {
+                return std::unexpected(
+                    std::format("it has '{}', which an archive of its kind can't", path));
+            }
+
+            out.close();
+            const std::filesystem::path file = partial / path_from_utf8(path);
+            std::error_code error;
+            std::filesystem::create_directories(file.parent_path(), error);
+            out.open(file, std::ios::binary);
+            if (!out) {
+                return std::unexpected(std::format("couldn't write {}", to_utf8(file)));
+            }
+
+            paths.push_back(path);
+            return {};
+        },
+        .data = [&](const std::string_view piece) -> std::expected<void, std::string> {
+            out.write(piece.data(), static_cast<std::streamsize>(piece.size()));
+            if (!out) {
+                return std::unexpected(std::format("couldn't write into {}", to_utf8(partial)));
+            }
+
+            return {};
+        },
+    };
+    const source_t source = [&](char* buffer, const std::size_t size) {
+        in.read(buffer, static_cast<std::streamsize>(size));
+        return static_cast<std::size_t>(in.gcount());
+    };
+    std::expected<void, std::string> walked = walk_archive(source, most, entries);
+    out.close();
+    std::error_code error;
+    if (walked && !out) {
+        walked = std::unexpected(std::format("couldn't write into {}", to_utf8(partial)));
     }
 
     const std::filesystem::path marker_name = path_from_utf8(std::format(".fbpkg-{}", marker));
-    std::error_code error;
-    if (std::filesystem::is_directory(folder, error)) {
-        // Another archive of the package's: each file is whole once it's renamed, and the
-        // marker, last, says they all are.
-        for (const archive_file_t& file : *files) {
-            const std::filesystem::path path = folder / path_from_utf8(file.path);
-            const std::filesystem::path partial = partial_of(path);
-            if (!write_file(partial, file.bytes)) {
-                return std::unexpected(std::format("couldn't write {}", to_utf8(path)));
-            }
+    if (walked && !write_file(partial / marker_name, checksum)) {
+        walked = std::unexpected(std::format("couldn't write into {}", to_utf8(partial)));
+    }
 
-            std::filesystem::rename(partial, path, error);
+    if (!walked) {
+        std::filesystem::remove_all(partial, error);
+        return walked;
+    }
+
+    if (std::filesystem::is_directory(folder, error)) {
+        // Another archive of the package's: each file joins it, and the marker, last, says
+        // they all did.
+        for (const std::string& path : paths) {
+            const std::filesystem::path to = folder / path_from_utf8(path);
+            std::filesystem::create_directories(to.parent_path(), error);
+            std::filesystem::rename(partial / path_from_utf8(path), to, error);
             if (error) {
-                std::filesystem::remove(partial, error);
-                return std::unexpected(std::format("couldn't write {}", to_utf8(path)));
+                std::filesystem::remove_all(partial, error);
+                return std::unexpected(std::format("couldn't write {}", to_utf8(to)));
             }
         }
 
-        if (!write_file(folder / marker_name, checksum)) {
+        std::filesystem::rename(partial / marker_name, folder / marker_name, error);
+        const bool moved = !error;
+        std::filesystem::remove_all(partial, error);
+        if (!moved) {
             return std::unexpected(std::format("couldn't write {}", to_utf8(folder / marker_name)));
         }
 
         return {};
-    }
-
-    const std::filesystem::path partial = partial_of(folder);
-    for (const archive_file_t& file : *files) {
-        if (!write_file(partial / path_from_utf8(file.path), file.bytes)) {
-            std::filesystem::remove_all(partial, error);
-            return std::unexpected(std::format("couldn't write {}", to_utf8(folder)));
-        }
-    }
-
-    if (!write_file(partial / marker_name, checksum)) {
-        std::filesystem::remove_all(partial, error);
-        return std::unexpected(std::format("couldn't write {}", to_utf8(folder)));
     }
 
     std::filesystem::create_directories(folder.parent_path(), error);

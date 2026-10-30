@@ -5,6 +5,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <expected>
 #include <filesystem>
+#include <format>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <string>
 #include <string_view>
@@ -237,17 +240,30 @@ TEST_CASE("an archive is downloaded once, and checked against its hash", "[regis
     const fb::status_t status = [&](const std::string_view verb, const std::string_view message) {
         said.push_back(std::format("{} {}", verb, message));
     };
+    // What an archive's file holds, or its error.
+    const auto held = [](const std::expected<std::filesystem::path, std::string>& file) {
+        if (!file) {
+            return "error: " + file.error();
+        }
+
+        std::ifstream in(*file, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
     {
         fb::registry_t registry("https://index.example.com/", server.client(), false, status);
-        CHECK(registry.archive("physics", "1.0.0", "physics-1.0.0.fbpkg", hash) == bytes);
+        const auto downloaded = registry.archive("physics", "1.0.0", "physics-1.0.0.fbpkg", hash);
+        CHECK(held(downloaded) == bytes);
+        CHECK(downloaded.value_or("").parent_path().parent_path().filename() == "archives");
         CHECK(said == std::vector<std::string>{ "Downloading physics v1.0.0" });
+        // Into a file of the request's, as it came, which is the cache's once it's checked.
+        CHECK_FALSE(server.requests.back().save_to.empty());
     }
 
     // From the cache, even offline.
     server.requests.clear();
     {
         fb::registry_t registry("https://index.example.com/", server.client(), true, status);
-        CHECK(registry.archive("physics", "1.0.0", "physics-1.0.0.fbpkg", hash) == bytes);
+        CHECK(held(registry.archive("physics", "1.0.0", "physics-1.0.0.fbpkg", hash)) == bytes);
         CHECK(server.requests.empty());
     }
 
