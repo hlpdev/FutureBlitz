@@ -313,7 +313,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          wix build tools/install/bundle.wxs -arch x64 -ext WixToolset.Bal.wixext `
+          # WiX 5.0.2's bootstrapper extension is WixToolset.BootstrapperApplications.wixext.dll
+          # in the WixToolset.Bal.wixext package, so -ext doesn't find it by the package's name.
+          $bal = Get-ChildItem "$env:USERPROFILE\.wix\extensions\WixToolset.Bal.wixext\$env:WIX_VERSION\wixext5\*.wixext.dll" |
+            Select-Object -First 1
+          if (-not $bal) { throw "WiX's bootstrapper extension isn't installed" }
+          wix build tools/install/bundle.wxs -arch x64 -ext $bal.FullName `
             -d "Version=$env:VERSION" -d "Msi=$PWD\dist\$env:RELEASE.msi" `
             -d "Brand=$PWD\assets\brand" -pdbtype none -o "dist/$env:RELEASE-setup.exe"
           if ($LASTEXITCODE -ne 0) { throw "setup.exe didn't build" }
@@ -401,7 +406,8 @@ jobs:
             linux-arm64) arch=arm64 machine=arm64 ;;
           esac
           tools="$RUNNER_TEMP/nfpm-tool"
-          mkdir -p "$tools"
+          # nfpm's -t is a folder only when it's there.
+          mkdir -p "$tools" dist
           archive="nfpm_${NFPM_VERSION}_Linux_${machine}.tar.gz"
           url="https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION"
           curl -fsSL -o "$tools/$archive" "$url/$archive"

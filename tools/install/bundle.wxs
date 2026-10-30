@@ -2,9 +2,10 @@
   The Windows setup.exe, for WiX 5: a Burn bundle around the release's MSI, with WiX's standard
   window, which links the license, and installs the MSI for the user alone, as the MSI does by
   itself. A newer one replaces an older one. Built by .github/workflows/release.yml, after the
-  MSI is signed, with WiX's bootstrapper extension (WixToolset.Bal.wixext):
+  MSI is signed, with WiX's bootstrapper extension, the WixToolset.Bal.wixext package's
+  WixToolset.BootstrapperApplications.wixext.dll:
 
-    wix build bundle.wxs -ext WixToolset.Bal.wixext -d Version=1.0.0 -d Msi=<the release's .msi>
+    wix build bundle.wxs -ext <that dll> -d Version=1.0.0 -d Msi=<the release's .msi>
       -d Brand=<the repo's assets/brand> -o <file>-setup.exe
 
   Signing it signs its engine first: `wix burn detach`, sign the engine, `wix burn reattach`,
