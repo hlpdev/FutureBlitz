@@ -1,3 +1,5 @@
+//! UUIDs: random version 4 identifiers, and their text.
+//!
 //! Uuid, RFC 9562's 128-bit identifiers: V4 makes a random one, from SecureRandom, and Parse reads
 //! the text ToString writes, the 16 bytes as 32 hex digits in groups of 8, 4, 4, 4, and 12, like
 //! "f81d4fae-7dec-11d0-a765-00a0c91e6bf6".
@@ -7,6 +9,17 @@ Import std.crypto.random
 
 /// A 128-bit identifier, its 16 bytes in the order its text has them: High's 8, the most
 /// significant first, then Low's. Uuids compare as their bytes do, and so as their texts do.
+///
+/// # Examples
+///
+/// ```
+/// Local id = Uuid.V4()
+/// Expect(id.Version == 4)
+/// Expect(Uuid.Parse(id.ToString()) == id)
+/// Local known = Uuid.Parse("f81d4fae-7dec-11d0-a765-00a0c91e6bf6")
+/// Expect(known?.Version == 1)
+/// Expect(Uuid.Parse("not a uuid") == Null)
+/// ```
 Public Struct Uuid Implements Hashable, Comparable, Printable
     /// Its first 8 bytes, the most significant first.
     Public ReadOnly Field High: UInt64
@@ -105,5 +118,6 @@ Public Struct Uuid Implements Hashable, Comparable, Printable
         Return text
     End Method
 
+    /// Whether `a` comes before `b`, by their bytes.
     Operator <(a: Uuid, b: Uuid): Bool => a.High < b.High || a.High == b.High && a.Low < b.Low
 End Struct

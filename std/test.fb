@@ -1,8 +1,10 @@
-//! std.test: what fb test runs and checks with. A @Test Function, one that takes nothing and gives
-//! nothing back, though it can throw, is a test, anywhere in a package, and so is one in its tests/
-//! folder, which uses the package from outside. Builds leave tests out, and fb test runs them, in
-//! parallel, on the runtime's pool, but for those whose code uses what only the main thread can.
-//! Work a test starts on another thread is the test's, wherever it runs.
+//! Expect, ExpectThrows, Fail, and Skip, what fb test's tests check with.
+//!
+//! A @Test Function, one that takes nothing and gives nothing back, though it can throw, is a test,
+//! anywhere in a package, and so is one in its tests/ folder, which uses the package from outside.
+//! Builds leave tests out, and fb test runs them, in parallel, on the runtime's pool, but for those
+//! whose code uses what only the main thread can. Work a test starts on another thread is the
+//! test's, wherever it runs.
 //!
 //! Its names are the compiler's own, which a file has with `Import std.test`, not From or As:
 //!
@@ -10,11 +12,25 @@
 //!   fails, saying what it checked and where, and for a comparison, like Expect(a == b), each
 //!   side's debug form, then goes on.
 //! - ExpectThrows(x) and `ExpectThrows<E>`(x): what x throws, which it catches, as Try? would, as
-//!   an   Error? or an E?; when x throws nothing, or nothing that's an E, the test fails, and it
-//!   gives   Null.
+//!   an Error? or an E?; when x throws nothing, or nothing that's an E, the test fails, and it
+//!   gives Null.
 //! - Fail() and Fail(message): the test fails, and goes on.
 //! - Skip() and Skip(reason): the test is skipped, and ends there, as a Return would.
 //!
 //! A panic, as a failed Assert's, fails its test, and fb test runs the ones it didn't finish
 //! again, and in a debug build, the ones that finished in that run too, whose leaks it didn't
 //! check.
+//!
+//! # Examples
+//!
+//! ```
+//! Function Checked(n: Int): Int Throws ArgumentError
+//!     If n < 0 Then Throw ArgumentError(ArgumentErrorKind.INVALID, "negative")
+//!     Return n
+//! End Function
+//!
+//! Expect(1 + 1 == 2)
+//! Expect([1, 2].Count == 2, "two elements")
+//! Local error = ExpectThrows<ArgumentError>(Checked(-1))
+//! Expect(error?.Message == "negative")
+//! ```

@@ -1,3 +1,5 @@
+//! Events, which call the handlers subscribed to them when they're emitted.
+//!
 //! `Event<T>`: the handlers that an Emit calls, in the order they were added, held as a Field of
 //! what emits it, which holds them until they're cancelled. Subscribe gives a Subscription, whose
 //! Cancel takes its handler off; a handler subscribed for an owner, which it holds weakly, also
@@ -97,6 +99,23 @@ Class OwnedHandler<T, O: Class> Extends EventHandler<T>
 End Class
 
 /// The handlers that an Emit calls with its value, in the order they were added.
+///
+/// # Examples
+///
+/// ```
+/// Local clicked = Event<Int>()
+/// Local seen: Int[] = []
+/// Local onClick = Function(x: Int)
+///     seen.Add(x)
+/// End Function
+///
+/// Local subscription = clicked.Subscribe(onClick)
+/// clicked.Emit(1)
+/// subscription.Cancel()
+/// clicked.Emit(2)
+/// Expect(seen == [1])
+/// Expect(clicked.Count == 0 && !subscription.IsActive)
+/// ```
 Public Class Event<T>
     Field Handlers: EventHandler<T>[] = []
     /// How many Emits are calling handlers now, and Clears dropping them. The ones dropped
