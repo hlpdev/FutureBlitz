@@ -22,15 +22,17 @@ Staging is `staging-index.futureblitz.dev`, `staging-dl.futureblitz.dev`, and
 `staging-pkg.futureblitz.dev`. Locally (`wrangler dev`) it's `index.localhost:8787`,
 `dl.localhost:8787`, and `pkg.localhost:8787`, over http: one Worker answers all three by host.
 
-`/fb/` on dl is never a package's, since `fb` is a reserved name, so fb's own releases can live
-there.
+dl.futureblitz.dev's `/apt/` and `/rpm/` are FutureBlitz's apt and dnf repositories, and fb's own
+releases are there too, under `/fb/`, `/futureblitz/`, or `/releases/`. None of those is ever a
+package's, since each is a reserved name.
 
 ## Names and versions
 
 - **A package's name** is lowercase ASCII letters, digits, and `_`, starting with a letter, at most
   64: `^[a-z][a-z0-9_]{0,63}$`. Two names that are the same without their `_`s are one name to the
-  registry, so `foo_bar` can't be published beside `foobar`; `std`, `fb`, and `futureblitz`, and
-  any name that's one of them without its `_`s, are reserved.
+  registry, so `foo_bar` can't be published beside `foobar`. `std`, `fb`, `futureblitz`, `apt`,
+  `rpm`, and `releases` are reserved, and so is any name that's one of them without its `_`s, so
+  no package's folder on dl.futureblitz.dev is one of FutureBlitz's own (see Addresses).
 - **A username** is lowercase letters, digits, and `-`, 1 to 39 long, not starting or ending with
   `-`. **A team's name** is the same.
 - **A version** is semver 2.0: `MAJOR.MINOR.PATCH`, with an optional `-prerelease`, no leading
@@ -294,7 +296,8 @@ one version, the second is a `409` `version_exists`.
   the Markdown is escaped, and links are only http, https, mailto, and relative ones (not
   `//host`); a `404`
   until it's rendered.
-- `GET /packages/<name>/versions/<version>/docs` → the docs JSON.
+- `GET /packages/<name>/versions/<version>/docs` → the docs JSON, with `ETag: "<sha256>"` of it;
+  `HEAD` gives the ETag and `Content-Length` alone.
 - `GET /packages/<name>/dependents?page=` → `{ "dependents": [{ "name", "version", "req" }], "total" }`:
   the newest version of each package that depends on it.
 - `GET /packages/<name>/downloads` → `{ "total", "days": [{ "day": "2026-10-29", "version", "count" }] }`, the last 90 days.
@@ -373,9 +376,12 @@ In the workflow (`permissions: id-token: write`), fb asks GitHub for an OIDC tok
 ### The account
 
 - `GET /me` → `{ "username", "email", "email_verified", "github_login", "passkeys", "has_recovery_codes", "created_at" }`; with a token too, for `fb whoami`.
-- `DELETE /me` (re-auth) → `204`: sessions, tokens, passkeys, `fb login`s, and invites go, and
-  its packages stay, owned by their other owners or by no one. The only owner of a team is
+- `DELETE /me` (re-auth) → `204`: sessions, tokens, passkeys, `fb login`s, invites, and its
+  email and GitHub login and id go, and its packages stay, owned by their other owners or by no one. The only owner of a team is
   refused, a `409` `last_owner` naming the teams, until they name another owner or delete it.
+- `GET /me/teams` → `{ "teams": [{ "name", "role", "members", "packages": ["…"] }] }`: the teams
+  the account is in, by name, with its role in each, how many members each has, and the packages
+  each owns; with a token too.
 - `GET /me/tokens` → `{ "tokens": [{ "id", "name", "prefix": "fbr_ab12", "scopes", "packages", "created_at", "expires_at", "last_used_at" }] }`.
 - `POST /me/tokens` `{ "name", "scopes", "packages", "expires_in_days" }` (re-auth) → `201` that and `"token"`, shown once.
 - `DELETE /me/tokens/<id>` → `204`; `DELETE /tokens/current` revokes the token sending it.
@@ -432,11 +438,12 @@ claimed it.
 
 ### Search
 
-`GET /search?q=physics&keyword=&target=&sort=relevance|downloads|recent&page=1&per_page=20` →
+`GET /search?q=physics&keyword=&target=&user=&team=&sort=relevance|downloads|recent&page=1&per_page=20` →
 `{ "packages": [{ "name", "max_version", "description", "keywords", "targets", "downloads", "updated_at" }], "total" }`.
 `q` searches names, descriptions, and keywords, by their words in any script, accents aside; a
 `q` with no letters or digits finds nothing. An empty `keyword`, `target`, or `sort` is none, as
-a form sends it. `page` is from 1 to 1000 and `per_page` from 1 to 100 (20 by default, and a
+a form sends it. `user` and `team` keep the packages that person or team owns, as their pages
+list them (a name that isn't a username or a team's is a `400`). `page` is from 1 to 1000 and `per_page` from 1 to 100 (20 by default, and a
 larger or smaller one is taken as the nearest); a page or per_page that isn't a whole number, or
 a page out of range, is a `400`.
 
