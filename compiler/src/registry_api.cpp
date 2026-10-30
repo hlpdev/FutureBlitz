@@ -978,7 +978,10 @@ std::optional<std::string> environment_variable(const std::string_view name) {
         return std::nullopt;
     }
 
-    return to_utf8(std::filesystem::path(value));
+    // As the value is, not as a path: to_utf8() would turn its '\'s into '/'s and run "//"s
+    // together, as in a URL.
+    const std::u8string text = std::filesystem::path(value).u8string();
+    return std::string(text.begin(), text.end());
 #else
     const char* value = std::getenv(std::string(name).c_str());
     if (value == nullptr) {

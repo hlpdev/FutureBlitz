@@ -340,6 +340,14 @@ TEST_CASE("a GitHub workflow publishes with trusted publishing's token", "[regis
     CHECK(refused.contains("id-token: write"));
 }
 
+TEST_CASE("an environment variable's value is read as it is, not as a path", "[registry-api]") {
+    const std::string value = "http://index.localhost:8787//x\\y \xc3\xa9";
+    const fb::testing::environment_t set("FB_TEST_VALUE", value);
+    CHECK(fb::environment_variable("FB_TEST_VALUE") == value);
+    const fb::testing::environment_t unset("FB_TEST_VALUE", std::nullopt);
+    CHECK_FALSE(fb::environment_variable("FB_TEST_VALUE"));
+}
+
 TEST_CASE("a credentials file keeps each registry's token", "[registry-api]") {
     const fb::testing::sandbox_t sandbox;
     const std::unique_ptr<fb::credential_store_t> store =

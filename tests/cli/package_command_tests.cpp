@@ -7,12 +7,14 @@
 #include "fb/utf8.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <expected>
 #include <filesystem>
 #include <format>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -172,6 +174,102 @@ TEST_CASE("fb publish, add, search, and yank work with a registry on disk", "[cl
     const fb::process_result_t updated = fb_run({ "update" });
     CHECK(updated.exit_code == 0);
     CHECK(fb_run({ "update", "nope" }).output.contains("fb.lock has no package nope to update"));
+}
+
+// Against a registry's real API, which FB_TEST_REGISTRY names by its index's URL, like
+// http://index.localhost:8787/ for futureblitz-web's workers/api under `wrangler dev`, and
+// FB_TEST_REGISTRY_TOKEN gives a token of, with the publish scopes: one computer logs in with it,
+// publishes two packages, and searches for them, and another, with a cache of its own, adds one
+// and builds with it. Without FB_TEST_REGISTRY, it's skipped, so the tests stay offline. A
+// registry's versions are forever, so each run's packages have names of their own.
+TEST_CASE("fb publishes to a registry's API, and another computer adds and builds",
+          "[cli-packages]") {
+    const std::optional<std::string> index = fb::environment_variable("FB_TEST_REGISTRY");
+    const std::optional<std::string> token = fb::environment_variable("FB_TEST_REGISTRY_TOKEN");
+    if (!index || index->empty() || !token) {
+        SKIP("FB_TEST_REGISTRY and FB_TEST_REGISTRY_TOKEN name no registry to test against");
+    }
+
+    const fb::testing::sandbox_t sandbox;
+    const fb::testing::environment_t credentials("FB_CREDENTIALS_FILE",
+                                                 fb::to_utf8(sandbox / "credentials.json"));
+    const fb::testing::environment_t no_token("FB_REGISTRY_TOKEN", std::nullopt);
+    const std::string run = fb::sha256_hex(fb::to_utf8(sandbox.folder())).substr(0, 10);
+    const std::string shapes = "shapes_" + run;
+    const std::string physics = "physics_" + run;
+    // The registry stands in for futureblitz.dev, so the packages' dependencies name no registry,
+    // as the registry takes them.
+    const std::string registries =
+        std::format("[registries]\nfutureblitz = {{ index = \"{}\" }}\n", *index);
+    const auto library = [&](const std::string& name, const std::string& dependencies,
+                             const std::string& code) {
+        sandbox.write(name + "/project.toml",
+                      std::format("[project]\nname = \"{}\"\nversion = \"1.0.0\"\ntype = "
+                                  "\"library\"\ndescription = \"fb's test of the registry\"\n"
+                                  "license = \"MIT\"\n\n{}\n[dependencies]\n{}",
+                                  name, registries, dependencies));
+        sandbox.write(name + "/LICENSE", "MIT License\n");
+        sandbox.write(name + "/README.md", std::format("# {}\n\nA test.\n", name));
+        sandbox.write(name + "/code.fb", code);
+    };
+    library(shapes, "", "Public Function Version(): String\n    Return \"shapes\"\nEnd Function\n");
+    library(physics, std::format("{} = \"1\"\n", shapes),
+            std::format("Import {}\nPublic Function Describe(): String\n    Return \"physics "
+                        "with \" + Version()\nEnd Function\n",
+                        shapes));
+
+    {
+        const fb::testing::environment_t home("FB_HOME", fb::to_utf8(sandbox / "home-one"));
+        const fb::process_result_t logged_in =
+            fb_run({ "login", "--token", "--registry", *index }, *token + "\n");
+        INFO(logged_in.output);
+        REQUIRE(logged_in.exit_code == 0);
+        for (const std::string& name : { shapes, physics }) {
+            const fb::process_result_t published =
+                fb_run({ "publish", fb::to_utf8(sandbox / name), "--registry", *index });
+            INFO(published.output);
+            REQUIRE(published.exit_code == 0);
+            CHECK(published.output.contains(std::format("Published {} v1.0.0", name)));
+        }
+
+        // Search follows a publish by the registry's queue, within a minute.
+        const std::string listed = std::format("{} = \"1.0.0\"", physics);
+        fb::process_result_t found = fb_run({ "search", physics, "--registry", *index });
+        for (int tries = 0; tries < 60 && !found.output.contains(listed); ++tries) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            found = fb_run({ "search", physics, "--registry", *index });
+        }
+
+        INFO(found.output);
+        CHECK(found.exit_code == 0);
+        CHECK(found.output.contains(listed));
+
+        // Its owner is the token's account, and a yank takes back.
+        const fb::process_result_t owners = fb_run({ "owner", physics, "--registry", *index });
+        INFO(owners.output);
+        CHECK(owners.exit_code == 0);
+        CHECK(owners.output.starts_with("user "));
+        CHECK(fb_run({ "yank", shapes + "@1.0.0", "--registry", *index }).exit_code == 0);
+        CHECK(fb_run({ "yank", shapes + "@1.0.0", "--registry", *index, "--undo" }).exit_code == 0);
+    }
+
+    // Another computer, with a cache of its own and no token.
+    const fb::testing::environment_t home("FB_HOME", fb::to_utf8(sandbox / "home-two"));
+    sandbox.write("game/project.toml", std::format("[project]\nname = \"game\"\nversion = "
+                                                   "\"0.1.0\"\n\n{}",
+                                                   registries));
+    sandbox.write("game/main.fb",
+                  std::format("Import std.core\nImport {}\nPrint(Describe())\n", physics));
+    const working_folder_t in_game(sandbox / "game");
+    const fb::process_result_t added = fb_run({ "add", physics });
+    INFO(added.output);
+    REQUIRE(added.exit_code == 0);
+    CHECK(added.output.contains(std::format("Downloading {} v1.0.0", shapes)));
+    CHECK(sandbox.read("game/project.toml").contains(std::format("{} = \"1.0.0\"", physics)));
+    const fb::process_result_t ran = fb_run({ "run" });
+    INFO(ran.output);
+    CHECK(ran.exit_code == 0);
+    CHECK(ran.output.contains("physics with shapes\n"));
 }
 
 TEST_CASE("fb login keeps a token that publish, owner, and logout use", "[cli-packages]") {
