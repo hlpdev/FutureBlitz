@@ -127,9 +127,10 @@ project's milestones are GitHub's business, not the page's.
 ## The site's build
 
 - Astro builds the site as static files: prose in MDX, Shiki for highlighting with the
-  FutureBlitz grammar, Pagefind for search, and a small Svelte 5 island for the hero. Styles are plain CSS over design tokens (custom properties). The docs' content
-  lives in this repo; the site's code in its own private repo, `hlpdev/futureblitz-web`, with the
-  package site and the API, so a bug in them isn't on show (the user, 2026-10-30).
+  FutureBlitz grammar, Pagefind for search, and a small Svelte 5 island for the hero. Styles are
+  plain CSS over design tokens (custom properties). The site, its docs' content, the package
+  site, and the API live in their own private repo, `hlpdev/futureblitz-web`, so a bug in them
+  isn't on show (the user, 2026-10-30); std's reference is built from this repo's `fb doc`.
 - `futureblitz-web` is a pnpm monorepo: `apps/site` (futureblitz.dev), `apps/pkg` (the package
   site, Astro rendered on Workers through its Cloudflare adapter), `workers/api`,
   `packages/ui` (the tokens and components both sites share), and `packages/grammar` (the
