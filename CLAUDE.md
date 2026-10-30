@@ -29,17 +29,17 @@ compiler (lib), runtime (lib), cli (exe), lsp (exe), tools/bindgen (fb_bindgen l
 exe)
 
 ## Current step
-M8, tooling, is done: steps 0 to 9 of docs/milestones.md's M8 build order landed by 2026-10-30
-(docs/tooling.md): the self-contained toolchain and releases, debug info and stack traces, the LSP,
-the VS Code extension, the formatter, `fb test`, and `///` docs with `fb doc`. M9 is futureblitz.dev's
-site and docs, and M10 packages online, the package manager and the registry, both in
-docs/website.md, built in the private repo hlpdev/futureblitz-web and planned page by page in its
-docs/site-plan.md. The engine is packages built on FutureBlitz, never part of the language,
-compiler, runtime, or std (the user, 2026-10-30); phase 1 ends with M10 and a stable 1.0. So
-`Flip()` is no scheduling point: the main scheduler runs at a top-level Await, Wait(), and the end
-of top-level code, a loop of a program's own or a library's calls `Scheduler.Main.Step()`, and
-`NextFrame()` is `NextTick()` (docs/decisions.md). docs/milestones.md's Deferred work lists
-everything left for later, and where it's planned.
+Phase 1 is done on staging (2026-10-30): M8, tooling; M9, futureblitz.dev's site and docs; and
+M10, packages online, the package manager and the registry, with their milestone reviews' fixes.
+The site, the package site, and the registry's API are in the private repo hlpdev/futureblitz-web
+(planned page by page in its docs/site-plan.md) and serve staging.futureblitz.dev and
+staging-pkg.futureblitz.dev. v1.0.0 waits on the user's one-time steps in docs/release-setup.md
+and futureblitz-web's READMEs (signing, the tap, winget, the extension's publishers, the apt and
+dnf key, R2, production's Cloudflare settings and alerts), then tools/release/launch_check.py, a
+v1.0.0 tag, and production's deploy. The engine is packages built on FutureBlitz, never part of the
+language, compiler, runtime, or std (the user, 2026-10-30): the main scheduler runs at a top-level
+Await, Wait(), and the end of top-level code, and a loop of a program's own or a library's calls
+`Scheduler.Main.Step()`. docs/milestones.md's Deferred work lists everything left for later.
 
 ## History
 Each milestone's steps, in detail (what each added, by name, and each review's fixes), are in
@@ -74,3 +74,11 @@ docs/history.md; a landed step's notes go there, newest milestone first.
   installers and draft GitHub Releases, DWARF and CodeView with fb's own stack traces, fb-lsp, the
   VS Code extension over CodeLLDB, `fb fmt`, `@Test` and `fb test`, `///` docs and `fb doc`, and
   the miscased-keyword fix-it.
+- M9 (2026-10-29 to 30): futureblitz.dev in futureblitz-web: the landing and download pages, Learn's
+  tutorials, Docs, the language reference, std's reference, facts.js and the copy check, on
+  staging; std fully documented with `fb doc --check`; the scheduler without Flip and the spec as
+  the 1.0 reference.
+- M10 (2026-10-29 to 30): semver and the resolver, fb.lock, archives, and `fb add`, `update`,
+  `search`, `publish`, `yank`, `owner`, and `login`; the registry's API, the package site,
+  accounts, trusted publishing, backups and restore, on staging; every install method, Windows
+  signed.
