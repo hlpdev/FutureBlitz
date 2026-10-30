@@ -7,8 +7,9 @@ in R2 and the new release's, then uploads what it made; docs/release-setup.md ma
                                  [--base-url URL] [--gnupg-home DIR] [--no-rpm]
 
 <out>/apt is a flat-pool repository, `deb [signed-by=...] <base>/apt stable main`: its packages in
-pool/main/f/futureblitz/, dists/stable/main/binary-<arch>/Packages and Packages.gz, and
-dists/stable/Release, its detached signature Release.gpg, and InRelease, the two in one. <out>/rpm
+pool/main/f/futureblitz/, dists/stable/main/binary-<arch>/Packages and Packages.gz, each in that
+folder's by-hash/SHA256/<its hash> too, for Release's Acquire-By-Hash, and dists/stable/Release,
+its detached signature Release.gpg, and InRelease, the two in one. <out>/rpm
 is a dnf repository: its packages in packages/, createrepo_c's repodata/, and repomd.xml.asc, its
 signature, which a .repo's repo_gpgcheck checks; each .rpm has to be signed with the key already
 (nfpm signs them in release.yml), which its gpgcheck checks. Each has the public key, as
@@ -31,6 +32,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import zlib
 from pathlib import Path
 
 SUITE = "stable"
@@ -53,39 +55,52 @@ def ar_members(data: bytes) -> dict[str, bytes]:
         raise RepoError("it isn't an ar archive")
     members = {}
     at = 8
-    while at + 60 <= len(data):
+    # A member's data is padded to an even length, which the last one's may not be.
+    while at < len(data) and data[at:] != b"\n":
         header = data[at:at + 60]
-        if header[58:60] != b"`\n":
-            raise RepoError("an ar member's header is broken")
-        name = header[0:16].decode("ascii").strip().rstrip("/")
-        size = int(header[48:58].decode("ascii").strip())
+        if len(header) < 60 or header[58:60] != b"`\n":
+            raise RepoError("an ar member's header is broken or cut off")
+        name = header[0:16].decode("ascii", "replace").strip().rstrip("/")
+        size_field = header[48:58].decode("ascii", "replace").strip()
+        if not size_field.isdigit():
+            raise RepoError(f"{name}'s size isn't a number")
+        size = int(size_field)
         at += 60
+        if at + size > len(data):
+            raise RepoError(f"{name} runs past the file's end")
         members[name] = data[at:at + size]
         at += size + (size % 2)
     return members
 
 
 def deb_control(path: Path) -> str:
-    """A .deb's control file, from its control.tar.gz, .xz, or plain .tar."""
+    """A .deb's control file, from its control.tar.gz, .xz, or plain .tar. The .deb has to have
+    all of its members whole, its data.tar too, which apt would download and dpkg refuse."""
     try:
         members = ar_members(path.read_bytes())
     except RepoError as error:
         raise RepoError(f"{path.name} isn't a .deb: {error}") from None
+    if not any(name.startswith("data.tar") for name in members):
+        raise RepoError(f"{path.name} isn't a .deb: it has no data.tar")
     for name, data in members.items():
         if not name.startswith("control.tar"):
             continue
-        if name == "control.tar.gz":
-            data = gzip.decompress(data)
-        elif name == "control.tar.xz":
-            data = lzma.decompress(data)
-        elif name != "control.tar":
-            raise RepoError(f"{path.name}'s {name} is compressed in a way this can't read")
-        with tarfile.open(fileobj=io.BytesIO(data)) as tar:
-            for entry in tar.getmembers():
-                if entry.name in ("control", "./control"):
-                    control = tar.extractfile(entry)
-                    if control:
-                        return control.read().decode("utf-8")
+        try:
+            if name == "control.tar.gz":
+                data = gzip.decompress(data)
+            elif name == "control.tar.xz":
+                data = lzma.decompress(data)
+            elif name != "control.tar":
+                raise RepoError(f"{path.name}'s {name} is compressed in a way this can't read")
+            with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+                for entry in tar.getmembers():
+                    if entry.name in ("control", "./control"):
+                        control = tar.extractfile(entry)
+                        if control:
+                            return control.read().decode("utf-8")
+        except (EOFError, OSError, zlib.error, lzma.LZMAError, tarfile.TarError,
+                UnicodeDecodeError) as error:
+            raise RepoError(f"{path.name}'s {name} is broken: {error}") from None
         raise RepoError(f"{path.name}'s {name} has no control file")
     raise RepoError(f"{path.name} has no control.tar")
 
@@ -183,8 +198,13 @@ def build_apt(out: Path, debs: list[Path], key: str, home: Path | None) -> None:
         packages = "\n".join(entries).encode("utf-8")
         # Packages.gz has no name or time in it, so the same packages make the same file.
         packed = gzip.compress(packages, mtime=0)
+        # Each index under by-hash/ too, by its SHA256, which apt fetches with Acquire-By-Hash,
+        # so the InRelease a client has, old or new, names files that are there and never change.
+        by_hash = folder / "by-hash" / "SHA256"
+        by_hash.mkdir(parents=True)
         for name, data in (("Packages", packages), ("Packages.gz", packed)):
             (folder / name).write_bytes(data)
+            (by_hash / hashlib.sha256(data).hexdigest()).write_bytes(data)
             indexes.append((f"{COMPONENT}/binary-{architecture}/{name}", data))
 
     date = email.utils.formatdate(usegmt=True).replace("GMT", "UTC")
@@ -197,6 +217,7 @@ def build_apt(out: Path, debs: list[Path], key: str, home: Path | None) -> None:
         f"Architectures: {' '.join(DEB_ARCHITECTURES)}",
         f"Components: {COMPONENT}",
         "Description: FutureBlitz's packages",
+        "Acquire-By-Hash: yes",
     ]
     for field, name in (("MD5Sum", "md5"), ("SHA1", "sha1"), ("SHA256", "sha256")):
         release.append(f"{field}:")
