@@ -1,0 +1,71 @@
+# The .deb and .rpm of a Linux release, for nfpm, which release.yml runs for each target:
+#
+#   VERSION=1.0.0 ARCH=amd64 nfpm package -f <repo>/tools/release/nfpm.yaml -p deb -t <folder>
+#
+# in a folder whose futureblitz/ is the release's folder, as nfpm reads no variables in a src.
+# ARCH is amd64 or arm64, which nfpm calls x86_64 and aarch64 for rpm. The release's folder goes in
+# /usr/lib/futureblitz as it is, and its programs are linked from /usr/bin, as fb finds its lib/
+# and std/ beside its bin/ through a link. With RPM_SIGNING_KEY, a file of the repositories'
+# private key, the .rpm is signed with it, which dnf's gpgcheck asks for.
+#
+# What fb's executables load that isn't beside them: glibc 2.35's libraries, GCC's runtime, and
+# zlib, zstd, xz, and ncurses' libtinfo (cmake/bundle.cmake). Ubuntu 22.04 and Debian 12 have them,
+# as do Fedora 36 and newer.
+name: futureblitz
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: none
+release: 1
+section: devel
+priority: optional
+maintainer: FutureBlitz <https://github.com/hlpdev/FutureBlitz/issues>
+description: |-
+  Compiler, language server, and tools for the FutureBlitz language
+  FutureBlitz is a successor to Blitz3D. This installs fb, which builds, runs,
+  tests, and formats FutureBlitz programs, fb-lsp, its language server, and
+  fb-bindgen, which makes modules from C headers. Building a program needs
+  nothing else.
+vendor: FutureBlitz
+homepage: https://futureblitz.dev
+license: Apache-2.0
+
+contents:
+  - src: ./futureblitz
+    dst: /usr/lib/futureblitz
+    type: tree
+  - src: /usr/lib/futureblitz/bin/fb
+    dst: /usr/bin/fb
+    type: symlink
+  - src: /usr/lib/futureblitz/bin/fb-lsp
+    dst: /usr/bin/fb-lsp
+    type: symlink
+  - src: /usr/lib/futureblitz/bin/fb-bindgen
+    dst: /usr/bin/fb-bindgen
+    type: symlink
+
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.35)
+      - libgcc-s1
+      - libstdc++6 (>= 12)
+      - zlib1g
+      - libzstd1
+      - liblzma5
+      - libtinfo6
+  rpm:
+    depends:
+      - glibc >= 2.35
+      - libgcc
+      - libstdc++
+      - libz.so.1()(64bit)
+      - libzstd.so.1()(64bit)
+      - liblzma.so.5()(64bit)
+      - libtinfo.so.6()(64bit)
+
+rpm:
+  group: Development/Languages
+  summary: Compiler, language server, and tools for the FutureBlitz language
+  signature:
+    key_file: ${RPM_SIGNING_KEY}

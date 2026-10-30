@@ -65,6 +65,13 @@ if(Python3_FOUND)
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tools)
   set_tests_properties("verify.py's own tests" PROPERTIES ENVIRONMENT
     "FB_TEST_BUILD=${CMAKE_BINARY_DIR};PYTHONDONTWRITEBYTECODE=1")
+  # tools/release's: winget's manifests, Homebrew's formula, and the apt repository from fake
+  # .debs, signed with a key of the test's own, where gpg is.
+  add_test(NAME "release packaging makes winget's, Homebrew's, and apt's files"
+    COMMAND Python3::Interpreter -m unittest -v release_tests
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+  set_tests_properties("release packaging makes winget's, Homebrew's, and apt's files" PROPERTIES
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 endif()
 
 # CLI tests, which run the real fb.
