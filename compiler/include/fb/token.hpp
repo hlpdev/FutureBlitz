@@ -27,4 +27,8 @@ struct token_t {
 /// case-sensitive, so "if" is an identifier.
 [[nodiscard]] std::optional<token_kind_t> keyword_kind(std::string_view text);
 
+/// The keyword `text` is but for its letter case, as written, like "If" for "if", or nullopt when
+/// it's no keyword's or the keyword's own spelling.
+[[nodiscard]] std::optional<std::string_view> miscased_keyword(std::string_view text);
+
 } // namespace fb

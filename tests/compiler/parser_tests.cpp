@@ -1763,3 +1763,32 @@ TEST_CASE("an interface file's '= ...' and '=> ...' go only where code is in the
     CHECK(first_line(property.span.begin,
                      std::get<fb::property_stmt_t>(property.node).header_end) == "Property X: Int");
 }
+
+TEST_CASE("a syntax error after a miscased keyword names the keyword, with a fix-it", "[parser]") {
+    // The fix-it is the one change: the name's span, spelled as the keyword.
+    const auto fixed = [](const std::string_view text) {
+        const fb::source_file_t file(fb::file_id_t{}, "test.fb", std::string(text));
+        fb::diagnostic_bag_t bag;
+        (void)fb::parse(file, fb::lex(file, bag), bag);
+        REQUIRE_FALSE(bag.diagnostics().empty());
+        const fb::diagnostic_t& error = bag.diagnostics().front();
+        if (error.fixes.empty()) {
+            return std::string("no fix");
+        }
+
+        const fb::fix_t& fix = error.fixes.front();
+        std::string out(text);
+        out.replace(fix.span.begin, fix.span.end - fix.span.begin, fix.replacement);
+        return std::format("{} | {}", out, error.notes.empty() ? "" : error.notes.front());
+    };
+
+    CHECK(fixed("if x Then Print(1)\n") ==
+          "If x Then Print(1)\n | 'if' is a name here; keywords are written as they are, as 'If'");
+    CHECK(fixed("Function F()\n    Return 1\nend Function\n") ==
+          "Function F()\n    Return 1\nEnd Function\n | 'end' is a name here; keywords are written "
+          "as they are, as 'End'");
+    CHECK(fixed("For i = 1 TO 3\nNext\n").starts_with("For i = 1 To 3\n"));
+    // A miscased word on another line, or none, isn't suggested.
+    CHECK(fixed("Local then = 1\nLocal x = = 2\n") == "no fix");
+    CHECK(fixed("Local x = = 2\n") == "no fix");
+}

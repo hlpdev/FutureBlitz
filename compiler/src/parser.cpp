@@ -429,7 +429,9 @@ private:
         }
 
         m_line_failed = true;
-        return &m_diagnostics.error(span, fmt, std::forward<Args>(args)...);
+        diagnostic_t& diagnostic = m_diagnostics.error(span, fmt, std::forward<Args>(args)...);
+        suggest_keyword_case(diagnostic);
+        return &diagnostic;
     }
 
     /// "expected X, found Y" at the current token. Inside brackets, a line break before it means
@@ -445,6 +447,32 @@ private:
         }
 
         return error(peek().span, "expected {}, found {}", what, describe_current());
+    }
+
+    /// A syntax error's line, up to it, may have a keyword written in the wrong letter case, as
+    /// `if` for `If`, which is a name then: the error says so, with a fix-it that spells it.
+    void suggest_keyword_case(diagnostic_t& diagnostic) const {
+        const auto after =
+            std::ranges::upper_bound(m_tokens, diagnostic.span.begin, {},
+                                     [](const token_t& token) { return token.span.begin; });
+        for (auto at = after; at != m_tokens.begin();) {
+            const token_t& token = *--at;
+            if (token.kind == token_kind_t::NEWLINE && token.span.begin < diagnostic.span.begin) {
+                return;
+            }
+
+            if (token.kind != token_kind_t::IDENTIFIER) {
+                continue;
+            }
+
+            if (const std::optional<std::string_view> keyword = miscased_keyword(text(token))) {
+                diagnostic.with_note(
+                    std::format("'{}' is a name here; keywords are written as they are, as '{}'",
+                                text(token), *keyword));
+                diagnostic.with_fix(token.span, std::string(*keyword));
+                return;
+            }
+        }
     }
 
     /// The current token as messages show it. "End" includes the keyword after it on its line.
