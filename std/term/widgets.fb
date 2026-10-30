@@ -1,3 +1,5 @@
+//! Tables, boxes, progress bars, and spinners for a terminal's lines.
+//!
 //! std.term's line widgets: a Table and a Box, which give their text, and a ProgressBar and a
 //! Spinner, which draw themselves on a terminal's line again as they go, where it's interactive,
 //! and once they're done where it isn't, as for a pipe or a file. Each draws to the console, the
@@ -80,6 +82,13 @@ End Function
 
 /// `text` in `width` columns: padded with spaces as `alignment` says, or as it is when it's as wide
 /// or wider.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Aligned("ab", 5, Alignment.RIGHT) == "   ab")
+/// Expect(Truncated("abcdef", 4) == "abc…")
+/// ```
 Public Function Aligned(text: String, width: Int, alignment: Alignment): String
     Local gap = width - VisibleWidth(text)
     If gap <= 0 Then Return text
@@ -114,6 +123,19 @@ End Function
 /// Render draws with a BorderStyle's lines. A cell can have several lines, and each column its
 /// own Alignment. With a MaxWidth, the widest columns give way first, down to their widest
 /// character, and their cells wrap.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Local table = Table("Name", "Age")
+/// table.AddRow("Ada", "36")
+/// table.AddRow("Alan", "41")
+/// table.Align(1, Alignment.RIGHT)
+/// Local text = table.Render()
+/// Expect(table.RowCount == 2)
+/// Expect(text.Contains("Ada") && text.Contains("41"))
+/// ```
 Public Class Table
     Field Header: String[]
     Field Body: String[][] = []
@@ -429,6 +451,17 @@ End Enum
 /// Interval but at its start and its end, on an interactive terminal; on another, it's drawn
 /// once, at its Finish. It goes to stderr, or to a Terminal given. What reads the clock also
 /// takes an Instant, so a test gives the time.
+///
+/// # Examples
+///
+/// ```
+/// Local terminal = FakeTerminal(interactive: False)
+/// Local bar = ProgressBar(10, terminal)
+/// bar.Add(4)
+/// Expect(bar.Value == 4 && !bar.IsFinished)
+/// bar.Finish()
+/// Expect(bar.IsFinished)
+/// ```
 Public Class ProgressBar
     /// How many make the bar full.
     Public Field Total: Int64

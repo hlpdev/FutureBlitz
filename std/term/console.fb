@@ -1,3 +1,5 @@
+//! The console: whether its streams are terminals, its size, and reading keys and passwords.
+//!
 //! The console: whether stdin, stdout, and stderr are terminals, the terminal's size, and a key or
 //! a password read from it, over the runtime's fb_term_ functions, which put the console back as
 //! the program ends, however it ends. Reading keys goes through Terminal.Console(), whose state is
@@ -53,5 +55,13 @@ Public Function ReadKey(timeout: Duration): KeyEvent? => Terminal.Console().Read
 /// Writes the `prompt`, then reads a line typed at the console without showing it, as for a
 /// password, up to ENTER. BACKSPACE takes back the last character, and Ctrl+U the whole line. Null
 /// once the input has ended, or for Ctrl+D on an empty line, as Input gives at the end.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.text
+/// Local password = ReadPassword("Password: ")
+/// If password != Null Then Print("{password.Length} characters")
+/// ```
 Public Function ReadPassword(prompt: String = ""): String? =>
     Terminal.Console().ReadPassword(prompt)

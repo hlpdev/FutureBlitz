@@ -1,4 +1,5 @@
-//! A Terminal: where line widgets and full-screen apps write, and keys come from.
+//! A Terminal, where widgets and full-screen apps write and keys come from.
+//!
 //! Terminal.Console() is the program's own console, stdout's, or stderr's with
 //! Terminal.Console(StandardStream.ERROR), and a FakeTerminal keeps what's written to it, for
 //! tests, and gives the bytes it's fed as keys, at any size and colors. A Class of a program's own
@@ -365,6 +366,17 @@ End Class
 /// A Terminal for tests: it keeps everything written to it, which Output gives, and TakeOutput
 /// what's new, and gives what it's fed as keys, as a terminal would send them, then the end of the
 /// input. It's the size, colors, and kind it's made with, until a Resize.
+///
+/// # Examples
+///
+/// ```
+/// Local terminal = FakeTerminal(40, 10)
+/// terminal.WriteLine("hello")
+/// Expect(terminal.TakeOutput() == "hello\n")
+/// terminal.Feed("q")
+/// Expect(terminal.ReadKey()?.IsChar('q') == True)
+/// Expect(terminal.ReadKey() == Null)
+/// ```
 Public Class FakeTerminal Extends Terminal
     Field Shown: StringBuilder
     /// How much of what's shown TakeOutput has given.
@@ -391,22 +403,27 @@ Public Class FakeTerminal Extends Terminal
         Interactive = interactive
     End New
 
+    /// How many columns wide it is, as it was made or last resized.
     Override Property Columns: Int
         Get => Width
     End Property
 
+    /// How many rows high it is, as it was made or last resized.
     Override Property Rows: Int
         Get => Height
     End Property
 
+    /// The colors it shows, as it was made.
     Override Property Colors: ColorLevel
         Get => Level
     End Property
 
+    /// Whether it's interactive, as it was made, as a terminal is, rather than a pipe or a file.
     Override Property IsInteractive: Bool
         Get => Interactive
     End Property
 
+    /// Whether its input is interactive, which is as IsInteractive is.
     Override Property IsInputInteractive: Bool
         Get => Interactive
     End Property
@@ -465,14 +482,18 @@ Public Class FakeTerminal Extends Terminal
         Fed.Add(FedInput(FedKind.PAUSE, [], 0, 0, Max(time.Nanoseconds, 0)))
     End Method
 
+    /// Keeps `text`, which Output and TakeOutput give.
     Override Method Write(text: String)
         Shown.Append(text)
     End Method
 
+    /// Counts the flush, which Flushes gives.
     Override Method Flush()
         Flushed += 1
     End Method
 
+    /// Gives what was fed next in `into`, and how many bytes, or -1 at the end of what was fed,
+    /// waiting through a Pause first, or giving 0 when `timeout` ends before it.
     Override Method ReadInput(into: UInt8[], timeout: Int64): Int64
         If Fed.Count == 0 Then Return -1
         Local next = Fed[0]
@@ -504,10 +525,12 @@ Public Class FakeTerminal Extends Terminal
         Return count
     End Method
 
+    /// Keeps `mode`, which InputMode gives.
     Override Method SetInputMode(mode: Int)
         Mode = mode
     End Method
 
+    /// Keeps `leave`, what leaves the alternate screen, which Leave gives.
     Override Method ScreenChanged(enter: String, leave: String)
         Leaving = leave
     End Method

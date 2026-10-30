@@ -1,3 +1,5 @@
+//! Asking yes or no, for one of some options, or for a line of text.
+//!
 //! std.term's prompts: Confirm asks yes or no, Choose for one of some options, and Ask for a line
 //! of text, on the console or on a Terminal given. Where both what's written and the keys are a
 //! terminal's, keys are read as they're typed: Confirm takes y or n at once, Choose moves through
@@ -33,6 +35,16 @@ End Function
 /// Asks `question` on `terminal`, and gives True for yes or False for no, or `default` for ENTER
 /// alone, when it has one: a key, y or n in either case, where it's interactive, and a line
 /// otherwise, "y", "yes", "n", or "no", in any case.
+///
+/// # Examples
+///
+/// ```
+/// Local terminal = FakeTerminal(interactive: False)
+/// terminal.Feed("yes\n")
+/// Expect(Confirm(terminal, "Delete it?") == True)
+/// terminal.Feed("Ada\n")
+/// Expect(Ask(terminal, "Name?") == "Ada")
+/// ```
 Public Function Confirm(terminal: Terminal, question: String, default: Bool? = Null): Bool?
     Local hint = default == Null ? "y/n" : (default ? "Y/n" : "y/N")
     Local prompt = QuestionOf(terminal, question) + " " + terminal.Paint("({hint})", HintLook()) +

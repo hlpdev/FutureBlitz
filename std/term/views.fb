@@ -1,3 +1,5 @@
+//! Text inputs and list views for full-screen terminal apps.
+//!
 //! std.term's views for full-screen apps, each drawn on a Canvas in a Region, which take the keys
 //! and the mouse's events that are theirs: a TextInput, a line of text that's edited as a shell's
 //! is, and a ListView, a list of items with one selected, which scrolls to keep it in view.
@@ -161,6 +163,16 @@ End Class
 /// A line of text to type in, edited as a shell's line is (see LineEditor's Handle), which Draw
 /// shows in a Region's first row, scrolled sideways to keep its cursor in view. A Placeholder
 /// shows while it's empty, and a Mask, like "•", in place of each character, as for a password.
+///
+/// # Examples
+///
+/// ```
+/// Local input = TextInput()
+/// input.HandleKey(KeyEvent('h'))
+/// input.HandleKey(KeyEvent('i'))
+/// input.HandleKey(KeyEvent(KeyCode.BACKSPACE))
+/// Expect(input.Text == "h" && input.Cursor == 1)
+/// ```
 Public Class TextInput
     Field Editor: LineEditor
     /// The first of the text's columns that shows.
@@ -248,6 +260,14 @@ End Class
 /// selected one in view, with its Marker before it and drawn in SelectedLook, over ItemLook.
 /// HandleKey moves the selection with Up, Down, Page Up, Page Down, Home, and End, and
 /// HandleMouse with a click or the wheel.
+///
+/// # Examples
+///
+/// ```
+/// Local list = ListView(["one", "two", "three"])
+/// list.HandleKey(KeyEvent(KeyCode.DOWN))
+/// Expect(list.Selected == 1 && list.SelectedItem == "two")
+/// ```
 Public Class ListView
     /// Its items, in order.
     Public Field Items: String[]

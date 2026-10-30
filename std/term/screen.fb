@@ -1,3 +1,5 @@
+//! Full-screen terminal apps, which draw only the cells that changed.
+//!
 //! std.term's full-screen apps: a Screen takes the whole terminal, on its alternate screen, in raw
 //! mode, with the cursor hidden, and shows a Canvas of cells there, writing only the cells that
 //! changed since it last did. A Canvas holds a grapheme cluster and a Style in each cell, two cells
@@ -30,6 +32,16 @@ End Struct
 
 /// A grid of Cells, Columns by Rows, each blank at first, which a Screen shows. What's drawn on it
 /// stops at its edges, and a wide grapheme cluster that doesn't fit before an edge isn't drawn.
+///
+/// # Examples
+///
+/// ```
+/// Local canvas = Canvas(10, 3)
+/// Local inner = canvas.DrawBox(canvas.Area, BorderStyle.SINGLE, Style())
+/// Expect(inner == Region(1, 1, 8, 1))
+/// canvas.Print(inner.Column, inner.Row, "hi")
+/// Expect(canvas[1, 1].Text == "h" && canvas[2, 1].Text == "i")
+/// ```
 Public Class Canvas Implements Printable
     Field Cells: Cell[] = []
     Field Width: Int
@@ -273,6 +285,17 @@ End Class
 /// starts raw mode, all of which Close puts back, as does the program's end, however it ends.
 /// Draw on its Frame, then Present shows what changed since the last Present; ReadEvent and
 /// PollEvent give keys, the mouse, pastes, and resizes, after which the next Present draws it all.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// Local screen = Screen()
+/// Local draw = Function(canvas: Canvas)
+///     canvas.Print(0, 0, "Press q to quit")
+/// End Function
+/// Local handle = Function(event: InputEvent): Bool => !event.IsChar('q')
+/// screen.Run(draw, handle)
+/// ```
 Public Class Screen
     Field Term: Terminal
     /// What the terminal shows, as far as it's known, and what the next Present shows.

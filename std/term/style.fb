@@ -1,3 +1,5 @@
+//! Colors and text attributes for what a terminal shows.
+//!
 //! std.term's styles: a TermColor for text, one for what's behind it, and TextAttributes, in a
 //! Style, which a terminal shows through the escape codes Apply writes, in as many colors as it
 //! shows, the nearest of them where it shows fewer. Paint styles text for the console, which gets
@@ -286,6 +288,16 @@ End Enum
 
 /// How text looks: its Foreground color, the Background color behind it, and its Attributes. Its
 /// zero is plain text, as the terminal shows it, and `Style(TermColor.Red).Bold()` is bold red.
+///
+/// # Examples
+///
+/// ```
+/// Local warning = Style(TermColor.Yellow).Bold()
+/// Expect(warning.Apply("careful", ColorLevel.NONE) == "careful")
+/// Local shown = warning.Apply("careful", ColorLevel.TRUE_COLOR)
+/// Expect(shown != "careful" && StripStyles(shown) == "careful")
+/// Expect(VisibleWidth(shown) == 7)
+/// ```
 Public Struct Style Implements Hashable, Printable
     /// Its text's color.
     Public Field Foreground: TermColor

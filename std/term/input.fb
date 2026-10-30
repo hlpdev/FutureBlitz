@@ -1,3 +1,5 @@
+//! Turning what a terminal sends into key, mouse, and paste events.
+//!
 //! std.term's input: what a terminal sends as keys are typed and the mouse moves, its bytes as
 //! they come, which an InputParser turns into InputEvents: keys, with xterm's sequences for the
 //! keys that type no character, and the modifiers held with them; the mouse's reports, in SGR's
@@ -289,6 +291,16 @@ End Struct
 /// sequence, so it waits: IsWaiting says so, and Flush takes it as ESCAPE when nothing more has
 /// come for a moment. A sequence it doesn't know is skipped. "\r\n" is one ENTER, as a line from a
 /// pipe or a file ends.
+///
+/// # Examples
+///
+/// ```
+/// Local parser = InputParser()
+/// parser.Feed("a\x1B[A")
+/// Expect(parser.Next()?.IsChar('a') == True)
+/// Expect(parser.Next()?.IsKey(KeyCode.UP) == True)
+/// Expect(parser.Next() == Null)
+/// ```
 Public Class InputParser
     Field Bytes: UInt8[] = []
     /// Where in Bytes the next event starts.

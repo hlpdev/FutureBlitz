@@ -1,3 +1,5 @@
+//! Laying out a screen's cells in rows and columns.
+//!
 //! std.term's regions: a Region of a screen's cells, which splits into rows or columns by
 //! Constraints, as a full-screen app lays out its panes: a size that's Fixed, a Percent of what
 //! there is, at least a Min, or a share of what's left, Fill.
@@ -6,6 +8,16 @@ Import std.core
 
 /// A rectangle of a screen's cells: its top-left Column and Row, from 0, and its Width and
 /// Height.
+///
+/// # Examples
+///
+/// ```
+/// Local screen = Region(0, 0, 80, 24)
+/// Local rows = screen.SplitRows(Constraint.Fixed(1), Constraint.Fill(), Constraint.Fixed(1))
+/// Expect(rows[0].Height == 1 && rows[1].Height == 22 && rows[2].Row == 23)
+/// Local columns = rows[1].SplitColumns(Constraint.Percent(25), Constraint.Fill())
+/// Expect(columns[0].Width == 20 && columns[1].Column == 20)
+/// ```
 Public Struct Region Implements Hashable, Printable
     /// Its left column, from 0.
     Public Field Column: Int
