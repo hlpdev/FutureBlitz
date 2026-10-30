@@ -28,7 +28,7 @@ End Extern
 Public Class Humanize
     /// `word`'s plural: "enemy" is "enemies", "box" "boxes", "leaf" "leaves", "child" "children",
     /// and "sheep" "sheep". Of several words, the last one's. A word keeps its capitals, as
-    /// "GameObject" does in "GameObjects", and one in capitals has its ending in them too.
+    /// "TreeNode" does in "TreeNodes", and one in capitals has its ending in them too.
     Public Static Method Plural(word: String): String
         Local space = word.FindLast(" ")
         Local start = space == Null ? 0 : space + 1

@@ -212,8 +212,8 @@ Function Started(seed: UInt64, stream: UInt64): Pcg
     Return started
 End Function
 
-/// Random numbers from a PCG32 generator, the same ones for the same seed, for games and
-/// simulations, not secrets.
+/// Random numbers from a PCG32 generator, the same ones for the same seed, for simulations,
+/// procedural content, and tests, not secrets.
 ///
 /// # Examples
 ///

@@ -80,7 +80,7 @@ End Enum
 Public Class ZipWriter
     Field State: Ptr<Void>
 
-    /// A new ZipWriter, with no entries yet.
+    /// A new ZipWriter, with no entries.
     Public New()
         State = fb_zip_writer_new()
     End New
@@ -242,7 +242,7 @@ Public Class ZipReader
     End Method
 End Class
 
-/// A reader of the zip in data, or an IOError when the data isn't a zip, or ends too soon.
+/// A reader of the zip in data, or an IOError when the data isn't a zip, or ends early.
 Function Opened(data: UInt8[]): ZipReader Throws IOError
     Local state = fb_zip_reader_new(data)
     Local result = fb_zip_reader_result(state)

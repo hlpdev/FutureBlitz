@@ -50,7 +50,7 @@ Public Struct XZ
     End Method
 
     /// The bytes the `data` is compressed from, each stream's after the last's, or an IOError when
-    /// it isn't XZ's, ends too soon, or would come to more than `limit` bytes. Panics when the
+    /// it isn't XZ's, ends early, or would come to more than `limit` bytes. Panics when the
     /// `limit` is negative.
     @PanicsAtCaller
     Public Static Method Decompress(data: UInt8[],
@@ -96,7 +96,7 @@ End Class
 /// XZ's bytes taken in turn, a stream after another: Add gives what the bytes it takes decompress
 /// to so far, and Finish what's left once they've all been added, and starts again. Each throws
 /// an IOError when the bytes aren't XZ's or would come to more than the limit, and Finish when
-/// they end too soon.
+/// they end early.
 Public Class XZDecompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
@@ -120,7 +120,7 @@ Public Class XZDecompressor Implements Coder
     End Method
 
     /// The rest of the bytes, once every one is added, and starts again. Throws an IOError when the
-    /// stream ended too soon.
+    /// stream ended early.
     Public Method Finish(): UInt8[] Throws IOError => Try Ended(State, [], Limit)
 
     Method Destroy()

@@ -23,7 +23,7 @@ Class TrieNode<V>
         Return Null
     End Method
 
-    /// Where byte leads, which it makes when nothing does yet.
+    /// Where byte leads, which it makes when nothing does.
     Method ChildOrAdd(byte: UInt8): TrieNode<V>
         Local at = Place(byte)
         If at < Bytes.Count && Bytes[at] == byte Then Return Children[at]

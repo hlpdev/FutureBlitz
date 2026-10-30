@@ -203,7 +203,7 @@ Class Mesh
         Starts.Resize(points.Count + 1, -1)
     End New
 
-    /// Adds a triangle with no neighbors yet, and gives it.
+    /// Adds a triangle with no neighbors, and gives it.
     Method AddTriangle(a: Int, b: Int, c: Int): Int
         Local triangle = Alive.Count
         Corners.Add(a)

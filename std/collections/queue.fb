@@ -1,7 +1,7 @@
 //! A first-in, first-out queue.
 //!
 //! Enqueue puts a value at the back, and Dequeue takes the one at the front. The values start at
-//! Head. Dequeue empties a value's slot as it takes it, so the value goes as soon as the program
+//! Head. Dequeue empties a value's slot as it takes it, so the value goes once the program
 //! lets go of it, and the empty slots are dropped once they're half.
 
 Import std.core

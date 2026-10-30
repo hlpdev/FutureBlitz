@@ -16,7 +16,7 @@ Const CHUNK = 65536
 /// A Writer whose bytes go through a Coder to another Writer: Write adds them to the Coder and
 /// writes what comes of them, and Finish writes the rest, which ends what the Coder makes, as
 /// `CoderWriter(file, GzipCompressor())` ends a gzip member. A Coder holds on to what it hasn't
-/// coded yet, so Flush flushes only the other Writer, and the Coder's rest comes with Finish. Each
+/// coded, so Flush flushes only the other Writer, and the Coder's rest comes with Finish. Each
 /// throws the IOError the Coder or the Writer does.
 ///
 /// # Examples
@@ -64,7 +64,7 @@ End Class
 /// `CoderReader(file, GzipDecompressor())` reads a .gz file's: it reads the other Reader a chunk at
 /// a time, and once that ends, gives what the Coder has left, and then ends. Read throws the
 /// IOError the Coder or the Reader does, like a Decompressor's for bytes that aren't its format,
-/// or that end too soon, and a Read after that throws again, or ends.
+/// or that end early, and a Read after that throws again, or ends.
 ///
 /// # Examples
 ///

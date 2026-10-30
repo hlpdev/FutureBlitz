@@ -39,7 +39,7 @@ Public Struct MessagePack
     /// a bin as BYTES, an array as an ARRAY, and a map as an OBJECT, its keys in order, the last of
     /// a key that repeats where its first was. Throws a ParseError, whose message says at which
     /// byte: SYNTAX for the byte 0xC1, which starts no value, a str that isn't UTF-8, or bytes
-    /// after the value; UNEXPECTED_END for `data` that ends too soon, or says it has more than it
+    /// after the value; UNEXPECTED_END for `data` that ends early, or says it has more than it
     /// does; WRONG_TYPE for a map's key that isn't a str, or an ext, which a Value has no kind for;
     /// and OUT_OF_RANGE for arrays and maps nested past `depth`. Panics unless `depth` is 1 or
     /// more.

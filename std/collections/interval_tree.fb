@@ -3,7 +3,7 @@
 //! `IntervalTree<K, V>`: values, each over an interval of keys from a low to a high, both in it,
 //! which finds the intervals that overlap another, or hold a key, without going over the others.
 //! It's a balanced tree of the intervals, by low and then by high, each node with the values over
-//! its interval and the highest high under it, so a search skips what ends too soon.
+//! its interval and the highest high under it, so a search skips what ends early.
 
 Import std.core
 Import std.collections.array

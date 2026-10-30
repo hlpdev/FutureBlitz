@@ -31,7 +31,7 @@ Public Class Crc32
     /// The CRC so far, with its bits flipped, as the algorithm keeps it.
     Field Value: UInt32 = 0xFFFFFFFF
 
-    /// A new Crc32, of nothing yet.
+    /// A new Crc32, of nothing.
     Public New()
     End New
 
@@ -81,7 +81,7 @@ End Class
 Public Class XxHash
     Field State: Ptr<Void>
 
-    /// A new XxHash, of nothing yet, with `seed`.
+    /// A new XxHash, of nothing, with `seed`.
     Public New(seed: UInt64 = 0)
         State = fb_xxhash_hasher_new(seed)
     End New

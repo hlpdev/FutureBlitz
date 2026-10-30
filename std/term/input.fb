@@ -312,7 +312,7 @@ Public Class InputParser
     /// Whether the last key was "\r", so a "\n" right after it is part of it.
     Field AfterReturn: Bool
 
-    /// A new InputParser, with nothing read yet.
+    /// A new InputParser, with nothing read.
     Public New()
     End New
 
@@ -342,13 +342,13 @@ Public Class InputParser
         Feed(bytes, bytes.Count)
     End Method
 
-    /// Whether it has bytes Next hasn't made events of yet. Once Next gives Null, they wait for
+    /// Whether it has bytes Next hasn't made events of. Once Next gives Null, they wait for
     /// more, like an escape alone, which Flush takes as ESCAPE.
     Public Property IsWaiting: Bool
         Get => At < Bytes.Count
     End Property
 
-    /// Whether a paste has started and waits for its end mark, which a terminal sends as soon as
+    /// Whether a paste has started and waits for its end mark, which a terminal sends right after
     /// the text, however long it is.
     Public Property IsPasting: Bool
         Get => Pasting
@@ -452,7 +452,7 @@ Public Class InputParser
     End Method
 
     /// The key whose bytes start at `at`, and how many bytes it takes, or Null when a character
-    /// isn't all there yet and done doesn't say no more is coming.
+    /// isn't all there and done doesn't say no more is coming.
     Method KeyAt(at: Int, done: Bool): (Int, KeyEvent)?
         Local first = Bytes[at]
         If first == 0x0D || first == 0x0A Then Return (1, KeyEvent(KeyCode.ENTER))
@@ -502,7 +502,7 @@ Public Class InputParser
     End Method
 
     /// A CSI at At, an escape and "[": (True, its event), or (False, ...) for one that gives none,
-    /// which is skipped, or Null when it isn't all there yet.
+    /// which is skipped, or Null when it isn't all there.
     Method Csi(done: Bool): (Bool, InputEvent)?
         // X10's mouse report, "\e[M" and three bytes.
         If At + 2 < Bytes.Count && Bytes[At + 2] == 0x4D
@@ -655,7 +655,7 @@ Public Class InputParser
         Return (True, InputEvent(KeyEvent(code As Char, modifiers)))
     End Method
 
-    /// Where the paste's end mark, "\e[201~", starts, or -1 when it hasn't come yet.
+    /// Where the paste's end mark, "\e[201~", starts, or -1 when it hasn't come.
     Method FindPasteEnd(): Int
         Local mark = [0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E]
         For start = Max(At, PasteScan) To Bytes.Count - mark.Count
@@ -676,7 +676,7 @@ Public Class InputParser
     End Method
 
     /// An escape's sequence at At, "\e[" or "\eO" and the rest: (True, its event), or (False,
-    /// ...) for one that gives none, which is skipped, or Null when it isn't all there yet.
+    /// ...) for one that gives none, which is skipped, or Null when it isn't all there.
     Method Sequence(done: Bool): (Bool, InputEvent)?
         If Bytes[At + 1] == 0x5B Then Return Csi(done)
         If At + 2 >= Bytes.Count

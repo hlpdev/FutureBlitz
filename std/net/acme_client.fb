@@ -233,7 +233,7 @@ Public Class AcmeClient
     End Method
 
     /// A JWS of `payload` to `url`, POSTed, or a POST-as-GET for a Null one, and the CA's answer,
-    /// naming the key by its JWK when `byKey` says, or there's no account yet. A refused nonce is
+    /// naming the key by its JWK when `byKey` says, or there's no account. A refused nonce is
     /// tried again, once, with the nonce that came with the refusal.
     Async Method PostAsync(url: String, payload: String?,
                            byKey: Bool = False): HttpResponse Throws NetError, TimeoutError

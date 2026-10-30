@@ -343,7 +343,7 @@ Function Script(a: String[], b: String[]): DiffKind[]
 End Function
 
 /// Each of lines' class, which equal lines share, adding a class to classes for each line that
-/// has none yet.
+/// has none.
 Function ClassesOf(lines: String[], classes: Map<String, Int>): Int[]
     Local found: Int[] = []
     For line In lines

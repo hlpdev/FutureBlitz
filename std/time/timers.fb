@@ -15,7 +15,7 @@ Extern "runtime"
 End Extern
 
 /// Ticks of the monotonic clock, every so often, on the I/O thread's loop. A tick is never early,
-/// and comes as soon after its time as the OS's timer lets it: within a couple of milliseconds on
+/// and comes as close after its time as the OS's timer lets it: within a couple of milliseconds on
 /// Linux and macOS, and within about 16 on Windows, whose timer ticks every 15.6 or so by
 /// default.
 Public Class Timer
@@ -137,7 +137,7 @@ Public Struct Deadline Implements Comparable, Hashable, Defaultable
     /// Whether it's passed at `now`.
     Public Method HasPassedAt(now: Instant): Bool => Limited && !(now < When)
 
-    /// The sooner Deadline is the lesser; none is after every time.
+    /// The earlier Deadline is the lesser; none is after every time.
     Operator <(a: Deadline, b: Deadline): Bool => a.Limited && (!b.Limited || a.When < b.When)
 
     /// As == goes, two Deadlines of none are the same, whatever their time.

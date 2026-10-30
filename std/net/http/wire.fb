@@ -279,7 +279,7 @@ Package Class HeadParser
         Get => !Request ? 400 : Started ? 431 : 414
     End Property
 
-    /// Whether it has nothing yet but empty lines.
+    /// Whether it has nothing but empty lines.
     Package Property IsEmpty: Bool
         Get => !Started
     End Property

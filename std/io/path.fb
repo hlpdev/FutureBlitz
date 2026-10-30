@@ -38,13 +38,13 @@ Const DOT: UInt8 = 46
 /// # Examples
 ///
 /// ```
-/// Local save = Path("games/one/save.dat", PathStyle.POSIX)
+/// Local save = Path("app/one/save.dat", PathStyle.POSIX)
 /// Expect(save.FileName() == "save.dat")
 /// Expect(save.Stem() == "save" && save.Extension() == ".dat")
-/// Expect(save.Parent() == Path("games/one", PathStyle.POSIX))
-/// Expect(save.WithExtension(".bak").Text == "games/one/save.bak")
+/// Expect(save.Parent() == Path("app/one", PathStyle.POSIX))
+/// Expect(save.WithExtension(".bak").Text == "app/one/save.bak")
 /// Expect(Path("a/./b/../c", PathStyle.POSIX).Normalize().Text == "a/c")
-/// Expect(Path("C:\\games", PathStyle.WINDOWS).IsAbsolute())
+/// Expect(Path("C:\\app", PathStyle.WINDOWS).IsAbsolute())
 /// ```
 Public Struct Path Implements Comparable, Hashable, Printable
     /// Its text, as it was given.
@@ -140,7 +140,7 @@ Public Struct Path Implements Comparable, Hashable, Printable
     End Method
 
     /// The last name in the path, "" when it has none, as a root doesn't: "save.dat" for
-    /// "games/save.dat" and for "games/save.dat/" too.
+    /// "app/save.dat" and for "app/save.dat/" too.
     Public Method FileName(): String
         Local bytes = Text.Bytes
         Local windows = Style == PathStyle.WINDOWS
@@ -212,7 +212,7 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Return Path(TextOfBytes(bytes[0..(dot < 0 ? finish : start + dot)]) + added, Style)
     End Method
 
-    /// The folder the path's in: "games" for "games/save.dat", "." for "save.dat", and the root for
+    /// The folder the path's in: "app" for "app/save.dat", "." for "save.dat", and the root for
     /// a root, worked out from its text alone, so the parent of ".." is ".". It has '/' between
     /// its names.
     Public Method Parent(): Path
@@ -227,7 +227,7 @@ Public Struct Path Implements Comparable, Hashable, Printable
     End Method
 
     /// Whether the path says where it is without the current folder: one from a POSIX root, and
-    /// on Windows one from a drive's root, like "C:/games", or a share, like "//server/share".
+    /// on Windows one from a drive's root, like "C:/app", or a share, like "//server/share".
     Public Method IsAbsolute(): Bool
         Local windows = Style == PathStyle.WINDOWS
         Local bytes = Text.Bytes
@@ -252,8 +252,8 @@ Public Struct Path Implements Comparable, Hashable, Printable
     End Method
 
     /// The path from `base` to this one, by their texts, with ".." for each of `base`'s names they
-    /// don't share: "saves/one.dat" from "games" to "games/saves/one.dat", and "../music" from
-    /// "games" to "music". On Windows, names that differ only in their ASCII letters' case are the
+    /// don't share: "saves/one.dat" from "app" to "app/saves/one.dat", and "../music" from
+    /// "app" to "music". On Windows, names that differ only in their ASCII letters' case are the
     /// same. Null when one is absolute and the other isn't, they're on different drives, or `base`
     /// goes up past where this one starts, as "../other" from "a" does.
     Public Method RelativeTo(base: Path): Path?

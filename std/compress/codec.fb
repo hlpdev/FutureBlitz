@@ -29,7 +29,7 @@ Import std.core
 /// Expect(String.FromUtf8(Try Zstd.Decompress(packed)) == "one, two")
 /// ```
 Public Interface Coder
-    /// What `data` comes to so far, which can be nothing yet.
+    /// What `data` comes to so far, which can be nothing.
     Method Add(data: UInt8[]): UInt8[] Throws IOError
     /// What's left once all the bytes are added, which ends what it makes, and starts it again.
     Method Finish(): UInt8[] Throws IOError
@@ -54,7 +54,7 @@ End Function
 
 /// Throws the IOError that a decoder's or an archive's `result` from the runtime means, which isn't
 /// 0, for data in `format`: INVALID_DATA for bytes that aren't the format or are broken,
-/// UNEXPECTED_END for ones that end too soon, and OTHER for ones that would come to more than the
+/// UNEXPECTED_END for ones that end early, and OTHER for ones that would come to more than the
 /// limit, or use what std.compress doesn't support. `message` is the library's, which may be "".
 Package Function Failed(result: Int32, format: String, limit: Int, message: String) Throws IOError
     Local detail = message == "" ? "" : ": {message}"

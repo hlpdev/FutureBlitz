@@ -63,7 +63,7 @@ Const READ_CUT_SHORT: Int64 = -3
 /// a record: TLS's most.
 Const RECORD_SIZE: Int64 = 16384
 
-/// How many TCP connections a TlsListener keeps that aren't taken yet, unless it's told, as a
+/// How many TCP connections a TlsListener keeps that aren't taken, unless it's told, as a
 /// TcpListener does.
 Const BACKLOG = 511
 

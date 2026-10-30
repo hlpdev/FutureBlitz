@@ -12,13 +12,13 @@ Import std.net.address
 Import std.net.dns
 Import std.net.socket
 
-/// How many connections a listener keeps that the OS has and the I/O thread hasn't taken yet,
+/// How many connections a listener keeps that the OS has and the I/O thread hasn't taken,
 /// unless it's told: Node's, which the OS lowers to what it allows. Past it, Windows refuses a
 /// connection, and other OSes have it try again.
 Const BACKLOG = 511
 
 /// A TCP connection: bytes both ways, in order, which it reads and writes as std.io's streams do.
-/// Nagle's algorithm is off, so a small write goes at once, as a game's messages need. A Read or
+/// Nagle's algorithm is off, so a small write goes at once, as interactive messages need. A Read or
 /// Write that fails throws an IOError whose Cause is a NetError, of RESET for a connection the
 /// other side ended badly, or a TimeoutError. It closes when it goes, or at Close.
 ///
@@ -182,7 +182,7 @@ Public Class TcpListener
     End New
 
     /// Listens at `address`, whose port 0 has the OS pick one, which LocalAddress tells, keeping
-    /// up to `backlog` connections the OS has that aren't taken yet, 1 at least, or it panics.
+    /// up to `backlog` connections the OS has that aren't taken, 1 at least, or it panics.
     /// Throws a NetError when it can't, as when something listens there already.
     @PanicsAtCaller
     Public Static Method Listen(address: SocketAddress,

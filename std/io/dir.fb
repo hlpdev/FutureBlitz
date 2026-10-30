@@ -84,7 +84,7 @@ Public Struct Dir
         Try Checked(Await fb_io_dir_create_async(request.Native, path.Text, 0), "make", path)
     End Method
 
-    /// Makes the folder, and each folder it's in that isn't there yet. One that's there already is
+    /// Makes the folder, and each folder it's in that isn't there. One that's there already is
     /// fine, and a file where a folder should be throws an IOError of NOT_A_DIRECTORY.
     Public Static Method CreateAll(path: Path) Throws IOError
         Local request = Request()

@@ -190,7 +190,7 @@ Public Class GamePeer Implements Printable
         Get => ReceivedBytes
     End Property
 
-    /// How many reliable messages it has that the other side hasn't acked yet, sent or not.
+    /// How many reliable messages it has that the other side hasn't acked, sent or not.
     Public Property Unacked: Int
         Get
             Local count = 0

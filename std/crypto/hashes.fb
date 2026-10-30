@@ -58,7 +58,7 @@ End Interface
 Public Class Md5 Implements Hasher
     Field State: Ptr<Void>
 
-    /// A new Md5, of nothing yet.
+    /// A new Md5, of nothing.
     Public New()
         State = fb_crypto_hasher_new(MD5)
     End New
@@ -97,7 +97,7 @@ End Class
 Public Class Sha1 Implements Hasher
     Field State: Ptr<Void>
 
-    /// A new Sha1, of nothing yet.
+    /// A new Sha1, of nothing.
     Public New()
         State = fb_crypto_hasher_new(SHA1)
     End New
@@ -141,7 +141,7 @@ End Class
 Public Class Sha256 Implements Hasher
     Field State: Ptr<Void>
 
-    /// A new Sha256, of nothing yet.
+    /// A new Sha256, of nothing.
     Public New()
         State = fb_crypto_hasher_new(SHA256)
     End New
@@ -179,7 +179,7 @@ End Class
 Public Class Sha512 Implements Hasher
     Field State: Ptr<Void>
 
-    /// A new Sha512, of nothing yet.
+    /// A new Sha512, of nothing.
     Public New()
         State = fb_crypto_hasher_new(SHA512)
     End New

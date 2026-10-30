@@ -526,9 +526,9 @@ Public Class XmlWriter
     /// The open elements' names, the innermost last, and whether each holds text.
     Field Open: String[] = []
     Field Mixed: Bool[] = []
-    /// Whether the last start tag's '>' isn't written yet, as its attributes can follow it.
+    /// Whether the last start tag's '>' isn't written, as its attributes can follow it.
     Field Tagged: Bool
-    /// Whether the innermost open element has content yet.
+    /// Whether the innermost open element has content.
     Field Filled: Bool
     Field Rooted: Bool
     /// The open start tag's attributes' names.

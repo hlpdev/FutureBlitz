@@ -1,7 +1,7 @@
 //! What each channel of a connection does with its messages.
 //!
 //! A RELIABLE_ORDERED channel's messages each arrive once, in the order they were sent; a
-//! RELIABLE_UNORDERED channel's each arrive once, as soon as they can; and an UNRELIABLE one's
+//! RELIABLE_UNORDERED channel's each arrive once, as early as they can; and an UNRELIABLE one's
 //! arrive or don't, and never after a newer one, so what comes is the freshest. A message too big
 //! for a packet goes in fragments, which are put back together where it arrives, and a reliable
 //! one's are sent again until each is acked.
@@ -55,7 +55,7 @@ End Class
 Package Class OutChannel
     Package Field Kind: ChannelKind
     Package Field NextId: Int
-    /// Reliable messages the window hasn't let go yet, oldest first.
+    /// Reliable messages the window hasn't let go, oldest first.
     Package Field Queued: Deque<OutPart[]>
     /// Reliable parts sent that the other side hasn't acked, in the order they first went.
     Package Field Flying: OutPart[] = []

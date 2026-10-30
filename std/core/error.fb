@@ -96,7 +96,7 @@ Public Enum IOErrorKind
     PERMISSION_DENIED
     /// A file or folder that's there already.
     ALREADY_EXISTS
-    /// A stream that ended too soon.
+    /// A stream that ended early.
     UNEXPECTED_END
     /// Bytes that aren't the format, or are broken.
     INVALID_DATA
@@ -138,7 +138,7 @@ End Class
 Public Enum ParseErrorKind
     /// Text that isn't the format.
     SYNTAX
-    /// Text that ends too soon.
+    /// Text that ends early.
     UNEXPECTED_END
     /// A value of another type than the one asked for.
     WRONG_TYPE

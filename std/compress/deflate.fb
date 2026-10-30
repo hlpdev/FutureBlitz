@@ -49,8 +49,8 @@ Public Struct Deflate
         Return Compressed(DEFLATE, data, level)
     End Method
 
-    /// The bytes the `data` is compressed from, or an IOError when it isn't Deflate's, ends too
-    /// soon, or would come to more than `limit` bytes. Panics when the `limit` is negative.
+    /// The bytes the `data` is compressed from, or an IOError when it isn't Deflate's, ends early,
+    /// or would come to more than `limit` bytes. Panics when the `limit` is negative.
     @PanicsAtCaller
     Public Static Method Decompress(data: UInt8[],
                                     limit: Int = MOST_BYTES): UInt8[] Throws IOError
@@ -81,7 +81,7 @@ Public Struct Zlib
         Return Compressed(ZLIB, data, level)
     End Method
 
-    /// The bytes the `data` is compressed from, or an IOError when it isn't Zlib's, ends too soon,
+    /// The bytes the `data` is compressed from, or an IOError when it isn't Zlib's, ends early,
     /// or would come to more than `limit` bytes. Panics when the `limit` is negative.
     @PanicsAtCaller
     Public Static Method Decompress(data: UInt8[],
@@ -114,7 +114,7 @@ Public Struct Gzip
     End Method
 
     /// The bytes the `data` is compressed from, each member's after the last's, or an IOError when
-    /// it isn't Gzip's, ends too soon, or would come to more than `limit` bytes. Panics when the
+    /// it isn't Gzip's, ends early, or would come to more than `limit` bytes. Panics when the
     /// `limit` is negative.
     @PanicsAtCaller
     Public Static Method Decompress(data: UInt8[],
@@ -202,7 +202,7 @@ End Class
 /// Deflate's bytes taken in turn: Add gives what the bytes it takes decompress to so far, and
 /// Finish what's left once they've all been added, and starts again. Each throws an IOError
 /// when the bytes aren't Deflate's or would come to more than the limit, and Finish when they end
-/// too soon. Bytes after the end are an IOError too.
+/// early. Bytes after the end are an IOError too.
 Public Class DeflateDecompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
@@ -223,7 +223,7 @@ Public Class DeflateDecompressor Implements Coder
     End Method
 
     /// The rest of the bytes, once every one is added, and starts again. Throws an IOError when the
-    /// stream ended too soon.
+    /// stream ended early.
     Public Method Finish(): UInt8[] Throws IOError
         Return Try Ended(State, [], Limit, "Deflate")
     End Method
@@ -254,7 +254,7 @@ Public Class ZlibDecompressor Implements Coder
     End Method
 
     /// The rest of the bytes, once every one is added, and starts again. Throws an IOError when the
-    /// stream ended too soon.
+    /// stream ended early.
     Public Method Finish(): UInt8[] Throws IOError
         Return Try Ended(State, [], Limit, "Zlib")
     End Method
@@ -299,7 +299,7 @@ Public Class GzipDecompressor Implements Coder
     End Method
 
     /// The rest of the bytes, once every one is added, and starts again. Throws an IOError when the
-    /// stream ended too soon.
+    /// stream ended early.
     Public Method Finish(): UInt8[] Throws IOError
         Return Try Ended(State, [], Limit, "Gzip")
     End Method

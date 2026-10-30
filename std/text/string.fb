@@ -107,7 +107,7 @@ Extend String
         Return found As Int
     End Method
 
-    /// Where `part` last starts that ends at `before` or sooner, or Null when it isn't there.
+    /// Where `part` last starts that ends at `before` or before it, or Null when it isn't there.
     /// Panics when `before` isn't a position in the String.
     @PanicsAtCaller
     Public Method FindLast(part: String, before: Int): Int?

@@ -250,7 +250,7 @@ Public Struct Lan
     End Method
 
     /// The addresses this machine has on its networks, but loopback's, IPv4's and IPv6's, as a
-    /// LAN game shows its players where to join.
+    /// LAN service shows where to reach it.
     Public Static Method LocalAddresses(): IpAddress[]
         Local bytes: UInt8[] = []
         Local addresses: IpAddress[] = []

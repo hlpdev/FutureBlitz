@@ -41,7 +41,7 @@ Public Struct SevenZip
     End New
 
     /// A reader of the 7z in `data`, which it copies, or an IOError when the `data` isn't a 7z,
-    /// ends too soon, or its header uses what isn't supported.
+    /// ends early, or its header uses what isn't supported.
     Public Static Method Read(data: UInt8[]): SevenZipReader Throws IOError => Try Opened(data)
 End Struct
 
@@ -115,7 +115,7 @@ Public Class SevenZipReader
     End Method
 End Class
 
-/// A reader of the 7z in data, or an IOError when the data isn't a 7z, or ends too soon.
+/// A reader of the 7z in data, or an IOError when the data isn't a 7z, or ends early.
 Function Opened(data: UInt8[]): SevenZipReader Throws IOError
     Local state = fb_xz_7z_reader_new(data)
     Local result = fb_xz_7z_reader_result(state)

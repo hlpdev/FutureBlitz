@@ -11,7 +11,7 @@ Import std.io.streams
 Import std.time.duration
 Import std.net.socket
 
-/// How many connections a listener keeps that the OS has and the I/O thread hasn't taken yet,
+/// How many connections a listener keeps that the OS has and the I/O thread hasn't taken,
 /// unless it's told: Node's, which the OS lowers to what it allows. Past it, Windows refuses a
 /// connection, and other OSes have it try again.
 Const BACKLOG = 511
@@ -124,7 +124,7 @@ Public Class IpcListener
 
     /// Listens at `name`: 1 to 64 ASCII letters, digits, '.', '-', and '_', or it panics, with a
     /// `backlog` of 1 at least. A name is the same whatever its letters' case, as Windows' named
-    /// pipes are, so "Game" and "game" are one name on every OS. Throws a NetError when something
+    /// pipes are, so "App" and "app" are one name on every OS. Throws a NetError when something
     /// listens at it already. A Unix socket's file that a program left when it ended without
     /// closing its listener is taken over, and any other file there stays.
     @PanicsAtCaller

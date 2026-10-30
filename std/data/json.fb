@@ -98,7 +98,7 @@ Public Class JsonReader
 
     /// The next token, END once the document's value is done, and END again after. Throws a
     /// ParseError where the text stops being JSON, with its line and column, each from 1: of
-    /// SYNTAX for what can't be there, UNEXPECTED_END for text that ends too soon, and
+    /// SYNTAX for what can't be there, UNEXPECTED_END for text that ends early, and
     /// OUT_OF_RANGE for a number past a Double's range, or arrays and objects nested too deep.
     Public Method Next(): JsonToken Throws ParseError
         Local read = fb_json_next(State)

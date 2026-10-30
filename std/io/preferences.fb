@@ -53,7 +53,7 @@ Public Class Preferences
     Field Version: Int64
 
     /// The program `app`'s preferences, read from the OS's folder for them, or none when there's
-    /// no file yet. Panics for an app's name that can't be a file's, and throws an IOError when the
+    /// no file. Panics for an app's name that can't be a file's, and throws an IOError when the
     /// OS doesn't say where its folder is, or the file can't be read.
     @PanicsAtCaller
     Public New(app: String) Throws IOError

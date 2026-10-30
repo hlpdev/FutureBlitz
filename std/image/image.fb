@@ -162,7 +162,7 @@ Public Class Image
 
     /// The image in `data`, a PNG, JPEG, BMP, TGA, GIF's first frame, QOI, or WebP, by how its
     /// bytes start. Throws an IOError of INVALID_DATA when they're none of those, or broken,
-    /// UNEXPECTED_END when they end too soon, and OTHER when they're an HDR image, which
+    /// UNEXPECTED_END when they end early, and OTHER when they're an HDR image, which
     /// Hdr.Decode reads, or use what isn't supported, or the image has more pixels than `limit`.
     /// Panics when the `limit` is negative.
     ///

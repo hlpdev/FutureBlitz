@@ -28,7 +28,7 @@ Public Struct WebP
     End New
 
     /// The image in `data`, a still WebP. Throws an IOError of INVALID_DATA when the `data` isn't a
-    /// WebP or is broken, UNEXPECTED_END when it ends too soon, and OTHER when it's animated or
+    /// WebP or is broken, UNEXPECTED_END when it ends early, and OTHER when it's animated or
     /// the image has more pixels than `limit`. Panics when the `limit` is negative.
     @PanicsAtCaller
     Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError

@@ -118,7 +118,7 @@ End Function
 
 /// Throws the IOError of the runtime's image when its result isn't 0, from a decoder of data in
 /// `format`: INVALID_DATA for bytes that aren't the format or are broken, UNEXPECTED_END for ones
-/// that end too soon, and OTHER for ones whose pixels are more than the limit, or that use what
+/// that end early, and OTHER for ones whose pixels are more than the limit, or that use what
 /// std.image doesn't support. It frees the image when it throws.
 Package Function CheckDecoded(image: Ptr<Void>, format: String) Throws IOError
     Local result = fb_image_result(image)

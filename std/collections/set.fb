@@ -44,7 +44,7 @@ Public Class Set<T: Hashable> Implements Iterable<T>, Cloneable, Defaultable, Ha
         Items.Clear()
     End Method
 
-    /// Adds each of the `values` that isn't there yet, in their order.
+    /// Adds each of the `values` that isn't there, in their order.
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
             Add(value)
