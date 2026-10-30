@@ -2,8 +2,8 @@
 //!
 //! `LinkedList<T>`: values in a chain of nodes, each linked to the ones before and after it, so
 //! adding or removing one beside a node takes the same time however many there are. A node is the
-//! same object for as long as it's in the list, so code can keep one to add beside or remove
-//! later. Each node holds the one after it and, weakly, the one before, so the list makes no
+//! same object for as long as it's in the list, so code can keep one to add beside or remove when
+//! it likes. Each node holds the one after it and, weakly, the one before, so the list makes no
 //! cycles, and Clear and the list's end unlink every node, so a node kept elsewhere holds none of
 //! the others.
 

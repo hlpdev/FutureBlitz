@@ -177,8 +177,8 @@ Public Class MappedFile
     End Method
 End Class
 
-/// A MappedFile's bytes as a Buffer, which holds them mapped until it goes, and keeps the
-/// MappedFile, whose map they are, until then too.
+/// A MappedFile's bytes as a Buffer, which holds them mapped, and keeps the MappedFile whose map
+/// they are, for as long as it's there.
 Class MappedBytes Extends Buffer<UInt8>
     ReadOnly Field Map: MappedFile
 

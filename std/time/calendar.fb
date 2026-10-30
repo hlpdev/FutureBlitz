@@ -158,7 +158,7 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         End Get
     End Property
 
-    /// That many days later, or earlier for a count below 0.
+    /// The date that many days after, or before for a count below 0.
     @PanicsAtCaller
     Public Method AddDays(count: Int64): Date
         Local days = Days.CheckedAdd(count)
@@ -166,7 +166,7 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         Return FromDays(days)
     End Method
 
-    /// That many months later, or earlier, on the same day, or the month's last when it's
+    /// The date that many months after, or before, on the same day, or the month's last when it's
     /// shorter: Jan 31 plus a month is Feb 28, or 29 in a leap year.
     @PanicsAtCaller
     Public Method AddMonths(count: Int64): Date
@@ -181,8 +181,8 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
         Return Date(DaysFromCivil(newYear, newMonth, Min(day, DaysIn(newYear, newMonth))))
     End Method
 
-    /// That many years later, or earlier, on the same day, or Feb 28 for Feb 29 in a year that
-    /// has none.
+    /// The date that many years after, or before, on the same day, or Feb 28 for Feb 29 in a year
+    /// that has none.
     @PanicsAtCaller
     Public Method AddYears(count: Int64): Date
         Local year, month, day = CivilFromDays(Days)
@@ -357,7 +357,7 @@ Public Struct TimeOfDay Implements Comparable, Hashable, Printable, Defaultable
         Get => Nanoseconds
     End Property
 
-    /// `a` on the clock `b` later, around midnight as a clock goes: 23:00 plus 2 hours is 01:00.
+    /// `a` on the clock `b` after, around midnight as a clock goes: 23:00 plus 2 hours is 01:00.
     Operator +(a: TimeOfDay, b: Duration): TimeOfDay
         Local day: Int64 = 86400000000000
         Return TimeOfDay(FloorModulo(a.Nanoseconds + b.Nanoseconds % day, day))
@@ -517,19 +517,19 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
         Get => Day.DayOfYear
     End Property
 
-    /// The same time `count` days later, or earlier, as Date's AddDays goes.
+    /// The same time `count` days after, or before, as Date's AddDays goes.
     @PanicsAtCaller
     Public Method AddDays(count: Int64): LocalDateTime
         Return LocalDateTime(Day.AddDays(count), Clock)
     End Method
 
-    /// The same time `count` months later, or earlier, as Date's AddMonths goes.
+    /// The same time `count` months after, or before, as Date's AddMonths goes.
     @PanicsAtCaller
     Public Method AddMonths(count: Int64): LocalDateTime
         Return LocalDateTime(Day.AddMonths(count), Clock)
     End Method
 
-    /// The same time `count` years later, or earlier, as Date's AddYears goes.
+    /// The same time `count` years after, or before, as Date's AddYears goes.
     @PanicsAtCaller
     Public Method AddYears(count: Int64): LocalDateTime
         Return LocalDateTime(Day.AddYears(count), Clock)

@@ -76,7 +76,7 @@ Public Struct LogFilter Implements Printable
 
     /// FB_LOG's `text`: parts between commas, each a level, which every module gets, or a module,
     /// an '=', and its level, with spaces around them left out. Every module is at INFO unless a
-    /// part says otherwise, and a later part wins. Null when a part is neither, or a module's name
+    /// part says otherwise, and the last part wins. Null when a part is neither, or a module's name
     /// is empty.
     Public Static Method Parse(text: String): LogFilter?
         Local filter = At(LogLevel.INFO)

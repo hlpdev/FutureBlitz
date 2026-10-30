@@ -20,7 +20,7 @@ Public Enum ChannelKind: UInt8
     UNRELIABLE
 End Enum
 
-/// How far a reliable channel's newest message in flight can be ahead of its oldest one not yet
+/// How far a reliable channel's newest message in flight can be ahead of its oldest one that isn't
 /// acked, which is how far ahead of what it waits for a receiver takes one.
 Package Const WINDOW = 1024
 
@@ -57,7 +57,7 @@ Package Class OutChannel
     Package Field NextId: Int
     /// Reliable messages the window hasn't let go yet, oldest first.
     Package Field Queued: Deque<OutPart[]>
-    /// Reliable parts sent and not yet acked, in the order they first went.
+    /// Reliable parts sent that the other side hasn't acked, in the order they first went.
     Package Field Flying: OutPart[] = []
     /// The ids of the messages in flight, oldest first, and how many of each one's parts aren't
     /// acked; an id that's done goes from Unacked first, and from Ids once it's at the front.

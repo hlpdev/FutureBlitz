@@ -377,7 +377,7 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
     Public New()
     End New
 
-    /// One with the `entries`, all read first, a later entry's value for a key taking the place of
+    /// One with the `entries`, all read first, a second entry's value for a key taking the place of
     /// an earlier one's.
     Public Static Method From(entries: Iterable<(K, V)>): ImmutableMap<K, V>
         Local made = ImmutableMap<K, V>()

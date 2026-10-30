@@ -812,7 +812,7 @@ Public Class Database
     /// Local first = "CREATE TABLE users (name TEXT)"
     /// Local second = "ALTER TABLE users ADD COLUMN email TEXT"
     /// Try db.Migrate(first)
-    /// // Later, the same database, with one more migration: only the new one runs.
+    /// // Again, the same database, with one more migration: only the new one runs.
     /// Try db.Migrate(first, second)
     /// Try db.Execute("INSERT INTO users VALUES (?, ?)", "Ada", "ada@example.com")
     /// ```

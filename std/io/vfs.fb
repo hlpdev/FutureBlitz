@@ -2,8 +2,8 @@
 //!
 //! std.io's virtual file system: a Vfs mounts folders, embedded folders, zips, and a program's own
 //! sources at points in one tree of its own, and reads them through the same calls as files. Its
-//! paths are its own, with '/' between names, on every OS; a later mount over the same place
-//! comes first, so a mod's folder can stand in for some of a game's embedded files.
+//! paths are its own, with '/' between names, on every OS; a newer mount over the same place comes
+//! first, so a mod's folder can stand in for some of a game's embedded files.
 
 Import std.collections.array
 Import std.collections.map

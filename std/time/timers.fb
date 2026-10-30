@@ -2,9 +2,9 @@
 //!
 //! Waiting and pacing: Timer, on the I/O thread's loop, for Tasks that are done after a while,
 //! which any thread can wait for; Deadline, a time to give up at, as blocking calls take one;
-//! FixedStep, for updates at a fixed rate; RateLimiter, which lets so many things happen in so
-//! long; and Debounce, for acting once a burst of events has stopped. What reads the monotonic
-//! clock also takes an Instant, so code, and its tests, can give the time as a value.
+//! FixedStep, for steps at a fixed rate; RateLimiter, which lets so many things happen in so long;
+//! and Debounce, for acting once a burst of events has stopped. What reads the monotonic clock also
+//! takes an Instant, so code, and its tests, can give the time as a value.
 
 Import std.core
 Import std.time.clock
@@ -149,9 +149,10 @@ Public Struct Deadline Implements Comparable, Hashable, Defaultable
     Public Method Hash(): UInt64 => Limited ? When.Hash() : 0
 End Struct
 
-/// A game loop's updates at a fixed rate, whatever the frames' lengths: Advance, or Tick, takes
-/// the time a frame took and gives how many steps to run, keeping what's left for the next, and
-/// Alpha says how far into the next step that is, for drawing between two steps' states.
+/// Steps at a fixed rate, however far apart the calls that ask for them are: Advance, or Tick,
+/// takes the time since the last call and gives how many steps to run, keeping what's left for the
+/// next, and Alpha says how far into the next step that is, for showing what's between two steps'
+/// states.
 Public Class FixedStep
     /// Time counts in parts: a nanosecond is Scale of them, and a step PerStep, so a rate's steps
     /// add up to its second exactly, as 60 a second's do though none is a whole nanosecond.
@@ -195,7 +196,7 @@ Public Class FixedStep
         Get => (PerStep As Double) / ((Scale As Double) * 1.0e9)
     End Property
 
-    /// The most steps a frame gives, 8 unless it's set, so a long frame doesn't make the next one
+    /// The most steps one call gives, 8 unless it's set, so a long wait doesn't make the next one
     /// longer still: the whole steps past them are dropped, and the part of a step left over
     /// stays. One below 1 panics.
     @PanicsAtCaller
@@ -212,7 +213,7 @@ Public Class FixedStep
         Get => (Left As Double) / (PerStep As Double)
     End Property
 
-    /// How many steps to run for a frame that took that long. A Duration below 0 counts as 0.
+    /// How many steps to run for that much time. A Duration below 0 counts as 0.
     Public Method Advance(elapsed: Duration): Int
         // The frame's whole steps, and the part of one left over, which with the part kept from
         // before makes less than two steps: one more step when it's a whole one. A frame too

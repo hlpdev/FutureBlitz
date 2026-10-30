@@ -13,7 +13,7 @@ Import std.net.socket
 
 /// How many connections a listener keeps that the OS has and the I/O thread hasn't taken yet,
 /// unless it's told: Node's, which the OS lowers to what it allows. Past it, Windows refuses a
-/// connection, and other OSes have it try again later.
+/// connection, and other OSes have it try again.
 Const BACKLOG = 511
 
 /// The most bytes an IPC name has.

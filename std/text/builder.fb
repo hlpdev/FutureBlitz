@@ -91,7 +91,7 @@ Public Class StringBuilder Implements Printable, Writer
     End Method
 
     /// Takes out the text from `start` up to `finish`. Panics unless both are positions in the
-    /// text, between characters, with `start` no later than `finish`.
+    /// text, between characters, with `start` not after `finish`.
     @PanicsAtCaller
     Public Method Remove(start: Int, finish: Int): StringBuilder
         Settle()
@@ -121,7 +121,7 @@ Public Class StringBuilder Implements Printable, Writer
 
     /// Adds from's bytes as text, U+FFFD for each one that doesn't start well-formed UTF-8, as
     /// std.io's StringWriter reads them. A character whose bytes two Writes split is added once its
-    /// last byte comes; until then, Flush, or a change of another kind, adds what came of it as
+    /// last byte comes; before that, Flush, or a change of another kind, adds what came of it as
     /// U+FFFD. Throws an IOError past the most a String holds, adding none of it.
     Public Method Write(from: Buffer<UInt8>) Throws IOError
         Local bytes = Pending.Clone()

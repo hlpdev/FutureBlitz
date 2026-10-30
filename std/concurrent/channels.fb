@@ -117,7 +117,7 @@ Public Class Selector
     End Method
 
     /// Waits until a Channel has a value, which goes to its handler, or the timeout passes, which
-    /// runs its handler, and gives True; or until every Channel is closed and empty, as none will
+    /// runs its handler, and gives True; or until every Channel is closed and empty, as none can
     /// have a value, and gives False.
     Public Method Wait(): Bool
         Return WaitFor(0)

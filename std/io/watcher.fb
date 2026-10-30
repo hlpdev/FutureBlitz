@@ -92,8 +92,8 @@ Public Class FileWatcher
         End Loop
     End Method
 
-    /// Stops watching, dropping the events not taken yet, so what waits for one, and each later
-    /// Next, gets Null. A second Close does nothing.
+    /// Stops watching, dropping the events not taken yet, so what waits for one, and each Next,
+    /// gets Null. A second Close does nothing.
     Public Method Close()
         fb_io_watcher_close(Native)
     End Method

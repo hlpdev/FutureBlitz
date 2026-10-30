@@ -289,7 +289,7 @@ Class TomlReader
     Field At: Int
     Field Root: Value
     Field Flags: TomlFlags
-    /// The keys dotted keys made in the section being read, which no later section can add to.
+    /// The keys dotted keys made in the section being read, which no section after it can add to.
     Field Pending: String[][] = []
     /// How many strings, arrays, and inline tables the reader is in, where text that ends is an
     /// UNEXPECTED_END, and how many arrays and inline tables.

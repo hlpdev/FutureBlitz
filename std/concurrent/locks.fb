@@ -202,8 +202,8 @@ Public Shared Class WaitGroup
     End Method
 End Class
 
-/// Work that runs one time: the first Do runs it, and every other, at once or later, on any
-/// thread, returns once it has run.
+/// Work that runs one time: the first Do runs it, and every other, at once or after, on any thread,
+/// returns once it has run.
 ///
 /// # Examples
 ///

@@ -43,9 +43,9 @@ Public Class Humanize
     End Method
 
     /// How long ago a time `seconds` from now was, when `seconds` is negative, "3 minutes ago", or
-    /// how soon it will be, "in 3 minutes", rounded to the unit people would say: "just now" under
-    /// 45 seconds either way, then a minute, minutes, an hour, hours, a day, days, a month,
-    /// months, a year, and years.
+    /// how far off it is, "in 3 minutes", rounded to the unit people would say: "just now" under 45
+    /// seconds either way, then a minute, minutes, an hour, hours, a day, days, a month, months, a
+    /// year, and years.
     Public Static Method Relative(seconds: Int64): String
         // The size without the sign, which the most negative Int64 has no room for.
         Local size: UInt64 = seconds < 0 ? ((-(seconds + 1)) As UInt64) + 1 : seconds As UInt64
@@ -55,8 +55,8 @@ Public Class Humanize
         Return "in {said}"
     End Method
 
-    /// How long ago a time `d` before now was, when `d` is before 0, or how soon one d from now
-    /// will be, as Relative says it of `d`'s whole seconds: "3 minutes ago" and "in 2 hours".
+    /// How long ago a time `d` before now was, when `d` is before 0, or how far off one d from now
+    /// is, as Relative says it of `d`'s whole seconds: "3 minutes ago" and "in 2 hours".
     Public Static Method Relative(d: Duration): String => Relative(d.Nanoseconds / 1000000000)
 
     /// `n` with its ordinal's ending: "1st", "2nd", "3rd", "4th", "11th", "22nd", and "113th".

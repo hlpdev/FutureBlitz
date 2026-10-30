@@ -179,8 +179,8 @@ End Extend
 /// Headers with none, which code with a Headers Field of its own can't make by the type's name.
 Function NewHeaders(): Headers => Headers()
 
-/// A route: its method, its pattern's segments, its handler, and the middleware of the groups
-/// it's in, outermost first, which are their own stacks, so what Use adds later runs too.
+/// A route: its method, its pattern's segments, its handler, and the middleware of the groups it's
+/// in, outermost first, which are their own stacks, so what Use adds after a route runs for it too.
 /// A work route has its WorkHandler instead of a handler, which the server makes as it's called.
 Package Class RouteEntry
     Package ReadOnly Field Verb: String
@@ -606,8 +606,8 @@ Public Class HttpServer Extends HttpRouter
     /// Listens for HTTPS at `https` with a certificate for `names`, DNS names, which `acme` gets
     /// from its CA, or which `folder` keeps from a run before, while it's valid for those `names`.
     /// On `http`, where the CA checks HTTP-01's challenges, a server of its own answers them, and
-    /// redirects every other request to HTTPS, with a 308, once HTTPS listens, and until then
-    /// answers a 503. `folder` keeps the certificate's key and chain, as certificate.pem, and its
+    /// redirects every other request to HTTPS, with a 308, once HTTPS listens, and answers a 503
+    /// before it does. `folder` keeps the certificate's key and chain, as certificate.pem, and its
     /// `names`, each written atomically. Serve renews the certificate as it runs, as RenewAsync
     /// does, once less than a third of its lifetime is left, which it checks as it starts, as a
     /// kept one can be due, and then every RenewalCheck; connections from then on get the renewed
@@ -1150,9 +1150,10 @@ Package Class AutoHttps
         Log.Error("the certificate for {NamesText()} wasn't renewed: {e.Message}")
     End Method
 
-    /// Renews the certificate once less than a third of its lifetime is left, checking at once,
-    /// as a kept one can be due, and then every `check()`, until Stop. It waits a second at a
-    /// time, so Stop ends it soon, and a RenewalCheck set meanwhile counts from the check before.
+    /// Renews the certificate once less than a third of its lifetime is left, checking at once, as
+    /// a kept one can be due, and then every `check()`, until Stop. It waits a second at a time, so
+    /// Stop ends it within that time, and a RenewalCheck set meanwhile counts from the check
+    /// before.
     Package Async Method Renewing(check: Func(): Duration)
         While !Stopped
             If ValidUntil - Timestamp.Now() < (ValidUntil - ValidFrom) / 3

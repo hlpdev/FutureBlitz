@@ -1,7 +1,7 @@
 //! Time zones, and times in them: the IANA database's, fixed offsets, and the OS's.
 //!
 //! TimeZone, a zone's rules for its clocks: one of the IANA tz database's, which the runtime
-//! embeds, like "Europe/Paris", with every offset and daylight saving change it has had and will
+//! embeds, like "Europe/Paris", with every offset and daylight saving change it has had and has
 //! have; a fixed offset from UTC; or the OS's own. ZonedDateTime is a moment where a zone is, its
 //! Timestamp and the date and time the zone's clocks show then.
 //!
@@ -37,8 +37,8 @@ Public Enum Disambiguation
     /// The earlier of two, and for a skipped time, the one read with the offset from after the
     /// skip, so 02:30, on a night the clocks go from 02:00 to 03:00, is 01:30.
     EARLIER
-    /// The later of two, and for a skipped time, the one read with the offset from before the skip,
-    /// so 02:30, on a night the clocks go from 02:00 to 03:00, is 03:30.
+    /// The second of the two, and for a skipped time, the one read with the offset from before the
+    /// skip, so 02:30, on a night the clocks go from 02:00 to 03:00, is 03:30.
     LATER
 End Enum
 
@@ -352,7 +352,7 @@ Public Struct ZonedDateTime Implements Comparable, Hashable, Printable, Defaulta
     /// The same moment where another zone is.
     Public Method WithZone(zone: TimeZone): ZonedDateTime => ZonedDateTime(Moment, zone)
 
-    /// The same time on the zone's clocks `count` days later, or earlier, as Date's AddDays goes.
+    /// The same time on the zone's clocks `count` days after, or before, as Date's AddDays goes.
     /// Where the clocks show it twice, it keeps its offset; where they skip it, it's the moment
     /// COMPATIBLE gives.
     @PanicsAtCaller
@@ -360,13 +360,13 @@ Public Struct ZonedDateTime Implements Comparable, Hashable, Printable, Defaulta
         Return Settled(LocalAt(Moment, Shift).AddDays(count))
     End Method
 
-    /// The same time on the zone's clocks `count` months later, or earlier, as AddDays goes.
+    /// The same time on the zone's clocks `count` months after, or before, as AddDays goes.
     @PanicsAtCaller
     Public Method AddMonths(count: Int64): ZonedDateTime
         Return Settled(LocalAt(Moment, Shift).AddMonths(count))
     End Method
 
-    /// The same time on the zone's clocks `count` years later, or earlier, as AddDays goes.
+    /// The same time on the zone's clocks `count` years after, or before, as AddDays goes.
     @PanicsAtCaller
     Public Method AddYears(count: Int64): ZonedDateTime
         Return Settled(LocalAt(Moment, Shift).AddYears(count))

@@ -139,7 +139,7 @@ Extend String
     End Method
 
     /// The text from `start` up to `finish`. Panics unless both are positions in the String,
-    /// between its characters, with `start` no later than `finish`.
+    /// between its characters, with `start` not after `finish`.
     @PanicsAtCaller
     Public Method Slice(start: Int, finish: Int): String
         CheckPosition(start, "Slice")
