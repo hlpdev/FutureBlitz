@@ -2,6 +2,7 @@
 
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -51,6 +52,12 @@ struct exports_t {
 /// which needs no development package.
 [[nodiscard]] std::string system_library_argument(std::string_view name,
                                                   std::span<const std::filesystem::path> folders);
+
+/// The macOS SDK's folder, or its version, in what `xcrun --show-sdk-path` or
+/// `--show-sdk-version` printed: its last line that is one. Xcode's tools can print warnings
+/// beside their answer, as under Homebrew's sandbox. nullopt when no line is.
+[[nodiscard]] std::optional<std::string> sdk_path_in(std::string_view output);
+[[nodiscard]] std::optional<std::string> sdk_version_in(std::string_view output);
 
 /// Links object files, the native libraries, the runtime library, and the bundled ones into an
 /// executable at `written`, with fb's own lld and the C runtime's pieces in its toolchain, which

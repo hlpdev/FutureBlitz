@@ -116,3 +116,22 @@ TEST_CASE("a Linux system library is found by its development link, or else the 
     touch(root / "system/libGL.so");
     CHECK(fb::system_library_argument("GL", folders) == "-lGL");
 }
+
+TEST_CASE("the macOS SDK's folder and version are found among Xcode's warnings", "[toolchain]") {
+    CHECK(fb::sdk_version_in("15.5\n") == "15.5");
+    CHECK(fb::sdk_path_in("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk\n") ==
+          "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk");
+
+    // As under Homebrew's sandbox, where xcodebuild warns before xcrun answers.
+    const std::string warned = "2026-10-30 20:03:54.557 xcodebuild[2055:8285]  "
+                               "DVTFilePathFSEvents: Failed to start fs event stream.\r\n";
+    CHECK(fb::sdk_version_in(warned + "15.5\r\n") == "15.5");
+    CHECK(fb::sdk_version_in("15.5\n" + warned) == "15.5");
+    CHECK(fb::sdk_path_in(warned + "  /Applications/Xcode.app/MacOSX.sdk  \n") ==
+          "/Applications/Xcode.app/MacOSX.sdk");
+
+    CHECK_FALSE(fb::sdk_version_in(warned).has_value());
+    CHECK_FALSE(fb::sdk_version_in("").has_value());
+    CHECK_FALSE(fb::sdk_version_in("xcrun: error: SDK \"macosx\" cannot be located\n").has_value());
+    CHECK_FALSE(fb::sdk_path_in(warned).has_value());
+}

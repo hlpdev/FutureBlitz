@@ -143,11 +143,14 @@ std::expected<apple_sdk_t, std::string> apple_sdk() {
                 return std::nullopt;
             }
 
-            return linker_output(result->output);
+            return result->output;
         };
-        std::optional<std::string> path = ask("--show-sdk-path");
-        std::optional<std::string> version = ask("--show-sdk-version");
-        if (!path || !version || path->empty() || version->empty()) {
+        const std::optional<std::string> path_output = ask("--show-sdk-path");
+        const std::optional<std::string> version_output = ask("--show-sdk-version");
+        std::optional<std::string> path = path_output ? sdk_path_in(*path_output) : std::nullopt;
+        std::optional<std::string> version =
+            version_output ? sdk_version_in(*version_output) : std::nullopt;
+        if (!path || !version) {
             return std::unexpected(
                 "linking needs the macOS SDK from Apple's Command Line Tools, which aren't "
                 "installed; install them with `xcode-select --install`");
@@ -426,7 +429,46 @@ std::vector<std::string> find_beside(const native_libraries_t& natives) {
 #endif
 }
 
+/// The last line of `output` that `wanted` takes, without its line break or spaces around it.
+template <typename Wanted>
+std::optional<std::string> last_line(const std::string_view output, const Wanted wanted) {
+    std::optional<std::string> found;
+    std::size_t start = 0;
+    while (start <= output.size()) {
+        const std::size_t end = std::min(output.find('\n', start), output.size());
+        std::string_view line = output.substr(start, end - start);
+        while (!line.empty() && (line.front() == ' ' || line.front() == '\t')) {
+            line.remove_prefix(1);
+        }
+
+        while (!line.empty() &&
+               (line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) {
+            line.remove_suffix(1);
+        }
+
+        if (!line.empty() && wanted(line)) {
+            found = std::string(line);
+        }
+
+        start = end + 1;
+    }
+
+    return found;
+}
+
 } // namespace
+
+std::optional<std::string> sdk_path_in(const std::string_view output) {
+    return last_line(output, [](const std::string_view line) { return line.front() == '/'; });
+}
+
+std::optional<std::string> sdk_version_in(const std::string_view output) {
+    return last_line(output, [](const std::string_view line) {
+        return line.front() >= '0' && line.front() <= '9' &&
+               std::ranges::all_of(line,
+                                   [](const char c) { return (c >= '0' && c <= '9') || c == '.'; });
+    });
+}
 
 std::string system_library_argument(const std::string_view name,
                                     const std::span<const std::filesystem::path> folders) {
