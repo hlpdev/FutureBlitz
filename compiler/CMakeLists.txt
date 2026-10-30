@@ -113,7 +113,7 @@ set(fb_build_config
 // named by their files in the target's folder.
 namespace fb::build_config {
 
-inline constexpr std::string_view version = \"${PROJECT_VERSION}\";
+inline constexpr std::string_view version = \"${fb_version}\";
 inline constexpr std::string_view target_triple = \"${FB_TARGET_TRIPLE}\";
 /// The target's name for the toolchain's folders, like \"windows-x64\".
 inline constexpr std::string_view toolchain_target = \"${FB_TOOLCHAIN_TARGET}\";

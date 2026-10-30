@@ -8,6 +8,17 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # No C++ modules here; scanning adds GCC-only flags that break clang-tidy and clangd.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
+# The version fb says it is: a release's, from its v<version> tag (release.yml), else this file's.
+set(FB_VERSION "" CACHE STRING "The version fb says it is, like 1.0.0; empty is CMakeLists.txt's")
+if(FB_VERSION STREQUAL "")
+  set(fb_version "${PROJECT_VERSION}")
+else()
+  set(fb_version "${FB_VERSION}")
+endif()
+if(NOT fb_version MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
+  message(FATAL_ERROR "FB_VERSION is three numbers, like 1.0.0, not \"${fb_version}\"")
+endif()
+
 option(FB_BUILD_TESTS "Build the test suite" ON)
 # Only what programs link: the runtime, std's bundled libraries, and lib/<target>/, with no LLVM.
 # The Linux release builds these against glibc 2.28, apart from fb itself.
