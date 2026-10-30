@@ -267,10 +267,14 @@ README says how to build, test, and install it.
 - **Tasks**, of type `futureblitz`: build, run, test, fmt, and check on the workspace folder's
   package, and build, run, fmt, and check on the open file (`${file}`), with `target`, `release`,
   `filter`, `check`, `args`, and `programArgs` in tasks.json. They run in the workspace folder, so
-  fb's paths are relative to it, or with no folder open, in the target's. Problem matchers, which
-  take a relative path from the task's folder: `$fb` for diagnostic_render.cpp's
-  `path:line:col: error[code]: message` and warnings, `$fb-note` for its notes, and `$fb-runtime`
-  for what a program or its tests print with a place: `panic: ... at path:line:col`, `uncaught
+  fb's paths are relative to it, or with no folder open, in the target's, with `FB_PATHS=absolute`,
+  which has fb name files by their whole paths: VS Code takes a problem matcher's `${cwd}` with no
+  folder open to be its own process's folder, not the task's, so those tasks use `$fb-whole`,
+  `$fb-note-whole`, and `$fb-runtime-whole`, the same matchers with absolute paths. Their owner is
+  `futureblitz-tasks`, not the language client's diagnostics' `futureblitz`, whose changes would
+  replace or clear a task's problems, and which VS Code keeps from the extension host. Problem
+  matchers: `$fb` for diagnostic_render.cpp's `path:line:col: error[code]: message` and warnings,
+  `$fb-note` for its notes, and `$fb-runtime` for what a program or its tests print with a place: `panic: ... at path:line:col`, `uncaught
   Type[: message] at`, `expect failed: ... at`, `failed[: message] at` (Fail), and `threw
   Type[: message] at`. fb's diagnostics count columns in code points, and with `FB_COLUMNS=utf-16`
   in UTF-16 code units, as VS Code does, which the tasks set; a running program's places, which

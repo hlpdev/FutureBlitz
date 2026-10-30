@@ -247,11 +247,17 @@ bool is_link(const std::filesystem::path& entry) {
 }
 
 /// A file on disk as messages name it: from the current folder when it's under it, or else
-/// where it is.
+/// where it is. FB_PATHS=absolute asks for where it is always, as an editor with no folder open
+/// does, whose problems can't be found from the folder fb runs in.
 std::filesystem::path shown_disk_path(const std::filesystem::path& path) {
     std::error_code error;
     const std::filesystem::path current = std::filesystem::current_path(error);
     std::filesystem::path normal = path.lexically_normal();
+    if (const char* paths = std::getenv("FB_PATHS");
+        paths != nullptr && std::string_view(paths) == "absolute") {
+        return error ? normal : (current / normal).lexically_normal();
+    }
+
     if (error || !normal.is_absolute()) {
         return normal;
     }

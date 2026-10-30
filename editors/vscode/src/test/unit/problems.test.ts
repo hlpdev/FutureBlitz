@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, test } from "node:test";
 
-import { COLUMNS } from "../../fb";
+import { COLUMNS, PROBLEM_MATCHERS, WHOLE_PATH_MATCHERS, taskEnvironment } from "../../fb";
 import { EXTENSION, scratch, testFb } from "./repo";
 
 interface Pattern {
@@ -23,8 +23,11 @@ interface Pattern {
 
 interface Matcher {
     name: string;
+    owner?: string;
     severity?: string;
-    pattern: Pattern;
+    pattern?: Pattern;
+    base?: string;
+    fileLocation?: string | string[];
 }
 
 interface Problem {
@@ -38,19 +41,21 @@ interface Problem {
 }
 
 const manifest = JSON.parse(fs.readFileSync(path.join(EXTENSION, "package.json"), "utf8"));
-const matchers: Matcher[] = manifest.contributes.problemMatchers;
+const declared: Matcher[] = manifest.contributes.problemMatchers;
+// The ones with patterns of their own; the others are the same with whole paths.
+const matchers = declared.filter((matcher) => matcher.pattern !== undefined);
 
 // What VS Code's matchers make of fb's output, a line at a time, as it reads a task's.
 function problems(output: string): Problem[] {
     const found: Problem[] = [];
     for (const line of output.split(/\r?\n/)) {
         for (const matcher of matchers) {
-            const match = new RegExp(matcher.pattern.regexp).exec(line);
+            const match = new RegExp((matcher.pattern as Pattern).regexp).exec(line);
             if (match === null) {
                 continue;
             }
 
-            const pattern = matcher.pattern;
+            const pattern = matcher.pattern as Pattern;
             found.push({
                 matcher: matcher.name,
                 file: match[pattern.file],
@@ -68,8 +73,21 @@ function problems(output: string): Problem[] {
 
 describe("problem matchers", () => {
     test("each task names matchers package.json has", () => {
-        const names = matchers.map((matcher) => `$${matcher.name}`);
-        assert.deepEqual(names, ["$fb", "$fb-note", "$fb-runtime"]);
+        const names = declared.map((matcher) => `$${matcher.name}`);
+        assert.deepEqual(names, [...PROBLEM_MATCHERS, ...WHOLE_PATH_MATCHERS]);
+        // Their owner isn't the language client's diagnostic collection's, "futureblitz": VS Code
+        // keeps markers whose owner an extension's collection has from the extension host, and
+        // the collection's changes would replace or clear them.
+        for (const matcher of matchers) {
+            assert.equal(matcher.owner, "futureblitz-tasks", matcher.name);
+        }
+
+        // A whole path's is its twin's, with no folder to find a file from.
+        for (const [i, name] of WHOLE_PATH_MATCHERS.entries()) {
+            const whole = declared.find((matcher) => `$${matcher.name}` === name);
+            assert.equal(whole?.base, PROBLEM_MATCHERS[i]);
+            assert.equal(whole?.fileLocation, "absolute");
+        }
     });
 
     test("an error, a warning with a code, and a note, but not their snippets", () => {
@@ -253,6 +271,38 @@ describe("problem matchers", () => {
         assert.deepEqual(points.map((p) => [p.line, p.column]), [[2, 18]]);
         assert.deepEqual(units.map((p) => [p.line, p.column]), [[2, 20]]);
         assert.equal("Local s = \"\u{1F600}\u{1F600}\" + y".indexOf("y") + 1, units[0].column);
+    });
+
+    // With no folder open, VS Code finds a problem's relative path from its own process's folder,
+    // not the task's, so a task there asks fb for whole paths, a program's places among them.
+    test("fb build's and fb run's paths with no folder open are whole", { skip }, () => {
+        const folder = scratch("lone");
+        fs.writeFileSync(path.join(folder, "bad.fb"), 'Import std.core\nLocal x: Int = "a"\n');
+        fs.writeFileSync(path.join(folder, "panic.fb"), "Import std.core\nLocal a = [1]\nPrint(a[3])\n");
+        const run = (args: string[], inFolder: boolean): Problem[] =>
+            problems(
+                (({ stdout, stderr }) => stdout + stderr)(
+                    spawnSync(fb as string, [...args, "--color", "never"], {
+                        cwd: folder,
+                        encoding: "utf8",
+                        env: { ...process.env, ...taskEnvironment(inFolder) },
+                    }),
+                ),
+            );
+        try {
+            assert.deepEqual(run(["build", "bad.fb"], true).map((p) => p.file), ["bad.fb"]);
+            for (const [args, file] of [
+                [["build", "bad.fb"], "bad.fb"],
+                [["run", "panic.fb"], "panic.fb"],
+            ] as const) {
+                const found = run([...args], false);
+                assert.equal(found.length, 1, args.join(" "));
+                assert.ok(path.isAbsolute(found[0].file), found[0].file);
+                assert.equal(fs.realpathSync(found[0].file), fs.realpathSync(path.join(folder, file)));
+            }
+        } finally {
+            fs.rmSync(folder, { recursive: true, force: true });
+        }
     });
 
     test("fb run's panic", { skip }, () => {

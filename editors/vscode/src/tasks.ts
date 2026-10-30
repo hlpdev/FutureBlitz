@@ -6,11 +6,19 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
-import { COLUMNS, FbCommand, TaskDefinition, missingFbMessage, taskArguments, taskLabel } from "./fb";
+import {
+    FbCommand,
+    PROBLEM_MATCHERS,
+    TaskDefinition,
+    WHOLE_PATH_MATCHERS,
+    missingFbMessage,
+    taskArguments,
+    taskEnvironment,
+    taskLabel,
+} from "./fb";
 import { Found } from "./paths";
 
 export const TASK_TYPE = "futureblitz";
-export const PROBLEM_MATCHERS = ["$fb", "$fb-note", "$fb-runtime"];
 
 // How long a task has to start before runTask gives up on it, as when VS Code can't resolve what
 // it needs.
@@ -80,10 +88,12 @@ export class FbTaskProvider implements vscode.TaskProvider {
                 ? missingFb(missingFbMessage(fb.missingSetting))
                 : new vscode.ProcessExecution(fb.path, taskArguments(definition), {
                       cwd: folder?.uri.fsPath ?? targetFolder(definition.target),
-                      // VS Code's columns are UTF-16 code units, which fb counts in when asked.
-                      env: { [COLUMNS.name]: COLUMNS.value },
+                      // VS Code's columns are UTF-16 code units, which fb counts in when asked,
+                      // and with no folder, the problem matchers find files by whole paths.
+                      env: taskEnvironment(folder !== undefined),
                   });
-        const task = new vscode.Task(definition, scope, name, "fb", execution, PROBLEM_MATCHERS);
+        const matchers = folder !== undefined ? PROBLEM_MATCHERS : WHOLE_PATH_MATCHERS;
+        const task = new vscode.Task(definition, scope, name, "fb", execution, matchers);
         if (definition.command === "build" || definition.command === "check") {
             task.group = vscode.TaskGroup.Build;
         } else if (definition.command === "test") {

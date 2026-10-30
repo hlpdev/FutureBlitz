@@ -335,3 +335,15 @@ Actual: The renames to Print and Int succeed on Linux.
 Fix: Hold the completion's result in a local before the loop.
 
 Status: fixed: visible_names() holds the result in a local; the test is as it was, and fails without the fix only under a compiler without P2718, as GCC 14 (CI on Linux), and no other range-for in the repo loops over a member of a temporary
+
+## ci-2 (medium): With no folder open, a build task's errors never reach Problems
+
+editors/vscode/package.json's problem matchers. The extension test "with no folder open / a lone file's build errors go to Problems" failed on every OS, with master's fb too. Two things kept the error out. The matchers' owner was `futureblitz`, which is also the language client's diagnostic collection's name. VS Code doesn't forward markers whose owner an extension's collection has to the extension host, and the collection's changes replace or clear them: while fb-lsp ran, the task's problems weren't seen. And with no folder open, VS Code resolves the matchers' `${cwd}` to its own process's folder, not the task's, so `broken.fb:3:16` became file:///broken.fb.
+
+Shown by: the lone suite with a debug dump of `vscode.languages.getDiagnostics()`: with master's matchers, no marker at all; with the owner changed alone, one at `file:///broken.fb`; with both fixes, the test passes.
+
+Expected: The build's error is on broken.fb's line 3 in Problems.
+
+Actual: It timed out waiting for the build's error.
+
+Status: fixed: the matchers' owner is `futureblitz-tasks`, and a task with no folder open sets `FB_PATHS=absolute`, which has fb name files by their whole paths (shown_disk_path), and uses `$fb-whole`, `$fb-note-whole`, and `$fb-runtime-whole`, the same matchers with absolute paths; unit tests check the owners, the whole-path matchers, and fb's whole paths with no folder, a cli test checks FB_PATHS, and the lone suite passes

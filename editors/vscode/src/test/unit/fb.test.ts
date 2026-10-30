@@ -15,8 +15,16 @@ import {
     projectOf,
     relativeTarget,
     taskArguments,
+    taskEnvironment,
     taskLabel,
 } from "../../fb";
+
+describe("taskEnvironment", () => {
+    test("UTF-16 columns, and with no folder open, whole paths", () => {
+        assert.deepEqual(taskEnvironment(true), { FB_COLUMNS: "utf-16" });
+        assert.deepEqual(taskEnvironment(false), { FB_COLUMNS: "utf-16", FB_PATHS: "absolute" });
+    });
+});
 
 describe("taskArguments", () => {
     test("each command, with its own options", () => {

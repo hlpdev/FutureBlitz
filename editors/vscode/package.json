@@ -212,7 +212,7 @@
       {
         "name": "fb",
         "label": "fb's errors and warnings",
-        "owner": "futureblitz",
+        "owner": "futureblitz-tasks",
         "source": "fb",
         "fileLocation": [
           "autoDetect",
@@ -231,7 +231,7 @@
       {
         "name": "fb-note",
         "label": "fb's notes",
-        "owner": "futureblitz",
+        "owner": "futureblitz-tasks",
         "source": "fb",
         "severity": "info",
         "fileLocation": [
@@ -249,7 +249,7 @@
       {
         "name": "fb-runtime",
         "label": "Panics, uncaught errors, and failed tests",
-        "owner": "futureblitz",
+        "owner": "futureblitz-tasks",
         "source": "fb",
         "severity": "error",
         "fileLocation": [
@@ -263,6 +263,24 @@
           "line": 3,
           "column": 4
         }
+      },
+      {
+        "name": "fb-whole",
+        "label": "fb's errors and warnings, by whole paths",
+        "base": "$fb",
+        "fileLocation": "absolute"
+      },
+      {
+        "name": "fb-note-whole",
+        "label": "fb's notes, by whole paths",
+        "base": "$fb-note",
+        "fileLocation": "absolute"
+      },
+      {
+        "name": "fb-runtime-whole",
+        "label": "Panics, uncaught errors, and failed tests, by whole paths",
+        "base": "$fb-runtime",
+        "fileLocation": "absolute"
       }
     ],
     "debuggers": [

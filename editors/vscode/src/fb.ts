@@ -7,6 +7,26 @@ import * as path from "node:path";
 // code units, as VS Code counts them, not code points.
 export const COLUMNS = { name: "FB_COLUMNS", value: "utf-16" };
 
+// What asks fb (compiler/src/driver.cpp's shown_disk_path) to name files by their whole paths,
+// as a task with no folder open does, whose problem matchers have no folder to find a file from.
+export const PATHS = { name: "FB_PATHS", value: "absolute" };
+
+// The problem matchers of a task in a workspace folder, which find a file from the folder.
+export const PROBLEM_MATCHERS = ["$fb", "$fb-note", "$fb-runtime"];
+// With no folder open, VS Code drops a problem matcher whose file location names ${cwd}, which it
+// can't resolve there, so a task finds its problems by the whole paths it asks fb for.
+export const WHOLE_PATH_MATCHERS = ["$fb-whole", "$fb-note-whole", "$fb-runtime-whole"];
+
+// The environment fb runs in for a task, in a workspace folder or with none.
+export function taskEnvironment(inFolder: boolean): Record<string, string> {
+    const env: Record<string, string> = { [COLUMNS.name]: COLUMNS.value };
+    if (!inFolder) {
+        env[PATHS.name] = PATHS.value;
+    }
+
+    return env;
+}
+
 export type FbCommand = "build" | "run" | "test" | "fmt" | "check";
 
 // A futureblitz task's definition, as tasks.json and package.json's taskDefinitions have it.

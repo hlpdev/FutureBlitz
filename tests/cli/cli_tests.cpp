@@ -625,6 +625,31 @@ TEST_CASE("FB_COLUMNS=utf-16 counts diagnostics' columns in UTF-16 code units", 
     CHECK(units.output.contains("1 | Local s = \"\xF0\x9F\x98\x80\xF0\x9F\x98\x80\" + y\n"));
 }
 
+TEST_CASE("FB_PATHS=absolute names files by their whole paths", "[cli]") {
+    // As the editor's tasks ask with no folder open, from the file's folder, where fb names it
+    // from there without it.
+    const std::filesystem::path source = write_source("paths/whole.fb", "Local s = y\n");
+    const std::filesystem::path folder = source.parent_path();
+    const auto checked = [&](const std::string_view paths) {
+        const environment_variable_t set("FB_PATHS", paths);
+        const std::filesystem::path before = std::filesystem::current_path();
+        std::filesystem::current_path(folder);
+        const fb::process_result_t result = fb_run({ "check", "whole.fb", "--color", "never" });
+        std::filesystem::current_path(before);
+        return result.output;
+    };
+
+    const std::string relative = checked("");
+    INFO(relative);
+    CHECK(relative.contains("whole.fb:1:11: error: 'y' isn't declared\n"));
+    CHECK_FALSE(relative.contains("/whole.fb:1:11"));
+    const std::string whole = checked("absolute");
+    INFO(whole);
+    CHECK(whole.contains(
+        std::format("{}:1:11: error: 'y' isn't declared\n",
+                    fb::to_utf8(std::filesystem::absolute(source).lexically_normal()))));
+}
+
 TEST_CASE("fb build writes an executable that runs", "[cli]") {
     std::filesystem::path executable = std::filesystem::path(FB_TEST_OUTPUT) / "built" / "hello";
     executable += fb::executable_extension;
