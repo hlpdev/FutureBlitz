@@ -1,3 +1,5 @@
+//! A program's settings, kept between its runs where the OS keeps them.
+//!
 //! std.io's preferences: a program's settings, kept between its runs in the folder each OS keeps
 //! its users' programs' settings in, in a file of the program's own, which a save replaces whole.
 
@@ -26,6 +28,20 @@ Const SPACE: UInt8 = 32
 /// and "\r" for a backslash, a line break, and a carriage return in both, "\=" for an '=' in a
 /// key and "\#" for a '#' at its start; a line that starts with '#', or has no '=', is skipped,
 /// and so is a byte order mark an editor writes before the first.
+///
+/// # Examples
+///
+/// ```
+/// Local folder = Try TempDir()
+/// Local settings = Try Preferences("example", folder.Path)
+/// settings.SetInt("volume", 7)
+/// settings.Set("name", "Ada")
+/// Try settings.Save()
+/// Local again = Try Preferences("example", folder.Path)
+/// Expect(again.GetInt("volume") == 7)
+/// Expect(again.Get("name", "nobody") == "Ada" && again.GetBool("muted", False) == False)
+/// Try folder.Close()
+/// ```
 Public Class Preferences
     /// The program the preferences are for.
     Public ReadOnly Field App: String

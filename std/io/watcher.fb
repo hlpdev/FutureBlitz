@@ -1,3 +1,5 @@
+//! Watching files and folders for changes.
+//!
 //! std.io's file watcher: what happens to a file, or to what's in a folder, as the OS tells libuv,
 //! which a FileWatcher queues for the program to take in turn, waiting for it, awaiting it, or
 //! not.
@@ -45,6 +47,17 @@ End Struct
 /// it's closed or its last reference goes. An OS can tell of one change more than once, as when a
 /// write comes in parts, and of a change it makes itself, as of a folder's times. A watched file
 /// or folder that's removed may go unwatched on some OSes, even once it's back.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// Local watcher = Try FileWatcher(Path("assets"))
+/// Local event = watcher.Next()
+/// While event != Null
+///     Print("{event.Kind}: {event.Path}")
+///     event = watcher.Next()
+/// End While
+/// ```
 Public Class FileWatcher
     /// The file or folder it watches.
     Public ReadOnly Field Path: Path

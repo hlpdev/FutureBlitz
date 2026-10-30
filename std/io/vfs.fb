@@ -1,3 +1,5 @@
+//! A virtual file system of folders, embedded files, and zips, mounted in one tree.
+//!
 //! std.io's virtual file system: a Vfs mounts folders, embedded folders, zips, and a program's own
 //! sources at points in one tree of its own, and reads them through the same calls as files. Its
 //! paths are its own, with '/' between names, on every OS; a later mount over the same place
@@ -40,6 +42,8 @@ Public Final Class FolderSource Implements VfsSource
         Folder = folder
     End New
 
+    /// The bytes of the file at `path` in the folder, or Null when there's no file there. Throws
+    /// the IOError reading it does for another reason.
     Public Method Read(path: String): UInt8[]? Throws IOError
         Local file = OnDisk(path)
         If path == "" || file == Null Then Return Null
@@ -51,6 +55,7 @@ Public Final Class FolderSource Implements VfsSource
         End Try
     End Method
 
+    /// Whether `path` in the folder is a file or a folder, or Null when nothing is there.
     Public Method KindAt(path: String): FileKind? Throws IOError
         If path == "" Then Return FileKind.DIRECTORY
         Local file = OnDisk(path)
@@ -63,6 +68,8 @@ Public Final Class FolderSource Implements VfsSource
         End Try
     End Method
 
+    /// The names of what's in the folder at `path` in the folder, each with whether it's a file or
+    /// a folder, or Null when there's no folder there.
     Public Method List(path: String): (String, FileKind)[]? Throws IOError
         Local folder = OnDisk(path)
         If folder == Null Then Return Null
@@ -95,9 +102,9 @@ Public Class EmbeddedSource Implements VfsSource
     /// Each folder's names, "" for the root's, and whether each is a folder.
     Field Folders: Map<String, Map<String, Bool>>
 
-    /// Panics for a path that isn't a file's, one that goes above the root or has no names once its
-    /// "."s and ".."s are taken out, like "", ".", or "a/..", and for paths that make one place a
-    /// file and a folder too.
+    /// A source of `files`, by their paths. Panics for a path that isn't a file's, one that goes
+    /// above the root or has no names once its "."s and ".."s are taken out, like "", ".", or
+    /// "a/..", and for paths that make one place a file and a folder too.
     @PanicsAtCaller
     Public New(files: Map<String, UInt8[]>)
         Files = Map<String, UInt8[]>()
@@ -126,17 +133,22 @@ Public Class EmbeddedSource Implements VfsSource
         End For
     End New
 
+    /// A copy of the bytes of the file at `path`, or Null when it has none there.
     Public Method Read(path: String): UInt8[]? Throws IOError
         Local bytes = Files.Get(path)
         Return bytes == Null ? Null : bytes.Clone()
     End Method
 
+    /// Whether `path` is a file or a folder, as the files' paths make it, or Null when it's
+    /// neither.
     Public Method KindAt(path: String): FileKind? Throws IOError
         If Folders.Contains(path) Then Return FileKind.DIRECTORY
         If Files.Contains(path) Then Return FileKind.FILE
         Return Null
     End Method
 
+    /// The names in the folder at `path`, each with whether it's a file or a folder, or Null when
+    /// there's no folder there.
     Public Method List(path: String): (String, FileKind)[]? Throws IOError
         Local names = Folders.Get(path)
         If names == Null Then Return Null
@@ -157,6 +169,17 @@ End Struct
 
 /// A tree of mounted sources, read as files are. A file is the one of the last mount that has
 /// it; a folder lists what each mount has in it, and the mounts under it.
+///
+/// # Examples
+///
+/// ```
+/// Local files = Vfs()
+/// Local embedded = {"config.txt": "size = 3".Bytes, "levels/one.txt": "first".Bytes}
+/// files.MountEmbedded(Path("data"), embedded)
+/// Expect((Try files.ReadText(Path("data/config.txt"))) == "size = 3")
+/// Expect(files.DirExists(Path("data/levels")))
+/// Expect(!files.Exists(Path("data/missing.txt")))
+/// ```
 Public Class Vfs
     Field Mounts: Mounted[]
 

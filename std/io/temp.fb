@@ -1,3 +1,5 @@
+//! Temporary files and folders, removed when they're closed.
+//!
 //! std.io's temporary files and folders: each is new, in the OS's temporary folder, with a name
 //! no other has, and goes away, with what's in it, when it's closed, or when its last reference
 //! goes.
@@ -39,6 +41,16 @@ Public Class TempDir
 End Class
 
 /// A new, empty file of the program's own, which Close deletes.
+///
+/// # Examples
+///
+/// ```
+/// Local file = Try TempFile()
+/// Try File.WriteText(file.Path, "scratch")
+/// Expect(File.Exists(file.Path))
+/// Try file.Close()
+/// Expect(!File.Exists(file.Path))
+/// ```
 Public Class TempFile
     /// Where the file is.
     Public ReadOnly Field Path: Path

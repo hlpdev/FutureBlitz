@@ -1,3 +1,5 @@
+//! Buffered readers and writers over other streams.
+//!
 //! Buffered streams: BufferedReader reads another Reader a buffer at a time, so that many small
 //! reads, a byte or a line at a time, cost one of its; BufferedWriter writes another Writer a
 //! buffer at a time. Their Async twins go through the other stream's.
@@ -9,6 +11,16 @@ Import std.io.streams
 
 /// Reads another Reader a buffer's bytes at a time, and gives them as they're asked for, a byte or
 /// a line at a time too.
+///
+/// # Examples
+///
+/// ```
+/// Local reader = BufferedReader(StringReader("one\r\ntwo\nlast"))
+/// Expect((Try reader.ReadLine()) == "one")
+/// Expect((Try reader.ReadLine()) == "two")
+/// Expect((Try reader.ReadLine()) == "last")
+/// Expect((Try reader.ReadLine()) == Null)
+/// ```
 Public Class BufferedReader Implements Reader
     Field Inner: Reader
     Field Held: Buffer<UInt8>
@@ -39,6 +51,8 @@ Public Class BufferedReader Implements Reader
         Return Take(into)
     End Method
 
+    /// Read's Async twin: what it has of what's next, or what an Async read of the other Reader
+    /// gives, while the main thread goes on.
     Public Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
         If into.Count == 0 Then Return 0
         If Start == Finish
@@ -133,6 +147,19 @@ End Class
 /// Writes another Writer a buffer's bytes at a time: what's written waits in a buffer until a write
 /// doesn't fit what's left of it, or Flush sends it on. What's still waiting when it goes is
 /// written then, without the errors that Flush would give.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Local memory = MemoryStream()
+/// Local writer = BufferedWriter(memory, 64)
+/// Try writer.WriteText("held ")
+/// Try writer.WriteText("back")
+/// Expect(memory.Count == 0)
+/// Try writer.Flush()
+/// Expect(String.FromUtf8(memory.ToArray()) == "held back")
+/// ```
 Public Class BufferedWriter Implements Writer
     Field Inner: Writer
     Field Held: Buffer<UInt8>
@@ -159,6 +186,8 @@ Public Class BufferedWriter Implements Writer
         Keep(from)
     End Method
 
+    /// Write's Async twin, which sends on what waits by the other Writer's WriteAsync when the
+    /// bytes don't fit.
     Public Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
         If Length + from.Count > Held.Count Then Try Await SendAsync()
         If from.Count >= Held.Count
@@ -175,6 +204,8 @@ Public Class BufferedWriter Implements Writer
         Try Inner.Flush()
     End Method
 
+    /// Flush's Async twin: sends on what waits, and flushes the other Writer, while the main thread
+    /// goes on.
     Public Async Method FlushAsync() Throws IOError
         Try Await SendAsync()
         Try Await Inner.FlushAsync()

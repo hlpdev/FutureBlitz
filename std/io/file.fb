@@ -1,3 +1,5 @@
+//! Reading, writing, copying, moving, and deleting whole files at once.
+//!
 //! std.io's files, a call at a time: reading and writing a whole file's bytes, text, or lines,
 //! adding to one, writing one atomically, what's at a path, and copying, moving, and deleting.
 //! Each has an Async twin, which libuv's thread pool does while the main thread goes on, and
@@ -105,8 +107,23 @@ Public Struct Metadata
 End Struct
 
 /// A file's Static Methods, each a call that opens the file, does its work, and closes it.
+///
+/// # Examples
+///
+/// ```
+/// Local folder = Try TempDir()
+/// Local path = folder.Path / "notes.txt"
+/// Try File.WriteText(path, "first line\n")
+/// Try File.AppendText(path, "second line\n")
+/// Expect((Try File.ReadLines(path)) == ["first line", "second line"])
+/// Expect((Try File.Size(path)) == 23)
+/// Try File.Copy(path, folder.Path / "copy.txt")
+/// Expect((Try File.Delete(path)) && !File.Exists(path))
+/// Expect(File.Exists(folder.Path / "copy.txt"))
+/// Try folder.Close()
+/// ```
 Public Class File
-    /// File isn't made yet: it's only its Static Methods.
+    /// File isn't made: it's only its Static Methods.
     New()
     End New
 

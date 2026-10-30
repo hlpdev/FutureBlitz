@@ -1,3 +1,5 @@
+//! Reading and writing numbers, Bools, bytes, and text in binary, in either byte order.
+//!
 //! Binary streams: BinaryReader reads numbers, Bools, bytes, and text from a Reader, and
 //! BinaryWriter writes them to a Writer, each number's bytes in the order its ByteOrder says,
 //! whatever the machine's own order is.
@@ -18,6 +20,20 @@ End Enum
 /// Reads numbers, Bools, bytes, and text from another Reader. Each read throws an IOError of
 /// UNEXPECTED_END when the stream ends before what it reads, and ReadBytes and ReadText one of
 /// OTHER for a count past the 2147483647 bytes an array holds.
+///
+/// # Examples
+///
+/// ```
+/// Local memory = MemoryStream()
+/// Local writer = BinaryWriter(memory, ByteOrder.BIG)
+/// Try writer.WriteUInt16(0x1234)
+/// Try writer.WriteText("hi")
+/// Expect(memory.ToArray() == [0x12, 0x34, 0x68, 0x69] As UInt8[])
+/// Try memory.Seek(0, SeekOrigin.START)
+/// Local reader = BinaryReader(memory, ByteOrder.BIG)
+/// Expect((Try reader.ReadUInt16()) == 0x1234)
+/// Expect((Try reader.ReadText(2)) == "hi")
+/// ```
 Public Class BinaryReader
     Field Inner: Reader
     Field Order: ByteOrder

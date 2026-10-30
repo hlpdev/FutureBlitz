@@ -1,3 +1,5 @@
+//! Paths of files and folders, by Windows' rules or POSIX's.
+//!
 //! std.io's paths: a Path is where a file or folder is, as text, read by Windows' rules or POSIX's,
 //! the target's unless it's made with the other's. A String converts to one wherever a Path is
 //! expected. Its own separator is '/' on every OS, which it
@@ -32,6 +34,18 @@ Const DOT: UInt8 = 46
 /// "a//b" aren't until Normalize makes them so, and they sort by their styles, POSIX's first, then
 /// by their texts' bytes. A Path's zero, as a Struct's Field starts with, is "" by the target's
 /// rules, as Path("") is.
+///
+/// # Examples
+///
+/// ```
+/// Local save = Path("games/one/save.dat", PathStyle.POSIX)
+/// Expect(save.FileName() == "save.dat")
+/// Expect(save.Stem() == "save" && save.Extension() == ".dat")
+/// Expect(save.Parent() == Path("games/one", PathStyle.POSIX))
+/// Expect(save.WithExtension(".bak").Text == "games/one/save.bak")
+/// Expect(Path("a/./b/../c", PathStyle.POSIX).Normalize().Text == "a/c")
+/// Expect(Path("C:\\games", PathStyle.WINDOWS).IsAbsolute())
+/// ```
 Public Struct Path Implements Comparable, Hashable, Printable
     /// Its text, as it was given.
     Public ReadOnly Field Text: String
@@ -66,15 +80,20 @@ Public Struct Path Implements Comparable, Hashable, Printable
     /// `b` after `a`, as Join puts it: `saves / "one.dat"`, since a String converts to a Path.
     Operator /(a: Path, b: Path): Path => a.Join(b)
 
+    /// Whether `a` comes before `b`: by their styles, and then by their texts' bytes.
     Operator <(a: Path, b: Path): Bool
         If a.Style != b.Style Then Return (a.Style As Int) < (b.Style As Int)
         Return a.Text < b.Text
     End Operator
 
+    /// Whether the two have the same text and style, which paths to one place written two ways
+    /// don't: Normalize them first.
     Operator ==(a: Path, b: Path): Bool => a.Text == b.Text && a.Style == b.Style
 
+    /// A hash of its text and style, which Paths that are equal share.
     Public Method Hash(): UInt64 => HashCombine(Text.Hash(), (Style As Int).Hash())
 
+    /// Its text, as it was given.
     Public Method ToString(): String => Text
 
     /// `other` after this one, with a '/' between them unless this one ends with a separator. An

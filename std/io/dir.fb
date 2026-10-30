@@ -1,3 +1,5 @@
+//! Making, listing, and removing folders, and finding paths by glob patterns.
+//!
 //! std.io's folders: making and removing them, what's in one, and in the folders in it, the paths
 //! in one that a glob pattern matches, and the current and temporary folders. Each call has an
 //! Async twin, which libuv's thread pool does while the main thread goes on.
@@ -27,6 +29,20 @@ End Extern
 
 /// Something in a folder: where it is, where it is from the folder that was listed, which for
 /// Entries is its name, and what it is.
+///
+/// # Examples
+///
+/// ```
+/// Local folder = Try TempDir()
+/// Try Dir.CreateAll(folder.Path / "a" / "b")
+/// Try File.WriteText(folder.Path / "a" / "b" / "c.txt", "")
+/// Try File.WriteText(folder.Path / "a" / "d.md", "")
+/// Expect((Try Dir.Entries(folder.Path)).Count == 1)
+/// Expect((Try Dir.Walk(folder.Path)).Count == 4)
+/// Local texts = Try Dir.Glob(folder.Path, "**/*.txt")
+/// Expect(texts.Count == 1 && texts[0].Name() == "c.txt")
+/// Try folder.Close()
+/// ```
 Public Struct DirEntry
     /// Where it is.
     Public ReadOnly Field Path: Path

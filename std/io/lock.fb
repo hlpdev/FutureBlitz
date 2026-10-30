@@ -1,3 +1,5 @@
+//! Locks on files, which other programs see.
+//!
 //! std.io's file locks: a FileLock holds a lock on a file, which another FileLock, in this program
 //! or another, waits for, or is refused, until it's closed. Locks only keep other locks out: on
 //! every OS, anyone can still read and write the file.
@@ -19,6 +21,22 @@ End Extern
 /// A lock on a file, held for this FileLock alone, or shared with other shared ones, until Close,
 /// or until its last reference goes. The file is made, empty, when it isn't there, and stays when
 /// the lock goes. A FileLock waiting for one that this program holds waits forever.
+///
+/// # Examples
+///
+/// ```
+/// Local folder = Try TempDir()
+/// Local path = folder.Path / "app.lock"
+/// Try File.WriteText(path, "")
+/// Local lock = Try FileLock.Acquire(path)
+/// Expect(lock.IsHeld())
+/// Expect((Try FileLock.TryAcquire(path)) == Null)
+/// lock.Close()
+/// Local again = Try FileLock.TryAcquire(path)
+/// Expect(again != Null)
+/// again?.Close()
+/// Try folder.Close()
+/// ```
 Public Class FileLock
     /// The file it locks.
     Public ReadOnly Field Path: Path

@@ -1,3 +1,5 @@
+//! Open files, which read, write, and seek as streams.
+//!
 //! std.io's open files: File.Open gives a FileStream, a Reader, Writer, and Seeker over a file,
 //! which reads and writes where it is, as Seek moves it, with Async twins that libuv's thread
 //! pool does while the main thread goes on.
@@ -75,6 +77,20 @@ End Struct
 /// BufferedWriter around it takes fewer calls for small reads and writes. One call at a time goes
 /// on it: a call while an Async one is under way panics, and so does using it once it's closed,
 /// reading one not opened to read, and writing one not opened to write.
+///
+/// # Examples
+///
+/// ```
+/// Local folder = Try TempDir()
+/// Local path = folder.Path / "greeting.txt"
+/// Local stream = Try File.Create(path)
+/// Try stream.WriteText("hello, world")
+/// Try stream.Seek(7, SeekOrigin.START)
+/// Try stream.WriteText("there")
+/// stream.Close()
+/// Expect((Try File.ReadText(path)) == "hello, there")
+/// Try folder.Close()
+/// ```
 Public Class FileStream Implements Reader, Writer, Seeker
     /// The file it's open on.
     Public ReadOnly Field Path: Path
@@ -144,6 +160,7 @@ Public Class FileStream Implements Reader, Writer, Seeker
         Return count
     End Method
 
+    /// Read's Async twin, which libuv's thread pool does while the main thread goes on.
     @PanicsAtCaller
     Public Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
         CheckUsable(True)
@@ -175,6 +192,7 @@ Public Class FileStream Implements Reader, Writer, Seeker
         Try Wrote(from.Count)
     End Method
 
+    /// Write's Async twin, which libuv's thread pool does while the main thread goes on.
     @PanicsAtCaller
     Public Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
         CheckUsable(False)
@@ -197,6 +215,7 @@ Public Class FileStream Implements Reader, Writer, Seeker
         CheckOpen()
     End Method
 
+    /// Flush's Async twin, which has nothing to send on either, but panics once it's closed too.
     @PanicsAtCaller
     Public Async Method FlushAsync() Throws IOError
         CheckOpen()

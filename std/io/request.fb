@@ -1,3 +1,5 @@
+//! What std.io's file calls share.
+//!
 //! What std.io's files share: the runtime's request for a call, which holds what the call gives,
 //! and the IOError for one that failed.
 

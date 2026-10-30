@@ -1,3 +1,5 @@
+//! Reader, Writer, and Seeker, the streams that files and sockets are, and copying between them.
+//!
 //! std.io's streams: Reader, what bytes come from, and Writer, where they go, each with Async twins
 //! that wait on the main thread instead of blocking it, as a file or a socket does; Seeker, what
 //! moves around in them, which only blocks; and Copy, ReadAll, and ReadExact over them. Bytes go
@@ -21,6 +23,25 @@ Public Enum SeekOrigin
 End Enum
 
 /// What bytes come from: a file, a socket, memory, or another Reader they go through.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.ffi
+/// // A Reader of the same byte, forever.
+/// Class Zeros Implements Reader
+///     Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+///         For i = 0 Until into.Count
+///             into[i] = 0
+///         End For
+///         Return into.Count
+///     End Method
+/// End Class
+///
+/// Local four = Buffer<UInt8>(4)
+/// Try ReadExact(Zeros(), four)
+/// Expect(four.ToArray() == [0, 0, 0, 0] As UInt8[])
+/// ```
 Public Interface Reader
     /// Reads up to into.Count bytes into the start of `into`, and gives how many it read: one at
     /// least, or 0 once the stream has ended, or for an empty Buffer.
@@ -76,6 +97,16 @@ End Interface
 Package Const ChunkSize: Int64 = 65536
 
 /// Copies what's left of `from` to `to`, and gives how many bytes that was.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Local from = MemoryStream("copied whole".Bytes)
+/// Local to = MemoryStream()
+/// Expect((Try Copy(from, to)) == 12)
+/// Expect(String.FromUtf8(to.ToArray()) == "copied whole")
+/// ```
 Public Function Copy(from: Reader, to: Writer): Int64 Throws IOError
     Local chunk = Buffer<UInt8>(ChunkSize)
     Local total: Int64 = 0

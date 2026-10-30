@@ -1,3 +1,5 @@
+//! Files mapped into memory, read and written in place.
+//!
 //! std.io's mapped files: a file's bytes mapped into memory, read and written in place, without
 //! copying the file in, which the OS pages in as they're used.
 
@@ -28,6 +30,21 @@ End Extern
 /// on POSIX, reading what a file that another program shortens no longer has ends the program, as
 /// it would C's. On Windows, a mapped file can't be replaced or shortened until it's closed, and
 /// a write that would is BUSY, but it can be deleted.
+///
+/// # Examples
+///
+/// ```
+/// Local folder = Try TempDir()
+/// Local path = folder.Path / "data.bin"
+/// Try File.WriteText(path, "abc")
+/// Local mapped = Try MappedFile(path, True)
+/// Expect(mapped.Count() == 3 && mapped[1] == 0x62)
+/// mapped[0] = 0x41
+/// Try mapped.Flush()
+/// mapped.Close()
+/// Expect((Try File.ReadText(path)) == "Abc")
+/// Try folder.Close()
+/// ```
 Public Class MappedFile
     /// The file it maps.
     Public ReadOnly Field Path: Path
