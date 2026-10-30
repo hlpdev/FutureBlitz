@@ -1,3 +1,5 @@
+//! Complex numbers, as two Doubles.
+//!
 //! Complex: a complex number, Real + Imaginary times i, as two Doubles, and worked out as Python's
 //! cmath does: Arg is from -pi to pi, and Log, Sqrt, and Pow give the principal value, scaled
 //! near the largest Doubles and among the subnormals as cmath scales them, with C99's values at
@@ -29,14 +31,27 @@ Const LN_2: Double = 0.6931471805599453
 Const E: Double = 2.718281828459045
 
 /// A complex number, of a real and an imaginary part, each a Double.
+///
+/// # Examples
+///
+/// ```
+/// Local i = Complex(0, 1)
+/// Expect(i * i == Complex(-1, 0))
+/// Expect(Complex(3, 4).Abs() == 5.0)
+/// Expect(Complex(3, 4).Conjugate() == Complex(3, -4))
+/// Expect(Complex(-4, 0).Sqrt() == Complex(0, 2))
+/// ```
 Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaultable
     /// Its real part.
     Public ReadOnly Field Real: Double
     /// Its imaginary part.
     Public ReadOnly Field Imaginary: Double = 0.0
 
+    /// The zero Complex, 0 + 0i, which adding leaves alone.
     Public Static Method Zero(): Complex => Complex(0, 0)
+    /// The Complex 1 + 0i, which multiplying leaves alone.
     Public Static Method One(): Complex => Complex(1, 0)
+    /// The zero Complex, 0 + 0i.
     Public Static Method DefaultValue(): Complex => Complex(0, 0)
 
     /// The number of the `magnitude`, at the `angle` in radians from the positive real axis, as
@@ -184,14 +199,17 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
         Return Complex(length * cos(phase), length * sin(phase))
     End Method
 
+    /// Whether `a` and `b` have equal real and imaginary parts.
     Operator ==(a: Complex, b: Complex): Bool => a.Real == b.Real && a.Imaginary == b.Imaginary
     /// Whether `a` and `b` are equal.
     Operator ==(a: Complex, b: Double): Bool => a.Real == b && a.Imaginary == 0.0
     /// Whether `a` and `b` are equal.
     Operator ==(a: Double, b: Complex): Bool => b == a
 
+    /// A hash of its two parts, which Complexes that are equal share.
     Public Method Hash(): UInt64 => HashCombine(Real.Hash(), Imaginary.Hash())
 
+    /// `a` plus `b`.
     Operator +(a: Complex, b: Complex): Complex
         Return Complex(a.Real + b.Real, a.Imaginary + b.Imaginary)
     End Operator
@@ -200,6 +218,7 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
     Operator +(a: Complex, b: Double): Complex => Complex(a.Real + b, a.Imaginary)
     /// `a` plus `b`.
     Operator +(a: Double, b: Complex): Complex => Complex(a + b.Real, b.Imaginary)
+    /// `a` minus `b`.
     Operator -(a: Complex, b: Complex): Complex
         Return Complex(a.Real - b.Real, a.Imaginary - b.Imaginary)
     End Operator
@@ -209,6 +228,7 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
     /// `a` minus `b`.
     Operator -(a: Double, b: Complex): Complex => Complex(a - b.Real, -b.Imaginary)
 
+    /// `a` times `b`.
     Operator *(a: Complex, b: Complex): Complex
         Return Complex(a.Real * b.Real - a.Imaginary * b.Imaginary,
                        a.Real * b.Imaginary + a.Imaginary * b.Real)

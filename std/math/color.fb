@@ -1,13 +1,25 @@
-//! Color and Color32. A Color is four Floats, linear RGB and alpha, for lighting and blending,
-//! where math on light is right; a Color32 is four bytes, sRGB and alpha, as images and screens
-//! keep them. They convert with sRGB's gamma both ways, so a Color32 made a Color and back is the
-//! bytes it was. Hex, HSV, and HSL colors are sRGB's, as CSS's are, with a hue from 0 to 1 around,
-//! and OKLab's are from linear RGB. Alpha is linear in both, and 1 or 255 unless it's given.
+//! Colors, as sRGB bytes and as linear Floats.
+//!
+//! A Color is four Floats, linear RGB and alpha, for lighting and blending, where math on light is
+//! right; a Color32 is four bytes, sRGB and alpha, as images and screens keep them. They convert
+//! with sRGB's gamma both ways, so a Color32 made a Color and back is the bytes it was. Hex, HSV,
+//! and HSL colors are sRGB's, as CSS's are, with a hue from 0 to 1 around, and OKLab's are from
+//! linear RGB. Alpha is linear in both, and 1 or 255 unless it's given.
 
 Import std.core
 Import std.math.scalar
 
 /// Four bytes: sRGB red, green, and blue, and alpha, from 0 to 255.
+///
+/// # Examples
+///
+/// ```
+/// Local orange = Color32.Hex("#ffa500")
+/// Expect(orange.r == 255 && orange.g == 165 && orange.b == 0 && orange.a == 255)
+/// Expect(orange.ToHex() == "#ffa500")
+/// Expect(Color32.Hex("#f00") == Color32.Red)
+/// Expect(Color32.TryHex("not a color") == Null)
+/// ```
 Public Struct Color32 Implements Hashable, Printable
     /// Its red, from 0 to 255.
     Public Field r: UInt8
@@ -129,11 +141,22 @@ Public Struct Color32 Implements Hashable, Printable
         Return a == 255 ? text : text + HexByte(a)
     End Method
 
+    /// Its four bytes, as "(255, 165, 0, 255)".
     Public Method ToString(): String => "({r}, {g}, {b}, {a})"
 End Struct
 
 /// Four Floats: linear red, green, and blue, from 0 to 1 for what a screen shows and above for
 /// light brighter than white, and alpha, from 0 to 1.
+///
+/// # Examples
+///
+/// ```
+/// Local half = Lerp(Color.Black, Color.White, 0.5)
+/// Expect(IsClose(half, Color(0.5, 0.5, 0.5, 1)))
+/// // Half the light looks lighter than half gray, in sRGB's bytes.
+/// Expect(half.ToColor32().r > 128)
+/// Expect(Color.Hsv(0, 1, 1).ToColor32() == Color32.Red)
+/// ```
 Public Struct Color Implements Hashable, Printable
     /// Its linear red.
     Public Field r: Float
@@ -300,6 +323,7 @@ Public Struct Color Implements Hashable, Printable
                 (0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s) As Float)
     End Method
 
+    /// Its four Floats, as "(1, 0.5, 0, 1)".
     Public Method ToString(): String => "({r}, {g}, {b}, {a})"
 
     /// `c` plus `d`.

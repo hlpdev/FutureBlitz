@@ -1,3 +1,5 @@
+//! Integer 2D and 3D vectors, for grid cells and the steps between them.
+//!
 //! Vec2i and Vec3i: points and steps on a grid, as Ints, for cells, tiles, and voxels, and as Map
 //! keys. Their Operators work component by component, and an Int scales; dividing rounds toward 0,
 //! as Ints do, and dividing by 0, or overflow in debug builds, panics where it's called, as it does
@@ -8,19 +10,35 @@ Import std.math.scalar
 Import std.math.vector
 
 /// A cell or step on a 2D grid.
+///
+/// # Examples
+///
+/// ```
+/// Local a = Vec2i(1, 2)
+/// Local b = Vec2i(4, 6)
+/// Expect(a + b == Vec2i(5, 8))
+/// Expect(ManhattanDistance(a, b) == 7 && ChebyshevDistance(a, b) == 4)
+/// // Cells are Map keys.
+/// Local walls = {Vec2i(0, 0): True}
+/// Expect(walls.Contains(Vec2i(0, 0)) && !walls.Contains(a))
+/// ```
 Public Struct Vec2i Implements Numeric, Hashable, Printable, Defaultable
     /// Its x component.
     Public Field x: Int
     /// Its y component.
     Public Field y: Int
 
+    /// The zero vector, (0, 0).
     Public Static Method Zero(): Vec2i => Vec2i(0, 0)
+    /// The vector (1, 1), which multiplying leaves alone.
     Public Static Method One(): Vec2i => Vec2i(1, 1)
+    /// The zero vector, (0, 0).
     Public Static Method DefaultValue(): Vec2i => Vec2i(0, 0)
 
     /// The components as Floats, rounded to the nearest one a Float holds.
     Public Method ToVec2(): Vec2 => Vec2(x As Float, y As Float)
 
+    /// Its components, as "(1, 2)".
     Public Method ToString(): String => "({x}, {y})"
 
     /// The component at the index: x at 0, and y at 1. Any other index panics.
@@ -31,15 +49,23 @@ Public Struct Vec2i Implements Numeric, Hashable, Printable, Defaultable
         Panic("a Vec2i's components are at 0 to 1, not {index}")
     End Operator
 
+    /// `a` plus `b`, component by component. Panics in a debug build when a component overflows,
+    /// and wraps in a release one.
     @PanicsAtCaller
     Operator +(a: Vec2i, b: Vec2i): Vec2i => Vec2i(a.x + b.x, a.y + b.y)
 
+    /// `a` minus `b`, component by component. Panics in a debug build when a component overflows,
+    /// and wraps in a release one.
     @PanicsAtCaller
     Operator -(a: Vec2i, b: Vec2i): Vec2i => Vec2i(a.x - b.x, a.y - b.y)
 
+    /// `a` times `b`, component by component. Panics in a debug build when a component overflows,
+    /// and wraps in a release one.
     @PanicsAtCaller
     Operator *(a: Vec2i, b: Vec2i): Vec2i => Vec2i(a.x * b.x, a.y * b.y)
 
+    /// `a` divided by `b`, component by component. Each rounded toward 0. A component of 0 in `b`
+    /// panics.
     @PanicsAtCaller
     Operator /(a: Vec2i, b: Vec2i): Vec2i => Vec2i(a.x / b.x, a.y / b.y)
 
@@ -69,13 +95,17 @@ Public Struct Vec3i Implements Numeric, Hashable, Printable, Defaultable
     /// Its z component.
     Public Field z: Int
 
+    /// The zero vector, (0, 0, 0).
     Public Static Method Zero(): Vec3i => Vec3i(0, 0, 0)
+    /// The vector (1, 1, 1), which multiplying leaves alone.
     Public Static Method One(): Vec3i => Vec3i(1, 1, 1)
+    /// The zero vector, (0, 0, 0).
     Public Static Method DefaultValue(): Vec3i => Vec3i(0, 0, 0)
 
     /// The components as Floats, rounded to the nearest one a Float holds.
     Public Method ToVec3(): Vec3 => Vec3(x As Float, y As Float, z As Float)
 
+    /// Its components, as "(1, 2, 3)".
     Public Method ToString(): String => "({x}, {y}, {z})"
 
     /// The component at the index: x at 0, y at 1, and z at 2. Any other index panics.
@@ -87,15 +117,23 @@ Public Struct Vec3i Implements Numeric, Hashable, Printable, Defaultable
         Panic("a Vec3i's components are at 0 to 2, not {index}")
     End Operator
 
+    /// `a` plus `b`, component by component. Panics in a debug build when a component overflows,
+    /// and wraps in a release one.
     @PanicsAtCaller
     Operator +(a: Vec3i, b: Vec3i): Vec3i => Vec3i(a.x + b.x, a.y + b.y, a.z + b.z)
 
+    /// `a` minus `b`, component by component. Panics in a debug build when a component overflows,
+    /// and wraps in a release one.
     @PanicsAtCaller
     Operator -(a: Vec3i, b: Vec3i): Vec3i => Vec3i(a.x - b.x, a.y - b.y, a.z - b.z)
 
+    /// `a` times `b`, component by component. Panics in a debug build when a component overflows,
+    /// and wraps in a release one.
     @PanicsAtCaller
     Operator *(a: Vec3i, b: Vec3i): Vec3i => Vec3i(a.x * b.x, a.y * b.y, a.z * b.z)
 
+    /// `a` divided by `b`, component by component. Each rounded toward 0. A component of 0 in `b`
+    /// panics.
     @PanicsAtCaller
     Operator /(a: Vec3i, b: Vec3i): Vec3i => Vec3i(a.x / b.x, a.y / b.y, a.z / b.z)
 

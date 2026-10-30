@@ -1,3 +1,5 @@
+//! Quantities with units of length, mass, and time, which the compiler keeps apart.
+//!
 //! Typed units: a Quantity is a value in SI's base units, meters, kilograms, and seconds, with the
 //! exponents of its length, mass, and time as Const type arguments, so the compiler keeps Meters
 //! apart from Seconds and works out what Meters / Seconds is. Each unit is an Alias of its
@@ -9,6 +11,18 @@ Import std.core
 
 /// A value of so many meters, kilograms, and seconds, to the powers L, M, and T: 5 m/s^2 is a
 /// `Quantity<1, 0, -2>` of Value 5.
+///
+/// # Examples
+///
+/// ```
+/// Local distance = Kilometers(3)
+/// Local time = Minutes(10)
+/// Local speed: MetersPerSecond = distance / time
+/// Expect(IsClose(speed.Value, 5.0))
+/// Local total: Meters = distance + Meters(500)
+/// Expect(total.Value == 3500.0)
+/// // distance + time doesn't compile: they're different units.
+/// ```
 Public Struct Quantity<Const L: Int, Const M: Int, Const T: Int> Implements Comparable, Hashable,
                                                                             Printable, Defaultable
     /// The value in the base units, and the units they make.
@@ -16,6 +30,7 @@ Public Struct Quantity<Const L: Int, Const M: Int, Const T: Int> Implements Comp
 
     /// A quantity of 0 of these units.
     Public Static Method Zero(): Quantity<L, M, T> => Quantity<L, M, T>(0)
+    /// Zero, in its units.
     Public Static Method DefaultValue(): Quantity<L, M, T> => Quantity<L, M, T>(0)
 
     /// The value and its units, as SI writes them: "9.8 m/s^2", "3 kg m/s^2", "50 1/s", or
@@ -79,6 +94,7 @@ Public Struct Quantity<Const L: Int, Const M: Int, Const T: Int> Implements Comp
         Return Quantity<L - L2, M - M2, T - T2>(a.Value / b.Value)
     End Operator
 
+    /// Whether `a` is less than `b`, in the same units.
     Operator <(a: Quantity<L, M, T>, b: Quantity<L, M, T>): Bool => a.Value < b.Value
 End Struct
 

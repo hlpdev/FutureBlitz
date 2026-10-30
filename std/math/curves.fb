@@ -1,3 +1,5 @@
+//! Bezier curves, splines, and paths through points, in 2D and 3D.
+//!
 //! Curves and splines in 2D and 3D: a point t of the way along a quadratic or cubic Bezier, a
 //! Hermite curve, a Catmull-Rom segment, or a uniform cubic B-spline segment; and Curve2 and
 //! Curve3, which join a run of points into one curve, through them or near them, and go along it by
@@ -21,6 +23,18 @@ Public Function QuadraticBezier(a: Vec3, b: Vec3, c: Vec3, t: Float): Vec3
 End Function
 
 /// The point `t` of the way along the cubic Bezier from `a` to `d`, pulled toward `b`, then `c`.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Local a = Vec2(0, 0)
+/// Local d = Vec2(1, 0)
+/// Local arch = Function(t: Float) => CubicBezier(a, Vec2(0, 1), Vec2(1, 1), d, t)
+/// Expect(arch(0) == a && arch(1) == d)
+/// Expect(IsClose(arch(0.5), Vec2(0.5, 0.75)))
+/// ```
 Public Function CubicBezier(a: Vec2, b: Vec2, c: Vec2, d: Vec2, t: Float): Vec2
     Local rest = 1 - t
     Return a * (rest * rest * rest) + b * (3 * rest * rest * t) + c * (3 * rest * t * t) +
@@ -168,6 +182,18 @@ End Function
 
 /// A curve in 2D from a Function of t from 0 to 1, which it goes along by length too, from a table
 /// of samples' lengths, its straight lines' between them, so more samples follow its bends closer.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// # Import std.math
+///
+/// Local road = Curve2.CatmullRom([Vec2(0, 0), Vec2(10, 0), Vec2(20, 0)])
+/// Expect(IsClose(road.Length, 20, 0.01))
+/// Expect(IsClose(road.PointAtDistance(5), Vec2(5, 0), 0.01))
+/// Expect(road.Sample(5).Count == 5)
+/// ```
 Public Class Curve2
     Field Point: Func(Float): Vec2
     Field Lengths: Double[]

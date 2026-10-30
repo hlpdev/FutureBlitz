@@ -1,3 +1,5 @@
+//! Quaternions, for rotations in 3D.
+//!
 //! Quat: a rotation, as a unit quaternion of Floats, x, y, z, and w. Angles are radians, and the
 //! rotations turn counterclockwise about an axis that points at the viewer, by the right-hand rule.
 //! Euler angles go in Y, X, Z order, as a camera's yaw, pitch, and roll: Z first, then X, then Y.
@@ -10,6 +12,18 @@ Import std.math.vector
 
 /// A rotation: x, y, and z are its axis times the sine of half its angle, and w the cosine of half
 /// of it. q * v turns v, and a * b turns by b, then by a. q and -q are the same rotation.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Local turn = Quat.FromAxisAngle(Vec3(0, 1, 0), Deg(90))
+/// Expect(IsClose(turn * Vec3(1, 0, 0), Vec3(0, 0, -1)))
+/// Local half = Slerp(Quat.Identity, turn, 0.5)
+/// Expect(IsClose(Angle(Quat.Identity, half), Deg(45)))
+/// Expect(IsClose(Inverse(turn) * (turn * Vec3(1, 2, 3)), Vec3(1, 2, 3)))
+/// ```
 Public Struct Quat Implements Equatable, Printable
     /// Its axis's x times the sine of half its angle.
     Public Field x: Float
@@ -157,6 +171,7 @@ Public Struct Quat Implements Equatable, Printable
         Return Vec3(ToDegrees(angles.x), ToDegrees(angles.y), ToDegrees(angles.z))
     End Method
 
+    /// Its components, as "(0, 0, 0, 1)".
     Public Method ToString(): String => "({x}, {y}, {z}, {w})"
 
     /// The rotation by `b`, then by `a`.

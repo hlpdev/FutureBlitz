@@ -1,3 +1,5 @@
+//! 2D, 3D, and 4D vectors of Floats.
+//!
 //! Vec2, Vec3, and Vec4: points and directions, as Floats, in the space std.math works in:
 //! right-handed, Y up, and -Z forward. Each is a Struct of its components, x, y, z, and w, in that
 //! order with nothing between, so SIMD can work on it as it stands. Their Operators work component
@@ -11,20 +13,33 @@ Import std.math.scalar
 Import std.math.int_vector
 
 /// A point or direction in 2D.
+///
+/// # Examples
+///
+/// ```
+/// Local v = Vec2(3, 4)
+/// Expect(Length(v) == 5.0 && Distance(v, Vec2(0, 0)) == 5.0)
+/// Expect(Perpendicular(Vec2(1, 0)) == Vec2(0, 1))
+/// Expect(IsClose(Rotate(Vec2(1, 0), Deg(90)), Vec2(0, 1)))
+/// ```
 Public Struct Vec2 Implements Numeric, Hashable, Printable, Defaultable
     /// Its x component.
     Public Field x: Float
     /// Its y component.
     Public Field y: Float
 
+    /// The zero vector, (0, 0).
     Public Static Method Zero(): Vec2 => Vec2(0, 0)
+    /// The vector (1, 1), which multiplying leaves alone.
     Public Static Method One(): Vec2 => Vec2(1, 1)
+    /// The zero vector, (0, 0).
     Public Static Method DefaultValue(): Vec2 => Vec2(0, 0)
 
     /// The components as Ints, toward 0, as As converts them: one outside an Int's range panics.
     @PanicsAtCaller
     Public Method ToVec2i(): Vec2i => Vec2i(x As Int, y As Int)
 
+    /// Its components, as "(1, 2)".
     Public Method ToString(): String => "({x}, {y})"
 
     /// The component at the index: x at 0, and y at 1. Any other index panics.
@@ -35,9 +50,13 @@ Public Struct Vec2 Implements Numeric, Hashable, Printable, Defaultable
         Panic("a Vec2's components are at 0 to 1, not {index}")
     End Operator
 
+    /// `a` plus `b`, component by component.
     Operator +(a: Vec2, b: Vec2): Vec2 => Vec2(a.x + b.x, a.y + b.y)
+    /// `a` minus `b`, component by component.
     Operator -(a: Vec2, b: Vec2): Vec2 => Vec2(a.x - b.x, a.y - b.y)
+    /// `a` times `b`, component by component.
     Operator *(a: Vec2, b: Vec2): Vec2 => Vec2(a.x * b.x, a.y * b.y)
+    /// `a` divided by `b`, component by component.
     Operator /(a: Vec2, b: Vec2): Vec2 => Vec2(a.x / b.x, a.y / b.y)
     /// `a` times `scale`.
     Operator *(a: Vec2, scale: Float): Vec2 => Vec2(a.x * scale, a.y * scale)
@@ -50,6 +69,19 @@ Public Struct Vec2 Implements Numeric, Hashable, Printable, Defaultable
 End Struct
 
 /// A point or direction in 3D.
+///
+/// # Examples
+///
+/// ```
+/// Local right = Vec3(1, 0, 0)
+/// Local up = Vec3(0, 1, 0)
+/// Expect(Dot(right, up) == 0.0)
+/// Expect(Cross(right, up) == Vec3(0, 0, 1))
+/// Expect(Length(Vec3(3, 4, 0)) == 5.0)
+/// Expect(Normalize(Vec3(0, 0, 9)) == Vec3(0, 0, 1))
+/// Expect(Lerp(right, up, 0.5) == Vec3(0.5, 0.5, 0))
+/// Expect(right * 2 + up == Vec3(2, 1, 0))
+/// ```
 Public Struct Vec3 Implements Numeric, Hashable, Printable, Defaultable
     /// Its x component.
     Public Field x: Float
@@ -58,8 +90,11 @@ Public Struct Vec3 Implements Numeric, Hashable, Printable, Defaultable
     /// Its z component.
     Public Field z: Float
 
+    /// The zero vector, (0, 0, 0).
     Public Static Method Zero(): Vec3 => Vec3(0, 0, 0)
+    /// The vector (1, 1, 1), which multiplying leaves alone.
     Public Static Method One(): Vec3 => Vec3(1, 1, 1)
+    /// The zero vector, (0, 0, 0).
     Public Static Method DefaultValue(): Vec3 => Vec3(0, 0, 0)
 
     /// Up: +Y.
@@ -101,6 +136,7 @@ Public Struct Vec3 Implements Numeric, Hashable, Printable, Defaultable
     @PanicsAtCaller
     Public Method ToVec3i(): Vec3i => Vec3i(x As Int, y As Int, z As Int)
 
+    /// Its components, as "(1, 2, 3)".
     Public Method ToString(): String => "({x}, {y}, {z})"
 
     /// The component at the index: x at 0, y at 1, and z at 2. Any other index panics.
@@ -112,9 +148,13 @@ Public Struct Vec3 Implements Numeric, Hashable, Printable, Defaultable
         Panic("a Vec3's components are at 0 to 2, not {index}")
     End Operator
 
+    /// `a` plus `b`, component by component.
     Operator +(a: Vec3, b: Vec3): Vec3 => Vec3(a.x + b.x, a.y + b.y, a.z + b.z)
+    /// `a` minus `b`, component by component.
     Operator -(a: Vec3, b: Vec3): Vec3 => Vec3(a.x - b.x, a.y - b.y, a.z - b.z)
+    /// `a` times `b`, component by component.
     Operator *(a: Vec3, b: Vec3): Vec3 => Vec3(a.x * b.x, a.y * b.y, a.z * b.z)
+    /// `a` divided by `b`, component by component.
     Operator /(a: Vec3, b: Vec3): Vec3 => Vec3(a.x / b.x, a.y / b.y, a.z / b.z)
     /// `a` times `scale`.
     Operator *(a: Vec3, scale: Float): Vec3 => Vec3(a.x * scale, a.y * scale, a.z * scale)
@@ -137,8 +177,11 @@ Public Struct Vec4 Implements Numeric, Hashable, Printable, Defaultable
     /// Its w component.
     Public Field w: Float
 
+    /// The zero vector, (0, 0, 0, 0).
     Public Static Method Zero(): Vec4 => Vec4(0, 0, 0, 0)
+    /// The vector (1, 1, 1, 1), which multiplying leaves alone.
     Public Static Method One(): Vec4 => Vec4(1, 1, 1, 1)
+    /// The zero vector, (0, 0, 0, 0).
     Public Static Method DefaultValue(): Vec4 => Vec4(0, 0, 0, 0)
 
     /// Its x and y, as a Vec2.
@@ -151,6 +194,7 @@ Public Struct Vec4 Implements Numeric, Hashable, Printable, Defaultable
         Get => Vec3(x, y, z)
     End Property
 
+    /// Its components, as "(1, 2, 3, 4)".
     Public Method ToString(): String => "({x}, {y}, {z}, {w})"
 
     /// The component at the index: x at 0, y at 1, z at 2, and w at 3. Any other index panics.
@@ -163,9 +207,13 @@ Public Struct Vec4 Implements Numeric, Hashable, Printable, Defaultable
         Panic("a Vec4's components are at 0 to 3, not {index}")
     End Operator
 
+    /// `a` plus `b`, component by component.
     Operator +(a: Vec4, b: Vec4): Vec4 => Vec4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w)
+    /// `a` minus `b`, component by component.
     Operator -(a: Vec4, b: Vec4): Vec4 => Vec4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w)
+    /// `a` times `b`, component by component.
     Operator *(a: Vec4, b: Vec4): Vec4 => Vec4(a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w)
+    /// `a` divided by `b`, component by component.
     Operator /(a: Vec4, b: Vec4): Vec4 => Vec4(a.x / b.x, a.y / b.y, a.z / b.z, a.w / b.w)
 
     /// `a` times `scale`.

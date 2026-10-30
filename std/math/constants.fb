@@ -1,9 +1,21 @@
+//! Math's constants, like Pi and E, as Floats and as Doubles.
+//!
 //! The constants of math, as Floats, the type std.math works in, and as Doubles, named with 64:
 //! Pi64. Inf and NaN are a Float's, which a Double holds the same.
 
 Import std.math.numbers
 
 /// Pi, half a turn: a circle's circumference over its diameter.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Expect(IsClose(Sin(Pi / 2), 1.0))
+/// Expect(Tau == 2 * Pi)
+/// Expect(Pi64 > 3.14159265358 && Pi64 < 3.14159265359)
+/// ```
 Public Const Pi: Float = 3.14159265358979323846
 /// A turn: 2 Pi.
 Public Const Tau: Float = 6.28318530717958647692

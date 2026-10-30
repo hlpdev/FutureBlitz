@@ -1,3 +1,5 @@
+//! A seeded random number generator that gives the same numbers on every platform.
+//!
 //! Random: a seeded generator of random numbers, PCG32, Melissa O'Neill's permuted congruential
 //! generator, so a seed gives the same numbers in every build, on every OS and CPU, which replays,
 //! tests, and level seeds need. Its floats come from its integers, and Normal's logarithm is its
@@ -212,6 +214,21 @@ End Function
 
 /// Random numbers from a PCG32 generator, the same ones for the same seed, for games and
 /// simulations, not secrets.
+///
+/// # Examples
+///
+/// ```
+/// Local a = Random(42)
+/// Local b = Random(42)
+/// // The same seed gives the same numbers.
+/// Expect(a.Int(1, 6) == b.Int(1, 6))
+/// Local roll = a.Int(1, 6)
+/// Expect(roll >= 1 && roll <= 6)
+/// Local deck = [1, 2, 3, 4, 5]
+/// a.Shuffle(deck)
+/// Expect(deck.Count == 5 && deck.Contains(3))
+/// Expect(a.Float() < 1.0)
+/// ```
 Public Class Random
     Field Generator: Pcg
 
@@ -400,6 +417,15 @@ End Function
 
 /// An Int from `low` to `high`, both included, each as likely, from this thread's default
 /// generator: RandInt(1, 6) rolls a die. A low above `high` panics.
+///
+/// # Examples
+///
+/// ```
+/// SeedRandom(7)
+/// Local first = RandInt(1, 100)
+/// SeedRandom(7)
+/// Expect(RandInt(1, 100) == first)
+/// ```
 @PanicsAtCaller
 Public Function RandInt(low: Int, high: Int): Int
     If low > high

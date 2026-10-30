@@ -1,3 +1,5 @@
+//! Perlin, Simplex, value, and cellular noise, and fractal Brownian motion.
+//!
 //! Noise: smooth random values over space, the same at the same place, for terrain, clouds, and
 //! wobble: Ken Perlin's improved gradient noise, Stefan Gustavson's Simplex noise, value noise,
 //! Steven Worley's cellular noise, and fractal Brownian motion, a sum of Perlin noise's octaves.
@@ -66,6 +68,17 @@ End Function
 
 /// Smooth random values over space, the same at the same place: Perlin, Simplex, value, and
 /// cellular noise, and fractal sums of Perlin noise.
+///
+/// # Examples
+///
+/// ```
+/// Local noise = Noise(42)
+/// Local height = noise.Perlin(1.5, 2.25)
+/// Expect(height > -1.5 && height < 1.5)
+/// // The same seed and place give the same value.
+/// Expect(Noise(42).Perlin(1.5, 2.25) == height)
+/// Expect(noise.Worley(0.5, 0.5) >= 0)
+/// ```
 Public Class Noise
     /// The permutation twice over, so an index plus another below 256 needs no wrapping.
     Field Table: Int[] = []

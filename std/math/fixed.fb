@@ -1,3 +1,5 @@
+//! Fixed-point numbers, whose math gives the same bits on every OS and CPU.
+//!
 //! Fixed32 and Fixed64: fixed-point numbers, 16.16 in an Int32 and 32.32 in an Int64, whose math is
 //! all integer math, so the same program gives the same bits on every OS and CPU, in debug builds
 //! and release, for lockstep multiplayer and replays. * rounds to the nearest, halves up, and / to
@@ -289,6 +291,17 @@ End Function
 
 /// A number with 16 bits for its whole part, its sign among them, and 16 after the point: from
 /// -32768 to 32767.99998, in steps of 1 / 65536.
+///
+/// # Examples
+///
+/// ```
+/// Local three = Fixed32.FromInt(3)
+/// Local four = Fixed32.FromInt(4)
+/// Expect((three / four).ToDouble() == 0.75)
+/// Expect(three * four == Fixed32.FromInt(12))
+/// Expect(Fixed32.FromDouble(1.5).Raw == 98304)
+/// Expect(Sqrt(Fixed32.FromInt(16)) == four)
+/// ```
 Public Struct Fixed32 Implements Numeric, Comparable, Hashable, Bounded, Printable, Defaultable
     Field Bits: Int32
 
@@ -320,11 +333,17 @@ Public Struct Fixed32 Implements Numeric, Comparable, Hashable, Bounded, Printab
     @PanicsAtCaller
     Public Static Method FromFloat(value: Float): Fixed32 => FromDouble(value)
 
+    /// The zero Fixed32, which adding leaves alone.
     Public Static Method Zero(): Fixed32 => Fixed32(0)
+    /// The Fixed32 1, raw 65536, which multiplying leaves alone.
     Public Static Method One(): Fixed32 => Fixed32(65536)
+    /// The zero Fixed32.
     Public Static Method DefaultValue(): Fixed32 => Fixed32(0)
+    /// The lowest Fixed32, -32768.
     Public Static Method MinValue(): Fixed32 => Fixed32(-2147483648)
+    /// The highest Fixed32, about 32767.99998.
     Public Static Method MaxValue(): Fixed32 => Fixed32(2147483647)
+    /// The `value` as a Double, which holds every one exactly.
     Public Static Method DoubleValue(value: Fixed32): Double => value.ToDouble()
 
     /// Pi, and a turn, 2 Pi, rounded to a Fixed32's steps.
@@ -354,11 +373,16 @@ Public Struct Fixed32 Implements Numeric, Comparable, Hashable, Bounded, Printab
     /// The value as a Fixed64, which holds it exactly.
     Public Method ToFixed64(): Fixed64 => Fixed64.FromRaw((Bits As Int64) << 16)
 
+    /// Its value, as the Double it is shows.
     Public Method ToString(): String => "{ToDouble()}"
 
+    /// `a` plus `b`. Panics in a debug build when it's past what a Fixed32 holds, and wraps in a
+    /// release one.
     @PanicsAtCaller
     Operator +(a: Fixed32, b: Fixed32): Fixed32 => Fixed32(a.Bits + b.Bits)
 
+    /// `a` minus `b`. Panics in a debug build when it's past what a Fixed32 holds, and wraps in a
+    /// release one.
     @PanicsAtCaller
     Operator -(a: Fixed32, b: Fixed32): Fixed32 => Fixed32(a.Bits - b.Bits)
 
@@ -366,8 +390,11 @@ Public Struct Fixed32 Implements Numeric, Comparable, Hashable, Bounded, Printab
     @PanicsAtCaller
     Operator -(a: Fixed32): Fixed32 => Fixed32(-a.Bits)
 
+    /// Whether `a` is less than `b`.
     Operator <(a: Fixed32, b: Fixed32): Bool => a.Bits < b.Bits
 
+    /// `a` times `b`. Panics in a debug build when it's past what a Fixed32 holds, and wraps in a
+    /// release one. Rounded to the nearest.
     @PanicsAtCaller
     Operator *(a: Fixed32, b: Fixed32): Fixed32
         Return Narrowed(((a.Bits As Int64) * b.Bits + 32768) >> 16, "*")
@@ -381,6 +408,7 @@ Public Struct Fixed32 Implements Numeric, Comparable, Hashable, Bounded, Printab
     @PanicsAtCaller
     Operator *(a: Int, b: Fixed32): Fixed32 => Narrowed((b.Bits As Int64) * a, "*")
 
+    /// `a` divided by `b`. A `b` of 0 panics, and a quotient past what it holds does as + does.
     @PanicsAtCaller
     Operator /(a: Fixed32, b: Fixed32): Fixed32
         Return Narrowed(Quotient((a.Bits As Int64) << 16, b.Bits), "/")
@@ -442,11 +470,17 @@ Public Struct Fixed64 Implements Numeric, Comparable, Hashable, Bounded, Printab
     @PanicsAtCaller
     Public Static Method FromFloat(value: Float): Fixed64 => FromDouble(value)
 
+    /// The zero Fixed64, which adding leaves alone.
     Public Static Method Zero(): Fixed64 => Fixed64(0)
+    /// The Fixed64 1, raw 4294967296, which multiplying leaves alone.
     Public Static Method One(): Fixed64 => Fixed64(4294967296)
+    /// The zero Fixed64.
     Public Static Method DefaultValue(): Fixed64 => Fixed64(0)
+    /// The lowest Fixed64, -2147483648.
     Public Static Method MinValue(): Fixed64 => Fixed64(-9223372036854775808)
+    /// The highest Fixed64, about 2147483647.9999999998.
     Public Static Method MaxValue(): Fixed64 => Fixed64(9223372036854775807)
+    /// The `value` as a Double, which holds every one exactly.
     Public Static Method DoubleValue(value: Fixed64): Double => value.ToDouble()
 
     /// Pi, and a turn, 2 Pi, rounded to a Fixed64's steps.
@@ -491,9 +525,13 @@ Public Struct Fixed64 Implements Numeric, Comparable, Hashable, Bounded, Printab
         Return "{sign}{whole}.{FractionDigits(fraction)}"
     End Method
 
+    /// `a` plus `b`. Panics in a debug build when it's past what a Fixed64 holds, and wraps in a
+    /// release one.
     @PanicsAtCaller
     Operator +(a: Fixed64, b: Fixed64): Fixed64 => Fixed64(a.Bits + b.Bits)
 
+    /// `a` minus `b`. Panics in a debug build when it's past what a Fixed64 holds, and wraps in a
+    /// release one.
     @PanicsAtCaller
     Operator -(a: Fixed64, b: Fixed64): Fixed64 => Fixed64(a.Bits - b.Bits)
 
@@ -501,8 +539,11 @@ Public Struct Fixed64 Implements Numeric, Comparable, Hashable, Bounded, Printab
     @PanicsAtCaller
     Operator -(a: Fixed64): Fixed64 => Fixed64(-a.Bits)
 
+    /// Whether `a` is less than `b`.
     Operator <(a: Fixed64, b: Fixed64): Bool => a.Bits < b.Bits
 
+    /// `a` times `b`. Panics in a debug build when it's past what a Fixed64 holds, and wraps in a
+    /// release one. Rounded to the nearest.
     @PanicsAtCaller
     Operator *(a: Fixed64, b: Fixed64): Fixed64
         Return Narrowed64(ShiftRounded(MultiplySigned(a.Bits, b.Bits), 32), "*")
@@ -516,6 +557,7 @@ Public Struct Fixed64 Implements Numeric, Comparable, Hashable, Bounded, Printab
     @PanicsAtCaller
     Operator *(a: Int64, b: Fixed64): Fixed64 => Narrowed64(MultiplySigned(b.Bits, a), "*")
 
+    /// `a` divided by `b`. A `b` of 0 panics, and a quotient past what it holds does as + does.
     @PanicsAtCaller
     Operator /(a: Fixed64, b: Fixed64): Fixed64 => Divided(a.Bits, b.Bits)
 

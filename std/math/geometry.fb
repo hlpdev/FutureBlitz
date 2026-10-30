@@ -1,3 +1,5 @@
+//! Rectangles, boxes, spheres, rays, planes, and frustums, and the tests between them.
+//!
 //! The shapes for finding what's where: Rect in 2D, and AABB, Sphere, Ray, Plane, and Frustum in
 //! 3D, with Contains, Intersects, and Raycast. A shape holds the points on its edges. A Raycast
 //! gives how far along the ray it first meets the shape, in lengths of the ray's Direction, so a
@@ -12,6 +14,19 @@ Import std.math.vector
 
 /// A rectangle in 2D, from its corner with the smallest X and Y, of a Width and Height that aren't
 /// negative.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Local a = Rect(0, 0, 10, 10)
+/// Local b = Rect(5, 5, 10, 10)
+/// Expect(a.Intersects(b))
+/// Expect(a.Intersection(b) == Rect(5, 5, 5, 5))
+/// Expect(a.Union(b) == Rect(0, 0, 15, 15))
+/// Expect(a.Contains(Vec2(2, 3)) && !a.Contains(Vec2(12, 3)))
+/// ```
 Public Struct Rect Implements Equatable, Printable
     /// Its left edge, the smallest X it has.
     Public Field X: Float
@@ -97,11 +112,24 @@ Public Struct Rect Implements Equatable, Printable
                     height < 0 ? 0 : height)
     End Method
 
+    /// Its parts, as "Rect(0, 0, 10, 5)".
     Public Method ToString(): String => "Rect({X}, {Y}, {Width}, {Height})"
 End Struct
 
 /// An axis-aligned box in 3D, from its corner with the smallest x, y, and z to the one with the
 /// largest.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Local box = AABB(Vec3(-1, -1, -1), Vec3(1, 1, 1))
+/// Local ray = Ray(Vec3(0, 0, 5), Vec3(0, 0, -1))
+/// Expect(box.Raycast(ray) == 4.0)
+/// Expect(ray.At(4) == Vec3(0, 0, 1))
+/// Expect(box.Contains(Vec3(0.5, 0, 0)) && !box.Contains(Vec3(2, 0, 0)))
+/// ```
 Public Struct AABB Implements Equatable, Printable
     /// Its corner with the smallest x, y, and z.
     Public Field Min: Vec3
@@ -219,6 +247,7 @@ Public Struct AABB Implements Equatable, Printable
         Return AABB(low, high)
     End Method
 
+    /// Its parts, as "AABB((0, 0, 0), (1, 1, 1))".
     Public Method ToString(): String => "AABB({Min}, {Max})"
 End Struct
 
@@ -267,6 +296,7 @@ Public Struct Sphere Implements Equatable, Printable
         Return (outside / (Sqrt(discriminant) - along)) As Float
     End Method
 
+    /// Its parts, as "Sphere((0, 0, 0), 1)".
     Public Method ToString(): String => "Sphere({Center}, {Radius})"
 End Struct
 
@@ -294,11 +324,22 @@ Public Struct Ray Implements Equatable, Printable
     /// The point so far along the ray, in lengths of its Direction.
     Public Method At(distance: Float): Vec3 => Origin + Direction * distance
 
+    /// Its parts, as "Ray((0, 0, 0), (0, 0, -1))".
     Public Method ToString(): String => "Ray({Origin}, {Direction})"
 End Struct
 
 /// A flat surface without end, of the points p where Dot(Normal, p) is Distance, with a Normal of
 /// length 1. The side the Normal points to is in front.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Local ground = Plane.FromPointNormal(Vec3(0, 0, 0), Vec3(0, 1, 0))
+/// Expect(ground.SignedDistance(Vec3(3, 2, 1)) == 2.0)
+/// Expect(ground.Raycast(Ray(Vec3(0, 5, 0), Vec3(0, -1, 0))) == 5.0)
+/// ```
 Public Struct Plane Implements Equatable, Printable
     /// Which way it faces, of length 1.
     Public Field Normal: Vec3
@@ -339,10 +380,24 @@ Public Struct Plane Implements Equatable, Printable
         Return along + 0
     End Method
 
+    /// Its parts, as "Plane((0, 1, 0), 0)".
     Public Method ToString(): String => "Plane({Normal}, {Distance})"
 End Struct
 
 /// What a camera sees: the six planes of its projection, each facing in.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Local camera = Mat4.Perspective(Deg(90), 1, 0.1, 100) *
+///                Mat4.LookAt(Vec3(0, 0, 5), Vec3(0, 0, 0), Vec3(0, 1, 0))
+/// Local view = Frustum.FromMatrix(camera)
+/// Expect(view.Contains(Vec3(0, 0, 0)))
+/// Expect(!view.Contains(Vec3(0, 0, 10)))
+/// Expect(view.Intersects(Sphere(Vec3(0, 0, 0), 1)))
+/// ```
 Public Struct Frustum Implements Equatable, Printable
     /// Its left plane, facing in.
     Public Field Left: Plane
@@ -394,6 +449,7 @@ Public Struct Frustum Implements Equatable, Printable
                Reaches(Top, box) && Reaches(Near, box) && Reaches(Far, box)
     End Method
 
+    /// Its six planes, left, right, bottom, top, near, and far, as "Frustum(Plane(...), ...)".
     Public Method ToString(): String
         Return "Frustum({Left}, {Right}, {Bottom}, {Top}, {Near}, {Far})"
     End Method

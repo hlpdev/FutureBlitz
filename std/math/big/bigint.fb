@@ -1,3 +1,5 @@
+//! Integers of any size.
+//!
 //! BigInt: an integer of any size, over libtommath, which never changes once it's made. Its
 //! operators are an Int's, without overflow: / rounds toward 0, % takes the sign of what's
 //! divided, >> rounds down, and &, |, ^, and ~ work on two's complement, as wide as the numbers
@@ -46,6 +48,17 @@ Extern "runtime"
 End Extern
 
 /// An integer of any size, which grows as it needs to.
+///
+/// # Examples
+///
+/// ```
+/// Local big = BigInt(2) ** 100
+/// Expect(big.ToString() == "1267650600228229401496703205376")
+/// Expect(big % 7 == BigInt(2))
+/// Expect(BigInt.Parse("ff", 16) == BigInt(255))
+/// Expect(BigInt(97).IsProbablePrime())
+/// Expect(big.BitLength == 101)
+/// ```
 Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     Field State: Ptr<Void>
 
@@ -59,7 +72,9 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         State = state
     End New
 
+    /// The zero BigInt, 0, which adding leaves alone.
     Public Static Method Zero(): BigInt => BigInt(0)
+    /// The BigInt 1, which multiplying leaves alone.
     Public Static Method One(): BigInt => BigInt(1)
 
     /// The Double's whole part, as it is without what's after the point. A NaN or an infinity
@@ -169,13 +184,16 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     /// though some must.
     Public Method IsProbablePrime(): Bool => fb_bigint_is_probable_prime(State) != 0
 
+    /// A hash of its value, which BigInts that are equal share.
     Public Method Hash(): UInt64 => fb_bigint_hash(State)
 
+    /// Whether `a` and `b` are the same number.
     Operator ==(a: BigInt, b: BigInt): Bool => fb_bigint_compare(a.State, b.State) == 0
     /// Whether `a` and `b` are equal.
     Operator ==(a: BigInt, b: Int64): Bool => a == BigInt(b)
     /// Whether `a` and `b` are equal.
     Operator ==(a: Int64, b: BigInt): Bool => BigInt(a) == b
+    /// Whether `a` is less than `b`.
     Operator <(a: BigInt, b: BigInt): Bool => fb_bigint_compare(a.State, b.State) < 0
     /// Whether `a` comes before `b`.
     Operator <(a: BigInt, b: Int64): Bool => a < BigInt(b)
@@ -203,6 +221,7 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     /// `a` plus `b`, which panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator +(a: Int64, b: BigInt): BigInt => BigInt(a) + b
+    /// `a` minus `b`. Panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator -(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_subtract(a.State, b.State))
     /// `a` minus `b`, which panics past the most bits a BigInt holds.
@@ -211,6 +230,7 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     /// `a` minus `b`, which panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator -(a: Int64, b: BigInt): BigInt => BigInt(a) - b
+    /// `a` times `b`. Panics past the most bits a BigInt holds.
     @PanicsAtCaller
     Operator *(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_multiply(a.State, b.State))
     /// `a` times `b`, which panics past the most bits a BigInt holds.
@@ -220,6 +240,7 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     @PanicsAtCaller
     Operator *(a: Int64, b: BigInt): BigInt => BigInt(a) * b
 
+    /// `a` divided by `b`, rounded toward 0. A `b` of 0 panics.
     @PanicsAtCaller
     Operator /(a: BigInt, b: BigInt): BigInt
         If b.Sign == 0 Then Panic("division by zero")

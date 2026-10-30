@@ -1,3 +1,5 @@
+//! Counting, rotating, swapping, and aligning an integer's bits, and saturating arithmetic.
+//!
 //! std.math.bits: an integer's bits, counted, rotated, swapped, and aligned, for any integer type,
 //! and saturating arithmetic beside the Checked and Wrapping Methods the integers have. A signed
 //! integer's bits are its two's complement: PopCount of an Int8 -1 is 8.
@@ -34,6 +36,14 @@ Function ByteSwap64(bits: UInt64): UInt64
 End Function
 
 /// How many of the `value`'s bits are 1.
+///
+/// # Examples
+///
+/// ```
+/// Expect(PopCount(0b1011) == 3)
+/// Expect(LeadingZeros(1 As UInt8) == 7)
+/// Expect(TrailingZeros(0b1000) == 3)
+/// ```
 Public Function PopCount<T: Integer>(value: T): Int => PopCount64(T.LowBits(value))
 
 /// How many 0 bits are above the highest 1: all of them for 0.
@@ -51,6 +61,13 @@ End Function
 
 /// The bits moved `count` places up, those that go past the top coming in at the bottom. A
 /// negative `count` rotates down, and one past the type's width goes around.
+///
+/// # Examples
+///
+/// ```
+/// Expect(RotateLeft(0x80000001 As UInt32, 1) == 3)
+/// Expect(RotateRight(1 As UInt8, 1) == 0x80)
+/// ```
 Public Function RotateLeft<T: Integer>(value: T, count: Int): T
     Local width = T.BitWidth()
     Local shift = Mod(count, width)
@@ -78,6 +95,14 @@ End Function
 
 /// The smallest power of two that isn't below the `value`: 1 for 1 and below. One too large for the
 /// type panics.
+///
+/// # Examples
+///
+/// ```
+/// Expect(NextPowerOfTwo(100) == 128)
+/// Expect(IsPowerOfTwo(64) && !IsPowerOfTwo(65))
+/// Expect(AlignUp(13, 8) == 16 && AlignDown(13, 8) == 8)
+/// ```
 @PanicsAtCaller
 Public Function NextPowerOfTwo<T>(value: T): T
     Where T: Integer & Numeric & Comparable & Printable
@@ -182,6 +207,13 @@ End Extend
 
 Extend UInt8
     /// The sum, or the lowest or highest UInt8 in place of an overflow.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect((250 As UInt8).SaturatingAdd(10) == 255)
+    /// Expect((5 As UInt8).SaturatingSubtract(10) == 0)
+    /// ```
     Public Method SaturatingAdd(other: UInt8): UInt8 => Saturated(CheckedAdd(other), other < 0)
 
     /// The difference, or the lowest or highest UInt8 in place of an overflow.

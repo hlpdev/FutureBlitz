@@ -1,3 +1,5 @@
+//! Exact fractions of BigInts.
+//!
 //! Rational: a fraction of two BigInts, which never changes once it's made, kept in lowest terms
 //! with its denominator above 0, so its arithmetic is exact: 1/3 + 1/6 is 1/2. An Int64 on either
 //! side of an operator works too.
@@ -14,6 +16,16 @@ Extern "C"
 End Extern
 
 /// A fraction of two BigInts, in lowest terms, which is exact however it's added and multiplied.
+///
+/// # Examples
+///
+/// ```
+/// Local sum = Rational(1, 3) + Rational(1, 6)
+/// Expect(sum == Rational(1, 2))
+/// Expect(sum.Numerator == BigInt(1) && sum.Denominator == BigInt(2))
+/// Expect(Rational(7, 2).Floor() == BigInt(3))
+/// Expect(Rational(2, -4) == Rational(-1, 2))
+/// ```
 Public Class Rational Implements Comparable, Hashable, Printable, Numeric
     /// Its numerator, which has its sign.
     Public ReadOnly Field Numerator: BigInt
@@ -39,7 +51,9 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
         Denominator = BigInt(1)
     End New
 
+    /// The zero Rational, 0, which adding leaves alone.
     Public Static Method Zero(): Rational => Rational(0)
+    /// The Rational 1, which multiplying leaves alone.
     Public Static Method One(): Rational => Rational(1)
 
     /// The Double exactly, as a fraction over a power of 2, so 0.1 is
@@ -166,8 +180,10 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
         Return below
     End Method
 
+    /// A hash of its numerator and denominator, which Rationals that are equal share.
     Public Method Hash(): UInt64 => HashCombine(Numerator.Hash(), Denominator.Hash())
 
+    /// Whether `a` and `b` are the same fraction.
     Operator ==(a: Rational, b: Rational): Bool
         Return a.Numerator == b.Numerator && a.Denominator == b.Denominator
     End Operator
@@ -176,6 +192,7 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
     Operator ==(a: Rational, b: Int64): Bool => a.Denominator == 1 && a.Numerator == b
     /// Whether `a` and `b` are equal.
     Operator ==(a: Int64, b: Rational): Bool => b == a
+    /// Whether `a` is less than `b`.
     Operator <(a: Rational, b: Rational): Bool
         Return a.Numerator * b.Denominator < b.Numerator * a.Denominator
     End Operator
@@ -197,6 +214,7 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
     /// Whether `a` comes after `b` or is equal to it.
     Operator >=(a: Int64, b: Rational): Bool => Rational(a) >= b
 
+    /// `a` plus `b`, exactly, in lowest terms.
     Operator +(a: Rational, b: Rational): Rational
         Return Rational(a.Numerator * b.Denominator + b.Numerator * a.Denominator,
                         a.Denominator * b.Denominator)
@@ -206,6 +224,7 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
     Operator +(a: Rational, b: Int64): Rational => a + Rational(b)
     /// `a` plus `b`.
     Operator +(a: Int64, b: Rational): Rational => Rational(a) + b
+    /// `a` minus `b`, exactly, in lowest terms.
     Operator -(a: Rational, b: Rational): Rational
         Return Rational(a.Numerator * b.Denominator - b.Numerator * a.Denominator,
                         a.Denominator * b.Denominator)
@@ -215,6 +234,7 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
     Operator -(a: Rational, b: Int64): Rational => a - Rational(b)
     /// `a` minus `b`.
     Operator -(a: Int64, b: Rational): Rational => Rational(a) - b
+    /// `a` times `b`, exactly, in lowest terms.
     Operator *(a: Rational, b: Rational): Rational
         Return Rational(a.Numerator * b.Numerator, a.Denominator * b.Denominator)
     End Operator
@@ -224,6 +244,7 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
     /// `a` times `b`.
     Operator *(a: Int64, b: Rational): Rational => Rational(a) * b
 
+    /// `a` divided by `b`, exactly, in lowest terms. A `b` of 0 panics.
     @PanicsAtCaller
     Operator /(a: Rational, b: Rational): Rational
         If b.Sign == 0 Then Panic("division by zero")

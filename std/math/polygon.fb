@@ -1,3 +1,5 @@
+//! Polygons: their areas, hulls, triangles, and the union, intersection, and difference of two.
+//!
 //! Polygons: a ring is a Vec2[] of corners, closed from the last back to the first, and a region is
 //! a Vec2[][] of rings, filled where they wind around a point other than 0 times, as SVG's nonzero
 //! rule fills it, so its outer rings go counterclockwise and its holes clockwise. Area,
@@ -34,6 +36,16 @@ End Function
 
 /// The area of the `ring`, above 0 when it goes counterclockwise and below when it goes clockwise:
 /// the shoelace formula, in Doubles.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+/// Local square = [Vec2(0, 0), Vec2(4, 0), Vec2(4, 4), Vec2(0, 4)]
+/// Expect(PolygonArea(square) == 16.0)
+/// Expect(PointInPolygon(Vec2(1, 1), square) && !PointInPolygon(Vec2(5, 1), square))
+/// Expect(Triangulate(square).Count == 2)
+/// ```
 Public Function PolygonArea(ring: Vec2[]): Double
     Local twice: Double = 0
     For i = 0 Until ring.Count
@@ -120,6 +132,15 @@ End Function
 /// The smallest convex polygon holding every point, counterclockwise from the lowest of the
 /// leftmost, with no corner on a straight edge: Andrew's monotone chain. Fewer than three `points`
 /// that aren't on one line give those of them that are its ends. A corner that isn't finite panics.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Local points = [Vec2(0, 0), Vec2(2, 0), Vec2(1, 1), Vec2(2, 2), Vec2(0, 2)]
+/// Expect(ConvexHull(points).Count == 4)
+/// ```
 @PanicsAtCaller
 Public Function ConvexHull(points: Vec2[]): Vec2[]
     CheckFinite([points])
@@ -853,6 +874,18 @@ Function Link(edges: Edge[]): Vec2[][]
 End Function
 
 /// The region filled by either `a` or `b`, or both. A corner that isn't finite panics.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Local a = [[Vec2(0, 0), Vec2(2, 0), Vec2(2, 2), Vec2(0, 2)]]
+/// Local b = [[Vec2(1, 0), Vec2(3, 0), Vec2(3, 2), Vec2(1, 2)]]
+/// Expect(PolygonArea(Union(a, b)) == 6.0)
+/// Expect(PolygonArea(Intersection(a, b)) == 2.0)
+/// Expect(PolygonArea(Difference(a, b)) == 2.0)
+/// ```
 @PanicsAtCaller
 Public Function Union(a: Vec2[][], b: Vec2[][]): Vec2[][]
     CheckFinite(a)

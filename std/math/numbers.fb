@@ -1,3 +1,5 @@
+//! The Interfaces the number types share, for generic math: Bounded, Integer, and FloatingPoint.
+//!
 //! What the built-in number types share, for std.math's generic Functions: Bounded, the types with
 //! a lowest and a highest value, which every number type is; Integer, the eight integer types; and
 //! FloatingPoint, Float32 and Float64, over C's libm. A Function that takes a T of one of them gets
@@ -67,6 +69,15 @@ End Extern
 
 /// The types with a lowest and a highest value: every number type. A float's are its lowest and
 /// highest finite values, not the infinities. Each is a Double too, for math like a Mean.
+///
+/// # Examples
+///
+/// ```
+/// Function Highest<T: Bounded>(): T => MaxValue<T>()
+///
+/// Expect(Highest<UInt16>() == 65535)
+/// Expect(Highest<Int8>() == 127)
+/// ```
 Public Interface Bounded
     /// The type's lowest value: a float's lowest finite one.
     Static Method MinValue(): Self
@@ -331,4 +342,11 @@ End Extend
 Public Function MinValue<T: Bounded>(): T => T.MinValue()
 
 /// The highest value a T holds: for a float, its highest finite one.
+///
+/// # Examples
+///
+/// ```
+/// Expect(MaxValue<UInt8>() == 255)
+/// Expect(MinValue<Int16>() == -32768)
+/// ```
 Public Function MaxValue<T: Bounded>(): T => T.MaxValue()

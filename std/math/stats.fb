@@ -1,3 +1,5 @@
+//! Statistics: mean, median, variance, standard deviation, percentiles, and histograms.
+//!
 //! Statistics of numbers of any type, worked out in Doubles: the mean, the median, the variance and
 //! standard deviation of a sample and of a whole population, percentiles, and histograms. Too few
 //! values for what's asked panics, as Python's statistics raises.
@@ -32,6 +34,16 @@ End Function
 
 /// The mean, the sum over the count, or the sum of each value's share where the sum overflows and
 /// the `values` don't. No values panics.
+///
+/// # Examples
+///
+/// ```
+/// Local scores = [2, 4, 4, 4, 5, 5, 7, 9]
+/// Expect(Mean(scores) == 5.0)
+/// Expect(Median(scores) == 4.5)
+/// Expect(PopulationStdDev(scores) == 2.0)
+/// Expect(Percentile(scores, 100) == 9.0)
+/// ```
 @PanicsAtCaller
 Public Function Mean<T: Bounded>(values: T[]): Double
     CheckCount("Mean", values.Count, 1)
@@ -148,6 +160,12 @@ End Function
 /// How many `values` fall in each of `bins` equal ranges from `low` to `high`, the last range
 /// holding `high` too; those outside, and NaN, are left out. A count of `bins` that isn't above 0,
 /// or a low that isn't below `high`, or isn't finite, panics.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Histogram([1, 2, 2, 3, 9], 2, 0, 10) == [4, 1])
+/// ```
 @PanicsAtCaller
 Public Function Histogram<T: Bounded>(values: T[], bins: Int, low: Double, high: Double): Int[]
     If bins <= 0 Then Panic("Histogram takes a count of bins above 0, not {bins}")

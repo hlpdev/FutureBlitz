@@ -1,7 +1,9 @@
-//! Mat3 and Mat4: matrices of Floats, column-major, as the GPU takes them. Each column is a Field,
-//! x, y, z, and w, a vector of where the matrix takes that axis, and the last of a Mat4 is where it
-//! takes the origin. m * v transforms v, and a * b transforms by b, then by a. The projections are
-//! right-handed, looking down -Z, with depth from 0 at near to 1 at far, as Vulkan's.
+//! 3x3 and 4x4 matrices of Floats.
+//!
+//! Each column is a Field, x, y, z, and w, a vector of where the matrix takes that axis, and the
+//! last of a Mat4 is where it takes the origin. m * v transforms v, and a * b transforms by b, then
+//! by a. The projections are right-handed, looking down -Z, with depth from 0 at near to 1 at far,
+//! as Vulkan's.
 
 Import std.core
 Import std.math.constants
@@ -10,6 +12,17 @@ Import std.math.scalar
 Import std.math.vector
 
 /// A 3 by 3 matrix: a rotation, a scale, or both, of 3D vectors.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Local stretch = Mat3.Scale(Vec3(2, 3, 4))
+/// Expect(Determinant(stretch) == 24.0)
+/// Expect(stretch * Vec3(1, 1, 1) == Vec3(2, 3, 4))
+/// Expect(IsClose(Inverse(stretch) * stretch, Mat3.Identity))
+/// ```
 Public Struct Mat3 Implements Equatable, Printable
     /// Its first column.
     Public Field x: Vec3
@@ -58,6 +71,7 @@ Public Struct Mat3 Implements Equatable, Printable
                     Vec4(0, 0, 0, 1))
     End Method
 
+    /// Its columns, as "((1, 0, 0), (0, 1, 0), (0, 0, 1))".
     Public Method ToString(): String => "({x}, {y}, {z})"
 
     /// The element in a column and a row, each from 0 to 2. Any other panics.
@@ -90,6 +104,20 @@ End Struct
 
 /// A 4 by 4 matrix: an affine transform of 3D points, moving, turning, and scaling them, or a
 /// camera's projection.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.math
+///
+/// Local move = Mat4.Translation(Vec3(1, 2, 3))
+/// Expect(move.TransformPoint(Vec3(0, 0, 0)) == Vec3(1, 2, 3))
+/// // A direction doesn't move.
+/// Expect(move.TransformVector(Vec3(1, 0, 0)) == Vec3(1, 0, 0))
+/// Expect(IsClose(Inverse(move).TransformPoint(Vec3(1, 2, 3)), Vec3(0, 0, 0)))
+/// Local turn = Mat4.RotationY(Deg(90))
+/// Expect(IsClose(turn.TransformPoint(Vec3(1, 0, 0)), Vec3(0, 0, -1)))
+/// ```
 Public Struct Mat4 Implements Equatable, Printable
     /// Its first column.
     Public Field x: Vec4
@@ -228,6 +256,7 @@ Public Struct Mat4 Implements Equatable, Printable
     /// The upper left 3 by 3, which turns and scales.
     Public Method ToMat3(): Mat3 => Mat3(x.xyz, y.xyz, z.xyz)
 
+    /// Its four columns, each as a Vec4 shows it.
     Public Method ToString(): String => "({x}, {y}, {z}, {w})"
 
     /// The element in a column and a row, each from 0 to 3. Any other panics.

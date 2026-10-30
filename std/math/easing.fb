@@ -1,3 +1,5 @@
+//! Easing curves for animation, from 0 at the start to 1 at the end.
+//!
 //! Easing: how far along an animation is at a time t from 0 to 1, from 0 at its start to 1 at its
 //! end, for each of the usual curves, as easings.net draws them. In starts slow and ends fast, Out
 //! starts fast and ends slow, and InOut does both, each half a curve's In and Out. Back overshoots
@@ -24,6 +26,14 @@ Public Function EaseInQuad(t: Float): Float => t * t
 /// Out along `t` squared.
 Public Function EaseOutQuad(t: Float): Float => 1 - (1 - t) * (1 - t)
 /// In and out along `t` squared.
+///
+/// # Examples
+///
+/// ```
+/// Expect(EaseInOutQuad(0) == 0.0 && EaseInOutQuad(1) == 1.0)
+/// Expect(EaseInOutQuad(0.5) == 0.5)
+/// Expect(EaseInQuad(0.5) == 0.25 && EaseOutQuad(0.5) == 0.75)
+/// ```
 Public Function EaseInOutQuad(t: Float): Float => t < 0.5 ? 2 * t * t : 1 - (2 - 2 * t) ** 2 / 2
 
 /// `t` cubed.
