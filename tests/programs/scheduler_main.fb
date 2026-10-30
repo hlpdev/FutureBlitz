@@ -1,0 +1,56 @@
+// A loop of the program's own, like a UI's or a server's, steps the main scheduler with
+// Scheduler.Main.Step(), which resumes what's ready, or with an Await NextTick(), which waits for
+// its next step.
+Import std.core
+
+Async Function Blink(name: String, times: Int)
+    For i = 1 To times
+        Print("{name} {i}")
+        Await NextTick()
+    End For
+
+    Print("{name} done")
+End Function
+
+Async Function Answer(): Int
+    Return Await Spawn(Function() => 6 * 7)
+End Function
+
+Async Function Report()
+    Print("answer {Await Answer()}")
+End Function
+
+Blink("step", 3)
+Print("idle {Scheduler.Main.IsIdle()}")
+For i = 1 To 4
+    Print("loop {i}")
+    Scheduler.Main.Step()
+End For
+
+Print("idle {Scheduler.Main.IsIdle()}")
+
+// An Await NextTick() in top-level code steps it too.
+Blink("await", 2)
+For i = 1 To 3
+    Print("await loop {i}")
+    Await NextTick()
+End For
+
+// What a coroutine awaits on another thread goes on at a step once it's done.
+Report()
+While !Scheduler.Main.IsIdle()
+    Scheduler.Main.Step()
+End While
+
+// A Scheduler's Step resumes what's ready without moving its time.
+Local paused = Scheduler()
+paused.Run(Blink("paused", 1))
+paused.Step()
+paused.Step()
+Print("paused idle {paused.IsIdle()}")
+
+// Scheduler.Main is a value like any Scheduler, always the same one.
+Local main = Scheduler.Main
+Blink("local", 1)
+main.Step()
+Print("top-level code is done")

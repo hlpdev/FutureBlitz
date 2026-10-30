@@ -83,7 +83,7 @@ Try
         End Try
     End Function)
     While !finder.IsDone()
-        Await NextFrame()
+        Await NextTick()
     End While
     finder.Join()
     Print("from a thread: {counts.Receive() ?? -2}")

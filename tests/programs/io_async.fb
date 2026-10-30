@@ -6,7 +6,7 @@ Import std.core
 Import std.ffi
 Import std.io
 
-// Gives its text a byte at a time, each a frame after it's asked for, as a socket might.
+// Gives its text a byte at a time, each a tick after it's asked for, as a socket might.
 Class Trickle Implements Reader
     Field Bytes: UInt8[]
     Field At: Int
@@ -23,12 +23,12 @@ Class Trickle Implements Reader
     End Method
 
     Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
-        Await NextFrame()
+        Await NextTick()
         Return Try Read(into)
     End Method
 End Class
 
-// Takes a frame for each write, and keeps what it's given.
+// Takes a tick for each write, and keeps what it's given.
 Class Slow Implements Writer
     Field Kept: StringWriter
     Field Writes: Int
@@ -43,7 +43,7 @@ Class Slow Implements Writer
     End Method
 
     Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
-        Await NextFrame()
+        Await NextTick()
         Try Write(from)
     End Method
 End Class
@@ -70,14 +70,14 @@ Class Flaky Implements Reader
     End Method
 End Class
 
-// Counts the frames that go by while `waiting` says the reads go on.
-Global frames = 0
+// Counts the ticks that go by while `waiting` says the reads go on.
+Global ticks = 0
 Global waiting = True
 
 Async Function Count()
     While waiting
-        Await NextFrame()
-        frames += 1
+        Await NextTick()
+        ticks += 1
     End While
 End Function
 
@@ -95,10 +95,10 @@ Local counting = Count()
 Local source: Reader = Trickle("hey")
 Local into = Buffer<UInt8>(8)
 Local read = Try Await source.ReadAsync(into)
-Print("{read} {into[0]} {frames > 0}")
-Local before = frames
+Print("{read} {into[0]} {ticks > 0}")
+Local before = ticks
 Local rest = TextOf(Try Await ReadAllAsync(source))
-Print("{rest} {frames > before}")
+Print("{rest} {ticks > before}")
 
 Print(Try Await Lines(Trickle("one\r\ntwo\nthree")))
 Local slow = Slow()

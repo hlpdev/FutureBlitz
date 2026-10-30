@@ -525,7 +525,7 @@ std::int64_t later_by(const std::int64_t time, const std::int64_t later) {
 }
 
 /// Coroutines of Async Functions, each waiting for a Task, which the main thread resumes when it
-/// ticks the scheduler, and the Tasks that NextFrame, Wait, and RealWait gave, which it finishes
+/// ticks the scheduler, and the Tasks that NextTick, Wait, and RealWait gave, which it finishes
 /// then. The main scheduler's time is the real clock's, and a Scheduler's moves on as it's
 /// ticked: a sum of seconds, which timers read to the nearest nanosecond, so ticks that add up to
 /// a Wait's Duration reach it, though a Double's sum of them is a little short.
@@ -552,18 +552,17 @@ public:
     /// tick.
     void add(void* coroutine, fb_task_t* own, fb_task_t* task) {
         fb_object_retain(&task->header);
-        m_waiting.push_back(
-            { .coroutine = coroutine, .own = own, .task = task, .since = m_frames });
+        m_waiting.push_back({ .coroutine = coroutine, .own = own, .task = task, .since = m_ticks });
     }
 
     /// A Task that this scheduler finishes at its next tick, or once its time reaches `due`, in
     /// nanoseconds, or the real clock's does.
-    void add_timer(fb_task_t* task, const bool next_frame, const std::int64_t due,
+    void add_timer(fb_task_t* task, const bool next_tick, const std::int64_t due,
                    const bool real) {
         fb_object_retain(&task->header);
         m_timers.push_back({
             .task = task,
-            .frame = next_frame ? m_frames + 1 : 0,
+            .tick = next_tick ? m_ticks + 1 : 0,
             .due = due,
             .real = real,
         });
@@ -597,7 +596,7 @@ public:
                 }
 
                 tasks.push_back(waiting.task);
-                waiting.since = m_frames;
+                waiting.since = m_ticks;
                 m_waiting.push_back(waiting);
                 return true;
             });
@@ -606,8 +605,8 @@ public:
                     return false;
                 }
 
-                if (timer.frame != 0) {
-                    timer.frame = m_frames + 1;
+                if (timer.tick != 0) {
+                    timer.tick = m_ticks + 1;
                 } else if (!timer.real) {
                     timer.due =
                         later_by(time(), std::max<std::int64_t>(0, timer.due - from.time()));
@@ -735,8 +734,8 @@ private:
 
     struct timer_t {
         fb_task_t* task;
-        /// For NextFrame: the tick it's done at. 0 for Wait and RealWait.
-        std::uint64_t frame;
+        /// For NextTick: the tick it's done at. 0 for Wait and RealWait.
+        std::uint64_t tick;
         /// For Wait and RealWait: the time it's done at, in nanoseconds.
         std::int64_t due;
         bool real;
@@ -744,7 +743,7 @@ private:
 
     bool m_main;
     double m_time = 0.0;
-    std::uint64_t m_frames = 0;
+    std::uint64_t m_ticks = 0;
     std::vector<waiting_t> m_waiting;
     std::vector<timer_t> m_timers;
 };
@@ -837,10 +836,10 @@ scheduler_t*& current_scheduler() {
 bool scheduler_t::tick(const double seconds) {
     bool ran = false;
     m_time += seconds;
-    ++m_frames;
+    ++m_ticks;
     std::erase_if(m_timers, [&](const timer_t& timer) {
         const std::int64_t now = timer.real ? real_nanoseconds() : time();
-        if (timer.frame != 0 ? m_frames < timer.frame : now < timer.due) {
+        if (timer.tick != 0 ? m_ticks < timer.tick : now < timer.due) {
             return false;
         }
 
@@ -854,7 +853,7 @@ bool scheduler_t::tick(const double seconds) {
     std::size_t i = 0;
     while (i < m_waiting.size()) {
         const waiting_t waiting = m_waiting[i];
-        if (waiting.since == m_frames || fb_task_done(waiting.task) == 0) {
+        if (waiting.since == m_ticks || fb_task_done(waiting.task) == 0) {
             ++i;
             continue;
         }
@@ -1244,7 +1243,7 @@ void fb_await(void* coroutine, fb_task_t* own, fb_task_t* task) {
     current_scheduler()->add(coroutine, own, task);
 }
 
-void fb_wait_frame(fb_task_t* task) {
+void fb_wait_tick(fb_task_t* task) {
     current_scheduler()->add_timer(task, true, 0, false);
 }
 
@@ -1264,8 +1263,31 @@ void fb_scheduler_run(const fb_scheduler_t* scheduler, const fb_task_t* task) {
     state_of(scheduler).take(*current_scheduler(), task);
 }
 
-void fb_scheduler_tick(const fb_scheduler_t* scheduler, const double seconds) {
-    state_of(scheduler).tick(seconds);
+void fb_scheduler_tick(const fb_scheduler_t* scheduler, const double seconds,
+                       const fb_location_t* location) {
+    scheduler_t& state = state_of(scheduler);
+    if (&state == &main_scheduler()) {
+        fb_panic("the main scheduler's time is the real clock's, which a Tick can't move; call "
+                 "Scheduler.Main.Step() instead",
+                 location);
+    }
+
+    state.tick(seconds);
+}
+
+void fb_scheduler_step(const fb_scheduler_t* scheduler) {
+    state_of(scheduler).tick(0.0);
+}
+
+fb_scheduler_t* fb_scheduler_main(fb_class_t* type) {
+    // Not an fb_object_new's, so no leak report counts it, and the runtime's own reference keeps
+    // it from ever being released.
+    static fb_scheduler_t instance{
+        .header = { .refcount = 1, .weak_count = 0, .type = type },
+        .state = &main_scheduler(),
+    };
+    fb_object_retain(&instance.header);
+    return &instance;
 }
 
 std::int32_t fb_scheduler_idle(const fb_scheduler_t* scheduler) {

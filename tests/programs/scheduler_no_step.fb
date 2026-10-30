@@ -1,0 +1,26 @@
+// A program that never steps the main scheduler still runs its coroutines: at an Await in
+// top-level code, at a Task's Wait(), and once top-level code ends.
+Import std.core
+
+Async Function Count(name: String, times: Int)
+    For i = 1 To times
+        Print("{name} {i}")
+        Await NextTick()
+    End For
+
+    Print("{name} done")
+End Function
+
+Async Function Twice(n: Int): Int
+    Await NextTick()
+    Return n * 2
+End Function
+
+Count("await", 2)
+Print("top-level Await gives {Await Twice(5)}")
+
+Count("wait", 2)
+Print("Wait gives {Twice(7).Wait()}")
+
+Count("end", 3)
+Print("top-level code is done")

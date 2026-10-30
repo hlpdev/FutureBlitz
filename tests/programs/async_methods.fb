@@ -6,7 +6,7 @@ Class Door
     Field name: String
 
     Async Method Open(): String
-        Await NextFrame()
+        Await NextTick()
         Return "{name} open"
     End Method
 

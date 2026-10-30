@@ -16,7 +16,7 @@ Process.OnInterrupt(Function()
 End Function)
 
 Async Function Later()
-    Await NextFrame()
+    Await NextTick()
     Print("later")
 End Function
 

@@ -28,7 +28,7 @@ End Function
 
 Async Function FadeOut(name: String)
     Print("{name} fades")
-    Await NextFrame()
+    Await NextTick()
     Print("never: {name} started fading as the program ended")
 End Function
 
@@ -47,10 +47,10 @@ Local scene = Cutscene()
 gameplay.Run(scene)
 Ui(scene)
 Local timer = Wait(100.Seconds)
-Local frame = NextFrame()
+Local soon = NextTick()
 For tick = 1 To 3
     gameplay.Tick(0.5)
 End For
 
-Print("timers done: {timer.IsDone()} {frame.IsDone()}")
+Print("timers done: {timer.IsDone()} {soon.IsDone()}")
 Print("the game loop ends")

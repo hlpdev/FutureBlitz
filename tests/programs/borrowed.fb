@@ -87,10 +87,10 @@ Print("after click: {button.label}")
 Global gameplay = Scheduler()
 
 Async Function Dropper()
-    Await NextFrame()
+    Await NextTick()
     Print("dropper replaces the Scheduler")
     gameplay = Scheduler()
-    Await NextFrame()
+    Await NextTick()
     Print("never: the old Scheduler is gone")
 End Function
 

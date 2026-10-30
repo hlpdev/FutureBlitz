@@ -1,0 +1,12 @@
+// The main scheduler's time is the real clock's, so a Tick through a variable that holds it
+// panics; written as Scheduler.Main.Tick, it's a compile error.
+Import std.core
+
+Function Advance(s: Scheduler)
+    s.Tick(0.5)
+End Function
+
+Advance(Scheduler())
+Print("a Scheduler of its own ticks")
+Advance(Scheduler.Main)
+Print("never")

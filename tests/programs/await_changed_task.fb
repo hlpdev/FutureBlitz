@@ -4,15 +4,15 @@
 Import std.core
 
 Async Function Slow(n: Int): Int
-    Await NextFrame()
-    Await NextFrame()
+    Await NextTick()
+    Await NextTick()
     Return n
 End Function
 
 Global current = Slow(1)
 
 Async Function Swap(n: Int)
-    Await NextFrame()
+    Await NextTick()
     current = Slow(n)
 End Function
 

@@ -628,9 +628,9 @@ void fb_task_finish(const fb_task_t* task);
 /// `task` is done. Coroutines run on the main thread, which runs the main scheduler once
 /// top-level code ends, and whenever it waits for a Task; a Scheduler's run when it's ticked.
 void fb_await(void* coroutine, fb_task_t* own, fb_task_t* task);
-/// For NextFrame: the scheduler running the code finishes `task`, which fb_task_begin set up, at
+/// For NextTick: the scheduler running the code finishes `task`, which fb_task_begin set up, at
 /// its next tick.
-void fb_wait_frame(fb_task_t* task);
+void fb_wait_tick(fb_task_t* task);
 /// For Wait and RealWait: the scheduler running the code finishes `task` once `nanoseconds` of
 /// its time have passed, or of the real clock's when `real` isn't 0. The main scheduler's time is
 /// the real clock's.
@@ -649,10 +649,18 @@ fb_scheduler_t* fb_scheduler_new(fb_class_t* type);
 /// from the scheduler running the code to the Scheduler, which runs it from then on. A Task
 /// that's done, or that isn't an Async Function's, has nothing to move.
 void fb_scheduler_run(const fb_scheduler_t* scheduler, const fb_task_t* task);
-/// Moves the Scheduler's time on by `seconds`, then resumes its coroutines that can go on.
-void fb_scheduler_tick(const fb_scheduler_t* scheduler, double seconds);
+/// Moves the Scheduler's time on by `seconds`, then resumes its coroutines that can go on. The
+/// main scheduler's time is the real clock's, so ticking it panics, at `location`.
+void fb_scheduler_tick(const fb_scheduler_t* scheduler, double seconds,
+                       const fb_location_t* location);
+/// Resumes the Scheduler's coroutines that can go on, without moving its time, for Step.
+void fb_scheduler_step(const fb_scheduler_t* scheduler);
 /// 1 when no coroutine waits on the Scheduler, and 0 otherwise.
 std::int32_t fb_scheduler_idle(const fb_scheduler_t* scheduler);
+/// The main thread's scheduler, for Scheduler.Main, retained for the caller. The runtime keeps
+/// one reference to it for the whole program, so it's never released, and the first call's
+/// `type`, a Class compiled code makes for Schedulers, is its type.
+fb_scheduler_t* fb_scheduler_main(fb_class_t* type);
 /// For a Scheduler's Class's release: lets go of what it holds. A coroutine still waiting on it
 /// is destroyed, which lets go of what that holds, and its Task is never done.
 void fb_scheduler_free(const fb_scheduler_t* scheduler);

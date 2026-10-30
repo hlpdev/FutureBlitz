@@ -20,7 +20,7 @@ Interface Source<T>
     Async Method LabelAsync(): String => "source"
 End Interface
 
-// Counts down, a frame at a time.
+// Counts down, a tick at a time.
 Class Numbers Implements Source<Int32>
     Field left: Int32
 
@@ -29,7 +29,7 @@ Class Numbers Implements Source<Int32>
     End New
 
     Async Method NextAsync(): Int32 Throws Empty
-        Await NextFrame()
+        Await NextTick()
         If left == 0 Then Throw Empty()
         left -= 1
         Return left
@@ -76,7 +76,7 @@ Struct Seven Implements Maker
     Method Half(): Int => 1
 
     Async Static Method MakeAsync(): Int
-        Await NextFrame()
+        Await NextTick()
         Return 7
     End Method
 End Struct
@@ -97,7 +97,7 @@ Async Function Run(source: Source<Int32>): String
     Return text
 End Function
 
-// Each waits a frame at a time on the main thread, so the two take turns.
+// Each waits a tick at a time on the main thread, so the two take turns.
 Local first = Run(Numbers(2))
 Local second = Run(Loud(5))
 Print("started")

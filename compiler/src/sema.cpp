@@ -328,7 +328,7 @@ bool is_array_size(const std::string_view name) {
     return name == "Count" || name == "Capacity";
 }
 
-/// The names that later milestones declare, like Random or Flip.
+/// The names that later milestones declare, like Random or File.
 bool is_later_name(const std::string_view name) {
     constexpr auto names = std::to_array<std::string_view>({
         // The standard library, in M6
@@ -340,8 +340,6 @@ bool is_later_name(const std::string_view name) {
         "Stopwatch",
         "DateTime",
         "StringBuilder",
-        // The engine
-        "Flip",
     });
     return std::ranges::contains(names, name);
 }
@@ -1203,7 +1201,7 @@ private:
             .type = type_id_t::NONE,
         });
 
-        // NextFrame(), Wait(time), and RealWait(time) give a Task that the scheduler running the
+        // NextTick(), Wait(time), and RealWait(time) give a Task that the scheduler running the
         // code finishes later, for an Async Function to Await, so only the main thread calls
         // them. MainThread() gives one that's done. A time is std.time's Duration, which
         // find_duration() gives the parameter once the types are declared.
@@ -1227,7 +1225,7 @@ private:
             });
             m_builtins[name].push_back(timer);
         };
-        timing("NextFrame", false);
+        timing("NextTick", false);
         timing("Wait", true);
         timing("RealWait", true);
         timing("MainThread", false);
@@ -12213,9 +12211,9 @@ private:
         return m_analysis.types.get(type).kind == type_kind_t::SCHEDULER;
     }
 
-    /// A Scheduler's Methods: Run, which moves an Async Function's coroutine to it, Tick, and
-    /// IsIdle. Run takes any Task, so its parameter has no type, and check_special_call() checks
-    /// its argument.
+    /// A Scheduler's Methods: Run, which moves an Async Function's coroutine to it, Tick, Step,
+    /// and IsIdle. Run takes any Task, so its parameter has no type, and check_special_call()
+    /// checks its argument.
     const std::vector<symbol_id_t>& scheduler_methods() {
         if (!m_scheduler_methods.empty()) {
             return m_scheduler_methods;
@@ -12240,6 +12238,12 @@ private:
             .name = "Tick",
             .type = type_id_t::NONE,
             .parameters = { seconds },
+            .owner = type,
+        }));
+        m_scheduler_methods.push_back(add_symbol({
+            .kind = symbol_kind_t::METHOD,
+            .name = "Step",
+            .type = type_id_t::NONE,
             .owner = type,
         }));
         m_scheduler_methods.push_back(add_symbol({
@@ -20495,7 +20499,7 @@ private:
             std::vector<symbol_id_t> methods = members_of(type, member.text);
             if (methods.empty()) {
                 error(member.span,
-                      "a Scheduler has no member named '{}'; it has Run, Tick, and IsIdle",
+                      "a Scheduler has no member named '{}'; it has Run, Tick, Step, and IsIdle",
                       member.text);
             }
 
@@ -21464,6 +21468,39 @@ private:
         }
 
         return name->name == "Mutex" ? std::optional(type_kind_t::MUTEX) : std::nullopt;
+    }
+
+    /// "Scheduler.Main": the main thread's scheduler, which only the main thread uses, since its
+    /// coroutines run there. It's a value, not a variable, so nothing assigns it.
+    type_id_t check_main_scheduler(const expr_id_t id, const member_expr_t& node,
+                                   const name_expr_t& name) {
+        if (!name.type_arguments.empty()) {
+            error(span_of(node.object), "'Scheduler' isn't generic");
+            return type_id_t::INVALID;
+        }
+
+        if (node.member.text != "Main" || !node.type_arguments.empty() || node.null_safe) {
+            error(span_of(id), "Scheduler's one Static member is Main, the main thread's "
+                               "scheduler, like Scheduler.Main.Step()");
+            return type_id_t::INVALID;
+        }
+
+        if (m_partial == id) {
+            error(span_of(id), "Scheduler.Main can't be assigned; it's always the main thread's "
+                               "scheduler");
+            return type_id_t::INVALID;
+        }
+
+        if (const std::optional<symbol_id_t> code = current_code()) {
+            add_main_only(*code, main_only_t{
+                                     .what = "uses Scheduler.Main, whose coroutines run on the "
+                                             "main thread",
+                                     .span = span_of(id),
+                                 });
+        }
+
+        info(id).main_scheduler = true;
+        return m_analysis.types.scheduler();
     }
 
     /// "Scheduler()": a new Scheduler, which only the main thread makes, since its coroutines run
@@ -23090,11 +23127,13 @@ private:
         error(span, "the pattern isn't valid: {}", problem->message);
     }
 
-    /// RefEquals only compares Class references, a Scheduler runs a Task, and Destroy runs by
-    /// itself. A Run without its argument was reported already.
+    /// RefEquals only compares Class references, a Scheduler runs a Task, Scheduler.Main's time
+    /// is the real clock's, which no Tick moves, and Destroy runs by itself. A Run without its
+    /// argument was reported already.
     void check_special_call(const call_expr_t& node, const symbol_t& function) {
-        if (function.kind == symbol_kind_t::METHOD && function.owner != type_id_t::INVALID &&
-            is_scheduler(function.owner) && function.name == "Run" && !node.arguments.empty()) {
+        const bool scheduler = function.kind == symbol_kind_t::METHOD &&
+                               function.owner != type_id_t::INVALID && is_scheduler(function.owner);
+        if (scheduler && function.name == "Run" && !node.arguments.empty()) {
             const expr_id_t task = node.arguments.front().value;
             if (const type_id_t type = info(task).type;
                 type != type_id_t::INVALID &&
@@ -23102,6 +23141,14 @@ private:
                 error(span_of(task), "a Scheduler runs an Async Function's Task, not {}",
                       shown_name(type));
             }
+        }
+
+        // Through a variable, the runtime panics instead.
+        if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
+            scheduler && function.name == "Tick" && member != nullptr &&
+            info(member->object).main_scheduler) {
+            error(span_of(node.callee), "Scheduler.Main's time is the real clock's, which a Tick "
+                                        "can't move; call Scheduler.Main.Step() instead");
         }
 
         if (function.kind == symbol_kind_t::BUILTIN_FUNCTION &&
@@ -25333,6 +25380,12 @@ private:
 
         if (const std::optional<symbol_id_t> variable = member_variable(node.object)) {
             return check_member_variable(id, node, *variable);
+        }
+
+        if (const auto* name = std::get_if<name_expr_t>(&m_ast.get(node.object).node);
+            name != nullptr && name->name == "Scheduler" &&
+            !declared_here(name->name, span_of(node.object))) {
+            return check_main_scheduler(id, node, *name);
         }
 
         // A Static Property an Extend of an Enum adds is reached through it, as a value is.

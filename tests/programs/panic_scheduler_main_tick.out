@@ -1,0 +1,2 @@
+a Scheduler of its own ticks
+panic: the main scheduler's time is the real clock's, which a Tick can't move; call Scheduler.Main.Step() instead at panic_scheduler_main_tick.fb:6:5

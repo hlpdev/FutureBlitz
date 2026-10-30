@@ -1,0 +1,23 @@
+step 1
+idle False
+loop 1
+step 2
+loop 2
+step 3
+loop 3
+step done
+loop 4
+idle True
+await 1
+await loop 1
+await 2
+await loop 2
+await done
+await loop 3
+answer 42
+paused 1
+paused done
+paused idle True
+local 1
+local done
+top-level code is done

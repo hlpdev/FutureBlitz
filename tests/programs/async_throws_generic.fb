@@ -16,7 +16,7 @@ Class ParseError Extends Error
 End Class
 
 Async Function Load(name: String): Int Throws FileError
-    Await NextFrame()
+    Await NextTick()
     If name == "missing" Then Throw FileError("no {name}")
     Return name.Bytes.Count
 End Function
@@ -61,7 +61,7 @@ Class Source<T, E: Error>
             If failure != Null Then Throw failure
             Local value = Value
             If value != Null Then Return value
-            Await NextFrame()
+            Await NextTick()
         End Loop
     End Method
 End Class
@@ -115,7 +115,7 @@ Catch e As ParseError
 End Try
 
 Async Function Plain(): Int
-    Await NextFrame()
+    Await NextTick()
     Return 4
 End Function
 

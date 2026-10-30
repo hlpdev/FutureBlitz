@@ -166,9 +166,9 @@ Catch e As CancelledError
 End Try
 
 // Async code awaits its Task, beside the work's, done once it's cancelled.
-Async Function Work(frames: Int)
-    For i = 1 To frames
-        Await NextFrame()
+Async Function Work(ticks: Int)
+    For i = 1 To ticks
+        Await NextTick()
     End For
 End Function
 
@@ -177,8 +177,8 @@ Local before = stop.Task
 Print(before.IsDone())
 Local work = Work(1000)
 Async Function Stopper()
-    Await NextFrame()
-    Await NextFrame()
+    Await NextTick()
+    Await NextTick()
     stop.Cancel()
 End Function
 Stopper()

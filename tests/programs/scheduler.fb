@@ -13,7 +13,7 @@ End Function
 Async Function Blink(times: Int)
     For i = 1 To times
         Print("blink {i}")
-        Await NextFrame()
+        Await NextTick()
     End For
 
     Print("blink done")
@@ -65,8 +65,8 @@ Function Drop()
 End Function
 
 Async Function Ui()
-    Await NextFrame()
-    Print("ui next frame")
+    Await NextTick()
+    Print("ui next tick")
     Await RealWait(10.Milliseconds)
     Print("ui after real time")
     Await MainThread()
@@ -84,9 +84,9 @@ gameplay.Run(Sequence())
 Print("idle {gameplay.IsIdle()}")
 
 // Each tick is half a second of the Scheduler's time, which doesn't move while it's paused.
-For frame = 1 To 8
-    Local paused = frame == 3 || frame == 4
-    Print("frame {frame}{paused ? " paused" : ""}")
+For tick = 1 To 8
+    Local paused = tick == 3 || tick == 4
+    Print("tick {tick}{paused ? " paused" : ""}")
     If !paused Then gameplay.Tick(0.5)
 End For
 

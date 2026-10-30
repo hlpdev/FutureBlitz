@@ -58,7 +58,7 @@ Async Function Round(n: Int, tally: Tally): Int64
     End For
 
     Await producer
-    Await NextFrame()
+    Await NextTick()
     Lock tally.rounds As rounds
         rounds += 1
     End Lock

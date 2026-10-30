@@ -13,7 +13,7 @@ Global marker = Marker()
 Global stalled = Scheduler()
 
 Async Function Inner(): Int
-    Await NextFrame()
+    Await NextTick()
     Return 1
 End Function
 

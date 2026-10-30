@@ -22,7 +22,7 @@ Async Function Main()
     Local count = 0
     Local blink = Async Function(times: Int): String
         For i = 1 To times
-            Await NextFrame()
+            Await NextTick()
             count += 1
         End For
 
@@ -38,7 +38,7 @@ Async Function Main()
 
     // One that gives nothing.
     Local log = Async Function(text: String)
-        Await NextFrame()
+        Await NextTick()
         Print("log {text}")
     End Function
 

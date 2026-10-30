@@ -3,26 +3,26 @@ front opens
 blink 1
 gate opens
 idle False
-frame 1
+tick 1
 blink 2
-frame 2
+tick 2
 blink 3
-frame 3 paused
-frame 4 paused
-frame 5
+tick 3 paused
+tick 4 paused
+tick 5
 blink done
-frame 6
+tick 6
 front closes
 gate closes
-frame 7
+tick 7
 sequence done
-frame 8
+tick 8
 loaded 42
 idle True
 lamp waits
 lamp let go
 dropped
 top-level code is done
-ui next frame
+ui next tick
 ui after real time
 ui on the main thread

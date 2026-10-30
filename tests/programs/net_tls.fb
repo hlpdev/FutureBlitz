@@ -26,7 +26,7 @@ Class Pipe
     End New
 End Class
 
-// An end of a Pipe: what the other end writes, it reads, a frame later at least, as a socket's
+// An end of a Pipe: what the other end writes, it reads, a tick later at least, as a socket's
 // bytes come, or, when it's Held, once it's flushed, as a buffered stream's do. A blocking read,
 // which would wait for the other end forever, panics.
 Class PipeEnd Implements Reader, Writer
@@ -64,7 +64,7 @@ Class PipeEnd Implements Reader, Writer
 
     Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
         While Joined.Waiting[Side].Count == 0 && !Joined.Ended[Side]
-            Await NextFrame()
+            Await NextTick()
         End While
 
         Return Try Read(into)

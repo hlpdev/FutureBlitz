@@ -17,10 +17,10 @@ Class ParseError Extends Error
     End New
 End Class
 
-// Gives value after a number of frames, or throws when it's below 0.
-Async Function After(frames: Int, value: Int): Int Throws FileError
-    For i = 1 To frames
-        Await NextFrame()
+// Gives value after a number of ticks, or throws when it's below 0.
+Async Function After(ticks: Int, value: Int): Int Throws FileError
+    For i = 1 To ticks
+        Await NextTick()
     End For
     If value < 0 Then Throw FileError("failed {value}")
     Print("done {value}")
@@ -28,17 +28,17 @@ Async Function After(frames: Int, value: Int): Int Throws FileError
 End Function
 
 // The same, with no result.
-Async Function Step(frames: Int, fail: Bool) Throws FileError
-    For i = 1 To frames
-        Await NextFrame()
+Async Function Step(ticks: Int, fail: Bool) Throws FileError
+    For i = 1 To ticks
+        Await NextTick()
     End For
-    If fail Then Throw FileError("step {frames} failed")
-    Print("step {frames}")
+    If fail Then Throw FileError("step {ticks} failed")
+    Print("step {ticks}")
 End Function
 
-Async Function Parse(frames: Int): Int Throws ParseError
-    Await NextFrame()
-    Throw ParseError("bad after {frames}")
+Async Function Parse(ticks: Int): Int Throws ParseError
+    Await NextTick()
+    Throw ParseError("bad after {ticks}")
 End Function
 
 // What a Task gives, or the error it throws.
@@ -73,9 +73,9 @@ End Try
 
 // A source of a String that a coroutine finishes later.
 Const named = ThrowingTaskSource<String, ParseError>()
-Async Function Name(frames: Int)
-    For i = 1 To frames
-        Await NextFrame()
+Async Function Name(ticks: Int)
+    For i = 1 To ticks
+        Await NextTick()
     End For
     named.Finish("ada")
 End Function

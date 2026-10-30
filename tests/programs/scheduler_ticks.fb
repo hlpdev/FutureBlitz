@@ -7,7 +7,7 @@ Import std.time
 Global done = False
 
 Async Function Door(time: Duration)
-    Await NextFrame()
+    Await NextTick()
     Await Wait(time)
     done = True
 End Function
@@ -17,7 +17,7 @@ For tick In lengths
     Local s = Scheduler()
     done = False
     s.Run(Door(1.Seconds))
-    // The NextFrame's tick, in which the Wait starts.
+    // The NextTick's tick, in which the Wait starts.
     s.Tick(tick)
     Local ticks = 0
     While !done

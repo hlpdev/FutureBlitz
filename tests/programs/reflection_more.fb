@@ -124,7 +124,7 @@ Class Door
     End Method
 
     Async Method Later(): Int
-        Await NextFrame()
+        Await NextTick()
         Return Opened
     End Method
 

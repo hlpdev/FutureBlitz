@@ -776,7 +776,7 @@ TEST_CASE("a request nothing waits for doesn't keep a stuck coroutine's program 
                     "Import std.core\n"
                     "Global paused = Scheduler()\n"
                     "Async Function Inner()\n"
-                    "    Await NextFrame()\n"
+                    "    Await NextTick()\n"
                     "End Function\n"
                     "Async Function Outer(t: Task)\n"
                     "    Await t\n"

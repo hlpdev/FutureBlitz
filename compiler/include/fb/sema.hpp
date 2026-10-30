@@ -268,6 +268,8 @@ struct expr_info_t {
     bool qualified = false;
     /// For "AddressOf(x)": a Ptr to its argument's place.
     bool address_of = false;
+    /// For "Scheduler.Main": the main thread's scheduler.
+    bool main_scheduler = false;
     /// For "TypeName<T>()" where T has type parameters in it: the type whose name, with the
     /// instance's type arguments, the call gives.
     std::optional<type_id_t> type_name;

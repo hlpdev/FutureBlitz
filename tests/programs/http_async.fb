@@ -34,17 +34,17 @@ Async Function Sent(method: HttpMethod, path: String, body: Body? = Null): Strin
     End Try
 End Function
 
-// A coroutine that counts frames while the requests go, so the main thread runs meanwhile.
-Global frames = 0
+// A coroutine that counts ticks while the requests go, so the main thread runs meanwhile.
+Global ticks = 0
 Global counting = True
-Async Function CountFrames()
+Async Function CountTicks()
     While counting
-        frames += 1
-        Await NextFrame()
+        ticks += 1
+        Await NextTick()
     End While
 End Function
 
-Local counter = CountFrames()
+Local counter = CountTicks()
 
 Print("== at once")
 Local tasks: Task<String>[] = []
@@ -116,4 +116,4 @@ Print(Await Fetched("{base}/hello"))
 
 counting = False
 counter.Wait()
-Print("the main thread ran meanwhile: {frames > 1}")
+Print("the main thread ran meanwhile: {ticks > 1}")

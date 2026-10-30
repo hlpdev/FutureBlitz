@@ -116,16 +116,20 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "async_finish";
     case runtime_function_t::AWAIT:
         return "await";
-    case runtime_function_t::WAIT_FRAME:
-        return "wait_frame";
+    case runtime_function_t::WAIT_TICK:
+        return "wait_tick";
     case runtime_function_t::WAIT_TIME:
         return "wait_time";
     case runtime_function_t::SCHEDULER_RUN:
         return "scheduler_run";
     case runtime_function_t::SCHEDULER_TICK:
         return "scheduler_tick";
+    case runtime_function_t::SCHEDULER_STEP:
+        return "scheduler_step";
     case runtime_function_t::SCHEDULER_IDLE:
         return "scheduler_idle";
+    case runtime_function_t::SCHEDULER_MAIN:
+        return "scheduler_main";
     }
 
     std::unreachable();

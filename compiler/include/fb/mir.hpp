@@ -296,16 +296,21 @@ enum class runtime_function_t : std::uint8_t {
     /// coroutine once the first Task is done. A suspend_t comes right after.
     AWAIT,
     /// (Task) to nothing: the scheduler running the code finishes it at its next tick.
-    WAIT_FRAME,
+    WAIT_TICK,
     /// (Task, Int64 nanoseconds, Bool real) to nothing: the scheduler running the code finishes it
     /// once that much of its time, or the real clock's, has passed.
     WAIT_TIME,
     /// (Scheduler, Task) to nothing: the Scheduler runs the Task's coroutine from then on.
     SCHEDULER_RUN,
-    /// (Scheduler, Float64 seconds) to nothing: moves its time on and runs its coroutines.
+    /// (Scheduler, Float64 seconds) to nothing: moves its time on and runs its coroutines. The
+    /// main scheduler's panics.
     SCHEDULER_TICK,
+    /// (Scheduler) to nothing: runs its coroutines that can go on, without moving its time.
+    SCHEDULER_STEP,
     /// (Scheduler) to a Bool: whether no coroutine waits on it.
     SCHEDULER_IDLE,
+    /// () to the main thread's Scheduler, which the runtime keeps for the whole program.
+    SCHEDULER_MAIN,
 };
 
 struct runtime_call_t {

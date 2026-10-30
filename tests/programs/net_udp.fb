@@ -113,7 +113,7 @@ End Function
 Try
     Local socket = UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0))
     Local waiting = Wait(socket)
-    Await NextFrame()
+    Await NextTick()
     socket.Close()
     Print(Await waiting)
 Catch e As NetError

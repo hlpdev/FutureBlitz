@@ -21,7 +21,7 @@ Function Shown(response: HttpResponse): String => "{response.Status} {response.T
 // Waits on the main thread, letting its coroutines run, until `count` holds.
 Async Function WaitFor(count: Func(): Bool)
     While !count()
-        Await NextFrame()
+        Await NextTick()
     End While
 End Function
 

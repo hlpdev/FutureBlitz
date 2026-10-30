@@ -155,13 +155,13 @@
 #                 ^ source.futureblitz
 #                  ^^ source.futureblitz keyword.control.loop.futureblitz
 #                    ^^^^^^ source.futureblitz
->            Await NextFrame()
+>            Await NextTick()
 #^^^^^^^^^^^^ source.futureblitz
 #            ^^^^^ source.futureblitz keyword.control.flow.futureblitz
 #                 ^ source.futureblitz
-#                  ^^^^^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                  ^^^^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                          ^ source.futureblitz punctuation.parenthesis.futureblitz
 #                           ^ source.futureblitz punctuation.parenthesis.futureblitz
-#                            ^ source.futureblitz punctuation.parenthesis.futureblitz
 >            count += 1
 #^^^^^^^^^^^^^^^^^^ source.futureblitz
 #                  ^^ source.futureblitz keyword.operator.assignment.compound.futureblitz
@@ -294,13 +294,13 @@
 #                                    ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz
 #                                     ^^^^^^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz meta.type.annotation.futureblitz storage.type.primitive.futureblitz
 #                                           ^ source.futureblitz meta.function.lambda.futureblitz meta.parameters.futureblitz punctuation.definition.parameters.end.futureblitz
->        Await NextFrame()
+>        Await NextTick()
 #^^^^^^^^ source.futureblitz
 #        ^^^^^ source.futureblitz keyword.control.flow.futureblitz
 #             ^ source.futureblitz
-#              ^^^^^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#              ^^^^^^^^ source.futureblitz entity.name.function.call.futureblitz
+#                      ^ source.futureblitz punctuation.parenthesis.futureblitz
 #                       ^ source.futureblitz punctuation.parenthesis.futureblitz
-#                        ^ source.futureblitz punctuation.parenthesis.futureblitz
 >        Print("log {text}")
 #^^^^^^^^ source.futureblitz
 #        ^^^^^ source.futureblitz entity.name.function.call.futureblitz

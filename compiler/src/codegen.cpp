@@ -594,12 +594,14 @@ private:
     function_ref_t m_task_begin;
     function_ref_t m_task_finish;
     function_ref_t m_await;
-    function_ref_t m_wait_frame;
+    function_ref_t m_wait_tick;
     function_ref_t m_wait_time;
     function_ref_t m_scheduler_new;
     function_ref_t m_scheduler_run;
     function_ref_t m_scheduler_tick;
+    function_ref_t m_scheduler_step;
     function_ref_t m_scheduler_idle;
+    function_ref_t m_scheduler_main;
     function_ref_t m_scheduler_free;
     function_ref_t m_coroutine_alloc;
     function_ref_t m_coroutine_free;
@@ -1443,12 +1445,14 @@ private:
         m_task_begin = declare("fb_task_begin", m_void, { m_ptr });
         m_task_finish = declare("fb_task_finish", m_void, { m_ptr });
         m_await = declare("fb_await", m_void, { m_ptr, m_ptr, m_ptr });
-        m_wait_frame = declare("fb_wait_frame", m_void, { m_ptr });
+        m_wait_tick = declare("fb_wait_tick", m_void, { m_ptr });
         m_wait_time = declare("fb_wait_time", m_void, { m_ptr, m_i64, m_i32 });
         m_scheduler_new = declare("fb_scheduler_new", m_ptr, { m_ptr });
         m_scheduler_run = declare("fb_scheduler_run", m_void, { m_ptr, m_ptr });
-        m_scheduler_tick = declare("fb_scheduler_tick", m_void, { m_ptr, f64 });
+        m_scheduler_tick = declare("fb_scheduler_tick", m_void, { m_ptr, f64, m_ptr });
+        m_scheduler_step = declare("fb_scheduler_step", m_void, { m_ptr });
         m_scheduler_idle = declare("fb_scheduler_idle", m_i32, { m_ptr });
+        m_scheduler_main = declare("fb_scheduler_main", m_ptr, { m_ptr });
         m_scheduler_free = declare("fb_scheduler_free", m_void, { m_ptr });
         m_coroutine_alloc = declare("fb_coroutine_alloc", m_ptr, { m_i64 });
         m_coroutine_free = declare("fb_coroutine_free", m_void, { m_ptr });
@@ -5330,8 +5334,8 @@ private:
                                      value_of(node.arguments[1]),
                                      value_of(node.arguments[0]),
                                  });
-        case runtime_function_t::WAIT_FRAME:
-            return call(m_wait_frame, { value_of(node.arguments[0]) });
+        case runtime_function_t::WAIT_TICK:
+            return call(m_wait_tick, { value_of(node.arguments[0]) });
         case runtime_function_t::WAIT_TIME:
             return call(m_wait_time,
                         {
@@ -5343,12 +5347,19 @@ private:
             return call(m_scheduler_run,
                         { value_of(node.arguments[0]), value_of(node.arguments[1]) });
         case runtime_function_t::SCHEDULER_TICK:
-            return call(m_scheduler_tick,
-                        { value_of(node.arguments[0]), value_of(node.arguments[1]) });
+            return call(m_scheduler_tick, {
+                                              value_of(node.arguments[0]),
+                                              value_of(node.arguments[1]),
+                                              location(node.span.value_or(span_t{})),
+                                          });
+        case runtime_function_t::SCHEDULER_STEP:
+            return call(m_scheduler_step, { value_of(node.arguments[0]) });
         case runtime_function_t::SCHEDULER_IDLE:
             return LLVMBuildICmp(builder(), LLVMIntNE,
                                  call(m_scheduler_idle, { value_of(node.arguments[0]) }),
                                  LLVMConstInt(m_i32, 0, 0), "");
+        case runtime_function_t::SCHEDULER_MAIN:
+            return call(m_scheduler_main, { scheduler_class(m_mir.types->scheduler()) });
         case runtime_function_t::PARALLEL_FOR:
             return call(m_parallel_for, {
                                             value_of(node.arguments[0]),

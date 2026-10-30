@@ -8,17 +8,17 @@ Shared Class Tally
     Field Won: Atomic<Int>
 End Class
 
-Async Function Later(frames: Int, value: Int): Int
-    For i = 1 To frames
-        Await NextFrame()
+Async Function Later(ticks: Int, value: Int): Int
+    For i = 1 To ticks
+        Await NextTick()
     End For
 
     Return value
 End Function
 
-Async Function Pause(frames: Int)
-    For i = 1 To frames
-        Await NextFrame()
+Async Function Pause(ticks: Int)
+    For i = 1 To ticks
+        Await NextTick()
     End For
 End Function
 
@@ -103,7 +103,7 @@ Global fast: Task<Int>? = Null
 Global any: Task<Int>? = Null
 
 Async Function Tie()
-    Await NextFrame()
+    Await NextTick()
     fast = Later(1, 1)
     any = WhenAny([slow.Expect("slow is set"), fast.Expect("fast is set")])
 End Function

@@ -1,0 +1,13 @@
+await 1
+await 2
+top-level Await gives 10
+wait 1
+await done
+wait 2
+Wait gives 14
+end 1
+top-level code is done
+wait done
+end 2
+end 3
+end done

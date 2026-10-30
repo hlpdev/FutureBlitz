@@ -63,7 +63,7 @@ End Try
 // Try and Try? Await a Task that gives nothing, in an Async Function, an Async lambda, and the
 // top level.
 Async Function Work(fail: Bool) Throws LoadError
-    Await NextFrame()
+    Await NextTick()
     If fail Then Throw LoadError("work failed")
     Print("worked")
 End Function

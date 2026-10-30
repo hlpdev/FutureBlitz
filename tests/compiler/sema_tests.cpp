@@ -6553,7 +6553,7 @@ TEST_CASE("a variadic parameter takes the rest of the arguments as an array", "[
 TEST_CASE("what work and threads share has no text, so it can't be shown", "[sema]") {
     constexpr std::string_view seven = "Import std.core\n"
                                        "Async Function Seven(): Int\n"
-                                       "    Await NextFrame()\n"
+                                       "    Await NextTick()\n"
                                        "    Return 7\n"
                                        "End Function\n";
     CHECK(errors_of(std::format("{}Print(Seven())", seven)) ==
@@ -11377,7 +11377,7 @@ TEST_CASE("an Async Function's call gives its Task, and its code can Await", "[s
     // A generic one's type arguments can come from the Task expected.
     const std::string_view zero = "Import std.core\n"
                                   "Async Function Zero<T: Numeric>(): T\n"
-                                  "    Await NextFrame()\n"
+                                  "    Await NextTick()\n"
                                   "    Return T.Zero()\n"
                                   "End Function\n";
     CHECK(probe(std::format("{}Local t: Task<Int64> = Zero()", zero)) == "Task<Int64>");
@@ -11443,14 +11443,14 @@ TEST_CASE("an Async Function's call gives its Task, and its code can Await", "[s
                     "so its code runs on the main thread" });
 }
 
-TEST_CASE("NextFrame, Wait, and Schedulers time coroutines on the main thread", "[sema]") {
+TEST_CASE("NextTick, Wait, and Schedulers time coroutines on the main thread", "[sema]") {
     CHECK(probe("Import std.time\nLocal x = Wait(2.Seconds)") == "Task");
     CHECK(probe("Local x = Scheduler()") == "Scheduler");
     CHECK(errors_of("Import std.time\n"
                     "Async Function Door()\n"
                     "    Await Wait(1.5.Seconds)\n"
                     "    Await RealWait(1.Seconds)\n"
-                    "    Await NextFrame()\n"
+                    "    Await NextTick()\n"
                     "    Await MainThread()\n"
                     "End Function\n"
                     "Global gameplay = Scheduler()\n"
@@ -11466,7 +11466,7 @@ TEST_CASE("NextFrame, Wait, and Schedulers time coroutines on the main thread", 
     CHECK(errors_of("Global s = Scheduler()\ns.Run()") ==
           errors_t{ "s.Run(): missing an argument for parameter 'task'" });
     CHECK(errors_of("Global s = Scheduler()\ns.Pause()") ==
-          errors_t{ "Pause: a Scheduler has no member named 'Pause'; it has Run, Tick, and "
+          errors_t{ "Pause: a Scheduler has no member named 'Pause'; it has Run, Tick, Step, and "
                     "IsIdle" });
     CHECK(errors_of("Local s = Scheduler(60)") ==
           errors_t{ "Scheduler(60): a Scheduler is made without arguments, like Scheduler()" });
@@ -11496,6 +11496,62 @@ TEST_CASE("NextFrame, Wait, and Schedulers time coroutines on the main thread", 
 
     // A program can still declare the names.
     CHECK(errors_of("Class Scheduler\nEnd Class\nLocal s = Scheduler()").empty());
+    CHECK(errors_of("Class Scheduler\n    Static Field Main = 1\nEnd Class\n"
+                    "Local m: Int = Scheduler.Main")
+              .empty());
+}
+
+TEST_CASE("Scheduler.Main is the main thread's scheduler, which a program's own loop steps",
+          "[sema]") {
+    CHECK(probe("Local x = Scheduler.Main") == "Scheduler");
+    CHECK(errors_of("Async Function Blink()\n"
+                    "    Await NextTick()\n"
+                    "End Function\n"
+                    "Blink()\n"
+                    "While !Scheduler.Main.IsIdle()\n"
+                    "    Scheduler.Main.Step()\n"
+                    "End While\n"
+                    "Local s = Scheduler()\n"
+                    "s.Step()\n"
+                    "Function Advance(main: Scheduler)\n"
+                    "    main.Step()\n"
+                    "End Function\n"
+                    "Advance(Scheduler.Main)")
+              .empty());
+
+    // Its one Static member is Main, a value nothing assigns.
+    CHECK(errors_of("Local x = Scheduler.Other") ==
+          errors_t{ "Scheduler.Other: Scheduler's one Static member is Main, the main thread's "
+                    "scheduler, like Scheduler.Main.Step()" });
+    CHECK(errors_of("Local x = Scheduler<Int>.Main") ==
+          errors_t{ "Scheduler<Int>: 'Scheduler' isn't generic" });
+    CHECK(errors_of("Scheduler.Main = Scheduler()") ==
+          errors_t{ "Scheduler.Main: Scheduler.Main can't be assigned; it's always the main "
+                    "thread's scheduler" });
+
+    // Its time is the real clock's, which no Tick moves.
+    CHECK(errors_of("Scheduler.Main.Tick(0.5)") ==
+          errors_t{ "Scheduler.Main.Tick: Scheduler.Main's time is the real clock's, which a "
+                    "Tick can't move; call Scheduler.Main.Step() instead" });
+
+    // Its coroutines run on the main thread, so only that thread uses it.
+    CHECK(errors_of("Local t = Spawn(Function() => Scheduler.Main.Step())") ==
+          errors_t{ "Spawn: this work runs on another thread, but it uses Scheduler.Main, whose "
+                    "coroutines run on the main thread" });
+    const std::string_view pump = "Function Pump()\n"
+                                  "    Scheduler.Main.Step()\n"
+                                  "End Function\n";
+    CHECK(errors_of(std::format("{}Local t = Thread.Start(Pump)", pump)) ==
+          errors_t{ "Thread.Start: this work runs on another thread, but it uses Scheduler.Main, "
+                    "whose coroutines run on the main thread" });
+    CHECK(errors_of(std::format("{}Local t = Spawn(Function() => Pump())", pump)) ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Pump', which uses "
+                    "Scheduler.Main, whose coroutines run on the main thread" });
+}
+
+TEST_CASE("Flip is a name like any other, which the language doesn't declare", "[sema]") {
+    CHECK(errors_of("Flip()") == errors_t{ "Flip: 'Flip' isn't declared" });
+    CHECK(errors_of("Function Flip()\nEnd Function\nFlip()").empty());
 }
 
 TEST_CASE("an Async Function's Task keeps its error, which Await and Wait re-throw", "[sema]") {
@@ -11967,7 +12023,7 @@ TEST_CASE("an Async lambda's call gives its Task, and its code can Await", "[sem
     CHECK(probe("Local x = Async Function() => 5") == "Func(): Task<Int32>");
     CHECK(probe("Import std.core\n"
                 "Local x = Async Function(text: String)\n"
-                "    Await NextFrame()\n"
+                "    Await NextTick()\n"
                 "    Print(text)\n"
                 "End Function") == "Func(String): Task");
     CHECK(errors_of("Local f: Func(Int): Task<Int> = Async Function(n) => n + 1\n"
@@ -11975,15 +12031,15 @@ TEST_CASE("an Async lambda's call gives its Task, and its code can Await", "[sem
                     "Global m = Mutex<Int>(0)\n"
                     "Lock m As value\n"
                     "    Local g = Async Function()\n"
-                    "        Await NextFrame()\n"
+                    "        Await NextTick()\n"
                     "    End Function\n"
                     "End Lock")
               .empty());
 
     // One that returns nothing can wait after its '=>', as it can make a call.
-    CHECK(errors_of("Local f: Func(): Task = Async Function() => Await NextFrame()\n"
+    CHECK(errors_of("Local f: Func(): Task = Async Function() => Await NextTick()\n"
                     "Local g: Func(): Task = Async Function() => Await Spawn(Function() => 5)\n"
-                    "Local h = Async Function() => Await NextFrame()")
+                    "Local h = Async Function() => Await NextTick()")
               .empty());
     CHECK(errors_of("Local f: Func(): Task = Async Function() => 5") ==
           errors_t{ "5: this lambda returns nothing, so its '=>' needs a call, like "
@@ -11991,9 +12047,9 @@ TEST_CASE("an Async lambda's call gives its Task, and its code can Await", "[sem
 
     // Await goes in its own code, not in a lambda inside it.
     CHECK(errors_of("Local f = Async Function()\n"
-                    "    Local g = Function() => Await NextFrame()\n"
+                    "    Local g = Function() => Await NextTick()\n"
                     "End Function") ==
-          errors_t{ "Await NextFrame(): Await goes in an Async Function or lambda, whose code can "
+          errors_t{ "Await NextTick(): Await goes in an Async Function or lambda, whose code can "
                     "wait without blocking its thread, or in top-level code" });
 
     // Its code runs on the main thread, so it isn't work for another one either.
@@ -12002,7 +12058,7 @@ TEST_CASE("an Async lambda's call gives its Task, and its code can Await", "[sem
                     "whose code runs on the main thread" });
     CHECK(errors_of("Import std.core\n"
                     "Local t = Spawn(Async Function()\n"
-                    "    Await NextFrame()\n"
+                    "    Await NextTick()\n"
                     "End Function)\n"
                     "Local th = Thread.Start(Async Function() => 1)") ==
           errors_t{ "Spawn: this work runs on another thread, but it's an Async lambda, whose "

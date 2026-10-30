@@ -3545,6 +3545,7 @@ private:
                 runtime_function_t::PARALLEL_FOR,
                 runtime_function_t::SCHEDULER_RUN,
                 runtime_function_t::SCHEDULER_TICK,
+                runtime_function_t::SCHEDULER_STEP,
             };
             if (std::ranges::contains(runs_code, runtime->function)) {
                 for (operand_t& argument : runtime->arguments) {
@@ -5787,6 +5788,10 @@ private:
         // A name after a module's qualifier is what the name alone would be.
         if (m_analysis.expr(id).qualified) {
             return lower_expr(id, name_expr_t{});
+        }
+
+        if (m_analysis.expr(id).main_scheduler) {
+            return runtime_call(runtime_function_t::SCHEDULER_MAIN, {}, types().scheduler(), true);
         }
 
         if (const std::optional<symbol_id_t> variable = m_analysis.expr(id).symbol;
@@ -10043,7 +10048,7 @@ private:
         return element_of(as_place(task), 2);
     }
 
-    /// NextFrame, Wait, and RealWait make a Task for the scheduler running the code to finish,
+    /// NextTick, Wait, and RealWait make a Task for the scheduler running the code to finish,
     /// and MainThread one that's done. A Wait's time is std.time's Duration, whose one Field is
     /// its nanoseconds.
     operand_t timing_call(const expr_id_t id, const symbol_t& function,
@@ -10054,8 +10059,8 @@ private:
         runtime_call_t begin{ .function = runtime_function_t::ASYNC_BEGIN, .arguments = { task } };
         emit(evaluate_t{ std::move(begin) });
         runtime_call_t timer{ .function = runtime_function_t::ASYNC_FINISH, .arguments = { task } };
-        if (function.name == "NextFrame") {
-            timer.function = runtime_function_t::WAIT_FRAME;
+        if (function.name == "NextTick") {
+            timer.function = runtime_function_t::WAIT_TICK;
         } else if (function.name != "MainThread") {
             const const_value_t real{
                 .type = type_id_t::BOOL,
@@ -10069,7 +10074,7 @@ private:
         return task;
     }
 
-    /// A Scheduler's Run, Tick, and IsIdle.
+    /// A Scheduler's Run, Tick, Step, and IsIdle.
     std::optional<operand_t> scheduler_call(const symbol_t& method,
                                             const std::vector<call_argument_t>& arguments) {
         const operand_t& scheduler = arguments.front().value;
@@ -10082,10 +10087,20 @@ private:
                 type_id_t::BOOL);
         }
 
+        if (method.name == "Step") {
+            emit(evaluate_t{ runtime_call_t{
+                .function = runtime_function_t::SCHEDULER_STEP,
+                .arguments = { scheduler },
+            } });
+            return std::nullopt;
+        }
+
+        // A Tick of the main scheduler panics where it is.
         runtime_call_t call{
             .function = method.name == "Run" ? runtime_function_t::SCHEDULER_RUN
                                              : runtime_function_t::SCHEDULER_TICK,
             .arguments = { scheduler, arguments[1].value },
+            .span = m_span,
         };
         emit(evaluate_t{ std::move(call) });
         return std::nullopt;
