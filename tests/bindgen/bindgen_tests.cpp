@@ -361,7 +361,8 @@ TEST_CASE("what can't map is a skipped comment and a warning", "[bindgen]") {
           "// skipped: counter, a C global\n"
           "\n"
           "Public Extern \"C\"\n"
-          "    // skipped: printf, a varargs function, which FutureBlitz can't call yet\n"
+          "    // skipped: printf, a varargs function, which FutureBlitz can't call; wrap it in "
+          "C\n"
           "    // skipped: twice, a static function, which no library has\n"
           "    // skipped: thrice, an inline function, which no library has\n"
           "    // skipped: precise, which gives a long double\n"
@@ -388,7 +389,8 @@ TEST_CASE("what can't map is a skipped comment and a warning", "[bindgen]") {
               std::string("test.h:11:8: skipped struct holds, since its field bits is struct "
                           "bits, which is skipped"),
               "test.h:12:12: skipped counter, a C global",
-              "test.h:13:5: skipped printf, a varargs function, which FutureBlitz can't call yet",
+              std::string("test.h:13:5: skipped printf, a varargs function, which FutureBlitz "
+                          "can't call; wrap it in C"),
               "test.h:14:19: skipped twice, a static function, which no library has",
               "test.h:15:12: skipped thrice, an inline function, which no library has",
               "test.h:16:13: skipped precise, which gives a long double",
@@ -1011,7 +1013,7 @@ TEST_CASE("a target whose C ABI FutureBlitz hasn't gets no Struct by value", "[b
                           "Public Extern \"C\"\n"
                           "    // skipped: add, which passes a struct by value, which FutureBlitz "
                           "does only on x86-64 and\n"
-                          "    // AArch64 yet\n"
+                          "    // AArch64\n"
                           "    Function area(p: Ptr<point>): Int32\n"
                           "End Extern\n"));
     CHECK(module_of(header, "aarch64-unknown-linux-gnu") ==

@@ -1779,7 +1779,8 @@ private:
 
         if (clang_isFunctionTypeVariadic(type) != 0) {
             skip(item,
-                 std::format("{}, a varargs function, which FutureBlitz can't call yet", c_name),
+                 std::format("{}, a varargs function, which FutureBlitz can't call; wrap it in C",
+                             c_name),
                  true);
             return;
         }
@@ -1794,11 +1795,11 @@ private:
             return;
         }
 
-        // A target whose C ABI FutureBlitz doesn't have yet passes no Struct by value.
+        // A target whose C ABI FutureBlitz doesn't have passes no Struct by value.
         if (by_value_struct(type) && c_abi_of(target()) == c_abi_t::OTHER) {
             skip(item,
                  std::format("{}, which passes a struct by value, which FutureBlitz does only on "
-                             "x86-64 and AArch64 yet",
+                             "x86-64 and AArch64",
                              c_name),
                  true);
             return;
