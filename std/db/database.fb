@@ -1,9 +1,10 @@
-//! std.db: SQLite databases, through the runtime's fb_db_ functions. A Database runs SQL with its
-//! parameters bound to values, and gives the Rows a query reads, or with `Query<T>` each as a T
-//! that `Load<T>` makes of its columns; Prepare makes a Statement to run many times, Begin a
-//! Transaction, which keeps all of what it does or none of it, and Migrate brings a database up to
-//! date, a numbered migration at a time. What SQLite can't do throws a DatabaseError of its kind,
-//! with SQLite's message.
+//! SQLite databases: statements, queries, transactions, and migrations.
+//!
+//! A Database runs SQL with its parameters bound to values, and gives the Rows a query reads, or
+//! with `Query<T>` each as a T that `Load<T>` makes of its columns; Prepare makes a Statement to
+//! run many times, Begin a Transaction, which keeps all of what it does or none of it, and Migrate
+//! brings a database up to date, a numbered migration at a time. What SQLite can't do throws a
+//! DatabaseError of its kind, with SQLite's message.
 
 Import std.core
 Import std.collections
@@ -342,6 +343,18 @@ End Function
 
 /// A connection to an SQLite database, which closes when Close is called, or when its last
 /// reference goes, and those of its Statements and Transactions. One thread uses it at a time.
+///
+/// # Examples
+///
+/// ```
+/// Local db = Try Database.Open(":memory:")
+/// Try db.Execute("CREATE TABLE people (name TEXT, age INTEGER)")
+/// Try db.Execute("INSERT INTO people VALUES (?, ?)", "Ada", 36)
+/// Try db.Execute("INSERT INTO people VALUES (?, ?)", "Alan", 41)
+/// Local rows = Try db.Rows("SELECT name FROM people WHERE age > ?", 40)
+/// Expect(rows.Count == 1 && rows[0].Text("name") == "Alan")
+/// db.Close()
+/// ```
 Public Class Database
     /// SQLite's connection, or Null once it's closed.
     Field Handle: Ptr<Void>
@@ -524,6 +537,21 @@ Public Class Database
 
     /// The rows `sql`'s one query reads, each a T, as a Statement's `Query<T>()` gives them. Panics
     /// when `sql` takes parameters, which a Statement binds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Struct Person
+    ///     Field Name: String
+    ///     Field Age: Int
+    /// End Struct
+    ///
+    /// Local db = Try Database.Open(":memory:")
+    /// Try db.Execute("CREATE TABLE people (Name TEXT, Age INTEGER)")
+    /// Try db.Execute("INSERT INTO people VALUES ('Ada', 36), ('Alan', 41)")
+    /// Local people = Try db.Query<Person>("SELECT Name, Age FROM people ORDER BY Age")
+    /// Expect(people.Count == 2 && people[0].Name == "Ada" && people[1].Age == 41)
+    /// ```
     @PanicsAtCaller
     Public Method Query<T>(sql: String): T[] Throws DatabaseError, ParseError
         Local statement = Try Prepare(sql)
@@ -718,6 +746,20 @@ Public Class Database
     /// `sql`'s one statement, prepared to run many times. Throws a DatabaseError of QUERY when
     /// `sql` holds no statement or more than one, or one that doesn't prepare, like one that names
     /// a table the database hasn't got.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local db = Try Database.Open(":memory:")
+    /// Try db.Execute("CREATE TABLE squares (n INTEGER, square INTEGER)")
+    /// Local insert = Try db.Prepare("INSERT INTO squares VALUES (?, ?)")
+    /// For n = 1 To 3
+    ///     Try insert.Execute(n, n * n)
+    /// End For
+    ///
+    /// Local rows = Try db.Rows("SELECT SUM(square) FROM squares")
+    /// Expect(rows[0].Integer(0) == 14)
+    /// ```
     @PanicsAtCaller
     Public Method Prepare(sql: String): Statement Throws DatabaseError
         Local handle: Ptr<Void> = Null
@@ -734,6 +776,17 @@ Public Class Database
     /// A new Transaction, which keeps all of what this Database does until its Commit, or undoes
     /// it: see Transaction. One begun while another is open is a part of that one. The outermost
     /// is SQLite's IMMEDIATE, which waits for other connections to finish writing when it begins.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local db = Try Database.Open(":memory:")
+    /// Try db.Execute("CREATE TABLE log (line TEXT)")
+    /// Local transaction = Try db.Begin()
+    /// Try db.Execute("INSERT INTO log VALUES ('kept only on Commit')")
+    /// Try transaction.Rollback()
+    /// Expect((Try db.Rows("SELECT * FROM log")).Count == 0)
+    /// ```
     @PanicsAtCaller
     Public Method Begin(): Transaction Throws DatabaseError
         Local handle = Connection()
@@ -751,6 +804,18 @@ Public Class Database
     /// once, in order, in a Transaction of its own with the version it makes, and one that fails
     /// leaves the database as the one before it left it, and throws. Throws a DatabaseError too
     /// when the database's version is past the last migration's, as a newer program's would be.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local db = Try Database.Open(":memory:")
+    /// Local first = "CREATE TABLE users (name TEXT)"
+    /// Local second = "ALTER TABLE users ADD COLUMN email TEXT"
+    /// Try db.Migrate(first)
+    /// // Later, the same database, with one more migration: only the new one runs.
+    /// Try db.Migrate(first, second)
+    /// Try db.Execute("INSERT INTO users VALUES (?, ?)", "Ada", "ada@example.com")
+    /// ```
     @PanicsAtCaller
     Public Method Migrate(migrations: String...) Throws DatabaseError
         Local version = Try Version(migrations.Count)
