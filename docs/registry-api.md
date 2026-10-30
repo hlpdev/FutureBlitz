@@ -34,8 +34,9 @@ there.
 - **A username** is lowercase letters, digits, and `-`, 1 to 39 long, not starting or ending with
   `-`. **A team's name** is the same.
 - **A version** is semver 2.0: `MAJOR.MINOR.PATCH`, with an optional `-prerelease`, no leading
-  zeros. Build metadata (`+...`) is refused at publish, so two versions never differ by it alone.
-  Versions order as semver says.
+  zeros, and each number, a numeric prerelease part's too, at most 2^53 - 1. Build metadata
+  (`+...`) is refused at publish, so two versions never differ by it alone. Versions order as
+  semver says.
 - **A version range** (a dependency's `req`, and project.toml's `fb`) is one or more comparators
   joined by `,`, all of which a version has to meet:
   - `1.2.3`, `1.2`, `1`, or with `^`: caret, the same leftmost nonzero part. `1.2` is
@@ -97,20 +98,34 @@ each a version, in the order they were published, with a `\n` after each.
 - A version deleted (within 72 hours, or by an admin) is gone from the file, and its number is
   never published again.
 - The response is `text/plain; charset=utf-8`, with an `ETag`, and `Cache-Control: no-cache`, so
-  fb sends `If-None-Match` and gets a `304` when nothing changed. A name with no package is a
+  fb sends `If-None-Match` and gets a `304` when nothing changed. The edge can make the ETag weak
+  (`W/"…"`) as it compresses; If-None-Match compares weakly, takes a list, and `*`. A name with no package is a
   `404`. The edge caches each file; a publish, yank, or delete purges it.
 
 ## Downloads
 
 `GET https://dl.futureblitz.dev/<name>/<version>/<file>` is the archive, `application/gzip`,
-`Cache-Control: public, max-age=31536000, immutable`, with `ETag: "<sha256>"`. fb checks the
-SHA-256 against the index line or fb.lock. A yanked version's archives still download; a deleted
-one's are a `404`. Each `GET` counts a download.
+`Cache-Control: public, max-age=31536000, immutable`, with `ETag: "<sha256>"`; If-None-Match
+gives a `304` as on the index. fb checks the SHA-256 against the index line or fb.lock. A yanked
+version's archives still download; a deleted one's are a `404`, and so is any path that isn't an
+archive's, escaped or not. Each `GET` that sends the archive counts a download.
 
 ## Archives
 
-A `.fbpkg` is a gzip-compressed tar (POSIX ustar, or pax for long paths), with its files at its
-root, not under a folder.
+A `.fbpkg` is a gzip-compressed tar with its files at its root, not under a folder. The registry
+takes only the part of tar that every extractor reads alike, so the paths it checks are the paths
+that get extracted:
+
+- every header is POSIX ustar (magic `ustar\0`, version `00`), with a valid checksum; GNU's
+  (`ustar  \0`) and old tars' are refused, and so are GNU long names (`L`, `K`);
+- an entry is a file (`0`) or a folder (`5`), and a folder's size is 0;
+- an entry has at most one pax header (`x`) before it, whose keys are only `path`, `size`,
+  `mtime`, `atime`, `ctime`, `uid`, `gid`, `uname`, `gname`, `hdrcharset`, and `comment`, each
+  once; a global header (`g`), `linkpath`, and `GNU.sparse.*` are refused;
+- a header's size and checksum are octal digits, after any spaces, and then only NULs or
+  spaces; a base-256 or empty field, or one with a NUL first, is refused (a pax `size` takes a
+  bigger file);
+- after the end marker, only zeros.
 
 - **The source archive**, `<name>-<version>.fbpkg`: `project.toml`, the license, the readme, and
   either the package's `.fb` source or, for a prebuilt package, no `.fb` files at all. Its
@@ -127,15 +142,17 @@ The API refuses an archive, with an error naming the file and why, when:
 - **Paths:** an entry is anything but a file or a folder (a link, a device, a FIFO); a path is
   absolute, has a drive letter, `\`, a NUL, a control character, `<>:"|?*`, an empty part, or a
   `.` or `..` part, or a part that ends in `.` or a space, or is a name Windows reserves (`CON`,
-  `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with any extension); a path is longer than
-  255 bytes, or isn't UTF-8; two paths are the same ignoring letter case; there are more than
-  20,000 entries.
+  `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0`–`COM9`, `LPT0`–`LPT9`, and `COM`/`LPT` with
+  `¹`, `²`, or `³`, with any extension); a path is longer than 255 bytes, or isn't UTF-8; two
+  paths are the same to a disk that ignores letter case (compared after Unicode's NFKC and case
+  folding, so `ſ` is `s`); a file is inside another file's path; there are more than 20,000
+  entries; the tar isn't the subset above.
 - **Sizes:** the source archive is over 10 MB, a target's over 200 MB (more by request, per
   package), or one unpacks to more than 8 times its limit; docs JSON is over 25 MB.
 - **The SHA-256 or the size** isn't the one the publish request names.
-- **project.toml:** it isn't at the root or doesn't parse as TOML; `[project] name` or `version`
+- **project.toml:** it isn't at the root, is over 1 MB, or doesn't parse as TOML; `[project] name` or `version`
   isn't the upload's; `type` is `"executable"` (or it has `main` or a root `main.fb` and no
-  `type`), since only libraries are dependencies; `license` isn't a valid SPDX expression of
+  `type`; `type = "library"` with a `main.fb` is a library), since only libraries are dependencies; `license` isn't a valid SPDX expression of
   known licenses (`LicenseRef-...` is allowed); `fb` isn't a valid range; a dependency's name
   isn't a valid package name, it is the package itself, its range isn't valid, or it has `path`,
   `git`, or `registry`.
@@ -216,7 +233,8 @@ token expires (90 days by default, at most 365); it's shown once, and stored as 
    denies with `POST /cli-logins/<id>/deny`.
 3. fb polls `POST /cli-logins/<id>/poll` `{ "secret" }` every `interval` seconds:
    `202 { "status": "pending" }`; then once `200 { "status": "approved", "token", "expires_at", "username" }`;
-   or `410` `expired` when denied, expired (10 minutes), or already taken.
+   or `410` `expired` when denied, expired (10 minutes), already taken, or its account was
+   deleted. Approving or denying one already answered is a `409` `conflict`.
 
 In CI, fb reads `FB_REGISTRY_TOKEN` instead.
 
@@ -230,12 +248,19 @@ verified. Each account's uploads are its own.
   staged, else `404`.
 - `PUT /uploads/<sha256>` with `Content-Length` and the bytes, up to 64 MB:
   `201 { "sha256", "size" }`; bytes that aren't the SHA-256 are a `422` `checksum`.
-- Bigger, in parts: `POST /uploads/<sha256>/parts` `{ "size" }` → `201 { "upload_id", "part_size" }`;
-  then `PUT /uploads/<sha256>/parts/<upload_id>/<n>`, for n from 1, each `part_size` bytes but
-  the last → `200 { "part": n, "etag" }`; then `POST /uploads/<sha256>/parts/<upload_id>/complete`
-  `{ "parts": [{ "part": 1, "etag": "…" }, …] }` → `201 { "sha256", "size" }`.
+- Bigger, in parts: `POST /uploads/<sha256>/parts` `{ "size" }` (up to 2000 MB) →
+  `201 { "upload_id", "part_size" }`; then `PUT /uploads/<sha256>/parts/<upload_id>/<n>`, for n
+  from 1 to the size over `part_size`, rounded up, each exactly `part_size` bytes but the last,
+  which is the rest (another length or number is a `400`) → `200 { "part": n, "etag" }`; then
+  `POST /uploads/<sha256>/parts/<upload_id>/complete` `{ "parts": [{ "part": 1, "etag": "…" }, …] }`
+  → `201 { "sha256", "size" }`. Put together, it has to be the size it said and the SHA-256 it's
+  named by, or it's deleted and the answer is a `422` `checksum`.
+- An account has at most 4000 MB staged, in uploads and uploads in parts begun (a `413`
+  `too_large` past it).
 
-The SHA-256 is checked at publish. Staged uploads are deleted a day after they're made.
+The SHA-256 is checked again at publish. Staged uploads, and uploads in parts never put
+together, are deleted a day after they're made. What a publish checked is what's stored: its
+archives are copied with their SHA-256s, and its docs from the bytes it checked.
 
 ### Publishing
 
@@ -254,7 +279,7 @@ The SHA-256 is checked at publish. Staged uploads are deleted a day after they'r
 
 `docs` is the upload of `fb doc`'s JSON, or `null`. It needs a token with `publish-new` (a new
 package) or `publish-update`, an account whose email is verified, and, for an existing package,
-an owner's rights; 30 publishes an hour per account. On success,
+an owner's rights; 30 publish attempts an hour per account. On success,
 `201 { "name", "version", "warnings": [] }`: the version is in the index at once (the edge
 elsewhere within seconds, by the purge), and its readme, docs, and search follow within a minute;
 the other owners get a mail. Two publishes of one package are serialized; of
@@ -266,7 +291,8 @@ one version, the second is a `409` `version_exists`.
 - `GET /packages/<name>/versions/<version>` → `<version>`:
   `{ "version", "yanked", "license", "fb", "deps", "targets", "archives", "published_at", "published_by": "<username> or null", "trusted_publisher": "<owner/repo> or null", "downloads", "readme": bool, "docs": bool }`.
 - `GET /packages/<name>/versions/<version>/readme` → the rendered readme, `text/html`; raw HTML in
-  the Markdown is escaped, and links are only http, https, mailto, and relative ones; a `404`
+  the Markdown is escaped, and links are only http, https, mailto, and relative ones (not
+  `//host`); a `404`
   until it's rendered.
 - `GET /packages/<name>/versions/<version>/docs` → the docs JSON.
 - `GET /packages/<name>/dependents?page=` → `{ "dependents": [{ "name", "version", "req" }], "total" }`:
@@ -275,37 +301,50 @@ one version, the second is a `409` `version_exists`.
 - `POST /packages/<name>/versions/<version>/yank` and `/unyank` → `200 <version>`; needs `yank`.
 - `DELETE /packages/<name>/versions/<version>` → `204`; needs `yank`, within 72 hours of
   publishing (`too_late` after), and no other package's version whose range takes it
-  (`has_dependents`); an admin can at any time.
+  (`has_dependents`). An admin can delete any package's version at any time, from a session
+  with re-auth, with `?reason=` (up to 500 characters), which the audit log keeps.
 
 ### Owners
 
 An owner is `{ "kind": "user", "name": "alice" }` or `{ "kind": "team", "name": "acme" }`.
 
-- `GET /packages/<name>/owners` → `{ "owners": [<owner>], "invites": [<invite>] }`.
+- `GET /packages/<name>/owners` → `{ "owners": [<owner>], "invites": [<invite>] }`, the pending
+  invites to own it.
 - `POST /packages/<name>/owners` `{ "user": "alice" }` → `202 <invite>`, mailed to alice, who
   accepts it; or
   `{ "team": "acme" }` → `201 <owner>`, added at once if the caller is one of acme's owners.
 - `DELETE /packages/<name>/owners` `{ "user": "alice" }` or `{ "team": "acme" }` → `204`; the last
-  owner is a `409` `last_owner`.
+  owner is a `409` `last_owner`, even when two removals race. A removed user's invites for the
+  package go with them: those they sent, and those sent to them.
+- `DELETE /packages/<name>/owners/invites/<id>` → `204` revokes a pending invite.
 - They need the `owners` scope, or a session with re-auth, and an owner's rights: a user owner,
   or an owner of an owning team. A team's publishers can publish and yank its packages, but not
   change their owners.
 
-An invite is `{ "id", "kind": "owner" | "team", "package" or "team", "role", "from", "created_at", "expires_at" }`;
-invites expire after 14 days.
+An invite is `{ "id", "kind": "owner" | "team", "package" or "team", "role", "from", "invitee", "created_at", "expires_at" }`;
+invites expire after 14 days. One person has one pending invite to a package or a team at a
+time (another is a `409` `conflict`), and an account sends at most 20 invites an hour (`429`).
 
-- `GET /me/invites` → `{ "invites": [<invite>] }`.
-- `POST /me/invites/<id>/accept` and `/decline` → `204`.
+- `GET /me/invites` → `{ "invites": [<invite>] }`, the newest 100.
+- `POST /me/invites/<id>/accept` and `/decline` → `204`. Accepting checks that the inviter can
+  still give it (a `410` `expired` if not), and a team's invite to someone already in it is a
+  `409` `conflict`: only the team's owners change a member's role.
 
 ### Teams
 
 - `POST /teams` `{ "name": "acme" }` → `201 <team>`; the caller is its owner.
 - `GET /teams/<name>` → `{ "name", "created_at", "members": [{ "username", "role" }], "packages": ["…"] }`.
+- `DELETE /teams/<name>` → `204`: its packages keep their other owners, or have none.
 - `POST /teams/<name>/members` `{ "user": "bob", "role": "owner" | "publisher" }` → `202 <invite>`.
+- `GET /teams/<name>/invites` (its owners, signed in) → `{ "invites": [<invite>] }`;
+  `DELETE /teams/<name>/invites/<id>` → `204` revokes one.
 - `PATCH /teams/<name>/members/<username>` `{ "role" }` → `200`.
 - `DELETE /teams/<name>/members/<username>` → `204`; the last owner is a `409` `last_owner`.
+  Demoting or removing a member drops the team's invites they sent, and those sent to them.
+- `GET /teams/<name>/audit?before=` (its owners, signed in) → `{ "events": [<event>] }`.
 
-Changing a team needs a session with re-auth, or a token with `owners`, and the team's owner role.
+Changing a team needs a session with re-auth, or a token with `owners` and no `packages` list
+(a token for some packages can't touch teams, a `403` `scope`), and the team's owner role.
 
 ### Trusted publishing
 
@@ -322,65 +361,88 @@ In the workflow (`permissions: id-token: write`), fb asks GitHub for an OIDC tok
 
 - `POST /trusted-publishing/token` `{ "token": "<the JWT>" }` →
   `201 { "token": "fbr_…", "expires_at", "packages": ["physics"] }`: a token for 30 minutes,
-  with `publish-update` and `yank` scopes for the packages whose trusted publishers match the
+  with `publish-update` and `yank` scopes for every package whose trusted publishers match the
   JWT's `repository_id`, `repository_owner_id`, workflow file (from `workflow_ref`, which has to
   be in the JWT's own `repository`), and, if one is named, `environment`. The JWT is RS256,
   from `https://token.actions.githubusercontent.com`, for `oidc_audience`, unexpired, and used
-  once. Deleting the trusted publisher revokes its tokens.
+  once. Each publish with it acts with its package's rights: the trusted publisher's maker's
+  while they can publish the package, else its longest-standing user owner's. Deleting any of
+  the token's trusted publishers revokes it.
 - fb then publishes with it as with any token, and `DELETE /tokens/current` revokes it at the end.
 
 ### The account
 
 - `GET /me` → `{ "username", "email", "email_verified", "github_login", "passkeys", "has_recovery_codes", "created_at" }`; with a token too, for `fb whoami`.
-- `DELETE /me` (re-auth) → `204`: sessions, tokens, and passkeys go, and its packages stay, owned
-  by their other owners or by no one.
+- `DELETE /me` (re-auth) → `204`: sessions, tokens, passkeys, `fb login`s, and invites go, and
+  its packages stay, owned by their other owners or by no one. The only owner of a team is
+  refused, a `409` `last_owner` naming the teams, until they name another owner or delete it.
 - `GET /me/tokens` → `{ "tokens": [{ "id", "name", "prefix": "fbr_ab12", "scopes", "packages", "created_at", "expires_at", "last_used_at" }] }`.
 - `POST /me/tokens` `{ "name", "scopes", "packages", "expires_in_days" }` (re-auth) → `201` that and `"token"`, shown once.
 - `DELETE /me/tokens/<id>` → `204`; `DELETE /tokens/current` revokes the token sending it.
-- `GET /me/audit?before=` → `{ "events": [<event>] }`; `GET /packages/<name>/audit` the same for
-  its owners. An event is `{ "id", "at", "action", "actor", "package", "version", "detail" }`.
+- `GET /me/audit?before=` → `{ "events": [<event>] }`, the account's own, 100 at a time;
+  `GET /packages/<name>/audit` the same for its owners (not a team's publishers). `before` is an
+  event's id, a positive whole number (else a `400`). An event is
+  `{ "id", "at", "action", "actor", "package", "version", "detail" }`.
 - `GET /users/<username>` → `{ "username", "github_login", "created_at", "packages": ["…"] }`.
 
 ### Signing in (the package site)
 
-All of these set the session cookie when they sign someone in, and take `"next"`, a path on the
-package site, where the browser goes after.
+All of these set the session cookie when they sign someone in. Only the GitHub flow takes
+`next`, a path on the package site (printable ASCII, one `/` first, no `\`; anything else is
+`/`), and redirects there; the others answer JSON and leave where to go to the page. A passkey
+has to check a PIN or a biometric (WebAuthn's user verification is required). An address is
+held only once it's verified: an unverified claim doesn't stop another sign-up, GitHub, or a
+change taking it, and verifying it, by link or by GitHub, takes it from accounts that only
+claimed it.
 
-- **GitHub:** `GET /auth/github?next=/dashboard&purpose=signin|reauth` → `302` to GitHub;
+- **GitHub:** `GET /auth/github?next=/dashboard&purpose=signin|reauth|link` → `302` to GitHub;
   GitHub comes back to `GET /auth/github/callback`, which signs in (making the account the first
   time, with the GitHub login as its username, or `<login>-<4 digits>` if that's taken) and
   `302`s to `next`. With `purpose=reauth` the signed-in account's GitHub has to match;
   `purpose=link` (re-auth) adds GitHub to a signed-in email account. A failure `302`s to
-  `/signin?error=<state|expired|github|session|deleted>`, or to `next` with
-  `error=github_mismatch` or `github_taken`.
+  `/signin?error=<state|expired|denied|github|session>` (`denied` when it was cancelled on
+  GitHub), or to `next` with `error=github_mismatch` or `github_taken`. A deleted account's
+  GitHub identity can sign up again, as a new account.
 - **Email and a passkey, signing up:** `POST /auth/register/options`
   `{ "email", "username", "turnstile" }` → `{ "challenge_id", "options" }` (WebAuthn creation
   options); `POST /auth/register/verify` `{ "challenge_id", "credential" }` → `201 <me>`. The
   email gets a verification link to `https://pkg.futureblitz.dev/verify-email?token=…`, whose
-  page calls `POST /auth/email/verify` `{ "token" }` → `200 <me>`. Links last 24 hours;
-  `POST /me/email/resend` sends another.
+  page calls `POST /auth/email/verify` `{ "token" }` → `200 <me>` (a `409` `conflict` if another
+  account verified it first). Links last 24 hours; `POST /me/email/resend` sends another, and an
+  account has at most 5 live verification links (another is a `429`).
+- **Changing the address:** `POST /me/email` `{ "email" }` (re-auth) → `200 <me>`, unverified
+  until its link is followed, and the account's other sessions are signed out; the same address
+  again changes nothing. It counts against the sign-in limit.
 - **A passkey, signing in:** `POST /auth/passkey/options` `{}` → `{ "challenge_id", "options" }`;
   `POST /auth/passkey/verify` `{ "challenge_id", "credential" }` → `200 <me>`.
 - **Re-auth by passkey:** `POST /auth/reauth/options` and `/auth/reauth/verify`, the same shapes.
 - **Passkeys:** `GET /me/passkeys` → `{ "passkeys": [{ "id", "name", "created_at", "last_used_at" }] }`;
   `POST /me/passkeys/options` → `{ "challenge_id", "options" }` and `POST /me/passkeys`
   `{ "challenge_id", "credential", "name" }` → `201` (re-auth); `DELETE /me/passkeys/<id>` →
-  `204` (re-auth), but not an account's last way to sign in (`conflict`).
+  `204` (re-auth), but not an account's last way to sign in (`conflict`), and it signs the
+  account's other sessions out. A passkey already registered is a `409` `conflict`.
+- **Sessions:** `POST /me/sessions/revoke` (re-auth) → `204` signs out every other session.
 - **Recovery:** `POST /auth/email/link` `{ "email" }` → `202` always, and a verified email gets a
-  sign-in link to `/signin-link?token=…`, whose page calls `POST /auth/email/link/verify`
+  sign-in link (at most 3 live at once) to `/signin-link?token=…`, whose page calls `POST /auth/email/link/verify`
   `{ "token" }` → `200 <me>`; `POST /me/recovery-codes` (re-auth) → `201 { "codes": [10 codes] }`,
   replacing the old ones; `POST /auth/recovery` `{ "username", "code" }` → `200 <me>`, using the
-  code up. A recovery sign-in counts as re-auth, so a new passkey can be added.
+  code up. A recovery sign-in counts as re-auth, so a new passkey can be added, and it signs the
+  account's other sessions out.
 - `POST /auth/signout` → `204`.
 
 ### Search
 
 `GET /search?q=physics&keyword=&target=&sort=relevance|downloads|recent&page=1&per_page=20` →
 `{ "packages": [{ "name", "max_version", "description", "keywords", "targets", "downloads", "updated_at" }], "total" }`.
-`q` searches names, descriptions, and keywords; `per_page` is at most 100.
+`q` searches names, descriptions, and keywords, by their words in any script, accents aside; a
+`q` with no letters or digits finds nothing. An empty `keyword`, `target`, or `sort` is none, as
+a form sends it. `page` is from 1 to 1000 and `per_page` from 1 to 100 (20 by default, and a
+larger or smaller one is taken as the nearest); a page or per_page that isn't a whole number, or
+a page out of range, is a `400`.
 
 ### Rate limits
 
-Beyond 30 publishes an hour per account, sign-in and sign-up endpoints take 10 requests a minute
-from an address, and the rest of the API 300 a minute; over a limit is a `429` `rate_limited`
-with `Retry-After`.
+An account tries at most 30 publishes an hour, counted as each starts, failed ones too, so
+publishes sent at once can't pass the limit. Sign-in and sign-up endpoints take 10 requests a
+minute from an address, and the rest of the API 300 a minute; an IPv6 address counts by its
+/64. Over a limit is a `429` `rate_limited` with `Retry-After`.
