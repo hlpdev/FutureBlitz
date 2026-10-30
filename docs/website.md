@@ -123,13 +123,15 @@ project's milestones are GitHub's business, not the page's.
 
 - Astro builds the site as static files: prose in MDX, Shiki for highlighting with the
   FutureBlitz grammar, Pagefind for search, and a small Svelte 5 island for the hero. Styles are plain CSS over design tokens (custom properties). The docs' content
-  lives in this repo; the site's code in its own repo, `futureblitz-web`.
+  lives in this repo; the site's code in its own private repo, `hlpdev/futureblitz-web`, with the
+  package site and the API, so a bug in them isn't on show (the user, 2026-10-30).
 - `futureblitz-web` is a pnpm monorepo: `apps/site` (futureblitz.dev), `apps/pkg` (the package
   site, Astro rendered on Workers through its Cloudflare adapter), `workers/api`,
   `packages/ui` (the tokens and components both sites share), and `packages/grammar` (the
   FutureBlitz grammars).
-- Served by Workers static assets. GitHub Actions builds on each push to master and deploys with
-  Wrangler; each pull request gets a preview.
+- Served by Workers static assets. Deploys run with Wrangler from the developer's machine, signed
+  in to the user's Cloudflare account with `wrangler login`, so no API token is stored anywhere;
+  GitHub Actions builds and tests each push.
 - Cloudflare Web Analytics (cookieless) only; no tracking, no cookie banner.
 
 ## The registry
@@ -209,8 +211,9 @@ project's milestones are GitHub's business, not the page's.
 
 ## Running it
 
-- **Two environments:** staging and production, each with its own D1, R2, and Workers; a
-  release promotes staging's build.
+- **Two environments:** staging (`staging.futureblitz.dev`, `staging-pkg.futureblitz.dev`) and
+  production, each with its own D1, R2, Workers, and GitHub OAuth app; a release promotes
+  staging's build.
 - **Backups:** D1's Time Travel, and a nightly export of D1 to R2; R2 keeps every archive, which is
   never deleted but for the policy's reasons.
 - **Monitoring:** Workers logs and Analytics Engine, alerts on errors, and a status page.
