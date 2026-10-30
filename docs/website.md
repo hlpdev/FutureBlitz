@@ -159,6 +159,9 @@ project's milestones are GitHub's business, not the page's.
   upload; the version is new and is semver; the license is an SPDX expression; the readme
   renders; the .fbi's ABI hash matches each target's builds.
 
+The index's lines, config.json, the archives' checks, and the API's requests and responses are in
+[registry-api.md](registry-api.md), mirrored from futureblitz-web's docs/registry-api.md.
+
 ## The API and its storage
 
 - **Workers:** `pkg.futureblitz.dev/api/v1` is one Worker in TypeScript (Hono, with Drizzle over
