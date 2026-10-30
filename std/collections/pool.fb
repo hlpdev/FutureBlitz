@@ -1,6 +1,8 @@
-//! `Pool<T>`: values kept by Handles that stay valid until their value is removed, like a game's
-//! enemies. A removed value's slot is reused, and its Generation counts how many times, so an
-//! old Handle to it finds nothing. Generations start at 1, so a Handle's zero finds nothing too.
+//! Values kept by Handles, which find nothing once their value is removed.
+//!
+//! `Pool<T>`: values kept by Handles that stay valid until their value is removed, like a scene's
+//! objects. A removed value's slot is reused, and its Generation counts how many times, so an old
+//! Handle to it finds nothing. Generations start at 1, so a Handle's zero finds nothing too.
 
 Import std.core
 
@@ -14,6 +16,21 @@ End Struct
 
 /// Values kept by Handles that stay valid until their value is removed, reusing removed values'
 /// slots.
+///
+/// # Examples
+///
+/// ```
+/// Local names = Pool<String>()
+/// Local ada = names.Add("Ada")
+/// names.Add("Alan")
+/// Expect(names.Get(ada) == "Ada")
+/// Expect(names.Remove(ada))
+/// Expect(names.Get(ada) == Null)
+/// // Grace takes Ada's slot, but Ada's Handle still finds nothing.
+/// Local grace = names.Add("Grace")
+/// Expect(grace.Index == ada.Index && names.Get(ada) == Null)
+/// Expect(names.Count == 2)
+/// ```
 @DebugElements
 Public Class Pool<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Items: T?[] = []
@@ -126,6 +143,7 @@ Public Struct PoolIterator<T> Implements Iterator<T>
     Field Owner: Pool<T>
     Field Index: Int
 
+    /// The next value, by slot, or Null after the last.
     Public ByRef Method Next(): T?
         While Index < Owner.Items.Count
             Index += 1
@@ -140,6 +158,7 @@ Public Struct PoolHandles<T> Implements Iterator<(Handle<T>, T)>
     Field Owner: Pool<T>
     Field Index: Int
 
+    /// The next value with its Handle, by slot, or Null after the last.
     Public ByRef Method Next(): (Handle<T>, T)?
         While Index < Owner.Items.Count
             Index += 1

@@ -1,3 +1,5 @@
+//! Fixed-size 2D and 3D grids of values, read and set by position.
+//!
 //! `Grid<T>` and `Grid3<T>`: a fixed number of values in columns and rows, and in layers too, read
 //! and set by position, like a map's tiles or a volume's voxels. A position is (x, y), or (x, y,
 //! z), each from 0, and one outside the Grid panics where it's used. The cells are in one array,
@@ -7,6 +9,17 @@ Import std.core
 Import std.collections.array
 
 /// A rectangle of cells, Width by Height, each a T, indexed as grid[x, y].
+///
+/// # Examples
+///
+/// ```
+/// Local grid = Grid<Int>(3, 2, 0)
+/// grid[2, 1] = 5
+/// Expect(grid[2, 1] == 5 && grid[0, 0] == 0)
+/// Expect(grid.Count == 6)
+/// Expect(grid.InBounds(2, 1) && !grid.InBounds(3, 0))
+/// Expect(grid.Neighbors4(0, 0) == [(1, 0), (0, 1)])
+/// ```
 Public Class Grid<T> Implements Iterable<T>, Cloneable
     Field Cells: T[] = []
     Field Columns: Int
@@ -113,6 +126,7 @@ Public Struct GridIterator<T> Implements Iterator<T>
     Field Cells: T[]
     Field Index: Int
 
+    /// The next cell's value, row by row from (0, 0), or Null after the last.
     Public ByRef Method Next(): T?
         If Index >= Cells.Count Then Return Null
         Index += 1
@@ -124,6 +138,7 @@ End Struct
 Extend Grid<T> Implements Equatable
     Where T: Equatable
 
+    /// Whether the two are the same size, with equal values in each cell.
     Operator ==(a: Grid<T>, b: Grid<T>): Bool
         Return a.Columns == b.Columns && a.Rows == b.Rows && a.Cells == b.Cells
     End Operator
@@ -133,6 +148,7 @@ End Extend
 Extend Grid<T> Implements Printable
     Where T: Printable
 
+    /// Its rows, from the top, each as an array: "[[1, 2, 3], [4, 5, 6]]".
     Public Method ToString(): String
         Local rows: String[] = []
         For y = 0 Until Rows
@@ -143,6 +159,15 @@ Extend Grid<T> Implements Printable
 End Extend
 
 /// A box of cells, Width by Height by Depth, each a T, indexed as grid[x, y, z].
+///
+/// # Examples
+///
+/// ```
+/// Local voxels = Grid3<Bool>(4, 4, 4, False)
+/// voxels[1, 2, 3] = True
+/// Expect(voxels[1, 2, 3] && !voxels[0, 0, 0])
+/// Expect(voxels.Neighbors6(0, 0, 0).Count == 3)
+/// ```
 Public Class Grid3<T> Implements Iterable<T>, Cloneable
     Field Cells: T[] = []
     Field Columns: Int
@@ -281,6 +306,7 @@ End Class
 Extend Grid3<T> Implements Equatable
     Where T: Equatable
 
+    /// Whether the two are the same size, with equal values in each cell.
     Operator ==(a: Grid3<T>, b: Grid3<T>): Bool
         Return a.Columns == b.Columns && a.Rows == b.Rows && a.Layers == b.Layers &&
                a.Cells == b.Cells
@@ -292,6 +318,7 @@ End Extend
 Extend Grid3<T> Implements Printable
     Where T: Printable
 
+    /// Its layers, each its rows as arrays: "[[[1, 2], [3, 4]], [[5, 6], [7, 8]]]".
     Public Method ToString(): String
         Local layers: String[] = []
         For z = 0 Until Layers

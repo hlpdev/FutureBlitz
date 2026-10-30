@@ -1,11 +1,24 @@
-//! `Deque<T>`: values added and taken at either end. Front holds the first values backwards, so
-//! both ends are at the end of an array, and when one side runs out as values are taken, it takes
-//! half of the other.
+//! A double-ended queue, which adds and takes values at either end.
+//!
+//! Front holds the first values backwards, so both ends are at the end of an array, and when one
+//! side runs out as values are taken, it takes half of the other.
 
 Import std.core
 Import std.collections.array
 
 /// A double-ended queue: values go on and come off at either end.
+///
+/// # Examples
+///
+/// ```
+/// Local deque = Deque<Int>()
+/// deque.AddLast(2)
+/// deque.AddFirst(1)
+/// deque.AddLast(3)
+/// Expect(deque.RemoveFirst() == 1)
+/// Expect(deque.RemoveLast() == 3)
+/// Expect(deque.ToArray() == [2])
+/// ```
 @DebugElements
 Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Front: T[] = []
@@ -208,6 +221,8 @@ Public Struct DequeIterator<T> Implements Iterator<T>
     Field BackAt: Int
     Field Changes: Int64
 
+    /// The next value, from the first to the last, or Null after it. Panics when the Deque changed
+    /// since the loop began.
     @PanicsAtCaller
     Public ByRef Method Next(): T?
         If Owner.Changes != Changes Then Panic("the Deque changed while a For ... In went over it")

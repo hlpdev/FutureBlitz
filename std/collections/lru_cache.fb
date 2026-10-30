@@ -1,3 +1,5 @@
+//! A cache of up to a set number of entries, which drops the one used least recently.
+//!
 //! `LruCache<K, V>`: up to Capacity entries, dropping the one used least recently to make room for
 //! a new key. Get and Add count as uses, but Peek, Contains, and going over the entries don't. Its
 //! entries are a Map's, in the order they were last used, so a use moves an entry to the end.
@@ -8,6 +10,18 @@ Import std.collections.map
 
 /// A Map that holds up to its Capacity, letting go of the entry used least recently to make room
 /// for a new one.
+///
+/// # Examples
+///
+/// ```
+/// Local cache = LruCache<String, Int>(2)
+/// cache.Add("a", 1)
+/// cache.Add("b", 2)
+/// Expect(cache.Get("a") == 1)
+/// // "b" is now the least recently used, so it goes to make room.
+/// Expect(cache.Add("c", 3) == ("b", 2))
+/// Expect(cache.Keys() == ["a", "c"])
+/// ```
 @DebugEntries
 Public Class LruCache<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable
     Field Items: Map<K, V>
@@ -108,5 +122,6 @@ Extend LruCache<K, V> Implements Printable
     Where K: Printable
     Where V: Printable
 
+    /// Its entries, the least recently used first, as a Map shows them: "{a: 1, b: 2}".
     Public Method ToString(): String => "{Items}"
 End Extend

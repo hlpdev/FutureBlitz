@@ -1,4 +1,6 @@
-//! `Stack<T>`: last in, first out. Push puts a value on top, and Pop takes the top one off.
+//! A last-in, first-out stack.
+//!
+//! Push puts a value on top, and Pop takes the top one off.
 
 Import std.core
 Import std.collections.array
@@ -112,6 +114,8 @@ Public Struct StackIterator<T> Implements Iterator<T>
     Field Index: Int
     Field Changes: Int64
 
+    /// The next value, from the top down, or Null after the bottom one. Panics when the Stack
+    /// changed since the loop began.
     @PanicsAtCaller
     Public ByRef Method Next(): T?
         If Owner.Changes != Changes Then Panic("the Stack changed while a For ... In went over it")

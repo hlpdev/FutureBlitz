@@ -1,3 +1,5 @@
+//! A tree of values over intervals, which finds those that overlap an interval or hold a key.
+//!
 //! `IntervalTree<K, V>`: values, each over an interval of keys from a low to a high, both in it,
 //! which finds the intervals that overlap another, or hold a key, without going over the others.
 //! It's a balanced tree of the intervals, by low and then by high, each node with the values over
@@ -26,6 +28,17 @@ Class IntervalNode<K, V>
 End Class
 
 /// Values over ranges of keys, found by the ranges that hold a key or overlap another range.
+///
+/// # Examples
+///
+/// ```
+/// Local meetings = IntervalTree<Int, String>()
+/// meetings.Add(9, 11, "standup")
+/// meetings.Add(10, 12, "review")
+/// meetings.Add(14, 15, "lunch")
+/// Expect(meetings.Containing(10).Count == 2)
+/// Expect(meetings.Overlapping(12, 13) == [(10, 12, "review")])
+/// ```
 @DebugElements
 Public Class IntervalTree<K: Comparable, V> Implements Iterable<(K, K, V)>, Cloneable, Defaultable
     Field Root: IntervalNode<K, V>?
@@ -294,6 +307,8 @@ Public Struct IntervalTreeIterator<K: Comparable, V> Implements Iterator<(K, K, 
     Field Index: Int
     Field Changes: Int64
 
+    /// The next interval's low and high, with one of its values, by low and then by high, or Null
+    /// after the last. Panics when the IntervalTree changed since the loop began.
     @PanicsAtCaller
     Public ByRef Method Next(): (K, K, V)?
         If Owner.Changes != Changes
@@ -331,6 +346,7 @@ End Struct
 Extend IntervalTree<K, V> Implements Equatable
     Where V: Equatable
 
+    /// Whether the two have the same intervals, with equal values in the same order.
     Operator ==(a: IntervalTree<K, V>, b: IntervalTree<K, V>): Bool
         Return a.Count == b.Count && a.ToArray() == b.ToArray()
     End Operator
@@ -342,5 +358,6 @@ Extend IntervalTree<K, V> Implements Printable
     Where K: Printable
     Where V: Printable
 
+    /// Its intervals and their values, in order, as an array of tuples: "[(1, 3, a), (2, 5, b)]".
     Public Method ToString(): String => "{ToArray()}"
 End Extend

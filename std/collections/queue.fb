@@ -1,7 +1,8 @@
-//! `Queue<T>`: first in, first out. Enqueue puts a value at the back, and Dequeue takes the one at
-//! the front. The values start at Head. Dequeue empties a value's slot as it takes it, so the
-//! value goes as soon as the program lets go of it, and the empty slots are dropped once they're
-//! half.
+//! A first-in, first-out queue.
+//!
+//! Enqueue puts a value at the back, and Dequeue takes the one at the front. The values start at
+//! Head. Dequeue empties a value's slot as it takes it, so the value goes as soon as the program
+//! lets go of it, and the empty slots are dropped once they're half.
 
 Import std.core
 
@@ -131,6 +132,8 @@ Public Struct QueueIterator<T> Implements Iterator<T>
     Field Index: Int
     Field Changes: Int64
 
+    /// The next value, from the front to the back, or Null after the last. Panics when the Queue
+    /// changed since the loop began.
     @PanicsAtCaller
     Public ByRef Method Next(): T?
         If Owner.Changes != Changes Then Panic("the Queue changed while a For ... In went over it")

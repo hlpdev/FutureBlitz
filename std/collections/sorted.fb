@@ -1,3 +1,5 @@
+//! A map and a set that keep their keys in order, in a B-tree.
+//!
 //! `SortedMap<K, V>` and `SortedSet<T>`: keys in order, in a B-tree. Each node holds from Order - 1
 //! to 2 * Order - 1 keys in order, but the root, which can hold fewer, and a node that isn't a leaf
 //! has a child before, between, and after its keys, which hold the keys between them. Finding,
@@ -40,6 +42,19 @@ Class SortedNode<K, V>
 End Class
 
 /// A Map that keeps its keys in order, smallest first, for ranges and the nearest key to another.
+///
+/// # Examples
+///
+/// ```
+/// Local grades = SortedMap<Int, String>()
+/// grades.Add(90, "A")
+/// grades.Add(70, "C")
+/// grades.Add(80, "B")
+/// Expect(grades.Keys() == [70, 80, 90])
+/// Expect(grades.Floor(85) == (80, "B"))
+/// Expect(grades.Ceiling(85) == (90, "A"))
+/// Expect(grades.Range(70, 90) == [(70, "C"), (80, "B")])
+/// ```
 @DebugEntries
 Public Class SortedMap<K: Comparable, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     Field Root: SortedNode<K, V>
@@ -464,6 +479,8 @@ Public Struct SortedMapIterator<K: Comparable, V> Implements Iterator<(K, V)>
     /// What the loop goes over: "SortedMap", or "SortedSet".
     Field Name: String
 
+    /// The next key and its value, in order, or Null after the largest. Panics when the SortedMap
+    /// changed since the loop began.
     @PanicsAtCaller
     Public ByRef Method Next(): (K, V)?
         If Owner.Changes != Changes Then Panic("the {Name} changed while a For ... In went over it")
@@ -506,6 +523,7 @@ End Struct
 Extend SortedMap<K, V> Implements Equatable
     Where V: Equatable
 
+    /// Whether the two have the same keys, each with an equal value.
     Operator ==(a: SortedMap<K, V>, b: SortedMap<K, V>): Bool
         If a.Count != b.Count Then Return False
         Local others = b.Iterate()
@@ -522,6 +540,7 @@ Extend SortedMap<K, V> Implements Printable
     Where K: Printable
     Where V: Printable
 
+    /// Its entries, in order, as "{a: 1, b: 2}".
     Public Method ToString(): String
         Local parts: String[] = []
         For key, value In Self
@@ -532,6 +551,18 @@ Extend SortedMap<K, V> Implements Printable
 End Extend
 
 /// Values without repeats, in order, which a SortedMap holds as its keys.
+///
+/// # Examples
+///
+/// ```
+/// Local words = SortedSet<String>()
+/// For word In ["pear", "apple", "fig", "apple"]
+///     words.Add(word)
+/// End For
+///
+/// Expect(words.ToArray() == ["apple", "fig", "pear"])
+/// Expect(words.First() == "apple" && words.Ceiling("b") == "fig")
+/// ```
 @DebugElements
 Public Class SortedSet<T: Comparable> Implements Iterable<T>, Cloneable, Defaultable, Equatable
     Field Items: SortedMap<T, Bool>
@@ -615,6 +646,8 @@ End Class
 Public Struct SortedSetIterator<T: Comparable> Implements Iterator<T>
     Field Entries: SortedMapIterator<T, Bool>
 
+    /// The next value, in order, or Null after the largest. Panics when the SortedSet changed since
+    /// the loop began.
     @PanicsAtCaller
     Public ByRef Method Next(): T?
         Local entry = Entries.Next()
@@ -627,6 +660,7 @@ End Struct
 Extend SortedSet<T> Implements Printable
     Where T: Printable
 
+    /// Its values, in order, as "{1, 2, 3}".
     Public Method ToString(): String
         Local parts: String[] = []
         For value In Self

@@ -1,3 +1,5 @@
+//! Views of arrays, maps, and sets, which show them without copying.
+//!
 //! Views that don't copy what they show: part of an array, which reads and sets it in place, and
 //! an array, Map, or Set to read but not change, to hand out. Each keeps what it shows alive and
 //! sees its changes. A slice, items[a..b], is still a copy.
@@ -10,6 +12,16 @@ Import std.collections.set
 Extend T[]
     /// The elements from `start` up to `finish`, without the one at `finish`, as a view of them in
     /// the array. They have to be in the array.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local numbers = [1, 2, 3, 4, 5]
+    /// Local middle = numbers.View(1, 4)
+    /// middle[0] = 20
+    /// Expect(numbers == [1, 20, 3, 4, 5])
+    /// Expect(middle.Count == 3 && middle.ToArray() == [20, 3, 4])
+    /// ```
     @PanicsAtCaller
     Public Method View(start: Int, finish: Int): ArrayView<T>
         If start < 0 || finish < start || finish > Count
@@ -21,6 +33,15 @@ Extend T[]
     End Method
 
     /// The array, to read but not change.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local scores = [1, 2, 3]
+    /// Local shown = scores.AsReadOnly()
+    /// scores.Add(4)
+    /// Expect(shown.Count == 4 && shown[3] == 4)
+    /// ```
     Public Method AsReadOnly(): ReadOnlyArray<T> => ReadOnlyArray<T>(Self)
 End Extend
 
@@ -111,6 +132,7 @@ Public Struct ArrayViewIterator<T> Implements Iterator<T>
     Field View: ArrayView<T>
     Field Index: Int
 
+    /// The next element, in order, or Null after the last.
     @PanicsAtCaller
     Public ByRef Method Next(): T?
         If Index >= View.Count Then Return Null
@@ -146,6 +168,7 @@ Public Class ReadOnlyArray<T> Implements Iterable<T>
     /// The elements, in a new array, which can change.
     Public Method ToArray(): T[] => Items.Clone()
 
+    /// The array's elements, in order.
     Public Method Iterate(): ArrayIterator<T> => Items.Iterate()
 End Class
 
@@ -185,6 +208,7 @@ Public Class ReadOnlyMap<K: Hashable, V> Implements Iterable<(K, V)>
     /// The entries, in a new Map, which can change.
     Public Method ToMap(): Map<K, V> => Items.Clone()
 
+    /// The Map's entries, in order.
     Public Method Iterate(): MapIterator<K, V> => Items.Iterate()
 End Class
 
@@ -211,6 +235,7 @@ Public Class ReadOnlySet<T: Hashable> Implements Iterable<T>
     /// The values, in a new Set, which can change.
     Public Method ToSet(): Set<T> => Items.Clone()
 
+    /// The Set's values, in order.
     Public Method Iterate(): SetIterator<T> => Items.Iterate()
 End Class
 
@@ -218,6 +243,7 @@ End Class
 Extend ArrayView<T> Implements Printable
     Where T: Printable
 
+    /// The elements it shows, as an array shows them: "[1, 2, 3]".
     @PanicsAtCaller
     Public Method ToString(): String => "{ToArray()}"
 End Extend
@@ -225,6 +251,7 @@ End Extend
 Extend ReadOnlyArray<T> Implements Printable
     Where T: Printable
 
+    /// The array, as it shows itself: "[1, 2, 3]".
     Public Method ToString(): String => "{Items}"
 End Extend
 
@@ -232,11 +259,13 @@ Extend ReadOnlyMap<K, V> Implements Printable
     Where K: Printable
     Where V: Printable
 
+    /// The Map, as it shows itself: "{a: 1, b: 2}".
     Public Method ToString(): String => "{Items}"
 End Extend
 
 Extend ReadOnlySet<T> Implements Printable
     Where T: Printable
 
+    /// The Set, as it shows itself: "{1, 2, 3}".
     Public Method ToString(): String => "{Items}"
 End Extend

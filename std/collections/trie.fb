@@ -1,3 +1,5 @@
+//! A prefix tree of String keys, which finds the keys that start with a prefix.
+//!
 //! `Trie<V>`: String keys and their values in a tree with a node for each prefix of the keys'
 //! bytes, so the keys with a prefix, or the longest key a text starts with, are found by going down
 //! the prefix alone. The keys go in the order of their bytes, which is their code points' order.
@@ -42,6 +44,18 @@ Class TrieNode<V>
 End Class
 
 /// A Map from Strings that finds the keys that start with a prefix.
+///
+/// # Examples
+///
+/// ```
+/// Local words = Trie<Int>()
+/// words.Add("car", 1)
+/// words.Add("cart", 2)
+/// words.Add("dog", 3)
+/// Expect(words.KeysWithPrefix("car") == ["car", "cart"])
+/// Expect(words.LongestPrefixOf("carton") == "cart")
+/// Expect(words.HasPrefix("do") && !words.HasPrefix("x"))
+/// ```
 @DebugEntries
 Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
     Field Root: TrieNode<V>
@@ -243,6 +257,8 @@ Public Struct TrieIterator<V> Implements Iterator<(String, V)>
     Field Up: TriePath<V>?
     Field Changes: Int64
 
+    /// The next key and its value, in the order of the keys' bytes, or Null after the last. Panics
+    /// when the Trie changed since the loop began.
     @PanicsAtCaller
     Public ByRef Method Next(): (String, V)?
         If Owner.Changes != Changes Then Panic("the Trie changed while a For ... In went over it")
@@ -276,6 +292,7 @@ End Struct
 Extend Trie<V> Implements Equatable
     Where V: Equatable
 
+    /// Whether the two have the same keys, each with an equal value.
     Operator ==(a: Trie<V>, b: Trie<V>): Bool
         If a.Count != b.Count Then Return False
         Local others = b.Iterate()
@@ -291,6 +308,7 @@ End Extend
 Extend Trie<V> Implements Printable
     Where V: Printable
 
+    /// Its entries, in order, as "{car: 1, cart: 2}".
     Public Method ToString(): String
         Local parts: String[] = []
         For key, value In Self

@@ -1,8 +1,9 @@
-//! `Map<K, V>`: a hash map from keys to values, in the order they were added. Its entries are in an
-//! array, each bucket starts a chain of the entries whose hashes land in it, and each entry links
-//! to the ones added before and after it, so removing one leaves the others in order. What a
-//! change takes out or replaces is let go of once the Map is whole again, so a key's or value's
-//! Destroy that it runs can use the Map.
+//! A hash map that keeps its entries in the order they were added.
+//!
+//! Its entries are in an array, each bucket starts a chain of the entries whose hashes land in it,
+//! and each entry links to the ones added before and after it, so removing one leaves the others in
+//! order. What a change takes out or replaces is let go of once the Map is whole again, so a key's
+//! or value's Destroy that it runs can use the Map.
 
 Import std.core
 
@@ -104,6 +105,15 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
 
     /// The `key`'s value, adding what `make` gives for it first when it isn't there, which is the
     /// `key`'s value though `make` added the `key` itself.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local groups = Map<String, Int[]>()
+    /// groups.GetOrAdd("odd", Function(): Int[] => []).Add(1)
+    /// groups.GetOrAdd("odd", Function(): Int[] => []).Add(3)
+    /// Expect(groups["odd"] == [1, 3])
+    /// ```
     Public Method GetOrAdd(key: K, make: Func(): V): V
         Local hash = key.Hash()
         Local found = IndexOf(key, hash)
@@ -122,6 +132,15 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
 
     /// Gives the `key`'s value what `change` gives for it, and tells whether the `key` was there. A
     /// key that `change` removed stays removed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local stock = {"apples": 3}
+    /// Expect(stock.Update("apples", Function(n: Int) => n - 1))
+    /// Expect(!stock.Update("pears", Function(n: Int) => n - 1))
+    /// Expect(stock["apples"] == 2)
+    /// ```
     Public Method Update(key: K, change: Func(V): V): Bool
         Local hash = key.Hash()
         Local found = IndexOf(key, hash)
@@ -410,6 +429,8 @@ Public Struct MapIterator<K: Hashable, V> Implements Iterator<(K, V)>
     /// What the loop goes over: "Map", or "Set".
     Field Name: String
 
+    /// The next key and its value, in the order they were added, or Null after the last. Panics
+    /// when the Map changed since the loop began.
     @PanicsAtCaller
     Public ByRef Method Next(): (K, V)?
         If Owner.Changes != Changes Then Panic("the {Name} changed while a For ... In went over it")
@@ -424,6 +445,8 @@ End Struct
 Extend Map<K, V> Implements Equatable
     Where V: Equatable
 
+    /// Whether the two have the same keys, each with an equal value, whatever order they were added
+    /// in.
     Operator ==(a: Map<K, V>, b: Map<K, V>): Bool
         If a.Count != b.Count Then Return False
         For entry In a.Entries
@@ -438,6 +461,7 @@ End Extend
 Extend Map<K, V> Implements Hashable
     Where V: Hashable
 
+    /// A hash of its entries, whatever order they were added in, which Maps that are equal share.
     Public Method Hash(): UInt64
         Local total = Entries.Count As UInt64
         For entry In Entries
@@ -452,6 +476,7 @@ Extend Map<K, V> Implements Printable
     Where K: Printable
     Where V: Printable
 
+    /// Its entries, in order, as "{a: 1, b: 2}".
     Public Method ToString(): String
         Local parts: String[] = []
         For key, value In Self

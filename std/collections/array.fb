@@ -1,3 +1,5 @@
+//! Searching, sorting, reshaping, and the other Methods every array has.
+//!
 //! What every collection has, on T[], besides the built-in Add, Insert, RemoveAt, Clear, Contains,
 //! Clone, Reserve, TrimExcess, Count, and Capacity: searching, the ends, many elements at once,
 //! order, and shape. A lookup gives a T?, or a T?? where the elements can be Null, and what's
@@ -22,6 +24,14 @@ Extend T[]
     End Method
 
     /// Sorts the elements in place, smallest first. Equal elements keep their order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local numbers = [3, 1, 2]
+    /// numbers.Sort()
+    /// Expect(numbers == [1, 2, 3])
+    /// ```
     @PanicsAtCaller
     Public Method Sort()
         Where T: Comparable
@@ -30,6 +40,14 @@ Extend T[]
 
     /// Sorts the elements in place, by what `before` says comes first. It's a merge sort, so equal
     /// elements keep their order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local numbers = [3, 1, 2]
+    /// numbers.Sort(Function(a: Int, b: Int) => a > b)
+    /// Expect(numbers == [3, 2, 1])
+    /// ```
     @PanicsAtCaller
     Public Method Sort(before: Func(T, T): Bool)
         If Count < 2 Then Return
@@ -38,6 +56,12 @@ Extend T[]
     End Method
 
     /// Each element that `keep` says to keep, in a new array.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect([1, 2, 3, 4].Filter(Function(n: Int) => n % 2 == 0) == [2, 4])
+    /// ```
     Public Method Filter(keep: Func(T): Bool): T[]
         Local kept: T[] = []
         For element In Self
@@ -47,6 +71,13 @@ Extend T[]
     End Method
 
     /// What `change` gives for each element, in a new array.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect([1, 2, 3].Map(Function(n: Int) => n * 10) == [10, 20, 30])
+    /// Expect([1, 2].Map(Function(n: Int) => "#{n}") == ["#1", "#2"])
+    /// ```
     Public Method Map<U>(change: Func(T): U): U[]
         Local changed: U[] = []
         For element In Self
@@ -56,6 +87,13 @@ Extend T[]
     End Method
 
     /// The first element that `test` says is the one, or Null.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect([5, 8, 12].Find(Function(n: Int) => n > 6) == 8)
+    /// Expect([5, 8, 12].Find(Function(n: Int) => n > 20) == Null)
+    /// ```
     Public Method Find(test: Func(T): Bool): T?
         For element In Self
             If test(element) Then Return element
@@ -83,6 +121,13 @@ Extend T[]
     End Method
 
     /// Where the first element equal to `value` is, or Null.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect(["a", "b", "a"].IndexOf("a") == 0)
+    /// Expect(["a", "b", "a"].IndexOf("c") == Null)
+    /// ```
     Public Method IndexOf(value: T): Int?
         Where T: Equatable
         For i, element In Self
@@ -102,6 +147,14 @@ Extend T[]
 
     /// Where an element equal to `value` is in an array sorted smallest first, or Null, looking at
     /// about log2(Count) of them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local sorted = [1, 3, 5, 7]
+    /// Expect(sorted.BinarySearch(5) == 2)
+    /// Expect(sorted.BinarySearch(4) == Null)
+    /// ```
     Public Method BinarySearch(value: T): Int?
         Where T: Comparable
         Local low = 0
@@ -120,6 +173,13 @@ Extend T[]
     End Method
 
     /// Whether `test` says yes for any element, going no further than the first.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect([1, 2, 3].Any(Function(n: Int) => n > 2))
+    /// Expect(![1, 2, 3].All(Function(n: Int) => n > 2))
+    /// ```
     Public Method Any(test: Func(T): Bool): Bool
         For element In Self
             If test(element) Then Return True
@@ -214,6 +274,14 @@ Extend T[]
 
     /// Takes out each element that `test` says to, keeping the others in order, and tells how many
     /// went. An element `test` adds is tested too.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local numbers = [1, 2, 3, 4, 5]
+    /// Expect(numbers.RemoveAll(Function(n: Int) => n % 2 == 1) == 3)
+    /// Expect(numbers == [2, 4])
+    /// ```
     Public Method RemoveAll(test: Func(T): Bool): Int
         Local kept = 0
         Local i = 0
@@ -272,6 +340,14 @@ Extend T[]
 
     /// Sorts the elements in place by what `key` gives for each, smallest first. Equal keys keep
     /// their elements' order, and ThenBy on what it gives breaks their ties.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local people = [("Grace", 36), ("Alan", 41), ("Ada", 36)]
+    /// people.SortBy(Function(p: (String, Int)) => p.1).ThenBy(Function(p: (String, Int)) => p.0)
+    /// Expect(people == [("Ada", 36), ("Grace", 36), ("Alan", 41)])
+    /// ```
     @PanicsAtCaller
     Public Method SortBy<K: Comparable>(key: Func(T): K): Sorting<T>
         Local before = Function(a: T, b: T) => key(a) < key(b)
@@ -327,6 +403,12 @@ Extend T[]
     End Method
 
     /// The elements, each only the first time it comes, in a new array.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect([1, 2, 1, 3, 2].Distinct() == [1, 2, 3])
+    /// ```
     Public Method Distinct(): T[]
         Where T: Hashable
         Local seen = map.Map<T, Bool>()
@@ -341,6 +423,12 @@ Extend T[]
     End Method
 
     /// The elements' text, as "{x}" shows each, with `separator` between each two.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect([1, 2, 3].Join(", ") == "1, 2, 3")
+    /// ```
     Public Method Join(separator: String): String
         Where T: Printable
         Local parts: String[] = []
@@ -351,6 +439,13 @@ Extend T[]
     End Method
 
     /// What `combine` gives for each element in turn, starting from `start`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect([1, 2, 3].Fold(0, Function(sum: Int, n: Int) => sum + n) == 6)
+    /// Expect([1, 2, 3].Fold("", Function(text: String, n: Int) => text + "{n}") == "123")
+    /// ```
     Public Method Fold<A>(start: A, combine: Func(A, T): A): A
         Local total = start
         For element In Self
@@ -361,6 +456,14 @@ Extend T[]
 
     /// What `combine` gives for each element in turn, starting from the first, or Null when there's
     /// none.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Expect([3, 7, 5].Reduce(Function(a: Int, b: Int) => Max(a, b)) == 7)
+    /// Local none: Int[] = []
+    /// Expect(none.Reduce(Function(a: Int, b: Int) => a + b) == Null)
+    /// ```
     Public Method Reduce(combine: Func(T, T): T): T?
         If Count == 0 Then Return Null
         Local total = Self[0]
@@ -376,6 +479,7 @@ End Extend
 // An array's elements for code that takes any Iterable<T>, or for lazy adapters, as in
 // "items.Iterate().Filter(keep)". For ... In goes over an array itself.
 Extend T[] Implements Iterable<T>
+    /// Its elements, in order, which a loop over the array goes through.
     Public Method Iterate(): ArrayIterator<T> => ArrayIterator<T>(Self, 0)
 End Extend
 
@@ -384,6 +488,7 @@ Public Struct ArrayIterator<T> Implements Iterator<T>
     Field Items: T[]
     Field Index: Int
 
+    /// The next element, in order, or Null after the last.
     Public ByRef Method Next(): T?
         If Index >= Items.Count Then Return Null
         Index += 1

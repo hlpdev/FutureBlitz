@@ -1,3 +1,5 @@
+//! Spatial hashes, quadtrees, and octrees, which find values by where they are.
+//!
 //! `SpatialHash<T>`, `QuadTree<T>`, and `Octree<T>`: values at points, found by where they are, the
 //! ones in a box or near a point, without going over the others. A SpatialHash keeps the points in
 //! square cells of a size, for things spread over a world of any size; a QuadTree splits its bounds
@@ -101,6 +103,16 @@ Function Within<T>(placed: PlacedValue<T>[], x: Double, y: Double, z: Double,
 End Function
 
 /// Values at 2D points, kept in square cells of a size, for things spread over a world of any size.
+///
+/// # Examples
+///
+/// ```
+/// Local places = SpatialHash<String>(10)
+/// places.Add("near", 3, 4)
+/// places.Add("far", 100, 100)
+/// Expect(places.Near(0, 0, 5) == ["near"])
+/// Expect(places.Query(90, 90, 110, 110) == ["far"])
+/// ```
 @DebugElements
 Public Class SpatialHash<T> Implements Iterable<T>, Cloneable
     Field Cells: Map<(Int64, Int64), PlacedValue<T>[]>
@@ -286,6 +298,8 @@ Public Struct SpatialIterator<T> Implements Iterator<T>
     /// What the loop goes over: "SpatialHash", "QuadTree", or "Octree".
     Field Name: String
 
+    /// The next value, in no order to count on, or Null after the last. Panics when the collection
+    /// changed since the loop began.
     @PanicsAtCaller
     Public ByRef Method Next(): T?
         If Current() != Changes Then Panic("the {Name} changed while a For ... In went over it")
@@ -530,6 +544,18 @@ Class SpaceTree<T>
 End Class
 
 /// Values at 2D points, in bounds it splits in four where points crowd.
+///
+/// # Examples
+///
+/// ```
+/// Local tree = QuadTree<Int>(0, 0, 100, 100)
+/// tree.Add(1, 10, 10)
+/// tree.Add(2, 20, 20)
+/// tree.Add(3, 60, 60)
+/// Expect(tree.Query(0, 0, 25, 25).Count == 2)
+/// Expect(tree.Move(1, 10, 10, 90, 5))
+/// Expect(tree.Query(0, 0, 25, 25) == [2])
+/// ```
 @DebugElements
 Public Class QuadTree<T> Implements Iterable<T>, Cloneable
     Field Tree: SpaceTree<T>
@@ -609,6 +635,16 @@ Public Class QuadTree<T> Implements Iterable<T>, Cloneable
 End Class
 
 /// Values at 3D points, in bounds it splits in eight where points crowd.
+///
+/// # Examples
+///
+/// ```
+/// Local tree = Octree<String>(0, 0, 0, 100, 100, 100)
+/// tree.Add("a", 10, 10, 10)
+/// tree.Add("b", 90, 90, 90)
+/// Expect(tree.Near(0, 0, 0, 20) == ["a"])
+/// Expect(tree.Count == 2)
+/// ```
 @DebugElements
 Public Class Octree<T> Implements Iterable<T>, Cloneable
     Field Tree: SpaceTree<T>

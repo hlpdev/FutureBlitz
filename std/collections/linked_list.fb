@@ -1,3 +1,5 @@
+//! A doubly linked list, which adds and removes values beside a node in constant time.
+//!
 //! `LinkedList<T>`: values in a chain of nodes, each linked to the ones before and after it, so
 //! adding or removing one beside a node takes the same time however many there are. A node is the
 //! same object for as long as it's in the list, so code can keep one to add beside or remove
@@ -40,6 +42,19 @@ Public Class LinkedListNode<T>
 End Class
 
 /// A doubly linked list, which inserts and removes anywhere it has a node without moving the rest.
+///
+/// # Examples
+///
+/// ```
+/// Local list = LinkedList<String>()
+/// Local b = list.Add("b")
+/// list.AddFirst("a")
+/// list.AddAfter(b, "c")
+/// Expect(list.ToArray() == ["a", "b", "c"])
+/// list.RemoveNode(b)
+/// Expect(list.ToArray() == ["a", "c"])
+/// Expect(b.List == Null)
+/// ```
 @DebugElements
 Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Head: LinkedListNode<T>?
@@ -339,6 +354,8 @@ Public Struct LinkedListIterator<T> Implements Iterator<T>
     Field Node: LinkedListNode<T>?
     Field Changes: Int64
 
+    /// The next value, from the first node to the last, or Null after it. Panics when the
+    /// LinkedList changed since the loop began.
     @PanicsAtCaller
     Public ByRef Method Next(): T?
         If Owner.Changes != Changes
@@ -356,6 +373,7 @@ End Struct
 Extend LinkedList<T> Implements Equatable
     Where T: Equatable
 
+    /// Whether the two have equal values in the same order.
     Operator ==(a: LinkedList<T>, b: LinkedList<T>): Bool
         If a.Count != b.Count Then Return False
         Local mine = a.Head
@@ -373,5 +391,6 @@ End Extend
 Extend LinkedList<T> Implements Printable
     Where T: Printable
 
+    /// Its values, first to last, as an array shows them: "[1, 2, 3]".
     Public Method ToString(): String => "{ToArray()}"
 End Extend

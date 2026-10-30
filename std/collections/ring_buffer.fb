@@ -1,3 +1,5 @@
+//! A fixed number of the last values added, oldest first.
+//!
 //! `RingBuffer<T>`: the last values added, up to its Capacity, oldest first. Adding to a full one
 //! drops the oldest, which makes it a history, or a window over what came last. Its values are in
 //! a fixed array of slots, from Head on, round to the start.
@@ -6,6 +8,16 @@ Import std.core
 Import std.collections.array
 
 /// A queue of up to its Capacity, where a value added to a full one takes the place of the oldest.
+///
+/// # Examples
+///
+/// ```
+/// Local recent = RingBuffer<Int>(3)
+/// recent.AddAll([1, 2, 3, 4])
+/// Expect(recent.ToArray() == [2, 3, 4])
+/// Expect(recent.IsFull)
+/// Expect(recent.First() == 2 && recent.Last() == 4)
+/// ```
 @DebugElements
 Public Class RingBuffer<T> Implements Iterable<T>, Cloneable
     Field Slots: T?[] = []
@@ -195,6 +207,8 @@ Public Struct RingBufferIterator<T> Implements Iterator<T>
     Field Index: Int
     Field Changes: Int64
 
+    /// The next value, oldest first, or Null after the newest. Panics when the RingBuffer changed
+    /// since the loop began.
     @PanicsAtCaller
     Public ByRef Method Next(): T?
         If Owner.Changes != Changes
@@ -211,5 +225,6 @@ End Struct
 Extend RingBuffer<T> Implements Printable
     Where T: Printable
 
+    /// Its values, oldest first, as an array shows them: "[2, 3, 4]".
     Public Method ToString(): String => "{ToArray()}"
 End Extend

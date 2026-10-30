@@ -1,3 +1,5 @@
+//! A count of how many times each value was added.
+//!
 //! `Counter<T>`: how many times each value was added, in the order the values were added. A value's
 //! count is never 0: one whose count goes down to 0 goes, so it comes back last, and counter[value]
 //! of one that isn't there is 0.
@@ -7,6 +9,17 @@ Import std.collections.array
 Import std.collections.map
 
 /// How many times each value was added, for tallies and histograms.
+///
+/// # Examples
+///
+/// ```
+/// Local words = Counter<String>()
+/// words.AddAll(["the", "cat", "the", "hat", "the"])
+/// Expect(words["the"] == 3)
+/// Expect(words["dog"] == 0)
+/// Expect(words.Count == 3)
+/// Expect(words.Total == 5)
+/// ```
 @DebugEntries
 Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defaultable, Hashable
     Field Counts: Map<T, Int>
@@ -99,6 +112,14 @@ Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defa
 
     /// The `count` most counted values and their counts, most first, and values counted the same
     /// number of times in the Counter's order. A negative `count` panics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local letters = Counter<String>()
+    /// letters.AddAll(["b", "a", "b", "c", "a", "b"])
+    /// Expect(letters.MostCommon(2) == [("b", 3), ("a", 2)])
+    /// ```
     @PanicsAtCaller
     Public Method MostCommon(count: Int): (T, Int)[]
         If count < 0 Then Panic("MostCommon takes a count that isn't negative, not {count}")
@@ -131,6 +152,7 @@ Public Class Counter<T: Hashable> Implements Iterable<(T, Int)>, Cloneable, Defa
     /// order.
     Operator ==(a: Counter<T>, b: Counter<T>): Bool => a.Counts == b.Counts
 
+    /// A hash of its values and their counts, which Counters that are equal share.
     Public Method Hash(): UInt64 => Counts.Hash()
 
     /// Each value and its count, for 'For value, count In counter'. Changing a count while going
@@ -143,5 +165,6 @@ End Class
 Extend Counter<T> Implements Printable
     Where T: Printable
 
+    /// Each value and its count, in the order the values were added, as "{the: 2, cat: 1}".
     Public Method ToString(): String => "{Counts}"
 End Extend

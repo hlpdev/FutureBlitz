@@ -1,3 +1,5 @@
+//! A set of Ints from 0 up, a bit each.
+//!
 //! BitSet: a Set of Ints from 0 up, a bit each in an array of words, which grows to hold the
 //! largest. Adding, removing, and finding a value take the same time however many there are, and
 //! the Set algebra goes a word at a time.
@@ -6,6 +8,18 @@ Import std.core
 Import std.collections.array
 
 /// A set of Ints that aren't negative, a bit each, for many small numbers in little space.
+///
+/// # Examples
+///
+/// ```
+/// Local set = BitSet()
+/// set.Add(3)
+/// set.Add(64)
+/// Expect(!set.Add(3))
+/// Expect(set.Count == 2)
+/// Expect(set.Contains(64) && !set.Contains(4))
+/// Expect(set.ToArray() == [3, 64])
+/// ```
 @DebugElements
 Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
     /// Bit b of word w is w * 64 + b. The last word is never 0, so equal BitSets have equal words.
@@ -91,6 +105,17 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
     End Method
 
     /// A new BitSet of the values in both.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local a = BitSet()
+    /// a.AddAll([1, 2, 3])
+    /// Local b = BitSet()
+    /// b.AddAll([2, 3, 4])
+    /// Expect(a.Intersect(b).ToArray() == [2, 3])
+    /// Expect(a.Union(b).Count == 4)
+    /// ```
     Public Method Intersect(other: BitSet): BitSet
         Local both = Clone()
         both.KeepOnly(other)
@@ -188,6 +213,7 @@ Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
     /// Two BitSets are equal when they have the same values.
     Operator ==(a: BitSet, b: BitSet): Bool => a.Words == b.Words
 
+    /// A hash of its values, which BitSets that are equal share.
     Public Method Hash(): UInt64 => Words.Hash()
 
     /// The values, smallest first. Adding or removing one while going over them panics.
@@ -243,6 +269,8 @@ Public Struct BitSetIterator Implements Iterator<Int>
     Field At: Int64
     Field Changes: Int64
 
+    /// The next value, the least first, or Null after the largest. Panics when the BitSet changed
+    /// since the loop began.
     @PanicsAtCaller
     Public ByRef Method Next(): Int?
         If Owner.Changes != Changes Then Panic("the BitSet changed while a For ... In went over it")
@@ -263,6 +291,7 @@ End Struct
 
 // "{1, 5, 64}", smallest first.
 Extend BitSet Implements Printable
+    /// Its values, the least first, as "{1, 5, 64}".
     Public Method ToString(): String
         Local parts: String[] = []
         For value In Self

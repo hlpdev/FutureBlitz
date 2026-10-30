@@ -1,3 +1,5 @@
+//! A map from each key to one value or more.
+//!
 //! `MultiMap<K, V>`: keys that each have one value or more, in the order they were added: a Map
 //! from each key to an array of its values, in the order they were added too. A key whose last
 //! value goes, goes.
@@ -7,6 +9,18 @@ Import std.collections.array
 Import std.collections.map
 
 /// A Map from each key to any number of values, in the order they were added.
+///
+/// # Examples
+///
+/// ```
+/// Local tags = MultiMap<String, String>()
+/// tags.Add("fruit", "apple")
+/// tags.Add("fruit", "pear")
+/// tags.Add("veg", "leek")
+/// Expect(tags.Get("fruit") == ["apple", "pear"])
+/// Expect(tags.Count == 3 && tags.KeyCount == 2)
+/// Expect(tags.Get("nuts").Count == 0)
+/// ```
 @DebugEntries
 Public Class MultiMap<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     Field Items: Map<K, V[]>
@@ -121,6 +135,9 @@ Public Struct MultiMapIterator<K: Hashable, V> Implements Iterator<(K, V)>
     Field ValueIndex: Int
     Field Changes: Int64
 
+    /// The next key with one of its values, the keys in the order they were added and each one's
+    /// values in theirs, or Null after the last. Panics when the MultiMap changed since the loop
+    /// began.
     @PanicsAtCaller
     Public ByRef Method Next(): (K, V)?
         If Owner.Changes != Changes
@@ -145,6 +162,7 @@ End Struct
 Extend MultiMap<K, V> Implements Equatable
     Where V: Equatable
 
+    /// Whether the two have the same keys, each with equal values in the same order.
     Operator ==(a: MultiMap<K, V>, b: MultiMap<K, V>): Bool => a.Items == b.Items
 End Extend
 
@@ -153,5 +171,6 @@ Extend MultiMap<K, V> Implements Printable
     Where K: Printable
     Where V: Printable
 
+    /// Each key and its values, as `{fruit: [apple, pear], veg: [leek]}`.
     Public Method ToString(): String => "{Items}"
 End Extend

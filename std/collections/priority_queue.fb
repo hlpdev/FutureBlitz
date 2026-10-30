@@ -1,3 +1,5 @@
+//! A priority queue, whose Pop gives the value that comes first.
+//!
 //! `PriorityQueue<T>`: Pop gives the value that comes first, the smallest unless a before function
 //! says what comes first. The values are a binary heap: each one comes before its two children,
 //! at 2i + 1 and 2i + 2. In the smallest-first order, a value that isn't equal to itself, like
@@ -8,6 +10,18 @@ Import std.collections.array
 
 /// A heap that gives its values out first by a priority: the smallest first, or what a Function
 /// says comes first.
+///
+/// # Examples
+///
+/// ```
+/// Local smallest = PriorityQueue<Int>()
+/// smallest.AddAll([5, 1, 4])
+/// Expect(smallest.Pop() == 1)
+/// Expect(smallest.Peek() == 4)
+/// Local largest = PriorityQueue<Int>(Function(a: Int, b: Int) => a > b)
+/// largest.AddAll([5, 1, 4])
+/// Expect(largest.Drain() == [5, 4, 1])
+/// ```
 @DebugElements
 Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
     Field Items: T[] = []
@@ -172,6 +186,7 @@ End Class
 Extend PriorityQueue<T> Implements Defaultable
     Where T: Comparable
 
+    /// A new, empty PriorityQueue that gives its smallest value first.
     Public Static Method DefaultValue(): PriorityQueue<T> => PriorityQueue<T>()
 End Extend
 
@@ -181,6 +196,8 @@ Public Struct PriorityQueueIterator<T> Implements Iterator<T>
     Field Index: Int
     Field Changes: Int64
 
+    /// The next value, in no order to count on, or Null after the last. Panics when the
+    /// PriorityQueue changed since the loop began.
     @PanicsAtCaller
     Public ByRef Method Next(): T?
         If Owner.Changes != Changes

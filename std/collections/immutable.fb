@@ -1,3 +1,5 @@
+//! Arrays, maps, and sets that never change, so any thread can read them.
+//!
 //! `ImmutableArray<T>`, `ImmutableMap<K, V>`, and `ImmutableSet<T>`: collections that never change,
 //! so any thread can read one. A change gives a new collection, which shares all of the old one's
 //! nodes but the ones on the way down to what changed, in a balanced tree, about log(Count) of
@@ -27,6 +29,15 @@ End Class
 
 /// An array that never changes: each change gives a new one, which shares what it can with the old,
 /// so threads can share it.
+///
+/// # Examples
+///
+/// ```
+/// Local first = ImmutableArray<Int>().AddAll([1, 2, 3])
+/// Local second = first.Set(0, 10).Add(4)
+/// Expect(first.ToArray() == [1, 2, 3])
+/// Expect(second.ToArray() == [10, 2, 3, 4])
+/// ```
 @DebugElements
 Public Struct ImmutableArray<T: Sendable> Implements Iterable<T>, Defaultable, Sendable
     Field Root: ArrayNode<T>?
@@ -246,6 +257,7 @@ End Class
 Public Struct ImmutableArrayIterator<T: Sendable> Implements Iterator<T>
     Field Path: ArrayPath<T>?
 
+    /// The next value, in order, or Null after the last.
     Public ByRef Method Next(): T?
         Local path = Path
         If path == Null Then Return Null
@@ -268,6 +280,7 @@ End Struct
 Extend ImmutableArray<T> Implements Equatable
     Where T: Equatable
 
+    /// Whether the two have equal values in the same order.
     Operator ==(a: ImmutableArray<T>, b: ImmutableArray<T>): Bool
         If a.Count != b.Count Then Return False
         Local others = b.Iterate()
@@ -282,6 +295,7 @@ End Extend
 Extend ImmutableArray<T> Implements Hashable
     Where T: Hashable
 
+    /// A hash of its values in order, which ImmutableArrays that are equal share.
     Public Method Hash(): UInt64
         Local total = Count As UInt64
         For value In Self
@@ -295,6 +309,7 @@ End Extend
 Extend ImmutableArray<T> Implements Printable
     Where T: Printable
 
+    /// Its values, in order, as an array shows them: "[1, 2, 3]".
     Public Method ToString(): String => "{ToArray()}"
 End Extend
 
@@ -339,6 +354,16 @@ End Class
 
 /// A Map that never changes: each change gives a new one, which shares what it can with the old, so
 /// threads can share it.
+///
+/// # Examples
+///
+/// ```
+/// Local empty = ImmutableMap<String, Int>()
+/// Local ages = empty.Add("Ada", 36).Add("Alan", 41)
+/// Expect(empty.Count == 0 && ages.Count == 2)
+/// Expect(ages.Get("Ada") == 36)
+/// Expect(!ages.Remove("Ada").Contains("Ada") && ages.Contains("Ada"))
+/// ```
 @DebugEntries
 Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Sendable
     Where K: Hashable
@@ -632,6 +657,7 @@ Public Struct ImmutableMapIterator<K, V> Implements Iterator<(K, V)>
     Field Path: HashPath<K, V>?
     Field Entry: HashEntry<K, V>?
 
+    /// The next key and its value, in the ImmutableMap's order, or Null after the last.
     Public ByRef Method Next(): (K, V)?
         Local entry = Entry
         If entry == Null
@@ -660,6 +686,7 @@ End Struct
 Extend ImmutableMap<K, V> Implements Equatable
     Where V: Equatable
 
+    /// Whether the two have the same keys, each with an equal value.
     Operator ==(a: ImmutableMap<K, V>, b: ImmutableMap<K, V>): Bool
         If a.Count != b.Count Then Return False
         For key, value In a
@@ -674,6 +701,7 @@ End Extend
 Extend ImmutableMap<K, V> Implements Hashable
     Where V: Hashable
 
+    /// A hash of its entries, whatever their order, which ImmutableMaps that are equal share.
     Public Method Hash(): UInt64
         Local total = Count As UInt64
         For key, value In Self
@@ -688,6 +716,7 @@ Extend ImmutableMap<K, V> Implements Printable
     Where K: Printable
     Where V: Printable
 
+    /// Its entries, in its order, as a Map shows them: "{a: 1, b: 2}".
     Public Method ToString(): String
         Local parts: String[] = []
         For key, value In Self
@@ -699,6 +728,15 @@ End Extend
 
 /// A Set that never changes: each change gives a new one, which shares what it can with the old, so
 /// threads can share it.
+///
+/// # Examples
+///
+/// ```
+/// Local a = ImmutableSet<Int>().AddAll([1, 2])
+/// Local b = a.Add(3)
+/// Expect(a.Count == 2 && b.Count == 3)
+/// Expect(b.Contains(3) && !a.Contains(3))
+/// ```
 @DebugElements
 Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Hashable
     Where T: Hashable
@@ -774,6 +812,7 @@ Public Struct ImmutableSetIterator<T> Implements Iterator<T>
 
     Field Entries: ImmutableMapIterator<T, Bool>
 
+    /// The next value, in the ImmutableSet's order, or Null after the last.
     Public ByRef Method Next(): T?
         Local entry = Entries.Next()
         If entry == Null Then Return Null
@@ -785,6 +824,7 @@ End Struct
 Extend ImmutableSet<T> Implements Printable
     Where T: Printable
 
+    /// Its values, in its order, as a Set shows them: "{1, 2, 3}".
     Public Method ToString(): String
         Local parts: String[] = []
         For value In Self
