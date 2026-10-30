@@ -2241,6 +2241,69 @@ TEST_CASE("fb test gives a test the work it starts, and fails a run that fails o
     CHECK_FALSE(stopped.output.contains("test result:"));
 }
 
+TEST_CASE("fb test runs a test that waits for its work off the pool, leaving every worker to it",
+          "[cli]") {
+    // As many jobs as the pool has workers, one thread per core but one, and at least one, each
+    // waiting until they've all started, while the test waits for them, as top-level code can. A
+    // test that held a worker would leave one short, as macOS's runner, with 3 cores, was for std's
+    // Barrier and WaitGroup examples, so the waits give up after 20 seconds rather than hang.
+    const unsigned cores = std::thread::hardware_concurrency();
+    const unsigned workers = cores > 2 ? cores - 1 : 1;
+    const std::filesystem::path file = write_source(
+        "testing/workers.fb", std::format("Import std.concurrent\n"
+                                          "Import std.core\n"
+                                          "Import std.test\n"
+                                          "Import std.time\n"
+                                          "Function Meets(group: WaitGroup, late: Cancellation): "
+                                          "Bool\n"
+                                          "    Try\n"
+                                          "        Try group.Wait(late)\n"
+                                          "        Return True\n"
+                                          "    Catch error As CancelledError\n"
+                                          "        Return False\n"
+                                          "    End Try\n"
+                                          "End Function\n"
+                                          "@Test Function LeavesTheWorkers()\n"
+                                          "    Const workers = {}\n"
+                                          "    Const started = WaitGroup()\n"
+                                          "    Const late = Cancellation()\n"
+                                          "    Const finished = Cancellation()\n"
+                                          "    started.Add(workers)\n"
+                                          "    Local timer = Thread.Start(Function()\n"
+                                          "        Try\n"
+                                          "            Try Sleep(20.Seconds, finished)\n"
+                                          "            late.Cancel()\n"
+                                          "        Catch error As CancelledError\n"
+                                          "        End Try\n"
+                                          "    End Function)\n"
+                                          "    Local jobs: Task<Bool>[] = []\n"
+                                          "    For i = 1 To workers\n"
+                                          "        jobs.Add(Spawn(Function(): Bool\n"
+                                          "            started.Done()\n"
+                                          "            Return Meets(started, late)\n"
+                                          "        End Function))\n"
+                                          "    End For\n"
+                                          "    Expect(Meets(started, late))\n"
+                                          "    For job In jobs\n"
+                                          "        Expect(job.Wait())\n"
+                                          "    End For\n"
+                                          "    finished.Cancel()\n"
+                                          "    timer.Join()\n"
+                                          "End Function\n",
+                                          workers));
+    for (const bool release : { false, true }) {
+        std::vector<std::string> arguments{ "test", fb::to_utf8(file), "--color", "never" };
+        if (release) {
+            arguments.emplace_back("--release");
+        }
+
+        const fb::process_result_t ran = fb_run(arguments);
+        INFO(ran.output);
+        CHECK(ran.exit_code == 0);
+        CHECK(ran.output.contains("test workers.LeavesTheWorkers ... ok\n"));
+    }
+}
+
 namespace {
 
 /// A copy of tests/packages/<name> in the test output folder's `into`, so what fb writes into a

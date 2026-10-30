@@ -2,6 +2,7 @@
 #include "internal.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -24,9 +25,9 @@
 #include <windows.h>
 #endif
 
-// fb test's runner: a test executable's main hands it its tests, and it runs them, on the pool
-// but for the ones that use the main thread's Globals, and reports each one's start, failures,
-// and end. fb test reads the report, from the file FB_TEST_REPORT names, and starts the
+// fb test's runner: a test executable's main hands it its tests, and it runs them, on threads of
+// their own but for the ones that use the main thread's Globals, and reports each one's start,
+// failures, and end. fb test reads the report, from the file FB_TEST_REPORT names, and starts the
 // executable again after a test that panics, with the tests that didn't finish, which
 // FB_TEST_PLAN's file lists. Run alone, the executable runs them all and prints what they did.
 
@@ -232,8 +233,18 @@ void run_test(const std::size_t index) {
     fb::runtime::set_object_owner(0);
 }
 
-void run_job(void* context) {
-    run_test(*static_cast<std::size_t*>(context));
+/// The tests that run in parallel, by their indexes, and where the next one to take is.
+struct parallel_t {
+    std::vector<std::size_t> tests;
+    std::atomic<std::size_t> next = 0;
+};
+
+/// A thread of the parallel tests: runs the next one left until none is.
+void run_parallel(void* context) {
+    parallel_t& parallel = *static_cast<parallel_t*>(context);
+    for (std::size_t at = parallel.next++; at < parallel.tests.size(); at = parallel.next++) {
+        run_test(parallel.tests[at]);
+    }
 }
 
 /// The plan's tests, by their indexes, one per line after its first, which says "serial" when
@@ -356,13 +367,24 @@ void fb_test_run() {
         }
     }
 
-    // The ones that can run on another thread go to the pool, each a job, while the main thread
-    // runs the rest. A serial plan runs them all there, one at a time, so a crash names its test.
-    std::vector<fb_job_t*> jobs;
-    for (std::size_t& index : plan.tests) {
+    // The ones that can run on another thread go to threads of their own, as many as the pool
+    // has workers, each taking the next one left, while the main thread runs the rest. Not to the
+    // pool: a test that waits, as top-level code can, for work it started would hold a worker
+    // that work needs, and with every worker held so, none would run it. A serial plan runs them
+    // all on the main thread, one at a time, so a crash names its test.
+    parallel_t parallel;
+    for (const std::size_t index : plan.tests) {
         if (!plan.serial && !run.tests[index].main_thread) {
-            jobs.push_back(fb_job_start(run_job, &index));
+            parallel.tests.push_back(index);
         }
+    }
+
+    const std::size_t threads =
+        std::min(parallel.tests.size(), static_cast<std::size_t>(fb_pool_size()));
+    std::vector<fb_job_t*> jobs;
+    jobs.reserve(threads);
+    for (std::size_t i = 0; i < threads; ++i) {
+        jobs.push_back(fb_job_start_thread(run_parallel, &parallel));
     }
 
     for (const std::size_t index : plan.tests) {

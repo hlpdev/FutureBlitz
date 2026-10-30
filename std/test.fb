@@ -2,7 +2,8 @@
 //!
 //! A @Test Function, one that takes nothing and gives nothing back, though it can throw, is a test,
 //! anywhere in a package, and so is one in its tests/ folder, which uses the package from outside.
-//! Builds leave tests out, and fb test runs them, in parallel, on the runtime's pool, but for those
+//! Builds leave tests out, and fb test runs them, in parallel, on as many threads of their own as
+//! the pool has workers, so a test that waits for its work leaves the pool to it, but for those
 //! whose code uses what only the main thread can. Work a test starts on another thread is the
 //! test's, wherever it runs.
 //!

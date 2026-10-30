@@ -197,11 +197,13 @@ End Function
   project.toml of its own is a package of its own, which `fb test` leaves alone.
 - A test build has each of the package's `.fb` files, and runs the tests in place of the main
   file's top-level code, once the Globals are set; another main file's top-level code, as a
-  tool's in the package can have, is left out too. The tests run in parallel, on the runtime's
-  pool, but for those whose code uses what only the main thread can (see
-  [10](10-concurrency.md#main-thread-rules)), like a Global or a `@MainThread` Function, which
-  run on the main thread, one at a time. Work a test starts, with Spawn, a Thread, or a Parallel
-  For, is the test's wherever it runs: its failures, panics, and leaks are the test's.
+  tool's in the package can have, is left out too. The tests run in parallel, on as many threads
+  of their own as the pool has workers, not on the pool, so a test that waits for work it starts,
+  as top-level code can, leaves every worker to that work; but those whose code uses what only
+  the main thread can (see [10](10-concurrency.md#main-thread-rules)), like a Global or a
+  `@MainThread` Function, run on the main thread, one at a time. Work a test starts, with Spawn,
+  a Thread, or a Parallel For, is the test's wherever it runs: its failures, panics, and leaks
+  are the test's.
 - A test passes unless it fails: by a failed Expect, ExpectThrows, or Fail, which it goes on
   after, by an error it lets out, by a panic, a failed Assert's too, which ends its program, or
   by a leak, which a debug build finds as it does a program's, once the Globals are let go of.
