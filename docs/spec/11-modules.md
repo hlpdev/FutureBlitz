@@ -111,13 +111,13 @@ physics = "1.2"
 joltc = { static = "libs/joltc" }
 ```
 
-- Dependencies are versioned.
+- Dependencies are versioned, and resolved to one version of each, which fb.lock pins.
 - `[native]` declares C libraries for FFI and how to link them. Static linking is the
   default so games ship as a single binary; a package can bring dynamic ones too (see
   [Native libraries](#native-libraries)).
 - The package manager is part of the `cli` tool (Milestone M10).
 
-Until then (M5), a dependency is a local package, by its folder from the project.toml's:
+A dependency can also be a local package, by its folder from the project.toml's:
 
 ```toml
 [project]
@@ -136,9 +136,24 @@ physics = { path = "../physics" }
   one without, is built only into the programs that use it, or beside them (see
   [Libraries](#libraries)). An executable without a main file, or a library with `main`
   written, is an error. A key project.toml doesn't use is a warning, and its other mistakes are
-  errors at their lines. A version string for a dependency, like `physics = "1.2"`, waits for the
-  package manager. A project.toml that can't be read stops the command, as a `.fb` file that
+  errors at their lines. A project.toml that can't be read stops the command, as a `.fb` file that
   can't be read does.
+- `version` is semver: three numbers without leading zeros, and maybe a pre-release, like
+  `"1.0.0-beta.2"`. What the registry shows of a package is in `[project]` too, and `fb publish`
+  needs `license` and `description`: `license`, an SPDX expression like `"MIT OR Apache-2.0"`;
+  `description`, a line; `readme`, a file in the package's folder, README.md unless it says
+  otherwise; `repository` and `homepage`, `https://` URLs; and `keywords`, at most five, each
+  lowercase letters, digits, and `-`, at most 20 long.
+- A dependency is a package from a registry, by a range of its versions, `physics = "1.2"` or
+  `physics = { version = "1.2" }`, or a local one by its folder, `{ path = "../physics" }`, but
+  not both; `registry = "company"` takes it from a registry `[registries]` names rather than
+  futureblitz.dev. `[registries]` names each by its index, `company = { index =
+  "https://packages.example.com/index/" }`, or a folder, a registry on disk; its names are
+  identifiers, and `futureblitz` is futureblitz.dev's, which it can name again for a mirror. A
+  range's forms, the resolver, fb.lock, and the cache folder are in
+  [libraries.md](../libraries.md#the-clients-design-m10-step-0-settled-2026-10-29). A program's
+  registry dependencies, and theirs, each have one version, which fb.lock beside its project.toml
+  pins, and which builds from the cache.
 - `[format]` has `width`, the line width `fb fmt` formats the package's code to: a whole number
   of columns from 40 to 1000, 100 without it (see [tooling.md](../tooling.md#the-formatter-step-6)).
   A width outside that range is an error.
@@ -318,4 +333,5 @@ engine = { path = "../engine", link = "beside" }     # engine.dll beside the exe
 - A package is shipped as an archive: its project.toml, a license, a readme, and either its `.fb`
   source, or its prebuilt `lib/<target>/<mode>/`, each `.fblib` with its `.fbi`, and its natives
   per target. The registry and the commands that fetch and publish archives come with the package
-  manager (M10).
+  manager (M10), whose archives, `.fbpkg`, are in
+  [libraries.md](../libraries.md#the-clients-design-m10-step-0-settled-2026-10-29).
