@@ -285,8 +285,8 @@ requests.Add(1)
   empty. `ch.TryReceive(ByRef value)` gives False instead of waiting, and sets the variable when
   it gives True; `ch.TryReceive()` gives a `T?`, Null when there's nothing, as Receive gives.
 - `ch.Close()` lets the receivers take what's left. `For x In ch` receives until the Channel is
-  closed and empty. `ch.IsClosed()` says whether it's closed, though it may have values left, so code that waits on
-  several Channels at once, with TryReceive, knows when one won't get more.
+  closed and empty. `ch.IsClosed()` says whether it's closed, though it may have values left, so
+  code that waits on several Channels at once, with TryReceive, knows when one won't get more.
 - Values come out in the order they went in, and what's left when the Channel goes is released.
 
 ### Atomic and Mutex
