@@ -557,8 +557,7 @@ public:
 
     /// A Task that this scheduler finishes at its next tick, or once its time reaches `due`, in
     /// nanoseconds, or the real clock's does.
-    void add_timer(fb_task_t* task, const bool next_tick, const std::int64_t due,
-                   const bool real) {
+    void add_timer(fb_task_t* task, const bool next_tick, const std::int64_t due, const bool real) {
         fb_object_retain(&task->header);
         m_timers.push_back({
             .task = task,

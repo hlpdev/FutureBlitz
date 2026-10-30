@@ -3545,6 +3545,7 @@ private:
                 runtime_function_t::PARALLEL_FOR,
                 runtime_function_t::SCHEDULER_RUN,
                 runtime_function_t::SCHEDULER_TICK,
+                // A Step runs coroutines, as a Tick does.
                 runtime_function_t::SCHEDULER_STEP,
             };
             if (std::ranges::contains(runs_code, runtime->function)) {
@@ -10088,10 +10089,11 @@ private:
         }
 
         if (method.name == "Step") {
-            emit(evaluate_t{ runtime_call_t{
+            runtime_call_t step{
                 .function = runtime_function_t::SCHEDULER_STEP,
                 .arguments = { scheduler },
-            } });
+            };
+            emit(evaluate_t{ std::move(step) });
             return std::nullopt;
         }
 
