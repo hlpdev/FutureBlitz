@@ -1,3 +1,5 @@
+//! A running child process: its streams, waiting for it, and ending it.
+//!
 //! Child, a program that a Command started, which runs beside this one: its Id, its piped streams,
 //! a Writer to its stdin and Readers of its stdout and stderr, and Wait, TryWait, and Kill, with
 //! the ExitStatus that says how it ended.
@@ -47,6 +49,7 @@ Public Struct ExitStatus Implements Printable
         Get => Code == 0
     End Property
 
+    /// How it ended, as "exit code 0" or "signal 9".
     Public Method ToString(): String
         Local code = Code
         If code != Null Then Return "exit code {code}"
@@ -57,6 +60,20 @@ End Struct
 /// A program that a Command started, which runs beside this one until it ends, whether or not
 /// this program waits for it. Letting go of it, and of its streams, closes its pipes, but doesn't
 /// end it.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.io
+/// Local child = Try Command("sort").Stdin(Stdio.PIPED).Stdout(Stdio.PIPED).Spawn()
+/// Local input = child.Stdin
+/// Local output = child.Stdout
+/// If input == Null || output == Null Then Return
+/// Try input.WriteText("pear\napple\n")
+/// input.Close()
+/// Print(Try ReadAllText(output))
+/// Print(child.Wait())
+/// ```
 Public Class Child
     ReadOnly Field Handle: UInt64
 
@@ -122,7 +139,8 @@ Public Class ChildInput Implements Writer
         fb_os_process_hold(handle)
     End New
 
-    /// Throws an IOError once the stream is closed, or the child has gone.
+    /// Writes from's bytes to the child's stdin. Throws an IOError once the stream is closed, or
+    /// the child has gone.
     Public Method Write(from: Buffer<UInt8>) Throws IOError
         Local result: Int64 = 0
         Unsafe
@@ -131,6 +149,7 @@ Public Class ChildInput Implements Writer
         If result != 0 Then Throw ProcessError(result)
     End Method
 
+    /// Write's Async twin, which writes on the I/O thread while the main thread goes on.
     Public Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
         Local writing: Task<Int64>
         Unsafe
@@ -164,6 +183,8 @@ Public Class ChildOutput Implements Reader
         fb_os_process_hold(handle)
     End New
 
+    /// Reads up to into.Count bytes of what the child wrote into the start of `into`, waiting while
+    /// it's written nothing new, and gives how many, or 0 once the child has closed the stream.
     Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError
         Local count: Int64 = 0
         Unsafe
@@ -173,6 +194,7 @@ Public Class ChildOutput Implements Reader
         Return count
     End Method
 
+    /// Read's Async twin, which waits on the I/O thread while the main thread goes on.
     Public Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
         Local reading: Task<Int64>
         Unsafe

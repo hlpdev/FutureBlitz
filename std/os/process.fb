@@ -1,3 +1,5 @@
+//! The program's own process: its Id, and ending it.
+//!
 //! Process, the program's own: its Id, and Exit, which ends it with a code for what started it.
 
 Import std.core
@@ -8,6 +10,12 @@ Extern "runtime"
 End Extern
 
 /// Process's Static Members.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Process.Id > 0)
+/// ```
 Public Struct Process
     /// Process isn't made: it's only its Static Members.
     New()

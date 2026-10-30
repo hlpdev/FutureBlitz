@@ -1,3 +1,5 @@
+//! What the program knows of the machine it runs on.
+//!
 //! System, what the program knows of the machine it runs on: the platform and architecture it was
 //! built for, how many threads can run at once, the memory, and the machine's and user's names.
 
@@ -31,6 +33,14 @@ Public Enum Arch
 End Enum
 
 /// System's Static Properties.
+///
+/// # Examples
+///
+/// ```
+/// Expect(System.CpuCount >= 1)
+/// Expect(System.TotalMemory > 0)
+/// Expect("{System.Platform}" != "")
+/// ```
 Public Struct System
     /// System isn't made: it's only its Static Properties.
     New()

@@ -1,7 +1,9 @@
-//! Args: a program's command line, read into a Struct or Class. `Args.Parse<T>()` reads T's Fields'
-//! attributes, @Positional, @Option, and @Flag, and @Program on T itself, into an ArgsParser,
-//! which reads the arguments into a Value that `Load<T>` makes the T from, with the help and errors
-//! they make. An ArgsParser can be built at run time too, for options a program only knows then.
+//! Reading a program's command line into a Struct or Class.
+//!
+//! `Args.Parse<T>()` reads T's Fields' attributes, @Positional, @Option, and @Flag, and @Program on
+//! T itself, into an ArgsParser, which reads the arguments into a Value that `Load<T>` makes the T
+//! from, with the help and errors they make. An ArgsParser can be built at run time too, for
+//! options a program only knows then.
 
 Import std.core
 Import std.collections
@@ -26,7 +28,7 @@ Public Attribute Option(Help: String = "", Short: String = "", Long: String = ""
 /// A Bool Field that "--name" or "-s" sets, or an integer one that counts how many times it's
 /// given, as -vvv is 3.
 Public Attribute Flag(Help: String = "", Short: String = "", Long: String = "")
-/// A T? Field of a Struct or Class that its command fills from the rest of the command line, as
+/// A Field, a T? of a Struct or Class, that its command fills from the rest of the command line, as
 /// "git commit -m x" fills a Commit's. Its command is its name in kebab case unless Name says
 /// otherwise. One of them, or none, is given; the others stay Null.
 Public Attribute Subcommand(Help: String = "", Name: String = "")
@@ -117,6 +119,15 @@ End Class
 /// Reads a command line into a Value's Object: each flag's Bool or count, each option's and
 /// positional argument's String, or Array of them, and a command's Object, by their keys. Its
 /// methods give the ArgsParser back, so they chain.
+///
+/// # Examples
+///
+/// ```
+/// Local parser = ArgsParser("tool").Flag("verbose", "verbose", "v").Positional("file")
+/// Local value = Try parser.Parse(["-v", "notes.txt"])
+/// Expect(value.Path("verbose")?.AsBool() == True)
+/// Expect(value.Path("file")?.AsString() == "notes.txt")
+/// ```
 Public Class ArgsParser
     Field Name: String
     Field About: String
@@ -571,6 +582,24 @@ Public Class ArgsParser
 End Class
 
 /// Args' Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// @Program(About: "Copies files.")
+/// Struct Options
+///     @Positional(Help: "What to copy")
+///     Field Source: String
+///     @Option(Help: "How many copies", Short: "n")
+///     Field Count: Int = 1
+///     @Flag(Help: "Says what it does", Short: "v")
+///     Field Verbose: Bool
+/// End Struct
+///
+/// Local options = Try Args.Parse<Options>(["notes.txt", "-n", "3", "--verbose"])
+/// Expect(options.Source == "notes.txt" && options.Count == 3 && options.Verbose)
+/// Expect(ExpectThrows<ArgsError>(Args.Parse<Options>(["--colour"])) != Null)
+/// ```
 Public Struct Args
     /// Args isn't made: it's only its Static Methods.
     New()

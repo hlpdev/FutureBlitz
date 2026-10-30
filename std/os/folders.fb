@@ -1,3 +1,5 @@
+//! Where the OS keeps the user's and the program's files, and opening a file in its app.
+//!
 //! Folders, where the OS keeps the user's things and the program's, each where that OS's own apps
 //! keep them; and OpenDefault, which opens a file, a folder, or a URL in the app the OS opens it
 //! with.
@@ -19,6 +21,13 @@ Const TEMP = 6
 Const DOCUMENTS = 7
 
 /// Folders' Static Properties, each a folder's path, or Null when the OS doesn't say.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Folders.Executable != Null)
+/// Expect(Folders.Temp != Null)
+/// ```
 Public Struct Folders
     /// Folders isn't made: it's only its Static Properties.
     New()
@@ -71,6 +80,12 @@ End Struct
 /// opens it with, and returns once the OS has taken it. Throws an IOError when `target` is neither
 /// a URL nor a file or folder that's there (NOT_FOUND), when the program may not open it
 /// (PERMISSION_DENIED), or when no app opens it (OTHER).
+///
+/// # Examples
+///
+/// ```fb no_run
+/// Try OpenDefault("https://futureblitz.dev")
+/// ```
 Public Function OpenDefault(target: String) Throws IOError
     Local result = fb_os_open_default(target)
     If result == 1

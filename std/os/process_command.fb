@@ -1,3 +1,5 @@
+//! Starting other programs, with their arguments, environment, and streams.
+//!
 //! Command, a program to start, with its arguments, environment, folder, and streams, and no
 //! shell, so each argument reaches it as it is, on every OS: Spawn starts it beside this program,
 //! and Output and Status wait for it to end. Process.Arguments gives this program's own.
@@ -56,6 +58,13 @@ End Struct
 /// when it's relative, or by its name on the PATH it gets, never in a current folder; on Windows,
 /// with .com or .exe after the name too. Its methods give the Command back, so they chain:
 /// Command("git").Arg("log").Folder(repo).Output(). It can start the program any number of times.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// Local output = Try Command("git").Args(["log", "--oneline", "-3"]).Folder("project").Output()
+/// If output.Status.Success Then Print(output.Text) Else PrintError(output.ErrorText)
+/// ```
 Public Class Command
     Field Program: String
     Field Arguments: String[]
@@ -69,7 +78,7 @@ Public Class Command
     Field OutputHow: Stdio?
     Field ErrorHow: Stdio?
 
-    /// A new ProcessCommand that runs `program`, with no arguments yet.
+    /// A new Command that runs `program`, with no arguments.
     Public New(program: String)
         Program = program
         Arguments = []
