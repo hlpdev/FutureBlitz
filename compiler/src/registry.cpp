@@ -1,5 +1,6 @@
 #include "fb/registry.hpp"
 
+#include "fb/manifest.hpp"
 #include "fb/package_archive.hpp"
 #include "fb/semver.hpp"
 #include "fb/utf8.hpp"
@@ -218,8 +219,11 @@ std::expected<std::vector<index_entry_t>, std::string> parse_index(const std::st
             }
 
             for (const json_t& target : *targets) {
+                // Only a target fb builds for, which a registry takes.
                 const std::optional<archive_ref_t> archive =
-                    target.is_string() && archives->contains(target.get<std::string>())
+                    target.is_string() &&
+                            std::ranges::contains(package_targets, target.get<std::string>()) &&
+                            archives->contains(target.get<std::string>())
                         ? archive_of(archives->at(target.get<std::string>()))
                         : std::nullopt;
                 if (!archive) {
@@ -434,6 +438,12 @@ registry_t::versions(const std::string_view name) {
     if (local()) {
         const std::filesystem::path file = m_folder / path_from_utf8(name);
         std::error_code error;
+        // A folder that isn't a registry's is that, not a registry without the package.
+        if (!std::filesystem::is_regular_file(m_folder / "config.json", error)) {
+            return std::unexpected(
+                std::format("there's no registry in {}: it has no config.json", to_utf8(m_folder)));
+        }
+
         if (!std::filesystem::exists(file, error)) {
             return std::vector<index_entry_t>{};
         }
@@ -576,16 +586,23 @@ std::expected<registry_config_t, std::string> registry_t::config() {
             std::format("the registry at {} is broken: {}", m_index, config.error()));
     }
 
+    // What's downloaded comes over TLS, or from this machine, as the index does.
+    if (!local() && !config->dl.starts_with("https://") && !is_loopback_url(config->dl)) {
+        return std::unexpected(
+            std::format("the registry at {} has its archives at {}, which isn't https://", m_index,
+                        config->dl));
+    }
+
     m_config = *config;
     return *config;
 }
 
 std::expected<std::filesystem::path, std::string>
 registry_t::archive(const std::string_view name, const std::string_view version,
-                    const std::string_view file, const std::string_view checksum) {
+                    const std::string_view file, const std::string_view checksum,
+                    const std::uint64_t most) {
     std::filesystem::path cached = cache_folder() / "archives" /
-                                         path_from_utf8(registry_folder(m_index)) /
-                                         path_from_utf8(file);
+                                   path_from_utf8(registry_folder(m_index)) / path_from_utf8(file);
     std::error_code error;
     if (std::filesystem::is_regular_file(cached, error) && sha256_file(cached) == checksum) {
         return cached;
@@ -604,6 +621,11 @@ registry_t::archive(const std::string_view name, const std::string_view version,
         if (!std::filesystem::is_regular_file(path, error)) {
             return std::unexpected(std::format("couldn't read {}", to_utf8(path)));
         }
+
+        if (std::filesystem::file_size(path, error) > most) {
+            return std::unexpected(
+                std::format("{} is more than the {} bytes fb takes of it", to_utf8(path), most));
+        }
     } else {
         if (m_offline) {
             return std::unexpected(std::format(
@@ -619,7 +641,7 @@ registry_t::archive(const std::string_view name, const std::string_view version,
         std::filesystem::create_directories(cached.parent_path(), error);
         path = partial_beside(cached);
         const std::expected<http_response_t, std::string> response =
-            m_http({ .url = url, .save_to = path });
+            m_http({ .url = url, .save_to = path, .most_body = most });
         if (!response) {
             std::filesystem::remove(path, error);
             return std::unexpected(response.error());

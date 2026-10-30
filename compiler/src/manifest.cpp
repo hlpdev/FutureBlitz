@@ -571,6 +571,13 @@ private:
                 continue;
             }
 
+            std::expected<std::string, std::string> schemed = with_index_scheme(*index);
+            if (!schemed) {
+                fail(index_span, "{}", schemed.error());
+                continue;
+            }
+
+            index = std::move(*schemed);
             if (index->starts_with("http://") && !is_loopback_url(*index)) {
                 fail(index_span,
                      "a registry's index is https://, or http:// only on this machine "
@@ -762,6 +769,32 @@ bool is_loopback_url(const std::string_view url) {
 
     return host == "localhost" || host.ends_with(".localhost") || host == "127.0.0.1" ||
            host == "[::1]";
+}
+
+std::expected<std::string, std::string> with_index_scheme(const std::string_view index) {
+    const std::size_t colon = index.find("://");
+    const std::string_view scheme = index.substr(0, colon);
+    const bool written = colon != std::string_view::npos && !scheme.empty() &&
+                         std::ranges::all_of(scheme, [](const char c) {
+                             return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                                    (c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.';
+                         });
+    if (!written) {
+        return std::string(index);
+    }
+
+    std::string lower(scheme);
+    std::ranges::transform(lower, lower.begin(), [](const char c) {
+        return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    });
+    if (lower != "http" && lower != "https" && lower != "file") {
+        return std::unexpected(std::format(
+            "a registry's index is an https:// URL, an http:// one on this machine, or a folder, "
+            "not a {}:// URL",
+            scheme));
+    }
+
+    return lower + std::string(index.substr(colon));
 }
 
 bool is_local_index(const std::string_view index) {

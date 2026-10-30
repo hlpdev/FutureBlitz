@@ -148,6 +148,14 @@ TEST_CASE("a range that isn't one says why", "[semver]") {
     CHECK(range_error("1.2.3+x").contains("build metadata"));
     CHECK(range_error("1 || 2").contains("isn't a version"));
     CHECK(range_error("1.*.3").contains("isn't a version"));
+    // An operator alone is no range.
+    for (const std::string_view op : { "^", "~", ">=", "=", "<", "<=", ">" }) {
+        INFO(op);
+        CHECK(range_error(op).contains("has no version after its"));
+        CHECK(range_error(std::string(op) + " ").contains("has no version after its"));
+    }
+
+    CHECK(range_error("1.2, ^").contains("has no version after its '^'"));
     CHECK(fb::parse_range(" 1.2 ")->text == "1.2");
 }
 

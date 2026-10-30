@@ -10,6 +10,8 @@
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -96,9 +98,9 @@ struct world_t {
     }
 
     /// Builds the game and runs it, giving what it printed, or its errors.
-    [[nodiscard]] std::string run() const {
+    [[nodiscard]] std::string run(const fb::build_mode_t mode = fb::build_mode_t::DEBUG) const {
         const std::expected<fb::compilation_t, std::string> game =
-            fb::compile_file(sandbox / "game");
+            fb::compile_file(sandbox / "game", mode);
         if (!game) {
             return game.error();
         }
@@ -111,7 +113,7 @@ struct world_t {
         program += fb::executable_extension;
         const fb::mir_module_t module = fb::lower(game->ast, game->analysis);
         const std::expected<fb::process_result_t, std::string> ran =
-            fb::build_program(module, *game, program, fb::build_mode_t::DEBUG).and_then([&] {
+            fb::build_program(module, *game, program, mode).and_then([&] {
                 return fb::run_process(program, {});
             });
         return ran ? ran->output : ran.error();
@@ -136,9 +138,10 @@ TEST_CASE("a package with versioned dependencies resolves, locks, and builds fro
     CHECK(physics.version == "1.2.0");
     CHECK(physics.source == world.index);
     CHECK(physics.dependencies == std::vector<std::string>{ "shapes" });
-    CHECK(physics.checksum ==
+    CHECK(physics.archive.checksum ==
           fb::sha256_hex(world.sandbox.read("registry/dl/physics/1.2.0/physics-1.2.0.fbpkg")));
-    CHECK(world.sandbox.read("game/fb.lock") == fb::write_lockfile(synced->lockfile));
+    CHECK(world.sandbox.read("game/fb.lock") ==
+          fb::write_lockfile(synced->lockfile, world.sandbox / "game"));
     CHECK(fb::is_unpacked(physics, fb::build_target()));
     CHECK(world.run() == "physics 1.2.0 with shapes 0.3.4\n");
 
@@ -307,4 +310,167 @@ TEST_CASE("fb add's line goes in [dependencies], keeping the file's other lines"
     // A key that only starts with the name is another's.
     CHECK(added("[dependencies]\nphysics2 = \"1\"\n") ==
           "[dependencies]\nphysics2 = \"1\"\nphysics = \"1.2.0\"\n");
+}
+
+TEST_CASE("a checkout moved elsewhere keeps its fb.lock, which pins a registry on disk by its "
+          "folder",
+          "[packages]") {
+    // resolve-2 and archive-11: the registry beside the package is the lock's from wherever it
+    // is, so a copy of both, somewhere else, changes nothing.
+    const world_t world;
+    said_t said;
+    REQUIRE(world.sync(said));
+    const std::string lock = world.sandbox.read("game/fb.lock");
+    CHECK(lock.contains("source = \"path+../registry/index/\""));
+    CHECK_FALSE(lock.contains("file://"));
+
+    std::filesystem::create_directories(world.sandbox / "moved");
+    for (const std::string_view folder : { "registry", "game" }) {
+        std::filesystem::copy(world.sandbox / folder, world.sandbox / "moved" / folder,
+                              std::filesystem::copy_options::recursive);
+    }
+
+    std::filesystem::remove_all(world.sandbox / "moved/game/build");
+    said.lines.clear();
+    const std::expected<fb::sync_result_t, std::string> moved = fb::sync_packages(
+        world.sandbox / "moved/game", { .http = fb::testing::offline, .status = said.status() });
+    INFO((moved ? std::string() : moved.error()));
+    REQUIRE(moved);
+    CHECK(said.lines.empty());
+    CHECK(world.sandbox.read("moved/game/fb.lock") == lock);
+    CHECK(moved->lockfile.packages[0].source ==
+          fb::canonical_index("../registry/index", world.sandbox / "moved/game"));
+
+    // A registry that's another folder is a change of source, said as one.
+    std::filesystem::copy(world.sandbox / "registry", world.sandbox / "registry2",
+                          std::filesystem::copy_options::recursive);
+    world.sandbox.write("game/project.toml",
+                        "[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n[registries]\nlocal = "
+                        "{ index = \"../registry2/index\" }\n\n[dependencies]\nphysics = { version "
+                        "= \"1\", registry = \"local\" }\n");
+    said.lines.clear();
+    REQUIRE(world.sync(said));
+    REQUIRE(said.lines.size() == 2);
+    CHECK(said.lines[0].starts_with("Updating physics v1.2.0, now from file://"));
+    CHECK(said.lines[0].ends_with("registry2/index/"));
+    CHECK(world.sandbox.read("game/fb.lock").contains("path+../registry2/index/"));
+}
+
+TEST_CASE("fb update skips a version that's yanked since fb.lock took it", "[packages]") {
+    // resolve-3: a build keeps the locked version, but fb update resolves anew.
+    const world_t world;
+    said_t said;
+    REQUIRE(world.sync(said));
+    REQUIRE(fb::yank_version("shapes", "0.3.4", false,
+                             { .index = world.index, .http = fb::testing::offline }));
+    said.lines.clear();
+    REQUIRE(world.sync(said));
+    CHECK(said.lines.empty());
+    CHECK(world.run() == "physics 1.2.0 with shapes 0.3.4\n");
+
+    REQUIRE(world.sync(said, { .update = true, .update_names = { "shapes" } }));
+    CHECK(said.lines == std::vector<std::string>{ "Updating shapes v0.3.4 -> v0.3.0" });
+    CHECK(world.run() == "physics 1.2.0 with shapes 0.3.0\n");
+}
+
+TEST_CASE("a registry on disk that isn't there says so, not that it lacks the package",
+          "[packages]") {
+    // resolve-6: a folder without config.json is no registry.
+    const world_t world;
+    world.sandbox.write("game/project.toml",
+                        "[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n[registries]\nlocal = "
+                        "{ index = \"../nowhere/index\" }\n\n[dependencies]\nphysics = { version "
+                        "= \"1\", registry = \"local\" }\n");
+    said_t said;
+    const std::expected<fb::sync_result_t, std::string> synced = world.sync(said);
+    REQUIRE_FALSE(synced);
+    CHECK(synced.error().contains("there's no registry in "));
+    CHECK(synced.error().contains("nowhere/index: it has no config.json"));
+}
+
+TEST_CASE("a prebuilt library and a package's natives come from their targets' archives",
+          "[packages]") {
+    // archive-12: a prebuilt library's builds, debug and release, and a package's native/
+    // files, each in its target's archive, which fb fetches, checks against fb.lock, and
+    // unpacks beside the package's own.
+    const world_t world;
+    const fb::testing::sandbox_t& sandbox = world.sandbox;
+    const std::string target(fb::build_target());
+    sandbox.library("solid_src", "solid", "1.0.0", "",
+                    {
+                        {
+                            "solid.fb",
+                            "Public Function Solid(): String\n    Return \"solid 1.0.0\"\nEnd "
+                            "Function\n",
+                        },
+                    });
+    sandbox.library("solid", "solid", "1.0.0", "", {});
+    for (const fb::build_mode_t mode : { fb::build_mode_t::DEBUG, fb::build_mode_t::RELEASE }) {
+        const std::expected<fb::compilation_t, std::string> source =
+            fb::compile_file(sandbox / "solid_src", mode);
+        REQUIRE(source);
+        REQUIRE(errors_of(*source).empty());
+        fb::diagnostic_bag_t diagnostics;
+        const std::expected<fb::library_build_t, std::string> built =
+            fb::build_library(*source, mode, diagnostics);
+        REQUIRE(built);
+        const std::string folder = std::format(
+            "solid/lib/{}/{}/", target, mode == fb::build_mode_t::DEBUG ? "debug" : "release");
+        sandbox.write(folder + "solid.fbi", built->interface);
+        sandbox.write(folder + "solid.fblib", built->binary);
+    }
+
+    sandbox.publish("solid", world.index);
+    sandbox.library("assets", "assets", "1.0.0", "",
+                    {
+                        {
+                            "assets.fb",
+                            "Public Function Assets(): String\n    Return \"assets\"\nEnd "
+                            "Function\n",
+                        },
+                        { std::format("native/{}/data.txt", target), "native data" },
+                    });
+    sandbox.publish("assets", world.index);
+
+    world.game("solid = { version = \"1\", registry = \"local\" }\nassets = { version = "
+               "\"1\", registry = \"local\" }\n");
+    sandbox.write("game/main.fb",
+                  "Import std.core\nImport solid\nImport assets\nPrint(Solid() + \" \" + "
+                  "Assets())\n");
+    said_t said;
+    const std::expected<fb::sync_result_t, std::string> synced = world.sync(said);
+    INFO((synced ? std::string() : synced.error()));
+    REQUIRE(synced);
+    const fb::locked_package_t* solid = synced->lockfile.find("solid");
+    const fb::locked_package_t* assets = synced->lockfile.find("assets");
+    REQUIRE(solid != nullptr);
+    REQUIRE(assets != nullptr);
+    CHECK(solid->targets.contains(target));
+    CHECK(assets->targets.contains(target));
+    CHECK(fb::is_unpacked(*solid, target));
+    const std::filesystem::path solid_folder =
+        fb::package_cache_folder(world.index, "solid", "1.0.0");
+    CHECK(std::filesystem::exists(solid_folder / std::format(".fbpkg-{}", target)));
+    CHECK(
+        std::filesystem::exists(solid_folder / std::format("lib/{}/release/solid.fblib", target)));
+    CHECK(sandbox.read("game/fb.lock")
+              .contains(std::format("\"{}\" = {{ checksum = \"sha256:{}\"", target,
+                                    solid->targets.at(target).checksum)));
+    const std::filesystem::path assets_folder =
+        fb::package_cache_folder(world.index, "assets", "1.0.0");
+    {
+        std::ifstream data(assets_folder / std::format("native/{}/data.txt", target));
+        CHECK(std::string(std::istreambuf_iterator<char>(data), {}) == "native data");
+    }
+
+    CHECK(world.run() == "solid 1.0.0 assets\n");
+    CHECK(world.run(fb::build_mode_t::RELEASE) == "solid 1.0.0 assets\n");
+
+    // A target's archive that isn't fb.lock's stops the build.
+    std::filesystem::remove_all(sandbox / "home");
+    sandbox.write(std::format("registry/dl/solid/1.0.0/solid-1.0.0-{}.fbpkg", target), "changed");
+    const std::expected<fb::sync_result_t, std::string> tampered = world.sync(said);
+    REQUIRE_FALSE(tampered);
+    CHECK(tampered.error().starts_with(
+        std::format("solid-1.0.0-{}.fbpkg isn't what fb.lock says it is", target)));
 }

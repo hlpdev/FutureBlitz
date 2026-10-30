@@ -36,9 +36,15 @@ struct prepared_package_t { // NOLINT(bugprone-exception-escape)
 };
 
 /// Why `name` can't be a registry's package, or nullopt when it can be: lowercase ASCII letters,
-/// digits, and '_', starting with a letter, at most 64, and not std, fb, or futureblitz, even
-/// with '_'s.
+/// digits, and '_', starting with a letter, at most 64, and not std, fb, futureblitz, apt, rpm, or
+/// releases, even with '_'s.
 [[nodiscard]] std::optional<std::string> registry_name_error(std::string_view name);
+
+/// Why a target's archive, `file`, of `size` bytes, can't be published, or nullopt when it can:
+/// a registry on disk takes up to 200 MB, and one on the network decides, as it raises its limit
+/// for a package that asks.
+[[nodiscard]] std::optional<std::string> target_size_error(std::string_view file,
+                                                           std::uint64_t size, bool on_disk);
 
 /// Builds the archives of the package in `root` for the registry whose canonical index is
 /// `index`, which `public_registry` says is futureblitz.dev's, and checks it as the registry
@@ -61,6 +67,8 @@ struct registry_session_t {
     /// The most an upload is in one request; a larger one goes in parts, as the registry takes
     /// them over 64 MB.
     std::uint64_t most_single_upload = std::uint64_t{ 64 } << 20U;
+    /// The registry's API's URL, from its config.json, which a session fetches once.
+    mutable std::string api;
 };
 
 /// The most docs JSON can be.
@@ -110,17 +118,19 @@ search_packages(std::string_view words, std::size_t limit, const registry_sessio
 
 /// What fb login does that a test changes: opening the browser, and waiting between polls.
 struct login_hooks_t {
-    /// Opens `url` in the user's browser; false when it can't, and fb says to open it.
+    /// Opens `url` in the user's browser; false when it can't.
     std::function<bool(std::string_view url)> open;
     /// Waits as long as the registry asked, between polls.
     std::function<void(std::chrono::seconds)> wait;
-    /// Shows the person the code the page shows, to check it's theirs, and the URL.
-    std::function<void(std::string_view code, std::string_view url, bool opened)> show;
+    /// Shows the person the code the page shows, to check it's theirs, and the URL, before the
+    /// page is opened; `opening` is false when it isn't, as it isn't https:// or on this machine.
+    std::function<void(std::string_view code, std::string_view url, bool opening)> show;
 };
 
 /// `fb login`'s sign-in: asks the registry for a sign-in named `name`, like "fb on hunter-pc",
-/// opens its page, and polls until the person approves it there, then gives the token. Fails
-/// when they deny it, it expires, or the registry can't be reached.
+/// opens its page, and polls until the person approves it there, then gives the token. Polls
+/// that are rate limited, or that fail, are tried again until the sign-in would have expired.
+/// Fails when they deny it, or it expires.
 [[nodiscard]] std::expected<std::string, std::string>
 login(std::string_view name, const registry_session_t& session, const login_hooks_t& hooks);
 

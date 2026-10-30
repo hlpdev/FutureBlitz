@@ -1969,7 +1969,7 @@ public:
         if (std::ifstream lock(folder / "fb.lock", std::ios::binary); lock) {
             const std::string text{ std::istreambuf_iterator<char>(lock),
                                     std::istreambuf_iterator<char>() };
-            m_lockfile = read_lockfile(text);
+            m_lockfile = read_lockfile(text, folder);
         }
 
         if (!load(folder, nullptr, chain, nullptr) || m_failed) {

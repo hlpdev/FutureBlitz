@@ -45,6 +45,8 @@ struct wanted_t {
     std::vector<requirement_t> requirements;
     /// A project.toml among them has mistakes.
     bool broken = false;
+    /// The program's mirror of futureblitz.dev, when its [registries] names futureblitz again.
+    std::optional<std::string> mirror;
 };
 
 /// Adds what the package in `folder` and its path dependencies ask for to `wanted`, reading each
@@ -69,6 +71,13 @@ void collect(const std::filesystem::path& folder, std::set<std::filesystem::path
     if (!manifest) {
         wanted.broken = true;
         return;
+    }
+
+    // The program's own project.toml is the first read.
+    const auto mirror =
+        std::ranges::find(manifest->registries, default_registry, &registry_entry_t::name);
+    if (seen.size() == 1 && mirror != manifest->registries.end()) {
+        wanted.mirror = canonical_index(mirror->index, root);
     }
 
     for (const dependency_t& dependency : manifest->dependencies) {
@@ -149,10 +158,14 @@ lockfile_t lockfile_of(const std::vector<resolved_package_t>& resolved) {
             .name = package.entry.name,
             .version = package.entry.version,
             .source = package.source,
-            .checksum = package.entry.source.sha256,
+            .archive = {
+                .checksum = package.entry.source.sha256,
+                .size = package.entry.source.size,
+            },
         };
         for (const auto& [target, archive] : package.entry.targets) {
-            locked.targets.emplace(target, archive.sha256);
+            locked.targets.emplace(
+                target, locked_archive_t{ .checksum = archive.sha256, .size = archive.size });
         }
 
         for (const index_dependency_t& dependency : package.entry.dependencies) {
@@ -176,9 +189,12 @@ void report_changes(const lockfile_t& before, const lockfile_t& after, const sta
         const locked_package_t* old = before.find(package.name);
         if (old == nullptr) {
             status("Adding", std::format("{} v{}", package.name, package.version));
-        } else if (old->version != package.version || old->source != package.source) {
+        } else if (old->version != package.version) {
             status("Updating",
                    std::format("{} v{} -> v{}", package.name, old->version, package.version));
+        } else if (old->source != package.source) {
+            status("Updating", std::format("{} v{}, now from {}", package.name, package.version,
+                                           package.source));
         }
     }
 
@@ -200,27 +216,45 @@ bool has_marker(const std::filesystem::path& folder, const std::string_view what
     return read_text(marker_of(folder, what)) == checksum;
 }
 
+/// The most of an archive fb takes: its size, when fb.lock knows it, or else its kind's limit.
+std::uint64_t most_of(const locked_archive_t& archive, const std::uint64_t limit) {
+    return archive.size > 0 ? archive.size : limit;
+}
+
+/// The most an archive can unpack to: 8 times its kind's limit, or its own size's 8 times, for a
+/// target the registry took more of.
+std::uint64_t unpacked_most(const locked_archive_t& archive, const std::uint64_t limit) {
+    return std::max(limit, archive.size) * unpack_factor;
+}
+
 /// Makes sure `locked` is unpacked in the cache, with its archive for `target`.
 std::expected<void, std::string> fetch(const locked_package_t& locked,
                                        const std::string_view target, registry_t& registry) {
     const std::filesystem::path folder =
         package_cache_folder(locked.source, locked.name, locked.version);
     std::error_code error;
-    if (!has_marker(folder, "source", locked.checksum)) {
-        // A folder without its marker was left by something else, so it's made again.
+    if (!has_marker(folder, "source", locked.archive.checksum)) {
+        // A folder without its marker was left by something else, so it's made again, and one
+        // that can't be removed isn't unpacked over.
         if (std::filesystem::exists(folder, error)) {
             std::filesystem::remove_all(folder, error);
+            if (error) {
+                return std::unexpected(
+                    std::format("{} v{} in the cache isn't whole, and {} couldn't be removed: {}",
+                                locked.name, locked.version, to_utf8(folder), error.message()));
+            }
         }
 
         const std::expected<std::filesystem::path, std::string> archive =
             registry.archive(locked.name, locked.version, archive_name(locked.name, locked.version),
-                             locked.checksum);
+                             locked.archive.checksum, most_of(locked.archive, most_source_archive));
         if (!archive) {
             return std::unexpected(archive.error());
         }
 
         if (const std::expected<void, std::string> unpacked =
-                unpack_archive(*archive, folder, "source", locked.checksum, most_source_unpacked);
+                unpack_archive(*archive, folder, "source", locked.archive.checksum,
+                               unpacked_most(locked.archive, most_source_archive));
             !unpacked) {
             return std::unexpected(std::format("{} v{} couldn't be unpacked: {}", locked.name,
                                                locked.version, unpacked.error()));
@@ -228,19 +262,20 @@ std::expected<void, std::string> fetch(const locked_package_t& locked,
     }
 
     const auto own = locked.targets.find(target);
-    if (own == locked.targets.end() || has_marker(folder, target, own->second)) {
+    if (own == locked.targets.end() || has_marker(folder, target, own->second.checksum)) {
         return {};
     }
 
-    const std::expected<std::filesystem::path, std::string> archive =
-        registry.archive(locked.name, locked.version,
-                         archive_name(locked.name, locked.version, target), own->second);
+    const std::expected<std::filesystem::path, std::string> archive = registry.archive(
+        locked.name, locked.version, archive_name(locked.name, locked.version, target),
+        own->second.checksum, most_of(own->second, most_target_archive * unpack_factor));
     if (!archive) {
         return std::unexpected(archive.error());
     }
 
     if (const std::expected<void, std::string> unpacked =
-            unpack_archive(*archive, folder, target, own->second, most_target_unpacked);
+            unpack_archive(*archive, folder, target, own->second.checksum,
+                           unpacked_most(own->second, most_target_archive));
         !unpacked) {
         return std::unexpected(std::format("{} v{}'s {} archive couldn't be unpacked: {}",
                                            locked.name, locked.version, target, unpacked.error()));
@@ -323,12 +358,12 @@ std::optional<std::string> registry_index(const std::optional<std::string>& regi
 bool is_unpacked(const locked_package_t& locked, const std::string_view target) {
     const std::filesystem::path folder =
         package_cache_folder(locked.source, locked.name, locked.version);
-    if (!has_marker(folder, "source", locked.checksum)) {
+    if (!has_marker(folder, "source", locked.archive.checksum)) {
         return false;
     }
 
     const auto own = locked.targets.find(target);
-    return own == locked.targets.end() || has_marker(folder, target, own->second);
+    return own == locked.targets.end() || has_marker(folder, target, own->second.checksum);
 }
 
 std::expected<sync_result_t, std::string> sync_packages(const std::filesystem::path& root,
@@ -346,7 +381,7 @@ std::expected<sync_result_t, std::string> sync_packages(const std::filesystem::p
     const std::optional<std::string> lock_text = read_text(lock_path);
     lockfile_t before;
     if (lock_text) {
-        std::expected<lockfile_t, std::string> read = read_lockfile(*lock_text);
+        std::expected<lockfile_t, std::string> read = read_lockfile(*lock_text, root);
         // `fb update` writes a broken fb.lock anew; anything else stops at it.
         if (!read && !(options.update && options.update_names.empty())) {
             return std::unexpected(std::format("{}: {}", to_utf8(lock_path), read.error()));
@@ -385,6 +420,10 @@ std::expected<sync_result_t, std::string> sync_packages(const std::filesystem::p
             .locked = before,
             .all = options.update && options.update_names.empty(),
         };
+        if (wanted.mirror) {
+            preferences.mirrors.emplace(std::string(default_index), *wanted.mirror);
+        }
+
         for (const std::string& name : options.update_names) {
             if (before.find(name) == nullptr) {
                 return std::unexpected(std::format("fb.lock has no package {} to update", name));
@@ -412,7 +451,7 @@ std::expected<sync_result_t, std::string> sync_packages(const std::filesystem::p
     }
 
     report_changes(before, *locked, options.status);
-    const std::string text = write_lockfile(*locked);
+    const std::string text = write_lockfile(*locked, root);
     if (lock_text != text) {
         std::ofstream out(lock_path, std::ios::binary);
         out << text;

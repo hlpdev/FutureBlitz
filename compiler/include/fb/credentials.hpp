@@ -44,6 +44,10 @@ file_credential_store(const std::filesystem::path& path);
 /// FB_CREDENTIALS_FILE's store when it's set, or else the OS's.
 [[nodiscard]] std::unique_ptr<credential_store_t> credential_store();
 
+/// Why `token` can't be a registry's token, or nullopt when it can be: printable ASCII, without
+/// spaces, as the registry's are.
+[[nodiscard]] std::optional<std::string> token_error(std::string_view token);
+
 /// The key a registry's token is kept under: "futureblitz:" and its canonical index.
 [[nodiscard]] std::string credential_key(std::string_view index);
 

@@ -3,13 +3,16 @@
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 #include <zlib.h>
 
@@ -82,6 +85,8 @@ std::string subset_error(const std::string_view tar) {
         "gid",  "uname", "gname", "hdrcharset", "comment",
     };
     bool after_pax = false;
+    // A pax header's size, which is its entry's.
+    std::optional<std::uint64_t> pax_size;
     std::size_t at = 0;
     while (at + block <= tar.size()) {
         const std::string_view header = tar.substr(at, block);
@@ -106,7 +111,12 @@ std::string subset_error(const std::string_view tar) {
         }
 
         const char type = header[156];
-        const std::uint64_t size = std::stoull(std::string(header.substr(124, 12)), nullptr, 8);
+        std::uint64_t size = std::stoull(std::string(header.substr(124, 12)), nullptr, 8);
+        if (type != 'x' && pax_size) {
+            size = *pax_size;
+        }
+
+        pax_size.reset();
         at += block;
         if (type == 'x') {
             if (after_pax) {
@@ -126,6 +136,10 @@ std::string subset_error(const std::string_view tar) {
                 }
 
                 seen.push_back(key);
+                if (key == "size") {
+                    pax_size = std::stoull(std::string(record.substr(5)));
+                }
+
                 records.remove_prefix(length);
             }
 
@@ -158,15 +172,16 @@ std::string gzip(const std::string_view bytes) {
     return out;
 }
 
-/// A tar of one entry, its header as ustar's, of `type` and `name`, with `body`.
-std::string tar_of(const std::string_view name, const char type, const std::string_view body) {
+/// One entry of a tar, its header as ustar's, of `type` and `name`, with `body`, whose header
+/// says it's `size` bytes, or the body's.
+std::string entry_of(const std::string_view name, const char type, const std::string_view body,
+                     const std::optional<std::size_t> size = std::nullopt) {
     std::string header(512, '\0');
     header.replace(0, name.size(), name);
     header.replace(100, 7, "0000644");
     header.replace(108, 7, "0000000");
     header.replace(116, 7, "0000000");
-    const std::string size = std::format("{:011o}", body.size());
-    header.replace(124, 11, size);
+    header.replace(124, 11, std::format("{:011o}", size.value_or(body.size())));
     header.replace(136, 11, "00000000000");
     header[156] = type;
     header.replace(257, 6, std::string_view("ustar\0", 6));
@@ -180,8 +195,34 @@ std::string tar_of(const std::string_view name, const char type, const std::stri
     header.replace(148, 7, std::format("{:06o}", sum) + std::string(1, '\0'));
     std::string out = header + std::string(body);
     out.append((512 - (body.size() % 512)) % 512, '\0');
-    out.append(1024, '\0');
     return out;
+}
+
+/// A pax header of `records`, each a key and its value, for the entry after it.
+std::string pax_of(const std::vector<std::pair<std::string, std::string>>& records) {
+    std::string body;
+    for (const auto& [key, value] : records) {
+        // "<length> <key>=<value>\n", its length counting its own digits.
+        const std::size_t rest = key.size() + value.size() + 3;
+        std::size_t length = rest + 1;
+        while (std::to_string(length).size() + rest != length) {
+            ++length;
+        }
+
+        body += std::format("{} {}={}\n", length, key, value);
+    }
+
+    return entry_of("PaxHeader", 'x', body);
+}
+
+/// The two empty blocks that end a tar.
+std::string end_of_tar() {
+    return std::string(1024, '\0');
+}
+
+/// A tar of one entry, as entry_of() makes it.
+std::string tar_of(const std::string_view name, const char type, const std::string_view body) {
+    return entry_of(name, type, body) + end_of_tar();
 }
 
 } // namespace
@@ -229,6 +270,17 @@ TEST_CASE("an archive's paths are ones every disk can hold, inside its folder", 
         CHECK_FALSE(fb::write_archive({ { .path = std::string(wrong), .bytes = "" } }));
     }
 
+    // archive-9: every name Windows keeps for a device, and C1's controls, as the registry
+    // refuses them.
+    const std::vector<std::string_view> devices{
+        "CONIN$", "conout$.txt", "a/COM0", "lpt0.fb", "COM\xc2\xb9", "lpt\xc2\xb3.x", "a\xc2\x85b",
+    };
+    for (const std::string_view wrong : devices) {
+        INFO(wrong);
+        CHECK(fb::archive_path_error(wrong));
+    }
+
+    CHECK(fb::archive_path_error("CONIN$").value_or("").contains("a device, CONIN$"));
     CHECK(fb::archive_path_error(std::string(256, 'a')));
     CHECK(fb::archive_path_error("bad\xff.fb"));
     CHECK_FALSE(fb::archive_path_error("console.fb"));
@@ -242,26 +294,99 @@ TEST_CASE("an archive that isn't one fb takes is refused, saying why", "[archive
     CHECK(read_error(gzip(tar_of("link", '2', ""))).contains("isn't a file or a folder"));
     CHECK(read_error(gzip(tar_of("hard", '1', ""))).contains("isn't a file or a folder"));
     CHECK(read_error(gzip(std::string(1024, '\0'))).empty());
-    CHECK(read_error(gzip("short")).contains("two empty blocks"));
+    CHECK(read_error(gzip("short")).contains("ends without its end marker"));
     CHECK(read_error(gzip(tar_of("a.fb", '0', "x")) + "trailing").contains("after its gzip"));
 
     std::string bad = tar_of("a.fb", '0', "x");
     bad[148] = '7';
-    CHECK(read_error(gzip(bad)).contains("isn't ustar's"));
+    CHECK(read_error(gzip(bad)).contains("a bad checksum"));
+    CHECK(
+        read_error(gzip(entry_of("a.fb", 'x', "") + end_of_tar())).contains("after a pax header"));
 
     // Two paths that are one on a disk that ignores letter case, and a file that's a folder too.
     const std::string twice =
-        archive({ { .path = "A.fb", .bytes = "" }, { .path = "a.fb", .bytes = "" } });
+        gzip(entry_of("A.fb", '0', "") + entry_of("a.fb", '0', "") + end_of_tar());
     CHECK(read_error(twice).contains("twice"));
     const std::string both =
         archive({ { .path = "x", .bytes = "" }, { .path = "x/y.fb", .bytes = "" } });
     CHECK(read_error(both).contains("both a file and a folder"));
 
-    // More than it can unpack to.
+    // More than it can unpack to, which says the limit, not the tar's.
     const std::string large = archive({ { .path = "big", .bytes = std::string(4096, 'q') } });
     const std::expected<files_t, std::string> limited = fb::read_archive(large, 1024);
     REQUIRE_FALSE(limited);
-    CHECK(limited.error().contains("unpacks to more than"));
+    CHECK(limited.error() == "it unpacks to more than 1024 bytes");
+}
+
+TEST_CASE("a pax header's size is its entry's, as the registry reads it", "[archive]") {
+    // archive-1: a ustar size of 0, and a pax size of the file's 5 bytes, which the registry
+    // takes, so the file is those 5 bytes and nothing after them is another entry.
+    const std::string tar = pax_of({ { "size", "5" }, { "mtime", "0" } }) +
+                            entry_of("data.bin", '0', "hello", 0) + end_of_tar();
+    CHECK(subset_error(tar).empty());
+    const std::expected<files_t, std::string> files =
+        fb::read_archive(gzip(tar), fb::most_source_unpacked);
+    INFO((files ? std::string() : files.error()));
+    REQUIRE(files);
+    REQUIRE(files->size() == 1);
+    CHECK(files->front().path == "data.bin");
+    CHECK(files->front().bytes == "hello");
+
+    // A pax path too, with a key the registry takes and ignores.
+    const std::string long_path = "a/" + std::string(200, 'p') + ".fb";
+    const std::string renamed = pax_of({ { "path", long_path }, { "comment", "x" } }) +
+                                entry_of("short.fb", '0', "x") + end_of_tar();
+    const std::expected<files_t, std::string> named =
+        fb::read_archive(gzip(renamed), fb::most_source_unpacked);
+    REQUIRE(named);
+    CHECK(named->front().path == long_path);
+
+    // What the registry refuses, fb does too.
+    CHECK(read_error(
+              gzip(pax_of({ { "size", "5x" } }) + entry_of("a", '0', "hello", 0) + end_of_tar()))
+              .contains("a size that isn't a number"));
+    CHECK(read_error(gzip(pax_of({ { "linkpath", "x" } }) + tar_of("a", '0', "")))
+              .contains("linkpath"));
+    CHECK(read_error(gzip(pax_of({ { "size", "1" }, { "size", "1" } }) + tar_of("a", '0', "x")))
+              .contains("size twice"));
+    CHECK(read_error(gzip(pax_of({ { "mtime", "0" } }) + pax_of({ { "mtime", "0" } }) +
+                          tar_of("a", '0', "")))
+              .contains("two pax headers"));
+    CHECK(read_error(gzip(entry_of("dir/", '5', "abc") + end_of_tar())).contains("has a size"));
+    CHECK(read_error(gzip(tar_of("a", '0', "") + "x")).contains("after"));
+}
+
+TEST_CASE("paths that are one after NFKC and case folding are one path", "[archive]") {
+    // archive-3: as the registry folds them, "Straße" is "STRASSE", "ﬁle" is "file", and "É" is
+    // "é".
+    const std::vector<std::pair<std::string, std::string>> pairs{
+        {
+            "Stra\xc3\x9f"
+            "e.fb",
+            "STRASSE.fb",
+        },
+        { "\xef\xac\x81le.fb", "FILE.fb" },
+        { "\xc3\x89t\xc3\xa9.fb", "\xc3\xa9T\xc3\x89.fb" },
+    };
+    for (const auto& [first, second] : pairs) {
+        INFO(first << " and " << second);
+        CHECK(read_error(gzip(entry_of(first, '0', "") + entry_of(second, '0', "") + end_of_tar()))
+                  .contains("twice"));
+        const std::expected<std::string, std::string> written =
+            fb::write_archive({ { .path = first, .bytes = "" }, { .path = second, .bytes = "" } });
+        REQUIRE_FALSE(written);
+        CHECK(written.error().contains("one to a disk that ignores letter case"));
+    }
+}
+
+TEST_CASE("an archive with more files than the registry's is refused, saying so", "[archive]") {
+    // archive-10: the count and the size each say their own limit.
+    files_t files;
+    for (std::size_t i = 0; i <= fb::most_archive_files; ++i) {
+        files.push_back({ .path = std::format("f{}", i) });
+    }
+
+    CHECK(read_error(archive(std::move(files))) == "it has more than 20000 files and folders");
 }
 
 namespace {
@@ -316,8 +441,86 @@ TEST_CASE("an archive unpacks whole into its folder, and a target's joins it", "
     CHECK(refused(archive({ { .path = ".fbpkg-linux-x64", .bytes = "def" } }), "source")
               .contains(".fbpkg-linux-x64"));
     CHECK(refused(source, "linux-x64").contains("project.toml"));
+    // archive-2: in any letter case, as Windows and macOS take them.
+    CHECK(refused(archive({ { .path = "Native/Linux-X64/x.so", .bytes = "x" } }), "source")
+              .contains("Native/Linux-X64/x.so"));
+    CHECK(refused(archive({ { .path = "LIB/linux-x64/x.fbi", .bytes = "x" } }), "source")
+              .contains("LIB/linux-x64/x.fbi"));
+    CHECK(refused(archive({ { .path = ".FBPKG-linux-x64", .bytes = "def" } }), "source")
+              .contains(".FBPKG-linux-x64"));
+    CHECK(unpack(sandbox, archive({ { .path = "NATIVE/linux-x64/y.so", .bytes = "y" } }),
+                 sandbox / "cache/upper", "linux-x64", "u", fb::most_target_unpacked));
     CHECK_FALSE(std::filesystem::exists(sandbox / "cache/other"));
 }
+
+TEST_CASE("a package's own archive never unpacks over a folder that's there", "[archive]") {
+    // archive-7: a folder that's left, whole or not, is used only when its marker is this
+    // archive's.
+    const fb::testing::sandbox_t sandbox;
+    const std::filesystem::path folder = sandbox / "cache/physics-1.0.0";
+    const std::string source = archive({ { .path = "a.fb", .bytes = "// new\n" } });
+    sandbox.write("cache/physics-1.0.0/old.fb", "// old\n");
+    const std::expected<void, std::string> stale =
+        unpack(sandbox, source, folder, "source", "new", fb::most_source_unpacked);
+    REQUIRE_FALSE(stale);
+    CHECK(stale.error().contains("is there already, but isn't this archive's"));
+    CHECK_FALSE(std::filesystem::exists(folder / "a.fb"));
+    CHECK_FALSE(std::filesystem::exists(folder / ".fbpkg-source"));
+
+    // With its marker, it's the archive's, as another fb unpacked it.
+    sandbox.write("cache/physics-1.0.0/.fbpkg-source", "new");
+    CHECK(unpack(sandbox, source, folder, "source", "new", fb::most_source_unpacked));
+    CHECK_FALSE(std::filesystem::exists(folder / "a.fb"));
+}
+
+TEST_CASE("what an unpacking fb stopped partway through left is removed", "[archive]") {
+    // archive-8: partial folders beside the package's, made over an hour ago as their names say,
+    // go; newer ones are another fb's at work.
+    const fb::testing::sandbox_t sandbox;
+    const std::filesystem::path folder = sandbox / "cache/physics-1.0.0";
+    const std::int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count();
+    const std::string stale = std::format("cache/physics-1.0.0.~{:x}-0000abcd", now - 7200);
+    const std::string fresh = std::format("cache/physics-1.0.0.~{:x}-0000beef", now);
+    sandbox.write(stale + "/lib/linux-x64/x.fbi", "x");
+    sandbox.write(fresh + "/lib/linux-x64/y.fbi", "y");
+    sandbox.write("cache/physics-1.0.0.~old/z", "z");
+    REQUIRE(unpack(sandbox, archive({ { .path = "a.fb", .bytes = "a" } }), folder, "source", "s",
+                   fb::most_source_unpacked));
+    REQUIRE(unpack(sandbox, archive({ { .path = "lib/linux-x64/z.fbi", .bytes = "z" } }), folder,
+                   "linux-x64", "t", fb::most_target_unpacked));
+    CHECK_FALSE(std::filesystem::exists(sandbox / stale));
+    CHECK(std::filesystem::exists(sandbox / fresh));
+    CHECK(std::filesystem::exists(sandbox / "cache/physics-1.0.0.~old"));
+    // The package's folder holds only its archives' files and markers.
+    std::vector<std::string> held;
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(folder)) {
+        if (entry.is_regular_file()) {
+            held.push_back(fb::to_utf8(entry.path().lexically_relative(folder)));
+        }
+    }
+
+    std::ranges::sort(held);
+    CHECK(held == std::vector<std::string>{ ".fbpkg-linux-x64", ".fbpkg-source", "a.fb",
+                                            "lib/linux-x64/z.fbi" });
+}
+
+#ifdef _WIN32
+TEST_CASE("on Windows, a path too long to unpack says which, and why", "[archive]") {
+    // archive-4: past MAX_PATH, the file and the limit are named, and nothing's left.
+    const fb::testing::sandbox_t sandbox;
+    const std::filesystem::path folder = sandbox / std::string(150, 'f');
+    const std::string path = std::string(120, 'p') + ".fb";
+    const std::expected<void, std::string> unpacked =
+        unpack(sandbox, archive({ { .path = path, .bytes = "x" } }), folder, "source", "s",
+               fb::most_source_unpacked);
+    REQUIRE_FALSE(unpacked);
+    CHECK(unpacked.error().contains(std::format("'{}' is too long a path for Windows", path)));
+    CHECK(unpacked.error().contains("a shorter FB_HOME holds it"));
+    CHECK_FALSE(std::filesystem::exists(folder));
+}
+#endif
 
 TEST_CASE("a package's files go in its own archive, but for its targets' folders", "[archive]") {
     const fb::testing::sandbox_t sandbox;
@@ -403,16 +606,17 @@ TEST_CASE("a project.toml over 1 MB isn't published", "[archive]") {
 }
 
 TEST_CASE("an archive unpacks to at most 8 times the registry's limit for its kind", "[archive]") {
-    // docs/registry-api.md's limits: 10 MB a package's own, 200 MB a target's.
-    STATIC_CHECK(fb::most_source_archive == std::uint64_t{ 10 } << 20U);
-    STATIC_CHECK(fb::most_target_archive == std::uint64_t{ 200 } << 20U);
-    STATIC_CHECK(fb::most_source_unpacked == std::uint64_t{ 80 } << 20U);
-    STATIC_CHECK(fb::most_target_unpacked == std::uint64_t{ 1600 } << 20U);
+    // docs/registry-api.md's limits, in decimal megabytes, as the registry counts them: 10 MB a
+    // package's own, 200 MB a target's.
+    STATIC_CHECK(fb::most_source_archive == 10'000'000);
+    STATIC_CHECK(fb::most_target_archive == 200'000'000);
+    STATIC_CHECK(fb::most_source_unpacked == 80'000'000);
+    STATIC_CHECK(fb::most_target_unpacked == 1'600'000'000);
 
     // A file a little past a package's own limit, which a target's takes, read a piece at a
     // time from the archive's file.
     const fb::testing::sandbox_t sandbox;
-    const std::size_t past = (std::size_t{ 80 } << 20U) + 1;
+    const std::size_t past = std::size_t{ 80'000'000 } + 1;
     const std::string zeros =
         archive({ { .path = "native/linux-x64/big.bin", .bytes = std::string(past, '\0') } });
     const std::string source = archive({ { .path = "big.bin", .bytes = std::string(past, '\0') } });

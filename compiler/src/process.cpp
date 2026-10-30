@@ -249,6 +249,25 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     return static_cast<int>(exit_code);
 }
 
+std::expected<void, std::string> start_detached(const std::filesystem::path& program,
+                                                std::span<const std::string> arguments) {
+    std::wstring command = command_line(program, arguments);
+    // Without STARTF_USESTDHANDLES or inherited handles, it has none of this process's stdin,
+    // stdout, or stderr, and no console.
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE,
+                       DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP, nullptr, nullptr, &startup,
+                       &process) == 0) {
+        return std::unexpected(std::format("couldn't run {}: {}", program.string(), last_error()));
+    }
+
+    CloseHandle(process.hProcess);
+    CloseHandle(process.hThread);
+    return {};
+}
+
 #else
 
 namespace {
@@ -438,6 +457,29 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     sigaction(SIGINT, &interrupt, nullptr);
     sigaction(SIGQUIT, &quit, nullptr);
     return result;
+}
+
+std::expected<void, std::string> start_detached(const std::filesystem::path& program,
+                                                std::span<const std::string> arguments) {
+    // Its stdin, stdout, and stderr are /dev/null, so nothing it starts, like a browser, keeps a
+    // pipe of this process's open.
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+    std::unique_lock lock(spawning);
+    const std::expected<pid_t, std::string> pid = spawn(program, arguments, &actions);
+    lock.unlock();
+    posix_spawn_file_actions_destroy(&actions);
+    if (!pid) {
+        return std::unexpected(pid.error());
+    }
+
+    // It's waited for on a thread of its own, so it doesn't stay a zombie, and nothing here
+    // waits for it.
+    std::thread([pid = *pid] { (void)wait_for(pid); }).detach();
+    return {};
 }
 
 #endif

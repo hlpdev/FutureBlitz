@@ -164,8 +164,10 @@ picks one version of each package that every range on it allows: the program's o
 its path dependencies', and each picked version's, from its index line. It tries the newest
 version first, but a version fb.lock has goes first while every range still allows it, so adding
 a dependency changes nothing else. It skips yanked versions, unless fb.lock has them, and versions
-whose `fb` range this fb isn't in. When a choice leads to a conflict, it backtracks to the newest
-other choice; when nothing works, it says which ranges conflict and who asks for each:
+whose `fb` range this fb isn't in; `fb update` resolves anew, so a yanked version it unlocks goes.
+When a choice leads to a conflict, it jumps back to the choice that made it, the version whose
+range conflicts or the program's own, past any unrelated choices in between, and tries that one's
+next newest; when nothing works, it says which ranges conflict and who asks for each:
 "shapes: game asks for 0.4, and physics 1.2.3 asks for 0.3". Targets don't take part: a prebuilt
 package without the build's target is the build's error, which names the package (spec 11).
 
@@ -180,14 +182,25 @@ name = "physics"
 version = "1.2.3"
 source = "https://index.futureblitz.dev/"
 checksum = "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+size = 48213
 dependencies = ["shapes"]
-targets = { windows-x64 = "sha256:...", linux-x64 = "sha256:..." }
+targets = { "linux-x64" = { checksum = "sha256:...", size = 912 }, "windows-x64" = { checksum = "sha256:...", size = 1024 } }
+
+[[package]]
+name = "shapes"
+version = "0.3.4"
+source = "path+../registry/index/"
+checksum = "sha256:..."
+dependencies = []
 ```
 
 - One `[[package]]` for each registry package the program has, by name: its version, the index
-  it's from (`source`), the SHA-256 of its archive, its dependencies' names, and the hash of each
-  target's archive, for every target its version has, so one lock builds on every OS. Path
-  dependencies aren't in it; their own registry dependencies are.
+  it's from (`source`), the SHA-256 and size of its archive, its dependencies' names, and the hash
+  and size of each target's archive, for every target its version has, so one lock builds on
+  every OS. Path dependencies aren't in it; their own registry dependencies are.
+- A registry on disk's `source` is `path+` and its folder from fb.lock's, so a lock committed
+  with a registry beside the package pins the same versions in any checkout. A change of only a
+  package's source is said as one: "Updating physics v1.2.3, now from ...".
 - A build reads fb.lock and changes it only when project.toml asks for what it doesn't have: a
   new dependency, a range the locked version is outside, or another registry. Then fb resolves
   again, keeping every locked version it can, and says what it added or changed. `fb update`
@@ -217,6 +230,7 @@ folder `FB_HOME` names:
   fb.lock needs first, and the LSP uses what's there, or says to build.
 - **Offline:** with `--offline`, or when the registry can't be reached, fb uses the index files
   and archives in the cache, and says so; a package that isn't there is an error naming it.
+  `fb publish` takes `--offline` only with `--dry-run`, as publishing is the network's.
 
 **Archives.** A `.fbpkg` is a tar (POSIX ustar, with a pax header for a path ustar can't hold)
 compressed with gzip, which a Worker can read with its own DecompressionStream to check it. fb
@@ -256,7 +270,10 @@ tools = { version = "2", registry = "company" }
   in it, like `index.localhost`, 127.0.0.1, and [::1]), or a folder, which is a registry on disk,
   as tests use: the same files the server serves, `<index>/config.json` and `<index>/<name>`, with
   config.json's `dl` a template of a folder from the index's, or of a `file://` URL. `fb publish`
-  and `fb yank` write to one directly, and `fb search` reads its index files' names.
+  and `fb yank` write to one directly, and `fb search` reads its index files' names, finding
+  those with any of its words, in any letter case. A folder without config.json is no registry,
+  which fb says. A dependency's registry on an index line is compared as its canonical index,
+  and futureblitz.dev's is the mirror [registries] names for it, if there is one.
 - A dependency is from futureblitz.dev unless it names another registry; a package on another
   registry depends on that one's packages by naming it, and its index lines record that
   registry's index URL. futureblitz.dev's packages depend only on its own.
@@ -266,26 +283,35 @@ tools = { version = "2", registry = "company" }
   `FB_CREDENTIALS_FILE` names, readable only by its owner, for a machine without a store.
   `FB_REGISTRY_TOKEN` comes first when it's set, as in CI, then in a GitHub workflow trusted
   publishing's token (below); with no store (a Linux machine without a Secret Service), fb says to
-  use `FB_REGISTRY_TOKEN`.
+  use `FB_CREDENTIALS_FILE` or `FB_REGISTRY_TOKEN`. An empty credentials file has no tokens yet;
+  on POSIX it's made owner-only before a token goes in. A token is printable ASCII without spaces.
 
 **The commands:**
 
-- `fb login [--registry <name>]` starts a sign-in with the registry's API, opens its page in the
-  browser, and shows its code, which the page shows too; once the person approves it there, fb's
-  polling gets a token, which it stores. `fb login --token` reads one from stdin instead, made on
+- `fb login [--registry <name>]` checks the store can be read first, starts a sign-in with the
+  registry's API, shows its code, which the page shows too, and opens its page in the browser,
+  only an `https://` one or one on this machine, with an opener it doesn't wait for (`FB_BROWSER`
+  names another, or `none`); once the person approves it there, fb's polling gets a token, which
+  it stores. Polls that are rate limited (after Retry-After), or that the network or the registry
+  fails, are tried again until the sign-in would have expired. A token the store then couldn't
+  keep is shown, not lost. `fb login --token` reads one from stdin instead, made on
   the dashboard. `fb logout` removes the stored one.
 - `fb publish [folder] [--dry-run] [--registry <name>]` builds the archives, writes `fb doc`'s
   JSON, and checks what the registry checks: a library (an executable can't be a dependency) whose
-  name the registry takes, with a description, a license that's an SPDX expression, a license
-  file, and a readme in UTF-8 under 1 MB; only versioned dependencies; paths the archive can
-  hold; the size limits; and for a prebuilt package each target's debug and release builds and
+  name the registry takes (not `std`, `fb`, `futureblitz`, `apt`, `rpm`, or `releases`, even with
+  `_`s), with a description of one line, at most 300 characters as the registry counts them, in
+  UTF-16, a license that's an SPDX expression, a license file, and a readme in UTF-8 under 1 MB;
+  only versioned dependencies; paths the archive can hold; the size limits, a target's 200 MB only
+  for a registry on disk, since one on the network raises it per package, and each archive's
+  20,000 files and 8 times its limit unpacked; and for a prebuilt package each target's debug and release builds and
   their .fbi agreeing. `--dry-run` stops there and lists each archive's files; otherwise it checks
   the version is new, uploads each archive and the docs (in parts when they're over 64 MB), and
   publishes them. In a GitHub workflow without `FB_REGISTRY_TOKEN`, fb asks GitHub for an OIDC
   token for the registry's audience, exchanges it for a short-lived token, publishes with it, and
   revokes it.
 - `fb yank <name>@<version> [--undo]`, `fb owner <name> [--add <who> | --remove <who>]`, and
-  `fb search <words>`, each with `--registry`.
+  `fb search <words>`, each with `--registry`. The package's name is checked first, and `<who>`
+  is a username or `team:<name>`.
 - `fb add <name>[@<range>] [--registry <name>] [--beside]` adds the dependency to project.toml,
   as the newest version's range (`physics = "1.4.2"`, which is `^1.4.2`), keeping the file's
   other lines as they are, and then locks and fetches it; `fb update [names]` resolves again.

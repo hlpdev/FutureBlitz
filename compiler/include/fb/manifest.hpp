@@ -5,6 +5,7 @@
 #include "fb/source.hpp"
 
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -123,6 +124,10 @@ struct manifest_t {
 
 /// Whether `index`, as [registries] writes it, is a folder or a file:// URL: a registry on disk.
 [[nodiscard]] bool is_local_index(std::string_view index);
+
+/// `index` with its URL's scheme in lowercase, as schemes are the same in any letter case, or
+/// why it isn't one an index takes: http, https, or file. A folder is as it is.
+[[nodiscard]] std::expected<std::string, std::string> with_index_scheme(std::string_view index);
 
 /// Whether `url` is an http:// URL whose host is this machine's: localhost or a name in it,
 /// 127.0.0.1, or [::1], the only ones a registry can be at without TLS.

@@ -432,6 +432,11 @@ std::expected<version_range_t, std::string> parse_range(const std::string_view t
         }
 
         written = trim(written.substr(op.size()));
+        if (written.empty()) {
+            return std::unexpected(
+                std::format("\"{}\" has no version after its '{}', like {}1.2", op, op, op));
+        }
+
         const std::expected<partial_t, std::string> at = parse_partial(written);
         if (!at) {
             return std::unexpected(at.error());

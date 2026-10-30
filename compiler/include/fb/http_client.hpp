@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <functional>
@@ -17,9 +18,14 @@ struct http_request_t {
     /// Its header fields, like { "Authorization", "Bearer ..." }.
     std::vector<std::pair<std::string, std::string>> headers;
     std::string body;
+    /// What's sent in place of `body`, without a copy of its own: an archive's bytes, which the
+    /// caller keeps while it's sent.
+    std::string_view upload;
     /// Where a 200's body goes, as it comes, for an archive too large to hold, in place of the
     /// response's body. Empty for the response's body.
     std::filesystem::path save_to;
+    /// The most of a body that's taken; one that grows past it stops the transfer, which fails.
+    std::uint64_t most_body = std::uint64_t{ 64 } << 20U;
 };
 
 /// What a server answered. Moving it can allocate, as its map's comparator is moved, which

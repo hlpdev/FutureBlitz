@@ -13,6 +13,7 @@
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -149,6 +150,8 @@ TEST_CASE("a package published over HTTP is added and built on another computer"
     CHECK(count_of(requests, "PUT /api/v1/uploads/") == 3);
     CHECK(count_of(requests, "HEAD /api/v1/uploads/") == 4);
     CHECK(count_of(requests, "POST /api/v1/packages/physics/versions") == 1);
+    // commands-13: the API's URL comes from config.json once a session.
+    CHECK(count_of(requests, "GET /index/config.json") == 1);
 
     // Another adds physics, and builds with it.
     const fb::testing::sandbox_t other;
@@ -305,6 +308,199 @@ TEST_CASE("fb login opens the sign-in page and polls until it's approved", "[reg
     CHECK(fb::login("fb", { .index = sandbox.registry() }, hooks).error().contains("on disk"));
 }
 
+TEST_CASE("fb login shows its code before it opens the page, and opens only a safe one",
+          "[registry-api]") {
+    // commands-1 and commands-10: the code's on screen before the browser starts, and a page
+    // that isn't https:// or on this machine isn't opened.
+    const fb::testing::registry_server_t server;
+    std::vector<std::string> events;
+    const fb::login_hooks_t hooks{
+        .open =
+            [&](const std::string_view url) {
+                events.push_back(std::format("open {}", url));
+                return true;
+            },
+        .wait = [](std::chrono::seconds) {},
+        .show =
+            [&](const std::string_view code, const std::string_view, const bool opening) {
+                events.push_back(std::format("show {} {}", code, opening));
+            },
+    };
+    REQUIRE(fb::login("fb on test", session_of(server, ""), hooks));
+    REQUIRE(events.size() == 2);
+    CHECK(events[0] == "show WDJB-MJHT true");
+    CHECK(events[1].starts_with("open http://127.0.0.1:"));
+
+    // A page elsewhere over plain http is shown, to open by hand, but not opened.
+    fb::registry_session_t session = session_of(server, "");
+    const fb::http_client_t elsewhere = [](const fb::http_request_t& request) {
+        std::expected<fb::http_response_t, std::string> response = fb::send_http(request);
+        if (response && request.url.ends_with("/cli-logins")) {
+            std::string& body = response->body;
+            const std::size_t at = body.find("http://127.0.0.1:");
+            body.replace(at, body.find('/', at + 7) - at, "http://example.com");
+        }
+
+        return response;
+    };
+    session.http = elsewhere;
+    events.clear();
+    REQUIRE(fb::login("fb on test", session, hooks));
+    CHECK(events == std::vector<std::string>{ "show WDJB-MJHT false" });
+}
+
+TEST_CASE("fb login polls through rate limits and failures, until it's denied or too late",
+          "[registry-api]") {
+    // commands-4: 429s wait as Retry-After says, and 5xx's and the network failing are tried
+    // again.
+    fb::testing::registry_server_t server;
+    server.poll_statuses = { 429, 500, 503 };
+    std::vector<std::chrono::seconds> waited;
+    const fb::login_hooks_t hooks{
+        .wait = [&](const std::chrono::seconds seconds) { waited.push_back(seconds); },
+    };
+    fb::registry_session_t session = session_of(server, "");
+    int failures = 1;
+    session.http =
+        [&](const fb::http_request_t& request) -> std::expected<fb::http_response_t, std::string> {
+        if (request.url.ends_with("/poll") && failures-- > 0) {
+            return std::unexpected("the network is down");
+        }
+
+        return fb::send_http(request);
+    };
+    const std::expected<std::string, std::string> token = fb::login("fb", session, hooks);
+    INFO((token ? std::string() : token.error()));
+    REQUIRE(token);
+    CHECK(*token == fb::testing::test_token);
+    // The network's failure, the 429, the 500, the 503, the pending poll, then the approval.
+    CHECK(waited == std::vector<std::chrono::seconds>{
+                        std::chrono::seconds(1),
+                        std::chrono::seconds(1),
+                        std::chrono::seconds(7),
+                        std::chrono::seconds(1),
+                        std::chrono::seconds(1),
+                        std::chrono::seconds(1),
+                    });
+
+    // Denied, or expired, it says so.
+    server.poll_statuses = { 410 };
+    const std::expected<std::string, std::string> denied =
+        fb::login("fb", session_of(server, ""), hooks);
+    REQUIRE_FALSE(denied);
+    CHECK(denied.error() == "the sign-in was denied, or it expired; fb login starts another");
+
+    // Never approved, it stops once the sign-in would have expired.
+    server.poll_statuses.clear();
+    server.pending_polls = 100'000;
+    waited.clear();
+    const std::expected<std::string, std::string> late =
+        fb::login("fb", session_of(server, ""), hooks);
+    REQUIRE_FALSE(late);
+    CHECK(late.error() == "the sign-in wasn't approved in time; fb login starts another");
+    CHECK(waited.size() == 660);
+
+    // Another answer is the registry's refusal.
+    server.poll_statuses = { 403 };
+    CHECK(fb::login("fb", session_of(server, ""), hooks).error() ==
+          "the registry refused the sign-in: try again");
+}
+
+TEST_CASE("a token goes only to an API over TLS, or on this machine", "[registry-api]") {
+    // commands-2: config.json's api and dl are https://, or http:// on this machine.
+    fb::testing::registry_server_t server;
+    server.api_url = "http://example.com/api/v1";
+    const std::expected<void, std::string> yanked =
+        fb::yank_version("physics", "1.0.0", false, session_of(server));
+    REQUIRE_FALSE(yanked);
+    CHECK(yanked.error().contains("names http://example.com/api/v1 as its API, which isn't "
+                                  "https://, so fb sends it no token"));
+    CHECK(fb::login("fb", session_of(server, ""), {}).error().contains("which isn't https://"));
+    for (const std::string& request : server.requests()) {
+        CHECK(request == "GET /index/config.json");
+    }
+
+    fb::testing::registry_server_t downloads;
+    downloads.dl_url = "http://example.com/dl/{name}/{version}/{file}";
+    fb::registry_t registry(downloads.index(), fb::send_http, false, {});
+    const std::expected<fb::registry_config_t, std::string> config = registry.config();
+    REQUIRE_FALSE(config);
+    CHECK(config.error().contains("http://example.com/dl/"));
+}
+
+TEST_CASE("fb publish checks what the registry checks, as the registry counts it",
+          "[registry-api]") {
+    const fb::testing::sandbox_t sandbox;
+    const std::string index = sandbox.registry();
+    const auto prepared_error = [&](const std::string_view folder) {
+        const std::expected<fb::prepared_package_t, std::string> prepared =
+            fb::prepare_package(sandbox / folder, index, false);
+        return prepared ? std::string() : prepared.error();
+    };
+    const auto with_description = [&](const std::string_view folder,
+                                      const std::string_view description) {
+        sandbox.library(folder, folder, "1.0.0", "", { { "code.fb", "// code\n" } });
+        std::string toml = sandbox.read(std::string(folder) + "/project.toml");
+        toml.replace(toml.find("\"A test package\""), 16, description);
+        sandbox.write(std::string(folder) + "/project.toml", toml);
+    };
+
+    // resolve-9: a description's 300 characters are code points, on one line.
+    std::string wide;
+    for (int i = 0; i < 300; ++i) {
+        wide += "\xc3\xa9";
+    }
+
+    with_description("wide", "\"" + wide + "\"");
+    CHECK(prepared_error("wide").empty());
+    with_description("wider", "\"" + wide + "e\"");
+    CHECK(prepared_error("wider") == "[project]'s description is longer than 300 characters");
+    // As the registry counts them, in UTF-16, a code point past U+FFFF is two.
+    std::string faces;
+    for (int i = 0; i < 151; ++i) {
+        faces += "\xf0\x9f\x98\x80";
+    }
+
+    with_description("faces", "\"" + faces + "\"");
+    CHECK(prepared_error("faces") == "[project]'s description is longer than 300 characters");
+    with_description("lines", R"("line one\nline two")");
+    CHECK(prepared_error("lines") == "[project]'s description is a line, without line breaks");
+    with_description("returns", R"("line one\rline two")");
+    CHECK(prepared_error("returns").contains("without line breaks"));
+
+    // archive-6: what fb would refuse to unpack isn't published: more than 8 times 10 MB, and
+    // more files than the registry's.
+    sandbox.library("big", "big", "1.0.0", "", { { "code.fb", "// code\n" } });
+    sandbox.write("big/data/zeros.bin", std::string(std::size_t{ 80'000'001 }, '\0'));
+    CHECK(prepared_error("big") == "big-1.0.0.fbpkg unpacks to 80.0 MB, more than the 80 MB fb "
+                                   "unpacks of an archive of its kind");
+    sandbox.library("many", "many", "1.0.0", "", { { "code.fb", "// code\n" } });
+    for (std::size_t i = 0; i < fb::most_archive_files; ++i) {
+        sandbox.write(std::format("many/data/{}", i), "");
+    }
+
+    CHECK(prepared_error("many").contains("more than the registry's 20000"));
+
+    // The registry's reserved names, with or without their '_'s, as docs/registry-api.md has them.
+    for (const std::string_view reserved :
+         { "std", "fb", "futureblitz", "future_blitz", "apt", "rpm", "releases", "re_leases" }) {
+        INFO(reserved);
+        CHECK(fb::registry_name_error(reserved).value_or("").contains("keeps for FutureBlitz"));
+    }
+
+    CHECK_FALSE(fb::registry_name_error("apt_get"));
+    CHECK(fb::registry_name_error("Physics"));
+    CHECK(fb::registry_name_error(std::string(65, 'a')));
+    CHECK_FALSE(fb::registry_name_error(std::string(64, 'a')));
+
+    // commands-6: only a registry on disk limits a target's archive; one on the network knows
+    // each package's own limit.
+    CHECK(fb::target_size_error("x.fbpkg", 200'000'000, true) == std::nullopt);
+    CHECK(fb::target_size_error("x.fbpkg", 200'000'001, true) ==
+          "x.fbpkg is 200.0 MB, more than a registry on disk's 200 MB");
+    CHECK(fb::target_size_error("x.fbpkg", 900'000'000, false) == std::nullopt);
+}
+
 TEST_CASE("a GitHub workflow publishes with trusted publishing's token", "[registry-api]") {
     const fb::testing::registry_server_t server;
     const fb::registry_session_t anonymous = session_of(server, "");
@@ -369,6 +565,34 @@ TEST_CASE("a credentials file keeps each registry's token", "[registry-api]") {
     CHECK(kept(*fb::credential_store(), "futureblitz:other") == "fbr_two");
     sandbox.write("home/credentials.json", "[1]");
     CHECK(kept(*store, key).contains("isn't a JSON object of tokens"));
+
+    // commands-7: an empty file, as one made private first is, has no tokens yet.
+    sandbox.write("home/credentials.json", "");
+    CHECK(kept(*store, key) == "none");
+    REQUIRE(store->set(key, "fbr_four"));
+    CHECK(kept(*store, key) == "fbr_four");
+
+    // A token is printable ASCII, and one that isn't leaves nothing behind.
+    for (const std::string_view wrong : { "fbr_\xff\xfe", "\tfbr_x", "fbr x", "" }) {
+        CHECK_FALSE(store->set(key, wrong).error().empty());
+        CHECK(fb::token_error(wrong));
+    }
+
+    CHECK_FALSE(fb::token_error("fbr_abc-DEF.123"));
+    std::vector<std::string> left;
+    for (const auto& entry : std::filesystem::directory_iterator(sandbox / "home")) {
+        left.push_back(fb::to_utf8(entry.path().filename()));
+    }
+
+    CHECK(left == std::vector<std::string>{ "credentials.json" });
+    CHECK(kept(*store, key) == "fbr_four");
+#ifndef _WIN32
+    // commands-8: only its owner can read it, from the start.
+    const auto permissions =
+        std::filesystem::status(sandbox / "home/credentials.json").permissions();
+    CHECK((permissions & std::filesystem::perms::all) ==
+          (std::filesystem::perms::owner_read | std::filesystem::perms::owner_write));
+#endif
 }
 
 // The OS's own store, which a person runs by hand, since it changes the machine's: it keeps a

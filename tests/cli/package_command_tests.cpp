@@ -6,6 +6,7 @@
 #include "fb/process.hpp"
 #include "fb/utf8.hpp"
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <expected>
@@ -74,6 +75,19 @@ TEST_CASE("fb's package commands say what they take", "[cli-packages]") {
     check_usage({ "publish", "--dry-run=yes" }, "'--dry-run' takes no value");
     check_usage({ "add", "physics", "--nope" }, "unknown option '--nope'");
     check_usage({ "fmt", "--offline" }, "'--offline' doesn't work with 'fb fmt'");
+    // commands-9: a package's name goes into the API's paths, so it's checked first.
+    check_usage({ "yank", "@1.0.0" }, "a package's name is an identifier");
+    check_usage({ "yank", "a/b@1.0.0" }, "not \"a/b\"");
+    check_usage({ "owner", "x/../y" }, "not \"x/../y\"");
+    check_usage({ "owner", "physics", "--add", "a/b" }, "'a/b' isn't a username");
+    check_usage({ "owner", "physics", "--remove", "team:" }, "'team:' isn't a username");
+    check_usage({ "owner", "physics", "--add", "-alice" }, "isn't a username");
+    // commands-11: publishing is the network's, so --offline is only for a dry run.
+    check_usage({ "publish", "--offline" }, "fb publish sends the package to the registry");
+    // commands-6's scheme checks: --registry's URL is one an index takes, in any letter case.
+    check_usage({ "search", "x", "--registry", "ftp://example.com/index/" }, "ftp");
+    check_usage({ "search", "x", "--registry", "HTTP://example.com/index/" },
+                "http:// only on this machine");
 
     const fb::process_result_t help = fb_run({ "help", "publish" });
     CHECK(help.exit_code == 0);
@@ -160,6 +174,21 @@ TEST_CASE("fb publish, add, search, and yank work with a registry on disk", "[cl
     CHECK(found.exit_code == 0);
     CHECK(found.output.contains("physics = \"1.2.0\""));
     CHECK(fb_run({ "search", "zzz", "--registry", "local" }).output.contains("no packages in"));
+    // commands-12: any of the words, in any letter case.
+    CHECK(fb_run({ "search", "PHYSICS", "--registry", "local" })
+              .output.contains("physics = \"1.2.0\""));
+    const std::string both = fb_run({ "search", "zzz", "shape", "--registry", "local" }).output;
+    CHECK(both.contains("shapes = \"0.3.0\""));
+    CHECK_FALSE(both.contains("physics"));
+
+    // A dry run can be offline; a publish can't.
+    CHECK(fb_run({ "publish", fb::to_utf8(sandbox / "shapes"), "--registry", index, "--dry-run",
+                   "--offline" })
+              .exit_code == 0);
+    // A registry on disk has no accounts.
+    const fb::process_result_t login = fb_run({ "login", "--token", "--registry", index }, "x\n");
+    CHECK(login.exit_code == 2);
+    CHECK(login.output.contains("a registry on disk has no accounts"));
 
     const fb::process_result_t yanked = fb_run({ "yank", "physics@1.2.0", "--registry", "local" });
     INFO(yanked.output);
@@ -310,14 +339,122 @@ TEST_CASE("fb login keeps a token that publish, owner, and logout use", "[cli-pa
     CHECK(fb_run({ "logout", "--registry", index }).output.contains("Logged out of " + index));
     CHECK(fb_run({ "logout", "--registry", index }).output.contains("fb kept no token for"));
 
-    // A token from stdin, as one made on the dashboard is given.
+    // A token from stdin, as one made on the dashboard is given, without what's around it.
     const fb::process_result_t pasted =
-        fb_run({ "login", "--token", "--registry", index }, "fbr_pasted\n");
+        fb_run({ "login", "--token", "--registry", index }, " \tfbr_pasted\t \r\n");
     CHECK(pasted.exit_code == 0);
-    CHECK(sandbox.read("home/credentials.json").contains("fbr_pasted"));
+    CHECK(sandbox.read("home/credentials.json").contains("\"fbr_pasted\""));
     CHECK(fb_run({ "login", "--token", "--registry", index }, "").output.contains("gave none"));
+    // commands-7: a token is printable ASCII, and one that isn't is refused, leaving nothing.
+    const fb::process_result_t binary =
+        fb_run({ "login", "--token", "--registry", index }, "fbr_\xff\xfe\n");
+    CHECK(binary.exit_code == 2);
+    CHECK(binary.output.contains("that isn't a registry's token"));
+    CHECK(sandbox.read("home/credentials.json").contains("\"fbr_pasted\""));
+    for (const auto& entry : std::filesystem::directory_iterator(sandbox / "home")) {
+        CHECK_FALSE(fb::to_utf8(entry.path().filename()).contains(".partial"));
+    }
 
     // FB_REGISTRY_TOKEN comes first, as in CI.
     const fb::testing::environment_t ci("FB_REGISTRY_TOKEN", std::string(fb::testing::test_token));
     CHECK(fb_run({ "yank", "physics@1.0.0", "--registry", index }).exit_code == 0);
+}
+
+TEST_CASE("fb login checks it can keep a token before the sign-in, which it never loses",
+          "[cli-packages]") {
+    // commands-3: a store that can't keep a token fails fb login before anything's approved.
+    const fb::testing::registry_server_t server;
+    const fb::testing::sandbox_t sandbox;
+    sandbox.write("home/credentials.json", "[1]");
+    const fb::testing::environment_t credentials("FB_CREDENTIALS_FILE",
+                                                 fb::to_utf8(sandbox / "home/credentials.json"));
+    const fb::testing::environment_t no_browser("FB_BROWSER", "none");
+    const fb::process_result_t broken = fb_run({ "login", "--registry", server.index() });
+    INFO(broken.output);
+    CHECK(broken.exit_code == 1);
+    CHECK(broken.output.contains("fb can't keep a token: "));
+    CHECK(broken.output.contains("isn't a JSON object of tokens"));
+    for (const std::string& request : server.requests()) {
+        CHECK_FALSE(request.contains("cli-logins"));
+    }
+
+    // An empty file, made to be private first, is a store without tokens yet.
+    sandbox.write("home/credentials.json", "");
+    const fb::process_result_t kept = fb_run({ "login", "--registry", server.index() });
+    INFO(kept.output);
+    CHECK(kept.exit_code == 0);
+    CHECK(sandbox.read("home/credentials.json").contains(fb::testing::test_token));
+}
+
+TEST_CASE("fb publish in a GitHub workflow uses trusted publishing, and revokes its token",
+          "[cli-packages]") {
+    // commands-14: fb publish itself, with ACTIONS_ID_TOKEN_REQUEST_URL, asks for the
+    // workflow's token, publishes with it, and revokes it after, whether or not it published.
+    const fb::testing::registry_server_t server;
+    const fb::testing::sandbox_t sandbox;
+    const fb::testing::environment_t credentials("FB_CREDENTIALS_FILE",
+                                                 fb::to_utf8(sandbox / "home/credentials.json"));
+    const fb::testing::environment_t no_token("FB_REGISTRY_TOKEN", std::nullopt);
+    const std::string base = server.index().substr(0, server.index().size() - 6);
+    const fb::testing::environment_t url("ACTIONS_ID_TOKEN_REQUEST_URL",
+                                         base + "github/oidc?api-version=2.0");
+    const fb::testing::environment_t request("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "request-token");
+    sandbox.library("physics", "physics", "1.0.0", "", { { "world.fb", "// physics\n" } });
+    std::string toml = sandbox.read("physics/project.toml");
+    toml.replace(toml.find("../registry/index"), std::string_view("../registry/index").size(),
+                 server.index());
+    sandbox.write("physics/project.toml", toml);
+
+    const auto revokes = [&] {
+        return std::ranges::count(server.requests(), std::string("DELETE /api/v1/tokens/current"));
+    };
+    const fb::process_result_t published =
+        fb_run({ "publish", fb::to_utf8(sandbox / "physics"), "--registry", server.index() });
+    INFO(published.output);
+    CHECK(published.exit_code == 0);
+    CHECK(published.output.contains("Published physics v1.0.0"));
+    const std::vector<std::string> requests = server.requests();
+    CHECK(std::ranges::contains(requests, std::string("POST /api/v1/trusted-publishing/token")));
+    CHECK(requests.back() == "DELETE /api/v1/tokens/current");
+    CHECK(revokes() == 1);
+    // Nothing was kept.
+    CHECK_FALSE(std::filesystem::exists(sandbox / "home/credentials.json"));
+
+    // A publish the registry refuses revokes it too.
+    const fb::process_result_t again =
+        fb_run({ "publish", fb::to_utf8(sandbox / "physics"), "--registry", server.index() });
+    CHECK(again.exit_code == 1);
+    CHECK(again.output.contains("published already"));
+    CHECK(server.requests().back() == "DELETE /api/v1/tokens/current");
+    CHECK(revokes() == 2);
+}
+
+TEST_CASE("fb login doesn't wait for the browser it opens", "[cli-packages]") {
+    // commands-1: the opener runs on its own, with none of fb's output, so a browser that stays
+    // open, as one xdg-open starts does, doesn't hold fb up. This one stays 6 seconds.
+    const fb::testing::sandbox_t sandbox;
+    sandbox.write("browser/browser.fb", "Import std.core\nImport std.time\nSleep(6.Seconds)\n"
+                                        "Print(\"the browser closed\")\n");
+    std::filesystem::path browser = std::filesystem::path(FB_TEST_OUTPUT) / "slow_browser";
+    browser += fb::executable_extension;
+    const fb::process_result_t built = fb_run(
+        { "build", fb::to_utf8(sandbox / "browser/browser.fb"), "-o", fb::to_utf8(browser) });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+
+    const fb::testing::registry_server_t server;
+    const fb::testing::environment_t credentials("FB_CREDENTIALS_FILE",
+                                                 fb::to_utf8(sandbox / "home/credentials.json"));
+    const fb::testing::environment_t opener("FB_BROWSER", fb::to_utf8(browser));
+    const auto started = std::chrono::steady_clock::now();
+    const fb::process_result_t signed_in = fb_run({ "login", "--registry", server.index() });
+    const auto took = std::chrono::steady_clock::now() - started;
+    INFO(signed_in.output);
+    CHECK(signed_in.exit_code == 0);
+    CHECK(signed_in.output.contains("Opening " +
+                                    server.index().substr(0, server.index().size() - 6)));
+    CHECK_FALSE(signed_in.output.contains("the browser closed"));
+    CHECK(took < std::chrono::seconds(5));
+    // The browser's done before its folder goes.
+    std::this_thread::sleep_until(started + std::chrono::seconds(7));
 }

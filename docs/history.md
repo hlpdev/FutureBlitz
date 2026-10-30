@@ -25,6 +25,31 @@ and `logout`, with tokens in Windows' Credential Manager, the macOS keychain, li
 FB_CREDENTIALS_FILE; and `--offline` for the commands that build. Tests run against registries on
 disk and a registry the tests serve over HTTP on 127.0.0.1.
 
+After it, the same lane: a test against workers/api itself under wrangler dev, given its URL
+(FB_TEST_REGISTRY), which logs in with a token, publishes, searches, and adds and builds on a
+second FB_HOME; downloads into a file as they come, and archives unpacked a piece at a time, at
+the registry's own limits, in decimal megabytes; and the review's 35 fixes. The resolver jumps
+back to the choice that conflicts (resolve-1), and names the newest version in a conflict
+(resolve-5); fb.lock pins a registry on disk as `path+` its folder (resolve-2, archive-11), quotes
+target keys and records sizes (resolve-7), and fb update drops a yanked version (resolve-3); an
+index line's registry is canonical and mapped through a futureblitz mirror (resolve-8); schemes
+are http, https, or file in any case, and a folder without config.json is no registry
+(resolve-6); a range of an operator alone is refused (resolve-4); a description is one line of
+300 UTF-16 units (resolve-9). Archives keep to registry-api.md's tar subset, with a pax size
+honored and its keys checked (archive-1), kinds and markers compared folded (archive-2), paths
+folded after NFKC (archive-3), Windows' device names and C1 controls refused (archive-9), and
+limits said as they are (archive-10); fb publish checks unpacked sizes and file counts
+(archive-6); a source archive never joins a folder that's there (archive-7), stale partial folders
+go by the time in their names (archive-8), and a path too long for Windows names itself
+(archive-4). fb login shows its code, then opens only an https or local page with a detached
+opener (commands-1, -10), checks its store first and never loses a token (commands-3), and polls
+through 429s, 5xx's, and the network failing (commands-4); tokens go only to an API over TLS or on
+this machine, and config.json is fetched once a session (commands-2, -13); a network registry
+decides a target's size (commands-6); the credentials file takes an empty file, trims and checks
+tokens, and is made owner-only from the start (commands-7, -8); fb yank and owner check names
+(commands-9); fb publish --offline needs --dry-run (commands-11); search on disk takes any word
+in any case (commands-12); and `apt`, `rpm`, and `releases` are reserved as workers/api has them.
+
 ## M8, tooling
 
 The installers, after the milestone (2026-10-30): a release is versioned from its tag

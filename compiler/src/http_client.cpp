@@ -39,12 +39,23 @@ struct received_t {
     http_response_t response;
     std::filesystem::path path;
     std::ofstream file;
+    /// What's come of this response's body, and the most it can be.
+    std::uint64_t taken = 0;
+    std::uint64_t most = 0;
+    bool over = false;
 };
 
 // libcurl's callbacks take char*, though they only read it.
 // NOLINTNEXTLINE(misc-const-correctness)
 std::size_t on_body(char* data, const std::size_t size, const std::size_t count, void* given) {
     auto& received = *static_cast<received_t*>(given);
+    // Past its limit, the transfer stops, so a server can't fill memory or the disk.
+    received.taken += size * count;
+    if (received.taken > received.most) {
+        received.over = true;
+        return 0;
+    }
+
     if (!received.path.empty()) {
         if (!received.file.is_open()) {
             received.file.open(received.path, std::ios::binary);
@@ -67,6 +78,7 @@ std::size_t on_header(char* data, const std::size_t size, const std::size_t coun
     if (line.starts_with("HTTP/")) {
         received.response.headers.clear();
         received.response.body.clear();
+        received.taken = 0;
         if (received.file.is_open()) {
             received.file.close();
         }
@@ -184,10 +196,14 @@ std::expected<http_response_t, std::string> send_http(const http_request_t& requ
         curl_easy_setopt(handle, CURLOPT_CUSTOMREQUEST, request.method.c_str());
     }
 
-    if (!request.body.empty() || (request.method != "GET" && request.method != "HEAD")) {
-        curl_easy_setopt(handle, CURLOPT_POSTFIELDS, request.body.data());
-        curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE_LARGE,
-                         static_cast<curl_off_t>(request.body.size()));
+    // An upload is sent from the caller's bytes, which libcurl doesn't copy.
+    const std::string_view sent =
+        request.upload.empty() ? std::string_view(request.body) : request.upload;
+    if (!sent.empty() || (request.method != "GET" && request.method != "HEAD")) {
+        // Its size goes with it, below, so it needn't end in a NUL.
+        // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
+        curl_easy_setopt(handle, CURLOPT_POSTFIELDS, sent.data());
+        curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(sent.size()));
     }
 
     // The OS's roots, which last as long as fb does.
@@ -213,6 +229,7 @@ std::expected<http_response_t, std::string> send_http(const http_request_t& requ
     const std::unique_ptr<curl_slist, list_deleter_t> owned(fields);
     curl_easy_setopt(handle, CURLOPT_HTTPHEADER, fields);
     received.path = request.save_to;
+    received.most = request.most_body;
     const CURLcode result = curl_easy_perform(handle);
     curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &received.response.status);
     if (!received.path.empty()) {
@@ -233,6 +250,11 @@ std::expected<http_response_t, std::string> send_http(const http_request_t& requ
             saved.close();
             std::filesystem::remove(received.path, ignored);
         }
+    }
+
+    if (received.over) {
+        return std::unexpected(std::format("{} sent more than the {} bytes fb takes of it",
+                                           request.url, request.most_body));
     }
 
     if (result != CURLE_OK) {

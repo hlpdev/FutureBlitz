@@ -12,6 +12,8 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cstdint>
 #include <cstdlib>
 #include <expected>
@@ -21,6 +23,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <random>
+#include <ranges>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -87,22 +90,50 @@ std::optional<std::string> first_file(const std::filesystem::path& root,
 }
 
 /// An archive of `paths` from `root`, named `file`.
+/// A size in the registry's megabytes, which are a million bytes: "10 MB", or "10.5 MB".
+std::string megabytes(const std::uint64_t bytes) {
+    if (bytes % 1'000'000 == 0) {
+        return std::format("{} MB", bytes / 1'000'000);
+    }
+
+    return std::format("{:.1f} MB", static_cast<double>(bytes) / 1e6);
+}
+
+/// The archive `file` of `paths`, from `root`, refused as fb would refuse to unpack it: with
+/// more than the registry's files, or unpacking to more than `unpack_factor` times the larger of
+/// `most`, the registry's limit on its kind, and its own size.
 std::expected<built_archive_t, std::string> build_archive(const std::filesystem::path& root,
                                                           std::string file,
-                                                          const std::vector<std::string>& paths) {
+                                                          const std::vector<std::string>& paths,
+                                                          const std::uint64_t most) {
+    if (paths.size() > most_archive_files) {
+        return std::unexpected(std::format("{} would have {} files, more than the registry's {}",
+                                           file, paths.size(), most_archive_files));
+    }
+
     std::vector<archive_file_t> files;
+    std::uint64_t unpacked = 0;
     for (const std::string& path : paths) {
         std::optional<std::string> bytes = read_bytes(root / path_from_utf8(path));
         if (!bytes) {
             return std::unexpected(std::format("couldn't read {}", path));
         }
 
+        unpacked += bytes->size();
         files.push_back({ .path = path, .bytes = std::move(*bytes) });
     }
 
     std::expected<std::string, std::string> bytes = write_archive(std::move(files));
     if (!bytes) {
         return std::unexpected(std::format("{} can't be archived: {}", file, bytes.error()));
+    }
+
+    const std::uint64_t most_unpacked =
+        unpack_factor * std::max<std::uint64_t>(most, bytes->size());
+    if (unpacked > most_unpacked) {
+        return std::unexpected(
+            std::format("{} unpacks to {}, more than the {} fb unpacks of an archive of its kind",
+                        file, megabytes(unpacked), megabytes(most_unpacked)));
     }
 
     built_archive_t archive{ .file = std::move(file), .bytes = std::move(*bytes), .paths = paths };
@@ -152,6 +183,11 @@ std::expected<void, std::string> check_prebuilt(const std::filesystem::path& roo
 
 /// The registry's API's URL, from its config.json.
 std::expected<std::string, std::string> api_of(const registry_session_t& session) {
+    // Fetched once a session.
+    if (!session.api.empty()) {
+        return session.api;
+    }
+
     registry_t registry(session.index, session.http, false, session.status);
     const std::expected<registry_config_t, std::string> config = registry.config();
     if (!config) {
@@ -163,11 +199,20 @@ std::expected<std::string, std::string> api_of(const registry_session_t& session
             std::format("the registry at {} has no API in its config.json", session.index));
     }
 
+    // Tokens go only where TLS keeps them, or to this machine.
+    if (!config->api.starts_with("https://") && !is_loopback_url(config->api)) {
+        return std::unexpected(std::format(
+            "the registry at {} names {} as its API, which isn't https://, so fb sends it no "
+            "token",
+            session.index, config->api));
+    }
+
     std::string api = config->api;
     while (api.ends_with('/')) {
         api.pop_back();
     }
 
+    session.api = api;
     return api;
 }
 
@@ -238,7 +283,7 @@ std::expected<void, std::string> upload(const registry_session_t& session,
             .method = "PUT",
             .url = url,
             .headers = auth,
-            .body = std::string(bytes),
+            .upload = bytes,
         };
         request.headers.emplace_back("Content-Type", "application/octet-stream");
         const std::expected<http_response_t, std::string> put = session.http(request);
@@ -279,7 +324,7 @@ std::expected<void, std::string> upload(const registry_session_t& session,
             .method = "PUT",
             .url = std::format("{}/uploads/{}/parts/{}/{}", *api, ref.sha256, id, number),
             .headers = auth,
-            .body = std::string(bytes.substr(at, part_size)),
+            .upload = bytes.substr(at, part_size),
         };
         request.headers.emplace_back("Content-Type", "application/octet-stream");
         const std::expected<http_response_t, std::string> put = session.http(request);
@@ -387,6 +432,10 @@ std::string text_field(const json_t& object, const std::string_view key) {
 
 } // namespace
 
+/// The names the registry keeps, as docs/registry-api.md has them, without their '_'s.
+constexpr std::array<std::string_view, 6> reserved_names{ "std", "fb",  "futureblitz",
+                                                          "apt", "rpm", "releases" };
+
 std::optional<std::string> registry_name_error(const std::string_view name) {
     const bool shaped = !name.empty() && name.size() <= longest_name && name.front() >= 'a' &&
                         name.front() <= 'z' && std::ranges::all_of(name, [](const char c) {
@@ -400,16 +449,31 @@ std::optional<std::string> registry_name_error(const std::string_view name) {
 
     std::string bare(name);
     std::erase(bare, '_');
-    if (bare == "std" || bare == "fb" || bare == "futureblitz") {
+    // FutureBlitz's own folders on the registry's downloads are kept too: apt's and dnf's
+    // repositories, and fb's releases.
+    if (std::ranges::contains(reserved_names, bare)) {
         return std::format("{} is a name the registry keeps for FutureBlitz itself", name);
     }
 
     return std::nullopt;
 }
 
+std::optional<std::string> target_size_error(const std::string_view file, const std::uint64_t size,
+                                             const bool on_disk) {
+    // A registry on the network raises its limit for a package that asks, and knows each
+    // package's, so it decides.
+    if (!on_disk || size <= most_target_archive) {
+        return std::nullopt;
+    }
+
+    return std::format("{} is {}, more than a registry on disk's {}", file, megabytes(size),
+                       megabytes(most_target_archive));
+}
+
 std::expected<prepared_package_t, std::string> prepare_package(const std::filesystem::path& root,
                                                                const std::string_view index,
                                                                const bool public_registry) {
+    const bool on_disk = is_local_index(index);
     const std::optional<std::string> text = read_bytes(root / "project.toml");
     if (!text) {
         return std::unexpected(std::format("there's no project.toml in {}", to_utf8(root)));
@@ -449,9 +513,22 @@ std::expected<prepared_package_t, std::string> prepare_package(const std::filesy
             "description = \"A 2D physics engine\"");
     }
 
-    if (manifest.description->size() > longest_description) {
+    // A line, of characters as the registry counts them, in UTF-16: a code point past U+FFFF is
+    // two.
+    std::size_t characters = 0;
+    for (std::size_t at = 0; at < manifest.description->size();) {
+        const decoded_t decoded = decode_utf8(*manifest.description, at);
+        characters += decoded.code_point > 0xFFFF ? 2 : 1;
+        at += decoded.length;
+    }
+
+    if (characters > longest_description) {
         return std::unexpected(std::format("[project]'s description is longer than {} characters",
                                            longest_description));
+    }
+
+    if (manifest.description->find_first_of("\r\n") != std::string::npos) {
+        return std::unexpected("[project]'s description is a line, without line breaks");
     }
 
     if (!manifest.license) {
@@ -561,31 +638,31 @@ std::expected<prepared_package_t, std::string> prepare_package(const std::filesy
         }
     }
 
-    std::expected<built_archive_t, std::string> source =
-        build_archive(root, archive_name(manifest.name, manifest.version), files.source);
+    std::expected<built_archive_t, std::string> source = build_archive(
+        root, archive_name(manifest.name, manifest.version), files.source, most_source_archive);
     if (!source) {
         return std::unexpected(source.error());
     }
 
     if (source->ref.size > most_source_archive) {
-        return std::unexpected(std::format("{} is {} MB, more than the registry's 10 MB",
-                                           source->file, source->ref.size >> 20U));
+        return std::unexpected(std::format("{} is {}, more than the registry's {}", source->file,
+                                           megabytes(source->ref.size),
+                                           megabytes(most_source_archive)));
     }
 
     package.source = std::move(*source);
     package.entry.source = package.source.ref;
     for (const auto& [target, paths] : files.targets) {
         std::expected<built_archive_t, std::string> archive =
-            build_archive(root, archive_name(manifest.name, manifest.version, target), paths);
+            build_archive(root, archive_name(manifest.name, manifest.version, target), paths,
+                          most_target_archive);
         if (!archive) {
             return std::unexpected(archive.error());
         }
 
-        if (archive->ref.size > most_target_archive) {
-            return std::unexpected(
-                std::format("{} is {} MB, more than the registry's 200 MB, which it raises for a "
-                            "package that asks",
-                            archive->file, archive->ref.size >> 20U));
+        if (const std::optional<std::string> wrong =
+                target_size_error(archive->file, archive->ref.size, on_disk)) {
+            return std::unexpected(*wrong);
         }
 
         archive->target = target;
@@ -768,13 +845,29 @@ search_packages(const std::string_view words, const std::size_t limit,
                 const registry_session_t& session) {
     std::vector<found_package_t> found;
     if (const std::filesystem::path folder = local_index_folder(session.index); !folder.empty()) {
-        // A registry on disk is searched by its packages' names.
+        // A registry on disk is searched by its packages' names, which are lowercase: a name
+        // with any of the words in it.
+        std::vector<std::string> wanted;
+        for (const auto word : std::views::split(words, ' ')) {
+            std::string lower(word.begin(), word.end());
+            std::ranges::transform(lower, lower.begin(), [](const char c) {
+                return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+            });
+            if (!lower.empty()) {
+                wanted.push_back(std::move(lower));
+            }
+        }
+
         std::error_code error;
         std::vector<std::string> names;
         for (std::filesystem::directory_iterator each(folder, error), end; !error && each != end;
              each.increment(error)) {
             const std::string name = to_utf8(each->path().filename());
-            if (each->is_regular_file(error) && !name.contains('.') && name.contains(words)) {
+            const bool matches =
+                wanted.empty() || std::ranges::any_of(wanted, [&](const std::string& part) {
+                    return name.contains(part);
+                });
+            if (each->is_regular_file(error) && !name.contains('.') && matches) {
                 names.push_back(name);
             }
         }
@@ -855,11 +948,15 @@ login(const std::string_view name, const registry_session_t& session, const logi
         return std::unexpected("the registry's answer to a sign-in had no id, secret, and url");
     }
 
-    // A page that isn't the registry's own https:// one isn't opened.
-    const bool opened = (url.starts_with("https://") || url.starts_with("http://")) && hooks.open &&
-                        hooks.open(url);
+    // Only a page over TLS, or on this machine, is opened; the code is shown first, so it's
+    // there however long the browser takes.
+    const bool openable = (url.starts_with("https://") || is_loopback_url(url)) && hooks.open;
     if (hooks.show) {
-        hooks.show(code, url, opened);
+        hooks.show(code, url, openable);
+    }
+
+    if (openable) {
+        (void)hooks.open(url);
     }
 
     std::int64_t interval = 3;
@@ -868,19 +965,42 @@ login(const std::string_view name, const registry_session_t& session, const logi
         interval = std::clamp<std::int64_t>(given->get<std::int64_t>(), 1, 60);
     }
 
-    // The registry's sign-ins last 10 minutes; this stops a little after.
-    constexpr std::int64_t waited = 660;
-    const std::int64_t most_polls = (waited / interval) + 1;
-    for (std::int64_t poll = 0; poll < most_polls; ++poll) {
+    const std::expected<std::string, std::string> api = api_of(session);
+    if (!api) {
+        return std::unexpected(api.error());
+    }
+
+    // The registry's sign-ins last 10 minutes; this stops a little after. A poll that's rate
+    // limited, or that the network or the registry fails, is tried again.
+    constexpr std::int64_t most_seconds = 660;
+    std::int64_t wait = interval;
+    for (std::int64_t waited = 0; waited < most_seconds; waited += wait) {
         if (hooks.wait) {
-            hooks.wait(std::chrono::seconds(interval));
+            hooks.wait(std::chrono::seconds(wait));
         }
 
-        const std::expected<http_response_t, std::string> polled =
-            call(session, "POST", std::format("/cli-logins/{}/poll", id), { { "secret", secret } },
-                 { 200, 202, 410 });
-        if (!polled) {
-            return std::unexpected(polled.error());
+        wait = interval;
+        const std::expected<http_response_t, std::string> polled = session.http({
+            .method = "POST",
+            .url = std::format("{}/cli-logins/{}/poll", *api, id),
+            .headers = { { "Accept", "application/json" }, { "Content-Type", "application/json" } },
+            .body = json_t({ { "secret", secret } }).dump(),
+        });
+        if (!polled || polled->status == 202 || polled->status >= 500) {
+            continue;
+        }
+
+        if (polled->status == 429) {
+            // Retry-After's seconds, within reason.
+            const auto after = polled->headers.find("retry-after");
+            std::int64_t seconds = 0;
+            if (after != polled->headers.end()) {
+                (void)std::from_chars(after->second.data(),
+                                      after->second.data() + after->second.size(), seconds);
+            }
+
+            wait = std::clamp<std::int64_t>(seconds, interval, 120);
+            continue;
         }
 
         if (polled->status == 410) {
@@ -888,15 +1008,18 @@ login(const std::string_view name, const registry_session_t& session, const logi
                 "the sign-in was denied, or it expired; fb login starts another");
         }
 
-        if (polled->status == 200) {
-            const json_t approved = json_t::parse(polled->body, nullptr, false);
-            std::string token = approved.is_object() ? text_field(approved, "token") : "";
-            if (token.empty()) {
-                return std::unexpected("the registry approved the sign-in, but sent no token");
-            }
-
-            return token;
+        if (polled->status != 200) {
+            return std::unexpected(
+                std::format("the registry refused the sign-in: {}", api_error(*polled)));
         }
+
+        const json_t approved = json_t::parse(polled->body, nullptr, false);
+        std::string token = approved.is_object() ? text_field(approved, "token") : "";
+        if (token.empty()) {
+            return std::unexpected("the registry approved the sign-in, but sent no token");
+        }
+
+        return token;
     }
 
     return std::unexpected("the sign-in wasn't approved in time; fb login starts another");

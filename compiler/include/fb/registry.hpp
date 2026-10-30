@@ -142,10 +142,10 @@ public:
 
     /// Where the archive `file` of `name` and `version` is: in the cache, downloaded into it a
     /// piece at a time if it isn't, or a registry on disk's own, whose SHA-256 has to be
-    /// `checksum`.
+    /// `checksum`. A download that grows past `most` bytes stops.
     [[nodiscard]] std::expected<std::filesystem::path, std::string>
     archive(std::string_view name, std::string_view version, std::string_view file,
-            std::string_view checksum);
+            std::string_view checksum, std::uint64_t most);
 
     /// What it used from the cache because it couldn't reach the registry, to tell the user.
     [[nodiscard]] const std::vector<std::string>& notes() const {

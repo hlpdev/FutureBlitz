@@ -36,4 +36,9 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
 [[nodiscard]] std::expected<int, std::string> run_attached(const std::filesystem::path& program,
                                                            std::span<const std::string> arguments);
 
+/// Starts a program and doesn't wait for it, with none of this process's stdin, stdout, or
+/// stderr, as a browser is opened. Fails only when it can't be started.
+[[nodiscard]] std::expected<void, std::string>
+start_detached(const std::filesystem::path& program, std::span<const std::string> arguments);
+
 } // namespace fb

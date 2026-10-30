@@ -7,6 +7,7 @@
 #include <map>
 #include <optional>
 #include <ranges>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -35,7 +36,8 @@ public:
     run(std::vector<requirement_t> requirements) {
         m_requirements = std::move(requirements);
         m_roots = m_requirements.size();
-        if (!solve(0)) {
+        m_origins.assign(m_roots, -1);
+        if (solve(0)) {
             if (m_error) {
                 return std::unexpected(*m_error);
             }
@@ -59,12 +61,18 @@ private:
         std::string source;
         const index_entry_t* entry = nullptr;
         version_t version;
+        /// How deep among the picks it was picked.
+        int depth = 0;
     };
 
     const versions_of_t& m_versions_of;
     const preferences_t& m_preferences;
     const version_t& m_fb_version;
     std::vector<requirement_t> m_requirements;
+    /// The depth of the pick each requirement came from, or -1 for the program's own.
+    std::vector<int> m_origins;
+    /// How many picks there are now.
+    int m_depth = 0;
     /// How many of them the program and its path dependencies ask for, before those of the
     /// versions picked.
     std::size_t m_roots = 0;
@@ -80,7 +88,8 @@ private:
     std::size_t m_tries = 0;
 
     void conflict(const std::size_t at, std::string message) {
-        if (m_conflict.empty() || at >= m_furthest) {
+        // The first at the furthest point is the newest version's, which is tried first.
+        if (m_conflict.empty() || at > m_furthest) {
             m_furthest = at;
             m_conflict = std::move(message);
         }
@@ -133,7 +142,7 @@ private:
             // A yanked version is only for a lock that has it.
             const bool is_locked = locked != nullptr && locked->source == requirement.source &&
                                    locked->version == entry.version;
-            if (entry.yanked && !is_locked) {
+            if (entry.yanked && !(is_locked && keep)) {
                 continue;
             }
 
@@ -179,9 +188,28 @@ private:
                            m_fb_version.text());
     }
 
-    bool solve(const std::size_t at) {
+    /// The choices a failure came from: the depths of the picks whose versions, or whose
+    /// requirements, made it. -1, the program's own, isn't one.
+    using culprits_t = std::set<int>;
+
+    /// A failure's culprits, without the program's own.
+    static culprits_t culprits_of(const std::initializer_list<int> depths) {
+        culprits_t out;
+        for (const int depth : depths) {
+            if (depth >= 0) {
+                out.insert(depth);
+            }
+        }
+
+        return out;
+    }
+
+    /// Settles the requirements from `at` on: nullopt when they're met, or else the choices the
+    /// failure came from, so a choice that isn't among them is skipped back over, not tried with
+    /// each of its other versions (conflict-directed backjumping).
+    std::optional<culprits_t> solve(const std::size_t at) {
         if (at == m_requirements.size()) {
-            return true;
+            return std::nullopt;
         }
 
         if (m_error || ++m_tries > most_tries) {
@@ -190,22 +218,23 @@ private:
                           "them in project.toml helps";
             }
 
-            return false;
+            return culprits_t{};
         }
 
         const requirement_t requirement = m_requirements[at];
+        const int origin = m_origins[at];
         if (const auto chosen = m_chosen.find(requirement.name); chosen != m_chosen.end()) {
             if (chosen->second.source != requirement.source) {
                 conflict(at,
                          std::format("{} comes from two registries: {} and {}", requirement.name,
                                      chosen->second.source, requirement.source));
-                return false;
+                return culprits_of({ origin, chosen->second.depth });
             }
 
             if (!requirement.range.matches(chosen->second.version)) {
                 conflict(at, std::format("no version of {} fits everything that asks for it: {}",
                                          requirement.name, askers(requirement.name, at)));
-                return false;
+                return culprits_of({ origin, chosen->second.depth });
             }
 
             return solve(at + 1);
@@ -213,26 +242,29 @@ private:
 
         const std::vector<index_entry_t>* all = versions(requirement);
         if (all == nullptr) {
-            return false;
+            return culprits_t{};
         }
 
         const std::vector<candidate_t> fits = candidates(requirement, *all);
         if (fits.empty() && at < m_roots) {
             // Nothing else can change what the program itself asks for, so it's what's said.
             m_error = none_fits(requirement, *all);
-            return false;
+            return culprits_t{};
         }
 
         if (fits.empty()) {
             conflict(at, none_fits(requirement, *all));
-            return false;
+            return culprits_of({ origin });
         }
 
+        const int depth = m_depth++;
+        culprits_t failed = culprits_of({ origin });
         for (const candidate_t& candidate : fits) {
             m_chosen.emplace(requirement.name, chosen_t{
                                                    .source = requirement.source,
                                                    .entry = candidate.entry,
                                                    .version = candidate.version,
+                                                   .depth = depth,
                                                });
             const std::size_t before = m_requirements.size();
             bool parsed = true;
@@ -246,23 +278,51 @@ private:
                 m_requirements.push_back({
                     .name = dependency.name,
                     .range = std::move(*range),
-                    .source = dependency.registry.value_or(requirement.source),
+                    .source = source_of(dependency, requirement.source),
                     .who = std::format("{} {}", requirement.name, candidate.entry->version),
                 });
+                m_origins.push_back(depth);
             }
 
-            if (parsed && solve(at + 1)) {
-                return true;
+            std::optional<culprits_t> result = parsed ? solve(at + 1) : culprits_t{ depth };
+            if (!result) {
+                return std::nullopt;
             }
 
             m_requirements.resize(before);
+            m_origins.resize(before);
             m_chosen.erase(requirement.name);
             if (m_error) {
-                return false;
+                --m_depth;
+                return culprits_t{};
             }
+
+            // A failure this choice had no part in fails with any of its versions, so it's
+            // passed back to the choice that did.
+            if (!result->contains(depth)) {
+                --m_depth;
+                return result;
+            }
+
+            result->erase(depth);
+            failed.insert(result->begin(), result->end());
         }
 
-        return false;
+        --m_depth;
+        return failed;
+    }
+
+    /// A dependency's registry: its package's own, or another's index, canonical, and through
+    /// the program's mirror of it, if it has one.
+    [[nodiscard]] std::string source_of(const index_dependency_t& dependency,
+                                        const std::string& own) const {
+        if (!dependency.registry) {
+            return own;
+        }
+
+        const std::string index = canonical_index(*dependency.registry, "");
+        const auto mirror = m_preferences.mirrors.find(index);
+        return mirror != m_preferences.mirrors.end() ? mirror->second : index;
     }
 };
 

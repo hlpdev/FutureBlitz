@@ -277,6 +277,12 @@ public:
 
     /// How many sign-in polls answer "pending" before one is approved.
     int pending_polls = 1;
+    /// What the sign-in polls answer first, in order, before those: a status, like 429 or 500,
+    /// with "Retry-After: 7" for a 429.
+    std::vector<long> poll_statuses;
+    /// The API's and the downloads' URLs config.json names, when they aren't its own.
+    std::optional<std::string> api_url;
+    std::optional<std::string> dl_url;
     /// What a GitHub workflow's OIDC token is, which /trusted-publishing/token takes.
     std::string workflow_jwt = "header.payload.signature";
     /// The most an upload can be in one request, beyond which it takes parts of `part_size`.
@@ -292,6 +298,7 @@ private:
     std::map<std::string, std::map<int, std::string>, std::less<>> m_parts;
     std::map<std::string, std::vector<std::string>, std::less<>> m_owners;
     int m_polls = 0;
+    std::size_t m_scripted = 0;
     std::set<std::string, std::less<>> m_revoked;
 
     static http_response_t json(const long status, const nlohmann::json& body) {
@@ -328,12 +335,13 @@ private:
         m_requests.push_back(std::format("{} {}", request.method, request.url));
         const std::string_view path = request.url;
         if (path == "/index/config.json") {
-            return json(200, {
-                                 { "v", 1 },
-                                 { "dl", m_server.url() + "dl/{name}/{version}/{file}" },
-                                 { "api", m_server.url() + "api/v1" },
-                                 { "oidc_audience", "test.futureblitz.dev" },
-                             });
+            return json(
+                200, {
+                         { "v", 1 },
+                         { "dl", dl_url.value_or(m_server.url() + "dl/{name}/{version}/{file}") },
+                         { "api", api_url.value_or(m_server.url() + "api/v1") },
+                         { "oidc_audience", "test.futureblitz.dev" },
+                     });
         }
 
         if (path.starts_with("/index/")) {
@@ -377,6 +385,7 @@ private:
         const nlohmann::json body = nlohmann::json::parse(request.body, nullptr, false);
         if (path == "/cli-logins" && request.method == "POST") {
             m_polls = 0;
+            m_scripted = 0;
             return json(201, {
                                  { "id", "login1" },
                                  { "secret", "s3cret" },
@@ -389,6 +398,18 @@ private:
         if (path == "/cli-logins/login1/poll") {
             if (!body.is_object() || body.value("secret", "") != "s3cret") {
                 return error(410, "expired", "no such sign-in");
+            }
+
+            if (m_scripted < poll_statuses.size()) {
+                const long status = poll_statuses[m_scripted++];
+                http_response_t answer = status == 410
+                                             ? error(410, "expired", "the sign-in was denied")
+                                             : error(status, "busy", "try again");
+                if (status == 429) {
+                    answer.headers.emplace("Retry-After", "7");
+                }
+
+                return answer;
             }
 
             if (m_polls++ < pending_polls) {

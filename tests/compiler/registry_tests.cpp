@@ -251,7 +251,8 @@ TEST_CASE("an archive is downloaded once, and checked against its hash", "[regis
     };
     {
         fb::registry_t registry("https://index.example.com/", server.client(), false, status);
-        const auto downloaded = registry.archive("physics", "1.0.0", "physics-1.0.0.fbpkg", hash);
+        const auto downloaded =
+            registry.archive("physics", "1.0.0", "physics-1.0.0.fbpkg", hash, 1000);
         CHECK(held(downloaded) == bytes);
         CHECK(downloaded.value_or("").parent_path().parent_path().filename() == "archives");
         CHECK(said == std::vector<std::string>{ "Downloading physics v1.0.0" });
@@ -263,19 +264,20 @@ TEST_CASE("an archive is downloaded once, and checked against its hash", "[regis
     server.requests.clear();
     {
         fb::registry_t registry("https://index.example.com/", server.client(), true, status);
-        CHECK(held(registry.archive("physics", "1.0.0", "physics-1.0.0.fbpkg", hash)) == bytes);
+        CHECK(held(registry.archive("physics", "1.0.0", "physics-1.0.0.fbpkg", hash, 1000)) ==
+              bytes);
         CHECK(server.requests.empty());
     }
 
     // An archive that isn't what fb.lock says isn't used.
     server.answers["https://dl.example.com/physics/1.0.0/physics-1.0.0.fbpkg"].body = "changed";
     fb::registry_t registry("https://index.example.com/", server.client(), false, status);
-    const auto wrong = registry.archive("physics", "1.0.0", "physics-1.0.0.fbpkg", hash_b());
+    const auto wrong = registry.archive("physics", "1.0.0", "physics-1.0.0.fbpkg", hash_b(), 1000);
     REQUIRE_FALSE(wrong);
     CHECK(wrong.error() == std::format("physics-1.0.0.fbpkg isn't what fb.lock says it is: its "
                                        "SHA-256 is {}, and fb.lock's is {}",
                                        fb::sha256_hex("changed"), hash_b()));
-    const auto missing = registry.archive("physics", "2.0.0", "physics-2.0.0.fbpkg", hash);
+    const auto missing = registry.archive("physics", "2.0.0", "physics-2.0.0.fbpkg", hash, 1000);
     REQUIRE_FALSE(missing);
     CHECK(missing.error().contains("couldn't be downloaded: it answered 404"));
 }

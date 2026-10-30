@@ -6,6 +6,7 @@
 
 #include <expected>
 #include <functional>
+#include <map>
 #include <set>
 #include <string>
 #include <string_view>
@@ -42,6 +43,10 @@ struct preferences_t {
     /// The packages `fb update` names, whose locked versions don't count. Every one with `all`.
     std::set<std::string, std::less<>> unlocked;
     bool all = false;
+    /// Each registry, by its canonical index, that the program reaches through another, as
+    /// [registries] names futureblitz again for a mirror: a dependency's index line naming the
+    /// first is from the second.
+    std::map<std::string, std::string, std::less<>> mirrors;
 };
 
 /// One version of each package that every range on it allows, from `requirements` and those of

@@ -25,12 +25,15 @@ inline constexpr std::array<std::string_view, 5> package_targets = {
 inline constexpr std::size_t most_archive_files = 20'000;
 inline constexpr std::size_t longest_archive_path = 255;
 
-/// The most a package's own archive, and a target's, can be, and the most each can unpack to, 8
-/// times that, as docs/registry-api.md's limits are.
-inline constexpr std::uint64_t most_source_archive = std::uint64_t{ 10 } << 20U;
-inline constexpr std::uint64_t most_target_archive = std::uint64_t{ 200 } << 20U;
-inline constexpr std::uint64_t most_source_unpacked = most_source_archive * 8;
-inline constexpr std::uint64_t most_target_unpacked = most_target_archive * 8;
+/// The most a package's own archive, and a target's, can be, in the registry's megabytes of a
+/// million bytes, and the most each can unpack to, 8 times that, as docs/registry-api.md's limits
+/// are. The registry raises a target's for a package that asks, so a target's archive bigger than
+/// most_target_archive can unpack to 8 times its own size.
+inline constexpr std::uint64_t most_source_archive = 10'000'000;
+inline constexpr std::uint64_t most_target_archive = 200'000'000;
+inline constexpr std::uint64_t unpack_factor = 8;
+inline constexpr std::uint64_t most_source_unpacked = most_source_archive * unpack_factor;
+inline constexpr std::uint64_t most_target_unpacked = most_target_archive * unpack_factor;
 
 /// A file in an archive: its path in the package, with '/'s, and its bytes.
 struct archive_file_t {

@@ -5,14 +5,17 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <functional>
 #include <iterator>
+#include <map>
 #include <optional>
 #include <psa/crypto.h>
 #include <random>
@@ -21,6 +24,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utf8proc.h>
 #include <utility>
 #include <vector>
 #include <zlib.h>
@@ -29,6 +33,9 @@ namespace fb {
 namespace {
 
 constexpr std::size_t block = 512;
+
+/// What a partial folder's name has after the folder it's for.
+constexpr std::string_view partial_mark = ".~";
 
 /// Where a ustar header's fields are, and how long each is.
 struct field_t {
@@ -69,28 +76,25 @@ std::string_view text_of(const std::string_view header, const field_t field) {
     return text.substr(0, text.find('\0'));
 }
 
-/// A header's octal field, or nullopt when it isn't one.
+/// A header's octal field, as the registry reads it: spaces, octal digits, and then only NULs or
+/// spaces to its end. nullopt for anything else, like base-256, an empty field, or a NUL first,
+/// which extractors read differently.
 std::optional<std::uint64_t> octal_of(const std::string_view header, const field_t field) {
-    std::string_view text = text_of(header, field);
-    while (!text.empty() && text.front() == ' ') {
-        text.remove_prefix(1);
-    }
-
-    while (!text.empty() && text.back() == ' ') {
-        text.remove_suffix(1);
-    }
-
-    if (text.empty() || text.size() > 21) {
-        return std::nullopt;
+    const std::string_view text = header.substr(field.at, field.size);
+    std::size_t at = 0;
+    while (at < text.size() && text[at] == ' ') {
+        ++at;
     }
 
     std::uint64_t value = 0;
-    for (const char c : text) {
-        if (c < '0' || c > '7') {
-            return std::nullopt;
-        }
+    const std::size_t digits = at;
+    for (; at < text.size() && text[at] >= '0' && text[at] <= '7'; ++at) {
+        value = (value << 3U) | static_cast<std::uint64_t>(text[at] - '0');
+    }
 
-        value = (value << 3U) | static_cast<std::uint64_t>(c - '0');
+    if (at == digits ||
+        !std::ranges::all_of(text.substr(at), [](const char c) { return c == '\0' || c == ' '; })) {
+        return std::nullopt;
     }
 
     return value;
@@ -165,33 +169,65 @@ std::string headers_of(const archive_file_t& file) {
            header_of("", short_name, file.bytes.size(), '0');
 }
 
-/// A pax header's path, from its records, or nullopt when it has none or isn't one.
-std::optional<std::string> pax_path(std::string_view records) {
-    std::optional<std::string> path;
+/// The pax keys an entry's header can have, as the registry takes them (docs/registry-api.md's
+/// Archives): any other, like GNU.sparse.* or linkpath, changes what some extractor makes of the
+/// entry.
+constexpr std::array<std::string_view, 11> pax_keys = {
+    // NOLINTNEXTLINE(readability-trailing-comma): clang-format packs the names on two lines
+    "path", "size",  "mtime", "atime",      "ctime",   "uid",
+    "gid",  "uname", "gname", "hdrcharset", "comment",
+};
+
+/// A pax header's records, `<length> <key>=<value>\n` each, by their keys, as the registry reads
+/// them: each key one it takes, and once. Fails, saying why, for anything else.
+std::expected<std::map<std::string, std::string, std::less<>>, std::string>
+pax_records(std::string_view records) {
+    std::map<std::string, std::string, std::less<>> out;
     while (!records.empty()) {
         const std::size_t space = records.find(' ');
-        if (space == std::string_view::npos) {
-            return std::nullopt;
-        }
-
         const std::string_view digits = records.substr(0, space);
         std::size_t length = 0;
         const auto [end, error] =
             std::from_chars(digits.data(), digits.data() + digits.size(), length);
-        if (error != std::errc() || end != digits.data() + digits.size() || length <= space + 1 ||
+        if (space == std::string_view::npos || digits.empty() || digits.front() == '0' ||
+            error != std::errc() || end != digits.data() + digits.size() || length <= space + 1 ||
             length > records.size() || records[length - 1] != '\n') {
-            return std::nullopt;
+            return std::unexpected("a pax header of its tar is malformed");
         }
 
         const std::string_view record = records.substr(space + 1, length - space - 2);
-        if (record.starts_with("path=")) {
-            path = std::string(record.substr(5));
+        const std::size_t equals = record.find('=');
+        if (equals == std::string_view::npos) {
+            return std::unexpected("a pax header of its tar is malformed");
+        }
+
+        const std::string_view key = record.substr(0, equals);
+        if (!std::ranges::contains(pax_keys, key)) {
+            return std::unexpected(
+                std::format("a pax header of its tar has '{}', which the registry doesn't take",
+                            escape_controls(key.substr(0, 40))));
+        }
+
+        if (!out.emplace(std::string(key), std::string(record.substr(equals + 1))).second) {
+            return std::unexpected(std::format("a pax header of its tar has {} twice", key));
         }
 
         records.remove_prefix(length);
     }
 
-    return path;
+    return out;
+}
+
+/// A pax size: decimal digits, without a leading zero but for 0 itself.
+std::optional<std::uint64_t> pax_size(const std::string_view text) {
+    std::uint64_t size = 0;
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), size);
+    if (text.empty() || (text.size() > 1 && text.front() == '0') || error != std::errc() ||
+        end != text.data() + text.size()) {
+        return std::nullopt;
+    }
+
+    return size;
 }
 
 /// gzip of `bytes`, with no name, the time 0, and an unknown OS in its header.
@@ -288,6 +324,11 @@ public:
         }
     }
 
+    /// Whether it stopped at its limit.
+    [[nodiscard]] bool over() const {
+        return m_over;
+    }
+
     [[nodiscard]] const std::string& error() const {
         return m_error;
     }
@@ -301,6 +342,7 @@ private:
     std::string m_out;
     std::size_t m_at = 0;
     bool m_ended = false;
+    bool m_over = false;
     std::string m_error;
 
     /// Inflates more, into m_out; false at the stream's end or an error.
@@ -333,7 +375,8 @@ private:
             m_out.append(reinterpret_cast<const char*>(chunk.data()), made);
             m_total += made;
             if (m_total > m_most) {
-                m_error = std::format("it unpacks to more than {} MB", m_most >> 20U);
+                m_over = true;
+                m_error = "it unpacks to more than its limit";
                 return false;
             }
 
@@ -364,16 +407,47 @@ struct entries_t {
 std::expected<void, std::string> walk_archive(source_t source, std::uint64_t most,
                                               const entries_t& entries);
 
-/// The letter case of ASCII folded, for comparing paths as a disk that ignores it does.
+/// A path as a disk that ignores letter case compares it, as the registry does: its
+/// compatibility forms composed (NFKC) and its case folded, so "ſ" is "s" and "É" is "é". As it
+/// is when it isn't UTF-8.
 std::string folded(const std::string_view path) {
-    std::string out(path);
-    for (char& c : out) {
-        if (c >= 'A' && c <= 'Z') {
-            c = static_cast<char>(c - 'A' + 'a');
-        }
+    constexpr auto options = static_cast<utf8proc_option_t>(
+        static_cast<unsigned>(UTF8PROC_STABLE) | static_cast<unsigned>(UTF8PROC_COMPAT) |
+        static_cast<unsigned>(UTF8PROC_COMPOSE) | static_cast<unsigned>(UTF8PROC_CASEFOLD));
+    utf8proc_uint8_t* mapped = nullptr;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): utf8proc's bytes are chars
+    const auto* bytes = reinterpret_cast<const utf8proc_uint8_t*>(path.data());
+    const utf8proc_ssize_t size =
+        utf8proc_map(bytes, static_cast<utf8proc_ssize_t>(path.size()), &mapped, options);
+    if (size < 0) {
+        return std::string(path);
     }
 
-    return out;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): utf8proc's bytes are chars
+    std::string text(reinterpret_cast<const char*>(mapped), static_cast<std::size_t>(size));
+    std::free(mapped); // NOLINT(cppcoreguidelines-no-malloc): utf8proc mallocs it
+    return text;
+}
+
+/// Whether a part of a path is a name Windows keeps for a device, with any extension: CON, PRN,
+/// AUX, NUL, CONIN$, CONOUT$, and COM and LPT with a digit or ¹, ², or ³, in any letter case.
+bool is_device_name(const std::string_view name) {
+    std::string stem(name.substr(0, name.find('.')));
+    std::ranges::transform(stem, stem.begin(), [](const char c) {
+        return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    });
+    if (stem == "con" || stem == "prn" || stem == "aux" || stem == "nul" || stem == "conin$" ||
+        stem == "conout$") {
+        return true;
+    }
+
+    if (!stem.starts_with("com") && !stem.starts_with("lpt")) {
+        return false;
+    }
+
+    const std::string_view number = std::string_view(stem).substr(3);
+    return (number.size() == 1 && number[0] >= '0' && number[0] <= '9') || number == "\xc2\xb9" ||
+           number == "\xc2\xb2" || number == "\xc2\xb3";
 }
 
 } // namespace
@@ -393,16 +467,16 @@ std::optional<std::string> archive_path_error(const std::string_view path) {
             return std::format("'{}' isn't UTF-8", escape_controls(path));
         }
 
-        at += decoded.length;
-    }
+        // C0's controls and DEL, and C1's, U+0080 to U+009F.
+        const char32_t code = decoded.code_point;
+        if (code < 0x20 || (code >= 0x7f && code <= 0x9f) ||
+            (code < 0x80 && std::string_view("\\:<>\"|?*").contains(static_cast<char>(code)))) {
+            return std::format("'{}' has a control character or one of \\ : < > \" | ? *, which "
+                               "Windows can't name",
+                               escape_controls(path));
+        }
 
-    if (std::ranges::any_of(path, [](const char c) {
-            return std::string_view("\\:<>\"|?*").contains(c) ||
-                   static_cast<unsigned char>(c) < 0x20 || c == 0x7f;
-        })) {
-        return std::format("'{}' has a control character or one of \\ : < > \" | ? *, which "
-                           "Windows can't name",
-                           escape_controls(path));
+        at += decoded.length;
     }
 
     for (const auto part : std::views::split(path, '/')) {
@@ -418,11 +492,7 @@ std::optional<std::string> archive_path_error(const std::string_view path) {
                                path);
         }
 
-        const std::string stem = folded(name.substr(0, name.find('.')));
-        const bool numbered = stem.size() == 4 &&
-                              (stem.starts_with("com") || stem.starts_with("lpt")) &&
-                              stem[3] >= '1' && stem[3] <= '9';
-        if (stem == "con" || stem == "prn" || stem == "aux" || stem == "nul" || numbered) {
+        if (is_device_name(name)) {
             return std::format("'{}' has a part Windows keeps for a device, {}", path, name);
         }
     }
@@ -442,11 +512,19 @@ bool write_file(const std::filesystem::path& path, const std::string_view bytes)
     return static_cast<bool>(out);
 }
 
-/// A name for a temporary file or folder beside `path`, which no other process picks.
+/// The seconds since 1970 now, which a partial folder's name has.
+std::int64_t seconds_now() {
+    return std::chrono::duration_cast<std::chrono::seconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
+/// A name for a partial folder beside `path`, which no other process picks: the time it's
+/// made, in hex seconds, then a random number, short, since Windows counts a path's characters.
 std::filesystem::path partial_of(const std::filesystem::path& path) {
     std::random_device random;
     std::filesystem::path out = path;
-    out += std::format(".partial-{:08x}{:08x}", random(), random());
+    out += std::format("{}{:x}-{:08x}", partial_mark, seconds_now(), random());
     return out;
 }
 
@@ -522,9 +600,16 @@ std::string sha256_hex(const std::string_view bytes) {
 std::expected<std::string, std::string> write_archive(std::vector<archive_file_t> files) {
     std::ranges::sort(files, {}, &archive_file_t::path);
     std::string tar;
+    // No two paths a disk that ignores letter case takes as one, which unpacking refuses.
+    std::set<std::string, std::less<>> seen;
     for (const archive_file_t& file : files) {
         if (const std::optional<std::string> wrong = archive_path_error(file.path)) {
             return std::unexpected(*wrong);
+        }
+
+        if (!seen.insert(folded(file.path)).second) {
+            return std::unexpected(std::format(
+                "'{}' and another path are one to a disk that ignores letter case", file.path));
         }
 
         tar += headers_of(file);
@@ -537,118 +622,175 @@ std::expected<std::string, std::string> write_archive(std::vector<archive_file_t
 
 namespace {
 
+/// "80 MB", as the registry counts megabytes, or a smaller limit's bytes.
+std::string megabytes(const std::uint64_t bytes) {
+    if (bytes < 1'000'000) {
+        return std::format("{} bytes", bytes);
+    }
+
+    return std::format("{} MB", bytes / 1'000'000);
+}
+
 std::expected<void, std::string> walk_archive(source_t source, const std::uint64_t most,
                                               const entries_t& entries) {
     // Its files' bytes, each with its headers and padding, and the two blocks at the end.
     gunzip_t tar(std::move(source), most + (most_archive_files * 4 * block) + (2 * block));
     const auto broken = [&](const std::string_view why) {
+        // Past the limit, it's the limit that's said, not the tar's own.
+        if (tar.over()) {
+            return std::unexpected(std::format("it unpacks to more than {}", megabytes(most)));
+        }
+
         return std::unexpected(std::format("it isn't a .fbpkg: {}",
                                            tar.error().empty() ? std::string(why) : tar.error()));
     };
-    // Each path, folded, to find one two entries share, and one that's both a file and a
-    // folder's start.
-    std::set<std::string, std::less<>> seen;
+    // Each path, folded, as a file's or a folder's, to find one two entries share, and a file
+    // that's another's folder.
+    std::set<std::string, std::less<>> files;
+    std::set<std::string, std::less<>> folders;
     std::uint64_t total = 0;
-    std::size_t files = 0;
-    // A pax header's path, for the entry after it.
-    std::optional<std::string> long_path;
+    std::size_t count = 0;
+    // A pax header's records, for the entry after it.
+    std::optional<std::map<std::string, std::string, std::less<>>> pax;
     std::string header(block, '\0');
     std::string piece(65536, '\0');
     while (true) {
         if (!tar.read(header.data(), block)) {
-            return broken("its tar ends without its two empty blocks");
+            return broken("its tar ends without its end marker");
         }
 
         if (std::ranges::all_of(header, [](const char c) { return c == '\0'; })) {
+            if (pax) {
+                return broken("its tar ends after a pax header");
+            }
+
             break;
         }
 
         const std::optional<std::uint64_t> sum = octal_of(header, sum_field);
-        const std::optional<std::uint64_t> size = octal_of(header, size_field);
-        if (!sum || *sum != checksum_of(header) || !size ||
-            text_of(header, magic_field) != "ustar") {
-            return broken("a header of its tar isn't ustar's");
+        std::optional<std::uint64_t> size = octal_of(header, size_field);
+        if (!sum || *sum != checksum_of(header)) {
+            return broken("a header of its tar has a bad checksum");
         }
 
-        const std::string_view prefix = text_of(header, prefix_field);
-        const std::string_view name = text_of(header, name_field);
-        std::string path = prefix.empty() ? std::string(name) : std::format("{}/{}", prefix, name);
+        // POSIX ustar's magic and version, exactly; GNU's and old tars' aren't taken.
+        if (header.substr(magic_field.at, 8) != std::string_view("ustar\0"
+                                                                 "00",
+                                                                 8) ||
+            !size) {
+            return broken("a header of its tar isn't POSIX ustar's");
+        }
+
         const char type = header[type_at];
-        const std::uint64_t padding = (block - (*size % block)) % block;
         if (type == 'x') {
-            // A pax header's records are small; a large one isn't fb's.
-            if (*size > piece.size()) {
+            if (pax) {
+                return broken("an entry of its tar has two pax headers");
+            }
+
+            if (*size > std::uint64_t{ 1 } << 20U) {
                 return broken("a pax header of its tar is too large");
             }
 
-            std::string records(*size + padding, '\0');
+            std::string records(*size + ((block - (*size % block)) % block), '\0');
             if (!tar.read(records.data(), records.size())) {
-                return broken(std::format("it ends in the middle of '{}'", path));
+                return broken("it ends in the middle of a pax header");
             }
 
             records.resize(*size);
-            long_path = pax_path(records);
-            if (!long_path) {
-                return broken("a pax header of its tar has no path");
+            std::expected<std::map<std::string, std::string, std::less<>>, std::string> read =
+                pax_records(records);
+            if (!read) {
+                return broken(read.error());
             }
 
+            pax = std::move(*read);
             continue;
         }
 
-        if (long_path) {
-            path = std::move(*long_path);
-            long_path.reset();
+        if (type == 'g' || type == 'L' || type == 'K') {
+            return broken("its tar has a global or GNU extended header, which the registry "
+                          "doesn't take");
         }
 
-        if (type != '0' && type != '\0' && type != '5') {
+        // A pax header's path and size are the entry's, as every extractor reads them.
+        const std::string_view prefix = text_of(header, prefix_field);
+        const std::string_view name = text_of(header, name_field);
+        std::string path = prefix.empty() ? std::string(name) : std::format("{}/{}", prefix, name);
+        if (pax && pax->contains("path")) {
+            path = pax->at("path");
+        }
+
+        if (pax && pax->contains("size")) {
+            size = pax_size(pax->at("size"));
+            if (!size) {
+                return broken("a pax header of its tar has a size that isn't a number");
+            }
+        }
+
+        pax.reset();
+        if (++count > most_archive_files) {
+            return std::unexpected(
+                std::format("it has more than {} files and folders", most_archive_files));
+        }
+
+        const bool folder = type == '5';
+        if (type != '0' && !folder) {
             return std::unexpected(std::format(
                 "it has '{}', which isn't a file or a folder, like a link, which fb doesn't unpack",
                 escape_controls(path)));
         }
 
-        if (type == '5') {
-            // A folder has no bytes; its files make it.
-            std::uint64_t skipped = *size + padding;
-            while (skipped > 0) {
-                const std::size_t taken = std::min<std::uint64_t>(skipped, piece.size());
-                if (!tar.read(piece.data(), taken)) {
-                    return broken(std::format("it ends in the middle of '{}'", path));
-                }
+        if (folder && *size != 0) {
+            return broken(std::format("its folder '{}' has a size, which extractors read "
+                                      "differently",
+                                      escape_controls(path)));
+        }
 
-                skipped -= taken;
-            }
-
-            continue;
+        if (folder && path.ends_with('/')) {
+            path.pop_back();
         }
 
         if (const std::optional<std::string> wrong = archive_path_error(path)) {
             return std::unexpected(*wrong);
         }
 
-        // Neither twice, nor a file where another's folder is, ignoring letter case.
+        // Neither twice, nor a file where a folder is, comparing as a disk that ignores letter
+        // case does.
         const std::string key = folded(path);
-        const auto after = seen.lower_bound(key + "/");
-        bool parent_is_file = false;
         for (std::size_t slash = key.find('/'); slash != std::string::npos;
              slash = key.find('/', slash + 1)) {
-            parent_is_file = parent_is_file || seen.contains(key.substr(0, slash));
+            if (files.contains(key.substr(0, slash))) {
+                return std::unexpected(
+                    std::format("it has '{}' as both a file and a folder", path));
+            }
+
+            folders.insert(key.substr(0, slash));
         }
 
-        if (seen.contains(key)) {
+        if (folder) {
+            if (files.contains(key)) {
+                return std::unexpected(
+                    std::format("it has '{}' as both a file and a folder", path));
+            }
+
+            folders.insert(key);
+            continue;
+        }
+
+        if (files.contains(key)) {
             return std::unexpected(std::format(
-                "it has '{}' twice, or two paths that differ only in letter case", path));
+                "it has '{}' twice, or two paths a disk that ignores letter case takes as one",
+                path));
         }
 
-        if (parent_is_file || (after != seen.end() && after->starts_with(key + "/"))) {
+        if (folders.contains(key)) {
             return std::unexpected(std::format("it has '{}' as both a file and a folder", path));
         }
 
-        seen.insert(key);
+        files.insert(key);
         total += *size;
-        if (++files > most_archive_files || total > most) {
-            return std::unexpected(
-                std::format("it has more than {} files, or unpacks to more than {} MB",
-                            most_archive_files, most >> 20U));
+        if (total > most) {
+            return std::unexpected(std::format("it unpacks to more than {}", megabytes(most)));
         }
 
         if (const std::expected<void, std::string> begun = entries.begin(path, *size); !begun) {
@@ -670,6 +812,7 @@ std::expected<void, std::string> walk_archive(source_t source, const std::uint64
             left -= taken;
         }
 
+        const std::uint64_t padding = (block - (*size % block)) % block;
         if (padding > 0 && !tar.read(piece.data(), padding)) {
             return broken(std::format("it ends in the middle of '{}'", path));
         }
@@ -694,15 +837,67 @@ source_t source_of(const std::string_view bytes) {
 }
 
 /// Whether a path in an archive is one its kind has: a package's own has none of a target's
-/// files, and a target's only its own; neither has a marker, which only fb writes.
+/// files, and a target's only its own; neither has a marker, which only fb writes. They're
+/// compared as a disk that ignores letter case would, so "Native/Linux-x64/" is a target's too.
 bool is_of_kind(const std::string_view path, const std::string_view marker) {
+    const std::string key = folded(path);
     const bool targets = std::ranges::any_of(package_targets, [&](const std::string_view each) {
-        return path.starts_with(std::format("lib/{}/", each)) ||
-               path.starts_with(std::format("native/{}/", each));
+        return key.starts_with(std::format("lib/{}/", each)) ||
+               key.starts_with(std::format("native/{}/", each));
     });
-    const bool own = path.starts_with(std::format("lib/{}/", marker)) ||
-                     path.starts_with(std::format("native/{}/", marker));
-    return !path.starts_with(".fbpkg-") && (marker == "source" ? !targets : own);
+    const bool own = key.starts_with(std::format("lib/{}/", marker)) ||
+                     key.starts_with(std::format("native/{}/", marker));
+    return !key.starts_with(".fbpkg-") && (marker == "source" ? !targets : own);
+}
+
+/// A marker's checksum, or empty when it isn't there.
+std::string read_marker(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    return { std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+}
+
+/// Removes what an fb stopped partway through unpacking `folder` left beside it: its partial
+/// folders made over an hour ago, as their names say, which no fb still at work has.
+void remove_stale_partials(const std::filesystem::path& folder) {
+    const std::string prefix = to_utf8(folder.filename()) + std::string(partial_mark);
+    const std::int64_t stale = seconds_now() - 3600;
+    std::error_code error;
+    for (std::filesystem::directory_iterator each(folder.parent_path(), error), end;
+         !error && each != end; each.increment(error)) {
+        const std::string name = to_utf8(each->path().filename());
+        if (!name.starts_with(prefix)) {
+            continue;
+        }
+
+        const std::string_view made = std::string_view(name).substr(prefix.size());
+        std::int64_t seconds = 0;
+        const auto [stop, wrong] =
+            std::from_chars(made.data(), made.data() + made.size(), seconds, 16);
+        if (wrong == std::errc() && stop != made.data() && stop != made.data() + made.size() &&
+            *stop == '-' && seconds < stale) {
+            std::error_code ignored;
+            std::filesystem::remove_all(each->path(), ignored);
+        }
+    }
+}
+
+/// Why a file of the archive can't be written under `folder` on this OS, or nullopt when it can:
+/// on Windows, a path past MAX_PATH's 259 characters, which Windows' own calls refuse.
+std::optional<std::string> too_long([[maybe_unused]] const std::filesystem::path& folder,
+                                    [[maybe_unused]] const std::filesystem::path& partial,
+                                    [[maybe_unused]] const std::string_view path) {
+#ifdef _WIN32
+    constexpr std::size_t most_characters = 259;
+    const std::size_t longest = std::max((partial / path_from_utf8(path)).native().size(),
+                                         (folder / path_from_utf8(path)).native().size());
+    if (longest > most_characters) {
+        return std::format(
+            "'{}' is too long a path for Windows in {}: {} characters, past its {}; a shorter "
+            "FB_HOME holds it",
+            path, to_utf8(folder), longest, most_characters);
+    }
+#endif
+    return std::nullopt;
 }
 
 } // namespace
@@ -780,11 +975,32 @@ std::expected<void, std::string> unpack_archive(const std::filesystem::path& arc
         return std::unexpected(std::format("couldn't read {}", to_utf8(archive)));
     }
 
+    const std::filesystem::path marker_name = path_from_utf8(std::format(".fbpkg-{}", marker));
+    std::error_code error;
+    const bool there = std::filesystem::is_directory(folder, error);
+    // A package's own archive makes its folder, never joins one: a folder that's there was
+    // unpacked whole by another fb, with its marker, or is something else's.
+    if (marker == "source" && there) {
+        if (read_marker(folder / marker_name) == checksum) {
+            return {};
+        }
+
+        return std::unexpected(std::format(
+            "{} is there already, but isn't this archive's; deleting it lets fb unpack it again",
+            to_utf8(folder)));
+    }
+
+    remove_stale_partials(folder);
     // Each file goes into a folder beside the package's, which is renamed, or whose files are,
     // once they're all there.
     const std::filesystem::path partial = partial_of(folder);
     std::vector<std::string> paths;
     std::ofstream out;
+    std::filesystem::path writing;
+    const auto failed = [&](const std::filesystem::path& file, const std::error_code& why) {
+        return std::unexpected(
+            std::format("couldn't write {}{}{}", to_utf8(file), why ? ": " : "", why.message()));
+    };
     const entries_t entries{
         .begin = [&](const std::string& path, std::uint64_t) -> std::expected<void, std::string> {
             if (!is_of_kind(path, marker)) {
@@ -792,13 +1008,17 @@ std::expected<void, std::string> unpack_archive(const std::filesystem::path& arc
                     std::format("it has '{}', which an archive of its kind can't", path));
             }
 
+            if (const std::optional<std::string> wrong = too_long(folder, partial, path)) {
+                return std::unexpected(*wrong);
+            }
+
             out.close();
-            const std::filesystem::path file = partial / path_from_utf8(path);
-            std::error_code error;
-            std::filesystem::create_directories(file.parent_path(), error);
-            out.open(file, std::ios::binary);
+            writing = partial / path_from_utf8(path);
+            std::error_code made;
+            std::filesystem::create_directories(writing.parent_path(), made);
+            out.open(writing, std::ios::binary);
             if (!out) {
-                return std::unexpected(std::format("couldn't write {}", to_utf8(file)));
+                return failed(writing, made);
             }
 
             paths.push_back(path);
@@ -807,7 +1027,7 @@ std::expected<void, std::string> unpack_archive(const std::filesystem::path& arc
         .data = [&](const std::string_view piece) -> std::expected<void, std::string> {
             out.write(piece.data(), static_cast<std::streamsize>(piece.size()));
             if (!out) {
-                return std::unexpected(std::format("couldn't write into {}", to_utf8(partial)));
+                return failed(writing, std::error_code());
             }
 
             return {};
@@ -819,14 +1039,12 @@ std::expected<void, std::string> unpack_archive(const std::filesystem::path& arc
     };
     std::expected<void, std::string> walked = walk_archive(source, most, entries);
     out.close();
-    std::error_code error;
     if (walked && !out) {
-        walked = std::unexpected(std::format("couldn't write into {}", to_utf8(partial)));
+        walked = failed(writing, std::error_code());
     }
 
-    const std::filesystem::path marker_name = path_from_utf8(std::format(".fbpkg-{}", marker));
     if (walked && !write_file(partial / marker_name, checksum)) {
-        walked = std::unexpected(std::format("couldn't write into {}", to_utf8(partial)));
+        walked = failed(partial / marker_name, std::error_code());
     }
 
     if (!walked) {
@@ -834,24 +1052,25 @@ std::expected<void, std::string> unpack_archive(const std::filesystem::path& arc
         return walked;
     }
 
-    if (std::filesystem::is_directory(folder, error)) {
-        // Another archive of the package's: each file joins it, and the marker, last, says
+    if (there) {
+        // A target's archive joins its package's: each file joins it, and the marker, last, says
         // they all did.
         for (const std::string& path : paths) {
             const std::filesystem::path to = folder / path_from_utf8(path);
             std::filesystem::create_directories(to.parent_path(), error);
             std::filesystem::rename(partial / path_from_utf8(path), to, error);
             if (error) {
+                const std::error_code why = error;
                 std::filesystem::remove_all(partial, error);
-                return std::unexpected(std::format("couldn't write {}", to_utf8(to)));
+                return failed(to, why);
             }
         }
 
         std::filesystem::rename(partial / marker_name, folder / marker_name, error);
-        const bool moved = !error;
+        const std::error_code why = error;
         std::filesystem::remove_all(partial, error);
-        if (!moved) {
-            return std::unexpected(std::format("couldn't write {}", to_utf8(folder / marker_name)));
+        if (why) {
+            return failed(folder / marker_name, why);
         }
 
         return {};
@@ -860,10 +1079,10 @@ std::expected<void, std::string> unpack_archive(const std::filesystem::path& arc
     std::filesystem::create_directories(folder.parent_path(), error);
     std::filesystem::rename(partial, folder, error);
     if (error) {
-        // Another fb unpacked it first; the one there is whole.
+        // Another fb unpacked it first; the one there is whole when its marker says so.
         std::error_code ignored;
         std::filesystem::remove_all(partial, ignored);
-        if (!std::filesystem::is_directory(folder, ignored)) {
+        if (read_marker(folder / marker_name) != checksum) {
             return std::unexpected(
                 std::format("couldn't unpack into {}: {}", to_utf8(folder), error.message()));
         }

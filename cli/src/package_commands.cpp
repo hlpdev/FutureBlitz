@@ -27,6 +27,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <ranges>
 #include <sstream>
@@ -143,13 +144,18 @@ choose_registry(const options_t& options, const std::optional<std::filesystem::p
     const std::string given = options.registry.value_or(std::string(default_registry));
     std::error_code error;
     if (is_index(given)) {
-        if (given.starts_with("http://") && !is_loopback_url(given)) {
+        const std::expected<std::string, std::string> written = with_index_scheme(given);
+        if (!written) {
+            return std::unexpected(written.error());
+        }
+
+        if (written->starts_with("http://") && !is_loopback_url(*written)) {
             return std::unexpected(
                 "a registry's index is https://, or http:// only on this machine (localhost, "
                 "127.0.0.1, or [::1])");
         }
 
-        const std::string index = canonical_index(given, std::filesystem::current_path(error));
+        const std::string index = canonical_index(*written, std::filesystem::current_path(error));
         return chosen_registry_t{ .index = index, .public_registry = index == default_index };
     }
 
@@ -265,18 +271,15 @@ std::optional<std::filesystem::path> on_path(const std::string_view name) {
 }
 #endif
 
-/// Opens `url` in the user's browser, or in the program FB_BROWSER names, or with FB_BROWSER
-/// set to "none", doesn't. False when it couldn't.
+/// Opens `url` in the user's browser, or in the program FB_BROWSER names. False when it
+/// couldn't.
 bool open_browser(const std::string_view url) {
-    if (const std::optional<std::string> browser = environment_variable("FB_BROWSER")) {
-        if (browser->empty() || *browser == "none") {
-            return false;
-        }
-
+    if (const std::optional<std::string> browser = environment_variable("FB_BROWSER");
+        browser && !browser->empty()) {
+        // It's started, not waited for: a browser it starts would keep fb waiting until it
+        // closes.
         const std::vector<std::string> arguments{ std::string(url) };
-        const std::expected<process_result_t, std::string> ran =
-            run_process(path_from_utf8(*browser), arguments, "");
-        return ran && ran->exit_code == 0;
+        return start_detached(path_from_utf8(*browser), arguments).has_value();
     }
 
 #ifdef _WIN32
@@ -296,8 +299,7 @@ bool open_browser(const std::string_view url) {
     }
 
     const std::vector<std::string> arguments{ std::string(url) };
-    const std::expected<process_result_t, std::string> ran = run_process(*opener, arguments, "");
-    return ran && ran->exit_code == 0;
+    return start_detached(*opener, arguments).has_value();
 #endif
 }
 
@@ -545,6 +547,13 @@ int search_command(const console_t& console, const options_t& options) {
 }
 
 int publish_command(const console_t& console, const options_t& options) {
+    // --offline keeps fb off the network, which publishing can't be.
+    if (options.offline && !options.dry_run) {
+        console.error("fb publish sends the package to the registry, so it can't be --offline; "
+                      "--dry-run with --offline packages it without the network");
+        return usage_exit_code;
+    }
+
     const std::optional<std::filesystem::path> root = current_package(console, options);
     if (!root) {
         return usage_exit_code;
@@ -654,6 +663,24 @@ int publish_command(const console_t& console, const options_t& options) {
     return 0;
 }
 
+/// Why `who`, as --add and --remove give it, can't be an owner's name, or nullopt when it can be:
+/// a username, or "team:" and a team's, each lowercase letters, digits, and '-', 1 to 39 long, not
+/// starting or ending with '-'.
+std::optional<std::string> owner_name_error(const std::string_view who) {
+    const std::string_view name = who.starts_with("team:") ? who.substr(5) : who;
+    const bool fits = !name.empty() && name.size() <= 39 && !name.starts_with('-') &&
+                      !name.ends_with('-') && std::ranges::all_of(name, [](const char c) {
+                          return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+                      });
+    if (fits) {
+        return std::nullopt;
+    }
+
+    return std::format("'{}' isn't a username, or team: and a team's name, which are lowercase "
+                       "letters, digits, and '-', up to 39",
+                       who);
+}
+
 int yank_command(const console_t& console, const options_t& options) {
     std::error_code error;
     const std::expected<chosen_registry_t, std::string> chosen =
@@ -666,6 +693,11 @@ int yank_command(const console_t& console, const options_t& options) {
     const std::string& spec = options.names.front();
     const std::string name = spec.substr(0, spec.find('@'));
     const std::string version = spec.substr(spec.find('@') + 1);
+    if (const std::optional<std::string> wrong = package_name_error(name)) {
+        console.error(*wrong);
+        return usage_exit_code;
+    }
+
     if (!parse_version(version)) {
         console.error(std::format("'{}' isn't a version, like physics@1.2.0", version));
         return usage_exit_code;
@@ -696,12 +728,24 @@ int owner_command(const console_t& console, const options_t& options) {
         return usage_exit_code;
     }
 
+    const std::string& name = options.names.front();
+    if (const std::optional<std::string> wrong = package_name_error(name)) {
+        console.error(*wrong);
+        return usage_exit_code;
+    }
+
+    if (options.owner) {
+        if (const std::optional<std::string> wrong = owner_name_error(*options.owner)) {
+            console.error(*wrong);
+            return usage_exit_code;
+        }
+    }
+
     const std::optional<registry_session_t> session = session_for(console, *chosen, true, false);
     if (!session) {
         return compile_errors_exit_code;
     }
 
-    const std::string& name = options.names.front();
     if (!options.owner) {
         const std::expected<std::vector<package_owner_t>, std::string> owners =
             list_owners(name, *session);
@@ -742,36 +786,74 @@ int login_command(const console_t& console, const options_t& options) {
         return compile_errors_exit_code;
     }
 
+    if (!local_index_folder(chosen->index).empty()) {
+        console.error("a registry on disk has no accounts to sign in to");
+        return usage_exit_code;
+    }
+
+    // The store is checked first: a sign-in's token comes once, and one it couldn't keep would
+    // be lost.
+    const std::unique_ptr<credential_store_t> store = credential_store();
+    if (const std::expected<std::optional<std::string>, std::string> kept =
+            store->get(credential_key(chosen->index));
+        !kept) {
+        console.error(std::format("fb can't keep a token: {}", kept.error()));
+        return compile_errors_exit_code;
+    }
+
     std::string token;
     if (options.token) {
         // A token made on the dashboard, from stdin, which a pipe or a paste gives.
         std::string line;
         std::getline(std::cin, line);
-        while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) {
+        const auto blank = [](const char c) { return c == ' ' || c == '\t' || c == '\r'; };
+        while (!line.empty() && blank(line.back())) {
             line.pop_back();
         }
 
+        line.erase(line.begin(), std::ranges::find_if_not(line, blank));
         if (line.empty()) {
             console.error("fb login --token reads the token from stdin, which gave none");
             return usage_exit_code;
         }
 
+        if (const std::optional<std::string> wrong = token_error(line)) {
+            console.error(*wrong);
+            return usage_exit_code;
+        }
+
         token = line;
     } else {
-        const login_hooks_t hooks{
-            .open = open_browser,
+        // FB_BROWSER=none, or empty, opens nothing.
+        const std::optional<std::string> browser = environment_variable("FB_BROWSER");
+        const bool no_browser = browser && (browser->empty() || *browser == "none");
+        login_hooks_t hooks{
+            .open =
+                [&console](const std::string_view url) {
+                    const bool opened = open_browser(url);
+                    if (!opened) {
+                        console.note(
+                            "fb couldn't open a browser, so the page is for opening by hand");
+                    }
+
+                    return opened;
+                },
             .wait =
                 [](const std::chrono::seconds seconds) { std::this_thread::sleep_for(seconds); },
             .show =
                 [&console](const std::string_view code, const std::string_view url,
-                           const bool opened) {
+                           const bool opening) {
                     console.status(
-                        opened ? "Opened" : "Open",
-                        std::format("{} to sign in{}", url, opened ? "" : ", in a browser"));
+                        opening ? "Opening" : "Open",
+                        std::format("{} to sign in{}", url, opening ? "" : ", in a browser"));
                     console.status("Code", std::format("{}, which the page shows too", code));
                     console.status("Waiting", "for the sign-in to be approved there");
                 },
         };
+        if (no_browser) {
+            hooks.open = nullptr;
+        }
+
         const std::expected<std::string, std::string> signed_in =
             login(std::format("fb on {}", machine_name()), *session, hooks);
         if (!signed_in) {
@@ -783,9 +865,11 @@ int login_command(const console_t& console, const options_t& options) {
     }
 
     if (const std::expected<void, std::string> kept =
-            credential_store()->set(credential_key(chosen->index), token);
+            store->set(credential_key(chosen->index), token);
         !kept) {
-        console.error(kept.error());
+        // It isn't lost: the person can keep it themselves.
+        console.error(std::format("fb couldn't keep the token: {}", kept.error()));
+        console.note(std::format("the token is {}; FB_REGISTRY_TOKEN gives it to fb", token));
         return compile_errors_exit_code;
     }
 

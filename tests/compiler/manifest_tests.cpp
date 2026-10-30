@@ -229,6 +229,22 @@ TEST_CASE("[registries] names registries by their indexes", "[manifest]") {
           diagnostics_t{ "error: \"my-co\": a registry's name is an identifier, like company, not "
                          "\"my-co\"" });
     CHECK(read(std::format("{}registries = 3\n", project)).diagnostics.size() == 1);
+
+    // resolve-6: a scheme is http, https, or file, in any letter case, which is kept lowercase.
+    const read_t capitals = read(std::format(
+        "{}[registries]\nnear = {{ index = \"HTTPS://Packages.example.com/index/\" }}\n", project));
+    CHECK(capitals.diagnostics.empty());
+    CHECK(capitals.manifest.value_or(fb::manifest_t{}).registries.front().index ==
+          "https://Packages.example.com/index/");
+    CHECK(read(std::format("{}[registries]\nnear = {{ index = \"ftp://example.com/index/\" }}\n",
+                           project))
+              .diagnostics ==
+          diagnostics_t{ "error: \"ftp://example.com/index/\": a registry's index is an https:// "
+                         "URL, an http:// one on this machine, or a folder, not a ftp:// URL" });
+    CHECK(
+        read(std::format("{}[registries]\nnear = {{ index = \"Http://example.com/\" }}\n", project))
+            .diagnostics.front()
+            .contains("is https://, or http:// only on this machine"));
 }
 
 TEST_CASE("[project] says what a registry shows of the package", "[manifest]") {

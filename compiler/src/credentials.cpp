@@ -7,6 +7,8 @@
 #include "fb/registry_api.hpp"
 #include "fb/utf8.hpp"
 
+#include <algorithm>
+#include <cstddef>
 #include <expected>
 #include <filesystem>
 #include <format>
@@ -35,6 +37,12 @@
 #include <Security/Security.h>
 #else
 #include <dlfcn.h>
+#endif
+
+#ifndef _WIN32
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 namespace fb {
@@ -324,8 +332,8 @@ private:
 
         void* library = dlopen("libsecret-1.so.0", RTLD_NOW | RTLD_LOCAL);
         if (library == nullptr) {
-            return "there's no libsecret on this machine for keeping the token, so set "
-                   "FB_REGISTRY_TOKEN to it";
+            return "there's no libsecret on this machine for keeping tokens; FB_CREDENTIALS_FILE "
+                   "names a file to keep them in instead, or FB_REGISTRY_TOKEN gives one";
         }
 
         m_store = reinterpret_cast<store_fn_t>(dlsym(library, "secret_password_store_sync"));
@@ -336,8 +344,8 @@ private:
         if (m_store == nullptr || m_lookup == nullptr || m_clear == nullptr || m_free == nullptr ||
             m_error_free == nullptr) {
             dlclose(library);
-            return "this machine's libsecret lacks what fb uses, so set FB_REGISTRY_TOKEN to the "
-                   "token";
+            return "this machine's libsecret lacks what fb uses; FB_CREDENTIALS_FILE names a file "
+                   "to keep tokens in instead, or FB_REGISTRY_TOKEN gives one";
         }
 
         m_library = library;
@@ -346,8 +354,8 @@ private:
 
     std::string failed(const std::string_view what, gerror_t* error) const {
         std::string message = std::format(
-            "the Secret Service couldn't {} it{}{}; without one, FB_REGISTRY_TOKEN gives fb the "
-            "token",
+            "the Secret Service couldn't {} it{}{}; without one, FB_CREDENTIALS_FILE names a "
+            "file to keep tokens in, or FB_REGISTRY_TOKEN gives one",
             what, error != nullptr && error->message != nullptr ? ": " : "",
             error != nullptr && error->message != nullptr ? error->message : "");
         if (error != nullptr) {
@@ -382,6 +390,10 @@ public:
 
     std::expected<void, std::string> set(const std::string_view key,
                                          const std::string_view token) override {
+        if (const std::optional<std::string> wrong = token_error(token)) {
+            return std::unexpected(*wrong);
+        }
+
         std::expected<nlohmann::json, std::string> tokens = read();
         if (!tokens) {
             return std::unexpected(tokens.error());
@@ -415,6 +427,11 @@ private:
 
         std::ostringstream text;
         text << in.rdbuf();
+        // An empty file, as one made to be private first is, has no tokens yet.
+        if (text.view().find_first_not_of(" \t\r\n") == std::string_view::npos) {
+            return nlohmann::json::object();
+        }
+
         nlohmann::json tokens = nlohmann::json::parse(text.str(), nullptr, false);
         if (!tokens.is_object()) {
             return std::unexpected(
@@ -431,29 +448,57 @@ private:
             std::filesystem::create_directories(m_path.parent_path(), error);
         }
 
+        // Tokens are printable ASCII, which set() checks, so this doesn't throw.
+        const std::string text = tokens.dump(2, ' ', true) + '\n';
         std::random_device random;
         std::filesystem::path partial = m_path;
         partial += std::format(".partial-{:08x}", random());
-        {
-            std::ofstream out(partial, std::ios::binary);
-            out << tokens.dump(2) << '\n';
-            out.close();
-            if (!out) {
-                std::filesystem::remove(partial, error);
-                return std::unexpected(std::format("couldn't write {}", to_utf8(m_path)));
-            }
-        }
-
-        std::filesystem::permissions(
-            partial, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
-            error);
-        std::filesystem::rename(partial, m_path, error);
-        if (error) {
+        if (!write_private(partial, text)) {
             std::filesystem::remove(partial, error);
             return std::unexpected(std::format("couldn't write {}", to_utf8(m_path)));
         }
 
+        std::filesystem::rename(partial, m_path, error);
+        if (error) {
+            std::filesystem::remove(partial, error);
+            return std::unexpected(
+                std::format("couldn't write {}: {}", to_utf8(m_path), error.message()));
+        }
+
         return {};
+    }
+
+    /// Writes `text` to a new file at `path` that only its owner can read from the start.
+    static bool write_private(const std::filesystem::path& path, const std::string_view text) {
+#ifdef _WIN32
+        // A file in the user's own folders is theirs alone already.
+        std::ofstream out(path, std::ios::binary);
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+        out.close();
+        return static_cast<bool>(out);
+#else
+        const int file = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+        if (file < 0) {
+            return false;
+        }
+
+        std::size_t done = 0;
+        while (done < text.size()) {
+            const ssize_t written = ::write(file, text.data() + done, text.size() - done);
+            if (written < 0 && errno == EINTR) {
+                continue;
+            }
+
+            if (written <= 0) {
+                close(file);
+                return false;
+            }
+
+            done += static_cast<std::size_t>(written);
+        }
+
+        return close(file) == 0;
+#endif
     }
 };
 
@@ -480,6 +525,18 @@ std::unique_ptr<credential_store_t> os_credential_store() {
 #else
     return std::make_unique<secret_store_t>();
 #endif
+}
+
+std::optional<std::string> token_error(const std::string_view token) {
+    if (token.empty()) {
+        return "a token can't be empty";
+    }
+
+    if (!std::ranges::all_of(token, [](const char c) { return c > ' ' && c < 0x7F; })) {
+        return "that isn't a registry's token, which is printable ASCII without spaces";
+    }
+
+    return std::nullopt;
 }
 
 std::string credential_key(const std::string_view index) {
