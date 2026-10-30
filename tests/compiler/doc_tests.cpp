@@ -745,6 +745,102 @@ TEST_CASE("fb doc std has every Public declaration of std's, each with a doc of 
 
 namespace {
 
+/// Whether an item's doc, or one of its members', has an example.
+bool exemplified(const fb::doc_item_t& item) {
+    return (item.doc && !item.doc->examples.empty()) ||
+           std::ranges::any_of(item.members, exemplified);
+}
+
+/// Each summary of `items`, and their members', with its item's path.
+void summaries_of(const std::vector<fb::doc_item_t>& items,
+                  std::vector<std::pair<std::string, std::string>>& found) {
+    for (const fb::doc_item_t& item : items) {
+        if (item.doc && item.doc_from.empty()) {
+            found.emplace_back(item.path, item.doc->summary);
+        }
+
+        summaries_of(item.members, found);
+    }
+}
+
+} // namespace
+
+TEST_CASE("each of std's types and functions has an example and summaries read whole", "[doc]") {
+    const std::expected<fb::compilation_t, std::string> compiled = fb::compile_standard_docs();
+    REQUIRE(compiled);
+    fb::diagnostic_bag_t warnings;
+    const fb::doc_package_t package =
+        fb::document(*compiled, true, fb::build_mode_t::DEBUG, warnings);
+
+    // Each top-level Class, Struct, Interface, and Function has an example that fb test runs or
+    // compiles, in its own doc, a member's or an overload's, or its module's. An iterator is left
+    // out, since a For loop makes it, not code; so is what this list names, with why.
+    const std::vector<std::string_view> allowed = {};
+    std::vector<std::string> missing;
+    for (const fb::doc_module_t& module : package.modules) {
+        if (module.doc && !module.doc->examples.empty()) {
+            continue;
+        }
+
+        for (const fb::doc_item_t& item : module.items) {
+            const bool kind = item.kind == "class" || item.kind == "struct" ||
+                              item.kind == "interface" || item.kind == "function";
+            if (!kind || item.signature.contains("Implements Iterator<") ||
+                std::ranges::contains(allowed, item.path)) {
+                continue;
+            }
+
+            const bool shown = std::ranges::any_of(module.items, [&](const fb::doc_item_t& other) {
+                return other.path == item.path && exemplified(other);
+            });
+            if (!shown && !std::ranges::contains(missing, item.path)) {
+                missing.push_back(item.path);
+            }
+        }
+    }
+
+    for (const std::string& path : missing) {
+        UNSCOPED_INFO(path);
+    }
+
+    CHECK(missing.empty());
+
+    // A summary is a sentence: it isn't cut off by a "...", or by a '?' that ends no question,
+    // as a T? does, and "an" goes before a type whose name starts with a vowel's sound.
+    std::vector<std::pair<std::string, std::string>> summaries;
+    for (const fb::doc_module_t& module : package.modules) {
+        if (module.doc) {
+            summaries.emplace_back(module.name, module.doc->summary);
+        }
+
+        summaries_of(module.items, summaries);
+    }
+
+    std::vector<std::string> wrong;
+    for (const auto& [path, summary] : summaries) {
+        const bool question = summary.starts_with("Is ") || summary.starts_with("Does ") ||
+                              summary.starts_with("Can ") || summary.starts_with("What ");
+        const bool cut = summary.ends_with("...") || (summary.ends_with('?') && !question);
+        bool article = false;
+        for (const std::string_view type :
+             { " a Immutable", " a Interval", " a Array", " a Lru", " a Int", " a Optional" }) {
+            article = article || summary.contains(type);
+        }
+
+        if (cut || article) {
+            wrong.push_back(std::format("{}: {}", path, summary));
+        }
+    }
+
+    for (const std::string& each : wrong) {
+        UNSCOPED_INFO(each);
+    }
+
+    CHECK(wrong.empty());
+}
+
+namespace {
+
 /// Writes a package's files into the test output folder, after removing what was there.
 std::filesystem::path write_package(const std::string_view name,
                                     const std::vector<std::pair<std::string, std::string>>& files) {
