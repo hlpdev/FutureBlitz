@@ -162,7 +162,8 @@ jobs:
 
   # Every release's packages stay in the repositories: those R2 has already, and this one's.
   # Packages go up first and the indexes that name them last, so a client never reads an index
-  # whose packages aren't there yet.
+  # whose packages aren't there yet. apt's indexes are by-hash, which an InRelease names by their
+  # hashes, so an InRelease and the indexes it gets always match; what changes isn't cached.
   linux:
     name: apt and dnf
     needs: check
@@ -221,19 +222,32 @@ jobs:
         run: |
           set -eux
           sync() { aws s3 sync "$@" --endpoint-url "$R2" --no-progress; }
+          put() { aws s3 cp "site/$1" "s3://$BUCKET/$1" --endpoint-url "$R2" --no-progress --cache-control "$2"; }
           forever="public, max-age=31536000, immutable"
-          brief="public, max-age=300"
-          # A package's name has its version, so one that's there already is the same.
+          fresh="no-cache"
+          # What never changes, under a name that's its version or its hash, cached for good: the
+          # packages, apt's indexes by-hash, and createrepo_c's checksum-named files. Nothing is
+          # deleted, so an older InRelease or repomd.xml still finds the files it names.
           sync site/apt/pool "s3://$BUCKET/apt/pool" --cache-control "$forever" --size-only
           sync site/rpm/packages "s3://$BUCKET/rpm/packages" --cache-control "$forever" --size-only
-          sync site/apt/dists "s3://$BUCKET/apt/dists" --cache-control "$brief" --exclude '*Release*'
-          # createrepo_c's files are named by their checksums, but repomd.xml, which names them.
-          sync site/rpm/repodata "s3://$BUCKET/rpm/repodata" --cache-control "$forever" --exclude 'repomd.xml*'
+          sync site/apt/dists "s3://$BUCKET/apt/dists" --cache-control "$forever" --size-only \
+            --exclude '*' --include '*/by-hash/*'
+          sync site/rpm/repodata "s3://$BUCKET/rpm/repodata" --cache-control "$forever" --size-only \
+            --exclude 'repomd.xml*'
+          # What changes, never cached, so a client gets the files that go together: apt's plain
+          # indexes, for clients without by-hash, the keys, and the .repo.
+          sync site/apt/dists "s3://$BUCKET/apt/dists" --cache-control "$fresh" \
+            --exclude '*Release*' --exclude '*/by-hash/*'
           for file in apt/futureblitz.gpg apt/futureblitz.asc rpm/futureblitz.asc rpm/futureblitz.repo; do
-            aws s3 cp "site/$file" "s3://$BUCKET/$file" --endpoint-url "$R2" --cache-control "$brief"
+            put "$file" "$fresh"
           done
-          sync site/apt/dists "s3://$BUCKET/apt/dists" --cache-control "$brief" --exclude '*' --include '*Release*'
-          sync site/rpm/repodata "s3://$BUCKET/rpm/repodata" --cache-control "$brief" --exclude '*' --include 'repomd.xml*'
+          # Last, what names the rest, each with its signature right after it: InRelease is one
+          # file, signature and all, which is what apt reads; dnf reads repomd.xml, then its .asc.
+          put apt/dists/stable/Release "$fresh"
+          put apt/dists/stable/Release.gpg "$fresh"
+          put apt/dists/stable/InRelease "$fresh"
+          put rpm/repodata/repomd.xml "$fresh"
+          put rpm/repodata/repomd.xml.asc "$fresh"
 
   vscode:
     name: vscode extension
