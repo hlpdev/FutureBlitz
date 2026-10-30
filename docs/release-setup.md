@@ -89,6 +89,11 @@ gh secret set HOMEBREW_TAP_TOKEN -R hlpdev/FutureBlitz
 
 Artifact Signing was called Trusted Signing; the portal and the role may show either name.
 
+A signing account already validated for you, as an individual, signs for FutureBlitz too, at no
+cost past the account's own: the certificate names you, not a project, and a Basic account's 5,000
+signatures a month cover a release's few files. Then skip steps 1 to 3 and use its Account URI and
+certificate profile in steps 5 and 6.
+
 1. In the Azure portal, make a resource group, and in it an **Artifact Signing Account**
    (Basic is enough), in a region near you. Its Overview shows the **Account URI**, like
    `https://eus.codesigning.azure.net/`: that's the endpoint.
@@ -184,18 +189,12 @@ publisher and Open VSX's namespace have to be that.
 
 ## The R2 bucket
 
-The bucket that dl.futureblitz.dev serves (docs/website.md); if futureblitz-web made it already,
-use that one. The repositories go under its `apt/` and `rpm/`. With wrangler, logged in to the
-Cloudflare account that has futureblitz.dev:
-
-```sh
-npx wrangler r2 bucket create futureblitz-dl
-npx wrangler r2 bucket domain add futureblitz-dl --domain dl.futureblitz.dev --zone-id <futureblitz.dev's zone id>
-```
-
-Then its keys: the dashboard's R2 > Manage API tokens > Create API token, with Permissions "Object
-Read & Write", and Specify bucket(s) > futureblitz-dl. It shows an Access Key ID and a Secret
-Access Key once; the account ID is on R2's overview.
+`futureblitz-dl` holds the apt and dnf repositories, which the registry's Worker serves on
+dl.futureblitz.dev under `apt/` and `rpm/` (futureblitz-web's workers/api, which binds it as
+RELEASES); the bucket has no domain of its own, and package archives are in another bucket, which
+this key can't write. Its keys: the dashboard's R2 > Manage API tokens > Create API token, with
+Permissions "Object Read & Write", and Specify bucket(s) > futureblitz-dl. It shows an Access Key
+ID and a Secret Access Key once; the account ID is on R2's overview.
 
 ```sh
 gh secret set R2_ACCOUNT_ID -R hlpdev/FutureBlitz
@@ -220,7 +219,8 @@ dl.futureblitz.dev. Each is true once its part above is done:
   AZURE_SIGNING_ACCOUNT, AZURE_SIGNING_PROFILE, and R2_BUCKET.
 - [ ] `gh repo view hlpdev/homebrew-tap` and `gh repo view hlpdev/winget-pkgs` find each.
 - [ ] Azure's identity validation is approved, and the certificate profile made with it.
-- [ ] `curl -fsSI https://dl.futureblitz.dev/` answers, from the R2 bucket's domain.
+- [ ] `curl -fsSI https://dl.futureblitz.dev/apt/dists/stable/InRelease` answers, after publish.yml's
+  first linux job.
 
 ## A release, then
 
