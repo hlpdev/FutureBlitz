@@ -1,11 +1,18 @@
 # Builds fb's release for each target, installs each on a fresh machine with its install script
 # and installer, and builds and runs `fb new`'s package there; for a pushed v<version> tag, makes a
 # draft GitHub Release of them, which is published by hand. docs/tooling.md's Releases says what
-# a release is.
+# a release is, and publish.yml sends a published one to winget, Homebrew, apt and dnf, and the
+# VS Code Marketplace and Open VSX.
+#
+# The version is the tag's, v1.0.0's 1.0.0, or CMakeLists.txt's for a dispatch on a branch.
 #
 # Linux: fb is built on Ubuntu 22.04, which it then needs, with apt.llvm.org's LLVM linked in,
 # while the runtime and std's bundled libraries, and glibc 2.28's pieces that programs link, come
 # from a manylinux_2_28 container (AlmaLinux 8), so the programs fb builds run on glibc 2.28.
+#
+# Windows: fb's executables, the MSI, and setup.exe are signed with Azure Artifact Signing when
+# the AZURE_* secrets and variables are set (docs/release-setup.md), and left unsigned, with a
+# warning, when none are. Linux: the .rpms are signed with REPO_SIGNING_KEY when it's set.
 name: Release
 
 on:
@@ -22,8 +29,37 @@ concurrency:
 
 env:
   LLVM_VERSION: 22.1.8
+  WIX_VERSION: 5.0.2
+  NFPM_VERSION: 2.48.0
 
 jobs:
+  version:
+    name: version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        run: |
+          own="$(sed -n 's/^project(FutureBlitz VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo "::error::A release's tag is v and three numbers, like v1.0.0, not $GITHUB_REF_NAME"
+              exit 1
+            fi
+            if [ "$version" != "$own" ]; then
+              echo "::warning::The tag is $version, but CMakeLists.txt's version is $own, which builds from this commit say"
+            fi
+          else
+            version="$own"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+
   # What Linux programs link, against glibc 2.28: lib/linux-<arch>/, with glibc's and the
   # kernel's headers in its include/, for fb-bindgen.
   runtime:
@@ -69,8 +105,8 @@ jobs:
 
   build:
     name: build ${{ matrix.target }}
-    needs: runtime
-    if: ${{ !cancelled() }}
+    needs: [version, runtime]
+    if: ${{ !cancelled() && needs.version.result == 'success' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:
@@ -95,19 +131,11 @@ jobs:
     defaults:
       run:
         shell: ${{ matrix.shell }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      RELEASE: futureblitz-${{ needs.version.outputs.version }}-${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Version
-        shell: bash
-        run: |
-          version="$(sed -n 's/^project(FutureBlitz VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
-          echo "VERSION=$version" >> "$GITHUB_ENV"
-          echo "RELEASE=futureblitz-$version-${{ matrix.target }}" >> "$GITHUB_ENV"
-          if [[ "$GITHUB_REF" == refs/tags/v* && "$GITHUB_REF_NAME" != "v$version" ]]; then
-            echo "::error::The tag $GITHUB_REF_NAME isn't CMakeLists.txt's version, $version"
-            exit 1
-          fi
 
       # Windows: MinGW's GCC from MSYS2, and the official LLVM installer, as ci.yml has them.
       - name: Install MinGW
@@ -173,7 +201,9 @@ jobs:
           echo "FB_CONFIGURE=-DLLVM_DIR=$prefix/lib/cmake/llvm" >> "$GITHUB_ENV"
 
       - name: Configure
-        run: cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DFB_BUILD_TESTS=OFF $FB_CONFIGURE
+        run: |
+          cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DFB_BUILD_TESTS=OFF \
+            "-DFB_VERSION=$VERSION" $FB_CONFIGURE
 
       - name: Build
         run: cmake --build build
@@ -191,7 +221,53 @@ jobs:
           diff <(ls "stage/$RELEASE/bin") <(ls destdir/futureblitz/bin)
           destdir/futureblitz/bin/fb --version
 
-      - name: Archive (Windows)
+      # Windows' signing: all of the secrets and variables, or none, which leaves it unsigned.
+      - name: Signing (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          TENANT: ${{ secrets.AZURE_TENANT_ID }}
+          CLIENT: ${{ secrets.AZURE_CLIENT_ID }}
+          SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: |
+          set=0
+          for value in "$TENANT" "$CLIENT" "$SECRET" "$ENDPOINT" "$ACCOUNT" "$PROFILE"; do
+            if [ -n "$value" ]; then set=$((set + 1)); fi
+          done
+          if [ "$set" = 6 ]; then
+            echo "SIGN=true" >> "$GITHUB_ENV"
+          elif [ "$set" = 0 ]; then
+            echo "::warning::The Azure signing secrets aren't set, so fb's executables, the MSI, and setup.exe are unsigned"
+          else
+            echo "::error::Only $set of the 6 Azure signing secrets and variables are set (docs/release-setup.md)"
+            exit 1
+          fi
+
+      - name: Sign fb's executables
+        if: runner.os == 'Windows' && env.SIGN == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files: |
+            ${{ github.workspace }}\stage\${{ env.RELEASE }}\bin\fb.exe
+            ${{ github.workspace }}\stage\${{ env.RELEASE }}\bin\fb-lsp.exe
+            ${{ github.workspace }}\stage\${{ env.RELEASE }}\bin\fb-bindgen.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: FutureBlitz
+          description-url: https://futureblitz.dev
+
+      # The MSI's ProductCode is its version's own, which winget's manifest gives too.
+      - name: Archive and MSI (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -199,15 +275,158 @@ jobs:
           Push-Location stage
           7z a -tzip -mx=9 "../dist/$env:RELEASE.zip" $env:RELEASE | Out-Null
           Pop-Location
-          dotnet tool install --global wix --version 5.0.2
+          dotnet tool install --global wix --version $env:WIX_VERSION
+          wix extension add -g "WixToolset.Bal.wixext/$env:WIX_VERSION"
+          $code = python tools/release/packages.py product-code $env:VERSION
           wix build tools/install/futureblitz.wxs -arch x64 -d "Version=$env:VERSION" `
-            -d "Release=$PWD\stage\$env:RELEASE" -o "dist/$env:RELEASE.msi"
+            -d "ProductCode=$code" -d "Release=$PWD\stage\$env:RELEASE" -pdbtype none `
+            -o "dist/$env:RELEASE.msi"
+          if ($LASTEXITCODE -ne 0) { throw "the MSI didn't build" }
+          $installer = New-Object -ComObject WindowsInstaller.Installer
+          $database = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null,
+            $installer, @("$PWD\dist\$env:RELEASE.msi", 0))
+          $view = $database.OpenView("SELECT Value FROM Property WHERE Property = 'ProductCode'")
+          $view.Execute()
+          $built = $view.Fetch().StringData(1)
+          if ($built -ne "{$code}") { throw "the MSI's ProductCode is $built, not {$code}" }
+
+      - name: Sign the MSI
+        if: runner.os == 'Windows' && env.SIGN == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\dist\${{ env.RELEASE }}.msi
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: FutureBlitz
+          description-url: https://futureblitz.dev
+
+      # setup.exe: Burn around the signed MSI. A signed bundle's engine, which it runs from a
+      # temporary folder, is signed first, taken out and put back.
+      - name: Bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          wix build tools/install/bundle.wxs -arch x64 -ext WixToolset.Bal.wixext `
+            -d "Version=$env:VERSION" -d "Msi=$PWD\dist\$env:RELEASE.msi" `
+            -d "Brand=$PWD\assets\brand" -pdbtype none -o "dist/$env:RELEASE-setup.exe"
+          if ($LASTEXITCODE -ne 0) { throw "setup.exe didn't build" }
+          if ($env:SIGN -eq 'true') {
+            New-Item -ItemType Directory -Force engine | Out-Null
+            wix burn detach "dist/$env:RELEASE-setup.exe" -engine engine/engine.exe
+            if ($LASTEXITCODE -ne 0) { throw "couldn't take setup.exe's engine out" }
+          }
+
+      - name: Sign setup.exe's engine
+        if: runner.os == 'Windows' && env.SIGN == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\engine\engine.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: FutureBlitz
+          description-url: https://futureblitz.dev
+
+      - name: Put the engine back
+        if: runner.os == 'Windows' && env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          wix burn reattach "dist/$env:RELEASE-setup.exe" -engine engine/engine.exe `
+            -o engine/setup.exe
+          if ($LASTEXITCODE -ne 0) { throw "couldn't put setup.exe's engine back" }
+          Move-Item -Force engine/setup.exe "dist/$env:RELEASE-setup.exe"
+
+      - name: Sign setup.exe
+        if: runner.os == 'Windows' && env.SIGN == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\dist\${{ env.RELEASE }}-setup.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: FutureBlitz
+          description-url: https://futureblitz.dev
+
+      # What's signed is signed, and what's inside the archive is the signed one.
+      - name: Check the signatures
+        if: runner.os == 'Windows' && env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          $files = @("dist\$env:RELEASE.msi", "dist\$env:RELEASE-setup.exe") +
+            @('fb', 'fb-lsp', 'fb-bindgen' | ForEach-Object { "stage\$env:RELEASE\bin\$_.exe" })
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file
+            if ($signature.Status -ne 'Valid') { throw "$file's signature is $($signature.Status)" }
+          }
+          $unpacked = "$env:RUNNER_TEMP\signed"
+          Expand-Archive -LiteralPath "dist\$env:RELEASE.zip" -DestinationPath $unpacked
+          $fb = Get-AuthenticodeSignature -LiteralPath "$unpacked\$env:RELEASE\bin\fb.exe"
+          if ($fb.Status -ne 'Valid') { throw "the archive's fb.exe is $($fb.Status)" }
 
       - name: Archive
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist
           tar -C stage -czf "dist/$RELEASE.tar.gz" "$RELEASE"
+
+      # The .deb and .rpm, from nfpm's release, checked against its checksums; the .rpm is signed
+      # with the repositories' key, which dnf's gpgcheck asks for.
+      - name: Packages (Linux)
+        if: runner.os == 'Linux'
+        env:
+          REPO_SIGNING_KEY: ${{ secrets.REPO_SIGNING_KEY }}
+        run: |
+          set -eu
+          case "${{ matrix.target }}" in
+            linux-x64) arch=amd64 machine=x86_64 ;;
+            linux-arm64) arch=arm64 machine=arm64 ;;
+          esac
+          tools="$RUNNER_TEMP/nfpm-tool"
+          mkdir -p "$tools"
+          archive="nfpm_${NFPM_VERSION}_Linux_${machine}.tar.gz"
+          url="https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION"
+          curl -fsSL -o "$tools/$archive" "$url/$archive"
+          curl -fsSL -o "$tools/checksums.txt" "$url/checksums.txt"
+          (cd "$tools" && sha256sum --ignore-missing -c checksums.txt && tar -xzf "$archive" nfpm)
+          key=""
+          if [ -n "$REPO_SIGNING_KEY" ]; then
+            key="$RUNNER_TEMP/signing.asc"
+            (umask 077 && printf '%s\n' "$REPO_SIGNING_KEY" > "$key")
+          else
+            echo "::warning::REPO_SIGNING_KEY isn't set, so the .rpm is unsigned, and the dnf repository will refuse it"
+          fi
+          # nfpm takes the release's folder as futureblitz/ in the folder it runs in.
+          work="$RUNNER_TEMP/nfpm"
+          mkdir -p "$work"
+          cp -a "stage/$RELEASE" "$work/futureblitz"
+          for packager in deb rpm; do
+            (cd "$work" && VERSION="$VERSION" ARCH="$arch" RPM_SIGNING_KEY="$key" \
+              "$tools/nfpm" package -f "$GITHUB_WORKSPACE/tools/release/nfpm.yaml" -p "$packager" \
+              -t "$GITHUB_WORKSPACE/dist/")
+          done
+          rm -rf "$work"
+          if [ -n "$key" ]; then rm -f "$key"; fi
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb | grep -E ' \./usr/bin/fb -> /usr/lib/futureblitz/bin/fb$'
 
       - name: Installer (macOS)
         if: runner.os == 'macOS'
@@ -227,11 +446,13 @@ jobs:
   # what's on PATH, and a plain ubuntu:22.04 container.
   test:
     name: test ${{ matrix.target }}
-    needs: build
-    if: ${{ !cancelled() }}
+    needs: [version, build]
+    if: ${{ !cancelled() && needs.version.result == 'success' }}
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     strategy:
       fail-fast: false
       matrix:
@@ -277,7 +498,8 @@ jobs:
           if (-not (Get-Command fb -ErrorAction SilentlyContinue)) { throw "fb isn't on PATH" }
           $user = [Environment]::GetEnvironmentVariable('Path', 'User')
           if (-not $user.Contains("$env:USERPROFILE\.futureblitz\bin")) { throw "the user's PATH is $user" }
-          fb --version
+          $said = fb --version
+          if (-not $said.StartsWith("fb $env:VERSION (")) { throw "fb --version said '$said'" }
           Set-Location $env:RUNNER_TEMP
           fb new hello
           if ($LASTEXITCODE -ne 0) { throw "fb new failed" }
@@ -318,6 +540,79 @@ jobs:
           $user = [Environment]::GetEnvironmentVariable('Path', 'User')
           if ($user -and $user.Contains($bin)) { throw "the MSI left $bin on the user's PATH" }
 
+      - name: Install with setup.exe, and run fb new's package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist\*-setup.exe).FullName
+          $log = "$env:RUNNER_TEMP\setup.log"
+          $run = Start-Process $setup -Wait -PassThru -ArgumentList '/quiet', '/norestart', '/log', "`"$log`""
+          $fb = "$env:USERPROFILE\.futureblitz\bin\fb.exe"
+          if ($run.ExitCode -ne 0 -or -not (Test-Path $fb)) {
+            Get-Content $log -Tail 50
+            throw "setup.exe exited with $($run.ExitCode), and didn't install fb"
+          }
+          $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if (-not $user.Contains("$env:USERPROFILE\.futureblitz\bin")) { throw "the user's PATH is $user" }
+          $env:Path = "$env:SystemRoot\System32;$env:SystemRoot"
+          Set-Location $env:RUNNER_TEMP
+          Remove-Item -Recurse -Force hello
+          & $fb new hello
+          Set-Location hello
+          $out = & $fb run
+          if ($LASTEXITCODE -ne 0 -or $out -ne 'Hello, world!') { throw "fb run printed '$out'" }
+          Set-Location $env:RUNNER_TEMP
+          $run = Start-Process $setup -Wait -PassThru -ArgumentList '/uninstall', '/quiet', '/norestart'
+          if ($run.ExitCode -ne 0 -or (Test-Path $fb)) { throw "setup.exe didn't uninstall fb" }
+
+      # winget's manifests for this MSI, which winget itself checks, where the runner has it.
+      - name: winget's manifests
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Push-Location dist
+          Get-ChildItem *.msi | ForEach-Object {
+            "$((Get-FileHash $_.Name -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Set-Content -Encoding ascii "$env:RUNNER_TEMP\SHA256SUMS"
+          Pop-Location
+          python tools/release/packages.py winget $env:VERSION "$env:RUNNER_TEMP\SHA256SUMS" winget
+          if ($LASTEXITCODE -ne 0) { throw "packages.py failed" }
+          Get-Content winget\*.yaml
+          if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget validate --manifest winget
+            if ($LASTEXITCODE -ne 0) { throw "winget refused the manifests" }
+          } else {
+            "::warning::The runner has no winget, so its manifests weren't validated"
+          }
+
+      # Homebrew's formula for this archive, from a tap of the test's own, and its test block,
+      # before the steps below cut PATH and HOME down. The other targets' archives aren't here,
+      # so their hashes are stand-ins.
+      - name: Install with Homebrew, and run the formula's test
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_NO_ANALYTICS: 1
+        run: |
+          set -eux
+          sums="$RUNNER_TEMP/SHA256SUMS"
+          (cd dist && shasum -a 256 ./*.tar.gz | sed 's|  \./|  |') > "$sums"
+          for target in linux-x64 linux-arm64 macos-arm64 macos-x64; do
+            name="futureblitz-$VERSION-$target.tar.gz"
+            grep -q " $name\$" "$sums" || echo "$(printf '%064d' 0)  $name" >> "$sums"
+          done
+          brew tap-new --no-git local/futureblitz
+          tap="$(brew --repository)/Library/Taps/local/homebrew-futureblitz"
+          python3 tools/release/packages.py homebrew "$VERSION" "$sums" "$tap/Formula/futureblitz.rb" \
+            --url-base "file://$PWD/dist"
+          brew install --formula local/futureblitz/futureblitz
+          test "$(readlink -f "$(brew --prefix)/bin/fb")" = \
+            "$(readlink -f "$(brew --prefix futureblitz)/libexec/bin/fb")"
+          brew test local/futureblitz/futureblitz
+          brew uninstall --formula local/futureblitz/futureblitz
+          brew untap local/futureblitz
+
       # macOS: a home of its own, with no startup files, as a new user's.
       - name: A fresh home (macOS)
         if: runner.os == 'macOS'
@@ -342,12 +637,17 @@ jobs:
           export SHELL=/bin/bash
           sh tools/install/install.sh --archive "$(ls "$PWD"/dist/*.tar.gz)"
           # What every machine has stays out of bin/: glibc, its loader, and GCC's runtime.
-          if ls ~/.futureblitz/bin | grep -E '^(ld-|libc\.|libm\.|libstdc\+\+|libgcc_s)'; then
-            echo "::error::The release's bin/ has the system's libraries"
-            exit 1
-          fi
-          # A new login shell has fb on PATH, from the shell's startup file.
-          bash -lc 'command -v fb && fb --version'
+          for library in ~/.futureblitz/bin/*; do
+            case "${library##*/}" in
+              ld-*|libc.*|libm.*|libstdc++*|libgcc_s*)
+                echo "::error::The release's bin/ has the system's ${library##*/}"
+                exit 1
+                ;;
+            esac
+          done
+          # A new login shell has fb on PATH, from the shell's startup file, and it's this version.
+          bash -lc 'command -v fb'
+          bash -lc 'fb --version' | grep "^fb $VERSION ("
           cd "$RUNNER_TEMP"
           bash -lc 'fb new hello'
           test "$(cd hello && bash -lc 'fb run')" = "Hello, world!"
@@ -397,6 +697,30 @@ jobs:
           bash -lc "fb build '$RUNNER_TEMP/old/main.fb' -o '$RUNNER_TEMP/old/out/old'"
           cp "$RUNNER_TEMP/old/out/old" old
 
+      # The .deb, with apt, which installs what it depends on, and nothing that compiles; fb in
+      # /usr/bin is a link to /usr/lib/futureblitz/bin/fb.
+      - name: Install the .deb, and run fb new's package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y --no-install-recommends "$(ls "$PWD"/dist/*.deb)"
+          if command -v cc || command -v c++ || command -v ld; then
+            echo "::error::The .deb's dependencies brought a C++ compiler or a linker"
+            exit 1
+          fi
+          test "$(readlink -f /usr/bin/fb)" = /usr/lib/futureblitz/bin/fb
+          test -x /usr/bin/fb-lsp
+          /usr/bin/fb --version | grep "^fb $VERSION ("
+          mkdir -p "$RUNNER_TEMP/deb"
+          cd "$RUNNER_TEMP/deb"
+          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/deb" fb new hello
+          test "$(cd hello && env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/deb" fb run)" = "Hello, world!"
+          apt-get remove -y futureblitz
+          test ! -e /usr/bin/fb
+          test ! -e /usr/lib/futureblitz/bin/fb
+
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Linux'
         with:
@@ -431,14 +755,94 @@ jobs:
           chmod +x old
           test "$(./old)" = "glibc 2.28"
 
-  # A draft, for a pushed tag only, which is published by hand.
+  # The .rpm, with dnf, in Fedora, which has no compiler either.
+  rpm:
+    name: rpm ${{ matrix.target }}
+    needs: [version, build]
+    if: ${{ !cancelled() && needs.version.result == 'success' }}
+    runs-on: ${{ matrix.os }}
+    container: fedora:43
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-22.04
+          - target: linux-arm64
+            os: ubuntu-22.04-arm
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist
+
+      - name: Install the .rpm, and run fb new's package
+        run: |
+          set -eux
+          dnf install -y "$(ls "$PWD"/dist/*.rpm)"
+          if command -v cc || command -v c++ || command -v ld; then
+            echo "::error::The .rpm's dependencies brought a C++ compiler or a linker"
+            exit 1
+          fi
+          test "$(readlink -f /usr/bin/fb)" = /usr/lib/futureblitz/bin/fb
+          /usr/bin/fb --version | grep "^fb $VERSION ("
+          mkdir -p "$RUNNER_TEMP/rpm"
+          cd "$RUNNER_TEMP/rpm"
+          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/rpm" fb new hello
+          test "$(cd hello && env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/rpm" fb run)" = "Hello, world!"
+          dnf remove -y futureblitz
+          test ! -e /usr/bin/fb
+
+  # The extension's .vsix, at the release's version.
+  vscode:
+    name: vscode extension
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Package
+        run: |
+          npm ci
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          npm run compile
+          npm run test:unit
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          npx vsce package --out "$GITHUB_WORKSPACE/dist/futureblitz-$VERSION.vsix"
+          npx vsce ls | grep -x images/icon.png
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-vscode
+          path: dist
+          if-no-files-found: error
+
+  # A draft, for a pushed tag only, which is published by hand, with SHA256SUMS, from which
+  # publish.yml makes winget's manifests and the formula; they're made here too, to check them.
   release:
     name: draft release
-    needs: [build, test, glibc]
+    needs: [version, build, test, glibc, rpm, vscode]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -448,10 +852,25 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Checksums, and what the package managers read
+        run: |
+          set -eux
+          cp tools/install/install.sh tools/install/install.ps1 dist/
+          (cd dist && sha256sum -- * > SHA256SUMS)
+          cat dist/SHA256SUMS
+          python3 tools/release/packages.py winget "$VERSION" dist/SHA256SUMS channels/winget
+          python3 tools/release/packages.py homebrew "$VERSION" dist/SHA256SUMS channels/futureblitz.rb
+          ruby -c channels/futureblitz.rb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: channels
+          path: channels
+          if-no-files-found: error
+
       - name: Draft the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp tools/install/install.sh tools/install/install.ps1 dist/
-          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "FutureBlitz ${GITHUB_REF_NAME#v}" \
-            --notes "FutureBlitz ${GITHUB_REF_NAME#v}. See the README's Installing." dist/*
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "FutureBlitz $VERSION" \
+            --notes "FutureBlitz $VERSION. See the README's Installing." dist/*
