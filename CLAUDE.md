@@ -35,10 +35,10 @@ M7, libraries and packages, is done: steps 0 to 7 of docs/milestones.md's M7 bui
 self-contained toolchain, 2, releases, 3, debug info and stack traces, 4, the LSP, 5, the VS Code
 extension, 6, the formatter, 7, testing, and 8, `///` docs and `fb doc`, done 2026-10-29): the
 self-contained toolchain and releases, debug info and a debugger, the LSP, VS Code, the formatter,
-`fb test`, and `fb doc`. M9 is futureblitz.dev's site, docs, and playground, and M10 packages
-online, the package manager and the registry, both in docs/website.md; phase 1 ends with M10, and
-the engine is a phase of its own. docs/milestones.md's Deferred work lists everything left for
-later, and where it's planned.
+`fb test`, and `fb doc`. M9 is futureblitz.dev's site and docs, and M10 packages online, the package
+manager and the registry, both in docs/website.md; phase 1 ends with M10, and the engine is a phase
+of its own. docs/milestones.md's Deferred work lists everything left for later, and where it's
+planned.
 
 ## History
 Each milestone's steps, in detail (what each added, by name, and each review's fixes), are in

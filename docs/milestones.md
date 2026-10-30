@@ -19,7 +19,7 @@ Timeline: honors project begins **fall 2027**, so there is plenty of runway.
 | **M6** | Full standard library | `std.*` complete, with tests |
 | **M7** | Libraries and packages: FutureBlitz libraries built into the executable or shipped beside it as the OS's own DLLs, interface files, prebuilt native code in packages | an FB program uses one prebuilt FB library embedded and another beside it, and calls a C++ DLL from a package |
 | **M8** | Tooling: a self-contained toolchain and releases, debug info and a debugger, the LSP, the VS Code extension, the formatter, `fb test`, and `fb doc` ([tooling.md](tooling.md)) | on a machine with no C++ compiler, fb installs from a release, and VS Code shows errors as you type, hovers, goes to definitions, completes, formats on save, runs tests, and steps through a program at a breakpoint |
-| **M9** | futureblitz.dev: the site, docs, and playground, on Cloudflare ([website.md](website.md)) | the site, its docs, and the playground are live, and every docs example runs |
+| **M9** | futureblitz.dev: the site and its docs, on Cloudflare ([website.md](website.md)) | the site and its docs are live, and every docs example runs in CI |
 | **M10** | Packages online: the package manager and the registry, built together, with accounts and the package site ([website.md](website.md), [libraries.md](libraries.md)) | a package published with `fb publish`, from a computer and from a GitHub workflow, is added with `fb add` on another computer and builds, and its page shows its readme, versions, and docs |
 
 ## The engine
