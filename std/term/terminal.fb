@@ -41,6 +41,8 @@ Class TerminalInput
     Field RawMode: Int
     /// A resize that came while bytes waited, which comes after them.
     Field Resized: InputEvent? = Null
+    /// Whether the last read ended at the end of the input, which tells it from a timeout.
+    Field Ended: Bool
 
     New()
         Parser = InputParser()
@@ -172,6 +174,12 @@ Public Abstract Class Terminal
         Return NextEvent(Max(timeout.Nanoseconds, 0))
     End Method
 
+    /// Whether the last read of an event came to the end of the input, so a PollEvent's Null is
+    /// the end and not its timeout.
+    Package Property IsAtEnd: Bool
+        Get => Input.Ended
+    End Property
+
     /// The next key, in raw mode for as long as it waits, if it isn't already, or Null at the end
     /// of the input. What isn't a key is skipped.
     Public Method ReadKey(): KeyEvent? => KeyWithin(-1)
@@ -262,6 +270,7 @@ Public Abstract Class Terminal
     /// negative.
     Method NextEvent(timeout: Int64): InputEvent?
         Local deadline = DeadlineOf(timeout)
+        Input.Ended = False
         Loop
             Local event = Input.Parser.Next()
             If event != Null Then Return event
@@ -291,6 +300,7 @@ Public Abstract Class Terminal
                 Local flushed = Input.Parser.Flush()
                 If flushed != Null Then Return flushed
             ElseIf count == -1
+                Input.Ended = True
                 Return Input.Parser.Flush()
             ElseIf waiting
                 Local flushed = Input.Parser.Flush()

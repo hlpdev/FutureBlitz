@@ -60,9 +60,11 @@ the runtime keeps outside the leak report, gives a loop of a program's own `Step
 (`fb_scheduler_step`, a Scheduler's Tick of no time); `Scheduler.Main.Tick(seconds)` is a compile
 error, and `fb_scheduler_tick` panics at its call for the main scheduler. `NextFrame()` became
 `NextTick()`, WAIT_FRAME WAIT_TICK, and `fb_wait_frame` `fb_wait_tick`. tests/programs'
-scheduler_main, scheduler_no_step, and panic_scheduler_main_tick show it. docs/spec was rewritten
-as a reference at 1.0, with no dates, provenance, or engine examples: spec 10's examples are a UI's
-and a server's, and spec 08's engine resources are native resources.
+scheduler_main, scheduler_no_step, and panic_scheduler_main_tick show it. std.term's
+`Screen.Run` steps it after each event, and while a coroutine waits polls for keys 10 ms at most,
+which a Terminal's Package `IsAtEnd` tells from the input's end (term_screen_coroutines).
+docs/spec was rewritten as a reference at 1.0, with no dates, provenance, or engine examples: spec
+10's examples are a UI's and a server's, and spec 08's engine resources are native resources.
 
 The installers, after the milestone (2026-10-30): a release is versioned from its tag
 (`-DFB_VERSION`, refused unless three numbers) and has, beside each target's archive, setup.exe (a

@@ -17,6 +17,10 @@ Import std.term.style
 Import std.term.terminal
 Import std.term.widgets
 
+/// How long Screen.Run waits for an event at most while a coroutine waits on the main scheduler,
+/// which it steps after each wait.
+Const STEP_WAIT = 10.Milliseconds
+
 /// One of a canvas's cells: the grapheme cluster that shows there, a space where it's blank, and
 /// how it looks. The right half of a wide one, which the cell before it shows, holds "".
 ///
@@ -458,15 +462,25 @@ Public Class Screen
     Public Method PollEvent(timeout: Duration): InputEvent? => Track(Term.PollEvent(timeout))
 
     /// Runs an app until `handle` gives False or the input ends: `draw` draws each frame on a blank
-    /// Frame, which is presented, then `handle` takes the next event.
+    /// Frame, which is presented, then `handle` takes the next event. It steps the main scheduler
+    /// after each, so the program's coroutines run while it waits for keys: while one waits, it
+    /// waits for an event for 10 milliseconds at most, and draws again after each Step, whether an
+    /// event came or not.
     Public Method Run(draw: Func(Canvas), handle: Func(InputEvent): Bool)
         Loop
             Back.Clear()
             draw(Back)
             Present()
-            Local event = ReadEvent()
-            If event == Null Then Break
-            If !handle(event) Then Break
+            If Scheduler.Main.IsIdle()
+                Local event = ReadEvent()
+                If event == Null || !handle(event) Then Break
+            Else
+                Local event = PollEvent(STEP_WAIT)
+                If event == Null && Term.IsAtEnd Then Break
+                If event != Null && !handle(event) Then Break
+            End If
+
+            Scheduler.Main.Step()
         End Loop
     End Method
 

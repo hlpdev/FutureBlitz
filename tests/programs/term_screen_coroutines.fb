@@ -1,0 +1,54 @@
+// A Screen's Run steps the main scheduler while it waits for keys, so a coroutine started before
+// it goes on, and what it changes shows at the next draw. Once none waits, Run waits for keys
+// alone, and the input's end ends it as before.
+Import std.core
+Import std.text
+Import std.time
+Import std.term
+
+Function Shown(text: String): String => text.Replace("\u{1b}", "\\e").Replace("\r", "\\r")
+
+Global status = "loading"
+
+Async Function Load()
+    Await Wait(0.Seconds)
+    status = "loaded"
+    Await NextTick()
+    status = "ready"
+End Function
+
+// Nothing's typed for a while, then q.
+Local fake = FakeTerminal(8, 1, ColorLevel.NONE)
+fake.Pause(10.Milliseconds)
+fake.Pause(10.Milliseconds)
+fake.Pause(10.Milliseconds)
+fake.Feed("q")
+Local app = Screen(fake)
+fake.TakeOutput()
+Load()
+app.Run(Function(canvas: Canvas)
+    canvas.Print(0, 0, status)
+End Function, Function(event: InputEvent): Bool => !event.IsChar('q'))
+Print(status, Shown(fake.TakeOutput()))
+app.Close()
+
+// The input's end ends Run while a coroutine still waits, which then runs once top-level code
+// ends.
+Async Function Later()
+    Await Wait(20.Milliseconds)
+    Print("later, after Run")
+End Function
+
+Local ended = FakeTerminal(8, 1, ColorLevel.NONE)
+ended.Feed("ab")
+Local other = Screen(ended)
+Local keys = 0
+Later()
+other.Run(Function(canvas: Canvas)
+    canvas.Print(0, 0, "keys {keys}")
+End Function, Function(event: InputEvent): Bool
+    keys += 1
+    Return True
+End Function)
+other.Close()
+Print("keys:", keys)
