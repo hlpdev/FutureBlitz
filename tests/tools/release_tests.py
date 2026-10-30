@@ -75,10 +75,10 @@ def fake_deb(folder: Path, architecture: str, version: str = "1.0.0-1", compress
              package: str = "futureblitz") -> Path:
     """A .deb as dpkg-deb lays one out, whose control file has a Description of two lines."""
     control = (f"Package: {package}\nVersion: {version}\nArchitecture: {architecture}\n"
-               "Maintainer: FutureBlitz <https://github.com/hlpdev/FutureBlitz/issues>\n"
+               "Maintainer: FutureBlitz <noreply@futureblitz.dev>\n"
                "Depends: libc6 (>= 2.35)\n"
-               "Description: Compiler, language server, and tools\n"
-               " FutureBlitz is a successor to Blitz3D.\n")
+               "Description: A compiled, general-purpose language\n"
+               " This installs fb.\n")
     data = ar([
         ("debian-binary", b"2.0\n"),
         (f"control.tar.{compress}", tar({"./control": control.encode()}, compress)),
@@ -182,8 +182,33 @@ class PackagesTests(unittest.TestCase):
         formula = self.folder / "tap" / "futureblitz.rb"
         self.assertEqual(self.run_script("homebrew", "1.0.0", sums, str(formula)).returncode, 0)
         self.assertIn('sha256 "', formula.read_text())
-        printed = self.run_script("product-code", "1.0.0")
-        self.assertEqual(printed.stdout.strip(), packages.product_code("1.0.0"))
+        # Every subcommand takes the tag's name too.
+        for version in ("1.0.0", "v1.0.0"):
+            printed = self.run_script("product-code", version)
+            self.assertEqual(printed.returncode, 0, printed.stderr)
+            self.assertEqual(printed.stdout.strip(), packages.product_code("1.0.0"))
+
+    def test_every_package_describes_futureblitz_in_one_sentence(self) -> None:
+        sentence = "A compiled, general-purpose language with BASIC's readability and native speed."
+        self.assertEqual(packages.SUMMARY, sentence)
+        locale = packages.winget("1.0.0", self.sums, packages.url_base("1.0.0", None))[
+            "FutureBlitz.FutureBlitz.locale.en-US.yaml"]
+        self.assertIn(f"ShortDescription: {sentence}\n", locale)
+        self.assertIn(f"Description: {sentence} This installs fb", locale)
+        formula = packages.homebrew("1.0.0", self.sums, packages.url_base("1.0.0", None))
+        self.assertIn(f'  desc "{sentence}"\n', formula)
+        nfpm = (RELEASE / "nfpm.yaml").read_text(encoding="utf-8")
+        self.assertIn(f"description: |-\n  {sentence}\n", nfpm)
+        self.assertIn(f"  summary: {sentence}\n", nfpm)
+        vscode = (ROOT / "editors" / "vscode" / "package.json").read_text(encoding="utf-8")
+        self.assertIn(f'"description": "{sentence} ', vscode)
+        for text in (locale, formula, nfpm):
+            self.assertNotIn("Blitz3D", text)
+
+    def test_the_maintainer_is_a_name_and_an_email_address(self) -> None:
+        # Debian policy 5.6.2; nfpm puts it in the .rpm's Packager too.
+        nfpm = (RELEASE / "nfpm.yaml").read_text(encoding="utf-8")
+        self.assertRegex(nfpm, r"\nmaintainer: FutureBlitz <[a-z]+@futureblitz\.dev>\n")
 
     def test_a_release_without_a_file_is_refused(self) -> None:
         sums = str(self.folder / "SHA256SUMS")
@@ -271,8 +296,8 @@ class RepoTests(unittest.TestCase):
                 self.assertEqual(entry["Size"], str(len(data)))
                 self.assertEqual(entry["SHA256"], hashlib.sha256(data).hexdigest())
                 self.assertEqual(entry["MD5sum"], hashlib.md5(data).hexdigest())
-                self.assertEqual(entry["Description"], "Compiler, language server, and tools\n"
-                                 " FutureBlitz is a successor to Blitz3D.")
+                self.assertEqual(entry["Description"], "A compiled, general-purpose language\n"
+                                 " This installs fb.")
                 self.assertEqual(list(entry)[-1], "Description")
 
         release = dict(repo.control_fields((dist / "Release").read_text(encoding="utf-8")))
@@ -291,6 +316,11 @@ class RepoTests(unittest.TestCase):
         for path, (digest, size) in listed.items():
             data = (dist / path).read_bytes()
             self.assertEqual((hashlib.sha256(data).hexdigest(), len(data)), (digest, size), path)
+            # Acquire-By-Hash: apt fetches each index by the hash its InRelease gives, so an old
+            # InRelease, from a cache or the middle of an upload, still finds its own.
+            by_hash = dist / Path(path).parent / "by-hash" / "SHA256" / digest
+            self.assertEqual(by_hash.read_bytes(), data, path)
+        self.assertEqual(release["Acquire-By-Hash"], "yes")
 
         self.verify(dist / "InRelease")
         self.verify(dist / "Release.gpg", dist / "Release")
@@ -323,6 +353,25 @@ class RepoTests(unittest.TestCase):
         broken = self.folder / "broken.deb"
         broken.write_bytes(b"not a package")
         cases.append(([broken], "broken.deb isn't a .deb"))
+        # A download cut off in data.tar, whose control file still reads, which apt would fetch
+        # and dpkg refuse; and one cut off in control.tar.gz.
+        whole = fake_deb(self.folder, "amd64").read_bytes()
+        # The control.tar.gz member's data starts after the archive's magic, debian-binary's
+        # header and data, and its own header: 8 + 60 + 4 + 60.
+        for name, length in (("data", len(whole) - 20), ("control", 8 + 60 + 4 + 60 + 10)):
+            folder = self.folder / f"cut-{name}"
+            folder.mkdir()
+            (folder / "futureblitz_1.0.0-1_amd64.deb").write_bytes(whole[:length])
+            cases.append(([folder], f"{name}.tar.gz runs past the file's end"))
+        # A control.tar.gz whose gzip stream stops short, in an archive that's whole.
+        members = repo.ar_members(whole)
+        control = members["control.tar.gz"][:len(members["control.tar.gz"]) // 2]
+        short = self.folder / "short"
+        short.mkdir()
+        (short / "futureblitz_1.0.0-1_amd64.deb").write_bytes(ar([
+            ("debian-binary", b"2.0\n"), ("control.tar.gz", control),
+            ("data.tar.gz", members["data.tar.gz"])]))
+        cases.append(([short], "control.tar.gz is broken"))
         empty = self.folder / "empty"
         empty.mkdir()
         cases.append(([empty], "there are no .debs"))
@@ -330,6 +379,7 @@ class RepoTests(unittest.TestCase):
             refused = self.run_repo(*paths)
             self.assertEqual(refused.returncode, 1, says)
             self.assertIn(says, refused.stderr)
+            self.assertNotIn("Traceback", refused.stderr)
 
     def test_one_name_in_two_places_is_one_package_unless_they_differ(self) -> None:
         first = self.folder / "first"

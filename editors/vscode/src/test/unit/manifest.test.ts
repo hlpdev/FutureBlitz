@@ -32,6 +32,9 @@ test("the Marketplace's fields are FutureBlitz's", () => {
     assert.equal(manifest.license, "Apache-2.0");
     assert.equal(manifest.repository.url, "https://github.com/hlpdev/FutureBlitz.git");
     assert.equal(manifest.icon, "images/icon.png");
+    // The one sentence every package manager describes FutureBlitz with (tools/release).
+    assert.ok(manifest.description.startsWith(
+        "A compiled, general-purpose language with BASIC's readability and native speed. "));
     assert.deepEqual(fs.readFileSync(path.join(EXTENSION, manifest.icon)),
         fs.readFileSync(path.join(REPO, "assets", "brand", "mark-tile-128.png")));
     assert.ok(fs.existsSync(path.join(EXTENSION, "LICENSE")));

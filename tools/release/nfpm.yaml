@@ -19,13 +19,15 @@ version_schema: none
 release: 1
 section: devel
 priority: optional
-maintainer: FutureBlitz <https://github.com/hlpdev/FutureBlitz/issues>
+# Debian's Maintainer is a name and an email address; this one takes no mail, and issues go to
+# GitHub.
+maintainer: FutureBlitz <noreply@futureblitz.dev>
+# The summary is the sentence every package manager has (tools/release/packages.py's SUMMARY).
 description: |-
-  Compiler, language server, and tools for the FutureBlitz language
-  FutureBlitz is a successor to Blitz3D. This installs fb, which builds, runs,
-  tests, and formats FutureBlitz programs, fb-lsp, its language server, and
-  fb-bindgen, which makes modules from C headers. Building a program needs
-  nothing else.
+  A compiled, general-purpose language with BASIC's readability and native speed.
+  This installs fb, which builds, runs, tests, and formats FutureBlitz programs,
+  fb-lsp, its language server, and fb-bindgen, which makes modules from C
+  headers. Building a program needs nothing else.
 vendor: FutureBlitz
 homepage: https://futureblitz.dev
 license: Apache-2.0
@@ -66,6 +68,6 @@ overrides:
 
 rpm:
   group: Development/Languages
-  summary: Compiler, language server, and tools for the FutureBlitz language
+  summary: A compiled, general-purpose language with BASIC's readability and native speed.
   signature:
     key_file: ${RPM_SIGNING_KEY}

@@ -26,7 +26,10 @@ WINGET_SCHEMA = "1.10.0"
 # The namespace each version's ProductCode is made in, which never changes.
 PRODUCT_CODES = uuid.UUID("849f0a4b-0cd7-48f1-88fb-ad85111a13e0")
 VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
-SUMMARY = "Compiler, language server, and tools for the FutureBlitz language"
+# The one sentence every package manager describes FutureBlitz with, and what a release installs.
+SUMMARY = "A compiled, general-purpose language with BASIC's readability and native speed."
+INSTALLS = ("This installs fb, which builds, runs, tests, and formats FutureBlitz programs, fb-lsp, "
+            "its language server, and fb-bindgen, which makes modules from C headers.")
 
 
 class ReleaseError(Exception):
@@ -119,12 +122,10 @@ def winget(version: str, sums: dict[str, str], base: str) -> dict[str, str]:
         + "PackageUrl: https://futureblitz.dev\n"
         + "License: Apache-2.0\n"
         + f"LicenseUrl: https://github.com/{REPOSITORY}/blob/HEAD/LICENSE\n"
-        + f"ShortDescription: {SUMMARY}.\n"
-        + "Description: FutureBlitz is a successor to Blitz3D. This installs fb, which builds, runs, "
-        + "tests, and formats FutureBlitz programs, fb-lsp, its language server, and fb-bindgen, "
-        + "which makes modules from C headers.\n"
+        + f"ShortDescription: {SUMMARY}\n"
+        + f"Description: {SUMMARY} {INSTALLS}\n"
         + "Moniker: futureblitz\n"
-        + "Tags:\n- basic\n- blitz3d\n- compiler\n- gamedev\n- programming-language\n"
+        + "Tags:\n- basic\n- compiler\n- language\n- programming-language\n"
         + f"ReleaseNotesUrl: https://github.com/{REPOSITORY}/releases/tag/v{version}\n"
         + "ManifestType: defaultLocale\n" + foot,
     }
@@ -201,7 +202,7 @@ def main() -> int:
 
     try:
         if arguments.command == "product-code":
-            print(product_code(arguments.version))
+            print(product_code(arguments.version.removeprefix("v")))
             return 0
 
         version = check_version(arguments.version.removeprefix("v"))
