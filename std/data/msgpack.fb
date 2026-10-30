@@ -1,3 +1,5 @@
+//! Reading and writing MessagePack.
+//!
 //! MessagePack, as its spec has it: MessagePack.Read gives the Value of a document's bytes, and
 //! MessagePack.Write gives a Value's, each integer, string, and container in the fewest bytes its
 //! kind has. Both go through arrays and maps with no call for each, so depth costs nothing.
@@ -14,6 +16,19 @@ End Extern
 Const DEPTH = 1000
 
 /// A document's Value, and a Value's document.
+///
+/// # Examples
+///
+/// ```
+/// Local value = Value.Object()
+/// value["id"] = Value(7)
+/// value["tags"] = Value([Value("a"), Value("b")])
+/// Local bytes = MessagePack.Write(value)
+/// Local back = Try MessagePack.Read(bytes)
+/// Expect(back == value)
+/// // Small integers take a byte.
+/// Expect(MessagePack.Write(Value(1)).Count == 1)
+/// ```
 Public Struct MessagePack
     /// MessagePack isn't made: it's only its Static Methods.
     New()

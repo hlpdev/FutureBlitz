@@ -1,3 +1,5 @@
+//! Reading and writing JSON.
+//!
 //! JSON, as RFC 8259 has it: Json.Read reads a document into a Value, and Json.Write writes a
 //! Value as one; JsonReader reads a document's tokens one at a time, in order, and JsonWriter
 //! writes a document a token at a time, so neither holds more than the text. Integers
@@ -60,13 +62,27 @@ End Enum
 /// which it copies: an object's as BEGIN_OBJECT, then each KEY and its value, then END_OBJECT,
 /// and an array's as BEGIN_ARRAY, its values, and END_ARRAY. A byte order mark before the JSON
 /// is left out. It reads arrays and objects nested in each other up to depth deep.
+///
+/// # Examples
+///
+/// ```
+/// Local reader = JsonReader(r"[1, 2, 3]")
+/// Local sum: Int64 = 0
+/// Local token = Try reader.Next()
+/// While token != JsonToken.END
+///     If token == JsonToken.INT Then sum += reader.GetInt64()
+///     token = Try reader.Next()
+/// End While
+///
+/// Expect(sum == 6)
+/// ```
 Public Class JsonReader
     Field State: Ptr<Void>
     Field Current: JsonToken
     Field Truth: Bool
     Field Started: Bool
 
-    /// Panics unless `depth` is 1 or more.
+    /// A JsonReader of `text`, which nests up to `depth` deep. Panics unless `depth` is 1 or more.
     @PanicsAtCaller
     Public New(text: String, depth: Int = DEPTH)
         CheckDepth(depth)
@@ -200,6 +216,24 @@ End Class
 /// line of its own, indented that many spaces more than what holds it, and a key's value is after
 /// ": ". Each method panics when its token can't come next, as a Key outside an object, or a
 /// second value after the document's, at its caller.
+///
+/// # Examples
+///
+/// ```
+/// Local writer = JsonWriter()
+/// writer.BeginObject()
+/// writer.Key("name")
+/// writer.WriteString("Ada")
+/// writer.Key("scores")
+/// writer.BeginArray()
+/// writer.WriteInt(3)
+/// writer.WriteInt(5)
+/// writer.EndArray()
+/// writer.EndObject()
+/// Expect(writer.IsComplete)
+/// Local written = Try Json.Read(writer.ToString())
+/// Expect(written.Path("scores[1]")?.AsInt() == 5)
+/// ```
 Public Class JsonWriter Implements Printable
     Field Parts: String[] = []
     Field Spaces: Int
@@ -209,7 +243,8 @@ Public Class JsonWriter Implements Printable
     Field Keyed: Bool
     Field Written: Bool
 
-    /// Panics when `indent` is below 0.
+    /// A JsonWriter that indents by `indent` spaces a level, or writes on one line for 0. Panics
+    /// when `indent` is below 0.
     @PanicsAtCaller
     Public New(indent: Int = 0)
         If indent < 0 Then Panic("a JsonWriter's indent can't be below 0, as {indent} is")
@@ -382,6 +417,17 @@ Function CheckDepth(depth: Int)
 End Function
 
 /// A document's Value, and a Value's document.
+///
+/// # Examples
+///
+/// ```
+/// Local document = Try Json.Read(r"""
+///     {"name": "Ada", "langs": ["en", "fr"], "age": 36}
+///     """)
+/// Expect(document.Path("langs[1]")?.AsString() == "fr")
+/// Expect(document.Path("age")?.AsInt() == 36)
+/// Expect((Try Json.Read(Json.Write(document))) == document)
+/// ```
 Public Struct Json
     /// Json isn't made: it's only its Static Methods.
     New()
@@ -416,6 +462,22 @@ Public Struct Json
 
     /// The T of `text`'s JSON: Read's Value, made a T by `Load<T>`. Throws Read's ParseErrors, and
     /// Load's, whose Path says where in the document a value doesn't fit.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Struct Player
+    ///     Field Name: String
+    ///     Field Level: Int
+    /// End Struct
+    ///
+    /// Local player = Try Json.Read<Player>(r"""
+    ///     {"Name": "Ada", "Level": 3}
+    ///     """)
+    /// Expect(player.Name == "Ada" && player.Level == 3)
+    /// Local back = Try Json.Read<Player>(Json.Write(player))
+    /// Expect(back.Name == "Ada")
+    /// ```
     @PanicsAtCaller
     Public Static Method Read<T>(text: String, depth: Int = DEPTH): T Throws ParseError
         Return Try Load<T>(Try Read(text, depth))

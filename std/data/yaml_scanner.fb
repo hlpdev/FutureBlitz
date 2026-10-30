@@ -1,3 +1,5 @@
+//! YAML's tokens, as a scanner reads them from text.
+//!
 //! YamlScanner: YAML 1.2's tokens, as libyaml scans them: indicators, scalars of each style,
 //! anchors, aliases, tags, and directives, and the block structure's starts and ends, which
 //! indentation gives, with a key's token put in front of a simple key once its ':' is found.

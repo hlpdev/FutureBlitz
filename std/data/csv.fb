@@ -1,3 +1,5 @@
+//! Reading and writing comma-separated values.
+//!
 //! Csv: comma-separated values, as RFC 4180 has them: rows of fields, each line a row and its
 //! fields between separators, a field in '"'s when it holds the separator, a '"', or a line break,
 //! with its '"'s doubled. Lines end with LF, CRLF, or a CR alone, and the last needn't end. A
@@ -8,6 +10,14 @@ Import std.collections
 Import std.data.text
 
 /// What reads and writes comma-separated values, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// Local rows = Try Csv.Read("name,age\nAda,36\n\"Hopper, Grace\",85\n")
+/// Expect(rows == [["name", "age"], ["Ada", "36"], ["Hopper, Grace", "85"]])
+/// Expect(Csv.Write([["a", "b,c"]]) == "a,\"b,c\"\n")
+/// ```
 Public Struct Csv
     /// Csv isn't made: it's only its Static Methods.
     New()
@@ -26,6 +36,14 @@ Public Struct Csv
     /// Object of its fields by those names, as Strings, in an Array. Throws a ParseError as Read
     /// does, and of SYNTAX for a header that names a field twice, or a row with more or fewer
     /// fields than it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local people = Try Csv.ReadRecords("name,age\nAda,36\nAlan,41\n")
+    /// Expect(people.Count == 2)
+    /// Expect(people.Path("[1].name")?.AsString() == "Alan")
+    /// ```
     @PanicsAtCaller
     Public Static Method ReadRecords(text: String, separator: String = ","): Value Throws ParseError
         Local reader = CsvReader(text, SeparatorOf(separator))

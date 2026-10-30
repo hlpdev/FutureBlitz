@@ -1,3 +1,5 @@
+//! What std.data's formats share in reading and writing text.
+//!
 //! What std.data's formats share in reading and writing text: Strings from bytes, a text's code
 //! points as UTF-8, numbers as text and back, and where in a text a byte is, for a ParseError.
 

@@ -1,3 +1,5 @@
+//! Protocol Buffers' wire format and text format, for the types made from .proto files.
+//!
 //! Protocol Buffers' wire format, which the types fb makes from a .proto file read and write:
 //! ProtoWriter and ProtoReader, with varints, zigzag, fixed32 and fixed64 values, and
 //! length-delimited fields, ProtoText for a message's ToString, in protobuf's text format, and
@@ -75,6 +77,18 @@ End Function
 
 /// Writes protobuf's wire format: each field's tag, then its value. A message inside another
 /// goes between BeginLength and EndLength, which put its length before it.
+///
+/// # Examples
+///
+/// ```
+/// Local writer = ProtoWriter()
+/// writer.WriteTag(ProtoTag(1, WIRE_VARINT))
+/// writer.WriteInt32(150)
+/// writer.WriteTag(ProtoTag(2, WIRE_LENGTH))
+/// writer.WriteString("hi")
+/// Local bytes = writer.Finish()
+/// Expect(bytes == [0x08, 0x96, 0x01, 0x12, 0x02, 0x68, 0x69] As UInt8[])
+/// ```
 Public Class ProtoWriter
     Field Bytes: UInt8[] = []
 
@@ -235,6 +249,17 @@ End Class
 /// Reads protobuf's wire format from bytes, a field at a time: ReadTag, then the value its field
 /// has. A message inside another is read between BeginMessage and EndMessage, and a packed
 /// field's values between BeginPacked and EndPacked, which keep the reader inside them.
+///
+/// # Examples
+///
+/// ```
+/// Local reader = ProtoReader([0x08, 0x96, 0x01, 0x12, 0x02, 0x68, 0x69] As UInt8[])
+/// Expect((Try reader.ReadTag()) == ProtoTag(1, WIRE_VARINT))
+/// Expect((Try reader.ReadInt32()) == 150)
+/// Expect((Try reader.ReadTag()) == ProtoTag(2, WIRE_LENGTH))
+/// Expect((Try reader.ReadString()) == "hi")
+/// Expect(reader.AtEnd)
+/// ```
 Public Class ProtoReader
     Field Bytes: UInt8[]
     Field At: Int
@@ -581,6 +606,18 @@ End Function
 /// Writes a message as protobuf's text format, on one line, as a message's ToString gives it:
 /// `name: "Ada" id: 7 phone { number: "555" }`. Each field goes in with its name, a message's
 /// between BeginMessage and EndMessage.
+///
+/// # Examples
+///
+/// ```
+/// Local text = ProtoText()
+/// text.WriteString("name", "Ada")
+/// text.Write("id", "7")
+/// text.BeginMessage("phone")
+/// text.WriteString("number", "555")
+/// text.EndMessage()
+/// Expect(text.Finish() == "name: \"Ada\" id: 7 phone {{ number: \"555\" }}")
+/// ```
 Public Class ProtoText
     Field Parts: String[] = []
 

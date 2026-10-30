@@ -1,3 +1,5 @@
+//! Reading XML as a stream of events.
+//!
 //! XmlReader: XML 1.0's documents read as a stream of events, a start and an end for each element
 //! and one for each run of text, CDATA section, comment, and processing instruction in them, as a
 //! non-validating processor reads them. Line ends are LFs, entity and character references are
@@ -48,6 +50,20 @@ End Class
 
 /// Reads an XML document as a stream of events: a start and an end for each element, and one for
 /// each run of text, CDATA section, comment, and processing instruction.
+///
+/// # Examples
+///
+/// ```
+/// Local reader = XmlReader("<a x=\"1\">hi</a>")
+/// Local kinds: XmlEventKind[] = []
+/// Local event = Try reader.Next()
+/// While event != Null
+///     kinds.Add(event.Kind)
+///     event = Try reader.Next()
+/// End While
+///
+/// Expect(kinds == [XmlEventKind.START, XmlEventKind.TEXT, XmlEventKind.END])
+/// ```
 Public Class XmlReader
     Field Sources: XmlSource[] = []
     /// The open elements' names, the innermost last.

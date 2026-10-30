@@ -1,3 +1,5 @@
+//! Reading and writing XML documents, as trees and as Values.
+//!
 //! XML 1.0: a document's tree of XmlNodes, which Xml.Read builds over an XmlReader and Xml.Write
 //! writes over an XmlWriter, and Values to and from an element, as xmltodict has them: an
 //! element's attributes are keys with '@' before their names, its children keys of their names,
@@ -29,6 +31,16 @@ End Enum
 /// A node of an XML tree: an element, with a Name, Attributes, and Children; text, CDATA, or a
 /// comment, with its Content; a processing instruction, with its target as its Name and its
 /// Content; or an attribute, with its Name and value as its Content, as XmlPath selects one.
+///
+/// # Examples
+///
+/// ```
+/// Local note = XmlNode("note")
+/// note.SetAttribute("lang", "en")
+/// note.AddElement("to").AddText("Ada")
+/// Expect("{note}" == "<note lang=\"en\"><to>Ada</to></note>")
+/// Expect(note.Element("to")?.Text == "Ada")
+/// ```
 Public Class XmlNode Implements Printable
     /// Whether it's an element, text, CDATA, a comment, a processing instruction, or an attribute.
     Public ReadOnly Field Kind: XmlKind
@@ -195,6 +207,21 @@ Public Class XmlNode Implements Printable
 End Class
 
 /// What reads and writes XML documents and their Values, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// Local library = Try Xml.Read(r"""
+///     <library>
+///       <book year="1843">Notes</book>
+///       <book year="1952">A compiler</book>
+///     </library>
+///     """)
+/// Expect(library.Name == "library")
+/// Expect(library.Elements("book").Count == 2)
+/// Expect(library.Element("book")?.Attribute("year") == "1843")
+/// Expect(library.QueryFirst("book[@year='1952']")?.Text == "A compiler")
+/// ```
 Public Struct Xml
     /// Xml isn't made: it's only its Static Methods.
     New()
@@ -327,6 +354,15 @@ Public Struct Xml
     /// child elements, by name, an Array of those of a name that comes more than once, and "#text"
     /// for its text when it isn't only spaces; or its text, a String, when it has no attributes or
     /// child elements. Comments and processing instructions are left out.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// Local book = Try Xml.Read("<book year=\"1843\"><title>Notes</title></book>")
+    /// Local value = Xml.ToValue(book)
+    /// Expect(value["@year"]?.AsString() == "1843")
+    /// Expect(value["title"]?.AsString() == "Notes")
+    /// ```
     Public Static Method ToValue(element: XmlNode): Value
         If IsLeaf(element) Then Return Value(element.Text)
         // Each element's Value goes in its parent's before it's filled, as a Value checks what's
@@ -473,6 +509,17 @@ End Struct
 /// content written, and ended, in order, into a String that Finish gives. An indent above 0 puts
 /// each element on a line of its own, but in an element that holds text, from its first text
 /// on, as a writer that goes a part at a time can't know of text to come.
+///
+/// # Examples
+///
+/// ```
+/// Local writer = XmlWriter()
+/// writer.StartElement("greeting")
+/// writer.Attribute("lang", "en")
+/// writer.Text("hi & bye")
+/// writer.EndElement()
+/// Expect(writer.Finish() == "<greeting lang=\"en\">hi &amp; bye</greeting>")
+/// ```
 Public Class XmlWriter
     Field Out: UInt8[] = []
     Field Indent: Int

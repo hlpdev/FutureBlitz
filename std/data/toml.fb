@@ -1,3 +1,5 @@
+//! Reading and writing TOML.
+//!
 //! Toml: TOML 1.0's documents, read into an Object Value and written from one. A table is an
 //! Object, an array an Array, a string a String, an integer an INT, a float a DOUBLE, inf and nan
 //! too, and a boolean a Bool. A date, a time, or both, with an offset or local, is a String of its
@@ -11,6 +13,22 @@ Import std.collections
 Import std.data.text
 
 /// What reads and writes TOML documents, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// Local config = Try Toml.Read(r"""
+///     title = "demo"
+///
+///     [window]
+///     width = 800
+///     fullscreen = false
+///     """)
+/// Expect(config.Path("title")?.AsString() == "demo")
+/// Expect(config.Path("window.width")?.AsInt() == 800)
+/// Expect(config.Path("window.fullscreen")?.AsBool() == False)
+/// Expect((Try Toml.Read(Toml.Write(config))) == config)
+/// ```
 Public Struct Toml
     /// Toml isn't made: it's only its Static Methods.
     New()

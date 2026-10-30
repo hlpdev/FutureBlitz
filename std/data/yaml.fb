@@ -1,3 +1,5 @@
+//! Reading and writing YAML.
+//!
 //! Yaml: YAML 1.2's documents, read into Values by its core schema and written from them. A
 //! mapping is an Object, a sequence an Array, and a scalar Null, a Bool, an integer, a Double, or a
 //! String as the core schema resolves its plain text, and a String in quotes or a block. A key is
@@ -12,6 +14,21 @@ Import std.data.text
 Import std.data.yaml_scanner
 
 /// What reads and writes YAML documents, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// Local document = Try Yaml.Read(r"""
+///     name: Ada
+///     langs:
+///       - en
+///       - fr
+///     age: 36
+///     """)
+/// Expect(document.Path("langs[0]")?.AsString() == "en")
+/// Expect(document.Path("age")?.AsInt() == 36)
+/// Expect((Try Yaml.Read(Yaml.Write(document))) == document)
+/// ```
 Public Struct Yaml
     /// Yaml isn't made: it's only its Static Methods.
     New()

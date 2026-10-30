@@ -1,3 +1,5 @@
+//! Reading and writing INI files.
+//!
 //! Ini: INI files' sections of keys and values, read into an Object and written from one. Each
 //! line, which ends with LF, CRLF, or a CR alone, is a `[section]` header, a `key = value` or
 //! `key: value`, a comment, which starts with ';' or '#', or blank. A key and its value have the
@@ -10,6 +12,15 @@ Import std.collections
 Import std.data.text
 
 /// What reads and writes INI files, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// Local config = Try Ini.Read("name = demo\n; a comment\n[window]\nwidth = 800\n")
+/// Expect(config.Path("name")?.AsString() == "demo")
+/// Expect(config.Path("window.width")?.AsString() == "800")
+/// Expect(Ini.Write(config) == "name = demo\n\n[window]\nwidth = 800\n")
+/// ```
 Public Struct Ini
     /// Ini isn't made: it's only its Static Methods.
     New()

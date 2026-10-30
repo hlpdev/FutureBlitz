@@ -1,3 +1,5 @@
+//! XPath's location paths over an XML document's tree.
+//!
 //! XmlPath: XPath 1.0's location paths over an XmlNode's tree, a subset of them: steps on the
 //! child, descendant, descendant-or-self, parent, ancestor, ancestor-or-self, following-sibling,
 //! preceding-sibling, self, and attribute axes, written out or abbreviated ('//', '.', '..',
@@ -17,6 +19,15 @@ Import std.data.xml
 Import std.data.xml_reader
 
 /// XPath 1.0's location paths, a subset of them, which select nodes of an XmlNode's tree.
+///
+/// # Examples
+///
+/// ```
+/// Local root = Try Xml.Read("<a><b>1</b><c><b>2</b></c></a>")
+/// Local everywhere = XmlPath("//b")
+/// Expect(everywhere.Query(root).Count == 2)
+/// Expect(XmlPath("c/b").Query(root)[0].Text == "2")
+/// ```
 Public Class XmlPath
     Field Source: String
     Field Tree: PathExpression
