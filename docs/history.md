@@ -5,6 +5,25 @@ them while each was built. Newest first.
 
 ## M8, tooling
 
+Step 9, loose ends and the milestone's review (2026-10-30, 5f908f5c to 31b7784c): a syntax error
+right after a miscased keyword (`if`, `End function`) gets a note naming the keyword and a fix-it
+that recases it, from the parser's `suggest_keyword_case` and token.cpp's `miscased_keyword()`,
+only at or just before the error or first on its line and never for a name the code declares, its
+LSP quick fix titled for the keyword. The milestone's review (docs/review/m8-step9.md) found 20, 1
+high, and CI 4 more, all fixed with tests: fb-lsp and check_files() take std from
+`toolchain().std`, so a release's std isn't checked or renamed as user code; a prebuilt package's
+`fb doc` lines are its source's, and `fb test` on one links; nlohmann/json's notice ships with
+fb-lsp; rename and references reach doc-comment examples; `fb fmt` keeps a doc comment's trailing
+spaces; go to definition opens a prebuilt package's .fbi; the grammar knows `//!`; Import
+completion leaves out a package's tests/ modules from its own files; install.ps1 keeps the
+session's variables under `irm | iex`; a failing doc test's trace names the test; `fb doc`'s
+warnings follow FB_COLUMNS; `fb new` names a keyword folder as a keyword; a rename to a name the
+code already sees (Print, Int) is refused on Linux too (a range-for over a temporary's member in
+`visible_names()`); a no-folder build task's problems reach Problems (`FB_PATHS=absolute` and an
+owner of their own); the VS Code client waits up to 2 seconds for a server it stops as it comes
+up, so its features don't outlive it; and macOS executables that run the compiler get a 64 MiB
+stack, as Apple clang's unoptimized frames are larger than GCC's. M8 is done.
+
 Step 8, `///` doc comments and `fb doc` (2026-10-29, 05ddb713): the lexer records the doc comments
 outside the branches an #If leaves out, and the parser attaches the `///` lines right before a
 declaration and its attributes to it in the AST, by its name's span, as `ast_t::doc()` gives them to

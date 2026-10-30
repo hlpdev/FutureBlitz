@@ -29,16 +29,14 @@ compiler (lib), runtime (lib), cli (exe), lsp (exe), tools/bindgen (fb_bindgen l
 exe)
 
 ## Current step
-M7, libraries and packages, is done: steps 0 to 7 of docs/milestones.md's M7 build order landed by
-2026-10-29, on Windows, Linux, and macOS, with plugins and loading at run time left for later
-(Deferred work). M8, tooling, is under way (docs/tooling.md; steps 0, the design, 1, the
-self-contained toolchain, 2, releases, 3, debug info and stack traces, 4, the LSP, 5, the VS Code
-extension, 6, the formatter, 7, testing, and 8, `///` docs and `fb doc`, done 2026-10-29): the
-self-contained toolchain and releases, debug info and a debugger, the LSP, VS Code, the formatter,
-`fb test`, and `fb doc`. M9 is futureblitz.dev's site and docs, and M10 packages online, the package
-manager and the registry, both in docs/website.md; phase 1 ends with M10, and the engine is a phase
-of its own. docs/milestones.md's Deferred work lists everything left for later, and where it's
-planned.
+M8, tooling, is done: steps 0 to 9 of docs/milestones.md's M8 build order landed by 2026-10-30
+(docs/tooling.md): the self-contained toolchain and releases, debug info and stack traces, the LSP,
+the VS Code extension, the formatter, `fb test`, and `///` docs with `fb doc`. M9 is futureblitz.dev's
+site and docs, and M10 packages online, the package manager and the registry, both in
+docs/website.md, built in the private repo hlpdev/futureblitz-web and planned page by page in its
+docs/site-plan.md. The engine is packages built on FutureBlitz, never part of the language,
+compiler, runtime, or std (the user, 2026-10-30); phase 1 ends with M10 and a stable 1.0.
+docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
 
 ## History
 Each milestone's steps, in detail (what each added, by name, and each review's fixes), are in
@@ -69,3 +67,7 @@ docs/history.md; a landed step's notes go there, newest milestone first.
   beside the executable as the OS's own DLLs, one runtime across the edge, dynamic natives and
   {target}, a package with a prebuilt C++ engine DLL, each library's recorded builds, and a
   program that embeds one prebuilt library and has another beside it.
+- M8 (2026-10-29 to 30): fb's own lld and the C runtime's pieces in a self-contained release,
+  installers and draft GitHub Releases, DWARF and CodeView with fb's own stack traces, fb-lsp, the
+  VS Code extension over CodeLLDB, `fb fmt`, `@Test` and `fb test`, `///` docs and `fb doc`, and
+  the miscased-keyword fix-it.
