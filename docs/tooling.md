@@ -23,10 +23,13 @@ other people can install and use every day in an editor. Step 0 settled what was
 6. **Linux programs link against glibc 2.28's stubs**, which fb ships, so a machine needs no
    libc6-dev, and a program runs on any distribution since about 2018 (RHEL 8, Ubuntu 20.04,
    Debian 10). libstdc++ and libgcc stay static, as today.
-7. **Releases go to GitHub Releases** as archives with install scripts, and as MSI and .pkg
-   installers; self-update waits for M10's dl.futureblitz.dev.
-8. **Unsigned for now.** The install scripts download with curl and PowerShell, which
-   Gatekeeper and SmartScreen don't stop; signing waits for the accounts it needs.
+7. **Releases go to GitHub Releases** as archives with install scripts, as MSI, setup.exe, .pkg,
+   .deb, and .rpm installers, and as the VS Code extension's .vsix; from there, when the user
+   says, to winget, a Homebrew tap, apt and dnf repositories on dl.futureblitz.dev, and the
+   Marketplace and Open VSX (the user, 2026-10-30). Self-update waits for M10.
+8. **Windows is signed, macOS isn't.** fb's executables, the MSI, and setup.exe are signed with
+   Azure Artifact Signing once its secrets are set (the user, 2026-10-30). macOS stays unsigned:
+   the install script and Homebrew download with curl, which Gatekeeper doesn't stop.
 9. **Stack traces from fb's own table**, in every binary, debug and release, so a player's
    crash names its lines with no debug files shipped.
 10. **CodeLLDB on every OS**, which bundles its own lldb, with one script of fb's that shows
@@ -72,8 +75,18 @@ other people can install and use every day in an editor. Step 0 settled what was
 - Versioned builds of fb for windows-x64, linux-x64, linux-arm64, macos-arm64, and macos-x64,
   from .github/workflows/release.yml, which a pushed `v<version>` tag runs, or a dispatch on a
   branch to check it (`gh workflow run release.yml --ref <branch>`). A tag makes a **draft**
-  GitHub Release of the assets, which is published by hand; the tag has to be CMakeLists.txt's
-  version.
+  GitHub Release of the assets, which is published by hand.
+- **The version is the tag's**: v1.0.0 builds 1.0.0, which CMake's `FB_VERSION` gives fb
+  (`fb --version`, and fb-lsp's initialize), the MSI and setup.exe, the .pkg, the .deb and
+  .rpm, the .vsix, and every file's name. A tag is v and three numbers; one that isn't
+  CMakeLists.txt's version only warns, as builds from that commit say CMakeLists.txt's. Without
+  `FB_VERSION`, and in a dispatch, it's CMakeLists.txt's. Each test checks `fb --version` says
+  it.
+- **What a release has**: for each target its archive; on Windows the MSI and
+  `futureblitz-<version>-windows-x64-setup.exe`; on macOS the .pkg; on Linux
+  `futureblitz_<version>-1_<amd64|arm64>.deb` and `futureblitz-<version>-1.<x86_64|aarch64>.rpm`;
+  `futureblitz-<version>.vsix`; install.sh and install.ps1; and SHA256SUMS, every other file's
+  hash, as sha256sum writes it, which publish.yml makes winget's manifests and the formula from.
 - What fb itself needs: Windows 10 or newer (x64, which arm64 Windows runs too), Ubuntu 22.04 or
   newer, or another Linux with glibc 2.35, and macOS 15 or newer (the user, 2026-10-29). The
   programs it builds run on glibc 2.28, and on the macOS fb runs on.
@@ -92,14 +105,48 @@ other people can install and use every day in an editor. Step 0 settled what was
   .profile for bash on macOS (else a new .bash_profile), fish's config.fish, else .profile; or
   in Windows' user PATH, as it's written there, %VAR%s and its REG_EXPAND_SZ kept.
   `--no-modify-path` (`-NoModifyPath`) leaves it, and says what to add. Running one again
-  updates. install.ps1 runs in a script block of its own, parameters and all, so `irm | iex`
-  leaves the session's preferences, TLS, and variables as they were, those named like its
-  parameters too; and it runs an archive's fb only when the file is a program, since Windows
+  updates. install.ps1 runs an archive's fb only when the file is a program, since Windows
   shows a window that waits to be closed for one that isn't.
+- install.ps1 is served as https://futureblitz.dev/install.ps1 too (M9), for
+  `irm https://futureblitz.dev/install.ps1 | iex`, and `iex "& { $(irm ...) } -Version 1.0.0"`
+  with arguments. iex runs it in the caller's session, so all of it is a script block, `& {
+  param(...) ... } @args`, whose parameters, preferences, TLS, and function are its own: a
+  script's own param() would set the session's $Version, $Archive, and $NoModifyPath. It's
+  ASCII, as Windows PowerShell's irm reads a script with no charset as Latin-1, so the site
+  serves it as `text/plain; charset=utf-8`, which also stops a browser running it. Its test
+  runs it dot-sourced and by iex, over a session's own variables of those names.
 - The MSI (WiX 5, tools/install/futureblitz.wxs) installs the same folder for the user alone,
   in %USERPROFILE%\.futureblitz with its bin on the user's PATH, and uninstalls both; a newer one
-  replaces an older one. The .pkg (pkgbuild) installs it for every user in
-  /usr/local/futureblitz, with /etc/paths.d/futureblitz putting its bin on PATH, as Go's does.
+  replaces an older one. Each version's ProductCode is its own, a UUID made from the version
+  (`tools/release/packages.py product-code`), which the build checks the MSI has, so winget's
+  manifest knows it without reading the MSI. setup.exe (tools/install/bundle.wxs) is a WiX Burn
+  bundle around it, with WiX's standard window, which links the license, and installs the MSI
+  the same way; `/quiet` installs it with no window, and `/uninstall` takes it away. The .pkg
+  (pkgbuild) installs it for every user in /usr/local/futureblitz, with
+  /etc/paths.d/futureblitz putting its bin on PATH, as Go's does.
+- **Signing (Windows)**: with the AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET
+  secrets and the AZURE_SIGNING_ENDPOINT, AZURE_SIGNING_ACCOUNT, and AZURE_SIGNING_PROFILE
+  variables (docs/release-setup.md), azure/artifact-signing-action (once trusted-signing-action)
+  signs fb.exe, fb-lsp.exe, and fb-bindgen.exe before they're archived, then the MSI before it
+  goes in setup.exe, then setup.exe's engine, taken out with `wix burn detach` and put back with
+  `reattach`, then setup.exe; each is timestamped, and the build checks every signature, the
+  archive's fb.exe's too. With none of them set, as in a fork, it's unsigned, with a warning;
+  with some, the build fails. LLVM's DLLs and lld are LLVM's, and stay as they come.
+- **Linux packages**: nfpm (tools/release/nfpm.yaml), checked against its release's checksums,
+  makes a .deb and an .rpm of the release's folder, which go in **/usr/lib/futureblitz** as the
+  archive has it, with /usr/bin/fb, fb-lsp, and fb-bindgen linking to its bin/; fb finds lib/
+  and std/ beside its bin/ through the link, as it takes its own path from /proc/self/exe. They
+  depend on what fb's executables load that isn't beside them (cmake/bundle.cmake): the .deb on
+  `libc6 (>= 2.35)`, libgcc-s1, `libstdc++6 (>= 12)`, zlib1g, libzstd1, liblzma5, and libtinfo6,
+  and the .rpm on `glibc >= 2.35`, libgcc, libstdc++, and zlib's, zstd's, xz's, and libtinfo's
+  sonames, so Ubuntu 22.04, Debian 12, and Fedora 36 and newer have them; nothing that compiles.
+  With REPO_SIGNING_KEY the .rpm is signed, which the dnf repository needs. The workflow installs
+  the .deb with apt in ubuntu:22.04 and the .rpm with dnf in fedora:43, on x64 and arm64, runs
+  `fb new`'s package with /usr/bin/fb, and removes them.
+- **The VS Code extension**: release.yml's vscode job sets its package.json to the version, runs
+  its unit tests, and makes the .vsix with vsce. package.json's publisher, `futureblitz`, is the
+  Marketplace's publisher and Open VSX's namespace; its icon is assets/brand/mark-tile-128.png,
+  copied in as images/icon.png when it compiles, with the LICENSE (Apache-2.0).
 - fb's own executables run with nothing else installed. On Windows they link MinGW's runtime
   statically (where winpthread links statically: CLion's MinGW, whose winpthread is built for
   UCRT, gets libwinpthread-1.dll beside them instead), and LLVM-C.dll and libclang.dll, which
@@ -128,10 +175,69 @@ other people can install and use every day in an editor. Step 0 settled what was
   libraries' own, in notices/shared/, from their Debian packages or Homebrew kegs.
 - The workflow checks each release on a fresh machine: Windows' runner with PATH cut to the
   system's, macOS' with PATH cut to the system's and a home of its own, with no startup files,
-  and a plain ubuntu:22.04 container with no compiler, each installing with its script, and on
-  Windows and macOS with the MSI and the .pkg too, then running `fb new hello` and `fb run` in
-  it; and a program fb builds there runs in almalinux:8.
-- Unsigned: an archive or installer downloaded in a browser warns until signing comes.
+  and a plain ubuntu:22.04 container with no compiler, each installing with its script, on
+  Windows with the MSI and setup.exe too, on macOS with Homebrew and the .pkg, and on Linux
+  with the .deb, then running `fb new hello` and `fb run` in it; and a program fb builds there
+  runs in almalinux:8.
+- macOS is unsigned, so an archive or a .pkg downloaded in a browser warns; Windows' files do
+  until signing's secrets are set.
+
+### Package managers
+
+.github/workflows/publish.yml sends a **published** release to each package manager ticked in
+its dispatch, never on its own: `gh workflow run publish.yml -f version=1.0.0 -f winget=true -f
+homebrew=true -f linux=true -f vscode=true`. Each job takes the release's files from its GitHub
+Release, checked against SHA256SUMS. docs/release-setup.md has the accounts, keys, and secrets,
+made once.
+
+- **winget**: tools/release/packages.py makes FutureBlitz.FutureBlitz's manifests (schema
+  1.10.0: the version's, the installer's, and en-US's) from SHA256SUMS: the MSI, `wix`, for the
+  user, x64 (which arm64 Windows runs), with its ProductCode and UpgradeCode, and its Commands.
+  The job brings the fork (WINGET_FORK, hlpdev/winget-pkgs) up to microsoft/winget-pkgs, puts
+  them in `manifests/f/FutureBlitz/FutureBlitz/<version>/` on a branch of it through GitHub's
+  API, and opens the pull request, with WINGET_TOKEN. Then `winget install FutureBlitz.FutureBlitz`.
+  release.yml makes them for each release's MSI too, which winget validates where the runner
+  has it.
+- **Homebrew**: packages.py makes futureblitz.rb from SHA256SUMS, for macOS' two archives (macOS
+  15 and newer) and Linux's two: it installs the release's folder into libexec, links fb,
+  fb-lsp, and fb-bindgen into bin, and its test block runs `fb --version` and builds and runs
+  `fb new`'s package. The job pushes it to HOMEBREW_TAP (hlpdev/homebrew-tap) as
+  Formula/futureblitz.rb, with HOMEBREW_TAP_TOKEN. Then `brew install hlpdev/tap/futureblitz`.
+  release.yml installs each Mac's archive with it, from a tap of its own, and runs `brew test`.
+- **apt and dnf**: tools/release/repo.py makes both repositories from every release's packages,
+  those already in R2 and this release's, signed with REPO_SIGNING_KEY's key (RSA 4096, no
+  passphrase, which only signs), and the job uploads them to the R2 bucket R2_BUCKET that
+  dl.futureblitz.dev serves, packages first and indexes last, so no index names a package that
+  isn't there yet; packages and repodata's checksum-named files are cached for a year,
+  immutable, and the indexes for five minutes.
+  - `dl.futureblitz.dev/apt`: `stable main`, for amd64 and arm64, a pool in
+    `pool/main/f/futureblitz/`, `dists/stable/main/binary-<arch>/Packages` and `Packages.gz`,
+    and `dists/stable/Release`, `Release.gpg`, and `InRelease`, which repo.py writes itself, so
+    it needs only gpg; and the key as futureblitz.gpg, for signed-by, and futureblitz.asc.
+
+    ```sh
+    curl -fsSL https://dl.futureblitz.dev/apt/futureblitz.gpg | sudo tee /usr/share/keyrings/futureblitz.gpg > /dev/null
+    echo "deb [signed-by=/usr/share/keyrings/futureblitz.gpg] https://dl.futureblitz.dev/apt stable main" | sudo tee /etc/apt/sources.list.d/futureblitz.list
+    sudo apt update && sudo apt install futureblitz
+    ```
+
+  - `dl.futureblitz.dev/rpm`: the .rpms in `packages/`, createrepo_c's `repodata/`, and
+    `repomd.xml.asc`, its signature; futureblitz.repo, with `gpgcheck` and `repo_gpgcheck`, and
+    the key as futureblitz.asc. repo.py refuses an .rpm that isn't signed with the key.
+
+    ```sh
+    sudo curl -fsSL -o /etc/yum.repos.d/futureblitz.repo https://dl.futureblitz.dev/rpm/futureblitz.repo
+    sudo dnf install futureblitz
+    ```
+
+  - dl.futureblitz.dev's packages are `/<name>/<version>/` (registry-api.md), so `apt` and
+    `rpm` have to be reserved names, as `fb` is, before M10 takes names.
+- **The VS Code extension**: the job publishes the release's .vsix to the Marketplace with vsce
+  (editors/vscode's own, pinned) and VSCE_PAT, and to Open VSX with ovsx and OVSX_PAT.
+- **Tests**: tests/tools/release_tests.py (in ctest) checks the manifests, the formula, and the
+  ProductCode, and builds the apt repository from fake .debs with a key made for the test,
+  which gpgv checks as apt does, and that a changed Release fails; with nfpm on PATH, it makes
+  nfpm.yaml's .deb, and checks its links and that the repository takes it.
 - `fb --version` prints the version, the commit, from git when CMake configured the build, of the
   checkout whose top folder the source is, else "unknown", and the target:
   `fb 0.1.0 (abc1234, windows-x64)`.
@@ -310,7 +416,8 @@ README says how to build, test, and install it.
   folder open: tasks, problems, format on save once, missing, failing, crashing, hung, and
   overlapping servers, and debug launches. `FUTUREBLITZ_FB` names fb for the tests that build,
   and `FUTUREBLITZ_LSP` fb-lsp for those of its diagnostics and formatting on save.
-- `npm run package` makes futureblitz.vsix with @vscode/vsce; publishing waits for the accounts.
+- `npm run package` makes futureblitz.vsix with @vscode/vsce. Each release has one at its
+  version, which publish.yml publishes to the Marketplace and Open VSX (Releases).
 
 ## The formatter (step 6)
 
