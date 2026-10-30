@@ -11,7 +11,7 @@ Two tiers:
 Class FileError Extends Error
 End Class
 
-Function LoadLevel(path: String): Level Throws FileError
+Function ReadLevel(path: String): Level Throws FileError
     If !File.Exists(path) Then Throw FileError("missing: {path}")
     ...
 End Function
@@ -49,7 +49,7 @@ End Function
 
 ```vb
 Try
-    Local lvl = LoadLevel("lvl1.dat")
+    Local lvl = ReadLevel("lvl1.dat")
 Catch e As FileError
     Log(e.Message)
 Catch e As Error
@@ -72,8 +72,8 @@ End Try
 ## Propagation and conversion
 
 ```vb
-Local lvl = Try LoadLevel(p)      // propagate: enclosing function must be Throws
-Local lvl = Try? LoadLevel(p)     // convert: Level?, error discarded
+Local lvl = Try ReadLevel(p)      // propagate: enclosing function must be Throws
+Local lvl = Try? ReadLevel(p)     // convert: Level?, error discarded
 ```
 
 A call to a throwing function must be inside a `Try` block or prefixed with `Try`/`Try?`.
@@ -98,8 +98,8 @@ A call to a throwing function must be inside a `Try` block or prefixed with `Try
   `Assert(e != Null)` narrows `e`.
 - `DebugAssert(condition)` and `DebugAssert(condition, "msg")` are an Assert that release builds
   leave out, condition and message too, so code after one can't count on its condition.
-- `Unreachable()` and `Todo()` panic, saying the code wasn't meant to be reached, or isn't done
-  yet, then the message they're given, if any. Like Panic, they end the code's path, so a
+- `Unreachable()` and `Todo()` panic, saying the code wasn't meant to be reached, or is still
+  to be written, then the message they're given, if any. Like Panic, they end the code's path, so a
   Function that gives a value can end with one.
 - std.core's `AssertEqual(actual, expected)` and `AssertEqual(actual, expected, "msg")` panic
   when the two aren't equal, saying what each is, where AssertEqual is called. They're
@@ -166,9 +166,9 @@ Import std.test
 
 @Test
 Function ParsesALevel() Throws IOError, ParseError
-    Local level = Try LoadLevel("one.dat")
+    Local level = Try ReadLevel("one.dat")
     Expect(level.Rooms.Count == 12)
-    Expect(ExpectThrows<ParseError>(LoadLevel("broken.dat")) != Null)
+    Expect(ExpectThrows<ParseError>(ReadLevel("broken.dat")) != Null)
 End Function
 ```
 

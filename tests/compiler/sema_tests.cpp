@@ -7618,6 +7618,20 @@ TEST_CASE("only Unsafe code uses what a Ptr points at", "[sema]") {
           });
 }
 
+TEST_CASE("a @CLayout Struct's size is a multiple of its largest alignment, as C's is", "[sema]") {
+    // A fixed array's alignment is its element's, not its size.
+    CHECK(probe("@CLayout Struct Tag\n"
+                "    Field name: UInt8[6]\n"
+                "    Field kind: UInt8\n"
+                "End Struct\n"
+                "Local size = SizeOf<Tag>()") == "Int64 7");
+    CHECK(probe("@CLayout Struct Pair\n"
+                "    Field values: Int32[2]\n"
+                "    Field flag: Int8\n"
+                "End Struct\n"
+                "Local size = SizeOf<Pair>()") == "Int64 12");
+}
+
 TEST_CASE("a @CLayout Struct sized by SizeOf of one declared later is laid out whole", "[sema]") {
     CHECK(probe("@CLayout Struct Header\n"
                 "    Field raw: UInt8[SizeOf<Body>() * 2 + 8]\n"

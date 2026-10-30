@@ -31,8 +31,8 @@ Local total = base +
               bonus                // continues: the line ended with +
 
 Spawn(Function()
-    ParseLevel()                   // two statements, even inside Spawn(...)
-    BuildNavMesh()
+    ParseConfig()                  // two statements, even inside Spawn(...)
+    BuildIndex()
 End Function)
 ```
 

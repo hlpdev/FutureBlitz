@@ -131,7 +131,7 @@ a, b = (b, a)                   // swap
 ## Calls
 
 - **Parentheses are always required**, including for zero-argument calls and calls used
-  as statements. Blitz-style command calls (`Graphics3D 800, 600`) do not exist.
+  as statements. Blitz-style command calls (`Print "hi"`) do not exist.
 
 ## Entry point
 
@@ -219,7 +219,7 @@ Print(next())   // 2
   scope share. A parameter, a loop variable, a `Const`, and `Self` can't change, so the closure
   copies them: each pass of a `For` gives a lambda its own loop variable.
 - A `ByRef` parameter can't be captured, since the caller's variable may be gone when the lambda
-  runs. Neither can `Self` in a Struct's `New`, which isn't made yet.
+  runs. Neither can `Self` in a Struct's `New`, which is still making it.
 - Using a field or Method by name in a lambda captures `Self`.
 - A null check doesn't narrow a captured `Local` inside the lambda, and once a lambda that
   assigns a `Local` exists, no check outside narrows it either: any call could change it.

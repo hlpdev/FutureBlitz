@@ -5,9 +5,10 @@ FFI declarations live **in source**, in `Extern` blocks. No separate `.decls` fi
 ## Declaring C functions
 
 ```vb
-Extern "C" Lib "joltc"
-    Function CreateBody(shape: Ptr<Void>, x: Float, y: Float, z: Float): UInt32 = "JPH_CreateBody"
-    Function SetLogger(cb: Callback(CString))
+Extern "C" Lib "sqlite3"
+    Function Open(filename: CString, ByRef db: Ptr<Void>): Int32 = "sqlite3_open"
+    Function sqlite3_close(db: Ptr<Void>): Int32
+    Function sqlite3_busy_timeout(db: Ptr<Void>, milliseconds: Int32): Int32
 End Extern
 ```
 
@@ -53,8 +54,9 @@ End Struct
 - `@CLayout` goes on a Struct without type parameters, so never on a generic Struct's instance,
   with a Field at least, whose Fields are numbers, `Bool` (a byte, 0 or 1), Enums, `CString`,
   `Ptr`, other `@CLayout` Structs, and fixed arrays of these. Its Fields are where C puts them:
-  each at its own alignment after the last, and its size a multiple of its largest Field's, which
-  `SizeOf` gives. It keeps a Struct's constructor, zero, `==`, and Methods.
+  each at its own alignment after the last, and its size a multiple of its largest alignment,
+  which `SizeOf` gives: a number's alignment is its size, a fixed array's its element's, and a
+  Struct's its largest Field's, so a `UInt8[6]` and a `UInt8` take 7 bytes. It keeps a Struct's constructor, zero, `==`, and Methods.
 - A Struct that C code sees is `@CLayout`: one an Extern Function takes or gives by value, takes
   `ByRef`, or reaches through a `Ptr` or a fixed array.
 - By value, a Struct goes as the target's C ABI passes it, as clang does. On Windows, one of 1,

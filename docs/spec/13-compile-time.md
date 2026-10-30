@@ -60,8 +60,8 @@ Local table: Int[Fib(10)]          // usable in types
   out, as it does the program's.
 - A size in a declaration's type, like a Field's `Int[Cells()]`, can come from a Const Function
   anywhere in the file, since Const Functions are declared first. While types are still being
-  declared, one whose code reaches a Struct or Class whose members aren't declared yet can't run
-  there, which is an error.
+  declared, one whose code reaches a Struct or Class whose members haven't been declared can't
+  run there, which is an error.
 
 ## Attributes
 

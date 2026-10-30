@@ -110,7 +110,7 @@ Local hp: Int                 // typed, assigned later
 `Global`s and top-level `Const`s are initialized in source order, before the rest of the
 top-level code runs. An initializer can only use `Const`s and `Global`s declared above it. A
 lambda in one runs later, so it can use one further down whose type is written. A function
-that an initializer calls can reach a Global whose initializer hasn't run yet, through any
+that an initializer calls can reach a Global whose initializer is still to run, through any
 call, so a debug build panics where it uses it: "'late' is used before its initializer has
 run". A release build panics there too when the Global's zero would hold a null object, as a
 Class, an Interface, an array, a function value, or a Struct or tuple holding one would, since
@@ -165,7 +165,7 @@ Reading a `Local` before it has been assigned on every path is a compile error. 
 always have a value; see above.)
 
 ```vb
-Local hp: Int          // ✓ type given, no value yet
+Local hp: Int          // ✓ type given, assigned later
 Local hp               // ✗ error: needs a type or a value
 Print(hp)              // ✗ error: hp read before assignment
 ```

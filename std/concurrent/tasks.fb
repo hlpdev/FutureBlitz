@@ -244,7 +244,8 @@ End Function
 
 /// A Task of the index of the first of the `tasks` found done, whose result a Wait or an Await then
 /// gives at once. At a tick of the scheduler it looks at them in their order, so of `tasks` done
-/// before it looks, it's the first in the array, and one done later in the tick doesn't count.
+/// before it looks, it's the first in the array, and one done after it looks, in that tick,
+/// doesn't count.
 /// Panics when there are none, since none would be done.
 ///
 /// # Examples

@@ -89,7 +89,7 @@ End For
 Async Functions are stackless coroutines, which the main thread's scheduler runs.
 
 ```vb
-Async Function LoadReport(path: String): Report Throws IOError
+Async Function ReadReport(path: String): Report Throws IOError
     Const bytes = Try Await File.ReadBytesAsync(path)      // the program keeps running
     Local stats = Await Spawn(Function() => Summarize(bytes)) // heavy part on a worker
     Return Report(path, stats)                             // back on the main thread
