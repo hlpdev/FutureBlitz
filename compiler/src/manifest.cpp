@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <format>
 #include <optional>
 #include <string>
@@ -32,23 +33,36 @@ bool is_identifier(const std::string_view text) {
            !keyword_kind(text);
 }
 
-/// Whether text is three numbers with dots between, like "0.1.0".
-bool is_version(const std::string_view text) {
-    std::size_t numbers = 0;
-    std::size_t begin = 0;
-    while (begin <= text.size()) {
-        const std::size_t end = std::min(text.find('.', begin), text.size());
-        const std::string_view number = text.substr(begin, end - begin);
-        if (number.empty() ||
-            !std::ranges::all_of(number, [](const char c) { return c >= '0' && c <= '9'; })) {
-            return false;
-        }
+/// The most keywords a package can have, and the longest one.
+constexpr std::size_t most_keywords = 5;
+constexpr std::size_t longest_keyword = 32;
 
-        ++numbers;
-        begin = end + 1;
+/// Whether a keyword is lowercase ASCII letters, digits, and '-', not starting with '-'.
+bool is_keyword(const std::string_view text) {
+    return !text.empty() && text.size() <= longest_keyword && text.front() != '-' &&
+           std::ranges::all_of(text, [](const char c) {
+               return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+           });
+}
+
+/// Whether an http:// URL's host is this machine's: localhost or a name in it, 127.0.0.1, or
+/// [::1], the only ones a registry can be at without TLS.
+bool is_loopback_url(const std::string_view url) {
+    std::string_view rest = url.substr(std::string_view("http://").size());
+    rest = rest.substr(0, rest.find_first_of("/?#"));
+    if (const std::size_t at = rest.rfind('@'); at != std::string_view::npos) {
+        rest = rest.substr(at + 1);
     }
 
-    return numbers == 3;
+    std::string_view host = rest;
+    if (host.starts_with('[')) {
+        host = host.substr(0, host.find(']') + 1);
+    } else {
+        host = host.substr(0, host.find(':'));
+    }
+
+    return host == "localhost" || host.ends_with(".localhost") || host == "127.0.0.1" ||
+           host == "[::1]";
 }
 
 /// A table's keys and values in the order the file has them, which toml++ doesn't keep.
@@ -94,6 +108,8 @@ public:
                 read_natives(*key, *node, manifest);
             } else if (name == "format") {
                 read_format(*key, *node, manifest);
+            } else if (name == "registries") {
+                read_registries(*key, *node, manifest);
             } else {
                 m_diagnostics.warning(span_of(key->source()), "project.toml doesn't use '{}'",
                                       name);
@@ -103,6 +119,18 @@ public:
         if (!project) {
             fail({ .file = m_file.id() },
                  "project.toml needs a [project] table, with the package's name and version");
+        }
+
+        // [registries] can come after the dependencies that name its registries.
+        for (const dependency_t& dependency : manifest.dependencies) {
+            if (dependency.registry && *dependency.registry != default_registry &&
+                std::ranges::find(manifest.registries, *dependency.registry,
+                                  &registry_entry_t::name) == manifest.registries.end()) {
+                fail(dependency.registry_span.value_or(dependency.name_span),
+                     "there's no registry '{}' in [registries], which names each by its index, "
+                     "like {} = {{ index = \"https://packages.example.com/index/\" }}",
+                     *dependency.registry, *dependency.registry);
+            }
         }
 
         if (m_failed) {
@@ -196,11 +224,57 @@ private:
             } else if (name == "version") {
                 versioned = true;
                 const std::optional<std::string> text = string_of(field, value, "\"0.1.0\"");
-                if (text && !is_version(*text)) {
+                if (text && !parse_version(*text)) {
                     fail(span_of(value.source()),
-                         R"(a package's version is three numbers, like "0.1.0", not "{}")", *text);
+                         R"(a package's version is three numbers, like "0.1.0", and maybe a )"
+                         R"(pre-release, like "1.0.0-beta.1", not "{}")",
+                         *text);
                 } else if (text) {
                     manifest.version = *text;
+                }
+            } else if (name == "description") {
+                manifest.description = string_of(field, value, "\"A physics engine\"");
+            } else if (name == "license") {
+                manifest.license = string_of(field, value, "\"MIT OR Apache-2.0\"");
+                const std::optional<std::string> wrong =
+                    manifest.license ? license_error(*manifest.license) : std::nullopt;
+                if (wrong) {
+                    fail(span_of(value.source()), "{}", *wrong);
+                }
+            } else if (name == "readme" || name == "license_file") {
+                std::optional<std::string> file =
+                    string_of(field, value, name == "readme" ? "\"README.md\"" : "\"LICENSE-MIT\"");
+                if (file && !is_inside(*file)) {
+                    fail(span_of(value.source()),
+                         "'{}' is a file in the package's folder, like \"{}\", not \"{}\"", name,
+                         name == "readme" ? "README.md" : "LICENSE-MIT", *file);
+                    file.reset();
+                } else if (file) {
+                    file = with_slashes(std::move(*file));
+                }
+
+                (name == "readme" ? manifest.readme : manifest.license_file) = std::move(file);
+            } else if (name == "repository" || name == "homepage" || name == "documentation") {
+                std::optional<std::string> url =
+                    string_of(field, value, "\"https://github.com/me/physics\"");
+                if (url && !url->starts_with("https://")) {
+                    fail(span_of(value.source()), "'{}' is an https:// URL, not \"{}\"", name,
+                         *url);
+                }
+
+                (name == "repository" ? manifest.repository
+                 : name == "homepage" ? manifest.homepage
+                                      : manifest.documentation) = std::move(url);
+            } else if (name == "keywords") {
+                read_keywords(value, manifest);
+            } else if (name == "fb") {
+                const std::optional<std::string> text = string_of(field, value, "\">=0.2\"");
+                const std::expected<version_range_t, std::string> range =
+                    text ? parse_range(*text) : std::unexpected(std::string());
+                if (text && !range) {
+                    fail(span_of(value.source()), "{}", range.error());
+                } else if (range) {
+                    manifest.fb = *range;
                 }
             } else if (name == "type") {
                 const std::optional<std::string> text = string_of(field, value, "\"library\"");
@@ -280,7 +354,40 @@ private:
 
     /// Whether a path is a .fb file in the package's folder: relative, without "..".
     static bool is_package_file(const std::string_view path) {
-        if (!path.ends_with(".fb") || path.starts_with('/') || path.starts_with('\\') ||
+        return path.ends_with(".fb") && is_inside(path);
+    }
+
+    /// [project] keywords: at most five, each lowercase letters, digits, and '-'.
+    void read_keywords(const toml::node& value, manifest_t& manifest) {
+        const toml::array* keywords = value.as_array();
+        const std::string_view like = R"(like keywords = ["physics", "2d"])";
+        if (keywords == nullptr) {
+            fail(span_of(value.source()), "'keywords' is a list of words, {}", like);
+            return;
+        }
+
+        if (keywords->size() > most_keywords) {
+            fail(span_of(value.source()), "a package has at most {} keywords", most_keywords);
+            return;
+        }
+
+        for (const toml::node& keyword : *keywords) {
+            const std::optional<std::string> text = keyword.value<std::string>();
+            if (!text || !is_keyword(*text)) {
+                fail(span_of(keyword.source()),
+                     "a keyword is lowercase letters, digits, and '-', not starting with '-', at "
+                     "most {} long, {}",
+                     longest_keyword, like);
+                continue;
+            }
+
+            manifest.keywords.push_back(*text);
+        }
+    }
+
+    /// Whether a path is in the package's folder: relative, without "..".
+    static bool is_inside(const std::string_view path) {
+        if (path.empty() || path.starts_with('/') || path.starts_with('\\') ||
             (path.size() > 1 && path[1] == ':')) {
             return false;
         }
@@ -322,25 +429,31 @@ private:
                 continue;
             }
 
-            if (value.is_string()) {
-                fail(span_of(value.source()),
-                     "versioned dependencies come with the package manager in M8; give the "
-                     "package's folder, like {} = {{ path = \"../{}\" }}",
-                     name, name);
+            const std::string like = std::format(
+                R"(like {} = "1.2", or a local package's folder, like {} = {{ path = "../{}" }})",
+                name, name, name);
+            dependency_t dependency{ .name = std::string(name), .name_span = name_span };
+            if (const std::optional<std::string> text = value.value<std::string>()) {
+                dependency.path_span = span_of(value.source());
+                if (read_range(*text, dependency)) {
+                    manifest.dependencies.push_back(std::move(dependency));
+                }
+
                 continue;
             }
 
             const toml::table* details = value.as_table();
             if (details == nullptr) {
-                fail(span_of(value.source()),
-                     "a dependency is its package's folder, like {} = {{ path = \"../{}\" }}", name,
-                     name);
+                fail(span_of(value.source()), "a dependency is a range of a package's versions, {}",
+                     like);
                 continue;
             }
 
             std::optional<std::string> path;
+            std::optional<std::string> version;
             span_t path_span = name_span;
             bool written = false;
+            bool failed = false;
             bool beside = false;
             std::optional<span_t> link_span;
             for (const auto& [detail, setting] : in_order(*details)) {
@@ -348,6 +461,16 @@ private:
                     written = true;
                     path = string_of(*detail, *setting, "\"../physics\"");
                     path_span = span_of(setting->source());
+                    failed = failed || !path;
+                } else if (detail->str() == "version") {
+                    written = true;
+                    version = string_of(*detail, *setting, "\"1.2\"");
+                    dependency.path_span = span_of(setting->source());
+                    failed = failed || !version;
+                } else if (detail->str() == "registry") {
+                    dependency.registry = string_of(*detail, *setting, "\"company\"");
+                    dependency.registry_span = span_of(setting->source());
+                    failed = failed || !dependency.registry;
                 } else if (detail->str() == "link") {
                     const std::optional<std::string> text =
                         string_of(*detail, *setting, "\"beside\"");
@@ -365,25 +488,119 @@ private:
                 }
             }
 
-            // A path that isn't text is reported already.
-            if (!path && !written) {
-                fail(span_of(value.source()),
-                     "a dependency needs its package's folder, like {} = {{ path = \"../{}\" }}",
-                     name, name);
+            // A path or version that isn't text is reported already.
+            if (!written) {
+                fail(span_of(value.source()), "a dependency needs a range of versions, {}", like);
                 continue;
             }
 
-            if (!path) {
+            if (failed) {
                 continue;
             }
 
-            manifest.dependencies.push_back({
+            dependency.beside = beside;
+            dependency.link_span = link_span;
+            if (path && version) {
+                fail(path_span,
+                     "a dependency is from a registry, by its version, or a local package, by its "
+                     "path, not both");
+            } else if (path && dependency.registry) {
+                fail(*dependency.registry_span,
+                     "a local package, by its path, isn't from a registry, so it takes no "
+                     "'registry'");
+            } else if (path) {
+                dependency.path = with_slashes(std::move(*path));
+                dependency.path_span = path_span;
+                manifest.dependencies.push_back(std::move(dependency));
+            } else if (version && read_range(*version, dependency)) {
+                manifest.dependencies.push_back(std::move(dependency));
+            }
+        }
+    }
+
+    /// A registry dependency's range, into `dependency`, whose path_span is where it's written.
+    /// False after an error.
+    bool read_range(const std::string_view text, dependency_t& dependency) {
+        std::expected<version_range_t, std::string> range = parse_range(text);
+        if (!range) {
+            fail(dependency.path_span, "{}", range.error());
+            return false;
+        }
+
+        dependency.range = std::move(*range);
+        return true;
+    }
+
+    /// [registries]: each by its name, as `company = { index = "https://..." }`.
+    void read_registries(const toml::key& key, const toml::node& node, manifest_t& manifest) {
+        const toml::table* table = node.as_table();
+        const std::string_view like =
+            R"(like company = { index = "https://packages.example.com/index/" })";
+        if (table == nullptr) {
+            fail(span_of(key.source()), "'registries' is a table, [registries], of registries "
+                                        "by name");
+            return;
+        }
+
+        for (const auto& [key_of_field, node_of_field] : in_order(*table)) {
+            const toml::key& field = *key_of_field;
+            const toml::node& value = *node_of_field;
+            const std::string_view name = field.str();
+            if (!is_identifier(name)) {
+                fail(span_of(field.source()),
+                     "a registry's name is an identifier, like company, not \"{}\"", name);
+                continue;
+            }
+
+            const toml::table* details = value.as_table();
+            if (details == nullptr) {
+                fail(span_of(value.source()), "a registry is its index, {}", like);
+                continue;
+            }
+
+            std::optional<std::string> index;
+            span_t index_span = span_of(value.source());
+            for (const auto& [detail, setting] : in_order(*details)) {
+                if (detail->str() != "index") {
+                    m_diagnostics.warning(span_of(detail->source()), "a registry doesn't use '{}'",
+                                          detail->str());
+                    continue;
+                }
+
+                index = string_of(*detail, *setting, "\"https://packages.example.com/index/\"");
+                index_span = span_of(setting->source());
+                if (!index) {
+                    break;
+                }
+            }
+
+            if (!index) {
+                if (!details->contains("index")) {
+                    fail(span_of(value.source()), "a registry needs its index, {}", like);
+                }
+
+                continue;
+            }
+
+            if (index->empty()) {
+                fail(index_span, "a registry's index can't be empty");
+                continue;
+            }
+
+            if (index->starts_with("http://") && !is_loopback_url(*index)) {
+                fail(index_span,
+                     "a registry's index is https://, or http:// only on this machine "
+                     "(localhost, 127.0.0.1, or [::1]), so what's downloaded can't be changed on "
+                     "the way");
+                continue;
+            }
+
+            const bool local = is_local_index(*index);
+            manifest.registries.push_back({
                 .name = std::string(name),
-                .name_span = name_span,
-                .path = with_slashes(std::move(*path)),
-                .path_span = path_span,
-                .beside = beside,
-                .link_span = link_span,
+                .index = local && !index->starts_with("file:") ? with_slashes(std::move(*index))
+                                                               : std::move(*index),
+                .index_span = index_span,
             });
         }
     }
@@ -536,6 +753,112 @@ std::optional<std::string> package_name_error(const std::string_view text) {
 
     if (text == "std") {
         return "std is the standard library's name";
+    }
+
+    return std::nullopt;
+}
+
+bool is_local_index(const std::string_view index) {
+    return !index.starts_with("https://") && !index.starts_with("http://");
+}
+
+std::optional<std::string> license_error(const std::string_view text) {
+    // Its words: license names, AND, OR, WITH, and parentheses.
+    std::vector<std::string_view> words;
+    for (std::size_t at = 0; at < text.size();) {
+        if (text[at] == ' ') {
+            ++at;
+        } else if (text[at] == '(' || text[at] == ')') {
+            words.push_back(text.substr(at, 1));
+            ++at;
+        } else {
+            const std::size_t end = std::min(text.find_first_of(" ()", at), text.size());
+            words.push_back(text.substr(at, end - at));
+            at = end;
+        }
+    }
+
+    const std::string wrong = std::format(
+        "a license is an SPDX expression, like \"MIT\" or \"MIT OR Apache-2.0\", not \"{}\"", text);
+    // A license's name: letters, digits, '.', and '-', and maybe a '+' after, or a
+    // DocumentRef-x:LicenseRef-y.
+    const auto is_name = [](std::string_view word) {
+        if (word.ends_with('+')) {
+            word.remove_suffix(1);
+        }
+
+        if (word.starts_with("DocumentRef-") && word.contains(':')) {
+            word = word.substr(word.find(':') + 1);
+        }
+
+        return !word.empty() && word != "AND" && word != "OR" && word != "WITH" &&
+               std::ranges::all_of(word, [](const char c) {
+                   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                          (c >= '0' && c <= '9') || c == '.' || c == '-';
+               });
+    };
+
+    // expression = term ("OR" term)*, term = atom ("AND" atom)*, and atom = name ["WITH" name]
+    // or "(" expression ")".
+    std::size_t at = 0;
+    const auto expression = [&](const auto& self) -> bool {
+        const auto atom = [&] {
+            if (at < words.size() && words[at] == "(") {
+                ++at;
+                if (!self(self) || at >= words.size() || words[at] != ")") {
+                    return false;
+                }
+
+                ++at;
+                return true;
+            }
+
+            if (at >= words.size() || !is_name(words[at])) {
+                return false;
+            }
+
+            ++at;
+            if (at < words.size() && words[at] == "WITH") {
+                ++at;
+                if (at >= words.size() || !is_name(words[at])) {
+                    return false;
+                }
+
+                ++at;
+            }
+
+            return true;
+        };
+        const auto term = [&] {
+            if (!atom()) {
+                return false;
+            }
+
+            while (at < words.size() && words[at] == "AND") {
+                ++at;
+                if (!atom()) {
+                    return false;
+                }
+            }
+
+            return true;
+        };
+        if (!term()) {
+            return false;
+        }
+
+        while (at < words.size() && words[at] == "OR") {
+            ++at;
+            if (!term()) {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    if (!expression(expression) || at != words.size()) {
+        return wrong;
     }
 
     return std::nullopt;

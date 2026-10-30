@@ -19,7 +19,15 @@ FetchContent_Declare(
   SYSTEM
   EXCLUDE_FROM_ALL
 )
-FetchContent_MakeAvailable(tomlplusplus fast_float)
+# nlohmann/json reads and writes registries' JSON, and the LSP's JSON-RPC messages, header-only.
+FetchContent_Declare(
+  nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.12.0
+  GIT_SHALLOW TRUE
+  SYSTEM
+)
+FetchContent_MakeAvailable(tomlplusplus fast_float nlohmann_json)
 
 # A runtime-only build has no compiler, but its toolchain folder, which the table below names.
 if(NOT FB_RUNTIME_ONLY)
@@ -28,8 +36,22 @@ if(NOT FB_RUNTIME_ONLY)
   # alike.
   target_include_directories(fb_compiler PUBLIC include ${CMAKE_CURRENT_BINARY_DIR}/generated
     ${PROJECT_SOURCE_DIR}/runtime/include)
+  # The package manager's HTTP is libcurl's, over mbedTLS with the OS's roots, as the runtime's
+  # tls_roots.cpp reads them for std.net.http (fb_runtime_tls has it); its archives are gzip's,
+  # through zlib-ng, and their hashes PSA's SHA-256.
   target_link_libraries(fb_compiler PUBLIC fb_llvm PRIVATE tomlplusplus::tomlplusplus
-                        FastFloat::fast_float pcre2-8-static blake3 utf8proc)
+                        FastFloat::fast_float pcre2-8-static blake3 utf8proc
+                        nlohmann_json::nlohmann_json libcurl_static fb_runtime_tls mbedtls
+                        mbedx509 tfpsacrypto zlib-ng)
+  target_include_directories(fb_compiler PRIVATE ${PROJECT_SOURCE_DIR}/runtime/src)
+  # Registries' tokens are in the OS's credential store: Windows' Credential Manager (advapi32),
+  # the macOS keychain (the Security framework, which fb_runtime_tls links), or libsecret, which
+  # fb loads with dlopen as it needs it.
+  if(WIN32)
+    target_link_libraries(fb_compiler PRIVATE advapi32)
+  else()
+    target_link_libraries(fb_compiler PRIVATE ${CMAKE_DL_LIBS})
+  endif()
   target_compile_definitions(fb_compiler PRIVATE TOML_EXCEPTIONS=0)
   fb_set_warnings(fb_compiler)
 endif()

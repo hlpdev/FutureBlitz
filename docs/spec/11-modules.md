@@ -141,9 +141,11 @@ physics = { path = "../physics" }
 - `version` is semver: three numbers without leading zeros, and maybe a pre-release, like
   `"1.0.0-beta.2"`. What the registry shows of a package is in `[project]` too, and `fb publish`
   needs `license` and `description`: `license`, an SPDX expression like `"MIT OR Apache-2.0"`;
-  `description`, a line; `readme`, a file in the package's folder, README.md unless it says
-  otherwise; `repository` and `homepage`, `https://` URLs; and `keywords`, at most five, each
-  lowercase letters, digits, and `-`, at most 20 long.
+  `description`, a line of at most 300 characters; `license_file` and `readme`, files in the
+  package's folder, when they aren't LICENSE (LICENSE.md, LICENSE.txt, or COPYING) and
+  README.md (README or README.txt); `repository`, `homepage`, and `documentation`, `https://`
+  URLs; `keywords`, at most five, each lowercase letters, digits, and `-`, not starting with `-`,
+  at most 32 long; and `fb`, the range of fb's versions the package builds with, like `">=0.2"`.
 - A dependency is a package from a registry, by a range of its versions, `physics = "1.2"` or
   `physics = { version = "1.2" }`, or a local one by its folder, `{ path = "../physics" }`, but
   not both; `registry = "company"` takes it from a registry `[registries]` names rather than

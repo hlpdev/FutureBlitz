@@ -1,0 +1,216 @@
+#include "fb/package_archive.hpp"
+#include "package_helpers.hpp"
+
+#include <catch2/catch_test_macros.hpp>
+#include <cstdint>
+#include <expected>
+#include <filesystem>
+#include <string>
+#include <string_view>
+#include <vector>
+#include <zlib.h>
+
+namespace {
+
+using files_t = std::vector<fb::archive_file_t>;
+
+std::string archive(files_t files) {
+    const std::expected<std::string, std::string> bytes = fb::write_archive(std::move(files));
+    INFO((bytes ? std::string() : bytes.error()));
+    REQUIRE(bytes);
+    return *bytes;
+}
+
+std::string read_error(const std::string_view bytes) {
+    const std::expected<files_t, std::string> files =
+        fb::read_archive(bytes, fb::most_source_unpacked);
+    return files ? std::string() : files.error();
+}
+
+/// gzip of `bytes`, as another tool would write it.
+std::string gzip(const std::string_view bytes) {
+    z_stream stream{};
+    REQUIRE(deflateInit2(&stream, 6, Z_DEFLATED, 31, 8, Z_DEFAULT_STRATEGY) == Z_OK);
+    std::string out(deflateBound(&stream, bytes.size()), '\0');
+    stream.next_in =
+        const_cast<unsigned char*>(reinterpret_cast<const unsigned char*>(bytes.data()));
+    stream.avail_in = static_cast<unsigned>(bytes.size());
+    stream.next_out = reinterpret_cast<unsigned char*>(out.data());
+    stream.avail_out = static_cast<unsigned>(out.size());
+    REQUIRE(deflate(&stream, Z_FINISH) == Z_STREAM_END);
+    out.resize(stream.total_out);
+    deflateEnd(&stream);
+    return out;
+}
+
+/// A tar of one entry, its header as ustar's, of `type` and `name`, with `body`.
+std::string tar_of(const std::string_view name, const char type, const std::string_view body) {
+    std::string header(512, '\0');
+    header.replace(0, name.size(), name);
+    header.replace(100, 7, "0000644");
+    header.replace(108, 7, "0000000");
+    header.replace(116, 7, "0000000");
+    const std::string size = std::format("{:011o}", body.size());
+    header.replace(124, 11, size);
+    header.replace(136, 11, "00000000000");
+    header[156] = type;
+    header.replace(257, 6, std::string_view("ustar\0", 6));
+    header.replace(263, 2, "00");
+    std::uint64_t sum = 0;
+    header.replace(148, 8, "        ");
+    for (const char c : header) {
+        sum += static_cast<unsigned char>(c);
+    }
+
+    header.replace(148, 7, std::format("{:06o}", sum) + std::string(1, '\0'));
+    std::string out = header + std::string(body);
+    out.append((512 - (body.size() % 512)) % 512, '\0');
+    out.append(1024, '\0');
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("an archive holds its files, and reads back as they were", "[archive]") {
+    const std::string long_path = std::string(60, 'a') + "/" + std::string(90, 'b') + ".fb";
+    const std::string longer_name = "x/" + std::string(130, 'c') + ".fb";
+    const std::string bytes = archive({
+        { .path = "project.toml", .bytes = "[project]\n" },
+        { .path = "shapes/circle.fb", .bytes = std::string(1300, 'z') },
+        { .path = "empty.txt", .bytes = "" },
+        { .path = long_path, .bytes = "split" },
+        { .path = longer_name, .bytes = "pax" },
+    });
+    const std::expected<files_t, std::string> files =
+        fb::read_archive(bytes, fb::most_source_unpacked);
+    REQUIRE(files);
+    REQUIRE(files->size() == 5);
+    // In their paths' byte order.
+    CHECK(files->at(0).path == long_path);
+    CHECK(files->at(0).bytes == "split");
+    CHECK(files->at(1).path == "empty.txt");
+    CHECK(files->at(1).bytes.empty());
+    CHECK(files->at(2).path == "project.toml");
+    CHECK(files->at(3).path == "shapes/circle.fb");
+    CHECK(files->at(3).bytes == std::string(1300, 'z'));
+    CHECK(files->at(4).path == longer_name);
+    CHECK(files->at(4).bytes == "pax");
+
+    // The same files make the same archive, in any order.
+    CHECK(archive({ { .path = "b", .bytes = "2" }, { .path = "a", .bytes = "1" } }) ==
+          archive({ { .path = "a", .bytes = "1" }, { .path = "b", .bytes = "2" } }));
+    CHECK(fb::sha256_hex("abc") ==
+          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+}
+
+TEST_CASE("an archive's paths are ones every disk can hold, inside its folder", "[archive]") {
+    for (const std::string_view wrong :
+         { "/etc/passwd", "../up.fb", "a/../../b", "a//b", "./a", "C:/x", "a\\b", "con.txt",
+           "x/LPT3", "dot.", "space ", "a?b", "a\"b", "nul" }) {
+        INFO(wrong);
+        CHECK(fb::archive_path_error(wrong));
+        CHECK_FALSE(fb::write_archive({ { .path = std::string(wrong), .bytes = "" } }));
+    }
+
+    CHECK(fb::archive_path_error(std::string(256, 'a')));
+    CHECK(fb::archive_path_error("bad\xff.fb"));
+    CHECK_FALSE(fb::archive_path_error("console.fb"));
+    CHECK_FALSE(fb::archive_path_error("com10/x.fb"));
+    CHECK_FALSE(fb::archive_path_error("\xe6\xb8\xb8\xe6\x88\x8f/main.fb"));
+}
+
+TEST_CASE("an archive that isn't one fb takes is refused, saying why", "[archive]") {
+    CHECK(read_error("not gzip").contains("isn't a .fbpkg"));
+    CHECK(read_error(gzip(tar_of("../evil.fb", '0', "x"))).contains("'..'"));
+    CHECK(read_error(gzip(tar_of("link", '2', ""))).contains("isn't a file or a folder"));
+    CHECK(read_error(gzip(tar_of("hard", '1', ""))).contains("isn't a file or a folder"));
+    CHECK(read_error(gzip(std::string(1024, '\0'))).empty());
+    CHECK(read_error(gzip("short")).contains("two empty blocks"));
+    CHECK(read_error(gzip(tar_of("a.fb", '0', "x")) + "trailing").contains("after its gzip"));
+
+    std::string bad = tar_of("a.fb", '0', "x");
+    bad[148] = '7';
+    CHECK(read_error(gzip(bad)).contains("isn't ustar's"));
+
+    // Two paths that are one on a disk that ignores letter case, and a file that's a folder too.
+    const std::string twice =
+        archive({ { .path = "A.fb", .bytes = "" }, { .path = "a.fb", .bytes = "" } });
+    CHECK(read_error(twice).contains("twice"));
+    const std::string both =
+        archive({ { .path = "x", .bytes = "" }, { .path = "x/y.fb", .bytes = "" } });
+    CHECK(read_error(both).contains("both a file and a folder"));
+
+    // More than it can unpack to.
+    const std::string large = archive({ { .path = "big", .bytes = std::string(4096, 'q') } });
+    const std::expected<files_t, std::string> limited = fb::read_archive(large, 1024);
+    REQUIRE_FALSE(limited);
+    CHECK(limited.error().contains("unpacks to more than"));
+}
+
+TEST_CASE("an archive unpacks whole into its folder, and a target's joins it", "[archive]") {
+    const fb::testing::sandbox_t sandbox;
+    const std::filesystem::path folder = sandbox / "cache/physics-1.0.0";
+    const std::string source = archive({
+        { .path = "project.toml", .bytes = "[project]\n" },
+        { .path = "shapes/circle.fb", .bytes = "' circle\n" },
+    });
+    REQUIRE(fb::unpack_archive(source, folder, "source", "abc", fb::most_source_unpacked));
+    CHECK(sandbox.read("cache/physics-1.0.0/shapes/circle.fb") == "' circle\n");
+    CHECK(sandbox.read("cache/physics-1.0.0/.fbpkg-source") == "abc");
+
+    const std::string target =
+        archive({ { .path = "lib/linux-x64/debug/physics.fbi", .bytes = "fbi" } });
+    REQUIRE(fb::unpack_archive(target, folder, "linux-x64", "def", fb::most_target_unpacked));
+    CHECK(sandbox.read("cache/physics-1.0.0/lib/linux-x64/debug/physics.fbi") == "fbi");
+    CHECK(sandbox.read("cache/physics-1.0.0/.fbpkg-linux-x64") == "def");
+
+    // Nothing but the folder itself is left beside it.
+    std::size_t entries = 0;
+    for ([[maybe_unused]] const auto& entry :
+         std::filesystem::directory_iterator(folder.parent_path())) {
+        ++entries;
+    }
+
+    CHECK(entries == 1);
+
+    // A package's own archive has no target's files or markers, and a target's only its own.
+    const auto refused = [&](const std::string& bytes, const std::string_view marker) {
+        const std::expected<void, std::string> unpacked = fb::unpack_archive(
+            bytes, sandbox / "cache/other", marker, "x", fb::most_target_unpacked);
+        return unpacked ? std::string() : unpacked.error();
+    };
+    CHECK(refused(target, "source").contains("lib/linux-x64/debug/physics.fbi"));
+    CHECK(refused(target, "windows-x64").contains("can't"));
+    CHECK(refused(archive({ { .path = ".fbpkg-linux-x64", .bytes = "def" } }), "source")
+              .contains(".fbpkg-linux-x64"));
+    CHECK(refused(source, "linux-x64").contains("project.toml"));
+    CHECK_FALSE(std::filesystem::exists(sandbox / "cache/other"));
+}
+
+TEST_CASE("a package's files go in its own archive, but for its targets' folders", "[archive]") {
+    const fb::testing::sandbox_t sandbox;
+    for (const std::string_view file :
+         { "pkg/project.toml", "pkg/README.md", "pkg/shapes.fb", "pkg/data/level.txt",
+           "pkg/lib/windows-x64/debug/pkg.fbi", "pkg/native/linux-x64/libx.so", "pkg/lib/util.fb",
+           "pkg/libs/linux-x64/libjolt.a", "pkg/build/pkg.exe", "pkg/tests/basic.fb", "pkg/fb.lock",
+           "pkg/.git/HEAD", "pkg/.hidden", "pkg/inner/project.toml", "pkg/inner/x.fb",
+           "pkg/sub/tests/kept.fb", "pkg/sub/build/kept.fb" }) {
+        sandbox.write(file, "x");
+    }
+
+    const fb::package_files_t files = fb::package_files(sandbox / "pkg");
+    CHECK(files.source == std::vector<std::string>{
+                              "README.md",
+                              "data/level.txt",
+                              "lib/util.fb",
+                              "libs/linux-x64/libjolt.a",
+                              "project.toml",
+                              "shapes.fb",
+                              "sub/build/kept.fb",
+                              "sub/tests/kept.fb",
+                          });
+    REQUIRE(files.targets.size() == 2);
+    CHECK(files.targets.at("windows-x64") ==
+          std::vector<std::string>{ "lib/windows-x64/debug/pkg.fbi" });
+    CHECK(files.targets.at("linux-x64") == std::vector<std::string>{ "native/linux-x64/libx.so" });
+}

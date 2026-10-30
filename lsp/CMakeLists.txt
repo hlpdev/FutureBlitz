@@ -1,13 +1,6 @@
-# nlohmann/json reads and writes the LSP's JSON-RPC messages, header-only.
-FetchContent_Declare(
-  nlohmann_json
-  GIT_REPOSITORY https://github.com/nlohmann/json.git
-  GIT_TAG v3.12.0
-  GIT_SHALLOW TRUE
-  SYSTEM
-)
-FetchContent_MakeAvailable(nlohmann_json)
-
+# The language server reads and writes its JSON-RPC messages with nlohmann/json, which the
+# compiler's CMakeLists.txt fetches.
+#
 # The language server, as a library its tests drive, and fb-lsp, which an editor starts and talks
 # to over stdin and stdout.
 file(GLOB_RECURSE FB_LSP_SOURCES CONFIGURE_DEPENDS src/*.cpp)

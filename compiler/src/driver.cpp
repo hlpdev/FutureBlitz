@@ -7,11 +7,14 @@
 #include "fb/interface.hpp"
 #include "fb/lexer.hpp"
 #include "fb/link.hpp"
+#include "fb/lockfile.hpp"
 #include "fb/lower.hpp"
 #include "fb/manifest.hpp"
+#include "fb/packages.hpp"
 #include "fb/parser.hpp"
 #include "fb/process.hpp"
 #include "fb/proto.hpp"
+#include "fb/registry.hpp"
 #include "fb/toolchain.hpp"
 #include "fb/types.hpp"
 #include "fb/utf8.hpp"
@@ -1962,7 +1965,14 @@ public:
     /// The packages, the main one, in `folder`, first. nullopt after an error.
     std::optional<std::vector<package_t>> run(const std::filesystem::path& folder) {
         std::vector<std::size_t> chain;
-        if (!load(folder, nullptr, chain) || m_failed) {
+        // The program's registry packages are where fb.lock beside its project.toml says.
+        if (std::ifstream lock(folder / "fb.lock", std::ios::binary); lock) {
+            const std::string text{ std::istreambuf_iterator<char>(lock),
+                                    std::istreambuf_iterator<char>() };
+            m_lockfile = read_lockfile(text);
+        }
+
+        if (!load(folder, nullptr, chain, nullptr) || m_failed) {
             return std::nullopt;
         }
 
@@ -1999,6 +2009,9 @@ private:
     /// The dynamic libraries' names beside the executable so far, with the package and the
     /// [native] name of each.
     std::vector<std::array<std::string, 3>> m_beside;
+    /// fb.lock beside the main package's project.toml, or why it can't be read. Nullopt when
+    /// there's none.
+    std::optional<std::expected<lockfile_t, std::string>> m_lockfile;
     bool m_failed = false;
 
     template <typename... Args>
@@ -2007,10 +2020,66 @@ private:
         m_failed = true;
     }
 
+    /// Where fb.lock has the registry package `dependency` names unpacked in the cache, for a
+    /// package in `root` whose [registries] are `registries`, and the version it pins. nullopt
+    /// after an error saying what's missing, which a build fetches. `cached` says the package
+    /// that depends on it is itself from a registry, whose registries its index named already.
+    std::optional<std::pair<std::filesystem::path, const locked_package_t*>>
+    locked_folder(const dependency_t& dependency, const std::vector<registry_entry_t>& registries,
+                  const std::filesystem::path& root, const bool cached) {
+        const std::string wanted =
+            std::format("{} = \"{}\"", dependency.name, dependency.range->text);
+        if (!m_lockfile) {
+            fail(dependency.path_span,
+                 "{} is from a registry, but there's no fb.lock yet; fb build, fb check, or fb "
+                 "update makes it and fetches the package",
+                 wanted);
+            return std::nullopt;
+        }
+
+        if (!*m_lockfile) {
+            fail(dependency.path_span, "fb.lock can't be read: {}", m_lockfile->error());
+            return std::nullopt;
+        }
+
+        const locked_package_t* locked = (*m_lockfile)->find(dependency.name);
+        const std::optional<std::string> source =
+            registry_index(dependency.registry, registries, root);
+        const std::expected<version_t, std::string> version =
+            locked != nullptr ? parse_version(locked->version) : std::unexpected(std::string());
+        if (locked == nullptr || (!cached && source != locked->source)) {
+            fail(dependency.path_span,
+                 "fb.lock doesn't have {} yet; fb build, fb check, or fb update locks it and "
+                 "fetches it",
+                 wanted);
+            return std::nullopt;
+        }
+
+        if (!version || !dependency.range->matches(*version)) {
+            fail(dependency.path_span,
+                 "fb.lock has {} v{}, which isn't in \"{}\"; fb build, fb check, or fb update "
+                 "locks another",
+                 dependency.name, locked->version, dependency.range->text);
+            return std::nullopt;
+        }
+
+        if (!is_unpacked(*locked, build_target())) {
+            fail(dependency.path_span,
+                 "{} v{} isn't in the cache yet; fb build or fb check fetches it", dependency.name,
+                 locked->version);
+            return std::nullopt;
+        }
+
+        return std::pair(package_cache_folder(locked->source, locked->name, locked->version),
+                         locked);
+    }
+
     /// The package in `folder`, which the dependency `named` names, if any, read with the ones it
-    /// depends on. `chain` is the packages on the way to it, for a cycle's message.
+    /// depends on. `chain` is the packages on the way to it, for a cycle's message. `locked` is
+    /// what fb.lock says of a registry package.
     std::optional<std::size_t> load(const std::filesystem::path& folder, const dependency_t* named,
-                                    std::vector<std::size_t>& chain) {
+                                    std::vector<std::size_t>& chain,
+                                    const locked_package_t* locked) {
         std::error_code ignored;
         const std::filesystem::path root = std::filesystem::weakly_canonical(folder, ignored);
         // A folder read already, by another path or in other letter cases, is the same package,
@@ -2081,6 +2150,14 @@ private:
             fail(named->name_span,
                  "'{}' names the package in '{}', which its project.toml names {}", named->name,
                  to_utf8(root), manifest->name);
+            return std::nullopt;
+        }
+
+        if (locked != nullptr && manifest->version != locked->version) {
+            fail(named->path_span,
+                 "the cache's {} in '{}' is v{}, but fb.lock says v{}; deleting that folder "
+                 "lets fb build fetch it again",
+                 manifest->name, to_utf8(root), manifest->version, locked->version);
             return std::nullopt;
         }
 
@@ -2163,6 +2240,7 @@ private:
         }
 
         const std::vector<dependency_t> dependencies = manifest->dependencies;
+        const std::vector<registry_entry_t> registries = manifest->registries;
         m_packages.push_back(std::move(package));
         m_manifests.push_back(std::move(*manifest));
         m_folders.push_back(root);
@@ -2170,8 +2248,24 @@ private:
         // Only the program's own project.toml says which libraries go beside it.
         const bool program = index == 0 && (m_program || !m_packages.front().main.empty());
         for (const dependency_t& dependency : dependencies) {
+            std::optional<std::pair<std::filesystem::path, const locked_package_t*>> found;
+            if (dependency.range) {
+                found = locked_folder(dependency, registries, root, locked != nullptr);
+            } else if (locked != nullptr) {
+                // A registry's package is whole without anything else on its publisher's disk.
+                fail(dependency.path_span,
+                     "{} v{} is from a registry, so its dependencies are too, but {} is a path",
+                     m_packages[index].name, m_packages[index].version, dependency.name);
+            } else {
+                found = std::pair(root / path_from_utf8(dependency.path), nullptr);
+            }
+
+            if (!found) {
+                continue;
+            }
+
             const std::optional<std::size_t> loaded =
-                load(root / path_from_utf8(dependency.path), &dependency, chain);
+                load(found->first, &dependency, chain, found->second);
             if (dependency.link_span && !program) {
                 m_compilation.diagnostics.warning(
                     *dependency.link_span,

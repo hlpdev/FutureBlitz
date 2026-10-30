@@ -23,7 +23,9 @@ add_subdirectory(native)
 # Compiler unit tests, plus the end-to-end tests that build and run tests/programs/*.fb.
 file(GLOB_RECURSE FB_COMPILER_TEST_SOURCES CONFIGURE_DEPENDS compiler/*.cpp)
 add_executable(fb_compiler_tests ${FB_COMPILER_TEST_SOURCES})
-target_link_libraries(fb_compiler_tests PRIVATE fb_compiler Catch2::Catch2WithMain)
+# The package manager's tests read and write registries' JSON and archives' gzip themselves.
+target_link_libraries(fb_compiler_tests PRIVATE fb_compiler Catch2::Catch2WithMain
+                      nlohmann_json::nlohmann_json zlib-ng)
 target_compile_definitions(fb_compiler_tests PRIVATE
   FB_TEST_PROGRAMS="${CMAKE_CURRENT_SOURCE_DIR}/programs"
   FB_TEST_PACKAGES="${CMAKE_CURRENT_SOURCE_DIR}/packages"
