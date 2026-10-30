@@ -5,8 +5,8 @@
 
 Import std.core.interfaces
 
-/// Panics when `actual` isn't `expected`, saying what each is, after the `message` when there's
-/// one.
+/// Checks that `actual` is `expected`, and panics when it isn't, saying what each is, after the
+/// `message` when there's one.
 ///
 /// # Examples
 ///

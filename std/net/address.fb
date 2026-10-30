@@ -278,6 +278,7 @@ Public Struct SocketAddress Implements Hashable, Comparable, Printable
     /// An IPv6 link-local address's scope, its zone's index, or 0 for none.
     Public ReadOnly Field ScopeId: UInt32
 
+    /// The `address` at `port`, and for an IPv6 link-local one, the `scopeId` of its interface.
     /// Panics for a ScopeId on an IPv4 `address`, which has none.
     @PanicsAtCaller
     Public New(address: IpAddress, port: UInt16, scopeId: UInt32 = 0)

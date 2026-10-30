@@ -69,7 +69,7 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
     /// The last of Holds' walks that went through it.
     Field Walked: Walk?
 
-    /// Null.
+    /// A Value that holds Null.
     Public New()
     End New
 
