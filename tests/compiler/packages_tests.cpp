@@ -20,6 +20,19 @@ namespace {
 constexpr std::string_view shapes_dependency =
     "shapes = { version = \"0.3\", registry = \"local\" }\n";
 
+/// shapes' code, whose Version says which it is.
+std::string shapes_code(const std::string_view version) {
+    return std::format(
+        "Public Function Version(): String\n    Return \"shapes {}\"\nEnd Function\n", version);
+}
+
+/// physics' code, which says which it is, and which shapes it uses.
+std::string physics_code(const std::string_view version) {
+    return std::format("Import shapes\nPublic Function Describe(): String\n    Return \"physics {} "
+                       "with \" + Version()\nEnd Function\n",
+                       version);
+}
+
 /// The compilation's errors' messages, in order.
 std::vector<std::string> errors_of(const fb::compilation_t& compilation) {
     std::vector<std::string> errors;
@@ -52,21 +65,13 @@ struct world_t {
     world_t() {
         for (const std::string_view version : { "0.3.0", "0.3.4" }) {
             sandbox.library("shapes", "shapes", version, "",
-                            { { "area.fb", std::format("Public Function Version(): String\n"
-                                                       "    Return \"shapes {}\"\n"
-                                                       "End Function\n",
-                                                       version) } });
+                            { { "area.fb", shapes_code(version) } });
             sandbox.publish("shapes", index);
         }
 
         for (const std::string_view version : { "1.0.0", "1.2.0" }) {
             sandbox.library("physics", "physics", version, shapes_dependency,
-                            { { "world.fb", std::format("Import shapes\n"
-                                                        "Public Function Describe(): String\n"
-                                                        "    Return \"physics {} with \" + "
-                                                        "Version()\n"
-                                                        "End Function\n",
-                                                        version) } });
+                            { { "world.fb", physics_code(version) } });
             sandbox.publish("physics", index);
         }
 
@@ -150,9 +155,7 @@ TEST_CASE("fb.lock keeps its versions until fb update, which takes the newest", 
 
     // A version published since doesn't change a locked build.
     world.sandbox.library("physics", "physics", "1.3.0", shapes_dependency,
-                          { { "world.fb", "Import shapes\nPublic Function Describe(): String\n"
-                                          "    Return \"physics 1.3.0 with \" + Version()\n"
-                                          "End Function\n" } });
+                          { { "world.fb", physics_code("1.3.0") } });
     world.sandbox.publish("physics", world.index);
     said.lines.clear();
     REQUIRE(world.sync(said));
@@ -227,7 +230,7 @@ TEST_CASE("the driver finds registry packages through fb.lock, and says what's m
 
 TEST_CASE("a registry package's dependencies are from its registry, not paths", "[packages]") {
     const world_t world;
-    world.sandbox.library("bad", "bad", "1.0.0", "", { { "bad.fb", "' bad\n" } });
+    world.sandbox.library("bad", "bad", "1.0.0", "", { { "bad.fb", "// bad\n" } });
     world.sandbox.publish("bad", world.index);
     // As if its archive had a path dependency, which fb publish refuses.
     said_t said;

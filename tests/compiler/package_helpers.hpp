@@ -25,11 +25,10 @@ namespace fb::testing {
 
 /// An HTTP client that never reaches the network, for tests whose registries are on disk, so a
 /// mistake can't send them to the internet.
-inline const http_client_t offline =
-    [](const http_request_t& request) -> std::expected<http_response_t, std::string> {
+inline std::expected<http_response_t, std::string> offline(const http_request_t& request) {
     FAIL("a test asked the network for " << request.url);
     return std::unexpected("no network in tests");
-};
+}
 
 /// Sets the environment variable `name` to `value`, or with nullopt, unsets it.
 inline void set_environment(const std::string_view name, const std::optional<std::string>& value) {
@@ -59,8 +58,13 @@ public:
     environment_t(environment_t&&) = delete;
     environment_t& operator=(environment_t&&) = delete;
 
+    // Putting it back is best effort.
     ~environment_t() {
-        set_environment(m_name, m_old);
+        try {
+            set_environment(m_name, m_old);
+        } catch (...) {
+            return;
+        }
     }
 
 private:
@@ -102,7 +106,7 @@ public:
     }
 
     [[nodiscard]] std::string read(const std::string_view path) const {
-        std::ifstream in(m_folder / path_from_utf8(path), std::ios::binary);
+        const std::ifstream in(m_folder / path_from_utf8(path), std::ios::binary);
         std::ostringstream bytes;
         bytes << in.rdbuf();
         return std::move(bytes).str();

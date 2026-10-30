@@ -18,8 +18,9 @@ struct http_request_t {
     std::string body;
 };
 
-/// What a server answered.
-struct http_response_t {
+/// What a server answered. Moving it can allocate, as its map's comparator is moved, which
+/// clang-tidy reports as an exception escaping.
+struct http_response_t { // NOLINT(bugprone-exception-escape)
     long status = 0;
     /// Its header fields, by their names in lowercase; a field it sent twice is its last.
     std::map<std::string, std::string, std::less<>> headers;

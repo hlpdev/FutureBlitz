@@ -2,6 +2,7 @@
 
 #include "fb/codegen.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
@@ -30,6 +31,22 @@ enum class command_t : std::uint8_t {
     FMT,
     /// Writes a package's public API as JSON, for its reference pages.
     DOC,
+    /// Adds dependencies from a registry to project.toml, and locks and fetches them.
+    ADD,
+    /// Resolves the package's registry dependencies anew, from their newest versions.
+    UPDATE,
+    /// Searches a registry's packages.
+    SEARCH,
+    /// Publishes a package to a registry.
+    PUBLISH,
+    /// Yanks a published version, or takes its yank back.
+    YANK,
+    /// Lists, adds, or removes a package's owners.
+    OWNER,
+    /// Signs in to a registry, and keeps its token.
+    LOGIN,
+    /// Forgets a registry's token.
+    LOGOUT,
 };
 
 /// The `--color` choice. See use_color for what AUTO means.
@@ -74,10 +91,33 @@ struct options_t {
     std::vector<std::filesystem::path> paths;
     /// `fb fmt --check`: lists the files it would change, without changing them.
     bool check = false;
+    /// `--offline`: registry packages come only from the cache.
+    bool offline = false;
+    /// `--registry`: a registry's name in [registries], or its index's URL or folder. Nullopt for
+    /// futureblitz.dev's.
+    std::optional<std::string> registry;
+    /// What the package commands take: `fb add`'s packages, `fb update`'s, `fb search`'s words,
+    /// `fb yank`'s `name@version`, and `fb owner`'s package.
+    std::vector<std::string> names;
+    /// `fb publish --dry-run`: builds and checks the archives, without publishing them.
+    bool dry_run = false;
+    /// `fb login --token`: reads the token from stdin.
+    bool token = false;
+    /// `fb yank --undo`.
+    bool undo = false;
+    /// `fb owner --add <who>` or `--remove <who>`, and which.
+    std::optional<std::string> owner;
+    bool remove_owner = false;
+    /// `fb add --beside`: the dependency goes beside the executable.
+    bool beside = false;
+    /// `fb search --limit <n>`: how many it shows.
+    std::size_t limit = 10;
 };
 
 /// The command's name, like "build".
 [[nodiscard]] std::string_view command_name(command_t command);
+/// Whether a command is the package manager's, from ADD to LOGOUT.
+[[nodiscard]] bool is_package_command(command_t command);
 /// The name `--show` takes, like "mir".
 [[nodiscard]] std::string_view stage_name(stage_t stage);
 

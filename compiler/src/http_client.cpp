@@ -33,6 +33,8 @@ struct received_t {
     http_response_t response;
 };
 
+// libcurl's callbacks take char*, though they only read it.
+// NOLINTNEXTLINE(misc-const-correctness)
 std::size_t on_body(char* data, const std::size_t size, const std::size_t count, void* given) {
     auto& received = *static_cast<received_t*>(given);
     received.response.body.append(data, size * count);
@@ -41,9 +43,10 @@ std::size_t on_body(char* data, const std::size_t size, const std::size_t count,
 
 /// Each header line of each response, the last one's kept: a redirect's are dropped as the next
 /// response's status line comes.
+// NOLINTNEXTLINE(misc-const-correctness): libcurl's callbacks take char*
 std::size_t on_header(char* data, const std::size_t size, const std::size_t count, void* given) {
     auto& received = *static_cast<received_t*>(given);
-    std::string_view line(data, size * count);
+    const std::string_view line(data, size * count);
     if (line.starts_with("HTTP/")) {
         received.response.headers.clear();
         return size * count;

@@ -218,21 +218,25 @@ folder `FB_HOME` names:
 - **Offline:** with `--offline`, or when the registry can't be reached, fb uses the index files
   and archives in the cache, and says so; a package that isn't there is an error naming it.
 
-**Archives.** A `.fbpkg` is a tar (POSIX ustar) compressed with gzip, which a Worker can read with
-its own DecompressionStream to check it. fb writes them alike on every machine: the files in
-their paths' byte order, each with mode 0644, no owner, and the time 0, so an archive's hash is the
-same wherever it's made.
+**Archives.** A `.fbpkg` is a tar (POSIX ustar, with a pax header for a path ustar can't hold)
+compressed with gzip, which a Worker can read with its own DecompressionStream to check it. fb
+writes the files in their paths' byte order, each with mode 0644, no owner, and the time 0, so the
+same files make the same tar, inside the subset of tar the registry takes (registry-api.md's
+Archives): ustar headers with strict octal numbers, files only, and at most a pax `path` before an
+entry. `fb publish` refuses a project.toml over 1 MB, as the registry does.
 
 - `<name>-<version>.fbpkg` holds the package's folder: project.toml, the license and readme, and
   its source, its other files (an Embed's, a .proto), but not build/, tests/, fb.lock, hidden
   files and folders, or folders with a project.toml of their own.
-- `<name>-<version>-<target>.fbpkg` holds the files in a folder named for that target, anywhere
-  in the package: `lib/<target>/` (a prebuilt library's .fblib and .fbi for each mode) and
-  `native/<target>/`, or `libs/{target}/` as a `[native]` path names it. The source archive
-  leaves them out, so a build downloads only its target's.
-- fb unpacks only regular files and folders, refusing an absolute path, a `..`, a `\`, a `:`, a
-  link, a name two entries share ignoring letter case, more than 50,000 files, and more than
-  1 GB unpacked.
+- `<name>-<version>-<target>.fbpkg` holds the package's `lib/<target>/` (a prebuilt library's
+  .fblib and .fbi for each mode) and `native/<target>/`. The source archive leaves them out, so a
+  build downloads only its target's.
+- fb unpacks only regular files and folders, refusing what the registry refuses at publish
+  (docs/registry-api.md): an absolute path, an empty, `.`, or `..` part, a control character or
+  one of `\ : < > " | ? *`, a part Windows can't name, a path over 255 bytes or not UTF-8, a link,
+  two paths that are one ignoring letter case, more than 20,000 files, and a package's own archive
+  that unpacks to more than 80 MB, or a target's to more than 4 GB. A package's own archive with a
+  target's files in it, or a target's with anything else, is refused too.
 
 **Registries.** The default is futureblitz.dev, named `futureblitz`. project.toml's
 `[registries]` names others, and can name `futureblitz` again to use a mirror:
@@ -246,54 +250,47 @@ local = { index = "../registry/index" }               # a folder: a registry on 
 tools = { version = "2", registry = "company" }
 ```
 
-- An index is an `https://` URL, an `http://` one only to the loopback addresses (localhost,
-  127.0.0.1, ::1), or a folder, which is a registry on disk, as tests use: the same files the
-  server serves, `<index>/config.json` and `<index>/<name>`, with config.json's `dl` a folder or
-  `file://` URL, under which an archive is at `<name>/<version>/<file>`. `fb publish` and `fb yank`
-  write to one directly, and `fb search` reads its index files.
-- A registry's packages depend on its own, or on another registry's by its index's URL, which
-  their index lines record.
+- An index is an `https://` URL, an `http://` one only on this machine (localhost and the names
+  in it, like `index.localhost`, 127.0.0.1, and [::1]), or a folder, which is a registry on disk,
+  as tests use: the same files the server serves, `<index>/config.json` and `<index>/<name>`, with
+  config.json's `dl` a template of a folder from the index's, or of a `file://` URL. `fb publish`
+  and `fb yank` write to one directly, and `fb search` reads its index files' names.
+- A dependency is from futureblitz.dev unless it names another registry; a package on another
+  registry depends on that one's packages by naming it, and its index lines record that
+  registry's index URL. futureblitz.dev's packages depend only on its own.
 - **Credentials:** `fb login` stores a registry's token in the OS's credential store, under
-  `futureblitz:<api URL>`: Windows' Credential Manager, the macOS keychain, or libsecret's
-  Secret Service on Linux. `FB_REGISTRY_TOKEN` comes first when it's set, as in CI; with no store
-  (a Linux machine without a Secret Service), `fb login` says to use it.
+  `futureblitz:<canonical index>`: Windows' Credential Manager, the macOS keychain, or libsecret's
+  Secret Service on Linux, which fb loads as it needs it, or in the JSON file
+  `FB_CREDENTIALS_FILE` names, readable only by its owner, for a machine without a store.
+  `FB_REGISTRY_TOKEN` comes first when it's set, as in CI, then in a GitHub workflow trusted
+  publishing's token (below); with no store (a Linux machine without a Secret Service), fb says to
+  use `FB_REGISTRY_TOKEN`.
 
 **The commands:**
 
-- `fb login [--registry <name>]` opens the registry's sign-in page in the browser, with a
-  127.0.0.1 port fb listens on, a random state, and a PKCE challenge; the site sends the browser
-  back to that port with a one-time code, which fb exchanges, with the challenge's verifier, for a
-  token. `fb login --token` reads a token from stdin instead, one made on the dashboard. `fb
-  logout` removes the stored one.
-- `fb publish [folder] [--dry-run] [--registry <name>]` builds the archives into
-  `build/package/`, writes `fb doc`'s JSON, and checks what the registry checks: a library (an
-  executable can't be a dependency), only versioned dependencies, a version that's semver and new,
-  a license that's an SPDX expression, a readme in UTF-8, paths that stay inside, the size limits,
-  and for a prebuilt package each target's builds and its .fbi's ABI hash agreeing. `--dry-run`
-  stops there and lists each archive's files; otherwise it uploads.
+- `fb login [--registry <name>]` starts a sign-in with the registry's API, opens its page in the
+  browser, and shows its code, which the page shows too; once the person approves it there, fb's
+  polling gets a token, which it stores. `fb login --token` reads one from stdin instead, made on
+  the dashboard. `fb logout` removes the stored one.
+- `fb publish [folder] [--dry-run] [--registry <name>]` builds the archives, writes `fb doc`'s
+  JSON, and checks what the registry checks: a library (an executable can't be a dependency) whose
+  name the registry takes, with a description, a license that's an SPDX expression, a license
+  file, and a readme in UTF-8 under 1 MB; only versioned dependencies; paths the archive can
+  hold; the size limits; and for a prebuilt package each target's debug and release builds and
+  their .fbi agreeing. `--dry-run` stops there and lists each archive's files; otherwise it checks
+  the version is new, uploads each archive and the docs (in parts when they're over 64 MB), and
+  publishes them. In a GitHub workflow without `FB_REGISTRY_TOKEN`, fb asks GitHub for an OIDC
+  token for the registry's audience, exchanges it for a short-lived token, publishes with it, and
+  revokes it.
 - `fb yank <name>@<version> [--undo]`, `fb owner <name> [--add <who> | --remove <who>]`, and
   `fb search <words>`, each with `--registry`.
 - `fb add <name>[@<range>] [--registry <name>] [--beside]` adds the dependency to project.toml,
   as the newest version's range (`physics = "1.4.2"`, which is `^1.4.2`), keeping the file's
   other lines as they are, and then locks and fetches it; `fb update [names]` resolves again.
 
-**What fb expects of the server**, proposed to `workers/api`, whose docs settle it; fb follows
-them where they differ:
-
-- `config.json`: `{ "dl": "https://dl.futureblitz.dev/", "api": "https://pkg.futureblitz.dev/api/v1",
-  "login": "https://pkg.futureblitz.dev/cli/login" }`; an archive is at
-  `<dl><name>/<version>/<file>`.
-- An index file, `<index><name>`, is one JSON object per line, oldest first: `{ "name": "physics",
-  "version": "1.2.3", "dependencies": [{ "name": "shapes", "req": "0.3", "registry": null }],
-  "fb": ">=0.1", "checksum": "<sha256 hex>", "targets": { "windows-x64": "<sha256 hex>" },
-  "yanked": false }`. `registry` is null for the index's own registry, or another's index URL. A
-  missing package is a 404, and an unchanged file a 304 for the ETag fb sends.
-- The API takes `Authorization: Bearer <token>` and answers JSON, an error as
-  `{ "error": "<message for people>" }` with a 4xx status. fb uses: publishing (the metadata, the
-  archives, and the docs JSON), `PUT`/`DELETE /packages/<name>/<version>/yank`,
-  `GET`/`PUT`/`DELETE /packages/<name>/owners` (`{ "users": ["name"] }`),
-  `GET /search?q=<words>&limit=<n>` (`{ "packages": [{ "name", "version", "description" }] }`), and
-  `POST /cli/token` (`{ "code", "verifier" }` to `{ "token" }`) for `fb login`.
+**The wire format** (config.json, the index's lines, the archives' checks, and the API) is
+[registry-api.md](registry-api.md), the server's, which futureblitz-web's `workers/api` keeps and
+this repo mirrors. fb reads an index line of a later format (`"v"`) as a later fb's, and skips it.
 
 **HTTP** is libcurl's, the static one std.net.http is built on, with mbedTLS and the OS's roots
 from the runtime's tls_roots.cpp: it's built, tested, and linked statically on every OS already,

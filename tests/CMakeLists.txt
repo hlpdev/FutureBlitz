@@ -23,9 +23,13 @@ add_subdirectory(native)
 # Compiler unit tests, plus the end-to-end tests that build and run tests/programs/*.fb.
 file(GLOB_RECURSE FB_COMPILER_TEST_SOURCES CONFIGURE_DEPENDS compiler/*.cpp)
 add_executable(fb_compiler_tests ${FB_COMPILER_TEST_SOURCES})
-# The package manager's tests read and write registries' JSON and archives' gzip themselves.
+# The package manager's tests read and write registries' JSON and archives' gzip themselves, and
+# serve a registry over HTTP on 127.0.0.1 (compiler/registry_server.hpp).
 target_link_libraries(fb_compiler_tests PRIVATE fb_compiler Catch2::Catch2WithMain
                       nlohmann_json::nlohmann_json zlib-ng)
+if(WIN32)
+  target_link_libraries(fb_compiler_tests PRIVATE ws2_32)
+endif()
 target_compile_definitions(fb_compiler_tests PRIVATE
   FB_TEST_PROGRAMS="${CMAKE_CURRENT_SOURCE_DIR}/programs"
   FB_TEST_PACKAGES="${CMAKE_CURRENT_SOURCE_DIR}/packages"
@@ -79,7 +83,12 @@ endif()
 # CLI tests, which run the real fb.
 file(GLOB_RECURSE FB_CLI_TEST_SOURCES CONFIGURE_DEPENDS cli/*.cpp)
 add_executable(fb_cli_tests ${FB_CLI_TEST_SOURCES})
-target_link_libraries(fb_cli_tests PRIVATE fb_compiler Catch2::Catch2WithMain)
+# The package commands' tests run fb against a registry the tests serve on 127.0.0.1.
+target_link_libraries(fb_cli_tests PRIVATE fb_compiler Catch2::Catch2WithMain
+                      nlohmann_json::nlohmann_json)
+if(WIN32)
+  target_link_libraries(fb_cli_tests PRIVATE ws2_32)
+endif()
 target_compile_definitions(fb_cli_tests PRIVATE
   FB_CLI="$<TARGET_FILE:fb_cli>"
   FB_TEST_PROGRAMS="${CMAKE_CURRENT_SOURCE_DIR}/programs"

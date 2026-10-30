@@ -170,9 +170,15 @@ std::optional<std::string> pax_path(std::string_view records) {
     std::optional<std::string> path;
     while (!records.empty()) {
         const std::size_t space = records.find(' ');
+        if (space == std::string_view::npos) {
+            return std::nullopt;
+        }
+
+        const std::string_view digits = records.substr(0, space);
         std::size_t length = 0;
-        const auto [end, error] = std::from_chars(records.data(), records.data() + space, length);
-        if (space == std::string_view::npos || error != std::errc() || length <= space + 1 ||
+        const auto [end, error] =
+            std::from_chars(digits.data(), digits.data() + digits.size(), length);
+        if (error != std::errc() || end != digits.data() + digits.size() || length <= space + 1 ||
             length > records.size() || records[length - 1] != '\n') {
             return std::nullopt;
         }
@@ -336,7 +342,7 @@ namespace {
 bool write_file(const std::filesystem::path& path, const std::string_view bytes) {
     std::error_code error;
     std::filesystem::create_directories(path.parent_path(), error);
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    std::ofstream out(path, std::ios::binary);
     out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     out.close();
     return static_cast<bool>(out);
@@ -365,7 +371,7 @@ void add_files(const std::filesystem::path& folder, const std::string& relative,
     });
     for (const std::filesystem::path& entry : entries) {
         const std::string name = to_utf8(entry.filename());
-        const std::string path = relative.empty() ? name : relative + "/" + name;
+        const std::string path = relative.empty() ? name : std::format("{}/{}", relative, name);
         if (name.starts_with('.')) {
             continue;
         }

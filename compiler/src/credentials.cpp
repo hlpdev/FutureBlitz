@@ -4,12 +4,21 @@
 
 #include "fb/credentials.hpp"
 
+#include "fb/registry_api.hpp"
+#include "fb/utf8.hpp"
+
 #include <expected>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <optional>
+#include <random>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -18,11 +27,10 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include "fb/utf8.hpp"
-
-#include <wincred.h>
 #include <windows.h>
-#elif defined(__APPLE__)
+// wincred.h needs windows.h's types first.
+#include <wincred.h>
+#elifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
 #else
@@ -98,7 +106,7 @@ public:
     }
 };
 
-#elif defined(__APPLE__)
+#elifdef __APPLE__
 
 /// Releases a Core Foundation object as it goes.
 struct cf_release_t {
@@ -352,12 +360,122 @@ private:
 
 #endif
 
+/// Tokens in a JSON file, each by its key, which only its owner can read.
+class file_store_t final : public credential_store_t {
+public:
+    explicit file_store_t(std::filesystem::path path) : m_path(std::move(path)) {}
+
+    std::expected<std::optional<std::string>, std::string>
+    get(const std::string_view key) override {
+        const std::expected<nlohmann::json, std::string> tokens = read();
+        if (!tokens) {
+            return std::unexpected(tokens.error());
+        }
+
+        const auto found = tokens->find(key);
+        if (found == tokens->end() || !found->is_string()) {
+            return std::nullopt;
+        }
+
+        return found->get<std::string>();
+    }
+
+    std::expected<void, std::string> set(const std::string_view key,
+                                         const std::string_view token) override {
+        std::expected<nlohmann::json, std::string> tokens = read();
+        if (!tokens) {
+            return std::unexpected(tokens.error());
+        }
+
+        tokens.value()[std::string(key)] = std::string(token);
+        return write(*tokens);
+    }
+
+    std::expected<bool, std::string> remove(const std::string_view key) override {
+        std::expected<nlohmann::json, std::string> tokens = read();
+        if (!tokens) {
+            return std::unexpected(tokens.error());
+        }
+
+        if (tokens->erase(std::string(key)) == 0) {
+            return false;
+        }
+
+        return write(*tokens).transform([] { return true; });
+    }
+
+private:
+    std::filesystem::path m_path;
+
+    std::expected<nlohmann::json, std::string> read() const {
+        const std::ifstream in(m_path, std::ios::binary);
+        if (!in) {
+            return nlohmann::json::object();
+        }
+
+        std::ostringstream text;
+        text << in.rdbuf();
+        nlohmann::json tokens = nlohmann::json::parse(text.str(), nullptr, false);
+        if (!tokens.is_object()) {
+            return std::unexpected(
+                std::format("{} isn't a JSON object of tokens", to_utf8(m_path)));
+        }
+
+        return tokens;
+    }
+
+    /// Writes the file whole, to a file beside it first that only its owner can read.
+    std::expected<void, std::string> write(const nlohmann::json& tokens) const {
+        std::error_code error;
+        if (m_path.has_parent_path()) {
+            std::filesystem::create_directories(m_path.parent_path(), error);
+        }
+
+        std::random_device random;
+        std::filesystem::path partial = m_path;
+        partial += std::format(".partial-{:08x}", random());
+        {
+            std::ofstream out(partial, std::ios::binary);
+            out << tokens.dump(2) << '\n';
+            out.close();
+            if (!out) {
+                std::filesystem::remove(partial, error);
+                return std::unexpected(std::format("couldn't write {}", to_utf8(m_path)));
+            }
+        }
+
+        std::filesystem::permissions(
+            partial, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+            error);
+        std::filesystem::rename(partial, m_path, error);
+        if (error) {
+            std::filesystem::remove(partial, error);
+            return std::unexpected(std::format("couldn't write {}", to_utf8(m_path)));
+        }
+
+        return {};
+    }
+};
+
 } // namespace
+
+std::unique_ptr<credential_store_t> file_credential_store(const std::filesystem::path& path) {
+    return std::make_unique<file_store_t>(path);
+}
+
+std::unique_ptr<credential_store_t> credential_store() {
+    if (const std::optional<std::string> file = environment_variable("FB_CREDENTIALS_FILE");
+        file && !file->empty()) {
+        return file_credential_store(path_from_utf8(*file));
+    }
+
+    return os_credential_store();
+}
 
 std::unique_ptr<credential_store_t> os_credential_store() {
 #ifdef _WIN32
     return std::make_unique<windows_store_t>();
-#elif defined(__APPLE__)
+#elifdef __APPLE__
     return std::make_unique<keychain_store_t>();
 #else
     return std::make_unique<secret_store_t>();

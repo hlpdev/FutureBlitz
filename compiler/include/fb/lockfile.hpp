@@ -9,8 +9,9 @@
 namespace fb {
 
 /// One registry package fb.lock pins: its exact version, the index it's from, and the SHA-256 of
-/// each of its archives.
-struct locked_package_t {
+/// each of its archives. Moving it can allocate, as its map's comparator is moved, which
+/// clang-tidy reports as an exception escaping.
+struct locked_package_t { // NOLINT(bugprone-exception-escape)
     std::string name;
     std::string version;
     /// Its registry's index, as canonical_index() writes it, like

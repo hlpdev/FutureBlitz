@@ -46,6 +46,7 @@ public:
         }
 
         std::vector<resolved_package_t> out;
+        out.reserve(m_chosen.size());
         for (const auto& [name, chosen] : m_chosen) {
             out.push_back({ .source = chosen.source, .entry = *chosen.entry });
         }
@@ -117,8 +118,8 @@ private:
     }
 
     /// The versions `requirement` allows, the locked one first, then newest first.
-    std::vector<candidate_t> candidates(const requirement_t& requirement,
-                                        const std::vector<index_entry_t>& all) const {
+    [[nodiscard]] std::vector<candidate_t> candidates(const requirement_t& requirement,
+                                                      const std::vector<index_entry_t>& all) const {
         const locked_package_t* locked = m_preferences.locked.find(requirement.name);
         const bool keep = locked != nullptr && locked->source == requirement.source &&
                           !m_preferences.all && !m_preferences.unlocked.contains(requirement.name);
@@ -228,9 +229,11 @@ private:
         }
 
         for (const candidate_t& candidate : fits) {
-            m_chosen.emplace(requirement.name, chosen_t{ .source = requirement.source,
-                                                         .entry = candidate.entry,
-                                                         .version = candidate.version });
+            m_chosen.emplace(requirement.name, chosen_t{
+                                                   .source = requirement.source,
+                                                   .entry = candidate.entry,
+                                                   .version = candidate.version,
+                                               });
             const std::size_t before = m_requirements.size();
             bool parsed = true;
             for (const index_dependency_t& dependency : candidate.entry->dependencies) {

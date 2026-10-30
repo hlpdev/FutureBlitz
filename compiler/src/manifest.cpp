@@ -45,26 +45,6 @@ bool is_keyword(const std::string_view text) {
            });
 }
 
-/// Whether an http:// URL's host is this machine's: localhost or a name in it, 127.0.0.1, or
-/// [::1], the only ones a registry can be at without TLS.
-bool is_loopback_url(const std::string_view url) {
-    std::string_view rest = url.substr(std::string_view("http://").size());
-    rest = rest.substr(0, rest.find_first_of("/?#"));
-    if (const std::size_t at = rest.rfind('@'); at != std::string_view::npos) {
-        rest = rest.substr(at + 1);
-    }
-
-    std::string_view host = rest;
-    if (host.starts_with('[')) {
-        host = host.substr(0, host.find(']') + 1);
-    } else {
-        host = host.substr(0, host.find(':'));
-    }
-
-    return host == "localhost" || host.ends_with(".localhost") || host == "127.0.0.1" ||
-           host == "[::1]";
-}
-
 /// A table's keys and values in the order the file has them, which toml++ doesn't keep.
 std::vector<std::pair<const toml::key*, const toml::node*>> in_order(const toml::table& table) {
     std::vector<std::pair<const toml::key*, const toml::node*>> entries;
@@ -246,7 +226,7 @@ private:
                     string_of(field, value, name == "readme" ? "\"README.md\"" : "\"LICENSE-MIT\"");
                 if (file && !is_inside(*file)) {
                     fail(span_of(value.source()),
-                         "'{}' is a file in the package's folder, like \"{}\", not \"{}\"", name,
+                         R"('{}' is a file in the package's folder, like "{}", not "{}")", name,
                          name == "readme" ? "README.md" : "LICENSE-MIT", *file);
                     file.reset();
                 } else if (file) {
@@ -262,9 +242,13 @@ private:
                          *url);
                 }
 
-                (name == "repository" ? manifest.repository
-                 : name == "homepage" ? manifest.homepage
-                                      : manifest.documentation) = std::move(url);
+                if (name == "repository") {
+                    manifest.repository = std::move(url);
+                } else if (name == "homepage") {
+                    manifest.homepage = std::move(url);
+                } else {
+                    manifest.documentation = std::move(url);
+                }
             } else if (name == "keywords") {
                 read_keywords(value, manifest);
             } else if (name == "fb") {
@@ -758,6 +742,28 @@ std::optional<std::string> package_name_error(const std::string_view text) {
     return std::nullopt;
 }
 
+bool is_loopback_url(const std::string_view url) {
+    if (!url.starts_with("http://")) {
+        return false;
+    }
+
+    std::string_view rest = url.substr(std::string_view("http://").size());
+    rest = rest.substr(0, rest.find_first_of("/?#"));
+    if (const std::size_t at = rest.rfind('@'); at != std::string_view::npos) {
+        rest = rest.substr(at + 1);
+    }
+
+    std::string_view host = rest;
+    if (host.starts_with('[')) {
+        host = host.substr(0, host.find(']') + 1);
+    } else {
+        host = host.substr(0, host.find(':'));
+    }
+
+    return host == "localhost" || host.ends_with(".localhost") || host == "127.0.0.1" ||
+           host == "[::1]";
+}
+
 bool is_local_index(const std::string_view index) {
     return !index.starts_with("https://") && !index.starts_with("http://");
 }
@@ -778,8 +784,8 @@ std::optional<std::string> license_error(const std::string_view text) {
         }
     }
 
-    const std::string wrong = std::format(
-        "a license is an SPDX expression, like \"MIT\" or \"MIT OR Apache-2.0\", not \"{}\"", text);
+    std::string wrong = std::format(
+        R"(a license is an SPDX expression, like "MIT" or "MIT OR Apache-2.0", not "{}")", text);
     // A license's name: letters, digits, '.', and '-', and maybe a '+' after, or a
     // DocumentRef-x:LicenseRef-y.
     const auto is_name = [](std::string_view word) {

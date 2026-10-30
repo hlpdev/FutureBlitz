@@ -124,6 +124,10 @@ struct manifest_t {
 /// Whether `index`, as [registries] writes it, is a folder or a file:// URL: a registry on disk.
 [[nodiscard]] bool is_local_index(std::string_view index);
 
+/// Whether `url` is an http:// URL whose host is this machine's: localhost or a name in it,
+/// 127.0.0.1, or [::1], the only ones a registry can be at without TLS.
+[[nodiscard]] bool is_loopback_url(std::string_view url);
+
 /// Whether text is a name a native library can have, or a system library's name for the
 /// linker: ASCII letters, digits, '_', '-', '.', and '+', not starting with '-'.
 [[nodiscard]] bool is_library_name(std::string_view text);

@@ -23,8 +23,9 @@ struct requirement_t {
     std::string who;
 };
 
-/// A version the resolver picked.
-struct resolved_package_t {
+/// A version the resolver picked. Moving it can allocate, as its entry's map's comparator is
+/// moved, which clang-tidy reports as an exception escaping.
+struct resolved_package_t { // NOLINT(bugprone-exception-escape)
     std::string source;
     index_entry_t entry;
 };

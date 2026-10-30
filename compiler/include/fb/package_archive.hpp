@@ -15,6 +15,8 @@ namespace fb {
 
 /// The targets a package can ship prebuilt files for, as `{target}` names them.
 inline constexpr std::array<std::string_view, 5> package_targets = {
+    // clang-format packs the names on one line, which the comma keeps from being aligned.
+    // NOLINTNEXTLINE(readability-trailing-comma)
     "windows-x64", "linux-x64", "linux-arm64", "macos-arm64", "macos-x64",
 };
 
@@ -73,8 +75,9 @@ unpack_archive(std::string_view bytes, const std::filesystem::path& folder, std:
 /// `<name>-<version>.fbpkg`, and for each target that has files, `targets[target]` for
 /// `<name>-<version>-<target>.fbpkg`, the files in its `lib/<target>/` and `native/<target>/`.
 /// Neither has build/, tests/, fb.lock, hidden files and folders, or folders with a project.toml
-/// of their own.
-struct package_files_t {
+/// of their own. Moving it can allocate, as its map's comparator is moved, which clang-tidy
+/// reports as an exception escaping.
+struct package_files_t { // NOLINT(bugprone-exception-escape)
     std::vector<std::string> source;
     std::map<std::string, std::vector<std::string>, std::less<>> targets;
 };

@@ -41,9 +41,11 @@ TEST_CASE("a version is three numbers and maybe a pre-release", "[semver]") {
     CHECK(version("1.0.0-beta.2").text() == "1.0.0-beta.2");
     CHECK(version("0.0.0-x-y.0").text() == "0.0.0-x-y.0");
 
-    for (const std::string_view wrong :
-         { "1.2", "1.2.3.4", "01.2.3", "1.02.3", "1.2.3-", "1.2.3-beta..1", "1.2.3-beta.01",
-           "1.2.x", "", "v1.2.3", "1.2.3-b@d", "99999999999999999999.0.0" }) {
+    const std::vector<std::string_view> wrongs{
+        "1.2",           "1.2.3.4", "01.2.3", "1.02.3", "1.2.3-",    "1.2.3-beta..1",
+        "1.2.3-beta.01", "1.2.x",   "",       "v1.2.3", "1.2.3-b@d", "99999999999999999999.0.0",
+    };
+    for (const std::string_view wrong : wrongs) {
         INFO(wrong);
         CHECK_FALSE(fb::parse_version(wrong));
     }

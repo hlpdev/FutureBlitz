@@ -2,6 +2,7 @@
 
 #include "fb/build_config.hpp"
 #include "fb/commit.hpp"
+#include "fb/console.hpp"
 #include "fb/diagnostic_render.hpp"
 #include "fb/doc.hpp"
 #include "fb/driver.hpp"
@@ -11,6 +12,7 @@
 #include "fb/lexer.hpp"
 #include "fb/lower.hpp"
 #include "fb/new.hpp"
+#include "fb/package_commands.hpp"
 #include "fb/process.hpp"
 #include "fb/style.hpp"
 #include "fb/terminal.hpp"
@@ -54,58 +56,6 @@ constexpr int tests_failed_exit_code = 1;
 /// The most diagnostics a command shows; the count of the rest follows them.
 constexpr std::size_t shown_diagnostics = 100;
 
-/// Stage views go to stdout so they pipe cleanly. Everything else goes to stderr, like cargo.
-class console_t {
-public:
-    /// Each stream gets its own style, since only one of them may be a terminal.
-    explicit console_t(const color_t color)
-        : m_out{ .color = use_color(color, stream_t::STANDARD_OUTPUT) },
-          m_err{ .color = use_color(color, stream_t::STANDARD_ERROR) } {}
-
-    [[nodiscard]] const style_t& out() const {
-        return m_out;
-    }
-
-    [[nodiscard]] const style_t& err() const {
-        return m_err;
-    }
-
-    /// How diagnostics go to stderr: in its colors, with FB_COLUMNS's columns.
-    [[nodiscard]] render_options_t diagnostics() const {
-        return { .color = m_err.color, .columns = m_columns };
-    }
-
-    static void print(const std::string_view text) {
-        std::fwrite(text.data(), 1, text.size(), stdout);
-    }
-
-    static void print_error(const std::string_view text) {
-        // Views and errors stay in order when both streams go to the same place.
-        std::fflush(stdout);
-        std::fwrite(text.data(), 1, text.size(), stderr);
-    }
-
-    /// "   Compiling game.fb", with the verb right-aligned like cargo's.
-    void status(const std::string_view verb, const std::string_view message) const {
-        const std::string label = m_err.paint(std::format("{:>12}", verb), tone_t::SUCCESS);
-        print_error(std::format("{} {}\n", label, message));
-    }
-
-    void error(const std::string_view message) const {
-        print_error(std::format("{}: {}\n", m_err.paint("error", tone_t::ERROR),
-                                m_err.paint(message, tone_t::BOLD)));
-    }
-
-    void note(const std::string_view message) const {
-        print_error(std::format("{}: {}\n", m_err.paint("note", tone_t::NOTE), message));
-    }
-
-private:
-    style_t m_out;
-    style_t m_err;
-    column_unit_t m_columns = diagnostic_columns();
-};
-
 /// "1 error" or "3 errors".
 std::string count(const std::size_t number, const std::string_view noun) {
     return std::format("{} {}{}", number, noun, number == 1 ? "" : "s");
@@ -136,9 +86,109 @@ std::string_view summary(const command_t command) {
         return "Format .fb files in place";
     case command_t::DOC:
         return "Write a package's public API as JSON, docs and all";
+    case command_t::ADD:
+        return "Add dependencies from a registry to project.toml";
+    case command_t::UPDATE:
+        return "Update fb.lock's versions to the newest the ranges allow";
+    case command_t::SEARCH:
+        return "Search a registry's packages";
+    case command_t::PUBLISH:
+        return "Publish a package to a registry";
+    case command_t::YANK:
+        return "Yank a published version, so new builds don't pick it";
+    case command_t::OWNER:
+        return "List, add, or remove a package's owners";
+    case command_t::LOGIN:
+        return "Sign in to a registry, and keep its token";
+    case command_t::LOGOUT:
+        return "Forget a registry's token";
     default:
         return "";
     }
+}
+
+/// The help of one of the package manager's commands. Names pad to 21 columns, the width of
+/// "    --registry <name>".
+std::string package_help(const command_t command, const style_t& style) {
+    const auto entry = [&](const std::string_view name, const std::string_view description) {
+        return std::format("  {}  {}\n", style.paint(std::format("{:<21}", name), tone_t::NAME),
+                           description);
+    };
+    const auto usage = [&](const std::string_view arguments) {
+        return std::format("{}\n\n{} fb {} [options]{}\n", summary(command),
+                           style.paint("Usage:", tone_t::SUCCESS), command_name(command),
+                           arguments);
+    };
+    std::string out;
+    switch (command) {
+    case command_t::ADD:
+        out = usage(" <package>[@<range>]...");
+        out += "\nWithout a range, it's the newest version's: physics = \"1.4.2\" is 1.4.2 or any\n"
+               "later 1.x. The package is the one the current folder is in.\n";
+        break;
+    case command_t::UPDATE:
+        out = usage(" [<package>...]");
+        out += "\nWithout packages, it updates them all; with them, only those and what they\n"
+               "need.\n";
+        break;
+    case command_t::SEARCH:
+        out = usage(" <words>...");
+        break;
+    case command_t::PUBLISH:
+        out = usage(" [package folder]");
+        out += "\nIt builds the package's archives into build/package/ and its docs, checks them\n"
+               "as the registry does, and uploads them. FB_REGISTRY_TOKEN, or in a GitHub\n"
+               "workflow, trusted publishing, stands in for fb login's token.\n";
+        break;
+    case command_t::YANK:
+        out = usage(" <package>@<version>");
+        out += "\nA yanked version still builds where fb.lock has it, but nothing new picks it.\n";
+        break;
+    case command_t::OWNER:
+        out = usage(" <package>");
+        out += "\nWithout --add or --remove, it lists the owners. A team is team:<name>.\n";
+        break;
+    case command_t::LOGIN:
+        out = usage("");
+        out += "\nIt opens the registry's sign-in page, and keeps the token in the OS's\n"
+               "credential store, or the file FB_CREDENTIALS_FILE names.\n";
+        break;
+    default:
+        out = usage("");
+        break;
+    }
+
+    out += std::format("\n{}\n", style.paint("Options:", tone_t::SUCCESS));
+    if (command != command_t::UPDATE) {
+        out += entry("    --registry <name>",
+                     "A registry in [registries], or an index's URL or folder (futureblitz.dev)");
+    }
+
+    if (command == command_t::ADD) {
+        out += entry("    --beside", "Ship it beside the executable, as link = \"beside\"");
+    }
+
+    if (command == command_t::ADD || command == command_t::UPDATE ||
+        command == command_t::PUBLISH) {
+        out += entry("    --offline", "Use only what's in the cache");
+    }
+
+    if (command == command_t::SEARCH) {
+        out += entry("    --limit <n>", "Show at most n packages, from 1 to 100 (10)");
+    } else if (command == command_t::PUBLISH) {
+        out += entry("    --dry-run", "Build and check the archives, and list their files");
+    } else if (command == command_t::YANK) {
+        out += entry("    --undo", "Take the yank back");
+    } else if (command == command_t::OWNER) {
+        out += entry("    --add <who>", "Invite a user, or add a team, to own the package");
+        out += entry("    --remove <who>", "Take an owner off");
+    } else if (command == command_t::LOGIN) {
+        out += entry("    --token", "Read a token made on the dashboard from stdin");
+    }
+
+    out += entry("    --color <when>", "Color the output: auto, always, or never");
+    out += entry("-h, --help", "Show this help");
+    return out;
 }
 
 /// `fb bindgen`'s help, which lists fb-bindgen's options. Names pad to 21 columns, the width of
@@ -178,6 +228,10 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
 
     if (command == command_t::BINDGEN) {
         return bindgen_help(style);
+    }
+
+    if (command && is_package_command(*command)) {
+        return package_help(*command, style);
     }
 
     if (command == command_t::NEW) {
@@ -239,6 +293,14 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
                  command_t::BINDGEN,
                  command_t::FMT,
                  command_t::DOC,
+                 command_t::ADD,
+                 command_t::UPDATE,
+                 command_t::SEARCH,
+                 command_t::PUBLISH,
+                 command_t::YANK,
+                 command_t::OWNER,
+                 command_t::LOGIN,
+                 command_t::LOGOUT,
              }) {
             out += entry(command_name(each), summary(each));
         }
@@ -268,6 +330,7 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
         out += entry("    --show <stages>", "Print stages: tokens, ast, types, mir, llvm, or all");
     }
 
+    out += entry("    --offline", "Use only the registry packages in the cache");
     out += entry("    --color <when>", "Color the output: auto, always, or never");
     out += entry("-h, --help", "Show this help");
     if (!command) {
@@ -607,6 +670,10 @@ int compile_command(const options_t& options) {
     const std::optional<std::filesystem::path> input = input_of(console, options);
     if (!input) {
         return usage_exit_code;
+    }
+
+    if (!prepare_packages(console, options, *input)) {
+        return compile_errors_exit_code;
     }
 
     // This only fails when the file can't be read, or a folder isn't a package's, which counts as
@@ -1002,6 +1069,10 @@ int test_command(const options_t& options) {
 
     // "std" is the standard library, whose tests are its docs' examples.
     const bool standard = options.input == "std";
+    if (!standard && !prepare_packages(console, options, *input)) {
+        return compile_errors_exit_code;
+    }
+
     const std::expected<compilation_t, std::string> compiled =
         standard ? compile_standard_tests(options.mode) : compile_tests(*input, options.mode);
     if (!compiled) {
@@ -1112,6 +1183,10 @@ int doc_command(const options_t& options) {
     }
 
     const bool standard = options.input == "std";
+    if (!standard && !prepare_packages(console, options, *input)) {
+        return compile_errors_exit_code;
+    }
+
     const std::expected<compilation_t, std::string> compiled =
         standard ? compile_standard_docs(options.mode) : compile_docs(*input, options.mode);
     if (!compiled) {
@@ -1225,6 +1300,15 @@ int run_command(const options_t& options) {
         return format_command(options);
     case command_t::DOC:
         return doc_command(options);
+    case command_t::ADD:
+    case command_t::UPDATE:
+    case command_t::SEARCH:
+    case command_t::PUBLISH:
+    case command_t::YANK:
+    case command_t::OWNER:
+    case command_t::LOGIN:
+    case command_t::LOGOUT:
+        return package_command(options);
     }
 
     std::unreachable();

@@ -3,6 +3,28 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## M10, packages online
+
+fb's side of steps 1, 2, 5, and 6 (2026-10-30, the m10-client lane), over the design in
+libraries.md and registry-api.md's wire format, which futureblitz-web's workers/api serves: semver
+versions and Cargo's ranges (`fb/semver.hpp`), with pre-releases only where a range names one;
+project.toml's registry dependencies, `[registries]` (https, or http on this machine, or a folder,
+a registry on disk), and `[project]`'s description, license (an SPDX expression), license_file,
+readme, repository, homepage, documentation, keywords, and fb; a backtracking resolver, newest
+first but fb.lock's versions first, that skips yanked versions fb.lock lacks and versions whose fb
+range this fb isn't in, and names who asks for what in a conflict; fb.lock, flat, by name, with
+each archive's SHA-256 and every target's; the cache in FB_HOME or ~/.futureblitz, of index files
+with ETags, archives, and unpacked packages with markers, written whole or not at all; `.fbpkg`
+archives, gzip'd ustar with pax for long paths, a package's own and one per target of its
+`lib/<target>/` and `native/<target>/`, unpacked only after the registry's own path and size
+checks; the driver finding registry packages through fb.lock alone, offline, with messages saying
+what to run; libcurl from the compiler's library, with the runtime's OS roots; `fb add`, `update`,
+`search`, `publish` (with `--dry-run`, uploads in parts, docs JSON, and trusted publishing from a
+GitHub workflow), `yank`, `owner`, `login` (the registry's sign-in page and polling, or `--token`),
+and `logout`, with tokens in Windows' Credential Manager, the macOS keychain, libsecret, or
+FB_CREDENTIALS_FILE; and `--offline` for the commands that build. Tests run against registries on
+disk and a registry the tests serve over HTTP on 127.0.0.1.
+
 ## M8, tooling
 
 The installers, after the milestone (2026-10-30): a release is versioned from its tag

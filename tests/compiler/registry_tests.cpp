@@ -12,8 +12,16 @@
 
 namespace {
 
-const std::string hash_a(64, 'a');
-const std::string hash_b(64, 'b');
+/// Hashes of no archive, for index lines.
+std::string hash_a() {
+    std::string hash(64, 'a');
+    return hash;
+}
+
+std::string hash_b() {
+    std::string hash(64, 'b');
+    return hash;
+}
 
 /// A registry on the network that's a map of URLs to answers, which records what it was asked.
 struct fake_server_t {
@@ -56,8 +64,8 @@ TEST_CASE("an index line is docs/registry-api.md's, and reads back the same", "[
     const std::string line =
         R"({"v":1,"name":"physics","version":"1.2.0","deps":[{"name":"math3d","req":"0.4"}],)"
         R"("fb":"0.9","targets":["linux-x64","windows-x64"],"archives":{"source":{"sha256":")" +
-        hash_a + R"(","size":48211},"linux-x64":{"sha256":")" + hash_b +
-        R"(","size":5120334},"windows-x64":{"sha256":")" + hash_b +
+        hash_a() + R"(","size":48211},"linux-x64":{"sha256":")" + hash_b() +
+        R"(","size":5120334},"windows-x64":{"sha256":")" + hash_b() +
         R"(","size":5023117}},"yanked":false})";
     const std::expected<std::vector<fb::index_entry_t>, std::string> entries =
         fb::parse_index(line + "\n", "physics");
@@ -70,7 +78,7 @@ TEST_CASE("an index line is docs/registry-api.md's, and reads back the same", "[
     CHECK(entry.dependencies[0].req == "0.4");
     CHECK_FALSE(entry.dependencies[0].registry);
     CHECK(entry.fb == "0.9");
-    CHECK(entry.source.sha256 == hash_a);
+    CHECK(entry.source.sha256 == hash_a());
     CHECK(entry.source.size == 48211);
     CHECK(entry.targets.at("windows-x64").size == 5023117);
     CHECK_FALSE(entry.yanked);
@@ -80,7 +88,7 @@ TEST_CASE("an index line is docs/registry-api.md's, and reads back the same", "[
     const std::string later = R"({"v":2,"name":"physics","version":"9.0.0"})";
     const std::string more = R"({"v":1,"name":"physics","version":"1.3.0","new_key":5,"deps":[],)"
                              R"("fb":null,"targets":[],"archives":{"source":{"sha256":")" +
-                             hash_a + R"(","size":1}},"yanked":true})";
+                             hash_a() + R"(","size":1}},"yanked":true})";
     const std::expected<std::vector<fb::index_entry_t>, std::string> mixed =
         fb::parse_index(line + "\n" + later + "\r\n" + more + "\n\n", "physics");
     REQUIRE(mixed);
@@ -92,11 +100,11 @@ TEST_CASE("an index line is docs/registry-api.md's, and reads back the same", "[
              std::string("not json"),
              std::string(R"({"v":1,"name":"other","version":"1.0.0"})"),
              R"({"v":1,"name":"physics","version":"1.0","archives":{"source":{"sha256":")" +
-                 hash_a + R"(","size":1}}})",
+                 hash_a() + R"(","size":1}}})",
              std::string(R"({"v":1,"name":"physics","version":"1.0.0","archives":{}})"),
              R"({"v":1,"name":"physics","version":"1.0.0","targets":["linux-x64"],)"
              R"("archives":{"source":{"sha256":")" +
-                 hash_a + R"(","size":1}}})",
+                 hash_a() + R"(","size":1}}})",
          }) {
         INFO(wrong);
         const std::expected<std::vector<fb::index_entry_t>, std::string> read =
@@ -151,7 +159,7 @@ TEST_CASE("a registry's index files are cached with their ETags", "[registry]") 
     const fb::testing::sandbox_t sandbox;
     const std::string line = R"({"v":1,"name":"physics","version":"1.0.0","deps":[],"fb":null,)"
                              R"("targets":[],"archives":{"source":{"sha256":")" +
-                             hash_a + R"(","size":1}},"yanked":false})";
+                             hash_a() + R"(","size":1}},"yanked":false})";
     fake_server_t server;
     server.answers["https://index.example.com/physics"] = {
         .status = 200,
@@ -246,11 +254,11 @@ TEST_CASE("an archive is downloaded once, and checked against its hash", "[regis
     // An archive that isn't what fb.lock says isn't used.
     server.answers["https://dl.example.com/physics/1.0.0/physics-1.0.0.fbpkg"].body = "changed";
     fb::registry_t registry("https://index.example.com/", server.client(), false, status);
-    const auto wrong = registry.archive("physics", "1.0.0", "physics-1.0.0.fbpkg", hash_b);
+    const auto wrong = registry.archive("physics", "1.0.0", "physics-1.0.0.fbpkg", hash_b());
     REQUIRE_FALSE(wrong);
     CHECK(wrong.error() == std::format("physics-1.0.0.fbpkg isn't what fb.lock says it is: its "
                                        "SHA-256 is {}, and fb.lock's is {}",
-                                       fb::sha256_hex("changed"), hash_b));
+                                       fb::sha256_hex("changed"), hash_b()));
     const auto missing = registry.archive("physics", "2.0.0", "physics-2.0.0.fbpkg", hash);
     REQUIRE_FALSE(missing);
     CHECK(missing.error().contains("couldn't be downloaded: it answered 404"));

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <expected>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -34,6 +35,14 @@ public:
 /// The OS's own store: Windows' Credential Manager, the macOS keychain, or on Linux the Secret
 /// Service, through libsecret, which fails as it's used when the machine has none.
 [[nodiscard]] std::unique_ptr<credential_store_t> os_credential_store();
+
+/// A file of tokens, JSON of each key's, readable only by its owner where the OS says who that
+/// is: for a machine without a store of its own, which FB_CREDENTIALS_FILE names.
+[[nodiscard]] std::unique_ptr<credential_store_t>
+file_credential_store(const std::filesystem::path& path);
+
+/// FB_CREDENTIALS_FILE's store when it's set, or else the OS's.
+[[nodiscard]] std::unique_ptr<credential_store_t> credential_store();
 
 /// The key a registry's token is kept under: "futureblitz:" and its canonical index.
 [[nodiscard]] std::string credential_key(std::string_view index);

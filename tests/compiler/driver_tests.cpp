@@ -1804,7 +1804,8 @@ TEST_CASE("a project.toml's mistakes stop the build, at its lines", "[driver]") 
     REQUIRE(app);
     CHECK(packages.messages(*app) ==
           std::vector<std::string>{ "app/project.toml: \"one\": a package's version is three "
-                                    "numbers, like \"0.1.0\", not \"one\"" });
+                                    "numbers, like \"0.1.0\", and maybe a pre-release, like "
+                                    "\"1.0.0-beta.1\", not \"one\"" });
 
     // Without 'main', a package without main.fb is a library, but the file it names has to be
     // there.
@@ -2668,7 +2669,8 @@ TEST_CASE("a dependency's project.toml is checked as its own package's is", "[dr
     REQUIRE(twice);
     CHECK(packages.messages(*twice) ==
           std::vector<std::string>{ "d/project.toml: \"x\": a package's version is three numbers, "
-                                    "like \"0.1.0\", not \"x\"" });
+                                    "like \"0.1.0\", and maybe a pre-release, like "
+                                    "\"1.0.0-beta.1\", not \"x\"" });
     packages.remove();
 }
 

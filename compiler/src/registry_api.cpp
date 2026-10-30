@@ -35,14 +35,13 @@ using json_t = nlohmann::json;
 
 /// The most a readme can be, and the most a description.
 constexpr std::uint64_t most_readme_bytes = std::uint64_t{ 1 } << 20U;
+/// The most a project.toml can be.
+constexpr std::uint64_t most_manifest_bytes = std::uint64_t{ 1 } << 20U;
 constexpr std::size_t longest_description = 300;
 constexpr std::size_t longest_name = 64;
 
-/// The most an archive can be in one upload; a larger one goes in parts.
-constexpr std::uint64_t most_single_upload = std::uint64_t{ 64 } << 20U;
-
 std::optional<std::string> read_bytes(const std::filesystem::path& path) {
-    std::ifstream in(path, std::ios::binary);
+    const std::ifstream in(path, std::ios::binary);
     if (!in) {
         return std::nullopt;
     }
@@ -55,7 +54,7 @@ std::optional<std::string> read_bytes(const std::filesystem::path& path) {
 bool write_bytes(const std::filesystem::path& path, const std::string_view bytes) {
     std::error_code error;
     std::filesystem::create_directories(path.parent_path(), error);
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    std::ofstream out(path, std::ios::binary);
     out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     out.close();
     return static_cast<bool>(out);
@@ -234,9 +233,12 @@ std::expected<void, std::string> upload(const registry_session_t& session,
         session.status("Uploading", std::format("{} ({} KB)", what, (ref.size + 1023) / 1024));
     }
 
-    if (ref.size <= most_single_upload) {
+    if (ref.size <= session.most_single_upload) {
         http_request_t request{
-            .method = "PUT", .url = url, .headers = auth, .body = std::string(bytes)
+            .method = "PUT",
+            .url = url,
+            .headers = auth,
+            .body = std::string(bytes),
         };
         request.headers.emplace_back("Content-Type", "application/octet-stream");
         const std::expected<http_response_t, std::string> put = session.http(request);
@@ -411,6 +413,10 @@ std::expected<prepared_package_t, std::string> prepare_package(const std::filesy
     const std::optional<std::string> text = read_bytes(root / "project.toml");
     if (!text) {
         return std::unexpected(std::format("there's no project.toml in {}", to_utf8(root)));
+    }
+
+    if (text->size() > most_manifest_bytes) {
+        return std::unexpected("project.toml is more than the registry's 1 MB");
     }
 
     const source_file_t file(file_id_t{}, "project.toml", *text);
@@ -648,8 +654,10 @@ publish_package(const prepared_package_t& package, const std::string_view docs,
             return std::unexpected(sent.error());
         }
 
-        archives[archive.target] = { { "sha256", archive.ref.sha256 },
-                                     { "size", archive.ref.size } };
+        archives[archive.target] = {
+            { "sha256", archive.ref.sha256 },
+            { "size", archive.ref.size },
+        };
     }
 
     json_t docs_ref = nullptr;
@@ -809,9 +817,11 @@ search_packages(const std::string_view words, const std::size_t limit,
     if (answer.is_object() && answer.contains("packages") && answer["packages"].is_array()) {
         for (const json_t& each : answer["packages"]) {
             if (each.is_object()) {
-                found.push_back({ .name = text_field(each, "name"),
-                                  .version = text_field(each, "max_version"),
-                                  .description = text_field(each, "description") });
+                found.push_back({
+                    .name = text_field(each, "name"),
+                    .version = text_field(each, "max_version"),
+                    .description = text_field(each, "description"),
+                });
             }
         }
 
@@ -859,7 +869,8 @@ login(const std::string_view name, const registry_session_t& session, const logi
     }
 
     // The registry's sign-ins last 10 minutes; this stops a little after.
-    const std::int64_t most_polls = (11 * 60 / interval) + 1;
+    constexpr std::int64_t waited = 660;
+    const std::int64_t most_polls = (waited / interval) + 1;
     for (std::int64_t poll = 0; poll < most_polls; ++poll) {
         if (hooks.wait) {
             hooks.wait(std::chrono::seconds(interval));
@@ -879,7 +890,7 @@ login(const std::string_view name, const registry_session_t& session, const logi
 
         if (polled->status == 200) {
             const json_t approved = json_t::parse(polled->body, nullptr, false);
-            const std::string token = approved.is_object() ? text_field(approved, "token") : "";
+            std::string token = approved.is_object() ? text_field(approved, "token") : "";
             if (token.empty()) {
                 return std::unexpected("the registry approved the sign-in, but sent no token");
             }
@@ -941,7 +952,7 @@ trusted_publishing_token(const registry_session_t& session) {
     }
 
     const json_t token = json_t::parse(exchanged->body, nullptr, false);
-    const std::string value = token.is_object() ? text_field(token, "token") : "";
+    std::string value = token.is_object() ? text_field(token, "token") : "";
     if (value.empty()) {
         return std::unexpected("the registry's answer to trusted publishing had no token");
     }

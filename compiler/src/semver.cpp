@@ -180,6 +180,16 @@ void add(std::vector<comparator_t>& out, const op_t op, const version_t& version
     out.push_back({ .op = op, .version = version });
 }
 
+/// The first version a partial one names: the numbers it leaves out 0.
+version_t lowest(const partial_t& at) {
+    return {
+        .major = at.major,
+        .minor = at.minor.value_or(0),
+        .patch = at.patch.value_or(0),
+        .pre = at.pre,
+    };
+}
+
 /// `<` the version of these numbers, unless one of them can't be one past its own.
 void add_below(std::vector<comparator_t>& out, const std::optional<std::uint64_t> major,
                const std::uint64_t minor, const std::uint64_t patch) {
@@ -204,8 +214,7 @@ void add_below_minor(std::vector<comparator_t>& out, const std::uint64_t major,
 void add_caret(std::vector<comparator_t>& out, const partial_t& at) {
     const std::uint64_t minor = at.minor.value_or(0);
     const std::uint64_t patch = at.patch.value_or(0);
-    add(out, op_t::GREATER_EQUAL,
-        { .major = at.major, .minor = minor, .patch = patch, .pre = at.pre });
+    add(out, op_t::GREATER_EQUAL, lowest(at));
     if (at.major > 0 || !at.minor) {
         add_below(out, next(at.major), 0, 0);
     } else if (minor > 0 || !at.patch) {
@@ -219,11 +228,7 @@ void add_caret(std::vector<comparator_t>& out, const partial_t& at) {
 
 /// The comparators of `~1.2.3`, `~1.2`, or `~1`: the patches, or for `~1`, the minor versions.
 void add_tilde(std::vector<comparator_t>& out, const partial_t& at) {
-    add(out, op_t::GREATER_EQUAL,
-        { .major = at.major,
-          .minor = at.minor.value_or(0),
-          .patch = at.patch.value_or(0),
-          .pre = at.pre });
+    add(out, op_t::GREATER_EQUAL, lowest(at));
     if (!at.minor) {
         add_below(out, next(at.major), 0, 0);
     } else {
@@ -235,8 +240,7 @@ void add_tilde(std::vector<comparator_t>& out, const partial_t& at) {
 /// `1.2.*` and `1.*` are.
 void add_exact(std::vector<comparator_t>& out, const partial_t& at) {
     if (at.patch) {
-        add(out, op_t::EQUAL,
-            { .major = at.major, .minor = *at.minor, .patch = *at.patch, .pre = at.pre });
+        add(out, op_t::EQUAL, lowest(at));
         return;
     }
 
@@ -252,7 +256,7 @@ void add_exact(std::vector<comparator_t>& out, const partial_t& at) {
 /// `>=1.3.0`, and `<=1.2` is `<1.3.0`.
 void add_past(std::vector<comparator_t>& out, const op_t op, const partial_t& at) {
     if (at.patch) {
-        add(out, op, { .major = at.major, .minor = *at.minor, .patch = *at.patch, .pre = at.pre });
+        add(out, op, lowest(at));
         return;
     }
 
@@ -354,7 +358,14 @@ std::expected<version_t, std::string> parse_version(const std::string_view text)
             return std::unexpected(wrong);
         }
 
-        (index == 0 ? version.major : index == 1 ? version.minor : version.patch) = *number;
+        if (index == 0) {
+            version.major = *number;
+        } else if (index == 1) {
+            version.minor = *number;
+        } else {
+            version.patch = *number;
+        }
+
         ++index;
     }
 
@@ -436,26 +447,14 @@ std::expected<version_range_t, std::string> parse_range(const std::string_view t
             continue;
         }
 
-        if (op.empty() && !at->wildcard) {
+        if ((op.empty() && !at->wildcard) || op == "^") {
             add_caret(range.comparators, *at);
         } else if (op.empty() || op == "=") {
             add_exact(range.comparators, *at);
-        } else if (op == "^") {
-            add_caret(range.comparators, *at);
         } else if (op == "~") {
             add_tilde(range.comparators, *at);
-        } else if (op == ">=") {
-            add(range.comparators, op_t::GREATER_EQUAL,
-                { .major = at->major,
-                  .minor = at->minor.value_or(0),
-                  .patch = at->patch.value_or(0),
-                  .pre = at->pre });
-        } else if (op == "<") {
-            add(range.comparators, op_t::LESS,
-                { .major = at->major,
-                  .minor = at->minor.value_or(0),
-                  .patch = at->patch.value_or(0),
-                  .pre = at->pre });
+        } else if (op == ">=" || op == "<") {
+            add(range.comparators, op == ">=" ? op_t::GREATER_EQUAL : op_t::LESS, lowest(*at));
         } else {
             add_past(range.comparators, op == ">" ? op_t::GREATER : op_t::LESS_EQUAL, *at);
         }

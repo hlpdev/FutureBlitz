@@ -65,7 +65,7 @@ fb::requirement_t wants(const std::string_view name, const std::string_view rang
 
 /// What the resolver picks, as "name version" each, or its error.
 std::vector<std::string> picked(packages_t& packages, const std::vector<fb::requirement_t>& asked,
-                                const fb::preferences_t& preferences = {},
+                                const fb::preferences_t& preferences = fb::preferences_t(),
                                 const std::string_view fb_version = "0.1.0") {
     const std::expected<std::vector<fb::resolved_package_t>, std::string> resolved =
         fb::resolve(asked, packages.versions_of(), preferences, *fb::parse_version(fb_version));
@@ -155,8 +155,8 @@ TEST_CASE("the resolver keeps fb.lock's versions while every range allows them",
         .add("physics", "1.4.0")
         .add("shapes", "0.3.0")
         .add("shapes", "0.3.9");
-    const fb::preferences_t preferences{ .locked = locked(
-                                             { { "physics", "1.0.0" }, { "shapes", "0.3.0" } }) };
+    const fb::lockfile_t lockfile = locked({ { "physics", "1.0.0" }, { "shapes", "0.3.0" } });
+    const fb::preferences_t preferences{ .locked = lockfile };
     CHECK(picked(packages, { wants("physics", "1"), wants("shapes", "0.3") }, preferences) ==
           picks_t{ "physics 1.0.0", "shapes 0.3.0" });
     // A range the locked version is outside picks anew.
@@ -188,7 +188,8 @@ TEST_CASE("versions whose fb range this fb isn't in are skipped", "[resolver]") 
         .add("physics", "1.1.0", {}, false, ">=0.5")
         .add("physics", "1.2.0", {}, false, "not a range");
     CHECK(picked(packages, { wants("physics", "1") }) == picks_t{ "physics 1.0.0" });
-    CHECK(picked(packages, { wants("physics", "1") }, {}, "0.6.0") == picks_t{ "physics 1.1.0" });
+    CHECK(picked(packages, { wants("physics", "1") }, fb::preferences_t(), "0.6.0") ==
+          picks_t{ "physics 1.1.0" });
 }
 
 TEST_CASE("pre-releases are picked only when a range names one", "[resolver]") {

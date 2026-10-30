@@ -30,7 +30,7 @@ namespace fb {
 namespace {
 
 std::optional<std::string> read_text(const std::filesystem::path& path) {
-    std::ifstream in(path, std::ios::binary);
+    const std::ifstream in(path, std::ios::binary);
     if (!in) {
         return std::nullopt;
     }
@@ -381,8 +381,10 @@ std::expected<sync_result_t, std::string> sync_packages(const std::filesystem::p
     }
 
     if (!locked) {
-        preferences_t preferences{ .locked = before,
-                                   .all = options.update && options.update_names.empty() };
+        preferences_t preferences{
+            .locked = before,
+            .all = options.update && options.update_names.empty(),
+        };
         for (const std::string& name : options.update_names) {
             if (before.find(name) == nullptr) {
                 return std::unexpected(std::format("fb.lock has no package {} to update", name));
@@ -412,7 +414,7 @@ std::expected<sync_result_t, std::string> sync_packages(const std::filesystem::p
     report_changes(before, *locked, options.status);
     const std::string text = write_lockfile(*locked);
     if (lock_text != text) {
-        std::ofstream out(lock_path, std::ios::binary | std::ios::trunc);
+        std::ofstream out(lock_path, std::ios::binary);
         out << text;
         out.close();
         if (!out) {
@@ -496,10 +498,10 @@ std::expected<std::string, std::string> with_dependency(const std::string_view t
         }
 
         // Only a line that's the whole entry is replaced.
-        const std::string_view value = trim(key->second.substr(key->second.starts_with('=')));
-        const bool whole = key->second.starts_with('=') &&
-                           ((value.starts_with('"') && !value.starts_with("\"\"\"")) ||
-                            (value.starts_with('{') && value.contains('}')));
+        const bool assigned = key->second.starts_with('=');
+        const std::string_view value = trim(key->second.substr(assigned ? 1 : 0));
+        const bool whole = assigned && ((value.starts_with('"') && !value.starts_with(R"(""")")) ||
+                                        (value.starts_with('{') && value.contains('}')));
         if (!whole) {
             return std::unexpected(std::format(
                 "project.toml's line for {} in [dependencies] isn't one fb add can change; "

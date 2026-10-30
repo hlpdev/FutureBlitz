@@ -1,10 +1,13 @@
 #include "fb/package_archive.hpp"
 #include "package_helpers.hpp"
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -27,11 +30,123 @@ std::string read_error(const std::string_view bytes) {
     return files ? std::string() : files.error();
 }
 
+/// What gzip's `bytes` hold.
+std::string gunzip(const std::string_view bytes) {
+    z_stream stream{};
+    REQUIRE(inflateInit2(&stream, 31) == Z_OK);
+    stream.next_in =
+        const_cast<unsigned char*>(reinterpret_cast<const unsigned char*>(bytes.data()));
+    stream.avail_in = static_cast<unsigned>(bytes.size());
+    std::string out;
+    std::string chunk(65536, '\0');
+    int result = Z_OK;
+    while (result != Z_STREAM_END) {
+        stream.next_out = reinterpret_cast<unsigned char*>(chunk.data());
+        stream.avail_out = static_cast<unsigned>(chunk.size());
+        result = inflate(&stream, Z_NO_FLUSH);
+        REQUIRE((result == Z_OK || result == Z_STREAM_END));
+        out.append(chunk.data(), chunk.size() - stream.avail_out);
+    }
+
+    inflateEnd(&stream);
+    return out;
+}
+
+/// Whether a header's octal field is as the registry takes it: octal digits after any spaces,
+/// then only NULs or spaces, and not empty or starting with a NUL.
+bool strict_octal(const std::string_view field) {
+    std::size_t at = 0;
+    while (at < field.size() && field[at] == ' ') {
+        ++at;
+    }
+
+    const std::size_t digits = at;
+    while (at < field.size() && field[at] >= '0' && field[at] <= '7') {
+        ++at;
+    }
+
+    if (at == digits || field.front() == '\0') {
+        return false;
+    }
+
+    return std::ranges::all_of(field.substr(at),
+                               [](const char c) { return c == '\0' || c == ' '; });
+}
+
+/// Why `tar` isn't inside the registry's subset of tar (docs/registry-api.md's Archives), or
+/// empty when it is.
+std::string subset_error(const std::string_view tar) {
+    constexpr std::size_t block = 512;
+    const std::vector<std::string_view> keys{
+        "path", "size",  "mtime", "atime",      "ctime",   "uid",
+        "gid",  "uname", "gname", "hdrcharset", "comment",
+    };
+    bool after_pax = false;
+    std::size_t at = 0;
+    while (at + block <= tar.size()) {
+        const std::string_view header = tar.substr(at, block);
+        if (std::ranges::all_of(header, [](const char c) { return c == '\0'; })) {
+            // The end marker, and after it, only zeros.
+            const bool zeros =
+                std::ranges::all_of(tar.substr(at), [](const char c) { return c == '\0'; });
+            if (after_pax) {
+                return "a pax header ends the tar";
+            }
+
+            return zeros ? "" : "bytes after the end";
+        }
+
+        if (header.substr(257, 6) != std::string_view("ustar\0", 6) ||
+            header.substr(263, 2) != "00") {
+            return "a header isn't POSIX ustar's";
+        }
+
+        if (!strict_octal(header.substr(124, 12)) || !strict_octal(header.substr(148, 8))) {
+            return "a size or checksum isn't strict octal";
+        }
+
+        const char type = header[156];
+        const std::uint64_t size = std::stoull(std::string(header.substr(124, 12)), nullptr, 8);
+        at += block;
+        if (type == 'x') {
+            if (after_pax) {
+                return "two pax headers before one entry";
+            }
+
+            // Each record is "<length> <key>=<value>\n".
+            std::string_view records = tar.substr(at, size);
+            std::vector<std::string_view> seen;
+            while (!records.empty()) {
+                const std::size_t space = records.find(' ');
+                const std::size_t length = std::stoull(std::string(records.substr(0, space)));
+                const std::string_view record = records.substr(space + 1, length - space - 2);
+                const std::string_view key = record.substr(0, record.find('='));
+                if (!std::ranges::contains(keys, key) || std::ranges::contains(seen, key)) {
+                    return std::format("a pax header has '{}'", key);
+                }
+
+                seen.push_back(key);
+                records.remove_prefix(length);
+            }
+
+            after_pax = true;
+        } else if (type == '0') {
+            after_pax = false;
+        } else if (type != '5' || size != 0) {
+            return std::format("an entry of type '{}' with {} bytes", type, size);
+        }
+
+        at += (size + block - 1) / block * block;
+    }
+
+    return "no end marker";
+}
+
 /// gzip of `bytes`, as another tool would write it.
 std::string gzip(const std::string_view bytes) {
     z_stream stream{};
     REQUIRE(deflateInit2(&stream, 6, Z_DEFLATED, 31, 8, Z_DEFAULT_STRATEGY) == Z_OK);
-    std::string out(deflateBound(&stream, bytes.size()), '\0');
+    std::string out(deflateBound(&stream, static_cast<uLong>(bytes.size())), '\0');
     stream.next_in =
         const_cast<unsigned char*>(reinterpret_cast<const unsigned char*>(bytes.data()));
     stream.avail_in = static_cast<unsigned>(bytes.size());
@@ -104,9 +219,11 @@ TEST_CASE("an archive holds its files, and reads back as they were", "[archive]"
 }
 
 TEST_CASE("an archive's paths are ones every disk can hold, inside its folder", "[archive]") {
-    for (const std::string_view wrong :
-         { "/etc/passwd", "../up.fb", "a/../../b", "a//b", "./a", "C:/x", "a\\b", "con.txt",
-           "x/LPT3", "dot.", "space ", "a?b", "a\"b", "nul" }) {
+    const std::vector<std::string_view> paths{
+        "/etc/passwd", "../up.fb", "a/../../b", "a//b",   "./a", "C:/x", "a\\b",
+        "con.txt",     "x/LPT3",   "dot.",      "space ", "a?b", "a\"b", "nul",
+    };
+    for (const std::string_view wrong : paths) {
         INFO(wrong);
         CHECK(fb::archive_path_error(wrong));
         CHECK_FALSE(fb::write_archive({ { .path = std::string(wrong), .bytes = "" } }));
@@ -189,12 +306,26 @@ TEST_CASE("an archive unpacks whole into its folder, and a target's joins it", "
 
 TEST_CASE("a package's files go in its own archive, but for its targets' folders", "[archive]") {
     const fb::testing::sandbox_t sandbox;
-    for (const std::string_view file :
-         { "pkg/project.toml", "pkg/README.md", "pkg/shapes.fb", "pkg/data/level.txt",
-           "pkg/lib/windows-x64/debug/pkg.fbi", "pkg/native/linux-x64/libx.so", "pkg/lib/util.fb",
-           "pkg/libs/linux-x64/libjolt.a", "pkg/build/pkg.exe", "pkg/tests/basic.fb", "pkg/fb.lock",
-           "pkg/.git/HEAD", "pkg/.hidden", "pkg/inner/project.toml", "pkg/inner/x.fb",
-           "pkg/sub/tests/kept.fb", "pkg/sub/build/kept.fb" }) {
+    const std::vector<std::string_view> written{
+        "pkg/project.toml",
+        "pkg/README.md",
+        "pkg/shapes.fb",
+        "pkg/data/level.txt",
+        "pkg/lib/windows-x64/debug/pkg.fbi",
+        "pkg/native/linux-x64/libx.so",
+        "pkg/lib/util.fb",
+        "pkg/libs/linux-x64/libjolt.a",
+        "pkg/build/pkg.exe",
+        "pkg/tests/basic.fb",
+        "pkg/fb.lock",
+        "pkg/.git/HEAD",
+        "pkg/.hidden",
+        "pkg/inner/project.toml",
+        "pkg/inner/x.fb",
+        "pkg/sub/tests/kept.fb",
+        "pkg/sub/build/kept.fb",
+    };
+    for (const std::string_view file : written) {
         sandbox.write(file, "x");
     }
 
@@ -213,4 +344,45 @@ TEST_CASE("a package's files go in its own archive, but for its targets' folders
     CHECK(files.targets.at("windows-x64") ==
           std::vector<std::string>{ "lib/windows-x64/debug/pkg.fbi" });
     CHECK(files.targets.at("linux-x64") == std::vector<std::string>{ "native/linux-x64/libx.so" });
+}
+
+TEST_CASE("a package's archives stay inside the registry's subset of tar", "[archive]") {
+    const fb::testing::sandbox_t sandbox;
+    const std::string index = sandbox.registry();
+    // A long path takes a pax header; one that splits fits ustar's prefix and name.
+    const std::string long_name = "assets/" + std::string(140, 'l') + ".txt";
+    const std::string split = std::string(80, 's') + "/" + std::string(60, 't') + ".fb";
+    sandbox.library("shapes", "shapes", "0.3.0", "", { { "area.fb", "// shapes\n" } });
+    sandbox.write("shapes/" + long_name, "long");
+    sandbox.write("shapes/" + split, "// split\n");
+    sandbox.write("shapes/native/linux-x64/libx.so", std::string(3000, 'x'));
+    const std::expected<fb::prepared_package_t, std::string> prepared =
+        fb::prepare_package(sandbox / "shapes", index, false);
+    INFO((prepared ? std::string() : prepared.error()));
+    REQUIRE(prepared);
+    const std::string source = gunzip(prepared->source.bytes);
+    CHECK(subset_error(source).empty());
+    CHECK(source.contains(std::format(" path={}\n", long_name)));
+    REQUIRE(prepared->targets.size() == 1);
+    CHECK(subset_error(gunzip(prepared->targets.front().bytes)).empty());
+
+    // The check itself finds what's outside the subset.
+    CHECK(subset_error(tar_of("link", '2', "")) == "an entry of type '2' with 0 bytes");
+    std::string gnu = tar_of("a.fb", '0', "x");
+    gnu.replace(257, 8, std::string_view("ustar  \0", 8));
+    CHECK(subset_error(gnu) == "a header isn't POSIX ustar's");
+    CHECK(subset_error(tar_of("a.fb", '0', "x") + "x") == "bytes after the end");
+}
+
+TEST_CASE("a project.toml over 1 MB isn't published", "[archive]") {
+    const fb::testing::sandbox_t sandbox;
+    const std::string index = sandbox.registry();
+    sandbox.library("shapes", "shapes", "0.3.0", "", { { "area.fb", "// shapes\n" } });
+    const std::string toml = sandbox.read("shapes/project.toml");
+    sandbox.write("shapes/project.toml",
+                  std::format("{}# {}\n", toml, std::string(std::size_t{ 1 } << 20U, 'c')));
+    const std::expected<fb::prepared_package_t, std::string> prepared =
+        fb::prepare_package(sandbox / "shapes", index, false);
+    REQUIRE_FALSE(prepared);
+    CHECK(prepared.error() == "project.toml is more than the registry's 1 MB");
 }

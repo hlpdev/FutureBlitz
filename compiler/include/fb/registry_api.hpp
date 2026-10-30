@@ -26,8 +26,9 @@ struct built_archive_t {
 };
 
 /// A package ready to publish: its project.toml, its index line, and its archives, checked as
-/// the registry checks them.
-struct prepared_package_t {
+/// the registry checks them. Moving it can allocate, as its maps' comparators are moved, which
+/// clang-tidy reports as an exception escaping.
+struct prepared_package_t { // NOLINT(bugprone-exception-escape)
     manifest_t manifest;
     index_entry_t entry;
     built_archive_t source;
@@ -57,6 +58,9 @@ struct registry_session_t {
     /// The API token, for a registry on the network.
     std::string token;
     status_t status;
+    /// The most an upload is in one request; a larger one goes in parts, as the registry takes
+    /// them over 64 MB.
+    std::uint64_t most_single_upload = std::uint64_t{ 64 } << 20U;
 };
 
 /// The most docs JSON can be.

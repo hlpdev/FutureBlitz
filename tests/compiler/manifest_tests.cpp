@@ -132,10 +132,12 @@ TEST_CASE("a dependency is a range of a registry's versions, or a local package'
     const fb::manifest_t manifest = versioned.manifest.value_or(fb::manifest_t{});
     REQUIRE(manifest.dependencies.size() == 3);
     CHECK(manifest.dependencies[0].path.empty());
-    REQUIRE(manifest.dependencies[0].range);
-    CHECK(manifest.dependencies[0].range->text == "1.2");
+    const auto range_of = [](const fb::dependency_t& dependency) {
+        return dependency.range ? dependency.range->text : std::string("none");
+    };
+    CHECK(range_of(manifest.dependencies[0]) == "1.2");
     CHECK_FALSE(manifest.dependencies[0].registry);
-    CHECK(manifest.dependencies[1].range->text == "~0.3");
+    CHECK(range_of(manifest.dependencies[1]) == "~0.3");
     CHECK(manifest.dependencies[1].beside);
     CHECK(manifest.dependencies[2].registry == "company");
     REQUIRE(manifest.registries.size() == 2);
@@ -239,7 +241,8 @@ TEST_CASE("[project] says what a registry shows of the package", "[manifest]") {
              "homepage = \"https://physics.example.com\"\n"
              "documentation = \"https://docs.example.com\"\n"
              "keywords = [\"physics\", \"2d\", \"game-dev\"]\nfb = \">=0.1\"\n");
-    CHECK(shown.diagnostics == diagnostics_t{});
+    CHECK(shown.diagnostics.empty());
+    INFO((shown.diagnostics.empty() ? std::string() : shown.diagnostics.front()));
     const fb::manifest_t manifest = shown.manifest.value_or(fb::manifest_t{});
     CHECK(manifest.version == "1.0.0-beta.2");
     CHECK(manifest.description == "A 2D physics engine");
@@ -250,8 +253,7 @@ TEST_CASE("[project] says what a registry shows of the package", "[manifest]") {
     CHECK(manifest.homepage == "https://physics.example.com");
     CHECK(manifest.documentation == "https://docs.example.com");
     CHECK(manifest.keywords == std::vector<std::string>{ "physics", "2d", "game-dev" });
-    REQUIRE(manifest.fb);
-    CHECK(manifest.fb->text == ">=0.1");
+    CHECK(manifest.fb.value_or(fb::version_range_t{}).text == ">=0.1");
 
     const std::string_view project = "[project]\nname = \"physics\"\nversion = \"1.0.0\"\n";
     CHECK(read(std::format("{}license = \"MIT OR\"\n", project)).diagnostics ==
@@ -273,17 +275,27 @@ TEST_CASE("[project] says what a registry shows of the package", "[manifest]") {
 }
 
 TEST_CASE("a license is an SPDX expression", "[manifest]") {
-    for (const std::string_view license :
-         { "MIT", "Apache-2.0", "MIT OR Apache-2.0", "GPL-2.0+", "(MIT AND BSD-2-Clause) OR Zlib",
-           "Apache-2.0 WITH LLVM-exception", "LicenseRef-Mine", "DocumentRef-x:LicenseRef-y",
-           "((MIT))" }) {
+    const std::vector<std::string_view> licenses{
+        "MIT",
+        "Apache-2.0",
+        "MIT OR Apache-2.0",
+        "GPL-2.0+",
+        "(MIT AND BSD-2-Clause) OR Zlib",
+        "Apache-2.0 WITH LLVM-exception",
+        "LicenseRef-Mine",
+        "DocumentRef-x:LicenseRef-y",
+        "((MIT))",
+    };
+    for (const std::string_view license : licenses) {
         INFO(license);
         CHECK_FALSE(fb::license_error(license));
     }
 
-    for (const std::string_view license :
-         { "", "MIT OR", "OR MIT", "MIT Apache-2.0", "(MIT", "MIT)", "MIT WITH", "MIT/Apache-2.0",
-           "AND", "MIT WITH (X)", "()" }) {
+    const std::vector<std::string_view> wrong{
+        "",         "MIT OR",         "OR MIT", "MIT Apache-2.0", "(MIT", "MIT)",
+        "MIT WITH", "MIT/Apache-2.0", "AND",    "MIT WITH (X)",   "()",
+    };
+    for (const std::string_view license : wrong) {
         INFO(license);
         CHECK(fb::license_error(license));
     }

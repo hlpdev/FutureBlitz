@@ -210,6 +210,10 @@ The index's lines, config.json, the archives' checks, and the API's requests and
 
 ## The command line (built in M10)
 
+fb's side is in [libraries.md](libraries.md#the-clients-design-m10-step-0-settled-2026-10-29),
+and what fb and the registry say to each other in [registry-api.md](registry-api.md), the API's
+own, which futureblitz-web keeps and this repo mirrors.
+
 - `fb login` opens the browser, signs in, and stores a token in the OS's credential store
   (Windows Credential Manager, the macOS keychain, libsecret), or reads `FB_REGISTRY_TOKEN` in CI.
 - `fb publish` builds the archives and the docs JSON, runs the publish checks locally first,

@@ -36,8 +36,10 @@ struct archive_ref_t {
     [[nodiscard]] bool operator==(const archive_ref_t& other) const = default;
 };
 
-/// One version of a package, a line of its index file, as docs/registry-api.md has it.
-struct index_entry_t {
+/// One version of a package, a line of its index file, as docs/registry-api.md has it. Moving
+/// it can allocate, as its map's comparator is moved, which clang-tidy reports as an exception
+/// escaping.
+struct index_entry_t { // NOLINT(bugprone-exception-escape)
     std::string name;
     std::string version;
     /// Sorted by name.
@@ -161,8 +163,6 @@ private:
     std::vector<std::string> m_notes;
     /// It couldn't be reached once, so it isn't tried again.
     bool m_unreachable = false;
-
-    [[nodiscard]] std::filesystem::path cache() const;
 };
 
 } // namespace fb

@@ -30,7 +30,7 @@ using json_t = nlohmann::ordered_json;
 
 /// A file's bytes, or nullopt when it can't be read.
 std::optional<std::string> read_bytes(const std::filesystem::path& path) {
-    std::ifstream in(path, std::ios::binary);
+    const std::ifstream in(path, std::ios::binary);
     if (!in) {
         return std::nullopt;
     }
@@ -48,7 +48,7 @@ bool write_whole(const std::filesystem::path& path, const std::string_view bytes
     std::filesystem::path partial = path;
     partial += std::format(".partial-{:08x}{:08x}", random(), random());
     {
-        std::ofstream out(partial, std::ios::binary | std::ios::trunc);
+        std::ofstream out(partial, std::ios::binary);
         out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
         out.close();
         if (!out) {
@@ -286,16 +286,15 @@ std::string download_url(const std::string_view dl, const std::string_view name,
     }
 
     std::string out(dl);
-    for (const auto& [mark, value] :
-         { std::pair<std::string_view, std::string_view>("{name}", name),
-           std::pair<std::string_view, std::string_view>("{version}", version),
-           std::pair<std::string_view, std::string_view>("{file}", file) }) {
+    const auto fill = [&](const std::string_view mark, const std::string_view value) {
         for (std::size_t at = out.find(mark); at != std::string::npos;
              at = out.find(mark, at + value.size())) {
             out.replace(at, mark.size(), value);
         }
-    }
-
+    };
+    fill("{name}", name);
+    fill("{version}", version);
+    fill("{file}", file);
     return out;
 }
 
@@ -303,7 +302,7 @@ std::filesystem::path fb_home() {
 #ifdef _WIN32
     const wchar_t* home = _wgetenv(L"FB_HOME");
     if (home != nullptr && *home != L'\0') {
-        return std::filesystem::path(home);
+        return { home };
     }
 
     const wchar_t* profile = _wgetenv(L"USERPROFILE");
@@ -311,7 +310,7 @@ std::filesystem::path fb_home() {
 #else
     const char* home = std::getenv("FB_HOME");
     if (home != nullptr && *home != '\0') {
-        return std::filesystem::path(home);
+        return { home };
     }
 
     const char* user = std::getenv("HOME");
@@ -415,9 +414,14 @@ registry_t::registry_t(std::string canonical, http_client_t http, const bool off
     : m_index(std::move(canonical)), m_folder(local_index_folder(m_index)), m_http(std::move(http)),
       m_offline(offline), m_status(std::move(status)) {}
 
-std::filesystem::path registry_t::cache() const {
+namespace {
+
+/// fb's cache folder.
+std::filesystem::path cache_folder() {
     return fb_home() / "cache";
 }
+
+} // namespace
 
 std::expected<std::vector<index_entry_t>, std::string>
 registry_t::versions(const std::string_view name) {
@@ -437,7 +441,7 @@ registry_t::versions(const std::string_view name) {
     }
 
     const std::filesystem::path folder =
-        cache() / "index" / path_from_utf8(registry_folder(m_index));
+        cache_folder() / "index" / path_from_utf8(registry_folder(m_index));
     const std::filesystem::path cached = folder / path_from_utf8(name);
     std::filesystem::path etag_file = cached;
     etag_file += ".etag";
@@ -532,7 +536,7 @@ std::expected<registry_config_t, std::string> registry_t::config() {
         }
     } else {
         const std::filesystem::path cached =
-            cache() / "index" / path_from_utf8(registry_folder(m_index)) / "config.json";
+            cache_folder() / "index" / path_from_utf8(registry_folder(m_index)) / "config.json";
         const std::optional<std::string> kept = read_bytes(cached);
         std::expected<http_response_t, std::string> response =
             std::unexpected(std::string("fb is offline"));
@@ -574,8 +578,9 @@ std::expected<std::string, std::string> registry_t::archive(const std::string_vi
                                                             const std::string_view version,
                                                             const std::string_view file,
                                                             const std::string_view checksum) {
-    const std::filesystem::path cached =
-        cache() / "archives" / path_from_utf8(registry_folder(m_index)) / path_from_utf8(file);
+    const std::filesystem::path cached = cache_folder() / "archives" /
+                                         path_from_utf8(registry_folder(m_index)) /
+                                         path_from_utf8(file);
     if (const std::optional<std::string> kept = read_bytes(cached);
         kept && sha256_hex(*kept) == checksum) {
         return *kept;

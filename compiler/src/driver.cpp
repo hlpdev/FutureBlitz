@@ -2020,15 +2020,16 @@ private:
         m_failed = true;
     }
 
-    /// Where fb.lock has the registry package `dependency` names unpacked in the cache, for a
+    /// Where fb.lock has the registry package `dependency` names, by its `range`, unpacked in the
+    /// cache, for a
     /// package in `root` whose [registries] are `registries`, and the version it pins. nullopt
     /// after an error saying what's missing, which a build fetches. `cached` says the package
     /// that depends on it is itself from a registry, whose registries its index named already.
     std::optional<std::pair<std::filesystem::path, const locked_package_t*>>
     locked_folder(const dependency_t& dependency, const std::vector<registry_entry_t>& registries,
-                  const std::filesystem::path& root, const bool cached) {
-        const std::string wanted =
-            std::format("{} = \"{}\"", dependency.name, dependency.range->text);
+                  const std::filesystem::path& root, const bool cached,
+                  const version_range_t& range) {
+        const std::string wanted = std::format("{} = \"{}\"", dependency.name, range.text);
         if (!m_lockfile) {
             fail(dependency.path_span,
                  "{} is from a registry, but there's no fb.lock yet; fb build, fb check, or fb "
@@ -2042,7 +2043,7 @@ private:
             return std::nullopt;
         }
 
-        const locked_package_t* locked = (*m_lockfile)->find(dependency.name);
+        const locked_package_t* locked = m_lockfile->value().find(dependency.name);
         const std::optional<std::string> source =
             registry_index(dependency.registry, registries, root);
         const std::expected<version_t, std::string> version =
@@ -2055,11 +2056,11 @@ private:
             return std::nullopt;
         }
 
-        if (!version || !dependency.range->matches(*version)) {
+        if (!version || !range.matches(*version)) {
             fail(dependency.path_span,
                  "fb.lock has {} v{}, which isn't in \"{}\"; fb build, fb check, or fb update "
                  "locks another",
-                 dependency.name, locked->version, dependency.range->text);
+                 dependency.name, locked->version, range.text);
             return std::nullopt;
         }
 
@@ -2250,7 +2251,8 @@ private:
         for (const dependency_t& dependency : dependencies) {
             std::optional<std::pair<std::filesystem::path, const locked_package_t*>> found;
             if (dependency.range) {
-                found = locked_folder(dependency, registries, root, locked != nullptr);
+                found = locked_folder(dependency, registries, root, locked != nullptr,
+                                      *dependency.range);
             } else if (locked != nullptr) {
                 // A registry's package is whole without anything else on its publisher's disk.
                 fail(dependency.path_span,
