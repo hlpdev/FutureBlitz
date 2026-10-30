@@ -1,3 +1,5 @@
+//! Zstandard compression.
+//!
 //! Zstd (RFC 8878), over zstd. Its Compress and Decompress work at once, and its Compressor and
 //! Decompressor take bytes in turn and give what came out of them so far, for data that comes in
 //! parts. Levels go from 1, the fastest, to 22, the smallest, and are 3 by default, as zstd's;
@@ -21,6 +23,17 @@ Extern "runtime"
 End Extern
 
 /// Zstd's frames, of .zst files.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Local data = "again and again and again and again".Repeated(100).Bytes
+/// Local packed = Zstd.Compress(data, 19)
+/// Expect(packed.Count < data.Count)
+/// Local unpacked = Try Zstd.Decompress(packed)
+/// Expect(unpacked == data)
+/// ```
 Public Struct Zstd
     /// Zstd isn't made: it's only its Static Methods.
     New()
@@ -54,18 +67,21 @@ End Struct
 Public Class ZstdCompressor Implements Coder
     Field State: Ptr<Void>
 
-    /// Panics when the `level` isn't from 1 to 22.
+    /// A new ZstdCompressor at the `level`. Panics when it isn't from 1 to 22.
     @PanicsAtCaller
     Public New(level: Int = 3)
         State = Encoder(level)
     End New
 
+    /// Compresses `data`, and gives the Zstd bytes it has made so far, which can be none, as it
+    /// holds some back to compress with what comes next.
     Public Method Add(data: UInt8[]): UInt8[]
         Local output: UInt8[] = []
         fb_zstd_encoder_add(State, data, output)
         Return output
     End Method
 
+    /// The rest of the bytes, which end the frame, and starts again, for another.
     Public Method Finish(): UInt8[]
         Local output: UInt8[] = []
         fb_zstd_encoder_finish(State, [], output)
@@ -85,7 +101,8 @@ Public Class ZstdDecompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
 
-    /// Panics when the `limit` is negative.
+    /// A new ZstdDecompressor that gives at most `limit` bytes. Panics when the `limit` is
+    /// negative.
     @PanicsAtCaller
     Public New(limit: Int = MOST_BYTES)
         CheckLimit(limit)
@@ -93,6 +110,8 @@ Public Class ZstdDecompressor Implements Coder
         Limit = limit
     End New
 
+    /// Decompresses `data`, and gives the bytes it comes to so far. Throws an IOError when the
+    /// bytes aren't Zstd's, or would come to more than the limit.
     Public Method Add(data: UInt8[]): UInt8[] Throws IOError
         Local output: UInt8[] = []
         Local result = fb_zstd_decoder_add(State, data, output)
@@ -100,6 +119,8 @@ Public Class ZstdDecompressor Implements Coder
         Return output
     End Method
 
+    /// The rest of the bytes, once every one is added, and starts again. Throws an IOError when the
+    /// frame ended too soon.
     Public Method Finish(): UInt8[] Throws IOError => Try Ended(State, [], Limit)
 
     Method Destroy()

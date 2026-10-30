@@ -1,3 +1,5 @@
+//! Reading and writing zip archives.
+//!
 //! Zip's archives, over minizip-ng: Zip.Read gives a ZipReader of a zip's entries, and a ZipWriter
 //! makes a new zip of entries stored or compressed by Deflate, LZMA, XZ, or Zstd; every zip tool
 //! reads Deflate's, and newer ones the rest. Zip64 comes in where sizes need it. Names are UTF-8:
@@ -35,6 +37,20 @@ Extern "runtime"
 End Extern
 
 /// What makes and reads zip archives, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// Local writer = ZipWriter()
+/// writer.Add("notes.txt", "a note, a note, a note".Bytes)
+/// writer.Add("raw.bin", "stored as it is".Bytes, ZipMethod.STORE)
+/// Local zip = Try Zip.Read(writer.Finish())
+/// Expect(zip.Count == 2)
+/// Local raw = Try zip.Read("raw.bin")
+/// Expect(raw == "stored as it is".Bytes)
+/// Local missing = Try zip.Read("missing.txt")
+/// Expect(missing == Null)
+/// ```
 Public Struct Zip
     /// Zip isn't made: it's only its Static Methods.
     New()

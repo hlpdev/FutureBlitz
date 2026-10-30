@@ -1,3 +1,5 @@
+//! What std.compress's formats share: the Coder Interface, limits, and errors.
+//!
 //! What std.compress's formats share: Coder, which each one's Compressor and Decompressor is; the
 //! most bytes a UInt8[] holds, which is a Decompress's limit unless it's given a smaller one; and
 //! the IOErrors the runtime's results mean.
@@ -7,6 +9,25 @@ Import std.core
 /// What each format's Compressor and Decompressor is: Add gives what the bytes it takes come to so
 /// far, and Finish what's left once they've all been added, which ends what it makes, and starts
 /// again. A CoderWriter and a CoderReader stream bytes through one.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// # Import std.collections
+/// // Any format's Compressor works through a Coder.
+/// Function Packed(coder: Coder, parts: String[]): UInt8[] Throws IOError
+///     Local packed: UInt8[] = []
+///     For part In parts
+///         packed.AddAll(Try coder.Add(part.Bytes))
+///     End For
+///     packed.AddAll(Try coder.Finish())
+///     Return packed
+/// End Function
+///
+/// Local packed = Try Packed(ZstdCompressor(), ["one, ", "two"])
+/// Expect(String.FromUtf8(Try Zstd.Decompress(packed)) == "one, two")
+/// ```
 Public Interface Coder
     /// What `data` comes to so far, which can be nothing yet.
     Method Add(data: UInt8[]): UInt8[] Throws IOError

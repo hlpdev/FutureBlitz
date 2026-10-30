@@ -1,3 +1,5 @@
+//! LZ4 compression, in its frame format.
+//!
 //! LZ4's frame format, of .lz4 files, over LZ4. Its Compress and Decompress work at once, and its
 //! Compressor and Decompressor take bytes in turn and give what came out of them so far, for data
 //! that comes in parts. Levels go from 1, the fastest, which is the default, to 12, the smallest:
@@ -21,6 +23,17 @@ Extern "runtime"
 End Extern
 
 /// LZ4's frames, which compress fast and decompress faster.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Local data = "fast, fast, fast, fast, fast".Repeated(100).Bytes
+/// Local packed = Lz4.Compress(data)
+/// Expect(packed.Count < data.Count)
+/// Local unpacked = Try Lz4.Decompress(packed)
+/// Expect(unpacked == data)
+/// ```
 Public Struct Lz4
     /// Lz4 isn't made: it's only its Static Methods.
     New()
@@ -54,18 +67,21 @@ End Struct
 Public Class Lz4Compressor Implements Coder
     Field State: Ptr<Void>
 
-    /// Panics when the `level` isn't from 1 to 12.
+    /// A new Lz4Compressor at the `level`. Panics when it isn't from 1 to 12.
     @PanicsAtCaller
     Public New(level: Int = 1)
         State = Encoder(level)
     End New
 
+    /// Compresses `data`, and gives the Lz4 bytes it has made so far, which can be none, as it
+    /// holds some back to compress with what comes next.
     Public Method Add(data: UInt8[]): UInt8[]
         Local output: UInt8[] = []
         fb_lz4_encoder_add(State, data, output)
         Return output
     End Method
 
+    /// The rest of the bytes, which end the frame, and starts again, for another.
     Public Method Finish(): UInt8[]
         Local output: UInt8[] = []
         fb_lz4_encoder_finish(State, [], output)
@@ -85,7 +101,8 @@ Public Class Lz4Decompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
 
-    /// Panics when the `limit` is negative.
+    /// A new Lz4Decompressor that gives at most `limit` bytes. Panics when the `limit` is
+    /// negative.
     @PanicsAtCaller
     Public New(limit: Int = MOST_BYTES)
         CheckLimit(limit)
@@ -93,6 +110,8 @@ Public Class Lz4Decompressor Implements Coder
         Limit = limit
     End New
 
+    /// Decompresses `data`, and gives the bytes it comes to so far. Throws an IOError when the
+    /// bytes aren't Lz4's, or would come to more than the limit.
     Public Method Add(data: UInt8[]): UInt8[] Throws IOError
         Local output: UInt8[] = []
         Local result = fb_lz4_decoder_add(State, data, output)
@@ -100,6 +119,8 @@ Public Class Lz4Decompressor Implements Coder
         Return output
     End Method
 
+    /// The rest of the bytes, once every one is added, and starts again. Throws an IOError when the
+    /// frame ended too soon.
     Public Method Finish(): UInt8[] Throws IOError => Try Ended(State, [], Limit)
 
     Method Destroy()

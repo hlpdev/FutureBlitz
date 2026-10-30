@@ -1,3 +1,5 @@
+//! Deflate, Zlib, and Gzip compression.
+//!
 //! Deflate (RFC 1951), Zlib (RFC 1950), and Gzip (RFC 1952), over zlib-ng. Each one's Compress and
 //! Decompress work at once, and its Compressor and Decompressor take bytes in turn and give what
 //! came out of them so far, for data that comes in parts. Levels go from 0, stored as it is, to 9,
@@ -25,6 +27,17 @@ Const ZLIB = 2
 Const GZIP = 3
 
 /// Deflate's raw bytes, which zip entries and PNG's data are in.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Local data = "hello, hello, hello, hello".Repeated(100).Bytes
+/// Local packed = Deflate.Compress(data)
+/// Expect(packed.Count < data.Count)
+/// Local unpacked = Try Deflate.Decompress(packed)
+/// Expect(unpacked == data)
+/// ```
 Public Struct Deflate
     /// Deflate isn't made: it's only its Static Methods.
     New()
@@ -46,6 +59,17 @@ Public Struct Deflate
 End Struct
 
 /// Zlib's bytes: Deflate's, with a header and an Adler-32 checksum.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Local data = "hello, hello, hello, hello".Repeated(100).Bytes
+/// Local packed = Zlib.Compress(data)
+/// Expect(packed.Count < data.Count)
+/// Local unpacked = Try Zlib.Decompress(packed)
+/// Expect(unpacked == data)
+/// ```
 Public Struct Zlib
     /// Zlib isn't made: it's only its Static Methods.
     New()
@@ -67,6 +91,16 @@ Public Struct Zlib
 End Struct
 
 /// Gzip's bytes, of .gz files and HTTP's gzip: Deflate's, with a header and a CRC-32 checksum.
+///
+/// # Examples
+///
+/// ```
+/// Local data = "the same words, the same words, the same words".Bytes
+/// Local gz = Gzip.Compress(data, 9)
+/// Expect(gz[0] == 0x1F && gz[1] == 0x8B)
+/// Local unpacked = Try Gzip.Decompress(gz)
+/// Expect(unpacked == data)
+/// ```
 Public Struct Gzip
     /// Gzip isn't made: it's only its Static Methods.
     New()
@@ -94,13 +128,16 @@ End Struct
 Public Class DeflateCompressor Implements Coder
     Field State: Ptr<Void>
 
-    /// Panics when the `level` isn't from 0 to 9.
+    /// A new DeflateCompressor at the `level`. Panics when it isn't from 0 to 9.
     @PanicsAtCaller
     Public New(level: Int = 6)
         State = Encoder(DEFLATE, level)
     End New
 
+    /// Compresses `data`, and gives the Deflate bytes it has made so far, which can be none, as it
+    /// holds some back to compress with what comes next.
     Public Method Add(data: UInt8[]): UInt8[] => Added(State, data)
+    /// The rest of the bytes, which end the stream, and starts again, for another.
     Public Method Finish(): UInt8[] => Finished(State)
 
     Method Destroy()
@@ -112,13 +149,16 @@ End Class
 Public Class ZlibCompressor Implements Coder
     Field State: Ptr<Void>
 
-    /// Panics when the `level` isn't from 0 to 9.
+    /// A new ZlibCompressor at the `level`. Panics when it isn't from 0 to 9.
     @PanicsAtCaller
     Public New(level: Int = 6)
         State = Encoder(ZLIB, level)
     End New
 
+    /// Compresses `data`, and gives the Zlib bytes it has made so far, which can be none, as it
+    /// holds some back to compress with what comes next.
     Public Method Add(data: UInt8[]): UInt8[] => Added(State, data)
+    /// The rest of the bytes, which end the stream, and starts again, for another.
     Public Method Finish(): UInt8[] => Finished(State)
 
     Method Destroy()
@@ -127,16 +167,31 @@ Public Class ZlibCompressor Implements Coder
 End Class
 
 /// Gzip's bytes made in turn, as DeflateCompressor makes Deflate's, each Finish ending a member.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// # Import std.collections
+/// Local compressor = GzipCompressor()
+/// Local gz = compressor.Add("first part, ".Bytes)
+/// gz.AddAll(compressor.Add("second part".Bytes))
+/// gz.AddAll(compressor.Finish())
+/// Expect(String.FromUtf8(Try Gzip.Decompress(gz)) == "first part, second part")
+/// ```
 Public Class GzipCompressor Implements Coder
     Field State: Ptr<Void>
 
-    /// Panics when the `level` isn't from 0 to 9.
+    /// A new GzipCompressor at the `level`. Panics when it isn't from 0 to 9.
     @PanicsAtCaller
     Public New(level: Int = 6)
         State = Encoder(GZIP, level)
     End New
 
+    /// Compresses `data`, and gives the Gzip bytes it has made so far, which can be none, as it
+    /// holds some back to compress with what comes next.
     Public Method Add(data: UInt8[]): UInt8[] => Added(State, data)
+    /// The rest of the bytes, which end the member, and starts again, for another.
     Public Method Finish(): UInt8[] => Finished(State)
 
     Method Destroy()
@@ -152,7 +207,8 @@ Public Class DeflateDecompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
 
-    /// Panics when the `limit` is negative.
+    /// A new DeflateDecompressor that gives at most `limit` bytes. Panics when the `limit` is
+    /// negative.
     @PanicsAtCaller
     Public New(limit: Int = MOST_BYTES)
         CheckLimit(limit)
@@ -160,10 +216,14 @@ Public Class DeflateDecompressor Implements Coder
         Limit = limit
     End New
 
+    /// Decompresses `data`, and gives the bytes it comes to so far. Throws an IOError when the
+    /// bytes aren't Deflate's, or would come to more than the limit.
     Public Method Add(data: UInt8[]): UInt8[] Throws IOError
         Return Try Taken(State, data, Limit, "Deflate")
     End Method
 
+    /// The rest of the bytes, once every one is added, and starts again. Throws an IOError when the
+    /// stream ended too soon.
     Public Method Finish(): UInt8[] Throws IOError
         Return Try Ended(State, [], Limit, "Deflate")
     End Method
@@ -178,7 +238,8 @@ Public Class ZlibDecompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
 
-    /// Panics when the `limit` is negative.
+    /// A new ZlibDecompressor that gives at most `limit` bytes. Panics when the `limit` is
+    /// negative.
     @PanicsAtCaller
     Public New(limit: Int = MOST_BYTES)
         CheckLimit(limit)
@@ -186,10 +247,14 @@ Public Class ZlibDecompressor Implements Coder
         Limit = limit
     End New
 
+    /// Decompresses `data`, and gives the bytes it comes to so far. Throws an IOError when the
+    /// bytes aren't Zlib's, or would come to more than the limit.
     Public Method Add(data: UInt8[]): UInt8[] Throws IOError
         Return Try Taken(State, data, Limit, "Zlib")
     End Method
 
+    /// The rest of the bytes, once every one is added, and starts again. Throws an IOError when the
+    /// stream ended too soon.
     Public Method Finish(): UInt8[] Throws IOError
         Return Try Ended(State, [], Limit, "Zlib")
     End Method
@@ -200,11 +265,26 @@ Public Class ZlibDecompressor Implements Coder
 End Class
 
 /// Gzip's bytes taken in turn, as DeflateDecompressor takes Deflate's, a member after another.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// # Import std.collections
+/// Local gz = Gzip.Compress("in two halves".Bytes)
+/// Local decompressor = GzipDecompressor()
+/// Local half = gz.Count / 2
+/// Local text = Try decompressor.Add(gz[0..half])
+/// text.AddAll(Try decompressor.Add(gz[half..gz.Count]))
+/// text.AddAll(Try decompressor.Finish())
+/// Expect(String.FromUtf8(text) == "in two halves")
+/// ```
 Public Class GzipDecompressor Implements Coder
     Field State: Ptr<Void>
     Field Limit: Int
 
-    /// Panics when the `limit` is negative.
+    /// A new GzipDecompressor that gives at most `limit` bytes. Panics when the `limit` is
+    /// negative.
     @PanicsAtCaller
     Public New(limit: Int = MOST_BYTES)
         CheckLimit(limit)
@@ -212,10 +292,14 @@ Public Class GzipDecompressor Implements Coder
         Limit = limit
     End New
 
+    /// Decompresses `data`, and gives the bytes it comes to so far. Throws an IOError when the
+    /// bytes aren't Gzip's, or would come to more than the limit.
     Public Method Add(data: UInt8[]): UInt8[] Throws IOError
         Return Try Taken(State, data, Limit, "Gzip")
     End Method
 
+    /// The rest of the bytes, once every one is added, and starts again. Throws an IOError when the
+    /// stream ended too soon.
     Public Method Finish(): UInt8[] Throws IOError
         Return Try Ended(State, [], Limit, "Gzip")
     End Method

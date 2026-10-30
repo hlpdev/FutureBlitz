@@ -1,3 +1,5 @@
+//! Reading and writing tar archives.
+//!
 //! Tar's archives: Tar.Read gives a TarReader of a tar's entries, and a TarWriter makes a new tar.
 //! A .tar.gz, .tar.zst, .tar.xz, or .tar.lz4 reads as its tar, which Tar.Read decompresses first,
 //! and a TarWriter's tar compresses to one, as Gzip.Compress(writer.Finish()) does. It reads
@@ -40,6 +42,19 @@ Extern "runtime"
 End Extern
 
 /// What makes and reads tar archives, in its Static Methods.
+///
+/// # Examples
+///
+/// ```
+/// Local writer = TarWriter()
+/// writer.AddFolder("docs")
+/// writer.Add("docs/readme.txt", "Read me.".Bytes)
+/// Local tar = Try Tar.Read(Gzip.Compress(writer.Finish()))
+/// Expect(tar.Count == 2)
+/// Expect(tar.Find("docs/readme.txt")?.Size == 8)
+/// Local readme = Try tar.Read("docs/readme.txt")
+/// Expect(readme == "Read me.".Bytes)
+/// ```
 Public Struct Tar
     /// Tar isn't made: it's only its Static Methods.
     New()

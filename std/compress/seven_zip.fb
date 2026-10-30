@@ -1,3 +1,5 @@
+//! Reading 7z archives.
+//!
 //! 7z's archives, read over liblzma: SevenZip.Read gives a SevenZipReader of a 7z's entries. Its
 //! folders' coders can be stored, LZMA, LZMA2, Delta, and the branch filters for x86, PowerPC,
 //! IA-64, ARM, ARM Thumb, ARM64, SPARC, and RISC-V, in a chain, as 7-Zip writes them by default.
@@ -23,6 +25,16 @@ Extern "runtime"
 End Extern
 
 /// What reads 7z archives, in its Static Methods.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.io
+/// Local archive = Try SevenZip.Read(Try File.ReadBytes(Path("backup.7z")))
+/// For entry In archive.Entries
+///     Print("{entry.Name}: {entry.Size} bytes")
+/// End For
+/// ```
 Public Struct SevenZip
     /// SevenZip isn't made: it's only its Static Methods.
     New()

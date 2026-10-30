@@ -1,3 +1,5 @@
+//! The entries that the zip, tar, and 7z readers give.
+//!
 //! What Zip's, Tar's, and SevenZip's readers share: an ArchiveEntry for each of an archive's
 //! entries, in the order the archive has them, and how a name and a mode are checked before
 //! they're written.

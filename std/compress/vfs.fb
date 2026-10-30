@@ -1,5 +1,7 @@
+//! Zips mounted in std.io's virtual file system.
+//!
 //! std.compress's zips in std.io's virtual file system: a ZipSource reads a zip's files as a
-//! VfsSource, and a Vfs's MountZip mounts one, as a game mounts its pak files.
+//! VfsSource, and a Vfs's MountZip mounts one, as an app mounts its packed data.
 
 Import std.collections.map
 Import std.compress.archive
@@ -59,18 +61,23 @@ Public Class ZipSource Implements VfsSource
         End For
     End New
 
+    /// The bytes of the file at `path` in the zip, or Null when it has none there. Throws an
+    /// IOError when the entry is broken, as ZipReader's ReadAt does.
     Public Method Read(path: String): UInt8[]? Throws IOError
         Local index = Files.Get(path)
         If index == Null Then Return Null
         Return Try Reader.ReadAt(index)
     End Method
 
+    /// Whether `path` is a file or a folder in the zip, or Null when it's neither.
     Public Method KindAt(path: String): FileKind? Throws IOError
         If Folders.Contains(path) Then Return FileKind.DIRECTORY
         If Files.Contains(path) Then Return FileKind.FILE
         Return Null
     End Method
 
+    /// The names in the folder at `path` in the zip, each with whether it's a file or a folder, or
+    /// Null when there's no folder there.
     Public Method List(path: String): (String, FileKind)[]? Throws IOError
         Local names = Folders.Get(path)
         If names == Null Then Return Null
@@ -87,6 +94,18 @@ Extend Vfs
     /// Mounts the zip in `data`, which it copies, at `at`, as a ZipSource. Throws an IOError of
     /// INVALID_DATA when the `data` isn't a zip, or ends too soon, or as a ZipSource does, and
     /// panics for a path that goes above the root, as Mount does.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Import std.io
+    /// Local zip = ZipWriter()
+    /// zip.Add("levels/one.txt", "first".Bytes)
+    /// Local files = Vfs()
+    /// Try files.MountZip(Path("data"), zip.Finish())
+    /// Expect(Try files.ReadText(Path("data/levels/one.txt")) == "first")
+    /// Expect(files.DirExists(Path("data/levels")))
+    /// ```
     @PanicsAtCaller
     Public Method MountZip(at: Path, data: UInt8[]) Throws IOError
         Mount(at, Try ZipSource(Try Zip.Read(data)))

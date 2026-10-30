@@ -1,3 +1,5 @@
+//! Compressing and decompressing streams as they're written and read.
+//!
 //! std.compress over std.io's streams: a CoderWriter writes what's written to it through a Coder,
 //! like a GzipCompressor, to another Writer, and a CoderReader reads what another Reader gives
 //! through one, like a GzipDecompressor, so a file or a socket compresses and decompresses as it
@@ -16,6 +18,18 @@ Const CHUNK = 65536
 /// `CoderWriter(file, GzipCompressor())` ends a gzip member. A Coder holds on to what it hasn't
 /// coded yet, so Flush flushes only the other Writer, and the Coder's rest comes with Finish. Each
 /// throws the IOError the Coder or the Writer does.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// # Import std.io
+/// Local memory = MemoryStream()
+/// Local writer = CoderWriter(memory, GzipCompressor())
+/// Try writer.WriteText("written a part at a time")
+/// Try writer.Finish()
+/// Expect(String.FromUtf8(Try Gzip.Decompress(memory.ToArray())) == "written a part at a time")
+/// ```
 Public Class CoderWriter Implements Writer
     Field Inner: Writer
     Field Through: Coder
@@ -26,11 +40,13 @@ Public Class CoderWriter Implements Writer
         Through = through
     End New
 
+    /// Puts the bytes through the Coder, and writes what comes of them so far to the other Writer.
     Public Method Write(from: Buffer<UInt8>) Throws IOError
         Local coded = Try Through.Add(from.ToArray())
         If coded.Count > 0 Then Try Inner.WriteBytes(coded)
     End Method
 
+    /// Flushes the other Writer, but not the Coder, whose rest comes with Finish.
     Public Method Flush() Throws IOError
         Try Inner.Flush()
     End Method
@@ -49,6 +65,15 @@ End Class
 /// a time, and once that ends, gives what the Coder has left, and then ends. Read throws the
 /// IOError the Coder or the Reader does, like a Decompressor's for bytes that aren't its format,
 /// or that end too soon, and a Read after that throws again, or ends.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.io
+/// Local gz = Gzip.Compress("read back".Bytes)
+/// Local reader = CoderReader(MemoryStream(gz), GzipDecompressor())
+/// Expect(Try ReadAllText(reader) == "read back")
+/// ```
 Public Class CoderReader Implements Reader
     Field Inner: Reader
     Field Through: Coder
@@ -67,6 +92,9 @@ Public Class CoderReader Implements Reader
         Chunk = Buffer<UInt8>(CHUNK)
     End New
 
+    /// Reads what the other Reader's bytes come to through the Coder into `into`, and gives how
+    /// many it read, or 0 once both have ended. Throws the IOError the Coder or the other Reader
+    /// does.
     Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError
         If into.Count == 0 Then Return 0
         // What the Coder gives replaces what Read gave only once it gives it: one that throws
