@@ -1,13 +1,16 @@
 <!--
   The Windows installer, for WiX 5: a release's folder, installed for the user alone into
   %USERPROFILE%\.futureblitz, where install.ps1 puts it, with its bin on the user's PATH. A newer
-  one replaces an older one. Built by .github/workflows/release.yml:
+  one replaces an older one. Each version's ProductCode is its own, made from the version by
+  tools/release/packages.py, so winget's manifest knows it. Built by .github/workflows/release.yml:
 
-    wix build futureblitz.wxs -d Version=0.1.0 -d Release=<the release's folder> -o <file>.msi
+    wix build futureblitz.wxs -d Version=1.0.0 -d ProductCode=<packages.py product-code 1.0.0>
+      -d Release=<the release's folder> -o <file>.msi
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="FutureBlitz" Manufacturer="FutureBlitz" Version="$(Version)"
-           UpgradeCode="75CFB38F-FD33-43B2-89E1-BBD7387E5FEA" Scope="perUser" Compressed="yes">
+           ProductCode="$(ProductCode)" UpgradeCode="75CFB38F-FD33-43B2-89E1-BBD7387E5FEA"
+           Scope="perUser" Compressed="yes">
     <MajorUpgrade DowngradeErrorMessage="A newer FutureBlitz is installed already." />
     <MediaTemplate EmbedCab="yes" />
 

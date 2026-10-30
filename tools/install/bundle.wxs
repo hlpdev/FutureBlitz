@@ -1,0 +1,29 @@
+<!--
+  The Windows setup.exe, for WiX 5: a Burn bundle around the release's MSI, with WiX's standard
+  window, which links the license, and installs the MSI for the user alone, as the MSI does by
+  itself. A newer one replaces an older one. Built by .github/workflows/release.yml, after the
+  MSI is signed, with WiX's bootstrapper extension (WixToolset.Bal.wixext):
+
+    wix build bundle.wxs -ext WixToolset.Bal.wixext -d Version=1.0.0 -d Msi=<the release's .msi>
+      -d Brand=<the repo's assets/brand> -o <file>-setup.exe
+
+  Signing it signs its engine first: `wix burn detach`, sign the engine, `wix burn reattach`,
+  then sign the bundle.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle Name="FutureBlitz" Manufacturer="FutureBlitz" Version="$(Version)"
+          UpgradeCode="5816EC3E-D457-47D3-BC5D-9E72FFF70D8E"
+          IconSourceFile="$(Brand)\favicon.ico" AboutUrl="https://futureblitz.dev"
+          HelpUrl="https://github.com/hlpdev/FutureBlitz/issues">
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense"
+          LicenseUrl="https://github.com/hlpdev/FutureBlitz/blob/HEAD/LICENSE"
+          LogoFile="$(Brand)\mark-tile-64.png" ShowVersion="yes" SuppressOptionsUI="yes" />
+    </BootstrapperApplication>
+
+    <Chain>
+      <MsiPackage SourceFile="$(Msi)" />
+    </Chain>
+  </Bundle>
+</Wix>
