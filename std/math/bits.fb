@@ -145,6 +145,7 @@ Function Saturated<T: Bounded>(result: T?, low: Bool): T
     Return result ?? (low ? T.MinValue() : T.MaxValue())
 End Function
 
+/// Saturating arithmetic on Int8s, which stops at the lowest and highest in place of overflowing.
 Extend Int8
     /// The sum, or the lowest or highest Int8 in place of an overflow.
     Public Method SaturatingAdd(other: Int8): Int8 => Saturated(CheckedAdd(other), other < 0)
@@ -160,6 +161,7 @@ Extend Int8
     End Method
 End Extend
 
+/// Saturating arithmetic on Int16s, which stops at the lowest and highest in place of overflowing.
 Extend Int16
     /// The sum, or the lowest or highest Int16 in place of an overflow.
     Public Method SaturatingAdd(other: Int16): Int16 => Saturated(CheckedAdd(other), other < 0)
@@ -175,6 +177,7 @@ Extend Int16
     End Method
 End Extend
 
+/// Saturating arithmetic on Int32s, which stops at the lowest and highest in place of overflowing.
 Extend Int32
     /// The sum, or the lowest or highest Int32 in place of an overflow.
     Public Method SaturatingAdd(other: Int32): Int32 => Saturated(CheckedAdd(other), other < 0)
@@ -190,6 +193,7 @@ Extend Int32
     End Method
 End Extend
 
+/// Saturating arithmetic on Int64s, which stops at the lowest and highest in place of overflowing.
 Extend Int64
     /// The sum, or the lowest or highest Int64 in place of an overflow.
     Public Method SaturatingAdd(other: Int64): Int64 => Saturated(CheckedAdd(other), other < 0)
@@ -205,6 +209,7 @@ Extend Int64
     End Method
 End Extend
 
+/// Saturating arithmetic on UInt8s, which stops at the lowest and highest in place of overflowing.
 Extend UInt8
     /// The sum, or the lowest or highest UInt8 in place of an overflow.
     ///
@@ -227,6 +232,7 @@ Extend UInt8
     End Method
 End Extend
 
+/// Saturating arithmetic on UInt16s, which stops at the lowest and highest in place of overflowing.
 Extend UInt16
     /// The sum, or the lowest or highest UInt16 in place of an overflow.
     Public Method SaturatingAdd(other: UInt16): UInt16 => Saturated(CheckedAdd(other), other < 0)
@@ -242,6 +248,7 @@ Extend UInt16
     End Method
 End Extend
 
+/// Saturating arithmetic on UInt32s, which stops at the lowest and highest in place of overflowing.
 Extend UInt32
     /// The sum, or the lowest or highest UInt32 in place of an overflow.
     Public Method SaturatingAdd(other: UInt32): UInt32 => Saturated(CheckedAdd(other), other < 0)
@@ -257,6 +264,7 @@ Extend UInt32
     End Method
 End Extend
 
+/// Saturating arithmetic on UInt64s, which stops at the lowest and highest in place of overflowing.
 Extend UInt64
     /// The sum, or the lowest or highest UInt64 in place of an overflow.
     Public Method SaturatingAdd(other: UInt64): UInt64 => Saturated(CheckedAdd(other), other < 0)

@@ -11,6 +11,7 @@ Extern "runtime"
     Function fb_os_signal_wait(signal: Int32, seen: Int64): Int64
 End Extern
 
+/// Handlers for the interrupt and terminate signals.
 Extend Process
     /// Runs `handler` each time the program is interrupted, by Ctrl+C, or on Windows Ctrl+Break
     /// too, which then doesn't end it. A handler runs on a thread of its own, one at a time, and

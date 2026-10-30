@@ -277,6 +277,7 @@ Public Struct ImmutableArrayIterator<T: Sendable> Implements Iterator<T>
 End Struct
 
 // Two ImmutableArrays are equal when they have equal values in the same order.
+/// Compares ImmutableArrays with == and !=, where their values can be compared.
 Extend ImmutableArray<T> Implements Equatable
     Where T: Equatable
 
@@ -292,6 +293,8 @@ Extend ImmutableArray<T> Implements Equatable
 End Extend
 
 // Equal ImmutableArrays have equal hashes, so one can be a Map's key.
+/// Hashes a ImmutableArray, where its values can be hashed, so it can be a Map's key or a Set's
+/// value.
 Extend ImmutableArray<T> Implements Hashable
     Where T: Hashable
 
@@ -306,6 +309,7 @@ Extend ImmutableArray<T> Implements Hashable
 End Extend
 
 // "[1, 2, 3]", in order, when the values can be shown.
+/// Shows a ImmutableArray in a string, as its ToString writes it.
 Extend ImmutableArray<T> Implements Printable
     Where T: Printable
 
@@ -683,6 +687,7 @@ Public Struct ImmutableMapIterator<K, V> Implements Iterator<(K, V)>
 End Struct
 
 // Two ImmutableMaps are equal when they have the same keys, each with an equal value.
+/// Compares ImmutableMaps with == and !=, where their values can be compared.
 Extend ImmutableMap<K, V> Implements Equatable
     Where V: Equatable
 
@@ -698,6 +703,8 @@ Extend ImmutableMap<K, V> Implements Equatable
 End Extend
 
 // Equal ImmutableMaps have equal hashes, whatever order their entries go in.
+/// Hashes a ImmutableMap, where its keys and values can be hashed, so it can be a Map's key or a
+/// Set's value.
 Extend ImmutableMap<K, V> Implements Hashable
     Where V: Hashable
 
@@ -712,6 +719,7 @@ Extend ImmutableMap<K, V> Implements Hashable
 End Extend
 
 // "{a: 1, b: 2}", when the keys and values can be shown.
+/// Shows a ImmutableMap in a string, as its ToString writes it.
 Extend ImmutableMap<K, V> Implements Printable
     Where K: Printable
     Where V: Printable
@@ -821,6 +829,7 @@ Public Struct ImmutableSetIterator<T> Implements Iterator<T>
 End Struct
 
 // "{1, 2, 3}", when the values can be shown.
+/// Shows a ImmutableSet in a string, as its ToString writes it.
 Extend ImmutableSet<T> Implements Printable
     Where T: Printable
 

@@ -222,6 +222,7 @@ Public Struct RingBufferIterator<T> Implements Iterator<T>
 End Struct
 
 // "[1, 2, 3]", oldest first, when the values can be shown.
+/// Shows a RingBuffer in a string, as its ToString writes it.
 Extend RingBuffer<T> Implements Printable
     Where T: Printable
 

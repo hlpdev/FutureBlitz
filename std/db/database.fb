@@ -70,42 +70,49 @@ Public Interface SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
 End Interface
 
+/// Binds an Int8 to a statement's parameter, as an integer.
 Extend Int8 Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
         Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
     End Method
 End Extend
 
+/// Binds an Int16 to a statement's parameter, as an integer.
 Extend Int16 Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
         Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
     End Method
 End Extend
 
+/// Binds an Int32 to a statement's parameter, as an integer.
 Extend Int32 Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
         Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
     End Method
 End Extend
 
+/// Binds an Int64 to a statement's parameter, as an integer.
 Extend Int64 Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
         Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
     End Method
 End Extend
 
+/// Binds a UInt8 to a statement's parameter, as an integer.
 Extend UInt8 Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
         Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
     End Method
 End Extend
 
+/// Binds a UInt16 to a statement's parameter, as an integer.
 Extend UInt16 Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
         Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
     End Method
 End Extend
 
+/// Binds a UInt32 to a statement's parameter, as an integer.
 Extend UInt32 Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
         Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
@@ -113,6 +120,8 @@ Extend UInt32 Implements SqlValue
 End Extend
 
 // SQLite's integers are 64-bit and signed, so one past an Int64's largest throws a DatabaseError.
+/// Binds a UInt64 to a statement's parameter, as an integer, or throws a DatabaseError for one past
+/// an Int64's largest, which SQLite's integers don't reach.
 Extend UInt64 Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
         If Self > 9223372036854775807
@@ -124,6 +133,7 @@ Extend UInt64 Implements SqlValue
     End Method
 End Extend
 
+/// Binds a Bool to a statement's parameter, as 1 or 0.
 Extend Bool Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
         Try statement.Check(fb_db_bind_int(statement.Handle, index, Self ? 1 : 0))
@@ -131,12 +141,16 @@ Extend Bool Implements SqlValue
 End Extend
 
 // SQLite keeps a NaN as NULL, so one throws a DatabaseError instead.
+/// Binds a Float32 to a statement's parameter, as a real, or throws a DatabaseError for a NaN,
+/// which SQLite keeps as NULL.
 Extend Float32 Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
         Try (Self As Float64).BindTo(statement, index)
     End Method
 End Extend
 
+/// Binds a Float64 to a statement's parameter, as a real, or throws a DatabaseError for a NaN,
+/// which SQLite keeps as NULL.
 Extend Float64 Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
         If Self != Self
@@ -148,12 +162,14 @@ Extend Float64 Implements SqlValue
     End Method
 End Extend
 
+/// Binds a String to a statement's parameter, as text.
 Extend String Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
         Try statement.Check(fb_db_bind_text(statement.Handle, index, Self))
     End Method
 End Extend
 
+/// Binds bytes to a statement's parameter, as a blob.
 Extend UInt8[] Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
         Try statement.Check(fb_db_bind_blob(statement.Handle, index, Self))

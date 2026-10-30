@@ -29,6 +29,7 @@ Package Function UnsignedIn(text: String, base: Int, most: UInt64): UInt64?
     Return value
 End Function
 
+/// Reading an Int8 from text.
 Extend Int8
     /// The Int8 `text` writes in `base`, or Null.
     @PanicsAtCaller
@@ -39,6 +40,7 @@ Extend Int8
     End Method
 End Extend
 
+/// Reading an Int16 from text.
 Extend Int16
     /// The Int16 `text` writes in `base`, or Null.
     @PanicsAtCaller
@@ -49,6 +51,7 @@ Extend Int16
     End Method
 End Extend
 
+/// Reading an Int32 from text.
 Extend Int32
     /// The Int32 `text` writes in `base`, or Null: Int.Parse("42"), Int.Parse("ff", 16).
     ///
@@ -68,6 +71,7 @@ Extend Int32
     End Method
 End Extend
 
+/// Reading an Int64 from text.
 Extend Int64
     /// The Int64 `text` writes in `base`, or Null.
     @PanicsAtCaller
@@ -75,6 +79,7 @@ Extend Int64
         SignedIn(text, base, -9223372036854775808, 9223372036854775807)
 End Extend
 
+/// Reading a UInt8 from text.
 Extend UInt8
     /// The UInt8 `text` writes in `base`, or Null.
     @PanicsAtCaller
@@ -85,6 +90,7 @@ Extend UInt8
     End Method
 End Extend
 
+/// Reading a UInt16 from text.
 Extend UInt16
     /// The UInt16 `text` writes in `base`, or Null.
     @PanicsAtCaller
@@ -95,6 +101,7 @@ Extend UInt16
     End Method
 End Extend
 
+/// Reading a UInt32 from text.
 Extend UInt32
     /// The UInt32 `text` writes in `base`, or Null.
     @PanicsAtCaller
@@ -105,6 +112,7 @@ Extend UInt32
     End Method
 End Extend
 
+/// Reading a UInt64 from text.
 Extend UInt64
     /// The UInt64 `text` writes in `base`, or Null.
     @PanicsAtCaller
@@ -112,6 +120,7 @@ Extend UInt64
         UnsignedIn(text, base, 18446744073709551615)
 End Extend
 
+/// Reading a Float32 from text.
 Extend Float32
     /// The Float32 `text` writes, or Null for `text` that isn't a float or one too big for a
     /// Float32: Float.Parse("2.5").
@@ -122,6 +131,7 @@ Extend Float32
     End Method
 End Extend
 
+/// Reading a Float64 from text.
 Extend Float64
     /// The Float64 `text` writes, or Null, which reads back every Float64 that Format writes.
     ///
@@ -139,6 +149,7 @@ Extend Float64
     End Method
 End Extend
 
+/// Reading a Bool from text.
 Extend Bool
     /// True for "True", False for "False", and Null for any other text.
     ///

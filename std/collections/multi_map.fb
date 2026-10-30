@@ -159,6 +159,7 @@ Public Struct MultiMapIterator<K: Hashable, V> Implements Iterator<(K, V)>
 End Struct
 
 // Two MultiMaps are equal when they have the same keys, each with equal values in the same order.
+/// Compares MultiMaps with == and !=, where their values can be compared.
 Extend MultiMap<K, V> Implements Equatable
     Where V: Equatable
 
@@ -167,6 +168,7 @@ Extend MultiMap<K, V> Implements Equatable
 End Extend
 
 // "{a: [1, 2], b: [3]}", in the order the keys were added, when the keys and values can be shown.
+/// Shows a MultiMap in a string, as its ToString writes it.
 Extend MultiMap<K, V> Implements Printable
     Where K: Printable
     Where V: Printable

@@ -446,6 +446,7 @@ Public Function RandFloat(low: Float, high: Float): Float
     Return generator.Float(low, high)
 End Function
 
+/// Shuffling every array, and sampling from it, by the thread's default generator or a Random.
 Extend T[]
     /// Puts the elements in a random order, in place, each order as likely, from this thread's
     /// default generator.

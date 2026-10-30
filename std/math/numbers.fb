@@ -160,6 +160,7 @@ Public Interface FloatingPoint Extends Bounded
     Static Method Fma(a: Self, b: Self, c: Self): Self
 End Interface
 
+/// Makes Int8 one of the Integer types, for std.math's generic Functions.
 Extend Int8 Implements Integer
     Static Method MinValue(): Int8 => -128
     Static Method MaxValue(): Int8 => 127
@@ -169,6 +170,7 @@ Extend Int8 Implements Integer
     Static Method FromLowBits(bits: UInt64): Int8 => bits As Int8
 End Extend
 
+/// Makes Int16 one of the Integer types, for std.math's generic Functions.
 Extend Int16 Implements Integer
     Static Method MinValue(): Int16 => -32768
     Static Method MaxValue(): Int16 => 32767
@@ -178,6 +180,7 @@ Extend Int16 Implements Integer
     Static Method FromLowBits(bits: UInt64): Int16 => bits As Int16
 End Extend
 
+/// Makes Int32 one of the Integer types, for std.math's generic Functions.
 Extend Int32 Implements Integer
     Static Method MinValue(): Int32 => -2147483648
     Static Method MaxValue(): Int32 => 2147483647
@@ -187,6 +190,7 @@ Extend Int32 Implements Integer
     Static Method FromLowBits(bits: UInt64): Int32 => bits As Int32
 End Extend
 
+/// Makes Int64 one of the Integer types, for std.math's generic Functions.
 Extend Int64 Implements Integer
     Static Method MinValue(): Int64 => -9223372036854775808
     Static Method MaxValue(): Int64 => 9223372036854775807
@@ -196,6 +200,7 @@ Extend Int64 Implements Integer
     Static Method FromLowBits(bits: UInt64): Int64 => bits As Int64
 End Extend
 
+/// Makes UInt8 one of the Integer types, for std.math's generic Functions.
 Extend UInt8 Implements Integer
     Static Method MinValue(): UInt8 => 0
     Static Method MaxValue(): UInt8 => 255
@@ -205,6 +210,7 @@ Extend UInt8 Implements Integer
     Static Method FromLowBits(bits: UInt64): UInt8 => bits As UInt8
 End Extend
 
+/// Makes UInt16 one of the Integer types, for std.math's generic Functions.
 Extend UInt16 Implements Integer
     Static Method MinValue(): UInt16 => 0
     Static Method MaxValue(): UInt16 => 65535
@@ -214,6 +220,7 @@ Extend UInt16 Implements Integer
     Static Method FromLowBits(bits: UInt64): UInt16 => bits As UInt16
 End Extend
 
+/// Makes UInt32 one of the Integer types, for std.math's generic Functions.
 Extend UInt32 Implements Integer
     Static Method MinValue(): UInt32 => 0
     Static Method MaxValue(): UInt32 => 4294967295
@@ -223,6 +230,7 @@ Extend UInt32 Implements Integer
     Static Method FromLowBits(bits: UInt64): UInt32 => bits As UInt32
 End Extend
 
+/// Makes UInt64 one of the Integer types, for std.math's generic Functions.
 Extend UInt64 Implements Integer
     Static Method MinValue(): UInt64 => 0
     Static Method MaxValue(): UInt64 => 18446744073709551615
@@ -232,6 +240,7 @@ Extend UInt64 Implements Integer
     Static Method FromLowBits(bits: UInt64): UInt64 => bits
 End Extend
 
+/// Makes Float32 one of the FloatingPoint types, over C's libm's float Functions.
 Extend Float32 Implements FloatingPoint
     Static Method MinValue(): Float32 => -3.4028235e38
     Static Method MaxValue(): Float32 => 3.4028235e38
@@ -267,6 +276,7 @@ Extend Float32 Implements FloatingPoint
     Static Method Fma(a: Float32, b: Float32, c: Float32): Float32 => fmaf(a, b, c)
 End Extend
 
+/// Makes Float64 one of the FloatingPoint types, over C's libm's double Functions.
 Extend Float64 Implements FloatingPoint
     Static Method MinValue(): Float64 => -1.7976931348623157e308
     Static Method MaxValue(): Float64 => 1.7976931348623157e308
@@ -302,6 +312,7 @@ Extend Float64 Implements FloatingPoint
     Static Method Fma(a: Float64, b: Float64, c: Float64): Float64 => fma(a, b, c)
 End Extend
 
+/// A Float32's IEEE 754 bits, and the Float32 of some.
 Extend Float32
     /// The Float's bits, as IEEE 754 lays them out.
     Public Method ToBits(): UInt32
@@ -320,6 +331,7 @@ Extend Float32
     End Method
 End Extend
 
+/// A Float64's IEEE 754 bits, and the Float64 of some.
 Extend Float64
     /// The Double's bits, as IEEE 754 lays them out.
     Public Method ToBits(): UInt64

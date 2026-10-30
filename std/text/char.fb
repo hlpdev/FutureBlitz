@@ -12,6 +12,7 @@ Extern "runtime"
     Function fb_unicode_lower(code: UInt32): UInt32
 End Extern
 
+/// A Char's code, what kind of character it is, and its case.
 Extend Char
     /// Its code point, from 0 to 0x10FFFF.
     Public Property Code: Int

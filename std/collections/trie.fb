@@ -289,6 +289,7 @@ Public Struct TrieIterator<V> Implements Iterator<(String, V)>
 End Struct
 
 // Two Tries are equal when they have the same keys, each with an equal value.
+/// Compares Tries with == and !=, where their values can be compared.
 Extend Trie<V> Implements Equatable
     Where V: Equatable
 
@@ -305,6 +306,7 @@ Extend Trie<V> Implements Equatable
 End Extend
 
 // "{a: 1, ab: 2}", in order, when the values can be shown.
+/// Shows a Trie in a string, as its ToString writes it.
 Extend Trie<V> Implements Printable
     Where V: Printable
 

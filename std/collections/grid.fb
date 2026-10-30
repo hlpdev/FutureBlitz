@@ -135,6 +135,7 @@ Public Struct GridIterator<T> Implements Iterator<T>
 End Struct
 
 // Two Grids are equal when they're the same size, with equal values in each cell.
+/// Compares Grids with == and !=, where their cells can be compared.
 Extend Grid<T> Implements Equatable
     Where T: Equatable
 
@@ -145,6 +146,7 @@ Extend Grid<T> Implements Equatable
 End Extend
 
 // "[[1, 2], [3, 4]]", row by row, when the values can be shown.
+/// Shows a Grid in a string, as its ToString writes it.
 Extend Grid<T> Implements Printable
     Where T: Printable
 
@@ -303,6 +305,7 @@ Public Class Grid3<T> Implements Iterable<T>, Cloneable
 End Class
 
 // Two Grid3s are equal when they're the same size, with equal values in each cell.
+/// Compares Grid3s with == and !=, where their cells can be compared.
 Extend Grid3<T> Implements Equatable
     Where T: Equatable
 
@@ -315,6 +318,7 @@ End Extend
 
 // "[[[1, 2], [3, 4]], [[5, 6], [7, 8]]]", layer by layer and row by row, when the values can be
 // shown.
+/// Shows a Grid3 in a string, as its ToString writes it.
 Extend Grid3<T> Implements Printable
     Where T: Printable
 

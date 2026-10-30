@@ -130,6 +130,7 @@ Public Class HttpRequest
 End Class
 
 // Responses a handler gives.
+/// The responses a server's handlers give: one of a status and a body, and a redirect.
 Extend HttpResponse
     /// A response of `status`, with `body`'s bytes and its Content-Type, or an empty one. The
     /// `status` is a final response's, from 200 to 599, or it panics: a 1xx's response comes before

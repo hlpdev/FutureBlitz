@@ -10,6 +10,8 @@ Extern "runtime"
     Function fb_cstring_length(text: CString): UInt64
 End Extern
 
+/// What a CString does besides ToString: a copy of a String that C code can keep, its length, and
+/// giving the copy back.
 Extend CString
     /// A CString of `text`'s UTF-8 bytes and a NUL, in memory of its own, which C code can keep
     /// until Free gives it back. C reads it up to its first NUL, so a NUL in `text` ends it

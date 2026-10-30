@@ -162,6 +162,7 @@ End Class
 
 // "{a: 2, b: 1}", in the order the values were added, one that came back last, when they can be
 // shown.
+/// Shows a Counter in a string, as its ToString writes it.
 Extend Counter<T> Implements Printable
     Where T: Printable
 

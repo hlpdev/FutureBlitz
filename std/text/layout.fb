@@ -13,6 +13,7 @@ Extern "runtime"
     Function fb_text_byte(text: String, at: Int64): UInt8
 End Extern
 
+/// Wrapping, dedenting, and indenting a String's lines.
 Extend String
     /// Its lines filled with words up to `width` columns each, as a terminal shows them, with
     /// DisplayWidth and a tab going on to the next multiple of 8 columns: each line breaks before

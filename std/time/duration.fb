@@ -478,6 +478,7 @@ End Function
 // An Int64's and a Double's Durations: 2.Seconds is 2 seconds' Duration, and 1.5.Minutes 90
 // seconds'. Another number type converts first, as (f As Double).Seconds does a Float's.
 
+/// Durations of a whole number of units, as `5.Seconds` and `250.Milliseconds` are.
 Extend Int64
     /// This many nanoseconds, as a Duration, as `5.Nanoseconds` is.
     @PanicsAtCaller
@@ -528,6 +529,7 @@ Extend Int64
     End Property
 End Extend
 
+/// Durations of a number of units with a fraction, as `1.5.Seconds` is.
 Extend Float64
     /// This many nanoseconds, to the nearest, as a Duration. Panics for NaN, an infinity, or one
     /// longer than a Duration holds.

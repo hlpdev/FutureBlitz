@@ -10,6 +10,9 @@
 Import std.core
 Import std.collections.map
 
+/// What every array has besides the built-in Add, Insert, RemoveAt, Clear, Contains, Clone,
+/// Reserve, TrimExcess, Count, and Capacity: searching, its ends, many elements at once, sorting,
+/// and reshaping.
 Extend T[]
     /// Removes the first element equal to `value`, and tells whether there was one.
     Public Method Remove(value: T): Bool
@@ -478,6 +481,7 @@ End Extend
 
 // An array's elements for code that takes any Iterable<T>, or for lazy adapters, as in
 // "items.Iterate().Filter(keep)". For ... In goes over an array itself.
+/// Makes every array an `Iterable<T>`, so code that takes any collection takes one.
 Extend T[] Implements Iterable<T>
     /// Its elements, in order, which a loop over the array goes through.
     Public Method Iterate(): ArrayIterator<T> => ArrayIterator<T>(Self, 0)

@@ -9,6 +9,7 @@ Import std.collections.array
 Import std.collections.map
 Import std.collections.set
 
+/// Views of every array: part of it, read and set in place, and the whole, to read but not change.
 Extend T[]
     /// The elements from `start` up to `finish`, without the one at `finish`, as a view of them in
     /// the array. They have to be in the array.
@@ -45,11 +46,13 @@ Extend T[]
     Public Method AsReadOnly(): ReadOnlyArray<T> => ReadOnlyArray<T>(Self)
 End Extend
 
+/// A view of every Map, to read but not change.
 Extend Map<K, V>
     /// The Map, to read but not change.
     Public Method AsReadOnly(): ReadOnlyMap<K, V> => ReadOnlyMap<K, V>(Self)
 End Extend
 
+/// A view of every Set, to read but not change.
 Extend Set<T>
     /// The Set, to read but not change.
     Public Method AsReadOnly(): ReadOnlySet<T> => ReadOnlySet<T>(Self)
@@ -240,6 +243,7 @@ Public Class ReadOnlySet<T: Hashable> Implements Iterable<T>
 End Class
 
 // "[1, 2, 3]", as an array of the view's elements would show them.
+/// Shows a ArrayView in a string, as its ToString writes it.
 Extend ArrayView<T> Implements Printable
     Where T: Printable
 
@@ -248,6 +252,7 @@ Extend ArrayView<T> Implements Printable
     Public Method ToString(): String => "{ToArray()}"
 End Extend
 
+/// Shows a ReadOnlyArray in a string, as its ToString writes it.
 Extend ReadOnlyArray<T> Implements Printable
     Where T: Printable
 
@@ -255,6 +260,7 @@ Extend ReadOnlyArray<T> Implements Printable
     Public Method ToString(): String => "{Items}"
 End Extend
 
+/// Shows a ReadOnlyMap in a string, as its ToString writes it.
 Extend ReadOnlyMap<K, V> Implements Printable
     Where K: Printable
     Where V: Printable
@@ -263,6 +269,7 @@ Extend ReadOnlyMap<K, V> Implements Printable
     Public Method ToString(): String => "{Items}"
 End Extend
 
+/// Shows a ReadOnlySet in a string, as its ToString writes it.
 Extend ReadOnlySet<T> Implements Printable
     Where T: Printable
 

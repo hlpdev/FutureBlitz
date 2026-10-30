@@ -442,6 +442,7 @@ Public Struct MapIterator<K: Hashable, V> Implements Iterator<(K, V)>
 End Struct
 
 // Two Maps are equal when they have the same keys, each with an equal value, in any order.
+/// Compares Maps with == and !=, where their values can be compared.
 Extend Map<K, V> Implements Equatable
     Where V: Equatable
 
@@ -458,6 +459,8 @@ Extend Map<K, V> Implements Equatable
 End Extend
 
 // A Map's hash, the same for equal Maps: each entry's, added up, so their order doesn't count.
+/// Hashes a Map, where its keys and values can be hashed, so it can be a Map's key or a Set's
+/// value.
 Extend Map<K, V> Implements Hashable
     Where V: Hashable
 
@@ -472,6 +475,7 @@ Extend Map<K, V> Implements Hashable
 End Extend
 
 // "{a: 1, b: 2}", when the keys and values can be shown.
+/// Shows a Map in a string, as its ToString writes it.
 Extend Map<K, V> Implements Printable
     Where K: Printable
     Where V: Printable

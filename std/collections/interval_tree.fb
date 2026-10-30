@@ -343,6 +343,7 @@ End Struct
 
 // Two IntervalTrees are equal when they have the same intervals with equal values, in the same
 // order.
+/// Compares IntervalTrees with == and !=, where their values can be compared.
 Extend IntervalTree<K, V> Implements Equatable
     Where V: Equatable
 
@@ -354,6 +355,7 @@ End Extend
 
 // "[(1, 3, a), (2, 5, b)]", each interval's low and high with each of its values, in order, when
 // they can be shown.
+/// Shows a IntervalTree in a string, as its ToString writes it.
 Extend IntervalTree<K, V> Implements Printable
     Where K: Printable
     Where V: Printable

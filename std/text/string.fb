@@ -28,6 +28,8 @@ Extern "runtime"
     Function fb_unicode_next_grapheme(text: String, at: Int64): Int64
 End Extern
 
+/// Searching, slicing, splitting, and changing a String, by byte position, and its lengths in
+/// bytes, code points, and grapheme clusters.
 Extend String
     /// How many bytes its UTF-8 has, which is also the position just past its end.
     ///

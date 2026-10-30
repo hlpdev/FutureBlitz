@@ -519,6 +519,7 @@ Struct Piece
     Field Name: String?
 End Struct
 
+/// Regular expressions on a String: whether one matches, and replacing and splitting by one.
 Extend String
     /// Whether `pattern` matches somewhere in it, as Regex(`pattern`).IsMatch does. Its compiled
     /// `pattern` is kept for a while, so calling it again with the same one doesn't compile it

@@ -31,15 +31,18 @@ Public Attribute JsonBody
 // An HttpRequest is only a server's, so Load makes none. A Method of the request alone is a route
 // of its own, for which Load isn't called; this is so that Routes' loop over Methods of one
 // argument, which Load makes, and which a Method of the request is among, compiles for it.
+/// Lets a routes Class's Method take the request, which a server gives as it is, where Load makes
+/// the arguments of other routes.
 Extend HttpRequest Implements Loadable
-    /// Throws a ParseError of WRONG_TYPE: an HttpRequest comes from a server, so a route's Struct
-    /// gets its request as it is, not from the Value Load reads.
+    /// Throws a ParseError of WRONG_TYPE: an HttpRequest is a server's, which Load doesn't make,
+    /// and a route Method that takes it gets it as it is.
     Public Static Method FromValue(value: Value): HttpRequest Throws ParseError
         Throw ParseError(ParseErrorKind.WRONG_TYPE, "an HttpRequest is a server's, which Load " +
                          "doesn't make")
     End Method
 End Extend
 
+/// Routes from a Class's Methods, by their attributes.
 Extend HttpRouter
     /// Adds a route for each Async Method of `instance`'s type with a @Get, @Post, @Put, @Patch, or
     /// @Delete, or several, which gives an HttpResponse and takes nothing, the request, one

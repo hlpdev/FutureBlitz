@@ -118,6 +118,7 @@ Public Class LruCache<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable
 End Class
 
 // "{a: 1, b: 2}", least recently used first, when the keys and values can be shown.
+/// Shows a LruCache in a string, as its ToString writes it.
 Extend LruCache<K, V> Implements Printable
     Where K: Printable
     Where V: Printable

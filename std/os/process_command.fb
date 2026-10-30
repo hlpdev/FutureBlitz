@@ -225,6 +225,7 @@ Public Class Command
     End Method
 End Class
 
+/// The program's own command line.
 Extend Process
     /// The program's arguments, after its own name, as what started it gave them. On Windows,
     /// they're its command line, split as a C program splits it.

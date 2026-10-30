@@ -183,6 +183,8 @@ End Class
 
 // A new, empty PriorityQueue, which gives the smallest value first, where the values have an
 // order.
+/// Gives a PriorityQueue of Comparable values a default, an empty one that gives its smallest value
+/// first.
 Extend PriorityQueue<T> Implements Defaultable
     Where T: Comparable
 

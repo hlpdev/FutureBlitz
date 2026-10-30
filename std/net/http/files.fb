@@ -23,6 +23,7 @@ End Extern
 /// The most bytes a file it serves can have, which it reads whole, as an array holds them.
 Const MOST_BYTES: Int64 = 2147483647
 
+/// Serving a folder's files from a router.
 Extend HttpRouter
     /// Serves `folder`'s files at `prefix`, a path as routes have them, without a *name, or "/" for
     /// the router's own: a GET or a HEAD of `prefix`/a/b.png gives `folder`'s a/b.png, and one of a

@@ -370,6 +370,7 @@ Public Struct LinkedListIterator<T> Implements Iterator<T>
 End Struct
 
 // Two LinkedLists are equal when they have equal values in the same order.
+/// Compares LinkedLists with == and !=, where their values can be compared.
 Extend LinkedList<T> Implements Equatable
     Where T: Equatable
 
@@ -388,6 +389,7 @@ Extend LinkedList<T> Implements Equatable
 End Extend
 
 // "[1, 2, 3]", first to last, when the values can be shown.
+/// Shows a LinkedList in a string, as its ToString writes it.
 Extend LinkedList<T> Implements Printable
     Where T: Printable
 

@@ -29,6 +29,7 @@ Package Interface Duplex Extends Reader, Writer
     Method Close()
 End Interface
 
+/// Makes a TcpStream a Duplex, a connection that HTTP/1.1's messages go both ways over.
 Extend TcpStream Implements Duplex
 End Extend
 

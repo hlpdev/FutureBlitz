@@ -51,6 +51,7 @@ Public Struct Range<T: Numeric> Implements Iterator<T>, Iterable<T>
 End Struct
 
 // Every integer type is Equatable, so every range a program makes has ==.
+/// Compares Ranges with == and !=, by the values they give.
 Extend Range<T>
     Where T: Equatable
 

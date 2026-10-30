@@ -290,6 +290,7 @@ Public Struct BitSetIterator Implements Iterator<Int>
 End Struct
 
 // "{1, 5, 64}", smallest first.
+/// Shows a BitSet in a string, as its ToString writes it.
 Extend BitSet Implements Printable
     /// Its values, the least first, as "{1, 5, 64}".
     Public Method ToString(): String
