@@ -696,7 +696,7 @@ TEST_CASE("fb doc std has every Public declaration of std's, each with a doc of 
 
     CHECK(warnings.diagnostics().empty());
 
-    // Each module has a //! summary, and each item but an Extend a /// one of its own, as fb doc
+    // Each module has a //! summary, and each item, an Extend too, a /// one of its own, as fb doc
     // --check checks.
     fb::diagnostic_bag_t missing;
     fb::check_docs(package, missing);

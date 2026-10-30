@@ -2549,6 +2549,10 @@ Extend String
     /// It, shouted.
     Public Method Shout(): String => Self + "!"
 End Extend
+
+///
+Public Function Empty()
+End Function
 )");
     write_source("doc/checked/bare.fb", "Import std.core\n\n/// One.\nPublic Const ONE = 1\n");
     const fb::process_result_t checked =
@@ -2584,8 +2588,13 @@ End Extend
     CHECK_FALSE(checked.output.contains("Extend.Square has"));
     CHECK_FALSE(checked.output.contains("Square.Twice has"));
     CHECK_FALSE(checked.output.contains("Shape.Area has"));
+    CHECK(checked.output.contains(std::format("{}:47:17: error: checked.shapes.Empty's doc comment "
+                                              "is empty: a sentence that says what it "
+                                              "does goes there\n",
+                                              shown)));
     CHECK(checked.output.contains(
-        "error: the docs aren't done: 6 items without a doc comment of its own\n"));
+        "error: the docs aren't done: 1 module without a //! doc, 4 items without docs of their "
+        "own, and 2 docs without a summary\n"));
     CHECK_FALSE(std::filesystem::exists(folder / "build" / "checked.json"));
 
     // A link that names nothing fails it too.
@@ -2598,6 +2607,13 @@ End Extend
     CHECK(linked.exit_code == 1);
     CHECK(linked.output.contains("warning: 'Nothing' names nothing that code here sees\n"));
     CHECK(linked.output.contains("error: the docs aren't done: 1 warning\n"));
+    std::ofstream(folder / "bare.fb", std::ios::binary)
+        << "Import std.core\n\nPublic Const ONE = 1\n";
+    const fb::process_result_t both =
+        fb_run({ "doc", fb::to_utf8(folder), "--check", "--color", "never" });
+    CHECK(both.output.contains(
+        "error: the docs aren't done: 1 module without a //! doc and 1 item without a doc of its "
+        "own\n"));
 
     // With every doc there, it passes.
     std::ofstream(folder / "bare.fb", std::ios::binary)
@@ -2615,6 +2631,46 @@ End Extend
     CHECK(
         fb_run({ "doc", "--help" })
             .output.contains("Check that each module and declaration has a doc, writing no JSON"));
+}
+
+TEST_CASE("fb test runs an Extend's own examples, named after it", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "doc" / "extended";
+    std::filesystem::remove_all(folder);
+    write_source("doc/extended/project.toml",
+                 "[project]\nname = \"extended\"\nversion = \"1.0.0\"\ntype = \"library\"\n");
+    const std::filesystem::path things = write_source("doc/extended/things.fb", R"(//! Things.
+
+Import std.core
+
+/// A box.
+Public Struct Box
+    /// How wide it is.
+    Public Field Width: Float
+End Struct
+
+/// Doubling a box.
+///
+/// # Examples
+///
+/// ```
+/// Expect(Box(2.0).Twice() == 4.0)
+/// ```
+///
+/// ```
+/// Expect(Box(2.0).Twice() == 5.0)
+/// ```
+Extend Box
+    /// Twice its width.
+    Public Method Twice(): Float => Width * 2
+End Extend
+)");
+    const fb::process_result_t ran = fb_run({ "test", fb::to_utf8(folder), "--color", "never" });
+    INFO(ran.output);
+    CHECK(ran.exit_code == 1);
+    CHECK(ran.output.contains("test extended.things.Extend.Box (example) ... ok\n"));
+    CHECK(ran.output.contains("test extended.things.Extend.Box (example 2) ... FAILED\n"));
+    CHECK(ran.output.contains(
+        std::format("expect failed: Box(2.0).Twice() == 5.0 at {}:20:5\n", shown_file(things))));
 }
 
 TEST_CASE("fb doc std writes the standard library's API, and fb test std runs its examples",

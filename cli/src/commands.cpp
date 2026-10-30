@@ -1180,19 +1180,39 @@ int check_docs_command(const console_t& console, const compilation_t& compilatio
                        const doc_package_t& package, const std::size_t warnings,
                        const std::chrono::steady_clock::time_point start) {
     diagnostic_bag_t missing;
-    check_docs(package, missing);
+    const doc_check_t found = check_docs(package, missing);
     for (const diagnostic_t& error : missing.diagnostics()) {
         console_t::print_error(
             render_pretty(error, compilation.sources, { .color = console.err().color }));
     }
 
-    const std::size_t errors = missing.diagnostics().size();
-    if (errors > 0 || warnings > 0) {
-        std::string problems =
-            errors > 0 ? std::format("{} without a doc comment of its own", count(errors, "item"))
-                       : "";
-        if (warnings > 0) {
-            problems += std::format("{}{}", errors > 0 ? ", and " : "", count(warnings, "warning"));
+    // Each kind there's some of, as "1 module without a //! doc, 2 items without docs of their
+    // own, and 1 warning".
+    std::vector<std::string> parts;
+    if (found.modules > 0) {
+        parts.push_back(std::format("{} without a //! doc", count(found.modules, "module")));
+    }
+
+    if (found.undocumented > 0) {
+        parts.push_back(found.undocumented == 1 ? "1 item without a doc of its own"
+                                                : std::format("{} items without docs of their own",
+                                                              found.undocumented));
+    }
+
+    if (found.unsummarized > 0) {
+        parts.push_back(std::format("{} without a summary", count(found.unsummarized, "doc")));
+    }
+
+    if (warnings > 0) {
+        parts.push_back(count(warnings, "warning"));
+    }
+
+    if (!parts.empty()) {
+        std::string problems = parts.front();
+        for (std::size_t i = 1; i < parts.size(); ++i) {
+            problems += std::format(
+                "{}{}", i + 1 == parts.size() ? (parts.size() == 2 ? " and " : ", and ") : ", ",
+                parts[i]);
         }
 
         console.error(std::format("the docs aren't done: {}", problems));

@@ -5,6 +5,7 @@
 #include "fb/diagnostic.hpp"
 #include "fb/source.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -169,11 +170,21 @@ struct doc_package_t {
 /// files its docs are in.
 [[nodiscard]] std::string doc_json(const doc_package_t& package, const source_manager_t& sources);
 
-/// What fb doc --check finds in `package`, as errors in `diagnostics`, in its order: a module
-/// without a //! doc comment, and an item without a /// doc comment of its own, an Extend's
-/// among them, even one that has the doc of the Interface member it implements or the Class
-/// member it overrides, or one whose doc has no summary.
-void check_docs(const doc_package_t& package, diagnostic_bag_t& diagnostics);
+/// How many of each kind of error fb doc --check found.
+struct doc_check_t {
+    /// Modules without a //! doc comment with a summary.
+    std::size_t modules = 0;
+    /// Items without a /// doc comment of their own.
+    std::size_t undocumented = 0;
+    /// Items whose own doc comment has no summary, as an empty one hasn't.
+    std::size_t unsummarized = 0;
+};
+
+/// What fb doc --check finds in `package`, as errors in `diagnostics`, in its order, and how
+/// many of each kind: a module without a //! doc comment, and an item without a /// doc comment
+/// of its own, an Extend's among them, even one that has the doc of the Interface member it
+/// implements or the Class member it overrides, or one whose doc has no summary.
+doc_check_t check_docs(const doc_package_t& package, diagnostic_bag_t& diagnostics);
 
 /// One of a file's examples, as a module that fb test compiles and runs: its text, and where
 /// each of its lines is in the file, which its messages and stack traces show.

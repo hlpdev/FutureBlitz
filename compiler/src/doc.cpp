@@ -698,6 +698,8 @@ std::vector<documented_t> documented(const ast_t& ast, const source_file_t& file
             }
         } else if (const auto* extension = std::get_if<extend_stmt_t>(&node)) {
             const std::string extended = extend_name(ast, *extension, file);
+            // Its own examples are named as fb doc's JSON names it, "Extend." and its type.
+            note("Extend." + extended, ast.doc(id));
             for (const stmt_id_t member : extension->members) {
                 note(std::format("{}.{}", extended, member_name(ast.get(member).node)),
                      ast.doc(member));
@@ -2211,42 +2213,62 @@ doc_package_t document(const compilation_t& compilation, const bool standard,
 
 namespace {
 
-/// fb doc --check's error for each of `items`, and their members, without a doc of its own.
-void check_items(const std::vector<doc_item_t>& items, diagnostic_bag_t& diagnostics) {
+/// Whether a doc has no text but blank lines.
+[[nodiscard]] bool blank(const doc_t& doc) {
+    return doc.markdown.find_first_not_of(" \t\r\n") == std::string::npos;
+}
+
+/// fb doc --check's error for each of `items`, and their members, without a doc of its own, or
+/// with one that has no summary, counted in `found`.
+void check_items(const std::vector<doc_item_t>& items, diagnostic_bag_t& diagnostics,
+                 doc_check_t& found) {
     for (const doc_item_t& item : items) {
         if (!item.doc) {
             diagnostics.error(item.span,
                               "{} has no doc comment: a /// comment on the lines right before it "
                               "says what it does",
                               item.path);
+            ++found.undocumented;
         } else if (!item.doc_from.empty()) {
             diagnostics.error(item.span,
                               "{} has no doc comment of its own, only {}'s, which doesn't say "
                               "what it does here",
                               item.path, item.doc_from);
+            ++found.undocumented;
+        } else if (blank(*item.doc)) {
+            diagnostics.error(item.span,
+                              "{}'s doc comment is empty: a sentence that says what it does goes "
+                              "there",
+                              item.path);
+            ++found.unsummarized;
         } else if (item.doc->summary.empty()) {
             diagnostics.error(item.span,
                               "{}'s doc comment has no summary: it starts with a heading or code, "
                               "where a sentence that says what it does goes",
                               item.path);
+            ++found.unsummarized;
         }
 
-        check_items(item.members, diagnostics);
+        check_items(item.members, diagnostics, found);
     }
 }
 
 } // namespace
 
-void check_docs(const doc_package_t& package, diagnostic_bag_t& diagnostics) {
+doc_check_t check_docs(const doc_package_t& package, diagnostic_bag_t& diagnostics) {
+    doc_check_t found;
     for (const doc_module_t& module : package.modules) {
         if (!module.doc || module.doc->summary.empty()) {
             diagnostics.error(module.span,
                               "{} has no //! doc comment with a summary at the top of its file",
                               module.name);
+            ++found.modules;
         }
 
-        check_items(module.items, diagnostics);
+        check_items(module.items, diagnostics, found);
     }
+
+    return found;
 }
 
 std::string doc_json(const doc_package_t& package, const source_manager_t& sources) {
