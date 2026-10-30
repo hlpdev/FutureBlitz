@@ -46,8 +46,11 @@ retro touches.
 - **Type:** Space Grotesk for headings and the hero's headline; IBM Plex Sans for text; JetBrains
   Mono for code, commands, and small labels; Silkscreen, a pixel face, only for the wordmark and
   section labels ("▸ WHAT YOU GET"). Fonts are self-hosted, so no third party sees a visit.
-- **Logo:** the pixel wordmark, FUTURE in white and BLITZ in blue, and a small pixel "FB" mark for
-  the favicon and the VS Code extension's icon.
+- **Logo** (the user, 2026-10-30): an F whose upright is an amber lightning bolt, leaning
+  forward, with white arms, every edge at one angle; on near-black for icons (the favicon, the
+  Discord server, the VS Code extension). The wordmark is that F and then "uture" in white and
+  "Blitz" in the bolt's amber, in Space Grotesk Bold leaning at the mark's angle. The files are in
+  FutureBlitz's assets/brand/, made by tools/brand/make_brand.py.
 - **Retro, lightly, throughout:** the pixel wordmark and section labels, thin scanline dividers
   between sections, and a CRT monitor in the hero (rounded bezel, faint scanlines, a cursor); no
   curvature, glow, or noise elsewhere, and nothing moves with `prefers-reduced-motion`.
