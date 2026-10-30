@@ -5,6 +5,16 @@ them while each was built. Newest first.
 
 ## M8, tooling
 
+The installers, after the milestone (2026-10-30): a release is versioned from its tag
+(`-DFB_VERSION`, refused unless three numbers) and has, beside each target's archive, setup.exe (a
+WiX Burn bundle around the MSI), .deb and .rpm (nfpm, in /usr/lib/futureblitz with links in
+/usr/bin), and the .vsix; Windows' executables, the MSI, the bundle's engine, and setup.exe are
+signed with Azure Trusted Signing when its secrets are set. tools/release/packages.py writes winget's
+manifests and the Homebrew formula from SHA256SUMS, and tools/release/repo.py the apt (by-hash) and
+dnf repositories, signed with REPO_SIGNING_KEY; publish.yml, dispatched by hand, sends each where it
+goes, packages first and signatures last. The review's 12 findings were fixed with tests, and
+docs/release-setup.md has the user's one-time steps.
+
 Step 9, loose ends and the milestone's review (2026-10-30, 5f908f5c to 31b7784c): a syntax error
 right after a miscased keyword (`if`, `End function`) gets a note naming the keyword and a fix-it
 that recases it, from the parser's `suggest_keyword_case` and token.cpp's `miscased_keyword()`,
