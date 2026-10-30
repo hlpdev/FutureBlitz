@@ -1,3 +1,5 @@
+//! Log sinks for the console and for JSON lines.
+//!
 //! The sinks std.log has: the console's, which writes readable lines to stderr, colored on a
 //! terminal that shows colors, and JSON lines, one object a line, to what the program gives. A
 //! sink is a Sendable Func(LogRecord), so a program's own is a lambda. Files and rotating files
@@ -32,6 +34,17 @@ End Function
 /// quote, an '=', or a control character, or none, is quoted, as JSON quotes it:
 /// "2026-10-24T04:12:00.123Z INFO  net.http: connected host=example.com port=443". The message's
 /// control characters but a tab are escaped as JSON escapes them, so a line stays one line.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// # Import std.text
+/// Local record = LogRecord(Timestamp.Now(), LogLevel.WARN, "net", "slow reply")
+/// Local line = LogLine(record, False)
+/// Expect(line.StartsWith("WARN") && line.Contains("net: slow reply"))
+/// Expect(JsonLine(record).Contains("\"level\":\"warn\""))
+/// ```
 Public Function LogLine(record: LogRecord, times: Bool = True, colors: Bool = False): String
     Local line = ""
     If times Then line = record.Time.Format("yyyy-MM-dd'T'HH:mm:ss.SSSX") + " "

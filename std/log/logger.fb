@@ -1,3 +1,5 @@
+//! Logger, which writes a module's lines, with levels and fields.
+//!
 //! Logger, which writes lines for a module at levels, with fields, to a LogOutput: the default
 //! one, which writes readable lines to stderr at the levels FB_LOG sets, or one the program makes,
 //! with sinks of its own. Loggers and LogOutputs are Shared Classes, so any thread can log, and a
@@ -42,6 +44,26 @@ End Function
 /// Writes lines for a module, with the fields it's given, at levels, to an output. Its Trace,
 /// Debug, Info, Warn, and Error write a line at their level, when the output's filter writes that
 /// level for the module.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.text
+/// Const lines = Channel<String>(8)
+///
+/// Function Keep(line: String)
+///     lines.Send(line)
+/// End Function
+///
+/// Local output = LogOutput(LogFilter.At(LogLevel.INFO))
+/// output.Add(JsonLinesSink(Keep))
+/// Local log = Logger("shop", output).With("user", "ada")
+/// log.Debug("not written, as DEBUG is below INFO")
+/// log.Info("signed in")
+/// Local line = lines.TryReceive() ?? ""
+/// Expect(line.Contains("\"message\":\"signed in\"") && line.Contains("\"user\":\"ada\""))
+/// Expect(lines.TryReceive() == Null)
+/// ```
 Public Shared Class Logger
     ReadOnly Field Name: String
     ReadOnly Field Context: ImmutableArray<LogField>
@@ -81,7 +103,8 @@ Public Shared Class Logger
         Return Logger(Name, Context.Add(LogField(name, value)), Output)
     End Method
 
-    /// An integer of each of the eight types, as its number.
+    /// A Logger whose lines have the field `name`, of `value`'s number, beside this one's: each of
+    /// the eight integer types has one.
     Public Method With(name: String, value: Int8): Logger
         Return Logger(Name, Context.Add(LogField(name, "{value}", False)), Output)
     End Method
@@ -121,8 +144,9 @@ Public Shared Class Logger
         Return Logger(Name, Context.Add(LogField(name, "{value}", False)), Output)
     End Method
 
-    /// A Double that isn't finite is text, since JSON has no number for it: "inf", "-inf", or
-    /// "nan", whatever a NaN's sign bit.
+    /// A Logger whose lines have the field `name`, of `value`'s number. A Double that isn't finite
+    /// is text, since JSON has no number for it: "inf", "-inf", or "nan", whatever a NaN's sign
+    /// bit.
     Public Method With(name: String, value: Float64): Logger
         Local finite = value - value == 0
         Local text = "{value}"

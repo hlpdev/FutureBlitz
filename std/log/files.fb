@@ -1,3 +1,5 @@
+//! Log sinks that write to files, rotated or not.
+//!
 //! std.log's sinks into files: FileSink adds each line to a file's end, and RotatingFileSink does
 //! until the file's as big as it's let be, then moves it aside, keeping a few of the old ones.
 
@@ -25,6 +27,16 @@ End Function
 /// one longer than `maxBytes` has one of its own. While the file can't be moved aside, which stderr
 /// is told once, lines go on being added to it. Panics when `maxBytes` isn't above 0, or `keep` is
 /// below 0; with a keep of 0, the old lines go.
+///
+/// # Examples
+///
+/// ```fb no_run
+/// # Import std.io
+/// Local output = LogOutput(LogFilter.At(LogLevel.INFO))
+/// // Up to 1 MB in app.log, then app.log.1, app.log.2, and app.log.3 for the older lines.
+/// output.Add(RotatingFileSink(Path("logs/app.log"), 1_000_000, 3))
+/// Logger("app", output).Info("started")
+/// ```
 @PanicsAtCaller
 Public Function RotatingFileSink(path: Path, maxBytes: Int64,
                                  keep: Int = 5): Sendable Func(LogRecord)

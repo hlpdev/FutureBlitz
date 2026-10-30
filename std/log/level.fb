@@ -1,3 +1,5 @@
+//! Log levels, and the filter that picks each module's least level.
+//!
 //! LogLevel, how much a log line matters, and LogFilter, the least level written for each module,
 //! as FB_LOG's text sets it: "debug" for every module, or "info,net=trace,net.http=off", a level
 //! for every module and one for each module named.
@@ -27,6 +29,13 @@ End Enum
 
 /// The level a name says, in any letter case: "trace", "debug", "info", "warn" or "warning",
 /// "error", or "off". Null for anything else.
+///
+/// # Examples
+///
+/// ```
+/// Expect(ParseLogLevel("Warning") == LogLevel.WARN)
+/// Expect(ParseLogLevel("loud") == Null)
+/// ```
 Public Function ParseLogLevel(text: String): LogLevel?
     Local name = Lowered(Trimmed(text.Bytes))
     If name == "trace" Then Return LogLevel.TRACE
@@ -41,6 +50,16 @@ End Function
 /// The least level written for each module: its own, when it has one, or the nearest module's
 /// it's in, so "net.http.client" has "net.http"'s or else "net"'s, or else the base level that
 /// every other module has. It's Sendable, so a LogOutput shares it with every thread.
+///
+/// # Examples
+///
+/// ```
+/// Local filter = LogFilter.Parse("info,net=trace,net.http=off")
+/// Expect(filter?.LevelOf("app") == LogLevel.INFO)
+/// Expect(filter?.LevelOf("net.tcp") == LogLevel.TRACE)
+/// Expect(filter?.Allows("net.http.client", LogLevel.ERROR) == False)
+/// Expect(LogFilter.At(LogLevel.WARN).With("db", LogLevel.DEBUG).ToString() == "warn,db=debug")
+/// ```
 Public Struct LogFilter Implements Printable
     ReadOnly Field Base: LogLevel
     ReadOnly Field Modules: ImmutableMap<String, LogLevel>

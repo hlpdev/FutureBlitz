@@ -1,3 +1,5 @@
+//! What a Logger writes, and the output that hands it to sinks.
+//!
 //! What a Logger writes, and where: a LogRecord, with its LogFields, for each line, given to each
 //! sink of a LogOutput whose filter writes it.
 
@@ -59,6 +61,18 @@ End Struct
 /// Where Loggers' lines go: to each of its sinks, in the order they were added, once its filter
 /// writes the line's level for its module. Each sink gets the lines of every thread that logs, at
 /// once, so it must take them at once, as the console's does.
+///
+/// # Examples
+///
+/// ```
+/// # Import std.time
+/// Local output = LogOutput(LogFilter.At(LogLevel.WARN))
+/// Expect(!output.Allows("app", LogLevel.INFO) && output.Allows("app", LogLevel.ERROR))
+/// output.Filter = LogFilter.At(LogLevel.DEBUG)
+/// Expect(output.Allows("app", LogLevel.INFO))
+/// // A record goes to each sink; with none, it goes nowhere.
+/// output.Write(LogRecord(Timestamp.Now(), LogLevel.INFO, "app", "quiet"))
+/// ```
 Public Shared Class LogOutput
     Field Chosen: Mutex<LogFilter>
     Field Sinks: Mutex<ImmutableArray<Sendable Func(LogRecord)>>
